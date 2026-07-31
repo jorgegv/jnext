@@ -142,6 +142,27 @@ run must not disturb an image other runs share.
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x. Clamped
 to 10..1000.
 
+**--when-slow-prefer** *WHAT*  
+What to sacrifice on a host that cannot emulate in real time: `audio`
+(default) or `video`. It changes nothing on a host with headroom.
+
+`audio` keeps the sound card fed by emulating two frames in one frame
+slot when it runs low. The first frame of such a pair is overwritten
+before it can be painted, so the picture advances in an uneven, lurching
+way while the sound stays clean.
+
+`video` never drops a frame for the sound card. The extra frame runs in
+the next slot instead, so it gets its own present, and the machine
+simply runs slower than real time. The sound queue then runs down to its
+floor and the last sample level is held to bridge the gap, which is
+heard as stutter and a dropped pitch. This is how FUSE-style emulators
+degrade.
+
+Interactive frontends only; inert under **--headless**, which is
+uncapped and has no audio device. The GUI equivalent is *When the host
+is too slow* under **Settings \> Preferences \> Startup**, which applies
+live.
+
 **--joy1-source** *SRC*  
 Host source for Joy 1 (port 0x1F): `sdl` (autodetected gamepad, default)
 or `keys` (host arrow keys, Space = fire).
@@ -895,10 +916,13 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 GUI configuration, in INI format. Written by **Settings \>
 Preferences**. Host gains are stored under `[audio]` as `gain_db`
 (master), `gain_beeper_db`, `gain_ay0_db`, `gain_ay1_db`, `gain_ay2_db`,
-and `gain_dac_db`. The emulated ESP-01 is stored under `[esp]` as
-`enabled` (`true`/`false`, the persistent form of **--esp**) and
-`allowed_hosts` (a comma-separated list, the persistent form of
-**--esp-allow**), both edited under **Settings \> Preferences \>
+and `gain_dac_db`. The degradation policy is stored under `[startup]` as
+`when_slow_prefer` (`audio` or `video`, the persistent form of
+**--when-slow-prefer**); an unrecognised value keeps the default rather
+than changing how the emulator degrades. The emulated ESP-01 is stored
+under `[esp]` as `enabled` (`true`/`false`, the persistent form of
+**--esp**) and `allowed_hosts` (a comma-separated list, the persistent
+form of **--esp-allow**), both edited under **Settings \> Preferences \>
 Network**. Whenever `enabled` is set the status bar carries the ESP cell
 **NETWORKING** describes, so neither a config file nor that page can put
 the guest on the network without saying so. **--no-esp** overrides it

@@ -102,10 +102,22 @@ struct TickResult {
     int  next_interval_ms = -1;
     /// pre_frames() abandoned the tick.
     bool abandoned = false;
+    /// The tick ended by re-anchoring the deadline at now instead of advancing
+    /// it: the WhenSlowPrefer::Video catch-up (issue #35).
+    bool next_tick_asap = false;
 };
 
 class Sequencer {
 public:
+    /// Degradation policy (issue #35). Set from the CLI/saved preference at
+    /// startup and live from Preferences; there is nothing to re-anchor or
+    /// reset, so it takes effect on the next tick.
+    void set_when_slow_prefer(audio_pacing::WhenSlowPrefer prefer)
+    {
+        prefer_ = prefer;
+    }
+    audio_pacing::WhenSlowPrefer when_slow_prefer() const { return prefer_; }
+
     /// (Re)anchor the frame schedule — timer start, cold boot, speed change.
     /// Returns the whole-ms interval to the first deadline.
     int rebase(int64_t now_us, int64_t period_us)
@@ -192,6 +204,7 @@ public:
 
         int     frames_rendered = 0;
         int64_t emu_us          = 0;
+        bool    next_tick_asap  = false;
 
         if (!fx.paused()) {
             // (6) Pace emulation on the sound card, not the wall clock — only
@@ -211,7 +224,15 @@ public:
                 // reading, the chunk sawtooth then clips the band edges, and
                 // the frontend stutters roughly once a second (the v0.98.47
                 // regression; frame_sequencer_test FS-BAND-*).
-                frames = audio_pacing::frames_for_tick(band_, fx.queued_ms());
+                //
+                // The degradation policy (issue #35) is applied to the band's
+                // answer, never inside it: a catch-up under
+                // WhenSlowPrefer::Video runs one frame here and pulls the next
+                // tick in at step (15) instead of superseding a frame.
+                const audio_pacing::TickPlan plan = audio_pacing::plan_for(
+                    audio_pacing::frames_for_tick(band_, fx.queued_ms()), prefer_);
+                frames         = plan.frames;
+                next_tick_asap = plan.next_tick_asap;
                 res.paced_frames = frames;
             }
 
@@ -230,7 +251,16 @@ public:
             // (7) Attribute the pacer's own frame losses. They are EXPECTED,
             // and the cadence report must not lump them in with presents the
             // window system actually swallowed.
-            if (frames >= 2)      ++audio_doubles_;
+            //
+            // The three counters are mutually exclusive by construction and
+            // together they say which policy is running: a session with
+            // `pull-ins` and no `doubles` is preferring video, and one with
+            // doubles and no pull-ins is preferring audio. Without the third
+            // counter a video-preferring session under load reports zero
+            // interventions of any kind, which reads as "the pacer is idle"
+            // when it is in fact intervening on every tick.
+            if (next_tick_asap)   ++audio_pull_ins_;
+            else if (frames >= 2) ++audio_doubles_;
             else if (frames == 0) ++audio_skips_;
 
             // (8) Fastload sprint: run extra frames inside this one tick so a
@@ -327,10 +357,18 @@ public:
         // cannot accumulate when every interval is recomputed against the wall
         // clock. Re-anchoring here instead would reinstate the +1.1-1.3% fast
         // timer of issue #9 (frame_sequencer_test FS-RATE-*).
+        //
+        // A video-preference catch-up (issue #35) re-anchors at now instead:
+        // the tick declined to run the pacer's second frame, so it asks for
+        // the next tick immediately rather than leaving the deadline in the
+        // past for later ticks to inherit (frame_deadline.h, resync_now).
         const int64_t t_end = fx.now_us();
-        const int     ivl   = deadline_.next_interval_ms(t_end, fx.period_us());
+        const int     ivl   = next_tick_asap
+                                ? deadline_.resync_now(t_end)
+                                : deadline_.next_interval_ms(t_end, fx.period_us());
         fx.set_timer_interval(ivl);
         res.next_interval_ms = ivl;
+        res.next_tick_asap   = next_tick_asap;
 
         // (16) Handler duration — measured across the WHOLE tick, so a tick
         // abandoned at step (4) still contributes one.
@@ -359,7 +397,16 @@ public:
     /// v0.98.47 regression broke and the live cadence log exposed.
     uint64_t audio_doubles() const { return audio_doubles_; }
     uint64_t audio_skips() const { return audio_skips_; }
-    void reset_audio_counters() { audio_doubles_ = 0; audio_skips_ = 0; }
+    /// Catch-ups answered by pulling the next tick in rather than by running a
+    /// second frame (WhenSlowPrefer::Video). Always zero under the default
+    /// audio preference.
+    uint64_t audio_pull_ins() const { return audio_pull_ins_; }
+    void reset_audio_counters()
+    {
+        audio_doubles_ = 0;
+        audio_skips_ = 0;
+        audio_pull_ins_ = 0;
+    }
 
     /// Stall resyncs performed by the deadline schedule (diagnostics/tests).
     uint64_t deadline_resyncs() const { return deadline_.resyncs(); }
@@ -383,6 +430,11 @@ private:
     int64_t  last_render_ms_ = 0;
     uint64_t audio_doubles_  = 0;
     uint64_t audio_skips_    = 0;
+    uint64_t audio_pull_ins_ = 0;
+
+    /// Issue #35 — what a catch-up costs. Audio (drop a frame) is the default
+    /// and the behaviour that existed before the option.
+    audio_pacing::WhenSlowPrefer prefer_ = audio_pacing::WhenSlowPrefer::Audio;
 };
 
 /// WHY THE SDL FRONTEND DOES NOT SHARE THIS SEQUENCER.

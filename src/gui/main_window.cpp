@@ -1452,6 +1452,11 @@ void MainWindow::apply_startup_config(const AppConfigData& cfg) {
 
     if (speed_callback_) speed_callback_(cfg.emulator_speed_percent / 100.0);
 
+    // Issue #35 — applies live: the sequencer reads the policy on the next
+    // tick and there is no schedule or band state to re-anchor, so nothing
+    // here needs a restart or a reboot.
+    if (when_slow_prefer_callback_) when_slow_prefer_callback_(cfg.when_slow_prefer);
+
     // Sync the CPU-speed / emulator-speed menu radio groups to match.
     if (speed_group_) {
         for (QAction* a : speed_group_->actions()) {

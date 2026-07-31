@@ -22,6 +22,12 @@ the Preferences **Network** tab, and the persistent form of `--esp` and
 editing this file cannot put a program on the network without saying so, and
 `--no-esp` turns it off again for one run.
 
+The too-slow degradation policy is stored in the `[startup]` section as
+`when_slow_prefer`, either `audio` or `video`. It is the persistent form of
+`--when-slow-prefer` and of the Preferences **Startup** setting of the same
+name; anything else in that key keeps the default rather than changing how
+JNEXT degrades. See [8.1](../08-known-issues/01-judder-when-the-host-cannot-keep-up.md).
+
 Host audio gains are stored in the `[audio]` section: `gain_db` is the master,
 with `gain_beeper_db`, `gain_ay0_db`, `gain_ay1_db`, `gain_ay2_db`, and
 `gain_dac_db` for the individual sources. Each accepts -24 through +24; an

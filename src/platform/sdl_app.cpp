@@ -294,10 +294,20 @@ void SdlApp::run() {
         // holds the previous frame, composited with LAYER_ALL. Capturing that
         // would silently ignore the user's layer selection.
         int frames_rendered = 0;
+        // Issue #35 — a WhenSlowPrefer::Video catch-up runs one frame here and
+        // skips the end-of-iteration sleep below, so the second frame the sound
+        // card wants gets its own iteration (and its own present) instead of
+        // being superseded inside this one.
+        bool next_tick_asap = false;
         {
-            const int frames = emulator_.fastload_active()
-                                   ? 1
-                                   : audio_pacing::frames_for_tick(pacing_band_, audio_.queued_ms());
+            const audio_pacing::TickPlan plan =
+                emulator_.fastload_active()
+                    ? audio_pacing::TickPlan{1, false}
+                    : audio_pacing::plan_for(
+                          audio_pacing::frames_for_tick(pacing_band_, audio_.queued_ms()),
+                          when_slow_prefer_);
+            const int frames = plan.frames;
+            next_tick_asap   = plan.next_tick_asap;
             const bool screenshot_due = (screenshot_countdown_ == 0);
             for (int i = 0; i < frames; i++) {
                 // Superseded-composite skip (issue #9): the display presents
@@ -411,7 +421,12 @@ void SdlApp::run() {
         // no `timer_check`). The moment fastload_active() flips back to false
         // (typist fired AND tape at end), we re-engage pacing on the very next
         // iteration.
-        if (!fastload) {
+        //
+        // The same sleep is skipped for a single iteration when the audio pacer
+        // asked to catch up and the user prefers video (issue #35): the extra
+        // frame runs in the NEXT iteration, where it is composited and shown,
+        // rather than inside this one, where it would be superseded.
+        if (!fastload && !next_tick_asap) {
             const uint32_t frame_ms = static_cast<uint32_t>(
                 std::lround(emulator_.frame_period_ms()));
             if (frame_ms != last_frame_ms_) {

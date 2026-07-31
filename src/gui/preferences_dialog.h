@@ -13,8 +13,9 @@ class QPlainTextEdit;
 
 /// Preferences dialog (Task 66 — Configurability).
 ///
-/// Five tabs: **Startup** (machine type, CPU speed, emulator speed, window
-/// scale, CRT filter, start muted, tape fast-load), **Input** (Task 79 —
+/// Five tabs: **Startup** (machine type, CPU speed, emulator speed, the
+/// issue-#35 too-slow degradation policy, window scale, CRT filter, start
+/// muted, tape fast-load), **Input** (Task 79 —
 /// per-connector Joy 1 / Joy 2 host source: SDL gamepad vs cursor keys),
 /// **Audio** (host output gain), **Network** (GH #25 — the emulated ESP-01
 /// and its hostname allowlist), and **Paths** (last load directory, default
@@ -52,6 +53,7 @@ private:
     QComboBox* machine_combo_    = nullptr;
     QComboBox* cpu_speed_combo_  = nullptr;
     QSpinBox*  emu_speed_spin_   = nullptr;
+    QComboBox* when_slow_combo_  = nullptr;   // issue #35
     QComboBox* scale_combo_      = nullptr;
     QCheckBox* crt_check_        = nullptr;
     QCheckBox* silent_check_     = nullptr;

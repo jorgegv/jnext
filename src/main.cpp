@@ -5,6 +5,10 @@
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
 #include "peripheral/esp_host_policy.h"
+// Issue #35 — audio_pacing::WhenSlowPrefer. Header-only and dependency-free;
+// included unconditionally because the parsed value is declared alongside the
+// other options, before the frontend type is known.
+#include "platform/audio_pacing.h"
 #include "video/renderer.h"
 #include "version.h"
 #include <cctype>
@@ -133,6 +137,10 @@ static void print_usage(const char* prog) {
         "  --rzx-play FILE         Play back an RZX recording file\n"
         "  --rzx-record FILE       Record input to an RZX file\n"
         "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
+        "  --when-slow-prefer WHAT What to sacrifice when the host cannot emulate in\n"
+        "                          real time: 'audio' (default: keep the sound smooth,\n"
+        "                          drop video frames) or 'video' (show every frame, run\n"
+        "                          slower than real time, sound stutters)\n"
         "  --joy1-source SRC       Host source for Joy 1 (port 0x1F): 'sdl' (autodetected\n"
         "                          gamepad, default) or 'keys' (host arrow keys + Space=fire)\n"
         "  --joy2-source SRC       Host source for Joy 2 (port 0x37): 'sdl' (default) or 'keys'\n"
@@ -240,6 +248,10 @@ int main(int argc, char* argv[]) {
     std::string rzx_record_file;
     int         speed_percent = 100;
     bool        speed_percent_set = false;  // Task 66: was --speed given?
+    // Issue #35 — what a host that cannot emulate in real time sacrifices.
+    audio_pacing::WhenSlowPrefer when_slow_prefer =
+        audio_pacing::WhenSlowPrefer::Audio;
+    bool        when_slow_prefer_set = false;  // was --when-slow-prefer given?
     int         rewind_buffer_frames = 0;
     bool        trace_enabled = false;
     std::string compositor_trace_path;
@@ -494,6 +506,23 @@ int main(int argc, char* argv[]) {
                 if (speed_percent > 1000) speed_percent = 1000;
                 speed_percent_set = true;
                 break;
+            case cli::OptId::WhenSlowPrefer: {
+                std::string what = v[0];
+                for (auto& c : what)
+                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (what == "audio") {
+                    when_slow_prefer = audio_pacing::WhenSlowPrefer::Audio;
+                } else if (what == "video") {
+                    when_slow_prefer = audio_pacing::WhenSlowPrefer::Video;
+                } else {
+                    fprintf(stderr,
+                            "Unknown --when-slow-prefer value: %s (valid: audio, video)\n",
+                            v[0]);
+                    return 1;
+                }
+                when_slow_prefer_set = true;
+                break;
+            }
             case cli::OptId::Joy1Source:
             case cli::OptId::Joy2Source: {
                 const int idx = (opt->id == cli::OptId::Joy1Source) ? 0 : 1;
@@ -701,6 +730,15 @@ int main(int argc, char* argv[]) {
             "(no host joystick input in headless mode); ignoring.\n");
     }
 
+    // Issue #35 — same shape: the degradation policy only means anything where
+    // emulation is paced against real time. Headless is uncapped and opens no
+    // audio device, so there is nothing to trade off and nothing to degrade.
+    if (headless && when_slow_prefer_set) {
+        std::fprintf(stderr,
+            "warning: --when-slow-prefer has no effect with --headless "
+            "(headless runs uncapped with no audio device); ignoring.\n");
+    }
+
     // Task 79 — cursor keys can drive only one connector.
     if (joy_source[0] == JoySource::CursorKeys && joy_source[1] == JoySource::CursorKeys) {
         std::fprintf(stderr,
@@ -863,7 +901,22 @@ int main(int argc, char* argv[]) {
                 gui_app_config.data().audio_gain_ay_db[chip] =
                     cfg.audio_gain_ay_db[chip];
             gui_app_config.data().audio_gain_dac_db = cfg.audio_gain_dac_db;
+            // Issue #35 — the degradation policy has a CLI competitor too, and
+            // is resolved the same way. It is NOT carried in EmulatorConfig:
+            // the emulated machine has no opinion about which of picture and
+            // sound the host sacrifices, so it is a frontend knob like --speed
+            // and --tape-realtime. apply_startup_config() pushes the merged
+            // value into the frame sequencer.
+            gui_app_config.data().when_slow_prefer = merge_cli_precedence(
+                when_slow_prefer_set, when_slow_prefer,
+                gui_app_config.data().when_slow_prefer);
             if (auto* mw = app.main_window()) mw->apply_startup_config(gui_app_config.data());
+        }
+#else
+        // The SDL frontend has no Preferences dialog and no saved config, so
+        // the CLI value is the whole story.
+        if constexpr (std::is_same_v<std::decay_t<decltype(app)>, SdlApp>) {
+            app.set_when_slow_prefer(when_slow_prefer);
         }
 #endif
 

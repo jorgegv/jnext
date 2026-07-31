@@ -23,6 +23,13 @@ public:
     /// Set emulator config before calling init().
     void set_config(const EmulatorConfig& cfg) { config_ = cfg; config_set_ = true; }
 
+    /// Issue #35 — what a host that cannot emulate in real time sacrifices.
+    /// Mirrors QtApp::set_when_slow_prefer; this frontend has no Preferences
+    /// dialog, so the CLI is the only way in.
+    void set_when_slow_prefer(audio_pacing::WhenSlowPrefer prefer) {
+        when_slow_prefer_ = prefer;
+    }
+
     /// Task 70 — power-on cold boot: reconstruct the emulator in place and
     /// re-run the proven startup init() path (F1 / a program's NR 0x02 hard
     /// reset). `load_file` empty = clean boot.
@@ -61,6 +68,9 @@ private:
     // Smoothed-band state for the audio pacer (Task 63) — one per audio
     // device, owned here per the audio_pacing.h contract (never a global).
     audio_pacing::BandState pacing_band_;
+    // Issue #35 — degradation policy. Default = the pre-option behaviour.
+    audio_pacing::WhenSlowPrefer when_slow_prefer_ =
+        audio_pacing::WhenSlowPrefer::Audio;
     Emulator   emulator_;
     bool       running_ = false;
 

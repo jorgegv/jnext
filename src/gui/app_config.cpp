@@ -23,6 +23,14 @@ QString machine_type_to_key(MachineType t) {
     }
 }
 
+// Issue #35 — on-disk spelling of the degradation policy. Deliberately the
+// same two words the CLI accepts, so `--when-slow-prefer video` and
+// `when_slow_prefer=video` are one vocabulary rather than two.
+QString when_slow_prefer_to_key(audio_pacing::WhenSlowPrefer p) {
+    return p == audio_pacing::WhenSlowPrefer::Video ? QStringLiteral("video")
+                                                    : QStringLiteral("audio");
+}
+
 void load_gain(QSettings& settings, const char* key, float& target)
 {
     bool ok = false;
@@ -89,6 +97,17 @@ void AppConfig::load() {
         data_.crt_filter     = settings_.value("crt_filter", data_.crt_filter).toBool();
         data_.silent         = settings_.value("silent", data_.silent).toBool();
         data_.tape_fast_load = settings_.value("tape_fast_load", data_.tape_fast_load).toBool();
+
+        // Issue #35 — anything other than the two known words keeps the
+        // default, the same way an unknown joy_source does: a typo in a
+        // hand-edited file must not silently change how the emulator degrades.
+        const QString prefer = settings_.value(
+            "when_slow_prefer", when_slow_prefer_to_key(data_.when_slow_prefer))
+                                   .toString().trimmed().toLower();
+        if (prefer == QLatin1String("video"))
+            data_.when_slow_prefer = audio_pacing::WhenSlowPrefer::Video;
+        else if (prefer == QLatin1String("audio"))
+            data_.when_slow_prefer = audio_pacing::WhenSlowPrefer::Audio;
     }
     settings_.endGroup();
 
@@ -153,6 +172,8 @@ void AppConfig::save() const {
     settings_.setValue("crt_filter", data_.crt_filter);
     settings_.setValue("silent", data_.silent);
     settings_.setValue("tape_fast_load", data_.tape_fast_load);
+    settings_.setValue("when_slow_prefer",
+                       when_slow_prefer_to_key(data_.when_slow_prefer));
     settings_.endGroup();
 
     settings_.beginGroup("audio");

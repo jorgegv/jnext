@@ -11,6 +11,7 @@
 | Machine type | 48K, 128K, +3, Next | See [5.1](../05-running-programs/01-choosing-a-machine.md) |
 | CPU speed | 3.5, 7, 14, 28 MHz | The emulated Next's own clock |
 | Emulator speed | 10%–1000% | How fast the emulator runs against real time |
+| When the host is too slow | Smooth sound / Smooth picture | Which of the two to sacrifice; see [8.1](../08-known-issues/01-judder-when-the-host-cannot-keep-up.md) |
 | Window scale | 1x, 2x, 3x | |
 | CRT scanline filter | on / off | |
 | Start muted | on / off | Takes effect on next launch only |

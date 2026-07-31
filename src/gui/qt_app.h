@@ -66,6 +66,16 @@ public:
     void set_speed_multiplier(double multiplier);
     double speed_multiplier() const { return speed_multiplier_; }
 
+    /// Issue #35 — what a host that cannot emulate in real time sacrifices.
+    /// A frontend-only knob (like --speed and --tape-realtime), so it is set
+    /// here rather than carried in EmulatorConfig: the emulated machine has no
+    /// opinion about it. Safe to call at any time, including before init() and
+    /// live from Preferences.
+    void set_when_slow_prefer(audio_pacing::WhenSlowPrefer prefer);
+    audio_pacing::WhenSlowPrefer when_slow_prefer() const {
+        return seq_.when_slow_prefer();
+    }
+
     /// Initialize Qt, SDL audio, emulator, and create the main window.
     bool init(int argc, char* argv[]);
 

@@ -1328,6 +1328,117 @@ int main()
               "interval=" + s_int(fx.intervals.empty() ? -1 : fx.intervals.back()) + "ms");
     }
 
+    // --- FS-SLOW: the degradation policy is wired to the tick (issue #35) ----
+    //
+    // The policy header is pure and pinned in audio_pacing_test. What no test
+    // there can reach is whether the SEQUENCER acts on it — that a video-
+    // preference catch-up really does run one frame, present it, and end the
+    // tick by re-anchoring the deadline instead of advancing it. That is the
+    // Task 91 wiring surface, so it is pinned here.
+    {
+        // A device the emulator cannot keep up with: every reading is below
+        // the raw emergency floor, so the band asks to catch up on every tick.
+        const int starving = audio_pacing::EMERGENCY_LOW_MS - 5;
+
+        frame_sequencer::Sequencer a_seq;   // default policy: prefer audio
+        FakeFrontend a_fx;
+        a_fx.scripted_queue = {starving};
+        start(a_seq, a_fx);
+        run_ticks(a_seq, a_fx, 20);
+
+        frame_sequencer::Sequencer v_seq;
+        v_seq.set_when_slow_prefer(audio_pacing::WhenSlowPrefer::Video);
+        FakeFrontend v_fx;
+        v_fx.scripted_queue = {starving};
+        start(v_seq, v_fx);
+        run_ticks(v_seq, v_fx, 20);
+
+        const auto uncomposited = [](const FakeFrontend& fx) {
+            int n = 0;
+            for (bool c : fx.composites) if (!c) ++n;
+            return n;
+        };
+
+        check("FS-SLOW-01", "audio: each catch-up tick emulates two frames, presents once",
+              a_fx.composites.size() == 40 && a_fx.presents == 20,
+              "frames=" + s_int((long long)a_fx.composites.size()) +
+                  " presents=" + s_int(a_fx.presents));
+        check("FS-SLOW-02", "video: each catch-up tick emulates ONE frame and presents it",
+              v_fx.composites.size() == 20 && v_fx.presents == 20,
+              "frames=" + s_int((long long)v_fx.composites.size()) +
+                  " presents=" + s_int(v_fx.presents));
+        check("FS-SLOW-03", "audio: half the emulated frames never reach the compositor",
+              uncomposited(a_fx) == 20 && a_seq.cadence().superseded == 20,
+              "skipped=" + s_int(uncomposited(a_fx)) +
+                  " superseded=" + s_int((long long)a_seq.cadence().superseded));
+        check("FS-SLOW-04", "video: every emulated frame is composited, none superseded",
+              uncomposited(v_fx) == 0 && v_seq.cadence().superseded == 0,
+              "skipped=" + s_int(uncomposited(v_fx)) +
+                  " superseded=" + s_int((long long)v_seq.cadence().superseded));
+        check("FS-SLOW-05", "the interventions are counted under their own names",
+              a_seq.audio_doubles() == 20 && a_seq.audio_pull_ins() == 0 &&
+                  v_seq.audio_doubles() == 0 && v_seq.audio_pull_ins() == 20,
+              "audio d/p=" + s_int((long long)a_seq.audio_doubles()) + "/" +
+                  s_int((long long)a_seq.audio_pull_ins()) + " video d/p=" +
+                  s_int((long long)v_seq.audio_doubles()) + "/" +
+                  s_int((long long)v_seq.audio_pull_ins()));
+        // The pull-in is the whole mechanism: without it the second frame
+        // would simply never run and the machine would be slower for nothing.
+        bool all_floor = !v_fx.intervals.empty();
+        for (int iv : v_fx.intervals) if (iv != 1) all_floor = false;
+        bool none_floor = !a_fx.intervals.empty();
+        for (int iv : a_fx.intervals) if (iv == 1) none_floor = false;
+        check("FS-SLOW-06", "video: every catch-up tick asks for the next one immediately",
+              all_floor && none_floor,
+              "video_last=" + s_int(v_fx.intervals.back()) +
+                  " audio_last=" + s_int(a_fx.intervals.back()));
+        check("FS-SLOW-07", "no stall resyncs: the pull-in re-anchors before lateness builds",
+              v_seq.deadline_resyncs() == 0,
+              "resyncs=" + s_int((long long)v_seq.deadline_resyncs()));
+    }
+    {
+        // A HEALTHY device: mid-band readings, no catch-up. The policy must be
+        // completely inert here — a user who selects "video" on a host with
+        // headroom must not get a different machine.
+        frame_sequencer::Sequencer a_seq;
+        FakeFrontend a_fx;
+        a_fx.scripted_queue = {65};
+        start(a_seq, a_fx);
+        run_ticks(a_seq, a_fx, 30);
+
+        frame_sequencer::Sequencer v_seq;
+        v_seq.set_when_slow_prefer(audio_pacing::WhenSlowPrefer::Video);
+        FakeFrontend v_fx;
+        v_fx.scripted_queue = {65};
+        start(v_seq, v_fx);
+        run_ticks(v_seq, v_fx, 30);
+
+        check("FS-SLOW-08", "a healthy queue behaves identically under both policies",
+              a_fx.composites.size() == v_fx.composites.size() &&
+                  a_fx.presents == v_fx.presents &&
+                  a_fx.intervals == v_fx.intervals &&
+                  v_seq.audio_pull_ins() == 0 && v_seq.audio_doubles() == 0,
+              "frames=" + s_int((long long)v_fx.composites.size()) +
+                  " pull-ins=" + s_int((long long)v_seq.audio_pull_ins()));
+    }
+    {
+        // The device is AHEAD (queue above the band): the pacer skips the tick.
+        // Video keeps that skip — it delays a frame rather than dropping one,
+        // and declining it would push the queue past QUEUE_MAX_MS where the
+        // push is dropped outright.
+        frame_sequencer::Sequencer seq;
+        seq.set_when_slow_prefer(audio_pacing::WhenSlowPrefer::Video);
+        FakeFrontend fx;
+        fx.scripted_queue = {audio_pacing::QUEUE_MAX_MS - 1};
+        start(seq, fx);
+        run_ticks(seq, fx, 10);
+        check("FS-SLOW-09", "video still skips a tick when the device is ahead",
+              fx.composites.empty() && seq.audio_skips() == 10 &&
+                  seq.audio_pull_ins() == 0,
+              "frames=" + s_int((long long)fx.composites.size()) +
+                  " skips=" + s_int((long long)seq.audio_skips()));
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

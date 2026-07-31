@@ -2909,6 +2909,13 @@ chasing the wrong culprit:</p>
 </ul>
 <p><strong>What you can do.</strong></p>
 <ul>
+<li>Choose the other trade. Set <strong>When the host is too slow</strong> to <em>Smooth picture</em>
+  under <strong>Settings &gt; Preferences &gt; Startup</strong>, or start JNEXT with
+  <code>--when-slow-prefer video</code>. Every frame is then shown and the machine runs
+  slower than real time instead, so motion is smooth but slowed, and the sound
+  stutters and drops in pitch. It is the way FUSE and several other emulators
+  degrade, and which of the two is preferable is a matter of taste and of what
+  you are running. On a host with headroom neither setting changes anything.</li>
 <li>Run with <code>--silent</code>, or turn sound off, if you can live without it. This is
   the single biggest lever.</li>
 <li>Close other work. The margin here is small, so a background compile or a
@@ -2920,11 +2927,10 @@ chasing the wrong culprit:</p>
   real time flat-out, it has no headroom left for audio.</li>
 </ul>
 <p><strong>What to expect.</strong> On marginal hardware this is a limit, not a bug that will
-be tuned away — one emulated frame costs what it costs. What <em>is</em> being
-changed is the choice JNEXT makes when it cannot keep up: today it always
-prefers smooth audio over smooth video, and a user-selectable policy (prefer
-video instead, running slower than real time with audio artifacts, the way
-some other emulators degrade) is planned.</p>
+be tuned away — one emulated frame costs what it costs. What JNEXT gives you
+is the choice of which way it degrades: smooth sound at the cost of the
+picture (the default), or the whole picture at the cost of the sound and of
+running slower than real time.</p>
 <p>Tracked as <a href="https://github.com/jorgegv/jnext/issues/9">issue #9</a>; the
 selectable policy is <a href="https://github.com/jorgegv/jnext/issues/35">issue #35</a>.</p>
 

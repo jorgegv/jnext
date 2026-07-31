@@ -80,6 +80,31 @@ Use it when a run must not disturb an image other runs share.
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
 Clamped to 10..1000.
 .TP
+\f[B]\-\-when\-slow\-prefer\f[R] \f[I]WHAT\f[R]
+What to sacrifice on a host that cannot emulate in real time:
+\f[CR]audio\f[R] (default) or \f[CR]video\f[R].
+It changes nothing on a host with headroom.
+.RS
+.PP
+\f[CR]audio\f[R] keeps the sound card fed by emulating two frames in one
+frame slot when it runs low.
+The first frame of such a pair is overwritten before it can be painted,
+so the picture advances in an uneven, lurching way while the sound stays
+clean.
+.PP
+\f[CR]video\f[R] never drops a frame for the sound card.
+The extra frame runs in the next slot instead, so it gets its own
+present, and the machine simply runs slower than real time.
+The sound queue then runs down to its floor and the last sample level is
+held to bridge the gap, which is heard as stutter and a dropped pitch.
+This is how FUSE\-style emulators degrade.
+.PP
+Interactive frontends only; inert under \f[B]\-\-headless\f[R], which is
+uncapped and has no audio device.
+The GUI equivalent is \f[I]When the host is too slow\f[R] under
+\f[B]Settings > Preferences > Startup\f[R], which applies live.
+.RE
+.TP
 \f[B]\-\-joy1\-source\f[R] \f[I]SRC\f[R]
 Host source for Joy 1 (port 0x1F): \f[CR]sdl\f[R] (autodetected gamepad,
 default) or \f[CR]keys\f[R] (host arrow keys, Space = fire).
@@ -1088,6 +1113,10 @@ Host gains are stored under \f[CR][audio]\f[R] as \f[CR]gain_db\f[R]
 (master), \f[CR]gain_beeper_db\f[R], \f[CR]gain_ay0_db\f[R],
 \f[CR]gain_ay1_db\f[R], \f[CR]gain_ay2_db\f[R], and
 \f[CR]gain_dac_db\f[R].
+The degradation policy is stored under \f[CR][startup]\f[R] as
+\f[CR]when_slow_prefer\f[R] (\f[CR]audio\f[R] or \f[CR]video\f[R], the
+persistent form of \f[B]\-\-when\-slow\-prefer\f[R]); an unrecognised
+value keeps the default rather than changing how the emulator degrades.
 The emulated ESP\-01 is stored under \f[CR][esp]\f[R] as
 \f[CR]enabled\f[R] (\f[CR]true\f[R]/\f[CR]false\f[R], the persistent
 form of \f[B]\-\-esp\f[R]) and \f[CR]allowed_hosts\f[R] (a

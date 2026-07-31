@@ -2900,6 +2900,11 @@ the Preferences <strong>Network</strong> tab, and the persistent form of <code>-
 <code>--esp-allow</code>. Whenever <code>enabled</code> is true the status bar carries an ESP cell, so
 editing this file cannot put a program on the network without saying so, and
 <code>--no-esp</code> turns it off again for one run.</p>
+<p>The too-slow degradation policy is stored in the <code>[startup]</code> section as
+<code>when_slow_prefer</code>, either <code>audio</code> or <code>video</code>. It is the persistent form of
+<code>--when-slow-prefer</code> and of the Preferences <strong>Startup</strong> setting of the same
+name; anything else in that key keeps the default rather than changing how
+JNEXT degrades. See <a href="../08-known-issues/01-judder-when-the-host-cannot-keep-up.html">8.1</a>.</p>
 <p>Host audio gains are stored in the <code>[audio]</code> section: <code>gain_db</code> is the master,
 with <code>gain_beeper_db</code>, <code>gain_ay0_db</code>, <code>gain_ay1_db</code>, <code>gain_ay2_db</code>, and
 <code>gain_dac_db</code> for the individual sources. Each accepts -24 through +24; an
