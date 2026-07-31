@@ -940,3 +940,56 @@ Perf note: at 3.5 MHz the added per-read check costs ~0.7% host time
 emulation FASTER (~+20% fps on the boot-next benchmark): a frame is a
 fixed T-state budget, so +1 T per read means FEWER instructions per
 frame, i.e. less host CPU per virtual frame.
+
+## GH #183 append (2026-07-31) — ULA hc-origin phase invariance
+
+**Investigation outcome: no behavioural change.** GH #181 established from
+the VHDL that `hc_ula == 0` coincides with raw `hc == c_min_hactive - 11`,
+not `- 12`: `ula_max_hc` is combinational on `hc = ula_min_hactive`
+(`zxula_timing.vhd:423-424`) but both counter resets are registered inside
+`process (i_CLK_7)` (`:427-436`, `:441-451`), landing one 7 MHz tick later —
+the pattern the source announces at `:344`. GH #183 asked whether the
+contention path, which is fed `VideoTiming::ula_prefetch_origin_hc()` =
+`c_min_hactive - 12` (`src/cpu/z80_cpu.cpp:74`), is therefore wrong.
+
+It is off by one tick, and that tick is **structurally unobservable** here.
+jnext samples the raster exactly once per T-state (`derive_hc_vc()` emits
+`hc = ts_in_line * 2`), and every consumer of `i_hc` in the contention logic
+is aligned to the T-state's pixel-tick PAIR `{odd p, even p+1}`: `wait_s`
+keys on `hc_adj = i_hc(3:0) + 1` (`zxula.vhd:582-583`), and the stretch
+tables hold one value per pair — `{3,4}→6`, `{5,6}→5`, … (Task 54). A
+one-tick origin shift moves the sample from the even member of a pair to
+the odd member of the *same* pair. Measured over every T-state of a full
+frame against a VHDL-exact rebase (correct `-11` origin **and** the single
+linear counter pair, which also removes the half-line `vc` phase that
+independent hc/vc rebasing introduces): 48K, 128K and Next timing are
+byte-identical; +3 relocates 2 T-states per display line with an identical
+per-frame total, because its `hc_adj(3:1)="000"` term (`zxula.vhd:583`)
+puts index pair `{15,0}` astride the `i_hc(8)` window edge. Both are 1-tick
+blips in hardware — below the resolution of a once-per-T-state model — so
+neither placement is more faithful and the physically meaningful quantity
+(the total) is preserved.
+
+The `-12` is therefore **kept deliberately**, and `ula_prefetch_origin_hc()`
+must not be changed in isolation: `AttributeMux::hc_fetch()`
+(`src/memory/attribute_mux.h:271-293`) shares the accessor and already folds
+the `+1` into its own arithmetic. The doc-comments at `timing.h`,
+`z80_cpu.cpp:74` and `to_ula_counters()` were corrected to state the real
+rule instead of the `-12` one.
+
+6 rows (`contention_test`, group `CT-GH183`):
+
+| ID | Assertion | VHDL |
+|----|-----------|------|
+| CT-GH183-01 | 48K: `contention_tick()` identical at both ticks of every T-state pair `{hc-1, hc}` over the contended span | zxula.vhd:582-583; zxula_timing.vhd:344,423-436 |
+| CT-GH183-02 | 128K: same pair invariance | zxula.vhd:582-583; zxula_timing.vhd:344,423-436 |
+| CT-GH183-03 | 48K: VHDL-exact rebase (linear counter pair, origin -11) vs jnext's — zero differing T-states in a full frame, equal totals | zxula_timing.vhd:423-451 |
+| CT-GH183-04 | 128K: same whole-frame equivalence | zxula_timing.vhd:423-451 |
+| CT-GH183-05 | +3: exactly 384 relocated T-states/frame (2 per display line) with an IDENTICAL total — the `{15,0}` pair astride the `i_hc(8)` edge | zxula.vhd:583 |
+| CT-GH183-06 | End-to-end: pushing origin -11 through the live `z80_set_ula_counter_origins()` seam leaves a contended bank-5 DJNZ loop at an identical T-state total | zxula_timing.vhd:344,423-436; zxula.vhd:582-583 |
+
+Mutation-verified: rotating `kPat48` by one entry kills 01/02/03/04;
+dropping the `+1` from `hc_adj` kills all six; disabling the +3
+`hc_adj(3:1)="000"` term or zeroing `kPatP3[15]` kills 05; shifting row 06's
+probe origin by a full T-state (+2) instead of +1 makes it fail, proving it
+is not vacuous.

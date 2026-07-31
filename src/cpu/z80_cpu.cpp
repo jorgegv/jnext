@@ -71,7 +71,10 @@ static IoInterface*     s_io  = nullptr;
 // stay inert.
 static ContentionModel* s_contention      = nullptr;
 static Mmu*             s_contention_mmu  = nullptr;
-static int              s_ula_hc_origin    = 116;   // 48K c_min_hactive(128) - 12
+// 48K c_min_hactive(128) - 12 — the COMBINATIONAL compare value, one tick
+// before hc_ula actually reaches 0. Deliberate; see to_ula_counters() and
+// GH #183 for why the low bit is a don't-care on this path.
+static int              s_ula_hc_origin    = 116;
 static int              s_ula_vc_origin    = 64;    // 48K c_min_vactive
 static int              s_tstates_per_line = 224;
 static int              s_tstates_per_frame = 224 * 312;
@@ -113,10 +116,43 @@ namespace {
 struct HcVc { uint16_t hc; uint16_t vc; };
 
 /// Rebase a raw frame-relative (hc, vc) onto the ULA's own display-relative
-/// counters — VHDL `i_hc` / `i_vc` (zxula_timing.vhd:426-453):
+/// counters — VHDL `i_hc` / `i_vc` (zxula_timing.vhd:426-453), which
+/// zxnext.vhd:4444-4445 wires to `hc`/`vc` = `o_hc_ula`/`o_vc_ula` (:6737-6738).
 ///
-///   hc_ula <= 0 when hc = ula_min_hactive (= c_min_hactive - 12, :423)
-///   vc_ula <= 0 when vc = c_min_vactive   (at the first ACTIVE DISPLAY line)
+///   ula_max_hc <= '1' when hc = ula_min_hactive (= c_min_hactive - 12, :423-424)
+///   hc_ula     <= 0    when ula_max_hc = '1'    (:427-436)
+///   vc_ula     <= 0    when ula_max_hc = '1' and vc = c_min_vactive (:441-451)
+///
+/// GH #183 / GH #181 — NOTE THE OFF-BY-ONE, IT IS DELIBERATE HERE.
+/// `ula_max_hc` is combinational on `hc`, but both counter resets are
+/// REGISTERED (`process (i_CLK_7)`), so `hc_ula == 0` actually coincides
+/// with raw `hc == c_min_hactive - 11` — the source announces exactly this
+/// at :344 ("EVERYTHING BELOW DELAYED ONE PIXEL FROM FRAME COUNTER"), and
+/// `AttributeMux::hc_fetch()` (src/memory/attribute_mux.h:271-293) derives
+/// the same `-11` independently. Two further points where this rebase is
+/// not a literal transcription: `vc_ula` is reset by the SAME `ula_max_hc`
+/// as `hc_ula`, so the VHDL pair behaves as ONE linear counter, whereas
+/// the code below rebases hc and vc INDEPENDENTLY (a half-line vc phase
+/// difference at raw lines c_min_vactive and c_min_vactive+192).
+///
+/// None of that is observable on this path, and it is not luck: jnext
+/// samples the raster exactly once per T-state (`derive_hc_vc()` emits
+/// `hc = ts_in_line * 2`), and every contention consumer of `i_hc` is
+/// aligned to the T-state's pixel-tick PAIR {odd p, even p+1} — `wait_s`
+/// keys on `hc_adj = i_hc(3:0) + 1` (zxula.vhd:582-583) and the stretch
+/// tables hold one value per pair, {3,4}→6, {5,6}→5, … (Task 54,
+/// src/memory/contention.cpp kPat48/kPatP3). Shifting the origin by one
+/// tick moves the sample from the even member of a pair to the odd member
+/// of the SAME pair. Measured over every T-state of a full frame: 48K,
+/// 128K and Next timing are byte-identical between this rebase and a
+/// VHDL-exact one; +3 relocates 2 T-states per display line (the
+/// `hc_adj(3:1)="000"` term puts index pair {15,0} astride the `i_hc(8)`
+/// edge) with an identical per-frame total. Pinned by CT-GH183-01..05 in
+/// test/contention/contention_test.cpp — so if a future change breaks
+/// pair-alignment or samples more than once per T-state, this stops being
+/// a don't-care and those rows fail. Do NOT "fix" the origin to -11 in
+/// isolation: `VideoTiming::ula_prefetch_origin_hc()` is shared with
+/// AttributeMux, which already folds the +1 into its own arithmetic.
 ///
 /// `ContentionModel::contention_tick()`'s window gate is a verbatim
 /// transcription of `border_active_v <= i_vc(8) or (i_vc(7) and i_vc(6))`
