@@ -880,8 +880,8 @@ Physical address = `mmu_A21_A13 << 13`.
 | CON-09  | High page never contended         | 48K    | 3.5 MHz | 0x10  | Not contended    |
 | CON-10  | NR 0x08 bit 6 disables contention | 48K    | 3.5 MHz | 0x0A  | Not contended    |
 | CON-11  | Speed > 3.5 MHz no contention     | 48K    | 7 MHz   | 0x0A  | Not contended    |
-| CON-12a | Pentagon timing: machine type falls through switch | Pent | 3.5 MHz | 0x0A | Not contended    |
-| CON-12b | Pentagon timing: gate zeros 48K bank 5 contention  | 48K  | 3.5 MHz | 0x0A + set_pentagon_timing(true) | Not contended |
+| CON-12a | ~~Pentagon timing: machine type falls through switch~~ | — | — | — | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up); `ContentionModel` no longer exposes a `pentagon_timing`/`set_pentagon_timing()` setter, so this row has no machine to run against (matches `contention_test.cpp`'s own CT-PENT-01/04/05 RETIRED comment). CT-GATE-01/07/08 (enable-gate sanity) and CT-M48-\*/CT-M128-\*/CT-MP3-\* (per-machine decode) still cover the surviving path for 48K/128K/+3/Next. No `check()` row exists. |
+| CON-12b | ~~Pentagon timing: gate zeros 48K bank 5 contention~~  | — | — | — | **RETIRED 2026-05-04** — same removal (Wave 0.3); matches `contention_test.cpp`'s own CT-GATE-06 RETIRED comment (no `pentagon_timing` setter left to zero). CT-GATE-01/02/07/08 still cover the surviving enable-gate terms (contention_disable, cpu_speed) for the modeled machines. No `check()` row exists. |
 
 ### Category 17: Layer 2 Memory Mapping
 
