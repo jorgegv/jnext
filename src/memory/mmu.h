@@ -183,7 +183,18 @@ public:
     // So the C++ hot path checks DivMMC and Layer 2 BEFORE falling into the
     // config_mode routing for ROM slots.
     void set_config_mode(bool enabled) { config_mode_ = enabled; }
+    // GH #195 review: this mirror had no reader either, so the SURVIVING
+    // resync in Emulator::init() was as unassertable as the deleted one —
+    // worse, since this one is load-bearing (the two config_mode mirrors have
+    // DIFFERENT power-on defaults: NextReg true per zxnext.vhd:1102, Mmu false
+    // below). RSTD-04-05 uses this to pin it.
+    bool config_mode() const { return config_mode_; }
     void set_nr_04_romram_bank(uint8_t v) { nr_04_romram_bank_ = v; }
+    // GH #195: the mirror had no reader, so the only way to assert it was a
+    // bare-Mmu fixture (mmu_test CFG-05..12) — the Emulator tier was blind to
+    // whether the NR 0x04 write handler actually reaches it. Rows
+    // RSTD-04-03/04 use this to pin the two mirrors in agreement.
+    uint8_t nr_04_romram_bank() const { return nr_04_romram_bank_; }
 
     // Enable VHDL-faithful ROM-in-SRAM serving: ROM-mapped slots read from
     // ram_.page_ptr(rom_page) instead of rom_.page_ptr(). Matches zxnext.vhd:

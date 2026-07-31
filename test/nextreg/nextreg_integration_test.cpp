@@ -931,6 +931,123 @@ static void test_reset_domain_e3_and_8c() {
                   "(expected 0x30,1,0x30,0x00)",
                   pre, requested ? 1 : 0, mid, post));
     }
+
+    // ── GH #195 — the Mmu mirror of nr_04_romram_bank ────────────────────
+    //
+    // jnext keeps the single VHDL signal in TWO places: the NextReg latch and
+    // an Mmu mirror, because the SRAM address compose at zxnext.vhd:3045
+    // (sram_pre_A21_A13 <= nr_04_romram_bank & cpu_a(13)) lives on the Mmu hot
+    // path. RSTD-04-01/02 above assert only the NextReg latch, and mmu_test
+    // CFG-05..12 drive a BARE Mmu with no Emulator — so nothing proved the NR
+    // 0x04 write handler reaches the mirror that the address compose actually
+    // reads. The pair below closes that: both assert through Emulator::mmu(),
+    // never the register accessor.
+
+    // RSTD-04-03 — the NR 0x04 write handler pushes the bank into the Mmu
+    // mirror, with the SAME Issue-2 bit-7 mask the latch gets. VHDL
+    // zxnext.vhd:5709-5722 (gen_romram_234, board issue <= 2):
+    //   nr_04_romram_bank <= '0' & nr_wr_dat(6 downto 0);
+    // A mirror that took the raw byte would compose page (0xB7<<1)|slot =
+    // 0x16E/0x16F, outside the emulated SRAM page range.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x04, 0x30);              // in-range bank
+        const uint8_t mmu_plain = emu.mmu().nr_04_romram_bank();
+        nr_write(emu, 0x04, 0xB7);              // bit 7 set — masked on Issue 2
+        const uint8_t mmu_masked = emu.mmu().nr_04_romram_bank();
+        const uint8_t reg_masked = emu.nextreg().nr_04_romram_bank();
+        check("RSTD-04-03",
+              "NR 0x04 write reaches the Mmu mirror consumed by the SRAM "
+              "address compose [zxnext.vhd:3045], bit 7 masked off per "
+              "gen_romram_234 [zxnext.vhd:5709-5722]; both mirrors agree",
+              mmu_plain == 0x30 && mmu_masked == 0x37 && reg_masked == 0x37,
+              fmt("mmu_plain=0x%02X mmu_masked=0x%02X reg_masked=0x%02X "
+                  "(expected 0x30,0x37,0x37)",
+                  mmu_plain, mmu_masked, reg_masked));
+    }
+
+    // RSTD-04-04 — RESET_SOFT preserves the Mmu mirror too, and leaves the two
+    // mirrors in agreement. This is the end-to-end half of #194: CFG-06 proves
+    // Mmu::reset() preserves the field on a bare fixture, RSTD-04-01 proves the
+    // NextReg latch survives — only this row proves the mirror survives the
+    // REAL soft-reset path, which re-enters Emulator::init() (where a resync
+    // line used to sit, GH #195) with a non-zero bank already latched.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0x04, 0x30);              // romram_bank <- 0x30
+        const uint8_t pre_mmu = emu.mmu().nr_04_romram_bank();
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT → re-runs init()
+        const uint8_t post_mmu = emu.mmu().nr_04_romram_bank();
+        const uint8_t post_reg = emu.nextreg().nr_04_romram_bank();
+        check("RSTD-04-04",
+              "RESET_SOFT PRESERVES the Mmu mirror of nr_04_romram_bank — the "
+              "signal has no reset clause anywhere in zxnext.vhd (absent from "
+              "the reset block at :4930-5111; write handlers :5717/:5732 are "
+              "gated solely on nr_04_we) — and both mirrors still agree",
+              pre_mmu == 0x30 && post_mmu == 0x30 && post_mmu == post_reg,
+              fmt("pre_mmu=0x%02X post_mmu=0x%02X post_reg=0x%02X "
+                  "(expected 0x30,0x30,0x30)",
+                  pre_mmu, post_mmu, post_reg));
+    }
+
+    // RSTD-04-05 — the boot-ROM-gated resync block in Emulator::init().
+    //
+    // -03/-04 above never enter that block: they leave boot_rom_enabled()
+    // false, so `if (cfg.type == ZXN_ISSUE2 && mmu_.boot_rom_enabled())` is
+    // not taken and the branch goes unexercised. The #195 review proved that
+    // matters by planting a fresh `mmu_.set_nr_04_romram_bank(0)` inside the
+    // block: it escaped all 6562 unit rows AND both NextZXOS reset functional
+    // rows — the identical signature that got #195 filed. This row enters the
+    // block and pins BOTH mirrors it establishes.
+    //
+    // Entry mechanism per Mmu::reset() (mmu.cpp:179): `if (boot_rom_ &&
+    // config_mode_) boot_rom_en_ = true`, so a loaded boot ROM plus
+    // config_mode re-arms the overlay during init()'s subsystem reset, which
+    // is exactly the boot-ROM path the block exists to serve.
+    //
+    // The config_mode mirrors are deliberately driven APART first (NextReg
+    // cleared via an NR 0x03 write, Mmu forced true) so the surviving
+    // `set_config_mode(nextreg_.nr_03_config_mode())` has observable work to
+    // do — VHDL zxnext.vhd:1102 defaults it '1' at power-on and :5122 clears
+    // it on an NR 0x03 write with bits[2:0] in {001..110}. A row that left
+    // them already equal would pass against a deleted resync.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        static uint8_t fake_boot_rom[8192] = {};
+        emu.mmu().set_boot_rom(fake_boot_rom, sizeof(fake_boot_rom));
+
+        nr_write(emu, 0x04, 0x30);              // romram_bank <- 0x30
+        nr_write(emu, 0x03, 0x03);              // clears NextReg config_mode
+        emu.mmu().set_config_mode(true);        // force the mirrors apart
+        emu.mmu().set_boot_rom_enabled(true);
+
+        const bool    reg_cfg_pre = emu.nextreg().nr_03_config_mode();
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT → re-runs init()
+
+        // gate_taken proves the branch actually ran; without it the row could
+        // pass vacuously if the entry mechanism ever stopped working.
+        const bool    gate_taken = emu.mmu().boot_rom_enabled();
+        const uint8_t post_mmu   = emu.mmu().nr_04_romram_bank();
+        const bool    mmu_cfg    = emu.mmu().config_mode();
+        const bool    reg_cfg    = emu.nextreg().nr_03_config_mode();
+        emu.mmu().set_boot_rom(nullptr, 0);     // no phantom ROM for later rows
+
+        check("RSTD-04-05",
+              "the boot-ROM-gated resync in Emulator::init() leaves the Mmu "
+              "config_mode mirror following the NextReg latch [zxnext.vhd:1102 "
+              "power-on '1', :5122 cleared by an NR 0x03 write] and does NOT "
+              "disturb the preserved nr_04_romram_bank [zxnext.vhd:1104, "
+              "absent from the reset block :4930-5111]",
+              gate_taken && !reg_cfg_pre && !reg_cfg && mmu_cfg == reg_cfg &&
+                  post_mmu == 0x30,
+              fmt("gate_taken=%d reg_cfg_pre=%d reg_cfg=%d mmu_cfg=%d "
+                  "post_mmu=0x%02X (expected 1,0,0,0,0x30)",
+                  gate_taken ? 1 : 0, reg_cfg_pre ? 1 : 0, reg_cfg ? 1 : 0,
+                  mmu_cfg ? 1 : 0, post_mmu));
+    }
 }
 
 // ── Cold boot preserves debugger breakpoints (Task 70 review) ─────────
