@@ -242,7 +242,7 @@ Reset defaults: `cpu_speed <= "00"` (`zxnext.vhd:5801`),
 | CT-GATE-03 | A | ZX48K, `mem_active_page=0x0A`, `set_cpu_speed(1)` (7 MHz) | `is_contended_access() == false` (enable gate off) | `zxnext.vhd:4481,5817` |
 | CT-GATE-04 | A | ZX48K, `mem_active_page=0x0A`, `set_cpu_speed(2)` (14 MHz) | `is_contended_access() == false` | `zxnext.vhd:4481,5817` |
 | CT-GATE-05 | A | ZX48K, `mem_active_page=0x0A`, `set_cpu_speed(3)` (28 MHz) | `is_contended_access() == false` | `zxnext.vhd:4481,5817` |
-| CT-GATE-06 | A | ZX48K, `mem_active_page=0x0A`, `set_pentagon_timing(true)` | `is_contended_access() == false` (discriminative over machine-type switch) | `zxnext.vhd:4481` |
+| CT-GATE-06 | — | ~~ZX48K, `mem_active_page=0x0A`, `set_pentagon_timing(true)`~~ | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up); `ContentionModel` no longer exposes a `pentagon_timing`/`set_pentagon_timing()` setter, so this row has no gate left to exercise (matches `contention_test.cpp`'s own CT-GATE-06 RETIRED comment at line 174). CT-GATE-01/02/03/04/05/07/08 still cover the surviving enable-gate terms (`contention_disable`, `cpu_speed`) for the modeled machines. No `check()` row exists. | — |
 | CT-GATE-07 | A | ZX48K, all gates off (`disable=false`, `speed=0`, `pentagon=false`), `mem_active_page=0x0A` | `is_contended_access() == true` | `zxnext.vhd:4481,4490` |
 | CT-GATE-08 | A | Reset-default `ContentionModel` (no `build()` call), `mem_active_page=0x0A` | `is_contended_access() == false` — default-constructed `type_ = MachineType::ZXN_ISSUE2` (`src/memory/contention.h:56`); `is_contended_access()` switch falls through to `return false` at `src/memory/contention.cpp:87-90`. Regression guard: if the default type ever changes to `ZX48K`, this row flips to `true` and flags the silent behavioural shift | `src/memory/contention.h:56`; `src/memory/contention.cpp:87-90`; `zxnext.vhd:5800-5802` |
 
@@ -510,10 +510,12 @@ enable signal — see §4).
 
 Note: Pentagon also does not have a `machine_timing_pentagon='1'` branch
 in `mem_contend` (`zxnext.vhd:4489-4493`) — it falls through to the
-default `'0'`. The MMU suite's CON-12a covers this switch-fallthrough
-path; after the C2-move it is absorbed by CT-PENT-01 below (which runs
-on an actual `MachineType::PENTAGON` and therefore exercises both the
-enable gate and the mem-contend switch fallthrough together).
+default `'0'`. The MMU suite's CON-12a covered this switch-fallthrough
+path; after the C2-move it was absorbed by CT-PENT-01 below, which ran
+on an actual `MachineType::PENTAGON` and exercised both the enable gate
+and the mem-contend switch fallthrough together — until Wave 0.3
+(2026-05-04) dropped the standalone Pentagon machine type and retired
+both CON-12a and CT-PENT-01 (see the row below).
 
 Trim rationale (critic BLOCKING #2): CT-TURBO-01/02/03 in the
 pre-critic draft all exercised the single VHDL predicate `(not
@@ -526,17 +528,19 @@ index is not a predicate input once Pentagon is selected — the enable
 gate masks `mem_contend` decode upstream. Collapsed to one row
 (CT-PENT-01).
 
-Post-trim §12 keeps: Pentagon gate (CT-PENT-01), Pentagon I/O
+Post-trim §12 kept: Pentagon gate (CT-PENT-01), Pentagon I/O
 emulator-level (CT-PENT-04), Pentagon full-frame integration
 (CT-PENT-05), bare-class turbo gate (CT-TURBO-01), NR 0x07 writer
 (CT-TURBO-04), NR 0x08 writer (CT-TURBO-05), and `hc(8)` commit-edge
-(CT-TURBO-06).
+(CT-TURBO-06). CT-PENT-01/04/05 were subsequently RETIRED 2026-05-04
+(Wave 0.3 dropped the standalone Pentagon machine type — see the table
+below); CT-TURBO-01/04/05/06 remain live.
 
 | ID | Phase | Stimulus | Expected | VHDL |
 |----|-------|----------|----------|------|
-| CT-PENT-01 | A | Pentagon, `mem_active_page=0x0A` (would contend on 48K). Also covers the `MachineType::PENTAGON` switch-fallthrough at `src/memory/contention.cpp:87-90` (returns `false` regardless of page), i.e. the MMU suite's CON-12a | `is_contended_access() == false` | `zxnext.vhd:4481,4489-4493` |
-| CT-PENT-04 | B | Pentagon, full `Emulator`, I/O port 0xFE (even) | Zero added T-states (enable gate blocks before `port_contend` decode) | `zxnext.vhd:4481` |
-| CT-PENT-05 | C | Pentagon, full-emulator frame of known contended program, compare T-state count vs. 48K | Frame length matches Pentagon's `71680` T-state budget (`zxula_timing.vhd`) with NO contention added | `zxnext.vhd:4481` |
+| CT-PENT-01 | — | ~~Pentagon, `mem_active_page=0x0A` (would contend on 48K). Also covers the `MachineType::PENTAGON` switch-fallthrough at `src/memory/contention.cpp:87-90`~~ | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up); the standalone Pentagon `build()` path no longer exists, so this row (and the MMU suite's CON-12a switch-fallthrough check it absorbed) has no machine to run on (matches `contention_test.cpp`'s own CT-PENT-01/04/05 RETIRED comment at lines 984-990). CT-GATE-01/07/08 (enable-gate sanity) and CT-M48-\*/CT-M128-\*/CT-MP3-\* (per-machine decode) still cover the surviving path for 48K/128K/+3/Next. No `check()` row exists. | — |
+| CT-PENT-04 | — | ~~Pentagon, full `Emulator`, I/O port 0xFE (even)~~ | **RETIRED 2026-05-04** — same removal (Wave 0.3); no Pentagon machine left to run the full-`Emulator` I/O check against. CT-IO-01..04/07..09 + CT-INT-01 still cover the surviving I/O-contention path. No `check()` row exists. | — |
+| CT-PENT-05 | — | ~~Pentagon, full-emulator frame of known contended program, compare T-state count vs. 48K~~ | **RETIRED 2026-05-04** — same removal (Wave 0.3); no Pentagon machine left to run the full-frame integration check against. CT-INT-01..03 still cover the surviving 48K full-frame integration path. No `check()` row exists. | — |
 | CT-TURBO-01 | A | 48K, `cpu_speed=1` (7 MHz) on bare `ContentionModel`, `mem_active_page=0x0A` (bank 5) | `is_contended_access() == false` (enable gate off) | `zxnext.vhd:4481,5817` |
 | CT-TURBO-04 | B | 48K, full `Emulator`, NR 0x07 write to `0x01`, then bank 5 memory read | Zero added T-states (NR 0x07 path must flow to `cpu_speed`) | `zxnext.vhd:5787-5790,5817` |
 | CT-TURBO-05 | B | 48K, full `Emulator`, NR 0x08 write to bit-6=1, then bank 5 memory read | Zero added T-states (NR 0x08 bit 6 path must flow to `eff_nr_08_contention_disable`) | `zxnext.vhd:4481,5823` |
@@ -660,15 +664,27 @@ VHDL `zxula.vhd:583, 595, 600`: `wait_s` fires every contended cycle
 `memory_map_read[].contended` + `ula_contention[]`. jnext zero-fills
 both at `src/cpu/z80_cpu.cpp:484-508` so the inner-macro path is
 inert; G50's outer `ContentionModel::contention_tick()` only catches
-M-cycle boundary, not M1 fetch or no-MREQ tail. Rows below pin the
-four cycle classes; they flip to `check()` once G141 lands.
+M-cycle boundary, not M1 fetch or no-MREQ tail.
+
+**G141 landed 2026-04-26.** CT-FUSE-01/02 (M1 fetch, no-MREQ tail)
+flipped to `check()` — both cycle classes are now wired into
+`ContentionModel::contention_tick()`. CT-FUSE-03/04 (port IN/OUT
+contention) were RETIRED instead of flipped: port cycles never ran
+through the FUSE in-opcode `contend_*` macros in the first place —
+they are owned entirely by FUSE's own port callbacks
+(`fuse_z80_readport`/`writeport`, `src/cpu/z80_cpu.cpp`), which were
+wired into `ContentionModel::contention_tick()` in Phase 2 (commit
+2026-04-26), ahead of G141. Retiring these two rows avoids duplicating
+coverage already exhaustive at CT-IO-01..04/07..09 (bare-class port
+decode) + CT-INT-01 (full integration) — see
+`contention_test.cpp:1994-2018`.
 
 | ID         | Phase | Stimulus                                                                              | Expected                                                                                                          | VHDL                                |
 |------------|-------|---------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------|-------------------------------------|
 | CT-FUSE-01 | C     | 48K, run a `LD A,(0x4000)` from page 0x0A inside the contended display window         | M1 fetch contended (added T-states match VHDL `wait_s` LUT for the M1 cycle); discriminate vs. uncontended page 0. skip — FUSE `memory_map_read[].contended` zero-filled (see G141) | `zxula.vhd:583, 595`; `z80_macros.h:109` |
 | CT-FUSE-02 | C     | 48K, run a `LDIR` block-copy across page 0x0A inside the contended display window     | The `no-MREQ` tail T-states are stretched once per iteration; total opcode T-state count exceeds uncontended baseline by VHDL-derived sum. skip — FUSE no-MREQ macros inert (see G141) | `zxula.vhd:583, 595`; `z80_macros.h:118-122` |
-| CT-FUSE-03 | C     | 48K, `OUT (0xFE),A` inside the contended display window with `port_contend=1` path    | Port-write cycle stretches per `wait_s`; T-state count matches VHDL. skip — port-write contention inert (see G141) | `zxula.vhd:595`; `zxnext.vhd:4496`  |
-| CT-FUSE-04 | C     | 48K, `IN A,(0xFE)` inside the contended display window with `port_contend=1` path     | Port-read cycle stretches per `wait_s`; T-state count matches VHDL. skip — port-read contention inert (see G141) | `zxula.vhd:595`; `zxnext.vhd:4496`  |
+| CT-FUSE-03 | —     | ~~48K, `OUT (0xFE),A` inside the contended display window with `port_contend=1` path~~    | **RETIRED 2026-04-26** — port-write cycles never flowed through the FUSE in-opcode `contend_*` macros; they are owned by FUSE's own port callbacks (`fuse_z80_writeport`, `src/cpu/z80_cpu.cpp`), wired into `ContentionModel::contention_tick()` in Phase 2, ahead of G141. Exhaustively covered by CT-IO-01..04/07..09 (bare-class port decode) + CT-INT-01 (full integration), per the ARB-G65-01 precedent (`test/copper/copper_test.cpp:1451-1473`). No `check()` row exists — see `contention_test.cpp:1994-2018`. | — |
+| CT-FUSE-04 | —     | ~~48K, `IN A,(0xFE)` inside the contended display window with `port_contend=1` path~~     | **RETIRED 2026-04-26** — same reasoning as CT-FUSE-03 for port-read cycles (`fuse_z80_readport`). Exhaustively covered by CT-IO-01..04/07..09 + CT-INT-01. No `check()` row exists — see `contention_test.cpp:1994-2018`. | — |
 
 ## Integration test suggestions
 
