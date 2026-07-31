@@ -421,7 +421,7 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | CON-09  | High page never contended                                    | —               | missing | missing                   |
 | CON-10  | NR 0x08 bit 6 disables contention                            | —               | missing | missing                   |
 | CON-11  | Speed > 3.5 MHz no contention                                | —               | missing | missing                   |
-| CON-12  | Pentagon timing no contention                                | —               | missing | missing                   |
+| CON-12  | Pentagon timing no contention (**RETIRED 2026-05-04** — standalone Pentagon machine type dropped, Wave 0.3; superseded in the plan doc by CON-12a/CON-12b, both also RETIRED; no `check()` row exists) | —               | missing | missing                   |
 | L2M-01  | L2 write-over routes writes to L2 bank, not to unrelated MM… | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:3138 |
 | L2M-01b | L2 bank 8 physically aliases MMU page 0x10 (hw collision)    | zxnext.vhd:2964 | pass    | test/mmu/mmu_test.cpp:3157 |
 | L2M-02  | L2 read-enable maps 0-16K                                    | zxnext.vhd:2969,3077,3100 | pass    | test/mmu/mmu_test.cpp:3176 |
@@ -440,8 +440,8 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | P7F-17      | Bit 3 -> `Ula::set_shadow_screen_en` routing                          | zxnext.vhd:4453      | pass    | test/mmu/mmu_test.cpp:583  |
 | DFF-09      | DFFD bit 6 round-trip via Multiface readback                          | zxnext.vhd:877,3694  | pass    | test/mmu/mmu_test.cpp:793  |
 | EF7-06      | NR 0x85 b2 (`port_eff7_io_en`) gates EFF7 writes (G143 closed; RE-HOMED to mmu_integration_test; mapping corrected NR 0x84→0x85 2026-05-04) | zxnext.vhd:2604,2441,2392 | missing | missing                           |
-| CON-12a     | Pentagon timing: machine type falls through switch                    | —                    | missing | missing                    |
-| CON-12b     | Pentagon timing: gate zeros 48K bank 5 contention                     | —                    | missing | missing                    |
+| CON-12a     | Pentagon timing: machine type falls through switch (**RETIRED 2026-05-04** — standalone Pentagon type dropped, Wave 0.3; `ContentionModel` no longer exposes `pentagon_timing`; CT-GATE-01/07/08 + CT-M48-\*/CT-M128-\*/CT-MP3-\* cover 48K/128K/+3/Next) | —                    | missing | missing                    |
+| CON-12b     | Pentagon timing: gate zeros 48K bank 5 contention (**RETIRED 2026-05-04** — same removal, Wave 0.3; CT-GATE-01/02/07/08 cover the surviving enable-gate terms) | —                    | missing | missing                    |
 | L2M-02a     | L2 read-enable redirects 0x0000-0x3FFF reads to L2 bank               | zxnext.vhd:2969,3077 | pass    | test/mmu/mmu_test.cpp:3176 |
 | L2M-02b     | L2 read-enable OFF -> MMU slot wins (discriminative)                  | zxnext.vhd:3077      | pass    | test/mmu/mmu_test.cpp:3195 |
 | BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF                    | zxnext.vhd:3199-3204 | pass    | test/mmu/mmu_test.cpp:3403 |
@@ -475,10 +475,8 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | BOOT-Z80-03      | v3 (extended-header, 128K) .z80                                  | —                    | pass    | test/mmu/mmu_test.cpp:4098 |
 | BOOT-Z80-04      | Unsupported / corrupt .z80 file rejected                         | —                    | pass    | test/mmu/mmu_test.cpp:4135 |
 | BOOT-Z80-05      | Structurally-valid .z80 with only foreign page numbers rejected  | —                    | pass    | test/mmu/mmu_test.cpp:4184 |
-| BOOT-SNAPSAVE-01 | `.sna` save round-trip via GUI/CLI                               | —                    | missing | missing                    |
 | BOOT-SNAPSAVE-02 | `.szx` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:4329 |
 | BOOT-SNAPSAVE-03 | `.nex` save round-trip via GUI/CLI                               | —                    | pass    | test/mmu/mmu_test.cpp:4552 |
-| BOOT-SNAPSAVE-04 | Save-As dialog exposes all three formats                         | —                    | missing | missing                    |
 | BOOT-DECI-01     | TZX 0x15 Direct-Recording block decoded                          | —                    | pass    | test/mmu/mmu_test.cpp:4667 |
 | BOOT-DECI-02     | TZX 0x15 unknown / malformed block tolerated                     | —                    | pass    | test/mmu/mmu_test.cpp:4760 |
 | BOOT-DECI-03     | WAV real-time DeciLoad loads via custom loader                   | —                    | pass    | test/mmu/mmu_test.cpp:4815 |
