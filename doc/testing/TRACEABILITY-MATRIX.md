@@ -3534,7 +3534,7 @@ into this suite as part of the 2026-04-26 closure.
 | CT-GATE-03   | `cpu_speed=1` (7 MHz) gates enable off                              | zxnext.vhd:4481,5817                | pass   | test/contention/contention_test.cpp:144     |
 | CT-GATE-04   | `cpu_speed=2` (14 MHz) gates enable off                             | zxnext.vhd:4481,5817                | pass   | test/contention/contention_test.cpp:156     |
 | CT-GATE-05   | `cpu_speed=3` (28 MHz) gates enable off                             | zxnext.vhd:4481,5817                | pass   | test/contention/contention_test.cpp:168     |
-| CT-GATE-06   | `pentagon_timing=1` gates enable off (machine-type discriminator)   | zxnext.vhd:4481                     | missing | missing                                     |
+| CT-GATE-06   | `pentagon_timing=1` gates enable off (**RETIRED 2026-05-04** — standalone Pentagon machine type dropped, Wave 0.3; `ContentionModel` no longer exposes `pentagon_timing`; CT-GATE-01/02/03/04/05/07/08 cover the surviving enable-gate terms) | —                                    | missing | missing                                     |
 | CT-GATE-07   | All gate inputs at VHDL power-on defaults — enable=1                | zxnext.vhd:4481,4490                | pass   | test/contention/contention_test.cpp:189     |
 | CT-GATE-08   | Default-constructed `ContentionModel` (no `build()`) — enable=0     | src/memory/contention.cpp:87-90     | pass   | test/contention/contention_test.cpp:215     |
 | CT-M48-01    | 48K page 0x0A (bank 5, bits(3:1)=101) — contended                   | zxnext.vhd:4490                     | pass   | test/contention/contention_test.cpp:240     |
@@ -3583,9 +3583,9 @@ into this suite as part of the 2026-04-26 closure.
 | CT-SP3-06    | +3, port 0xFE display window — WAIT path memory-only (zero added)   | zxula.vhd:599-600                   | pass   | test/contention/contention_test.cpp:921     |
 | CT-SP3-07    | +3, port 0xFE display window, contended bank in slot — same         | zxula.vhd:599-600                   | pass   | test/contention/contention_test.cpp:938     |
 | CT-SP3-08    | +3, `hc_adj(3:1)=000` extra phase, bank 4 read — stall asserts      | zxula.vhd:582-583,600               | pass   | test/contention/contention_test.cpp:961     |
-| CT-PENT-01   | Pentagon, page 0x0A — never contended (machine-type fallthrough)    | zxnext.vhd:4481,4489-4493           | missing | missing                                     |
-| CT-PENT-04   | Pentagon, full Emulator, port 0xFE — gate blocks before decode      | zxnext.vhd:4481                     | missing | missing                                     |
-| CT-PENT-05   | Pentagon, full-frame contended program — 71680 T-state budget       | zxnext.vhd:4481                     | missing | missing                                     |
+| CT-PENT-01   | Pentagon, page 0x0A — never contended (**RETIRED 2026-05-04** — standalone Pentagon machine type dropped, Wave 0.3; standalone Pentagon `build()` path no longer exists; CT-GATE-01/07/08 + CT-M48-\*/CT-M128-\*/CT-MP3-\* cover the surviving 48K/128K/+3/Next path) | —                                    | missing | missing                                     |
+| CT-PENT-04   | Pentagon, full Emulator, port 0xFE — gate blocks before decode (**RETIRED 2026-05-04** — same removal, Wave 0.3; CT-IO-01..04/07..09 + CT-INT-01 cover the surviving I/O-contention path) | —                                    | missing | missing                                     |
+| CT-PENT-05   | Pentagon, full-frame contended program — 71680 T-state budget (**RETIRED 2026-05-04** — same removal, Wave 0.3; CT-INT-01..03 cover the surviving 48K full-frame integration path) | —                                    | missing | missing                                     |
 | CT-TURBO-01  | 48K, `cpu_speed=1` (7 MHz) bare-class — enable gate off             | zxnext.vhd:4481,5817                | pass   | test/contention/contention_test.cpp:1000    |
 | CT-TURBO-04  | 48K, full Emulator, NR 0x07=0x01 → bank-5 read — zero added         | zxnext.vhd:5787-5790,5817           | pass   | test/contention/contention_test.cpp:1024    |
 | CT-TURBO-05  | 48K, full Emulator, NR 0x08 bit 6=1 → bank-5 read — zero added      | zxnext.vhd:4481,5823                | pass   | test/contention/contention_test.cpp:1074    |
@@ -3601,8 +3601,8 @@ into this suite as part of the 2026-04-26 closure.
 | CT-INT-03    | Regression screenshot — 48K contention-sensitive demo               | —                                   | pass   | test/contention/contention_test.cpp:1494    |
 | CT-FUSE-01   | 48K, `LD A,(0x4000)` from page 0x0A — M1 fetch contention (G141)    | zxula.vhd:583,595; z80_macros.h:109 | pass   | test/contention/contention_test.cpp:1874    |
 | CT-FUSE-02   | 48K, `LDIR` over page 0x0A — no-MREQ tail contention (G141)         | zxula.vhd:583,595; z80_macros.h:118 | pass   | test/contention/contention_test.cpp:1952    |
-| CT-FUSE-03   | 48K, `OUT (0xFE),A` in display window — port-write contention (G141)| zxula.vhd:595, zxnext.vhd:4496      | missing | missing                                     |
-| CT-FUSE-04   | 48K, `IN A,(0xFE)` in display window — port-read contention (G141)  | zxula.vhd:595, zxnext.vhd:4496      | missing | missing                                     |
+| CT-FUSE-03   | 48K, `OUT (0xFE),A` in display window — port-write contention (real, implementable gap — CT-IO-\*/CT-INT-01 do NOT cover it, see plan doc §16; on=2995/off=2806/delta=189 T-states confirmed constructible) | zxula.vhd:595, zxnext.vhd:4496      | missing | missing                                     |
+| CT-FUSE-04   | 48K, `IN A,(0xFE)` in display window — port-read contention (same reasoning as CT-FUSE-03 for the read side, see plan doc §16) | zxula.vhd:595, zxnext.vhd:4496      | missing | missing                                     |
 | CT-FUSE-05   | FUSE-table retirement bypass-toggle (G53)                           | zxnext.vhd:4481                       | pass   | test/contention/contention_test.cpp:2057    |
 | CT-DELAY-01  | Full-frame integration drift bound — 48K/128K/+3 ∈ (0, 6·N]; Pent=0 | zxula.vhd:582-595, zxnext.vhd:4481-4492 | pass   | test/contention/contention_test.cpp:1599    |
 
