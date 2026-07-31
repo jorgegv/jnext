@@ -3314,26 +3314,35 @@ static void test_PSCAN() {
                      r.transparent_rgb_for_line(199)));
     }
 
-    // PSCAN-G04-02 — RE-HOMED 2026-04-28 to SPRITES-TEST-PLAN-DESIGN.md.
-    // NR 0x4B (sprite-transparent index) lives on `Sprites` per VHDL
-    // zxnext.vhd:5016, 1190 (`nr_4b_sprite_transparent_index` →
-    // `sprite_transparent_index_o` consumed at sprites.vhd's pixel
-    // engine). The per-scanline change-log + replay is therefore the
-    // Sprites suite's responsibility once G04 grows in that bucket;
-    // the compositor only sees the already-keyed sprite output.
-    // Cross-bucket G04 ownership: Sprites suite (the row will be added
-    // to test/sprites/sprites_test.cpp by that suite's owner when the
-    // log lands).
-
-    // PSCAN-G04-03 — RE-HOMED 2026-04-28 to TILEMAP-TEST-PLAN-DESIGN.md.
-    // NR 0x4C (tilemap-transparent nibble) lives on `Tilemap` per VHDL
-    // zxnext.vhd:5018, 4395 (`nr_4c_tm_transparent_index` →
-    // `transp_colour_i` consumed at tilemap.vhd:425-429 inside the
-    // Tilemap engine). The per-scanline change-log + replay belongs
-    // in the Tilemap suite under G04 cross-bucket ownership; the
-    // compositor only sees the already-keyed tilemap output. The row
-    // will be added to test/tilemap/tilemap_test.cpp by that suite's
-    // owner when the log lands.
+    // PSCAN-G04-02 / PSCAN-G04-03 — NOT a completed re-home (GH #196
+    // phase-1.1 review, corrected 2026-08-01). This comment used to
+    // claim these two rows were "RE-HOMED" to the Sprites and Tilemap
+    // suites (as of 2026-04-28); that claim was false. Verified:
+    // `test/sprites/sprites_test.cpp` and `test/tilemap/tilemap_test.cpp`
+    // contain zero matches for `G04.PSL-NR4B-01`/`TM-165` or for
+    // `sprite_transparent_index_`/`transp_colour_` as live test code —
+    // both IDs exist only as prose rows in their plan docs, explicitly
+    // marked stub/skip there. `src/core/emulator.cpp:1655-1672` confirms
+    // the NR 0x4B/0x4C write handlers still route to plain scalar
+    // setters (`PaletteManager::set_sprite_transparency` /
+    // `set_tilemap_transparency`, `src/video/palette.h:361-366`) — no
+    // per-scanline change-log exists anywhere in the codebase for either
+    // key.
+    //
+    // This is a real, currently untracked, unimplemented feature: NR
+    // 0x4B (sprite-transparent index, VHDL zxnext.vhd:5016,1190,
+    // `nr_4b_sprite_transparent_index` → `sprite_transparent_index_o`
+    // consumed at sprites.vhd's pixel engine) and NR 0x4C
+    // (tilemap-transparent nibble, VHDL zxnext.vhd:5018,4395,
+    // `nr_4c_tm_transparent_index` → `transp_colour_i` consumed at
+    // tilemap.vhd:425-429) both need the same per-scanline change-log +
+    // replay pattern PSCAN-G04-01 above already proves for NR 0x14. The
+    // 2026-04-28 re-home anticipated the Sprites/Tilemap suites would
+    // pick up tracking once that log landed there, but they never did —
+    // the coverage claim was premature. Status: `missing` (see
+    // `COMPOSITOR-TEST-PLAN-DESIGN.md` and `TRACEABILITY-MATRIX.md`).
+    // No new `skip()`/`check()` row added here — writing the change-log
+    // itself is out of scope for a documentation-accuracy pass.
 
     // PSCAN-G11-01 — VHDL zxnext.vhd:5445, 7142-7176. NR 0x68 b0
     // (stencil_mode) per-scanline snapshot.
