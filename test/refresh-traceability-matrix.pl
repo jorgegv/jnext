@@ -195,6 +195,10 @@ my $CHECK_ONLY = 0;
 my $DUMP_DESC  = 0;
 my $EMIT_SECTION;
 my $EMIT_TO;
+# --fpga-src=PATH (GH #202). Declared HERE, with the other option variables,
+# rather than beside fpga_src() further down: parse_args() below assigns it,
+# and a `my` is not in scope before its own declaration.
+my $FPGA_SRC_OPT;
 sub parse_args {
     for my $arg (@_) {
         if ($arg eq '--check-accounting') { $CHECK_ONLY = 1; next; }
@@ -212,9 +216,20 @@ sub parse_args {
         # so it can be diffed against the committed matrix before the emitter
         # is allowed to replace it.
         if ($arg =~ /^--emit-to=(.+)$/) { $EMIT_TO = $1; next; }
+        # GH #202 — WHERE the FPGA core is checked out. Citations are validated
+        # against it, and a run without it emits DIFFERENT bytes, so CI (which
+        # has no checkout of its own) has to be told rather than left to guess.
+        # Refused up front when it is not a directory: a typo'd path would
+        # otherwise degrade silently into the unvalidated mode this exists to
+        # make impossible.
+        if ($arg =~ /^--fpga-src=(.+)$/) {
+            $FPGA_SRC_OPT = $1;
+            fatal("--fpga-src='$1' is not a directory") unless -d $FPGA_SRC_OPT;
+            next;
+        }
         fatal("unknown option '$arg'\n"
             . "usage: refresh-traceability-matrix.pl [--check-accounting] "
-            . "[--dump-descriptions]");
+            . "[--dump-descriptions] [--fpga-src=PATH]");
     }
 }
 
@@ -504,8 +519,68 @@ sub suite_for_source {
 # Citations are also validated against the real FPGA source tree, so a
 # typo'd or renamed VHDL filename is reported rather than published.
 
-my $FPGA_SRC = $ENV{JNEXT_FPGA_SRC}
-    || '/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src';
+# WHERE the core is, in precedence order (GH #202):
+#
+#   --fpga-src=PATH        explicit, wins over everything
+#   $JNEXT_FPGA_SRC        the environment form, which is what CI sets
+#   upward search          a sibling checkout, found by walking up from the
+#                          script's own directory
+#
+# The default used to be one hardcoded absolute path under the maintainer's
+# home. That was invisible to everyone else, and CI — which has no FPGA
+# checkout at all — silently took the "no tree" branch of resolve_vhd() and
+# published every citation unvalidated. The matrix therefore came out with
+# DIFFERENT BYTES in CI than locally, which a byte-exact staleness gate can
+# never reconcile: traceability-check could not pass in both places at once.
+#
+# The search walks up rather than using a fixed depth because the repo and its
+# agent worktrees sit at different depths — `spectrum/jnext/test` is two levels
+# below the sibling, `spectrum/jnext-worktrees/<name>/test` is three — so any
+# constant `../..` is correct for exactly one of them. It starts from $RealBin,
+# NOT $ROOT, because the selftest rebinds $ROOT to a fixture tree while the
+# script itself stays in the real repo.
+my $FPGA_SRC;        # resolved once by fpga_src(), '' when there is no tree
+
+# The parent walk is spelled with a regex rather than File::Basename::dirname
+# ON PURPOSE: that module is packaged separately on Fedora (perl-File-Basename)
+# and is NOT in ci.yml's explicit dependency list. Relying on it arriving
+# transitively is the exact failure that list exists to prevent — CI once broke
+# on `Can't locate FindBin.pm` with no change to script or workflow. Adding no
+# dependency beats declaring one here.
+sub discover_fpga_src {
+    my $dir = $RealBin;
+    for (1 .. 8) {
+        my $cand = "$dir/ZX_Spectrum_Next_FPGA/cores/zxnext/src";
+        return $cand if -d $cand;
+        last if $dir eq '/';
+        (my $up = $dir) =~ s{/[^/]*$}{};
+        $up = '/' if $up eq '';
+        $dir = $up;
+    }
+    return undef;
+}
+
+# Resolved lazily and memoised, so it is correct whether or not parse_args()
+# ran — the selftest loads this file and calls its subs directly, without ever
+# walking @ARGV.
+sub fpga_src {
+    return $FPGA_SRC if defined $FPGA_SRC;
+    $FPGA_SRC = $FPGA_SRC_OPT // $ENV{JNEXT_FPGA_SRC} // discover_fpga_src();
+    if (!defined $FPGA_SRC || !-d $FPGA_SRC) {
+        # LOUD, because silence here is the actual defect: an unvalidated run
+        # looks exactly like a validated one and its output differs.
+        warn "refresh-traceability-matrix: WARNING — no FPGA core found"
+           . (defined $FPGA_SRC && length $FPGA_SRC ? " at '$FPGA_SRC'" : '')
+           . ".\n"
+           . "  VHDL citations cannot be validated, so a typo'd or renamed\n"
+           . "  filename will be published verbatim and a bare basename will\n"
+           . "  not be folded. The output WILL differ from a run that has the\n"
+           . "  core, so do not commit a matrix generated this way.\n"
+           . "  Point at a checkout with --fpga-src=PATH or \$JNEXT_FPGA_SRC.\n";
+        $FPGA_SRC = '';
+    }
+    return $FPGA_SRC;
+}
 
 # `\.vhd` must not be a prefix of a longer identifier, or `row.vhdl_line`
 # in a printf argument list is read as a citation of "row.vhd".
@@ -1071,7 +1146,8 @@ my $VHDL_FILES;
 sub vhdl_files {
     return $VHDL_FILES if defined $VHDL_FILES;
     my (%base, %spell);
-    if (-d $FPGA_SRC && open(my $fh, '-|', 'find', $FPGA_SRC, '-name', '*.vhd')) {
+    my $src = fpga_src();
+    if (length $src && open(my $fh, '-|', 'find', $src, '-name', '*.vhd')) {
         while (my $p = <$fh>) {
             chomp $p;
             my @seg = split m{/}, $p;
@@ -1082,6 +1158,18 @@ sub vhdl_files {
             }
         }
         close $fh;
+    }
+    # A directory that EXISTS but holds no .vhd degrades to exactly the same
+    # unvalidated mode as no directory at all, and fpga_src()'s -d check cannot
+    # see it: the wrong-but-real path (a botched sparse-checkout, one level too
+    # deep, the repo root instead of cores/zxnext/src) is the likelier typo of
+    # the two, and it was silent. Warn on the condition that actually matters —
+    # "citations cannot be validated" — rather than only on the missing path.
+    if (!%base && length $src) {
+        warn "refresh-traceability-matrix: WARNING — '$src' exists but contains\n"
+           . "  no .vhd files, so VHDL citations cannot be validated. The output\n"
+           . "  WILL differ from a run against the real core. Check the path\n"
+           . "  points at cores/zxnext/src inside a ZX Next FPGA checkout.\n";
     }
     $VHDL_FILES = %base ? { base => \%base, spell => \%spell } : 0;
     return $VHDL_FILES;
@@ -1165,11 +1253,13 @@ sub cite_in {
 sub cite_list {
     my ($text) = @_;
     my (@out, %seen);
+    my $core = fpga_src();    # memoised; named once rather than interpolated
+                              # as ${\ fpga_src() } at each warn site
     while ($text =~ /$VHDL_CITE_RE/g) {
         my ($cited, $lines) = ($1, $2);
         my ($verdict, $file) = resolve_vhd($cited);
         if ($verdict eq 'unknown') {
-            warn "WARN: citation names '$cited', which is not in $FPGA_SRC\n";
+            warn "WARN: citation names '$cited', which is not in $core\n";
             next;
         }
         # A wrong DIRECTORY beside a real basename: publish the basename (the
@@ -1178,7 +1268,7 @@ sub cite_list {
         # sites and a warning repeated forty times is the saturated-warning
         # failure this tool has already been bitten by twice.
         if ($verdict eq 'rehomed' && !$REHOMED_WARNED{$cited}++) {
-            warn "WARN: citation names '$cited'; $FPGA_SRC has no such path, "
+            warn "WARN: citation names '$cited'; $core has no such path, "
                . "but does carry '$file' — publishing the bare filename\n";
         }
         my $cite;
@@ -4093,12 +4183,38 @@ sub main_body {
         print STDERR "\nThe matrix was NOT rewritten.\n" unless $CHECK_ONLY;
         return $rc;
     }
+    # Resolve the core HERE, before any emitting, so "I cannot validate
+    # citations" is announced deterministically for every real run.
+    #
+    # It used to surface only as a side effect of the first citation lookup,
+    # which means a tree that happens to cite no VHDL degrades in total
+    # silence — and that is not hypothetical: the selftest fixture is such a
+    # tree, and the first version of these rows passed VACUOUSLY against it,
+    # asserting the absence of a warning that was never going to be emitted.
+    # The condition being reported is a property of the RUN, not of whichever
+    # rows happen to carry citations, so it is evaluated like one.
+    # Not for --check-accounting (which never emits) and not for
+    # --dump-descriptions, which is documented as reading nothing but the
+    # test sources: it resolves no citation, so warning it about the core
+    # is a diagnostic about a thing it does not do (found in review).
+    vhdl_files() unless $CHECK_ONLY || $DUMP_DESC;
     if (defined $EMIT_TO) {
-        my @doc = emit_matrix($subsys, $declared);
+        # emit_matrix() returns TWO array refs, (\@out, \@report) — so a plain
+        # `my @doc = emit_matrix(...)` collects the REFS, and join() stringified
+        # them: this wrote a 2-line file reading "ARRAY(0x...)" twice, whatever
+        # the document contained. The other two callers unpack it correctly
+        # (the real writer takes ($doc, $rep); --emit-section takes ($doc)),
+        # which is why only this flag was affected and nothing noticed — it has
+        # no caller in the Makefile, the gates, the selftest or CI.
+        #
+        # It matters anyway: this flag exists to inspect the emitted document
+        # BEFORE letting it replace the committed one, so silently emitting two
+        # lines of hex is worst exactly when someone reaches for it.
+        my ($doc) = emit_matrix($subsys, $declared);
         open(my $out, '>', $EMIT_TO) or fatal("write $EMIT_TO: $!");
-        print $out join("\n", @doc), "\n";
+        print $out join("\n", @$doc), "\n";
         close $out;
-        printf("emitted %d lines to %s\n", scalar @doc, $EMIT_TO);
+        printf("emitted %d lines to %s\n", scalar @$doc, $EMIT_TO);
         return 0;
     }
     if (defined $EMIT_SECTION) {
