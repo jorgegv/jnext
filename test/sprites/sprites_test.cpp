@@ -823,7 +823,7 @@ static void group2() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G2.PL-01",
-              "256-byte upload into pattern 0 observable via render (728-744)",
+              "256-byte upload into pattern 0 observable via render (sprites.vhd:728-744)",
               pixel_index(line, 0) == 0x42 &&
               pixel_index(line, 20) == 0x77,
               DETAIL("px0=%d px20=%d",
@@ -837,7 +837,7 @@ static void group2() {
         set4(spr, 0, 5, 0, 0x00, 0x80 | 63);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G2.PL-02", "Pattern index 63 writable and readable (728-744)",
+        check("G2.PL-02", "Pattern index 63 writable and readable (sprites.vhd:728-744)",
               pixel_index(line, 5) == 0x9E,
               DETAIL("px5=%d", pixel_index(line, 5)));
     }
@@ -857,7 +857,7 @@ static void group2() {
         // Use col 1 to distinguish: pattern 0 byte 1 = 1; pattern 1 byte 1
         // should be 1 as well. Use col 5 instead.
         check("G2.PL-03",
-              "auto-increment crosses pattern 0->1 boundary (738)",
+              "auto-increment crosses pattern 0->1 boundary (sprites.vhd:738)",
               pixel_index(line, 0) == 0x00 && pixel_index(line, 5) == 0x05 &&
               pixel_index(line, 20) == 0x00 && pixel_index(line, 25) == 0x05,
               DETAIL("p0(0)=%d p1(0)=%d",
@@ -900,7 +900,7 @@ static void group2() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G2.PL-05",
-              "Pattern RAM top does not wrap to 0 (738, 14-bit mask)",
+              "Pattern RAM top does not wrap to 0, 14-bit mask (sprites.vhd:738)",
               pixel_index(line, 0) == 0xDD,
               DETAIL("pat0[0]=%d", pixel_index(line, 0)));
     }
@@ -1056,7 +1056,7 @@ static void group3() {
         set4(spr, 0, 0, 0, 0x00, 0x80);  // paloff=0
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G3.PX-01", "8bpp opaque pixel 0x42 at (0,0) (968,971)",
+        check("G3.PX-01", "8bpp opaque pixel 0x42 at (0,0) (sprites.vhd:968,971)",
               pixel_index(line, 0) == 0x42,
               DETAIL("got=%d", pixel_index(line, 0)));
     }
@@ -1070,7 +1070,7 @@ static void group3() {
         set4(spr, 0, 0, 0, 0x30, 0x80);  // attr2 bits 7:4 = 3
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G3.PX-02", "8bpp paloff +3 on upper nibble 0x15->0x45 (968)",
+        check("G3.PX-02", "8bpp paloff +3 on upper nibble 0x15->0x45 (sprites.vhd:968)",
               pixel_index(line, 0) == 0x45,
               DETAIL("got=%d", pixel_index(line, 0)));
     }
@@ -1084,7 +1084,7 @@ static void group3() {
         set4(spr, 0, 0, 0, 0x20, 0x80);  // paloff=2
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G3.PX-03", "8bpp paloff upper nibble wraps mod 16 (968)",
+        check("G3.PX-03", "8bpp paloff upper nibble wraps mod 16 (sprites.vhd:968)",
               pixel_index(line, 0) == 0x15,
               DETAIL("got=%d", pixel_index(line, 0)));
     }
@@ -1102,7 +1102,7 @@ static void group3() {
         set5(spr, 0, 0, 0, 0x40, 0x80, 0x80);  // ext, H=1, paloff=4
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G3.PX-04", "4bpp even col -> upper nibble + paloff (967-968)",
+        check("G3.PX-04", "4bpp even col -> upper nibble + paloff (sprites.vhd:967-968)",
               pixel_index(line, 0) == 0x47,
               DETAIL("got=%d", pixel_index(line, 0)));
     }
@@ -1116,7 +1116,7 @@ static void group3() {
         set5(spr, 0, 0, 0, 0x40, 0x80, 0x80); // H=1, paloff=4
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G3.PX-05", "4bpp odd col -> lower nibble + paloff (967)",
+        check("G3.PX-05", "4bpp odd col -> lower nibble + paloff (sprites.vhd:967)",
               pixel_index(line, 1) == 0x43,
               DETAIL("got=%d", pixel_index(line, 1)));
     }
@@ -1135,7 +1135,7 @@ static void group3() {
         set5(spr, 0, 0, 0, 0x00, 0x80, 0xC0); // H=1, N6=1, paloff=0
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G3.PX-06", "4bpp N6 selects high half of pattern bank (962-964)",
+        check("G3.PX-06", "4bpp N6 selects high half of pattern bank (sprites.vhd:962-964)",
               pixel_index(line, 0) == 0x02 && pixel_index(line, 1) == 0x02,
               DETAIL("px0=%d px1=%d",
                      pixel_index(line, 0), pixel_index(line, 1)));
@@ -1149,7 +1149,7 @@ static void group3() {
         set4(spr, 0, 0, 0, 0x00, 0x80);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G3.TR-01", "8bpp pattern byte == transp -> not written (971)",
+        check("G3.TR-01", "8bpp pattern byte == transp -> not written (sprites.vhd:971)",
               pixel_index(line, 0) == -1,
               DETAIL("got=%d", pixel_index(line, 0)));
     }
@@ -1170,7 +1170,7 @@ static void group3() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.TR-02",
-              "4bpp transparent upper nibble; lower nibble still writes (971)",
+              "4bpp transparent upper nibble; lower nibble still writes (sprites.vhd:971)",
               pixel_index(line, 0) == -1 && pixel_index(line, 1) == 0x0A,
               DETAIL("px0=%d px1=%d",
                      pixel_index(line, 0), pixel_index(line, 1)));
@@ -1197,7 +1197,7 @@ static void group3() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.TR-03",
-              "Transparency compare is on palette index, not ARGB (971)",
+              "Transparency compare is on palette index, not ARGB (sprites.vhd:971)",
               line[0] != SENTINEL,                  // logical x=0 -> line[0] (==2*0)
               DETAIL("argb=%08X", line[0]));
     }
@@ -1231,7 +1231,7 @@ static void group3() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.PA-01",
-              "4bpp: paloff replaces upper nibble; result 0xC5 at col 0 (968)",
+              "4bpp: paloff replaces upper nibble; result 0xC5 at col 0 (sprites.vhd:968)",
               pixel_index(line, 0) == 0xC5,
               DETAIL("got=%d", pixel_index(line, 0)));
     }
@@ -1247,7 +1247,7 @@ static void group3() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G3.PA-02",
-              "opaque write marks line buffer (969) — observed as pixel set",
+              "opaque write marks line buffer (sprites.vhd:969) — observed as pixel set",
               // G104 Phase 5: logical x=0 -> line[0]; logical x=15 -> line[30].
               line[0] != SENTINEL && line[15 * 2] != SENTINEL);
     }
@@ -1274,7 +1274,7 @@ static void group4() {
         // G104 Phase 5: read at logical-grid line[2x].
         for (int x = 0; x < 16 && ok; ++x)
             if (line[x * 2] == SENTINEL) ok = false;
-        check("G4.XY-01", "Sprite (0,0) fills cols 0..15 on line 0 (796-799)",
+        check("G4.XY-01", "Sprite (0,0) fills cols 0..15 on line 0 (sprites.vhd:796-799)",
               ok);
     }
 
@@ -1287,7 +1287,7 @@ static void group4() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G4.XY-02",
-              "X MSB: attr2(0)=1 -> x=256+attr0 (799)",
+              "X MSB: attr2(0)=1 -> x=256+attr0 (sprites.vhd:799)",
               pixel_index(line, 288) == 0x77 &&
               pixel_index(line, 303) == 0x77 &&
               pixel_index(line, 287) == -1,
@@ -1305,7 +1305,7 @@ static void group4() {
         // 4-byte write: attr4 won't be used; y must be attr1.
         set4(spr, 0, 0, 0, 0x00, 0x80);
         auto info = spr.get_sprite_info(0);
-        check("G4.XY-03", "attr3(6)=0 forces y_msb=0 regardless (796)",
+        check("G4.XY-03", "attr3(6)=0 forces y_msb=0 regardless (sprites.vhd:796)",
               info.y == 0 && ((info.y >> 8) & 1) == 0,
               DETAIL("y=%d", info.y));
     }
@@ -1326,7 +1326,7 @@ static void group4() {
         spr.set_over_border(true);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G4.XY-05", "x=319 renders at col 319 (822,855-860)",
+        check("G4.XY-05", "x=319 renders at col 319 (sprites.vhd:822,855-860)",
               pixel_index(line, 319) == 0x55);
     }
 
@@ -1343,7 +1343,7 @@ static void group4() {
         spr.render_scanline(line, 0, pal);
         bool any = false;
         for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) any = true;
-        check("G4.XY-06", "x=320 1x scale produces zero pixels (822,855)",
+        check("G4.XY-06", "x=320 1x scale produces zero pixels (sprites.vhd:822,855)",
               !any);
     }
 
@@ -1366,7 +1366,7 @@ static void group4() {
             }
         }
         check("G4.XY-07",
-              "2x scale from x=300 draws 300..319 (919-927)",
+              "2x scale from x=300 draws 300..319 (sprites.vhd:919-927)",
               first_hit == 300 && last_hit == 319,
               DETAIL("first=%d last=%d", first_hit, last_hit));
     }
@@ -1423,7 +1423,7 @@ static void group5() {
         set4(spr, 0, 0, 0, 0x00, 0x80);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G5.VIS-01", "visible + on-scanline renders (842,917)",
+        check("G5.VIS-01", "visible + on-scanline renders (sprites.vhd:842,917)",
               pixel_index(line, 0) == 0x11);
     }
 
@@ -1434,7 +1434,7 @@ static void group5() {
         set4(spr, 0, 0, 0, 0x00, 0x00); // visible bit clear
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G5.VIS-02", "attr3(7)=0 -> sprite skipped (842,848)",
+        check("G5.VIS-02", "attr3(7)=0 -> sprite skipped (sprites.vhd:842,848)",
               line[0] == SENTINEL);                 // logical x=0 -> line[0]
     }
 
@@ -1445,7 +1445,7 @@ static void group5() {
         set4(spr, 0, 0, 50, 0x00, 0x80);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 80, pal); // y=80 above sprite y=50+16
-        check("G5.VIS-03", "Scanline outside sprite Y -> skipped (842,918)",
+        check("G5.VIS-03", "Scanline outside sprite Y -> skipped (sprites.vhd:842,918)",
               line[0] == SENTINEL);                 // logical x=0 -> line[0]
     }
 
@@ -1458,7 +1458,7 @@ static void group5() {
         spr.render_scanline(line, 0, pal);
         bool any = false;
         for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) any = true;
-        check("G5.VIS-04", "x=320, 1x scale -> zero pixels (822,855)", !any);
+        check("G5.VIS-04", "x=320, 1x scale -> zero pixels (sprites.vhd:822,855)", !any);
     }
 
     // G5.VIS-05 — invisible anchor propagates to its relative.
@@ -1481,7 +1481,7 @@ static void group5() {
         bool any = false;
         for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) any = true;
         check("G5.VIS-05",
-              "Invisible anchor -> relative child invisible (917,784)",
+              "Invisible anchor -> relative child invisible (sprites.vhd:917,784)",
               !any);
     }
 }
@@ -1502,7 +1502,7 @@ static void group6() {
         set4(spr, 0, 50, 50, 0x00, 0x80);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
-        check("G6.CL-01", "Reset clip defaults pass (50,50) pixel (1055-1060)",
+        check("G6.CL-01", "Reset clip defaults pass (50,50) pixel (sprites.vhd:1055-1060)",
               pixel_index(line, 50) == 0x10);
     }
 
@@ -1523,7 +1523,7 @@ static void group6() {
         spr.render_scanline(line, 50, pal);
         // cols [32..62] must be clipped; col 63 (=0x3F) is x_s, first drawn.
         check("G6.CL-02",
-              "clip_x1=0x1F -> x_s=0x3F; cols <0x3F clipped (1055)",
+              "clip_x1=0x1F -> x_s=0x3F; cols <0x3F clipped (sprites.vhd:1055)",
               pixel_index(line, 62) == -1 && pixel_index(line, 63) == 0x20,
               DETAIL("62=%d 63=%d",
                      pixel_index(line, 62), pixel_index(line, 63)));
@@ -1548,7 +1548,7 @@ static void group6() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
         check("G6.CL-03",
-              "clip_x2=0x3F -> x_e=0x5F; cols >0x5F clipped (1056)",
+              "clip_x2=0x3F -> x_e=0x5F; cols >0x5F clipped (sprites.vhd:1056)",
               pixel_index(line, 0x5F) == 0x30 && pixel_index(line, 0x60) == -1,
               DETAIL("5F=%d 60=%d",
                      pixel_index(line, 0x5F), pixel_index(line, 0x60)));
@@ -1563,7 +1563,7 @@ static void group6() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 200, pal);
         check("G6.CL-04",
-              "over_border=1 draws at y=200 (1044-1048)",
+              "over_border=1 draws at y=200 (sprites.vhd:1044-1048)",
               pixel_index(line, 0) == 0x40);
     }
 
@@ -1600,7 +1600,7 @@ static void group6() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
         check("G6.CL-06",
-              "Pixel at col 10 outside clip (x_s>10) suppressed (1067)",
+              "Pixel at col 10 outside clip (x_s>10) suppressed (sprites.vhd:1067)",
               // G104 Phase 5: logical x=10 -> line[20].
               line[10 * 2] == SENTINEL);
     }
@@ -1612,7 +1612,7 @@ static void group6() {
         set4(spr, 0, 100, 50, 0x00, 0x80);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
-        check("G6.CL-07", "Pixel inside clip emitted (1067)",
+        check("G6.CL-07", "Pixel inside clip emitted (sprites.vhd:1067)",
               pixel_index(line, 100) == 0x70);
     }
 }
@@ -1637,7 +1637,7 @@ static void group7() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G7.PR-01",
-              "zero_on_top=0: higher-index sprite wins overlap (972)",
+              "zero_on_top=0: higher-index sprite wins overlap (sprites.vhd:972)",
               pixel_index(line, 50) == 0xB2,
               DETAIL("50=%d", pixel_index(line, 50)));
     }
@@ -1653,7 +1653,7 @@ static void group7() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G7.PR-02",
-              "zero_on_top=1: lower-index sprite wins overlap (972)",
+              "zero_on_top=1: lower-index sprite wins overlap (sprites.vhd:972)",
               pixel_index(line, 50) == 0xA1,
               DETAIL("50=%d", pixel_index(line, 50)));
     }
@@ -1673,7 +1673,7 @@ static void group7() {
         spr.render_scanline(l1, 1, pal);
         // No overlap across lines, collision must be clean.
         check("G7.PR-03",
-              "Line buffer occupancy does not leak between scanlines (1023-1033)",
+              "Line buffer occupancy does not leak between scanlines (sprites.vhd:1023-1033)",
               (spr.read_status() & 0x01) == 0 &&
               pixel_index(l0, 50) == 0x77 && pixel_index(l1, 50) == 0x77);
     }
@@ -1690,7 +1690,7 @@ static void group7() {
         spr.read_status();
         spr.render_scanline(line, 0, pal);
         check("G7.PR-04",
-              "Collision bit set irrespective of zero_on_top (991)",
+              "Collision bit set irrespective of zero_on_top (sprites.vhd:991)",
               (spr.read_status() & 0x01) != 0);
     }
 }
@@ -1860,7 +1860,7 @@ static void group10() {
         bool ok = true;
         for (int c = 0; c < 16 && ok; ++c)
             if (pixel_index(line, c) != c + 1) ok = false;
-        check("G10.SC-01", "1x X: 16 px, col i -> byte i+1 (907-908)", ok);
+        check("G10.SC-01", "1x X: 16 px, col i -> byte i+1 (sprites.vhd:907-908)", ok);
     }
 
     // G10.SC-02 — 2x X: 32 px wide, each byte repeated 2x.
@@ -1873,7 +1873,7 @@ static void group10() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G10.SC-02",
-              "2x X: cols 0-1 byte 1; cols 2-3 byte 2; last col 31 byte 16 (909)",
+              "2x X: cols 0-1 byte 1; cols 2-3 byte 2; last col 31 byte 16 (sprites.vhd:909)",
               pixel_index(line, 0) == 1 && pixel_index(line, 1) == 1 &&
               pixel_index(line, 2) == 2 && pixel_index(line, 31) == 16);
     }
@@ -1887,7 +1887,7 @@ static void group10() {
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x10); // xs=10
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G10.SC-03", "4x X: 64 px, byte 1 repeats in 0..3 (911)",
+        check("G10.SC-03", "4x X: 64 px, byte 1 repeats in 0..3 (sprites.vhd:911)",
               pixel_index(line, 0) == 1 && pixel_index(line, 3) == 1 &&
               pixel_index(line, 4) == 2 && pixel_index(line, 63) == 16);
     }
@@ -1901,7 +1901,7 @@ static void group10() {
         set5(spr, 0, 0, 0, 0x00, 0x80, 0x18); // xs=11
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G10.SC-04", "8x X: 128 px, byte 1 in 0..7 (913)",
+        check("G10.SC-04", "8x X: 128 px, byte 1 in 0..7 (sprites.vhd:913)",
               pixel_index(line, 0) == 1 && pixel_index(line, 7) == 1 &&
               pixel_index(line, 8) == 2 && pixel_index(line, 127) == 16);
     }
@@ -1919,7 +1919,7 @@ static void group10() {
         uint32_t l1[kSpritesTestBufW]; clear_line(l1);
         spr.render_scanline(l0, 0, pal);
         spr.render_scanline(l1, 1, pal);
-        check("G10.SC-05", "Y 2x: lines 0,1 both show row 0 (808)",
+        check("G10.SC-05", "Y 2x: lines 0,1 both show row 0 (sprites.vhd:808)",
               pixel_index(l0, 0) == 1 && pixel_index(l1, 0) == 1);
     }
 
@@ -1938,7 +1938,7 @@ static void group10() {
         spr.render_scanline(l0, 0, pal);
         spr.render_scanline(l3, 3, pal);
         spr.render_scanline(l4, 4, pal);
-        check("G10.SC-06", "Y 4x: rows repeat 4x (809)",
+        check("G10.SC-06", "Y 4x: rows repeat 4x (sprites.vhd:809)",
               pixel_index(l0, 0) == 1 && pixel_index(l3, 0) == 1 &&
               pixel_index(l4, 0) == 2);
     }
@@ -1958,7 +1958,7 @@ static void group10() {
         spr.render_scanline(l0, 0, pal);
         spr.render_scanline(l7, 7, pal);
         spr.render_scanline(l8, 8, pal);
-        check("G10.SC-07", "Y 8x: rows repeat 8x (810)",
+        check("G10.SC-07", "Y 8x: rows repeat 8x (sprites.vhd:810)",
               pixel_index(l0, 0) == 1 && pixel_index(l7, 0) == 1 &&
               pixel_index(l8, 0) == 2);
     }
@@ -1975,7 +1975,7 @@ static void group10() {
         spr.render_scanline(line, 0, pal);
         // sprite width must be 16; col 16 must be SENTINEL.
         check("G10.SC-08",
-              "attr3(6)=0 forces 1x scale regardless of attr4 (907,919)",
+              "attr3(6)=0 forces 1x scale regardless of attr4 (sprites.vhd:907,919)",
               pixel_index(line, 15) != -1 && pixel_index(line, 16) == -1);
     }
 
@@ -1991,7 +1991,7 @@ static void group10() {
         spr.render_scanline(l0, 0, pal);
         spr.render_scanline(l31, 31, pal);
         spr.render_scanline(l32, 32, pal);
-        check("G10.SC-09", "4x by 2x covers 64x32 rectangle (807-915)",
+        check("G10.SC-09", "4x by 2x covers 64x32 rectangle (sprites.vhd:807-810,907-915)",
               pixel_index(l0, 63) == 0x77 && pixel_index(l31, 63) == 0x77 &&
               pixel_index(l32, 0) == -1);
     }
@@ -2006,7 +2006,7 @@ static void group10() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G10.SC-10",
-              "2x scale from x=300 stops at x=319 (921)",
+              "2x scale from x=300 stops at x=319 (sprites.vhd:921)",
               pixel_index(line, 319) == 0x88);
     }
 }
@@ -2032,7 +2032,7 @@ static void group11() {
         spr.render_scanline(line, 200, pal);
         bool none = true;
         for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
-        check("G11.OB-01", "over_border=0, y=200 -> not emitted (1055-1067)", none);
+        check("G11.OB-01", "over_border=0, y=200 -> not emitted (sprites.vhd:1055-1067)", none);
     }
 
     // G11.OB-02 — over_border=1, clip_en=0: emitted at y=200.
@@ -2043,7 +2043,7 @@ static void group11() {
         set4(spr, 0, 0, 200, 0x00, 0x80);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 200, pal);
-        check("G11.OB-02", "over_border=1 -> sprite at y=200 emitted (1044-1048)",
+        check("G11.OB-02", "over_border=1 -> sprite at y=200 emitted (sprites.vhd:1044-1048)",
               pixel_index(line, 0) == 0x20);
     }
 
@@ -2089,7 +2089,7 @@ static void group11() {
         spr.render_scanline(line, 223, pal);
         bool none = true;
         for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
-        check("G11.OB-04", "over_border=0: y>=224 suppressed (1067)", none);
+        check("G11.OB-04", "over_border=0: y>=224 suppressed (sprites.vhd:1067)", none);
     }
 }
 
@@ -2111,7 +2111,7 @@ static void group12() {
         set5(spr, 1, 10, 5, 0x00, 0x80, 0x40);  // relative type 0 (attr4(7:6)=01)
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 55, pal);    // 50+5 = row 5
-        check("G12.AN-01", "Anchor latches (x,y); relative draws at anchor+off (929-936,760-773)",
+        check("G12.AN-01", "Anchor latches (x,y); relative draws at anchor+off (sprites.vhd:929-936,760-773)",
               pixel_index(line, 60) == 0xA0,
               DETAIL("60=%d", pixel_index(line, 60)));
     }
@@ -2128,7 +2128,7 @@ static void group12() {
         // rel offset 5 * 2 (xscale) = 10. Rel draws at x=10 (2x width).
         // Anchor itself draws cols 0..15.
         check("G12.AN-02",
-              "Type1 anchor inherits xscale to relative (937-942)",
+              "Type1 anchor inherits xscale to relative (sprites.vhd:937-942)",
               pixel_index(line, 10) == 0xA2 && pixel_index(line, 25) == 0xA2,
               DETAIL("10=%d 25=%d",
                      pixel_index(line, 10), pixel_index(line, 25)));
@@ -2148,7 +2148,7 @@ static void group12() {
         // At col 20 only rel writes (anchor ends at col 31, overlap covers it).
         // At col 25 only anchor writes.
         check("G12.AN-03",
-              "Type0 anchor does not inherit scale (943-948)",
+              "Type0 anchor does not inherit scale (sprites.vhd:943-948)",
               pixel_index(line, 25) == 0xA3);
     }
 
@@ -2162,7 +2162,7 @@ static void group12() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 55, pal);     // anchor y=50, offset 5
         check("G12.AN-04",
-              "4-byte sprite does not overwrite anchor state (929)",
+              "4-byte sprite does not overwrite anchor state (sprites.vhd:929)",
               pixel_index(line, 55) == 0xA4,
               DETAIL("55=%d", pixel_index(line, 55)));
     }
@@ -2189,7 +2189,7 @@ static void group12() {
         spr.render_scanline(line, 50, pal);
         bool none = true;
         for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
-        check("G12.AN-05", "anchor_vis=0 -> relatives invisible (932,784)", none);
+        check("G12.AN-05", "anchor_vis=0 -> relatives invisible (sprites.vhd:932,784)", none);
     }
 
     // G12.RE-01 — relative with no transforms draws at anchor + (attr0,attr1).
@@ -2200,7 +2200,7 @@ static void group12() {
         set5(spr, 1, 10, 5, 0x00, 0x80, 0x40);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 105, pal);
-        check("G12.RE-01", "Relative at anchor+(10,5) (760-773)",
+        check("G12.RE-01", "Relative at anchor+(10,5) (sprites.vhd:760-773)",
               pixel_index(line, 110) == 0xB1);
     }
 
@@ -2225,7 +2225,7 @@ static void group12() {
         spr.render_scanline(line, 100, pal);
         bool none = true;
         for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
-        check("G12.RE-02", "Invisible anchor propagates to relative (784)", none);
+        check("G12.RE-02", "Invisible anchor propagates to relative (sprites.vhd:784)", none);
     }
 
     // G12.RE-03 — relative palette direct when attr2(0)=0.
@@ -2242,7 +2242,7 @@ static void group12() {
         spr.render_scanline(line, 0, pal);
         // pattern byte 0x12, paloff 5 -> ((0x1+5)<<4)|0x2 = 0x62.
         check("G12.RE-03",
-              "Rel attr2(0)=0 -> direct paloff (775)",
+              "Rel attr2(0)=0 -> direct paloff (sprites.vhd:775)",
               pixel_index(line, 20) == 0x62,
               DETAIL("20=%d", pixel_index(line, 20)));
     }
@@ -2260,7 +2260,7 @@ static void group12() {
         spr.render_scanline(line, 0, pal);
         // pattern byte 0x10, effective paloff 5 -> ((0x1+5)<<4)|0x0 = 0x60.
         check("G12.RE-04",
-              "Rel attr2(0)=1 -> anchor+rel paloff (775)",
+              "Rel attr2(0)=1 -> anchor+rel paloff (sprites.vhd:775)",
               pixel_index(line, 20) == 0x60,
               DETAIL("20=%d", pixel_index(line, 20)));
     }
@@ -2276,7 +2276,7 @@ static void group12() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 110, pal);     // 100+10
         check("G12.RE-05",
-              "Anchor rotate swaps rel offset axes (760-761)",
+              "Anchor rotate swaps rel offset axes (sprites.vhd:760-761)",
               pixel_index(line, 104) == 0xB5,
               DETAIL("104=%d", pixel_index(line, 104)));
     }
@@ -2308,7 +2308,7 @@ static void group12() {
         // Expected y = 100 - 4 = 96.
         spr.render_scanline(line, 96, pal);
         check("G12.RE-07",
-              "Anchor ymirror negates rel Y offset (763)",
+              "Anchor ymirror negates rel Y offset (sprites.vhd:763)",
               pixel_index(line, 100) == 0xB7);
     }
 
@@ -2322,7 +2322,7 @@ static void group12() {
         spr.render_scanline(line, 100, pal);
         // 100 + (5 << 1) = 110.
         check("G12.RE-08",
-              "Anchor xscale=01 doubles rel X (764-765)",
+              "Anchor xscale=01 doubles rel X (sprites.vhd:764-765)",
               pixel_index(line, 110) == 0xB8);
     }
 
@@ -2336,7 +2336,7 @@ static void group12() {
         // 100 + 3*4 = 112
         spr.render_scanline(line, 112, pal);
         check("G12.RE-09",
-              "Anchor yscale=10 quadruples rel Y (770)",
+              "Anchor yscale=10 quadruples rel Y (sprites.vhd:770)",
               pixel_index(line, 0) == 0xB9);
     }
 
@@ -2349,7 +2349,7 @@ static void group12() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 100, pal);
         check("G12.RE-10",
-              "Anchor xscale=11 x8 rel X offset (767)",
+              "Anchor xscale=11 x8 rel X offset (sprites.vhd:767)",
               pixel_index(line, 116) == 0xBA,
               DETAIL("116=%d", pixel_index(line, 116)));
     }
@@ -2369,7 +2369,7 @@ static void group12() {
         spr.render_scanline(line, 0, pal);
         // Rel x=50..65 with x-mirror -> col 50 reads byte 16, col 65 byte 1.
         check("G12.RT-01",
-              "Type0 rel uses own xmirror flag (782-783)",
+              "Type0 rel uses own xmirror flag (sprites.vhd:782-783)",
               pixel_index(line, 50) == 16 && pixel_index(line, 65) == 1);
     }
 
@@ -2390,7 +2390,7 @@ static void group12() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G12.RT-02",
-              "Type1 rel xmirror = anchor XOR rel (783)",
+              "Type1 rel xmirror = anchor XOR rel (sprites.vhd:783)",
               pixel_index(line, 50) == 1 && pixel_index(line, 65) == 16,
               DETAIL("50=%d 65=%d",
                      pixel_index(line, 50), pixel_index(line, 65)));
@@ -2415,7 +2415,7 @@ static void group12() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G12.RT-03",
-              "Type1 rel rotate = anchor XOR rel (783)",
+              "Type1 rel rotate = anchor XOR rel (sprites.vhd:783)",
               pixel_index(line, 50) == 241 && pixel_index(line, 65) == 1,
               DETAIL("50=%d 65=%d",
                      pixel_index(line, 50), pixel_index(line, 65)));
@@ -2436,7 +2436,7 @@ static void group12() {
         spr.render_scanline(line, 0, pal);
         // Rel 4x wide -> cols 100..163; sample col 160.
         check("G12.RT-04",
-              "Type1 rel inherits anchor xscale (786)",
+              "Type1 rel inherits anchor xscale (sprites.vhd:786)",
               pixel_index(line, 160) == 0xC4,
               DETAIL("160=%d", pixel_index(line, 160)));
     }
@@ -2450,7 +2450,7 @@ static void group12() {
         set5(spr, 1, 50, 0, 0x00, 0x85, 0x40); // rel pattern 5, add=0
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G12.RP-01", "Rel pattern 5 (no add) -> renders pattern 5 (803-804)",
+        check("G12.RP-01", "Rel pattern 5 (no add) -> renders pattern 5 (sprites.vhd:803-804)",
               pixel_index(line, 50) == 0xD5);
     }
 
@@ -2463,7 +2463,7 @@ static void group12() {
         set5(spr, 1, 50, 0, 0x00, 0x85, 0x41);  // rel pattern 5, attr4(0)=1 (add)
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G12.RP-02", "Rel attr4(0)=1 -> anchor_pattern+rel_pattern (803)",
+        check("G12.RP-02", "Rel attr4(0)=1 -> anchor_pattern+rel_pattern (sprites.vhd:803)",
               pixel_index(line, 50) == 0xE8,
               DETAIL("50=%d", pixel_index(line, 50)));
     }
@@ -2588,7 +2588,7 @@ static void group12() {
         set5(spr, 2, 0, 0, 0x00, 0x80, 0x40);     // rel at anchor1 +(0,0) = (50,50)
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 50, pal);
-        check("G12.NG-02", "Second anchor replaces first (929)",
+        check("G12.NG-02", "Second anchor replaces first (sprites.vhd:929)",
               pixel_index(line, 50) == 0xF2);
     }
 
@@ -2603,7 +2603,7 @@ static void group12() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 100, pal);
         check("G12.NG-03",
-              "4-byte sprite between anchor and rel preserves anchor (929)",
+              "4-byte sprite between anchor and rel preserves anchor (sprites.vhd:929)",
               pixel_index(line, 110) == 0xF3);
     }
 }
@@ -2627,7 +2627,7 @@ static void group13() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.read_status();
         spr.render_scanline(line, 0, pal);
-        check("G13.CO-01", "Non-overlap: collision bit 0 (991)",
+        check("G13.CO-01", "Non-overlap: collision bit 0 (sprites.vhd:991)",
               (spr.read_status() & 0x01) == 0);
     }
 
@@ -2641,7 +2641,7 @@ static void group13() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.read_status();
         spr.render_scanline(line, 0, pal);
-        check("G13.CO-02", "Overlap sets collision bit (991)",
+        check("G13.CO-02", "Overlap sets collision bit (sprites.vhd:991)",
               (spr.read_status() & 0x01) == 1);
     }
 
@@ -2657,7 +2657,7 @@ static void group13() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G13.CO-03",
-              "Collision fires even with zero_on_top=1 (991)",
+              "Collision fires even with zero_on_top=1 (sprites.vhd:991)",
               (spr.read_status() & 0x01) == 1);
     }
 
@@ -2673,7 +2673,7 @@ static void group13() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G13.CO-04",
-              "Transparent sprite's pixels do not collide (971,991)",
+              "Transparent sprite's pixels do not collide (sprites.vhd:971,991)",
               (spr.read_status() & 0x01) == 0);
     }
 
@@ -2688,7 +2688,7 @@ static void group13() {
         spr.render_scanline(line, 0, pal);
         uint8_t first = spr.read_status();
         uint8_t second = spr.read_status();
-        check("G13.CO-05", "Read clears status (986-988)",
+        check("G13.CO-05", "Read clears status (sprites.vhd:986-988)",
               (first & 0x01) == 1 && second == 0,
               DETAIL("first=%02X second=%02X", first, second));
     }
@@ -2708,7 +2708,7 @@ static void group13() {
         uint32_t l2[kSpritesTestBufW]; clear_line(l2);
         spr.render_scanline(l2, 0, pal);
         check("G13.CO-06",
-              "Collision sticky until read (986-991)",
+              "Collision sticky until read (sprites.vhd:986-991)",
               (spr.read_status() & 0x01) == 1);
     }
 
@@ -2721,7 +2721,7 @@ static void group13() {
         spr.read_status();
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G13.OT-01", "Few sprites: overtime bit 0 (977)",
+        check("G13.OT-01", "Few sprites: overtime bit 0 (sprites.vhd:977)",
               (spr.read_status() & 0x02) == 0);
     }
 
@@ -2761,7 +2761,7 @@ static void group13() {
         spr.render_scanline(line, 0, pal);
         uint8_t s = spr.read_status();
         check("G13.OT-03",
-              "Overtime fires without collision (977 independent of 991)",
+              "Overtime fires without collision (sprites.vhd:977 independent of :991)",
               (s & 0x02) == 0x02 && (s & 0x01) == 0x00,
               DETAIL("status=0x%02X", s));
     }
@@ -2795,7 +2795,7 @@ static void group13() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         uint8_t s = spr.read_status();
-        check("G13.SR-01", "Status bits 7:2 are zero (975-995)",
+        check("G13.SR-01", "Status bits 7:2 are zero (sprites.vhd:975-995)",
               (s & 0xFC) == 0,
               DETAIL("status=%02X", s));
     }
@@ -2812,7 +2812,7 @@ static void group13() {
         spr.render_scanline(line, 0, pal);
         uint8_t s1 = spr.read_status();
         uint8_t s2 = spr.read_status();
-        check("G13.SR-02", "Read captures then clears (986-988)",
+        check("G13.SR-02", "Read captures then clears (sprites.vhd:986-988)",
               s1 != 0 && s2 == 0);
     }
 
@@ -2828,7 +2828,7 @@ static void group13() {
         uint32_t l2[kSpritesTestBufW]; clear_line(l2);
         spr.render_scanline(l1, 0, pal);
         spr.render_scanline(l2, 1, pal);
-        check("G13.SR-03", "Repeated collisions keep bit set until read (991)",
+        check("G13.SR-03", "Repeated collisions keep bit set until read (sprites.vhd:991)",
               (spr.read_status() & 0x01) == 1);
     }
 }
@@ -2857,7 +2857,7 @@ static void group14() {
         // Power-on anchor.visible = false -> relative must be invisible.
         bool none = true;
         for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
-        check("G14.RST-01", "anchor_vis=0 at reset -> first rel invisible (888,784)",
+        check("G14.RST-01", "anchor_vis=0 at reset -> first rel invisible (sprites.vhd:888,784)",
               none);
     }
 
@@ -2869,14 +2869,14 @@ static void group14() {
         set4(spr, 0, 0, 0, 0x00, 0x80);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G14.RST-02", "spr_cur_index resets to 0 (876,898)",
+        check("G14.RST-02", "spr_cur_index resets to 0 (sprites.vhd:876,898)",
               pixel_index(line, 0) == 0x22);
     }
 
     // G14.RST-03 — status reg zero after reset.
     {
         fresh(spr, pal);
-        check("G14.RST-03", "status register zero after reset (982-984)",
+        check("G14.RST-03", "status register zero after reset (sprites.vhd:982-984)",
               spr.read_status() == 0);
     }
 
@@ -2886,7 +2886,7 @@ static void group14() {
         fresh(spr, pal);
         spr.write_attribute(0xAB);
         check("G14.RST-04",
-              "mirror_sprite_q (attr_slot) zero after reset (598-599,614)",
+              "mirror_sprite_q (attr_slot) zero after reset (sprites.vhd:598-599,614)",
               spr.read_attr_byte(0, 0) == 0xAB);
     }
 
@@ -2899,7 +2899,7 @@ static void group14() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G14.RST-05",
-              "Line buffer usable immediately after reset (534-550)",
+              "Line buffer usable immediately after reset (sprites.vhd:534-550)",
               pixel_index(line, 0) == 0x33);
     }
 
@@ -2928,7 +2928,7 @@ static void group14() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         check("G14.RST-06",
-              "attr_index/pattern_index zero after reset (651-652,731-732)",
+              "attr_index/pattern_index zero after reset (sprites.vhd:651-652,731-732)",
               spr.read_attr_byte(0, 0) == 0x10 &&
               pixel_index(line, 0x10) == 0x5A,
               DETAIL("col16=%d", pixel_index(line, 0x10)));
@@ -2958,7 +2958,7 @@ static void group15() {
         set5(spr, 0, 0, 0, 0x00, 0xC1, 0x00);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G15.NG-01", "attr3(5:0) is 6 bits; pattern 1 reachable, 65 not (804)",
+        check("G15.NG-01", "attr3(5:0) is 6 bits; pattern 1 reachable, 65 not (sprites.vhd:804)",
               pixel_index(line, 0) == 0x11);
     }
 
@@ -2972,7 +2972,7 @@ static void group15() {
         spr.render_scanline(line, 500 & 0xFF, pal);  // arbitrary scanline
         bool none = true;
         for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
-        check("G15.NG-02", "Off-screen sprite (500,500) writes nothing (842)",
+        check("G15.NG-02", "Off-screen sprite (500,500) writes nothing (sprites.vhd:842)",
               none);
     }
 
@@ -2983,7 +2983,7 @@ static void group15() {
         set4(spr, 0, 0, 0, 0x00, 0x80);
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
-        check("G15.NG-03", "(0,0) with no ext byte renders 1x (796,907,919)",
+        check("G15.NG-03", "(0,0) with no ext byte renders 1x (sprites.vhd:796,907,919)",
               pixel_index(line, 0) == 0x66 && pixel_index(line, 16) == -1);
     }
 
@@ -2996,7 +2996,7 @@ static void group15() {
         uint32_t line[kSpritesTestBufW]; clear_line(line);
         spr.render_scanline(line, 0, pal);
         // (0x1+0xF)&0xF = 0 -> final byte = 0x05
-        check("G15.NG-04", "paloff upper-nibble wraps mod 16 (968)",
+        check("G15.NG-04", "paloff upper-nibble wraps mod 16 (sprites.vhd:968)",
               pixel_index(line, 0) == 0x05,
               DETAIL("got=%d", pixel_index(line, 0)));
     }
@@ -3013,7 +3013,7 @@ static void group15() {
         bool none = true;
         for (int x = 0; x < 320; ++x) if (line[x * 2] != SENTINEL) none = false;
         check("G15.NG-05",
-              "All-transparent sprite: zero pixels, no collision (971)",
+              "All-transparent sprite: zero pixels, no collision (sprites.vhd:971)",
               none && (spr.read_status() & 0x03) == 0);
     }
 

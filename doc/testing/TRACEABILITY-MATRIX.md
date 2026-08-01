@@ -790,48 +790,48 @@ Notes and rationale: [SPRITES-TEST-PLAN-DESIGN.md](SPRITES-TEST-PLAN-DESIGN.md).
 | G1.AT-22 | port 0x303B write re-bases mirror_sprite_q under sprite_tie: slot in 6:0, pattern_index(7) in bit 7 (sprites.vhd:607-609,655-657) | sprites.vhd:607-609,655-657 | pass | test/sprites/sprites_test.cpp:704 |
 | G1.AT-23 | port 0x57 slot advance re-bases mirror_sprite_q under sprite_tie (bit 7 from pattern_index(7)); non-boundary writes do not (sprites.vhd:607-609,639,658-663) | sprites.vhd:607-609,639,658-663 | pass | test/sprites/sprites_test.cpp:741 |
 | G1.AT-24 | tie clear: port 0x303B / port 0x57 advance leave mirror_sprite_q alone (sprites.vhd:607-609 gate) | sprites.vhd:607-609 | pass | test/sprites/sprites_test.cpp:771 |
-| G2.PL-01 | 256-byte upload into pattern 0 observable via render (728-744) | — | pass | test/sprites/sprites_test.cpp:825 |
-| G2.PL-02 | Pattern index 63 writable and readable (728-744) | — | pass | test/sprites/sprites_test.cpp:840 |
-| G2.PL-03 | auto-increment crosses pattern 0->1 boundary (738) | — | pass | test/sprites/sprites_test.cpp:859 |
+| G2.PL-01 | 256-byte upload into pattern 0 observable via render (sprites.vhd:728-744) | sprites.vhd:728-744 | pass | test/sprites/sprites_test.cpp:825 |
+| G2.PL-02 | Pattern index 63 writable and readable (sprites.vhd:728-744) | sprites.vhd:728-744 | pass | test/sprites/sprites_test.cpp:840 |
+| G2.PL-03 | auto-increment crosses pattern 0->1 boundary (sprites.vhd:738) | sprites.vhd:738 | pass | test/sprites/sprites_test.cpp:859 |
 | G2.PL-04 | 0x303B bit7 -> half-pattern offset 128 (736) | sprites.vhd:736 | pass | test/sprites/sprites_test.cpp:881 |
-| G2.PL-05 | Pattern RAM top does not wrap to 0 (738, 14-bit mask) | — | pass | test/sprites/sprites_test.cpp:902 |
+| G2.PL-05 | Pattern RAM top does not wrap to 0, 14-bit mask (sprites.vhd:738) | sprites.vhd:738 | pass | test/sprites/sprites_test.cpp:902 |
 | G2.PL-09 | tie clear: NR 0x34 must not touch pattern_index(7) — NR 0x75 inc then reads back b7=0 and a later tie-set sync stays in the low half-pattern (sprites.vhd:728-741,603-605,733-734) | sprites.vhd:728-741,603-605,733-734 | pass | test/sprites/sprites_test.cpp:1000 |
 | G2.PL-10 | tie set: NR 0x34 re-bases pattern_index incl. bit 7 (mirror b7 → pattern_index(7)); NR 0x75 inc reads it back (sprites.vhd:733-734,603-605) | sprites.vhd:733-734,603-605 | pass | test/sprites/sprites_test.cpp:1028 |
-| G3.PX-01 | 8bpp opaque pixel 0x42 at (0,0) (968,971) | — | pass | test/sprites/sprites_test.cpp:1059 |
-| G3.PX-02 | 8bpp paloff +3 on upper nibble 0x15->0x45 (968) | — | pass | test/sprites/sprites_test.cpp:1073 |
-| G3.PX-03 | 8bpp paloff upper nibble wraps mod 16 (968) | — | pass | test/sprites/sprites_test.cpp:1087 |
-| G3.PX-04 | 4bpp even col -> upper nibble + paloff (967-968) | — | pass | test/sprites/sprites_test.cpp:1105 |
-| G3.PX-05 | 4bpp odd col -> lower nibble + paloff (967) | — | pass | test/sprites/sprites_test.cpp:1119 |
-| G3.PX-06 | 4bpp N6 selects high half of pattern bank (962-964) | — | pass | test/sprites/sprites_test.cpp:1138 |
-| G3.TR-01 | 8bpp pattern byte == transp -> not written (971) | — | pass | test/sprites/sprites_test.cpp:1152 |
-| G3.TR-02 | 4bpp transparent upper nibble; lower nibble still writes (971) | — | pass | test/sprites/sprites_test.cpp:1172 |
-| G3.TR-03 | Transparency compare is on palette index, not ARGB (971) | — | pass | test/sprites/sprites_test.cpp:1199 |
+| G3.PX-01 | 8bpp opaque pixel 0x42 at (0,0) (sprites.vhd:968,971) | sprites.vhd:968,971 | pass | test/sprites/sprites_test.cpp:1059 |
+| G3.PX-02 | 8bpp paloff +3 on upper nibble 0x15->0x45 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:1073 |
+| G3.PX-03 | 8bpp paloff upper nibble wraps mod 16 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:1087 |
+| G3.PX-04 | 4bpp even col -> upper nibble + paloff (sprites.vhd:967-968) | sprites.vhd:967-968 | pass | test/sprites/sprites_test.cpp:1105 |
+| G3.PX-05 | 4bpp odd col -> lower nibble + paloff (sprites.vhd:967) | sprites.vhd:967 | pass | test/sprites/sprites_test.cpp:1119 |
+| G3.PX-06 | 4bpp N6 selects high half of pattern bank (sprites.vhd:962-964) | sprites.vhd:962-964 | pass | test/sprites/sprites_test.cpp:1138 |
+| G3.TR-01 | 8bpp pattern byte == transp -> not written (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1152 |
+| G3.TR-02 | 4bpp transparent upper nibble; lower nibble still writes (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1172 |
+| G3.TR-03 | Transparency compare is on palette index, not ARGB (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1199 |
 | G3.TR-04 | 8bpp transparency compares pre-palette-offset byte (971,968) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:1217 |
-| G3.PA-01 | 4bpp: paloff replaces upper nibble; result 0xC5 at col 0 (968) | — | pass | test/sprites/sprites_test.cpp:1233 |
-| G3.PA-02 | opaque write marks line buffer (969) — observed as pixel set | — | pass | test/sprites/sprites_test.cpp:1249 |
-| G4.XY-01 | Sprite (0,0) fills cols 0..15 on line 0 (796-799) | — | pass | test/sprites/sprites_test.cpp:1277 |
-| G4.XY-02 | X MSB: attr2(0)=1 -> x=256+attr0 (799) | — | pass | test/sprites/sprites_test.cpp:1289 |
-| G4.XY-03 | attr3(6)=0 forces y_msb=0 regardless (796) | — | pass | test/sprites/sprites_test.cpp:1308 |
+| G3.PA-01 | 4bpp: paloff replaces upper nibble; result 0xC5 at col 0 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:1233 |
+| G3.PA-02 | opaque write marks line buffer (sprites.vhd:969) — observed as pixel set | sprites.vhd:969 | pass | test/sprites/sprites_test.cpp:1249 |
+| G4.XY-01 | Sprite (0,0) fills cols 0..15 on line 0 (sprites.vhd:796-799) | sprites.vhd:796-799 | pass | test/sprites/sprites_test.cpp:1277 |
+| G4.XY-02 | X MSB: attr2(0)=1 -> x=256+attr0 (sprites.vhd:799) | sprites.vhd:799 | pass | test/sprites/sprites_test.cpp:1289 |
+| G4.XY-03 | attr3(6)=0 forces y_msb=0 regardless (sprites.vhd:796) | sprites.vhd:796 | pass | test/sprites/sprites_test.cpp:1308 |
 | G4.XY-04 | Y MSB honored with 5th byte | — | missing | — |
-| G4.XY-05 | x=319 renders at col 319 (822,855-860) | — | pass | test/sprites/sprites_test.cpp:1329 |
-| G4.XY-06 | x=320 1x scale produces zero pixels (822,855) | — | pass | test/sprites/sprites_test.cpp:1346 |
-| G4.XY-07 | 2x scale from x=300 draws 300..319 (919-927) | — | pass | test/sprites/sprites_test.cpp:1368 |
-| G5.VIS-01 | visible + on-scanline renders (842,917) | — | pass | test/sprites/sprites_test.cpp:1426 |
-| G5.VIS-02 | attr3(7)=0 -> sprite skipped (842,848) | — | pass | test/sprites/sprites_test.cpp:1437 |
-| G5.VIS-03 | Scanline outside sprite Y -> skipped (842,918) | — | pass | test/sprites/sprites_test.cpp:1448 |
-| G5.VIS-04 | x=320, 1x scale -> zero pixels (822,855) | — | pass | test/sprites/sprites_test.cpp:1461 |
-| G5.VIS-05 | Invisible anchor -> relative child invisible (917,784) | — | pass | test/sprites/sprites_test.cpp:1483 |
-| G6.CL-01 | Reset clip defaults pass (50,50) pixel (1055-1060) | — | pass | test/sprites/sprites_test.cpp:1505 |
-| G6.CL-02 | clip_x1=0x1F -> x_s=0x3F; cols <0x3F clipped (1055) | — | pass | test/sprites/sprites_test.cpp:1525 |
-| G6.CL-03 | clip_x2=0x3F -> x_e=0x5F; cols >0x5F clipped (1056) | — | pass | test/sprites/sprites_test.cpp:1550 |
-| G6.CL-04 | over_border=1 draws at y=200 (1044-1048) | — | pass | test/sprites/sprites_test.cpp:1565 |
+| G4.XY-05 | x=319 renders at col 319 (sprites.vhd:822,855-860) | sprites.vhd:822,855-860 | pass | test/sprites/sprites_test.cpp:1329 |
+| G4.XY-06 | x=320 1x scale produces zero pixels (sprites.vhd:822,855) | sprites.vhd:822,855 | pass | test/sprites/sprites_test.cpp:1346 |
+| G4.XY-07 | 2x scale from x=300 draws 300..319 (sprites.vhd:919-927) | sprites.vhd:919-927 | pass | test/sprites/sprites_test.cpp:1368 |
+| G5.VIS-01 | visible + on-scanline renders (sprites.vhd:842,917) | sprites.vhd:842,917 | pass | test/sprites/sprites_test.cpp:1426 |
+| G5.VIS-02 | attr3(7)=0 -> sprite skipped (sprites.vhd:842,848) | sprites.vhd:842,848 | pass | test/sprites/sprites_test.cpp:1437 |
+| G5.VIS-03 | Scanline outside sprite Y -> skipped (sprites.vhd:842,918) | sprites.vhd:842,918 | pass | test/sprites/sprites_test.cpp:1448 |
+| G5.VIS-04 | x=320, 1x scale -> zero pixels (sprites.vhd:822,855) | sprites.vhd:822,855 | pass | test/sprites/sprites_test.cpp:1461 |
+| G5.VIS-05 | Invisible anchor -> relative child invisible (sprites.vhd:917,784) | sprites.vhd:917,784 | pass | test/sprites/sprites_test.cpp:1483 |
+| G6.CL-01 | Reset clip defaults pass (50,50) pixel (sprites.vhd:1055-1060) | sprites.vhd:1055-1060 | pass | test/sprites/sprites_test.cpp:1505 |
+| G6.CL-02 | clip_x1=0x1F -> x_s=0x3F; cols <0x3F clipped (sprites.vhd:1055) | sprites.vhd:1055 | pass | test/sprites/sprites_test.cpp:1525 |
+| G6.CL-03 | clip_x2=0x3F -> x_e=0x5F; cols >0x5F clipped (sprites.vhd:1056) | sprites.vhd:1056 | pass | test/sprites/sprites_test.cpp:1550 |
+| G6.CL-04 | over_border=1 draws at y=200 (sprites.vhd:1044-1048) | sprites.vhd:1044-1048 | pass | test/sprites/sprites_test.cpp:1565 |
 | G6.CL-05 | over_border clip: x1*2=0x80 -> x=0x60 fully clipped (1049-1053) | sprites.vhd:1049-1053 | pass | test/sprites/sprites_test.cpp:1586 |
-| G6.CL-06 | Pixel at col 10 outside clip (x_s>10) suppressed (1067) | — | pass | test/sprites/sprites_test.cpp:1602 |
-| G6.CL-07 | Pixel inside clip emitted (1067) | — | pass | test/sprites/sprites_test.cpp:1615 |
-| G7.PR-01 | zero_on_top=0: higher-index sprite wins overlap (972) | — | pass | test/sprites/sprites_test.cpp:1639 |
-| G7.PR-02 | zero_on_top=1: lower-index sprite wins overlap (972) | — | pass | test/sprites/sprites_test.cpp:1655 |
-| G7.PR-03 | Line buffer occupancy does not leak between scanlines (1023-1033) | — | pass | test/sprites/sprites_test.cpp:1675 |
-| G7.PR-04 | Collision bit set irrespective of zero_on_top (991) | — | pass | test/sprites/sprites_test.cpp:1692 |
+| G6.CL-06 | Pixel at col 10 outside clip (x_s>10) suppressed (sprites.vhd:1067) | sprites.vhd:1067 | pass | test/sprites/sprites_test.cpp:1602 |
+| G6.CL-07 | Pixel inside clip emitted (sprites.vhd:1067) | sprites.vhd:1067 | pass | test/sprites/sprites_test.cpp:1615 |
+| G7.PR-01 | zero_on_top=0: higher-index sprite wins overlap (sprites.vhd:972) | sprites.vhd:972 | pass | test/sprites/sprites_test.cpp:1639 |
+| G7.PR-02 | zero_on_top=1: lower-index sprite wins overlap (sprites.vhd:972) | sprites.vhd:972 | pass | test/sprites/sprites_test.cpp:1655 |
+| G7.PR-03 | Line buffer occupancy does not leak between scanlines (sprites.vhd:1023-1033) | sprites.vhd:1023-1033 | pass | test/sprites/sprites_test.cpp:1675 |
+| G7.PR-04 | Collision bit set irrespective of zero_on_top (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:1692 |
 | G9.MI-01 | Plain render: col i has pattern byte (i+1) (sprites.vhd:811-820) | sprites.vhd:811-820 | pass | test/sprites/sprites_test.cpp:1724 |
 | G9.MI-02 | X-mirror: col 0 has byte 16, col 15 has byte 1 (sprites.vhd:813,817-820) | sprites.vhd:813,817-820 | pass | test/sprites/sprites_test.cpp:1738 |
 | G9.MI-03 | Y-mirror row 0 reads pattern row 15 (sprites.vhd:811) | sprites.vhd:811 | pass | test/sprites/sprites_test.cpp:1758 |
@@ -840,70 +840,70 @@ Notes and rationale: [SPRITES-TEST-PLAN-DESIGN.md](SPRITES-TEST-PLAN-DESIGN.md).
 | G9.RO-02 | rotate=1 alone activates effective x-mirror (sprites.vhd:813) | sprites.vhd:813 | pass | test/sprites/sprites_test.cpp:1818 |
 | G9.RO-03 | Rotate + x-mirror produces delta = -16 (0x3FF0) | — | missing | — |
 | G9.RO-04 | Rotate without mirror: delta = +16 | — | missing | — |
-| G10.SC-01 | 1x X: 16 px, col i -> byte i+1 (907-908) | — | pass | test/sprites/sprites_test.cpp:1863 |
-| G10.SC-02 | 2x X: cols 0-1 byte 1; cols 2-3 byte 2; last col 31 byte 16 (909) | — | pass | test/sprites/sprites_test.cpp:1875 |
-| G10.SC-03 | 4x X: 64 px, byte 1 repeats in 0..3 (911) | — | pass | test/sprites/sprites_test.cpp:1890 |
-| G10.SC-04 | 8x X: 128 px, byte 1 in 0..7 (913) | — | pass | test/sprites/sprites_test.cpp:1904 |
-| G10.SC-05 | Y 2x: lines 0,1 both show row 0 (808) | — | pass | test/sprites/sprites_test.cpp:1922 |
-| G10.SC-06 | Y 4x: rows repeat 4x (809) | — | pass | test/sprites/sprites_test.cpp:1941 |
-| G10.SC-07 | Y 8x: rows repeat 8x (810) | — | pass | test/sprites/sprites_test.cpp:1961 |
-| G10.SC-08 | attr3(6)=0 forces 1x scale regardless of attr4 (907,919) | — | pass | test/sprites/sprites_test.cpp:1977 |
-| G10.SC-09 | 4x by 2x covers 64x32 rectangle (807-915) | — | pass | test/sprites/sprites_test.cpp:1994 |
-| G10.SC-10 | 2x scale from x=300 stops at x=319 (921) | — | pass | test/sprites/sprites_test.cpp:2008 |
-| G11.OB-01 | over_border=0, y=200 -> not emitted (1055-1067) | — | pass | test/sprites/sprites_test.cpp:2035 |
-| G11.OB-02 | over_border=1 -> sprite at y=200 emitted (1044-1048) | — | pass | test/sprites/sprites_test.cpp:2046 |
+| G10.SC-01 | 1x X: 16 px, col i -> byte i+1 (sprites.vhd:907-908) | sprites.vhd:907-908 | pass | test/sprites/sprites_test.cpp:1863 |
+| G10.SC-02 | 2x X: cols 0-1 byte 1; cols 2-3 byte 2; last col 31 byte 16 (sprites.vhd:909) | sprites.vhd:909 | pass | test/sprites/sprites_test.cpp:1875 |
+| G10.SC-03 | 4x X: 64 px, byte 1 repeats in 0..3 (sprites.vhd:911) | sprites.vhd:911 | pass | test/sprites/sprites_test.cpp:1890 |
+| G10.SC-04 | 8x X: 128 px, byte 1 in 0..7 (sprites.vhd:913) | sprites.vhd:913 | pass | test/sprites/sprites_test.cpp:1904 |
+| G10.SC-05 | Y 2x: lines 0,1 both show row 0 (sprites.vhd:808) | sprites.vhd:808 | pass | test/sprites/sprites_test.cpp:1922 |
+| G10.SC-06 | Y 4x: rows repeat 4x (sprites.vhd:809) | sprites.vhd:809 | pass | test/sprites/sprites_test.cpp:1941 |
+| G10.SC-07 | Y 8x: rows repeat 8x (sprites.vhd:810) | sprites.vhd:810 | pass | test/sprites/sprites_test.cpp:1961 |
+| G10.SC-08 | attr3(6)=0 forces 1x scale regardless of attr4 (sprites.vhd:907,919) | sprites.vhd:907,919 | pass | test/sprites/sprites_test.cpp:1977 |
+| G10.SC-09 | 4x by 2x covers 64x32 rectangle (sprites.vhd:807-810,907-915) | sprites.vhd:807-810,907-915 | pass | test/sprites/sprites_test.cpp:1994 |
+| G10.SC-10 | 2x scale from x=300 stops at x=319 (sprites.vhd:921) | sprites.vhd:921 | pass | test/sprites/sprites_test.cpp:2008 |
+| G11.OB-01 | over_border=0, y=200 -> not emitted (sprites.vhd:1055-1067) | sprites.vhd:1055-1067 | pass | test/sprites/sprites_test.cpp:2035 |
+| G11.OB-02 | over_border=1 -> sprite at y=200 emitted (sprites.vhd:1044-1048) | sprites.vhd:1044-1048 | pass | test/sprites/sprites_test.cpp:2046 |
 | G11.OB-03 | over_border=1 + border_clip_en=1 applies clip window (1049-1053) | sprites.vhd:1049-1053 | pass | test/sprites/sprites_test.cpp:2071 |
-| G11.OB-04 | over_border=0: y>=224 suppressed (1067) | — | pass | test/sprites/sprites_test.cpp:2092 |
-| G12.AN-01 | Anchor latches (x,y); relative draws at anchor+off (929-936,760-773) | — | pass | test/sprites/sprites_test.cpp:2114 |
-| G12.AN-02 | Type1 anchor inherits xscale to relative (937-942) | — | pass | test/sprites/sprites_test.cpp:2130 |
-| G12.AN-03 | Type0 anchor does not inherit scale (943-948) | — | pass | test/sprites/sprites_test.cpp:2150 |
-| G12.AN-04 | 4-byte sprite does not overwrite anchor state (929) | — | pass | test/sprites/sprites_test.cpp:2164 |
-| G12.AN-05 | anchor_vis=0 -> relatives invisible (932,784) | — | pass | test/sprites/sprites_test.cpp:2192 |
-| G12.RE-01 | Relative at anchor+(10,5) (760-773) | — | pass | test/sprites/sprites_test.cpp:2203 |
-| G12.RE-02 | Invisible anchor propagates to relative (784) | — | pass | test/sprites/sprites_test.cpp:2228 |
-| G12.RE-03 | Rel attr2(0)=0 -> direct paloff (775) | — | pass | test/sprites/sprites_test.cpp:2244 |
-| G12.RE-04 | Rel attr2(0)=1 -> anchor+rel paloff (775) | — | pass | test/sprites/sprites_test.cpp:2262 |
-| G12.RE-05 | Anchor rotate swaps rel offset axes (760-761) | — | pass | test/sprites/sprites_test.cpp:2278 |
+| G11.OB-04 | over_border=0: y>=224 suppressed (sprites.vhd:1067) | sprites.vhd:1067 | pass | test/sprites/sprites_test.cpp:2092 |
+| G12.AN-01 | Anchor latches (x,y); relative draws at anchor+off (sprites.vhd:929-936,760-773) | sprites.vhd:929-936,760-773 | pass | test/sprites/sprites_test.cpp:2114 |
+| G12.AN-02 | Type1 anchor inherits xscale to relative (sprites.vhd:937-942) | sprites.vhd:937-942 | pass | test/sprites/sprites_test.cpp:2130 |
+| G12.AN-03 | Type0 anchor does not inherit scale (sprites.vhd:943-948) | sprites.vhd:943-948 | pass | test/sprites/sprites_test.cpp:2150 |
+| G12.AN-04 | 4-byte sprite does not overwrite anchor state (sprites.vhd:929) | sprites.vhd:929 | pass | test/sprites/sprites_test.cpp:2164 |
+| G12.AN-05 | anchor_vis=0 -> relatives invisible (sprites.vhd:932,784) | sprites.vhd:932,784 | pass | test/sprites/sprites_test.cpp:2192 |
+| G12.RE-01 | Relative at anchor+(10,5) (sprites.vhd:760-773) | sprites.vhd:760-773 | pass | test/sprites/sprites_test.cpp:2203 |
+| G12.RE-02 | Invisible anchor propagates to relative (sprites.vhd:784) | sprites.vhd:784 | pass | test/sprites/sprites_test.cpp:2228 |
+| G12.RE-03 | Rel attr2(0)=0 -> direct paloff (sprites.vhd:775) | sprites.vhd:775 | pass | test/sprites/sprites_test.cpp:2244 |
+| G12.RE-04 | Rel attr2(0)=1 -> anchor+rel paloff (sprites.vhd:775) | sprites.vhd:775 | pass | test/sprites/sprites_test.cpp:2262 |
+| G12.RE-05 | Anchor rotate swaps rel offset axes (sprites.vhd:760-761) | sprites.vhd:760-761 | pass | test/sprites/sprites_test.cpp:2278 |
 | G12.RE-06 | Anchor xmirror negates rel X offset (762) | sprites.vhd:762 | pass | test/sprites/sprites_test.cpp:2295 |
-| G12.RE-07 | Anchor ymirror negates rel Y offset (763) | — | pass | test/sprites/sprites_test.cpp:2310 |
-| G12.RE-08 | Anchor xscale=01 doubles rel X (764-765) | — | pass | test/sprites/sprites_test.cpp:2324 |
-| G12.RE-09 | Anchor yscale=10 quadruples rel Y (770) | — | pass | test/sprites/sprites_test.cpp:2338 |
-| G12.RE-10 | Anchor xscale=11 x8 rel X offset (767) | — | pass | test/sprites/sprites_test.cpp:2351 |
-| G12.RT-01 | Type0 rel uses own xmirror flag (782-783) | — | pass | test/sprites/sprites_test.cpp:2371 |
-| G12.RT-02 | Type1 rel xmirror = anchor XOR rel (783) | — | pass | test/sprites/sprites_test.cpp:2392 |
-| G12.RT-03 | Type1 rel rotate = anchor XOR rel (783) | — | pass | test/sprites/sprites_test.cpp:2417 |
-| G12.RT-04 | Type1 rel inherits anchor xscale (786) | — | pass | test/sprites/sprites_test.cpp:2438 |
-| G12.RP-01 | Rel pattern 5 (no add) -> renders pattern 5 (803-804) | — | pass | test/sprites/sprites_test.cpp:2453 |
-| G12.RP-02 | Rel attr4(0)=1 -> anchor_pattern+rel_pattern (803) | — | pass | test/sprites/sprites_test.cpp:2466 |
+| G12.RE-07 | Anchor ymirror negates rel Y offset (sprites.vhd:763) | sprites.vhd:763 | pass | test/sprites/sprites_test.cpp:2310 |
+| G12.RE-08 | Anchor xscale=01 doubles rel X (sprites.vhd:764-765) | sprites.vhd:764-765 | pass | test/sprites/sprites_test.cpp:2324 |
+| G12.RE-09 | Anchor yscale=10 quadruples rel Y (sprites.vhd:770) | sprites.vhd:770 | pass | test/sprites/sprites_test.cpp:2338 |
+| G12.RE-10 | Anchor xscale=11 x8 rel X offset (sprites.vhd:767) | sprites.vhd:767 | pass | test/sprites/sprites_test.cpp:2351 |
+| G12.RT-01 | Type0 rel uses own xmirror flag (sprites.vhd:782-783) | sprites.vhd:782-783 | pass | test/sprites/sprites_test.cpp:2371 |
+| G12.RT-02 | Type1 rel xmirror = anchor XOR rel (sprites.vhd:783) | sprites.vhd:783 | pass | test/sprites/sprites_test.cpp:2392 |
+| G12.RT-03 | Type1 rel rotate = anchor XOR rel (sprites.vhd:783) | sprites.vhd:783 | pass | test/sprites/sprites_test.cpp:2417 |
+| G12.RT-04 | Type1 rel inherits anchor xscale (sprites.vhd:786) | sprites.vhd:786 | pass | test/sprites/sprites_test.cpp:2438 |
+| G12.RP-01 | Rel pattern 5 (no add) -> renders pattern 5 (sprites.vhd:803-804) | sprites.vhd:803-804 | pass | test/sprites/sprites_test.cpp:2453 |
+| G12.RP-02 | Rel attr4(0)=1 -> anchor_pattern+rel_pattern (sprites.vhd:803) | sprites.vhd:803 | pass | test/sprites/sprites_test.cpp:2466 |
 | G12.RP-03 | Rel effective N6 = anchor_h AND rel.byte4(5) (785,802) | sprites.vhd:802 | pass | test/sprites/sprites_test.cpp:2511 |
 | G12.RP-04 | 4bpp anchor -> rel renders 4bpp; 8bpp anchor -> rel 8bpp (785) | sprites.vhd:785 | pass | test/sprites/sprites_test.cpp:2554 |
 | G12.NG-01 | Rel with no prior anchor inherits anchor_vis=0 (893-897) | sprites.vhd:893-897 | pass | test/sprites/sprites_test.cpp:2577 |
-| G12.NG-02 | Second anchor replaces first (929) | — | pass | test/sprites/sprites_test.cpp:2591 |
-| G12.NG-03 | 4-byte sprite between anchor and rel preserves anchor (929) | — | pass | test/sprites/sprites_test.cpp:2605 |
-| G13.CO-01 | Non-overlap: collision bit 0 (991) | — | pass | test/sprites/sprites_test.cpp:2630 |
-| G13.CO-02 | Overlap sets collision bit (991) | — | pass | test/sprites/sprites_test.cpp:2644 |
-| G13.CO-03 | Collision fires even with zero_on_top=1 (991) | — | pass | test/sprites/sprites_test.cpp:2659 |
-| G13.CO-04 | Transparent sprite's pixels do not collide (971,991) | — | pass | test/sprites/sprites_test.cpp:2675 |
-| G13.CO-05 | Read clears status (986-988) | — | pass | test/sprites/sprites_test.cpp:2691 |
-| G13.CO-06 | Collision sticky until read (986-991) | — | pass | test/sprites/sprites_test.cpp:2710 |
-| G13.OT-01 | Few sprites: overtime bit 0 (977) | — | pass | test/sprites/sprites_test.cpp:2724 |
+| G12.NG-02 | Second anchor replaces first (sprites.vhd:929) | sprites.vhd:929 | pass | test/sprites/sprites_test.cpp:2591 |
+| G12.NG-03 | 4-byte sprite between anchor and rel preserves anchor (sprites.vhd:929) | sprites.vhd:929 | pass | test/sprites/sprites_test.cpp:2605 |
+| G13.CO-01 | Non-overlap: collision bit 0 (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2630 |
+| G13.CO-02 | Overlap sets collision bit (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2644 |
+| G13.CO-03 | Collision fires even with zero_on_top=1 (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2659 |
+| G13.CO-04 | Transparent sprite's pixels do not collide (sprites.vhd:971,991) | sprites.vhd:971,991 | pass | test/sprites/sprites_test.cpp:2675 |
+| G13.CO-05 | Read clears status (sprites.vhd:986-988) | sprites.vhd:986-988 | pass | test/sprites/sprites_test.cpp:2691 |
+| G13.CO-06 | Collision sticky until read (sprites.vhd:986-991) | sprites.vhd:986-991 | pass | test/sprites/sprites_test.cpp:2710 |
+| G13.OT-01 | Few sprites: overtime bit 0 (sprites.vhd:977) | sprites.vhd:977 | pass | test/sprites/sprites_test.cpp:2724 |
 | G13.OT-02 | 128 visible anchors -> overtime bit 1 (977) | sprites.vhd:977 | pass | test/sprites/sprites_test.cpp:2743 |
-| G13.OT-03 | Overtime fires without collision (977 independent of 991) | — | pass | test/sprites/sprites_test.cpp:2763 |
+| G13.OT-03 | Overtime fires without collision (sprites.vhd:977 independent of :991) | sprites.vhd:977 | pass | test/sprites/sprites_test.cpp:2763 |
 | G13.OT-04 | Overtime and collision both set (977,991) | sprites.vhd:990-991 | pass | test/sprites/sprites_test.cpp:2781 |
-| G13.SR-01 | Status bits 7:2 are zero (975-995) | — | pass | test/sprites/sprites_test.cpp:2798 |
-| G13.SR-02 | Read captures then clears (986-988) | — | pass | test/sprites/sprites_test.cpp:2815 |
-| G13.SR-03 | Repeated collisions keep bit set until read (991) | — | pass | test/sprites/sprites_test.cpp:2831 |
-| G14.RST-01 | anchor_vis=0 at reset -> first rel invisible (888,784) | — | pass | test/sprites/sprites_test.cpp:2860 |
-| G14.RST-02 | spr_cur_index resets to 0 (876,898) | — | pass | test/sprites/sprites_test.cpp:2872 |
-| G14.RST-03 | status register zero after reset (982-984) | — | pass | test/sprites/sprites_test.cpp:2879 |
-| G14.RST-04 | mirror_sprite_q (attr_slot) zero after reset (598-599,614) | — | pass | test/sprites/sprites_test.cpp:2888 |
-| G14.RST-05 | Line buffer usable immediately after reset (534-550) | — | pass | test/sprites/sprites_test.cpp:2901 |
-| G14.RST-06 | attr_index/pattern_index zero after reset (651-652,731-732) | — | pass | test/sprites/sprites_test.cpp:2930 |
-| G15.NG-01 | attr3(5:0) is 6 bits; pattern 1 reachable, 65 not (804) | — | pass | test/sprites/sprites_test.cpp:2961 |
-| G15.NG-02 | Off-screen sprite (500,500) writes nothing (842) | — | pass | test/sprites/sprites_test.cpp:2975 |
-| G15.NG-03 | (0,0) with no ext byte renders 1x (796,907,919) | — | pass | test/sprites/sprites_test.cpp:2986 |
-| G15.NG-04 | paloff upper-nibble wraps mod 16 (968) | — | pass | test/sprites/sprites_test.cpp:2999 |
-| G15.NG-05 | All-transparent sprite: zero pixels, no collision (971) | — | pass | test/sprites/sprites_test.cpp:3015 |
+| G13.SR-01 | Status bits 7:2 are zero (sprites.vhd:975-995) | sprites.vhd:975-995 | pass | test/sprites/sprites_test.cpp:2798 |
+| G13.SR-02 | Read captures then clears (sprites.vhd:986-988) | sprites.vhd:986-988 | pass | test/sprites/sprites_test.cpp:2815 |
+| G13.SR-03 | Repeated collisions keep bit set until read (sprites.vhd:991) | sprites.vhd:991 | pass | test/sprites/sprites_test.cpp:2831 |
+| G14.RST-01 | anchor_vis=0 at reset -> first rel invisible (sprites.vhd:888,784) | sprites.vhd:888,784 | pass | test/sprites/sprites_test.cpp:2860 |
+| G14.RST-02 | spr_cur_index resets to 0 (sprites.vhd:876,898) | sprites.vhd:876,898 | pass | test/sprites/sprites_test.cpp:2872 |
+| G14.RST-03 | status register zero after reset (sprites.vhd:982-984) | sprites.vhd:982-984 | pass | test/sprites/sprites_test.cpp:2879 |
+| G14.RST-04 | mirror_sprite_q (attr_slot) zero after reset (sprites.vhd:598-599,614) | sprites.vhd:598-599,614 | pass | test/sprites/sprites_test.cpp:2888 |
+| G14.RST-05 | Line buffer usable immediately after reset (sprites.vhd:534-550) | sprites.vhd:534-550 | pass | test/sprites/sprites_test.cpp:2901 |
+| G14.RST-06 | attr_index/pattern_index zero after reset (sprites.vhd:651-652,731-732) | sprites.vhd:651-652,731-732 | pass | test/sprites/sprites_test.cpp:2930 |
+| G15.NG-01 | attr3(5:0) is 6 bits; pattern 1 reachable, 65 not (sprites.vhd:804) | sprites.vhd:804 | pass | test/sprites/sprites_test.cpp:2961 |
+| G15.NG-02 | Off-screen sprite (500,500) writes nothing (sprites.vhd:842) | sprites.vhd:842 | pass | test/sprites/sprites_test.cpp:2975 |
+| G15.NG-03 | (0,0) with no ext byte renders 1x (sprites.vhd:796,907,919) | sprites.vhd:796,907,919 | pass | test/sprites/sprites_test.cpp:2986 |
+| G15.NG-04 | paloff upper-nibble wraps mod 16 (sprites.vhd:968) | sprites.vhd:968 | pass | test/sprites/sprites_test.cpp:2999 |
+| G15.NG-05 | All-transparent sprite: zero pixels, no collision (sprites.vhd:971) | sprites.vhd:971 | pass | test/sprites/sprites_test.cpp:3015 |
 | G15.NG-06 | Relative sprite whose computed `spr_rel_x3(8)=1` but attr3(6)=0 — **impossible** because relatives require attr3(6)=1; document as unreachable | — | missing | — |
 | G15.NG-07 | Negative rel offset wraps 9-bit, off-screen (762,772) | sprites.vhd:762 | pass | test/sprites/sprites_test.cpp:3044 |
 | G16.OVF-01 | Mid-frame attribute writes that fit in cap render correctly even when followed by an overflowing tail (>cap) | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3534 |
