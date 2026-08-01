@@ -258,14 +258,18 @@ my @SUBSYS = (
     # src/esp01/CMakeLists.txt sets RUNTIME_OUTPUT_DIRECTORY to
     # ${CMAKE_BINARY_DIR}/test for precisely that reason. SELF-70 pins it.
     #
-    # THREE `##` SECTIONS, NOT ONE PARENT WITH `###` COMPANIONS. The suites
-    # reuse row IDs across files on purpose — `TRACE-01..04` mean different
-    # things in the socket suite (what the TRANSPORT logs) and in the AT suite
-    # (what the ENGINE logs), and `HOOK-01/02` (AT) continue as `HOOK-03..06b`
-    # (adapter). Recording and the companion status fallback are both scoped to
-    # the owning `##` subsystem, so filing them as one subsystem would let one
-    # suite's `TRACE-01` vouch for the other's — the exact cross-section
-    # collision GH #118 closed. Separate sections keep each scope honest.
+    # THREE `##` SECTIONS, NOT ONE PARENT WITH `###` COMPANIONS. `HOOK-01/02`
+    # (AT) deliberately continue as `HOOK-03..06b` (adapter) — one logical
+    # sequence spanning two files. `TRACE-01..04` used to look like the same
+    # kind of deliberate split (what the TRANSPORT logs, socket suite, vs. what
+    # the ENGINE logs, AT suite), but GH #196 Phase 1.2 found that pairing was
+    # an accidental collision instead, and renamed the socket suite's rows to
+    # `SOCK-TRACE-01..04`; the AT suite's bare `TRACE-01..09` is unaffected.
+    # Recording and the companion status fallback are both scoped to the
+    # owning `##` subsystem, so filing all three suites as one subsystem would
+    # hide exactly that kind of collision from the duplicate-ID report instead
+    # of surfacing it — the cross-section blind spot GH #118 closed. Separate
+    # sections keep each scope honest.
     ['## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`',
      'esp_socket_test'],
     ['## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`', 'esp_at_test'],
@@ -3446,9 +3450,12 @@ sub main_body {
     # Unlike a description heuristic (rejected in GH #190) this is mechanically
     # certain — an ID literal either appears in two subsystems' sources or it
     # does not — which is what makes it worth printing. It is a REPORT, never a
-    # gate: some reuse is deliberate and documented (the three ESP-01 sections
-    # reuse `TRACE-*`/`HOOK-*` on purpose, see @SUBSYS), and renaming a test ID
-    # is the test author's call, not this tool's.
+    # gate: some reuse is deliberate and documented (the ESP-01 AT/adapter
+    # sections continue `HOOK-*` across files on purpose, see @SUBSYS), and
+    # some looks deliberate but isn't (`TRACE-01..04` was an accidental
+    # collision between the ESP-01 socket and AT sections, fixed by renaming
+    # the socket side to `SOCK-TRACE-*` — GH #196 Phase 1.2). Renaming a test
+    # ID is the test author's call, not this tool's.
     my $dups = duplicate_ids(\@found, \@lines);
     if (@$dups) {
         printf("\nDUPLICATE TEST IDs — one ID asserted in more than one "
