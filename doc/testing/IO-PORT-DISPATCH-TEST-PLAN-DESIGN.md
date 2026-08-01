@@ -523,17 +523,42 @@ VHDL line or libz80 symbol citation.
 
 The matrix's `## IO Port Dispatch` section carried a stray `### Extra
 coverage (not in plan)` table with 2 rows, `REG-06+07` and
-`BUS-86..89-W`, both with a blank assertion-description column. Both
-were confirmed to be stale duplicates, not genuinely uncovered
-assertions: each cites the exact same `test/port/port_test.cpp` line
-(441 and 1543 respectively) as an existing `check()` call that is
-**already** represented in the main table — `REG-06+07` twice (rows
-"AY select 0xFFFD real" / "AY data 0xBFFD real", one physical
-`check("REG-06+07", ...)` asserting both claims) and `BUS-86..89-W`
-five times (the five NR 0x86-0x89 write-through claims, one physical
-`check("BUS-86..89-W", ...)` asserting all five). This is the same
-"one `check()` call, several plan rows, same ID" convention already
-used elsewhere in this table (e.g. `NR85-03`/`NR85-03b`/`NR85-03c`).
-Both extra-coverage rows were removed as redundant duplicates rather
-than folded into the plan — folding would have double-counted
-coverage already fully accounted for by the existing main-table rows.
+`BUS-86..89-W`, both with a blank assertion-description column.
+
+**REG-06+07** (confirmed correct, unchanged): a stale duplicate, not a
+genuinely uncovered assertion — it cites the exact same
+`test/port/port_test.cpp:441` as an existing `check("REG-06+07", ...)`
+call already represented in the main table twice ("AY select 0xFFFD
+real" / "AY data 0xBFFD real"), the same "one `check()` call, several
+plan rows, same ID" convention used elsewhere in this table (e.g.
+`NR85-03`/`NR85-03b`/`NR85-03c`). Removed as a redundant duplicate
+rather than folded into the plan.
+
+**BUS-86..89-W** (corrected 2026-08-01, follow-up to an independent
+review REJECT): the initial disposition wrongly treated this row as a
+plain redundant duplicate of the main table's five `BUS-86..89-W`
+rows. The single physical `check("BUS-86..89-W", ...)` at
+`port_test.cpp:1543` writes `0x00` to NR 0x86-0x89 and reads it back —
+it proves ONLY bare register writability. It never toggles
+`expbus_eff_en` (NR 0x80 b7) and exercises no AND-gating logic at all
+(the surrounding comments at `port_test.cpp:1505-1508`/`1529-1532`/
+`1550-1568` say so explicitly — `EXPBUS-AND-01..04` are marked
+WONT/deferred to a future `--cartridge` feature). The main table had
+nonetheless cited this same line as proof of all 5 distinct claims —
+bare writability plus 4 AND-gating/enable-diff claims — 4 of which it
+does not prove. Those 4 main-table rows are now corrected to
+`Status: missing` / `Test file:line: missing`, following the
+`IORQ-01`/`CTN-01`/`CTN-02` precedent (GH #196 phase 1.1): each
+description explains what the prior claim wrongly asserted and points
+at where the AND-gating logic is genuinely implemented and tested —
+`V16-NMP-02-EXPBUS-OFF`/`-ON-MASK`/`-ON-PASS`/`-TOGGLE`,
+`V16-NMP-02-DIVMMC-MASK`, `V16-NMP-02-MF-MASK`, and
+`V16-NMP-02-NR85-NR89-B0` in `test/nextreg/nextreg_integration_test.cpp:5971-6109`.
+Those 7 IDs are themselves currently unrecorded anywhere in this
+matrix — a separate, pre-existing gap, out of scope for this fix (a
+candidate for a future phase-1.4-or-later item). The ONE remaining
+`BUS-86..89-W` row in the main table is re-described to state only the
+bare-writability fact it actually proves, and — now that it makes an
+honest claim — genuinely duplicates the extra-coverage row, so removing
+the extra-coverage row remains correct, but only after that correction,
+not on the original "all five claims already covered" reasoning.

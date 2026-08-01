@@ -3136,11 +3136,11 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | NR-RST-02     | Soft reset does NOT reload when reset_type=0                 | zxnext.vhd:5052–5057 | pass    | test/port/port_test.cpp:1496 |
 | NR-85-PK      | NR 0x85 packing: bits 4–6 read back zero                     | zxnext.vhd:5508–5509 | pass    | test/port/port_test.cpp:1470 |
 | BUS-86-01     | NR 0x86 inert when expbus_eff_en=0                           | zxnext.vhd:2392      | pass    | test/port/port_test.cpp:1523 |
-| BUS-86..89-W  | NR 0x86 gates when expbus_eff_en=1                           | zxnext.vhd:2393      | pass    | test/port/port_test.cpp:1543 |
-| BUS-86..89-W  | NR 0x86 AND with NR 0x82                                     | zxnext.vhd:2393      | pass    | test/port/port_test.cpp:1543 |
-| BUS-86..89-W  | DivMMC enable-diff detection                                 | zxnext.vhd:2413      | pass    | test/port/port_test.cpp:1543 |
-| BUS-86..89-W  | NR 0x88 AND with NR 0x84 (AY)                                | zxnext.vhd:2393      | pass    | test/port/port_test.cpp:1543 |
-| BUS-86..89-W  | NR 0x89 AND with NR 0x85 (ULA+)                              | zxnext.vhd:2393      | pass    | test/port/port_test.cpp:1543 |
+| BUS-86..89-W  | NR 0x86-0x89 register writability (bare write 0x00 / read-back only — does NOT exercise `expbus_eff_en` gating or the AND with NR 0x82-0x85; see the 4 corrected rows below) | zxnext.vhd:2392-2393 | pass    | test/port/port_test.cpp:1543 |
+| BUS-86..89-W  | NR 0x86 AND with NR 0x82 (NOT proven — `port_test.cpp:1543` only writes 0x00 to NR 0x86-0x89 and reads it back; it never toggles `expbus_eff_en` (NR 0x80 b7) or exercises the AND term; a prior claim of coverage here was wrong, corrected GH #196 phase 1.3 — real coverage is `V16-NMP-02-EXPBUS-OFF`/`-ON-MASK`/`-ON-PASS`/`-TOGGLE` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing |
+| BUS-86..89-W  | DivMMC enable-diff detection (NOT proven — same reasoning as above; real coverage is `V16-NMP-02-DIVMMC-MASK` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2413 | missing | missing |
+| BUS-86..89-W  | NR 0x88 AND with NR 0x84 (AY) (NOT proven — same reasoning as above; the shared AND-gating mechanism (`propagate_effective_port_enables`/`effective_internal_port_enable`) is proven for other register pairs by `V16-NMP-02-EXPBUS-*`/`-DIVMMC-MASK`/`-MF-MASK`/`-NR85-NR89-B0` in `nextreg_integration_test.cpp`, but no NR 0x84/0x88-specific row exists there; itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing |
+| BUS-86..89-W  | NR 0x89 AND with NR 0x85 (ULA+) (NOT proven — same reasoning as above; real coverage is `V16-NMP-02-NR85-NR89-B0` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing |
 | PR-01         | Registering an overlapping handler must fail (target contra… | zxnext.vhd:2696–2699 | pass    | test/port/port_test.cpp:1623 |
 | PR-02         | One-hot invariant over all real peripherals after `Emulator… | zxnext.vhd:2696–2699 | pass    | test/port/port_test.cpp:1650 |
 | PR-01-CUR     | **Document current-code asymmetry (guard test until PR-01 c… | zxnext.vhd:2696-2699   | pass    | test/port/port_test.cpp:1598 |
