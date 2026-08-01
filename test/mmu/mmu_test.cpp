@@ -1921,7 +1921,7 @@ void test_cat11c_machine_type_preserves_ram_slots() {
         const bool    post_ro   = f.mmu.is_slot_rom(0);
         check("MTC-01",
               "machine_type change leaves slot 0 NR-mapped to RAM "
-              "(VHDL :3813 — no port_memory_change_dly pulse)",
+              "(VHDL zxnext.vhd:3813 — no port_memory_change_dly pulse)",
               pre_page == 0x20 && !pre_ro &&
               post_page == 0x20 && !post_ro,
               fmt("pre: page=%u ro=%d / post: page=%u ro=%d "
@@ -4923,7 +4923,8 @@ void test_cat26_sram_pre_override() {
         f.fresh();
         f.mmu.set_page(0, 0x0A);
         check("MMU-PR-02",
-              "slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5)",
+              "slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5) "
+              "— VHDL zxnext.vhd:2964",
               !f.mmu.slot_in_rom_area(0),
               fmt("s0=%d", f.mmu.slot_in_rom_area(0)));
     }
@@ -4934,7 +4935,7 @@ void test_cat26_sram_pre_override() {
         f.mmu.set_page(0, 0xE0);
         check("MMU-PR-03",
               "slot_in_rom_area true at boundary NR 0x50 = 0xE0 "
-              "(VHDL :2964 boundary)",
+              "(VHDL zxnext.vhd:2964 boundary)",
               f.mmu.slot_in_rom_area(0),
               fmt("s0=%d", f.mmu.slot_in_rom_area(0)));
     }
@@ -4946,7 +4947,7 @@ void test_cat26_sram_pre_override() {
         f.mmu.set_page(0, 0xDF);
         check("MMU-PR-04",
               "slot_in_rom_area false at NR 0x50 = 0xDF (just below "
-              "VHDL :2964 boundary)",
+              "VHDL zxnext.vhd:2964 boundary)",
               !f.mmu.slot_in_rom_area(0),
               fmt("s0=%d", f.mmu.slot_in_rom_area(0)));
     }
@@ -4955,7 +4956,8 @@ void test_cat26_sram_pre_override() {
     f.fresh();
     {
         check("MMU-PR-05",
-              "pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00)",
+              "pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00) "
+              "— VHDL zxnext.vhd:3029,3065",
               !f.mmu.sram_pre_override_divmmc_eligible(0x4000, false),
               fmt("got=%d",
                   (int)f.mmu.sram_pre_override_divmmc_eligible(0x4000, false)));
@@ -4964,7 +4966,7 @@ void test_cat26_sram_pre_override() {
     // PR-06: sram_pre_override(2) blocked when MF active.
     {
         check("PR-06",
-              "pre_override(2)=0 when mf_active=1 (VHDL :3030 — MF "
+              "pre_override(2)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 — MF "
               "wins, override='000')",
               !f.mmu.sram_pre_override_divmmc_eligible(0x0000, true),
               fmt("got=%d",
@@ -4974,7 +4976,8 @@ void test_cat26_sram_pre_override() {
     // PR-07: sram_pre_override(2) high in slot 0 with no MF.
     {
         check("PR-07",
-              "pre_override(2)=1 for PC<0x4000 with mf_active=0",
+              "pre_override(2)=1 for PC<0x4000 with mf_active=0 "
+              "— VHDL zxnext.vhd:3043,3050,3057",
               f.mmu.sram_pre_override_divmmc_eligible(0x0000, false) &&
               f.mmu.sram_pre_override_divmmc_eligible(0x3FFF, false),
               fmt("PC=0x0000 got=%d, PC=0x3FFF got=%d",
@@ -4987,7 +4990,7 @@ void test_cat26_sram_pre_override() {
     {
         f.fresh();
         check("PR-08",
-              "pre_override(0)=1 in normal ROM mode (VHDL :3057 → '111')",
+              "pre_override(0)=1 in normal ROM mode (VHDL zxnext.vhd:3057 → '111')",
               f.mmu.sram_pre_override_romcs_priority(0x0000, false, false),
               fmt("got=%d",
                   (int)f.mmu.sram_pre_override_romcs_priority(0x0000, false, false)));
@@ -4998,7 +5001,7 @@ void test_cat26_sram_pre_override() {
     {
         f.fresh();
         check("PR-09",
-              "pre_override(0)=0 when config_mode=1 (VHDL :3044)",
+              "pre_override(0)=0 when config_mode=1 (VHDL zxnext.vhd:3044,3050)",
               !f.mmu.sram_pre_override_romcs_priority(0x0000, false, true),
               fmt("got=%d",
                   (int)f.mmu.sram_pre_override_romcs_priority(0x0000, false, true)));
@@ -5010,7 +5013,7 @@ void test_cat26_sram_pre_override() {
         f.fresh();
         f.mmu.set_page(0, 0x0A);             // RAM
         check("PR-10",
-              "pre_override(0)=0 for slot 0 RAM-mapped (VHDL :3037)",
+              "pre_override(0)=0 for slot 0 RAM-mapped (VHDL zxnext.vhd:3037,3043)",
               !f.mmu.sram_pre_override_romcs_priority(0x0000, false, false),
               fmt("got=%d",
                   (int)f.mmu.sram_pre_override_romcs_priority(0x0000, false, false)));
@@ -5020,7 +5023,7 @@ void test_cat26_sram_pre_override() {
     {
         f.fresh();
         check("PR-11",
-              "pre_override(0)=0 when mf_active=1 (VHDL :3030 → '000')",
+              "pre_override(0)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 → '000')",
               !f.mmu.sram_pre_override_romcs_priority(0x0000, true, false),
               fmt("got=%d",
                   (int)f.mmu.sram_pre_override_romcs_priority(0x0000, true, false)));
@@ -5030,7 +5033,7 @@ void test_cat26_sram_pre_override() {
     {
         f.fresh();
         check("PR-12",
-              "pre_override(0)=0 for PC>=0x4000",
+              "pre_override(0)=0 for PC>=0x4000 — VHDL zxnext.vhd:3065",
               !f.mmu.sram_pre_override_romcs_priority(0x4000, false, false),
               fmt("got=%d",
                   (int)f.mmu.sram_pre_override_romcs_priority(0x4000, false, false)));
@@ -5042,7 +5045,8 @@ void test_cat26_sram_pre_override() {
     {
         f.fresh();
         check("PR-13",
-              "pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF",
+              "pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF "
+              "— VHDL zxnext.vhd:3057",
               f.mmu.sram_pre_override_romcs_priority(0x2000, false, false),
               fmt("got=%d",
                   (int)f.mmu.sram_pre_override_romcs_priority(0x2000, false, false)));
@@ -5060,7 +5064,7 @@ void test_cat26_sram_pre_override() {
         const bool s1 =
             f.mmu.sram_pre_override_romcs_priority(0x2000, false, false);
         check("PR-14",
-              "pre_override(0) tracks per-slot ROM/RAM mode (VHDL :2952 "
+              "pre_override(0) tracks per-slot ROM/RAM mode (VHDL zxnext.vhd:2952 "
               "mem_active_page selects MMU0..MMU7 by cpu_a(15:13))",
               s0 && !s1,
               fmt("PC=0x0000 got=%d (exp=1), PC=0x2000 got=%d (exp=0)",
@@ -5303,7 +5307,7 @@ void test_cat27_nr8c_cache_and_high_page() {
         const uint8_t post = f.mmu.read(0x0000);
         check("FIX-NR8C-CACHE-01",
               "NR 0x8C lock_rom1 flip refreshes slot-0 cached read pointer "
-              "(pre→0x00, post→0x40) — VHDL :2981-3008 + 3052; commit 3dd4e73",
+              "(pre→0x00, post→0x40) — VHDL zxnext.vhd:2981-3008,3052; commit 3dd4e73",
               pre == 0x00 && post == 0x40,
               fmt("pre=0x%02X (exp 0x00 ROM page 0) post=0x%02X (exp 0x40 "
                   "ROM page 4 — sram_rom=2 via lock_rom1)", pre, post));
@@ -5355,7 +5359,7 @@ void test_cat27_nr8c_cache_and_high_page() {
         const uint8_t post_read = f.mmu.read(0x0000);
         check("FIX-NR8C-CACHE-02",
               "NR 0x8C write with no lock change preserves slot 0 "
-              "RAM mapping AND cached read pointer — VHDL :3813",
+              "RAM mapping AND cached read pointer — VHDL zxnext.vhd:3813",
               pre == 0x05 && !pre_ro && pre_read == 0xA9 &&
               post == 0x05 && !post_ro && post_read == 0xA9,
               fmt("pre: page=0x%02X ro=%d read=0x%02X / post: page=0x%02X "
@@ -5402,7 +5406,7 @@ void test_cat27_nr8c_cache_and_high_page() {
         const uint8_t nr_rb = f.mmu.get_page(0);  // verbatim per VHDL :4611-4612
         check("FIX-SLOT01-HIPAGE-01",
               "NR $50=0xE5 routes slot 0 to legacy ROM (sram_rom-derived) — "
-              "VHDL :2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73",
+              "VHDL zxnext.vhd:2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73",
               v == 0x33 && nr_rb == 0xE5,
               fmt("read(0x0000)=0x%02X (exp 0x33 ROM-in-SRAM page 0; "
                   "pre-fix would alias 0x77 from wrap RAM page 0x05) "
@@ -5459,7 +5463,7 @@ void test_cat27_nr8c_preserves_ram_slots() {
         const bool    ro0 = f.mmu.is_slot_rom(0);
         check("FIX-NR8C-PRESERVE-01",
               "NR 0x8C write preserves slot 0 explicit RAM mapping — "
-              "VHDL :3813 no port_memory_change_dly; commit 31d1786",
+              "VHDL zxnext.vhd:3813 no port_memory_change_dly; commit 31d1786",
               g0 == 0x05 && !ro0,
               fmt("g0=0x%02X ro0=%d (exp 0x05/0)", g0, (int)ro0));
     }
@@ -5478,7 +5482,7 @@ void test_cat27_nr8c_preserves_ram_slots() {
         const uint8_t post = f.mmu.get_page(1);
         check("FIX-NR8C-PRESERVE-02",
               "NR 0x8C with sram_rom-changing lock preserves slot 1 RAM "
-              "mapping — VHDL :3813; commit 31d1786",
+              "mapping — VHDL zxnext.vhd:3813; commit 31d1786",
               pre == 0x06 && post == 0x06,
               fmt("pre=0x%02X post=0x%02X (exp both 0x06)", pre, post));
     }
@@ -5551,7 +5555,7 @@ void test_cat27_nrmmu_save_roundtrip() {
         const uint8_t post = dst.mmu.get_page(0);
         check("FIX-NRMMU-SAVE-01",
               "nr_mmu_[0]=0xE5 verbatim round-trips through save/load — "
-              "VHDL :4686-4699 + :6075-6082 NR readback; commit 560cb18",
+              "VHDL zxnext.vhd:4686-4696 + :6059-6081 NR readback; commit 560cb18",
               pre == 0xE5 && post == 0xE5,
               fmt("pre=0x%02X post=0x%02X (exp both 0xE5; pre-fix post=0xFF)",
                   pre, post));
@@ -5585,7 +5589,7 @@ void test_cat27_nr12_propagation() {
         const uint8_t r_bank16 = f.mmu.read(0x0000);
         check("FIX-NR12-PROP-01",
               "Mmu::set_l2_active_bank propagates to CPU L2 read path — "
-              "VHDL :2968 + :2969 layer2_active_page; commit 560cb18",
+              "VHDL zxnext.vhd:2968 + :2969 layer2_active_page; commit 560cb18",
               r_bank8 == 0xAA && r_bank16 == 0xBB,
               fmt("bank8 read=0x%02X (exp 0xAA) bank16 read=0x%02X (exp 0xBB)",
                   r_bank8, r_bank16));
@@ -5616,7 +5620,7 @@ void test_cat27_reset_bootrom_config_mode_gate() {
         const bool boot_en_after_reset_cfg0 = f.mmu.boot_rom_enabled();
         check("FIX-RESET-CFG-01-A",
               "reset with config_mode=0 leaves boot_rom_en cleared — "
-              "VHDL :5109-5111; commit 165835d",
+              "VHDL zxnext.vhd:5109-5111; commit 165835d",
               !boot_en_after_reset_cfg0,
               fmt("boot_rom_enabled() after reset(cfg=0) = %d (exp 0)",
                   (int)boot_en_after_reset_cfg0));
@@ -5634,7 +5638,7 @@ void test_cat27_reset_bootrom_config_mode_gate() {
         const bool boot_en_after_reset_cfg1 = f.mmu.boot_rom_enabled();
         check("FIX-RESET-CFG-01-B",
               "reset with config_mode=1 re-arms boot_rom_en — "
-              "VHDL :5109-5111; commit 165835d",
+              "VHDL zxnext.vhd:5109-5111; commit 165835d",
               boot_en_after_reset_cfg1,
               fmt("boot_rom_enabled() after reset(cfg=1) = %d (exp 1)",
                   (int)boot_en_after_reset_cfg1));
@@ -5667,7 +5671,7 @@ void test_cat27_machine_type_during_special() {
         const bool ro0_post = f.mmu.is_slot_rom(0);
         check("FIX-MTC-SPECIAL-01",
               "set_machine_type during +3 special preserves special-mapping "
-              "slots 0/1 — VHDL :4623-4632 (table independent of sram_rom); "
+              "slots 0/1 — VHDL zxnext.vhd:4623-4632 (table independent of sram_rom); "
               "commit 165835d",
               s0_pre == 0x08 && s1_pre == 0x09 && !ro0_pre &&
               s0_post == 0x08 && s1_post == 0x09 && !ro0_post,
@@ -5697,7 +5701,7 @@ void test_cat27_currentsramrom_128k_altrom_lock() {
         const uint8_t v = f.mmu.current_sram_rom();
         check("FIX-CURRSRAMROM-128K-01",
               "128K with lock_rom1=1: sram_rom = lock_rom1 = 1 (NOT 7ffd(4)=0)"
-              " — VHDL :2997-3007 shared else branch; commit b6b42dd",
+              " — VHDL zxnext.vhd:2997-3007 shared else branch; commit b6b42dd",
               v == 1,
               fmt("current_sram_rom()=%u (exp 1)", v));
     }
@@ -5730,7 +5734,7 @@ void test_cat27_l2_overlay_lowhalf() {
         const uint8_t l2_side  = f.ram.page_ptr(0x12)[0];
         check("FIX-L2-OVERLAY-LOWHALF-01",
               "L2 write-over with seg=01 still intercepts low half (0x0000) "
-              "— VHDL :3043 sram_pre_override(1)=1; commit b6b42dd",
+              "— VHDL zxnext.vhd:3043 sram_pre_override(1)=1; commit b6b42dd",
               mmu_side != 0xCC && l2_side == 0xCC,
               fmt("MMU page 0x20[0]=0x%02X (must NOT be 0xCC); "
                   "L2 page 0x12[0]=0x%02X (must be 0xCC — bank+offset_pre=9)",
@@ -5750,7 +5754,7 @@ void test_cat27_l2_overlay_lowhalf() {
         const uint8_t l2_side  = f.ram.page_ptr(0x14)[0];
         check("FIX-L2-OVERLAY-LOWHALF-02",
               "L2 write-over with seg=10 still intercepts low half (0x0000) "
-              "— VHDL :3043; commit b6b42dd",
+              "— VHDL zxnext.vhd:3043; commit b6b42dd",
               mmu_side != 0xDD && l2_side == 0xDD,
               fmt("MMU page 0x20[0]=0x%02X (must NOT be 0xDD); "
                   "L2 page 0x14[0]=0x%02X (must be 0xDD)",
@@ -5780,7 +5784,7 @@ void test_cat27_l2_rom_area_gate() {
         const uint8_t v = f.mmu.read(0x0000);
         check("FIX-L2-ROM-AREA-01",
               "L2 read with bank=0x70 → sram_active=0 → 0xFF (NOT ROM-area "
-              "wrap) — VHDL :2971 + :3101-3102; commit 9d252b6",
+              "wrap) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6",
               v == 0xFF,
               fmt("read(0x0000)=0x%02X (exp 0xFF; pre-fix would alias 0x55)", v));
     }
@@ -5809,7 +5813,7 @@ void test_cat27_l2_rom_area_gate() {
         const uint8_t after = f.ram.page_ptr(0x00) ? f.ram.page_ptr(0x00)[0] : 0;
         check("FIX-L2-ROM-AREA-02",
               "L2 write with bank=0x70 → sram_active=0 → write dropped "
-              "(NOT corrupting ROM area) — VHDL :2971 + :3101-3102; commit 9d252b6",
+              "(NOT corrupting ROM area) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6",
               after == 0x55,
               fmt("ram[0][0] post-write=0x%02X (exp 0x55 — write dropped; "
                   "pre-fix would have stored 0xAB at ROM-in-SRAM page 0 "
