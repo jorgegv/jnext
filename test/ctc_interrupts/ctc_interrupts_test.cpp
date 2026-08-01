@@ -1891,10 +1891,26 @@ static int measure_pulse_width_tstates(MachineType type, CpuSpeed speed) {
 static void test_pulse_width_speed_invariance() {
     set_group("Pulse-Width-60d");
 
-    struct Case { const char* id; MachineType type; int terminal; };
+    // Every row ID is spelled out, rather than built from a stem with
+    // `std::string(c.id) + "-35"`. The stem form emitted the same six rows,
+    // but no reader that scans the SOURCE could see them: the literals
+    // "PW-48K"/"PW-NEXT" are not row IDs (nothing asserts them), while the
+    // six IDs that are asserted existed only at runtime. The traceability
+    // matrix therefore carried two rows that do not exist and none of the six
+    // that do — 44 scanned vs 48 run, and the gap was invisible because both
+    // numbers came from different readers. (GH #196 phase 2)
+    struct Case {
+        const char* id_35;
+        const char* id_28;
+        const char* id_inv;
+        MachineType type;
+        int         terminal;
+    };
     const Case cases[] = {
-        {"PW-48K",  MachineType::ZX48K,      32},
-        {"PW-NEXT", MachineType::ZXN_ISSUE2, 36},
+        {"PW-48K-35",  "PW-48K-28",  "PW-48K-INV",
+         MachineType::ZX48K,      32},
+        {"PW-NEXT-35", "PW-NEXT-28", "PW-NEXT-INV",
+         MachineType::ZXN_ISSUE2, 36},
     };
 
     for (const auto& c : cases) {
@@ -1909,21 +1925,21 @@ static void test_pulse_width_speed_invariance() {
         // Discriminative row: pre-fix the 3.5 MHz pulse collapsed to a
         // single instruction (~4-8 T), so this flips to FAIL if the call
         // site reverts to master_cycles.
-        check((std::string(c.id) + "-35").c_str(),
+        check(c.id_35,
               "pulse LOW width at 3.5 MHz == terminal CPU T-states "
               "[zxnext.vhd:2035-2044,2014-2015,2033]",
               w_slow == c.terminal, d);
 
         // Reference row: at 28 MHz master_cycles == tstates, so this held
         // both pre- and post-fix — pins the terminal value.
-        check((std::string(c.id) + "-28").c_str(),
+        check(c.id_28,
               "pulse LOW width at 28 MHz == terminal CPU T-states "
               "[zxnext.vhd:2035-2044]",
               w_fast == c.terminal, d);
 
         // Speed-invariance: identical width across the CPU speeds (i_CLK_CPU
         // domain), and equal to the VHDL terminal.
-        check((std::string(c.id) + "-INV").c_str(),
+        check(c.id_inv,
               "pulse LOW width is CPU-speed invariant "
               "[zxnext.vhd:2035-2044 i_CLK_CPU domain]",
               w_slow == w_fast && w_slow == c.terminal, d);

@@ -26,7 +26,9 @@ The too-slow degradation policy is stored in the `[startup]` section as
 `when_slow_prefer`, either `audio` or `video`. It is the persistent form of
 `--when-slow-prefer` and of the Preferences **Startup** setting of the same
 name; anything else in that key keeps the default rather than changing how
-JNEXT degrades. See [8.1](../08-known-issues/01-judder-when-the-host-cannot-keep-up.md).
+JNEXT degrades. `audio` keeps the sound card fed and lets the picture lose
+frames; `video` shows every frame and lets the machine run slower than real
+time. Both are inert on a host with headroom.
 
 Host audio gains are stored in the `[audio]` section: `gain_db` is the master,
 with `gain_beeper_db`, `gain_ay0_db`, `gain_ay1_db`, `gain_ay2_db`, and

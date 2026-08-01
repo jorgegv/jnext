@@ -87,7 +87,12 @@ EspGatedTransport::EspGatedTransport(std::unique_ptr<esp::EspTransport> inner,
                                      EspHostPolicy policy, EspConnectionLog& log)
     : inner_(std::move(inner)), policy_(std::move(policy)), log_(log) {}
 
-bool EspGatedTransport::begin_connect(const std::string& host, std::uint16_t port) {
+bool EspGatedTransport::begin_connect(const std::string& host, std::uint16_t port,
+                                      esp::Protocol protocol, std::uint16_t local_port) {
+    // THE ALLOWLIST IS PROTOCOL-BLIND, DELIBERATELY. `--esp-allow` restricts
+    // which NAMES the guest may reach, and a name is no less reachable over UDP
+    // than over TCP (GH #198) — gating only the streams would have left a hole
+    // the size of the feature.
     if (!policy_.allows(host)) {
         ++refusals_;
         host_ = host;
@@ -106,7 +111,7 @@ bool EspGatedTransport::begin_connect(const std::string& host, std::uint16_t por
         return false;
     }
 
-    const bool accepted = inner_->begin_connect(host, port);
+    const bool accepted = inner_->begin_connect(host, port, protocol, local_port);
     if (accepted) {
         host_ = host;
         port_ = port;

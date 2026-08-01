@@ -45,7 +45,7 @@
 //      against the network at all.
 //
 // NOT TESTED HERE, said plainly:
-//   * A real DNS server. The ASYNC rows use the injected resolver and TRACE-04
+//   * A real DNS server. The ASYNC rows use the injected resolver and SOCK-TRACE-04
 //     uses `localhost` (answered from /etc/hosts), so no row contacts a name
 //     server; what the platform's `getaddrinfo` does with a genuine WAN name is
 //     out of scope for a hermetic suite.
@@ -131,15 +131,19 @@ static std::vector<LogLine> capture_log(LogLevel level, const std::function<void
 
 static const char* reason_name(DenyReason r) { return deny_reason_text(r); }
 
-static void expect_verdict(const char* id, const IpAddress& ip, DenyReason want,
-                           const AddressPolicy& policy) {
+// `desc` is a literal so a source reader — and the traceability matrix, which
+// derives a row's description from its own assertion — can see what each row
+// claims. The runtime verdict is still appended, so a FAIL still prints what
+// was actually classified rather than only what was expected. (GH #196 phase 2)
+static void expect_verdict(const char* id, const char* desc, const IpAddress& ip,
+                           DenyReason want, const AddressPolicy& policy) {
     const DenyReason got = classify_address(ip, policy);
-    check(id, to_string(ip) + " → " + reason_name(want) + " (got " + reason_name(got) + ")",
-          got == want);
+    check(id, std::string(desc) + " (got " + reason_name(got) + ")", got == want);
 }
 
-static void expect_default(const char* id, const IpAddress& ip, DenyReason want) {
-    expect_verdict(id, ip, want, AddressPolicy{});
+static void expect_default(const char* id, const char* desc, const IpAddress& ip,
+                           DenyReason want) {
+    expect_verdict(id, desc, ip, want, AddressPolicy{});
 }
 
 static IpAddress v6(std::uint16_t a, std::uint16_t b, std::uint16_t c, std::uint16_t d,
@@ -227,6 +231,73 @@ public:
 private:
     int           fd_   = -1;
     std::uint16_t port_ = 0;
+};
+
+/// An in-process UDP peer on 127.0.0.1, the datagram twin of `Listener`
+/// (GH #198). It is a peer rather than a listener because UDP has nothing to
+/// accept: it binds, and whatever arrives carries its own return address.
+///
+/// The rows use it to prove the three things a datagram transport must get
+/// right and a stream transport never has to: that boundaries survive, that a
+/// silent socket is not an EOF, and that `<local port>` really binds — the last
+/// of which is only observable from OUT HERE, in the source port the peer sees.
+class UdpPeer {
+public:
+    bool start() {
+        fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (fd_ < 0) return false;
+        sockaddr_in sa{};
+        sa.sin_family      = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port        = 0;  // kernel picks a free port — no fixed port, ever
+        if (::bind(fd_, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) != 0) return false;
+        sockaddr_in bound{};
+        socklen_t   len = sizeof(bound);
+        if (::getsockname(fd_, reinterpret_cast<sockaddr*>(&bound), &len) != 0) return false;
+        port_ = ntohs(bound.sin_port);
+        return port_ != 0;
+    }
+
+    /// Wait for one datagram, recording where it came from so a reply can be
+    /// sent back and so the source PORT can be asserted.
+    std::string receive_one(int timeout_ms) {
+        pollfd p{};
+        p.fd     = fd_;
+        p.events = POLLIN;
+        if (::poll(&p, 1, timeout_ms) <= 0) return {};
+        char      buf[4096];
+        socklen_t len = sizeof(from_);
+        const ssize_t n =
+            ::recvfrom(fd_, buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&from_), &len);
+        if (n < 0) return {};
+        have_from_ = true;
+        return std::string(buf, static_cast<std::size_t>(n));
+    }
+
+    /// Send one datagram back to whoever last sent to us.
+    bool reply(const std::string& s) {
+        if (!have_from_) return false;
+        return ::sendto(fd_, s.data(), s.size(), 0, reinterpret_cast<sockaddr*>(&from_),
+                        sizeof(from_)) == static_cast<ssize_t>(s.size());
+    }
+
+    /// The source port of the last datagram received — the transport's LOCAL
+    /// port, as observed from the other end of the wire.
+    std::uint16_t peer_source_port() const { return ntohs(from_.sin_port); }
+
+    std::uint16_t port() const { return port_; }
+
+    void stop() {
+        if (fd_ >= 0) ::close(fd_);
+        fd_ = -1;
+    }
+    ~UdpPeer() { stop(); }
+
+private:
+    int           fd_        = -1;
+    std::uint16_t port_      = 0;
+    bool          have_from_ = false;
+    sockaddr_in   from_{};
 };
 
 /// Close `fd` so that the OS emits a TCP **RST** instead of a FIN.
@@ -388,94 +459,139 @@ int main() {
     fake_dns::main_thread_id = std::this_thread::get_id();
 
     // ═══ POL-LB — loopback, both boundaries, and the mapped bypass ═════════
-    expect_default("POL-LB-01", ipv4(127, 0, 0, 1),       DenyReason::Loopback);
-    expect_default("POL-LB-02", ipv4(127, 0, 0, 0),       DenyReason::Loopback);
-    expect_default("POL-LB-03", ipv4(127, 255, 255, 255), DenyReason::Loopback);
-    expect_default("POL-LB-04", ipv4(126, 255, 255, 255), DenyReason::None);
-    expect_default("POL-LB-05", ipv4(128, 0, 0, 0),       DenyReason::None);
-    expect_default("POL-LB-06", v6(0, 0, 0, 0, 0, 0, 0, 1), DenyReason::Loopback);
+    expect_default("POL-LB-01", "127.0.0.1 → Loopback",
+                   ipv4(127, 0, 0, 1), DenyReason::Loopback);
+    expect_default("POL-LB-02", "127.0.0.0 → Loopback",
+                   ipv4(127, 0, 0, 0), DenyReason::Loopback);
+    expect_default("POL-LB-03", "127.255.255.255 → Loopback",
+                   ipv4(127, 255, 255, 255), DenyReason::Loopback);
+    expect_default("POL-LB-04", "126.255.255.255 → None",
+                   ipv4(126, 255, 255, 255), DenyReason::None);
+    expect_default("POL-LB-05", "128.0.0.0 → None",
+                   ipv4(128, 0, 0, 0), DenyReason::None);
+    expect_default("POL-LB-06", "0:0:0:0:0:0:0:1 → Loopback",
+                   v6(0, 0, 0, 0, 0, 0, 0, 1), DenyReason::Loopback);
     // ::2 is NOT loopback and must not be swept up by it.
-    expect_default("POL-LB-07", v6(0, 0, 0, 0, 0, 0, 0, 2), DenyReason::None);
+    expect_default("POL-LB-07", "0:0:0:0:0:0:0:2 → None",
+                   v6(0, 0, 0, 0, 0, 0, 0, 2), DenyReason::None);
     // The one-line bypass: an IPv4-mapped loopback must still be denied.
-    expect_default("POL-LB-08", v4mapped(127, 0, 0, 1),   DenyReason::Loopback);
+    expect_default("POL-LB-08", "v4mapped(127, 0, 0, 1) → Loopback",
+                   v4mapped(127, 0, 0, 1), DenyReason::Loopback);
     // And the override the socket rows below depend on actually overrides.
-    expect_verdict("POL-LB-09", ipv4(127, 0, 0, 1), DenyReason::None, loopback_ok());
-    expect_verdict("POL-LB-10", v6(0, 0, 0, 0, 0, 0, 0, 1), DenyReason::None, loopback_ok());
+    expect_verdict("POL-LB-09", "127.0.0.1 → None under loopback_ok",
+                   ipv4(127, 0, 0, 1), DenyReason::None, loopback_ok());
+    expect_verdict("POL-LB-10", "0:0:0:0:0:0:0:1 → None under loopback_ok",
+                   v6(0, 0, 0, 0, 0, 0, 0, 1), DenyReason::None, loopback_ok());
 
     // ═══ POL-LL — link-local, both boundaries, v4 and v6 ═══════════════════
-    expect_default("POL-LL-01", ipv4(169, 254, 0, 0),     DenyReason::LinkLocal);
-    expect_default("POL-LL-02", ipv4(169, 254, 255, 255), DenyReason::LinkLocal);
-    expect_default("POL-LL-03", ipv4(169, 253, 255, 255), DenyReason::None);
-    expect_default("POL-LL-04", ipv4(169, 255, 0, 0),     DenyReason::None);
-    expect_default("POL-LL-05", v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), DenyReason::LinkLocal);
-    expect_default("POL-LL-06", v6(0xfebf, 0xffff, 0xffff, 0xffff,
-                                   0xffff, 0xffff, 0xffff, 0xffff), DenyReason::LinkLocal);
+    expect_default("POL-LL-01", "169.254.0.0 → LinkLocal",
+                   ipv4(169, 254, 0, 0), DenyReason::LinkLocal);
+    expect_default("POL-LL-02", "169.254.255.255 → LinkLocal",
+                   ipv4(169, 254, 255, 255), DenyReason::LinkLocal);
+    expect_default("POL-LL-03", "169.253.255.255 → None",
+                   ipv4(169, 253, 255, 255), DenyReason::None);
+    expect_default("POL-LL-04", "169.255.0.0 → None",
+                   ipv4(169, 255, 0, 0), DenyReason::None);
+    expect_default("POL-LL-05", "0xfe80:0:0:0:0:0:0:1 → LinkLocal",
+                   v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), DenyReason::LinkLocal);
+    expect_default("POL-LL-06", "0xfebf:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff → LinkLocal",
+                   v6(0xfebf, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff), DenyReason::LinkLocal);
     // fe7f:: is just below fe80::/10 and fec0:: just above it.
-    expect_default("POL-LL-07", v6(0xfe7f, 0, 0, 0, 0, 0, 0, 1), DenyReason::None);
-    expect_default("POL-LL-08", v6(0xfec0, 0, 0, 0, 0, 0, 0, 1), DenyReason::None);
+    expect_default("POL-LL-07", "0xfe7f:0:0:0:0:0:0:1 → None",
+                   v6(0xfe7f, 0, 0, 0, 0, 0, 0, 1), DenyReason::None);
+    expect_default("POL-LL-08", "0xfec0:0:0:0:0:0:0:1 → None",
+                   v6(0xfec0, 0, 0, 0, 0, 0, 0, 1), DenyReason::None);
 
     // ═══ POL-MD — cloud metadata ═══════════════════════════════════════════
     // Reported as CloudMetadata, not the vaguer LinkLocal it also matches.
-    expect_default("POL-MD-01", ipv4(169, 254, 169, 254), DenyReason::CloudMetadata);
+    expect_default("POL-MD-01", "169.254.169.254 → CloudMetadata",
+                   ipv4(169, 254, 169, 254), DenyReason::CloudMetadata);
     // Alibaba's endpoint lives inside CGNAT, which is an ALLOWED private range,
     // so it only stays denied because metadata is its own rule.
-    expect_default("POL-MD-02", ipv4(100, 100, 100, 200), DenyReason::CloudMetadata);
-    expect_default("POL-MD-03", ipv4(100, 100, 100, 199), DenyReason::None);
+    expect_default("POL-MD-02", "100.100.100.200 → CloudMetadata",
+                   ipv4(100, 100, 100, 200), DenyReason::CloudMetadata);
+    expect_default("POL-MD-03", "100.100.100.199 → None",
+                   ipv4(100, 100, 100, 199), DenyReason::None);
     // AWS IMDS over IPv6 — inside fc00::/7 ULA, likewise allowed as private.
-    expect_default("POL-MD-04", v6(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254),
-                   DenyReason::CloudMetadata);
-    expect_default("POL-MD-05", v6(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0253),
-                   DenyReason::None);
-    expect_default("POL-MD-06", v4mapped(169, 254, 169, 254), DenyReason::CloudMetadata);
+    expect_default("POL-MD-04", "0xfd00:0x0ec2:0:0:0:0:0:0x0254 → CloudMetadata",
+                   v6(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254), DenyReason::CloudMetadata);
+    expect_default("POL-MD-05", "0xfd00:0x0ec2:0:0:0:0:0:0x0253 → None",
+                   v6(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0253), DenyReason::None);
+    expect_default("POL-MD-06", "v4mapped(169, 254, 169, 254) → CloudMetadata",
+                   v4mapped(169, 254, 169, 254), DenyReason::CloudMetadata);
     {
         // Turning the metadata rule OFF must FALL THROUGH to link-local rather
         // than returning "allowed" — the rule-order property the code relies on.
         AddressPolicy p;
         p.deny_cloud_metadata = false;
-        expect_verdict("POL-MD-07", ipv4(169, 254, 169, 254), DenyReason::LinkLocal, p);
+        expect_verdict("POL-MD-07", "169.254.169.254 → LinkLocal with deny_cloud_metadata off",
+                       ipv4(169, 254, 169, 254), DenyReason::LinkLocal, p);
         // ...and with BOTH off, it really is allowed (proves nothing else denies it).
         p.deny_link_local = false;
-        expect_verdict("POL-MD-08", ipv4(169, 254, 169, 254), DenyReason::None, p);
+        expect_verdict("POL-MD-08", "169.254.169.254 → None with deny_cloud_metadata off, deny_link_local off",
+                       ipv4(169, 254, 169, 254), DenyReason::None, p);
     }
 
     // ═══ POL-PRIV — RFC1918 is ALLOWED (owner decision, GH #25 2026-07-28) ═
-    expect_default("POL-PRIV-01", ipv4(10, 0, 0, 1),         DenyReason::None);
-    expect_default("POL-PRIV-02", ipv4(10, 255, 255, 255),   DenyReason::None);
-    expect_default("POL-PRIV-03", ipv4(172, 16, 0, 1),       DenyReason::None);
-    expect_default("POL-PRIV-04", ipv4(172, 31, 255, 255),   DenyReason::None);
-    expect_default("POL-PRIV-05", ipv4(192, 168, 1, 1),      DenyReason::None);
-    expect_default("POL-PRIV-06", ipv4(100, 64, 0, 1),       DenyReason::None);
-    expect_default("POL-PRIV-07", v6(0xfd12, 0x3456, 0, 0, 0, 0, 0, 1), DenyReason::None);
+    expect_default("POL-PRIV-01", "10.0.0.1 → None",
+                   ipv4(10, 0, 0, 1), DenyReason::None);
+    expect_default("POL-PRIV-02", "10.255.255.255 → None",
+                   ipv4(10, 255, 255, 255), DenyReason::None);
+    expect_default("POL-PRIV-03", "172.16.0.1 → None",
+                   ipv4(172, 16, 0, 1), DenyReason::None);
+    expect_default("POL-PRIV-04", "172.31.255.255 → None",
+                   ipv4(172, 31, 255, 255), DenyReason::None);
+    expect_default("POL-PRIV-05", "192.168.1.1 → None",
+                   ipv4(192, 168, 1, 1), DenyReason::None);
+    expect_default("POL-PRIV-06", "100.64.0.1 → None",
+                   ipv4(100, 64, 0, 1), DenyReason::None);
+    expect_default("POL-PRIV-07", "0xfd12:0x3456:0:0:0:0:0:1 → None",
+                   v6(0xfd12, 0x3456, 0, 0, 0, 0, 0, 1), DenyReason::None);
     {
         // The flag exists and works — including both 172.16/12 boundaries.
         AddressPolicy p;
         p.deny_private = true;
-        expect_verdict("POL-PRIV-08", ipv4(10, 0, 0, 1),   DenyReason::Private, p);
-        expect_verdict("POL-PRIV-09", ipv4(192, 168, 1, 1), DenyReason::Private, p);
-        expect_verdict("POL-PRIV-10", ipv4(172, 16, 0, 0),  DenyReason::Private, p);
-        expect_verdict("POL-PRIV-11", ipv4(172, 15, 255, 255), DenyReason::None, p);
-        expect_verdict("POL-PRIV-12", ipv4(172, 32, 0, 0),  DenyReason::None, p);
-        expect_verdict("POL-PRIV-13", ipv4(100, 64, 0, 1),  DenyReason::Private, p);
-        expect_verdict("POL-PRIV-14", ipv4(100, 63, 255, 255), DenyReason::None, p);
-        expect_verdict("POL-PRIV-15", v6(0xfd12, 0, 0, 0, 0, 0, 0, 1),
-                       DenyReason::Private, p);
-        expect_verdict("POL-PRIV-16", v6(0xfc00, 0, 0, 0, 0, 0, 0, 1),
-                       DenyReason::Private, p);
-        expect_verdict("POL-PRIV-17", v6(0xfe00, 0, 0, 0, 0, 0, 0, 1),
-                       DenyReason::None, p);
+        expect_verdict("POL-PRIV-08", "10.0.0.1 → Private with deny_private on",
+                       ipv4(10, 0, 0, 1), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-09", "192.168.1.1 → Private with deny_private on",
+                       ipv4(192, 168, 1, 1), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-10", "172.16.0.0 → Private with deny_private on",
+                       ipv4(172, 16, 0, 0), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-11", "172.15.255.255 → None with deny_private on",
+                       ipv4(172, 15, 255, 255), DenyReason::None, p);
+        expect_verdict("POL-PRIV-12", "172.32.0.0 → None with deny_private on",
+                       ipv4(172, 32, 0, 0), DenyReason::None, p);
+        expect_verdict("POL-PRIV-13", "100.64.0.1 → Private with deny_private on",
+                       ipv4(100, 64, 0, 1), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-14", "100.63.255.255 → None with deny_private on",
+                       ipv4(100, 63, 255, 255), DenyReason::None, p);
+        expect_verdict("POL-PRIV-15", "0xfd12:0:0:0:0:0:0:1 → Private with deny_private on",
+                       v6(0xfd12, 0, 0, 0, 0, 0, 0, 1), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-16", "0xfc00:0:0:0:0:0:0:1 → Private with deny_private on",
+                       v6(0xfc00, 0, 0, 0, 0, 0, 0, 1), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-17", "0xfe00:0:0:0:0:0:0:1 → None with deny_private on",
+                       v6(0xfe00, 0, 0, 0, 0, 0, 0, 1), DenyReason::None, p);
     }
 
     // ═══ POL-RSV — unspecified, multicast, reserved ════════════════════════
-    expect_default("POL-RSV-01", ipv4(0, 0, 0, 0),           DenyReason::Unspecified);
-    expect_default("POL-RSV-02", ipv4(0, 255, 255, 255),     DenyReason::Unspecified);
-    expect_default("POL-RSV-03", ipv4(1, 0, 0, 0),           DenyReason::None);
-    expect_default("POL-RSV-04", v6(0, 0, 0, 0, 0, 0, 0, 0), DenyReason::Unspecified);
-    expect_default("POL-RSV-05", ipv4(224, 0, 0, 1),         DenyReason::MulticastOrReserved);
-    expect_default("POL-RSV-06", ipv4(223, 255, 255, 255),   DenyReason::None);
-    expect_default("POL-RSV-07", ipv4(240, 0, 0, 0),         DenyReason::MulticastOrReserved);
-    expect_default("POL-RSV-08", ipv4(255, 255, 255, 255),   DenyReason::MulticastOrReserved);
-    expect_default("POL-RSV-09", v6(0xff02, 0, 0, 0, 0, 0, 0, 1),
-                   DenyReason::MulticastOrReserved);
+    expect_default("POL-RSV-01", "0.0.0.0 → Unspecified",
+                   ipv4(0, 0, 0, 0), DenyReason::Unspecified);
+    expect_default("POL-RSV-02", "0.255.255.255 → Unspecified",
+                   ipv4(0, 255, 255, 255), DenyReason::Unspecified);
+    expect_default("POL-RSV-03", "1.0.0.0 → None",
+                   ipv4(1, 0, 0, 0), DenyReason::None);
+    expect_default("POL-RSV-04", "0:0:0:0:0:0:0:0 → Unspecified",
+                   v6(0, 0, 0, 0, 0, 0, 0, 0), DenyReason::Unspecified);
+    expect_default("POL-RSV-05", "224.0.0.1 → MulticastOrReserved",
+                   ipv4(224, 0, 0, 1), DenyReason::MulticastOrReserved);
+    expect_default("POL-RSV-06", "223.255.255.255 → None",
+                   ipv4(223, 255, 255, 255), DenyReason::None);
+    expect_default("POL-RSV-07", "240.0.0.0 → MulticastOrReserved",
+                   ipv4(240, 0, 0, 0), DenyReason::MulticastOrReserved);
+    expect_default("POL-RSV-08", "255.255.255.255 → MulticastOrReserved",
+                   ipv4(255, 255, 255, 255), DenyReason::MulticastOrReserved);
+    expect_default("POL-RSV-09", "0xff02:0:0:0:0:0:0:1 → MulticastOrReserved",
+                   v6(0xff02, 0, 0, 0, 0, 0, 0, 1), DenyReason::MulticastOrReserved);
 
     // ═══ NORM — IPv4-in-IPv6 normalization ═════════════════════════════════
     check("NORM-01", "::ffff:1.2.3.4 unwraps to 1.2.3.4",
@@ -488,7 +604,8 @@ int main() {
               normalize(ipv6(nat64)) == ipv4(1, 2, 3, 4));
         // ...and the NAT64 route to loopback is therefore closed too.
         nat64[12] = 127; nat64[13] = 0; nat64[14] = 0; nat64[15] = 1;
-        expect_default("NORM-03", ipv6(nat64), DenyReason::Loopback);
+        expect_default("NORM-03", "ipv6(nat64) → Loopback",
+                       ipv6(nat64), DenyReason::Loopback);
     }
     {
         std::array<std::uint8_t, 16> compat{};
@@ -512,37 +629,40 @@ int main() {
     // A 6to4 address is not an alias for its endpoint (normalize() leaves it
     // alone) but packets for it are physically delivered there, so the policy
     // has to judge the endpoint too or 2002:7f00:1::1 launders 127.0.0.1.
-    expect_default("POL-TUN-01", sixtofour(127, 0, 0, 1),       DenyReason::Loopback);
-    expect_default("POL-TUN-02", sixtofour(169, 254, 169, 254), DenyReason::CloudMetadata);
-    expect_default("POL-TUN-03", sixtofour(169, 254, 0, 1),     DenyReason::LinkLocal);
-    expect_default("POL-TUN-04", sixtofour(93, 184, 216, 34),   DenyReason::None);
+    expect_default("POL-TUN-01", "sixtofour(127, 0, 0, 1) → Loopback",
+                   sixtofour(127, 0, 0, 1), DenyReason::Loopback);
+    expect_default("POL-TUN-02", "sixtofour(169, 254, 169, 254) → CloudMetadata",
+                   sixtofour(169, 254, 169, 254), DenyReason::CloudMetadata);
+    expect_default("POL-TUN-03", "sixtofour(169, 254, 0, 1) → LinkLocal",
+                   sixtofour(169, 254, 0, 1), DenyReason::LinkLocal);
+    expect_default("POL-TUN-04", "sixtofour(93, 184, 216, 34) → None",
+                   sixtofour(93, 184, 216, 34), DenyReason::None);
     // The endpoint is judged by the FULL policy, not a loopback-only check:
     // an RFC1918 endpoint is allowed by default and denied when the private
     // rule is switched on, exactly as the bare address would be.
-    expect_default("POL-TUN-05", sixtofour(10, 0, 0, 1),        DenyReason::None);
+    expect_default("POL-TUN-05", "sixtofour(10, 0, 0, 1) → None",
+                   sixtofour(10, 0, 0, 1), DenyReason::None);
     {
         AddressPolicy p;
         p.deny_private = true;
-        expect_verdict("POL-TUN-06", sixtofour(10, 0, 0, 1), DenyReason::Private, p);
+        expect_verdict("POL-TUN-06", "sixtofour(10, 0, 0, 1) → Private with deny_private on",
+                       sixtofour(10, 0, 0, 1), DenyReason::Private, p);
     }
     // Teredo (2001:0::/32) is deliberately NOT unwrapped: its embedded IPv4
     // fields are a public relay server and an obfuscated NATted client, so
     // neither can name a host on this machine. Even a Teredo address whose
     // SERVER field spells 127.0.0.1 stays allowed — pinning the exclusion so
     // it cannot be "fixed" silently.
-    expect_default("POL-TUN-07",
-                   v6(0x2001, 0x0000, 0x7f00, 0x0001, 0, 0, 0x80ff, 0xfffe),
-                   DenyReason::None);
+    expect_default("POL-TUN-07", "0x2001:0x0000:0x7f00:0x0001:0:0:0x80ff:0xfffe → None",
+                   v6(0x2001, 0x0000, 0x7f00, 0x0001, 0, 0, 0x80ff, 0xfffe), DenyReason::None);
     // ISATAP is an interface-IDENTIFIER pattern, not a prefix: a rule keyed on
     // it would deny ordinary global addresses whose low 64 bits coincide. So
     // ::0:5efe:7f00:1 under a global prefix stays allowed...
-    expect_default("POL-TUN-08",
-                   v6(0x2001, 0x0db8, 0, 0, 0, 0x5efe, 0x7f00, 0x0001),
-                   DenyReason::None);
+    expect_default("POL-TUN-08", "0x2001:0x0db8:0:0:0:0x5efe:0x7f00:0x0001 → None",
+                   v6(0x2001, 0x0db8, 0, 0, 0, 0x5efe, 0x7f00, 0x0001), DenyReason::None);
     // ...while the place ISATAP actually lives is already denied outright.
-    expect_default("POL-TUN-09",
-                   v6(0xfe80, 0, 0, 0, 0, 0x5efe, 0x7f00, 0x0001),
-                   DenyReason::LinkLocal);
+    expect_default("POL-TUN-09", "0xfe80:0:0:0:0:0x5efe:0x7f00:0x0001 → LinkLocal",
+                   v6(0xfe80, 0, 0, 0, 0, 0x5efe, 0x7f00, 0x0001), DenyReason::LinkLocal);
     check("POL-TUN-10", "normalize() leaves a 6to4 address as IPv6",
           normalize(sixtofour(93, 184, 216, 34)) == sixtofour(93, 184, 216, 34));
     {
@@ -575,7 +695,7 @@ int main() {
     {
         IpAddress  chosen;
         DenyReason why = DenyReason::Loopback;
-        check("SEL-01", "an empty candidate list selects nothing",
+        check("ESP-SEL-01", "an empty candidate list selects nothing",
               !select_candidate({}, kDefault, chosen, why) && why == DenyReason::None);
     }
     {
@@ -583,7 +703,7 @@ int main() {
         DenyReason why;
         const std::vector<IpAddress> cands = {v6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1),
                                               ipv4(93, 184, 216, 34)};
-        check("SEL-02", "IPv4 is preferred even when IPv6 comes first",
+        check("ESP-SEL-02", "IPv4 is preferred even when IPv6 comes first",
               select_candidate(cands, kDefault, chosen, why) &&
                   chosen == ipv4(93, 184, 216, 34));
     }
@@ -591,7 +711,7 @@ int main() {
         IpAddress  chosen;
         DenyReason why;
         const std::vector<IpAddress> cands = {ipv4(127, 0, 0, 1), ipv4(93, 184, 216, 34)};
-        check("SEL-03", "a denied candidate is skipped for an allowed one",
+        check("ESP-SEL-03", "a denied candidate is skipped for an allowed one",
               select_candidate(cands, kDefault, chosen, why) &&
                   chosen == ipv4(93, 184, 216, 34));
     }
@@ -599,7 +719,7 @@ int main() {
         IpAddress  chosen;
         DenyReason why;
         const std::vector<IpAddress> cands = {v6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)};
-        check("SEL-04", "IPv6 is used when there is no IPv4 candidate",
+        check("ESP-SEL-04", "IPv6 is used when there is no IPv4 candidate",
               select_candidate(cands, kDefault, chosen, why) &&
                   chosen == v6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
     }
@@ -608,7 +728,7 @@ int main() {
         DenyReason why = DenyReason::None;
         const std::vector<IpAddress> cands = {ipv4(127, 0, 0, 1),
                                               ipv4(169, 254, 169, 254)};
-        check("SEL-05", "all-denied reports the FIRST candidate's reason",
+        check("ESP-SEL-05", "all-denied reports the FIRST candidate's reason",
               !select_candidate(cands, kDefault, chosen, why) &&
                   why == DenyReason::Loopback);
     }
@@ -617,7 +737,7 @@ int main() {
         DenyReason why;
         const std::vector<IpAddress> cands = {v6(0, 0, 0, 0, 0, 0, 0, 1),
                                               ipv4(127, 0, 0, 1)};
-        check("SEL-06", "with loopback allowed, IPv4 loopback still wins over IPv6",
+        check("ESP-SEL-06", "with loopback allowed, IPv4 loopback still wins over IPv6",
               select_candidate(cands, loopback_ok(), chosen, why) &&
                   chosen == ipv4(127, 0, 0, 1));
     }
@@ -626,7 +746,7 @@ int main() {
         DenyReason why;
         const std::vector<IpAddress> cands = {v6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1),
                                               v4mapped(93, 184, 216, 34)};
-        check("SEL-07", "a mapped IPv4 candidate counts as IPv4 and is returned verbatim",
+        check("ESP-SEL-07", "a mapped IPv4 candidate counts as IPv4 and is returned verbatim",
               select_candidate(cands, kDefault, chosen, why) &&
                   chosen == v4mapped(93, 184, 216, 34));
     }
@@ -742,7 +862,7 @@ int main() {
                 const int srv = l.accept_one(500);
                 if (srv >= 0) ::close(srv);
             });
-            check("TRACE-01", "an IP literal is resolved without a DNS lookup",
+            check("SOCK-TRACE-01", "an IP literal is resolved without a DNS lookup",
                   joined(dbg).find("numeric address") != std::string::npos &&
                       joined(dbg).find("resolved '") == std::string::npos);
 
@@ -760,7 +880,7 @@ int main() {
                 t->close();
                 if (srv >= 0) ::close(srv);
             });
-            check("TRACE-02",
+            check("SOCK-TRACE-02",
                   "at the default level a full session logs open + close and nothing "
                   "else",
                   quiet.size() == 2 &&
@@ -774,12 +894,12 @@ int main() {
                 t->begin_connect("127.0.0.1", l.port());
                 t->poll();
             });
-            check("TRACE-03", "a policy refusal is logged at the default level",
+            check("SOCK-TRACE-03", "a policy refusal is logged at the default level",
                   refused.size() == 1 &&
                       joined(refused).find("REFUSED by address policy") !=
                           std::string::npos);
 
-            // (d) The other side of TRACE-01: a NAME must NOT take the numeric
+            // (d) The other side of SOCK-TRACE-01: a NAME must NOT take the numeric
             //     fast path. `localhost` is used deliberately — nsswitch
             //     answers it from /etc/hosts, so this stays hermetic (no DNS
             //     server is contacted) while still exercising the real
@@ -794,15 +914,15 @@ int main() {
             });
             if (joined(named).find("cannot resolve") != std::string::npos) {
                 ++g_total; ++g_skip;
-                std::printf("  SKIP TRACE-04: this host cannot resolve 'localhost'\n");
+                std::printf("  SKIP SOCK-TRACE-04: this host cannot resolve 'localhost'\n");
             } else {
-                check("TRACE-04",
+                check("SOCK-TRACE-04",
                       "a host NAME takes the resolve path, not the numeric fast path",
                       joined(named).find("resolved 'localhost'") != std::string::npos &&
                           joined(named).find("numeric address") == std::string::npos);
             }
         } else {
-            for (const char* id : {"TRACE-01", "TRACE-02", "TRACE-03"}) {
+            for (const char* id : {"SOCK-TRACE-01", "SOCK-TRACE-02", "SOCK-TRACE-03"}) {
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback listener\n", id);
             }
@@ -984,6 +1104,166 @@ int main() {
         }
     }
 
+    // ═══ UDPT — real datagram I/O against an in-process UDP peer (GH #198) ═
+    //
+    // What a stream transport never has to get right, and what these rows are
+    // therefore for:
+    //   * a datagram "connect" has no handshake, so `Connecting` is skipped
+    //     entirely and the reply to AT+CIPSTART is due on the first poll;
+    //   * `recv() == 0` is NOT an end of stream, so a quiet socket must not
+    //     close the connection;
+    //   * one `recv` is one datagram, so two messages come back as two;
+    //   * `<local port>` is only provable from the peer's side, in the source
+    //     port it observes.
+    // The address policy half is deliberately re-asserted here too: UDP would
+    // otherwise be a way round a gate that was only ever exercised over TCP.
+    {
+        UdpPeer peer;
+        if (peer.start()) {
+            auto t = make_socket_transport(loopback_ok());
+            check("UDPT-01", "a UDP connect request is accepted",
+                  t->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, 0));
+            check("UDPT-02",
+                  "...and completes through poll() alone, never passing through Connecting "
+                  "— a datagram connect has no handshake to wait for",
+                  pump_until(*t, TransportState::Connected));
+
+            const std::string req(48, '\x11');
+            check("UDPT-03", "send() puts the whole datagram out, all-or-nothing",
+                  t->send(reinterpret_cast<const std::uint8_t*>(req.data()), req.size()) ==
+                      req.size());
+            check("UDPT-04", "the peer receives exactly that datagram",
+                  peer.receive_one(1000) == req);
+
+            std::uint8_t rx[2048];
+            check("UDPT-05",
+                  "recv() with nothing pending returns 0 and stays Connected — UDP has no "
+                  "EOF, so a quiet socket must not close the connection",
+                  t->recv(rx, sizeof(rx)) == 0 && t->state() == TransportState::Connected);
+
+            // Two datagrams, sent back to back, must come back as TWO reads of
+            // their own lengths — the property a byte stream destroys.
+            peer.reply("ONE");
+            peer.reply("LONGER-TWO");
+            std::vector<std::string> got;
+            for (int waited = 0; waited < 1000 && got.size() < 2; waited += 2) {
+                const std::size_t n = t->recv(rx, sizeof(rx));
+                if (n == 0) { sleep_ms(2); continue; }
+                got.emplace_back(reinterpret_cast<char*>(rx), n);
+            }
+            check("UDPT-06", "two datagrams arrive as two reads with their own boundaries",
+                  got.size() == 2 && got[0] == "ONE" && got[1] == "LONGER-TWO");
+            check("UDPT-07", "...and the connection is still live afterwards",
+                  t->state() == TransportState::Connected);
+
+            // An oversized datagram: the kernel truncates and DISCARDS the
+            // rest, and that must not look like a fault.
+            peer.reply(std::string(64, 'Z'));
+            std::string truncated;
+            for (int waited = 0; waited < 1000 && truncated.empty(); waited += 2) {
+                const std::size_t n = t->recv(rx, 16);
+                if (n == 0) { sleep_ms(2); continue; }
+                truncated.assign(reinterpret_cast<char*>(rx), n);
+            }
+            check("UDPT-08",
+                  "a datagram larger than the buffer is truncated to it, not failed",
+                  truncated == std::string(16, 'Z') &&
+                      t->state() == TransportState::Connected);
+
+            // A GENUINE ZERO-LENGTH DATAGRAM — the one case where `recv`
+            // returning 0 is a real received message rather than "nothing
+            // here", and the only stimulus that reaches the `eof = stream`
+            // branch at all. An empty socket returns EAGAIN, not 0, so
+            // UDPT-05 above never touches it: without this row, reporting
+            // every UDP 0 as EOF survives the whole suite.
+            //
+            // The two are indistinguishable from the return value by
+            // construction, so the assertion is what happens NEXT: a
+            // transport that took it for EOF is Closed and can never deliver
+            // again, so a following ordinary datagram is the discriminator.
+            peer.reply("");
+            for (int waited = 0; waited < 200; waited += 2) {
+                t->recv(rx, sizeof(rx));
+                sleep_ms(2);
+            }
+            const bool alive = (t->state() == TransportState::Connected);
+            peer.reply("AFTER-EMPTY");
+            std::string after;
+            for (int waited = 0; waited < 1000 && after.empty(); waited += 2) {
+                const std::size_t n = t->recv(rx, sizeof(rx));
+                if (n == 0) { sleep_ms(2); continue; }
+                after.assign(reinterpret_cast<char*>(rx), n);
+            }
+            check("UDPT-13",
+                  "a zero-length datagram is not an end of stream — the connection survives "
+                  "it and still delivers what comes after",
+                  alive && after == "AFTER-EMPTY" &&
+                      t->state() == TransportState::Connected);
+
+            t->close();
+            check("UDPT-09", "close() on a live UDP connection ends in Closed",
+                  t->state() == TransportState::Closed);
+        } else {
+            for (const char* id : {"UDPT-01", "UDPT-02", "UDPT-03", "UDPT-04", "UDPT-05",
+                                   "UDPT-06", "UDPT-07", "UDPT-08", "UDPT-09", "UDPT-13"}) {
+                ++g_total; ++g_skip;
+                std::printf("  SKIP %s: could not bind a loopback UDP peer\n", id);
+            }
+        }
+    }
+    {
+        // <local port> is only observable from the far end. Port 0 is asked for
+        // first as the control: without it, a row that saw the requested port
+        // could not tell binding from coincidence.
+        UdpPeer peer;
+        if (peer.start()) {
+            // A high, fixed port: unprivileged, and outside the ephemeral range
+            // Linux picks from (32768-60999 by default), so an OS-assigned port
+            // cannot land on it by chance and fake a pass.
+            const std::uint16_t want = 24123;
+            auto t = make_socket_transport(loopback_ok());
+            bool bound = t->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, want) &&
+                         pump_until(*t, TransportState::Connected);
+            if (bound) {
+                const char ping[] = "P";
+                t->send(reinterpret_cast<const std::uint8_t*>(ping), 1);
+                bound = peer.receive_one(1000) == "P";
+            }
+            check("UDPT-10",
+                  "AT+CIPSTART's <local port> really binds — the peer sees that source port",
+                  bound && peer.peer_source_port() == want);
+
+            auto t2 = make_socket_transport(loopback_ok());
+            bool ephemeral =
+                t2->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, 0) &&
+                pump_until(*t2, TransportState::Connected);
+            if (ephemeral) {
+                const char ping[] = "Q";
+                t2->send(reinterpret_cast<const std::uint8_t*>(ping), 1);
+                ephemeral = peer.receive_one(1000) == "Q";
+            }
+            check("UDPT-11", "...while local port 0 leaves the choice to the OS",
+                  ephemeral && peer.peer_source_port() != want &&
+                      peer.peer_source_port() != 0);
+        } else {
+            for (const char* id : {"UDPT-10", "UDPT-11"}) {
+                ++g_total; ++g_skip;
+                std::printf("  SKIP %s: could not bind a loopback UDP peer\n", id);
+            }
+        }
+    }
+    {
+        // THE SECURITY GATE IS NOT PROTOCOL-SPECIFIC, and this row exists so
+        // that it cannot quietly become so: the DEFAULT policy (loopback
+        // denied) must refuse a UDP target exactly as it refuses a TCP one.
+        auto t = make_socket_transport(kDefault);
+        t->begin_connect("127.0.0.1", 123, Protocol::Udp, 0);
+        for (int i = 0; i < 100 && t->state() != TransportState::Failed; ++i) t->poll();
+        check("UDPT-12", "the address policy denies a UDP target just as it denies a TCP one",
+              t->state() == TransportState::Failed &&
+                  t->denial_reason() == DenyReason::Loopback);
+    }
+
     // ═══ NET-ERR — a refused connect surfaces as Failed, not a hang ════════
     {
         Listener l;
@@ -1023,9 +1303,10 @@ int main() {
     // the claim attached to it — a red `error` on the one line a user sees at
     // the end of an otherwise perfect NextSync transfer.
     //
-    // The pair is the point. RST-01 proves the linger-close shape is no longer
-    // called an error; RST-02 proves that is not a blanket downgrade of resets,
-    // because a peer that resets WITHOUT having served anything is still one.
+    // The pair is the point. ESP-RST-01 proves the linger-close shape is no
+    // longer called an error; ESP-RST-02 proves that is not a blanket
+    // downgrade of resets, because a peer that resets WITHOUT having served
+    // anything is still one.
     {
         Listener l;
         if (l.start()) {
@@ -1068,7 +1349,7 @@ int main() {
                 ended = pump_recv_until_not_connected(*t) &&
                         t->state() == TransportState::Failed;
             });
-            check("RST-01",
+            check("ESP-RST-01",
                   "a peer that RSTs after serving its data is reported at warn, and "
                   "the run carries no error line at all",
                   drained && ended &&
@@ -1090,11 +1371,11 @@ int main() {
                 aborted = pump_recv_until_not_connected(*t) &&
                           t->state() == TransportState::Failed;
             });
-            check("RST-02",
+            check("ESP-RST-02",
                   "a peer that RSTs having served nothing is still an error",
                   aborted && has_level(unserved, LogLevel::Error));
         } else {
-            for (const char* id : {"RST-01", "RST-02"}) {
+            for (const char* id : {"ESP-RST-01", "ESP-RST-02"}) {
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback listener\n", id);
             }

@@ -524,9 +524,75 @@ drew, which
 
 A debug view must never mutate the state it observes.
 
+> **The `DVP-*` rows below are asserted in `test/debugger/video_panel_test.cpp`,
+> which the traceability matrix deliberately does not trace** — it is a
+> GUI-gated debugger-panel suite, tombstoned in `%NO_MATRIX_SECTION` as
+> "debugger panel RENDERING; the hardware it displays is traced in
+> `## Compositor`/`## Layer2`/`## ULA Video`". Their IDs are therefore struck
+> through: left live, the generator emitted every one of them as a `missing`
+> row of this subsystem, i.e. a coverage gap that does not exist. The `Status`
+> column below is the record, and `video_panel_test` is the proof.
+> (GH #196 phase 4.2 — all 34 struck rows verified asserted there, none of
+> them anywhere else.)
+
 | ID      | Test                                                              | Status |
 |---------|-------------------------------------------------------------------|--------|
-| DVP-06  | a panel refresh does not clobber the per-line scroll snapshots     | PASS   |
-| DVP-07  | the debug render reads the per-line scroll split (not live scroll) | PASS   |
+| ~~DVP-06~~  | a panel refresh does not clobber the per-line scroll snapshots     | PASS   |
+| ~~DVP-07~~  | the debug render reads the per-line scroll split (not live scroll) | PASS   |
 
 Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`).
+
+## GH #196 Phase 1.3 (2026-08-01) — "Extra coverage" table dropped
+
+The traceability matrix's "Extra coverage (not in plan)" table for this suite
+held 10 rows (TM-CB1..TM-CB5, TM-RR1..TM-RR5), none with a live
+`check()`/`skip()` call anywhere in `test/tilemap/tilemap_test.cpp` or
+`test/tilemap/tilemap_fetch_split_test.cpp` today. `git log -S` on each ID
+shows all 10 were implemented in the original suite (`d599cd27`, "Group 11:
+Control Bits" and the roundtrip block at the end of "Group 1: Enable/Disable")
+and removed wholesale by the Phase 2 per-row rewrite (`1e1e109e`, "rewrite in
+Phase 2 per-row idiom … anti-tests replaced") — real assertions from an
+earlier revision, not rows that were never implemented. Disposition:
+PHANTOM-REJECTED for all 10 — dropped, not folded verbatim, since none of
+these exact IDs is asserted today. Per-row detail:
+
+| ID      | Described behaviour                          | Orphan / never-impl. | Already covered today by |
+|---------|------------------------------------------------|-----------------------|---------------------------|
+| TM-CB1  | bit 6 = 80-column mode                          | orphan (`d599cd27` → deleted `1e1e109e`) | TM-20 (G3 80-col: `control(6)=1` selects 80-col) |
+| TM-CB2  | bit 7 = enable                                  | orphan | TM-01/TM-02/TM-03 (G1 Enable/Reset) |
+| TM-CB3  | bit 1 = 512-tile mode (forces `below`)          | orphan | TM-30 (512-tile activation) + TM-32 (`mode_512=1, tm_on_top=0` forces below=1) |
+| TM-CB4  | bit 0 = `tm_on_top` overrides per-tile `below`  | orphan | TM-124 (`tm_on_top` overrides per-tile below, exact same VHDL citation) |
+| TM-CB5  | bit 5 mapping — documented VHDL-vs-C++ discrepancy, asserted `true` unconditionally (not a real check even at authoring) | orphan, and the discrepancy it flagged has since been resolved | TM-50..TM-53 (G6 Strip flags: bit 5 is now correctly wired as `strip_flags` per `tilemap.vhd:190`, VHDL-faithful) |
+| TM-RR1  | control register roundtrip (set/get raw byte)   | orphan | no dedicated ID; `set_control`/`get_control` are implicitly exercised across most groups (TM-02, TM-04, G3/G4/G6, …) |
+| TM-RR2  | default-attr roundtrip                          | orphan | no dedicated ID; `set_default_attr`/`get_default_attr` implicitly exercised by TM-04, TM-50, TM-51 |
+| TM-RR3  | map-base roundtrip                              | orphan | no dedicated ID; `set_map_base`/`get_map_base_raw` implicitly exercised by TM-04, TM-30, TM-60/61 |
+| TM-RR4  | def-base roundtrip                              | orphan | no dedicated ID; `set_def_base`/`get_def_base_raw` implicitly exercised by TM-04, TM-62/63 |
+| TM-RR5  | reset restores all defaults (after dirtying every register, incl. scroll) | orphan | partially — TM-04 asserts the same reset-value tuple (control/default_attr/map_base/def_base) from a fresh object, but does not first dirty the registers (incl. scroll) the way TM-RR5 did, so the "reset actually clears a dirtied state" behaviour is not separately live-tested today |
+
+TM-RR1..RR4 and (to a lesser degree) TM-CB1..CB4 are the "anti-test" pattern
+the Phase 2 rewrite (`1e1e109e`) explicitly targeted: bare setter/getter
+roundtrips assert the C++ struct member, not VHDL-derived behaviour, so they
+were correctly retired rather than restored. TM-CB5 was never a real
+assertion (`check("TM-CB5", ..., true, ...)` — a documentation placeholder),
+and the discrepancy it recorded (VHDL bit 5 = `strip_flags` vs the then-current
+C++ bit mapping) is resolved in the current code and covered by TM-50..TM-53.
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Raster-split fetch-state regression (TX-1696): NR `0x6E` / `0x6F` / `0x6C` are
+changed mid-frame so one map/tile pair draws a fixed HUD and another the
+scrolling playfield. The FPGA tilemap consumes these registers as live inputs,
+so rendering a completed frame from only their final values paints one
+configuration across every scanline.
+**What these rows prove is the LATCHING, not a scanline period.** The VHDL
+latch fires when the fetch state machine re-enters `S_IDLE`, and
+`tilemap.vhd:264` forces that on a HORIZONTAL counter condition — once per tile
+COLUMN, ~40/80 times a scanline — so on hardware a mid-scanline write takes
+effect from the next tile column of the SAME line. jnext models the same latch
+at per-scanline granularity (`Tilemap::snapshot_fetch_for_line`), which is the
+project's declared accuracy model. An earlier wording of these rows claimed the
+change "affects only subsequent scanlines", which is jnext's model described as
+if it were the hardware; it is not, and the rows say so now.

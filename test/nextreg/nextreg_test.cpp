@@ -12,7 +12,7 @@
 //   * Every check() compares observable state against a value
 //     independently derived from VHDL.
 //   * Every plan row maps to exactly one check() or skip(), identified by
-//     its plan ID (SEL-01, RO-03, RST-05, ...).
+//     its plan ID (SEL-01, RO-03, NREG-RST-05, ...).
 //   * Plan rows that cannot be exercised via the bare NextReg public API
 //     are skip()'d with a one-line reason; they do not count as pass or
 //     fail.
@@ -224,7 +224,7 @@ static void test_readonly() {
     // Not a skip here — authoritative status lives at integration tier.
 }
 
-// ── 3. Reset Defaults (RST-01..09) ───────────────────────────────────
+// ── 3. Reset Defaults (NREG-RST-01..08, RST-09) ──────────────────────
 
 static void test_reset_defaults() {
     set_group("Reset");
@@ -238,7 +238,7 @@ static void test_reset_defaults() {
     // defeats the test's purpose. Defer all 9 RST-xx rows to the
     // integration tier.
 
-    // RST-01..08, RST-10..12: COVERED AT nextreg_integration_test.cpp
+    // NREG-RST-01..08, NREG-RST-10..12: COVERED AT nextreg_integration_test.cpp
     // (Reset-Integration group, same IDs). Full-machine construction
     // attaches the subsystems that own the VHDL defaults, and port-path
     // NR reads return the correct values. Not a skip — just re-homed.
@@ -435,24 +435,24 @@ static void test_clip_cycling() {
     // Not a skip here — authoritative status lives at integration tier.
 }
 
-// ── 6. MMU Registers (MMU-01..04) ────────────────────────────────────
+// ── 6. MMU Registers (MMU-01, NR-MMU-02, MMU-03, MMU-04) ─────────────
 
 static void test_mmu() {
     set_group("MMU");
 
     // MMU-01 — zxnext.vhd:4610-4618 MMU reset defaults. COVERED AT
-    // nextreg_integration_test.cpp Reset-Integration RST-05, which reads
+    // nextreg_integration_test.cpp Reset-Integration NREG-RST-05, which reads
     // NR 0x50-0x57 through the port path and matches the VHDL defaults.
     // Not a skip — re-homed to integration tier.
 
-    // MMU-02 — plain write/read round-trip on a single MMU page slot.
+    // NR-MMU-02 — plain write/read round-trip on a single MMU page slot.
     // NextREG-side storage is transparent; the Mmu mirror lives in the
     // Mmu subsystem but the regs_[] byte round-trips.
     {
         NextReg nr;
         nr.write(0x52, 0x20);
         uint8_t got = nr.read(0x52);
-        check("MMU-02",
+        check("NR-MMU-02",
               "NR 0x52 (MMU2) write=0x20 read=0x20 "
               "[zxnext.vhd:4613 MMU2 storage]",
               got == 0x20, detail_eq(got, 0x20));
@@ -704,7 +704,7 @@ static void test_port_enables() {
 
     // PE-04 — internal port-enable reset defaults (0xFF for 0x82-0x84;
     // 0x8F for 0x85 because bits 6:4 are always-zero on read per VHDL).
-    // COVERED AT nextreg_integration_test.cpp Reset-Integration RST-08.
+    // COVERED AT nextreg_integration_test.cpp Reset-Integration NREG-RST-08.
 
     // PE-05 — bus-side port-enable reset defaults. TRACKED AT
     // nextreg_integration_test.cpp PE-05 (skip, real gap: regs_[0x89]

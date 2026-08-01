@@ -368,7 +368,7 @@ void NextReg::reset() {
     // handles power-on, and a hardware hard reset (which reconfigures the FPGA)
     // is modelled by reconstructing the Emulator in emulator_cold_boot().
     // Rows: nextreg_integration RSTD-04-01 (soft preserves) / RSTD-04-02 (cold
-    // boot clears); mmu_test CFG-06 / CFG-12 for the Mmu mirror.
+    // boot clears); mmu_test MMU-CFG-06 / CFG-12 for the Mmu mirror.
     // nr_04_romram_bank_ NOT reset here — VHDL latch survives reset.
 
     // VHDL zxnext.vhd:1099-1103 — power-on defaults for the NR 0x03 state:

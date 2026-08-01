@@ -14,7 +14,7 @@
         <link rel="prev" href="../07-automation-and-ci/05-beyond-screenshots.html">
       
       
-        <link rel="next" href="01-judder-when-the-host-cannot-keep-up.html">
+        <link rel="next" href="../09-reference/index.html">
       
       
         
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2511,33 +2511,16 @@
   
   
   
-    
-    
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
       
         
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
           
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-    
-    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" checked>
-        
-          
-          <div class="md-nav__link md-nav__container">
-            <a href="index.html" class="md-nav__link md-nav__link--active">
-              
   
   
   <span class="md-ellipsis">
@@ -2551,114 +2534,55 @@
   
   
 
-            </a>
-            
-              
-              <label class="md-nav__link md-nav__link--active" for="__nav_9" id="__nav_9_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="index.html" class="md-nav__link md-nav__link--active">
         
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="true">
-          <label class="md-nav__title" for="__nav_9">
-            <span class="md-nav__icon md-icon"></span>
-            
+  
+  
+  <span class="md-ellipsis">
+    
   
     8. Known issues
   
 
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="01-judder-when-the-host-cannot-keep-up.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    8.1 Judder when the host cannot keep up
-  
-
     
   </span>
   
   
 
       </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="02-the-debugger-window-does-not-follow-the-emulator-window.html" class="md-nav__link">
+      
         
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
   
   
-  <span class="md-ellipsis">
+  
     
   
-    8.2 The debugger window does not follow the emulator window
   
-
-    
-  </span>
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#reporting-something" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Reporting something
+      
+    </span>
+  </a>
   
+</li>
+      
+    </ul>
   
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="03-reporting-something-else.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    8.3 Reporting something else
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
+</nav>
       
     </li>
   
@@ -2874,12 +2798,26 @@
 
 
 <h1 id="8-known-issues">8. Known issues<a class="headerlink" href="#8-known-issues" title="Permanent link">&para;</a></h1>
-<p>The live list is the issue tracker:</p>
+<p>The live list is the issue tracker, and it is the only list:</p>
 <p><strong><a href="https://github.com/jorgegv/jnext/issues">https://github.com/jorgegv/jnext/issues</a></strong></p>
-<p>That is where anything you hit should be reported, and where the current state
-of everything below is authoritative. This chapter writes up the few that a
-user is most likely to run into, so you can recognise them without having to
-search.</p>
+<p>Nothing is duplicated here, deliberately. A known-issues chapter in a released
+document starts going stale the moment it is written — a bug gets fixed, a
+workaround stops being needed, a "planned" feature ships — and a page that
+confidently describes a problem you no longer have is worse than no page at
+all. The tracker is where the current state is authoritative.</p>
+<h2 id="reporting-something">Reporting something<a class="headerlink" href="#reporting-something" title="Permanent link">&para;</a></h2>
+<p>If what you are seeing is not already there, please open an issue. What helps
+most:</p>
+<ul>
+<li>the JNEXT version (<code>jnext --version</code>) and your OS;</li>
+<li>the exact command line, or the steps in the GUI;</li>
+<li>the program you were running, if it can be shared;</li>
+<li>for a rendering problem, a screenshot — <code>--headless</code> with
+  <code>--delayed-screenshot</code> and <code>--delayed-screenshot-frames</code> (chapter 7) gives a
+  capture anyone can reproduce exactly;</li>
+<li>for a performance problem, <code>--log-level platform=debug</code>, which reports the
+  per-second frame cadence.</li>
+</ul>
 
 
 

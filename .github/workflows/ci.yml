@@ -77,6 +77,33 @@ jobs:
     # distro removes that whole class instead of pinning tool by tool.
     container: fedora:44
     timeout-minutes: 60
+    # GH #202. Supplied as ENVIRONMENT, never by rewriting the commands: every
+    # `run:` below stays the plain make target a human types locally, which is
+    # the hard rule in CLAUDE.md. The generator reads $JNEXT_FPGA_SRC (and also
+    # accepts --fpga-src=PATH); locally it needs neither, because it finds the
+    # sibling checkout by walking up from its own directory.
+    #
+    # Scoped to THIS job on purpose. `traceability-check` is a prerequisite of
+    # `make unit-test` only, and only this job runs it — pointing the other
+    # jobs at a directory they never clone would be a lie waiting to be read.
+    # Cloned OUTSIDE the workspace (runner.temp), never inside it. Same reason
+    # CLAUDE.md puts agent worktrees outside the repo: anything that walks the
+    # repository file list would walk this too — the generator itself does a
+    # `find $ROOT -name CMakeLists.txt` to discover suites. The FPGA core
+    # happens to contain no CMakeLists.txt today, which is luck, not a
+    # guarantee, and an untracked 2.5 MB tree inside the checkout is a trap for
+    # every other gate that reads `git status`.
+    #
+    # Only FPGA_CORE_REF is a job-level env. The two PATHS cannot be, because
+    # they derive from the runner's temp dir and the `runner` context is NOT
+    # available in `jobs.<id>.env` — only github/needs/strategy/matrix/vars/
+    # secrets/inputs are. A `${{ runner.temp }}` here does not merely evaluate
+    # empty: GitHub rejects the whole workflow file, so NO job runs and the
+    # failure reads "This run likely failed because of a workflow file issue"
+    # with no logs. The clone step below derives them from $RUNNER_TEMP and
+    # exports them via $GITHUB_ENV, which is the supported way.
+    env:
+      FPGA_CORE_REF: b047011d82bf3086f2b7db76451c6254506f5fe8   # CORE VERSION 3.02.03
     steps:
       # MUST run BEFORE the checkout: a bare fedora:44 has no git, and
       # actions/checkout throws outright when `submodules` is requested
@@ -133,6 +160,38 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      # GH #202. doc/testing/TRACEABILITY-MATRIX.md is GENERATED and
+      # staleness-gated, and the generator VALIDATES every VHDL citation
+      # against the real FPGA core: with no core it cannot tell a typo'd
+      # filename from a real one, so it publishes citations verbatim and
+      # declines to fold a bare basename into its qualified path. That is
+      # DIFFERENT BYTES from a run that has the core — so a byte-exact
+      # staleness gate could never pass here and locally at the same time.
+      # CI was red on main for exactly this, not for any test failure.
+      #
+      # PINNED to a commit rather than tracking master. The core is an
+      # independent upstream repo; a tip that moved under us would change
+      # which citations resolve and turn the gate red for a reason having
+      # nothing to do with the commit under test. Bump it deliberately, in
+      # step with the maintainer's own checkout — the same discipline as the
+      # SD-image cache key above. The clone is partial + sparse because the
+      # generator reads nothing but the `*.vhd` filenames under this one
+      # directory.
+      - name: Check out the ZX Next FPGA core (VHDL citation oracle)
+        run: |
+          FPGA_CORE_DIR="$RUNNER_TEMP/fpga-core"
+          JNEXT_FPGA_SRC="$FPGA_CORE_DIR/cores/zxnext/src"
+          git clone --filter=blob:none --no-checkout \
+            https://gitlab.com/SpectrumNext/ZX_Spectrum_Next_FPGA.git "$FPGA_CORE_DIR"
+          git -C "$FPGA_CORE_DIR" sparse-checkout init --cone
+          git -C "$FPGA_CORE_DIR" sparse-checkout set cores/zxnext/src
+          git -C "$FPGA_CORE_DIR" checkout "$FPGA_CORE_REF"
+          test -d "$JNEXT_FPGA_SRC" || { echo "FPGA core missing at $JNEXT_FPGA_SRC"; exit 1; }
+          echo "core at $(git -C "$FPGA_CORE_DIR" rev-parse HEAD)"
+          echo "$(find "$JNEXT_FPGA_SRC" -name '*.vhd' | wc -l) .vhd files visible"
+          # Hand it to every LATER step, so each `run:` stays a plain make target.
+          echo "JNEXT_FPGA_SRC=$JNEXT_FPGA_SRC" >> "$GITHUB_ENV"
 
       - name: Cache ccache
         uses: actions/cache@v4
@@ -339,3 +398,90 @@ jobs:
 
       - name: make package-test (build every package, assert its contents)
         run: LANG=C make package-test
+
+  # macOS is the ONE platform the regular push path did not cover.
+  #
+  # Windows already is, and adding a second Windows job here would duplicate
+  # it: the `package` job above installs the full MinGW cross toolchain in the
+  # same fedora:44 container and `make package-test` builds package-win,
+  # package-win-qt5, package-win-sdl, package-win32-qt5 and package-win32-sdl,
+  # asserting each zip's contents. macOS was excluded from that suite by
+  # construction — packaging-test.sh:25 says so — because the .dmg needs a Mac.
+  # Only verify-bundle.sh's CONTRACT was checked on Linux, never a real bundle.
+  #
+  # So until now a macOS break was invisible until release time, on the one
+  # leg whose failure mode has actually bitten users: the v0.98.34 .dmg
+  # referenced Homebrew paths and aborted in dyld on every Mac but the
+  # builder's (GH #46). Finding that at tag time is finding it too late.
+  #
+  # Same plain make target a local Mac build uses, per the CI hard rule —
+  # package-macos configures, builds, packages, then mounts the .dmg and
+  # asserts with otool that nothing inside references Homebrew. The artifact is
+  # uploaded so a macOS build can be tested WITHOUT cutting a release, which is
+  # the other half of why the gap hurt.
+  #
+  # This is the only job needing a real macos-latest runner; every other job in
+  # this file is fedora:44. It is deliberately NOT continue-on-error: a gate
+  # that cannot fail anything is not a gate (the same reasoning release.yml's
+  # macos job records).
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (Homebrew)
+        run: brew install cmake sdl2 qt@6 curl openssl libpng
+
+      - name: make package-macos (build, package, verify self-containment)
+        run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jnext-macos-dmg
+          # BUILD_DIR_MAC_RELEASE, the same path release.yml's macos job
+          # uploads. `if-no-files-found: error` so a renamed output directory
+          # is a red job rather than a green one with no artifact in it.
+          path: build/mac-release/*.dmg
+          if-no-files-found: error
+
+  # The flatpak bundle, actually BUILT on every push rather than skipped.
+  #
+  # The `package` job above reaches package-flatpak but can only validate the
+  # manifest: test/packaging/packaging-test.sh gates the real build on
+  # `flatpak list | grep org.kde.Sdk` and skips without it. Installing
+  # flatpak-builder into that fedora:44 container does NOT fix it — the missing
+  # piece is the org.kde.Sdk//6.10 RUNTIME, a multi-gigabyte Flathub download,
+  # and flatpak-builder additionally needs a privileged container for
+  # bubblewrap's user namespaces. So the manifest was checked and the build was
+  # not, on every push, since the day the manifest landed.
+  #
+  # This is release.yml's flatpak job, deliberately near-verbatim: the same
+  # flathub image with the runtime already baked in, the same --privileged, the
+  # same action. A proven configuration is the point — the last novel workflow
+  # pattern added here (runner.temp in a job-level env) rejected the whole file.
+  #
+  # NOT continue-on-error, unlike release.yml's copy. There it is deliberately
+  # non-blocking so a flatpak hiccup cannot hold up a release; here the entire
+  # purpose is to go red when the bundle stops building, which is exactly what
+  # a release-time continue-on-error cannot tell you.
+  flatpak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
+      options: --privileged
+    steps:
+      # The manifest builds from this checkout (`type: git` + `path: ../..`),
+      # so the tree and its submodules have to be here.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: jnext-ci-x86_64.flatpak
+          manifest-path: packaging/flatpak/io.github.zxjogv.jnext.yml
+          cache-key: flatpak-builder-ci-${{ github.sha }}

@@ -513,16 +513,25 @@ Notes worth knowing:
 
 A real ZX Spectrum Next has a header for an ESP-01 WiFi module on UART
 0. **--esp** emulates one, so software written for it - NXtel, nextsync,
-the NextZXOS `.HTTP` and `.zxdb-dl` dot commands - can reach the network
-through your host.
+`newt`, the NextZXOS `.HTTP` and `.zxdb-dl` dot commands - can reach the
+network through your host.
+
+Both **TCP and UDP** are emulated. UDP is what `newt` uses to read the
+time from an internet SNTP server, so `.newt sntp 0 pool.ntp.org` works;
+the optional local-port argument of `AT+CIPSTART="UDP",...` is honoured.
+UDP “modes” 1 and 2, which let the far end of a link become whoever last
+sent a packet, are answered `ERROR` rather than accepted and ignored.
+TLS, server/listen mode, multiplexed connections and transparent mode
+are not emulated.
 
 ### It is off by default, and that is the point
 
-An enabled ESP gives the running program an **outbound TCP pipe out of
-the emulator**, and the program can already read the SD-card image,
-which jnext opens read-write. A program you did not write is a program
-you are trusting when you turn this on. So jnext does not turn it on for
-you, and there is no way for a loaded program to turn it on for itself.
+An enabled ESP gives the running program an **outbound TCP and UDP pipe
+out of the emulator**, and the program can already read the SD-card
+image, which jnext opens read-write. A program you did not write is a
+program you are trusting when you turn this on. So jnext does not turn
+it on for you, and there is no way for a loaded program to turn it on
+for itself.
 
 When it *is* on, a windowed run shows an **ESP cell in the status bar**
 for as long as the run lasts. Its presence means the guest can reach the

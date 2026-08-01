@@ -268,17 +268,32 @@ jobs:
   # tree + mirrors the spdlog submodule — equivalent provenance to a local build.
   # The action produces the .flatpak bundle and uploads it as an artifact, which
   # `publish` then attaches.
-  # continue-on-error until one real CI run is green: this job has never run on a
-  # GitHub runner, and as a blocking dep it would otherwise stall publishing the
-  # already-working linux/windows/rpm packages. `publish` attaches whatever
-  # artifacts exist, so a skipped flatpak just omits that one bundle. Tighten back
-  # to blocking (drop continue-on-error) after the first green run.
+  # BLOCKING, as of v0.99.110. This job carried continue-on-error while it had
+  # never run on a GitHub runner, with its own comment setting the exit
+  # condition: "tighten back to blocking after the first green run". That run
+  # happened — flatpak succeeded on the v0.99.110 release — so the condition is
+  # met and the flag is gone.
+  #
+  # What it was actually doing: continue-on-error reports a FAILED job as
+  # success to the `needs` context, so `publish` (which requires success() of
+  # all seven) went ahead and attached whatever artifacts existed. A release
+  # could therefore go out silently missing its flatpak bundle with nothing
+  # anywhere red — the same fail-safe-but-fail-SILENT shape that was removed
+  # from the macos job in issue #61, and for the same reason: a gate that
+  # cannot fail anything is not a gate.
+  #
+  # Owner decision (2026-08-02): ANY packaging error blocks the release. Every
+  # other artifact job here was already blocking; this was the last exception.
+  # The accepted cost is the one #61 already accepted for macOS — a hiccup on
+  # one platform holds up the others, because a release either covers the
+  # platforms it claims or it stops and says so. To take a deliberately
+  # partial release, restore continue-on-error here in that one commit, or drop
+  # the job from publish's `needs:` — an explicit, visible decision each time.
   flatpak:
     needs: gate
     if: needs.gate.outputs.build == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    continue-on-error: true
     container:
       image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
       options: --privileged

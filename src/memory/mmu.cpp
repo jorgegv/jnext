@@ -149,7 +149,7 @@ void Mmu::reset(bool hard) {
     // Emulator (platform/emulator_boot.h::emulator_cold_boot) — that is
     // the only path that must (and does) restore the 0x00 default.
     // Same shape as G62 (nr_03_config_mode) and G63 (nr_03_machine_type),
-    // both already preserved. Rows: mmu_test CFG-06 / CFG-12 (both arms
+    // both already preserved. Rows: mmu_test MMU-CFG-06 / CFG-12 (both arms
     // of Mmu::reset), nextreg_integration RSTD-04-01/02 (soft vs cold boot).
     //
     // config_mode is likewise left at its current value — it's pushed in by

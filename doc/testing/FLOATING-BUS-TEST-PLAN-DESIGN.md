@@ -327,7 +327,7 @@ timing cannot see port 0x0FFD at all) AND on
 | FB-3B  | +3 | 0x0FFD | Active display; `port_p3_floating_bus_io_en = 0` (bit 4 of `internal_port_enable` cleared) | 0xFF (decode `port_p3_float = 0` → `port_p3_float_rd` never asserts → no `port_internal_rd_response` → cpu_di default `X"FF"`; GH #111) | `zxnext.vhd:2403, 2589, 2716, 2803-2806, 1877` |
 | FB-3C  | 48K | 0x0FFD | Active display, any phase (any `port_7ffd_locked`) | 0xFF (decode gated by `p3_timing_hw_en` → port 0x0FFD not decoded on 48K → no read strobe → cpu_di default `X"FF"`; GH #111) | `zxnext.vhd:2589, 2716, 2803-2806, 1877` |
 | FB-3D  | 128K | 0x0FFD | Active display, any phase | 0xFF (same reason as FB-3C; port 0x0FFD is not floating-bus-reactive on 128K) | `zxnext.vhd:2589, 2716, 2803-2806, 1877` |
-| FB-3E  | ~~Pentagon~~ | — | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up), so this row has no machine to run on. FB-3D (128K) and FB-3F (Next) still cover the decode-gate path. No `check()` row exists. | — | — |
+| ~~FB-3E~~  | ~~Pentagon~~ | — | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up), so this row has no machine to run on. FB-3D (128K) and FB-3F (Next) still cover the decode-gate path. No `check()` row exists. | — | — |
 | FB-3F  | Next | 0x0FFD | Border; latch seeded 0x42; fresh Next-base (`tim_sel` default = 011 = +3 timing) | 0x42 — the decode is **active** (`p3_timing_hw_en` follows `machine_timing`, and Next-base defaults to +3 timing), so the border waveform returns the raw latch. NOT 0xFF (which is what a blocked decode yields, GH #111). | `zxnext.vhd:2589, 1099` + `zxula.vhd:573` |
 
 FB-03 is the re-homed S10.05: corrected expected value per
@@ -414,12 +414,13 @@ that signal is wired to port 0xFF at all.
 | Row ID | Machine | Stimulus | Expected | VHDL cite |
 |--------|---------|----------|----------|-----------|
 | FB-4A  | 128K | Active display, capture phase, VRAM byte `0x5A` | 0x5A (ULA floating bus reaches port 0xFF on 128K timing) | `zxnext.vhd:4513` |
-| FB-4B  | Pentagon | Active display, any phase | 0xFF (machine-timing gate forces 0xFF regardless of ULA) | `zxnext.vhd:4513` |
+| ~~FB-4B~~  | ~~Pentagon~~ | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up), so this row has no machine to run on. FB-4C (Next) still covers the same gate path (non-48K/128K timing → port 0xFF hard-forced 0xFF). No `check()` row exists. | — | — |
 | FB-4C  | Next (default) | Active display, any phase | 0xFF (not 48K/128K, so ULA bus not wired to port 0xFF) | `zxnext.vhd:4513` |
 
-All three are VHDL-justified neighbours of the 5 re-homed rows. They
-protect against a regression where a future refactor might apply the
-48K floating-bus logic uniformly across machine types.
+FB-4A and FB-4C are VHDL-justified neighbours of the 5 re-homed rows.
+They protect against a regression where a future refactor might apply
+the 48K floating-bus logic uniformly across machine types. FB-4B is
+retired (no Pentagon machine type since 2026-05-04).
 
 ## Section 5: Port 0xFF read path wiring
 
@@ -599,8 +600,8 @@ capture after reset).
 | 8 | GH #109 LSB-0xFF scope                | 2  |
 | | **Total** | **29** |
 
-Nominal, i.e. as enumerated by this plan. One of them (FB-3E) is
-retired with no `check()` row, so 28 plan rows are live. The suite
+Nominal, i.e. as enumerated by this plan. Two of them (FB-3E, FB-4B)
+are retired with no `check()` row, so 27 plan rows are live. The suite
 also carries the FB-3X port-conflict neighbour, 3 Section-7
 D3F-followup rows and 5 FB-HARNESS-NN smoke rows — see
 `test/unit-tests.conf` for the pinned total the harness enforces.
@@ -692,6 +693,23 @@ expected value (`X"FF"` per `zxnext.vhd:4513`).
    the NextZXOS-boot critical path. Pick it up when a session has
    budget for a small Emulator-side audit.
 
+## GH #196 Phase 1.3 — "Extra coverage" rows folded into the main table
+
+The matrix's `## Floating Bus` section carried a second, 4-column
+`### Extra coverage (not in plan)` table (no `Status` column) holding
+6 rows: `FB-3X` and the 5 `FB-HARNESS-01..05` fixture-helper smoke
+rows. These had simply never been migrated out of that ad-hoc scheme
+(GH #192 lineage) into the normal 5-column table. Verified 2026-08-01:
+all 6 have a live `check()` call at the cited `floating_bus_test.cpp`
+line, and `./build/test/floating_bus_test` reports all 6 passing
+(`FB-HARNESS 5/5`, `Total: 37 Passed: 37`). No duplicate of any of the
+6 IDs exists elsewhere in the matrix. All 6 were folded into the main
+table as normal `pass` rows (the `FB-HARNESS-*` rows keep a bare `—`
+VHDL citation, since they test the test harness's own helpers, not
+FPGA behaviour — same convention already used elsewhere in the matrix,
+e.g. `V11-CPU-01-IM2-DDFD-ED-NO-RETI`), and the now-empty
+`### Extra coverage (not in plan)` table was removed.
+
 ## Bans
 
 - **No tautologies.** Every row asserts an expected byte that depends
@@ -708,3 +726,10 @@ expected value (`X"FF"` per `zxnext.vhd:4513`).
   not allowed — the schedule has four "return-VRAM" phases and four
   "return-0xFF" phases; each side is covered once per offset into
   the byte stream (pixel / attr / pixel+1 / attr+1 / reset).
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Suite covers the two floating-bus surfaces the Next FPGA exposes: port 0xFF (48K/128K timing, ULA capture) and port 0x0FFD (+3 timing, contended-write latch with bit-0 force / `port_7ffd_locked` gate / NR 0x82 b4 `port_p3_floating_bus_io_en` decode). Plan §1-§6 = 26 plan rows (5 re-homed from ULA §10 + 21 VHDL-justified neighbours), plus 1 port-conflict neighbour FB-3X (Branch B reviewer note 2) and 5 FB-HARNESS-NN fixture-helper smoke rows. Closed 2026-04-25 at 32/32 pass / 0 fail / 0 skip via Branches A/B/C/D (commits `0ee05c5`, `8bcae9b`, `c43b201`, `42b52f0`).

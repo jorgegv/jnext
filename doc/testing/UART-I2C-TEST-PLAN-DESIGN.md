@@ -72,7 +72,7 @@ plan executed:
 - **`src/peripheral/uart.cpp:299` select-register bit** — FIXED in commit
   `47ee7e2` (`fix(uart): select-register read returns bit 3 (0x08) not bit
   6 (0x40)`). VHDL `uart.vhd:371` emits `"01000" & msb` when UART 1 is
-  selected — the emulator now matches. Unblocked 3 rows: SEL-02, SEL-05,
+  selected — the emulator now matches. Unblocked 3 rows: UART-SEL-02, SEL-05,
   DUAL-02.
 
 ## VHDL Source Files
@@ -225,10 +225,10 @@ Write values are latched on the **rising edge** of i_CLK_28.
 
 | ID | Test | Expected |
 |----|------|----------|
-| SEL-01 | Reset state: read select register | Returns 0x00 (UART 0 selected, prescaler MSB = 0) |
-| SEL-02 | Write 0x40 to select, read back | Returns 0x08 + prescaler MSB (bit 6 reflects UART 1 selected; read shows bit 3 set for UART 1) |
-| SEL-03 | Write 0x00 to select, read back | Returns 0x00 (UART 0 re-selected) |
-| SEL-04 | Write 0x15 (bit4=1, bits2:0=101), read back with UART 0 | Returns 0x05 (prescaler MSB = 5) |
+| UART-SEL-01 | Reset state: read select register | Returns 0x00 (UART 0 selected, prescaler MSB = 0) |
+| UART-SEL-02 | Write 0x40 to select, read back | Returns 0x08 + prescaler MSB (bit 6 reflects UART 1 selected; read shows bit 3 set for UART 1) |
+| UART-SEL-03 | Write 0x00 to select, read back | Returns 0x00 (UART 0 re-selected) |
+| UART-SEL-04 | Write 0x15 (bit4=1, bits2:0=101), read back with UART 0 | Returns 0x05 (prescaler MSB = 5) |
 | SEL-05 | Write 0x55 (bit6=1, bit4=1, bits2:0=101), read back with UART 1 | Returns 0x0D (bit 3 for UART1, prescaler MSB = 5) |
 | SEL-06 | Hard reset clears prescaler MSB to 0 | After hard reset, read returns 0x00 |
 | SEL-07 | Soft reset clears uart_select_r to 0 but preserves prescaler MSB | Prescaler MSB retained, select = 0 |
@@ -598,3 +598,10 @@ bash test/regression.sh
 | Port Enable Gating | 3 | NextREG 0x82-0x85 port disable |
 | NR 0xA0 Pi Peripheral Enable | 3 | UART1/I2C1 Pi GPIO routing (G135) |
 | **Total** | **~112** | |
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Hosts integration-tier rows for the UART/I2C subsystem (full Emulator wiring, dual-port + I2C bit-bang). Runs at `25 / 25 pass / 0 fail / 0 skip`. The suite reports no skips: the G135 NR 0xA0 Pi-UART-routing row this paragraph used to call a skip is `NR_A0-03` below, which reads `missing` — it is asserted nowhere at all, which is a larger gap than a skip, not a smaller one. The first 13 IDs listed below are additionally listed in the parent `## UART+I2C/RTC` table above; the five `DEV-*` rows are not — they are the `UartDevice` attach/detach seam GH #25 branch 1 added here, whose backend on UART 0 is the emulated ESP-01 traced in the three `## ESP-01 …` sections below. The four `ESP-*` rows are the G39 placeholders GH #25 branch 5 closed: they re-home here from `uart_test.cpp`'s WONT comments, and unlike `DEV-*` they drive the real `ThreadedEsp` that `--esp` builds rather than a stub. `ESP-03` is deliberately RESTATED — the NR 0x02 bit-7 reset line is latched and read back but drives no device reset in v1.0 (design doc §4.2, §10).

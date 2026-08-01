@@ -21,7 +21,7 @@
 //     (2026-04-24) also RTC-06/07/08/09/10 and I2C-P06 which had been
 //     mistakenly attributed to a separate BCD / register-pointer fault.
 //   * uart.cpp:299 select-register read bit 6 vs bit 3 — FIXED in commit
-//     47ee7e2 (Task 2 item 22). Unblocked SEL-02, SEL-05, DUAL-02.
+//     47ee7e2 (Task 2 item 22). Unblocked UART-SEL-02, SEL-05, DUAL-02.
 //
 // Task 3 UART+I2C SKIP-reduction plan at
 // doc/design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md tracks the remaining
@@ -216,50 +216,50 @@ static void test_group1_select() {
     set_group("SEL");
     Uart uart;
 
-    // SEL-01 - uart.vhd:273-278 hard reset: uart_select_r=0, uart0/1 msb=0;
+    // UART-SEL-01 - uart.vhd:273-278 hard reset: uart_select_r=0, uart0/1 msb=0;
     //          uart.vhd:355 reads "00000" & uart0_prescalar_msb_r
     {
         uart.hard_reset();
         uint8_t sel = uart.read(REG_SELECT);
-        check("SEL-01",
+        check("UART-SEL-01",
               "uart.vhd:273-278,355 - hard reset select read = 0x00",
               sel == 0x00,
               fmt("got=0x%02x", sel));
     }
 
-    // SEL-02 - uart.vhd:280 writes uart_select_r = d(6); uart.vhd:371
+    // UART-SEL-02 - uart.vhd:280 writes uart_select_r = d(6); uart.vhd:371
     //          UART 1 select read = "01000" & msb  ->  bit 3 set, value 0x08
     //          (KNOWN EMULATOR BUG uart.cpp:299 uses bit 6 -> 0x40)
     {
         uart.hard_reset();
         uart.write(REG_SELECT, 0x40);
         uint8_t sel = uart.read(REG_SELECT);
-        check("SEL-02",
+        check("UART-SEL-02",
               "uart.vhd:371 - write 0x40, UART 1 select read = 0x08",
               sel == 0x08,
               fmt("got=0x%02x (VHDL expects 0x08)", sel));
     }
 
-    // SEL-03 - uart.vhd:280 write d(6)=0 restores uart_select_r=0;
+    // UART-SEL-03 - uart.vhd:280 write d(6)=0 restores uart_select_r=0;
     //          uart.vhd:355 UART 0 select read = "00000" & msb = 0x00
     {
         uart.hard_reset();
         uart.write(REG_SELECT, 0x40);
         uart.write(REG_SELECT, 0x00);
         uint8_t sel = uart.read(REG_SELECT);
-        check("SEL-03",
+        check("UART-SEL-03",
               "uart.vhd:280,355 - write 0x00, re-select UART 0 read = 0x00",
               sel == 0x00,
               fmt("got=0x%02x", sel));
     }
 
-    // SEL-04 - uart.vhd:281-283 d(4)=1 & d(6)=0 -> uart0_prescalar_msb = d(2:0);
+    // UART-SEL-04 - uart.vhd:281-283 d(4)=1 & d(6)=0 -> uart0_prescalar_msb = d(2:0);
     //          uart.vhd:355 UART 0 read = "00000" & msb = 0x05 when msb=5
     {
         uart.hard_reset();
         uart.write(REG_SELECT, 0x15);
         uint8_t sel = uart.read(REG_SELECT);
-        check("SEL-04",
+        check("UART-SEL-04",
               "uart.vhd:281-283,355 - UART 0 msb=5 select read = 0x05",
               sel == 0x05,
               fmt("got=0x%02x", sel));

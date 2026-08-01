@@ -192,11 +192,44 @@ my $MATRIX = "$ROOT/doc/testing/TRACEABILITY-MATRIX.md";
 # at its subs, and a file-scope @ARGV walk would then read the selftest's own
 # arguments and exit before a single row ran.
 my $CHECK_ONLY = 0;
+my $DUMP_DESC  = 0;
+my $EMIT_SECTION;
+my $EMIT_TO;
+# --fpga-src=PATH (GH #202). Declared HERE, with the other option variables,
+# rather than beside fpga_src() further down: parse_args() below assigns it,
+# and a `my` is not in scope before its own declaration.
+my $FPGA_SRC_OPT;
 sub parse_args {
     for my $arg (@_) {
         if ($arg eq '--check-accounting') { $CHECK_ONLY = 1; next; }
+        # GH #196 phase 2 — print, for every traced source, the description
+        # row_descriptions() derives and the ones it cannot. Reads nothing but
+        # the test sources and writes nothing, so it is safe to run against a
+        # dirty tree; it exists so the derived-position rule is MEASURED
+        # against all 90 suites rather than asserted from a sample.
+        if ($arg eq '--dump-descriptions') { $DUMP_DESC = 1; next; }
+        # GH #196 phase 2.1 — print ONE section exactly as the emitter would
+        # write it, so its output can be diffed against the committed section
+        # before the emitter is allowed anywhere near the file.
+        if ($arg =~ /^--emit-section=(.+)$/) { $EMIT_SECTION = $1; next; }
+        # Write the WHOLE emitted document to a path of the caller's choosing,
+        # so it can be diffed against the committed matrix before the emitter
+        # is allowed to replace it.
+        if ($arg =~ /^--emit-to=(.+)$/) { $EMIT_TO = $1; next; }
+        # GH #202 — WHERE the FPGA core is checked out. Citations are validated
+        # against it, and a run without it emits DIFFERENT bytes, so CI (which
+        # has no checkout of its own) has to be told rather than left to guess.
+        # Refused up front when it is not a directory: a typo'd path would
+        # otherwise degrade silently into the unvalidated mode this exists to
+        # make impossible.
+        if ($arg =~ /^--fpga-src=(.+)$/) {
+            $FPGA_SRC_OPT = $1;
+            fatal("--fpga-src='$1' is not a directory") unless -d $FPGA_SRC_OPT;
+            next;
+        }
         fatal("unknown option '$arg'\n"
-            . "usage: refresh-traceability-matrix.pl [--check-accounting]");
+            . "usage: refresh-traceability-matrix.pl [--check-accounting] "
+            . "[--dump-descriptions] [--fpga-src=PATH]");
     }
 }
 
@@ -258,14 +291,18 @@ my @SUBSYS = (
     # src/esp01/CMakeLists.txt sets RUNTIME_OUTPUT_DIRECTORY to
     # ${CMAKE_BINARY_DIR}/test for precisely that reason. SELF-70 pins it.
     #
-    # THREE `##` SECTIONS, NOT ONE PARENT WITH `###` COMPANIONS. The suites
-    # reuse row IDs across files on purpose — `TRACE-01..04` mean different
-    # things in the socket suite (what the TRANSPORT logs) and in the AT suite
-    # (what the ENGINE logs), and `HOOK-01/02` (AT) continue as `HOOK-03..06b`
-    # (adapter). Recording and the companion status fallback are both scoped to
-    # the owning `##` subsystem, so filing them as one subsystem would let one
-    # suite's `TRACE-01` vouch for the other's — the exact cross-section
-    # collision GH #118 closed. Separate sections keep each scope honest.
+    # THREE `##` SECTIONS, NOT ONE PARENT WITH `###` COMPANIONS. `HOOK-01/02`
+    # (AT) deliberately continue as `HOOK-03..06b` (adapter) — one logical
+    # sequence spanning two files. `TRACE-01..04` used to look like the same
+    # kind of deliberate split (what the TRANSPORT logs, socket suite, vs. what
+    # the ENGINE logs, AT suite), but GH #196 Phase 1.2 found that pairing was
+    # an accidental collision instead, and renamed the socket suite's rows to
+    # `SOCK-TRACE-01..04`; the AT suite's bare `TRACE-01..09` is unaffected.
+    # Recording and the companion status fallback are both scoped to the
+    # owning `##` subsystem, so filing all three suites as one subsystem would
+    # hide exactly that kind of collision from the duplicate-ID report instead
+    # of surfacing it — the cross-section blind spot GH #118 closed. Separate
+    # sections keep each scope honest.
     ['## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`',
      'esp_socket_test'],
     ['## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`', 'esp_at_test'],
@@ -329,6 +366,14 @@ my %PLAN_DOC = (
     'contention_test'             => 'CONTENTION',
     'lores_test'                  => 'LORES',
     'lores_integration_test'      => 'LORES',
+    # Companions share their parent's plan doc — that shared doc IS the
+    # parent/companion relationship the emitter reads (GH #196). Three were
+    # absent, so their parents never got the GH #121 status fallback and
+    # published rows as `missing` that the companion asserts.
+    'mmu_integration_test'        => 'MEMORY-MMU',
+    'copper_integration_test'     => 'COPPER',
+    'tilemap_fetch_split_test'    => 'TILEMAP',
+    'multiface_test'              => 'MULTIFACE',
     'nmi_test'                    => 'NMI-PIPELINE',
     'nmi_integration_test'        => 'NMI-PIPELINE',
 );
@@ -474,8 +519,68 @@ sub suite_for_source {
 # Citations are also validated against the real FPGA source tree, so a
 # typo'd or renamed VHDL filename is reported rather than published.
 
-my $FPGA_SRC = $ENV{JNEXT_FPGA_SRC}
-    || '/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src';
+# WHERE the core is, in precedence order (GH #202):
+#
+#   --fpga-src=PATH        explicit, wins over everything
+#   $JNEXT_FPGA_SRC        the environment form, which is what CI sets
+#   upward search          a sibling checkout, found by walking up from the
+#                          script's own directory
+#
+# The default used to be one hardcoded absolute path under the maintainer's
+# home. That was invisible to everyone else, and CI — which has no FPGA
+# checkout at all — silently took the "no tree" branch of resolve_vhd() and
+# published every citation unvalidated. The matrix therefore came out with
+# DIFFERENT BYTES in CI than locally, which a byte-exact staleness gate can
+# never reconcile: traceability-check could not pass in both places at once.
+#
+# The search walks up rather than using a fixed depth because the repo and its
+# agent worktrees sit at different depths — `spectrum/jnext/test` is two levels
+# below the sibling, `spectrum/jnext-worktrees/<name>/test` is three — so any
+# constant `../..` is correct for exactly one of them. It starts from $RealBin,
+# NOT $ROOT, because the selftest rebinds $ROOT to a fixture tree while the
+# script itself stays in the real repo.
+my $FPGA_SRC;        # resolved once by fpga_src(), '' when there is no tree
+
+# The parent walk is spelled with a regex rather than File::Basename::dirname
+# ON PURPOSE: that module is packaged separately on Fedora (perl-File-Basename)
+# and is NOT in ci.yml's explicit dependency list. Relying on it arriving
+# transitively is the exact failure that list exists to prevent — CI once broke
+# on `Can't locate FindBin.pm` with no change to script or workflow. Adding no
+# dependency beats declaring one here.
+sub discover_fpga_src {
+    my $dir = $RealBin;
+    for (1 .. 8) {
+        my $cand = "$dir/ZX_Spectrum_Next_FPGA/cores/zxnext/src";
+        return $cand if -d $cand;
+        last if $dir eq '/';
+        (my $up = $dir) =~ s{/[^/]*$}{};
+        $up = '/' if $up eq '';
+        $dir = $up;
+    }
+    return undef;
+}
+
+# Resolved lazily and memoised, so it is correct whether or not parse_args()
+# ran — the selftest loads this file and calls its subs directly, without ever
+# walking @ARGV.
+sub fpga_src {
+    return $FPGA_SRC if defined $FPGA_SRC;
+    $FPGA_SRC = $FPGA_SRC_OPT // $ENV{JNEXT_FPGA_SRC} // discover_fpga_src();
+    if (!defined $FPGA_SRC || !-d $FPGA_SRC) {
+        # LOUD, because silence here is the actual defect: an unvalidated run
+        # looks exactly like a validated one and its output differs.
+        warn "refresh-traceability-matrix: WARNING — no FPGA core found"
+           . (defined $FPGA_SRC && length $FPGA_SRC ? " at '$FPGA_SRC'" : '')
+           . ".\n"
+           . "  VHDL citations cannot be validated, so a typo'd or renamed\n"
+           . "  filename will be published verbatim and a bare basename will\n"
+           . "  not be folded. The output WILL differ from a run that has the\n"
+           . "  core, so do not commit a matrix generated this way.\n"
+           . "  Point at a checkout with --fpga-src=PATH or \$JNEXT_FPGA_SRC.\n";
+        $FPGA_SRC = '';
+    }
+    return $FPGA_SRC;
+}
 
 # `\.vhd` must not be a prefix of a longer identifier, or `row.vhdl_line`
 # in a printf argument list is read as a citation of "row.vhd".
@@ -1041,7 +1146,8 @@ my $VHDL_FILES;
 sub vhdl_files {
     return $VHDL_FILES if defined $VHDL_FILES;
     my (%base, %spell);
-    if (-d $FPGA_SRC && open(my $fh, '-|', 'find', $FPGA_SRC, '-name', '*.vhd')) {
+    my $src = fpga_src();
+    if (length $src && open(my $fh, '-|', 'find', $src, '-name', '*.vhd')) {
         while (my $p = <$fh>) {
             chomp $p;
             my @seg = split m{/}, $p;
@@ -1052,6 +1158,18 @@ sub vhdl_files {
             }
         }
         close $fh;
+    }
+    # A directory that EXISTS but holds no .vhd degrades to exactly the same
+    # unvalidated mode as no directory at all, and fpga_src()'s -d check cannot
+    # see it: the wrong-but-real path (a botched sparse-checkout, one level too
+    # deep, the repo root instead of cores/zxnext/src) is the likelier typo of
+    # the two, and it was silent. Warn on the condition that actually matters —
+    # "citations cannot be validated" — rather than only on the missing path.
+    if (!%base && length $src) {
+        warn "refresh-traceability-matrix: WARNING — '$src' exists but contains\n"
+           . "  no .vhd files, so VHDL citations cannot be validated. The output\n"
+           . "  WILL differ from a run against the real core. Check the path\n"
+           . "  points at cores/zxnext/src inside a ZX Next FPGA checkout.\n";
     }
     $VHDL_FILES = %base ? { base => \%base, spell => \%spell } : 0;
     return $VHDL_FILES;
@@ -1135,11 +1253,13 @@ sub cite_in {
 sub cite_list {
     my ($text) = @_;
     my (@out, %seen);
+    my $core = fpga_src();    # memoised; named once rather than interpolated
+                              # as ${\ fpga_src() } at each warn site
     while ($text =~ /$VHDL_CITE_RE/g) {
         my ($cited, $lines) = ($1, $2);
         my ($verdict, $file) = resolve_vhd($cited);
         if ($verdict eq 'unknown') {
-            warn "WARN: citation names '$cited', which is not in $FPGA_SRC\n";
+            warn "WARN: citation names '$cited', which is not in $core\n";
             next;
         }
         # A wrong DIRECTORY beside a real basename: publish the basename (the
@@ -1148,7 +1268,7 @@ sub cite_list {
         # sites and a warning repeated forty times is the saturated-warning
         # failure this tool has already been bitten by twice.
         if ($verdict eq 'rehomed' && !$REHOMED_WARNED{$cited}++) {
-            warn "WARN: citation names '$cited'; $FPGA_SRC has no such path, "
+            warn "WARN: citation names '$cited'; $core has no such path, "
                . "but does carry '$file' — publishing the bare filename\n";
         }
         my $cite;
@@ -1298,6 +1418,408 @@ sub first_arg {
     return $out;
 }
 
+# ── Row DESCRIPTIONS from the test source (GH #196 phase 2) ───────────
+#
+# Inverting the generator makes a live row's description come from its own
+# assertion instead of a hand-written matrix cell, which is what lets the
+# `unrecorded` class die by construction rather than be reported forever.
+#
+# WHICH ARGUMENT HOLDS IT CANNOT BE ASSUMED, and this is the whole reason the
+# three subs below exist. Measured across the tree: **26 distinct helper
+# signatures**, not one convention. The description sits in argument 1 for the
+# ~4359 rows of 76 files that spell `check(id, desc, cond, detail)`, but in
+# argument 2 for `ctc_test` (`check(id, cond, desc, detail)`, 132 rows) and
+# `tilemap_fetch_split_test`, in argument 3 for `tilemap_test`'s
+# `check(id, actual, expected, note)` (72 rows), and nowhere at all for the
+# `check(id, cond)` shape (100 rows, every one in a tombstoned suite).
+#
+# A filename-keyed table of positions would work today and rot tomorrow — it is
+# the same hand-maintained second source of truth this whole issue exists to
+# delete. So the position is DERIVED from the declaration the file already
+# carries:
+#
+#   the ID parameter is the first string-typed parameter (or the second, when
+#   the first is a `Result&` — `cpu_z80n_im2_regressions_test`);
+#   the DESCRIPTION is the first string-typed parameter AFTER it.
+#
+# Validated against all 26 signatures, including the two that legitimately
+# resolve to "none". A suite that grows a new helper shape is handled by
+# construction instead of by somebody remembering to edit a table.
+#
+# What this deliberately does NOT do is invent a description. An argument that
+# is not a plain string literal (a `fmt(...)` call, a variable) yields undef,
+# and undef reaches the caller as "this row has no derivable description" —
+# the honest answer, and the one the exceptions file exists to answer for the
+# rows that genuinely have none.
+sub helper_arg_positions {
+    my ($source_rel) = @_;
+    my $src = source_lines("$ROOT/$source_rel");
+    # source_lines() keeps each line's trailing newline, so the parts are
+    # joined with NOTHING. Joining with "\n" inserts a second newline per
+    # line, which silently doubles every byte offset this sub converts back
+    # into a line number — and a nearest-preceding lookup against doubled
+    # line numbers matches nothing at all.
+    my $text = join('', @$src);
+    my %pos;
+    # WRAPPERS COUNT, AND ARE FOUND RATHER THAN LISTED.
+    #
+    # A row's assertion is not always a direct `check()`. Suites wrap it —
+    # `single(id, desc, scancode, row, col)` in input_test (a LAMBDA, not a
+    # function), `expect_default` -> `expect_verdict` in esp_socket (two
+    # levels) — and to a source reader those calls are where the row's
+    # description lives.
+    #
+    # Adding "single", "expect_default", ... to a list of known names would
+    # work until the next suite invents its own, which is the drift this whole
+    # issue exists to remove. Instead a definition is ADOPTED as a helper when
+    # its body calls a helper: the base five seed the set, and it is closed to
+    # a fixpoint so a wrapper of a wrapper is found too. Candidates must also
+    # take a string as their ID slot, and every call site still refuses an
+    # argument that is not an ID-shaped literal, so adopting a function that
+    # merely happens to call check() cannot invent rows.
+    my @cand;
+    # Free functions, with optional attributes/qualifiers, and lambdas bound
+    # to a name (`auto single = [&](...)`). Both spellings are in live use.
+    while ($text =~ /^[ \t]*(?:\[\[[^\]]*\]\][ \t]*)*(?:static[ \t]+)?
+                     (?:inline[ \t]+)?(?:void|bool|int)[ \t]+
+                     ([A-Za-z_]\w*)[ \t]*\(([^)]*)\)/gmx) {
+        push @cand, { name => $1, params => $2, at => $-[0] };
+    }
+    while ($text =~ /\bauto[ \t]+([A-Za-z_]\w*)[ \t]*=[ \t]*\[[^\]]*\][ \t]*\(([^)]*)\)/g) {
+        push @cand, { name => $1, params => $2, at => $-[0] };
+    }
+    # Body of each candidate: from its parameter list to the matching close
+    # brace, so "does it call a helper" is asked of the definition and not of
+    # the whole file.
+    for my $c (@cand) {
+        my $open = index($text, '{', $c->{at});
+        next if $open < 0;
+        my ($depth, $i) = (0, $open);
+        for (; $i < length($text); $i++) {
+            my $ch = substr($text, $i, 1);
+            $depth++ if $ch eq '{';
+            if ($ch eq '}') { $depth--; last if $depth == 0; }
+        }
+        $c->{body} = substr($text, $open, $i - $open + 1);
+    }
+    my %helper = map { $_ => 1 } qw(check check_eq check_pred skip stub);
+    my $added = 1;
+    while ($added) {
+        $added = 0;
+        for my $c (@cand) {
+            next if $helper{ $c->{name} } || !defined $c->{body};
+            my $calls = 0;
+            for my $h (keys %helper) {
+                $calls = 1, last if $c->{body} =~ /\b\Q$h\E\s*\(/;
+            }
+            next unless $calls;
+            $helper{ $c->{name} } = 1;
+            $added = 1;
+        }
+    }
+
+    for my $c (@cand) {
+        next unless $helper{ $c->{name} };
+        my ($helper, $params) = ($c->{name}, $c->{params});
+        my @p = grep { /\S/ } split(/,/, $params);
+        next unless @p;
+        my $is_str = sub { $_[0] =~ /char\s*\*|string/ };
+        my $id = $is_str->($p[0]) ? 0
+               : (@p > 1 && $is_str->($p[1])) ? 1 : undef;
+        next unless defined $id;
+        my $desc;
+        for my $i ($id + 1 .. $#p) { $desc = $i, last if $is_str->($p[$i]); }
+        # First declaration wins: a file that overloads a helper declares the
+        # ID-bearing form first in every suite measured, and a later overload
+        # must not silently move the slot the earlier calls use.
+        $pos{$helper} //= { id => $id, desc => $desc };
+    }
+    return \%pos;
+}
+
+# The argument list of the first helper call in $text, as raw source strings.
+# Same quote- and nesting-aware scan first_arg() uses — a `,` inside a string
+# or a nested call does not end an argument — generalised to every argument
+# rather than just the first. first_arg() is left alone: it is consulted on a
+# hot path by the citation tiers and its contract ("the slot the row ID goes
+# in") is narrower than this one.
+sub call_args {
+    my ($text, $names) = @_;
+    my $re = $names || 'check|check_pred|check_eq|skip|stub';
+    return () unless $text =~ /\b(?:$re)\s*\(/g;
+    my ($depth, $in_dq, $in_sq, $cur, @args) = (0, 0, 0, '');
+    for (my $i = pos($text); $i < length($text); $i++) {
+        my $ch = substr($text, $i, 1);
+        if ($ch eq '\\')                    { $cur .= $ch . substr($text, ++$i, 1); next; }
+        if ($in_dq)                         { $in_dq = 0 if $ch eq '"';  $cur .= $ch; next; }
+        if ($in_sq)                         { $in_sq = 0 if $ch eq "'";  $cur .= $ch; next; }
+        if    ($ch eq '"')                  { $in_dq = 1; }
+        elsif ($ch eq "'")                  { $in_sq = 1
+                                                  unless is_digit_separator($text, $i); }
+        elsif ($ch eq '(')                  { $depth++;   }
+        elsif ($ch eq ')')                  { if ($depth == 0) { push @args, $cur; last }
+                                              $depth--;   }
+        elsif ($ch eq ',' && $depth == 0)   { push @args, $cur; $cur = ''; next; }
+        $cur .= $ch;
+    }
+    return @args;
+}
+
+# The value of a C++ string-literal argument, or undef when the argument is
+# not one. Adjacent literals concatenate, exactly as the compiler joins them,
+# because a description long enough to matter is routinely written across
+# several lines. Anything that is not purely literals — a variable, a
+# `fmt(...)` call, a ternary — is undef rather than a guess.
+sub literal_value {
+    my ($arg) = @_;
+    return undef unless defined $arg;
+    my $rest = $arg;
+    my $out  = '';
+    my $seen = 0;
+    while ($rest =~ /\G\s*"((?:[^"\\]|\\.)*)"/gc) { $out .= $1; $seen = 1; }
+    return undef unless $seen;
+    # Nothing but whitespace may follow the last literal; a trailing token
+    # means the argument was an expression that merely began with a string.
+    return undef if substr($rest, pos($rest) // 0) =~ /\S/;
+    $out =~ s/\\n/ /g;
+    $out =~ s/\\t/ /g;
+    $out =~ s/\\"/"/g;
+    $out =~ s/\\\\/\\/g;
+    $out =~ s/\s+/ /g;
+    $out =~ s/^\s+|\s+$//g;
+    return $out;
+}
+
+# Split a comma-separated list at TOP level only — quote-, paren- and
+# brace-aware. Shared by the call-argument scan and the table-entry scan so
+# the two cannot disagree about where an element ends.
+sub split_top_level {
+    my ($text) = @_;
+    my ($depth, $in_dq, $in_sq, $cur, @out) = (0, 0, 0, '');
+    for (my $i = 0; $i < length($text); $i++) {
+        my $ch = substr($text, $i, 1);
+        if ($ch eq '\\')                  { $cur .= $ch . substr($text, ++$i, 1); next; }
+        if ($in_dq)                       { $in_dq = 0 if $ch eq '"'; $cur .= $ch; next; }
+        if ($in_sq)                       { $in_sq = 0 if $ch eq "'"; $cur .= $ch; next; }
+        if    ($ch eq '"')                { $in_dq = 1; }
+        elsif ($ch eq "'")                { $in_sq = 1 unless is_digit_separator($text, $i); }
+        elsif ($ch =~ /[\(\[\{]/)         { $depth++; }
+        elsif ($ch =~ /[\)\]\}]/)         { $depth--; }
+        elsif ($ch eq ',' && $depth == 0) { push @out, $cur; $cur = ''; next; }
+        $cur .= $ch;
+    }
+    push @out, $cur if $cur =~ /\S/;
+    return @out;
+}
+
+# Every `struct T { ... }` + `T name[] = { {...}, ... }` pair in a file, as
+# ordered records carrying the line they start on.
+#
+# The line matters and is not bookkeeping: `struct Row` is declared with
+# DIFFERENT fields in different functions of the same suite, and two loops can
+# iterate arrays of the same name. A lookup therefore resolves to the NEAREST
+# PRECEDING declaration, never to "the one with that name" — the latter reads
+# a sibling function's table and would attribute one group's descriptions to
+# another, which is precisely the borrowed-evidence failure this extractor
+# refuses everywhere else.
+sub file_tables {
+    my ($source_rel) = @_;
+    my $src  = source_lines("$ROOT/$source_rel");
+    # Line numbers are taken from the ARRAY INDEX, never counted from the
+    # newlines in the joined text. source_lines() blanks a comment-only line
+    # to the empty string — which drops its newline — so counting newlines
+    # loses one line per comment and every offset converts back SHORT: the
+    # ula S1 table at line 214 was computed as 172, and the nearest-preceding
+    # lookup then resolved a later function's `struct Row` (id, fe, exp, why)
+    # for it. Recording where each line starts is exact and immune to
+    # whatever the blanking does to a line's contents.
+    my (@start, $text);
+    $text = '';
+    for my $k (0 .. $#$src) {
+        push @start, length($text);
+        my $l = $src->[$k];
+        # Keep the line slot for a blanked comment, or the lines either side
+        # of it are concatenated into one.
+        $l = "\n" if $l eq '';
+        $text .= $l;
+    }
+    my $line_of = sub {
+        my ($off) = @_;
+        my ($lo, $hi) = (0, scalar @start);
+        while ($lo < $hi) { my $m = int(($lo + $hi) / 2);
+                            $start[$m] <= $off ? ($lo = $m + 1) : ($hi = $m); }
+        return $lo;      # @start is 0-based; the count IS the 1-based line
+    };
+
+    my @structs;
+    while ($text =~ /\bstruct\s+([A-Za-z_]\w*)\s*\{([^{}]*)\}/g) {
+        my ($name, $body, $off) = ($1, $2, $-[0]);
+        my @fields;
+        for my $decl (split /;/, $body) {
+            next unless $decl =~ /\S/;
+            # ONE DECLARATION CAN DECLARE SEVERAL FIELDS: `int py, px;` is two
+            # columns, not one. Taking only the last identifier dropped `py`
+            # from ula's S1 table, which does not merely lose a column — it
+            # shifts every index after it, so a later lookup reads the wrong
+            # one. The first declarator carries the type and contributes its
+            # last identifier; the rest are bare names.
+            my @parts = split /,/, $decl;
+            for my $k (0 .. $#parts) {
+                next unless $parts[$k] =~ /\S/;
+                push @fields, $1
+                    if $parts[$k] =~ /([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*$/;
+            }
+        }
+        push @structs, { line => $line_of->($off), name => $name, fields => \@fields };
+    }
+
+    my @arrays;
+    while ($text =~ /\b(?:static\s+|const\s+|constexpr\s+)*([A-Za-z_]\w*)\s+
+                     ([A-Za-z_]\w*)\s*\[[^\]]*\]\s*=\s*\{/gx) {
+        my ($type, $var, $off) = ($1, $2, $-[0]);
+        # walk to the matching close brace of the initialiser
+        my ($depth, $i, $start) = (0, $+[0] - 1, $+[0] - 1);
+        for (; $i < length($text); $i++) {
+            my $ch = substr($text, $i, 1);
+            $depth++ if $ch eq '{';
+            if ($ch eq '}') { $depth--; last if $depth == 0; }
+        }
+        next if $depth != 0;
+        my $body = substr($text, $start + 1, $i - $start - 1);
+        my @rows;
+        for my $entry (split_top_level($body)) {
+            next unless $entry =~ /\{(.*)\}/s;
+            push @rows, [ split_top_level($1) ];
+        }
+        push @arrays, { line => $line_of->($off), type => $type,
+                        var => $var, rows => \@rows };
+    }
+    return { structs => \@structs, arrays => \@arrays };
+}
+
+# Values of one column of the table a loop iterates, or undef.
+#
+# $var is the loop variable's member expression (`r.id`, `c.id_35`); $at is the
+# line the call sits on, which anchors every nearest-preceding lookup above.
+sub table_column {
+    my ($source_rel, $at, $expr) = @_;
+    my ($loopvar, $field) = $expr =~ /^\s*([A-Za-z_]\w*)\s*(?:\.|->)\s*([A-Za-z_]\w*)\s*$/
+        or return undef;
+    my $src = source_lines("$ROOT/$source_rel");
+
+    # Which array does this loop variable range over? Read from the `for`
+    # header rather than guessed, and bounded to the 200 lines above the call
+    # so a distant unrelated loop cannot answer.
+    my $arr;
+    for (my $i = $at - 1; $i >= 0 && $i > $at - 200; $i--) {
+        # Matches every declarator spelling the suites use — `const Row& r`,
+        # `const auto& r`, `auto r`, `const Case &c` — by anchoring on the
+        # variable itself rather than on what precedes it. `[^:;]*?` keeps the
+        # scan inside this loop's own header.
+        if ($src->[$i] =~ /\bfor\s*\([^:;]*?\b\Q$loopvar\E\s*:\s*([A-Za-z_]\w*)/) {
+            $arr = $1;
+            last;
+        }
+    }
+    return undef unless defined $arr;
+
+    my $t = file_tables($source_rel);
+    my ($table) = sort { $b->{line} <=> $a->{line} }
+                  grep { $_->{var} eq $arr && $_->{line} <= $at } @{ $t->{arrays} };
+    return undef unless $table;
+    my ($struct) = sort { $b->{line} <=> $a->{line} }
+                   grep { $_->{name} eq $table->{type} && $_->{line} <= $table->{line} }
+                   @{ $t->{structs} };
+    return undef unless $struct;
+    my ($idx) = grep { $struct->{fields}[$_] eq $field } 0 .. $#{ $struct->{fields} };
+    return undef unless defined $idx;
+    return [ map { $_->[$idx] } @{ $table->{rows} } ];
+}
+
+# id -> description, for every row this source file asserts.
+#
+# Keyed the same way grep_row_ids() keys its IDs, and deliberately built from
+# the SAME call spans the citation extractor walks, so a row cannot be found
+# by one reader and missed by the other.
+#
+# An argument resolves to EITHER a string literal or a table column, and the
+# two zip together, which is what covers the shared-assertion shape that owns
+# most rows without a description:
+#
+#   check(r.id, r.what, ...)   both columns  -> one description per row, the
+#                                               richest case (input_test)
+#   check(r.id, "literal", ...) column + literal -> the loop's one sentence,
+#                                               shared by its rows (mmu_test)
+#   check(r.id, desc, ...)      column + variable -> undef, never a guess
+sub row_descriptions {
+    my ($source_rel) = @_;
+    my $src = source_lines("$ROOT/$source_rel");
+    my $pos = helper_arg_positions($source_rel);
+    my $helper_re = join('|', map { quotemeta } sort { length($b) <=> length($a) }
+                                                keys %$pos);
+    return {} unless length $helper_re;
+    my %desc;
+    for my $i (0 .. $#$src) {
+        my $head = code_prefix($src->[$i]);
+        # The helper names come from THIS file's own definitions (base five
+        # plus every wrapper adopted above), so a suite's private wrapper is
+        # matched without being named here.
+        next unless $head =~ /\b($helper_re)\s*\(/;
+        my $helper = $1;
+        my $p = $pos->{$helper} or next;
+        # Same bounded span the citation scan uses, and bounded for the same
+        # reason: an unbalanced paren inside a literal must not run away.
+        my ($depth, $started, $text, $j) = (0, 0, '', $i);
+        while ($j <= $#$src && $j < $i + 40) {
+            $text .= $src->[$j];
+            for my $ch (split //, $src->[$j]) {
+                if    ($ch eq '(') { $depth++; $started = 1; }
+                elsif ($ch eq ')') { $depth--; }
+            }
+            last if $started && $depth <= 0;
+            $j++;
+        }
+        my @args = call_args($text, $helper_re);
+        next unless @args > $p->{id};
+        next unless defined $p->{desc} && @args > $p->{desc};
+
+        # The ID side: one literal, or a whole table column.
+        my $lit = literal_value($args[ $p->{id} ]);
+        my @ids;
+        if (defined $lit) {
+            @ids = ($lit);
+        } else {
+            my $col = table_column($source_rel, $i + 1, $args[ $p->{id} ]) or next;
+            @ids = map { literal_value($_) } @$col;
+        }
+
+        # The description side: one literal shared by every ID of the call, or
+        # a column zipped to them one-for-one.
+        my $dlit = literal_value($args[ $p->{desc} ]);
+        my @ds;
+        if (defined $dlit) {
+            @ds = ($dlit) x scalar @ids;
+        } else {
+            my $col = table_column($source_rel, $i + 1, $args[ $p->{desc} ]) or next;
+            # A length mismatch means the two references resolved to different
+            # tables; pairing them anyway would attribute the wrong sentence to
+            # every row after the first divergence.
+            next unless @$col == @ids;
+            @ds = map { literal_value($_) } @$col;
+        }
+
+        for my $k (0 .. $#ids) {
+            my $id = $ids[$k];
+            # Re-quoted before matching because $ID_LITERAL_RE spells the
+            # quotes itself — it is written to run over raw source, and this is
+            # the one caller holding an already-unquoted value.
+            next unless defined $id && "\"$id\"" =~ /^$ID_LITERAL_RE$/;
+            $desc{$id} //= $ds[$k] if defined $ds[$k];
+        }
+    }
+    return \%desc;
+}
+
 # Repo-relative path of the plan doc backing a suite, or undef when it has
 # none. Shared by the reader below and by the provenance label grep_citations
 # hands out, so the two can never name different files for the same tier.
@@ -1310,6 +1832,53 @@ sub plan_doc_path {
 
 # Read plan-doc rows: "| ID | ... | ... zxnext.vhd:1234 ... |" -> citation.
 my %PLAN_CACHE;
+my %PLAN_DESC_CACHE;
+my %PLAN_ROWS_CACHE;
+
+# First-column header spellings that declare row IDs in a plan doc, plus the
+# matrix's own. Exact strings: `Retracted ID` and `ULA plan ID (retired)` head
+# ID-shaped columns too, and are deliberately absent.
+my $EXCEPTIONS = 'test/traceability-exceptions.conf';
+# Suites that ASSERT rows a section's plan doc owns, without being that
+# section's companion (GH #196 phase 4).
+#
+# The plan-doc-derived pairing in emit_matrix() can only attach a `###`
+# companion to the one `##` parent sharing its plan. This is the other shape:
+# the asserting suite belongs to a DIFFERENT plan doc entirely. LoRes is the
+# clearest case and not an accident of filing — LoRes is not a layer, it
+# SUBSTITUTES the ULA-slot pixel (zxnext.vhd:6980), so its behaviour is
+# naturally asserted in the compositor suite.
+#
+# This is STATUS-ONLY, exactly like the companion fallback: emit_section_rows()
+# builds its row set from @sources alone, so a suite named here never imports
+# its own rows into the borrowing section — they stay in its own.
+#
+# It could NOT be done by adding the suite to the borrowing @SUBSYS entry the
+# way `## Audio` names its three: Audio's two extra suites have no section of
+# their own, so that is their FIRST mention, while every suite below already
+# owns a section and a second mention is refused by the accounting gate. That
+# refusal is correct and is left alone.
+my %EXTRA_STATUS_FALLBACK = (
+    'LoRes'            => ['compositor_test', 'nextreg_integration_test'],
+    # `sdcard_test` BOOT-SD-01/02 (mount round-trip, unmount mid-transfer),
+    # `divmmc_test` PRI-01/02/04 (the DivMMC-over-MMU-over-Layer2 decode
+    # priority chain) and `audio_port_dispatch_test` SD2-01/02 (NR 0x84 b2
+    # suppressing the colliding 0x7FF1/0xDFF9/0x1FF1 paging writes) all assert
+    # rows the MMU plan owns. The MMU plan already SAYS so for SD2-01 —
+    # "PASS — audio_port_dispatch_test SD2-01" — which is what makes it
+    # certain these are the same rows and not a name clash.
+    'Memory/MMU'       => ['nextreg_integration_test', 'sdcard_test',
+                           'divmmc_test', 'audio_port_dispatch_test'],
+    # VT-GH181-01..06 are VideoTiming rows the Copper plan owns: the GH #181
+    # fix was a Copper defect (WAIT hpos fed 28 MHz cycles instead of the
+    # 7 MHz hc_ula), but what the rows assert is the hc_ula origin, which is
+    # `videotiming_test`'s to prove.
+    'Copper'           => ['nextreg_integration_test', 'videotiming_test'],
+    'Tilemap'          => ['nextreg_integration_test'],
+    'DivMMC+SPI'       => ['nextreg_integration_test'],
+);
+
+my @PLAN_ID_HEADERS = ('ID', '#', 'Test', 'Row', 'Row ID', 'Test ID', 'Test IDs');
 sub plan_cites {
     my ($source_rel) = @_;
     my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
@@ -1327,6 +1896,84 @@ sub plan_cites {
         close $fh;
     }
     return $PLAN_CACHE{$stem} = \%cites;
+}
+
+# Plan-doc rows, in document order, as [id, description] pairs (GH #196 ph 2).
+#
+# ONLY tables that declare row IDs are read, and that is decided from the
+# table's OWN header row — the lesson GH #192 already taught this script for
+# the matrix's five table shapes, applied to plan docs, which have more.
+#
+# The set is MEASURED, not guessed: counting, across every plan doc, how many
+# ID-shaped first cells each header spelling actually heads gives
+# ID 2029 rows / # 165 / Test 82 / Row 30 / Row ID 29 for the row tables, and
+# `ULA plan ID (retired)` 8 / `Retracted ID` 6 for the two maps that must stay
+# out. Exact-string matching separates them; a first guess of just
+# ID/Row ID/Test ID silently dropped 102 real plan rows.
+#
+# A permissive reader adopts tables that are not row tables at all. The
+# floating-bus plan carries a retired-ID map headed
+# `| ULA plan ID (retired) | Floating-bus plan ID |`, whose left column is an
+# OLD name and whose right column is the NEW one; reading it emitted eight
+# S10.* rows that nothing asserts, each carrying another row's ID ("FB-01") as
+# its description. The accepted spellings are a CLOSED set, measured across
+# every plan doc: `ID` (276 tables), `Row ID` (7), plus the matrix's own
+# `Test ID`/`Test IDs`. `Retracted ID` and the retired map are excluded by
+# construction rather than by a name list of exclusions.
+sub plan_table_rows {
+    my ($source_rel) = @_;
+    my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
+    return [] unless defined $stem;
+    return $PLAN_ROWS_CACHE{$stem} if $PLAN_ROWS_CACHE{$stem};
+
+    my (@rows, %seen);
+    my $path = "$ROOT/" . plan_doc_path($source_rel);
+    if (open(my $fh, '<', $path)) {
+        my $accept = 0;
+        my $prev   = '';
+        while (my $line = <$fh>) {
+            chomp $line;
+            if ($line !~ /^\|/) { $accept = 0; $prev = $line; next; }
+            # The separator row identifies the line before it as the header.
+            if ($line =~ /^\|[\s:-]+\|/ && $prev =~ /^\|/) {
+                my @h = split_row_cells($prev);
+                my $first = @h >= 2 ? $h[1] : '';
+                $first =~ s/^\s+|\s+$//g;
+                $first =~ s/^`|`$//g;
+                $accept = (grep { $first eq $_ } @PLAN_ID_HEADERS) ? 1 : 0;
+                $prev = $line;
+                next;
+            }
+            $prev = $line;
+            next unless $accept;
+            my @cells = split_row_cells($line);
+            next unless @cells >= 3;
+            next if is_header_row(\@cells);
+            my ($id, $d) = ($cells[1], $cells[2]);
+            for ($id, $d) { s/^\s+|\s+$//g; s/^`|`$//g; }
+            # The SAME id shape the source scan accepts, not a looser one.
+            next unless "\"$id\"" =~ /^$ID_LITERAL_RE$/;
+            next if $seen{$id}++;
+            push @rows, [$id, (length $d && $d ne '—' && $d ne '-') ? $d : undef];
+        }
+        close $fh;
+    }
+    return $PLAN_ROWS_CACHE{$stem} = \@rows;
+}
+
+# The two views onto it, so they cannot disagree about which rows exist.
+sub plan_rows { return [ map { $_->[0] } @{ plan_table_rows($_[0]) } ]; }
+
+sub plan_descriptions {
+    my ($source_rel) = @_;
+    my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
+    return {} unless defined $stem;
+    return $PLAN_DESC_CACHE{$stem} if $PLAN_DESC_CACHE{$stem};
+    my %desc;
+    for my $r (@{ plan_table_rows($source_rel) }) {
+        $desc{ $r->[0] } //= $r->[1] if defined $r->[1];
+    }
+    return $PLAN_DESC_CACHE{$stem} = \%desc;
 }
 
 # id -> VHDL citation, from the four row-local tiers described above.
@@ -3141,11 +3788,6 @@ sub duplicate_ids {
 # Thin wrapper so every fatal() becomes exit 3 rather than an errno-derived
 # status. The tail of this file stays the literal `exit(main());` the selftest
 # strips to load the subs without running them.
-sub main {
-    my $rc = eval { parse_args(@ARGV); main_body() };
-    if ($@) { print STDERR $@; return 3; }
-    return $rc;
-}
 
 # The accounting gate on its own: no test binary is run, no source is read,
 # the matrix is not opened. Returns (exit_code, subsys) — $subsys undef when
@@ -3173,6 +3815,364 @@ sub check_accounting {
     return (2, undef, undef);
 }
 
+# ── The emitter (GH #196 phase 2.1) ──────────────────────────────────
+#
+# Builds ONE section's rows from the sources, with no reference whatsoever to
+# what the committed matrix currently says. That is the whole inversion: the
+# old refresh_section() read the document, matched each row it found, and
+# rewrote three cells while leaving everything else — descriptions, row set,
+# ordering — under hand control. Everything is computed here instead, so
+# `frozen`, doc-vs-computed `drift`, `unrecorded` and stale locations cannot
+# exist as classes.
+#
+# Row order is deliberate and NOT sorted: plan rows first, in the plan doc's
+# own order (which groups by behaviour and is editorial), then live rows the
+# plan does not list, in source order.
+sub emit_section_rows {
+    my ($binary, $source_rel, $opt) = @_;
+    $opt ||= {};
+    my @sources = as_list($source_rel);
+    # A `###` companion does NOT re-list its parent's plan (GH #196 fix).
+    # plan_doc_path() resolves a companion's source to the SAME
+    # *-TEST-PLAN-DESIGN.md as its parent, so emitting plan rows for both
+    # republished every row the PARENT asserts as `missing` under the
+    # companion: 939 phantom rows, 731 of them in companions. `EXT-01` read
+    # `pass` under `## Input` and `missing` under its companion in the same
+    # document.
+    my $want_plan = $opt->{plan} // 1;
+    # Sources of this section's `###` companions, consulted ONLY as a status
+    # fallback for a row this section's own sources do not assert. That is the
+    # GH #121 rule: a row is routinely listed in a parent's table and asserted
+    # in its companion suite, and reading the parent's file alone published it
+    # as `missing` while the assertion passed.
+    my @fallback = as_list($opt->{fallback} || []);
+    # A section can name several suites (Audio names three), so the FAIL sets
+    # of every binary are merged — a row failing in any of them fails.
+    my %fails;
+    for my $b (as_list($binary), as_list($opt->{fallback_bins} || [])) {
+        my $f = run_fails($b);
+        $fails{$_} = $f->{$_} for keys %$f;
+    }
+    my $fails = \%fails;
+
+    my (%checks, %skips, %desc, %cites, %where, %cite_line);
+    for my $src (@sources, @fallback) {
+        my ($c, $s) = grep_source($src);
+        # First file wins, matching the companion-fallback order the status
+        # lookup has used since GH #121.
+        for my $id (keys %$c) { $checks{$id} //= $c->{$id}; $where{$id} //= $src; }
+        for my $id (keys %$s) { $skips{$id}  //= $s->{$id}; $where{$id} //= $src; }
+        my $d = row_descriptions($src);
+        for my $id (keys %$d) { $desc{$id} //= $d->{$id}; }
+        # Same call shape refresh_section() uses: the citation map is the
+        # return value, provenance/line/no-file are filled through out-params.
+        my (%cf, %cl, %nr);
+        my $ct = grep_citations($src, \%cf, \%cl, \%nr);
+        for my $id (keys %$ct) { $cites{$id} //= $ct->{$id}; }
+        for my $id (keys %cl)  { $cite_line{$id} //= $cl{$id}; }
+    }
+
+    my $plan_desc = plan_descriptions($sources[0]);
+    my $plan_cite = plan_cites($sources[0]);
+
+    my (@ids, %seen);
+    push @ids, grep { !$seen{$_}++ } @{ plan_rows($sources[0]) } if $want_plan;
+    # Live rows the plan does not list — 2.3. Ordered by the line they are
+    # asserted on, so the table reads in the same order as the file.
+    #
+    # The set comes from grep_row_ids(), NOT from grep_source(). grep_source
+    # treats every ID-shaped literal as a row, which was harmless while it only
+    # ever answered questions about rows the matrix already listed, but here it
+    # BUILDS the row set — and it would adopt every `set_group("FB-1-Border")`
+    # banner as a row that nothing asserts. grep_row_ids() masks the banners,
+    # which is the same reason it was taught to (GH #144).
+    my %real;
+    for my $src (@sources) {
+        my $ids = grep_row_ids($src);
+        $real{$_} = 1 for keys %$ids;
+    }   # @fallback is deliberately absent: it answers about STATUS, and its
+        # own rows belong to its own section.
+    my @live = sort { ($checks{$a} // $skips{$a} // 0) <=> ($checks{$b} // $skips{$b} // 0)
+                      || $a cmp $b }
+               grep { $real{$_} && !$seen{$_}++ } (keys %checks, keys %skips);
+    push @ids, @live;
+
+    my @rows;
+    for my $id (@ids) {
+        my $status = status_for($id, $fails, \%checks, \%skips);
+        my $d = $desc{$id} // $plan_desc->{$id} // '—';
+        my $c = cite_for($id, \%cites, \%checks, \%skips) // $plan_cite->{$id}
+             // $TOMBSTONE{ suite_for_source($sources[0]) } // '—';
+        my ($lf, $ll) = line_for($id, \%checks, \%skips, \%where, \%cite_line);
+        my $l = (defined $lf && defined $ll) ? "$lf:$ll" : '—';
+        push @rows, [$id, $d, $c, $status, $l];
+    }
+    return \@rows;
+}
+
+# One section's markdown: header, a pointer to the plan doc that carries the
+# prose, and the table.
+sub emit_section {
+    my ($header, $binary, $source_rel) = @_;
+    my @sources = as_list($source_rel);
+    return emit_section_from_rows($header, $sources[0],
+                                  emit_section_rows($binary, $source_rel));
+}
+
+sub emit_section_from_rows {
+    my ($header, $source, $rows) = @_;
+    my @sources = as_list($source);
+    my @out = ($header, '');
+    if (my $pd = plan_doc_path($sources[0])) {
+        push @out, "Notes and rationale: [" . (split m{/}, $pd)[-1] . "]("
+                 . (split m{/}, $pd)[-1] . ").", '';
+    }
+    # A suite with a declared citation tombstone has no VHDL counterpart, and
+    # in practice these suites also assert WITHOUT row IDs — rewind_test uses a
+    # bare `CHECK(cond, text)` macro and carries no ID literal at all. Their
+    # rows therefore read `missing` because no assertion can be matched to
+    # them BY NAME, not because the behaviour is untested. Saying so is the
+    # difference between an honest gap and a false one. (Found in review.)
+    if (my $tomb = $TOMBSTONE{ suite_for_source($sources[0]) }) {
+        # The ID-less sentence is emitted only where it is TRUE — measured,
+        # not assumed from the presence of a tombstone. The ESP suites carry a
+        # tombstone (nothing in the FPGA core to cite) but assert with proper
+        # row IDs, so claiming otherwise for them would be a fresh false
+        # statement of exactly the kind this document is being cleaned of.
+        my $ids = 0;
+        for my $src (@sources) { $ids += scalar keys %{ grep_row_ids($src) } }
+        push @out, $ids == 0
+          ? "> **Rows below read `missing` because this suite asserts WITHOUT "
+          . "row IDs**, not because the behaviour is untested: it uses a bare "
+          . "`CHECK(cond, text)` macro and carries no ID literal at all, so no "
+          . "assertion can be matched to a row by name. Its citation column is "
+          . "the declared tombstone `$tomb` — it has no VHDL counterpart."
+          : "> Citations in this section are the declared tombstone `$tomb`: "
+          . "this suite has no VHDL counterpart to cite.", '';
+    }
+    push @out, '| Test ID | Description | VHDL file:line | Status | Test file:line |';
+    push @out, '|---------|-------------|----------------|--------|----------------|';
+    for my $r (@$rows) {
+        my @c = @$r;
+        # A literal pipe in a description must stay escaped or it splits the
+        # row — the GH #157 defect, in the other direction.
+        $c[1] =~ s/(?<!\\)\|/\\|/g;
+        push @out, '| ' . join(' | ', @c) . ' |';
+    }
+    push @out, '';
+    return @out;
+}
+
+# The document's own preamble and the VHDL-column explainer.
+#
+# These describe the GENERATOR's semantics — what `missing` means, which
+# evidence tiers fill a citation — so they belong to the generator, not to a
+# hand-edited head that can drift from the code it describes. The per-section
+# prose moved the other way, into each subsystem's plan doc, where it sits
+# next to the rows it explains (owner decision, 2026-08-01).
+sub emit_preamble {
+    return (
+'# Test Plan Traceability Matrix',
+'',
+'> **GENERATED — do not edit this file by hand.** Every cell is computed by',
+'> `test/refresh-traceability-matrix.pl` from the test sources, the subsystem',
+'> plan docs and the suite manifest. Edit those and re-run the script; an edit',
+'> made here is overwritten on the next run and proves nothing in the meantime.',
+'',
+'This document maps plan row → test ID → VHDL citation → test location for the',
+'jnext subsystem unit test suites. See',
+'[UNIT-TEST-PLAN-EXECUTION.md](UNIT-TEST-PLAN-EXECUTION.md) for the authoring',
+'process and [EMULATOR-DESIGN-PLAN.md](../design/EMULATOR-DESIGN-PLAN.md) §Phase 9',
+'for the task tree. Each section links the plan doc carrying that subsystem\'s',
+'notes and rationale.',
+'',
+'A row reads **`missing`** when the plan doc lists it and no suite of the owning',
+'subsystem asserts it — a real backlog, and the only remaining hand-made claim',
+'in the document. Rows the sources assert are emitted whether or not a plan doc',
+'mentions them, so a test can no longer be absent from this document.',
+'',
+    );
+}
+
+sub emit_cite_explainer {
+    return (
+'### The `VHDL file:line` column',
+'',
+'Recovered from four **row-local** evidence tiers, in order: the',
+'`check()`/`skip()` call carrying the row\'s own ID; a comment block naming that',
+'ID; the first call after a table-driven ID literal, for rows with no call of',
+'their own; and the row\'s plan-doc entry. Every citation is validated against',
+'the real FPGA source tree, so a typo\'d or renamed `.vhd` is reported rather',
+'than published.',
+'',
+'Banner-comment and nearest-unrelated-comment tiers were prototyped and',
+'**rejected**: both attribute a neighbouring row\'s VHDL lines to this one, and a',
+'plausible-but-wrong citation is worse than an honest `—`. A `—` here is a real,',
+'visible gap; the fix is to cite the VHDL in the row\'s own assertion, which also',
+'makes the cell drift-checked from then on.',
+'',
+    );
+}
+
+# The exceptions file — the ONE hand-maintained input (GH #196 phase 2.2).
+#
+# Parsed strictly: three `|`-separated fields, and ANYTHING else is a refusal
+# (exit 2) rather than a skipped line. A malformed record must stop the run,
+# because silently dropping one restores exactly the failure this issue
+# removes — a document that under-claims and says nothing about it.
+sub read_exceptions {
+    my $path = "$ROOT/$EXCEPTIONS";
+    return {} unless -e $path;
+    open(my $fh, '<', $path) or fatal("open $path: $!");
+    my (%by, %seen, @bad);
+    my $lineno = 0;
+    while (my $line = <$fh>) {
+        $lineno++;
+        chomp $line;
+        next if $line =~ /^\s*(#|$)/;
+        my @f = split /\s*\|\s*/, $line, -1;
+        if (@f != 3) {
+            push @bad, "$EXCEPTIONS:$lineno: expected 3 `|`-separated fields, got "
+                     . scalar(@f) . ": $line";
+            next;
+        }
+        my ($sec, $id, $text) = @f;
+        for ($sec, $id, $text) { s/^\s+|\s+$//g }
+        if (!length $sec || !length $id || !length $text) {
+            push @bad, "$EXCEPTIONS:$lineno: empty field: $line";
+            next;
+        }
+        if ($seen{"$sec\0$id"}++) {
+            push @bad, "$EXCEPTIONS:$lineno: duplicate record for '$sec' / '$id'";
+            next;
+        }
+        push @{ $by{$sec} }, [$id, $text];
+    }
+    close $fh;
+    if (@bad) {
+        print STDERR "refresh-traceability-matrix: REFUSING to run — the "
+                   . "exceptions file is malformed.\n";
+        print STDERR "  $_\n" for @bad;
+        exit 2;
+    }
+    return \%by;
+}
+
+# The WHOLE document, assembled from sources. No read-modify-write.
+sub emit_matrix {
+    my ($subsys, $declared) = @_;
+    my $exceptions = read_exceptions();
+    my @report;
+    my @sections;
+    my @all_rows;
+    # Which `###` companions belong to which `##` parent, read from @SUBSYS
+    # order: a companion follows its parent. The relationship is load-bearing
+    # in BOTH directions — the companion must not re-list the parent's plan,
+    # and the parent must consult the companion before calling a row missing
+    # (GH #121).
+    my (%comp_srcs, %comp_bins);
+    {
+        # Attached by SHARED PLAN DOC, not by position. @SUBSYS lists every
+        # `##` parent first and the `###` companions afterwards, so walking the
+        # list and remembering the last parent seen hangs all eleven companions
+        # off whichever parent happens to be last — which is what it did, and
+        # the GH #121 fallback then fired for exactly one section.
+        # plan_doc_path() is the real relationship: a companion resolves to the
+        # same *-TEST-PLAN-DESIGN.md as its parent, which is also why the
+        # companion must not re-list that plan.
+        my %parent_of_doc;
+        for my $entry (@$subsys) {
+            my ($header, $bins, $srcs) = @$entry;
+            next unless $header =~ /^##[^#]/;
+            my $doc = plan_doc_path((as_list($srcs))[0]) or next;
+            $parent_of_doc{$doc} //= $header;
+        }
+        for my $entry (@$subsys) {
+            my ($header, $bins, $srcs) = @$entry;
+            next unless $header =~ /^###/;
+            my $doc = plan_doc_path((as_list($srcs))[0]) or next;
+            my $parent = $parent_of_doc{$doc} or next;
+            push @{ $comp_srcs{$parent} }, as_list($srcs);
+            push @{ $comp_bins{$parent} }, as_list($bins);
+        }
+        # The declared cross-plan-doc fallbacks, merged in beside them.
+        my $src_of = cmake_sources();
+        for my $entry (@$subsys) {
+            my ($header) = @$entry;
+            my ($label) = $header =~ /^#+\s*([^—]+?)\s*—/ or next;
+            for my $suite (@{ $EXTRA_STATUS_FALLBACK{$label} || [] }) {
+                my $src = $src_of->{$suite}
+                    or fatal("%EXTRA_STATUS_FALLBACK names '$suite', which "
+                           . "CMake does not build");
+                push @{ $comp_srcs{$header} }, as_list($src);
+                push @{ $comp_bins{$header} }, "build/test/$suite";
+            }
+        }
+    }
+
+    for my $entry (@$subsys) {
+        # Entries arrive from check_accounting() already resolved to
+        # (header, binary, source(s)) — the binary path is not rebuilt here.
+        my ($header, $bins, $srcs) = @$entry;
+        my @flat    = as_list($srcs);
+        my $binary  = $bins;
+        my $is_comp = ($header =~ /^###/) ? 1 : 0;
+        my $rows    = emit_section_rows($binary, \@flat, {
+            plan          => !$is_comp,
+            fallback      => $comp_srcs{$header} || [],
+            fallback_bins => $comp_bins{$header} || [],
+        });
+        # Declared rows for a suite with no plan doc. They emit as `missing`
+        # by construction: nothing asserts them, which is what makes them a
+        # backlog rather than a coverage claim.
+        my ($label) = split /\s+—\s+/, ($header =~ s/^#+\s*//r);
+        my %have = map { $_->[0] => 1 } @$rows;
+        for my $e (@{ $exceptions->{$label} || [] }) {
+            next if $have{ $e->[0] };
+            push @$rows, [$e->[0], $e->[1], '—', 'missing', '—'];
+        }
+        push @sections, emit_section_from_rows($header, $flat[0], $rows);
+        push @all_rows, $rows;
+        my %n;
+        $n{ $_->[3] }++ for @$rows;
+        my $uncited = grep { $_->[2] eq '—' } @$rows;
+        push @report, [section_label($header, $flat[0]), scalar @$rows,
+                       $n{pass} // 0, $n{fail} // 0, $n{skip} // 0,
+                       $n{missing} // 0, (scalar @$rows) - $uncited, $uncited];
+    }
+    my @out = emit_preamble();
+    push @out, '## Summary', '';
+    push @out, $SUMMARY_BEGIN;
+    # render_summary() returns an ARRAYREF, not a list.
+    # $recorded_total is COMPUTED, not passed as a literal 0. It was, and the
+    # committed document consequently published "Distinct row IDs recorded
+    # anywhere in this document: 0" directly under a table listing 4105 rows —
+    # a fabricated counter in a file whose own banner says every cell is
+    # computed, and one no diff-based staleness gate can ever catch because it
+    # is deterministic. (Found in review.)
+    #
+    # $xtra_total and $unref stay 0/empty because they are now STRUCTURALLY
+    # zero: the "Extra coverage (not in plan)" tables and the unrefreshed
+    # tables they counted do not exist in an emitted document.
+    my %distinct;
+    $distinct{ $_->[0] } = 1 for map { @$_ } @all_rows;
+    push @out, @{ render_summary([map { [@{$_}[0 .. 5], 0] } @report],
+                                 tombstoned_suites($declared),
+                                 scalar(keys %distinct),
+                                 declared_totals(), 0, []) };
+    push @out, $SUMMARY_END, '';
+    push @out, emit_cite_explainer();
+    push @out, @sections;
+    # The report is returned, never recomputed. main_body() used to build its
+    # own by calling emit_section_rows() a SECOND time without the companion
+    # options, so the stdout table applied the pre-fix "a companion re-lists
+    # its parent's plan" rule and contradicted the Summary written into the
+    # document by the same run (mmu_integration_test: 265 rows/206 missing on
+    # stdout against 59/0 in the document). Two computations of one fact will
+    # always drift; there is now one.
+    return (\@out, \@report);
+}
+
 sub main_body {
     # ── The accounting gate, BEFORE anything is read or written ───────
     #
@@ -3183,6 +4183,110 @@ sub main_body {
         print STDERR "\nThe matrix was NOT rewritten.\n" unless $CHECK_ONLY;
         return $rc;
     }
+    # Resolve the core HERE, before any emitting, so "I cannot validate
+    # citations" is announced deterministically for every real run.
+    #
+    # It used to surface only as a side effect of the first citation lookup,
+    # which means a tree that happens to cite no VHDL degrades in total
+    # silence — and that is not hypothetical: the selftest fixture is such a
+    # tree, and the first version of these rows passed VACUOUSLY against it,
+    # asserting the absence of a warning that was never going to be emitted.
+    # The condition being reported is a property of the RUN, not of whichever
+    # rows happen to carry citations, so it is evaluated like one.
+    # Not for --check-accounting (which never emits) and not for
+    # --dump-descriptions, which is documented as reading nothing but the
+    # test sources: it resolves no citation, so warning it about the core
+    # is a diagnostic about a thing it does not do (found in review).
+    vhdl_files() unless $CHECK_ONLY || $DUMP_DESC;
+    if (defined $EMIT_TO) {
+        # emit_matrix() returns TWO array refs, (\@out, \@report) — so a plain
+        # `my @doc = emit_matrix(...)` collects the REFS, and join() stringified
+        # them: this wrote a 2-line file reading "ARRAY(0x...)" twice, whatever
+        # the document contained. The other two callers unpack it correctly
+        # (the real writer takes ($doc, $rep); --emit-section takes ($doc)),
+        # which is why only this flag was affected and nothing noticed — it has
+        # no caller in the Makefile, the gates, the selftest or CI.
+        #
+        # It matters anyway: this flag exists to inspect the emitted document
+        # BEFORE letting it replace the committed one, so silently emitting two
+        # lines of hex is worst exactly when someone reaches for it.
+        my ($doc) = emit_matrix($subsys, $declared);
+        open(my $out, '>', $EMIT_TO) or fatal("write $EMIT_TO: $!");
+        print $out join("\n", @$doc), "\n";
+        close $out;
+        printf("emitted %d lines to %s\n", scalar @$doc, $EMIT_TO);
+        return 0;
+    }
+    if (defined $EMIT_SECTION) {
+        for my $entry (@SUBSYS) {
+            my ($header, $suite) = @$entry;
+            next unless $header =~ /\Q$EMIT_SECTION\E/;
+            # Emit the WHOLE document and print the requested section out of
+            # it, rather than emitting the section standalone. A standalone
+            # emit does not know its companions, so it would show the pre-fix
+            # behaviour — and this flag exists to VALIDATE the emitter, which
+            # makes a divergent debug view worse than no debug view.
+            my ($doc) = emit_matrix($subsys, $declared);
+            my $on = 0;
+            for my $l (@$doc) {
+                if ($l =~ /^#{2,3} /) { $on = ($l =~ /\Q$EMIT_SECTION\E/) ? 1 : 0; }
+                print "$l\n" if $on;
+            }
+            return 0;
+        }
+        fatal("no section matching '$EMIT_SECTION'");
+    }
+    if ($DUMP_DESC) {
+        my ($tot, $with, %shape) = (0, 0);
+        for my $entry (@SUBSYS) {
+            for my $suite (as_list($entry->[1])) {
+                for my $src (as_list(cmake_sources()->{$suite})) {
+                    next unless defined $src;
+                    my $ids  = grep_row_ids($src);
+                    my $desc = row_descriptions($src);
+                    my $p    = helper_arg_positions($src);
+                    my $plan = plan_descriptions($src);
+                    my @from_plan = sort grep { !defined $desc->{$_}
+                                                && defined $plan->{$_} } keys %$ids;
+                    my @none = sort grep { !defined $desc->{$_}
+                                           && !defined $plan->{$_} } keys %$ids;
+                    $tot  += scalar keys %$ids;
+                    $with += scalar keys %$ids;
+                    $with -= scalar @none;
+                    $shape{ join(',', map { "$_:id=$p->{$_}{id},desc="
+                                          . (defined $p->{$_}{desc} ? $p->{$_}{desc} : 'NONE') }
+                                      sort keys %$p) }++;
+                    printf("%-52s %4d rows  %4d src  %4d plan  %4d NOT\n",
+                           $src, scalar keys %$ids,
+                           (scalar keys %$ids) - scalar @none - scalar @from_plan,
+                           scalar @from_plan, scalar @none);
+                    # Every one of them, never a sample: this list is the
+                    # work-list for closing the gap, and a truncated one reads
+                    # as a smaller problem than it is.
+                    printf("      no description: %s\n", join(' ', @none))
+                        if @none;
+                    # $JNEXT_DESC_SHOW prints the DERIVED text for the ids it
+                    # matches. Counting how many rows got a description says
+                    # nothing about whether the right one was attributed —
+                    # which is the failure a wrapper- or table-resolver makes.
+                    if (my $pat = $ENV{JNEXT_DESC_SHOW}) {
+                        for my $id (sort keys %$ids) {
+                            next unless $id =~ /$pat/;
+                            printf("      %-16s = %s\n", $id,
+                                   defined $desc->{$id} ? $desc->{$id}
+                                 : (defined $plan->{$id} ? "[plan] $plan->{$id}"
+                                                         : '(none)'));
+                        }
+                    }
+                }
+            }
+        }
+        printf("\nTOTAL traced rows %d, described %d (%.1f%%), not %d\n",
+               $tot, $with, $tot ? 100 * $with / $tot : 0, $tot - $with);
+        printf("distinct declared helper shapes across traced suites: %d\n",
+               scalar keys %shape);
+        return 0;
+    }
     if ($CHECK_ONLY) {
         printf("accounting OK: %d suites declared in test/unit-tests.conf, "
              . "%d traced, %d tombstoned, 0 unaccounted\n",
@@ -3192,152 +4296,23 @@ sub main_body {
         return 0;
     }
 
-    open(my $in, '<', $MATRIX) or fatal("open $MATRIX: $!");
-    my $text = do { local $/; <$in> };
-    close $in;
-
-    # Mirror Python's splitlines(keepends=False): strip trailing newline
-    # from the last element if present.
-    my @lines = split(/\n/, $text, -1);
-    pop @lines if @lines && $lines[-1] eq '';
-
-    # Read BEFORE any section is rewritten. The global set is still needed
-    # for the Summary's "recorded anywhere in this document" figure; the
-    # `unrecorded` question is now asked per subsystem (GH #118), against
-    # the scope subsystem_span() resolves below.
-    my $recorded   = matrix_row_ids(\@lines);
-    my $tombstoned = tombstoned_suites($declared);
-
-    # Resolve every section header first, so each section knows where the
-    # next one starts (see refresh_section's $stop_idx).
-    my ($found, $missing_sections) = resolve_sections(\@lines, $subsys);
-    my @found            = @$found;
-    my @missing_sections = @$missing_sections;
-
-    # The same hole one level down. A suite named in @SUBSYS is TRACED as far
-    # as the accounting gate is concerned, but if its section header is not
-    # actually in the document then nothing scans it and its rows are recorded
-    # nowhere — the exact condition the gate exists to make impossible. This
-    # used to print `NOT FOUND` and carry on, which is a warning line inside a
-    # report again. Refuse, and write nothing.
-    my ($section_rc, $may_write) = section_refusal(\@missing_sections);
-    if (!$may_write) {
-        print STDERR
-            "refresh-traceability-matrix: REFUSING to run — \@SUBSYS traces a\n"
-          . "suite whose section is not in $MATRIX. A traced suite with no\n"
-          . "section is recorded nowhere, which is what tracing is supposed to\n"
-          . "prevent. Add the section, or tombstone the suite.\n\n";
-        print STDERR "  $_\n" for @missing_sections;
-        print STDERR "\nThe matrix was NOT rewritten.\n";
-        return $section_rc;
-    }
-    my @header_idx = sort { $a <=> $b } map { $_->[0] } @found;
-
-    # Per-subsystem recording scope, resolved up front from the unrewritten
-    # document (GH #118). Keyed by the entry's own header index; several
-    # entries can share one scope (a `##` parent and its `###` companions).
-    my %scope;
-    for my $f (@found) {
-        my ($from, $to) = subsystem_span(\@lines, $f->[0]);
-        $scope{ $f->[0] } = matrix_row_ids(\@lines, $from, $to);
-    }
-
-    # Which other suites of this subsystem a section may fall back to for a
-    # row its own source does not assert (GH #121).
-    my $companion = companion_map(\@lines, \@found);
-
-    my @report;
-    my @drift;
-    my @kept;
-    my @unrec;
-    my @aliased;
-    my @invalid;
-    my @frozen;
-    my @unref;
-    my $tomb_excluded = 0;
-    for my $f (@found) {
-        my ($idx, $entry) = @$f;
-        my ($header, $binary, $source_rel) = @$entry;
-        my $stop;
-        for my $h (@header_idx) { $stop = $h, last if $h > $idx; }
-
-        my @section_drift;
-        my @section_kept;
-        my @section_invalid;
-        my @section_frozen;
-        my @section_unref;
-        my ($touched, $p, $f_ct, $s, $m, $c, $u, $d, $fz, $tz, $xt) =
-            refresh_section(\@lines, $idx, $binary, $source_rel,
-                            \@section_drift, \@section_kept, $stop,
-                            $companion->{$idx}, \@section_invalid,
-                            \@section_frozen, \@section_unref);
-        my @sources = as_list($source_rel);
-        # Tables this section left entirely alone (GH #192), labelled by
-        # section for the same reason @invalid is: no source file computes them.
-        push @unref, map { [section_label($header, $sources[0]), $_] }
-                     @section_unref;
-        # Labelled by SECTION, not by source file: a hand-written cell has no
-        # source file behind it — that is what makes it hand-written.
-        push @invalid, map { section_label($header, $sources[0]) . "  $_" }
-                       @section_invalid;
-        # Same labelling as @invalid, and for the same reason: a frozen cell
-        # is hand-written, so it has no source file behind it.
-        push @frozen, map { [section_label($header, $sources[0]), @$_] }
-                      @section_frozen;
-        $tomb_excluded += $tz;
-        # Drift lines arrive already charged to the file that supplied the
-        # citation (GH #126) — which may be a companion suite or a plan doc,
-        # neither of which is $sources[0]. Protected rows have no such file
-        # by construction: the marker exists because the coverage is
-        # elsewhere and hand-maintained, so they stay labelled by section.
-        push @drift, @section_drift;
-        push @kept,  map { "$sources[0]  $_" } @section_kept;
-
-        # The other direction (GH #117): rows these sources assert that the
-        # document records nowhere. Reported per source file, so the backlog
-        # names the file to edit even for a multi-suite section.
-        my $absent_ct = 0;
-        my $scope = $scope{$idx};
-        for my $src (@sources) {
-            my $rows = grep_row_ids($src);
-            # `ID:line` so the backlog can be walked straight to the assertion.
-            my @absent = map { "$_:$rows->{$_}" }
-                         sort grep { !matrix_records($_, $scope) } keys %$rows;
-            if (@absent) {
-                push @unrec, [$src, \@absent];
-                $absent_ct += scalar @absent;
-            }
-            # The sub-letter blind spot, made visible (GH #118).
-            my @alias = map { "$_:$rows->{$_}" }
-                        sort grep { recorded_only_by_alias($_, $scope) }
-                        keys %$rows;
-            push @aliased, [$src, \@alias] if @alias;
-        }
-
-        push @report, [section_label($header, $sources[0]), $touched,
-                       $p, $f_ct, $s, $m, $c, $u, $d, $absent_ct, $fz, $xt];
-    }
-
-    my $xtra_total = 0;
-    $xtra_total += $_->[11] for @report;
-    replace_summary(\@lines,
-        render_summary([map { [@{$_}[0 .. 5], $_->[9]] } @report],
-                       $tombstoned, scalar(keys %$recorded),
-                       declared_totals(), $xtra_total,
-                       [map { $_->[1] } @unref]));
-
+    # ── The document is EMITTED, never edited (GH #196 phase 2.1) ────
+    #
+    # What used to happen here: read the committed matrix, find each row it
+    # already listed, rewrite three of its cells, leave everything else —
+    # descriptions, the row set, the ordering — under hand control. That split
+    # authority is what produced `frozen` (a hand cell with no computed side),
+    # doc-vs-computed `drift`, `unrecorded` (a test with no row) and stale
+    # locations. None of those classes can exist now: every cell is computed,
+    # so there is nothing for a hand edit to disagree with.
+    my ($doc, $rep) = emit_matrix($subsys, $declared);
     open(my $out, '>', $MATRIX) or fatal("write $MATRIX: $!");
-    print $out join("\n", @lines), "\n";
+    print $out join("\n", @$doc), "\n";
     close $out;
 
-    # cited/uncit count only the rows this run filled or could not fill —
-    # rows that already carried a hand-written citation are in neither.
-    # `unrec` is the GH #117 direction: source rows the document omits.
-    #
-    # `xtra` is the GH #192 column: rows refreshed in a table that has no
-    # `Status` column ("Extra coverage (not in plan)"). They are deliberately
-    # NOT in `rows`, which must keep equalling pass+fail+skip+miss — a row with
-    # no Status cell cannot contribute a number the document displays.
+    # The SAME rows the document was written from — see emit_matrix().
+    my @report = map { [@{$_}[0 .. 5], $_->[6], $_->[7], 0, 0, 0, 0] } @$rep;
+
     printf("\n%-38s %5s %5s %5s %5s %5s %6s %6s %6s %6s %6s %6s\n",
            'Subsystem', 'rows', 'pass', 'fail', 'skip', 'miss',
            'cited', 'uncit', 'drift', 'unrec', 'froz', 'xtra');
@@ -3351,166 +4326,46 @@ sub main_body {
     print('-' x 113, "\n");
     printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d %6d %6d\n", 'TOTAL', @totals);
 
-    if (@drift) {
-        print "\nVHDL citations where the doc and the test source disagree ",
-              "(doc kept, not overwritten):\n";
-        print "  $_\n" for @drift;
-    }
-
-    if (@kept) {
-        print "\nProtected rows kept byte-identical ",
-              "(<!-- protected --> marker):\n";
-        print "  $_\n" for @kept;
-    }
-
-    # ── The GH #150 report ────────────────────────────────────────────
+    # ── The one report that survives (GH #196 phase 2.4) ─────────────
     #
-    # Hand-written cells validated the same way computed ones are. Reported,
-    # never rewritten — a hand-written citation is somebody's judgement and the
-    # tool has no standing to overrule it, only to say it does not check out.
-    if (@invalid) {
-        printf("\nHAND-WRITTEN CITATIONS THAT DO NOT VALIDATE (%d). The cell is "
-             . "KEPT; fix it by\nhand. A citation to jnext's own source is not "
-             . "evidence — the VHDL is the oracle:\n", scalar @invalid);
-        print "  $_\n" for @invalid;
-    }
-
-    # ── The GH #188 report ────────────────────────────────────────────
-    #
-    # Hand-written cells with NO computed side. GH #150 made a hand-written
-    # cell complain when it does not validate; this is the other half — the
-    # cells nothing can even disagree with. Listed so the number is
-    # shrinkable, split by sub-class because the remedies differ, and NEVER
-    # rewritten: closing one of these means a human reading the VHDL.
-    if (@frozen) {
-        my %by;
-        push @{ $by{ $_->[2] } }, $_ for @frozen;
-        my %what = (
-            a => 'no citation attempt — cite the VHDL in the row\'s own '
-               . 'check(), which makes the cell computed and drift-checked',
-            b => 'line numbers with the FILENAME left out ("VHDL 7163-7176") '
-               . '— write the .vhd in the row\'s own check()',
-            c => 'this section\'s sources do not assert the row (status '
-               . 'missing) — record it where it runs, or mark it planned',
-        );
-        printf("\nFROZEN CITATIONS — hand-written cells the extractor computes "
-             . "NOTHING for (%d).\nDrift needs a computed side to disagree "
-             . "with, so nothing can ever contradict\nthese and they stay "
-             . "frozen: GH #187 was one of them. The cell is KEPT.\n"
-             . "Excluded: %d cells whose suite carries a declared %%TOMBSTONE "
-             . "— the tombstone IS\ntheir computed side, so those ARE compared "
-             . "and can appear in the drift list above.\n",
-               scalar @frozen, $tomb_excluded);
-        for my $cls (sort keys %by) {
-            printf("  (%s) %s — %d\n", $cls, $what{$cls},
-                   scalar @{ $by{$cls} });
-            for my $r (@{ $by{$cls} }) {
-                printf("      %s  %s: [%s]\n", $r->[0], $r->[1], $r->[3]);
+    # Every other class the old reports listed — frozen cells, doc-vs-computed
+    # drift, unrecorded rows, protected rows, stale locations — is gone by
+    # construction, because there is no longer a hand-written side to disagree
+    # with. What CAN still disagree is two independent sources: a plan doc and
+    # a test source citing different VHDL for the same row. That is genuine
+    # signal about the spec, not bookkeeping, so it stays visible.
+    my @cite_drift;
+    for my $entry (@$subsys) {
+        my ($header, $bins, $srcs) = @$entry;
+        my @flat = as_list($srcs);
+        my $plan = plan_cites($flat[0]);
+        for my $src (@flat) {
+            my (%cf, %cl, %nr);
+            my $src_cites = grep_citations($src, \%cf, \%cl, \%nr);
+            for my $id (sort keys %$src_cites) {
+                next unless exists $plan->{$id};
+                next unless defined $plan->{$id} && defined $src_cites->{$id};
+                next if $plan->{$id} eq $src_cites->{$id};
+                push @cite_drift,
+                     sprintf('%-14s plan %-28s source %s (%s)',
+                             $id, $plan->{$id}, $src_cites->{$id}, $src);
             }
         }
     }
-
-    # ── The GH #192 report: tables nothing computes ───────────────────
-    #
-    # A table with neither a `Test file:line` nor a `VHDL file:line` column is
-    # left byte-identical, because there is nothing in it this tool can
-    # compute. That is fine — what is NOT fine is a reader taking its cells for
-    # generated output. So the prose above each such table must carry the
-    # literal `NOT REFRESHED`, and one that does not is called out here.
-    if (@unref) {
-        my $rows = 0;
-        $rows += $_->[1]{rows} for @unref;
-        printf("\nTABLES NOT REFRESHED — no `Test file:line` and no `VHDL "
-             . "file:line` column, so\nnothing in them is computed (%d tables, "
-             . "%d rows). Left byte-identical on purpose:\n", scalar @unref,
-               $rows);
-        for my $t (@unref) {
-            printf("  %s (%d rows)%s\n", $t->[1]{title}, $t->[1]{rows},
-                   $t->[1]{marked} ? '' : "  <-- NOT MARKED in the document");
-        }
-        my @unmarked = grep { !$_->[1]{marked} } @unref;
-        printf("  %d of them do not say so above the table. Add the words "
-             . "'%s'\n  to the prose that introduces them — a table that looks "
-             . "computed and is not is\n  exactly the defect GH #187/#188 "
-             . "closed.\n", scalar @unmarked, $UNREFRESHED_MARK) if @unmarked;
+    if (@cite_drift) {
+        printf("\nPLAN-vs-SOURCE CITATION DISAGREEMENTS (%d). Two independent "
+             . "sources cite\ndifferent VHDL for one row; read the VHDL and fix "
+             . "whichever is wrong:\n", scalar @cite_drift);
+        print "  $_\n" for @cite_drift;
     }
 
-    # ── The GH #192 duplicate-ID report ───────────────────────────────
-    #
-    # Recording (GH #118) and the status fallback (GH #121) are both scoped to
-    # the owning `##` subsystem, which is what stops one subsystem's `TM-01`
-    # answering for another's. Neither can SEE the reuse, though, so nothing
-    # said it was happening: `CFG-05..07` and `KEMP-17` were each found by hand,
-    # months apart.
-    #
-    # Unlike a description heuristic (rejected in GH #190) this is mechanically
-    # certain — an ID literal either appears in two subsystems' sources or it
-    # does not — which is what makes it worth printing. It is a REPORT, never a
-    # gate: some reuse is deliberate and documented (the three ESP-01 sections
-    # reuse `TRACE-*`/`HOOK-*` on purpose, see @SUBSYS), and renaming a test ID
-    # is the test author's call, not this tool's.
-    my $dups = duplicate_ids(\@found, \@lines);
-    if (@$dups) {
-        printf("\nDUPLICATE TEST IDs — one ID asserted in more than one "
-             . "SUBSYSTEM's sources (%d).\nNot a gap and not auto-repaired: "
-             . "recording and the status fallback are both scoped\nper "
-             . "subsystem (GH #118/#121), so neither can see this. Check that "
-             . "each reuse is\ndeliberate — a matrix row named for two "
-             . "different behaviours is how GH #190 and\n`KEMP-17` happened:\n",
-               scalar @$dups);
-        for my $d (@$dups) {
-            printf("  %-18s %s\n", $d->[0],
-                   join(' | ', map { "$_->[0] $_->[1]" } @{ $d->[1] }));
-        }
-    }
+    return 0;
+}
 
-    # ── The GH #117 report ────────────────────────────────────────────
-    my $unrec_ct = 0;
-    $unrec_ct += scalar @{ $_->[1] } for @unrec;
-    if (@unrec) {
-        print "\nUNRECORDED — rows the test source asserts that this matrix ",
-              "does not list in the\nowning subsystem's section ($unrec_ct):\n";
-        for my $u (@unrec) {
-            printf("  %s (%d)\n", $u->[0], scalar @{ $u->[1] });
-            print "    ", join(' ', @{ $u->[1] }), "\n";
-        }
-    }
-    if (@$tombstoned) {
-        my $rows = 0;
-        $rows += $_->[1] for @$tombstoned;
-        printf("\nTOMBSTONED SUITES — declared in test/unit-tests.conf, no ".
-               "section here, reason recorded (%d suites, %d live rows).\n".
-               "Not a gap: each has an authority that is not the FPGA core. ".
-               "See the Summary table.\n",
-               scalar @$tombstoned, $rows);
-    }
-
-    # ── The GH #118 sub-letter blind spot, made visible ───────────────
-    #
-    # Not a gate: these ARE recorded, by their parent row, and 90 of the
-    # 102 triaged in GH #118 were right to be. Printed so the next one that
-    # is NOT — a distinct regression wearing a sub-letter, as `FB-04b`,
-    # `NA-01c` and `REG-03c` were — lands in a list a human reads.
-    my $alias_ct = 0;
-    $alias_ct += scalar @{ $_->[1] } for @aliased;
-    if (@aliased) {
-        print "\nALIASED — rows recorded ONLY by sub-letter aliasing, i.e. the ",
-              "matrix lists\nthe parent `X-01` but not `X-01b` ($alias_ct). ",
-              "Not a gap by itself: check that\neach is a sub-case of its ",
-              "parent plan row, not a distinct assertion (GH #118):\n";
-        for my $a (@aliased) {
-            printf("  %s (%d)\n", $a->[0], scalar @{ $a->[1] });
-            print "    ", join(' ', @{ $a->[1] }), "\n";
-        }
-    }
-
-    if (report_exit_code($unrec_ct)) {
-        print "\nThe matrix WAS rewritten; it under-records the UNRECORDED set above.\n",
-              "Close it by adding the rows by hand — the description column is the\n",
-              "point of a matrix row and cannot be derived from the test source.\n",
-              "(GH #117)\n";
-    }
-    return report_exit_code($unrec_ct);
+sub main {
+    my $rc = eval { parse_args(@ARGV); main_body() };
+    if ($@) { print STDERR $@; return 3; }
+    return $rc;
 }
 
 exit(main());

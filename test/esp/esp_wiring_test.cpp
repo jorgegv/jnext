@@ -69,10 +69,13 @@ static void check(const char* id, const char* desc, bool ok) {
 /// No socket, no DNS, no listener — every row below is hermetic.
 class ScriptedTransport final : public EspTransport {
 public:
-    bool begin_connect(const std::string& host, std::uint16_t port) override {
+    bool begin_connect(const std::string& host, std::uint16_t port, Protocol protocol,
+                       std::uint16_t local_port) override {
         ++begin_calls;
-        last_host = host;
-        last_port = port;
+        last_host       = host;
+        last_port       = port;
+        last_protocol   = protocol;
+        last_local_port = local_port;
         if (!accept) return false;
         state_ = TransportState::Connecting;
         return true;
@@ -97,7 +100,9 @@ public:
     bool          closed      = false;
     bool          accept      = true;
     std::string   last_host;
-    std::uint16_t last_port = 0;
+    std::uint16_t last_port       = 0;
+    Protocol      last_protocol   = Protocol::Tcp;
+    std::uint16_t last_local_port = 0;
 
 private:
     TransportState state_ = TransportState::Idle;
@@ -111,7 +116,10 @@ private:
 /// ever increments.
 class ThrowingTransport final : public EspTransport {
 public:
-    bool begin_connect(const std::string&, std::uint16_t) override { return false; }
+    bool begin_connect(const std::string&, std::uint16_t, Protocol,
+                       std::uint16_t) override {
+        return false;
+    }
     void poll() override { throw std::runtime_error("deliberate transport fault"); }
     TransportState     state() const override      { return TransportState::Idle; }
     const std::string& last_error() const override { return error_; }
@@ -314,10 +322,11 @@ int main() {
         EspGatedTransport gated{std::move(raw), policy, log};
 
         check("GATE-01", "an allowed host reaches the wrapped transport",
-              gated.begin_connect("allowed.test", 2048) && tr->begin_calls == 1 &&
+              gated.begin_connect("allowed.test", 2048, Protocol::Tcp, 0) &&
+                  tr->begin_calls == 1 &&
                   tr->last_host == "allowed.test" && tr->last_port == 2048);
 
-        const bool accepted = gated.begin_connect("evil.test", 80);
+        const bool accepted = gated.begin_connect("evil.test", 80, Protocol::Tcp, 0);
         check("GATE-02", "a refused host NEVER reaches the wrapped transport",
               tr->begin_calls == 1);
         check("GATE-03", "a refusal returns false — the 'request rejected' contract",
@@ -334,15 +343,38 @@ int main() {
         EspConnectionLog log;
         EspGatedTransport gated{std::move(raw), EspHostPolicy{}, log};
         check("GATE-06", "an empty allowlist forwards every host",
-              gated.begin_connect("anything.test", 1) && tr->begin_calls == 1 &&
+              gated.begin_connect("anything.test", 1, Protocol::Tcp, 0) && tr->begin_calls == 1 &&
                   gated.refusals() == 0);
+    }
+    {
+        // GH #198. UDP would be a way straight round `--esp-allow` if the gate
+        // had been written as a TCP gate, so both directions are pinned: a name
+        // that is not on the list must be refused over UDP too, and one that is
+        // must reach the transport with the protocol and local port INTACT —
+        // a decorator that dropped them would silently downgrade every UDP
+        // connect to TCP on the default port.
+        auto  raw = std::make_unique<ScriptedTransport>();
+        auto* tr  = raw.get();
+        EspHostPolicy policy;
+        policy.add("time.test");
+        EspConnectionLog log;
+        EspGatedTransport gated{std::move(raw), policy, log};
+
+        check("GATE-13", "the allowlist refuses a UDP connect exactly as it refuses TCP",
+              !gated.begin_connect("evil.test", 123, Protocol::Udp, 0) &&
+                  tr->begin_calls == 0 && gated.refusals() == 1);
+        check("GATE-14", "an allowed UDP host reaches the transport with protocol and "
+                         "local port unchanged",
+              gated.begin_connect("time.test", 123, Protocol::Udp, 4567) &&
+                  tr->last_protocol == Protocol::Udp && tr->last_port == 123 &&
+                  tr->last_local_port == 4567);
     }
     {
         auto  raw = std::make_unique<ScriptedTransport>();
         auto* tr  = raw.get();
         EspConnectionLog log;
         EspGatedTransport gated{std::move(raw), EspHostPolicy{}, log};
-        gated.begin_connect("peer.test", 23281);
+        gated.begin_connect("peer.test", 23281, Protocol::Tcp, 0);
         tr->set_state(TransportState::Connected);
         gated.poll();
         check("GATE-07", "Connecting -> Connected reports one Opened event",
@@ -362,7 +394,7 @@ int main() {
         auto* tr  = raw.get();
         EspConnectionLog log;
         EspGatedTransport gated{std::move(raw), EspHostPolicy{}, log};
-        gated.begin_connect("peer.test", 23281);
+        gated.begin_connect("peer.test", 23281, Protocol::Tcp, 0);
         tr->set_error("name resolution failed");
         tr->set_state(TransportState::Failed);
         gated.poll();
@@ -377,7 +409,7 @@ int main() {
         auto* tr  = raw.get();
         EspConnectionLog log;
         EspGatedTransport gated{std::move(raw), EspHostPolicy{}, log};
-        gated.begin_connect("peer.test", 1);
+        gated.begin_connect("peer.test", 1, Protocol::Tcp, 0);
         tr->set_state(TransportState::Closed);
         gated.poll();
         check("GATE-11", "a never-connected attempt that closes reports nothing",
@@ -411,8 +443,8 @@ int main() {
             auto  raw = std::make_unique<ScriptedTransport>();
             auto* tr  = raw.get();
             EspGatedTransport gated{std::move(raw), policy, log};
-            gated.begin_connect("evil.test", 80);
-            gated.begin_connect("allowed.test", 80);
+            gated.begin_connect("evil.test", 80, Protocol::Tcp, 0);
+            gated.begin_connect("allowed.test", 80, Protocol::Tcp, 0);
             tr->set_state(TransportState::Connected);
             gated.poll();
             tr->set_state(TransportState::Closed);

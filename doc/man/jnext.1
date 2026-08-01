@@ -498,12 +498,24 @@ Each explicit CLI value overrides its corresponding saved preference.
 A real ZX Spectrum Next has a header for an ESP\-01 WiFi module on UART
 0.
 \f[B]\-\-esp\f[R] emulates one, so software written for it \- NXtel,
-nextsync, the NextZXOS \f[CR].HTTP\f[R] and \f[CR].zxdb\-dl\f[R] dot
-commands \- can reach the network through your host.
+nextsync, \f[CR]newt\f[R], the NextZXOS \f[CR].HTTP\f[R] and
+\f[CR].zxdb\-dl\f[R] dot commands \- can reach the network through your
+host.
+.PP
+Both \f[B]TCP and UDP\f[R] are emulated.
+UDP is what \f[CR]newt\f[R] uses to read the time from an internet SNTP
+server, so \f[CR].newt sntp 0 pool.ntp.org\f[R] works; the optional
+local\-port argument of \f[CR]AT+CIPSTART=\(dqUDP\(dq,...\f[R] is
+honoured.
+UDP \(lqmodes\(rq 1 and 2, which let the far end of a link become
+whoever last sent a packet, are answered \f[CR]ERROR\f[R] rather than
+accepted and ignored.
+TLS, server/listen mode, multiplexed connections and transparent mode
+are not emulated.
 .SS It is off by default, and that is the point
-An enabled ESP gives the running program an \f[B]outbound TCP pipe out
-of the emulator\f[R], and the program can already read the SD\-card
-image, which jnext opens read\-write.
+An enabled ESP gives the running program an \f[B]outbound TCP and UDP
+pipe out of the emulator\f[R], and the program can already read the
+SD\-card image, which jnext opens read\-write.
 A program you did not write is a program you are trusting when you turn
 this on.
 So jnext does not turn it on for you, and there is no way for a loaded

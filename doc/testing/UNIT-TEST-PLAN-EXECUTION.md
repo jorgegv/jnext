@@ -631,3 +631,34 @@ short-cut would have let slip through in the original theatre suites.
   the Phase 2 rewrites.
 - `memory/project_task5_step5_phase2_complete.md` — the Phase 2 outcome
   and Emulator Bug backlog snapshot.
+
+## The traceability matrix is generated (GH #196, 2026-08-01)
+
+`doc/testing/TRACEABILITY-MATRIX.md` is a build artifact. Do not edit it.
+
+What that means when you author or change a test row:
+
+- **The row's description is the second argument of its own assertion** — more
+  precisely, the first string parameter after the ID, since suites declare
+  `check()` with the description in different positions and the generator reads
+  each file's own declaration. Write a description worth reading: it is what
+  the matrix publishes.
+- **Cite the VHDL in the same call.** A citation there is computed, validated
+  against the real FPGA tree, and cross-checked against the plan doc. A
+  citation written only in the plan doc still works, but a disagreement between
+  the two is reported for a human to resolve.
+- **Spell the ID out as a literal.** An ID built at run time is invisible to
+  every source reader, and the row silently vanishes from the matrix.
+- **Do not reuse an ID another suite uses.** `traceability-dup-ids.pl` refuses;
+  the pre-existing collisions are baselined and the baseline only shrinks.
+- **A planned-but-unimplemented row lives in this subsystem's
+  `*-TEST-PLAN-DESIGN.md`**, which is where the generator reads planned rows
+  from. It emits as `missing` — an honest backlog, and the only remaining
+  hand-made claim in the document.
+- **`test/traceability-exceptions.conf`** is the single exception, for a
+  planned row of a suite with no plan doc (`rewind_test`, `sdcard_test`: no
+  VHDL counterpart to derive a plan from). It is parsed strictly — a malformed
+  record stops the run.
+
+After changing tests, run `make unit-test`: it regenerates the matrix and fails
+if your committed copy is stale. Commit the regenerated file with your change.

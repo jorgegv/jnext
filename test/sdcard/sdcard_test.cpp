@@ -2448,7 +2448,7 @@ int main() {
     test_task26_cmd58_no_ff_payload(sd);         // item 2 — CMD58 no $FF payload
     test_task26_data_block_crc();                // item 3 — real data-block CRC-16
 
-    // ─── WONT rows (no skip()) ────────────────────────────────────────
+    // ─── WONT / RE-HOME rows (no skip()) ───────────────────────────────
     //
     // WONT SD-01 (G159) — CMD0 CRC validation + CMD59 CRC-toggle handler not
     //   modelled. SD spec § 4.5: card MUST validate CMD0 CRC; CMD59 toggles
@@ -2459,24 +2459,26 @@ int main() {
     //   Revisit if: third-party Z80 SD library or new TBBlue firmware version
     //   exercises CMD59 / depends on CRC enforcement.
     //
-    // WONT SD-10 (G40 CMD9 SEND_CSD) — 16-byte CSD register synthesis not
-    //   modelled. Spec: real SDHC card returns Version-2.0 CSD with C_SIZE
-    //   field encoding capacity. Current behaviour: CMD9 falls through to
-    //   default → returns R1 only.
-    //   Reason: TBBlue loader (mmc.s) does not invoke CMD9; FatFs disk-io
-    //   does not invoke CMD9; no observed firmware client probes capacity
-    //   via CSD on the Next.
-    //   Future re-implementation: if a host or future firmware needs card
-    //   capacity, synthesise CSD-V2 from `file_size_` — `C_SIZE = (file_size_
-    //   / 524288) - 1`, with VSN/TAAC/etc. canned per SD spec § 5.3.3. Approx.
-    //   30 LOC + a CSD-decoder test row. Re-home G40 entry would also gain a
-    //   note pointing here.
+    // RE-HOME SD-10 (G40 CMD9 SEND_CSD) — NOT a WONT. CMD9 SEND_CSD IS
+    //   modelled: `SdCardDevice::cmd9_send_csd()` (src/peripheral/sd_card.cpp)
+    //   synthesises a full 16-byte CSD-V2 register (C_SIZE derived from
+    //   `file_size_`, per SD spec § 5.3.3), required by enNxtmmc.rom /
+    //   supervisor SD-init flow at $1925/$1F3D — without it the firmware
+    //   reads $FF for all 16 CSD bytes and aborts the boot (see that
+    //   function's own comment). Implemented 2026-05-06 (`5183d294`), fixed
+    //   2026-05-11 (`0af78514`) and 2026-07-25 (`95f58ea8`, GH #98); this
+    //   comment block was stale from before that work landed. Live coverage:
+    //   `SD-NAC-04` above asserts the Nac-gap contract AND the CSD payload
+    //   (csd0==0x40, CSD_STRUCTURE=01).
     //
-    // WONT SD-11 (G40 CMD10 SEND_CID) — 16-byte CID register synthesis not
-    //   modelled. Reason: TBBlue + FatFs never probe CID; no firmware client
-    //   needs manufacturer-ID metadata on the Next.
-    //   Revisit if: a client surfaces. Implementation would be canned 16
-    //   bytes (MID/OID/PNM/PSN/MDT) per SD spec § 5.2; ~20 LOC + test.
+    // RE-HOME SD-11 (G40 CMD10 SEND_CID) — NOT a WONT. CMD10 SEND_CID IS
+    //   modelled: `SdCardDevice::cmd10_send_cid()` (src/peripheral/sd_card.cpp)
+    //   synthesises a full 16-byte CID register (MID/OID/PNM/PSN/MDT per SD
+    //   spec § 5.2). Same implementation history as SD-10 above. Live
+    //   coverage: `SD-NAC-05` above asserts the Nac-gap contract AND the CID
+    //   payload (cid0==0x03, manufacturer ID); `SD-33` (`V24-DIVMMC-01`,
+    //   test_sd_33_cmd10_cid_mdt_year()) asserts the CID Manufacturing Date
+    //   field decode.
     //
     // WONT SD-15 (G40 CMD25 WRITE_MULTIPLE_BLOCK) — multi-block write state
     //   machine not modelled. Spec: CMD25 starts a multi-write stream

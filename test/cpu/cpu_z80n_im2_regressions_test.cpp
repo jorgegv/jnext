@@ -87,11 +87,16 @@ struct Result {
     int failed = 0;
 };
 
-void check(Result& res, const char* name, bool ok, const char* detail = "") {
+// The description is a parameter of its own (GH #196 phase 2): the
+// traceability matrix derives a row's description from its assertion, and
+// this suite had none to give — the ID slot carried the whole story and the
+// detail argument is a runtime string.
+void check(Result& res, const char* name, const char* desc, bool ok,
+           const char* detail = "") {
     res.total++;
     if (ok) {
         res.passed++;
-        std::printf("[PASS] %s\n", name);
+        std::printf("[PASS] %s: %s\n", name, desc);
         // Verbose detail for stretch / contention tests when JNEXT_TEST_VERBOSE.
         if (detail[0] && std::getenv("JNEXT_TEST_VERBOSE") != nullptr) {
             std::printf("       detail: %s\n", detail);
@@ -160,7 +165,8 @@ void test_pass2_z80n_tstates_global_increment(Result& res) {
                   "SWAPNIB at tstates=100: returned %d (exp 8); "
                   "global advanced to %u (exp 108)",
                   t, t_global);
-    check(res, "Z80N-FUSE-TSTATES-GLOBAL-INCREMENT (86128d5)",
+    check(res, "Z80N-FUSE-TSTATES-GLOBAL-INCREMENT",
+          "pass2 z80n tstates global increment [86128d5]",
           t == 8 && t_global == 108u, detail);
 }
 
@@ -207,7 +213,8 @@ void test_pass3_save_load_memptr_q(Result& res) {
                   "MEMPTR=0x%04x (expect 0x55AA), Q=0x%02x (expect 0xC9), "
                   "saved=%zu bytes",
                   out.MEMPTR, out.Q, saved_bytes);
-    check(res, "CPU-SAVELOAD-MEMPTR-Q (0a64eff)",
+    check(res, "CPU-SAVELOAD-MEMPTR-Q",
+          "pass3 save load memptr q [0a64eff]",
           memptr_ok && q_ok, detail);
 }
 
@@ -215,7 +222,8 @@ void test_pass3_save_load_memptr_q(Result& res) {
 // VHDL t80n.vhd:1277-1285 + spec wiki: LDIX flags affected = N,H,P/V,X,Y.
 // Marker test (existing fixture in test/z80n/tests.expected discriminates).
 void test_pass3_ldix_flag_fixtures_present(Result& res) {
-    check(res, "Z80N-LDIX-FLAGS-FIXTURE-PRESENT (0a64eff)",
+    check(res, "Z80N-LDIX-FLAGS-FIXTURE-PRESENT",
+          "pass3 ldix flag fixtures present [0a64eff]",
           true,
           "Z80N test fixtures eda4_copy, eda4_skip, eda5_basic encode the"
           " I_BT flag composition via tests.expected (covered by z80n_test)");
@@ -307,7 +315,8 @@ void test_pass4_z80n_q_hygiene_clears_q_at_dispatch(Result& res) {
                   "F=0x%02x (expect bits 3,5 = 0 → F & 0x28 == 0); "
                   "A=0x%02x (expect 0; SWAPNIB on 0 keeps A=0)",
                   f, a);
-    check(res, "Z80N-Q-HYGIENE-SWAPNIB-SCF (c84f9ea)",
+    check(res, "Z80N-Q-HYGIENE-SWAPNIB-SCF",
+          "pass4 z80n q hygiene clears q at dispatch [c84f9ea]",
           xy_clean && a_ok, detail);
 }
 
@@ -399,7 +408,8 @@ void test_pass4_z80n_iff2_read_hygiene_at_dispatch(Result& res) {
                   "post-INT F=0x%02x F.P=%d (expect 1 = preserved by Pass-4 "
                   "iff2_read clear); PC=0x%04x (expect 0x0038)",
                   f_after, p_preserved ? 1 : 0, out.PC);
-    check(res, "Z80N-IFF2-READ-HYGIENE-AT-DISPATCH (c84f9ea)",
+    check(res, "Z80N-IFF2-READ-HYGIENE-AT-DISPATCH",
+          "pass4 z80n iff2 read hygiene at dispatch [c84f9ea]",
           p_preserved && pc_at_isr, detail);
 }
 
@@ -430,7 +440,8 @@ void test_pass4_add_nn_memptr(Result& res) {
     std::snprintf(detail, sizeof(detail),
                   "HL=0x%04x (exp 0x3468), MEMPTR=0x%04x (exp 0x1234)",
                   out.HL, out.MEMPTR);
-    check(res, "Z80N-ADD-HL-NN-MEMPTR (c84f9ea)",
+    check(res, "Z80N-ADD-HL-NN-MEMPTR",
+          "pass4 add nn memptr [c84f9ea]",
           out.HL == 0x3468 && out.MEMPTR == 0x1234, detail);
 }
 
@@ -507,7 +518,8 @@ void test_pass4_save_load_iff2_read_interrupts_enabled_at_behavior(Result& res) 
                   static_cast<long>(z80.interrupts_enabled_at),
                   z80.iff2_read,
                   reg_state_ok ? 1 : 0);
-    check(res, "CPU-SAVELOAD-IFF2-READ-AND-IE-AT-BEHAVIOR (c84f9ea)",
+    check(res, "CPU-SAVELOAD-IFF2-READ-AND-IE-AT-BEHAVIOR",
+          "pass4 save load iff2 read interrupts enabled at behavior [c84f9ea]",
           reset_clears_ie_at && reset_clears_iff2_r &&
           ie_at_restored && iff2_r_restored && reg_state_ok, detail);
 }
@@ -541,7 +553,8 @@ void test_pass5_pass6_z80n_tstates_via_fuse_counter(Result& res) {
                   "MUL D,E: execute() returned %d (expect 8); "
                   "fuse_tstates advanced %u (expect 8)",
                   t_returned, t_global);
-    check(res, "Z80N-TSTATES-MUL (65b5918+86128d5)",
+    check(res, "Z80N-TSTATES-MUL",
+          "pass5 pass6 z80n tstates via fuse counter [65b5918+86128d5]",
           t_returned == 8 && t_global == 8u, detail);
 
     // Test PUSH NN (23T) — operand read + 2 stack writes contended via
@@ -558,7 +571,8 @@ void test_pass5_pass6_z80n_tstates_via_fuse_counter(Result& res) {
                   "PUSH 0x1234: execute() returned %d (expect 23); "
                   "fuse_tstates advanced %u (expect 23)",
                   t_push, t_push_global);
-    check(res, "Z80N-TSTATES-PUSH-NN (65b5918+b4af634)",
+    check(res, "Z80N-TSTATES-PUSH-NN",
+          "pass5 pass6 z80n tstates via fuse counter [65b5918+b4af634]",
           t_push == 23 && t_push_global == 23u, detail);
 
     // Test JP (C) — 12T per VHDL t80n_mcode.vhd:1837-1848 (= 4 ED M1 +
@@ -578,7 +592,8 @@ void test_pass5_pass6_z80n_tstates_via_fuse_counter(Result& res) {
                   "JP (C): execute() returned %d (expect 12 per VHDL "
                   "t80n_mcode.vhd:1837-1848); fuse_tstates advanced %u (expect 12)",
                   t_jpc, t_jpc_global);
-    check(res, "Z80N-TSTATES-JP-C-12T (948f221)",
+    check(res, "Z80N-TSTATES-JP-C-12T",
+          "pass5 pass6 z80n tstates via fuse counter [948f221]",
           t_jpc == 12 && t_jpc_global == 12u, detail);
 }
 
@@ -662,7 +677,8 @@ void test_pass5_z80n_m1_contention_stretch(Result& res) {
                   "(hc=4, vc=0, active raster); execute() returned %d, "
                   "fuse_tstates advanced %u (expect > 8 = baseline + stretch)",
                   t_returned, t_global - 2u);
-    check(res, "Z80N-M1-CONTENTION-STRETCH (cb8daf7)",
+    check(res, "Z80N-M1-CONTENTION-STRETCH",
+          "pass5 z80n m1 contention stretch [cb8daf7]",
           stretch_observed && t_returned >= 8, detail);
 }
 
@@ -710,7 +726,8 @@ void test_pass1_pass6_ldix_terminal_total_tstates(Result& res) {
                   "fuse=%u (exp 16); mem[0xA000]=0x%02x (exp 0x42); "
                   "HL=0x%04x DE=0x%04x BC=0x%04x",
                   t, t_global, mem.ram[0xA000], out.HL, out.DE, out.BC);
-    check(res, "Z80N-LDIX-TOTAL-16T-FROM-PASS-1-AND-6 (65b5918+b4af634)",
+    check(res, "Z80N-LDIX-TOTAL-16T-FROM-PASS-1-AND-6",
+          "pass1 pass6 ldix terminal total tstates [65b5918+b4af634]",
           t == 16 && t_global == 16u
           && mem.ram[0xA000] == 0x42
           && out.HL == 0x9001 && out.DE == 0xA001 && out.BC == 0x0000,
@@ -839,7 +856,8 @@ void test_pass7_ldix_internal_idle_contention_stretch(Result& res) {
                   t_total, t_baseline,
                   static_cast<int>(t_total) - static_cast<int>(t_baseline),
                   t_returned);
-    check(res, "Z80N-LDIX-INTERNAL-IDLE-CONTENTION-STRETCH (07ed205)",
+    check(res, "Z80N-LDIX-INTERNAL-IDLE-CONTENTION-STRETCH",
+          "pass7 ldix internal idle contention stretch [07ed205]",
           internal_idle_stretch_observed, detail);
 }
 
@@ -979,7 +997,8 @@ void test_pass9_ldix_skip_contention_stretch(Result& res) {
                   t_total, t_baseline,
                   static_cast<int>(t_total) - static_cast<int>(t_baseline),
                   mem_after, t_returned);
-    check(res, "Z80N-LDIX-SKIP-WRITE-CONTENTION-STRETCH (b40af13)",
+    check(res, "Z80N-LDIX-SKIP-WRITE-CONTENTION-STRETCH",
+          "pass9 ldix skip contention stretch [b40af13]",
           stretch_grew && write_suppressed, detail);
 }
 
@@ -1076,7 +1095,8 @@ void test_pass8_im2_ack_vector_ei_grace(Result& res) {
                   static_cast<int>(ctc0_after),
                   static_cast<int>(DevState::S_REQ),
                   static_cast<int>(DevState::S_ACK));
-    check(res, "IM2-ACK-VECTOR-EI-GRACE (948f221)",
+    check(res, "IM2-ACK-VECTOR-EI-GRACE",
+          "pass8 im2 ack vector ei grace [948f221]",
           ctc0_in_req_pre && ei_grace_window && ctc0_still_in_req, detail);
 }
 
@@ -1139,7 +1159,8 @@ void test_pass9_chained_prefix_dd_ed_walks(Result& res) {
                   "ED@0x8001=%d, 4D@0x8002=%d (expect all three; Pass-8 "
                   "single-peek would miss 4D@0x8002)",
                   m1_log.size(), got_dd_at_8000, got_ed_at_8001, got_4d_at_8002);
-    check(res, "CPU-CHAINED-PREFIX-DD-ED-WALKS (b40af13)",
+    check(res, "CPU-CHAINED-PREFIX-DD-ED-WALKS",
+          "pass9 chained prefix dd ed walks [b40af13]",
           got_dd_at_8000 && got_ed_at_8001 && got_4d_at_8002, detail);
 }
 
@@ -1181,7 +1202,8 @@ void test_pass8_cb_inner_byte_m1_callback(Result& res) {
                   "DD CB 02 06 M1 events: total=%zu, got DD=%d, got CB=%d "
                   "(expect both; Pass-8 single-peek covers DD+CB)",
                   m1_log.size(), got_dd, got_cb);
-    check(res, "CPU-CB-INNER-BYTE-M1-CALLBACK (948f221)",
+    check(res, "CPU-CB-INNER-BYTE-M1-CALLBACK",
+          "pass8 cb inner byte m1 callback [948f221]",
           got_dd && got_cb, detail);
 }
 
@@ -1215,7 +1237,8 @@ void test_pass8_push_nn_wz_lo_only(Result& res) {
                   "MEMPTR=0x%04x (expect 0xBE34: WZ-hi=BE preserved, "
                   "WZ-lo=ll=34); SP=0x%04x",
                   out.MEMPTR, out.SP);
-    check(res, "Z80N-PUSH-NN-WZ-LO-ONLY (948f221)",
+    check(res, "Z80N-PUSH-NN-WZ-LO-ONLY",
+          "pass8 push nn wz lo only [948f221]",
           memptr_ok, detail);
 }
 
@@ -1277,7 +1300,8 @@ void test_pass9_ldws_incdecz_after_djnz(Result& res) {
                   "LDWS F=0x%02x F.P=%d (V13 expect 0; pre-fix would be 1)",
                   p_after_or_zero ? 0 : 1, branch_taken,
                   b_after_one, after_djnz.IncDecZ, f, p_clear ? 0 : 1);
-    check(res, "V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-TAKEN (was Pass-9 b40af13)",
+    check(res, "V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-TAKEN",
+          "pass9 ldws incdecz after djnz [was Pass-9 b40af13]",
           p_after_or_zero && branch_taken && b_after_one && incdecz_clear && p_clear,
           detail);
 }
@@ -1335,6 +1359,7 @@ void test_v13_cpu_01_ldws_incdecz_after_djnz_not_taken(Result& res) {
                   p_after_or_zero ? 0 : 1, branch_not_taken,
                   b_after_zero, after_djnz.IncDecZ, f, p_set ? 1 : 0);
     check(res, "V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-NOT-TAKEN",
+          "v13 cpu 01 ldws incdecz after djnz not taken",
           p_after_or_zero && branch_not_taken && b_after_zero
               && incdecz_set && p_set,
           detail);
@@ -1345,7 +1370,8 @@ void test_v13_cpu_01_ldws_incdecz_after_djnz_not_taken(Result& res) {
 // Pass-10 (c526aa4) — LDPIRX (ED B7) I_BT flag composition. Marker; real
 // coverage in tests.expected edb7_basic / edb7_skip.
 void test_pass10_ldpirx_flags_present(Result& res) {
-    check(res, "Z80N-LDPIRX-FLAGS-FIXTURE-PRESENT (c526aa4)",
+    check(res, "Z80N-LDPIRX-FLAGS-FIXTURE-PRESENT",
+          "pass10 ldpirx flags present [c526aa4]",
           true,
           "Z80N test fixtures edb7_basic (AF=aa20) and edb7_skip (AF=4220) "
           "encode the I_BT flag composition with ALU_Q=B|bytetemp");
@@ -1377,7 +1403,8 @@ void test_pass10_add_hl_a_force_carry_zero(Result& res) {
                   "ADD HL,A with HL=0xFFFF + A=0xFF → HL=0x%04x (exp 0x00FE); "
                   "F=0x%02x F.C=%d (exp 0 per VHDL t80n.vhd:778-783)",
                   out.HL, out.AF & 0xFF, (out.AF & 0x01));
-    check(res, "Z80N-ADD-HL-A-FORCE-FC-ZERO (c526aa4)",
+    check(res, "Z80N-ADD-HL-A-FORCE-FC-ZERO",
+          "pass10 add hl a force carry zero [c526aa4]",
           hl_ok && c_zero, detail);
 }
 
@@ -1421,7 +1448,8 @@ void test_pass10_im2_reti_decode_simultaneity(Result& res) {
                   "CTC0 state=%d (expect 0=S_0 per Pass-10 fix; pre-fix "
                   "would be 3=S_ISR)",
                   ctc0_in_isr, line_in_req, static_cast<int>(ctc0_now));
-    check(res, "IM2-RETI-DECODE-SIMULTANEITY-NESTED-ISR (c526aa4)",
+    check(res, "IM2-RETI-DECODE-SIMULTANEITY-NESTED-ISR",
+          "pass10 im2 reti decode simultaneity [c526aa4]",
           ctc0_in_isr && line_in_req && ctc0_cleared, detail);
 }
 
@@ -1492,6 +1520,7 @@ void test_v11_cpu_01_im2_ddfd_ed_no_reti(Result& res) {
                   no_reti_seen_at_4d ? "no" : "YES (pre-fix)",
                   static_cast<int>(ctc0_now));
     check(res, "V11-CPU-01-IM2-DDFD-ED-NO-RETI",
+          "v11 cpu 01 im2 ddfd ed no reti",
           ctc0_in_isr && no_reti_seen_at_4d && ctc0_still_in_isr, detail);
 }
 
@@ -1556,6 +1585,7 @@ void test_v11_cpu_02_pixeldn_band3_wrap_preserves_h_high(Result& res) {
                   (out.HL >> 13) & 1,
                   t);
     check(res, "V11-CPU-02-Z80N-PIXELDN-BAND3-WRAP-PRESERVES-H-HIGH",
+          "v11 cpu 02 pixeldn band3 wrap preserves h high",
           hl_ok && h_high_ok && tstates_ok, detail);
 }
 
@@ -1586,7 +1616,8 @@ void test_v11_cpu_02_pixeldn_row191_wrap_unchanged(Result& res) {
                   "PIXELDN HL=0x57E0 → 0x%04x (expect 0x5800; "
                   "regression guard, both pre-fix and post-fix pass)",
                   out.HL);
-    check(res, "V11-CPU-02-Z80N-PIXELDN-ROW191-WRAP-UNCHANGED (guard)",
+    check(res, "V11-CPU-02-Z80N-PIXELDN-ROW191-WRAP-UNCHANGED",
+          "v11 cpu 02 pixeldn row191 wrap unchanged [guard]",
           out.HL == 0x5800, detail);
 }
 
@@ -1714,6 +1745,7 @@ void test_v12_cpu_nit_02_outinb_extended_m1_contend_no_mreq(Result& res) {
                   total_A, total_B,
                   static_cast<int>(total_A) - static_cast<int>(total_B));
     check(res, "V12-CPU-NIT-02-Z80N-OUTINB-EXTENDED-M1-CONTEND-NO-MREQ",
+          "v12 cpu nit 02 outinb extended m1 contend no mreq",
           extended_m1_stretch_observed, detail);
 }
 
@@ -1809,6 +1841,7 @@ void test_v14_cpu_01_inc_bc_updates_incdecz_for_ldws(Result& res) {
                   after_inc.BC, after_inc.IncDecZ,
                   f, (f & 0x04) ? 1 : 0);
     check(res, "V14-CPU-01-INC-BC-UPDATES-INCDECZ-VHDL-1361",
+          "v14 cpu 01 inc bc updates incdecz for ldws",
           djnz_primed_incdecz && djnz_not_taken && inc_bc_zero
               && incdecz_cleared_post && ldws_p_clear,
           detail);
@@ -1867,6 +1900,7 @@ void test_v14_cpu_01_dec_bc_updates_incdecz_for_ldws(Result& res) {
                   after_dec.BC, after_dec.IncDecZ,
                   f, ldws_p_set ? 1 : 0);
     check(res, "V14-CPU-01-DEC-BC-UPDATES-INCDECZ-VHDL-1361",
+          "v14 cpu 01 dec bc updates incdecz for ldws",
           incdecz_initial_zero && dec_bc_one_correct
               && incdecz_set_post && ldws_p_set,
           detail);
@@ -1935,6 +1969,7 @@ void test_v14_cpu_01_inc_hl_does_not_update_incdecz(Result& res) {
                   after_inc_hl.HL, after_inc_hl.IncDecZ,
                   f, ldws_p_set ? 1 : 0);
     check(res, "V14-CPU-01-INC-HL-MUST-NOT-UPDATE-INCDECZ",
+          "v14 cpu 01 inc hl does not update incdecz",
           djnz_primed_incdecz && hl_zero
               && incdecz_unchanged && ldws_p_set,
           detail);
@@ -2022,6 +2057,7 @@ void test_v14_cpu_nit_01_dd_inc_bc_updates_incdecz(Result& res) {
                   after_djnz.IncDecZ, after_inc.BC, after_inc.IncDecZ,
                   f, (f & 0x04) ? 1 : 0);
     check(res, "V14-CPU-NIT-01-A-DD-INC-BC-UPDATES-INCDECZ-VHDL-1361",
+          "v14 cpu nit 01 dd inc bc updates incdecz",
           djnz_primed_incdecz && inc_bc_zero
               && incdecz_cleared_post && ldws_p_clear,
           detail);
@@ -2082,6 +2118,7 @@ void test_v14_cpu_nit_01_fd_inc_bc_updates_incdecz(Result& res) {
                   after_djnz.IncDecZ, after_inc.BC, after_inc.IncDecZ,
                   f, (f & 0x04) ? 1 : 0);
     check(res, "V14-CPU-NIT-01-B-FD-INC-BC-UPDATES-INCDECZ-VHDL-1361",
+          "v14 cpu nit 01 fd inc bc updates incdecz",
           djnz_primed && bc_zero && incdecz_cleared && ldws_p_clear,
           detail);
 }
@@ -2130,6 +2167,7 @@ void test_v14_cpu_nit_01_dd_dec_bc_updates_incdecz(Result& res) {
                   incdecz_initial_zero ? 0 : 1, after_dec.BC,
                   after_dec.IncDecZ, f, ldws_p_set ? 1 : 0);
     check(res, "V14-CPU-NIT-01-C-DD-DEC-BC-UPDATES-INCDECZ-VHDL-1361",
+          "v14 cpu nit 01 dd dec bc updates incdecz",
           incdecz_initial_zero && bc_one && incdecz_set && ldws_p_set,
           detail);
 }
@@ -2176,6 +2214,7 @@ void test_v14_cpu_nit_01_fd_dec_bc_updates_incdecz(Result& res) {
                   incdecz_initial_zero ? 0 : 1, after_dec.BC,
                   after_dec.IncDecZ, f, ldws_p_set ? 1 : 0);
     check(res, "V14-CPU-NIT-01-D-FD-DEC-BC-UPDATES-INCDECZ-VHDL-1361",
+          "v14 cpu nit 01 fd dec bc updates incdecz",
           incdecz_initial_zero && bc_one && incdecz_set && ldws_p_set,
           detail);
 }
@@ -2240,6 +2279,7 @@ void test_v14_cpu_nit_01_dd_djnz_updates_incdecz(Result& res) {
                   incdecz_initial_zero ? 0 : 1, b_after,
                   after_djnz.IncDecZ, f, ldws_p_set ? 1 : 0);
     check(res, "V14-CPU-NIT-01-E-DD-DJNZ-UPDATES-INCDECZ-VHDL-1359",
+          "v14 cpu nit 01 dd djnz updates incdecz",
           incdecz_initial_zero && b_post_zero
               && incdecz_set && ldws_p_set,
           detail);
@@ -2288,6 +2328,7 @@ void test_v14_cpu_nit_01_fd_djnz_updates_incdecz(Result& res) {
                   incdecz_initial_zero ? 0 : 1, b_after,
                   after_djnz.IncDecZ, f, ldws_p_set ? 1 : 0);
     check(res, "V14-CPU-NIT-01-F-FD-DJNZ-UPDATES-INCDECZ-VHDL-1359",
+          "v14 cpu nit 01 fd djnz updates incdecz",
           incdecz_initial_zero && b_post_zero
               && incdecz_set && ldws_p_set,
           detail);
@@ -2356,6 +2397,7 @@ void test_v17_cpu_01_im2_int_req_held_in_pulse_mode(Result& res) {
                   static_cast<int>(state_after_im2_tick),
                   int_line ? 1 : 0);
     check(res, "V17-CPU-01-IM2-INT-REQ-HELD-IN-PULSE-MODE-VHDL-170",
+          "v17 cpu 01 im2 int req held in pulse mode",
           state_after_pulse_tick == DevState::S_0
               && state_after_im2_tick == DevState::S_0
               && !int_line,
@@ -2417,6 +2459,7 @@ void test_v17_z80n_01_bsrf_shift_ge_16_fills_ones(Result& res) {
                   "shift=8 DE=0x00FF → 0x%04x (exp 0xFF00)",
                   result_16, result_31, result_8);
     check(res, "V17-Z80N-01a-BSRF-UB-FREE-VHDL-1006-1014",
+          "v17 z80n 01 bsrf shift ge 16 fills ones",
           result_16 == 0xFFFF && result_31 == 0xFFFF
               && result_8 == 0xFF00, detail);
 }
@@ -2457,6 +2500,7 @@ void test_v17_z80n_01_bsla_shift_ge_16_zero(Result& res) {
                   "DE=0xFFFF shift=31 → 0x%04x (exp 0x0000)",
                   result_16, result_31);
     check(res, "V17-Z80N-01b-BSLA-UB-FREE-VHDL-992",
+          "v17 z80n 01 bsla shift ge 16 zero",
           result_16 == 0x0000 && result_31 == 0x0000, detail);
 }
 
@@ -2544,6 +2588,7 @@ void test_v17_cpu_nit_04_bsra_shift_ge_16_sign_fill(Result& res) {
                   "neg DE=0xFFFE shift=1 → 0x%04x (exp 0xFFFF)",
                   neg_16, pos_16, neg_31, pos_14, neg_1);
     check(res, "V17-CPU-NIT-04-BSRA-UB-FREE-VHDL-1006-1014",
+          "v17 cpu nit 04 bsra shift ge 16 sign fill",
           neg_16 == 0xFFFF && pos_16 == 0x0000
               && neg_31 == 0xFFFF && pos_14 == 0x0001
               && neg_1 == 0xFFFF, detail);
@@ -2596,6 +2641,7 @@ void test_v18r_cpu_nit_01_ldpirx_memptr_lo_strobe(Result& res) {
                   "Pre-fix value would be 0xAB34 (untouched).",
                   out.MEMPTR);
     check(res, "V18R-CPU-NIT-01-LDPIRX-MEMPTR-LO-STROBE",
+          "v18r cpu nit 01 ldpirx memptr lo strobe",
           out.MEMPTR == 0xABB7, detail);
 }
 
@@ -2648,6 +2694,7 @@ void test_v18r_cpu_02_dma_raise_no_pollute_ctc7(Result& res) {
                   "(bit 7 must stay 0 after raise(Im2Level::DMA)+tick)",
                   pre_ctc7, post_ctc7, pre_c9, post_c9);
     check(res, "V18R-CPU-02-DMA-RAISE-NO-POLLUTE-CTC7",
+          "v18r cpu 02 dma raise no pollute ctc7",
           !pre_ctc7 && !post_ctc7 && (pre_c9 & 0x80) == 0
               && (post_c9 & 0x80) == 0, detail);
 }
@@ -2678,6 +2725,7 @@ void test_v18r_cpu_02_dma_raise_no_pollute_ula(Result& res) {
                   "to ULA); NR 0xC8 pre=0x%02X post=0x%02X",
                   pre_ula, post_ula, pre_c8, post_c8);
     check(res, "V18R-CPU-02-DMA-RAISE-NO-POLLUTE-ULA",
+          "v18r cpu 02 dma raise no pollute ula",
           !pre_ula && !post_ula && pre_c8 == post_c8, detail);
 }
 
@@ -2770,6 +2818,7 @@ void test_v19_im2_03_int_unq_one_shot_after_isr(Result& res) {
                   static_cast<int>(s_after_reti),
                   static_cast<int>(s_after_extra_tick));
     check(res, "V19-IM2-03-INT-UNQ-ONE-SHOT-AFTER-ISR",
+          "v19 im2 03 int unq one shot after isr",
           s_after_raise == DevState::S_REQ
               && s_after_ack == DevState::S_ACK
               && s_after_acktick == DevState::S_ISR
@@ -2882,6 +2931,7 @@ void test_v19r_cpu_01_int_req_pulse_synthesis_multi_frame(Result& res) {
                   static_cast<int>(s_f1_after_settle),
                   static_cast<int>(s_f2_after_raise),    int_line_f2 ? 1 : 0);
     check(res, "V19R-CPU-01-INT-REQ-PULSE-SYNTHESIS-MULTI-FRAME-VHDL-101",
+          "v19r cpu 01 int req pulse synthesis multi frame",
           s_f1_after_raise == DevState::S_REQ
               && int_line_f1
               && s_f1_after_ack == DevState::S_ACK
@@ -2980,6 +3030,7 @@ void test_v21_im2_01_int_line_gated_on_im_mode(Result& res) {
                   il_b ? 1 : 0, vec_b, static_cast<int>(st_b),
                   il_c ? 1 : 0, vec_c, static_cast<int>(st_c));
     check(res, "V21-IM2-01-INT-LINE-GATED-ON-IM-MODE-VHDL-150-1974",
+          "v21 im2 01 int line gated on im mode",
           a_ok && b_ok && c_ok, detail);
 }
 
@@ -3082,13 +3133,17 @@ void test_soft_reset_preserves_register_file(Result& res) {
     cpu.reset(/*hard=*/false);
     auto out = cpu.get_registers();
 
-    check(res, "soft-reset-preserves-regfile: BC/DE/HL survive",
+    check(res, "CPU-SOFTRESET-01",
+          "soft reset preserves BC/DE/HL",
           out.BC == 0x1122 && out.DE == 0x3344 && out.HL == 0x5566);
-    check(res, "soft-reset-preserves-regfile: BC'/DE'/HL' survive",
+    check(res, "CPU-SOFTRESET-02",
+          "soft reset preserves the shadow set BC'/DE'/HL'",
           out.BC2 == 0x7788 && out.DE2 == 0x99AA && out.HL2 == 0xBBCC);
-    check(res, "soft-reset-preserves-regfile: IX/IY survive",
+    check(res, "CPU-SOFTRESET-03",
+          "soft reset preserves IX/IY",
           out.IX == 0xDDEE && out.IY == 0xF001);
-    check(res, "soft-reset-preserves-regfile: PC=0 SP=FFFF AF=FFFF I=0 IFF/IM=0 (t80n reset set)",
+    check(res, "CPU-SOFTRESET-04",
+          "soft reset sets the t80n reset state: PC=0 SP=FFFF AF=FFFF I=0 IFF/IM=0",
           out.PC == 0x0000 && out.SP == 0xFFFF && out.AF == 0xFFFF &&
           out.I == 0 && out.IFF1 == 0 && out.IFF2 == 0 && out.IM == 0);
 
@@ -3098,7 +3153,8 @@ void test_soft_reset_preserves_register_file(Result& res) {
     cpu.execute();
     cpu.reset(/*hard=*/true);
     auto hard = cpu.get_registers();
-    check(res, "hard-reset-zeroes-regfile (power-on model)",
+    check(res, "CPU-HARDRESET-01",
+          "hard reset zeroes the register file (power-on model)",
           hard.BC == 0 && hard.DE == 0 && hard.HL == 0 &&
           hard.IX == 0 && hard.IY == 0);
 }
@@ -3167,6 +3223,7 @@ void test_v22_im2_01_on_reti_clears_im2_int_req_latch(Result& res) {
                   static_cast<int>(s_after_tick),
                   latch_after_tick ? 1 : 0);
     check(res, "V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175",
+          "v22 im2 01 on reti clears im2 int req latch",
           s1 == DevState::S_REQ
               && s2 == DevState::S_ACK
               && s3 == DevState::S_ISR

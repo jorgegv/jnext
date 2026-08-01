@@ -717,42 +717,42 @@ static void test_ext() {
     // Active-high in jnext (bit=1 ⇒ pressed).
     {
         uint8_t v = b0_with(Keyboard::ExtKey::UP);
-        check("EXT-01", "UP → NR 0xB0 bit 3 = 1",
+        check("EXT-01", "UP → NR 0xB0 bit 3 = 1 — VHDL zxnext.vhd:6203-6204,6208",
               v == 0x08, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b0_with(Keyboard::ExtKey::DOWN);
-        check("EXT-02", "DOWN → NR 0xB0 bit 2",
+        check("EXT-02", "DOWN → NR 0xB0 bit 2 — VHDL zxnext.vhd:6203-6204,6208",
               v == 0x04, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b0_with(Keyboard::ExtKey::LEFT);
-        check("EXT-03", "LEFT → NR 0xB0 bit 1",
+        check("EXT-03", "LEFT → NR 0xB0 bit 1 — VHDL zxnext.vhd:6203-6204,6208",
               v == 0x02, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b0_with(Keyboard::ExtKey::RIGHT);
-        check("EXT-04", "RIGHT → NR 0xB0 bit 0",
+        check("EXT-04", "RIGHT → NR 0xB0 bit 0 — VHDL zxnext.vhd:6203-6204,6208",
               v == 0x01, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b0_with(Keyboard::ExtKey::SEMICOLON);
-        check("EXT-05", "';' → NR 0xB0 bit 7",
+        check("EXT-05", "';' → NR 0xB0 bit 7 — VHDL zxnext.vhd:6203-6204,6208",
               v == 0x80, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b0_with(Keyboard::ExtKey::QUOTE);
-        check("EXT-06", "'\"' → NR 0xB0 bit 6",
+        check("EXT-06", "'\"' → NR 0xB0 bit 6 — VHDL zxnext.vhd:6203-6204,6208",
               v == 0x40, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b0_with(Keyboard::ExtKey::COMMA);
-        check("EXT-07", "',' → NR 0xB0 bit 5",
+        check("EXT-07", "',' → NR 0xB0 bit 5 — VHDL zxnext.vhd:6203-6204,6208",
               v == 0x20, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b0_with(Keyboard::ExtKey::DOT);
-        check("EXT-08", "'.' → NR 0xB0 bit 4",
+        check("EXT-08", "'.' → NR 0xB0 bit 4 — VHDL zxnext.vhd:6203-6204,6208",
               v == 0x10, DETAIL("got=0x%02X", v));
     }
 
@@ -763,42 +763,42 @@ static void test_ext() {
     // Active-high in jnext.
     {
         uint8_t v = b1_with(Keyboard::ExtKey::DELETE);
-        check("EXT-09", "DELETE → NR 0xB1 bit 7",
+        check("EXT-09", "DELETE → NR 0xB1 bit 7 — VHDL zxnext.vhd:6203-6204,6212",
               v == 0x80, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b1_with(Keyboard::ExtKey::EDIT);
-        check("EXT-10", "EDIT → NR 0xB1 bit 6",
+        check("EXT-10", "EDIT → NR 0xB1 bit 6 — VHDL zxnext.vhd:6203-6204,6212",
               v == 0x40, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b1_with(Keyboard::ExtKey::BREAK);
-        check("EXT-11", "BREAK → NR 0xB1 bit 5",
+        check("EXT-11", "BREAK → NR 0xB1 bit 5 — VHDL zxnext.vhd:6203-6204,6212",
               v == 0x20, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b1_with(Keyboard::ExtKey::INV_VIDEO);
-        check("EXT-12", "INV VIDEO → NR 0xB1 bit 4",
+        check("EXT-12", "INV VIDEO → NR 0xB1 bit 4 — VHDL zxnext.vhd:6203-6204,6212",
               v == 0x10, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b1_with(Keyboard::ExtKey::TRUE_VIDEO);
-        check("EXT-13", "TRUE VIDEO → NR 0xB1 bit 3",
+        check("EXT-13", "TRUE VIDEO → NR 0xB1 bit 3 — VHDL zxnext.vhd:6203-6204,6212",
               v == 0x08, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b1_with(Keyboard::ExtKey::GRAPH);
-        check("EXT-14", "GRAPH → NR 0xB1 bit 2",
+        check("EXT-14", "GRAPH → NR 0xB1 bit 2 — VHDL zxnext.vhd:6203-6204,6212",
               v == 0x04, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b1_with(Keyboard::ExtKey::CAPS_LOCK);
-        check("EXT-15", "CAPS LOCK → NR 0xB1 bit 1",
+        check("EXT-15", "CAPS LOCK → NR 0xB1 bit 1 — VHDL zxnext.vhd:6203-6204,6212",
               v == 0x02, DETAIL("got=0x%02X", v));
     }
     {
         uint8_t v = b1_with(Keyboard::ExtKey::EXTEND);
-        check("EXT-16", "EXTEND → NR 0xB1 bit 0",
+        check("EXT-16", "EXTEND → NR 0xB1 bit 0 — VHDL zxnext.vhd:6203-6204,6212",
               v == 0x01, DETAIL("got=0x%02X", v));
     }
 
@@ -2687,7 +2687,7 @@ static void test_mouse() {
         // Y is negated by MouseDispatcher to convert host screen-Y to
         // Kempston Cartesian-Y: yrel=+0x44 (mouse moved DOWN) lands as
         // y_ = -0x44 mod 256 = 0xBC. See MOUSE-13 above for the rationale.
-        check("MOUSE-13/14/15-SDL",
+        check("MOUSE-13-14-15-SDL",
               "handle_sdl_event routes motion/button/wheel; ignores other",
               consumed_mot && consumed_bdn && consumed_whl && !consumed_other &&
               fbdf == 0x33 && ffdf == 0xBC &&
@@ -5001,6 +5001,9 @@ static void test_nr_b2() {
         j.set_joy_left(r.vec);
         const uint8_t v = j.nr_b2_byte();
         check(r.id, r.what, v == r.expect,
+              // VHDL zxnext.vhd:6215 (NR 0xB2 read mux) +
+              // md6_joystick_connector_x2.vhd:48-49 (12-bit connector vector
+              // layout: bit 11 = MODE, 10 = X, 9 = Z, 8 = Y).
               DETAIL("got=0x%02X want=0x%02X", v, r.expect));
     }
 
@@ -5016,6 +5019,9 @@ static void test_nr_b2() {
         j.set_joy_right(r.vec);
         const uint8_t v = j.nr_b2_byte();
         check(r.id, r.what, v == r.expect,
+              // VHDL zxnext.vhd:6215 (NR 0xB2 read mux) +
+              // md6_joystick_connector_x2.vhd:48-49 (12-bit connector vector
+              // layout: bit 11 = MODE, 10 = X, 9 = Z, 8 = Y).
               DETAIL("got=0x%02X want=0x%02X", v, r.expect));
     }
 

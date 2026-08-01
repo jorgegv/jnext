@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.107</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2657,33 +2657,9 @@
   
   
   
-    
-    
-      
+    <li class="md-nav__item">
+      <a href="../08-known-issues/index.html" class="md-nav__link">
         
-          
-        
-      
-        
-      
-        
-      
-        
-      
-    
-    
-    
-    
-    <li class="md-nav__item md-nav__item--nested">
-      
-        
-        
-        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_9" >
-        
-          
-          <div class="md-nav__link md-nav__container">
-            <a href="../08-known-issues/index.html" class="md-nav__link ">
-              
   
   
   <span class="md-ellipsis">
@@ -2697,115 +2673,7 @@
   
   
 
-            </a>
-            
-              
-              <label class="md-nav__link " for="__nav_9" id="__nav_9_label" tabindex="0">
-                <span class="md-nav__icon md-icon"></span>
-              </label>
-            
-          </div>
-        
-        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_9_label" aria-expanded="false">
-          <label class="md-nav__title" for="__nav_9">
-            <span class="md-nav__icon md-icon"></span>
-            
-  
-    8. Known issues
-  
-
-          </label>
-          <ul class="md-nav__list" data-md-scrollfix>
-            
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../08-known-issues/01-judder-when-the-host-cannot-keep-up.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    8.1 Judder when the host cannot keep up
-  
-
-    
-  </span>
-  
-  
-
       </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../08-known-issues/02-the-debugger-window-does-not-follow-the-emulator-window.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    8.2 The debugger window does not follow the emulator window
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-              
-                
-  
-  
-  
-  
-    <li class="md-nav__item">
-      <a href="../08-known-issues/03-reporting-something-else.html" class="md-nav__link">
-        
-  
-  
-  <span class="md-ellipsis">
-    
-  
-    8.3 Reporting something else
-  
-
-    
-  </span>
-  
-  
-
-      </a>
-    </li>
-  
-
-              
-            
-          </ul>
-        </nav>
-      
     </li>
   
 
@@ -3028,8 +2896,8 @@ those programs can reach the network through your host machine.</p>
 associated with an access point, because to the guest program that is what a
 working ESP-01 looks like; the actual connections are made by your host.</p>
 <h2 id="it-is-off-by-default-and-it-stays-off-until-you-say-otherwise">It is off by default, and it stays off until you say otherwise<a class="headerlink" href="#it-is-off-by-default-and-it-stays-off-until-you-say-otherwise" title="Permanent link">&para;</a></h2>
-<p>Turning this on gives the running program <strong>an outbound TCP pipe out of the
-emulator</strong>. That program can already read and write the SD-card image. A
+<p>Turning this on gives the running program <strong>an outbound TCP and UDP pipe out of
+the emulator</strong>. That program can already read and write the SD-card image. A
 program you did not write is a program you are trusting.</p>
 <p>So JNEXT never enables it for you, and <strong>no loaded program can enable it for
 itself</strong>. You turn it on in one of two places:</p>
@@ -3243,9 +3111,15 @@ off, nothing reports the connections at all.</p>
 Next, so a few things a physical ESP-01 can do are not built:</p>
 <ul>
 <li><strong>server / listen mode</strong> (<code>AT+CIPSERVER</code>) — so nothing can connect <em>in</em>;</li>
-<li><strong>UDP</strong>, <strong>multiplexed connections</strong> and <strong>transparent mode</strong>.</li>
+<li><strong>multiplexed connections</strong> and <strong>transparent mode</strong>;</li>
+<li><strong>TLS</strong>, so a program cannot make an <code>https</code> request.</li>
 </ul>
-<p>None of them has a consumer in current Next software. Widening the emulation to
+<p>UDP <strong>is</strong> emulated, including <code>AT+CIPSTART="UDP",…</code> with its optional local
+port. That is what <code>newt</code> needs to set the clock from an internet time server,
+and <code>.newt sntp 0 pool.ntp.org</code> works. What is not emulated there is UDP
+"modes" 1 and 2, which let the far end of the link change to whoever last sent
+a packet; the emulated module answers <code>ERROR</code> rather than pretending.</p>
+<p>None of the rest has a consumer in current Next software. Widening the emulation to
 the full ESP-01 firmware specification is tracked as
 <a href="https://github.com/jorgegv/jnext/issues/154">issue #154</a>.</p>
 <hr />

@@ -105,11 +105,7 @@ nav:
       - 7.3 Exit codes, and the capture that was never taken: 07-automation-and-ci/03-exit-codes-and-the-capture-that-was-never-taken.md
       - 7.4 A worked example: 07-automation-and-ci/04-a-worked-example.md
       - 7.5 Beyond screenshots: 07-automation-and-ci/05-beyond-screenshots.md
-  - 8. Known issues:
-      - 08-known-issues/index.md
-      - 8.1 Judder when the host cannot keep up: 08-known-issues/01-judder-when-the-host-cannot-keep-up.md
-      - 8.2 The debugger window does not follow the emulator window: 08-known-issues/02-the-debugger-window-does-not-follow-the-emulator-window.md
-      - 8.3 Reporting something else: 08-known-issues/03-reporting-something-else.md
+  - 8. Known issues: 08-known-issues/index.md
   - 9. Reference:
       - 09-reference/index.md
       - 9.1 Command-line options: 09-reference/01-command-line-options.md
@@ -142,7 +138,7 @@ validation:
 # and docs-userguide-check byte-diffs a fresh render — so config and rendered
 # output must move together, which is exactly what sync-version.sh guarantees.
 extra:
-  doc_release: v0.99.107
+  doc_release: v0.99.110
 
 markdown_extensions:
   - admonition
