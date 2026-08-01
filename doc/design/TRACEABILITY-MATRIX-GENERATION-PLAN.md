@@ -150,13 +150,23 @@ The matrix is a generated artifact. Every cell is computed from a test source,
 a plan doc or the one exceptions file; `make unit-test` regenerates it and
 fails if the committed copy is stale.
 
+Counters below are read from the committed matrix at each point, which is the
+generator's own output — the staleness gate is what makes that a safe source.
+"Before" is the Phase 1 tip, immediately prior to inverting the generator.
+
 | Counter | Before | After |
 |---|---:|---:|
-| Rows | 2867 | 4970 |
+| Rows | 2993 | 4084 |
 | `unrecorded` | 884 | **0** (impossible by construction) |
 | `frozen` | 60 | **0** (no hand-written side to freeze) |
 | doc-vs-computed `drift` | 335 | **0** (same reason) |
-| Rows whose description derives from source | — | **3586 / 3586 (100%)** |
+
+Row descriptions are no longer hand-written either: a row with a test source
+takes its description from that row's own `check()`/`skip()` call, and only a
+`missing` row — which by definition has no source — takes it from the plan doc.
+The generator does not publish a counter for that split, so do not quote one
+here; the `Rows` identity it does publish (pass + fail + skip + missing) is the
+number to cite.
 
 What is deliberately NOT zero: `missing` rows (a plan doc lists them and no
 suite asserts them — a real, visible backlog) and the plan-vs-source citation
