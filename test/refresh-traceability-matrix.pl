@@ -194,6 +194,7 @@ my $MATRIX = "$ROOT/doc/testing/TRACEABILITY-MATRIX.md";
 my $CHECK_ONLY = 0;
 my $DUMP_DESC  = 0;
 my $EMIT_SECTION;
+my $EMIT_TO;
 sub parse_args {
     for my $arg (@_) {
         if ($arg eq '--check-accounting') { $CHECK_ONLY = 1; next; }
@@ -207,6 +208,10 @@ sub parse_args {
         # write it, so its output can be diffed against the committed section
         # before the emitter is allowed anywhere near the file.
         if ($arg =~ /^--emit-section=(.+)$/) { $EMIT_SECTION = $1; next; }
+        # Write the WHOLE emitted document to a path of the caller's choosing,
+        # so it can be diffed against the committed matrix before the emitter
+        # is allowed to replace it.
+        if ($arg =~ /^--emit-to=(.+)$/) { $EMIT_TO = $1; next; }
         fatal("unknown option '$arg'\n"
             . "usage: refresh-traceability-matrix.pl [--check-accounting] "
             . "[--dump-descriptions]");
@@ -1731,6 +1736,11 @@ sub plan_doc_path {
 my %PLAN_CACHE;
 my %PLAN_DESC_CACHE;
 my %PLAN_ROWS_CACHE;
+
+# First-column header spellings that declare row IDs in a plan doc, plus the
+# matrix's own. Exact strings: `Retracted ID` and `ULA plan ID (retired)` head
+# ID-shaped columns too, and are deliberately absent.
+my @PLAN_ID_HEADERS = ('ID', '#', 'Test', 'Row', 'Row ID', 'Test ID', 'Test IDs');
 sub plan_cites {
     my ($source_rel) = @_;
     my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
@@ -1755,6 +1765,13 @@ sub plan_cites {
 # ONLY tables that declare row IDs are read, and that is decided from the
 # table's OWN header row — the lesson GH #192 already taught this script for
 # the matrix's five table shapes, applied to plan docs, which have more.
+#
+# The set is MEASURED, not guessed: counting, across every plan doc, how many
+# ID-shaped first cells each header spelling actually heads gives
+# ID 2029 rows / # 165 / Test 82 / Row 30 / Row ID 29 for the row tables, and
+# `ULA plan ID (retired)` 8 / `Retracted ID` 6 for the two maps that must stay
+# out. Exact-string matching separates them; a first guess of just
+# ID/Row ID/Test ID silently dropped 102 real plan rows.
 #
 # A permissive reader adopts tables that are not row tables at all. The
 # floating-bus plan carries a retired-ID map headed
@@ -1785,8 +1802,7 @@ sub plan_table_rows {
                 my $first = @h >= 2 ? $h[1] : '';
                 $first =~ s/^\s+|\s+$//g;
                 $first =~ s/^`|`$//g;
-                $accept = ($first eq 'ID' || $first eq 'Row ID'
-                        || $first eq 'Test ID' || $first eq 'Test IDs') ? 1 : 0;
+                $accept = (grep { $first eq $_ } @PLAN_ID_HEADERS) ? 1 : 0;
                 $prev = $line;
                 next;
             }
@@ -3682,7 +3698,14 @@ sub check_accounting {
 sub emit_section_rows {
     my ($binary, $source_rel) = @_;
     my @sources = as_list($source_rel);
-    my $fails   = run_fails($binary);
+    # A section can name several suites (Audio names three), so the FAIL sets
+    # of every binary are merged — a row failing in any of them fails.
+    my %fails;
+    for my $b (as_list($binary)) {
+        my $f = run_fails($b);
+        $fails{$_} = $f->{$_} for keys %$f;
+    }
+    my $fails = \%fails;
 
     my (%checks, %skips, %desc, %cites, %where, %cite_line);
     for my $src (@sources) {
@@ -3742,6 +3765,13 @@ sub emit_section_rows {
 sub emit_section {
     my ($header, $binary, $source_rel) = @_;
     my @sources = as_list($source_rel);
+    return emit_section_from_rows($header, $sources[0],
+                                  emit_section_rows($binary, $source_rel));
+}
+
+sub emit_section_from_rows {
+    my ($header, $source, $rows) = @_;
+    my @sources = as_list($source);
     my @out = ($header, '');
     if (my $pd = plan_doc_path($sources[0])) {
         push @out, "Notes and rationale: [" . (split m{/}, $pd)[-1] . "]("
@@ -3749,7 +3779,7 @@ sub emit_section {
     }
     push @out, '| Test ID | Description | VHDL file:line | Status | Test file:line |';
     push @out, '|---------|-------------|----------------|--------|----------------|';
-    for my $r (@{ emit_section_rows($binary, $source_rel) }) {
+    for my $r (@$rows) {
         my @c = @$r;
         # A literal pipe in a description must stay escaped or it splits the
         # row — the GH #157 defect, in the other direction.
@@ -3757,6 +3787,87 @@ sub emit_section {
         push @out, '| ' . join(' | ', @c) . ' |';
     }
     push @out, '';
+    return @out;
+}
+
+# The document's own preamble and the VHDL-column explainer.
+#
+# These describe the GENERATOR's semantics — what `missing` means, which
+# evidence tiers fill a citation — so they belong to the generator, not to a
+# hand-edited head that can drift from the code it describes. The per-section
+# prose moved the other way, into each subsystem's plan doc, where it sits
+# next to the rows it explains (owner decision, 2026-08-01).
+sub emit_preamble {
+    return (
+'# Test Plan Traceability Matrix',
+'',
+'> **GENERATED — do not edit this file by hand.** Every cell is computed by',
+'> `test/refresh-traceability-matrix.pl` from the test sources, the subsystem',
+'> plan docs and the suite manifest. Edit those and re-run the script; an edit',
+'> made here is overwritten on the next run and proves nothing in the meantime.',
+'',
+'This document maps plan row → test ID → VHDL citation → test location for the',
+'jnext subsystem unit test suites. See',
+'[UNIT-TEST-PLAN-EXECUTION.md](UNIT-TEST-PLAN-EXECUTION.md) for the authoring',
+'process and [EMULATOR-DESIGN-PLAN.md](../design/EMULATOR-DESIGN-PLAN.md) §Phase 9',
+'for the task tree. Each section links the plan doc carrying that subsystem\'s',
+'notes and rationale.',
+'',
+'A row reads **`missing`** when the plan doc lists it and no suite of the owning',
+'subsystem asserts it — a real backlog, and the only remaining hand-made claim',
+'in the document. Rows the sources assert are emitted whether or not a plan doc',
+'mentions them, so a test can no longer be absent from this document.',
+'',
+    );
+}
+
+sub emit_cite_explainer {
+    return (
+'### The `VHDL file:line` column',
+'',
+'Recovered from four **row-local** evidence tiers, in order: the',
+'`check()`/`skip()` call carrying the row\'s own ID; a comment block naming that',
+'ID; the first call after a table-driven ID literal, for rows with no call of',
+'their own; and the row\'s plan-doc entry. Every citation is validated against',
+'the real FPGA source tree, so a typo\'d or renamed `.vhd` is reported rather',
+'than published.',
+'',
+'Banner-comment and nearest-unrelated-comment tiers were prototyped and',
+'**rejected**: both attribute a neighbouring row\'s VHDL lines to this one, and a',
+'plausible-but-wrong citation is worse than an honest `—`. A `—` here is a real,',
+'visible gap; the fix is to cite the VHDL in the row\'s own assertion, which also',
+'makes the cell drift-checked from then on.',
+'',
+    );
+}
+
+# The WHOLE document, assembled from sources. No read-modify-write.
+sub emit_matrix {
+    my ($subsys, $declared) = @_;
+    my @report;
+    my @sections;
+    for my $entry (@$subsys) {
+        # Entries arrive from check_accounting() already resolved to
+        # (header, binary, source(s)) — the binary path is not rebuilt here.
+        my ($header, $bins, $srcs) = @$entry;
+        my @flat    = as_list($srcs);
+        my $binary  = $bins;
+        my $rows    = emit_section_rows($binary, \@flat);
+        push @sections, emit_section_from_rows($header, $flat[0], $rows);
+        my %n;
+        $n{ $_->[3] }++ for @$rows;
+        push @report, [section_label($header, $flat[0]), scalar @$rows,
+                       $n{pass} // 0, $n{fail} // 0, $n{skip} // 0,
+                       $n{missing} // 0, 0];
+    }
+    my @out = emit_preamble();
+    push @out, '## Summary', '';
+    push @out, $SUMMARY_BEGIN;
+    push @out, render_summary(\@report, tombstoned_suites($declared),
+                              0, declared_totals(), 0, []);
+    push @out, $SUMMARY_END, '';
+    push @out, emit_cite_explainer();
+    push @out, @sections;
     return @out;
 }
 
@@ -3769,6 +3880,14 @@ sub main_body {
     if ($rc) {
         print STDERR "\nThe matrix was NOT rewritten.\n" unless $CHECK_ONLY;
         return $rc;
+    }
+    if (defined $EMIT_TO) {
+        my @doc = emit_matrix($subsys, $declared);
+        open(my $out, '>', $EMIT_TO) or fatal("write $EMIT_TO: $!");
+        print $out join("\n", @doc), "\n";
+        close $out;
+        printf("emitted %d lines to %s\n", scalar @doc, $EMIT_TO);
+        return 0;
     }
     if (defined $EMIT_SECTION) {
         for my $entry (@SUBSYS) {
