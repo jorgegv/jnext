@@ -693,6 +693,23 @@ expected value (`X"FF"` per `zxnext.vhd:4513`).
    the NextZXOS-boot critical path. Pick it up when a session has
    budget for a small Emulator-side audit.
 
+## GH #196 Phase 1.3 — "Extra coverage" rows folded into the main table
+
+The matrix's `## Floating Bus` section carried a second, 4-column
+`### Extra coverage (not in plan)` table (no `Status` column) holding
+6 rows: `FB-3X` and the 5 `FB-HARNESS-01..05` fixture-helper smoke
+rows. These had simply never been migrated out of that ad-hoc scheme
+(GH #192 lineage) into the normal 5-column table. Verified 2026-08-01:
+all 6 have a live `check()` call at the cited `floating_bus_test.cpp`
+line, and `./build/test/floating_bus_test` reports all 6 passing
+(`FB-HARNESS 5/5`, `Total: 37 Passed: 37`). No duplicate of any of the
+6 IDs exists elsewhere in the matrix. All 6 were folded into the main
+table as normal `pass` rows (the `FB-HARNESS-*` rows keep a bare `—`
+VHDL citation, since they test the test harness's own helpers, not
+FPGA behaviour — same convention already used elsewhere in the matrix,
+e.g. `V11-CPU-01-IM2-DDFD-ED-NO-RETI`), and the now-empty
+`### Extra coverage (not in plan)` table was removed.
+
 ## Bans
 
 - **No tautologies.** Every row asserts an expected byte that depends
