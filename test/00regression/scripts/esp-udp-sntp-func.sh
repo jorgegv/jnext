@@ -68,13 +68,15 @@ if want esp-udp-sntp-func; then
     # design doc's command table rather than decoding bytes.
     #   \r\nOK\r\n            ATE0
     #   \r\nERROR\r\n         AT+CIPCLOSE, nothing open
-    #   \r\nCONNECT\r\n\r\nOK\r\n
-    #                         AT+CIPSTART="UDP" — CONNECT FIRST, which is what
-    #                         newt reads and what the firmware emits
+    #   CONNECT\r\n\r\nOK\r\n AT+CIPSTART="UDP". NOTE the missing leading CRLF:
+    #                         CONNECT is a STATUS line, not a result code, so
+    #                         the blank line belongs to the OK after it. newt
+    #                         reads ONE line and compares it, so a leading CRLF
+    #                         hands it an empty line and it gives up.
     #   \r\nOK\r\n>           AT+CIPSEND=48 ... plus the mandatory trailing space
     #   \r\nSEND OK\r\n       the 48 declared payload bytes completed
     #   \r\n+IPD,48:          the reply datagram, framed with its own length
-    expected_ascii=$'\r\nOK\r\n\r\nERROR\r\n\r\nCONNECT\r\n\r\nOK\r\n\r\nOK\r\n> \r\nSEND OK\r\n\r\n+IPD,48:'
+    expected_ascii=$'\r\nOK\r\n\r\nERROR\r\nCONNECT\r\n\r\nOK\r\n\r\nOK\r\n> \r\nSEND OK\r\n\r\n+IPD,48:'
 
     peer_pid=""
     verdict=""

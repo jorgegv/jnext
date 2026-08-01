@@ -176,9 +176,13 @@
 ///     `ERROR` is the refusal path every client already handles gracefully.
 ///  4b. `CONNECT` PRECEDES `OK` FOR UDP AND NOT FOR TCP, and the asymmetry is
 ///     deliberate rather than an oversight. Real firmware prints
-///     `CONNECT\r\n\r\nOK\r\n` for BOTH, and newt's `net_connect_udp` reads
-///     exactly one line and demands it start with `CONNECT` — so UDP has to
-///     emit it or the tool cannot connect at all. TCP's bare `\r\nOK\r\n` is
+///     `CONNECT\r\n\r\nOK\r\n` for BOTH — note the missing leading CRLF, which
+///     is the firmware's own framing and not a slip: `CONNECT` is a STATUS
+///     line rather than a result code, so the blank line a transcript shows
+///     before `OK` belongs to the `\r\nOK\r\n` after it. newt's
+///     `net_connect_udp` reads exactly one line and demands it start with
+///     `CONNECT` — so UDP has to emit it, unprefixed, or the tool cannot
+///     connect at all. TCP's bare `\r\nOK\r\n` is
 ///     PRE-EXISTING v1.0 behaviour derived from the evidenced clients, it is
 ///     pinned by `esp-loopback-func`'s exact byte stream, and the two clients
 ///     whose parsers would have to survive the change (NXtel, nextsync) have no

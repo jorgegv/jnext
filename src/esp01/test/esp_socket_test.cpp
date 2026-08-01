@@ -1170,12 +1170,42 @@ int main() {
                   truncated == std::string(16, 'Z') &&
                       t->state() == TransportState::Connected);
 
+            // A GENUINE ZERO-LENGTH DATAGRAM — the one case where `recv`
+            // returning 0 is a real received message rather than "nothing
+            // here", and the only stimulus that reaches the `eof = stream`
+            // branch at all. An empty socket returns EAGAIN, not 0, so
+            // UDPT-05 above never touches it: without this row, reporting
+            // every UDP 0 as EOF survives the whole suite.
+            //
+            // The two are indistinguishable from the return value by
+            // construction, so the assertion is what happens NEXT: a
+            // transport that took it for EOF is Closed and can never deliver
+            // again, so a following ordinary datagram is the discriminator.
+            peer.reply("");
+            for (int waited = 0; waited < 200; waited += 2) {
+                t->recv(rx, sizeof(rx));
+                sleep_ms(2);
+            }
+            const bool alive = (t->state() == TransportState::Connected);
+            peer.reply("AFTER-EMPTY");
+            std::string after;
+            for (int waited = 0; waited < 1000 && after.empty(); waited += 2) {
+                const std::size_t n = t->recv(rx, sizeof(rx));
+                if (n == 0) { sleep_ms(2); continue; }
+                after.assign(reinterpret_cast<char*>(rx), n);
+            }
+            check("UDPT-13",
+                  "a zero-length datagram is not an end of stream — the connection survives "
+                  "it and still delivers what comes after",
+                  alive && after == "AFTER-EMPTY" &&
+                      t->state() == TransportState::Connected);
+
             t->close();
             check("UDPT-09", "close() on a live UDP connection ends in Closed",
                   t->state() == TransportState::Closed);
         } else {
             for (const char* id : {"UDPT-01", "UDPT-02", "UDPT-03", "UDPT-04", "UDPT-05",
-                                   "UDPT-06", "UDPT-07", "UDPT-08", "UDPT-09"}) {
+                                   "UDPT-06", "UDPT-07", "UDPT-08", "UDPT-09", "UDPT-13"}) {
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback UDP peer\n", id);
             }

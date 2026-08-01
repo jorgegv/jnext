@@ -917,10 +917,21 @@ int main() {
     {   Rig r;
         r.send("AT+CIPSTART=\"UDP\",\"time.test\",123\r\n");
         r.settle();
+        const std::string reply = r.take();
         check_eq("UDP-01",
                  "AT+CIPSTART=\"UDP\" answers CONNECT then OK — newt reads ONE line and "
                  "demands it start with CONNECT",
-                 r.take(), "\r\nCONNECT\r\n\r\nOK\r\n");
+                 reply, "CONNECT\r\n\r\nOK\r\n");
+        // Stated as the property rather than as a substring of the literal
+        // above, because it is the one that was got WRONG first time and the
+        // one no amount of reading the code revealed: with a leading CRLF the
+        // first line is EMPTY, `strncmp(buf, "CONNECT", 7)` fails, and newt
+        // gives up without ever sending its request. `CONNECT` is a status
+        // line, not a result code; the blank line belongs to the OK after it.
+        check_eq("UDP-01c",
+                 "...and the FIRST CRLF-terminated line is CONNECT itself — no leading CRLF, "
+                 "or newt's one-line read sees an empty line and gives up",
+                 reply.substr(0, reply.find('\n') + 1), "CONNECT\r\n");
         check("UDP-01b", "...and the engine is connected", r.eng.connected());
         check("UDP-02", "...over UDP, to the parsed host and port, with an OS-chosen local port",
               r.tr.last_protocol == Protocol::Udp && r.tr.last_host == "time.test" &&
@@ -929,19 +940,19 @@ int main() {
         r.send("AT+CIPSTART=\"udp\",\"time.test\",123\r\n");
         r.settle();
         check_eq("UDP-03", "the protocol token is case-insensitive, like every command name",
-                 r.take(), "\r\nCONNECT\r\n\r\nOK\r\n"); }
+                 r.take(), "CONNECT\r\n\r\nOK\r\n"); }
     {   Rig r;
         r.send("AT+CIPSTART=\"UDP\",\"time.test\",123,4567\r\n");
         r.settle();
         check_eq("UDP-04", "the optional <local port> is accepted", r.take(),
-                 "\r\nCONNECT\r\n\r\nOK\r\n");
+                 "CONNECT\r\n\r\nOK\r\n");
         check("UDP-04b", "...and reaches the transport, which is what binds it",
               r.tr.last_local_port == 4567); }
     {   Rig r;
         r.send("AT+CIPSTART=\"UDP\",\"time.test\",123,4567,0\r\n");
         r.settle();
         check_eq("UDP-05", "<mode> 0 — the fixed peer every client uses — is accepted",
-                 r.take(), "\r\nCONNECT\r\n\r\nOK\r\n"); }
+                 r.take(), "CONNECT\r\n\r\nOK\r\n"); }
     {   Rig r;
         r.send("AT+CIPSTART=\"UDP\",\"time.test\",123,4567,1\r\n");
         r.settle();

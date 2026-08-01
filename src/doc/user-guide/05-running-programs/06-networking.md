@@ -11,8 +11,8 @@ working ESP-01 looks like; the actual connections are made by your host.
 
 ## It is off by default, and it stays off until you say otherwise
 
-Turning this on gives the running program **an outbound TCP pipe out of the
-emulator**. That program can already read and write the SD-card image. A
+Turning this on gives the running program **an outbound TCP and UDP pipe out of
+the emulator**. That program can already read and write the SD-card image. A
 program you did not write is a program you are trusting.
 
 So JNEXT never enables it for you, and **no loaded program can enable it for
@@ -239,9 +239,16 @@ The command set is the one **evidenced** in software that actually runs on a
 Next, so a few things a physical ESP-01 can do are not built:
 
 - **server / listen mode** (`AT+CIPSERVER`) — so nothing can connect *in*;
-- **UDP**, **multiplexed connections** and **transparent mode**.
+- **multiplexed connections** and **transparent mode**;
+- **TLS**, so a program cannot make an `https` request.
 
-None of them has a consumer in current Next software. Widening the emulation to
+UDP **is** emulated, including `AT+CIPSTART="UDP",…` with its optional local
+port. That is what `newt` needs to set the clock from an internet time server,
+and `.newt sntp 0 pool.ntp.org` works. What is not emulated there is UDP
+"modes" 1 and 2, which let the far end of the link change to whoever last sent
+a packet; the emulated module answers `ERROR` rather than pretending.
+
+None of the rest has a consumer in current Next software. Widening the emulation to
 the full ESP-01 firmware specification is tracked as
 [issue #154](https://github.com/jorgegv/jnext/issues/154).
 

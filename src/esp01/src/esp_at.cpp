@@ -666,7 +666,24 @@ void AtEngine::resolve_connect(std::size_t cid) {
                 // for why, and for what would have to be gathered to change it.
                 // For UDP it is required: newt's `net_connect_udp` reads ONE
                 // line and returns false unless it starts with `CONNECT`.
-                queue("\r\nCONNECT\r\n\r\nOK\r\n");
+                //
+                // NO LEADING CRLF BEFORE `CONNECT`, unlike every other reply
+                // here, and the exception is the firmware's rather than ours.
+                // `CONNECT` is a STATUS line printed before the result code,
+                // not a result code; the CRLF that renders as the blank line
+                // between them belongs to the `\r\nOK\r\n` that follows. That
+                // is what makes the familiar transcript
+                //     AT+CIPSTART=…
+                //     CONNECT
+                //
+                //     OK
+                // come out with the blank line AFTER `CONNECT` and not before.
+                // Getting this wrong is not cosmetic: newt reads exactly ONE
+                // line and compares it, so a leading CRLF hands it an empty
+                // line, `net_connect_udp` returns false and the tool gives up
+                // without sending anything. Found by running the real dot
+                // command against a real NTP server, not by reading the code.
+                queue("CONNECT\r\n\r\nOK\r\n");
             } else {
                 queue_ok();
             }
