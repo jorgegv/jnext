@@ -251,7 +251,7 @@ public:
     // automap_hold_ is set on M1+MREQ-low at an entry-point PC (line 128);
     // automap_held_ latches from hold on MREQ rising edge (line 141). The
     // combinational automap output is (held OR instant_on-matches-this-cycle).
-    // Task 7 exposes them for the TM-01..05 tests in divmmc_test.cpp.
+    // Task 7 exposes them for the DMC-TM-01..04, TM-05 tests in divmmc_test.cpp.
     bool automap_hold() const { return automap_hold_; }
     bool automap_held() const { return automap_held_; }
 

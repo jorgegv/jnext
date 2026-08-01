@@ -1843,10 +1843,10 @@ void group10_reset() {
     Copper  cu;
     NextReg nr;
 
-    // RST-01: Hard reset clears pc, mode, dout.
+    // COP-RST-01: Hard reset clears pc, mode, dout.
     // VHDL copper.vhd:60-65 reset block clears only addr_s, dout_s, data_o.
     // The instruction RAM (zxnext.vhd:3959-3996, dpram2 with no reset port)
-    // is NOT cleared — see RST-04 for the dpram2 persistence check.
+    // is NOT cleared — see COP-RST-04 for the dpram2 persistence check.
     {
         wire_nr_to_cu(nr, cu);
         program_word(cu, 0, enc_move(0x40, 0x55));
@@ -1855,12 +1855,12 @@ void group10_reset() {
         cu.execute(12, 0, nr);
         // Now reset
         cu.reset();
-        check("RST-01", "Copper reset clears pc, mode",
+        check("COP-RST-01", "Copper reset clears pc, mode",
               cu.pc() == 0 && cu.mode() == 0,
               fmt("pc=%u mode=%u", cu.pc(), cu.mode()));
     }
 
-    // RST-02: NR state reset — nr_copper_addr=0, write_data_stored=0.
+    // COP-RST-02: NR state reset — nr_copper_addr=0, write_data_stored=0.
     // Observable via read_reg_0x61/0x62 and via a subsequent 0x63 write
     // pair landing at word 0.
     {
@@ -1870,13 +1870,13 @@ void group10_reset() {
         // Verify a fresh 0x63 pair commits to word 0.
         cu.write_reg_0x63(0xDE);
         cu.write_reg_0x63(0xAD);
-        check("RST-02", "NR state fresh: pointer=0, write stores land at word 0",
+        check("COP-RST-02", "NR state fresh: pointer=0, write stores land at word 0",
               r61 == 0 && (r62 & 0xC0) == 0 && (r62 & 0x07) == 0
                   && cu.instruction(0) == 0xDEAD,
               fmt("r61=%02x r62=%02x i0=%04x", r61, r62, cu.instruction(0)));
     }
 
-    // RST-03: last_state_s initial == "00", so first NR 0x62<-0x00 is a
+    // COP-RST-03: last_state_s initial == "00", so first NR 0x62<-0x00 is a
     // no-op. Observed via pc_: we pre-advance pc via mode 01 (we can't
     // write last_state_ directly), but the test as stated cannot be
     // realised without poking internal state. The documented effect
@@ -1886,12 +1886,12 @@ void group10_reset() {
         reset_both(cu, nr);
         cu.write_reg_0x62(0x00);   // should be a no-op on last_state_s=00
         cu.execute(12, 0, nr);     // stopped, no execution
-        check("RST-03", "Fresh reset + NR 0x62=0x00 is a no-op (pc=0, mode=0)",
+        check("COP-RST-03", "Fresh reset + NR 0x62=0x00 is a no-op (pc=0, mode=0)",
               cu.pc() == 0 && cu.mode() == 0,
               fmt("pc=%u mode=%u", cu.pc(), cu.mode()));
     }
 
-    // RST-04 — VHDL zxnext.vhd:3959-3996 declares Copper instruction RAM
+    // COP-RST-04 — VHDL zxnext.vhd:3959-3996 declares Copper instruction RAM
     // as dpram2 (no reset port); copper.vhd:60-65 reset block clears
     // only addr_s, dout_s, data_o. So a soft reset preserves the
     // previously-uploaded Copper program; only the NR addr/mode state
@@ -1915,7 +1915,7 @@ void group10_reset() {
         const uint16_t post1 = cu.instruction(1);
         const uint8_t  r61   = cu.read_reg_0x61();
         const uint8_t  r62   = cu.read_reg_0x62();
-        check("RST-04", "Soft reset preserves Copper instruction RAM (dpram2 has no reset)",
+        check("COP-RST-04", "Soft reset preserves Copper instruction RAM (dpram2 has no reset)",
               pre0 == 0xABCD && pre1 == 0x4055
                   && post0 == 0xABCD && post1 == 0x4055
                   && r61 == 0x00 && r62 == 0x00,  // addr+mode DO clear

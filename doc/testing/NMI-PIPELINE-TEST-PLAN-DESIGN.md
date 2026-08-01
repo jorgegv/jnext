@@ -181,10 +181,10 @@ Each row carries a short VHDL cite. Row IDs follow the naming pattern
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
-| RST-01 | FSM in `S_NMI_IDLE` after reset | zxnext.vhd:2120, 2149 | reset; read FSM state accessor |
+| NMI-RST-01 | FSM in `S_NMI_IDLE` after reset | zxnext.vhd:2120, 2149 | reset; read FSM state accessor |
 | RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | reset; read `nmi_mf` / `_divmmc` / `_expbus` accessors |
 | RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110, 1222 | reset; read gate accessors |
-| RST-04 | NR 0x02 reset_type power-on default = "100" (bits 1:0 of read = "00", bit 2 latent) | zxnext.vhd:1306, 5891 | reset; read NR 0x02; observe reset_type[2:0]. **G153 closed (Task 8 t1)** — `NmiSource::reset_type_` modelled, surfaced via `nr_02_read()` bits 1:0. |
+| NMI-RST-04 | NR 0x02 reset_type power-on default = "100" (bits 1:0 of read = "00", bit 2 latent) | zxnext.vhd:1306, 5891 | reset; read NR 0x02; observe reset_type[2:0]. **G153 closed (Task 8 t1)** — `NmiSource::reset_type_` modelled, surfaced via `nr_02_read()` bits 1:0. |
 
 ### Group NR02 — NR 0x02 software NMI (Wave A) (8 rows)
 
@@ -385,7 +385,7 @@ bash test/regression.sh
 
 | Group | Tests | Coverage |
 |-------|------:|----------|
-| RST — Reset defaults | 4 | FSM + latch + gate power-on state (+G153 RST-04) |
+| RST — Reset defaults | 4 | FSM + latch + gate power-on state (+G153 NMI-RST-04) |
 | NR02 — NR 0x02 software NMI | 8 | Wave A routing, readback, auto-clear (+G153 NR02-07/08) |
 | HK — Hotkey producers | 9 | Wave B edge capture + NR 0x06 gating (+G152 HK-06..09) |
 | DIS — DivMMC consumer | 4 | Wave B set_button_nmi + is_nmi_hold |
@@ -399,12 +399,12 @@ bash test/regression.sh
 | MF — G162 parked rows | 2 | iotrap → MF assert; port 0x2FFD/3FFD trap-decode |
 | **Total** | **58** | |
 
-> **Note: NMI plan additions 2026-04-27** — RST-04, NR02-07/08, HK-06..09,
+> **Note: NMI plan additions 2026-04-27** — NMI-RST-04, NR02-07/08, HK-06..09,
 > Z80-04, MF-G162-01/02 added 2026-04-27 to cover G88 / G152 / G153 / G162
 > plumbing gaps; skip-stubbed pending implementation. MF-G162-NN rows
 > park here until `MULTIFACE-TEST-PLAN-DESIGN.md` exists.
 >
-> **Update 2026-04-28 (Task 8 W1):** G153 (RST-04, NR02-07, NR02-08),
+> **Update 2026-04-28 (Task 8 W1):** G153 (NMI-RST-04, NR02-07, NR02-08),
 > G152 (HK-06..09), and G162 (MF-G162-01, MF-G162-02) closed end-to-end.
 > Companion row MF-G162-01b added to test the NR 0x06 bit 3 gate path.
 > Still parked: MF-G48-01..07 (Multiface peripheral, awaits
