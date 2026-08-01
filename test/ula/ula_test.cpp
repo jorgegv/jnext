@@ -1425,9 +1425,12 @@ static void test_section5_timex() {
         bed.ula.rewind_to_baseline();
 
         check("S5-PSL.04",
-              "Ula::start_frame snapshots live port-0xFF as baseline "
-              "and clears the log; subsequent rewind_to_baseline "
-              "restores that baseline",
+              "zxnext.vhd:3613-3616 + zxula.vhd:191/209 — port_ff_reg is "
+              "cleared only by the global hardware reset (never a "
+              "frame/vsync boundary) and otherwise holds until the next "
+              "port-0xFF write; Ula::start_frame snapshots live port-0xFF "
+              "as baseline and clears the log; subsequent "
+              "rewind_to_baseline restores that baseline",
               mid_count == 1u
               && post_count == 0u
               && bed.ula.get_screen_mode_reg() == 0x06,
@@ -1477,9 +1480,11 @@ static void test_section5_timex() {
         bed2.ula.render_scanline(b.data(), 33, bed2.mmu);
 
         check("S5-PSL.05",
-              "Ula::save_state + load_state round-trips the port-0xFF "
-              "change log: rendering the same scanline through replay "
-              "produces byte-equal output before and after",
+              "zxnext.vhd:3613-3616 + zxula.vhd:191/209 — port_ff_reg is "
+              "genuine persistent hardware state (cleared only by global "
+              "reset); Ula::save_state + load_state round-trips the "
+              "port-0xFF change log: rendering the same scanline through "
+              "replay produces byte-equal output before and after",
               a[Ula::DISP_X] == b[Ula::DISP_X]
               && bed2.ula.port_ff_change_log_size() == 1u,
               fmt("pre=0x%08X post=0x%08X count_post=%zu",
