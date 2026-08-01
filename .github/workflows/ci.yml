@@ -93,10 +93,17 @@ jobs:
     # happens to contain no CMakeLists.txt today, which is luck, not a
     # guarantee, and an untracked 2.5 MB tree inside the checkout is a trap for
     # every other gate that reads `git status`.
+    #
+    # Only FPGA_CORE_REF is a job-level env. The two PATHS cannot be, because
+    # they derive from the runner's temp dir and the `runner` context is NOT
+    # available in `jobs.<id>.env` — only github/needs/strategy/matrix/vars/
+    # secrets/inputs are. A `${{ runner.temp }}` here does not merely evaluate
+    # empty: GitHub rejects the whole workflow file, so NO job runs and the
+    # failure reads "This run likely failed because of a workflow file issue"
+    # with no logs. The clone step below derives them from $RUNNER_TEMP and
+    # exports them via $GITHUB_ENV, which is the supported way.
     env:
       FPGA_CORE_REF: b047011d82bf3086f2b7db76451c6254506f5fe8   # CORE VERSION 3.02.03
-      FPGA_CORE_DIR: ${{ runner.temp }}/fpga-core
-      JNEXT_FPGA_SRC: ${{ runner.temp }}/fpga-core/cores/zxnext/src
     steps:
       # MUST run BEFORE the checkout: a bare fedora:44 has no git, and
       # actions/checkout throws outright when `submodules` is requested
@@ -173,6 +180,8 @@ jobs:
       # directory.
       - name: Check out the ZX Next FPGA core (VHDL citation oracle)
         run: |
+          FPGA_CORE_DIR="$RUNNER_TEMP/fpga-core"
+          JNEXT_FPGA_SRC="$FPGA_CORE_DIR/cores/zxnext/src"
           git clone --filter=blob:none --no-checkout \
             https://gitlab.com/SpectrumNext/ZX_Spectrum_Next_FPGA.git "$FPGA_CORE_DIR"
           git -C "$FPGA_CORE_DIR" sparse-checkout init --cone
@@ -181,6 +190,8 @@ jobs:
           test -d "$JNEXT_FPGA_SRC" || { echo "FPGA core missing at $JNEXT_FPGA_SRC"; exit 1; }
           echo "core at $(git -C "$FPGA_CORE_DIR" rev-parse HEAD)"
           echo "$(find "$JNEXT_FPGA_SRC" -name '*.vhd' | wc -l) .vhd files visible"
+          # Hand it to every LATER step, so each `run:` stays a plain make target.
+          echo "JNEXT_FPGA_SRC=$JNEXT_FPGA_SRC" >> "$GITHUB_ENV"
 
       - name: Cache ccache
         uses: actions/cache@v4
