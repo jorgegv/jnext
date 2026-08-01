@@ -1224,6 +1224,8 @@ if(ENABLE_DEBUGGER)
     add_executable(debugger_video_panel_test debugger/video_panel_test.cpp)
 endif()
 add_executable(jnext_tests ${GTEST_SOURCES})
+add_executable(tilemap_test tilemap/tilemap_test.cpp)
+add_executable(layer2_test layer2/layer2_test.cpp)
 CML
 write_fixture('src/esp01/CMakeLists.txt', <<'CML');
     add_executable(esp_at_test test/esp_at_test.cpp)
@@ -3004,6 +3006,111 @@ CPP
           defined $desc_of->($f7, 'HHH-01') ? 'INVENTED: ' . $desc_of->($f7, 'HHH-01')
                                             : 'undef');
 }
+# ── The cross-plan STATUS FALLBACK (%EXTRA_STATUS_FALLBACK, GH #196 ph 4) ──
+#
+# The mechanism that lets a section consult a suite belonging to a DIFFERENT
+# plan doc: 70 rows are owned by one subsystem's plan and asserted by another
+# subsystem's suite (LoRes is not a layer — it SUBSTITUTES the ULA-slot pixel,
+# so its rows live in `compositor_test`), and without it every one of them
+# published `missing` beside its own passing assertion.
+#
+# It shipped UNPINNED and is pinned here. The two invariants are not obvious
+# and pull in opposite directions, which is exactly why they need fixtures:
+#
+#   1. the fallback answers about STATUS ONLY — a suite named as a fallback
+#      must NOT import its own rows into the borrowing section, or the
+#      borrowing subsystem starts publishing coverage it does not own. That is
+#      the manufactured-coverage failure (#190) arriving through a new door;
+#   2. a suite may be a fallback for one section AND own its own section — the
+#      exact opposite of the @SUBSYS rule, where a second mention is a refusal
+#      (SELF-72). The accounting gate never sees this table, and must not.
+#
+# The fixture is a BORROWER (`tilemap_test`, whose plan owns two rows and whose
+# source asserts only one) and a LENDER (`layer2_test`, which asserts the
+# borrower's other row plus one of its own). Both suites are real names so
+# %PLAN_DOC resolves; the sources and plan docs are fixtures.
+#
+# The stub binaries must be chmod 0755: run_fails() calls
+# `fatal("binary not executable")` before it will run anything, which is
+# deliberate (a missing binary would otherwise report an empty FAIL set and
+# pass-whitewash the whole section).
+write_fixture('test/tilemap/tilemap_test.cpp', <<'CPP');
+void borrower() {
+    check("FBK-OWN-01", "the borrower asserts this one itself", cond, detail);
+}
+CPP
+write_fixture('test/layer2/layer2_test.cpp', <<'CPP');
+void lender() {
+    check("FBK-SHARED-01", "asserted HERE, owned by the borrower's plan", cond, detail);
+    check("FBK-LEND-01", "the lender's own row — must stay in the lender's section", cond, detail);
+}
+CPP
+write_fixture('doc/testing/TILEMAP-TEST-PLAN-DESIGN.md', <<'MD');
+| ID | Test | Expected |
+|----|------|----------|
+| FBK-OWN-01 | borrower's own row | asserted by the borrower |
+| FBK-SHARED-01 | borrower's plan, lender's assertion | pass via the fallback |
+MD
+write_fixture('doc/testing/LAYER2-TEST-PLAN-DESIGN.md', <<'MD');
+| ID | Test | Expected |
+|----|------|----------|
+| FBK-LEND-01 | the lender's own row | asserted by the lender |
+MD
+for my $stub ('build/test/fbk_borrow_stub', 'build/test/fbk_lend_stub') {
+    write_fixture($stub, "#!/bin/sh\nexit 0\n");
+    chmod 0755, "$FIXTURE_ROOT/$stub" or die "chmod $stub: $!";
+}
+
+my $fbk_rows = sub {
+    my ($with_fallback) = @_;
+    my %o = (plan => 1);
+    if ($with_fallback) {
+        $o{fallback}      = ['test/layer2/layer2_test.cpp'];
+        $o{fallback_bins} = ['build/test/fbk_lend_stub'];
+    }
+    my $r = emit_section_rows('build/test/fbk_borrow_stub',
+                              ['test/tilemap/tilemap_test.cpp'], \%o);
+    return { map { $_->[0] => { status => $_->[3], loc => $_->[4] } } @$r };
+};
+my $fbk_on  = $fbk_rows->(1);
+my $fbk_off = $fbk_rows->(0);
+# The lender's OWN section, called with the borrowing relationship pointed the
+# other way — the lender is simultaneously somebody's fallback and its own
+# section's source. Its published rows must be exactly its own either way.
+my $lend = { map { $_->[0] => { status => $_->[3], loc => $_->[4] } }
+             @{ emit_section_rows('build/test/fbk_lend_stub',
+                                  ['test/layer2/layer2_test.cpp'],
+                                  { plan => 1,
+                                    fallback      => ['test/tilemap/tilemap_test.cpp'],
+                                    fallback_bins => ['build/test/fbk_borrow_stub'] }) } };
+
+check('SELF-192', 'a fallback suite supplies STATUS for a plan row the borrowing section does not assert',
+      scalar(($fbk_on->{'FBK-SHARED-01'}{status} // '') eq 'pass'
+             && ($fbk_on->{'FBK-SHARED-01'}{loc} // '') eq 'test/layer2/layer2_test.cpp:2'),
+      "status=" . ($fbk_on->{'FBK-SHARED-01'}{status} // '(absent)')
+      . " loc=" . ($fbk_on->{'FBK-SHARED-01'}{loc} // '(absent)'));
+
+check('SELF-193', 'THE CONTROL: without the fallback the same row reads `missing` — SELF-192 is not vacuous',
+      ($fbk_off->{'FBK-SHARED-01'}{status} // '') eq 'missing',
+      "status=" . ($fbk_off->{'FBK-SHARED-01'}{status} // '(absent)'));
+
+check('SELF-194', 'THE REFUSAL: a fallback suite does NOT import its own rows into the borrowing section',
+      !exists $fbk_on->{'FBK-LEND-01'},
+      "borrowing section rows = " . join(' ', sort keys %$fbk_on));
+
+# NOTE what the expected set is, because it is not "its own plan's rows": a
+# section publishes every row its SOURCE asserts, so the lender legitimately
+# carries FBK-SHARED-01 as well — the row it asserts on the borrower's behalf.
+# That is the declared residual of this design (such a row is published twice,
+# both times `pass`, and the Rows total counts it twice). What must NOT appear
+# is FBK-OWN-01: a plan-only row of the OTHER section, which would only arrive
+# by importing the fallback's plan or its row set.
+check('SELF-195', 'a suite may be a fallback elsewhere AND own its section: it publishes what its own source asserts and nothing from the other section\'s plan, whichever way the relationship points (the opposite of the @SUBSYS one-mention rule, SELF-72)',
+      join(' ', sort keys %$lend) eq 'FBK-LEND-01 FBK-SHARED-01'
+      && ($lend->{'FBK-LEND-01'}{status} // '') eq 'pass',
+      "lender section rows = " . join(' ', sort keys %$lend)
+      . " status=" . ($lend->{'FBK-LEND-01'}{status} // '(absent)'));
+
 
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
@@ -3027,7 +3134,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 191;
+my $EXPECTED_ROWS = 195;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
