@@ -1740,6 +1740,7 @@ my %PLAN_ROWS_CACHE;
 # First-column header spellings that declare row IDs in a plan doc, plus the
 # matrix's own. Exact strings: `Retracted ID` and `ULA plan ID (retired)` head
 # ID-shaped columns too, and are deliberately absent.
+my $EXCEPTIONS = 'test/traceability-exceptions.conf';
 my @PLAN_ID_HEADERS = ('ID', '#', 'Test', 'Row', 'Row ID', 'Test ID', 'Test IDs');
 sub plan_cites {
     my ($source_rel) = @_;
@@ -3841,9 +3842,54 @@ sub emit_cite_explainer {
     );
 }
 
+# The exceptions file — the ONE hand-maintained input (GH #196 phase 2.2).
+#
+# Parsed strictly: three `|`-separated fields, and ANYTHING else is a refusal
+# (exit 2) rather than a skipped line. A malformed record must stop the run,
+# because silently dropping one restores exactly the failure this issue
+# removes — a document that under-claims and says nothing about it.
+sub read_exceptions {
+    my $path = "$ROOT/$EXCEPTIONS";
+    return {} unless -e $path;
+    open(my $fh, '<', $path) or fatal("open $path: $!");
+    my (%by, %seen, @bad);
+    my $lineno = 0;
+    while (my $line = <$fh>) {
+        $lineno++;
+        chomp $line;
+        next if $line =~ /^\s*(#|$)/;
+        my @f = split /\s*\|\s*/, $line, -1;
+        if (@f != 3) {
+            push @bad, "$EXCEPTIONS:$lineno: expected 3 `|`-separated fields, got "
+                     . scalar(@f) . ": $line";
+            next;
+        }
+        my ($sec, $id, $text) = @f;
+        for ($sec, $id, $text) { s/^\s+|\s+$//g }
+        if (!length $sec || !length $id || !length $text) {
+            push @bad, "$EXCEPTIONS:$lineno: empty field: $line";
+            next;
+        }
+        if ($seen{"$sec\0$id"}++) {
+            push @bad, "$EXCEPTIONS:$lineno: duplicate record for '$sec' / '$id'";
+            next;
+        }
+        push @{ $by{$sec} }, [$id, $text];
+    }
+    close $fh;
+    if (@bad) {
+        print STDERR "refresh-traceability-matrix: REFUSING to run — the "
+                   . "exceptions file is malformed.\n";
+        print STDERR "  $_\n" for @bad;
+        exit 2;
+    }
+    return \%by;
+}
+
 # The WHOLE document, assembled from sources. No read-modify-write.
 sub emit_matrix {
     my ($subsys, $declared) = @_;
+    my $exceptions = read_exceptions();
     my @report;
     my @sections;
     for my $entry (@$subsys) {
@@ -3853,6 +3899,15 @@ sub emit_matrix {
         my @flat    = as_list($srcs);
         my $binary  = $bins;
         my $rows    = emit_section_rows($binary, \@flat);
+        # Declared rows for a suite with no plan doc. They emit as `missing`
+        # by construction: nothing asserts them, which is what makes them a
+        # backlog rather than a coverage claim.
+        my ($label) = split /\s+—\s+/, ($header =~ s/^#+\s*//r);
+        my %have = map { $_->[0] => 1 } @$rows;
+        for my $e (@{ $exceptions->{$label} || [] }) {
+            next if $have{ $e->[0] };
+            push @$rows, [$e->[0], $e->[1], '—', 'missing', '—'];
+        }
         push @sections, emit_section_from_rows($header, $flat[0], $rows);
         my %n;
         $n{ $_->[3] }++ for @$rows;

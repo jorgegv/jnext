@@ -884,3 +884,17 @@ red; (B) dropping the `pend_60hz != refresh_60hz()` trigger term in
 begin_new_frame() turns VT-T56-01..04 red (T56-INT-01 survives B by
 design — its simultaneous tim change fires the re-push; the trigger
 term is discriminated by the VT rows).
+
+## Planned rows carried over from the traceability matrix (GH #196)
+
+These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a
+generated artifact and can no longer hold a claim of its own. They are
+planned and NOT implemented, so they are recorded here — the one place the
+generator reads planned rows from — and the matrix emits them as `missing`,
+which is what they are.
+
+| ID | Description | VHDL file:line |
+|----|-------------|----------------|
+| VT-03 | Pentagon `hc_max()`/`vc_max()` after `init(PENTAGON)` = 447, 319 (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:160/168 — `c_max_hc<=447`, `c_max_vc<=319`. No `check()` exists under the literal ID `VT-03`: the standalone `MachineType::Pentagon` enum this row's `init(PENTAGON)` API describes was dropped Wave 0.3 (2026-05-04) — but Pentagon TIMING itself is not gone, NR 0x03 tim_sel bit 2 still selects it at runtime. The identical facts are proven LIVE by `VT-T51-01` (Section 10, Task 51) via `init_timing(MachineTimingMode::TimingPentagon)`, same VHDL lines) | zxula_timing.vhd:160,168 |
+| VT-05 | Pentagon `display_origin()` = {128, 80} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:159/167 — `c_min_hactive<=128`, `c_min_vactive<=80`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:159,167 |
+| VT-12 | Pentagon `int_position()` = {439, 319} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:155/163 — `c_int_h<=448+3-12`=439, `c_int_v<=319`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:155,163 |

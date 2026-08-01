@@ -959,3 +959,21 @@ Emulator-side change (Task 58 Item 2) in `src/core/emulator.cpp`
 `begin_new_frame()`. Mutation evidence: reverting the read handler to
 pending-cache bits turns both rows RED on their `mid == before`
 assertion.
+
+## Planned rows carried over from the traceability matrix (GH #196)
+
+These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a
+generated artifact and can no longer hold a claim of its own. They are
+planned and NOT implemented, so they are recorded here — the one place the
+generator reads planned rows from — and the matrix emits them as `missing`,
+which is what they are.
+
+| ID | Description | VHDL file:line |
+|----|-------------|----------------|
+| KBDHYS-05 | `Keyboard::tick_scan()` cancels extended entries when `i_cancel_extended_entries` asserted (prod) | membrane.vhd:178-191 |
+| HK-WIRE-01 | Host F1 SDL key dispatched into `Emulator::on_hotkey_f1_hard_reset()` injector (G152) (GH #196 phase 1.4: prior cell cited jnext's own `emulator.h:328-329`, which is the unrelated `VideoRecorder` accessor — invalid per GH #150 and stale besides; re-cited to the real downstream-effect VHDL. This exact wiring is already proven LIVE by `HK-09` in `test/nmi/nmi_test.cpp` (F1 -> hotkey_hard_reset -> nr_02_hard_reset, no config_mode gate); no `check()` row exists under the literal ID `HK-WIRE-01`) | zxnext.vhd:6340,6371 |
+| HK-WIRE-02 | Host F4 SDL key dispatched into `Emulator::on_hotkey_f4_soft_reset()` injector (G152) (GH #196 phase 1.4: prior cell cited jnext's own `emulator.h:328-329` — same invalid/stale citation as HK-WIRE-01; re-cited. Already proven LIVE by `HK-08` in `test/nmi/nmi_test.cpp` (F4 -> hotkey_soft_reset -> nr_02_soft_reset, config_mode-gated); no `check()` row exists under the literal ID `HK-WIRE-02`) | zxnext.vhd:6343,6370 |
+| HK-WIRE-03 | Host F9 SDL key dispatched into NMI source `nmi_assert_mf` injector (G152) (GH #196 phase 1.4: prior cell cited jnext's own `nmi_source.cpp` — invalid per GH #150; re-cited to the real downstream-effect VHDL. Already proven LIVE by `HK-06` in `test/nmi/nmi_test.cpp` (F9 -> hotkey_m1 -> nmi_assert_mf -> nmi_mf latch); no `check()` row exists under the literal ID `HK-WIRE-03`) | zxnext.vhd:6348,2090,2108 |
+| HK-WIRE-04 | Host F10 SDL key dispatched into NMI source `nmi_assert_divmmc` injector (G152), gated by `port_divmmc_io_en` (G152) (GH #196 phase 1.4: prior cell cited jnext's own `divmmc.cpp` — invalid per GH #150; re-cited to the real downstream-effect VHDL. Already proven LIVE by `HK-07`/`HK-07b` in `test/nmi/nmi_test.cpp` (F10 -> hotkey_drive -> nmi_assert_divmmc -> nmi_divmmc latch); no `check()` row exists under the literal ID `HK-WIRE-04`) | zxnext.vhd:6349,2091,2110 |
+| FE-04A | NR 0x08 b0=1 (issue-2), keyboard EAR/MIC composition with port_fe_ear (G44) (GH #196 phase 1.4: prior cell cited jnext's own `keyboard.cpp` — invalid per GH #150, and also factually wrong: `Keyboard::read_rows()` does NOT compose bits 7/5/6 itself, per its own doc-comment at `keyboard.h:60-66` ("the caller composes them"). This row is a stale duplicate — it cannot be tested at the Keyboard-class level at all; the real planned test is the companion-table `FE-04A` row below in `test/input/input_integration_test.cpp`, retired WONT 2026-04-28. Re-cited to the same real citation for consistency; no `check()` row exists under the literal ID `FE-04A` in this file) | symmetric_relaxation.vhd:89-93,zxnext_top_issue2.vhd:662 |
+| FE-04A | Issue-2 EAR/MIC analogue relaxation (G44, retired WONT 2026-04-28) | symmetric_relaxation.vhd:89-93,zxnext_top_issue2.vhd:662 |

@@ -621,3 +621,19 @@ bash test/regression.sh
 | 16. Unqualified Int | 5 | Bypass enable, NextREG 0x20 |
 | 17. Joystick IO Mode | 2 | CTC ch3 ZC/TO toggle |
 | **Total** | **~163** | |
+
+## Planned rows carried over from the traceability matrix (GH #196)
+
+These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a
+generated artifact and can no longer hold a claim of its own. They are
+planned and NOT implemented, so they are recorded here — the one place the
+generator reads planned rows from — and the matrix emits them as `missing`,
+which is what they are.
+
+| ID | Description | VHDL file:line |
+|----|-------------|----------------|
+| IM2-G89-01 | LDIRX samples INT/NMI between iterations | — |
+| IM2-G89-02 | LDDRX samples INT/NMI between iterations | — |
+| IM2-G89-03 | LDPIRX samples INT/NMI between iterations | — |
+| IM2-G89-04 | LDIRSCALE samples INT/NMI between iterations | — |
+| IM2-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | — |

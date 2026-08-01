@@ -1134,3 +1134,18 @@ recorded in the header comment of `test/debugger/video_panel_test.cpp`.
 
 Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`),
 with the other panel-vs-compositor parity rows.
+
+## Planned rows carried over from the traceability matrix (GH #196)
+
+These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a
+generated artifact and can no longer hold a claim of its own. They are
+planned and NOT implemented, so they are recorded here — the one place the
+generator reads planned rows from — and the matrix emits them as `missing`,
+which is what they are.
+
+| ID | Description | VHDL file:line |
+|----|-------------|----------------|
+| S13.03 | Pentagon frame length | — |
+| S14.04 | Interrupt disabled | — |
+| S14.05 | Line interrupt fires | — |
+| S14.06 | Line interrupt 0 = last line | — |

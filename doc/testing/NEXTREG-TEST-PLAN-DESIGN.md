@@ -402,3 +402,43 @@ Disposition, one unit of the GH #196 Phase 1.3 plan:
     with no current equivalent — dropped as orphans, not folded (no
     live test exists to fold).
   All 13 dropped; none folded.
+
+## Planned rows carried over from the traceability matrix (GH #196)
+
+These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a
+generated artifact and can no longer hold a claim of its own. They are
+planned and NOT implemented, so they are recorded here — the one place the
+generator reads planned rows from — and the matrix emits them as `missing`,
+which is what they are.
+
+| ID | Description | VHDL file:line |
+|----|-------------|----------------|
+| FT-D8-01 | NR 0xD8 nr_d8_io_trap_fdc_en write/read-back | zxnext.vhd:5639-5640, 6265-6266 |
+| FT-D8-02 | NR 0xD8 enable=1 must allow strobe_iotrap to assert MF | zxnext.vhd:2601-2602, 3835, 3837 |
+| FT-D9-01 | NR 0xD9 nr_d9_iotrap_write captures CPU write byte | zxnext.vhd:3892-3893 |
+| FT-DA-01 | NR 0xDA nr_da_iotrap_cause encoding 01/10/11 | zxnext.vhd:3872-3877 |
+| FT-DA-02 | NR 0xDA cause clears via NR 0x02 b4 write=0 | zxnext.vhd:3879-3880 |
+| G56-CR-05 | NR 0x05 composed-read divergence | zxnext.vhd:5896-5897 |
+| G56-CR-06 | NR 0x06 psg_mode source-of-truth | zxnext.vhd:5899-5900 |
+| G56-CR-09 | NR 0x09 sprite_tie composed-read | zxnext.vhd:5908-5909 |
+| G56-CR-0A | NR 0x0A divmmc_automap_en mirror | zxnext.vhd:5911-5912 |
+| G56-CR-0B | NR 0x0B joystick composed-read | zxnext.vhd:5914-5915 |
+| G56-CR-10 | NR 0x10 SPKEY_BUTTONS/coreid live composed-read (title says "video-timing cvc": mismatch — that is NR 0x11/NR 0x1E-1F, not this arm) | zxnext.vhd:5923-5924 |
+| G56-CR-15 | NR 0x15 layer composed-read | zxnext.vhd:5938-5939 |
+| G56-CR-22 | NR 0x22 bit 7 dynamic pulse_int_n | zxnext.vhd:5991-5992 |
+| G56-CR-23 | NR 0x23 line-int compare ladder (register readback itself is a plain stored-value passthrough; the actual compare is zxula_timing.vhd:577) | zxnext.vhd:5994-5995 |
+| G56-CR-34 | NR 0x34 sprite-attr index live counter | zxnext.vhd:6032-6033 |
+| G56-CR-40 | NR 0x40 palette idx autoinc state | zxnext.vhd:6035-6036 |
+| G56-CR-43 | NR 0x43 palette ctrl composed-read | zxnext.vhd:6044-6045 |
+| G56-CR-4C | NR 0x4C bits 7:4 mask not propagated | zxnext.vhd:6056-6057 |
+| G56-CR-68 | NR 0x68 b4 from port_ff3b_ulap_en | zxnext.vhd:6092-6093 |
+| G56-CR-69 | NR 0x69 bits composed from port_ff | zxnext.vhd:6095-6096 |
+| G56-CR-6A | NR 0x6A radastan/lores composed | zxnext.vhd:6098-6099 |
+| G56-CR-6B | NR 0x6B b7 from nr_6b_tm_en | zxnext.vhd:6101-6102 |
+| G56-CR-6C | NR 0x6C tilemap composed-read | zxnext.vhd:6104-6105 |
+| G56-CR-6E | NR 0x6E bit 6 always 0 | zxnext.vhd:6107-6108 |
+| G56-CR-6F | NR 0x6F bit 6 always 0 | zxnext.vhd:6110-6111 |
+| G56-CR-70 | NR 0x70 bits 7:6 always 0 | zxnext.vhd:6113-6114 |
+| G56-CR-71 | NR 0x71 bits 7:1 always 0 | zxnext.vhd:6116-6117 |
+| G56-CR-80 | NR 0x80 expansion-bus dynamic state | zxnext.vhd:6122-6123 |
+| G56-CR-81 | NR 0x81 b7 from i_BUS_ROMCS_n | zxnext.vhd:6125-6126 |
