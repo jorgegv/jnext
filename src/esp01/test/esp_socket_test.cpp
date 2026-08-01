@@ -131,15 +131,19 @@ static std::vector<LogLine> capture_log(LogLevel level, const std::function<void
 
 static const char* reason_name(DenyReason r) { return deny_reason_text(r); }
 
-static void expect_verdict(const char* id, const IpAddress& ip, DenyReason want,
-                           const AddressPolicy& policy) {
+// `desc` is a literal so a source reader — and the traceability matrix, which
+// derives a row's description from its own assertion — can see what each row
+// claims. The runtime verdict is still appended, so a FAIL still prints what
+// was actually classified rather than only what was expected. (GH #196 phase 2)
+static void expect_verdict(const char* id, const char* desc, const IpAddress& ip,
+                           DenyReason want, const AddressPolicy& policy) {
     const DenyReason got = classify_address(ip, policy);
-    check(id, to_string(ip) + " → " + reason_name(want) + " (got " + reason_name(got) + ")",
-          got == want);
+    check(id, std::string(desc) + " (got " + reason_name(got) + ")", got == want);
 }
 
-static void expect_default(const char* id, const IpAddress& ip, DenyReason want) {
-    expect_verdict(id, ip, want, AddressPolicy{});
+static void expect_default(const char* id, const char* desc, const IpAddress& ip,
+                           DenyReason want) {
+    expect_verdict(id, desc, ip, want, AddressPolicy{});
 }
 
 static IpAddress v6(std::uint16_t a, std::uint16_t b, std::uint16_t c, std::uint16_t d,
@@ -388,94 +392,139 @@ int main() {
     fake_dns::main_thread_id = std::this_thread::get_id();
 
     // ═══ POL-LB — loopback, both boundaries, and the mapped bypass ═════════
-    expect_default("POL-LB-01", ipv4(127, 0, 0, 1),       DenyReason::Loopback);
-    expect_default("POL-LB-02", ipv4(127, 0, 0, 0),       DenyReason::Loopback);
-    expect_default("POL-LB-03", ipv4(127, 255, 255, 255), DenyReason::Loopback);
-    expect_default("POL-LB-04", ipv4(126, 255, 255, 255), DenyReason::None);
-    expect_default("POL-LB-05", ipv4(128, 0, 0, 0),       DenyReason::None);
-    expect_default("POL-LB-06", v6(0, 0, 0, 0, 0, 0, 0, 1), DenyReason::Loopback);
+    expect_default("POL-LB-01", "127.0.0.1 → Loopback",
+                   ipv4(127, 0, 0, 1), DenyReason::Loopback);
+    expect_default("POL-LB-02", "127.0.0.0 → Loopback",
+                   ipv4(127, 0, 0, 0), DenyReason::Loopback);
+    expect_default("POL-LB-03", "127.255.255.255 → Loopback",
+                   ipv4(127, 255, 255, 255), DenyReason::Loopback);
+    expect_default("POL-LB-04", "126.255.255.255 → None",
+                   ipv4(126, 255, 255, 255), DenyReason::None);
+    expect_default("POL-LB-05", "128.0.0.0 → None",
+                   ipv4(128, 0, 0, 0), DenyReason::None);
+    expect_default("POL-LB-06", "0:0:0:0:0:0:0:1 → Loopback",
+                   v6(0, 0, 0, 0, 0, 0, 0, 1), DenyReason::Loopback);
     // ::2 is NOT loopback and must not be swept up by it.
-    expect_default("POL-LB-07", v6(0, 0, 0, 0, 0, 0, 0, 2), DenyReason::None);
+    expect_default("POL-LB-07", "0:0:0:0:0:0:0:2 → None",
+                   v6(0, 0, 0, 0, 0, 0, 0, 2), DenyReason::None);
     // The one-line bypass: an IPv4-mapped loopback must still be denied.
-    expect_default("POL-LB-08", v4mapped(127, 0, 0, 1),   DenyReason::Loopback);
+    expect_default("POL-LB-08", "v4mapped(127, 0, 0, 1) → Loopback",
+                   v4mapped(127, 0, 0, 1), DenyReason::Loopback);
     // And the override the socket rows below depend on actually overrides.
-    expect_verdict("POL-LB-09", ipv4(127, 0, 0, 1), DenyReason::None, loopback_ok());
-    expect_verdict("POL-LB-10", v6(0, 0, 0, 0, 0, 0, 0, 1), DenyReason::None, loopback_ok());
+    expect_verdict("POL-LB-09", "127.0.0.1 → None under loopback_ok",
+                   ipv4(127, 0, 0, 1), DenyReason::None, loopback_ok());
+    expect_verdict("POL-LB-10", "0:0:0:0:0:0:0:1 → None under loopback_ok",
+                   v6(0, 0, 0, 0, 0, 0, 0, 1), DenyReason::None, loopback_ok());
 
     // ═══ POL-LL — link-local, both boundaries, v4 and v6 ═══════════════════
-    expect_default("POL-LL-01", ipv4(169, 254, 0, 0),     DenyReason::LinkLocal);
-    expect_default("POL-LL-02", ipv4(169, 254, 255, 255), DenyReason::LinkLocal);
-    expect_default("POL-LL-03", ipv4(169, 253, 255, 255), DenyReason::None);
-    expect_default("POL-LL-04", ipv4(169, 255, 0, 0),     DenyReason::None);
-    expect_default("POL-LL-05", v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), DenyReason::LinkLocal);
-    expect_default("POL-LL-06", v6(0xfebf, 0xffff, 0xffff, 0xffff,
-                                   0xffff, 0xffff, 0xffff, 0xffff), DenyReason::LinkLocal);
+    expect_default("POL-LL-01", "169.254.0.0 → LinkLocal",
+                   ipv4(169, 254, 0, 0), DenyReason::LinkLocal);
+    expect_default("POL-LL-02", "169.254.255.255 → LinkLocal",
+                   ipv4(169, 254, 255, 255), DenyReason::LinkLocal);
+    expect_default("POL-LL-03", "169.253.255.255 → None",
+                   ipv4(169, 253, 255, 255), DenyReason::None);
+    expect_default("POL-LL-04", "169.255.0.0 → None",
+                   ipv4(169, 255, 0, 0), DenyReason::None);
+    expect_default("POL-LL-05", "0xfe80:0:0:0:0:0:0:1 → LinkLocal",
+                   v6(0xfe80, 0, 0, 0, 0, 0, 0, 1), DenyReason::LinkLocal);
+    expect_default("POL-LL-06", "0xfebf:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff → LinkLocal",
+                   v6(0xfebf, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff, 0xffff), DenyReason::LinkLocal);
     // fe7f:: is just below fe80::/10 and fec0:: just above it.
-    expect_default("POL-LL-07", v6(0xfe7f, 0, 0, 0, 0, 0, 0, 1), DenyReason::None);
-    expect_default("POL-LL-08", v6(0xfec0, 0, 0, 0, 0, 0, 0, 1), DenyReason::None);
+    expect_default("POL-LL-07", "0xfe7f:0:0:0:0:0:0:1 → None",
+                   v6(0xfe7f, 0, 0, 0, 0, 0, 0, 1), DenyReason::None);
+    expect_default("POL-LL-08", "0xfec0:0:0:0:0:0:0:1 → None",
+                   v6(0xfec0, 0, 0, 0, 0, 0, 0, 1), DenyReason::None);
 
     // ═══ POL-MD — cloud metadata ═══════════════════════════════════════════
     // Reported as CloudMetadata, not the vaguer LinkLocal it also matches.
-    expect_default("POL-MD-01", ipv4(169, 254, 169, 254), DenyReason::CloudMetadata);
+    expect_default("POL-MD-01", "169.254.169.254 → CloudMetadata",
+                   ipv4(169, 254, 169, 254), DenyReason::CloudMetadata);
     // Alibaba's endpoint lives inside CGNAT, which is an ALLOWED private range,
     // so it only stays denied because metadata is its own rule.
-    expect_default("POL-MD-02", ipv4(100, 100, 100, 200), DenyReason::CloudMetadata);
-    expect_default("POL-MD-03", ipv4(100, 100, 100, 199), DenyReason::None);
+    expect_default("POL-MD-02", "100.100.100.200 → CloudMetadata",
+                   ipv4(100, 100, 100, 200), DenyReason::CloudMetadata);
+    expect_default("POL-MD-03", "100.100.100.199 → None",
+                   ipv4(100, 100, 100, 199), DenyReason::None);
     // AWS IMDS over IPv6 — inside fc00::/7 ULA, likewise allowed as private.
-    expect_default("POL-MD-04", v6(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254),
-                   DenyReason::CloudMetadata);
-    expect_default("POL-MD-05", v6(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0253),
-                   DenyReason::None);
-    expect_default("POL-MD-06", v4mapped(169, 254, 169, 254), DenyReason::CloudMetadata);
+    expect_default("POL-MD-04", "0xfd00:0x0ec2:0:0:0:0:0:0x0254 → CloudMetadata",
+                   v6(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0254), DenyReason::CloudMetadata);
+    expect_default("POL-MD-05", "0xfd00:0x0ec2:0:0:0:0:0:0x0253 → None",
+                   v6(0xfd00, 0x0ec2, 0, 0, 0, 0, 0, 0x0253), DenyReason::None);
+    expect_default("POL-MD-06", "v4mapped(169, 254, 169, 254) → CloudMetadata",
+                   v4mapped(169, 254, 169, 254), DenyReason::CloudMetadata);
     {
         // Turning the metadata rule OFF must FALL THROUGH to link-local rather
         // than returning "allowed" — the rule-order property the code relies on.
         AddressPolicy p;
         p.deny_cloud_metadata = false;
-        expect_verdict("POL-MD-07", ipv4(169, 254, 169, 254), DenyReason::LinkLocal, p);
+        expect_verdict("POL-MD-07", "169.254.169.254 → LinkLocal with deny_cloud_metadata off",
+                       ipv4(169, 254, 169, 254), DenyReason::LinkLocal, p);
         // ...and with BOTH off, it really is allowed (proves nothing else denies it).
         p.deny_link_local = false;
-        expect_verdict("POL-MD-08", ipv4(169, 254, 169, 254), DenyReason::None, p);
+        expect_verdict("POL-MD-08", "169.254.169.254 → None with deny_cloud_metadata off, deny_link_local off",
+                       ipv4(169, 254, 169, 254), DenyReason::None, p);
     }
 
     // ═══ POL-PRIV — RFC1918 is ALLOWED (owner decision, GH #25 2026-07-28) ═
-    expect_default("POL-PRIV-01", ipv4(10, 0, 0, 1),         DenyReason::None);
-    expect_default("POL-PRIV-02", ipv4(10, 255, 255, 255),   DenyReason::None);
-    expect_default("POL-PRIV-03", ipv4(172, 16, 0, 1),       DenyReason::None);
-    expect_default("POL-PRIV-04", ipv4(172, 31, 255, 255),   DenyReason::None);
-    expect_default("POL-PRIV-05", ipv4(192, 168, 1, 1),      DenyReason::None);
-    expect_default("POL-PRIV-06", ipv4(100, 64, 0, 1),       DenyReason::None);
-    expect_default("POL-PRIV-07", v6(0xfd12, 0x3456, 0, 0, 0, 0, 0, 1), DenyReason::None);
+    expect_default("POL-PRIV-01", "10.0.0.1 → None",
+                   ipv4(10, 0, 0, 1), DenyReason::None);
+    expect_default("POL-PRIV-02", "10.255.255.255 → None",
+                   ipv4(10, 255, 255, 255), DenyReason::None);
+    expect_default("POL-PRIV-03", "172.16.0.1 → None",
+                   ipv4(172, 16, 0, 1), DenyReason::None);
+    expect_default("POL-PRIV-04", "172.31.255.255 → None",
+                   ipv4(172, 31, 255, 255), DenyReason::None);
+    expect_default("POL-PRIV-05", "192.168.1.1 → None",
+                   ipv4(192, 168, 1, 1), DenyReason::None);
+    expect_default("POL-PRIV-06", "100.64.0.1 → None",
+                   ipv4(100, 64, 0, 1), DenyReason::None);
+    expect_default("POL-PRIV-07", "0xfd12:0x3456:0:0:0:0:0:1 → None",
+                   v6(0xfd12, 0x3456, 0, 0, 0, 0, 0, 1), DenyReason::None);
     {
         // The flag exists and works — including both 172.16/12 boundaries.
         AddressPolicy p;
         p.deny_private = true;
-        expect_verdict("POL-PRIV-08", ipv4(10, 0, 0, 1),   DenyReason::Private, p);
-        expect_verdict("POL-PRIV-09", ipv4(192, 168, 1, 1), DenyReason::Private, p);
-        expect_verdict("POL-PRIV-10", ipv4(172, 16, 0, 0),  DenyReason::Private, p);
-        expect_verdict("POL-PRIV-11", ipv4(172, 15, 255, 255), DenyReason::None, p);
-        expect_verdict("POL-PRIV-12", ipv4(172, 32, 0, 0),  DenyReason::None, p);
-        expect_verdict("POL-PRIV-13", ipv4(100, 64, 0, 1),  DenyReason::Private, p);
-        expect_verdict("POL-PRIV-14", ipv4(100, 63, 255, 255), DenyReason::None, p);
-        expect_verdict("POL-PRIV-15", v6(0xfd12, 0, 0, 0, 0, 0, 0, 1),
-                       DenyReason::Private, p);
-        expect_verdict("POL-PRIV-16", v6(0xfc00, 0, 0, 0, 0, 0, 0, 1),
-                       DenyReason::Private, p);
-        expect_verdict("POL-PRIV-17", v6(0xfe00, 0, 0, 0, 0, 0, 0, 1),
-                       DenyReason::None, p);
+        expect_verdict("POL-PRIV-08", "10.0.0.1 → Private with deny_private on",
+                       ipv4(10, 0, 0, 1), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-09", "192.168.1.1 → Private with deny_private on",
+                       ipv4(192, 168, 1, 1), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-10", "172.16.0.0 → Private with deny_private on",
+                       ipv4(172, 16, 0, 0), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-11", "172.15.255.255 → None with deny_private on",
+                       ipv4(172, 15, 255, 255), DenyReason::None, p);
+        expect_verdict("POL-PRIV-12", "172.32.0.0 → None with deny_private on",
+                       ipv4(172, 32, 0, 0), DenyReason::None, p);
+        expect_verdict("POL-PRIV-13", "100.64.0.1 → Private with deny_private on",
+                       ipv4(100, 64, 0, 1), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-14", "100.63.255.255 → None with deny_private on",
+                       ipv4(100, 63, 255, 255), DenyReason::None, p);
+        expect_verdict("POL-PRIV-15", "0xfd12:0:0:0:0:0:0:1 → Private with deny_private on",
+                       v6(0xfd12, 0, 0, 0, 0, 0, 0, 1), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-16", "0xfc00:0:0:0:0:0:0:1 → Private with deny_private on",
+                       v6(0xfc00, 0, 0, 0, 0, 0, 0, 1), DenyReason::Private, p);
+        expect_verdict("POL-PRIV-17", "0xfe00:0:0:0:0:0:0:1 → None with deny_private on",
+                       v6(0xfe00, 0, 0, 0, 0, 0, 0, 1), DenyReason::None, p);
     }
 
     // ═══ POL-RSV — unspecified, multicast, reserved ════════════════════════
-    expect_default("POL-RSV-01", ipv4(0, 0, 0, 0),           DenyReason::Unspecified);
-    expect_default("POL-RSV-02", ipv4(0, 255, 255, 255),     DenyReason::Unspecified);
-    expect_default("POL-RSV-03", ipv4(1, 0, 0, 0),           DenyReason::None);
-    expect_default("POL-RSV-04", v6(0, 0, 0, 0, 0, 0, 0, 0), DenyReason::Unspecified);
-    expect_default("POL-RSV-05", ipv4(224, 0, 0, 1),         DenyReason::MulticastOrReserved);
-    expect_default("POL-RSV-06", ipv4(223, 255, 255, 255),   DenyReason::None);
-    expect_default("POL-RSV-07", ipv4(240, 0, 0, 0),         DenyReason::MulticastOrReserved);
-    expect_default("POL-RSV-08", ipv4(255, 255, 255, 255),   DenyReason::MulticastOrReserved);
-    expect_default("POL-RSV-09", v6(0xff02, 0, 0, 0, 0, 0, 0, 1),
-                   DenyReason::MulticastOrReserved);
+    expect_default("POL-RSV-01", "0.0.0.0 → Unspecified",
+                   ipv4(0, 0, 0, 0), DenyReason::Unspecified);
+    expect_default("POL-RSV-02", "0.255.255.255 → Unspecified",
+                   ipv4(0, 255, 255, 255), DenyReason::Unspecified);
+    expect_default("POL-RSV-03", "1.0.0.0 → None",
+                   ipv4(1, 0, 0, 0), DenyReason::None);
+    expect_default("POL-RSV-04", "0:0:0:0:0:0:0:0 → Unspecified",
+                   v6(0, 0, 0, 0, 0, 0, 0, 0), DenyReason::Unspecified);
+    expect_default("POL-RSV-05", "224.0.0.1 → MulticastOrReserved",
+                   ipv4(224, 0, 0, 1), DenyReason::MulticastOrReserved);
+    expect_default("POL-RSV-06", "223.255.255.255 → None",
+                   ipv4(223, 255, 255, 255), DenyReason::None);
+    expect_default("POL-RSV-07", "240.0.0.0 → MulticastOrReserved",
+                   ipv4(240, 0, 0, 0), DenyReason::MulticastOrReserved);
+    expect_default("POL-RSV-08", "255.255.255.255 → MulticastOrReserved",
+                   ipv4(255, 255, 255, 255), DenyReason::MulticastOrReserved);
+    expect_default("POL-RSV-09", "0xff02:0:0:0:0:0:0:1 → MulticastOrReserved",
+                   v6(0xff02, 0, 0, 0, 0, 0, 0, 1), DenyReason::MulticastOrReserved);
 
     // ═══ NORM — IPv4-in-IPv6 normalization ═════════════════════════════════
     check("NORM-01", "::ffff:1.2.3.4 unwraps to 1.2.3.4",
@@ -488,7 +537,8 @@ int main() {
               normalize(ipv6(nat64)) == ipv4(1, 2, 3, 4));
         // ...and the NAT64 route to loopback is therefore closed too.
         nat64[12] = 127; nat64[13] = 0; nat64[14] = 0; nat64[15] = 1;
-        expect_default("NORM-03", ipv6(nat64), DenyReason::Loopback);
+        expect_default("NORM-03", "ipv6(nat64) → Loopback",
+                       ipv6(nat64), DenyReason::Loopback);
     }
     {
         std::array<std::uint8_t, 16> compat{};
@@ -512,37 +562,40 @@ int main() {
     // A 6to4 address is not an alias for its endpoint (normalize() leaves it
     // alone) but packets for it are physically delivered there, so the policy
     // has to judge the endpoint too or 2002:7f00:1::1 launders 127.0.0.1.
-    expect_default("POL-TUN-01", sixtofour(127, 0, 0, 1),       DenyReason::Loopback);
-    expect_default("POL-TUN-02", sixtofour(169, 254, 169, 254), DenyReason::CloudMetadata);
-    expect_default("POL-TUN-03", sixtofour(169, 254, 0, 1),     DenyReason::LinkLocal);
-    expect_default("POL-TUN-04", sixtofour(93, 184, 216, 34),   DenyReason::None);
+    expect_default("POL-TUN-01", "sixtofour(127, 0, 0, 1) → Loopback",
+                   sixtofour(127, 0, 0, 1), DenyReason::Loopback);
+    expect_default("POL-TUN-02", "sixtofour(169, 254, 169, 254) → CloudMetadata",
+                   sixtofour(169, 254, 169, 254), DenyReason::CloudMetadata);
+    expect_default("POL-TUN-03", "sixtofour(169, 254, 0, 1) → LinkLocal",
+                   sixtofour(169, 254, 0, 1), DenyReason::LinkLocal);
+    expect_default("POL-TUN-04", "sixtofour(93, 184, 216, 34) → None",
+                   sixtofour(93, 184, 216, 34), DenyReason::None);
     // The endpoint is judged by the FULL policy, not a loopback-only check:
     // an RFC1918 endpoint is allowed by default and denied when the private
     // rule is switched on, exactly as the bare address would be.
-    expect_default("POL-TUN-05", sixtofour(10, 0, 0, 1),        DenyReason::None);
+    expect_default("POL-TUN-05", "sixtofour(10, 0, 0, 1) → None",
+                   sixtofour(10, 0, 0, 1), DenyReason::None);
     {
         AddressPolicy p;
         p.deny_private = true;
-        expect_verdict("POL-TUN-06", sixtofour(10, 0, 0, 1), DenyReason::Private, p);
+        expect_verdict("POL-TUN-06", "sixtofour(10, 0, 0, 1) → Private with deny_private on",
+                       sixtofour(10, 0, 0, 1), DenyReason::Private, p);
     }
     // Teredo (2001:0::/32) is deliberately NOT unwrapped: its embedded IPv4
     // fields are a public relay server and an obfuscated NATted client, so
     // neither can name a host on this machine. Even a Teredo address whose
     // SERVER field spells 127.0.0.1 stays allowed — pinning the exclusion so
     // it cannot be "fixed" silently.
-    expect_default("POL-TUN-07",
-                   v6(0x2001, 0x0000, 0x7f00, 0x0001, 0, 0, 0x80ff, 0xfffe),
-                   DenyReason::None);
+    expect_default("POL-TUN-07", "0x2001:0x0000:0x7f00:0x0001:0:0:0x80ff:0xfffe → None",
+                   v6(0x2001, 0x0000, 0x7f00, 0x0001, 0, 0, 0x80ff, 0xfffe), DenyReason::None);
     // ISATAP is an interface-IDENTIFIER pattern, not a prefix: a rule keyed on
     // it would deny ordinary global addresses whose low 64 bits coincide. So
     // ::0:5efe:7f00:1 under a global prefix stays allowed...
-    expect_default("POL-TUN-08",
-                   v6(0x2001, 0x0db8, 0, 0, 0, 0x5efe, 0x7f00, 0x0001),
-                   DenyReason::None);
+    expect_default("POL-TUN-08", "0x2001:0x0db8:0:0:0:0x5efe:0x7f00:0x0001 → None",
+                   v6(0x2001, 0x0db8, 0, 0, 0, 0x5efe, 0x7f00, 0x0001), DenyReason::None);
     // ...while the place ISATAP actually lives is already denied outright.
-    expect_default("POL-TUN-09",
-                   v6(0xfe80, 0, 0, 0, 0, 0x5efe, 0x7f00, 0x0001),
-                   DenyReason::LinkLocal);
+    expect_default("POL-TUN-09", "0xfe80:0:0:0:0:0x5efe:0x7f00:0x0001 → LinkLocal",
+                   v6(0xfe80, 0, 0, 0, 0, 0x5efe, 0x7f00, 0x0001), DenyReason::LinkLocal);
     check("POL-TUN-10", "normalize() leaves a 6to4 address as IPv6",
           normalize(sixtofour(93, 184, 216, 34)) == sixtofour(93, 184, 216, 34));
     {
