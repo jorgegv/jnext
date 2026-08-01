@@ -21,7 +21,7 @@
 //     (2026-04-24) also RTC-06/07/08/09/10 and I2C-P06 which had been
 //     mistakenly attributed to a separate BCD / register-pointer fault.
 //   * uart.cpp:299 select-register read bit 6 vs bit 3 — FIXED in commit
-//     47ee7e2 (Task 2 item 22). Unblocked UART-SEL-02, UART-SEL-05, DUAL-02.
+//     47ee7e2 (Task 2 item 22). Unblocked UART-SEL-02, SEL-05, DUAL-02.
 //
 // Task 3 UART+I2C SKIP-reduction plan at
 // doc/design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md tracks the remaining
@@ -265,20 +265,20 @@ static void test_group1_select() {
               fmt("got=0x%02x", sel));
     }
 
-    // UART-SEL-05 - uart.vhd:284-286 d(4)=1 & d(6)=1 -> uart1_prescalar_msb = d(2:0);
+    // SEL-05 - uart.vhd:284-286 d(4)=1 & d(6)=1 -> uart1_prescalar_msb = d(2:0);
     //          uart.vhd:371 UART 1 read = "01000" & msb = 0x0D when msb=5
     //          (KNOWN EMULATOR BUG uart.cpp:299)
     {
         uart.hard_reset();
         uart.write(REG_SELECT, 0x55);
         uint8_t sel = uart.read(REG_SELECT);
-        check("UART-SEL-05",
+        check("SEL-05",
               "uart.vhd:284-286,371 - UART 1 msb=5 select read = 0x0D",
               sel == 0x0D,
               fmt("got=0x%02x (VHDL expects 0x0D)", sel));
     }
 
-    // UART-SEL-06 - uart.vhd:273-278 i_reset_hard clears uart0/1_prescalar_msb_r;
+    // SEL-06 - uart.vhd:273-278 i_reset_hard clears uart0/1_prescalar_msb_r;
     //          uart.vhd:355 select read therefore = 0x00
     {
         uart.hard_reset();
@@ -289,13 +289,13 @@ static void test_group1_select() {
         uint8_t msb0 = uart.read(REG_SELECT) & 0x07;
         uart.write(REG_SELECT, 0x40);     // select UART 1
         uint8_t msb1 = uart.read(REG_SELECT) & 0x07;
-        check("UART-SEL-06",
+        check("SEL-06",
               "uart.vhd:273-278 - hard reset clears both UART prescaler MSBs",
               msb0 == 0 && msb1 == 0,
               fmt("uart0_msb=%u uart1_msb=%u", msb0, msb1));
     }
 
-    // UART-SEL-07 - uart.vhd:273-274 i_reset clears uart_select_r to 0 but the
+    // SEL-07 - uart.vhd:273-274 i_reset clears uart_select_r to 0 but the
     //          inner `if i_reset_hard` guard leaves prescaler MSBs intact
     //          on a soft reset.
     {
@@ -304,7 +304,7 @@ static void test_group1_select() {
         uart.reset();                     // soft reset
         uart.write(REG_SELECT, 0x40);     // select UART 1 to read its msb
         uint8_t msb1 = uart.read(REG_SELECT) & 0x07;
-        check("UART-SEL-07",
+        check("SEL-07",
               "uart.vhd:273-278 - soft reset preserves prescaler MSB",
               msb1 == 0x05,
               fmt("uart1_msb=%u expected=5", msb1));

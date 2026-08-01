@@ -72,7 +72,7 @@ plan executed:
 - **`src/peripheral/uart.cpp:299` select-register bit** — FIXED in commit
   `47ee7e2` (`fix(uart): select-register read returns bit 3 (0x08) not bit
   6 (0x40)`). VHDL `uart.vhd:371` emits `"01000" & msb` when UART 1 is
-  selected — the emulator now matches. Unblocked 3 rows: UART-SEL-02, UART-SEL-05,
+  selected — the emulator now matches. Unblocked 3 rows: UART-SEL-02, SEL-05,
   DUAL-02.
 
 ## VHDL Source Files
@@ -229,9 +229,9 @@ Write values are latched on the **rising edge** of i_CLK_28.
 | UART-SEL-02 | Write 0x40 to select, read back | Returns 0x08 + prescaler MSB (bit 6 reflects UART 1 selected; read shows bit 3 set for UART 1) |
 | UART-SEL-03 | Write 0x00 to select, read back | Returns 0x00 (UART 0 re-selected) |
 | UART-SEL-04 | Write 0x15 (bit4=1, bits2:0=101), read back with UART 0 | Returns 0x05 (prescaler MSB = 5) |
-| UART-SEL-05 | Write 0x55 (bit6=1, bit4=1, bits2:0=101), read back with UART 1 | Returns 0x0D (bit 3 for UART1, prescaler MSB = 5) |
-| UART-SEL-06 | Hard reset clears prescaler MSB to 0 | After hard reset, read returns 0x00 |
-| UART-SEL-07 | Soft reset clears uart_select_r to 0 but preserves prescaler MSB | Prescaler MSB retained, select = 0 |
+| SEL-05 | Write 0x55 (bit6=1, bit4=1, bits2:0=101), read back with UART 1 | Returns 0x0D (bit 3 for UART1, prescaler MSB = 5) |
+| SEL-06 | Hard reset clears prescaler MSB to 0 | After hard reset, read returns 0x00 |
+| SEL-07 | Soft reset clears uart_select_r to 0 but preserves prescaler MSB | Prescaler MSB retained, select = 0 |
 
 ### Group 2: Frame Register (port 0x163B)
 
