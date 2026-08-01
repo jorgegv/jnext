@@ -245,9 +245,9 @@ dispatcher.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
-| GATE-01 | NR 0x06 bit 3 decode sets `set_mf_enable` | zxnext.vhd:1110 | write NR 0x06; observe NmiSource MF-enable accessor |
-| GATE-02 | NR 0x06 bit 4 decode sets `set_divmmc_enable` | zxnext.vhd:1109 | write NR 0x06; observe DivMMC-enable accessor |
-| GATE-03 | NR 0x81 bit 5 decode sets `set_expbus_debounce_disable` | zxnext.vhd:1222 | write NR 0x81; observe ExpBus-debounce accessor |
+| NMI-GATE-01 | NR 0x06 bit 3 decode sets `set_mf_enable` | zxnext.vhd:1110 | write NR 0x06; observe NmiSource MF-enable accessor |
+| NMI-GATE-02 | NR 0x06 bit 4 decode sets `set_divmmc_enable` | zxnext.vhd:1109 | write NR 0x06; observe DivMMC-enable accessor |
+| NMI-GATE-03 | NR 0x81 bit 5 decode sets `set_expbus_debounce_disable` | zxnext.vhd:1222 | write NR 0x81; observe ExpBus-debounce accessor |
 | GATE-04 | port 0xE3 bit 7 (CONMEM) blocks MF assertion | divmmc.vhd, zxnext.vhd:2107 | set DivMmc CONMEM; strobe MF button; expect no FSM advance |
 | GATE-05 | `nr_03_config_mode = 1` force-clears all three latches | zxnext.vhd:2102-2105 | set MF + DivMMC + ExpBus; raise config_mode; expect all cleared |
 | GATE-06 | `nr_03_config_mode = 1` holds latches clear (set attempts ignored) | zxnext.vhd:2102-2105 | hold config_mode; strobe producers; expect no latch set |
@@ -292,9 +292,9 @@ dispatcher.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
-| DMA-01 | `is_activated()` = true while any latch set | zxnext.vhd:2007 | strobe producer; FSM in FETCH; expect `is_activated() = 1` |
-| DMA-02 | `im2_dma_delay` latches on `is_activated() AND nr_cc_dma_int_en_0_7` | zxnext.vhd:2007 | NR 0xCC bit 7 = 1; strobe NMI; expect `dma_delay` asserts |
-| DMA-03 | NR 0xCC bit 7 = 0 blocks the NMI-activated contribution | zxnext.vhd:2007 | NR 0xCC bit 7 = 0; strobe NMI; expect `dma_delay` unchanged by NMI |
+| NMI-DMA-01 | `is_activated()` = true while any latch set | zxnext.vhd:2007 | strobe producer; FSM in FETCH; expect `is_activated() = 1` |
+| NMI-DMA-02 | `im2_dma_delay` latches on `is_activated() AND nr_cc_dma_int_en_0_7` | zxnext.vhd:2007 | NR 0xCC bit 7 = 1; strobe NMI; expect `dma_delay` asserts |
+| NMI-DMA-03 | NR 0xCC bit 7 = 0 blocks the NMI-activated contribution | zxnext.vhd:2007 | NR 0xCC bit 7 = 0; strobe NMI; expect `dma_delay` unchanged by NMI |
 
 ### Group Z80 — Z80 drive + integration (Wave A/B) (4 rows)
 

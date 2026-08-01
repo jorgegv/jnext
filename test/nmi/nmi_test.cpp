@@ -1484,9 +1484,9 @@ static void g_divmmc_clears()
 // unlocks from Waves A/B and the DEFS/NR02 rows.
 //
 // ID mapping to the prompt scope (this wave's authoritative spec):
-//   GATE-01: NR 0x06 bit 3 → mf_enable           (VHDL zxnext.vhd:1110)
-//   GATE-02: NR 0x06 bit 4 → divmmc_enable       (VHDL zxnext.vhd:1109)
-//   GATE-03: NR 0x81 bit 5 → expbus_debounce_dis (VHDL zxnext.vhd:1222)
+//   NMI-GATE-01: NR 0x06 bit 3 → mf_enable           (VHDL zxnext.vhd:1110)
+//   NMI-GATE-02: NR 0x06 bit 4 → divmmc_enable       (VHDL zxnext.vhd:1109)
+//   NMI-GATE-03: NR 0x81 bit 5 → expbus_debounce_dis (VHDL zxnext.vhd:1222)
 //   GATE-04: CONMEM=1 blocks MF latch            (VHDL zxnext.vhd:2107)
 //   GATE-05: mf_is_active=1 blocks DivMMC latch  (VHDL zxnext.vhd:2099)
 //   GATE-06: config_mode=1 force-clears latches  (VHDL zxnext.vhd:2102-2105)
@@ -1498,7 +1498,7 @@ static void g_gate_registers()
 {
     set_group("GATE");
 
-    // GATE-01 — NR 0x06 bit 3 decode sets mf_enable()
+    // NMI-GATE-01 — NR 0x06 bit 3 decode sets mf_enable()
     //   VHDL zxnext.vhd:1110 — nr_06_button_m1_nmi_en <= nr_wr_dat(3).
     //   NmiSource::set_mf_enable() is the NR-0x06-bit-3 entry point; the
     //   actual NR 0x06 dispatch is covered end-to-end by the integration
@@ -1512,13 +1512,13 @@ static void g_gate_registers()
         const bool set_true  = nmi.mf_enable() == true;
         nmi.set_mf_enable(false);
         const bool set_false = nmi.mf_enable() == false;
-        check("GATE-01",
+        check("NMI-GATE-01",
               "NR 0x06 bit 3 decode sets NmiSource::mf_enable()",
               set_true && set_false,
               "zxnext.vhd:1110 nr_06_button_m1_nmi_en");
     }
 
-    // GATE-02 — NR 0x06 bit 4 decode sets divmmc_enable()
+    // NMI-GATE-02 — NR 0x06 bit 4 decode sets divmmc_enable()
     //   VHDL zxnext.vhd:1109 — nr_06_button_drive_nmi_en <= nr_wr_dat(4).
     {
         NmiSource nmi;
@@ -1527,13 +1527,13 @@ static void g_gate_registers()
         const bool set_true  = nmi.divmmc_enable() == true;
         nmi.set_divmmc_enable(false);
         const bool set_false = nmi.divmmc_enable() == false;
-        check("GATE-02",
+        check("NMI-GATE-02",
               "NR 0x06 bit 4 decode sets NmiSource::divmmc_enable()",
               set_true && set_false,
               "zxnext.vhd:1109 nr_06_button_drive_nmi_en");
     }
 
-    // GATE-03 — NR 0x81 bit 5 decode sets expbus_debounce_disable()
+    // NMI-GATE-03 — NR 0x81 bit 5 decode sets expbus_debounce_disable()
     //   VHDL zxnext.vhd:1222 — nr_81_expbus_nmi_debounce_disable <= nr_wr_dat(5).
     {
         NmiSource nmi;
@@ -1542,7 +1542,7 @@ static void g_gate_registers()
         const bool set_true  = nmi.expbus_debounce_disable() == true;
         nmi.set_expbus_debounce_disable(false);
         const bool set_false = nmi.expbus_debounce_disable() == false;
-        check("GATE-03",
+        check("NMI-GATE-03",
               "NR 0x81 bit 5 decode sets NmiSource::expbus_debounce_disable()",
               set_true && set_false,
               "zxnext.vhd:1222 nr_81_expbus_nmi_debounce_disable");
@@ -1740,7 +1740,7 @@ static void g_dma_group()
 {
     set_group("DMA");
 
-    // DMA-01 — VHDL zxnext.vhd:2107: `nmi_activated = nmi_mf OR nmi_divmmc
+    // NMI-DMA-01 — VHDL zxnext.vhd:2107: `nmi_activated = nmi_mf OR nmi_divmmc
     // OR nmi_expbus`. Drive the ExpBus pin active (i_BUS_NMI_n='0') and
     // tick() NmiSource once; the priority latch `nmi_expbus_` must set and
     // is_activated() must return true. Also verifies the latch survives
@@ -1762,13 +1762,13 @@ static void g_dma_group()
         const bool after_activated = nmi.is_activated();
         const bool fsm_fetch = (nmi.state() == NmiSource::State::Fetch);
 
-        check("DMA-01",
+        check("NMI-DMA-01",
               "is_activated() true while any NMI latch is set",
               !before && after_latch && after_activated && fsm_fetch,
               "zxnext.vhd:2107 nmi_activated = nmi_mf OR nmi_divmmc OR nmi_expbus");
     }
 
-    // DMA-02 — VHDL zxnext.vhd:2007 second OR term:
+    // NMI-DMA-02 — VHDL zxnext.vhd:2007 second OR term:
     //   (nmi_activated AND nr_cc_dma_int_en_0_7).
     // With both inputs asserted to the Im2Controller and no other DMA
     // sources, step_dma_delay() (called from tick()) must latch
@@ -1786,13 +1786,13 @@ static void g_dma_group()
         im2.tick(1);  // step_dma_delay() runs at end of tick()
         const bool after = im2.dma_delay();
 
-        check("DMA-02",
+        check("NMI-DMA-02",
               "im2_dma_delay latches when is_activated() AND nr_cc_dma_int_en_0_7",
               !before && after,
               "zxnext.vhd:2007 second OR term (nmi_activated AND nr_cc_dma_int_en_0_7)");
     }
 
-    // DMA-03 — VHDL zxnext.vhd:2007: NR 0xCC bit 7 = 0 must block the NMI
+    // NMI-DMA-03 — VHDL zxnext.vhd:2007: NR 0xCC bit 7 = 0 must block the NMI
     // contribution even when NMI is activated. No DMA int source → latch
     // stays low. Also verify the complementary: if NMI is NOT activated,
     // with bit 7 = 1, latch also stays low (full AND gate coverage).
@@ -1815,7 +1815,7 @@ static void g_dma_group()
         im2.tick(1);
         const bool case2_blocked = !im2.dma_delay();
 
-        check("DMA-03",
+        check("NMI-DMA-03",
               "NR 0xCC bit 7 = 0 (or nmi_activated=0) blocks NMI-driven DMA delay",
               case1_blocked && case2_blocked,
               "zxnext.vhd:2007 AND gate in second OR term — both inputs required");

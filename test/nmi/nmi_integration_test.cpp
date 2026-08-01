@@ -165,7 +165,7 @@ static NmiStepResult step_until_nmi_taken(Emulator& emu) {
 static void test_int_rows() {
     set_group("INT");
 
-    // INT-01 — DivMMC button press → NmiSource latches DivMMC producer
+    // NMI-INT-01 — DivMMC button press → NmiSource latches DivMMC producer
     // (gate: NR 0x06 bit 4) → FSM IDLE→FETCH → nmi_generate_n falling
     // edge → Emulator calls cpu_.request_nmi() → Z80 takes NMI on the
     // next execute → PC jumps to 0x0066. VHDL chain:
@@ -183,7 +183,7 @@ static void test_int_rows() {
         const uint16_t pc_before = emu.cpu().get_registers().PC;
         const auto r = step_until_nmi_taken(emu);
 
-        check("INT-01",
+        check("NMI-INT-01",
               "DivMMC button → NmiSource FSM → /NMI → Z80 PC=0x0066 "
               "(VHDL zxnext.vhd:2091, :2095-2170, :1841)",
               r.took_nmi && pc_before == 0xC000
@@ -192,7 +192,7 @@ static void test_int_rows() {
                   pc_before, r.final_pc, r.steps, r.took_nmi));
     }
 
-    // INT-02 — At PC=0x0066 M1, DivMmc::button_nmi_ is already latched by
+    // NMI-INT-02 — At PC=0x0066 M1, DivMmc::button_nmi_ is already latched by
     // the arbitration strobe (VHDL:2170 → DivMmc::set_button_nmi(true))
     // fired the same tick the FSM advanced IDLE→FETCH. On the 0x0066
     // fetch, the DivMmc automap instant-on path activates (divmmc.vhd:120
@@ -222,7 +222,7 @@ static void test_int_rows() {
         const bool automap_on = emu.divmmc().automap_active();
         const bool button_nmi = emu.divmmc().button_nmi();
 
-        check("INT-02",
+        check("NMI-INT-02",
               "At PC=0x0066 after NMI + one M1 fetch, DivMmc automap "
               "instant-on fires via button_nmi latch "
               "(VHDL divmmc.vhd:120 / zxnext.vhd:2170)",
@@ -233,7 +233,7 @@ static void test_int_rows() {
                   automap_on));
     }
 
-    // INT-03 — RETN (ED 45) decoded during the NMI handler clears both
+    // NMI-INT-03 — RETN (ED 45) decoded during the NMI handler clears both
     // DivMmc::button_nmi_ and the automap hold chain (divmmc.vhd:108
     // i_retn_seen branch + :126/:139 automap_hold/held clears). Emulator
     // plumbing: Im2Controller::on_m1_cycle decodes the ED 45 sequence and
@@ -259,17 +259,17 @@ static void test_int_rows() {
         emu.divmmc().on_retn_seen();
         const bool btn_after = emu.divmmc().button_nmi();
 
-        check("INT-03",
+        check("NMI-INT-03",
               "RETN (ED 45) clears DivMmc button_nmi_ "
               "(VHDL divmmc.vhd:108 i_retn_seen branch)",
               btn_before && !btn_after,
               fmt("btn_before=%d btn_after=%d", btn_before, btn_after));
     }
 
-    // INT-04 — NR 0x02 software NMI path. Writing NR 0x02 bit 2 via the
+    // NMI-INT-04 — NR 0x02 software NMI path. Writing NR 0x02 bit 2 via the
     // real OUT 0x253B port path routes through NextReg::write →
     // write_handler → NmiSource::nr_02_write (Wave A wiring) → same
-    // downstream chain as INT-01. VHDL zxnext.vhd:3830-3838,
+    // downstream chain as NMI-INT-01. VHDL zxnext.vhd:3830-3838,
     // :3833 `nmi_cpu_02_we and cpu_requester_dat(2)` →
     // `nmi_sw_gen_divmmc`.
     {
@@ -283,7 +283,7 @@ static void test_int_rows() {
 
         const auto r = step_until_nmi_taken(emu);
 
-        check("INT-04",
+        check("NMI-INT-04",
               "NR 0x02 bit 2 write via OUT 0x253B → NMI → PC=0x0066 "
               "(VHDL zxnext.vhd:3833, :3838, :2091, :2095-2170, :1841)",
               r.took_nmi && r.final_pc >= 0x0066 && r.final_pc <= 0x006F,
@@ -291,7 +291,7 @@ static void test_int_rows() {
                   r.took_nmi, r.final_pc, r.steps));
     }
 
-    // INT-05 — MF path at the integration tier. The MF software NMI
+    // NMI-INT-05 — MF path at the integration tier. The MF software NMI
     // (NR 0x02 bit 3) latches nmi_mf when NR 0x06 bit 3 (mf_enable) is
     // set. Unlike DivMMC, the MF consumer-feedback inputs
     // (mf_is_active / mf_nmi_hold) are stubbed false until Task 8 lands,
@@ -310,7 +310,7 @@ static void test_int_rows() {
         const auto r = step_until_nmi_taken(emu);
         const bool mf_latched = emu.nmi_source().nmi_mf();
 
-        check("INT-05",
+        check("NMI-INT-05",
               "NR 0x02 bit 3 (MF sw-NMI) with NR 0x06 bit 3 set → MF "
               "latches, /NMI falls, Z80 PC=0x0066 (VHDL zxnext.vhd:2090, "
               ":2095-2170, :1841; MF consumer feedback stubbed → Task 8)",
@@ -345,7 +345,7 @@ static void g_host_hotkey()
     // HK-06-INT — F9 dispatcher end-to-end. Going through the Emulator
     // dispatcher (not strobe_mf_button() directly) must reach NmiSource
     // AND let the Z80 take the NMI on the next execute(s). Pre-state
-    // mirrors INT-05: enable NR 0x06 bit 3 (mf_enable) and let the
+    // mirrors NMI-INT-05: enable NR 0x06 bit 3 (mf_enable) and let the
     // priority chain clear (no other latch competes).
     // VHDL chain: zxnext.vhd:6348 (hotkey_m1) → :2090 (nmi_assert_mf) →
     // :2095-2170 (FSM) → :1841 (z80_nmi_n) → CPU jump to 0x0066.
