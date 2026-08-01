@@ -233,25 +233,37 @@ so it stays a decision rather than drift.
      `CURL_OPENSSL_4` libcurl node); `src` runs `make package-src` to emit the
      submodule-aware `jnext-<ver>-src.zip`; Windows via `make package-win` in a
      `fedora:44` container; `flatpak` via `flatpak-builder` in the KDE 6.10
-     container (`continue-on-error` until its first green run on a real
-     runner — the one declared divergence from the make-target rule, §4);
+     container (the one declared divergence from the make-target rule, §4);
      macOS native on `macos-latest` via `make package-macos`, **no longer
      `continue-on-error`** since issue #61 (it carries the GH #46
      `verify-bundle` gate, and a gate that cannot fail anything is not a gate).
      Each uploads its packages as an artifact.
   3. **`publish`** — `if: success() && needs.gate.outputs.publish == 'true'`;
      downloads the artifacts and creates a **GitHub Release**. The explicit
-     `success()` is what makes a failed `macos` job withhold the release rather
-     than silently omitting a platform; a failed `flatpak` still publishes,
-     because a `continue-on-error` job reports `success` to `needs`
-     (actions/toolkit #1739). **The macos-failure half is verified on a real
-     runner**: `workflow_dispatch` run 29917667433 (2026-07-22) broke `macos`
+     `success()` is what makes ANY failed artifact job withhold the release
+     rather than silently omitting a platform. **Every artifact job is now
+     blocking** (owner decision, 2026-08-02: any packaging error blocks the
+     release). `flatpak` was the last exception — it carried
+     `continue-on-error` while it had never run on a real runner, and a
+     `continue-on-error` job reports `success` to `needs`
+     (actions/toolkit #1739), so a red flatpak published anyway, minus its
+     bundle, with nothing anywhere red. Its own comment set the exit condition
+     ("tighten back to blocking after the first green run"); flatpak succeeded
+     on the v0.99.110 release, so the flag is gone.
+
+     **The withhold behaviour is verified on a real runner for `macos`**:
+     `workflow_dispatch` run 29917667433 (2026-07-22) broke `macos`
      deliberately and `publish` was skipped, gate/src/rpm/deb/windows/flatpak
-     all green. **The flatpak-failure half is still unverified** — `flatpak`
-     *succeeded* in that run, so the "a red `flatpak` alone still publishes"
-     path has never actually been exercised; confirm it with a
-     `workflow_dispatch` run that breaks only `flatpak` and checks `publish`
-     still runs.
+     all green. It is NOT separately verified for `flatpak` — but it no longer
+     needs a path of its own, since `flatpak` is now an ordinary blocking
+     `needs:` entry exactly like `macos`, rather than the special case it was.
+
+     The accepted cost is the one issue #61 already accepted for macOS: a
+     hiccup on one platform holds up the others. A release either covers the
+     platforms it claims or it stops and says so. To take a deliberately
+     partial release, restore `continue-on-error` on that one job in that one
+     commit, or drop it from `publish`'s `needs:` — an explicit, visible
+     decision each time, never a standing one.
 
   So a tag **not** in `releases.yaml` → the gate says "private tag", nothing
   builds. A **`workflow_dispatch`** run builds all packages for testing but
