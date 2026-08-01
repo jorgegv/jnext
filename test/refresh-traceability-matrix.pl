@@ -1346,7 +1346,12 @@ sub first_arg {
 sub helper_arg_positions {
     my ($source_rel) = @_;
     my $src = source_lines("$ROOT/$source_rel");
-    my $text = join("\n", @$src);
+    # source_lines() keeps each line's trailing newline, so the parts are
+    # joined with NOTHING. Joining with "\n" inserts a second newline per
+    # line, which silently doubles every byte offset this sub converts back
+    # into a line number — and a nearest-preceding lookup against doubled
+    # line numbers matches nothing at all.
+    my $text = join('', @$src);
     my %pos;
     # `[[maybe_unused]]` and friends prefix the declaration in several suites
     # (videotiming, contention). Skipping the attribute is not cosmetic: those
@@ -1426,11 +1431,150 @@ sub literal_value {
     return $out;
 }
 
+# Split a comma-separated list at TOP level only — quote-, paren- and
+# brace-aware. Shared by the call-argument scan and the table-entry scan so
+# the two cannot disagree about where an element ends.
+sub split_top_level {
+    my ($text) = @_;
+    my ($depth, $in_dq, $in_sq, $cur, @out) = (0, 0, 0, '');
+    for (my $i = 0; $i < length($text); $i++) {
+        my $ch = substr($text, $i, 1);
+        if ($ch eq '\\')                  { $cur .= $ch . substr($text, ++$i, 1); next; }
+        if ($in_dq)                       { $in_dq = 0 if $ch eq '"'; $cur .= $ch; next; }
+        if ($in_sq)                       { $in_sq = 0 if $ch eq "'"; $cur .= $ch; next; }
+        if    ($ch eq '"')                { $in_dq = 1; }
+        elsif ($ch eq "'")                { $in_sq = 1 unless is_digit_separator($text, $i); }
+        elsif ($ch =~ /[\(\[\{]/)         { $depth++; }
+        elsif ($ch =~ /[\)\]\}]/)         { $depth--; }
+        elsif ($ch eq ',' && $depth == 0) { push @out, $cur; $cur = ''; next; }
+        $cur .= $ch;
+    }
+    push @out, $cur if $cur =~ /\S/;
+    return @out;
+}
+
+# Every `struct T { ... }` + `T name[] = { {...}, ... }` pair in a file, as
+# ordered records carrying the line they start on.
+#
+# The line matters and is not bookkeeping: `struct Row` is declared with
+# DIFFERENT fields in different functions of the same suite, and two loops can
+# iterate arrays of the same name. A lookup therefore resolves to the NEAREST
+# PRECEDING declaration, never to "the one with that name" — the latter reads
+# a sibling function's table and would attribute one group's descriptions to
+# another, which is precisely the borrowed-evidence failure this extractor
+# refuses everywhere else.
+sub file_tables {
+    my ($source_rel) = @_;
+    my $src  = source_lines("$ROOT/$source_rel");
+    # source_lines() keeps each line's trailing newline, so the parts are
+    # joined with NOTHING. Joining with "\n" inserts a second newline per
+    # line, which silently doubles every byte offset this sub converts back
+    # into a line number — and a nearest-preceding lookup against doubled
+    # line numbers matches nothing at all.
+    my $text = join('', @$src);
+
+    # line number (1-based) of a byte offset
+    my @nl;
+    my $p = -1;
+    push @nl, $p while ($p = index($text, "\n", $p + 1)) >= 0;
+    my $line_of = sub {
+        my ($off) = @_;
+        my ($lo, $hi) = (0, scalar @nl);
+        while ($lo < $hi) { my $m = int(($lo + $hi) / 2);
+                            $nl[$m] < $off ? ($lo = $m + 1) : ($hi = $m); }
+        return $lo + 1;
+    };
+
+    my @structs;
+    while ($text =~ /\bstruct\s+([A-Za-z_]\w*)\s*\{([^{}]*)\}/g) {
+        my ($name, $body, $off) = ($1, $2, $-[0]);
+        my @fields;
+        for my $decl (split /;/, $body) {
+            next unless $decl =~ /\S/;
+            # last identifier before the end of the declaration is the field
+            push @fields, $1 if $decl =~ /([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*$/;
+        }
+        push @structs, { line => $line_of->($off), name => $name, fields => \@fields };
+    }
+
+    my @arrays;
+    while ($text =~ /\b(?:static\s+|const\s+|constexpr\s+)*([A-Za-z_]\w*)\s+
+                     ([A-Za-z_]\w*)\s*\[[^\]]*\]\s*=\s*\{/gx) {
+        my ($type, $var, $off) = ($1, $2, $-[0]);
+        # walk to the matching close brace of the initialiser
+        my ($depth, $i, $start) = (0, $+[0] - 1, $+[0] - 1);
+        for (; $i < length($text); $i++) {
+            my $ch = substr($text, $i, 1);
+            $depth++ if $ch eq '{';
+            if ($ch eq '}') { $depth--; last if $depth == 0; }
+        }
+        next if $depth != 0;
+        my $body = substr($text, $start + 1, $i - $start - 1);
+        my @rows;
+        for my $entry (split_top_level($body)) {
+            next unless $entry =~ /\{(.*)\}/s;
+            push @rows, [ split_top_level($1) ];
+        }
+        push @arrays, { line => $line_of->($off), type => $type,
+                        var => $var, rows => \@rows };
+    }
+    return { structs => \@structs, arrays => \@arrays };
+}
+
+# Values of one column of the table a loop iterates, or undef.
+#
+# $var is the loop variable's member expression (`r.id`, `c.id_35`); $at is the
+# line the call sits on, which anchors every nearest-preceding lookup above.
+sub table_column {
+    my ($source_rel, $at, $expr) = @_;
+    my ($loopvar, $field) = $expr =~ /^\s*([A-Za-z_]\w*)\s*(?:\.|->)\s*([A-Za-z_]\w*)\s*$/
+        or return undef;
+    my $src = source_lines("$ROOT/$source_rel");
+
+    # Which array does this loop variable range over? Read from the `for`
+    # header rather than guessed, and bounded to the 200 lines above the call
+    # so a distant unrelated loop cannot answer.
+    my $arr;
+    for (my $i = $at - 1; $i >= 0 && $i > $at - 200; $i--) {
+        # Matches every declarator spelling the suites use — `const Row& r`,
+        # `const auto& r`, `auto r`, `const Case &c` — by anchoring on the
+        # variable itself rather than on what precedes it. `[^:;]*?` keeps the
+        # scan inside this loop's own header.
+        if ($src->[$i] =~ /\bfor\s*\([^:;]*?\b\Q$loopvar\E\s*:\s*([A-Za-z_]\w*)/) {
+            $arr = $1;
+            last;
+        }
+    }
+    return undef unless defined $arr;
+
+    my $t = file_tables($source_rel);
+    my ($table) = sort { $b->{line} <=> $a->{line} }
+                  grep { $_->{var} eq $arr && $_->{line} <= $at } @{ $t->{arrays} };
+    return undef unless $table;
+    my ($struct) = sort { $b->{line} <=> $a->{line} }
+                   grep { $_->{name} eq $table->{type} && $_->{line} <= $table->{line} }
+                   @{ $t->{structs} };
+    return undef unless $struct;
+    my ($idx) = grep { $struct->{fields}[$_] eq $field } 0 .. $#{ $struct->{fields} };
+    return undef unless defined $idx;
+    return [ map { $_->[$idx] } @{ $table->{rows} } ];
+}
+
 # id -> description, for every row this source file asserts.
 #
 # Keyed the same way grep_row_ids() keys its IDs, and deliberately built from
 # the SAME call spans the citation extractor walks, so a row cannot be found
 # by one reader and missed by the other.
+#
+# An argument resolves to EITHER a string literal or a table column, and the
+# two zip together, which is what covers the shared-assertion shape that owns
+# most rows without a description:
+#
+#   check(r.id, r.what, ...)   both columns  -> one description per row, the
+#                                               richest case (input_test)
+#   check(r.id, "literal", ...) column + literal -> the loop's one sentence,
+#                                               shared by its rows (mmu_test)
+#   check(r.id, desc, ...)      column + variable -> undef, never a guess
 sub row_descriptions {
     my ($source_rel) = @_;
     my $src = source_lines("$ROOT/$source_rel");
@@ -1455,14 +1599,41 @@ sub row_descriptions {
         }
         my @args = call_args($text);
         next unless @args > $p->{id};
-        my $id = literal_value($args[ $p->{id} ]);
-        # Re-quoted before matching because $ID_LITERAL_RE spells the quotes
-        # itself — it is written to run over raw source, and this is the one
-        # caller holding an already-unquoted value.
-        next unless defined $id && "\"$id\"" =~ /^$ID_LITERAL_RE$/;
         next unless defined $p->{desc} && @args > $p->{desc};
-        my $d = literal_value($args[ $p->{desc} ]);
-        $desc{$id} //= $d if defined $d;
+
+        # The ID side: one literal, or a whole table column.
+        my $lit = literal_value($args[ $p->{id} ]);
+        my @ids;
+        if (defined $lit) {
+            @ids = ($lit);
+        } else {
+            my $col = table_column($source_rel, $i + 1, $args[ $p->{id} ]) or next;
+            @ids = map { literal_value($_) } @$col;
+        }
+
+        # The description side: one literal shared by every ID of the call, or
+        # a column zipped to them one-for-one.
+        my $dlit = literal_value($args[ $p->{desc} ]);
+        my @ds;
+        if (defined $dlit) {
+            @ds = ($dlit) x scalar @ids;
+        } else {
+            my $col = table_column($source_rel, $i + 1, $args[ $p->{desc} ]) or next;
+            # A length mismatch means the two references resolved to different
+            # tables; pairing them anyway would attribute the wrong sentence to
+            # every row after the first divergence.
+            next unless @$col == @ids;
+            @ds = map { literal_value($_) } @$col;
+        }
+
+        for my $k (0 .. $#ids) {
+            my $id = $ids[$k];
+            # Re-quoted before matching because $ID_LITERAL_RE spells the
+            # quotes itself — it is written to run over raw source, and this is
+            # the one caller holding an already-unquoted value.
+            next unless defined $id && "\"$id\"" =~ /^$ID_LITERAL_RE$/;
+            $desc{$id} //= $ds[$k] if defined $ds[$k];
+        }
     }
     return \%desc;
 }
