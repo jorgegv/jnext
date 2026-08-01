@@ -3651,11 +3651,6 @@ sub duplicate_ids {
 # Thin wrapper so every fatal() becomes exit 3 rather than an errno-derived
 # status. The tail of this file stays the literal `exit(main());` the selftest
 # strips to load the subs without running them.
-sub main {
-    my $rc = eval { parse_args(@ARGV); main_body() };
-    if ($@) { print STDERR $@; return 3; }
-    return $rc;
-}
 
 # The accounting gate on its own: no test binary is run, no source is read,
 # the matrix is not opened. Returns (exit_code, subsys) — $subsys undef when
@@ -3918,8 +3913,9 @@ sub emit_matrix {
     my @out = emit_preamble();
     push @out, '## Summary', '';
     push @out, $SUMMARY_BEGIN;
-    push @out, render_summary(\@report, tombstoned_suites($declared),
-                              0, declared_totals(), 0, []);
+    # render_summary() returns an ARRAYREF, not a list.
+    push @out, @{ render_summary(\@report, tombstoned_suites($declared),
+                                 0, declared_totals(), 0, []) };
     push @out, $SUMMARY_END, '';
     push @out, emit_cite_explainer();
     push @out, @sections;
@@ -4017,152 +4013,34 @@ sub main_body {
         return 0;
     }
 
-    open(my $in, '<', $MATRIX) or fatal("open $MATRIX: $!");
-    my $text = do { local $/; <$in> };
-    close $in;
-
-    # Mirror Python's splitlines(keepends=False): strip trailing newline
-    # from the last element if present.
-    my @lines = split(/\n/, $text, -1);
-    pop @lines if @lines && $lines[-1] eq '';
-
-    # Read BEFORE any section is rewritten. The global set is still needed
-    # for the Summary's "recorded anywhere in this document" figure; the
-    # `unrecorded` question is now asked per subsystem (GH #118), against
-    # the scope subsystem_span() resolves below.
-    my $recorded   = matrix_row_ids(\@lines);
-    my $tombstoned = tombstoned_suites($declared);
-
-    # Resolve every section header first, so each section knows where the
-    # next one starts (see refresh_section's $stop_idx).
-    my ($found, $missing_sections) = resolve_sections(\@lines, $subsys);
-    my @found            = @$found;
-    my @missing_sections = @$missing_sections;
-
-    # The same hole one level down. A suite named in @SUBSYS is TRACED as far
-    # as the accounting gate is concerned, but if its section header is not
-    # actually in the document then nothing scans it and its rows are recorded
-    # nowhere — the exact condition the gate exists to make impossible. This
-    # used to print `NOT FOUND` and carry on, which is a warning line inside a
-    # report again. Refuse, and write nothing.
-    my ($section_rc, $may_write) = section_refusal(\@missing_sections);
-    if (!$may_write) {
-        print STDERR
-            "refresh-traceability-matrix: REFUSING to run — \@SUBSYS traces a\n"
-          . "suite whose section is not in $MATRIX. A traced suite with no\n"
-          . "section is recorded nowhere, which is what tracing is supposed to\n"
-          . "prevent. Add the section, or tombstone the suite.\n\n";
-        print STDERR "  $_\n" for @missing_sections;
-        print STDERR "\nThe matrix was NOT rewritten.\n";
-        return $section_rc;
-    }
-    my @header_idx = sort { $a <=> $b } map { $_->[0] } @found;
-
-    # Per-subsystem recording scope, resolved up front from the unrewritten
-    # document (GH #118). Keyed by the entry's own header index; several
-    # entries can share one scope (a `##` parent and its `###` companions).
-    my %scope;
-    for my $f (@found) {
-        my ($from, $to) = subsystem_span(\@lines, $f->[0]);
-        $scope{ $f->[0] } = matrix_row_ids(\@lines, $from, $to);
-    }
-
-    # Which other suites of this subsystem a section may fall back to for a
-    # row its own source does not assert (GH #121).
-    my $companion = companion_map(\@lines, \@found);
-
-    my @report;
-    my @drift;
-    my @kept;
-    my @unrec;
-    my @aliased;
-    my @invalid;
-    my @frozen;
-    my @unref;
-    my $tomb_excluded = 0;
-    for my $f (@found) {
-        my ($idx, $entry) = @$f;
-        my ($header, $binary, $source_rel) = @$entry;
-        my $stop;
-        for my $h (@header_idx) { $stop = $h, last if $h > $idx; }
-
-        my @section_drift;
-        my @section_kept;
-        my @section_invalid;
-        my @section_frozen;
-        my @section_unref;
-        my ($touched, $p, $f_ct, $s, $m, $c, $u, $d, $fz, $tz, $xt) =
-            refresh_section(\@lines, $idx, $binary, $source_rel,
-                            \@section_drift, \@section_kept, $stop,
-                            $companion->{$idx}, \@section_invalid,
-                            \@section_frozen, \@section_unref);
-        my @sources = as_list($source_rel);
-        # Tables this section left entirely alone (GH #192), labelled by
-        # section for the same reason @invalid is: no source file computes them.
-        push @unref, map { [section_label($header, $sources[0]), $_] }
-                     @section_unref;
-        # Labelled by SECTION, not by source file: a hand-written cell has no
-        # source file behind it — that is what makes it hand-written.
-        push @invalid, map { section_label($header, $sources[0]) . "  $_" }
-                       @section_invalid;
-        # Same labelling as @invalid, and for the same reason: a frozen cell
-        # is hand-written, so it has no source file behind it.
-        push @frozen, map { [section_label($header, $sources[0]), @$_] }
-                      @section_frozen;
-        $tomb_excluded += $tz;
-        # Drift lines arrive already charged to the file that supplied the
-        # citation (GH #126) — which may be a companion suite or a plan doc,
-        # neither of which is $sources[0]. Protected rows have no such file
-        # by construction: the marker exists because the coverage is
-        # elsewhere and hand-maintained, so they stay labelled by section.
-        push @drift, @section_drift;
-        push @kept,  map { "$sources[0]  $_" } @section_kept;
-
-        # The other direction (GH #117): rows these sources assert that the
-        # document records nowhere. Reported per source file, so the backlog
-        # names the file to edit even for a multi-suite section.
-        my $absent_ct = 0;
-        my $scope = $scope{$idx};
-        for my $src (@sources) {
-            my $rows = grep_row_ids($src);
-            # `ID:line` so the backlog can be walked straight to the assertion.
-            my @absent = map { "$_:$rows->{$_}" }
-                         sort grep { !matrix_records($_, $scope) } keys %$rows;
-            if (@absent) {
-                push @unrec, [$src, \@absent];
-                $absent_ct += scalar @absent;
-            }
-            # The sub-letter blind spot, made visible (GH #118).
-            my @alias = map { "$_:$rows->{$_}" }
-                        sort grep { recorded_only_by_alias($_, $scope) }
-                        keys %$rows;
-            push @aliased, [$src, \@alias] if @alias;
-        }
-
-        push @report, [section_label($header, $sources[0]), $touched,
-                       $p, $f_ct, $s, $m, $c, $u, $d, $absent_ct, $fz, $xt];
-    }
-
-    my $xtra_total = 0;
-    $xtra_total += $_->[11] for @report;
-    replace_summary(\@lines,
-        render_summary([map { [@{$_}[0 .. 5], $_->[9]] } @report],
-                       $tombstoned, scalar(keys %$recorded),
-                       declared_totals(), $xtra_total,
-                       [map { $_->[1] } @unref]));
-
+    # ── The document is EMITTED, never edited (GH #196 phase 2.1) ────
+    #
+    # What used to happen here: read the committed matrix, find each row it
+    # already listed, rewrite three of its cells, leave everything else —
+    # descriptions, the row set, the ordering — under hand control. That split
+    # authority is what produced `frozen` (a hand cell with no computed side),
+    # doc-vs-computed `drift`, `unrecorded` (a test with no row) and stale
+    # locations. None of those classes can exist now: every cell is computed,
+    # so there is nothing for a hand edit to disagree with.
+    my @doc = emit_matrix($subsys, $declared);
     open(my $out, '>', $MATRIX) or fatal("write $MATRIX: $!");
-    print $out join("\n", @lines), "\n";
+    print $out join("\n", @doc), "\n";
     close $out;
 
-    # cited/uncit count only the rows this run filled or could not fill —
-    # rows that already carried a hand-written citation are in neither.
-    # `unrec` is the GH #117 direction: source rows the document omits.
-    #
-    # `xtra` is the GH #192 column: rows refreshed in a table that has no
-    # `Status` column ("Extra coverage (not in plan)"). They are deliberately
-    # NOT in `rows`, which must keep equalling pass+fail+skip+miss — a row with
-    # no Status cell cannot contribute a number the document displays.
+    my @report;
+    for my $entry (@$subsys) {
+        my ($header, $bins, $srcs) = @$entry;
+        my @flat = as_list($srcs);
+        my $rows = emit_section_rows($bins, \@flat);
+        my %n;
+        $n{ $_->[3] }++ for @$rows;
+        my $uncited = grep { $_->[2] eq '—' } @$rows;
+        push @report, [section_label($header, $flat[0]), scalar @$rows,
+                       $n{pass} // 0, $n{fail} // 0, $n{skip} // 0,
+                       $n{missing} // 0, (scalar @$rows) - $uncited, $uncited,
+                       0, 0, 0, 0];
+    }
+
     printf("\n%-38s %5s %5s %5s %5s %5s %6s %6s %6s %6s %6s %6s\n",
            'Subsystem', 'rows', 'pass', 'fail', 'skip', 'miss',
            'cited', 'uncit', 'drift', 'unrec', 'froz', 'xtra');
@@ -4176,169 +4054,46 @@ sub main_body {
     print('-' x 113, "\n");
     printf("%-38s %5d %5d %5d %5d %5d %6d %6d %6d %6d %6d %6d\n", 'TOTAL', @totals);
 
-    if (@drift) {
-        print "\nVHDL citations where the doc and the test source disagree ",
-              "(doc kept, not overwritten):\n";
-        print "  $_\n" for @drift;
-    }
-
-    if (@kept) {
-        print "\nProtected rows kept byte-identical ",
-              "(<!-- protected --> marker):\n";
-        print "  $_\n" for @kept;
-    }
-
-    # ── The GH #150 report ────────────────────────────────────────────
+    # ── The one report that survives (GH #196 phase 2.4) ─────────────
     #
-    # Hand-written cells validated the same way computed ones are. Reported,
-    # never rewritten — a hand-written citation is somebody's judgement and the
-    # tool has no standing to overrule it, only to say it does not check out.
-    if (@invalid) {
-        printf("\nHAND-WRITTEN CITATIONS THAT DO NOT VALIDATE (%d). The cell is "
-             . "KEPT; fix it by\nhand. A citation to jnext's own source is not "
-             . "evidence — the VHDL is the oracle:\n", scalar @invalid);
-        print "  $_\n" for @invalid;
-    }
-
-    # ── The GH #188 report ────────────────────────────────────────────
-    #
-    # Hand-written cells with NO computed side. GH #150 made a hand-written
-    # cell complain when it does not validate; this is the other half — the
-    # cells nothing can even disagree with. Listed so the number is
-    # shrinkable, split by sub-class because the remedies differ, and NEVER
-    # rewritten: closing one of these means a human reading the VHDL.
-    if (@frozen) {
-        my %by;
-        push @{ $by{ $_->[2] } }, $_ for @frozen;
-        my %what = (
-            a => 'no citation attempt — cite the VHDL in the row\'s own '
-               . 'check(), which makes the cell computed and drift-checked',
-            b => 'line numbers with the FILENAME left out ("VHDL 7163-7176") '
-               . '— write the .vhd in the row\'s own check()',
-            c => 'this section\'s sources do not assert the row (status '
-               . 'missing) — record it where it runs, or mark it planned',
-        );
-        printf("\nFROZEN CITATIONS — hand-written cells the extractor computes "
-             . "NOTHING for (%d).\nDrift needs a computed side to disagree "
-             . "with, so nothing can ever contradict\nthese and they stay "
-             . "frozen: GH #187 was one of them. The cell is KEPT.\n"
-             . "Excluded: %d cells whose suite carries a declared %%TOMBSTONE "
-             . "— the tombstone IS\ntheir computed side, so those ARE compared "
-             . "and can appear in the drift list above.\n",
-               scalar @frozen, $tomb_excluded);
-        for my $cls (sort keys %by) {
-            printf("  (%s) %s — %d\n", $cls, $what{$cls},
-                   scalar @{ $by{$cls} });
-            for my $r (@{ $by{$cls} }) {
-                printf("      %s  %s: [%s]\n", $r->[0], $r->[1], $r->[3]);
+    # Every other class the old reports listed — frozen cells, doc-vs-computed
+    # drift, unrecorded rows, protected rows, stale locations — is gone by
+    # construction, because there is no longer a hand-written side to disagree
+    # with. What CAN still disagree is two independent sources: a plan doc and
+    # a test source citing different VHDL for the same row. That is genuine
+    # signal about the spec, not bookkeeping, so it stays visible.
+    my @cite_drift;
+    for my $entry (@$subsys) {
+        my ($header, $bins, $srcs) = @$entry;
+        my @flat = as_list($srcs);
+        my $plan = plan_cites($flat[0]);
+        for my $src (@flat) {
+            my (%cf, %cl, %nr);
+            my $src_cites = grep_citations($src, \%cf, \%cl, \%nr);
+            for my $id (sort keys %$src_cites) {
+                next unless exists $plan->{$id};
+                next unless defined $plan->{$id} && defined $src_cites->{$id};
+                next if $plan->{$id} eq $src_cites->{$id};
+                push @cite_drift,
+                     sprintf('%-14s plan %-28s source %s (%s)',
+                             $id, $plan->{$id}, $src_cites->{$id}, $src);
             }
         }
     }
-
-    # ── The GH #192 report: tables nothing computes ───────────────────
-    #
-    # A table with neither a `Test file:line` nor a `VHDL file:line` column is
-    # left byte-identical, because there is nothing in it this tool can
-    # compute. That is fine — what is NOT fine is a reader taking its cells for
-    # generated output. So the prose above each such table must carry the
-    # literal `NOT REFRESHED`, and one that does not is called out here.
-    if (@unref) {
-        my $rows = 0;
-        $rows += $_->[1]{rows} for @unref;
-        printf("\nTABLES NOT REFRESHED — no `Test file:line` and no `VHDL "
-             . "file:line` column, so\nnothing in them is computed (%d tables, "
-             . "%d rows). Left byte-identical on purpose:\n", scalar @unref,
-               $rows);
-        for my $t (@unref) {
-            printf("  %s (%d rows)%s\n", $t->[1]{title}, $t->[1]{rows},
-                   $t->[1]{marked} ? '' : "  <-- NOT MARKED in the document");
-        }
-        my @unmarked = grep { !$_->[1]{marked} } @unref;
-        printf("  %d of them do not say so above the table. Add the words "
-             . "'%s'\n  to the prose that introduces them — a table that looks "
-             . "computed and is not is\n  exactly the defect GH #187/#188 "
-             . "closed.\n", scalar @unmarked, $UNREFRESHED_MARK) if @unmarked;
+    if (@cite_drift) {
+        printf("\nPLAN-vs-SOURCE CITATION DISAGREEMENTS (%d). Two independent "
+             . "sources cite\ndifferent VHDL for one row; read the VHDL and fix "
+             . "whichever is wrong:\n", scalar @cite_drift);
+        print "  $_\n" for @cite_drift;
     }
 
-    # ── The GH #192 duplicate-ID report ───────────────────────────────
-    #
-    # Recording (GH #118) and the status fallback (GH #121) are both scoped to
-    # the owning `##` subsystem, which is what stops one subsystem's `TM-01`
-    # answering for another's. Neither can SEE the reuse, though, so nothing
-    # said it was happening: `CFG-05..07` and `KEMP-17` were each found by hand,
-    # months apart.
-    #
-    # Unlike a description heuristic (rejected in GH #190) this is mechanically
-    # certain — an ID literal either appears in two subsystems' sources or it
-    # does not — which is what makes it worth printing. It is a REPORT, never a
-    # gate: some reuse is deliberate and documented (the ESP-01 AT/adapter
-    # sections continue `HOOK-*` across files on purpose, see @SUBSYS), and
-    # some looks deliberate but isn't (`TRACE-01..04` was an accidental
-    # collision between the ESP-01 socket and AT sections, fixed by renaming
-    # the socket side to `SOCK-TRACE-*` — GH #196 Phase 1.2). Renaming a test
-    # ID is the test author's call, not this tool's.
-    my $dups = duplicate_ids(\@found, \@lines);
-    if (@$dups) {
-        printf("\nDUPLICATE TEST IDs — one ID asserted in more than one "
-             . "SUBSYSTEM's sources (%d).\nNot a gap and not auto-repaired: "
-             . "recording and the status fallback are both scoped\nper "
-             . "subsystem (GH #118/#121), so neither can see this. Check that "
-             . "each reuse is\ndeliberate — a matrix row named for two "
-             . "different behaviours is how GH #190 and\n`KEMP-17` happened:\n",
-               scalar @$dups);
-        for my $d (@$dups) {
-            printf("  %-18s %s\n", $d->[0],
-                   join(' | ', map { "$_->[0] $_->[1]" } @{ $d->[1] }));
-        }
-    }
+    return 0;
+}
 
-    # ── The GH #117 report ────────────────────────────────────────────
-    my $unrec_ct = 0;
-    $unrec_ct += scalar @{ $_->[1] } for @unrec;
-    if (@unrec) {
-        print "\nUNRECORDED — rows the test source asserts that this matrix ",
-              "does not list in the\nowning subsystem's section ($unrec_ct):\n";
-        for my $u (@unrec) {
-            printf("  %s (%d)\n", $u->[0], scalar @{ $u->[1] });
-            print "    ", join(' ', @{ $u->[1] }), "\n";
-        }
-    }
-    if (@$tombstoned) {
-        my $rows = 0;
-        $rows += $_->[1] for @$tombstoned;
-        printf("\nTOMBSTONED SUITES — declared in test/unit-tests.conf, no ".
-               "section here, reason recorded (%d suites, %d live rows).\n".
-               "Not a gap: each has an authority that is not the FPGA core. ".
-               "See the Summary table.\n",
-               scalar @$tombstoned, $rows);
-    }
-
-    # ── The GH #118 sub-letter blind spot, made visible ───────────────
-    #
-    # Not a gate: these ARE recorded, by their parent row, and 90 of the
-    # 102 triaged in GH #118 were right to be. Printed so the next one that
-    # is NOT — a distinct regression wearing a sub-letter, as `FB-04b`,
-    # `NA-01c` and `REG-03c` were — lands in a list a human reads.
-    my $alias_ct = 0;
-    $alias_ct += scalar @{ $_->[1] } for @aliased;
-    if (@aliased) {
-        print "\nALIASED — rows recorded ONLY by sub-letter aliasing, i.e. the ",
-              "matrix lists\nthe parent `X-01` but not `X-01b` ($alias_ct). ",
-              "Not a gap by itself: check that\neach is a sub-case of its ",
-              "parent plan row, not a distinct assertion (GH #118):\n";
-        for my $a (@aliased) {
-            printf("  %s (%d)\n", $a->[0], scalar @{ $a->[1] });
-            print "    ", join(' ', @{ $a->[1] }), "\n";
-        }
-    }
-
-    if (report_exit_code($unrec_ct)) {
-        print "\nThe matrix WAS rewritten; it under-records the UNRECORDED set above.\n",
-              "Close it by adding the rows by hand — the description column is the\n",
-              "point of a matrix row and cannot be derived from the test source.\n",
-              "(GH #117)\n";
-    }
-    return report_exit_code($unrec_ct);
+sub main {
+    my $rc = eval { parse_args(@ARGV); main_body() };
+    if ($@) { print STDERR $@; return 3; }
+    return $rc;
 }
 
 exit(main());
