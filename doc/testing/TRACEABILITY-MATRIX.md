@@ -2229,14 +2229,6 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | MF-G48-06       | MF +3 readback mux on cpu_a(15:12) returns port_dffd_reg_6 + port_1ffd/7ffd shadow   | zxnext.vhd:4310-4322            | missing | missing         |
 | MF-G48-07       | DivMMC RETN-seen suppressed when mf_is_active=1 (band-aid removal invariant)         | zxnext.vhd:4111                 | missing | missing         |
 
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                | VHDL file:line | Test file:line            |
-|---------|--------------------------------------|----------------|---------------------------|
-| MC-01   | 4 channels loaded with different TCs | —              | missing                   |
-| MC-02   | Channels decrement independently     | —              | missing                   |
-| MC-03   | Read invalid channel returns 0xFF    | —              | missing                   |
-
 ### Companion integration suite — `test/ctc_interrupts/ctc_interrupts_test.cpp`
 
 Created 2026-04-21 (commit `87fb998`) to host the 10 integration-tier re-home targets from `ctc_test.cpp` that require a full `Emulator` fixture (port 0xFF / NR 0x22 / NR 0xC0-0xCA read-path composition). Runtime: `Total:   48  Passed:   48  Failed:    0  Skipped:    0`. The suite has grown well past those original 10: the 10 rows listed below are only the ones recorded here, 16 more that it asserts are recorded in the parent `## CTC+Interrupts` table above (`ULA-INT-01..06`, `NR-C0-04`, `NR-C2-01`, `NR-C3-01`, `NR-C4-02/03`, `NR-C6-02`, `ISC-09/10`, `IM2C-G87-01/02`), and the rest are reported `unrecorded` on every run. Each entry below cross-references the CTC+Interrupts plan row.
