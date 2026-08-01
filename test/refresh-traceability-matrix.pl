@@ -193,6 +193,7 @@ my $MATRIX = "$ROOT/doc/testing/TRACEABILITY-MATRIX.md";
 # arguments and exit before a single row ran.
 my $CHECK_ONLY = 0;
 my $DUMP_DESC  = 0;
+my $EMIT_SECTION;
 sub parse_args {
     for my $arg (@_) {
         if ($arg eq '--check-accounting') { $CHECK_ONLY = 1; next; }
@@ -202,6 +203,10 @@ sub parse_args {
         # dirty tree; it exists so the derived-position rule is MEASURED
         # against all 90 suites rather than asserted from a sample.
         if ($arg eq '--dump-descriptions') { $DUMP_DESC = 1; next; }
+        # GH #196 phase 2.1 — print ONE section exactly as the emitter would
+        # write it, so its output can be diffed against the committed section
+        # before the emitter is allowed anywhere near the file.
+        if ($arg =~ /^--emit-section=(.+)$/) { $EMIT_SECTION = $1; next; }
         fatal("unknown option '$arg'\n"
             . "usage: refresh-traceability-matrix.pl [--check-accounting] "
             . "[--dump-descriptions]");
@@ -1725,6 +1730,7 @@ sub plan_doc_path {
 # Read plan-doc rows: "| ID | ... | ... zxnext.vhd:1234 ... |" -> citation.
 my %PLAN_CACHE;
 my %PLAN_DESC_CACHE;
+my %PLAN_ROWS_CACHE;
 sub plan_cites {
     my ($source_rel) = @_;
     my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
@@ -1744,44 +1750,74 @@ sub plan_cites {
     return $PLAN_CACHE{$stem} = \%cites;
 }
 
-# id -> description, read from the suite's plan doc (GH #196 phase 2).
+# Plan-doc rows, in document order, as [id, description] pairs (GH #196 ph 2).
 #
-# The SECOND description tier, after the row's own assertion. §4.1 of the
-# generation plan names plan docs a source of truth in their own right, and
-# they are the only honest source for two classes the test source cannot
-# answer for:
+# ONLY tables that declare row IDs are read, and that is decided from the
+# table's OWN header row — the lesson GH #192 already taught this script for
+# the matrix's five table shapes, applied to plan docs, which have more.
 #
-#   * rows deliberately recorded but NOT asserted — layer2's `log_deferred()`
-#     pushes 44 deferred IDs straight into the results vector, on purpose, so
-#     they are never pass/fail and have no assertion to read;
-#   * live rows whose description is COMPUTED at run time — esp_socket builds
-#     `to_string(ip) + " → " + reason_name(want)`, which is informative on a
-#     failure and invisible to any static reader.
-#
-# Deliberately NOT read from the matrix itself, for the reason grep_row_ids()
-# already skips the generated Summary: a generator that accepts its own
-# previous output as evidence can never catch its own bad data.
+# A permissive reader adopts tables that are not row tables at all. The
+# floating-bus plan carries a retired-ID map headed
+# `| ULA plan ID (retired) | Floating-bus plan ID |`, whose left column is an
+# OLD name and whose right column is the NEW one; reading it emitted eight
+# S10.* rows that nothing asserts, each carrying another row's ID ("FB-01") as
+# its description. The accepted spellings are a CLOSED set, measured across
+# every plan doc: `ID` (276 tables), `Row ID` (7), plus the matrix's own
+# `Test ID`/`Test IDs`. `Retracted ID` and the retired map are excluded by
+# construction rather than by a name list of exclusions.
+sub plan_table_rows {
+    my ($source_rel) = @_;
+    my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
+    return [] unless defined $stem;
+    return $PLAN_ROWS_CACHE{$stem} if $PLAN_ROWS_CACHE{$stem};
+
+    my (@rows, %seen);
+    my $path = "$ROOT/" . plan_doc_path($source_rel);
+    if (open(my $fh, '<', $path)) {
+        my $accept = 0;
+        my $prev   = '';
+        while (my $line = <$fh>) {
+            chomp $line;
+            if ($line !~ /^\|/) { $accept = 0; $prev = $line; next; }
+            # The separator row identifies the line before it as the header.
+            if ($line =~ /^\|[\s:-]+\|/ && $prev =~ /^\|/) {
+                my @h = split_row_cells($prev);
+                my $first = @h >= 2 ? $h[1] : '';
+                $first =~ s/^\s+|\s+$//g;
+                $first =~ s/^`|`$//g;
+                $accept = ($first eq 'ID' || $first eq 'Row ID'
+                        || $first eq 'Test ID' || $first eq 'Test IDs') ? 1 : 0;
+                $prev = $line;
+                next;
+            }
+            $prev = $line;
+            next unless $accept;
+            my @cells = split_row_cells($line);
+            next unless @cells >= 3;
+            next if is_header_row(\@cells);
+            my ($id, $d) = ($cells[1], $cells[2]);
+            for ($id, $d) { s/^\s+|\s+$//g; s/^`|`$//g; }
+            # The SAME id shape the source scan accepts, not a looser one.
+            next unless "\"$id\"" =~ /^$ID_LITERAL_RE$/;
+            next if $seen{$id}++;
+            push @rows, [$id, (length $d && $d ne '—' && $d ne '-') ? $d : undef];
+        }
+        close $fh;
+    }
+    return $PLAN_ROWS_CACHE{$stem} = \@rows;
+}
+
+# The two views onto it, so they cannot disagree about which rows exist.
+sub plan_rows { return [ map { $_->[0] } @{ plan_table_rows($_[0]) } ]; }
+
 sub plan_descriptions {
     my ($source_rel) = @_;
     my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
     return {} unless defined $stem;
     return $PLAN_DESC_CACHE{$stem} if $PLAN_DESC_CACHE{$stem};
     my %desc;
-    my $path = "$ROOT/" . plan_doc_path($source_rel);
-    if (open(my $fh, '<', $path)) {
-        while (my $line = <$fh>) {
-            next unless $line =~ /^\|/;
-            my @cells = split_row_cells($line);
-            next unless @cells >= 3;
-            next if is_header_row(\@cells);
-            my $id = $cells[1];
-            my $d  = $cells[2];
-            for ($id, $d) { s/^\s+|\s+$//g; s/^`|`$//g; }
-            next unless $id =~ /^[A-Za-z0-9][A-Za-z0-9._\-+]*$/;
-            next unless length $d && $d ne '—' && $d ne '-';
-            $desc{$id} //= $d;
-        }
-        close $fh;
+    for my $r (@{ plan_table_rows($source_rel) }) {
+        $desc{ $r->[0] } //= $r->[1] if defined $r->[1];
     }
     return $PLAN_DESC_CACHE{$stem} = \%desc;
 }
@@ -3630,6 +3666,100 @@ sub check_accounting {
     return (2, undef, undef);
 }
 
+# ── The emitter (GH #196 phase 2.1) ──────────────────────────────────
+#
+# Builds ONE section's rows from the sources, with no reference whatsoever to
+# what the committed matrix currently says. That is the whole inversion: the
+# old refresh_section() read the document, matched each row it found, and
+# rewrote three cells while leaving everything else — descriptions, row set,
+# ordering — under hand control. Everything is computed here instead, so
+# `frozen`, doc-vs-computed `drift`, `unrecorded` and stale locations cannot
+# exist as classes.
+#
+# Row order is deliberate and NOT sorted: plan rows first, in the plan doc's
+# own order (which groups by behaviour and is editorial), then live rows the
+# plan does not list, in source order.
+sub emit_section_rows {
+    my ($binary, $source_rel) = @_;
+    my @sources = as_list($source_rel);
+    my $fails   = run_fails($binary);
+
+    my (%checks, %skips, %desc, %cites, %where, %cite_line);
+    for my $src (@sources) {
+        my ($c, $s) = grep_source($src);
+        # First file wins, matching the companion-fallback order the status
+        # lookup has used since GH #121.
+        for my $id (keys %$c) { $checks{$id} //= $c->{$id}; $where{$id} //= $src; }
+        for my $id (keys %$s) { $skips{$id}  //= $s->{$id}; $where{$id} //= $src; }
+        my $d = row_descriptions($src);
+        for my $id (keys %$d) { $desc{$id} //= $d->{$id}; }
+        # Same call shape refresh_section() uses: the citation map is the
+        # return value, provenance/line/no-file are filled through out-params.
+        my (%cf, %cl, %nr);
+        my $ct = grep_citations($src, \%cf, \%cl, \%nr);
+        for my $id (keys %$ct) { $cites{$id} //= $ct->{$id}; }
+        for my $id (keys %cl)  { $cite_line{$id} //= $cl{$id}; }
+    }
+
+    my $plan_desc = plan_descriptions($sources[0]);
+    my $plan_cite = plan_cites($sources[0]);
+
+    my (@ids, %seen);
+    push @ids, grep { !$seen{$_}++ } @{ plan_rows($sources[0]) };
+    # Live rows the plan does not list — 2.3. Ordered by the line they are
+    # asserted on, so the table reads in the same order as the file.
+    #
+    # The set comes from grep_row_ids(), NOT from grep_source(). grep_source
+    # treats every ID-shaped literal as a row, which was harmless while it only
+    # ever answered questions about rows the matrix already listed, but here it
+    # BUILDS the row set — and it would adopt every `set_group("FB-1-Border")`
+    # banner as a row that nothing asserts. grep_row_ids() masks the banners,
+    # which is the same reason it was taught to (GH #144).
+    my %real;
+    for my $src (@sources) {
+        my $ids = grep_row_ids($src);
+        $real{$_} = 1 for keys %$ids;
+    }
+    my @live = sort { ($checks{$a} // $skips{$a} // 0) <=> ($checks{$b} // $skips{$b} // 0)
+                      || $a cmp $b }
+               grep { $real{$_} && !$seen{$_}++ } (keys %checks, keys %skips);
+    push @ids, @live;
+
+    my @rows;
+    for my $id (@ids) {
+        my $status = status_for($id, $fails, \%checks, \%skips);
+        my $d = $desc{$id} // $plan_desc->{$id} // '—';
+        my $c = cite_for($id, \%cites, \%checks, \%skips) // $plan_cite->{$id} // '—';
+        my ($lf, $ll) = line_for($id, \%checks, \%skips, \%where, \%cite_line);
+        my $l = (defined $lf && defined $ll) ? "$lf:$ll" : '—';
+        push @rows, [$id, $d, $c, $status, $l];
+    }
+    return \@rows;
+}
+
+# One section's markdown: header, a pointer to the plan doc that carries the
+# prose, and the table.
+sub emit_section {
+    my ($header, $binary, $source_rel) = @_;
+    my @sources = as_list($source_rel);
+    my @out = ($header, '');
+    if (my $pd = plan_doc_path($sources[0])) {
+        push @out, "Notes and rationale: [" . (split m{/}, $pd)[-1] . "]("
+                 . (split m{/}, $pd)[-1] . ").", '';
+    }
+    push @out, '| Test ID | Description | VHDL file:line | Status | Test file:line |';
+    push @out, '|---------|-------------|----------------|--------|----------------|';
+    for my $r (@{ emit_section_rows($binary, $source_rel) }) {
+        my @c = @$r;
+        # A literal pipe in a description must stay escaped or it splits the
+        # row — the GH #157 defect, in the other direction.
+        $c[1] =~ s/(?<!\\)\|/\\|/g;
+        push @out, '| ' . join(' | ', @c) . ' |';
+    }
+    push @out, '';
+    return @out;
+}
+
 sub main_body {
     # ── The accounting gate, BEFORE anything is read or written ───────
     #
@@ -3639,6 +3769,19 @@ sub main_body {
     if ($rc) {
         print STDERR "\nThe matrix was NOT rewritten.\n" unless $CHECK_ONLY;
         return $rc;
+    }
+    if (defined $EMIT_SECTION) {
+        for my $entry (@SUBSYS) {
+            my ($header, $suite) = @$entry;
+            next unless $header =~ /\Q$EMIT_SECTION\E/;
+            my @sources = map { cmake_sources()->{$_} } as_list($suite);
+            my @flat = grep { defined } map { as_list($_) } @sources;
+            print "$_\n" for emit_section($header,
+                                           'build/test/' . (as_list($suite))[0],
+                                           \@flat);
+            return 0;
+        }
+        fatal("no section matching '$EMIT_SECTION'");
     }
     if ($DUMP_DESC) {
         my ($tot, $with, %shape) = (0, 0);
