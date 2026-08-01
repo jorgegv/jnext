@@ -446,3 +446,42 @@ jobs:
           # is a red job rather than a green one with no artifact in it.
           path: build/mac-release/*.dmg
           if-no-files-found: error
+
+  # The flatpak bundle, actually BUILT on every push rather than skipped.
+  #
+  # The `package` job above reaches package-flatpak but can only validate the
+  # manifest: test/packaging/packaging-test.sh gates the real build on
+  # `flatpak list | grep org.kde.Sdk` and skips without it. Installing
+  # flatpak-builder into that fedora:44 container does NOT fix it — the missing
+  # piece is the org.kde.Sdk//6.10 RUNTIME, a multi-gigabyte Flathub download,
+  # and flatpak-builder additionally needs a privileged container for
+  # bubblewrap's user namespaces. So the manifest was checked and the build was
+  # not, on every push, since the day the manifest landed.
+  #
+  # This is release.yml's flatpak job, deliberately near-verbatim: the same
+  # flathub image with the runtime already baked in, the same --privileged, the
+  # same action. A proven configuration is the point — the last novel workflow
+  # pattern added here (runner.temp in a job-level env) rejected the whole file.
+  #
+  # NOT continue-on-error, unlike release.yml's copy. There it is deliberately
+  # non-blocking so a flatpak hiccup cannot hold up a release; here the entire
+  # purpose is to go red when the bundle stops building, which is exactly what
+  # a release-time continue-on-error cannot tell you.
+  flatpak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
+      options: --privileged
+    steps:
+      # The manifest builds from this checkout (`type: git` + `path: ../..`),
+      # so the tree and its submodules have to be here.
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          bundle: jnext-ci-x86_64.flatpak
+          manifest-path: packaging/flatpak/io.github.zxjogv.jnext.yml
+          cache-key: flatpak-builder-ci-${{ github.sha }}
