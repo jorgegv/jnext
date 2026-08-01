@@ -518,3 +518,22 @@ rows + 4 NR defaults/reset + 6 expansion-bus rows + 5
 precedence/collision rows + 5 IORQ/RMW/contention rows + 3 automap
 rows + 3 wired-OR rows ≈ 88 rows**, every one grounded in a specific
 VHDL line or libz80 symbol citation.
+
+## GH #196 Phase 1.3 — extra-coverage row disposition
+
+The matrix's `## IO Port Dispatch` section carried a stray `### Extra
+coverage (not in plan)` table with 2 rows, `REG-06+07` and
+`BUS-86..89-W`, both with a blank assertion-description column. Both
+were confirmed to be stale duplicates, not genuinely uncovered
+assertions: each cites the exact same `test/port/port_test.cpp` line
+(441 and 1543 respectively) as an existing `check()` call that is
+**already** represented in the main table — `REG-06+07` twice (rows
+"AY select 0xFFFD real" / "AY data 0xBFFD real", one physical
+`check("REG-06+07", ...)` asserting both claims) and `BUS-86..89-W`
+five times (the five NR 0x86-0x89 write-through claims, one physical
+`check("BUS-86..89-W", ...)` asserting all five). This is the same
+"one `check()` call, several plan rows, same ID" convention already
+used elsewhere in this table (e.g. `NR85-03`/`NR85-03b`/`NR85-03c`).
+Both extra-coverage rows were removed as redundant duplicates rather
+than folded into the plan — folding would have double-counted
+coverage already fully accounted for by the existing main-table rows.

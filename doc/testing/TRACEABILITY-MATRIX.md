@@ -3161,13 +3161,6 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | BUS-02        | Disabled port yields default-read byte                       | zxnext.vhd:2428      | pass    | test/port/port_test.cpp:1963 |
 | BUS-03        | SCLD read gated by `nr_08_port_ff_rd_en`, not just `port_ff… | zxnext.vhd:2813      | pass    | test/port/port_test.cpp:2097 |
 
-### Extra coverage (not in plan)
-
-| Test ID      | Assertion description | VHDL file:line | Test file:line              |
-|--------------|-----------------------|----------------|-----------------------------|
-| REG-06+07    |                       | —              | test/port/port_test.cpp:441 |
-| BUS-86..89-W |                       | —              | test/port/port_test.cpp:1543 |
-
 ## Input — `test/input/input_test.cpp`
 
 Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
