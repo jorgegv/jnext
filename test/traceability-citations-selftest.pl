@@ -2897,6 +2897,42 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
     check('SELF-105', 'END TO END: and it reaches the write, so (a) pinned a refusal and not a no-op script',
           $before_b ne $after_b,
           $before_b ne $after_b ? "rewritten" : "NOT rewritten ($before_b)");
+
+    # (c) GH #202 — `--emit-to` must write the SAME document the in-place run
+    # writes.
+    #
+    # It did not. emit_matrix() returns TWO array refs, (\@out, \@report), and
+    # this one caller collected the REFS into a list, so join() stringified
+    # them: the file was two lines reading "ARRAY(0x...)" no matter what the
+    # document contained. The other two callers unpack it correctly, which is
+    # why nothing else showed it, and the flag has no caller in the Makefile,
+    # the gates or CI — so no gate could.
+    #
+    # It is worth a row because of what the flag is FOR: inspecting the emitted
+    # document before letting it replace the committed one. A validation aid
+    # that silently emits two lines of hex is worst exactly when it is reached
+    # for. Byte-equality against the in-place output is the discriminating
+    # assertion — it fails on the old code and cannot be satisfied by a writer
+    # that emits anything else.
+    my $mpath_c = $build_e2e->(undef);
+    $run->();                                    # in-place: the authoritative write
+    my $inplace_digest = $digest->($mpath_c);
+    my $emitted = "$E2E/emit-to-output.md";
+    system("perl '$E2E/test/refresh-traceability-matrix.pl' "
+         . "--emit-to='$emitted' >/dev/null 2>&1");
+
+    check('SELF-196', 'END TO END: --emit-to writes the same bytes as the in-place run (GH #202)',
+          $digest->($emitted) eq $inplace_digest,
+          $digest->($emitted) eq $inplace_digest
+            ? 'identical'
+            : sprintf('emit-to %s vs in-place %s',
+                      $digest->($emitted), $inplace_digest));
+
+    my $emitted_body = '';
+    if (open(my $eh2, '<', $emitted)) { local $/; $emitted_body = <$eh2>; close $eh2; }
+    check('SELF-197', 'END TO END: and it contains no stringified array refs (the GH #202 symptom)',
+          $emitted_body !~ /ARRAY\(0x/,
+          $emitted_body =~ /ARRAY\(0x/ ? 'ARRAY(0x...) present' : 'none');
 }
 
 # ── GH #196 phase 2: the description tiers ────────────────────────────
@@ -3134,7 +3170,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 195;
+my $EXPECTED_ROWS = 197;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"

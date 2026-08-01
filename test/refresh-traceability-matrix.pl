@@ -4170,11 +4170,22 @@ sub main_body {
         return $rc;
     }
     if (defined $EMIT_TO) {
-        my @doc = emit_matrix($subsys, $declared);
+        # emit_matrix() returns TWO array refs, (\@out, \@report) — so a plain
+        # `my @doc = emit_matrix(...)` collects the REFS, and join() stringified
+        # them: this wrote a 2-line file reading "ARRAY(0x...)" twice, whatever
+        # the document contained. The other two callers unpack it correctly
+        # (the real writer takes ($doc, $rep); --emit-section takes ($doc)),
+        # which is why only this flag was affected and nothing noticed — it has
+        # no caller in the Makefile, the gates, the selftest or CI.
+        #
+        # It matters anyway: this flag exists to inspect the emitted document
+        # BEFORE letting it replace the committed one, so silently emitting two
+        # lines of hex is worst exactly when someone reaches for it.
+        my ($doc) = emit_matrix($subsys, $declared);
         open(my $out, '>', $EMIT_TO) or fatal("write $EMIT_TO: $!");
-        print $out join("\n", @doc), "\n";
+        print $out join("\n", @$doc), "\n";
         close $out;
-        printf("emitted %d lines to %s\n", scalar @doc, $EMIT_TO);
+        printf("emitted %d lines to %s\n", scalar @$doc, $EMIT_TO);
         return 0;
     }
     if (defined $EMIT_SECTION) {
