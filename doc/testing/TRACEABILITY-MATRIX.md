@@ -24,7 +24,7 @@ mentions them, so a test can no longer be absent from this document.
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
 | Memory/MMU                                 |   274 |  236 |    0 |    0 |      38 |          0 |
 | ULA Video                                  |   158 |  122 |    0 |    0 |      36 |          0 |
-| Layer2                                     |   208 |  200 |    0 |    0 |       8 |          0 |
+| Layer2                                     |   209 |  201 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   222 |  214 |    0 |    0 |       8 |          0 |
 | Tilemap                                    |    95 |   72 |    0 |    0 |      23 |          0 |
 | Copper                                     |    95 |   86 |    0 |    0 |       9 |          0 |
@@ -37,8 +37,8 @@ mentions them, so a test can no longer be absent from this document.
 | UART+I2C/RTC                               |   120 |  117 |    0 |    0 |       3 |          0 |
 | NextREG                                    |   115 |   67 |    0 |    0 |      48 |          0 |
 | IO Port Dispatch                           |   127 |  116 |    0 |    0 |      11 |          0 |
-| Input                                      |   353 |  341 |    0 |    0 |      12 |          0 |
-| Rewind                                     |    18 |    0 |    0 |    0 |      18 |          0 |
+| Input                                      |   354 |  342 |    0 |    0 |      12 |          0 |
+| Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
 | Floating Bus                               |    39 |   37 |    0 |    0 |       2 |          0 |
 | VideoTiming                                |    46 |   43 |    0 |    0 |       3 |          0 |
 | Contention                                 |   133 |  127 |    0 |    0 |       6 |          0 |
@@ -46,7 +46,7 @@ mentions them, so a test can no longer be absent from this document.
 | SD Card                                    |    52 |   49 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    79 |   57 |    0 |    0 |      22 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
-| CPU/Z80N/IM2 regressions                   |    24 |   24 |    0 |    0 |       0 |          0 |
+| CPU/Z80N/IM2 regressions                   |    52 |   52 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   147 |  145 |    0 |    2 |       0 |          0 |
 | ESP-01 AT engine                           |   147 |  147 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4105 | 3730 |    0 |    3 |     372 |          0 |
+| **Total**                                  |  4138 | 3760 |    0 |    3 |     375 |          0 |
 
-Rows the sections above carry: **4105**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **0**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
+Rows the sections above carry: **4138**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **3932**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -799,6 +799,7 @@ Notes and rationale: [LAYER2-TEST-PLAN-DESIGN.md](LAYER2-TEST-PLAN-DESIGN.md).
 | G11-01a | narrow: priority bit on (idx K) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:1982 |
 | G11-01b | narrow: priority bit off (idx K+1) overwrites priority_dst false (doubled) | — | pass | test/layer2/layer2_test.cpp:1988 |
 | G11-01c | narrow: priority bit on (idx K+2) propagates to priority_dst (doubled) | — | pass | test/layer2/layer2_test.cpp:1994 |
+| G11-02a-PRECOND | palette layer2_rgb8(K) == NR 0x14 (= 0xE3) | — | pass | test/layer2/layer2_test.cpp:2018 |
 | G11-02b | narrow: transparent L2 pixel leaves priority_dst untouched | — | pass | test/layer2/layer2_test.cpp:2038 |
 | G11-03a | wide: priority bit on (idx K) propagates at cols 0..1 (doubled) | — | pass | test/layer2/layer2_test.cpp:2072 |
 | G11-03b | wide: priority bit off (idx K+1) overwrites false at cols 2..3 (doubled) | — | pass | test/layer2/layer2_test.cpp:2076 |
@@ -2894,6 +2895,7 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | MOUSE-13 | SDL motion → inject_delta → 0xFBDF/0xFFDF; Y axis is negated (Kempston Cartesian-Y: UP increments Y register) (G43) | zxnext.vhd:3543-3561 | pass | test/input/input_test.cpp:2574 |
 | MOUSE-14 | SDL button → set_buttons → 0xFADF active-low (G43) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2613 |
 | MOUSE-15 | SDL wheel → 4-bit counter mod-16 → 0xFADF[7:4] (G43) | zxnext.vhd:3560 | pass | test/input/input_test.cpp:2645 |
+| MOUSE-13-14-15-SDL | handle_sdl_event routes motion/button/wheel; ignores other | — | pass | test/input/input_test.cpp:2690 |
 | MOUSE-16 | reset() clears a held button so it cannot latch across a capture drop (issue #37) | — | pass | test/input/input_test.cpp:2719 |
 | MOUSE-17 | reset() clears EVERY button and the wheel, not just one (issue #37) | — | pass | test/input/input_test.cpp:2735 |
 | FNK-04 | F7 press increments NR 0x09 bits 1:0 (scanlines) (VHDL :5861-5863) | — | pass | test/input/input_test.cpp:3182 |
@@ -3051,6 +3053,8 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 ## Rewind — `test/rewind/rewind_test.cpp`
 
+> **Rows below read `missing` because this suite asserts WITHOUT row IDs**, not because the behaviour is untested: it uses a bare `CHECK(cond, text)` macro and carries no ID literal at all, so no assertion can be matched to a row by name. Its citation column is the declared tombstone `(jnext-internal)` — it has no VHDL counterpart.
+
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
 | RING-01 | Buffer starts empty | — | missing | — |
@@ -3071,6 +3075,9 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | RB-FRAME-01 | take_snapshot bound assertion absent (G67) | — | missing | — |
 | RB-FRAME-02 | Post-widening clean error path absent (G67) | — | missing | — |
 | RB-FRAME-03 | Construction-vs-measured size match check (G67) | — | missing | — |
+| RW-RT-01 | Snapshot size is greater than zero | — | missing | — |
+| RW-RT-02 | Snapshot is under 3 MB (sanity bound) | — | missing | — |
+| RW-RT-03 | save_state writes exactly snap_size bytes (pass 1) | — | missing | — |
 
 ## Floating Bus — `test/floating_bus/floating_bus_test.cpp`
 
@@ -3411,6 +3418,8 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 ## SD Card — `test/sdcard/sdcard_test.cpp`
 
+> Citations in this section are the declared tombstone `(SD SPI spec)`: this suite has no VHDL counterpart to cite.
+
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
 | INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:171 |
@@ -3572,32 +3581,62 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-NOT-TAKEN | DJNZ with B=1 (branch NOT taken) still updates the IncDecZ latch that LDWS reads as F.P | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1361 |
-| V11-CPU-01-IM2-DDFD-ED-NO-RETI | `DD ED 4D` must not pulse reti_seen: after S_DDFD_T4 any non-DD/FD byte returns the decoder to S_0 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1522 |
-| V11-CPU-02-Z80N-PIXELDN-BAND3-WRAP-PRESERVES-H-HIGH | PIXELDN band-3 wrap preserves H[7:5] (the third-of-screen bits) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1587 |
-| V12-CPU-NIT-02-Z80N-OUTINB-EXTENDED-M1-CONTEND-NO-MREQ | OUTINB's extended 5T inner M1 emits per-T-state contend-no-MREQ on IR, not a bare `tstates += 1` | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1747 |
-| V14-CPU-01-INC-BC-UPDATES-INCDECZ-VHDL-1361 | plain `INC BC` updates IncDecZ (DPair=00 satisfies the latch gate) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1843 |
-| V14-CPU-01-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | plain `DEC BC` updates IncDecZ | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1902 |
-| V14-CPU-01-INC-HL-MUST-NOT-UPDATE-INCDECZ | negative case: `INC HL` (DPair!=00) must NOT update IncDecZ | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1971 |
-| V14-CPU-NIT-01-A-DD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | DD-prefixed `INC BC` still updates IncDecZ (the prefix walk must not reclassify it) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2059 |
-| V14-CPU-NIT-01-B-FD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | FD-prefixed `INC BC` still updates IncDecZ | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2120 |
-| V14-CPU-NIT-01-C-DD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | DD-prefixed `DEC BC` still updates IncDecZ | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2169 |
-| V14-CPU-NIT-01-D-FD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | FD-prefixed `DEC BC` still updates IncDecZ | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2216 |
-| V14-CPU-NIT-01-E-DD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | DD-prefixed DJNZ still updates IncDecZ | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2281 |
-| V14-CPU-NIT-01-F-FD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | FD-prefixed DJNZ still updates IncDecZ | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2330 |
-| V17-CPU-01-IM2-INT-REQ-HELD-IN-PULSE-MODE-VHDL-170 | im2_int_req is held at 0 while NR 0xC0 selects pulse mode, so no stale latch survives the switch to IM2 mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2399 |
-| V17-Z80N-01a-BSRF-UB-FREE-VHDL-1006-1014 | BSRF with shift >= 16 fills with 1s (and does not invoke a C++ out-of-range shift) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2461 |
-| V17-Z80N-01b-BSLA-UB-FREE-VHDL-992 | BSLA with shift >= 16 returns 0 (no bits left) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2502 |
-| V17-CPU-NIT-04-BSRA-UB-FREE-VHDL-1006-1014 | BSRA with shift >= 16 replicates the sign bit across the whole result | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2590 |
-| V18R-CPU-NIT-01-LDPIRX-MEMPTR-LO-STROBE | LDPIRX strobes only MEMPTR-lo, matching the VHDL microcode's WZ write | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2643 |
-| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-CTC7 | raise(Im2Level::DMA) must not light CTC7's int_status — CTC4..7 i_int_req is hardwired to '0' | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2696 |
-| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-ULA | the same DMA alias path must not pollute the ULA frame interrupt's status either | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2727 |
-| V19-IM2-03-INT-UNQ-ONE-SHOT-AFTER-ISR | NR 0x20 int_unq is a ONE-cycle pulse: it must not re-arm im2_int_req on ticks after the ISR | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2820 |
-| V19R-CPU-01-INT-REQ-PULSE-SYNTHESIS-MULTI-FRAME-VHDL-101 | a level-modelled raise_req() must still synthesise a one-cycle edge every frame, not only the first | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2933 |
-| V21-IM2-01-INT-LINE-GATED-ON-IM-MODE-VHDL-150-1974 | int_line_asserted()/ack_vector() gate on the Z80 being in IM 2, not only on NR 0xC0 bit 0 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3032 |
-| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175 | on_reti() clears im2_int_req in lock-step with the S_ISR->S_0 transition, never leaving it stale | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3225 |
+| Z80N-FUSE-TSTATES-GLOBAL-INCREMENT | pass2 z80n tstates global increment [86128d5] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:168 |
+| CPU-SAVELOAD-MEMPTR-Q | pass3 save load memptr q [0a64eff] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:216 |
+| Z80N-LDIX-FLAGS-FIXTURE-PRESENT | pass3 ldix flag fixtures present [0a64eff] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:225 |
+| Z80N-Q-HYGIENE-SWAPNIB-SCF | pass4 z80n q hygiene clears q at dispatch [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:318 |
+| Z80N-IFF2-READ-HYGIENE-AT-DISPATCH | pass4 z80n iff2 read hygiene at dispatch [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:411 |
+| Z80N-ADD-HL-NN-MEMPTR | pass4 add nn memptr [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:443 |
+| CPU-SAVELOAD-IFF2-READ-AND-IE-AT-BEHAVIOR | pass4 save load iff2 read interrupts enabled at behavior [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:521 |
+| Z80N-TSTATES-MUL | pass5 pass6 z80n tstates via fuse counter [65b5918+86128d5] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:556 |
+| Z80N-TSTATES-PUSH-NN | pass5 pass6 z80n tstates via fuse counter [65b5918+b4af634] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:574 |
+| Z80N-TSTATES-JP-C-12T | pass5 pass6 z80n tstates via fuse counter [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:595 |
+| Z80N-M1-CONTENTION-STRETCH | pass5 z80n m1 contention stretch [cb8daf7] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:680 |
+| Z80N-LDIX-TOTAL-16T-FROM-PASS-1-AND-6 | pass1 pass6 ldix terminal total tstates [65b5918+b4af634] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:729 |
+| Z80N-LDIX-INTERNAL-IDLE-CONTENTION-STRETCH | pass7 ldix internal idle contention stretch [07ed205] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:859 |
+| Z80N-LDIX-SKIP-WRITE-CONTENTION-STRETCH | pass9 ldix skip contention stretch [b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1000 |
+| IM2-ACK-VECTOR-EI-GRACE | pass8 im2 ack vector ei grace [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1098 |
+| CPU-CHAINED-PREFIX-DD-ED-WALKS | pass9 chained prefix dd ed walks [b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1162 |
+| CPU-CB-INNER-BYTE-M1-CALLBACK | pass8 cb inner byte m1 callback [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1205 |
+| Z80N-PUSH-NN-WZ-LO-ONLY | pass8 push nn wz lo only [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1240 |
+| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-TAKEN | pass9 ldws incdecz after djnz [was Pass-9 b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1303 |
+| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-NOT-TAKEN | v13 cpu 01 ldws incdecz after djnz not taken | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1361 |
+| Z80N-LDPIRX-FLAGS-FIXTURE-PRESENT | pass10 ldpirx flags present [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1373 |
+| Z80N-ADD-HL-A-FORCE-FC-ZERO | pass10 add hl a force carry zero [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1406 |
+| IM2-RETI-DECODE-SIMULTANEITY-NESTED-ISR | pass10 im2 reti decode simultaneity [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1451 |
+| V11-CPU-01-IM2-DDFD-ED-NO-RETI | v11 cpu 01 im2 ddfd ed no reti | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1522 |
+| V11-CPU-02-Z80N-PIXELDN-BAND3-WRAP-PRESERVES-H-HIGH | v11 cpu 02 pixeldn band3 wrap preserves h high | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1587 |
+| V11-CPU-02-Z80N-PIXELDN-ROW191-WRAP-UNCHANGED | v11 cpu 02 pixeldn row191 wrap unchanged [guard] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1619 |
+| V12-CPU-NIT-02-Z80N-OUTINB-EXTENDED-M1-CONTEND-NO-MREQ | v12 cpu nit 02 outinb extended m1 contend no mreq | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1747 |
+| V14-CPU-01-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu 01 inc bc updates incdecz for ldws | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1843 |
+| V14-CPU-01-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu 01 dec bc updates incdecz for ldws | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1902 |
+| V14-CPU-01-INC-HL-MUST-NOT-UPDATE-INCDECZ | v14 cpu 01 inc hl does not update incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1971 |
+| V14-CPU-NIT-01-A-DD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 dd inc bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2059 |
+| V14-CPU-NIT-01-B-FD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 fd inc bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2120 |
+| V14-CPU-NIT-01-C-DD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 dd dec bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2169 |
+| V14-CPU-NIT-01-D-FD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 fd dec bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2216 |
+| V14-CPU-NIT-01-E-DD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | v14 cpu nit 01 dd djnz updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2281 |
+| V14-CPU-NIT-01-F-FD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | v14 cpu nit 01 fd djnz updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2330 |
+| V17-CPU-01-IM2-INT-REQ-HELD-IN-PULSE-MODE-VHDL-170 | v17 cpu 01 im2 int req held in pulse mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2399 |
+| V17-Z80N-01a-BSRF-UB-FREE-VHDL-1006-1014 | v17 z80n 01 bsrf shift ge 16 fills ones | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2461 |
+| V17-Z80N-01b-BSLA-UB-FREE-VHDL-992 | v17 z80n 01 bsla shift ge 16 zero | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2502 |
+| V17-CPU-NIT-04-BSRA-UB-FREE-VHDL-1006-1014 | v17 cpu nit 04 bsra shift ge 16 sign fill | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2590 |
+| V18R-CPU-NIT-01-LDPIRX-MEMPTR-LO-STROBE | v18r cpu nit 01 ldpirx memptr lo strobe | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2643 |
+| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-CTC7 | v18r cpu 02 dma raise no pollute ctc7 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2696 |
+| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-ULA | v18r cpu 02 dma raise no pollute ula | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2727 |
+| V19-IM2-03-INT-UNQ-ONE-SHOT-AFTER-ISR | v19 im2 03 int unq one shot after isr | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2820 |
+| V19R-CPU-01-INT-REQ-PULSE-SYNTHESIS-MULTI-FRAME-VHDL-101 | v19r cpu 01 int req pulse synthesis multi frame | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2933 |
+| V21-IM2-01-INT-LINE-GATED-ON-IM-MODE-VHDL-150-1974 | v21 im2 01 int line gated on im mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3032 |
+| CPU-SOFTRESET-01 | soft reset preserves BC/DE/HL | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3136 |
+| CPU-SOFTRESET-02 | soft reset preserves the shadow set BC'/DE'/HL' | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3139 |
+| CPU-SOFTRESET-03 | soft reset preserves IX/IY | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3142 |
+| CPU-SOFTRESET-04 | soft reset sets the t80n reset state: PC=0 SP=FFFF AF=FFFF I=0 IFF/IM=0 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3145 |
+| CPU-HARDRESET-01 | hard reset zeroes the register file (power-on model) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3156 |
+| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175 | v22 im2 01 on reti clears im2 int req latch | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3225 |
 
 ## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`
+
+> Citations in this section are the declared tombstone `(host sockets)`: this suite has no VHDL counterpart to cite.
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
@@ -3750,6 +3789,8 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | ASYNC-12 | a throwing resolver degrades to a failed lookup instead of aborting the process, and its half-built address list is discarded | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1512 |
 
 ## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`
+
+> Citations in this section are the declared tombstone `(ESP-AT firmware)`: this suite has no VHDL counterpart to cite.
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|

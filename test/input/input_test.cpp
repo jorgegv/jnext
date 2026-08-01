@@ -2687,7 +2687,7 @@ static void test_mouse() {
         // Y is negated by MouseDispatcher to convert host screen-Y to
         // Kempston Cartesian-Y: yrel=+0x44 (mouse moved DOWN) lands as
         // y_ = -0x44 mod 256 = 0xBC. See MOUSE-13 above for the rationale.
-        check("MOUSE-13/14/15-SDL",
+        check("MOUSE-13-14-15-SDL",
               "handle_sdl_event routes motion/button/wheel; ignores other",
               consumed_mot && consumed_bdn && consumed_whl && !consumed_other &&
               fbdf == 0x33 && ffdf == 0xBC &&

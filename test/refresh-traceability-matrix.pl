@@ -3798,6 +3798,29 @@ sub emit_section_from_rows {
         push @out, "Notes and rationale: [" . (split m{/}, $pd)[-1] . "]("
                  . (split m{/}, $pd)[-1] . ").", '';
     }
+    # A suite with a declared citation tombstone has no VHDL counterpart, and
+    # in practice these suites also assert WITHOUT row IDs — rewind_test uses a
+    # bare `CHECK(cond, text)` macro and carries no ID literal at all. Their
+    # rows therefore read `missing` because no assertion can be matched to
+    # them BY NAME, not because the behaviour is untested. Saying so is the
+    # difference between an honest gap and a false one. (Found in review.)
+    if (my $tomb = $TOMBSTONE{ suite_for_source($sources[0]) }) {
+        # The ID-less sentence is emitted only where it is TRUE — measured,
+        # not assumed from the presence of a tombstone. The ESP suites carry a
+        # tombstone (nothing in the FPGA core to cite) but assert with proper
+        # row IDs, so claiming otherwise for them would be a fresh false
+        # statement of exactly the kind this document is being cleaned of.
+        my $ids = 0;
+        for my $src (@sources) { $ids += scalar keys %{ grep_row_ids($src) } }
+        push @out, $ids == 0
+          ? "> **Rows below read `missing` because this suite asserts WITHOUT "
+          . "row IDs**, not because the behaviour is untested: it uses a bare "
+          . "`CHECK(cond, text)` macro and carries no ID literal at all, so no "
+          . "assertion can be matched to a row by name. Its citation column is "
+          . "the declared tombstone `$tomb` — it has no VHDL counterpart."
+          : "> Citations in this section are the declared tombstone `$tomb`: "
+          . "this suite has no VHDL counterpart to cite.", '';
+    }
     push @out, '| Test ID | Description | VHDL file:line | Status | Test file:line |';
     push @out, '|---------|-------------|----------------|--------|----------------|';
     for my $r (@$rows) {
@@ -3912,6 +3935,7 @@ sub emit_matrix {
     my $exceptions = read_exceptions();
     my @report;
     my @sections;
+    my @all_rows;
     # Which `###` companions belong to which `##` parent, read from @SUBSYS
     # order: a companion follows its parent. The relationship is load-bearing
     # in BOTH directions — the companion must not re-list the parent's plan,
@@ -3966,6 +3990,7 @@ sub emit_matrix {
             push @$rows, [$e->[0], $e->[1], '—', 'missing', '—'];
         }
         push @sections, emit_section_from_rows($header, $flat[0], $rows);
+        push @all_rows, $rows;
         my %n;
         $n{ $_->[3] }++ for @$rows;
         my $uncited = grep { $_->[2] eq '—' } @$rows;
@@ -3977,9 +4002,22 @@ sub emit_matrix {
     push @out, '## Summary', '';
     push @out, $SUMMARY_BEGIN;
     # render_summary() returns an ARRAYREF, not a list.
+    # $recorded_total is COMPUTED, not passed as a literal 0. It was, and the
+    # committed document consequently published "Distinct row IDs recorded
+    # anywhere in this document: 0" directly under a table listing 4105 rows —
+    # a fabricated counter in a file whose own banner says every cell is
+    # computed, and one no diff-based staleness gate can ever catch because it
+    # is deterministic. (Found in review.)
+    #
+    # $xtra_total and $unref stay 0/empty because they are now STRUCTURALLY
+    # zero: the "Extra coverage (not in plan)" tables and the unrefreshed
+    # tables they counted do not exist in an emitted document.
+    my %distinct;
+    $distinct{ $_->[0] } = 1 for map { @$_ } @all_rows;
     push @out, @{ render_summary([map { [@{$_}[0 .. 5], 0] } @report],
                                  tombstoned_suites($declared),
-                                 0, declared_totals(), 0, []) };
+                                 scalar(keys %distinct),
+                                 declared_totals(), 0, []) };
     push @out, $SUMMARY_END, '';
     push @out, emit_cite_explainer();
     push @out, @sections;
