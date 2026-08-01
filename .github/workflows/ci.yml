@@ -387,3 +387,51 @@ jobs:
 
       - name: make package-test (build every package, assert its contents)
         run: LANG=C make package-test
+
+  # macOS is the ONE platform the regular push path did not cover.
+  #
+  # Windows already is, and adding a second Windows job here would duplicate
+  # it: the `package` job above installs the full MinGW cross toolchain in the
+  # same fedora:44 container and `make package-test` builds package-win,
+  # package-win-qt5, package-win-sdl, package-win32-qt5 and package-win32-sdl,
+  # asserting each zip's contents. macOS was excluded from that suite by
+  # construction — packaging-test.sh:25 says so — because the .dmg needs a Mac.
+  # Only verify-bundle.sh's CONTRACT was checked on Linux, never a real bundle.
+  #
+  # So until now a macOS break was invisible until release time, on the one
+  # leg whose failure mode has actually bitten users: the v0.98.34 .dmg
+  # referenced Homebrew paths and aborted in dyld on every Mac but the
+  # builder's (GH #46). Finding that at tag time is finding it too late.
+  #
+  # Same plain make target a local Mac build uses, per the CI hard rule —
+  # package-macos configures, builds, packages, then mounts the .dmg and
+  # asserts with otool that nothing inside references Homebrew. The artifact is
+  # uploaded so a macOS build can be tested WITHOUT cutting a release, which is
+  # the other half of why the gap hurt.
+  #
+  # This is the only job needing a real macos-latest runner; every other job in
+  # this file is fedora:44. It is deliberately NOT continue-on-error: a gate
+  # that cannot fail anything is not a gate (the same reasoning release.yml's
+  # macos job records).
+  macos:
+    runs-on: macos-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Install dependencies (Homebrew)
+        run: brew install cmake sdl2 qt@6 curl openssl libpng
+
+      - name: make package-macos (build, package, verify self-containment)
+        run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: jnext-macos-dmg
+          # BUILD_DIR_MAC_RELEASE, the same path release.yml's macos job
+          # uploads. `if-no-files-found: error` so a renamed output directory
+          # is a red job rather than a green one with no artifact in it.
+          path: build/mac-release/*.dmg
+          if-no-files-found: error
