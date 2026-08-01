@@ -21,9 +21,21 @@ window. It has its own menu bar — **Debug**, **Map**, **Breakpoints**,
 right-hand edge as you drag or resize that window; the setting is remembered
 between sessions. This needs a window system that lets an application position
 its own windows, so it works on **X11** and is unavailable on **Wayland**,
-where the menu item is greyed out — see
-[8.2](../08-known-issues/02-the-debugger-window-does-not-follow-the-emulator-window.md)
-for why, and how to run under X11 if you want it.
+where the menu item is greyed out. That is not something JNEXT can work
+around: Wayland's window-management protocol has no request for an application
+to place its own window — placement belongs entirely to the compositor. To get
+attachment under a Wayland session, run JNEXT on XWayland's X11 interface:
+
+```console
+$ QT_QPA_PLATFORM=xcb jnext
+```
+
+A native XWayland session reports itself as `xcb` and so looks like X11 from
+inside the application, while the compositor still discards the moves. JNEXT
+therefore checks whether its moves actually land, and if several in a row are
+ignored it stops trying, unticks the menu item and says so in the status bar.
+Re-tick it to retry. That automatic stop does not change your saved
+preference.
 
 ![The debugger window](../img/debugger-window.png)
 
