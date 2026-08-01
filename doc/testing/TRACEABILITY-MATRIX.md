@@ -1124,21 +1124,6 @@ Last-touch commit: `d599cd27615bf61efea60c49fdeb38dc7a6116b3` (`d599cd2761`)
 | TM-140  | TM disabled, tm_on_top=0        | —              | missing | missing                            |
 | TM-141  | TM disabled, tm_on_top=1        | —              | missing | missing                            |
 
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                      | VHDL file:line | Test file:line                     |
-|---------|--------------------------------------------|----------------|------------------------------------|
-| TM-CB1  | Bit 6 = 80-column mode                     | —              | missing                            |
-| TM-CB2  | Bit 7 = enable                             | —              | missing                            |
-| TM-CB3  | Bit 1 = 512-tile mode (forces below)       | —              | missing                            |
-| TM-CB4  | Bit 0 = tm_on_top overrides per-tile below | —              | missing                            |
-| TM-CB5  | Bit 5 mapping (VHDL=strip, C++ may differ) | —              | missing                            |
-| TM-RR1  | Control register roundtrip                 | —              | missing                            |
-| TM-RR2  | Default attr roundtrip                     | —              | missing                            |
-| TM-RR3  | Map base roundtrip                         | —              | missing                            |
-| TM-RR4  | Def base roundtrip                         | —              | missing                            |
-| TM-RR5  | Reset restores all defaults                | —              | missing                            |
-
 ### Companion regression suite — `test/tilemap/tilemap_fetch_split_test.cpp`
 
 Raster-split fetch-state regression (TX-1696): NR `0x6E` / `0x6F` / `0x6C` are
