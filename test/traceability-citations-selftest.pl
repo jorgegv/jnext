@@ -2853,13 +2853,28 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
         return $rc >> 8;
     };
 
-    # (a) THE REFUSAL. One traced suite's `## ` header removed.
-    my $mpath  = $build_e2e->('## Multiface — ');
+    # (a) THE REFUSAL, rewritten for GH #196 phase 2/3.
+    #
+    # What SELF-102/103 used to assert — that a traced suite whose `## ` header
+    # is missing from the document makes the run refuse — tested a path that no
+    # longer exists: the document is EMITTED from @SUBSYS now, so every traced
+    # suite gets a section by construction and one cannot be absent. The
+    # equivalent invariant today is the exceptions file, the single remaining
+    # hand-maintained input: a malformed record must stop the run rather than
+    # be skipped, because silently dropping one restores exactly the
+    # under-claiming this issue removed.
+    my $exc = "$E2E/test/traceability-exceptions.conf";
+    $build_e2e->();
+    open(my $eh, '>', $exc) or die "e2e: write exceptions: $!";
+    print $eh "# fixture\nRewind | RING-01 | two fields is not three\n";
+    print $eh "Rewind | RING-99\n";
+    close $eh;
+    my $mpath  = "$E2E/doc/testing/TRACEABILITY-MATRIX.md";
     my $before = $digest->($mpath);
     my $rc_a   = $run->();
     my $after  = $digest->($mpath);
 
-    check('SELF-102', 'END TO END: a traced suite whose section is absent makes the real process exit 2',
+    check('SELF-102', 'END TO END: a malformed exceptions record makes the real process exit 2',
           $rc_a == 2, "got exit $rc_a");
 
     check('SELF-103', 'END TO END: and that refusal leaves the document byte-identical',

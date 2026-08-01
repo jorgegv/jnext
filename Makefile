@@ -375,8 +375,40 @@ traceability-accounting-check:
 	@# an internal error (3).
 	@perl test/refresh-traceability-matrix.pl --check-accounting
 
+# Fail when the committed traceability matrix is stale vs a fresh generation
+traceability-check: unit-test-build
+	@# GH #196 phase 3.1 — the same shape as docs-check, and for the same
+	@# reason: doc/testing/TRACEABILITY-MATRIX.md is GENERATED and COMMITTED,
+	@# so a stale committed copy is a silent lie no other gate can see. The
+	@# generator is idempotent, so regenerating and diffing is an exact test.
+	@# It needs a built test tree (a row's status comes from running its
+	@# suite), which is why this could not exist while the refresh was a
+	@# manual version-bump step.
+	@tmp=$$(mktemp -d); \
+	 cp doc/testing/TRACEABILITY-MATRIX.md $$tmp/before; \
+	 rc=0; \
+	 perl test/refresh-traceability-matrix.pl >$$tmp/report 2>&1 \
+	   || { printf "$(BADGE_FAIL) FAIL $(RESET) the traceability generator failed\n"; \
+	        cat $$tmp/report; rc=1; }; \
+	 if [ $$rc -eq 0 ] && ! cmp -s $$tmp/before doc/testing/TRACEABILITY-MATRIX.md; then \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) doc/testing/TRACEABILITY-MATRIX.md is stale\n"; \
+	   printf "        it is GENERATED and COMMITTED: commit the regenerated file\n"; \
+	   diff -u $$tmp/before doc/testing/TRACEABILITY-MATRIX.md | head -40; \
+	   rc=1; \
+	 fi; \
+	 [ $$rc -eq 0 ] && printf "$(BADGE_PASS) OK $(RESET) traceability matrix is up to date\n"; \
+	 rm -rf $$tmp; exit $$rc
+
+# Fail when one test ID is asserted by two different suites
+traceability-dup-check:
+	@# GH #196 phase 3.2. Enumerated from test/unit-tests.conf — ALL 90 suites —
+	@# and NOT from the matrix's sections: 49 suites are tombstoned and have no
+	@# section, so a matrix-derived audit under-counts (it cannot see them at all;
+	@# the 29 known ones are baselined in test/traceability-dup-ids.conf.
+	@perl test/traceability-dup-ids.pl
+
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest unit-test-build docs-check package-contract-test
+unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest traceability-dup-check unit-test-build traceability-check docs-check package-contract-test
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
