@@ -2947,28 +2947,6 @@ Last-touch commit: `044f9c57877c114c6c32221b1f9b6016e24e5958` (`044f9c5787`)
 | G56-CR-80  | NR 0x80 expansion-bus dynamic state                                     | zxnext.vhd:5897-6125          | missing | missing                           |
 | G56-CR-81  | NR 0x81 b7 from i_BUS_ROMCS_n                                           | zxnext.vhd:5897-6125          | missing | missing                           |
 
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                         | VHDL file:line | Test file:line                    |
-|---------|-----------------------------------------------|----------------|-----------------------------------|
-| NREG-RST-10 | NR 0x12 L2 active bank (VHDL: 0x08)           | zxnext.vhd:4945  | test/nextreg/nextreg_integration_test.cpp:281 |
-| NREG-RST-11 | NR 0x68 ULA control (VHDL: bit7=NOT ula_en=0) | zxnext.vhd:5003  | test/nextreg/nextreg_integration_test.cpp:291 |
-| NREG-RST-12 | NR 0x6B tilemap = 0x00                        | zxnext.vhd:5004  | test/nextreg/nextreg_integration_test.cpp:301 |
-| NREG-RST-13 | NR 0x82-0x85 internal port enables = 0xFF     | zxnext.vhd:5087-5090 | test/nextreg/nextreg_integration_test.cpp:343 |
-| RST-14  | NR 0x86-0x89 bus port enables = 0xFF          | —              | missing                           |
-| RST-15  | NR 0x4B sprite transparent (VHDL: 0xE3)       | —              | missing                           |
-| RST-16a | NR 0x16 L2 scroll X = 0x00                    | —              | missing                           |
-| RST-16b | NR 0x17 L2 scroll Y = 0x00                    | —              | missing                           |
-| WH-01   | Write handler called with correct value       | —              | missing                           |
-| WH-02   | Write handler via write_selected              | —              | missing                           |
-| WH-03   | Read handler returns 0xDD despite cached 0x11 | —              | missing                           |
-| WH-04   | No handler — direct storage round-trip        | —              | missing                           |
-| EDGE-01 | All 256 registers store and retrieve          | —              | missing                           |
-| EDGE-02 | Reset clears NR 0x7F to 0                     | —              | missing                           |
-| EDGE-03 | Reset restores NR 0x00=0x0A, NR 0x01=0x32     | —              | missing                           |
-| EDGE-04 | Write handler survives reset                  | —              | missing                           |
-| EDGE-05 | Multiple selects, last wins                   | —              | missing                           |
-
 ### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`
 
 Created 2026-04-15 onwards (Phase 2 Wave 1 commit `0dc128e` and beyond) to host integration-tier rows from the NextREG plan that require the full `Emulator` fixture (subsystem wiring for reset defaults, MMU/Layer2/Sprite/Tilemap clip-window cycling, palette pipeline, NR 0x82-bit-6 port-1F gate, NR 0x07/0x08 read composition, NR 0x03 machine-config state, DMA IM2-delay composition, soft-reset semantics, NR 0x8E RAM-rebuild gate, Layer 2 bank routing). Runtime: `Total:  301  Passed:  301  Failed:    0  Skipped:    0`. The 74 rows listed below are only the ones recorded here; 37 more that the suite asserts are recorded in the parent `## NextREG` table above, and the rest are reported `unrecorded` on every run. Each row cross-references the bare-suite plan row when a re-home applies.
@@ -2988,6 +2966,7 @@ Created 2026-04-15 onwards (Phase 2 Wave 1 commit `0dc128e` and beyond) to host 
 | NREG-RST-11 | NR 0x4B sprite transparent index reset = 0xE3                                                    | zxnext.vhd:5003                 | pass    | test/nextreg/nextreg_integration_test.cpp:291  |
 | NREG-RST-12 | NR 0x4C tilemap transparent index reset = 0x0F                                                   | zxnext.vhd:5004                 | pass    | test/nextreg/nextreg_integration_test.cpp:301  |
 | RST-09             | NR 0x1B post-reset read returns tilemap clip_x1 = 0x00                                           | zxnext.vhd:4977-4981, 5971-5977 | pass    | test/nextreg/nextreg_integration_test.cpp:316  |
+| NREG-RST-13 | NR 0xB8/0xB9/0xBA/0xBB DivMMC automap EP reset = 0x83/0x01/0x00/0xCD (V17-NMP-01)                | zxnext.vhd:5087-5090            | pass    | test/nextreg/nextreg_integration_test.cpp:343  |
 | RO-01              | NR 0x00 machine ID reset = 0x0A via port path (NextZXOS-boot fix 2026-07-09)                     | src/port/nextreg.cpp:27         | pass    | test/nextreg/nextreg_integration_test.cpp:1311 |
 | RO-02              | NR 0x00 read-only enforcement (write 0x42; read still 0x0A)                                      | zxnext.vhd:5884-5885            | pass    | test/nextreg/nextreg_integration_test.cpp:1327 |
 | RO-03              | NR 0x01 core version reset = 0x32 (core 3.02)                                                    | src/port/nextreg.cpp:28         | pass    | test/nextreg/nextreg_integration_test.cpp:1338 |

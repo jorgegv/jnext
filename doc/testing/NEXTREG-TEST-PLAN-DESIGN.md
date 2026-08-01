@@ -341,3 +341,64 @@ INPUT plan's Task 58 append).
 Mutation evidence: reverting the read handler to pending-cache bits
 turns T58-NR05-EFF-01 (and input FNK-02/03) RED; restoring turns them
 green.
+
+## GH #196 Phase 1.3 append (2026-08-01) — Extra-coverage table folded/dropped
+
+The `## NextREG` section of `doc/testing/TRACEABILITY-MATRIX.md` carried a
+17-row `### Extra coverage (not in plan)` table (4 columns, no `Status`) —
+rows that escaped the normal main-table scheme, per the GH #192 lineage.
+Disposition, one unit of the GH #196 Phase 1.3 plan:
+
+- **`NREG-RST-10`, `NREG-RST-11`, `NREG-RST-12`** — stale duplicates.
+  The companion `test/nextreg/nextreg_integration_test.cpp` table already
+  carries these exact IDs at the exact same test file:line (281/291/301)
+  with the CURRENT, correct description (verified against the live
+  `check()` call text) — "NR 0x12 Layer 2 active bank reset = 0x08",
+  "NR 0x4B sprite transparent index reset = 0xE3", "NR 0x4C tilemap
+  transparent index reset = 0x0F" respectively. The extra-coverage
+  table's own descriptions for these three IDs were stale/wrong (e.g.
+  it described `NREG-RST-11` as "NR 0x68 ULA control", not NR 0x4B).
+  Removed, no functional loss — the correct row already existed.
+- **`NREG-RST-13`** — genuinely escaped row, folded into the companion
+  table. It had no other row anywhere citing the same ID. Its own
+  extra-coverage description was ALSO stale ("NR 0x82-0x85 internal
+  port enables = 0xFF", duplicating `NREG-RST-08`'s topic) — the actual
+  `check("NREG-RST-13", ...)` call at
+  `test/nextreg/nextreg_integration_test.cpp:343` asserts the DivMMC
+  automap entry-point registers NR 0xB8/0xB9/0xBA/0xBB reset to
+  0x83/0x01/0x00/0xCD (`zxnext.vhd:5087-5090`; V17-NMP-01 fix). Folded
+  in with the corrected description.
+- **13 rows had no live test anywhere** (`grep -rn` over `test/nextreg/`
+  returns zero hits for the ID string): `RST-14`, `RST-15`, `RST-16a`,
+  `RST-16b`, `WH-01..04`, `EDGE-01..05`. Git history (`git log -S`)
+  traces all 13 to commit `6a8094fb` ("rewrite in Phase 2 per-row
+  idiom"), which dropped them without replacement when the suite
+  adopted the current VHDL-citation-per-row discipline documented at
+  the top of `test/nextreg/nextreg_test.cpp`. Per-row disposition:
+  - `WH-01..04` and `EDGE-01`/`EDGE-05` tested the bare `NextReg`
+    class's generic handler-registration mechanism (write/read handler
+    dispatch, 256-register round-trip, multi-select "last wins") —
+    implementation-detail tests with no VHDL citation, deliberately
+    incompatible with the current "every row cites VHDL" idiom.
+    Correctly dropped, not a coverage gap.
+  - `EDGE-02` ("reset clears NR 0x7F to 0") and `EDGE-03` ("reset
+    restores NR 0x00=0x0A") are actively **contradicted** by current,
+    VHDL-faithful behaviour: NR 0x7F has no VHDL reset clause and
+    SURVIVES reset (see the `nextreg_integration_test` "NR 0x7F
+    survives reset" row), and the bare class deliberately resets NR
+    0x00 to 0x08 (`HWID_EMULATORS`), not the VHDL 0x0A (see `MID-01`
+    in the companion table, which covers the real 0x0A behaviour at
+    the integration tier). Stale, not a live gap.
+  - `RST-15` ("NR 0x4B sprite transparent = 0xE3") is fully covered
+    today under `NREG-RST-11` in the companion table — same register,
+    same expected value, different (current) ID.
+  - `RST-14` ("NR 0x86-0x89 bus port enables = 0xFF") is superseded by
+    the current, more nuanced `PE-05` (NR 0x89 reset = 0x8F, not 0xFF,
+    reset-type dependent) and the still-open `PE-08` gap (bit-7
+    inversion on `reset_type=0`) — the old blanket-0xFF framing across
+    all four registers does not hold under closer VHDL reading.
+  - `EDGE-04` ("write handler survives reset") and `RST-16a`/`RST-16b`
+    (NR 0x16/0x17 L2 scroll-X/Y reset default = 0x00) are genuine gaps
+    with no current equivalent — dropped as orphans, not folded (no
+    live test exists to fold).
+  All 13 dropped; none folded.
