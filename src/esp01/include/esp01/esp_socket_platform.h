@@ -40,13 +40,29 @@ bool init(std::string& err);
 /// layer — and only when `numeric_only` is false. With `numeric_only` set the
 /// lookup is `AI_NUMERICHOST`: an IP literal succeeds with no network traffic
 /// and anything else fails immediately.
+///
+/// PROTOCOL-INDEPENDENT ON PURPOSE (GH #198). The hints stay `SOCK_STREAM` even
+/// for a UDP target: with a null service, the socktype hint only collapses the
+/// duplicate per-socktype entries `getaddrinfo` would otherwise return, and the
+/// ADDRESSES it yields are identical either way — a name resolves to hosts, not
+/// to protocols. Keeping one form also keeps the public `ResolveFn` seam
+/// (esp_socket.h), which a consumer may replace and which has no socktype
+/// parameter, honest about what it is asked for.
 bool resolve(const std::string& host, bool numeric_only,
              std::vector<IpAddress>& out, std::string& err);
 
-/// Create a TCP socket for `family` already in non-blocking mode (and with
-/// SIGPIPE suppressed where that is a per-socket option). Returns
+/// Create a socket for `family` and `proto` already in non-blocking mode (and
+/// with SIGPIPE suppressed where that is a per-socket option). Returns
 /// `kInvalidSocket` on failure.
-NativeSocket open_nonblocking(IpFamily family, std::string& err);
+///
+/// `local_port` binds the socket to that local port before any connect, and is
+/// used only by UDP (`AT+CIPSTART`'s optional `<local port>`); 0 leaves the
+/// port to the OS. A bind failure — the port is already in use, or privileged —
+/// is a HARD failure returning `kInvalidSocket`, never a silent fall back to an
+/// ephemeral port: a guest that named a port and got a different one would
+/// receive nothing and have no way to find out why.
+NativeSocket open_nonblocking(IpFamily family, Protocol proto,
+                              std::uint16_t local_port, std::string& err);
 
 /// Issue the non-blocking `connect`. `Pending` is the normal outcome
 /// (EINPROGRESS / WSAEWOULDBLOCK); `Connected` happens on an immediate
@@ -65,14 +81,22 @@ std::size_t send(NativeSocket s, const std::uint8_t* data, std::size_t len,
 /// Non-blocking receive. Returns bytes read (0 when nothing is available).
 /// `eof` marks an orderly peer close; `failed` a real error.
 ///
+/// `stream` says whether a zero-byte read is an END OF STREAM. It is true for
+/// TCP and MUST be false for UDP: a datagram socket never reports EOF, and a
+/// zero-length datagram is a legal thing for a peer to send, so reading 0 as
+/// EOF there would tear down a perfectly live connection (GH #198). It is a
+/// parameter rather than a `Protocol` because this is the only distinction the
+/// syscall shims need to make — everything else about the protocol was decided
+/// when the socket was created.
+///
 /// `reset` narrows `failed` to the ONE cause the caller has to treat
 /// differently: the peer terminated the connection with a TCP RST
 /// (`ECONNRESET` / `WSAECONNRESET`) instead of a FIN. Set only when `failed`
 /// is, and never for any other error code — the classification is the whole
 /// value of the flag, so widening it to "connection-ish errors" would destroy
 /// it. See `SocketTransport::recv` for what the distinction buys (GH #176).
-std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool& eof,
-                 bool& failed, bool& reset, std::string& err);
+std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool stream,
+                 bool& eof, bool& failed, bool& reset, std::string& err);
 
 void close(NativeSocket s);
 

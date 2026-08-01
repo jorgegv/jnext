@@ -233,6 +233,73 @@ private:
     std::uint16_t port_ = 0;
 };
 
+/// An in-process UDP peer on 127.0.0.1, the datagram twin of `Listener`
+/// (GH #198). It is a peer rather than a listener because UDP has nothing to
+/// accept: it binds, and whatever arrives carries its own return address.
+///
+/// The rows use it to prove the three things a datagram transport must get
+/// right and a stream transport never has to: that boundaries survive, that a
+/// silent socket is not an EOF, and that `<local port>` really binds — the last
+/// of which is only observable from OUT HERE, in the source port the peer sees.
+class UdpPeer {
+public:
+    bool start() {
+        fd_ = ::socket(AF_INET, SOCK_DGRAM, 0);
+        if (fd_ < 0) return false;
+        sockaddr_in sa{};
+        sa.sin_family      = AF_INET;
+        sa.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sa.sin_port        = 0;  // kernel picks a free port — no fixed port, ever
+        if (::bind(fd_, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) != 0) return false;
+        sockaddr_in bound{};
+        socklen_t   len = sizeof(bound);
+        if (::getsockname(fd_, reinterpret_cast<sockaddr*>(&bound), &len) != 0) return false;
+        port_ = ntohs(bound.sin_port);
+        return port_ != 0;
+    }
+
+    /// Wait for one datagram, recording where it came from so a reply can be
+    /// sent back and so the source PORT can be asserted.
+    std::string receive_one(int timeout_ms) {
+        pollfd p{};
+        p.fd     = fd_;
+        p.events = POLLIN;
+        if (::poll(&p, 1, timeout_ms) <= 0) return {};
+        char      buf[4096];
+        socklen_t len = sizeof(from_);
+        const ssize_t n =
+            ::recvfrom(fd_, buf, sizeof(buf), 0, reinterpret_cast<sockaddr*>(&from_), &len);
+        if (n < 0) return {};
+        have_from_ = true;
+        return std::string(buf, static_cast<std::size_t>(n));
+    }
+
+    /// Send one datagram back to whoever last sent to us.
+    bool reply(const std::string& s) {
+        if (!have_from_) return false;
+        return ::sendto(fd_, s.data(), s.size(), 0, reinterpret_cast<sockaddr*>(&from_),
+                        sizeof(from_)) == static_cast<ssize_t>(s.size());
+    }
+
+    /// The source port of the last datagram received — the transport's LOCAL
+    /// port, as observed from the other end of the wire.
+    std::uint16_t peer_source_port() const { return ntohs(from_.sin_port); }
+
+    std::uint16_t port() const { return port_; }
+
+    void stop() {
+        if (fd_ >= 0) ::close(fd_);
+        fd_ = -1;
+    }
+    ~UdpPeer() { stop(); }
+
+private:
+    int           fd_        = -1;
+    std::uint16_t port_      = 0;
+    bool          have_from_ = false;
+    sockaddr_in   from_{};
+};
+
 /// Close `fd` so that the OS emits a TCP **RST** instead of a FIN.
 ///
 /// `SO_LINGER` with `l_onoff=1` and `l_linger=0` is the documented way to ask
@@ -1035,6 +1102,136 @@ int main() {
                 std::printf("  SKIP %s: could not bind a loopback listener\n", id);
             }
         }
+    }
+
+    // ═══ UDPT — real datagram I/O against an in-process UDP peer (GH #198) ═
+    //
+    // What a stream transport never has to get right, and what these rows are
+    // therefore for:
+    //   * a datagram "connect" has no handshake, so `Connecting` is skipped
+    //     entirely and the reply to AT+CIPSTART is due on the first poll;
+    //   * `recv() == 0` is NOT an end of stream, so a quiet socket must not
+    //     close the connection;
+    //   * one `recv` is one datagram, so two messages come back as two;
+    //   * `<local port>` is only provable from the peer's side, in the source
+    //     port it observes.
+    // The address policy half is deliberately re-asserted here too: UDP would
+    // otherwise be a way round a gate that was only ever exercised over TCP.
+    {
+        UdpPeer peer;
+        if (peer.start()) {
+            auto t = make_socket_transport(loopback_ok());
+            check("UDPT-01", "a UDP connect request is accepted",
+                  t->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, 0));
+            check("UDPT-02",
+                  "...and completes through poll() alone, never passing through Connecting "
+                  "— a datagram connect has no handshake to wait for",
+                  pump_until(*t, TransportState::Connected));
+
+            const std::string req(48, '\x11');
+            check("UDPT-03", "send() puts the whole datagram out, all-or-nothing",
+                  t->send(reinterpret_cast<const std::uint8_t*>(req.data()), req.size()) ==
+                      req.size());
+            check("UDPT-04", "the peer receives exactly that datagram",
+                  peer.receive_one(1000) == req);
+
+            std::uint8_t rx[2048];
+            check("UDPT-05",
+                  "recv() with nothing pending returns 0 and stays Connected — UDP has no "
+                  "EOF, so a quiet socket must not close the connection",
+                  t->recv(rx, sizeof(rx)) == 0 && t->state() == TransportState::Connected);
+
+            // Two datagrams, sent back to back, must come back as TWO reads of
+            // their own lengths — the property a byte stream destroys.
+            peer.reply("ONE");
+            peer.reply("LONGER-TWO");
+            std::vector<std::string> got;
+            for (int waited = 0; waited < 1000 && got.size() < 2; waited += 2) {
+                const std::size_t n = t->recv(rx, sizeof(rx));
+                if (n == 0) { sleep_ms(2); continue; }
+                got.emplace_back(reinterpret_cast<char*>(rx), n);
+            }
+            check("UDPT-06", "two datagrams arrive as two reads with their own boundaries",
+                  got.size() == 2 && got[0] == "ONE" && got[1] == "LONGER-TWO");
+            check("UDPT-07", "...and the connection is still live afterwards",
+                  t->state() == TransportState::Connected);
+
+            // An oversized datagram: the kernel truncates and DISCARDS the
+            // rest, and that must not look like a fault.
+            peer.reply(std::string(64, 'Z'));
+            std::string truncated;
+            for (int waited = 0; waited < 1000 && truncated.empty(); waited += 2) {
+                const std::size_t n = t->recv(rx, 16);
+                if (n == 0) { sleep_ms(2); continue; }
+                truncated.assign(reinterpret_cast<char*>(rx), n);
+            }
+            check("UDPT-08",
+                  "a datagram larger than the buffer is truncated to it, not failed",
+                  truncated == std::string(16, 'Z') &&
+                      t->state() == TransportState::Connected);
+
+            t->close();
+            check("UDPT-09", "close() on a live UDP connection ends in Closed",
+                  t->state() == TransportState::Closed);
+        } else {
+            for (const char* id : {"UDPT-01", "UDPT-02", "UDPT-03", "UDPT-04", "UDPT-05",
+                                   "UDPT-06", "UDPT-07", "UDPT-08", "UDPT-09"}) {
+                ++g_total; ++g_skip;
+                std::printf("  SKIP %s: could not bind a loopback UDP peer\n", id);
+            }
+        }
+    }
+    {
+        // <local port> is only observable from the far end. Port 0 is asked for
+        // first as the control: without it, a row that saw the requested port
+        // could not tell binding from coincidence.
+        UdpPeer peer;
+        if (peer.start()) {
+            // A high, fixed port: unprivileged, and outside the ephemeral range
+            // Linux picks from (32768-60999 by default), so an OS-assigned port
+            // cannot land on it by chance and fake a pass.
+            const std::uint16_t want = 24123;
+            auto t = make_socket_transport(loopback_ok());
+            bool bound = t->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, want) &&
+                         pump_until(*t, TransportState::Connected);
+            if (bound) {
+                const char ping[] = "P";
+                t->send(reinterpret_cast<const std::uint8_t*>(ping), 1);
+                bound = peer.receive_one(1000) == "P";
+            }
+            check("UDPT-10",
+                  "AT+CIPSTART's <local port> really binds — the peer sees that source port",
+                  bound && peer.peer_source_port() == want);
+
+            auto t2 = make_socket_transport(loopback_ok());
+            bool ephemeral =
+                t2->begin_connect("127.0.0.1", peer.port(), Protocol::Udp, 0) &&
+                pump_until(*t2, TransportState::Connected);
+            if (ephemeral) {
+                const char ping[] = "Q";
+                t2->send(reinterpret_cast<const std::uint8_t*>(ping), 1);
+                ephemeral = peer.receive_one(1000) == "Q";
+            }
+            check("UDPT-11", "...while local port 0 leaves the choice to the OS",
+                  ephemeral && peer.peer_source_port() != want &&
+                      peer.peer_source_port() != 0);
+        } else {
+            for (const char* id : {"UDPT-10", "UDPT-11"}) {
+                ++g_total; ++g_skip;
+                std::printf("  SKIP %s: could not bind a loopback UDP peer\n", id);
+            }
+        }
+    }
+    {
+        // THE SECURITY GATE IS NOT PROTOCOL-SPECIFIC, and this row exists so
+        // that it cannot quietly become so: the DEFAULT policy (loopback
+        // denied) must refuse a UDP target exactly as it refuses a TCP one.
+        auto t = make_socket_transport(kDefault);
+        t->begin_connect("127.0.0.1", 123, Protocol::Udp, 0);
+        for (int i = 0; i < 100 && t->state() != TransportState::Failed; ++i) t->poll();
+        check("UDPT-12", "the address policy denies a UDP target just as it denies a TCP one",
+              t->state() == TransportState::Failed &&
+                  t->denial_reason() == DenyReason::Loopback);
     }
 
     // ═══ NET-ERR — a refused connect surfaces as Failed, not a hang ════════

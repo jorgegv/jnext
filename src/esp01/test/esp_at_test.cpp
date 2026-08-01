@@ -116,24 +116,38 @@ public:
     TransportState settle_state      = TransportState::Connected;///< where poll() lands from Resolving
     std::size_t    send_cap          = static_cast<std::size_t>(-1);  ///< bytes accepted per send()
 
+    /// What `begin_connect` was last asked for. `Udp` also switches send/recv
+    /// to DATAGRAM semantics below, because a fake that accepted the protocol
+    /// and then behaved like a stream would let a byte-coalescing bug pass.
+    Protocol       protocol          = Protocol::Tcp;
+
     // Observations.
     std::string              sent;         ///< everything the engine handed us
-    std::deque<std::uint8_t> inbox;        ///< what recv() will hand back
+    std::deque<std::uint8_t> inbox;        ///< TCP: what recv() will hand back
+    /// UDP: one entry per datagram, in and out.
+    std::deque<std::vector<std::uint8_t>> datagram_inbox;
+    std::vector<std::string>              sent_datagrams;
     std::string              last_host;
-    std::uint16_t            last_port   = 0;
+    std::uint16_t            last_port       = 0;
+    Protocol                 last_protocol   = Protocol::Tcp;
+    std::uint16_t            last_local_port = 0;
     int                      begin_calls = 0;
     int                      close_calls = 0;
 
-    bool begin_connect(const std::string& host, std::uint16_t port) override {
+    bool begin_connect(const std::string& host, std::uint16_t port, Protocol proto,
+                       std::uint16_t local_port) override {
         ++begin_calls;
         if (refuse_begin) return false;
         if (port == 0) return false;
         if (state_ == TransportState::Resolving || state_ == TransportState::Connecting ||
             state_ == TransportState::Connected)
             return false;
-        last_host = host;
-        last_port = port;
-        state_    = TransportState::Resolving;
+        last_host       = host;
+        last_port       = port;
+        last_protocol   = proto;
+        last_local_port = local_port;
+        protocol        = proto;
+        state_          = TransportState::Resolving;
         return true;
     }
 
@@ -154,12 +168,31 @@ public:
 
     std::size_t send(const std::uint8_t* data, std::size_t len) override {
         if (state_ != TransportState::Connected) return 0;
+        if (protocol == Protocol::Udp) {
+            // ALL OR NOTHING, per the interface: a datagram send never returns
+            // a partial count. `send_cap` therefore refuses the whole datagram
+            // rather than truncating it.
+            if (len > send_cap) return 0;
+            sent_datagrams.emplace_back(reinterpret_cast<const char*>(data), len);
+            sent.append(reinterpret_cast<const char*>(data), len);
+            return len;
+        }
         const std::size_t n = len < send_cap ? len : send_cap;
         sent.append(reinterpret_cast<const char*>(data), n);
         return n;
     }
 
     std::size_t recv(std::uint8_t* buf, std::size_t cap) override {
+        if (protocol == Protocol::Udp) {
+            // At most ONE datagram per call, and an oversized one is truncated
+            // with its remainder discarded — exactly what the kernel does.
+            if (datagram_inbox.empty()) return 0;
+            const std::vector<std::uint8_t> dg = std::move(datagram_inbox.front());
+            datagram_inbox.pop_front();
+            const std::size_t n = dg.size() < cap ? dg.size() : cap;
+            for (std::size_t i = 0; i < n; ++i) buf[i] = dg[i];
+            return n;
+        }
         std::size_t n = 0;
         while (n < cap && !inbox.empty()) {
             buf[n++] = inbox.front();
@@ -177,6 +210,11 @@ public:
     void queue_from_peer(const std::string& s) {
         for (unsigned char c : s) inbox.push_back(c);
     }
+    /// One whole datagram from the peer. Separate from `queue_from_peer` on
+    /// purpose: the boundary is the thing under test.
+    void queue_datagram_from_peer(const std::string& s) {
+        datagram_inbox.emplace_back(s.begin(), s.end());
+    }
     void peer_closes() { state_ = TransportState::Closed; }
 
 private:
@@ -192,7 +230,10 @@ class CountingPollTransport : public EspTransport {
 public:
     std::atomic<int> polls{0};
 
-    bool begin_connect(const std::string&, std::uint16_t) override { return false; }
+    bool begin_connect(const std::string&, std::uint16_t, Protocol,
+                       std::uint16_t) override {
+        return false;
+    }
     void poll() override { polls.fetch_add(1); }
     TransportState     state() const override { return TransportState::Idle; }
     const std::string& last_error() const override { return error_; }
@@ -214,7 +255,10 @@ public:
     std::atomic<int>          polls{0};
     std::chrono::milliseconds block_for{0};
 
-    bool begin_connect(const std::string&, std::uint16_t) override { return false; }
+    bool begin_connect(const std::string&, std::uint16_t, Protocol,
+                       std::uint16_t) override {
+        return false;
+    }
     void poll() override {
         polls.fetch_add(1);   // counted on ENTRY, so `in_poll` and it agree
         const auto d = block_for;
@@ -247,7 +291,8 @@ public:
     std::chrono::milliseconds block_for{500};
     std::atomic<bool>         in_poll{false};
 
-    bool begin_connect(const std::string&, std::uint16_t) override {
+    bool begin_connect(const std::string&, std::uint16_t, Protocol,
+                       std::uint16_t) override {
         if (state_ != TransportState::Idle) return false;
         state_ = TransportState::Resolving;
         return true;
@@ -281,7 +326,8 @@ public:
     /// resolve is reliably still outstanding when the wrapper is destroyed.
     int polls_before_connected = 1000000;
 
-    bool begin_connect(const std::string&, std::uint16_t) override {
+    bool begin_connect(const std::string&, std::uint16_t, Protocol,
+                       std::uint16_t) override {
         if (state_ != TransportState::Idle) return false;
         state_ = TransportState::Resolving;
         return true;
@@ -315,7 +361,8 @@ class ThrowOnceTransport : public EspTransport {
 public:
     std::atomic<bool> threw{false};
 
-    bool begin_connect(const std::string&, std::uint16_t) override {
+    bool begin_connect(const std::string&, std::uint16_t, Protocol,
+                       std::uint16_t) override {
         if (state_ != TransportState::Idle) return false;
         state_ = TransportState::Resolving;
         return true;
@@ -345,7 +392,8 @@ public:
     std::chrono::milliseconds send_delay{400};
     std::atomic<bool>         in_send{false};
 
-    bool begin_connect(const std::string&, std::uint16_t) override {
+    bool begin_connect(const std::string&, std::uint16_t, Protocol,
+                       std::uint16_t) override {
         if (state_ != TransportState::Idle) return false;
         state_ = TransportState::Resolving;
         return true;
@@ -419,6 +467,13 @@ struct Rig {
     /// Bring the engine to a live connection, discarding the handshake bytes.
     void connect(const char* host = "example.test", int port = 2048) {
         send(std::string("AT+CIPSTART=\"TCP\",\"") + host + "\"," + std::to_string(port) + "\r\n");
+        settle();
+        take();
+    }
+
+    /// The same, over UDP — newt's `AT+CIPSTART="UDP","<server>",123`.
+    void connect_udp(const char* host = "time.test", int port = 123) {
+        send(std::string("AT+CIPSTART=\"UDP\",\"") + host + "\"," + std::to_string(port) + "\r\n");
         settle();
         take();
     }
@@ -547,10 +602,14 @@ int main() {
                  "\r\nOK\r\n");
         check("CON-04b", "...with host and port parsed past the keepalive",
               r.tr.last_host == "nx.nxtel.org" && r.tr.last_port == 23280); }
-    {   Rig r;
-        r.send("AT+CIPSTART=\"UDP\",\"example.test\",2048\r\n");
+    {   // Was "UDP is refused — v1.0 is TCP only" until GH #198 gave it a
+        // consumer (newt). Same stimulus, opposite answer, so the row keeps its
+        // id rather than leaving an orphan behind.
+        Rig r;
+        r.send("AT+CIPSTART=\"SSL\",\"example.test\",2048\r\n");
         r.settle();
-        check_eq("CON-05", "UDP is refused — v1.0 is TCP only", r.take(), "\r\nERROR\r\n");
+        check_eq("CON-05", "SSL is still refused — it still has no consumer", r.take(),
+                 "\r\nERROR\r\n");
         check("CON-05b", "...and no connect was ever started", r.tr.begin_calls == 0); }
     {   Rig r;
         r.connect();
@@ -834,6 +893,176 @@ int main() {
         r.send("cd"); r.drain();
         check_eq("IPD-10b", "...it follows SEND OK", r.take(),
                  "\r\nSEND OK\r\n\r\n+IPD,4:LATE"); }
+
+    // ══ Group D2 — UDP (GH #198) ════════════════════════════════════════
+    //
+    // THE SPECIFICATION IS TWO DOCUMENTS, AND THEY AGREE. The wire forms come
+    // from Espressif's own AT command set — `AT+CIPSTART=<"type">,<"remote
+    // host">,<remote port>[,<local port>,<mode>]` answered `CONNECT` then `OK`,
+    // `AT+CIPSEND=<length>` answered `OK` + `>` then `SEND OK`, and one
+    // `+IPD,<len>:` per received datagram in single-connection mode. The
+    // CONSUMER is newt (github.com/chris-y/newt, GPLv3), whose `sntp` command
+    // issues exactly that sequence: `net_connect_udp` reads ONE line and
+    // returns false unless it begins `CONNECT`; `net_send_data` sends
+    // `AT+CIPSEND=48` and then the 48-byte NTP packet; `net_recv_data` scans
+    // for `+IPD,`, reads the length up to `:`, and then reads exactly that many
+    // bytes. Every row below asserts one of those, and NONE of them was written
+    // by reading this engine's output back.
+    //
+    // Datagram boundaries are the thread running through the group. A lone
+    // request/response — which is all SNTP is — would pass just as well against
+    // a byte-coalescing implementation, so the rows that matter are the ones
+    // with TWO messages in flight.
+
+    {   Rig r;
+        r.send("AT+CIPSTART=\"UDP\",\"time.test\",123\r\n");
+        r.settle();
+        check_eq("UDP-01",
+                 "AT+CIPSTART=\"UDP\" answers CONNECT then OK — newt reads ONE line and "
+                 "demands it start with CONNECT",
+                 r.take(), "\r\nCONNECT\r\n\r\nOK\r\n");
+        check("UDP-01b", "...and the engine is connected", r.eng.connected());
+        check("UDP-02", "...over UDP, to the parsed host and port, with an OS-chosen local port",
+              r.tr.last_protocol == Protocol::Udp && r.tr.last_host == "time.test" &&
+                  r.tr.last_port == 123 && r.tr.last_local_port == 0); }
+    {   Rig r;
+        r.send("AT+CIPSTART=\"udp\",\"time.test\",123\r\n");
+        r.settle();
+        check_eq("UDP-03", "the protocol token is case-insensitive, like every command name",
+                 r.take(), "\r\nCONNECT\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPSTART=\"UDP\",\"time.test\",123,4567\r\n");
+        r.settle();
+        check_eq("UDP-04", "the optional <local port> is accepted", r.take(),
+                 "\r\nCONNECT\r\n\r\nOK\r\n");
+        check("UDP-04b", "...and reaches the transport, which is what binds it",
+              r.tr.last_local_port == 4567); }
+    {   Rig r;
+        r.send("AT+CIPSTART=\"UDP\",\"time.test\",123,4567,0\r\n");
+        r.settle();
+        check_eq("UDP-05", "<mode> 0 — the fixed peer every client uses — is accepted",
+                 r.take(), "\r\nCONNECT\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPSTART=\"UDP\",\"time.test\",123,4567,1\r\n");
+        r.settle();
+        check_eq("UDP-06",
+                 "<mode> 1 (peer re-points once) is REFUSED, not accepted-and-ignored",
+                 r.take(), "\r\nERROR\r\n");
+        check("UDP-06b", "...and no connect was started", r.tr.begin_calls == 0); }
+    {   Rig r;
+        r.send("AT+CIPSTART=\"UDP\",\"time.test\",123,4567,2\r\n");
+        r.settle();
+        check_eq("UDP-07", "<mode> 2 (peer re-points per datagram) is REFUSED too", r.take(),
+                 "\r\nERROR\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPSTART=\"UDP\",\"time.test\",123,notaport\r\n");
+        r.settle();
+        check_eq("UDP-08", "an unparseable <local port> answers ERROR rather than binding 0",
+                 r.take(), "\r\nERROR\r\n");
+        check("UDP-08b", "...and no connect was started", r.tr.begin_calls == 0); }
+    {   // newt's payload: AT+CIPSEND=48 then a 48-byte NTP packet.
+        Rig r;
+        r.connect_udp();
+        r.send("AT+CIPSEND=48\r\n"); r.drain();
+        check_eq("UDP-09", "AT+CIPSEND on a UDP link issues the same OK + '> ' prompt",
+                 r.take(), "\r\nOK\r\n> ");
+        std::string ntp(48, '\0');
+        ntp[0] = static_cast<char>(0x23);  // LI 0, VN 4, mode 3 (client)
+        r.send(ntp);
+        r.settle();
+        check_eq("UDP-09b", "...and the completed payload answers SEND OK", r.take(),
+                 "\r\nSEND OK\r\n");
+        check("UDP-09c", "...having emitted EXACTLY ONE datagram of exactly 48 bytes",
+              r.tr.sent_datagrams.size() == 1 && r.tr.sent_datagrams[0] == ntp); }
+    {   // TWO messages in flight, which is the case a byte queue gets wrong.
+        // The socket refuses everything until the second is queued, so both are
+        // still pending when it opens up.
+        Rig r;
+        r.connect_udp();
+        r.tr.send_cap = 0;                       // nothing accepted yet
+        r.send("AT+CIPSEND=3\r\nAAA"); r.settle(); r.take();
+        r.send("AT+CIPSEND=3\r\nBBB"); r.settle(); r.take();
+        r.tr.send_cap = static_cast<std::size_t>(-1);
+        r.settle();
+        check("UDP-10",
+              "two queued datagrams leave as TWO datagrams, never concatenated into one",
+              r.tr.sent_datagrams.size() == 2 && r.tr.sent_datagrams[0] == "AAA" &&
+                  r.tr.sent_datagrams[1] == "BBB"); }
+    {   Rig r;
+        r.connect_udp();
+        r.tr.queue_datagram_from_peer(std::string(48, 'N'));
+        r.settle();
+        check_eq("UDP-11", "one received datagram is one +IPD carrying its own length",
+                 r.take(), "\r\n+IPD,48:" + std::string(48, 'N')); }
+    {   Rig r;
+        r.connect_udp();
+        r.tr.queue_datagram_from_peer("ONE");
+        r.tr.queue_datagram_from_peer("TWO");
+        r.settle();
+        check_eq("UDP-12",
+                 "two datagrams are framed as two +IPDs — merging them would hand the guest "
+                 "a message boundary that never existed",
+                 r.take(), "\r\n+IPD,3:ONE\r\n+IPD,3:TWO"); }
+    {   // THE newt BUG, REPRODUCED EXACTLY. `uart_tx_bin` is
+        // `do {…} while (size--)`, so after AT+CIPSEND=3 it puts FOUR bytes on
+        // the wire. The 4th is heap debris that lands in the command-line
+        // buffer; while any non-empty line held a URC back, the +IPD newt was
+        // waiting for was never framed and it died on its own 5 s timeout.
+        Rig r;
+        r.connect_udp();
+        r.send("AT+CIPSEND=3\r\n"); r.settle(); r.take();
+        r.send(std::string("XYZ") + '\x9E');   // 3 payload bytes + one stray
+        r.tr.queue_datagram_from_peer("PONG");
+        r.settle();
+        check_eq("UDP-13",
+                 "a stray byte left over from a guest that overran its own CIPSEND does NOT "
+                 "hold the +IPD back — it cannot become an AT command",
+                 r.take(), "\r\nSEND OK\r\n\r\n+IPD,4:PONG");
+        check("UDP-13b", "...and only the declared 3 bytes were transmitted",
+              r.tr.sent_datagrams.size() == 1 && r.tr.sent_datagrams[0] == "XYZ");
+        r.send("AT+CIPCLOSE\r\n"); r.drain();
+        check_eq("UDP-13c", "...while the stray byte still spoils the NEXT line, as it must",
+                 r.take(), "\r\nERROR\r\n"); }
+    {   // The other half of that narrowing: a genuinely half-typed command must
+        // still hold a URC back (IPD-09 pins the TCP case; this is the boundary
+        // itself). 'A' is where debris and a command in the making become
+        // indistinguishable — the documented 1-in-256 residual.
+        Rig r;
+        r.connect_udp();
+        r.send("AT");                       // two bytes of a real command
+        r.tr.queue_datagram_from_peer("HELD");
+        r.settle();
+        check_eq("UDP-14", "a half-typed AT command still holds the +IPD back", r.take(), "");
+        r.send("\r\n"); r.drain();
+        check_eq("UDP-14b", "...and it follows the completed command's reply", r.take(),
+                 "\r\nOK\r\n\r\n+IPD,4:HELD"); }
+    {   Rig r;
+        r.connect_udp();
+        // The command line is opened FIRST so the datagram is buffered but not
+        // yet framed when the close arrives — otherwise `poll()` would frame it
+        // on the spot and the row would prove nothing about dropping.
+        r.send("AT+CIPCLOS");
+        r.tr.queue_datagram_from_peer("DROPPED");
+        r.eng.poll();
+        r.send("E\r\n"); r.drain();
+        check_eq("UDP-15", "AT+CIPCLOSE on a UDP link reports CLOSED then OK", r.take(),
+                 "\r\nCLOSED\r\n\r\nOK\r\n");
+        check("UDP-15b", "...and drops the datagrams buffered for a connection that is gone",
+              r.eng.pending_from_peer() == 0); }
+    {   Rig r;
+        r.connect_udp();
+        r.send("AT+RST\r\n"); r.drain(); r.take();
+        check("UDP-16", "AT+RST puts the slot back to the TCP power-on default",
+              r.eng.protocol() == Protocol::Tcp && !r.eng.connected()); }
+    {   Rig r;
+        r.connect_udp();
+        check("UDP-17", "a live UDP connection reports itself as UDP",
+              r.eng.protocol() == Protocol::Udp);
+        r.send("AT");                  // holds the framing back, as UDP-14 pins
+        r.tr.queue_datagram_from_peer("SIZE");
+        r.eng.poll();
+        check("UDP-17b", "...and pending_from_peer counts buffered datagram bytes",
+              r.eng.pending_from_peer() == 4); }
 
     // ══ Group E — pacing ════════════════════════════════════════════════
 

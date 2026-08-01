@@ -26,10 +26,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 socket transport |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 AT command engine |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 socket transport |      159 |      159 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 AT command engine |      175 |      175 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 jnext policy + wiring |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 jnext policy + wiring |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -96,6 +96,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **6566** | **6566** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **6608** | **6608** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

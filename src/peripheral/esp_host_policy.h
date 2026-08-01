@@ -191,7 +191,12 @@ public:
     EspGatedTransport(std::unique_ptr<esp::EspTransport> inner, EspHostPolicy policy,
                       EspConnectionLog& log);
 
-    bool                  begin_connect(const std::string& host, std::uint16_t port) override;
+    /// Declares NO default arguments — the interface owns them (esp_socket.h).
+    /// So a call on a concrete `EspGatedTransport` must name the protocol,
+    /// which is the right way round for the object whose job is to gate it.
+    bool                  begin_connect(const std::string& host, std::uint16_t port,
+                                        esp::Protocol protocol,
+                                        std::uint16_t local_port) override;
     void                  poll() override;
     esp::TransportState   state() const override;
     const std::string&    last_error() const override;

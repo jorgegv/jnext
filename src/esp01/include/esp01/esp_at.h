@@ -37,7 +37,11 @@
 ///   * NO server/listen mode. `AT+CIPSERVER` appears exactly once in all the
 ///     software examined, and only to turn it OFF. Not building it also
 ///     removes the inbound attack surface the issue was worried about.
-///   * NO UDP, NO passthrough (`AT+CIPMODE`). Zero consumers anywhere.
+///   * NO passthrough (`AT+CIPMODE`). Zero consumers anywhere.
+///   * UDP IS IMPLEMENTED (GH #198). It was omitted from v1.0 for want of a
+///     consumer; `newt` (github.com/chris-y/newt, GPLv3) is one — its `sntp`
+///     command is `AT+CIPSTART="UDP","<server>",123` followed by a 48-byte NTP
+///     request and a `+IPD` reply. SSL is still out: still no consumer.
 ///   * NO multiplexed connections. `AT+CIPMUX=1` is REFUSED with `ERROR`
 ///     rather than accepted-and-ignored, because nextsync never sends
 ///     `AT+CIPMUX` at all — it relies on the power-on default being 0 — and
@@ -137,6 +141,28 @@
 ///     never does: a `+IPD` is framed only when the guest-bound queue is
 ///     empty AND no command is in flight. That makes every guest parser's
 ///     job strictly easier and no parser's job harder.
+///
+///     WHAT "IN FLIGHT" MEANS WAS TOO BROAD, AND GH #198 NARROWED IT. It used
+///     to be "`line_` is non-empty", and that reading really did make one
+///     parser's job harder — impossible, in fact. newt's `uart_tx_bin`
+///     (github.com/chris-y/newt, `uart.c`) is `do {…} while (size--)`, which
+///     sends `size + 1` bytes: after `AT+CIPSEND=48` it puts FORTY-NINE bytes
+///     on the wire. The 49th is one byte past its own `calloc(48)` — arbitrary
+///     heap content — and it lands in `line_`, where it stays until the next
+///     CR. Under the old rule that byte held off every `+IPD` FOREVER, so the
+///     reply newt was waiting for was never framed and it died on its own 5 s
+///     timeout. Real firmware frames the URC regardless and the tool works.
+///     So the guard now asks whether the partial line CAN STILL BECOME AN AT
+///     COMMAND (`command_line_in_flight`): every command begins `AT`, so debris
+///     that does not is not a transaction and does not hold off a URC. This is
+///     strictly closer to hardware, and it keeps the property the serialisation
+///     exists for — a genuinely half-typed `AT+CIPM` still holds the `+IPD`
+///     back, which is what stops a `+IPD` payload byte from being mistaken for
+///     the `> ` prompt NXtel busy-waits on with no timeout.
+///     RESIDUAL, stated rather than hidden: if that stray byte happens to BE
+///     `A`, it is indistinguishable from a guest starting to type, and the
+///     stall returns. One value in 256, and the honest fix for it is the guest's
+///     own off-by-one, not a rule this engine can write.
 ///  2. ECHO DEFAULTS OFF, unlike real AT firmware which powers up with it on.
 ///     Every evidenced client sends `ATE0` before anything that matters and
 ///     none relies on the echo, while `.ESPBAUD`'s EXACT compare against
@@ -148,6 +174,27 @@
 ///     exercised: nextsync's payloads are 3-7 bytes and contain no NUL.
 ///  4. `AT+CIPSTART` failure answers `ERROR` only; `FAIL` is never emitted.
 ///     `ERROR` is the refusal path every client already handles gracefully.
+///  4b. `CONNECT` PRECEDES `OK` FOR UDP AND NOT FOR TCP, and the asymmetry is
+///     deliberate rather than an oversight. Real firmware prints
+///     `CONNECT\r\n\r\nOK\r\n` for BOTH, and newt's `net_connect_udp` reads
+///     exactly one line and demands it start with `CONNECT` — so UDP has to
+///     emit it or the tool cannot connect at all. TCP's bare `\r\nOK\r\n` is
+///     PRE-EXISTING v1.0 behaviour derived from the evidenced clients, it is
+///     pinned by `esp-loopback-func`'s exact byte stream, and the two clients
+///     whose parsers would have to survive the change (NXtel, nextsync) have no
+///     source on this machine to check it against — the design doc says so
+///     itself (§12, provenance note). Making TCP firmware-exact is a real
+///     improvement and a SEPARATE change with its own evidence to gather; #198
+///     is not it, and quietly bundling it would put the one live-traffic-proven
+///     path at risk for a client that does not use TCP.
+///  4c. `AT+CIPSTART="UDP"` ACCEPTS `<local port>` AND REFUSES `<mode>` 1 or 2.
+///     Mode 0 — the default, and the only one any client sends — fixes the
+///     peer for the life of the connection, which is exactly a `connect()`ed
+///     datagram socket. Modes 1 and 2 re-point the peer at whoever last sent to
+///     us, which needs an UNconnected socket, `recvfrom` bookkeeping and a
+///     second security decision about who may become the peer. Refused rather
+///     than accepted-and-ignored, for the `AT+CIPMUX=1` reason: silently
+///     accepting promises a behaviour the guest cannot ask back.
 ///  5. NO SAVE-STATE. A live TCP connection is host topology, not machine
 ///     state, and rewinding into a re-established socket is meaningless. The
 ///     branch that makes the ESP reachable owns the `replay_mode_` gate.
@@ -287,6 +334,19 @@ public:
     /// ceiling means a packet is never split at all in practice.
     static constexpr std::size_t MAX_IPD_CHUNK = 2048;
 
+    /// Buffer one UDP datagram is read into, and therefore the largest datagram
+    /// that survives intact: the kernel DISCARDS whatever does not fit in the
+    /// buffer handed to `recv` (`EspTransport::recv`), so this is a real
+    /// truncation ceiling and not a chunking one. It is `MAX_IPD_CHUNK` rather
+    /// than `RECV_CHUNK` for exactly that reason — reading a datagram in
+    /// 1024-byte bites is not possible, so the read buffer has to be as large
+    /// as the biggest datagram that may be framed whole. Above it a datagram
+    /// arrives truncated, which is also what a real ESP-01 does with an
+    /// oversized packet; nothing on the evidenced path comes close (an SNTP
+    /// reply is 48 bytes, and a UDP datagram over Ethernet is 1472 before
+    /// fragmentation).
+    static constexpr std::size_t MAX_DATAGRAM = MAX_IPD_CHUNK;
+
     /// Longest command line accepted before the line is answered `ERROR`.
     /// Real firmware caps at 256; this is deliberately looser so that a
     /// legitimate `AT+CIPSTART=` with a maximum-length (253-char) hostname
@@ -408,11 +468,15 @@ public:
 
     bool        echo_enabled() const { return echo_; }
     bool        connected() const { return conn_[SINGLE_CID].open; }
+    /// What the live (or last requested) connection speaks.
+    Protocol    protocol() const { return conn_[SINGLE_CID].protocol; }
     bool        awaiting_connect() const { return conn_[SINGLE_CID].connecting; }
     /// Bytes queued toward the guest, not yet released by the pacer.
     std::size_t pending_to_guest() const { return out_.size(); }
-    /// Bytes read from the socket, not yet framed into a `+IPD`.
-    std::size_t pending_from_peer() const { return conn_[SINGLE_CID].rx.size(); }
+    /// Bytes read from the socket, not yet framed into a `+IPD`. On a UDP
+    /// connection this is the total across the queued datagrams — the number a
+    /// caller wants either way is "how much is waiting", not how it is boxed.
+    std::size_t pending_from_peer() const;
     /// Payload bytes still owed after an `AT+CIPSEND=<n>`; 0 in command mode.
     std::size_t payload_outstanding() const;
     /// Last baud requested via `AT+UART_CUR`/`_DEF`; 0 if never set. The
@@ -441,13 +505,48 @@ private:
         bool          close_pending = false;  ///< closed; CLOSED owed once buffers drain
         std::string   host;
         std::uint16_t port = 0;
+        /// What the guest asked for in `AT+CIPSTART`. Chosen per connection, so
+        /// a session can be TCP and the next one UDP through the same slot and
+        /// the same transport object.
+        Protocol      protocol   = Protocol::Tcp;
+        /// `AT+CIPSTART`'s optional UDP `<local port>`; 0 = OS-assigned.
+        std::uint16_t local_port = 0;
         /// When `connecting`, the wall-clock instant after which the connect
         /// is abandoned with `ERROR`. Meaningless otherwise.
         std::chrono::steady_clock::time_point connect_deadline{};
-        /// Peer -> guest, unbounded, pre-framing (pacing stage 1).
+
+        // ── The two directions, once per protocol ─────────────────────
+        //
+        // TWO PAIRS RATHER THAN ONE, because a stream and a datagram are not
+        // the same object. TCP is a BYTE queue: a partial `send` is normal and
+        // the remainder is re-offered, and a `+IPD` may cut the stream
+        // anywhere. UDP is a queue of WHOLE MESSAGES: one `AT+CIPSEND` is
+        // exactly one datagram, one datagram is exactly one `+IPD`, and a
+        // partial send does not exist. Flattening UDP into the byte queues
+        // would silently coalesce two queued datagrams into one on the wire
+        // and merge two received ones into a single mis-lengthed `+IPD` — the
+        // "TCP-shaped UDP" that happens to work for a lone request/response
+        // and corrupts everything else. Only the pair matching `protocol` is
+        // ever used; the other stays empty.
+
+        /// TCP peer -> guest, unbounded, pre-framing (pacing stage 1).
         std::deque<std::uint8_t> rx;
-        /// Guest -> peer, whatever the kernel would not take yet.
+        /// TCP guest -> peer, whatever the kernel would not take yet.
         std::deque<std::uint8_t> tx;
+        /// UDP peer -> guest, one entry per received datagram.
+        std::deque<std::vector<std::uint8_t>> rx_datagrams;
+        /// UDP guest -> peer, one entry per `AT+CIPSEND`, still unsent.
+        std::deque<std::vector<std::uint8_t>> tx_datagrams;
+
+        /// True while anything from the peer is waiting to be framed, whichever
+        /// protocol this connection speaks.
+        bool has_peer_data() const { return !rx.empty() || !rx_datagrams.empty(); }
+        void clear_buffers() {
+            rx.clear();
+            tx.clear();
+            rx_datagrams.clear();
+            tx_datagrams.clear();
+        }
     };
 
     /// Uniform AT handler. Exact-match commands get an empty `args`.
@@ -515,9 +614,18 @@ private:
     void frame_ipd();
 
     /// True while a `+IPD` may be framed: nothing already queued for the
-    /// guest, no partially received command line, not mid-payload and no
-    /// connect in flight. This is what makes simplification (1) hold.
+    /// guest, no command line in flight, not mid-payload and no connect in
+    /// flight. This is what makes simplification (1) hold.
     bool wire_is_quiet() const;
+
+    /// True while the bytes received since the last terminator could still
+    /// become an AT command — i.e. the guest is part-way through a
+    /// command/response transaction this engine must not interleave a URC
+    /// into. Every command in `kCommands` begins `AT`, so a partial line that
+    /// is neither a prefix of `AT` nor an extension of it is DEBRIS, not a
+    /// transaction. See simplification (1) for the client that proved the
+    /// difference matters.
+    bool command_line_in_flight() const;
 
     void refresh_tick_gate();
 

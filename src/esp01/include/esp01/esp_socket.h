@@ -8,10 +8,10 @@
 #include <string>
 #include <vector>
 
-/// Non-blocking outbound TCP transport for the emulated ESP-01 (GH #25,
-/// branch 2 of 6). This branch is the TRANSPORT ONLY: no AT parser, no ESP
-/// state machine, no `UartDevice` wiring, no CLI flags, no frame-loop call
-/// site. Those are branches 3 and 4.
+/// Non-blocking outbound TCP/UDP transport for the emulated ESP-01 (GH #25,
+/// branch 2 of 6; UDP added by GH #198). This branch is the TRANSPORT ONLY: no
+/// AT parser, no ESP state machine, no `UartDevice` wiring, no CLI flags, no
+/// frame-loop call site. Those are branches 3 and 4.
 ///
 /// ---------------------------------------------------------------------------
 /// WHY THIS INTERFACE CANNOT BLOCK
@@ -201,6 +201,30 @@ enum class TransportState : std::uint8_t {
 };
 const char* transport_state_text(TransportState s);
 
+/// Which transport protocol a connection speaks (GH #198).
+///
+/// It is on the TRANSPORT rather than being a separate transport class because
+/// the AT engine is handed ONE transport per connection slot, at construction
+/// (`AtEngine::AtEngine`), and `AT+CIPSTART="UDP",…` chooses the protocol at
+/// run time — a slot cannot swap its transport object mid-session.
+///
+/// THE TWO ARE NOT THE SAME SHAPE, and every difference below is load-bearing
+/// rather than cosmetic:
+///   * `Udp` never reaches `Connecting`. `::connect()` on a datagram socket only
+///     records the peer; it completes immediately, so `begin_connect()` lands in
+///     `Connected` on the first `poll()` and no handshake is ever in flight.
+///   * `recv()` returning 0 means END OF STREAM for `Tcp` and NOTHING RECEIVED
+///     for `Udp` — a datagram socket has no EOF, and a zero-length datagram is
+///     legal. Reading a UDP 0 as EOF would close a live connection at the first
+///     empty datagram a peer chose to send.
+///   * `Udp` preserves DATAGRAM BOUNDARIES end to end. One `recv()` yields at
+///     most one datagram (a buffer smaller than the datagram DISCARDS the
+///     remainder — see `MAX_DATAGRAM` in esp_at.h), and one `send()` emits
+///     exactly one datagram, all-or-nothing. The AT engine relies on both to
+///     emit one `+IPD` per datagram.
+enum class Protocol : std::uint8_t { Tcp, Udp };
+const char* protocol_text(Protocol p);
+
 /// ---------------------------------------------------------------------------
 /// NO METHOD HERE MAY THROW — and what the module does if one does anyway
 /// ---------------------------------------------------------------------------
@@ -224,14 +248,32 @@ class EspTransport {
 public:
     virtual ~EspTransport() = default;
 
-    /// Start an outbound TCP connection. NEVER blocks and never resolves:
-    /// it records the target, moves to `Resolving` and returns.
+    /// Start an outbound connection. NEVER blocks and never resolves: it
+    /// records the target, moves to `Resolving` and returns.
     ///
     /// Returns false — with the state untouched — when the transport is busy
     /// (`Resolving`/`Connecting`/`Connected`) or the port is 0. A false return
     /// is "request rejected", not "connect failed"; a connect failure is
     /// reported later as `Failed` + `last_error()`.
-    virtual bool begin_connect(const std::string& host, std::uint16_t port) = 0;
+    ///
+    /// `local_port` is meaningful for `Protocol::Udp` only — it is
+    /// `AT+CIPSTART`'s optional `<local port>` argument, and 0 means "let the
+    /// OS pick", which is what every client that omits the argument gets. TCP
+    /// ignores it: `AT+CIPSTART`'s fourth TCP argument is a KEEPALIVE, not a
+    /// port, and binding a local port for an outbound TCP connection is a
+    /// capability no evidenced client asks for.
+    ///
+    /// THE DEFAULTS ARE DECLARED HERE AND NOWHERE ELSE. An override must take
+    /// all four parameters and must NOT restate a default: default arguments
+    /// are bound statically, so a derived class with different ones would make
+    /// the same call mean different things through a base reference and through
+    /// a derived one. Declaring them once, on the interface, is what let GH #198
+    /// widen this signature without touching the ~40 two-argument call sites in
+    /// `esp_socket_test.cpp` — every one of which goes through an
+    /// `EspTransport&` and therefore still means "plain outbound TCP".
+    virtual bool begin_connect(const std::string& host, std::uint16_t port,
+                               Protocol      protocol   = Protocol::Tcp,
+                               std::uint16_t local_port = 0) = 0;
 
     /// Advance the state machine using zero-timeout readiness checks.
     /// Idempotent and cheap in every state; a no-op in `Idle`/`Closed`/`Failed`.
@@ -305,12 +347,23 @@ public:
     /// Non-blocking. Returns how many of `len` bytes the kernel accepted
     /// (0 when the send buffer is full — that is normal, not an error).
     /// On a real error the state becomes `Failed`/`Closed`; check `state()`.
+    ///
+    /// UDP IS ALL-OR-NOTHING: one call is one datagram, so the return is either
+    /// `len` or 0. A caller must therefore never re-offer a partial remainder on
+    /// a datagram transport — it would put a second, truncated datagram on the
+    /// wire rather than finishing the first.
     virtual std::size_t send(const std::uint8_t* data, std::size_t len) = 0;
 
     /// Non-blocking. Returns how many bytes were read (0 when none are
     /// available). A peer close moves the state to `Closed`, an error to
     /// `Failed`; both also return 0, so the caller must consult `state()`
     /// rather than treating 0 as "try again forever".
+    ///
+    /// UDP YIELDS AT MOST ONE DATAGRAM PER CALL, and 0 NEVER means end of
+    /// stream — a datagram socket has no EOF (`Protocol`). A datagram longer
+    /// than `cap` is truncated and its remainder DISCARDED by the kernel, which
+    /// is why the engine sizes its buffer at its `+IPD` ceiling rather than at
+    /// its ordinary read chunk.
     virtual std::size_t recv(std::uint8_t* buf, std::size_t cap) = 0;
 
     /// Release the socket. `Idle` stays `Idle` (nothing was open); every other

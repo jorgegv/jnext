@@ -254,7 +254,15 @@ void AtEngine::finish_payload() {
     // soon as the bytes are ACCEPTED BY THE ENGINE — `SEND FAIL` is on the
     // never-emit list, so a later socket failure surfaces as `CLOSED`, which
     // is a state the NextZXOS driver does understand.
-    for (std::uint8_t b : payload_) c.tx.push_back(b);
+    if (c.protocol == Protocol::Udp) {
+        // ONE `AT+CIPSEND` IS ONE DATAGRAM. Queued whole and kept whole: if a
+        // second CIPSEND completes while the first is still unsent, they must
+        // leave as two datagrams, not as one concatenation the peer would read
+        // as a single malformed message.
+        c.tx_datagrams.push_back(payload_);
+    } else {
+        for (std::uint8_t b : payload_) c.tx.push_back(b);
+    }
     payload_.clear();
     payload_len_ = 0;
     mode_ = Mode::Command;
@@ -294,8 +302,9 @@ void AtEngine::cmd_reset(const std::string&) {
         c.open          = false;
         c.connecting    = false;
         c.close_pending = false;
-        c.rx.clear();
-        c.tx.clear();
+        c.protocol      = Protocol::Tcp;  // power-on default
+        c.local_port    = 0;
+        c.clear_buffers();
     }
     mode_        = Mode::Command;
     payload_len_ = 0;
@@ -330,8 +339,18 @@ void AtEngine::cmd_cipstart(const std::string& args) {
 
     std::string rest = args;
     std::string proto;
-    if (!take_quoted(rest, proto) || !ieq(proto, "TCP")) {
-        // UDP and SSL are out of scope for v1.0 and have no consumer.
+    if (!take_quoted(rest, proto)) {
+        log_debug("AT+CIPSTART has no quoted protocol — answering ERROR");
+        queue_error();
+        return;
+    }
+    Protocol protocol = Protocol::Tcp;
+    if (ieq(proto, "TCP")) {
+        protocol = Protocol::Tcp;
+    } else if (ieq(proto, "UDP")) {
+        protocol = Protocol::Udp;
+    } else {
+        // SSL/"UDPv6"/anything else: still no consumer, still refused.
         log_debug("AT+CIPSTART protocol \"{}\" unsupported — answering ERROR", escape(proto));
         queue_error();
         return;
@@ -344,29 +363,66 @@ void AtEngine::cmd_cipstart(const std::string& args) {
         return;
     }
 
-    // Port, then an OPTIONAL keepalive that NXtel really does send
-    // (`AT+CIPSTART="TCP","nx.nxtel.org",23280,7200`, esp.asm/NXterm.asm) and
-    // that we accept and ignore.
     std::uint32_t port = 0;
     if (!parse_uint(take_field(rest), 65535, port) || port == 0) {
         log_debug("AT+CIPSTART has no usable port — answering ERROR");
         queue_error();
         return;
     }
-    if (!rest.empty()) {
-        std::uint32_t keepalive = 0;
-        if (!parse_uint(take_field(rest), 7200, keepalive) || !rest.empty()) {
-            log_debug("AT+CIPSTART trailing arguments unparseable — answering ERROR");
+
+    // THE TRAILING ARGUMENTS ARE NOT THE SAME ARGUMENTS. For TCP the fourth
+    // field is a KEEPALIVE that NXtel really does send
+    // (`AT+CIPSTART="TCP","nx.nxtel.org",23280,7200`, esp.asm/NXterm.asm) and
+    // that we accept and ignore. For UDP it is `<local port>`, optionally
+    // followed by `<mode>` — a different meaning at the same position, which is
+    // why this cannot be one shared "trailing number" parse.
+    std::uint16_t local_port = 0;
+    if (protocol == Protocol::Tcp) {
+        if (!rest.empty()) {
+            std::uint32_t keepalive = 0;
+            if (!parse_uint(take_field(rest), 7200, keepalive) || !rest.empty()) {
+                log_debug("AT+CIPSTART trailing arguments unparseable — answering ERROR");
+                queue_error();
+                return;
+            }
+        }
+    } else if (!rest.empty()) {
+        std::uint32_t lport = 0;
+        if (!parse_uint(take_field(rest), 65535, lport)) {
+            log_debug("AT+CIPSTART=\"UDP\" local port unparseable — answering ERROR");
             queue_error();
             return;
         }
+        local_port = static_cast<std::uint16_t>(lport);
+        if (!rest.empty()) {
+            std::uint32_t mode = 0;
+            if (!parse_uint(take_field(rest), 2, mode) || !rest.empty()) {
+                log_debug("AT+CIPSTART=\"UDP\" mode unparseable — answering ERROR");
+                queue_error();
+                return;
+            }
+            if (mode != 0) {
+                // Refused, not ignored — see simplification (4c). Modes 1 and 2
+                // re-point the peer at whoever last sent us a datagram, which
+                // this transport (a `connect()`ed socket, by design) cannot do
+                // and which would need its own security decision about who is
+                // allowed to become the peer.
+                log_debug("AT+CIPSTART=\"UDP\" mode {} unsupported (peer is fixed) — "
+                           "answering ERROR", mode);
+                queue_error();
+                return;
+            }
+        }
     }
 
-    c.host = host;
-    c.port = static_cast<std::uint16_t>(port);
+    c.host       = host;
+    c.port       = static_cast<std::uint16_t>(port);
+    c.protocol   = protocol;
+    c.local_port = local_port;
 
-    if (!c.transport->begin_connect(c.host, c.port)) {
-        log_warn("connection to {}:{} refused before it started", c.host, c.port);
+    if (!c.transport->begin_connect(c.host, c.port, protocol, local_port)) {
+        log_warn("{} connection to {}:{} refused before it started",
+                  protocol_text(protocol), c.host, c.port);
         queue_error();
         return;
     }
@@ -376,8 +432,10 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     // nothing.
     c.connecting       = true;
     c.connect_deadline = std::chrono::steady_clock::now() + connect_timeout_;
-    log_debug("AT+CIPSTART accepted: {}:{} on cid {} — reply deferred to poll() (deadline {} ms)",
-               c.host, c.port, SINGLE_CID, connect_timeout_.count());
+    log_debug("AT+CIPSTART accepted: {} {}:{} (local port {}) on cid {} — reply deferred to "
+              "poll() (deadline {} ms)",
+               protocol_text(protocol), c.host, c.port, local_port, SINGLE_CID,
+               connect_timeout_.count());
 }
 
 void AtEngine::cmd_cipsend(const std::string& args)   { begin_send(args, "AT+CIPSEND"); }
@@ -419,13 +477,13 @@ void AtEngine::cmd_cipclose(const std::string&) {
         queue_error();
         return;
     }
-    log_info("connection to {}:{} closed by the guest (AT+CIPCLOSE)", c.host, c.port);
+    log_info("{} connection to {}:{} closed by the guest (AT+CIPCLOSE)",
+             protocol_text(c.protocol), c.host, c.port);
     c.transport->close();
     c.open          = false;
     c.connecting    = false;
     c.close_pending = false;
-    c.rx.clear();
-    c.tx.clear();
+    c.clear_buffers();
     // A connection genuinely closed, so CLOSED is honest here — and NXtel's
     // 5-byte `OSED\r` window is what it looks for.
     queue("\r\nCLOSED\r\n\r\nOK\r\n");
@@ -599,9 +657,19 @@ void AtEngine::resolve_connect(std::size_t cid) {
         case TransportState::Connected:
             c.connecting = false;
             c.open       = true;
-            log_info("connection to {}:{} opened ({})", c.host, c.port,
-                      to_string(c.transport->peer_address()));
-            queue_ok();
+            log_info("{} connection to {}:{} opened ({})", protocol_text(c.protocol), c.host,
+                      c.port, to_string(c.transport->peer_address()));
+            if (c.protocol == Protocol::Udp) {
+                // Real firmware answers `CONNECT` then `OK` for BOTH protocols.
+                // TCP's bare `OK` is pre-existing v1.0 behaviour that this
+                // change deliberately does not touch — see simplification (4b)
+                // for why, and for what would have to be gathered to change it.
+                // For UDP it is required: newt's `net_connect_udp` reads ONE
+                // line and returns false unless it starts with `CONNECT`.
+                queue("\r\nCONNECT\r\n\r\nOK\r\n");
+            } else {
+                queue_ok();
+            }
             break;
         default:
             // Failed, Closed or a transport that never left Idle. `FAIL` is
@@ -628,7 +696,31 @@ void AtEngine::resolve_connect(std::size_t cid) {
 
 void AtEngine::flush_outbound(std::size_t cid) {
     Connection& c = conn_[cid];
-    if (c.tx.empty() || !c.open) return;
+    if (!c.open) return;
+
+    if (c.protocol == Protocol::Udp) {
+        // ALL-OR-NOTHING, one datagram per send, oldest first. A short return
+        // cannot happen on a datagram socket (`EspTransport::send`), so the
+        // only two outcomes are "gone" and "the buffer was full, try next
+        // poll" — and re-offering a remainder would put a truncated second
+        // datagram on the wire, which is why there is no partial-pop branch
+        // here at all.
+        while (!c.tx_datagrams.empty()) {
+            const std::vector<std::uint8_t>& dg = c.tx_datagrams.front();
+            const std::size_t sent = c.transport->send(dg.data(), dg.size());
+            if (sent == 0) {
+                log_trace("peer send buffer full on cid {}, {} datagram(s) still queued", cid,
+                          c.tx_datagrams.size());
+                return;
+            }
+            log_debug("sent a {}-byte datagram to the peer on cid {}, {} still queued",
+                      dg.size(), cid, c.tx_datagrams.size() - 1);
+            c.tx_datagrams.pop_front();
+        }
+        return;
+    }
+
+    if (c.tx.empty()) return;
 
     // Copy to a contiguous staging buffer: the transport takes a pointer and
     // a length, and a deque is not contiguous.
@@ -647,6 +739,26 @@ void AtEngine::flush_outbound(std::size_t cid) {
 void AtEngine::drain_socket(std::size_t cid) {
     Connection& c = conn_[cid];
     if (!c.open) return;
+
+    if (c.protocol == Protocol::Udp) {
+        // One `recv` is at most one datagram, and the buffer must be able to
+        // hold the whole of it — see MAX_DATAGRAM. A datagram is stored as a
+        // unit so that `frame_ipd` can emit exactly one `+IPD` for it.
+        std::uint8_t buf[MAX_DATAGRAM];
+        std::size_t  count = 0;
+        for (int i = 0; i < RECV_MAX_ITER; ++i) {
+            const std::size_t n = c.transport->recv(buf, sizeof(buf));
+            if (n == 0) break;
+            c.rx_datagrams.emplace_back(buf, buf + n);
+            ++count;
+            if (c.transport->state() != TransportState::Connected) break;
+        }
+        if (count != 0) {
+            log_debug("buffered {} datagram(s) from the peer on cid {} ({} awaiting +IPD "
+                      "framing)", count, cid, c.rx_datagrams.size());
+        }
+        return;
+    }
 
     std::uint8_t buf[RECV_CHUNK];
     std::size_t  total = 0;
@@ -668,9 +780,18 @@ void AtEngine::note_peer_close(std::size_t cid) {
     if (!c.open) return;
     if (c.transport->state() == TransportState::Connected) return;
 
-    log_info("connection to {}:{} closed by the peer", c.host, c.port);
+    // UDP HAS NO ORDERLY CLOSE, so this path is reached for a datagram
+    // connection only on a genuine socket ERROR — most often an ICMP port
+    // unreachable, which Linux reports as ECONNREFUSED on the next call
+    // against a `connect()`ed UDP socket. That really is "the peer is not
+    // there", so it is reported exactly as a TCP failure is rather than being
+    // swallowed: a guest waiting for an answer that can never come is worse
+    // off than one told the connection is gone.
+    log_info("{} connection to {}:{} closed by the peer", protocol_text(c.protocol), c.host,
+             c.port);
     c.open = false;
     c.tx.clear();
+    c.tx_datagrams.clear();
     // The CLOSED notification waits until everything already received has been
     // framed and drained — telling the guest the connection is gone while its
     // last bytes are still queued would lose them.
@@ -679,9 +800,21 @@ void AtEngine::note_peer_close(std::size_t cid) {
 
 // ─── Emulated-time half ───────────────────────────────────────────────
 
+bool AtEngine::command_line_in_flight() const {
+    if (line_.empty()) return false;
+    // Every entry in `kCommands` begins "AT" (`AT`, `ATE0`, `AT+…`), so the
+    // partial line is a command in the making only while it is still consistent
+    // with that. A single 'A' counts: the guest may be one byte into `AT`.
+    static const char kStart[] = "AT";
+    for (std::size_t i = 0; i < 2 && i < line_.size(); ++i) {
+        if (std::toupper(static_cast<unsigned char>(line_[i])) != kStart[i]) return false;
+    }
+    return true;
+}
+
 bool AtEngine::wire_is_quiet() const {
     return out_.empty() && mode_ == Mode::Command && !conn_[SINGLE_CID].connecting &&
-           line_.empty();
+           !command_line_in_flight();
 }
 
 void AtEngine::frame_ipd() {
@@ -689,6 +822,24 @@ void AtEngine::frame_ipd() {
 
     for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
         Connection& c = conn_[cid];
+
+        if (!c.rx_datagrams.empty()) {
+            // ONE DATAGRAM, ONE `+IPD`. No chunking and no coalescing: a
+            // datagram's length IS its framing, so splitting one across two
+            // `+IPD`s or merging two into one would hand the guest a message
+            // boundary that never existed on the wire. The datagram cannot
+            // exceed MAX_IPD_CHUNK because that is the size of the buffer it
+            // was read into.
+            std::vector<std::uint8_t> dg = std::move(c.rx_datagrams.front());
+            c.rx_datagrams.pop_front();
+            log_debug("+IPD framing a {}-byte datagram on cid {}, {} datagram(s) left "
+                      "buffered", dg.size(), cid, c.rx_datagrams.size());
+            queue_ipd_header(cid, /*multiplexed=*/false, dg.size());
+            for (std::uint8_t b : dg) out_.push_back(b);
+            refresh_tick_gate();
+            return;
+        }
+
         if (c.rx.empty()) continue;
 
         const std::size_t n = std::min(c.rx.size(), MAX_IPD_CHUNK);
@@ -766,6 +917,13 @@ void AtEngine::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
     refresh_tick_gate();
 }
 
+std::size_t AtEngine::pending_from_peer() const {
+    const Connection& c = conn_[SINGLE_CID];
+    std::size_t       n = c.rx.size();
+    for (const std::vector<std::uint8_t>& dg : c.rx_datagrams) n += dg.size();
+    return n;
+}
+
 std::size_t AtEngine::payload_outstanding() const {
     if (mode_ != Mode::Payload) return 0;
     return payload_len_ - payload_.size();
@@ -778,7 +936,7 @@ void AtEngine::refresh_tick_gate() {
     // only ever runs from inside the gated path or from `receive`.
     bool work = !out_.empty();
     for (std::size_t cid = 0; !work && cid < MAX_CONNECTIONS; ++cid) {
-        work = !conn_[cid].rx.empty() || conn_[cid].close_pending;
+        work = conn_[cid].has_peer_data() || conn_[cid].close_pending;
     }
     tick_wanted_ = work;
 }
