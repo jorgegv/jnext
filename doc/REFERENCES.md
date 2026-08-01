@@ -45,6 +45,8 @@ is easy to get wrong and jnext did:
 | NextSync — Jari Komppa's dot command + Python server (the download page)      | <https://solhsa.com/specnext.html#NEXTSYNC>              |
 | NextSync 1.2 release — `nextsync12.zip`, the canonical binaries verified in [NEXTSYNC-VERIFICATION.md](testing/NEXTSYNC-VERIFICATION.md) | <https://github.com/Threetwosevensixseven/specnext/releases/tag/nextsync_v1.2> |
 | NextSync sources (Unlicense) — `nextsync.c`, `uart.s`, the AT sequence read rather than reverse-engineered | <https://github.com/jclauzel/ZX-Next-Unite/tree/main/nextsync> |
+| newt (GPLv3) — Chris Young's network tool; its `sntp` command is the UDP consumer GH #198 was built against (`net.c`, `sntp.c`, `uart.c`) | <https://github.com/chris-y/newt> |
+| Espressif ESP-AT command set — the authority for the UDP wire forms (`AT+CIPSTART` type/local port/mode, `AT+CIPSEND`, `+IPD`) | <https://docs.espressif.com/projects/esp-at/en/latest/AT_Command_Set/TCP-IP_AT_Commands.html> |
 
 ## Emulators used as oracles / comparison
 

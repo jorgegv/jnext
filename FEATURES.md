@@ -43,7 +43,8 @@
 - Master host gain (`--audio-gain-db`) plus per-subsystem gains for beeper, AY #0/#1/#2 and DAC (`--audio-gain-beeper-db`, `--audio-gain-ay0-db`/`ay1`/`ay2`, `--audio-gain-dac-db`; also in Preferences, -24 dB to +24 dB, persisted and live-applied)
 
 ## Networking (emulated ESP-01 Wi-Fi)
-- Guest programs can make **real outbound TCP connections** through an emulated ESP-01 on UART 0, driven by the same AT commands real Next software already speaks (`AT+CIPSTART`, `AT+CIPSEND`, `+IPD` receive framing). Verified against the **real NXtel BBS**: NXtel launched from the SD card through the NextZXOS Browser reaches ONLINE over the live internet
+- Guest programs can make **real outbound TCP and UDP connections** through an emulated ESP-01 on UART 0, driven by the same AT commands real Next software already speaks (`AT+CIPSTART`, `AT+CIPSEND`, `+IPD` receive framing). Verified against the **real NXtel BBS**: NXtel launched from the SD card through the NextZXOS Browser reaches ONLINE over the live internet
+- **UDP**, including `AT+CIPSTART="UDP",…` with its optional local port. Verified with the real **`newt`** dot command reading the clock from **`pool.ntp.org` over the live internet** (`.newt sntp 0 pool.ntp.org`)
 - **Off by default.** Nothing is reachable until you pass `--esp`; `--no-esp` forces it off again even when a saved GUI preference turns it on
 - **Optional host allowlist**: repeat `--esp-allow HOST` to restrict the guest to named hosts. Without it any host is allowed, and the run says so at startup
 - **Settings > Preferences > Network** makes both settings permanent, so a program you run often needs no flags; the change takes effect at the next machine start

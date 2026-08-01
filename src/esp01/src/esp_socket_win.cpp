@@ -142,9 +142,12 @@ bool resolve(const std::string& host, bool numeric_only,
     return true;
 }
 
-NativeSocket open_nonblocking(IpFamily family, std::string& err) {
+NativeSocket open_nonblocking(IpFamily family, Protocol proto,
+                              std::uint16_t local_port, std::string& err) {
+    const bool   udp    = (proto == Protocol::Udp);
     const int    domain = (family == IpFamily::V4) ? AF_INET : AF_INET6;
-    const SOCKET s      = ::socket(domain, SOCK_STREAM, IPPROTO_TCP);
+    const SOCKET s      = udp ? ::socket(domain, SOCK_DGRAM, IPPROTO_UDP)
+                              : ::socket(domain, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET) {
         err = wsa_text(::WSAGetLastError());
         return kInvalidSocket;
@@ -155,6 +158,25 @@ NativeSocket open_nonblocking(IpFamily family, std::string& err) {
         err = wsa_text(::WSAGetLastError());
         ::closesocket(s);
         return kInvalidSocket;
+    }
+
+    if (udp) {
+        // AT+CIPSTART's optional <local port> — same contract as the POSIX
+        // twin: wildcard address, no SO_REUSEADDR, and a bind failure is a hard
+        // failure rather than a silent fall back to an ephemeral port.
+        if (local_port != 0) {
+            IpAddress any;  // all-zero bytes == INADDR_ANY / in6addr_any
+            any.family = family;
+            sockaddr_storage sa{};
+            const int        len = fill_sockaddr(any, local_port, sa);
+            if (::bind(s, reinterpret_cast<sockaddr*>(&sa), len) != 0) {
+                err = wsa_text(::WSAGetLastError());
+                ::closesocket(s);
+                return kInvalidSocket;
+            }
+        }
+        // No TCP_NODELAY: there is no Nagle on a datagram socket.
+        return static_cast<NativeSocket>(s);
     }
 
     // Same reasoning as the POSIX twin: tiny request/response pairs, so Nagle
@@ -242,8 +264,8 @@ std::size_t send(NativeSocket s, const std::uint8_t* data, std::size_t len,
     return 0;
 }
 
-std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool& eof,
-                 bool& failed, bool& reset, std::string& err) {
+std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool stream,
+                 bool& eof, bool& failed, bool& reset, std::string& err) {
     eof    = false;
     failed = false;
     reset  = false;
@@ -251,11 +273,20 @@ std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool& eof,
         ::recv(static_cast<SOCKET>(s), reinterpret_cast<char*>(buf), clamp_len(cap), 0);
     if (n > 0) return static_cast<std::size_t>(n);
     if (n == 0) {
-        eof = true;
+        // TCP: orderly peer close. UDP: a legal zero-length datagram and not
+        // the end of anything — see the POSIX twin and GH #198.
+        eof = stream;
         return 0;
     }
     const int e = ::WSAGetLastError();
     if (would_block(e)) return 0;
+    // WHERE THE TWINS GENUINELY DIVERGE. An oversized datagram is TRUNCATED
+    // silently by POSIX `recv`, but Winsock reports WSAEMSGSIZE — with the
+    // buffer ALREADY filled with the first `cap` bytes and the remainder
+    // discarded. Treating that as a failure would tear down the connection on
+    // exactly the case POSIX hands back as ordinary data, so it is reported the
+    // same way on both: `cap` bytes received, excess lost.
+    if (!stream && e == WSAEMSGSIZE) return cap;
     failed = true;
     // WSAECONNRESET is the peer's RST, and it is the only code that means
     // that. WSAECONNABORTED (a LOCAL abort — timeout, protocol error) and

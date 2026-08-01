@@ -65,7 +65,8 @@ public:
 
     ~SocketTransport() override { release(); }
 
-    bool begin_connect(const std::string& host, std::uint16_t port) override {
+    bool begin_connect(const std::string& host, std::uint16_t port, Protocol protocol,
+                       std::uint16_t local_port) override {
         if (state_ == TransportState::Resolving ||
             state_ == TransportState::Connecting ||
             state_ == TransportState::Connected) {
@@ -81,6 +82,12 @@ public:
         release();
         host_       = host;
         port_       = port;
+        protocol_   = protocol;
+        // TCP has no local-port argument at all (AT+CIPSTART's fourth TCP field
+        // is a keepalive), so a caller's value is discarded rather than acted
+        // on — a bind that the interface says is UDP-only must not happen to
+        // work for TCP and become relied upon.
+        local_port_ = (protocol == Protocol::Udp) ? local_port : 0;
         peer_       = IpAddress{};
         last_error_.clear();
         // Cleared with `last_error_` and for the same reason: all three
@@ -89,8 +96,8 @@ public:
         denial_   = DenyReason::None;
         received_ = 0;
         state_    = TransportState::Resolving;
-        log_debug("connect requested: {}:{} (resolution deferred to poll)",
-                            host_, port_);
+        log_debug("connect requested: {} {}:{} (resolution deferred to poll)",
+                            protocol_text(protocol_), host_, port_);
         return true;
     }
 
@@ -132,7 +139,9 @@ public:
             return 0;
         bool        eof = false, failed = false, reset = false;
         std::string err;
-        const std::size_t n = net::recv(sock_, buf, cap, eof, failed, reset, err);
+        const std::size_t n = net::recv(sock_, buf, cap,
+                                        /*stream=*/protocol_ == Protocol::Tcp, eof, failed,
+                                        reset, err);
         if (failed) {
             if (reset && received_ != 0)
                 note_peer_reset();
@@ -390,12 +399,16 @@ private:
         }
         peer_ = normalize(chosen);
 
-        sock_ = net::open_nonblocking(chosen.family, err);
+        sock_ = net::open_nonblocking(chosen.family, protocol_, local_port_, err);
         if (sock_ == net::kInvalidSocket) {
             fail("cannot create socket: " + err);
             return;
         }
 
+        // UDP takes the `Connected` arm below on the spot: `::connect()` on a
+        // datagram socket only records the peer, so it returns 0 and the state
+        // never passes through `Connecting`. That is why an `AT+CIPSTART="UDP"`
+        // is answered on the very first poll after dispatch.
         state_ = TransportState::Connecting;
         switch (net::begin_connect(sock_, chosen, port_, err)) {
             case net::ConnectProgress::Connected: on_connected(); break;
@@ -419,8 +432,8 @@ private:
 
     void on_connected() {
         state_ = TransportState::Connected;
-        log_info("connection OPENED to {}:{} (host '{}')", to_string(peer_),
-                           port_, host_);
+        log_info("{} connection OPENED to {}:{} (host '{}')", protocol_text(protocol_),
+                           to_string(peer_), port_, host_);
     }
 
     AddressPolicy     policy_;
@@ -429,6 +442,9 @@ private:
     net::NativeSocket sock_  = net::kInvalidSocket;
     std::string       host_;
     std::uint16_t     port_ = 0;
+    Protocol          protocol_   = Protocol::Tcp;
+    /// UDP only; 0 = let the OS pick. See `open_nonblocking`.
+    std::uint16_t     local_port_ = 0;
     IpAddress         peer_;
     std::string       last_error_;
     /// Non-`None` only while `state_ == Failed` because the address policy
@@ -444,6 +460,14 @@ private:
 };
 
 }  // namespace
+
+const char* protocol_text(Protocol p) {
+    switch (p) {
+        case Protocol::Tcp: return "TCP";
+        case Protocol::Udp: return "UDP";
+    }
+    return "unknown";
+}
 
 const char* transport_state_text(TransportState s) {
     switch (s) {

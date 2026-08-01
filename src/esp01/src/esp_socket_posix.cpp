@@ -119,9 +119,12 @@ bool resolve(const std::string& host, bool numeric_only,
     return true;
 }
 
-NativeSocket open_nonblocking(IpFamily family, std::string& err) {
-    const int domain = (family == IpFamily::V4) ? AF_INET : AF_INET6;
-    const int s      = ::socket(domain, SOCK_STREAM, IPPROTO_TCP);
+NativeSocket open_nonblocking(IpFamily family, Protocol proto,
+                              std::uint16_t local_port, std::string& err) {
+    const bool udp    = (proto == Protocol::Udp);
+    const int  domain = (family == IpFamily::V4) ? AF_INET : AF_INET6;
+    const int  s      = udp ? ::socket(domain, SOCK_DGRAM, IPPROTO_UDP)
+                            : ::socket(domain, SOCK_STREAM, IPPROTO_TCP);
     if (s < 0) {
         err = errno_text(errno);
         return kInvalidSocket;
@@ -141,6 +144,29 @@ NativeSocket open_nonblocking(IpFamily family, std::string& err) {
     const int on = 1;
     ::setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on));
 #endif
+
+    if (udp) {
+        // AT+CIPSTART's optional <local port>. Bound to the WILDCARD address,
+        // not to the peer's family-matching local address: the guest names a
+        // port, never an interface, and the socket is `connect()`ed straight
+        // afterwards, which is what restricts inbound datagrams to the peer.
+        // No SO_REUSEADDR — a port already in use must fail loudly rather than
+        // silently share a UDP port with another process on this host.
+        if (local_port != 0) {
+            IpAddress        any;  // all-zero bytes == INADDR_ANY / in6addr_any
+            any.family = family;
+            sockaddr_storage sa{};
+            const socklen_t  len = fill_sockaddr(any, local_port, sa);
+            if (::bind(s, reinterpret_cast<sockaddr*>(&sa), len) < 0) {
+                err = errno_text(errno);
+                ::close(s);
+                return kInvalidSocket;
+            }
+        }
+        // No TCP_NODELAY: there is no Nagle on a datagram socket, and the
+        // option is at the TCP level anyway.
+        return s;
+    }
 
     // The emulated link carries tiny request/response pairs (nextsync sends
     // 3-7 byte commands and waits), so Nagle would add ~40 ms of latency to
@@ -215,15 +241,19 @@ std::size_t send(NativeSocket s, const std::uint8_t* data, std::size_t len,
     return 0;
 }
 
-std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool& eof,
-                 bool& failed, bool& reset, std::string& err) {
+std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool stream,
+                 bool& eof, bool& failed, bool& reset, std::string& err) {
     eof    = false;
     failed = false;
     reset  = false;
     const ssize_t n = ::recv(s, buf, cap, 0);
     if (n > 0) return static_cast<std::size_t>(n);
     if (n == 0) {
-        eof = true;  // orderly close by the peer
+        // TCP: an orderly close by the peer. UDP: a zero-length datagram, which
+        // is legal and is NOT the end of anything — reporting EOF there would
+        // close a live connection (GH #198). Nothing is handed on either way,
+        // so the datagram is dropped rather than framed as an empty `+IPD`.
+        eof = stream;
         return 0;
     }
     if (would_block(errno)) return 0;

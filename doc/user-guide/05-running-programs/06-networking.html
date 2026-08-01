@@ -3028,8 +3028,8 @@ those programs can reach the network through your host machine.</p>
 associated with an access point, because to the guest program that is what a
 working ESP-01 looks like; the actual connections are made by your host.</p>
 <h2 id="it-is-off-by-default-and-it-stays-off-until-you-say-otherwise">It is off by default, and it stays off until you say otherwise<a class="headerlink" href="#it-is-off-by-default-and-it-stays-off-until-you-say-otherwise" title="Permanent link">&para;</a></h2>
-<p>Turning this on gives the running program <strong>an outbound TCP pipe out of the
-emulator</strong>. That program can already read and write the SD-card image. A
+<p>Turning this on gives the running program <strong>an outbound TCP and UDP pipe out of
+the emulator</strong>. That program can already read and write the SD-card image. A
 program you did not write is a program you are trusting.</p>
 <p>So JNEXT never enables it for you, and <strong>no loaded program can enable it for
 itself</strong>. You turn it on in one of two places:</p>
@@ -3243,9 +3243,15 @@ off, nothing reports the connections at all.</p>
 Next, so a few things a physical ESP-01 can do are not built:</p>
 <ul>
 <li><strong>server / listen mode</strong> (<code>AT+CIPSERVER</code>) — so nothing can connect <em>in</em>;</li>
-<li><strong>UDP</strong>, <strong>multiplexed connections</strong> and <strong>transparent mode</strong>.</li>
+<li><strong>multiplexed connections</strong> and <strong>transparent mode</strong>;</li>
+<li><strong>TLS</strong>, so a program cannot make an <code>https</code> request.</li>
 </ul>
-<p>None of them has a consumer in current Next software. Widening the emulation to
+<p>UDP <strong>is</strong> emulated, including <code>AT+CIPSTART="UDP",…</code> with its optional local
+port. That is what <code>newt</code> needs to set the clock from an internet time server,
+and <code>.newt sntp 0 pool.ntp.org</code> works. What is not emulated there is UDP
+"modes" 1 and 2, which let the far end of the link change to whoever last sent
+a packet; the emulated module answers <code>ERROR</code> rather than pretending.</p>
+<p>None of the rest has a consumer in current Next software. Widening the emulation to
 the full ESP-01 firmware specification is tracked as
 <a href="https://github.com/jorgegv/jnext/issues/154">issue #154</a>.</p>
 <hr />

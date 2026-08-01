@@ -87,7 +87,10 @@ namespace {
 
 class IdleTransport : public EspTransport {
 public:
-    bool begin_connect(const std::string&, std::uint16_t) override { return false; }
+    bool begin_connect(const std::string&, std::uint16_t, Protocol,
+                       std::uint16_t) override {
+        return false;
+    }
     void poll() override {}
     TransportState     state() const override { return state_; }
     const std::string& last_error() const override { return error_; }

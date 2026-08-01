@@ -2,10 +2,12 @@
 
 **Issue:** [GH #25](https://github.com/jorgegv/jnext/issues/25) (v1.0) — follow-up
 [#154](https://github.com/jorgegv/jnext/issues/154) (full datasheet-level emulation).
-**Status:** v1.0 **complete**, six branches. 1 (UART device seam), 2 (socket transport), 3 (AT
+**Status:** v1.0 **complete**, six branches: 1 (UART device seam), 2 (socket transport), 3 (AT
 engine, `6a79f6fd`), 3.5 (modularisation, `779b7103`, v0.99.68), `fix/esp-async-dns` (§7.4), 4
 (CLI/config/wiring) and 5 (functional test + the pacing measurement) are all **merged**.
-**Last updated:** 2026-07-29.
+**UDP added by [#198](https://github.com/jorgegv/jnext/issues/198)** — see
+[§5.7](#57-udp-gh-198).
+**Last updated:** 2026-08-01.
 **Audience:** jnext maintainers **and anyone reusing this module in another project**. The module
 is deliberately shaped to be liftable; this document is its specification, not a jnext-internal
 note.
@@ -18,8 +20,10 @@ engineering reasons in §1.3.
 > **Authority.** Hardware behaviour is cited from the ZX Spectrum Next FPGA VHDL
 > (`cores/zxnext/src/`) and `nextreg.txt`. Guest-visible protocol behaviour is cited from the
 > software that actually consumes it — the NextZXOS ESP driver and dot commands shipped on the
-> official SD card, NXtel, and nextsync. Nothing here is derived from the Espressif AT manual, and
-> nothing is asserted without a citation. Where something is untested, it is labelled untested.
+> official SD card, NXtel, nextsync and (for UDP) newt. Nothing in the v1.0 surface is derived from
+> the Espressif AT manual; **§5.7 is the exception and says so** — UDP's wire forms come from the
+> Espressif AT command set, cross-checked against the consumer that has to parse them. Nothing is
+> asserted without a citation. Where something is untested, it is labelled untested.
 
 ---
 
@@ -35,6 +39,7 @@ engineering reasons in §1.3.
 - [3. The three v1.1 shape choices](#3-the-three-v11-shape-choices)
 - [4. The Next-side hardware interface](#4-the-next-side-hardware-interface)
 - [5. The command set](#5-the-command-set)
+  - [5.7 UDP (GH #198)](#57-udp-gh-198)
 - [6. The timing model](#6-the-timing-model)
 - [7. Architecture](#7-architecture)
 - [8. Security posture](#8-security-posture)
@@ -131,7 +136,7 @@ does not "fix" them.
 | Not built | Evidence |
 |---|---|
 | **Server / listen mode** (`AT+CIPSERVER`) | Appears **exactly once** in all software examined, and only to turn it **off**. NextZXOS's own listen/accept API is marked `***TODO, not implemented`. Not building it also removes the entire inbound attack surface. |
-| **UDP** | Zero consumers. nextsync is TCP-only; NXtel and the dot commands are TCP-only. |
+| ~~**UDP**~~ | ~~Zero consumers. nextsync is TCP-only; NXtel and the dot commands are TCP-only.~~ **BUILT (GH #198)** — the justification was "no consumer", and [`newt`](https://github.com/chris-y/newt) (GPLv3) is one. See [§5.7](#57-udp-gh-198). |
 | **Passthrough** (`AT+CIPMODE`) | Appears **nowhere** in any examined software. |
 | **Multiplexed connections** (`AT+CIPMUX=1`) | nextsync never sends `AT+CIPMUX` at all — it relies on the power-on default — and its `+IPD` byte FSM does not merely reject `+IPD,<id>,<len>:`, it **silently mis-parses** it into a corrupted length (§3, choice B). Since **no command can correct a wrong default at runtime**, the default must be 0 and `=1` must be refused loudly rather than accepted-and-ignored. |
 | **TLS** | No evidenced consumer. sQLux has it; nothing on the Next asks for it. |
@@ -176,6 +181,13 @@ Each item is a **decision with a reason**, not an omission.
 command line and its `OK`. This engine never does: a `+IPD` is framed only when the guest-bound
 queue is empty **and** no command is in flight (`wire_is_quiet()`). This makes every guest
 parser's job strictly easier and no parser's job harder.
+
+  **What "in flight" means was too broad, and GH #198 narrowed it** — the sentence above was
+  falsified by a real client. It used to mean "the command-line buffer is non-empty", and newt
+  leaves a byte in it for ever (its `AT+CIPSEND=48` is followed by 49 bytes), so the `+IPD` it was
+  waiting for was never framed at all. The gate now asks whether the partial line **can still
+  become an AT command**. Strictly closer to hardware; the half-typed-command case is unchanged.
+  Full account in [§5.7](#57-udp-gh-198).
 
 **2. Echo defaults OFF**, unlike real AT firmware which powers up with it on. Every evidenced
 client sends `ATE0` before anything that matters and none relies on the echo, while `.ESPBAUD`'s
@@ -336,7 +348,9 @@ Follows directly from [§1.1](#11-how-the-at-surface-was-derived). Case-insensit
 | `AT` | `\r\nOK\r\n` | |
 | `ATE0` / `ATE1` | `\r\nOK\r\n` | Really toggles echo; default OFF (simplification 2) |
 | `AT+RST` | `\r\nOK\r\n\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n` | Drops every connection **without** a `CLOSED` — the guest asked for it |
-| `AT+CIPSTART="TCP","<host>",<port>` | deferred → `\r\nOK\r\n` or `\r\nERROR\r\n` | Reply comes from `poll()`, not from dispatch. Non-TCP protocol → `ERROR` |
+| `AT+CIPSTART="TCP","<host>",<port>[,<keepalive>]` | deferred → `\r\nOK\r\n` or `\r\nERROR\r\n` | Reply comes from `poll()`, not from dispatch. The keepalive is accepted and ignored |
+| `AT+CIPSTART="UDP","<host>",<port>[,<local port>[,<mode>]]` | deferred → `CONNECT\r\n\r\nOK\r\n` or `\r\nERROR\r\n` | GH #198, [§5.7](#57-udp-gh-198). **No leading CRLF before `CONNECT`** — it is a status line, not a result code. `<mode>` other than 0 → `ERROR` |
+| `AT+CIPSTART="SSL",…` and anything else | `\r\nERROR\r\n` | Still no consumer |
 | `AT+CIPSEND=<n>` | `\r\nOK\r\n> ` → *n payload bytes* → `\r\nSEND OK\r\n` | **Trailing space after `>` is mandatory** |
 | `AT+CIPSENDEX=<n>` | identical | Alias (simplification 3) |
 | `AT+CIPCLOSE` | `\r\nCLOSED\r\n\r\nOK\r\n`; `\r\nERROR\r\n` if nothing open | The `ERROR` case is load-bearing — see below |
@@ -427,6 +441,100 @@ Every value the module reports about "its" network is a **constant** (owner deci
 These are cosmetic: nothing routes through them. The parenthesised text in `AT+GMR` is invisible
 to NXtel (it prints up to the `(`), which is where the honest "this is not real firmware" marker
 goes.
+
+### 5.7 UDP (GH #198)
+
+v1.0 refused UDP, and the reason recorded in [§1.4](#14-what-was-deliberately-not-built) was
+**"zero consumers"** — not "hard", not "out of scope". [`newt`](https://github.com/chris-y/newt)
+(Chris Young, GPLv3) is one, so the reason expired and the feature was built.
+
+**The specification is two documents, and they agree.** The wire forms are Espressif's
+(`AT+CIPSTART=<"type">,<"remote host">,<remote port>[,<local port>,<mode>]` answered `CONNECT` then
+`OK`; `AT+CIPSEND=<length>` answered `OK` + `>` then `SEND OK`; one `+IPD,<len>:` per received
+datagram in single-connection mode). The consumer is newt's `sntp` command, whose exact sequence is
+`ATE0` → `AT+CIPCLOSE` → `AT+CIPSTART="UDP","<server>",123` → `AT+CIPSEND=48` + a 48-byte NTP
+packet → read one `+IPD` → `AT+CIPCLOSE`. This section records only where the two needed
+reconciling, or where a decision was made.
+
+#### It is not TCP with a different socket type
+
+Three properties a byte stream does not have, each of which would pass a lone request/response
+exchange (all SNTP is) and corrupt anything busier:
+
+| Property | Why the stream code is wrong for it |
+|---|---|
+| **Datagram boundaries** | One `AT+CIPSEND` is one datagram and one datagram is one `+IPD`. The per-connection queues are therefore a second pair, of whole messages — reusing the byte deques would concatenate two queued sends into one datagram, and merge two received ones into a single mis-lengthed `+IPD`. |
+| **`recv() == 0` is not EOF** | A datagram socket has no end of stream, and a zero-length datagram is legal. `net::recv` takes a `stream` flag; without it the first empty datagram a peer sends closes a live connection. |
+| **All-or-nothing reads and writes** | A datagram is read whole or truncated (the kernel discards the remainder), so the read buffer is the `+IPD` ceiling, not the 1 KB stream chunk. Winsock reports that truncation as `WSAEMSGSIZE` where POSIX reports a short read; the twin folds it back so both behave alike. |
+
+`::connect()` on a datagram socket only records the peer, so it completes immediately: a UDP
+`AT+CIPSTART` never passes through `Connecting` and is answered on the first `poll()`.
+
+#### `CONNECT` precedes `OK` for UDP, and not for TCP
+
+Real firmware prints `CONNECT\r\n\r\nOK\r\n` for **both**, and newt's `net_connect_udp` reads
+exactly ONE line and returns false unless it begins `CONNECT`. So UDP must emit it.
+
+**TCP was left alone**, deliberately. Its bare `\r\nOK\r\n` is pre-existing v1.0 behaviour derived
+from the evidenced clients, it is pinned by `esp-loopback-func`'s exact byte stream, and the two
+clients whose parsers would have to survive the change — NXtel and nextsync — have no source on
+this machine to check it against ([§12](#12-evidence-index) says so itself). Making TCP
+firmware-exact is a genuine improvement and a **separate change with its own evidence to gather**;
+bundling it here would have put the one live-traffic-proven path at risk for a client that does not
+use TCP.
+
+**There is no leading CRLF before `CONNECT`.** `CONNECT` is a *status* line, not a result code, so
+the blank line a transcript shows before `OK` belongs to the `\r\nOK\r\n` after it. This was got
+wrong first — the implementation prefixed it like every other reply — and **no amount of reading
+the code found it**: newt's one-line read saw an empty line, `net_connect_udp` returned false, and
+the tool gave up silently without sending anything. It was found by running the real dot command
+against a real NTP server, and it is now pinned as its own row (`UDP-01c`) stated as the property
+rather than as a substring of a literal.
+
+#### `<mode>` 1 and 2 are refused, not ignored
+
+Mode 0 — the default, and the only one any client sends — fixes the peer for the life of the
+connection, which is exactly a `connect()`ed socket. Modes 1 and 2 re-point the peer at whoever
+last sent to us; that needs an unconnected socket, `recvfrom` bookkeeping, and a **second security
+decision about who is allowed to become the peer**. Refused for the `AT+CIPMUX=1` reason
+([§1.4](#14-what-was-deliberately-not-built)): accepting silently would promise a behaviour the
+guest cannot ask back.
+
+`<local port>` **is** honoured, and binding it is the only part of this that is observable solely
+from the far end — `UDPT-10` asserts the source port the peer sees, with `UDPT-11` as the control.
+
+#### Simplification 1 was narrowed, because a real client falsified it
+
+Recorded here as well as in [§2](#2-the-seven-deliberate-modelling-simplifications) because it is
+the one change outside UDP itself. The URC gate used to hold a `+IPD` back whenever `line_` was
+non-empty, justified as *"makes every guest parser's job strictly easier and no parser's job
+harder"*. It made one parser's job **impossible**.
+
+newt's `uart_tx_bin` (`uart.c`) is `do { … } while (size--)`, which transmits `size + 1` bytes: after
+`AT+CIPSEND=48` it puts **49** on the wire. The 49th is one byte past its own `calloc(48)` — arbitrary
+heap content — and it lands in the command-line buffer, where it stays until the next CR. Under the
+old rule that byte held off every `+IPD` **for ever**, so the reply newt was waiting for was never
+framed and it died on its own 5 s timeout. Real firmware frames the URC regardless.
+
+The gate now asks whether the partial line **can still become an AT command**: every command begins
+`AT`, so debris that does not is not a transaction. That is strictly closer to hardware and keeps
+the property the serialisation exists for — a genuinely half-typed `AT+CIPM` still holds the `+IPD`
+back (`IPD-09`, unchanged), which is what stops a `+IPD` payload byte being mistaken for the `> `
+prompt NXtel busy-waits on with no timeout.
+
+**Residual, stated rather than hidden:** if that stray byte happens to *be* `A`, it is
+indistinguishable from a guest starting to type and the stall returns. One value in 256. The honest
+fix is the guest's own off-by-one, not a rule this engine can write. (In the observed run the byte
+was `z`.)
+
+#### Evidence
+
+| Claim | How it was established |
+|---|---|
+| newt's exact AT sequence, and its one-line `CONNECT` compare | `main.c`, `sntp.c`, `net.c`, `uart.c` read from source |
+| `uart_tx_bin` sends `size + 1` | Read from source **and** compiled and run — 49 for 48 |
+| The whole path works | **The real `.newt` dot command**, built with z88dk, installed into a private clone of the SD image, booted under NextZXOS in jnext, fetching the time from **`pool.ntp.org` over the live internet** (Cloudflare `162.159.200.123`). It printed the correct UTC. The trace shows the stray byte arriving as `AT <- "zAT+CIPCLOSE"` *after* the `+IPD` had been framed |
+| It stays working | `esp-udp-sntp-func` — a Z80 guest reproducing newt's off-by-one against a real UDP SNTP peer, asserting the guest-visible stream as an exact byte sequence |
 
 ---
 
@@ -1017,7 +1125,7 @@ What v1.0 already leaves open, at zero cost today (§3):
 | `AT+CIPMUX=1`, 5 connections | The `conn_` table, per-slot state, per-slot loops, connection ids throughout the state machine | Give slots 1..4 transports; implement the command; pass `multiplexed=true` |
 | Multiplexed `+IPD,<id>,<len>:` | `queue_ipd_header(cid, multiplexed, len)` — the one place the wire format is decided | Flip the flag per connection |
 | ≈40 further AT commands | `kCommands` table + uniform handler signature | Add rows |
-| UDP / TLS / passthrough | `EspTransport` is an interface | New transport implementations behind the same seam |
+| ~~UDP~~ / TLS / passthrough | `EspTransport` is an interface | **UDP is done (GH #198)**, and the prediction in this row was WRONG in an instructive way: it did not arrive as a new implementation behind an unchanged seam, because the engine is handed ONE transport per slot at construction and `AT+CIPSTART="UDP"` chooses at run time. It arrived as a `Protocol` argument on `begin_connect` instead. TLS and passthrough would go the same way. |
 | Server / listen | — | New capability; **re-opens the inbound attack surface deliberately closed in v1.0**, so it needs its own security review |
 | NR 0x02 bit 7 hardware reset | The bit is already latched (`emulator.cpp:2719`) | A device-facing hook driven from the NR 0x02 **write** — distinct from `UartChannel::reset` (§4.2/§4.3) |
 | Echo on by default | `ATE0`/`ATE1` really toggle it | One line, if datasheet fidelity is wanted (simplification 2) |
