@@ -11,7 +11,7 @@
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
 | Memory/MMU                                 |   201 |  172 |    0 |    0 |      29 |         63 |
-| ULA Video                                  |   125 |  114 |    0 |    0 |      11 |          6 |
+| ULA Video                                  |   126 |  115 |    0 |    0 |      11 |          6 |
 | Layer2                                     |   122 |  114 |    0 |    0 |       8 |         25 |
 | Sprites                                    |   194 |  187 |    0 |    0 |       7 |         18 |
 | Tilemap                                    |    69 |   59 |    0 |    0 |      10 |         13 |
@@ -49,11 +49,11 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    22 |   22 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  2988 | 2715 |    0 |    2 |     271 |        884 |
+| **Total**                                  |  2989 | 2716 |    0 |    2 |     271 |        884 |
 
-Rows the sections above carry: **2988**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2972**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
+Rows the sections above carry: **2989**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2947**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
 
-The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **85** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **13** rows sit in **2** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
+The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **59** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **13** rows sit in **2** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
@@ -682,6 +682,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S13.02  | 128K frame length                               | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2993 |
 | S13.03  | Pentagon frame length                           | —              | missing | missing                    |
 | S13.04  | Active display start 48K                        | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:3004 |
+| S13.14  | Frame complete flips exactly at 69888 T-states (48K) | zxula_timing.vhd:262,270 | pass    | test/ula/ula_test.cpp:3031 |
 | S14.04  | Interrupt disabled                              | —              | missing | missing                                                                                          |
 | S14.05  | Line interrupt fires                            | —              | missing | missing                                                                                         |
 | S14.06  | Line interrupt 0 = last line                    | —              | missing | missing                                                                                         |
@@ -713,37 +714,6 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S17.02     | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                           | zxnext.vhd:5462,6826              | pass   | test/ula/ula_test.cpp:3282      |
 | S17.03     | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other                | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3324      |
 | S17.04     | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame          | zxnext.vhd:5391-5393,5462         | pass   | test/ula/ula_test.cpp:3364      |
-
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                         | VHDL file:line | Test file:line            |
-|---------|-----------------------------------------------|----------------|---------------------------|
-| S2.11  | Rendered paper pixel (0x00 pixels, 0x47 attr) | —              | missing                   |
-| S13.09  | Pentagon T-states/frame = 71680               | —              | missing                   |
-| S13.10  | Display left = 128                            | —              | missing                   |
-| S13.11  | Display top = 64                              | —              | missing                   |
-| S13.12  | Display width = 256                           | —              | missing                   |
-| S13.13  | Display height = 192                          | —              | missing                   |
-| S13.14  | Frame complete after full T-states            | zxula_timing.vhd | test/ula/ula_test.cpp:3031 |
-| SR.01   | rrrgggbb 0x00 -> black                        | —              | missing                   |
-| SR.02   | rrrgggbb 0xFF -> white                        | —              | missing                   |
-| SR.03   | rrrgggbb 0xE0 -> red                          | —              | missing                   |
-| SR.04   | FB_WIDTH = 320                                | —              | missing                   |
-| SR.05   | FB_HEIGHT = 256                               | —              | missing                   |
-| SR.06   | DISP_X = 32                                   | —              | missing                   |
-| SR.07   | DISP_Y = 32                                   | —              | missing                   |
-| SD.01   | ULA FB_WIDTH = 320                            | —              | missing                   |
-| SD.02   | ULA FB_HEIGHT = 256                           | —              | missing                   |
-| SD.03   | ULA DISP_X = 32 (left border)                 | —              | missing                   |
-| SD.04   | ULA DISP_Y = 32 (top border)                  | —              | missing                   |
-| SD.05   | ULA DISP_W = 256                              | —              | missing                   |
-| SD.06   | ULA DISP_H = 192                              | —              | missing                   |
-| SD.07   | Border widths sum correctly (32+256+32=320)   | —              | missing                   |
-| SD.08   | Border heights sum correctly (32+192+32=256)  | —              | missing                   |
-| S03P.01 | Init fills all lines with current border      | —              | missing                   |
-| S03P.02 | Per-line snapshot at line 100                 | —              | missing                   |
-| S03P.03 | Other lines unchanged                         | —              | missing                   |
-| S03P.04 | Out-of-range line returns current border      | —              | missing                   |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 
