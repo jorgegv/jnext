@@ -547,26 +547,26 @@ stencil off.
 
 | ID | Title | Layer opacity | Mode | Expected winner | VHDL line |
 |----|-------|---------------|------|-----------------|-----------|
-| PRI-010-SLU-3 | Mode 000, all three opaque | S=✓ L=✓ U=✓ | 000 | Sprite | 7222 |
-| PRI-010-SLU-LU | Mode 000, only L+U | S=✗ L=✓ U=✓ | 000 | Layer 2 | 7224 |
-| PRI-010-SLU-U | Mode 000, only U | S=✗ L=✗ U=✓ | 000 | ULA | 7226 |
-| PRI-010-SLU-0 | Mode 000, none | — | 000 | fallback | 7214 |
-| PRI-011-LSU-3 | Mode 001, all three | S=✓ L=✓ U=✓ | 001 | Layer 2 | 7232 |
-| PRI-011-LSU-SU | Mode 001, S+U only | S=✓ L=✗ U=✓ | 001 | Sprite | 7234 |
-| PRI-011-LSU-U | Mode 001, U only | S=✗ L=✗ U=✓ | 001 | ULA | 7236 |
-| PRI-010-SUL-3 | Mode 010, all three | S=✓ L=✓ U=✓ | 010 | Sprite | 7244 |
-| PRI-010-SUL-UL | Mode 010, U+L | S=✗ L=✓ U=✓ | 010 | ULA | 7246 |
-| PRI-010-SUL-L | Mode 010, L only | S=✗ L=✓ U=✗ | 010 | Layer 2 | 7248 |
-| PRI-011-LUS-3 | Mode 011, all three | S=✓ L=✓ U=✓ | 011 | Layer 2 | 7254 |
-| PRI-011-LUS-US | Mode 011, U(non-border)+S | S=✓ L=✗ U=✓, `ula_border_2=0` | 011 | ULA | 7256 |
-| PRI-011-LUS-S | Mode 011, S only | S=✓ L=✗ U=✗ | 011 | Sprite | 7258 |
-| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp | `ula_border_2=1`, `tm_transparent=1`, S=✓, U=✓, L=✗ | 011 | Sprite (border exception) | 7256 |
-| PRI-100-USL-3 | Mode 100, all three | S=✓ L=✓ U=✓ | 100 | ULA | 7266 |
-| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗ | 100 conditions | 100 | Sprite | 7266 |
-| PRI-100-USL-L | Mode 100, L only | S=✗ L=✓ U=✗ | 100 | Layer 2 | 7270 |
-| PRI-101-ULS-3 | Mode 101, all three | S=✓ L=✓ U=✓ | 101 | ULA | 7278 |
-| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp | conditions | 101 | Layer 2 | 7278, 7280 |
-| PRI-101-ULS-S | Mode 101, S only | S=✓ L=✗ U=✗ | 101 | Sprite | 7282 |
+| PRI-010-SLU-3 | Mode 000, all three opaque | S=✓ L=✓ U=✓ | 000 | Sprite | zxnext.vhd:7222 |
+| PRI-010-SLU-LU | Mode 000, only L+U | S=✗ L=✓ U=✓ | 000 | Layer 2 | zxnext.vhd:7224 |
+| PRI-010-SLU-U | Mode 000, only U | S=✗ L=✗ U=✓ | 000 | ULA | zxnext.vhd:7226 |
+| PRI-010-SLU-0 | Mode 000, none | — | 000 | fallback | zxnext.vhd:7214 |
+| PRI-011-LSU-3 | Mode 001, all three | S=✓ L=✓ U=✓ | 001 | Layer 2 | zxnext.vhd:7232 |
+| PRI-011-LSU-SU | Mode 001, S+U only | S=✓ L=✗ U=✓ | 001 | Sprite | zxnext.vhd:7234 |
+| PRI-011-LSU-U | Mode 001, U only | S=✗ L=✗ U=✓ | 001 | ULA | zxnext.vhd:7236 |
+| PRI-010-SUL-3 | Mode 010, all three | S=✓ L=✓ U=✓ | 010 | Sprite | zxnext.vhd:7244 |
+| PRI-010-SUL-UL | Mode 010, U+L | S=✗ L=✓ U=✓ | 010 | ULA | zxnext.vhd:7246 |
+| PRI-010-SUL-L | Mode 010, L only | S=✗ L=✓ U=✗ | 010 | Layer 2 | zxnext.vhd:7248 |
+| PRI-011-LUS-3 | Mode 011, all three | S=✓ L=✓ U=✓ | 011 | Layer 2 | zxnext.vhd:7254 |
+| PRI-011-LUS-US | Mode 011, U(non-border)+S | S=✓ L=✗ U=✓, `ula_border_2=0` | 011 | ULA | zxnext.vhd:7256 |
+| PRI-011-LUS-S | Mode 011, S only | S=✓ L=✗ U=✗ | 011 | Sprite | zxnext.vhd:7258 |
+| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp | `ula_border_2=1`, `tm_transparent=1`, S=✓, U=✓, L=✗ | 011 | Sprite (border exception) | zxnext.vhd:7256 |
+| PRI-100-USL-3 | Mode 100, all three | S=✓ L=✓ U=✓ | 100 | ULA | zxnext.vhd:7266 |
+| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗ | 100 conditions | 100 | Sprite | zxnext.vhd:7266 |
+| PRI-100-USL-L | Mode 100, L only | S=✗ L=✓ U=✗ | 100 | Layer 2 | zxnext.vhd:7270 |
+| PRI-101-ULS-3 | Mode 101, all three | S=✓ L=✓ U=✓ | 101 | ULA | zxnext.vhd:7278 |
+| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp | conditions | 101 | Layer 2 | zxnext.vhd:7278,7280 |
+| PRI-101-ULS-S | Mode 101, S only | S=✓ L=✗ U=✗ | 101 | Sprite | zxnext.vhd:7282 |
 
 ### Group PRI-BOUND — Boundary and default branch
 

@@ -393,7 +393,7 @@ static void test_TR() {
         // slot (no L2/S present, TM replaces ULA).
         uint32_t expected = Renderer::rrrgggbb_to_argb(0xE3);
         uint32_t got = composite_one(r, vhdl_fallback_argb(0x00));
-        check("TR-21", "TM non-text: RGB==NR0x14 still opaque (VHDL 7109)",
+        check("TR-21", "TM non-text: RGB==NR0x14 still opaque (VHDL zxnext.vhd:7109)",
               got == expected,
               DETAIL("got=0x%08X expected=0x%08X", got, expected));
     }
@@ -493,7 +493,7 @@ static void test_TR() {
         r.layer2_line_[0] = TRANSP;
         r.ula_line_[0] = PIX_ULA;
         uint32_t got = composite_one(r, vhdl_fallback_argb(0xE3));
-        check("TR-31", "L2 pixel_en=0 => layer2_transparent (VHDL 7121)",
+        check("TR-31", "L2 pixel_en=0 => layer2_transparent (VHDL zxnext.vhd:7121)",
               got == PIX_ULA,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_ULA));
     }
@@ -538,7 +538,7 @@ static void test_TR() {
         r.sprite_line_[0] = TRANSP;
         r.ula_line_[0] = PIX_ULA;
         uint32_t got = composite_one(r, vhdl_fallback_argb(0xE3));
-        check("TR-40", "sprite_pixel_en=0 => sprite_transparent (VHDL 7118)",
+        check("TR-40", "sprite_pixel_en=0 => sprite_transparent (VHDL zxnext.vhd:7118)",
               got == PIX_ULA,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_ULA));
     }
@@ -555,7 +555,7 @@ static void test_TR() {
         uint32_t sprite_rgb_eq_nr14 = Renderer::rrrgggbb_to_argb(0xE3);
         r.sprite_line_[0] = sprite_rgb_eq_nr14;
         uint32_t got = composite_one(r, vhdl_fallback_argb(0x00));
-        check("TR-41", "Sprite opaque even if RGB==NR0x14 (no sprite RGB compare) (VHDL 7118)",
+        check("TR-41", "Sprite opaque even if RGB==NR0x14 (no sprite RGB compare) (VHDL zxnext.vhd:7118)",
               got == sprite_rgb_eq_nr14,
               DETAIL("got=0x%08X expected=0x%08X", got, sprite_rgb_eq_nr14));
     }
@@ -942,7 +942,7 @@ static void test_FB() {
         uint16_t fb9 = vhdl_fallback_9bit(0x00);
         uint32_t got = all_transparent_fallback(0x00);
         uint32_t expected = Renderer::rrrgggbb_to_argb(0x00);
-        check("FB-11", "fallback 0x00 -> 9-bit 0x000 (VHDL 7214)",
+        check("FB-11", "fallback 0x00 -> 9-bit 0x000 (VHDL zxnext.vhd:7214)",
               fb9 == 0x000 && got == expected,
               DETAIL("fb9=0x%03X got=0x%08X exp=0x%08X", fb9, got, expected));
     }
@@ -960,7 +960,7 @@ static void test_FB() {
     // FB-13: fallback 0x01 = 0000_0001 -> LSB = 0|1 = 1 -> 0x003.
     {
         uint16_t fb9 = vhdl_fallback_9bit(0x01);
-        check("FB-13", "fallback 0x01 -> 9-bit 0x003 (bit0=1) (VHDL 7214)",
+        check("FB-13", "fallback 0x01 -> 9-bit 0x003 (bit0=1) (VHDL zxnext.vhd:7214)",
               fb9 == 0x003,
               DETAIL("fb9=0x%03X", fb9));
     }
@@ -968,7 +968,7 @@ static void test_FB() {
     // FB-14: fallback 0x02 = 0000_0010 -> LSB = 1|0 = 1 -> 0x005.
     {
         uint16_t fb9 = vhdl_fallback_9bit(0x02);
-        check("FB-14", "fallback 0x02 -> 9-bit 0x005 (bit1=1) (VHDL 7214)",
+        check("FB-14", "fallback 0x02 -> 9-bit 0x005 (bit1=1) (VHDL zxnext.vhd:7214)",
               fb9 == 0x005,
               DETAIL("fb9=0x%03X", fb9));
     }
@@ -980,7 +980,7 @@ static void test_FB() {
         r.set_fallback_colour(0xE3);
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("FB-15", "Opaque sprite overrides fallback (VHDL 7222)",
+        check("FB-15", "Opaque sprite overrides fallback (VHDL zxnext.vhd:7222)",
               got == PIX_S,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_S));
     }
@@ -989,7 +989,7 @@ static void test_FB() {
     {
         Renderer r2;
         r2.reset();
-        check("FB-16", "Reset default fallback = 0xE3 (VHDL nr_4a_fallback_rgb reset)",
+        check("FB-16", "Reset default fallback = 0xE3 (VHDL zxnext.vhd:5014 nr_4a_fallback_rgb reset)",
               r2.fallback_colour() == 0xE3,
               DETAIL("got=0x%02X", r2.fallback_colour()));
     }
@@ -1009,7 +1009,7 @@ static void test_FB() {
             if (got != fb) all_ok = false;
         }
         uint16_t fb9 = vhdl_fallback_9bit(0x42);
-        check("FB-17", "All 8 modes -> fallback when all layers transp; 0x42 9-bit=0x085 (VHDL 7214)",
+        check("FB-17", "All 8 modes -> fallback when all layers transp; 0x42 9-bit=0x085 (VHDL zxnext.vhd:7214)",
               all_ok && fb9 == 0x085 && mode_seen_mask == 0xFF,
               DETAIL("mask=0x%02X fb9=0x%03X", mode_seen_mask, fb9));
     }
@@ -1109,7 +1109,7 @@ static void test_PRI() {
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         check("PRI-100-USL-border",
-              "mode 100 border exception: S wins (VHDL 7266)",
+              "mode 100 border exception: S wins (VHDL zxnext.vhd:7266)",
               got == PIX_S,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_S));
     }
@@ -1126,7 +1126,7 @@ static void test_PRI() {
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         check("PRI-101-ULS-border",
-              "mode 101 border exception: L2 wins after U suppressed (VHDL 7278,7280)",
+              "mode 101 border exception: L2 wins after U suppressed (VHDL zxnext.vhd:7278,7280)",
               got == PIX_L2,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_L2));
     }
@@ -1150,7 +1150,7 @@ static void test_PRI_BOUND() {
             uint32_t got = composite_one(r, fb);
             if (got != fb) all_ok = false;
         }
-        check("PRI-B-0", "All modes 000..101 with 0 opaque layers => fallback (VHDL 7214)",
+        check("PRI-B-0", "All modes 000..101 with 0 opaque layers => fallback (VHDL zxnext.vhd:7214)",
               all_ok, DETAIL("fb=0x%08X", fb));
     }
 
@@ -1161,7 +1161,7 @@ static void test_PRI_BOUND() {
         uint32_t rgb_eq_nr14 = Renderer::rrrgggbb_to_argb(0xE3);
         r.sprite_line_[0] = rgb_eq_nr14;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0x10));
-        check("PRI-B-1", "Sprite RGB==NR0x14 still opaque (VHDL 7118)",
+        check("PRI-B-1", "Sprite RGB==NR0x14 still opaque (VHDL zxnext.vhd:7118)",
               got == rgb_eq_nr14,
               DETAIL("got=0x%08X expected=0x%08X", got, rgb_eq_nr14));
     }
@@ -1173,7 +1173,7 @@ static void test_PRI_BOUND() {
         r.layer2_line_[0] = PIX_L2;
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("PRI-B-2", "mode 001: L2 beats S when both opaque (VHDL 7232)",
+        check("PRI-B-2", "mode 001: L2 beats S when both opaque (VHDL zxnext.vhd:7232)",
               got == PIX_L2,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_L2));
     }
@@ -1207,7 +1207,8 @@ static void test_L2P() {
         if (row.L) { r.layer2_line_[0] = PIX_L2; r.layer2_priority_[0] = true; }
         if (row.S) r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check(row.id, "L2 priority-bit promotion (VHDL case branch)",
+        check(row.id, "L2 priority-bit promotion "
+              "(VHDL zxnext.vhd:7220,7232,7242,7254,7264,7276)",
               got == row.expected,
               DETAIL("mode=%u U=%d L=%d S=%d got=0x%08X exp=0x%08X line=%d",
                      row.mode, row.U, row.L, row.S, got, row.expected, row.line));
@@ -1220,7 +1221,7 @@ static void test_L2P() {
         r.layer2_line_[0] = TRANSP;
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("L2P-16", "L2 transparent => promotion suppressed, S wins (VHDL 7123,7222)",
+        check("L2P-16", "L2 transparent => promotion suppressed, S wins (VHDL zxnext.vhd:7123,7222)",
               got == PIX_S,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_S));
     }
@@ -1244,7 +1245,7 @@ static void test_L2P() {
         // Assert VHDL oracle: the result is neither the sprite nor a
         // plain layer pass-through.
         bool is_blendish = (got != PIX_S) && (got != PIX_ULA) && (got != PIX_L2);
-        check("L2P-17", "mode 110 + L2 priority bit => blend output shown (VHDL 7300)",
+        check("L2P-17", "mode 110 + L2 priority bit => blend output shown (VHDL zxnext.vhd:7300)",
               is_blendish,
               DETAIL("got=0x%08X (blend expected)", got));
     }
@@ -1259,7 +1260,7 @@ static void test_L2P() {
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         bool is_blendish = (got != PIX_S) && (got != PIX_ULA) && (got != PIX_L2);
-        check("L2P-18", "mode 111 + L2 priority bit => subtracted blend shown (VHDL 7342)",
+        check("L2P-18", "mode 111 + L2 priority bit => subtracted blend shown (VHDL zxnext.vhd:7342)",
               is_blendish,
               DETAIL("got=0x%08X (sub-blend expected)", got));
     }
@@ -1374,7 +1375,7 @@ static void test_BL() {
         r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(rgb8(3,2,1));
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_add(3,3), bl_add(2,2), bl_add(1,1)));
-        check("BL-10", "mode 110 add no clamp: (3,2,1)+(3,2,1)=(6,4,2) (VHDL 7201-7210,7286)",
+        check("BL-10", "mode 110 add no clamp: (3,2,1)+(3,2,1)=(6,4,2) (VHDL zxnext.vhd:7201-7203,7286)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
     }
@@ -1387,7 +1388,7 @@ static void test_BL() {
         r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(rgb8(5,6,3));
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(7,7,3));  // B clamp at 3 (2-bit)
-        check("BL-11", "mode 110 add clamp to 7 (VHDL 7288-7298)",
+        check("BL-11", "mode 110 add clamp to 7 (VHDL zxnext.vhd:7288-7298)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
     }
@@ -1400,7 +1401,7 @@ static void test_BL() {
         r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(0x00);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(0x00);
-        check("BL-12", "mode 110 add 0+0=0 (VHDL 7201)",
+        check("BL-12", "mode 110 add 0+0=0 (VHDL zxnext.vhd:7201-7203)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
     }
@@ -1416,7 +1417,7 @@ static void test_BL() {
         r.ula_line_[0]     = PIX_ULA;
         r.tilemap_line_[0] = PIX_TM;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("BL-13", "mode 110: mix_top (TM) opaque wins over blend (VHDL 7302)",
+        check("BL-13", "mode 110: mix_top (TM) opaque wins over blend (VHDL zxnext.vhd:7302)",
               got == PIX_TM,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_TM));
     }
@@ -1430,7 +1431,7 @@ static void test_BL() {
         r.sprite_line_[0] = PIX_S;
         // tilemap & ula transparent -> mix_top transp
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("BL-14", "mode 110: sprite between mix_top and mix_bot (VHDL 7304)",
+        check("BL-14", "mode 110: sprite between mix_top and mix_bot (VHDL zxnext.vhd:7304)",
               got == PIX_S,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_S));
     }
@@ -1446,7 +1447,7 @@ static void test_BL() {
         r.tm_pixel_below_[0] = false;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         // Emulator collapses to SLU: L2 would win. VHDL oracle: TM (mix_bot).
-        check("BL-15", "mode 110: mix_bot (TM) wins after mix_top+S transp (VHDL 7306)",
+        check("BL-15", "mode 110: mix_bot (TM) wins after mix_top+S transp (VHDL zxnext.vhd:7306)",
               got == PIX_TM,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_TM));
     }
@@ -1460,7 +1461,7 @@ static void test_BL() {
         r.layer2_line_[0] = Renderer::rrrgggbb_to_argb(c);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_add(3,0), bl_add(3,0), bl_add(2,0)));
-        check("BL-16", "mode 110: only L2 opaque => blend(L2+0)=L2 (VHDL 7308)",
+        check("BL-16", "mode 110: only L2 opaque => blend(L2+0)=L2 (VHDL zxnext.vhd:7308)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
     }
@@ -1474,7 +1475,7 @@ static void test_BL() {
         r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(c);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_sub(2,2), bl_sub(2,2), bl_sub(2,2)));
-        check("BL-20", "mode 111 sub: sum<=4 -> 0 (VHDL 7316)",
+        check("BL-20", "mode 111 sub: sum<=4 -> 0 (VHDL zxnext.vhd:7316-7317)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
     }
@@ -1488,7 +1489,7 @@ static void test_BL() {
         r.ula_line_[0]    = Renderer::rrrgggbb_to_argb(c);
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_sub(7,7), bl_sub(7,7), bl_sub(3,3)));
-        check("BL-21", "mode 111 sub: sum>=12 -> 7 (VHDL 7318)",
+        check("BL-21", "mode 111 sub: sum>=12 -> 7 (VHDL zxnext.vhd:7318-7319)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X", got, expected));
     }
@@ -1502,7 +1503,7 @@ static void test_BL() {
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
         // R: 3+3=6 -> sum-5=1 ; G: 4+4=8 -> 3 ; B: 2+2=4 -> 0 (<=4)
         uint32_t expected = Renderer::rrrgggbb_to_argb(rgb8(bl_sub(3,3), bl_sub(4,4), bl_sub(2,2)));
-        check("BL-22", "mode 111 sub middle: (3,4,2) -> (1,3,0) (VHDL 7321)",
+        check("BL-22", "mode 111 sub middle: (3,4,2) -> (1,3,0) (VHDL zxnext.vhd:7321)",
               got == expected,
               DETAIL("got=0x%08X exp=0x%08X R=%u G=%u B=%u",
                      got, expected, bl_sub(3,3), bl_sub(4,4), bl_sub(2,2)));
@@ -1516,7 +1517,7 @@ static void test_BL() {
         r.set_layer_priority(7);
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("BL-23", "mode 111 sub gated off by mix_rgb_transparent (VHDL 7314)",
+        check("BL-23", "mode 111 sub gated off by mix_rgb_transparent (VHDL zxnext.vhd:7314)",
               got == PIX_S,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_S));
     }
@@ -1529,7 +1530,7 @@ static void test_BL() {
         r.ula_line_[0]     = PIX_ULA;
         r.tilemap_line_[0] = PIX_TM;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("BL-24", "mode 111: mix_top (TM) opaque wins (VHDL 7344)",
+        check("BL-24", "mode 111: mix_top (TM) opaque wins (VHDL zxnext.vhd:7344)",
               got == PIX_TM,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_TM));
     }
@@ -1541,7 +1542,7 @@ static void test_BL() {
         r.layer2_line_[0] = PIX_L2;
         r.sprite_line_[0] = PIX_S;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("BL-25", "mode 111: sprite wins between mix_top/mix_bot (VHDL 7346)",
+        check("BL-25", "mode 111: sprite wins between mix_top/mix_bot (VHDL zxnext.vhd:7346)",
               got == PIX_S,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_S));
     }
@@ -1553,7 +1554,7 @@ static void test_BL() {
         r.layer2_line_[0]  = PIX_L2;
         r.tilemap_line_[0] = PIX_TM;
         uint32_t got = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
-        check("BL-26", "mode 111: mix_bot (TM) fallback wins (VHDL 7348)",
+        check("BL-26", "mode 111: mix_bot (TM) fallback wins (VHDL zxnext.vhd:7348)",
               got == PIX_TM,
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_TM));
     }
