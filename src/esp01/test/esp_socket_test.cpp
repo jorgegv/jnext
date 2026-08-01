@@ -45,7 +45,7 @@
 //      against the network at all.
 //
 // NOT TESTED HERE, said plainly:
-//   * A real DNS server. The ASYNC rows use the injected resolver and TRACE-04
+//   * A real DNS server. The ASYNC rows use the injected resolver and SOCK-TRACE-04
 //     uses `localhost` (answered from /etc/hosts), so no row contacts a name
 //     server; what the platform's `getaddrinfo` does with a genuine WAN name is
 //     out of scope for a hermetic suite.
@@ -575,7 +575,7 @@ int main() {
     {
         IpAddress  chosen;
         DenyReason why = DenyReason::Loopback;
-        check("SEL-01", "an empty candidate list selects nothing",
+        check("ESP-SEL-01", "an empty candidate list selects nothing",
               !select_candidate({}, kDefault, chosen, why) && why == DenyReason::None);
     }
     {
@@ -583,7 +583,7 @@ int main() {
         DenyReason why;
         const std::vector<IpAddress> cands = {v6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1),
                                               ipv4(93, 184, 216, 34)};
-        check("SEL-02", "IPv4 is preferred even when IPv6 comes first",
+        check("ESP-SEL-02", "IPv4 is preferred even when IPv6 comes first",
               select_candidate(cands, kDefault, chosen, why) &&
                   chosen == ipv4(93, 184, 216, 34));
     }
@@ -591,7 +591,7 @@ int main() {
         IpAddress  chosen;
         DenyReason why;
         const std::vector<IpAddress> cands = {ipv4(127, 0, 0, 1), ipv4(93, 184, 216, 34)};
-        check("SEL-03", "a denied candidate is skipped for an allowed one",
+        check("ESP-SEL-03", "a denied candidate is skipped for an allowed one",
               select_candidate(cands, kDefault, chosen, why) &&
                   chosen == ipv4(93, 184, 216, 34));
     }
@@ -599,7 +599,7 @@ int main() {
         IpAddress  chosen;
         DenyReason why;
         const std::vector<IpAddress> cands = {v6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1)};
-        check("SEL-04", "IPv6 is used when there is no IPv4 candidate",
+        check("ESP-SEL-04", "IPv6 is used when there is no IPv4 candidate",
               select_candidate(cands, kDefault, chosen, why) &&
                   chosen == v6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1));
     }
@@ -608,7 +608,7 @@ int main() {
         DenyReason why = DenyReason::None;
         const std::vector<IpAddress> cands = {ipv4(127, 0, 0, 1),
                                               ipv4(169, 254, 169, 254)};
-        check("SEL-05", "all-denied reports the FIRST candidate's reason",
+        check("ESP-SEL-05", "all-denied reports the FIRST candidate's reason",
               !select_candidate(cands, kDefault, chosen, why) &&
                   why == DenyReason::Loopback);
     }
@@ -617,7 +617,7 @@ int main() {
         DenyReason why;
         const std::vector<IpAddress> cands = {v6(0, 0, 0, 0, 0, 0, 0, 1),
                                               ipv4(127, 0, 0, 1)};
-        check("SEL-06", "with loopback allowed, IPv4 loopback still wins over IPv6",
+        check("ESP-SEL-06", "with loopback allowed, IPv4 loopback still wins over IPv6",
               select_candidate(cands, loopback_ok(), chosen, why) &&
                   chosen == ipv4(127, 0, 0, 1));
     }
@@ -626,7 +626,7 @@ int main() {
         DenyReason why;
         const std::vector<IpAddress> cands = {v6(0x2001, 0xdb8, 0, 0, 0, 0, 0, 1),
                                               v4mapped(93, 184, 216, 34)};
-        check("SEL-07", "a mapped IPv4 candidate counts as IPv4 and is returned verbatim",
+        check("ESP-SEL-07", "a mapped IPv4 candidate counts as IPv4 and is returned verbatim",
               select_candidate(cands, kDefault, chosen, why) &&
                   chosen == v4mapped(93, 184, 216, 34));
     }
@@ -742,7 +742,7 @@ int main() {
                 const int srv = l.accept_one(500);
                 if (srv >= 0) ::close(srv);
             });
-            check("TRACE-01", "an IP literal is resolved without a DNS lookup",
+            check("SOCK-TRACE-01", "an IP literal is resolved without a DNS lookup",
                   joined(dbg).find("numeric address") != std::string::npos &&
                       joined(dbg).find("resolved '") == std::string::npos);
 
@@ -760,7 +760,7 @@ int main() {
                 t->close();
                 if (srv >= 0) ::close(srv);
             });
-            check("TRACE-02",
+            check("SOCK-TRACE-02",
                   "at the default level a full session logs open + close and nothing "
                   "else",
                   quiet.size() == 2 &&
@@ -774,12 +774,12 @@ int main() {
                 t->begin_connect("127.0.0.1", l.port());
                 t->poll();
             });
-            check("TRACE-03", "a policy refusal is logged at the default level",
+            check("SOCK-TRACE-03", "a policy refusal is logged at the default level",
                   refused.size() == 1 &&
                       joined(refused).find("REFUSED by address policy") !=
                           std::string::npos);
 
-            // (d) The other side of TRACE-01: a NAME must NOT take the numeric
+            // (d) The other side of SOCK-TRACE-01: a NAME must NOT take the numeric
             //     fast path. `localhost` is used deliberately — nsswitch
             //     answers it from /etc/hosts, so this stays hermetic (no DNS
             //     server is contacted) while still exercising the real
@@ -794,15 +794,15 @@ int main() {
             });
             if (joined(named).find("cannot resolve") != std::string::npos) {
                 ++g_total; ++g_skip;
-                std::printf("  SKIP TRACE-04: this host cannot resolve 'localhost'\n");
+                std::printf("  SKIP SOCK-TRACE-04: this host cannot resolve 'localhost'\n");
             } else {
-                check("TRACE-04",
+                check("SOCK-TRACE-04",
                       "a host NAME takes the resolve path, not the numeric fast path",
                       joined(named).find("resolved 'localhost'") != std::string::npos &&
                           joined(named).find("numeric address") == std::string::npos);
             }
         } else {
-            for (const char* id : {"TRACE-01", "TRACE-02", "TRACE-03"}) {
+            for (const char* id : {"SOCK-TRACE-01", "SOCK-TRACE-02", "SOCK-TRACE-03"}) {
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback listener\n", id);
             }
