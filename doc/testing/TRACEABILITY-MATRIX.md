@@ -22,12 +22,12 @@ mentions them, so a test can no longer be absent from this document.
 <!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
-| Memory/MMU                                 |   261 |  248 |    0 |    0 |      13 |          0 |
+| Memory/MMU                                 |   261 |  255 |    0 |    0 |       6 |          0 |
 | ULA Video                                  |   126 |  122 |    0 |    0 |       4 |          0 |
 | Layer2                                     |   209 |  201 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   222 |  214 |    0 |    0 |       8 |          0 |
 | Tilemap                                    |    93 |   74 |    0 |    0 |      19 |          0 |
-| Copper                                     |    95 |   86 |    0 |    0 |       9 |          0 |
+| Copper                                     |    95 |   92 |    0 |    0 |       3 |          0 |
 | Compositor                                 |   224 |  219 |    0 |    0 |       5 |          0 |
 | Audio                                      |   223 |  200 |    0 |    0 |      23 |          0 |
 | DMA                                        |   165 |  157 |    0 |    0 |       8 |          0 |
@@ -61,7 +61,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4084 | 3817 |    0 |    3 |     264 |          0 |
+| **Total**                                  |  4084 | 3830 |    0 |    3 |     251 |          0 |
 
 Rows the sections above carry: **4084**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **3903**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
 
@@ -302,15 +302,15 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | L2M-04 | L2 write-over does not apply to 0xC000-0xFFFF — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3237 |
 | L2M-05 | NR 0x12 write sets Layer 2 active bank (7-bit) [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:2821 |
 | L2M-06 | NR 0x13 write sets Layer 2 shadow bank (7-bit) [zxnext.vhd:4946 nr_13_layer2_shadow_bank] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:2857 |
-| PRI-01 | DivMMC ROM overrides MMU | — | missing | — |
-| PRI-02 | DivMMC RAM overrides MMU | — | missing | — |
+| PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2365 |
+| PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2399 |
 | PRI-03 | L2 write-over outranks MMU in 0-16K — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3296 |
-| PRI-04 | L2 does not override DivMMC | — | missing | — |
+| PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2445 |
 | PRI-05 | MMU-only path at 0xC000 with no overrides — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3317 |
 | PRI-06 | altrom overrides normal ROM when altrom_en=1, altrom_rw=0 — VHDL zxnext.vhd:3078 arbiter priority | zxnext.vhd:3078 | pass | test/mmu/mmu_test.cpp:3342 |
 | PRI-07 | config_mode ROMRAM routing outranks normal ROM read path — VHDL zxnext.vhd:3044-3052 | zxnext.vhd:3044-3052 | pass | test/mmu/mmu_test.cpp:3366 |
-| SD2-01 | SD2-on suppresses colliding paging writes | zxnext.vhd:2708,2718-2720, zxnext.vhd:2775-2778 | missing | — |
-| SD2-02 | SD2-off lets the same writes through | — | missing | — |
+| SD2-01 | NR 0x84 b2 SET: OUT to 0x7FF1/0xDFF9/0x1FF1 (low byte F1/F9) leaves 7FFD/DFFD/1FFD unchanged, byte goes to Soundrive [zxnext.vhd:2708, 2718-2720; conflict resolves DAC-wards] | zxnext.vhd:2708,2718-2720, zxnext.vhd:2775-2778 | pass | test/audio/audio_port_dispatch_test.cpp:845 |
+| SD2-02 | NR 0x84 b2 CLEAR: identical OUTs to 0x7FF1/0xDFF9/0x1FF1 DO reapply 7FFD/DFFD/1FFD paging, DAC untouched [zxnext.vhd:2708 conflict term 0; :2718-2720 fire] | zxnext.vhd:2708 | pass | test/audio/audio_port_dispatch_test.cpp:877 |
 | BOOT-NEX-01 | loader rejects NEX whose ram_required exceeds installed RAM — src/core/nex_loader.cpp:apply() honours header.ram_required | — | pass | test/mmu/mmu_test.cpp:3499 |
 | BOOT-NEX-02 | loader accepts NEX whose ram_required ≤ installed RAM; spec mapping 0=768/1=1792/2=2048 KB; unknown → 0 | — | pass | test/mmu/mmu_test.cpp:3520 |
 | BOOT-NEX-03 | loading_bar draws a per-bank-slot mark that advances along VRAM (bank 11 / MMU page 23) — nexload.asm:616-621 `progress` | — | pass | test/mmu/mmu_test.cpp:3567 |
@@ -318,8 +318,8 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BOOT-NEX-05 | start_delay honoured unconditionally before code-entry, on top of any inter-bank loading_delay total | — | pass | test/mmu/mmu_test.cpp:3629 |
 | BOOT-NEX-06 | loading_bar_colour byte is written verbatim, not a fixed default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a` | — | pass | test/mmu/mmu_test.cpp:3597 |
 | BOOT-NEX-07 | G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) before screen-format ingest, eliminating attribute-area leak from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict) | — | pass | test/mmu/mmu_test.cpp:3709 |
-| BOOT-SD-01 | mount → unmount → re-mount round-trip | — | missing | — |
-| BOOT-SD-02 | unmount mid-transfer is safe | — | missing | — |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1006 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2191 |
 | BOOT-TAPESAVE-01 | TapSaver::build_block header block: LE length prefix (payload+2), flag 0x00, payload verbatim, XOR checksum — hand-computed TAP image (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3770 |
 | BOOT-TAPESAVE-02 | TapSaver data block (non-trivial XOR checksum) + append_block file ordering: file bytes == header-block \|\| data-block, hand-computed images (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3839 |
 | BOOT-TAPESAVE-03 | TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, correct boundaries/flags, payload identity, loader checksum verification, zero parse warnings (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3887 |
@@ -1188,12 +1188,12 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | GH181-HCULA-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436, zxnext.vhd:3949,6737 | pass | test/copper/copper_integration_test.cpp:455 |
 | GH181-HCULA-02 | hpos step of 50 == 400 raw PIXELS between two WAITs on one cvc line (7 MHz hc_ula), not 400 master cycles = 100 pixels [copper.vhd:94; zxnext.vhd:3949 + :6737] | copper.vhd:94, zxula_timing.vhd:427-438 | pass | test/copper/copper_integration_test.cpp:473 |
 | GH181-HCULA-03 | show512 WAIT(vpos=95,hpos=52) MOVE lands on raw line 160 (fb row 128) at raw hc 97, not raw line 159 (fb row 127) [copper.vhd:94; zxula_timing.vhd:423-436, :457-470] | copper.vhd:94, zxula_timing.vhd:423-436,457-470 | pass | test/copper/copper_integration_test.cpp:496 |
-| VT-GH181-01 | 48K timing: `hc_ula_zero_raw_hc()` = `c_min_hactive - 11` = **117** | zxula_timing.vhd:261,423-436,344 | missing | — |
-| VT-GH181-02 | 128K timing: = **125** | zxula_timing.vhd:195,423-436,344 | missing | — |
-| VT-GH181-03 | +3 timing: = **125** | zxula_timing.vhd:195,423-436,344 | missing | — |
-| VT-GH181-04 | Pentagon timing: = **117** | zxula_timing.vhd:159,423-436,344 | missing | — |
-| VT-GH181-05 | Next (`init(ZXN_ISSUE2)`, 128K-class slot): = **125** | zxula_timing.vhd:195,423-436,344 | missing | — |
-| VT-GH181-06 | the registered reset lands exactly ONE pixel after the armed origin, stated independently of the absolute values | zxula_timing.vhd:424 | missing | — |
+| VT-GH181-01 | 48K timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 117 (VHDL zxula_timing.vhd:261,423-436,344) | zxula_timing.vhd:261,423-436,344 | pass | test/videotiming/videotiming_test.cpp:213 |
+| VT-GH181-02 | 128K timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 125 (VHDL zxula_timing.vhd:195,423-436,344) | zxula_timing.vhd:195,423-436,344 | pass | test/videotiming/videotiming_test.cpp:222 |
+| VT-GH181-03 | +3 timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 125 (VHDL zxula_timing.vhd:195,423-436,344) | zxula_timing.vhd:195,423-436,344 | pass | test/videotiming/videotiming_test.cpp:231 |
+| VT-GH181-04 | Pentagon timing: hc_ula==0 at raw hc = c_min_hactive - 11 = 117 (VHDL zxula_timing.vhd:159,423-436,344) | zxula_timing.vhd:159,423-436,344 | pass | test/videotiming/videotiming_test.cpp:240 |
+| VT-GH181-05 | Next (ZXN_ISSUE2, 128K-class slot): hc_ula==0 at raw hc = 125 (VHDL zxula_timing.vhd:195,423-436,344) | zxula_timing.vhd:195,423-436,344 | pass | test/videotiming/videotiming_test.cpp:250 |
+| VT-GH181-06 | the registered reset puts hc_ula==0 exactly ONE pixel after the armed origin (VHDL zxula_timing.vhd:424 vs :427-436) | zxula_timing.vhd:424 | pass | test/videotiming/videotiming_test.cpp:262 |
 
 ## Compositor — `test/compositor/compositor_test.cpp`
 

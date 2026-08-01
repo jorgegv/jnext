@@ -1770,8 +1770,20 @@ my $EXCEPTIONS = 'test/traceability-exceptions.conf';
 # refusal is correct and is left alone.
 my %EXTRA_STATUS_FALLBACK = (
     'LoRes'            => ['compositor_test', 'nextreg_integration_test'],
-    'Memory/MMU'       => ['nextreg_integration_test'],
-    'Copper'           => ['nextreg_integration_test'],
+    # `sdcard_test` BOOT-SD-01/02 (mount round-trip, unmount mid-transfer),
+    # `divmmc_test` PRI-01/02/04 (the DivMMC-over-MMU-over-Layer2 decode
+    # priority chain) and `audio_port_dispatch_test` SD2-01/02 (NR 0x84 b2
+    # suppressing the colliding 0x7FF1/0xDFF9/0x1FF1 paging writes) all assert
+    # rows the MMU plan owns. The MMU plan already SAYS so for SD2-01 —
+    # "PASS — audio_port_dispatch_test SD2-01" — which is what makes it
+    # certain these are the same rows and not a name clash.
+    'Memory/MMU'       => ['nextreg_integration_test', 'sdcard_test',
+                           'divmmc_test', 'audio_port_dispatch_test'],
+    # VT-GH181-01..06 are VideoTiming rows the Copper plan owns: the GH #181
+    # fix was a Copper defect (WAIT hpos fed 28 MHz cycles instead of the
+    # 7 MHz hc_ula), but what the rows assert is the hc_ula origin, which is
+    # `videotiming_test`'s to prove.
+    'Copper'           => ['nextreg_integration_test', 'videotiming_test'],
     'Tilemap'          => ['nextreg_integration_test'],
     'DivMMC+SPI'       => ['nextreg_integration_test'],
 );
