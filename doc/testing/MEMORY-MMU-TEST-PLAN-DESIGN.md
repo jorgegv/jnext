@@ -674,8 +674,23 @@ ROM-mapped slot (0x0000-0x3FFF) does, in this priority order:
 
 Rows MMU-CFG-05..MMU-CFG-07 and CFG-08..CFG-12 in `mmu_test.cpp` extend this category (bit-13 half-bank
 select, reset behaviour, out-of-range banks, setter round-trip, and the
-`rom_in_sram` branch-4 variants) and are recorded in the traceability matrix's
-"Extra coverage (not in plan)" table for this suite.
+`rom_in_sram` branch-4 variants) and are tracked as normal rows in the
+traceability matrix's main table for this suite (GH #196 Phase 1.3, 2026-08-01:
+this previously said they lived in the "Extra coverage (not in plan)" table —
+stale; they have been ordinary tracked rows there for some time).
+
+**GH #196 Phase 1.3 (2026-08-01)** — the matrix's "Extra coverage (not in
+plan)" table for this suite has been removed. It held 7 rows (RST-09, RST-10,
+RW-01..RW-05) with no live `check()`/`skip()` call anywhere in `mmu_test.cpp`
+today. `git log -S` on each ID shows they were implemented in commit
+`1b4c54cd` and deleted by the `mmu_test.cpp` Phase-2 per-row rewrite
+(`63e421fc`) — real assertions from an earlier revision, not rows that were
+never implemented. The same short ID strings are independently reused today by
+unrelated subsystems for unrelated behaviour (e.g. NextREG's own `RST-09`,
+Compositor's own `RST-10`), which is a harmless pre-existing collision, not
+folded coverage. Dropped rather than folded: no live test in this suite
+asserts "MMUn is ROM after reset" or the four RW- slot-write behaviours today,
+so recording them as covered would be fabricating coverage no test provides.
 
 #### NR 0x04 `nr_04_romram_bank` reset domain (GH #194)
 

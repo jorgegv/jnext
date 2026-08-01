@@ -493,18 +493,6 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | CFG-11           | set_rom_in_sram 1->0 restores ROM-slot reads to rom_             | zxnext.vhd:5050-5057 | pass    | test/mmu/mmu_test.cpp:2903 |
 | CFG-12           | Mmu::reset(hard=false) also preserves the NR 0x04 bank           | zxnext_top_issue2.vhd:840, zxnext.vhd:1730 | pass | test/mmu/mmu_test.cpp:2795 |
 
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                       | VHDL file:line | Test file:line            |
-|---------|---------------------------------------------|----------------|---------------------------|
-| RST-09  | MMU0 is ROM after reset                     | —              | missing                   |
-| RST-10  | MMU1 is ROM after reset                     | —              | missing                   |
-| RW-01   | Write 0x42 to 0x8000 (page 0x10), read back | —              | missing                   |
-| RW-02   | Independent writes to two slots             | —              | missing                   |
-| RW-03   | Same page in two slots shares data          | —              | missing                   |
-| RW-04   | Write across slot 4/5 boundary              | —              | missing                   |
-| RW-05   | All 8 slots independently writable          | —              | missing                   |
-
 ### Companion integration suite — `test/mmu/mmu_integration_test.cpp`
 
 Memory/MMU rows that need a whole `Emulator` rather than a bare `Mmu`: the
