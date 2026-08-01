@@ -43,12 +43,14 @@ closed end-to-end (Phases 0→4) on 2026-04-24. Summary:
   proofs.
 - **Wave F** (2026-04-24, post-Wave-B-critic) fixed 6 of 7 emulator
   port-dispatch gaps surfaced by Wave B: SD-10 (port 0x5F Soundrive
-  mode 1 ch D), SD-12 (port 0x3F Profi Covox ch A), SD-14 (port 0xFB
+  mode 1 ch D), AUD-SD-12 (port 0x3F Profi Covox ch A), AUD-SD-14 (port 0xFB
   mono fan-out gated per `zxnext.vhd:2433` NR 0x84 bit 5 AND NOT bit 2),
-  SD-15 (port 0xB3 GS Covox ch B+C), IO-03 (port 0xBFF5 reg-query
+  AUD-SD-15 (port 0xB3 GS Covox ch B+C), IO-03 (port 0xBFF5 reg-query
   mode read), IO-05 (port 0xBFFD → FFFD alias on +3 only). IO-04
   (FFFD falling-edge latch) demoted to `// G:` comment — invisible
   at Z80 instruction-boundary granularity.
+  (IDs AUD-SD-12/14/15 renamed 2026-08-01, GH #196 dedup — were
+  SD-12/14/15; pure rename, no behaviour change.)
 - **Phase 3** refreshed BP-04 assertion per Wave D critic (sweep
   border=0/5/7 instead of single value).
 
@@ -348,7 +350,7 @@ VHDL ref: `soundrive.vhd` lines 69-107
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
 | SD-01  | Reset sets all channels to 0x80                   | DC midpoint (unsigned), not 0x00                           |
-| SD-02  | Write channel A via port I/O (`chA_wr_i`)        | `chA` latches `cpu_d_i`                                    |
+| AUD-SD-02 | Write channel A via port I/O (`chA_wr_i`)        | `chA` latches `cpu_d_i`                                    |
 | SD-03  | Write channel B via port I/O (`chB_wr_i`)        | `chB` latches `cpu_d_i`                                    |
 | SD-04  | Write channel C via port I/O (`chC_wr_i`)        | `chC` latches `cpu_d_i`                                    |
 | SD-05  | Write channel D via port I/O (`chD_wr_i`)        | `chD` latches `cpu_d_i`                                    |
@@ -356,7 +358,7 @@ VHDL ref: `soundrive.vhd` lines 69-107
 | SD-07  | NextREG 0x2C (left) writes to chB only           | Channel B updated                                          |
 | SD-08  | NextREG 0x2E (right) writes to chC only          | Channel C updated                                          |
 | SD-09  | Port I/O takes priority over NextREG              | If both fire same cycle, port I/O wins (checked first). skip — Dac collapses to last-write-wins per frame; needs event-queue refactor (see G31) |
-| SD-19  | DAC channels reset to 0x80 on `nr_08_dac_en` 1→0 transition   | `soundrive.reset_i = reset OR NOT nr_08_dac_en` — disable rezeroes chA/B/C/D to DC midpoint. skip — `emulator.cpp:1674` only flips `dac_enabled_`; pre-existing values in `Dac::ch_[]` persist (see G111). Note: SD-10..18 already used in §3.2 |
+| AUD-SD-19 | DAC channels reset to 0x80 on `nr_08_dac_en` 1→0 transition   | `soundrive.reset_i = reset OR NOT nr_08_dac_en` — disable rezeroes chA/B/C/D to DC midpoint. skip — `emulator.cpp:1674` only flips `dac_enabled_`; pre-existing values in `Dac::ch_[]` persist (see G111). Note: SD-10..18 already used in §3.2 |
 
 ### 3.2 Port Mapping (from zxnext.vhd)
 
@@ -366,13 +368,13 @@ VHDL ref: `zxnext.vhd` lines 2429-2435, 2658-2664
 |--------|--------------------------------------------------|------------------------------------------------------------|
 | SD-10  | Soundrive mode 1 ports: 0x1F(A), 0x0F(B), 0x4F(C), 0x5F(D) | `port_dac_sd1_ABCD_1f0f4f5f_io_en`          |
 | SD-11  | Soundrive mode 2 ports: 0xF1(A), 0xF3(B), 0xF9(C), 0xFB(D) | `port_dac_sd2_ABCD_f1f3f9fb_io_en`          |
-| SD-12  | Profi Covox: 0x3F(A), 0x5F(D)                    | `port_dac_stereo_AD_3f5f_io_en`                           |
-| SD-13  | Covox: 0x0F(B), 0x4F(C)                          | `port_dac_stereo_BC_0f4f_io_en`                           |
-| SD-14  | Pentagon/ATM mono: 0xFB(A+D)                      | `port_dac_mono_AD_fb_io_en` (disabled when mode 2 active) |
-| SD-15  | GS Covox: 0xB3(B+C)                              | `port_dac_mono_BC_b3_io_en`                                |
-| SD-16  | SpecDrum: 0xDF(A+D)                               | `port_dac_mono_AD_df_io_en`                                |
-| SD-17  | DAC requires `nr_08_dac_en=1`                     | Soundrive held in reset when `nr_08_dac_en=0`             |
-| SD-18  | Mono ports (FB, DF, B3) write to both A+D or B+C | Single port write updates two channels                     |
+| AUD-SD-12 | Profi Covox: 0x3F(A), 0x5F(D)                    | `port_dac_stereo_AD_3f5f_io_en`                           |
+| AUD-SD-13 | Covox: 0x0F(B), 0x4F(C)                          | `port_dac_stereo_BC_0f4f_io_en`                           |
+| AUD-SD-14 | Pentagon/ATM mono: 0xFB(A+D)                      | `port_dac_mono_AD_fb_io_en` (disabled when mode 2 active) |
+| AUD-SD-15 | GS Covox: 0xB3(B+C)                              | `port_dac_mono_BC_b3_io_en`                                |
+| AUD-SD-16 | SpecDrum: 0xDF(A+D)                               | `port_dac_mono_AD_df_io_en`                                |
+| AUD-SD-17 | DAC requires `nr_08_dac_en=1`                     | Soundrive held in reset when `nr_08_dac_en=0`             |
+| AUD-SD-18 | Mono ports (FB, DF, B3) write to both A+D or B+C | Single port write updates two channels                     |
 
 ### 3.3 PCM Output
 
@@ -380,10 +382,10 @@ VHDL ref: `soundrive.vhd` lines 109-116
 
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
-| SD-20  | Left output = chA + chB (9-bit unsigned)          | `pcm_L_o = ('0' & chA) + ('0' & chB)`                     |
-| SD-21  | Right output = chC + chD (9-bit unsigned)         | `pcm_R_o = ('0' & chC) + ('0' & chD)`                     |
-| SD-22  | Max output: chA=0xFF, chB=0xFF => L=0x1FE        | No overflow, 9-bit result                                  |
-| SD-23  | Reset output: L=0x100, R=0x100                    | 0x80 + 0x80 = 0x100 (DC midpoint)                         |
+| AUD-SD-20 | Left output = chA + chB (9-bit unsigned)          | `pcm_L_o = ('0' & chA) + ('0' & chB)`                     |
+| AUD-SD-21 | Right output = chC + chD (9-bit unsigned)         | `pcm_R_o = ('0' & chC) + ('0' & chD)`                     |
+| AUD-SD-22 | Max output: chA=0xFF, chB=0xFF => L=0x1FE        | No overflow, 9-bit result                                  |
+| AUD-SD-23 | Reset output: L=0x100, R=0x100                    | 0x80 + 0x80 = 0x100 (DC midpoint)                         |
 
 ## 4. Beeper and Tape Audio
 
@@ -427,8 +429,8 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 |--------|--------------------------------------------------|------------------------------------------------------------|
 | MX-01  | EAR volume = 0x0200 (512) when active             | `ear_volume = "0001000000000"` when `ear_i=1, exc_i=0`    |
 | MX-02  | MIC volume = 0x0080 (128) when active             | `mic_volume = "0000010000000"` when `mic_i=1, exc_i=0`    |
-| MX-03  | EAR/MIC silenced when `exc_i=1`                   | Speaker-exclusive mode zeroes beeper in mix                |
-| MX-04  | AY input: zero-extended 12-bit to 13-bit          | `ay_L = '0' & ay_L_i` (range 0-2295)                      |
+| AUD-MX-03 | EAR/MIC silenced when `exc_i=1`                   | Speaker-exclusive mode zeroes beeper in mix                |
+| AUD-MX-04 | AY input: zero-extended 12-bit to 13-bit          | `ay_L = '0' & ay_L_i` (range 0-2295)                      |
 | MX-05  | DAC input: 9-bit left-shifted by 2 + zero-padded  | `dac_L = "00" & dac_L_i & "00"` (range 0-2040)            |
 | MX-06  | I2S input: zero-extended 10-bit to 13-bit         | `i2s_L = "000" & pi_i2s_L_i` (range 0-1023)               |
 | MX-07  | I2S input is OFFSET BINARY: silence = 0x200, 0 = full-negative | `i2s.vhd:179` `o_audio_pi_L <= (not audio_pi_L(12)) & audio_pi_L(11 downto 3)` inverts the sign bit; `zxnext.vhd:2358-2359` substitutes the same 0x200 when disabled/muted/EAR |
@@ -466,12 +468,12 @@ VHDL ref: `zxnext.vhd` lines 5163-5170, 6379
 
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
-| NR-01  | `nr_06_psg_mode[1:0]` from NextREG 0x06 bits [1:0] | Two-bit mode selector                                   |
-| NR-02  | Mode "00": YM2149 mode                            | `aymode_i = 0` (YM volume table, full register readback)  |
-| NR-03  | Mode "01": AY-8910 mode                           | `aymode_i = 1` (AY volume table, masked readback)         |
-| NR-04  | Mode "10": YM2149 mode (bit 0 = 0)                | Same as "00" for AY chip behaviour                        |
-| NR-05  | Mode "11": AY reset (silent)                       | `audio_ay_reset = 1`; all AY output zeroed                |
-| NR-06  | `nr_06_internal_speaker_beep` from bit 6          | Controls speaker-exclusive mode                            |
+| AUD-NR-01 | `nr_06_psg_mode[1:0]` from NextREG 0x06 bits [1:0] | Two-bit mode selector                                   |
+| AUD-NR-02 | Mode "00": YM2149 mode                            | `aymode_i = 0` (YM volume table, full register readback)  |
+| AUD-NR-03 | Mode "01": AY-8910 mode                           | `aymode_i = 1` (AY volume table, masked readback)         |
+| AUD-NR-04 | Mode "10": YM2149 mode (bit 0 = 0)                | Same as "00" for AY chip behaviour                        |
+| AUD-NR-05 | Mode "11": AY reset (silent)                       | `audio_ay_reset = 1`; all AY output zeroed                |
+| AUD-NR-06 | `nr_06_internal_speaker_beep` from bit 6          | Controls speaker-exclusive mode                            |
 
 ### 6.2 Audio Config (NextREG 0x08)
 
@@ -479,11 +481,11 @@ VHDL ref: `zxnext.vhd` lines 5176-5182
 
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
-| NR-10  | Bit 5: PSG stereo mode (0=ABC, 1=ACB)            | `nr_08_psg_stereo_mode`                                    |
-| NR-11  | Bit 4: Internal speaker enable                    | `nr_08_internal_speaker_en`                                |
+| AUD-NR-10 | Bit 5: PSG stereo mode (0=ABC, 1=ACB)            | `nr_08_psg_stereo_mode`                                    |
+| AUD-NR-11 | Bit 4: Internal speaker enable                    | `nr_08_internal_speaker_en`                                |
 | NR-12  | Bit 3: DAC enable                                  | `nr_08_dac_en`; when 0, Soundrive held in reset           |
-| NR-13  | Bit 1: Turbosound enable                           | `nr_08_psg_turbosound_en`                                  |
-| NR-14  | Bit 0: Keyboard Issue 2 mode                       | `nr_08_keyboard_issue2`; affects beeper signal             |
+| AUD-NR-13 | Bit 1: Turbosound enable                           | `nr_08_psg_turbosound_en`                                  |
+| AUD-NR-14 | Bit 0: Keyboard Issue 2 mode                       | `nr_08_keyboard_issue2`; affects beeper signal             |
 
 ### 6.3 PSG Mono (NextREG 0x09)
 
