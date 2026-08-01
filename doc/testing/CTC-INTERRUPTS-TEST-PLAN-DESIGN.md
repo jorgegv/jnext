@@ -35,6 +35,23 @@ with dashboard refresh at `0336c20`.
 - **Follow-up closure:** NR-C0-02 now passes in `atic_atac_nmi_test`
   ATIC-NMI-02 (GH #84 / G49). Historical phase counts below remain as the landing
   record for the original CTC skip-reduction work.
+- **GH #196 Phase 1.3 (2026-08-01)** — the traceability matrix's "Extra
+  coverage (not in plan)" table for this suite has been removed. It held 3
+  rows: MC-01 ("4 channels loaded with different TCs"), MC-02 ("Channels
+  decrement independently"), MC-03 ("Read invalid channel returns 0xFF") —
+  none with a live `check()`/`skip()` call anywhere in `test/ctc/ctc_test.cpp`
+  or `test/ctc_interrupts/ctc_interrupts_test.cpp` today. `git log -S` on each
+  ID shows all 3 were implemented in the original compliance runner
+  (`f7e1b035`) and removed by the same commit, `8ec4383a`
+  ("rewrite in Phase 2 per-row idiom, 150 rows, 44 check / 106 skip") —
+  real assertions from an earlier revision, not rows that were never
+  implemented. None of the 3 described behaviors is asserted today by a
+  live row under a different ID either: the closest analog, CTC-CH-06,
+  loads all 4 channels with the *same* time constant in counter mode and
+  asserts they stay stuck (no clock source), not 4 *different* TCs
+  decrementing independently in timer mode; no row anywhere probes an
+  out-of-range channel read. Dropped rather than folded: recording them as
+  covered would be fabricating coverage no live test provides.
 
 ## VHDL Source Files
 
@@ -604,3 +621,27 @@ bash test/regression.sh
 | 16. Unqualified Int | 5 | Bypass enable, NextREG 0x20 |
 | 17. Joystick IO Mode | 2 | CTC ch3 ZC/TO toggle |
 | **Total** | **~163** | |
+
+## Planned rows carried over from the traceability matrix (GH #196)
+
+These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a
+generated artifact and can no longer hold a claim of its own. They are
+planned and NOT implemented, so they are recorded here — the one place the
+generator reads planned rows from — and the matrix emits them as `missing`,
+which is what they are.
+
+| ID | Description | VHDL file:line |
+|----|-------------|----------------|
+| IM2-G89-01 | LDIRX samples INT/NMI between iterations | — |
+| IM2-G89-02 | LDDRX samples INT/NMI between iterations | — |
+| IM2-G89-03 | LDPIRX samples INT/NMI between iterations | — |
+| IM2-G89-04 | LDIRSCALE samples INT/NMI between iterations | — |
+| IM2-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | — |
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5. `ctc_test.cpp` moved from `150/44/0/106` to `133/128/0/5` **as of that merge**; it runs at `132 / 132 pass / 0 fail / 0 skip` today. 17 rows migrated from `check()`/`skip()` to source-level re-home or category-merge comments. NR-C0-02 was subsequently closed by GH #84 and now passes in `atic_atac_nmi_test` ATIC-NMI-02. See `doc/testing/audits/task3-ctc-phase5.md` for the historical row-by-row rationale.
+Created 2026-04-21 (commit `87fb998`) to host the 10 integration-tier re-home targets from `ctc_test.cpp` that require a full `Emulator` fixture (port 0xFF / NR 0x22 / NR 0xC0-0xCA read-path composition). Runtime: `Total:   48  Passed:   48  Failed:    0  Skipped:    0`. The suite has grown well past those original 10: the 10 rows listed below are only the ones recorded here, 16 more that it asserts are recorded in the parent `## CTC+Interrupts` table above (`ULA-INT-01..06`, `NR-C0-04`, `NR-C2-01`, `NR-C3-01`, `NR-C4-02/03`, `NR-C6-02`, `ISC-09/10`, `IM2C-G87-01/02`), and the rest are reported `unrecorded` on every run. Each entry below cross-references the CTC+Interrupts plan row.

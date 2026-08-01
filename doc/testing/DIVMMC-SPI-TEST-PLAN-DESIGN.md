@@ -25,7 +25,7 @@ Updated 2026-04-17 (commit `d4ea4e1`):
   - **ML-05**: Pipeline delay fix covers ishift_r reset — first read returns 0xFF.
   - **SS-10**: Test bug fixed — was using 0x12 which matches VHDL SD card branch; changed to 0x00.
   - E3-04, E3-07, E3-08, EP-02/03/11, NR-01/02/05, SS-09/SS-11: fixed in prior sessions.
-- **Skips**: 56 rows. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (TM-01..05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05).
+- **Skips**: 56 rows. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (DMC-TM-01..04, TM-05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (SPI-MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05).
 
 ## Architecture
 
@@ -237,10 +237,10 @@ takes effect relative to the triggering M1 fetch. VHDL reference:
 
 | ID   | Test | Notes |
 |------|------|-------|
-| TM-01 | Instant on: DivMMC mapped during the triggering fetch | `automap` includes instant_on directly (no M1 gate) |
-| TM-02 | Delayed on: DivMMC mapped on NEXT fetch after trigger | `automap_hold` set during M1, `automap_held` latched on MREQ rising |
-| TM-03 | automap_held latches on MREQ_n rising edge | `automap_held <= automap_hold` when `cpu_mreq_n=1` |
-| TM-04 | automap_hold updates only during M1+MREQ | `cpu_mreq_n=0 AND cpu_m1_n=0` |
+| DMC-TM-01 | Instant on: DivMMC mapped during the triggering fetch | `automap` includes instant_on directly (no M1 gate) |
+| DMC-TM-02 | Delayed on: DivMMC mapped on NEXT fetch after trigger | `automap_hold` set during M1, `automap_held` latched on MREQ rising |
+| DMC-TM-03 | automap_held latches on MREQ_n rising edge | `automap_held <= automap_hold` when `cpu_mreq_n=1` |
+| DMC-TM-04 | automap_hold updates only during M1+MREQ | `cpu_mreq_n=0 AND cpu_m1_n=0` |
 | TM-05 | Held automap persists across non-deactivating fetches | `automap_held AND NOT delayed_off` keeps hold |
 
 ### 8. Automap ROM3-Conditional Activation
@@ -421,14 +421,21 @@ synchronization. VHDL reference: `spi_master.vhd` lines 121-168.
 
 When multiple devices could provide MISO, the source is selected based on which
 SS line is active. VHDL reference: `zxnext.vhd` lines 3278-3280.
+> **Renamed 2026-08-01 (GH #196 phase 4.2): `MX-01`/`MX-02`/`MX-05` ->
+> `SPI-MX-*`.** The bare names collided with `audio_test`'s `MX-*` (the audio
+> mixer), which asserts all three; these are the SPI MISO priority mux and are
+> plan-doc-only, so this side moved. `MX-03`/`MX-04` keep their bare names
+> deliberately: `divmmc_test` asserts them, nothing else claims those two, and
+> renaming a row a test asserts is a different and larger change. The group
+> reads inconsistently until someone makes it — that is visible on purpose.
 
 | ID   | Test | Notes |
 |------|------|-------|
-| MX-01 | Flash selected: MISO from flash | `spi_ss_flash_n=0` highest priority |
-| MX-02 | RPI selected: MISO from RPI | Second priority |
+| SPI-MX-01 | Flash selected: MISO from flash | `spi_ss_flash_n=0` highest priority |
+| SPI-MX-02 | RPI selected: MISO from RPI | Second priority |
 | MX-03 | SD selected: MISO from SD | Third priority |
 | MX-04 | No device selected: MISO reads as 1 | Default pull-up |
-| MX-05 | Priority: Flash > RPI > SD > default | Cascaded if-else |
+| SPI-MX-05 | Priority: Flash > RPI > SD > default | Cascaded if-else |
 
 ### 17. Integration -- DivMMC + SPI Typical Sequences
 
@@ -642,3 +649,76 @@ Mutation results: dropping the 0x1FF8 range or the 0x0066 boundary →
 CM1-01 fails; dropping the FF-state terms → CM1-04/05/06 fail; weakening
 the retn-delay wrapper's pending term → DM-RETN-PROPER-01 (here) and
 MF-G48-06 (nmi_test) fail.
+
+## GH #196 Phase 1.3 — "Extra coverage" table dropped (2026-08-01)
+
+`doc/testing/TRACEABILITY-MATRIX.md`'s DivMMC+SPI section carried a
+4-column "Extra coverage (not in plan)" table (no `Status` column) with
+14 rows: `MEM-01..07`, `NRD-01..04`, `SD-01..03`. `grep -rn '"<ID>"'
+test/divmmc/divmmc_test.cpp` returns zero hits for all 14 today — none
+has a live `check()`/`skip()` call in the current suite. All 14 were
+dropped as PHANTOM-REJECTED; the table (and its now-empty header) was
+removed from the matrix.
+
+Per-row disposition, from `git log -S'"<ID>"' -- test/divmmc/`:
+
+- **MEM-01..07** (`Write/read slot 1 RAM bank 2`, `Slot 0 writes
+  discarded`, `mapram=1 bank=3/!=3 read-only/writable`, `slot 0 reads
+  RAM page 3`, `bank switching preserves data`, `read outside range
+  returns 0xFF`) — introduced in `86dc8f85` (the original 76-row test
+  runner) as direct `DivMmc::read()/write()` byte round-trips, then
+  **orphaned** in the Phase 2 per-row rewrite `cdea45b6` (2026-04-15,
+  123 rows), which moved DivMMC-mapping coverage onto state-accessor
+  assertions (`is_ram_mapped()`, `is_rom_mapped()`, `is_read_only()`,
+  `bank()`) instead of byte-level read/write. MEM-03 and MEM-04
+  are now asserted in substance by the live rows **CM-06** and **CM-07**
+  respectively (§2 "conmem paging" — identical
+  `write_control()` setup, same VHDL citation `divmmc.vhd:100`/`:95-96`,
+  via accessor rather than round-trip). MEM-02 overlaps **CM-05**
+  (`is_read_only()`) and, at the Mmu-overlay tier, **PRI-01**/**PRI-04**
+  (§11), which prove the ROM-read-only / discarded-write behaviour via
+  an actual byte round-trip through `Mmu`. MEM-01 overlaps **CM-02**/
+  **CM-04** (mapping-only, different bank number) and **PRI-02** (an
+  actual round-trip, again via the `Mmu` overlay rather than `DivMmc`
+  directly). **MEM-05** (`slot 0 reads RAM page 3`, proving
+  `divmmc.vhd:96`'s `ram_bank <= X"3" when page0='1' else
+  i_divmmc_reg(3 downto 0)` — i.e. that page0 resolves to the
+  hard-coded bank 3 *regardless of the bank-select register value*) is
+  **not** covered in substance by any live row, contrary to this note's
+  earlier revision. **CM-03** (and its automap analog **AM-03**) were
+  considered but do not prove it: both assert only
+  `is_ram_mapped(0x0000) && !is_rom_mapped()` with the bank register
+  left at 0, which merely proves "page0 is RAM, not ROM" in mapram
+  mode — `is_rom_mapped()` is `is_active() && !mapram_`
+  (`src/peripheral/divmmc.h:189`), and neither `is_ram_mapped()` nor
+  `ram_page_for()` reads `bank_` for `addr < 0x2000`
+  (`src/peripheral/divmmc.cpp:555-560` hard-codes `return 3`), so both
+  assertions would still pass unchanged if the hard-coded-3 rule were
+  removed and page0 fell back to following the bank register instead.
+  No live row anywhere (checked `CM-03`, `AM-03`, `PRI-01`, `PRI-02`,
+  `PRI-04`) seeds a non-zero bank register and then confirms page0
+  still resolves to bank 3. **MEM-05**, **MEM-06** (bank-switch data
+  isolation) and **MEM-07** (out-of-range read fallback) therefore all
+  have **no live equivalent of any kind** today — true gaps, not just a
+  changed mechanism.
+- **NRD-01..04** (`NR 0xB8/0xB9/0xBA/0xBB` reset defaults 0x83/0x01/
+  0x00/0xCD) — introduced in `86dc8f85`, orphaned in `cdea45b6`. The
+  default values are stated as a documented precondition in the
+  `group_ep()` comment (line 607: "Default NR state per reset:
+  B8=0x83, B9=0x01, BA=0x00, BB=0xCD") and exercised behaviourally by
+  EP-01..12 / NR-01.. (their *consequences* once latched), but no live
+  row reads a register back and asserts the raw default value. No
+  direct replacement found.
+- **SD-01..03** (`SdCardDevice`-level: initial exchange returns 0xFF,
+  deselect after reset, not mounted initially) — introduced in
+  `86dc8f85` against `SdCardDevice` directly (not `DivMmc`/`SpiMaster`),
+  orphaned in `cdea45b6`. SD-02's original assertion was a placeholder
+  smoke test (`check("SD-02", ..., true, "")` — asserted nothing). The
+  live row **SS-15** (§12 "Port 0xE7 CS") now asserts the same
+  underlying contract for real — `SpiMaster::reset()` pulses
+  `deselect()` on every selected device before clearing CS (VHDL
+  `zxnext.vhd:3308-3309`) — via `SpiMaster`/`MockSpiDevice` rather than
+  `SdCardDevice`, so SD-02 is superseded by a stronger row. SD-01 and
+  SD-03 test `SdCardDevice` in isolation, which is properly the domain
+  of the separate "SD Card" subsystem's own `test/sdcard/sdcard_test.cpp`
+  (out of scope for this change; not touched).

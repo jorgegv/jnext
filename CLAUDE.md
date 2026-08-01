@@ -110,7 +110,7 @@ The single authoritative protocol for landing any implemented change on `main`:
 When the user asks to bump the version, follow these steps in order:
 
 1. Run all unit tests (`make unit-test`) and regression tests (`make regression`) — none must have any FAIL (SKIPs are acceptable)
-2. Update the traceability matrix
+2. ~~Update the traceability matrix~~ — **no longer a manual step (GH #196).** It is generated and staleness-gated; `make unit-test` regenerates and fails if the committed copy differs. Commit the regenerated file if it changed.
 3. Update the unit test status report
 4. Update the DEVELOPMENT-SESSIONS document (`doc/DEVELOPMENT-SESSIONS.md`)
 5. Update the ChangeLog using the future version that will be bumped to
@@ -200,6 +200,35 @@ menus and a status-bar indicator that does not exist — all found by reading th
 running product while writing the user guide. **`cli-check` covers the flag set,
 not the prose**: the v0.98.60 defects were GUI descriptions in the man page's
 narrative sections, which nothing checks. Keep reading the running product.
+
+**`doc/testing/TRACEABILITY-MATRIX.md` is generated too, and gated the same way**
+(GH #196). `make traceability-check` — a prerequisite of `make unit-test` —
+regenerates it and fails if the committed copy differs, exactly as `docs-check`
+does for the man page. It needs a built test tree, because a row's `Status`
+comes from actually running its suite.
+
+**Nothing in that file is hand-written.** A row's description and VHDL citation
+come from its own `check()`/`skip()` call; planned-but-unimplemented rows come
+from the subsystem's `*-TEST-PLAN-DESIGN.md`; and the single exceptions file
+`test/traceability-exceptions.conf` covers the one case neither can answer — a
+planned row of a suite that has no plan doc because it has no VHDL counterpart
+(`rewind_test`, `sdcard_test`). Editing the matrix by hand does nothing: the
+next run overwrites it, and the gate fails in the meantime.
+
+That is why `frozen`, doc-vs-computed `drift` and `unrecorded` no longer exist
+as classes — there is no hand-written side left to disagree with. The one
+report that survives is a plan doc and a test source citing DIFFERENT VHDL for
+the same row, which is signal about the spec rather than bookkeeping.
+
+**A row ID must be a LITERAL.** Building one at run time
+(`check((std::string(c.id) + "-35").c_str(), ...)`) emits a row no source
+reader can see: the matrix then carried two IDs that are not rows and none of
+the six that are. Spell every ID out.
+
+**An ID is a GLOBAL name.** `make unit-test` runs `traceability-dup-ids.pl`,
+which refuses when two suites assert the same ID — that reuse is how #190's
+manufactured coverage happened. The 29 pre-existing collisions are baselined in
+`test/traceability-dup-ids.conf`; anything new fails.
 
 The rendered user guide under `doc/user-guide` is also generated (from
 `src/doc/user-guide`, via `make docs-userguide`) and committed, and it IS

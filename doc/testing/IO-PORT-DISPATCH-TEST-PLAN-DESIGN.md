@@ -363,15 +363,33 @@ Plus:
 
 ### Group F. IORQ/M1 / RMW / contention-affected ports
 
+**IORQ-01 disposition.** The underlying VHDL guarantee (M1+IORQ bypasses
+port decode) is real and IS exercised, but a prior citation claiming
+coverage via "the FUSE Z80 opcode suite" was wrong (GH #196 phase 1.1
+review) — the FUSE opcode-test format has no interrupt-ack scenario and
+its `TestIO::in()` is a hardcoded stub. The row below cites the real
+coverage instead.
+
+**CTN-01/CTN-02 disposition.** A prior pass on this packet claimed both
+rows were "exercised end-to-end by the FUSE Z80 opcode suite" — false:
+the FUSE Z80 test harness path nulls the contention runtime entirely
+(`src/cpu/z80_cpu.cpp:62-64`), and `test/fuse/fuse_z80_test.cpp` never
+installs a `ContentionModel`, so every FUSE opcode test — including any
+IN/OUT case — runs with contention completely inert. This is the
+identical gap independently found in the Contention suite as
+CT-FUSE-03/CT-FUSE-04 (`doc/testing/CONTENTION-TEST-PLAN-DESIGN.md`
+§16): real, currently untested, and constructible with the same ON/OFF
+T-state-delta idiom used there. Status stays `missing`.
+
 | ID      | Title                                         | Stimulus                                                | Expected                                                            | Oracle                           |
 |---------|-----------------------------------------------|---------------------------------------------------------|---------------------------------------------------------------------|----------------------------------|
-| IORQ-01 | Interrupt ack not routed to `in`              | Raise IRQ line, let IM1 vector                           | `PortDispatch::in` is **not** called during M1+IORQ                 | `zxnext.vhd:2705`                |
+| IORQ-01 | Interrupt ack not routed to `in`              | Raise IRQ line, let IM1/IM2 vector fetch happen          | `PortDispatch::in` is **not** called during M1+IORQ — vector resolves via the dedicated `on_int_ack()` callback, structurally separate from `IoInterface::in`. **Status: `missing`** (no row-local `check()`), but exercised end-to-end by `test/cpu/cpu_z80n_im2_regressions_test.cpp` (IM2-ACK-VECTOR-EI-GRACE) and `test/ctc_interrupts/ctc_interrupts_test.cpp` (ULA-INT-V19-IM2-04), both asserting the IM2 daisy-chain FSM advances off `on_int_ack()` | `zxnext.vhd:2705`; `z80_cpu.cpp:716` |
 | IORQ-02 | Normal IN is routed, and composes the port-0xFE byte | `OUT (0xFE),0` then `IN A,(0xFE)` with no key pressed | Returns exactly `0xBF` — bit 7 = 1, bit 6 = EAR = 0, bit 5 = 1, bits 4:0 = half-row | `zxnext.vhd:2705`, `:3459` |
 | IORQ-02b| Port-0xFE bit 6 tracks the EAR-out latch      | `OUT (0xFE),0x10` then read; `OUT (0xFE),0x00` then read | bit 6 = 1 then 0                                                   | `zxnext.vhd:3459`, `:3598`       |
 | IORQ-02c| Pressed key yields the exact hardware byte    | Press `O`, read `0xDFFE`; press `SPACE`, read `0x7FFE`   | `0xBD` and `0xBE` respectively (GH #51: programs compare the whole byte, not just bits 4:0) | `zxnext.vhd:3459`  |
 | RMW-01  | 0xFE border + beeper latch                    | OUT 0xFE ← 0x07 (border); OUT 0xFE ← 0x10 (beeper bit)  | ULA border = 7 after first write, bit 4 latches speaker             | `zxnext.vhd:2582`                |
-| CTN-01  | Contended-port timing on 0x4000-range port    | `IN A,(0x4000|n)`                                       | T-state count matches contended-port pattern from `readport`        | `z80_cpu.cpp:84–104`             |
-| CTN-02  | Uncontended `IN A,(nn)` outside 0x4000 range  | `IN A,(0x00FE)` with A=0                                | Only the fixed +1/+3 T-states                                       | `z80_cpu.cpp:84–104`             |
+| CTN-01  | Contended-port timing on 0x4000-range port    | `IN A,(0x4000|n)`                                       | T-state count matches contended-port pattern from `readport`. **Status: `missing`** — real, currently untested gap; NOT covered by the FUSE Z80 opcode suite (contention is nulled on that harness path). Identical to Contention's CT-FUSE-03 | `zxula.vhd:595`; `zxnext.vhd:4496`; `z80_cpu.cpp:62-64` |
+| CTN-02  | Uncontended `IN A,(nn)` outside 0x4000 range  | `IN A,(0x00FE)` with A=0                                | Only the fixed +1/+3 T-states. **Status: `missing`** — same reasoning as CTN-01; identical to Contention's CT-FUSE-04 | `zxula.vhd:595`; `zxnext.vhd:4496`; `z80_cpu.cpp:62-64` |
 
 ### Group G. DivMMC automap interaction
 
@@ -500,3 +518,47 @@ rows + 4 NR defaults/reset + 6 expansion-bus rows + 5
 precedence/collision rows + 5 IORQ/RMW/contention rows + 3 automap
 rows + 3 wired-OR rows ≈ 88 rows**, every one grounded in a specific
 VHDL line or libz80 symbol citation.
+
+## GH #196 Phase 1.3 — extra-coverage row disposition
+
+The matrix's `## IO Port Dispatch` section carried a stray `### Extra
+coverage (not in plan)` table with 2 rows, `REG-06+07` and
+`BUS-86..89-W`, both with a blank assertion-description column.
+
+**REG-06+07** (confirmed correct, unchanged): a stale duplicate, not a
+genuinely uncovered assertion — it cites the exact same
+`test/port/port_test.cpp:441` as an existing `check("REG-06+07", ...)`
+call already represented in the main table twice ("AY select 0xFFFD
+real" / "AY data 0xBFFD real"), the same "one `check()` call, several
+plan rows, same ID" convention used elsewhere in this table (e.g.
+`NR85-03`/`NR85-03b`/`NR85-03c`). Removed as a redundant duplicate
+rather than folded into the plan.
+
+**BUS-86..89-W** (corrected 2026-08-01, follow-up to an independent
+review REJECT): the initial disposition wrongly treated this row as a
+plain redundant duplicate of the main table's five `BUS-86..89-W`
+rows. The single physical `check("BUS-86..89-W", ...)` at
+`port_test.cpp:1543` writes `0x00` to NR 0x86-0x89 and reads it back —
+it proves ONLY bare register writability. It never toggles
+`expbus_eff_en` (NR 0x80 b7) and exercises no AND-gating logic at all
+(the surrounding comments at `port_test.cpp:1505-1508`/`1529-1532`/
+`1550-1568` say so explicitly — `EXPBUS-AND-01..04` are marked
+WONT/deferred to a future `--cartridge` feature). The main table had
+nonetheless cited this same line as proof of all 5 distinct claims —
+bare writability plus 4 AND-gating/enable-diff claims — 4 of which it
+does not prove. Those 4 main-table rows are now corrected to
+`Status: missing` / `Test file:line: missing`, following the
+`IORQ-01`/`CTN-01`/`CTN-02` precedent (GH #196 phase 1.1): each
+description explains what the prior claim wrongly asserted and points
+at where the AND-gating logic is genuinely implemented and tested —
+`V16-NMP-02-EXPBUS-OFF`/`-ON-MASK`/`-ON-PASS`/`-TOGGLE`,
+`V16-NMP-02-DIVMMC-MASK`, `V16-NMP-02-MF-MASK`, and
+`V16-NMP-02-NR85-NR89-B0` in `test/nextreg/nextreg_integration_test.cpp:5971-6109`.
+Those 7 IDs are themselves currently unrecorded anywhere in this
+matrix — a separate, pre-existing gap, out of scope for this fix (a
+candidate for a future phase-1.4-or-later item). The ONE remaining
+`BUS-86..89-W` row in the main table is re-described to state only the
+bare-writability fact it actually proves, and — now that it makes an
+honest claim — genuinely duplicates the extra-coverage row, so removing
+the extra-coverage row remains correct, but only after that correction,
+not on the original "all five claims already covered" reasoning.

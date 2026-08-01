@@ -178,13 +178,18 @@ Each row carries a short VHDL cite. Row IDs follow the naming pattern
 `GROUP-NN`.
 
 ### Group RST — Reset defaults (4 rows)
+> **Renamed 2026-08-01 (GH #196 phase 4.2): `RST-02`/`RST-03` -> `NMI-RST-02`/`NMI-RST-03`.**
+> The bare names collided with `mmu_test`'s `RST-*` (the MMU reset register),
+> which asserts them; these two are plan-doc-only, so this side moved.
+> `NMI-RST-01` and `NMI-RST-04` already carried the prefix — the group is now
+> consistent.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
-| RST-01 | FSM in `S_NMI_IDLE` after reset | zxnext.vhd:2120, 2149 | reset; read FSM state accessor |
-| RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | reset; read `nmi_mf` / `_divmmc` / `_expbus` accessors |
-| RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110, 1222 | reset; read gate accessors |
-| RST-04 | NR 0x02 reset_type power-on default = "100" (bits 1:0 of read = "00", bit 2 latent) | zxnext.vhd:1306, 5891 | reset; read NR 0x02; observe reset_type[2:0]. **G153 closed (Task 8 t1)** — `NmiSource::reset_type_` modelled, surfaced via `nr_02_read()` bits 1:0. |
+| NMI-RST-01 | FSM in `S_NMI_IDLE` after reset | zxnext.vhd:2120, 2149 | reset; read FSM state accessor |
+| NMI-RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | reset; read `nmi_mf` / `_divmmc` / `_expbus` accessors |
+| NMI-RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110, 1222 | reset; read gate accessors |
+| NMI-RST-04 | NR 0x02 reset_type power-on default = "100" (bits 1:0 of read = "00", bit 2 latent) | zxnext.vhd:1306, 5891 | reset; read NR 0x02; observe reset_type[2:0]. **G153 closed (Task 8 t1)** — `NmiSource::reset_type_` modelled, surfaced via `nr_02_read()` bits 1:0. |
 
 ### Group NR02 — NR 0x02 software NMI (Wave A) (8 rows)
 
@@ -245,9 +250,9 @@ dispatcher.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
-| GATE-01 | NR 0x06 bit 3 decode sets `set_mf_enable` | zxnext.vhd:1110 | write NR 0x06; observe NmiSource MF-enable accessor |
-| GATE-02 | NR 0x06 bit 4 decode sets `set_divmmc_enable` | zxnext.vhd:1109 | write NR 0x06; observe DivMMC-enable accessor |
-| GATE-03 | NR 0x81 bit 5 decode sets `set_expbus_debounce_disable` | zxnext.vhd:1222 | write NR 0x81; observe ExpBus-debounce accessor |
+| NMI-GATE-01 | NR 0x06 bit 3 decode sets `set_mf_enable` | zxnext.vhd:1110 | write NR 0x06; observe NmiSource MF-enable accessor |
+| NMI-GATE-02 | NR 0x06 bit 4 decode sets `set_divmmc_enable` | zxnext.vhd:1109 | write NR 0x06; observe DivMMC-enable accessor |
+| NMI-GATE-03 | NR 0x81 bit 5 decode sets `set_expbus_debounce_disable` | zxnext.vhd:1222 | write NR 0x81; observe ExpBus-debounce accessor |
 | GATE-04 | port 0xE3 bit 7 (CONMEM) blocks MF assertion | divmmc.vhd, zxnext.vhd:2107 | set DivMmc CONMEM; strobe MF button; expect no FSM advance |
 | GATE-05 | `nr_03_config_mode = 1` force-clears all three latches | zxnext.vhd:2102-2105 | set MF + DivMMC + ExpBus; raise config_mode; expect all cleared |
 | GATE-06 | `nr_03_config_mode = 1` holds latches clear (set attempts ignored) | zxnext.vhd:2102-2105 | hold config_mode; strobe producers; expect no latch set |
@@ -266,13 +271,18 @@ dispatcher.
 | FSM-06 | `nr_03_config_mode = 1` force-clears FSM to IDLE from any state | zxnext.vhd:2102-2105 | drive FSM to FETCH / HOLD / END; raise config_mode; expect IDLE |
 
 ### Group ARB — Priority arbitration (4 rows)
+> **Renamed 2026-08-01 (GH #196 phase 4.2): `ARB-01..04` -> `NMI-ARB-01..04`.**
+> The bare names collided with `copper_test`'s `ARB-*`, which is the
+> CPU-vs-Copper NextREG write arbitration and has the assertions. These four
+> are NMI SOURCE arbitration (MF > DivMMC > ExpBus) and are plan-doc-only, so
+> this side moved.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
-| ARB-01 | Simultaneous MF + DivMMC assert → MF latches, DivMMC does not | zxnext.vhd:2097-2105 | strobe both; `nmi_mf` = 1, `nmi_divmmc` = 0 |
-| ARB-02 | Simultaneous MF + ExpBus → MF latches, ExpBus does not | zxnext.vhd:2097-2105 | strobe both; `nmi_mf` = 1, `nmi_expbus` = 0 |
-| ARB-03 | Simultaneous DivMMC + ExpBus (no MF) → DivMMC wins | zxnext.vhd:2097-2105 | strobe both; `nmi_divmmc` = 1, `nmi_expbus` = 0 |
-| ARB-04 | `mf_is_active = true` (stub) blocks DivMMC latch even with DivMMC request | zxnext.vhd:2097-2098 | set stub; strobe DivMMC; `nmi_divmmc` = 0 |
+| NMI-ARB-01 | Simultaneous MF + DivMMC assert → MF latches, DivMMC does not | zxnext.vhd:2097-2105 | strobe both; `nmi_mf` = 1, `nmi_divmmc` = 0 |
+| NMI-ARB-02 | Simultaneous MF + ExpBus → MF latches, ExpBus does not | zxnext.vhd:2097-2105 | strobe both; `nmi_mf` = 1, `nmi_expbus` = 0 |
+| NMI-ARB-03 | Simultaneous DivMMC + ExpBus (no MF) → DivMMC wins | zxnext.vhd:2097-2105 | strobe both; `nmi_divmmc` = 1, `nmi_expbus` = 0 |
+| NMI-ARB-04 | `mf_is_active = true` (stub) blocks DivMMC latch even with DivMMC request | zxnext.vhd:2097-2098 | set stub; strobe DivMMC; `nmi_divmmc` = 0 |
 
 <!-- MF rows parked here pending future MULTIFACE-TEST-PLAN-DESIGN.md. -->
 <!-- Prefix `MF-Gxx-NN` makes them easy to migrate later.              -->
@@ -292,9 +302,9 @@ dispatcher.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
-| DMA-01 | `is_activated()` = true while any latch set | zxnext.vhd:2007 | strobe producer; FSM in FETCH; expect `is_activated() = 1` |
-| DMA-02 | `im2_dma_delay` latches on `is_activated() AND nr_cc_dma_int_en_0_7` | zxnext.vhd:2007 | NR 0xCC bit 7 = 1; strobe NMI; expect `dma_delay` asserts |
-| DMA-03 | NR 0xCC bit 7 = 0 blocks the NMI-activated contribution | zxnext.vhd:2007 | NR 0xCC bit 7 = 0; strobe NMI; expect `dma_delay` unchanged by NMI |
+| NMI-DMA-01 | `is_activated()` = true while any latch set | zxnext.vhd:2007 | strobe producer; FSM in FETCH; expect `is_activated() = 1` |
+| NMI-DMA-02 | `im2_dma_delay` latches on `is_activated() AND nr_cc_dma_int_en_0_7` | zxnext.vhd:2007 | NR 0xCC bit 7 = 1; strobe NMI; expect `dma_delay` asserts |
+| NMI-DMA-03 | NR 0xCC bit 7 = 0 blocks the NMI-activated contribution | zxnext.vhd:2007 | NR 0xCC bit 7 = 0; strobe NMI; expect `dma_delay` unchanged by NMI |
 
 ### Group Z80 — Z80 drive + integration (Wave A/B) (4 rows)
 
@@ -385,7 +395,7 @@ bash test/regression.sh
 
 | Group | Tests | Coverage |
 |-------|------:|----------|
-| RST — Reset defaults | 4 | FSM + latch + gate power-on state (+G153 RST-04) |
+| RST — Reset defaults | 4 | FSM + latch + gate power-on state (+G153 NMI-RST-04) |
 | NR02 — NR 0x02 software NMI | 8 | Wave A routing, readback, auto-clear (+G153 NR02-07/08) |
 | HK — Hotkey producers | 9 | Wave B edge capture + NR 0x06 gating (+G152 HK-06..09) |
 | DIS — DivMMC consumer | 4 | Wave B set_button_nmi + is_nmi_hold |
@@ -399,12 +409,12 @@ bash test/regression.sh
 | MF — G162 parked rows | 2 | iotrap → MF assert; port 0x2FFD/3FFD trap-decode |
 | **Total** | **58** | |
 
-> **Note: NMI plan additions 2026-04-27** — RST-04, NR02-07/08, HK-06..09,
+> **Note: NMI plan additions 2026-04-27** — NMI-RST-04, NR02-07/08, HK-06..09,
 > Z80-04, MF-G162-01/02 added 2026-04-27 to cover G88 / G152 / G153 / G162
 > plumbing gaps; skip-stubbed pending implementation. MF-G162-NN rows
 > park here until `MULTIFACE-TEST-PLAN-DESIGN.md` exists.
 >
-> **Update 2026-04-28 (Task 8 W1):** G153 (RST-04, NR02-07, NR02-08),
+> **Update 2026-04-28 (Task 8 W1):** G153 (NMI-RST-04, NR02-07, NR02-08),
 > G152 (HK-06..09), and G162 (MF-G162-01, MF-G162-02) closed end-to-end.
 > Companion row MF-G162-01b added to test the NR 0x06 bit 3 gate path.
 > Still parked: MF-G48-01..07 (Multiface peripheral, awaits
@@ -414,3 +424,59 @@ bash test/regression.sh
 > CTC plan, which already owns G88 via NR-C2-01 / NR-C3-01. Skip removed
 > from `test/nmi/nmi_test.cpp`; total Z80 group rows 4 → 3. Suite total
 > after W1+W2: **56/43/0/13** (was 55/32/0/23 baseline).
+
+## Hand-asserted test summary — Atic Atac Next NMI regressions (relocated from TRACEABILITY-MATRIX.md, GH #196 phase 1.5)
+
+This section relocates the Atic Atac Next NMI regressions (`test/nmi/atic_atac_nmi_test.cpp`)
+summary that used to live as a full markdown table inside
+`doc/testing/TRACEABILITY-MATRIX.md`, under its `## NMI Source Pipeline` heading. That
+table had no `Test file:line` column and its reference column was prose, not a VHDL
+citation — nothing in it was ever computed by `test/refresh-traceability-matrix.pl`, so a
+table living inside a mostly-generated file read as generated when it was not (GH #192).
+It belongs here, beside the design doc that owns this suite family, not wherever it
+happened to get filed when commit `7f6d0afd` landed extended-NEX streaming and stackless
+NMI side by side.
+
+Additive GH #84 coverage using only runtime-generated fixtures. Runtime:
+`Total: 4 Passed: 4 Failed: 0 Skipped: 0`.
+
+This is a hand-asserted summary against that quoted runtime, not machine-verified or
+regenerated by `test/refresh-traceability-matrix.pl` — re-check it by hand.
+
+- **ATIC-NMI-01** (pass) — Config-mode writes to physical SRAM page `$08` supply the DivMMC `$0066` handler. Reference: zxnext.vhd DivMMC ROM SRAM mapping; divmmc.vhd:120.
+- **ATIC-NMI-02** (pass) — NR `$C0` stackless NMI suppresses stack RAM cycles, captures C3:C2, and RETN uses the live pair. Reference: zxnext.vhd:2050-2085, 6229-6236.
+- **ATIC-NMI-03** (pass) — DivMMC clears after RETN executes and before the returned opcode is predecoded. Reference: im2_control.vhd:236; divmmc.vhd:108,126,139.
+- **ATIC-NMI-04** (pass) — Multiface clears at the same completed-instruction boundary. Reference: multiface.vhd:144,178.
+
+## Planned rows carried over from the traceability matrix (GH #196)
+
+These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a
+generated artifact and can no longer hold a claim of its own. They are
+planned and NOT implemented, so they are recorded here — the one place the
+generator reads planned rows from — and the matrix emits them as `missing`,
+which is what they are.
+
+| ID | Description | VHDL file:line |
+|----|-------------|----------------|
+| BOOT-LOOP-01 | NextZXOS RAM-test outer loop (208 passes × 112 banks over ~15 s) (**COVERED AT regression tier** — `boot-nextzxos-welcome`, test/00regression/regression_tests.conf; the RAM-test loop must complete and fall through to BASIC before that screenshot renders, Task 8a 2026-07-13 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | (end-to-end behavioural) |
+| BOOT-LOGO-01 | NextZXOS loader logo + 4-entry log render (**COVERED AT regression tier** — `boot-nextzxos-splash`, test/00regression/regression_tests.conf; pins the clean loading log at frame 252, Task 8a 2026-07-13 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | (rendering) |
+| BOOT-DOT-01 | NextZXOS BASIC + dot-command surface (**COVERED AT regression tier** — `boot-nextzxos-dotls`, test/00regression/regression_tests.conf; types `.ls` in the NextZXOS Command Line and pins the SD-root listing, Task 57 2026-07-14, closes G47 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | (end-to-end) |
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+NMI Source Pipeline plan (`doc/testing/NMI-PIPELINE-TEST-PLAN-DESIGN.md`) closed end-to-end 2026-04-24d (per `project_session_handover_20260424d_eod.md` — Phase 1 scaffold + Wave A NR 0x02 + Wave B HK/DIS/CLR + Wave C gate registers + Wave E NMI-activated DMA delay all landed; 5 real emulator bugs fixed). The plan was reopened by Task 7 r1 + r2 (2026-04-24/25) which added skip rows for the residual gaps it surfaced — specifically G87/G88 (NMIACK PC-capture cross-link to NR 0xC2/0xC3 and CTC owner), G152/G153 (host F-key dispatch + NR 0x02 reset_type FSM bits 1:0), and G162 (iotrap strobe + Multiface port 0x2FFD/0x3FFD trap, parked until `MULTIFACE-TEST-PLAN-DESIGN.md` is authored). Companion integration suite `test/nmi/nmi_integration_test.cpp` runs the full button/software-NMI chain through a real `Emulator` fixture (NmiSource → arbiter strobe → DivMmc::set_button_nmi → cpu request_nmi → PC=0x0066 → automap → RETN clear); its 4 skips track the same G152 host-hotkey wiring debt at the GUI level. `nmi_test.cpp` runs at `54 / 32 pass / 0 fail / 22 skip` (Z80-04 re-homed to CTC plan 2026-04-28 — duplicate cross-link with NR-C2-01/NR-C3-01) and `nmi_integration_test.cpp` at `9 / 5 / 0 / 4`.
+End-to-end NMI chain on a real `Emulator` fixture (NmiSource FSM → arbitration strobe → `DivMmc::set_button_nmi` → `cpu_.request_nmi()` → Z80 jumps to 0x0066 → automap activates → RETN clears latches). The 4 host-hotkey skips mirror the `nmi_test.cpp` HK-06..09 rows at the integration tier (G152 — GUI F-key dispatch is not wired). Runtime: `Total:    9  Passed:    5  Failed:    0  Skipped:    4`.
+Two hand-maintained companion suites were previously narrated here as full
+summary tables: `test/core/extended_nex_test.cpp` (Extended/self-streaming
+NEX, GH #29/#84) and `test/nmi/atic_atac_nmi_test.cpp` (Atic Atac Next NMI
+regressions, GH #84). Both are declared, tombstoned suites (see "Suites with
+no section here" above) with no `Test file:line` or `VHDL file:line` column
+for the generator to compute, so nothing in either was ever machine-verified
+content — keeping them as tables here read as generated when they were not
+(GH #192). Their full hand-asserted summaries now live beside each feature's
+own design doc: [TASK84-EXTENDED-NEX-PLAN.md](../design/TASK84-EXTENDED-NEX-PLAN.md)
+§9 and [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-DESIGN.md)
+(final section). GH #196 phase 1.5.

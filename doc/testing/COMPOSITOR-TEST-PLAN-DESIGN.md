@@ -547,26 +547,26 @@ stencil off.
 
 | ID | Title | Layer opacity | Mode | Expected winner | VHDL line |
 |----|-------|---------------|------|-----------------|-----------|
-| PRI-010-SLU-3 | Mode 000, all three opaque | S=✓ L=✓ U=✓ | 000 | Sprite | 7222 |
-| PRI-010-SLU-LU | Mode 000, only L+U | S=✗ L=✓ U=✓ | 000 | Layer 2 | 7224 |
-| PRI-010-SLU-U | Mode 000, only U | S=✗ L=✗ U=✓ | 000 | ULA | 7226 |
-| PRI-010-SLU-0 | Mode 000, none | — | 000 | fallback | 7214 |
-| PRI-011-LSU-3 | Mode 001, all three | S=✓ L=✓ U=✓ | 001 | Layer 2 | 7232 |
-| PRI-011-LSU-SU | Mode 001, S+U only | S=✓ L=✗ U=✓ | 001 | Sprite | 7234 |
-| PRI-011-LSU-U | Mode 001, U only | S=✗ L=✗ U=✓ | 001 | ULA | 7236 |
-| PRI-010-SUL-3 | Mode 010, all three | S=✓ L=✓ U=✓ | 010 | Sprite | 7244 |
-| PRI-010-SUL-UL | Mode 010, U+L | S=✗ L=✓ U=✓ | 010 | ULA | 7246 |
-| PRI-010-SUL-L | Mode 010, L only | S=✗ L=✓ U=✗ | 010 | Layer 2 | 7248 |
-| PRI-011-LUS-3 | Mode 011, all three | S=✓ L=✓ U=✓ | 011 | Layer 2 | 7254 |
-| PRI-011-LUS-US | Mode 011, U(non-border)+S | S=✓ L=✗ U=✓, `ula_border_2=0` | 011 | ULA | 7256 |
-| PRI-011-LUS-S | Mode 011, S only | S=✓ L=✗ U=✗ | 011 | Sprite | 7258 |
-| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp | `ula_border_2=1`, `tm_transparent=1`, S=✓, U=✓, L=✗ | 011 | Sprite (border exception) | 7256 |
-| PRI-100-USL-3 | Mode 100, all three | S=✓ L=✓ U=✓ | 100 | ULA | 7266 |
-| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗ | 100 conditions | 100 | Sprite | 7266 |
-| PRI-100-USL-L | Mode 100, L only | S=✗ L=✓ U=✗ | 100 | Layer 2 | 7270 |
-| PRI-101-ULS-3 | Mode 101, all three | S=✓ L=✓ U=✓ | 101 | ULA | 7278 |
-| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp | conditions | 101 | Layer 2 | 7278, 7280 |
-| PRI-101-ULS-S | Mode 101, S only | S=✓ L=✗ U=✗ | 101 | Sprite | 7282 |
+| PRI-010-SLU-3 | Mode 000, all three opaque | S=✓ L=✓ U=✓ | 000 | Sprite | zxnext.vhd:7222 |
+| PRI-010-SLU-LU | Mode 000, only L+U | S=✗ L=✓ U=✓ | 000 | Layer 2 | zxnext.vhd:7224 |
+| PRI-010-SLU-U | Mode 000, only U | S=✗ L=✗ U=✓ | 000 | ULA | zxnext.vhd:7226 |
+| PRI-010-SLU-0 | Mode 000, none | — | 000 | fallback | zxnext.vhd:7214 |
+| PRI-011-LSU-3 | Mode 001, all three | S=✓ L=✓ U=✓ | 001 | Layer 2 | zxnext.vhd:7232 |
+| PRI-011-LSU-SU | Mode 001, S+U only | S=✓ L=✗ U=✓ | 001 | Sprite | zxnext.vhd:7234 |
+| PRI-011-LSU-U | Mode 001, U only | S=✗ L=✗ U=✓ | 001 | ULA | zxnext.vhd:7236 |
+| PRI-010-SUL-3 | Mode 010, all three | S=✓ L=✓ U=✓ | 010 | Sprite | zxnext.vhd:7244 |
+| PRI-010-SUL-UL | Mode 010, U+L | S=✗ L=✓ U=✓ | 010 | ULA | zxnext.vhd:7246 |
+| PRI-010-SUL-L | Mode 010, L only | S=✗ L=✓ U=✗ | 010 | Layer 2 | zxnext.vhd:7248 |
+| PRI-011-LUS-3 | Mode 011, all three | S=✓ L=✓ U=✓ | 011 | Layer 2 | zxnext.vhd:7254 |
+| PRI-011-LUS-US | Mode 011, U(non-border)+S | S=✓ L=✗ U=✓, `ula_border_2=0` | 011 | ULA | zxnext.vhd:7256 |
+| PRI-011-LUS-S | Mode 011, S only | S=✓ L=✗ U=✗ | 011 | Sprite | zxnext.vhd:7258 |
+| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp | `ula_border_2=1`, `tm_transparent=1`, S=✓, U=✓, L=✗ | 011 | Sprite (border exception) | zxnext.vhd:7256 |
+| PRI-100-USL-3 | Mode 100, all three | S=✓ L=✓ U=✓ | 100 | ULA | zxnext.vhd:7266 |
+| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗ | 100 conditions | 100 | Sprite | zxnext.vhd:7266 |
+| PRI-100-USL-L | Mode 100, L only | S=✗ L=✓ U=✗ | 100 | Layer 2 | zxnext.vhd:7270 |
+| PRI-101-ULS-3 | Mode 101, all three | S=✓ L=✓ U=✓ | 101 | ULA | zxnext.vhd:7278 |
+| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp | conditions | 101 | Layer 2 | zxnext.vhd:7278,7280 |
+| PRI-101-ULS-S | Mode 101, S only | S=✓ L=✗ U=✗ | 101 | Sprite | zxnext.vhd:7282 |
 
 ### Group PRI-BOUND — Boundary and default branch
 
@@ -743,15 +743,20 @@ writes after stage 0 are not.
 
 Three transparent-key NextREGs are read once per frame today; mid-
 frame Copper writes (sky-vs-foreground swap) collapse to last-write.
-This sub-group adds the log-pattern clone for each of the three keys.
-Three more cover NR 0x68 bit 0 (stencil), bits 6:5 (blend mode), and
-bit 3 (ULA+ enable) per-scanline replay.
+This sub-group adds the log-pattern clone for each of the three keys —
+**so far only NR 0x14 (PSCAN-G04-01) has it; NR 0x4B/0x4C
+(PSCAN-G04-02/03) remain a real, unimplemented gap** (corrected
+2026-08-01, GH #196 phase-1.1 review — see the rows below; a prior pass
+had wrongly marked them re-homed to the Sprites/Tilemap suites, which
+never picked up the tracking). Three more cover NR 0x68 bit 0
+(stencil), bits 6:5 (blend mode), and bit 3 (ULA+ enable) per-scanline
+replay.
 
 | ID            | Title                                                                          | Stimulus                                                                                          | Expected                                                                                          | VHDL                       |
 |---------------|--------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|----------------------------|
 | PSCAN-G04-01  | NR 0x14 write logged with current scanline (RGB332 global transparent)         | start_frame; line=50 NR 0x14 ← 0xC3; line=100 NR 0x14 ← 0xE3                                      | nr_14 change-log holds (50, 0xC3) and (100, 0xE3); apply_changes_for_line replays them            | zxnext.vhd:1137,5226       |
-| PSCAN-G04-02  | NR 0x4B (sprite transparent index) write logged + replayed per scanline        | RE-HOMED 2026-04-28 to `SPRITES-TEST-PLAN-DESIGN.md` Group 16 — NR 0x4B is owned by `Sprites` per VHDL `zxnext.vhd:5016, 1190` and `sprites.vhd` pixel engine; the compositor only consumes the already-keyed output. Cross-bucket G04 ownership. | — | zxnext.vhd:5016,1190       |
-| PSCAN-G04-03  | NR 0x4C (TM transparent nibble) write logged + replayed per scanline           | RE-HOMED 2026-04-28 to `TILEMAP-TEST-PLAN-DESIGN.md` Group 1 (per-scanline subsection) — NR 0x4C is owned by `Tilemap` per VHDL `zxnext.vhd:5018, 4395` and `tilemap.vhd:425-429`; the compositor only consumes the already-keyed output. Cross-bucket G04 ownership.    | — | zxnext.vhd:5018,4395       |
+| PSCAN-G04-02  | NR 0x4B (sprite transparent index) write logged + replayed per scanline        | start_frame; line=50 NR 0x4B ← 0x07; line=100 NR 0x4B ← 0x0F, mirroring the PSCAN-G04-01 idiom | nr_4b change-log would hold (50, 0x07) and (100, 0x0F), replayed per scanline. **Status: `missing`** — no `check()`/`skip()` row exists anywhere. A 2026-04-28 comment claimed this was RE-HOMED to `SPRITES-TEST-PLAN-DESIGN.md` Group 16; reviewed 2026-08-01 (GH #196 phase-1.1) and found FALSE — that doc's `G04.PSL-NR4B-01` and `test/sprites/sprites_test.cpp`'s `sprite_transparent_index_` are zero matches (stub prose only), and `src/core/emulator.cpp:1655-1659`'s NR 0x4B write handler still routes to a plain scalar setter (`PaletteManager::set_sprite_transparency`). Real, currently untracked gap — not a duplicate | zxnext.vhd:5016,1190       |
+| PSCAN-G04-03  | NR 0x4C (TM transparent nibble) write logged + replayed per scanline           | start_frame; line=50 NR 0x4C ← 0x07; line=100 NR 0x4C ← 0x0A, mirroring the PSCAN-G04-01 idiom | nr_4c change-log would hold (50, 0x07) and (100, 0x0A), replayed per scanline. **Status: `missing`** — no `check()`/`skip()` row exists anywhere. A 2026-04-28 comment claimed this was RE-HOMED to `TILEMAP-TEST-PLAN-DESIGN.md` Group 1; reviewed 2026-08-01 (GH #196 phase-1.1) and found FALSE — that doc's `TM-165` and `test/tilemap/tilemap_test.cpp`'s `transp_colour_` are zero matches (stub prose only), and `src/core/emulator.cpp:1669-1672`'s NR 0x4C write handler still routes to a plain scalar setter (`PaletteManager::set_tilemap_transparency`). Real, currently untracked gap — not a duplicate | zxnext.vhd:5018,4395       |
 | PSCAN-G11-01  | NR 0x68 bit 0 (stencil) per-scanline replay                                    | start_frame; line=50 NR 0x68 ← 0x01 (stencil_mode=1)                                              | rows 0..49 see stencil_mode=0; rows 50..end see stencil_mode=1                                    | zxnext.vhd:5445, 7142-7176 |
 | PSCAN-G11-02  | NR 0x68 bits 6:5 (blend mode) per-scanline replay                              | start_frame; line=100 NR 0x68 ← 0x40 (blend mode 10 / mix_rgb=ula_final)                          | rows 0..99 use blend mode 00; rows 100..end use 10 (mix_rgb routing changes)                      | zxnext.vhd:5445, 7142-7176 |
 | PSCAN-G11-03  | NR 0x68 bit 3 (ULA+ gate) per-scanline replay                                  | start_frame; line=80 NR 0x68 ← 0x08 (ulap_en=1)                                                   | rows 0..79 use ULA path; rows 80..end use ULA+ palette path                                       | zxnext.vhd:5445, ulap_en   |
@@ -1003,7 +1008,10 @@ elements, unknown names, wrong case and double-selection (including
 | LMASK-E01..E14 | Parser rejects: empty list, unknown name, wrong case, whitespace, duplicates, `all`+name, leading/trailing/inner empty element | `""`, `bogus`, `ULA`, `ula ,tiles`, `ula,ula`, `all,ula`, `ula,`, `,ula`, `ula,,tiles`, `,` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
 | LMASK-S01 | Mask → canonical name list | ALL / `ula|tiles` / 0 | `all` / `ula,tiles` / `none` | — (CLI) |
 | LMASK-C01 | Default mask is LAYER_ALL and composes every layer | reset(); all four layers opaque, mode 000 | sprite wins (SLU), mask == 0x0F | 7218 |
-| LMASK-C02..C05 | Each layer captured alone reaches the output regardless of priority position | all four opaque, mask = one layer | that layer's pixel | 7103, 7106, 7109, 7118 |
+| LMASK-C02 | `sprites` alone reaches the output regardless of priority position | all four opaque, mask = `sprites` | sprite pixel | zxnext.vhd:7118 |
+| LMASK-C03 | `layer2` alone reaches the output even though SLU puts sprites on top | all four opaque, mask = `layer2` | Layer 2 pixel | zxnext.vhd:7121 |
+| LMASK-C04 | `ula` alone reaches the output (TM masked, so no ULA/TM override) | all four opaque, mask = `ula` | ULA pixel | zxnext.vhd:7103 |
+| LMASK-C05 | `tiles` alone reaches the output (ULA transparent, TM wins the merge) | all four opaque, mask = `tiles` | tilemap pixel | zxnext.vhd:7109 |
 | LMASK-C06 | A selected-but-transparent layer does not resurrect the masked ones | ULA/S/TM opaque, L2 transparent, mask = `layer2` | NR 0x4A fallback | 7214 |
 | LMASK-C07 | Excluding `ula` removes the BORDER as well | border cell painted by ULA, mask = `layer2` | fallback colour (== hardware `ula_en=0`) | 7103 |
 | LMASK-C08 | `ula_border_2` is raster geometry, not an enable: the mode-100 border exception still fires with the ULA masked | border + opaque sprite, mask = `ula,sprites` vs `ula` | sprite wins; sprite masked ⇒ ULA wins | 7266 |
@@ -1109,3 +1117,10 @@ as the fallback colour) and pass once it is present. Screenshot-level twin:
    blank signal is correctly delayed in lockstep with `rgb_out_6`; a
    timing drift would only show as a one-pixel edge artefact. Noted
    as a known untested edge case.
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that require a full `Emulator` fixture (NR 0x68 bit 7 ULA-disable observed at the framebuffer level, including Copper mid-frame MOVE NR 0x68,0x80). Runtime: `Total:    8  Passed:    8  Failed:    0  Skipped:    0`. Each row is a live pass. Only the 2 UDIS rows are listed below. Of the other 6 live rows, `PFF-G108-01/02/03` are recorded in the parent `## Compositor` table — they are Compositor plan rows re-homed here 2026-04-28, not new rows; `PFF-G108-02b` is recorded only by sub-letter aliasing under `PFF-G108-02` (the script's `ALIASED` report); and `PFF-G108-04` + `PSCAN-VBLANK-COALESCE-01` are recorded nowhere (its `UNRECORDED` report). Both reports print on every run.

@@ -1,6 +1,7 @@
 # Traceability Matrix — Full Generation Plan
 
-> Status: PROPOSED (2026-07-31). Umbrella issue: GH #196.
+> Status: **Phases 1-3 COMPLETE (2026-08-01)**; Phase 4 is the ongoing,
+> non-blocking burn-down. Umbrella issue: GH #196.
 > Companion history: #144-#151, #158/#159, #184, #187-#195 — the two-day chain
 > that measured the problem this plan removes.
 
@@ -13,7 +14,7 @@ the case for this plan:
 ~90% was meta-maintenance of the matrix and its extractor. The exceptions —
 found only *because* the matrix was being cleaned — were: 4 missing tests
 (#191), 3 plan-doc errors out of thousands of rows (#193), one vacuous
-assertion (`CFG-06`, which passed regardless of the code), and **one real
+assertion (`MMU-CFG-06`, which passed regardless of the code), and **one real
 emulator bug** (#194).
 
 **The test plan and suites are fundamentally sound.** 6560 manifest-pinned
@@ -91,7 +92,7 @@ cease to exist as a concept.
 
 ## 6. Phases
 
-### Phase 1 — Triage the inputs (one-time, before any code change)
+### Phase 1 — Triage the inputs ✓ DONE (2026-08-01)
 - 1.1 Classify the 326+72 `missing` rows: planned (stays in plan doc) vs
       rewrite orphan (dropped from the doc, recorded in the commit). The 71
       known orphans (#192) first.
@@ -105,7 +106,7 @@ cease to exist as a concept.
 - 1.5 Decide the 13 NMI summary-table rows (hand-asserted vs a quoted runtime):
       keep as prose outside the matrix proper.
 
-### Phase 2 — Invert the generator
+### Phase 2 — Invert the generator ✓ DONE (2026-08-01)
 - 2.1 Emit the full matrix from sources; delete the read-modify-write path and
       the no-overwrite rule.
 - 2.2 Exceptions file: pinned syntax, accept+refuse selftest fixtures.
@@ -113,7 +114,7 @@ cease to exist as a concept.
 - 2.4 Plan-vs-source citation disagreement report (the surviving drift).
 - 2.5 Update selftest fixtures + `$EXPECTED_ROWS`; mutation-test every new path.
 
-### Phase 3 — Gate it
+### Phase 3 — Gate it ✓ DONE (2026-08-01)
 - 3.1 Staleness gate (regenerate + diff, `docs-check` pattern) wired into
       `make unit-test` / `make regression`.
 - 3.2 Duplicate-ID gate, honouring the alias allowlist.
@@ -142,3 +143,26 @@ Phase 2+3 ≈ one issue-cycle of the #187-#195 kind (the extractor already does
 ~90% of the computation). Phase 1 is the bulk: a per-row triage pass across
 ~600 rows, mechanical for the majority (71 orphans, 316 tombstone-backed),
 judgement for the rest. Phase 4 is open-ended and deliberately non-blocking.
+
+## Outcome (2026-08-01)
+
+The matrix is a generated artifact. Every cell is computed from a test source,
+a plan doc or the one exceptions file; `make unit-test` regenerates it and
+fails if the committed copy is stale.
+
+| Counter | Before | After |
+|---|---:|---:|
+| Rows | 2867 | 4970 |
+| `unrecorded` | 884 | **0** (impossible by construction) |
+| `frozen` | 60 | **0** (no hand-written side to freeze) |
+| doc-vs-computed `drift` | 335 | **0** (same reason) |
+| Rows whose description derives from source | — | **3586 / 3586 (100%)** |
+
+What is deliberately NOT zero: `missing` rows (a plan doc lists them and no
+suite asserts them — a real, visible backlog) and the plan-vs-source citation
+disagreement report, which is signal about the spec rather than bookkeeping.
+
+Two rules the work produced, now in CLAUDE.md: **a row ID must be a literal**
+(building one at run time made six real rows invisible and two phantoms
+visible), and **an ID is a global name** (29 pre-existing cross-suite
+collisions are baselined; anything new refuses).

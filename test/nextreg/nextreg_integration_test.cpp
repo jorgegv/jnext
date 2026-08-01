@@ -9,7 +9,10 @@
 // bare NextReg register file. This integration tier exercises the full
 // emulator wiring — the same path that real Z80 code uses.
 //
-// Plan: doc/testing/NEXTREG-TEST-PLAN-DESIGN.md, section 3 (RST-01..09).
+// Plan: doc/testing/NEXTREG-TEST-PLAN-DESIGN.md, section 3
+// (NREG-RST-01..08, RST-09, NREG-RST-10..13; the NREG- prefix distinguishes
+// these NextREG-side reset-default rows from same-numbered RST-NN rows in
+// other subsystems' own reset-default groups — GH #196 phase 1.2 dedup).
 // Oracle: zxnext.vhd lines 4926-5100 (reset block), 4607-4618 (MMU),
 //         5052-5068 (port enables).
 //
@@ -135,7 +138,7 @@ static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
     emu.port().out(0x253B, val);
 }
 
-// ── 3. Reset Defaults (RST-01..09) — integration tier ────────────────
+// ── 3. Reset Defaults (NREG-RST-01..08, RST-09, NREG-RST-10..13) — integration tier ────────────────
 //
 // These rows were skipped in the bare-NextReg test (nextreg_test.cpp)
 // because the VHDL reset defaults are owned by subsystem classes, not by
@@ -158,52 +161,53 @@ static void test_reset_defaults(Emulator& emu) {
     {
         uint8_t got = nr_read(emu, 0x00);
         check("MID-01",
-              "NR 0x00 machine ID reset=0x0A (VHDL g_machine_id=X\"0A\")",
+              "NR 0x00 machine ID reset=0x0A (VHDL g_machine_id=X\"0A\") "
+              "[zxnext_top_issue2.vhd:35]",
               got == 0x0A, detail_eq(got, 0x0A));
     }
 
-    // RST-01 — NR 0x14 global transparent colour.
+    // NREG-RST-01 — NR 0x14 global transparent colour.
     // VHDL zxnext.vhd:4947 — nr_14_global_transparent <= X"E3" on reset.
     {
         uint8_t got = nr_read(emu, 0x14);
-        check("RST-01",
+        check("NREG-RST-01",
               "NR 0x14 global transparent reset=0xE3 "
               "[zxnext.vhd:4947 nr_14_global_transparent]",
               got == 0xE3, detail_eq(got, 0xE3));
     }
 
-    // RST-02 — NR 0x15 sprite/layer control.
+    // NREG-RST-02 — NR 0x15 sprite/layer control.
     // VHDL zxnext.vhd:4948 — nr_15_lores_en/sprite_en/layer_priority all
     // zeroed on reset. Full register = 0x00.
     {
         uint8_t got = nr_read(emu, 0x15);
-        check("RST-02",
+        check("NREG-RST-02",
               "NR 0x15 sprite/layer control reset=0x00 "
               "[zxnext.vhd:4948]",
               got == 0x00, detail_eq(got, 0x00));
     }
 
-    // RST-03 — NR 0x4A fallback RGB colour.
+    // NREG-RST-03 — NR 0x4A fallback RGB colour.
     // VHDL zxnext.vhd:5002 — nr_4a_fallback_colour <= X"E3" on reset.
     {
         uint8_t got = nr_read(emu, 0x4A);
-        check("RST-03",
+        check("NREG-RST-03",
               "NR 0x4A fallback RGB reset=0xE3 "
               "[zxnext.vhd:5002 nr_4a_fallback_colour]",
               got == 0xE3, detail_eq(got, 0xE3));
     }
 
-    // RST-04 — NR 0x42 ULANext format (ink mask).
+    // NREG-RST-04 — NR 0x42 ULANext format (ink mask).
     // VHDL zxnext.vhd:4993 — nr_42_ulanext_format <= X"07" on reset.
     {
         uint8_t got = nr_read(emu, 0x42);
-        check("RST-04",
+        check("NREG-RST-04",
               "NR 0x42 ULANext format reset=0x07 "
               "[zxnext.vhd:4993 nr_42_ulanext_format]",
               got == 0x07, detail_eq(got, 0x07));
     }
 
-    // RST-05 — NR 0x50-0x57 MMU page defaults.
+    // NREG-RST-05 — NR 0x50-0x57 MMU page defaults.
     // VHDL zxnext.vhd:4610-4618:
     //   slot 0 = 0xFF (ROM), slot 1 = 0xFF (ROM),
     //   slot 2 = 0x0A (bank 5 page 0), slot 3 = 0x0B (bank 5 page 1),
@@ -222,34 +226,34 @@ static void test_reset_defaults(Emulator& emu) {
                         detail_eq(got, expected[i]);
             }
         }
-        check("RST-05",
+        check("NREG-RST-05",
               "NR 0x50-0x57 MMU defaults [zxnext.vhd:4610-4618]",
               all_ok, worst);
     }
 
-    // RST-06 — NR 0x68 ULA control.
+    // NREG-RST-06 — NR 0x68 ULA control.
     // VHDL zxnext.vhd:5029 — nr_68_ula_en <= '1' on reset (ULA enabled).
     // Bit 7 = NOT ula_en, so bit 7 = 0. Bits 6:0 = 0. Full register = 0x00.
     {
         uint8_t got = nr_read(emu, 0x68);
-        check("RST-06",
+        check("NREG-RST-06",
               "NR 0x68 ULA control reset=0x00 (ula_en=1 → bit7=0) "
               "[zxnext.vhd:5029]",
               got == 0x00, detail_eq(got, 0x00));
     }
 
-    // RST-07 — NR 0x0B I/O mode.
+    // NREG-RST-07 — NR 0x0B I/O mode.
     // VHDL zxnext.vhd:4939-4941 — iomode_0 <= '1' on reset.
     // NR 0x0B = 0x01.
     {
         uint8_t got = nr_read(emu, 0x0B);
-        check("RST-07",
+        check("NREG-RST-07",
               "NR 0x0B I/O mode reset=0x01 "
               "[zxnext.vhd:4939-4941]",
               got == 0x01, detail_eq(got, 0x01));
     }
 
-    // RST-08 — NR 0x82-0x85 internal port enables.
+    // NREG-RST-08 — NR 0x82-0x85 internal port enables.
     // VHDL zxnext.vhd:5052-5068 — all reset to 0xFF on power-on (reset_type=1).
     // NR 0x85 has bits 6:4 always-zero on read (VHDL:6138), so read = 0x8F.
     {
@@ -265,37 +269,37 @@ static void test_reset_defaults(Emulator& emu) {
                         detail_eq(got, expected[i]);
             }
         }
-        check("RST-08",
+        check("NREG-RST-08",
               "NR 0x82-0x85 port enables reset=0xFF "
               "[zxnext.vhd:5052-5068]",
               all_ok, worst);
     }
 
-    // RST-10 — NR 0x12 Layer 2 active bank.
+    // NREG-RST-10 — NR 0x12 Layer 2 active bank.
     // VHDL zxnext.vhd:4945 — nr_12_layer2_active_bank <= X"08" on reset.
     {
         uint8_t got = nr_read(emu, 0x12);
-        check("RST-10",
+        check("NREG-RST-10",
               "NR 0x12 L2 active bank reset=0x08 "
               "[zxnext.vhd:4945 nr_12_layer2_active_bank]",
               got == 0x08, detail_eq(got, 0x08));
     }
 
-    // RST-11 — NR 0x4B sprite transparent index.
+    // NREG-RST-11 — NR 0x4B sprite transparent index.
     // VHDL zxnext.vhd:5003 — nr_4b_sprite_transparent_index <= X"E3" on reset.
     {
         uint8_t got = nr_read(emu, 0x4B);
-        check("RST-11",
+        check("NREG-RST-11",
               "NR 0x4B sprite transparent index reset=0xE3 "
               "[zxnext.vhd:5003 nr_4b_sprite_transparent_index]",
               got == 0xE3, detail_eq(got, 0xE3));
     }
 
-    // RST-12 — NR 0x4C tilemap transparent index.
+    // NREG-RST-12 — NR 0x4C tilemap transparent index.
     // VHDL zxnext.vhd:5004 — nr_4c_tm_transparent_index <= X"0F" on reset.
     {
         uint8_t got = nr_read(emu, 0x4C);
-        check("RST-12",
+        check("NREG-RST-12",
               "NR 0x4C tilemap transparent index reset=0x0F "
               "[zxnext.vhd:5004 nr_4c_tm_transparent_index]",
               got == 0x0F, detail_eq(got, 0x0F));
@@ -316,7 +320,7 @@ static void test_reset_defaults(Emulator& emu) {
               got == 0x00, detail_eq(got, uint8_t{0x00}));
     }
 
-    // RST-13 / V17-NMP-01 — NR 0xB8/0xB9/0xBA/0xBB DivMMC automap entry-point
+    // NREG-RST-13 / V17-NMP-01 — NR 0xB8/0xB9/0xBA/0xBB DivMMC automap entry-point
     // configuration registers. VHDL zxnext.vhd:5087-5090 reset these to
     // 0x83/0x01/0x00/0xCD respectively (master reset block; unconditional
     // on `i_reset`). Read mux at zxnext.vhd:6217-6227 returns each storage
@@ -337,7 +341,7 @@ static void test_reset_defaults(Emulator& emu) {
                         detail_eq(got, expected[i]);
             }
         }
-        check("RST-13",
+        check("NREG-RST-13",
               "NR 0xB8/0xB9/0xBA/0xBB DivMMC automap EP reset "
               "= 0x83/0x01/0x00/0xCD [zxnext.vhd:5087-5090]",
               all_ok, worst);
@@ -444,7 +448,7 @@ static void test_dma_im2_delay(Emulator& emu) {
         nr_write(emu, 0xCE, 0x00);
         emu.update_im2_dma_delay(false, false, false);
         bool latched = emu.im2_dma_delay();
-        check("20.4a", "All inputs deasserted -> im2_dma_delay=0",
+        check("20.4a", "All inputs deasserted -> im2_dma_delay=0 [zxnext.vhd:2007]",
               latched == false, detail_eq(static_cast<uint8_t>(latched ? 1 : 0), uint8_t{0}));
     }
     {
@@ -542,7 +546,7 @@ static void test_tilemap_clip_nr(Emulator& emu) {
                  tm.clip_x1(), tm.clip_x2());
         check("TM-115",
               "NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 "
-              "[emulator.cpp:304-308]",
+              "[zxnext.vhd:5288-5289]",
               ok, detail);
     }
 }
@@ -586,7 +590,8 @@ static void test_soft_reset(Emulator& emu) {
         snprintf(detail, sizeof(detail), "before=0x%02X after=0x%02X", before, after);
         check("SR-01",
               "NR 0x02=0x01 (RESET_SOFT) preserves SRAM contents "
-              "[VHDL: SRAM not in reset domain]",
+              "(external SRAM has no reset pin) "
+              "[zxnext_top_issue2.vhd:2427-2437]",
               before == 0xA5 && after == 0xA5, detail);
     }
 
@@ -608,7 +613,9 @@ static void test_soft_reset(Emulator& emu) {
                  before, requested ? 1 : 0, after);
         check("SR-02",
               "NR 0x02=0x02 (RESET_HARD) requests a host cold boot (deferred); "
-              "SRAM untouched synchronously [Task 70]",
+              "SRAM untouched synchronously (Task 70; VHDL zxn_reset_hard "
+              "triggers FPGA flashboot, the real-hardware equivalent) "
+              "[zxnext_top_issue2.vhd:1195]",
               before == 0x5A && requested && after == 0x5A, detail);
     }
 
@@ -939,7 +946,7 @@ static void test_reset_domain_e3_and_8c() {
     // an Mmu mirror, because the SRAM address compose at zxnext.vhd:3045
     // (sram_pre_A21_A13 <= nr_04_romram_bank & cpu_a(13)) lives on the Mmu hot
     // path. RSTD-04-01/02 above assert only the NextReg latch, and mmu_test
-    // CFG-05..12 drive a BARE Mmu with no Emulator — so nothing proved the NR
+    // MMU-CFG-05..MMU-CFG-07 / CFG-08..12 drive a BARE Mmu with no Emulator — so nothing proved the NR
     // 0x04 write handler reaches the mirror that the address compose actually
     // reads. The pair below closes that: both assert through Emulator::mmu(),
     // never the register accessor.
@@ -969,7 +976,7 @@ static void test_reset_domain_e3_and_8c() {
     }
 
     // RSTD-04-04 — RESET_SOFT preserves the Mmu mirror too, and leaves the two
-    // mirrors in agreement. This is the end-to-end half of #194: CFG-06 proves
+    // mirrors in agreement. This is the end-to-end half of #194: MMU-CFG-06 proves
     // Mmu::reset() preserves the field on a bare fixture, RSTD-04-01 proves the
     // NextReg latch survives — only this row proves the mirror survives the
     // REAL soft-reset path, which re-enters Emulator::init() (where a resync
@@ -1307,7 +1314,7 @@ static void test_readonly_registers(Emulator& emu) {
         uint8_t got = nr_read(emu, 0x00);
         check("RO-01",
               "NR 0x00 machine ID reset=0x0A via port path "
-              "[VHDL g_machine_id, zxnext_top_issue{2,4,5}.vhd:35]",
+              "[VHDL g_machine_id, zxnext_top_issue2.vhd:35]",
               got == 0x0A, detail_eq(got, 0x0A));
     }
 
@@ -1328,13 +1335,14 @@ static void test_readonly_registers(Emulator& emu) {
               got == 0x0A, detail_eq(got, 0x0A));
     }
 
-    // RO-03 — NR 0x01 core version. VHDL g_version = X"32" (core 3.02).
-    // Seeded at src/port/nextreg.cpp:28.
+    // RO-03 — NR 0x01 core version. VHDL g_version = X"32" (core 3.02),
+    // declared at zxnext_top_issue2.vhd:37; read dispatch routes NR 0x01
+    // to it at zxnext.vhd:5887-5888.
     {
         uint8_t got = nr_read(emu, 0x01);
         check("RO-03",
               "NR 0x01 core version reset=0x32 (core 3.02) "
-              "[src/port/nextreg.cpp:28 — g_version]",
+              "[zxnext_top_issue2.vhd:37 g_version]",
               got == 0x32, detail_eq(got, 0x32));
     }
 
@@ -1350,15 +1358,15 @@ static void test_readonly_registers(Emulator& emu) {
               got == 0x03, detail_eq(got, 0x03));
     }
 
-    // RO-05 — NR 0x0F board issue (lower nibble). VHDL g_board_issue.
-    // JNEXT leaves regs_[0x0F]=0x00, which corresponds to "no board
-    // specified." If a specific VHDL generic value applies, the mismatch
-    // goes to the Emulator Bug backlog.
+    // RO-05 — NR 0x0F board issue (lower nibble). VHDL g_board_issue
+    // defaults to X"0" (zxnext_top_issue2.vhd:39) and the read dispatch
+    // composes "0000" & g_board_issue at zxnext.vhd:5920-5921, so a
+    // default-generic core reads 0x00 — matching JNEXT's regs_[0x0F].
     {
         uint8_t got = nr_read(emu, 0x0F);
         check("RO-05",
               "NR 0x0F board issue reset=0x00 "
-              "[VHDL g_board_issue generic — JNEXT default unset]",
+              "[zxnext.vhd:5921, zxnext_top_issue2.vhd:39]",
               got == 0x00, detail_eq(got, 0x00));
     }
 
@@ -1939,7 +1947,7 @@ static void test_palette(Emulator& emu) {
 //
 // Plan row group 9 in NEXTREG-TEST-PLAN-DESIGN.md. VHDL zxnext.vhd:
 // 5052-5068 resets NR 0x86-0x89 (bus port enables) to 0xFF on power-on.
-// Bare NextReg does not seed these. RST-08 (Reset-Integration) covers
+// Bare NextReg does not seed these. NREG-RST-08 (Reset-Integration) covers
 // NR 0x82-0x85; PE-05 is the bus-side parallel.
 
 // ── PE-03: NR 0x82 bit 6 gates port 0x1F (Kempston 1) ─────────────────
@@ -2000,7 +2008,7 @@ static void test_pe_05(Emulator& emu) {
     // nr_89_bus_port_reset_type='1', nr_89_bus_port_enable=(others=>'1').
     // So the correct read oracle for NR 0x89 is 0x8F (bit 7 = 1, bits
     // 6:4 = 000, bits 3:0 = 1111), same layout/value as NR 0x85 (which
-    // is tested correctly at RST-08). Seeded at src/port/nextreg.cpp.
+    // is tested correctly at NREG-RST-08). Seeded at src/port/nextreg.cpp.
     {
         uint8_t got = nr_read(emu, 0x89);
         check("PE-05",

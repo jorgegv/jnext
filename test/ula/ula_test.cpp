@@ -791,7 +791,9 @@ static void test_section5_timex() {
         const uint32_t red  = bed_ink_argb(bed.palette, 2);
         check("S5.09",
               "shadow_screen_en=1 must switch ULA to bank 7 (page-14 fallback, no BRAM wired); "
-              "VHDL ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1'",
+              "VHDL zxnext.vhd:6651-6654 ula_bank_do <= vram_bank7_do when "
+              "ula_vram_shadow='1', latched from i_ula_shadow_en at "
+              "zxula.vhd:210,267",
               line_off[Ula::DISP_X] == cyan && line_on[Ula::DISP_X] == red,
               fmt("off=0x%08X (exp cyan 0x%08X)  on=0x%08X (exp red 0x%08X)",
                   line_off[Ula::DISP_X], cyan, line_on[Ula::DISP_X], red));
@@ -1425,9 +1427,12 @@ static void test_section5_timex() {
         bed.ula.rewind_to_baseline();
 
         check("S5-PSL.04",
-              "Ula::start_frame snapshots live port-0xFF as baseline "
-              "and clears the log; subsequent rewind_to_baseline "
-              "restores that baseline",
+              "zxnext.vhd:3613-3616 + zxula.vhd:191/209 — port_ff_reg is "
+              "cleared only by the global hardware reset (never a "
+              "frame/vsync boundary) and otherwise holds until the next "
+              "port-0xFF write; Ula::start_frame snapshots live port-0xFF "
+              "as baseline and clears the log; subsequent "
+              "rewind_to_baseline restores that baseline",
               mid_count == 1u
               && post_count == 0u
               && bed.ula.get_screen_mode_reg() == 0x06,
@@ -1477,9 +1482,11 @@ static void test_section5_timex() {
         bed2.ula.render_scanline(b.data(), 33, bed2.mmu);
 
         check("S5-PSL.05",
-              "Ula::save_state + load_state round-trips the port-0xFF "
-              "change log: rendering the same scanline through replay "
-              "produces byte-equal output before and after",
+              "zxnext.vhd:3613-3616 + zxula.vhd:191/209 — port_ff_reg is "
+              "genuine persistent hardware state (cleared only by global "
+              "reset); Ula::save_state + load_state round-trips the "
+              "port-0xFF change log: rendering the same scanline through "
+              "replay produces byte-equal output before and after",
               a[Ula::DISP_X] == b[Ula::DISP_X]
               && bed2.ula.port_ff_change_log_size() == 1u,
               fmt("pre=0x%08X post=0x%08X count_post=%zu",
@@ -3020,18 +3027,20 @@ static void test_section13_timing() {
 
     // -- Extra coverage (not in §13 plan rows) --------------------------
     // S13.14 — frame_done flips exactly at 69888 T-states (48K).
-    // KNOWN FAIL — Emulator Bug backlog (Task 2 item 4): VideoTiming::advance
-    // does not flip frame_done_ at the 69888 boundary. Kept as a failing-
-    // check regression witness per the Task 1 Wave 3 prompt; do NOT convert.
+    // Regression witness: previously a known emulator bug (Task 2 item 4 —
+    // VideoTiming::advance did not flip frame_done_ at the 69888 boundary),
+    // since fixed by other work. Kept live to guard against regressing it
+    // (GH #196 Phase 1.3 — comment corrected 2026-08-01, row folded into
+    // the main §13 table).
     t.init(MachineType::ZX48K);
     t.clear_frame_flag();
     // Post-V1: hc_max() / vc_max() return VHDL c_max_*; period is +1.
     int full_frame_tstates = (t.hc_max() + 1) * (t.vc_max() + 1) / 2;
     t.advance(full_frame_tstates);
     check("S13.14",
-          "zxula_timing.vhd — frame_done flips exactly at 69888 T-states (48K) [regression witness]",
+          "zxula_timing.vhd — frame_done flips exactly at 69888 T-states (48K)",
           t.frame_complete(),
-          fmt("frame_done=%d after %d T-states (Task 2 backlog — emulator bug)",
+          fmt("frame_done=%d after %d T-states",
               t.frame_complete() ? 1 : 0, full_frame_tstates));
 }
 

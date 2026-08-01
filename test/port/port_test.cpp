@@ -175,7 +175,8 @@ static void test_group_libz80() {
         // VHDL zxnext.vhd:2647.
         uint8_t ay0 = emu.port().in(0xFFFD);
         check("LIBZ80-01a",
-              "OUT 0xBFFD reaches AY data (not collapsed into 0x7FFD)",
+              "OUT 0xBFFD reaches AY data (not collapsed into 0x7FFD) "
+              "— VHDL zxnext.vhd:2647-2648",
               ay0 == 0x3F,
               DETAIL("ay_reg0=0x%02x expected=0x3F", ay0));
 
@@ -183,7 +184,8 @@ static void test_group_libz80() {
         // VHDL zxnext.vhd:2593; Mmu::port_7ffd() getter.
         uint8_t bank_sel = emu.mmu().port_7ffd();
         check("LIBZ80-01b",
-              "OUT 0x7FFD reaches MMU (16-bit BC decode, not LSB alias)",
+              "OUT 0x7FFD reaches MMU (16-bit BC decode, not LSB alias) "
+              "— VHDL zxnext.vhd:2593",
               bank_sel == 0x10,
               DETAIL("bank_latch=0x%02x expected=0x10", bank_sel));
     }
@@ -439,7 +441,8 @@ static void test_group_registration() {
         emu.port().out(0xFFFD, 0x08);
         uint8_t vol = emu.port().in(0xFFFD);
         check("REG-06+07",
-              "AY select+data latch visible via 0xFFFD read",
+              "AY select+data latch visible via 0xFFFD read "
+              "[zxnext.vhd:2647,2648]",
               (vol & 0x1F) == 0x0F,
               DETAIL("AY08=0x%02x expected low5=0x0F", vol));
     }
@@ -884,7 +887,7 @@ static void test_group_registration() {
         const uint16_t aliased_L = emu.dac().pcm_left();
         check("V18-NMP-02a",
               "Profi DAC ch A write via OUT (0x123F),A reaches Dac (VHDL "
-              ":2661 port_3f_lsb LSB-only, A15..A8 don't-care)",
+              "zxnext.vhd:2661 port_3f_lsb LSB-only, A15..A8 don't-care)",
               aliased_L != baseline_L && aliased_L == (0x60 + 0x80),
               DETAIL("baseline_L=0x%04x aliased_L=0x%04x expected=0x%04x",
                      baseline_L, aliased_L, 0x60 + 0x80));
@@ -895,7 +898,7 @@ static void test_group_registration() {
         const uint16_t aliased_R = emu.dac().pcm_right();
         check("V18-NMP-02b",
               "Profi DAC ch D write via OUT (0x125F),A reaches Dac (VHDL "
-              ":2664 port_5f_lsb LSB-only)",
+              "zxnext.vhd:2664 port_5f_lsb LSB-only)",
               aliased_R != baseline_R && aliased_R == (0x80 + 0x60),
               DETAIL("baseline_R=0x%04x aliased_R=0x%04x expected=0x%04x",
                      baseline_R, aliased_R, 0x80 + 0x60));
@@ -1018,7 +1021,7 @@ static void test_group_registration() {
         uint8_t spr16b0 = emu_local.sprites().read_attr_byte(0x10, 0);
         check("V18-NMP-NIT-01a",
               "NR 0x83 b6=0 silences sprite slot-select port 0x303B "
-              "(VHDL :2423,:2681 port_sprite_io_en)",
+              "(VHDL zxnext.vhd:2392,2423,2681 port_sprite_io_en)",
               spr3b0 == 0xAA && spr16b0 == 0x00,
               DETAIL("spr[3].byte0=0x%02x spr[0x10].byte0=0x%02x",
                      spr3b0, spr16b0));
@@ -1036,7 +1039,7 @@ static void test_group_registration() {
         uint8_t b0 = emu_local.sprites().read_attr_byte(5, 0);
         check("V18-NMP-NIT-01b",
               "NR 0x83 b6=0 silences sprite-attribute port 0x57 "
-              "(VHDL :2423,:2679-2680 port_sprite_io_en)",
+              "(VHDL zxnext.vhd:2392,2423,2679 port_sprite_io_en)",
               b0 == 0x00,
               DETAIL("spr[5].byte0=0x%02x (expected 0x00)", b0));
     }
@@ -1064,7 +1067,7 @@ static void test_group_registration() {
         check("V18-NMP-NIT-01c",
               "NR 0x83 b6=0 silences sprite-pattern port 0x5B — gated "
               "write neither lands nor advances pattern_offset_ "
-              "(VHDL :2423,:2681 port_sprite_io_en)",
+              "(VHDL zxnext.vhd:2392,2423,2680 port_sprite_io_en)",
               off_a == 1 && off_b == 1 && off_c == 2,
               DETAIL("offset after A/B/C = %u/%u/%u (expected 1/1/2)",
                      off_a, off_b, off_c));
@@ -1083,7 +1086,7 @@ static void test_group_registration() {
         bool after = emu_local.layer2().enabled();
         check("V18-NMP-NIT-01d",
               "NR 0x83 b7=0 silences Layer 2 port 0x123B "
-              "(VHDL :2424,:2635 port_layer2_io_en)",
+              "(VHDL zxnext.vhd:2392,2424,2635 port_layer2_io_en)",
               before == after && after == false,
               DETAIL("layer2.enabled before=%d after=%d (expected unchanged)",
                      (int)before, (int)after));
@@ -1103,7 +1106,7 @@ static void test_group_registration() {
         uint8_t after = emu_local.ula().get_ulap_mode();
         check("V18-NMP-NIT-01e",
               "NR 0x85 b0=0 silences ULA+ register-select port 0xBF3B "
-              "(VHDL :2439,:2685-2686 port_ulap_io_en)",
+              "(VHDL zxnext.vhd:2392,2439,2685 port_ulap_io_en)",
               before == 0x00 && after == 0x00,
               DETAIL("ulap_mode before=0x%02x after=0x%02x", before, after));
     }
@@ -1124,7 +1127,7 @@ static void test_group_registration() {
         bool after = emu_local.ula().get_ulap_en();
         check("V18-NMP-NIT-01f",
               "NR 0x85 b0=0 silences ULA+ data port 0xFF3B "
-              "(VHDL :2439,:2685-2686 port_ulap_io_en)",
+              "(VHDL zxnext.vhd:2392,2439,2686 port_ulap_io_en)",
               before == true && after == true,
               DETAIL("ulap_en before=%d after=%d (expected unchanged)",
                      (int)before, (int)after));
@@ -1145,7 +1148,7 @@ static void test_group_registration() {
         uint8_t rd = emu_local.port().in(0x183B);
         check("V18-NMP-NIT-01g",
               "NR 0x85 b3=0 silences CTC port 0x183B "
-              "(VHDL :2442,:2690 port_ctc_io_en)",
+              "(VHDL zxnext.vhd:2392,2442,2690 port_ctc_io_en)",
               ch0_int_en == false && rd == 0xFF,
               DETAIL("ctc.ch0.int_enabled=%d rd=0x%02x (expected 0/0xFF)",
                      (int)ch0_int_en, rd));
@@ -1161,7 +1164,7 @@ static void test_group_registration() {
         uint8_t after = emu_local.port().in(0x006B);
         check("V18-NMP-NIT-01h",
               "NR 0x82 b5=0 silences DMA port 0x6B "
-              "(VHDL :2405,:2643 port_dma_6b_io_en)",
+              "(VHDL zxnext.vhd:2392,2405,2643 port_dma_6b_io_en)",
               before != 0xFF && after == 0xFF,
               DETAIL("dma.read 6B before=0x%02x after=0x%02x", before, after));
     }
@@ -1174,7 +1177,7 @@ static void test_group_registration() {
         uint8_t after = emu_local.port().in(0x000B);
         check("V18-NMP-NIT-01i",
               "NR 0x85 b1=0 silences DMA port 0x0B "
-              "(VHDL :2440,:2643 port_dma_0b_io_en)",
+              "(VHDL zxnext.vhd:2392,2440,2643 port_dma_0b_io_en)",
               before != 0xFF && after == 0xFF,
               DETAIL("dma.read 0B before=0x%02x after=0x%02x", before, after));
     }
@@ -1541,7 +1544,8 @@ static void test_group_expbus() {
         uint8_t r88 = nr_read(emu, 0x88);
         uint8_t r89 = nr_read(emu, 0x89);
         check("BUS-86..89-W",
-              "NR 0x86..0x89 are writable for expansion-bus masking",
+              "NR 0x86..0x89 are writable for expansion-bus masking "
+              "[zxnext.vhd:2392-2393]",
               r86 == 0 && r87 == 0 && r88 == 0 && r89 == 0,
               DETAIL("NR86=0x%02x 87=0x%02x 88=0x%02x 89=0x%02x",
                      r86, r87, r88, r89));
@@ -1832,12 +1836,28 @@ static void test_group_iorq() {
     }
 
     // IORQ-01 — COVERED ELSEWHERE (not a skip).
-    // VHDL zxnext.vhd:2705 requires that M1+IORQ (IM1 vector-fetch
-    // cycle) does NOT trigger the standard port decode. The libz80 core
-    // handles IM1 internally and never reaches PortDispatch::in during
-    // vector fetch — there is no spy at that boundary for a direct
-    // assertion. Any IM1-related port-dispatch regression would surface
-    // as a failure in the FUSE Z80 opcode suite (1356/1356 currently).
+    // VHDL zxnext.vhd:2705 requires that M1+IORQ (IM1/IM2 vector-fetch
+    // cycle) does NOT trigger the standard port decode. There is no spy
+    // at PortDispatch's own boundary for a direct assertion. A prior
+    // version of this comment additionally claimed "any IM1-related
+    // port-dispatch regression would surface as a failure in the FUSE
+    // Z80 opcode suite" — that citation is not credible (GH #196 phase
+    // 1.1 review): test/fuse/fuse_z80_test.cpp's TestIO::in() is a
+    // hardcoded floating-bus stub (returns port>>8) that never touches
+    // PortDispatch, and the FUSE opcode-test format has no
+    // interrupt-acknowledge scenario at all.
+    //
+    // The underlying guarantee IS real, though, and IS exercised:
+    // vector resolution bypasses PortDispatch::in() by construction —
+    // Z80Cpu's IntAck cycle resolves the vector via the dedicated
+    // on_int_ack() callback (src/cpu/z80_cpu.cpp:716), a code path
+    // structurally separate from IoInterface::in(). That callback is
+    // wired to Im2Controller::ack_vector() and exercised end-to-end by
+    // test/cpu/cpu_z80n_im2_regressions_test.cpp
+    // (IM2-ACK-VECTOR-EI-GRACE and friends) and
+    // test/ctc_interrupts/ctc_interrupts_test.cpp (ULA-INT-V19-IM2-04),
+    // both of which assert the IM2 daisy-chain FSM actually advances off
+    // the on_int_ack() call rather than off any port-dispatch path.
 
     // RMW-01: OUT 0xFE sets border then beeper latch. VHDL 2582.
     {
@@ -1851,12 +1871,26 @@ static void test_group_iorq() {
               DETAIL("border=%u expected 7", b));
     }
 
-    // CTN-01 / CTN-02 — COVERED ELSEWHERE (not skips).
-    // Contended-port T-state accounting lives inside libz80 and is not
-    // observable at PortDispatch's public in()/out() boundary — the
-    // boundary only sees port_value, not the cycle-level stretch. Both
-    // the contended-port and uncontended IN A,(nn) timing patterns are
-    // exercised end-to-end by the FUSE Z80 opcode suite.
+    // CTN-01 / CTN-02 — REAL GAP, currently untested (not skips).
+    // Contended-port T-state accounting is a CPU-execution-time concern,
+    // not observable at PortDispatch's public in()/out() boundary — the
+    // boundary only sees port_value, never the cycle-level stretch. A
+    // prior version of this comment claimed both patterns were
+    // "exercised end-to-end by the FUSE Z80 opcode suite" — that is
+    // FALSE (GH #196 phase 1.1 review): the FUSE Z80 test harness path
+    // nulls the contention runtime entirely (src/cpu/z80_cpu.cpp:62-64
+    // — "when null, no contention is applied ... preserves the
+    // 1356/1356 compliance score"), and test/fuse/fuse_z80_test.cpp
+    // never installs a ContentionModel, so every FUSE opcode test —
+    // including any IN/OUT case — runs with contention completely
+    // inert.
+    //
+    // This is the identical gap independently found in the Contention
+    // suite as CT-FUSE-03/CT-FUSE-04 (doc/testing/CONTENTION-TEST-PLAN-
+    // DESIGN.md §16): real, currently untested, and constructible with
+    // the same ON/OFF T-state-delta idiom used there (re-verified there
+    // with a throwaway probe: on=2995, off=2806, delta=189 T-states for
+    // a contended OUT (0xFE),A loop). Status stays `missing`.
 }
 
 // ── Group G. DivMMC automap ────────────────────────────────────────────

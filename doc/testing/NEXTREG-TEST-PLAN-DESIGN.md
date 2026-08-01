@@ -63,6 +63,10 @@ Arbitration: `nr_wr_en = copper_req or cpu_req`. Copper always wins.
 ## Test Case Catalog
 
 ### 1. Register Selection and Access
+> **Renamed 2026-08-01 (GH #196 phase 4.2): `SEL-05` -> `NR-SEL-05`.** The bare
+> name collided with `uart_test`'s `SEL-05` (UART channel select read), which
+> asserts it; this row is plan-doc-only. `SEL-01..04` keep their bare names —
+> `nextreg_test` asserts them and nothing else claims them.
 
 | Test | Scenario | Expected |
 |------|----------|----------|
@@ -70,7 +74,7 @@ Arbitration: `nr_wr_en = copper_req or cpu_req`. Copper always wins.
 | SEL-02 | Reset, read 0x243B | Returns 0x24 (protection default) |
 | SEL-03 | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | Machine ID unaffected (read-only) |
 | SEL-04 | Write 0x243B = 0x7F, write 0x253B = 0xAB, read NR 0x7F | Returns 0xAB (user register) |
-| SEL-05 | NEXTREG ED 91 instruction | Writes correct register without changing nr_register (today defers to fuse_z80_test/z80n_test, coverage unverified — split into SEL-05a/05b below) |
+| NR-SEL-05 | NEXTREG ED 91 instruction | Writes correct register without changing nr_register (today defers to fuse_z80_test/z80n_test, coverage unverified — split into SEL-05a/05b below) |
 | SEL-05a | Pre-select NR 0x7F via 0x243B; execute Z80N `NEXTREG 0x54, 0x04` (ED 91 54 04); read 0x253B without re-selecting | NR 0x7F returned (selection preserved). VHDL `zxnext.vhd:4739-4744` injects `(reg, val)` directly via `cpu_requester_0` and never writes `nr_register` (:4592-4603). **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-01 (was a skip; the defect it described was GH #54 and is fixed) |
 | SEL-05b | Same setup with `NEXTREG 0x54,A` (ED 92); after it, write 0x253B ← 0x5C (raw data port) | NR 0x7F receives 0x5C (selection still pointed at 0x7F). **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-02 |
 | SEL-05c | Execute `NEXTREG 0x7E, 0x3C`; read NR 0x7E | NR 0x7E == 0x3C — the opcode still writes the register named by its own operand (`cpu_requester_reg <= Z80N_data_s(15 downto 8)`). Guards SEL-05a/05b against a no-op "fix". **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-03 |
@@ -145,14 +149,14 @@ reset values:
 
 | Test | Scenario | Expected |
 |------|----------|----------|
-| RST-01 | After reset, read NR 0x14 | 0xE3 |
-| RST-02 | After reset, read NR 0x15 | 0x00 |
-| RST-03 | After reset, read NR 0x4A | 0xE3 |
-| RST-04 | After reset, read NR 0x42 | 0x07 |
-| RST-05 | After reset, read NR 0x50-0x57 | MMU defaults |
-| RST-06 | After reset, read NR 0x68 | 0x00 (bit 7 = NOT ula_en, so 0) |
-| RST-07 | After reset, read NR 0x0B | 0x01 |
-| RST-08 | After reset, read NR 0x82-0x85 | 0xFF |
+| NREG-RST-01 | After reset, read NR 0x14 | 0xE3 |
+| NREG-RST-02 | After reset, read NR 0x15 | 0x00 |
+| NREG-RST-03 | After reset, read NR 0x4A | 0xE3 |
+| NREG-RST-04 | After reset, read NR 0x42 | 0x07 |
+| NREG-RST-05 | After reset, read NR 0x50-0x57 | MMU defaults |
+| NREG-RST-06 | After reset, read NR 0x68 | 0x00 (bit 7 = NOT ula_en, so 0) |
+| NREG-RST-07 | After reset, read NR 0x0B | 0x01 |
+| NREG-RST-08 | After reset, read NR 0x82-0x85 | 0xFF |
 | RST-09 | After reset, read NR 0x1B clip | x1=0, x2=0x9F, y1=0, y2=0xFF |
 
 ### 4. Register Read/Write Round-Trip
@@ -198,13 +202,17 @@ From `zxnext.vhd` lines 5242-5290:
 ### 6. MMU Registers (0x50-0x57)
 
 From `zxnext.vhd` lines 4607-4700:
+> **Renamed 2026-08-01 (GH #196 phase 4.2): `MMU-01`/`MMU-03`/`MMU-04` ->
+> `NR-MMU-*`.** The bare names collided with `mmu_test`'s `MMU-*`, which
+> asserts them; these three are plan-doc-only. `NR-MMU-02` already carried the
+> prefix, so this completes a convention rather than inventing one.
 
 | Test | Scenario | Expected |
 |------|----------|----------|
-| MMU-01 | Reset defaults | 0xFF,0xFF,0x0A,0x0B,0x04,0x05,0x00,0x01 |
-| MMU-02 | Write NR 0x52 = 0x20, read back | 0x20 |
-| MMU-03 | Write port 0x7FFD, check MMU6/7 | Updated from 7FFD bank field |
-| MMU-04 | NextREG write overrides port write | Last writer wins |
+| NR-MMU-01 | Reset defaults | 0xFF,0xFF,0x0A,0x0B,0x04,0x05,0x00,0x01 |
+| NR-MMU-02 | Write NR 0x52 = 0x20, read back | 0x20 |
+| NR-MMU-03 | Write port 0x7FFD, check MMU6/7 | Updated from 7FFD bank field |
+| NR-MMU-04 | NextREG write overrides port write | Last writer wins |
 | N8E-RAM-PRESERVE-0 | NR 0x56=0x20 override, then NR 0x8E=0x00 (bit 3 = 0) | MMU6 stays 0x20 — VHDL:3814 drives `port_memory_ram_change_dly='0'`, :4677 skips MMU6/7 update |
 | N8E-RAM-REBUILD-1  | port_7ffd=0x03, NR 0x56=0x20 override, then NR 0x8E=0x08 (bit 3 = 1, bits 6:4 = 000) | MMU6 becomes 0x00 — 7FFD(2:0) forced to 0 by NR 0x8E bit 3 branch, :4677 rebuild runs and clobbers override |
 
@@ -341,3 +349,111 @@ INPUT plan's Task 58 append).
 Mutation evidence: reverting the read handler to pending-cache bits
 turns T58-NR05-EFF-01 (and input FNK-02/03) RED; restoring turns them
 green.
+
+## GH #196 Phase 1.3 append (2026-08-01) — Extra-coverage table folded/dropped
+
+The `## NextREG` section of `doc/testing/TRACEABILITY-MATRIX.md` carried a
+17-row `### Extra coverage (not in plan)` table (4 columns, no `Status`) —
+rows that escaped the normal main-table scheme, per the GH #192 lineage.
+Disposition, one unit of the GH #196 Phase 1.3 plan:
+
+- **`NREG-RST-10`, `NREG-RST-11`, `NREG-RST-12`** — stale duplicates.
+  The companion `test/nextreg/nextreg_integration_test.cpp` table already
+  carries these exact IDs at the exact same test file:line (281/291/301)
+  with the CURRENT, correct description (verified against the live
+  `check()` call text) — "NR 0x12 Layer 2 active bank reset = 0x08",
+  "NR 0x4B sprite transparent index reset = 0xE3", "NR 0x4C tilemap
+  transparent index reset = 0x0F" respectively. The extra-coverage
+  table's own descriptions for these three IDs were stale/wrong (e.g.
+  it described `NREG-RST-11` as "NR 0x68 ULA control", not NR 0x4B).
+  Removed, no functional loss — the correct row already existed.
+- **`NREG-RST-13`** — genuinely escaped row, folded into the companion
+  table. It had no other row anywhere citing the same ID. Its own
+  extra-coverage description was ALSO stale ("NR 0x82-0x85 internal
+  port enables = 0xFF", duplicating `NREG-RST-08`'s topic) — the actual
+  `check("NREG-RST-13", ...)` call at
+  `test/nextreg/nextreg_integration_test.cpp:343` asserts the DivMMC
+  automap entry-point registers NR 0xB8/0xB9/0xBA/0xBB reset to
+  0x83/0x01/0x00/0xCD (`zxnext.vhd:5087-5090`; V17-NMP-01 fix). Folded
+  in with the corrected description.
+- **13 rows had no live test anywhere** (`grep -rn` over `test/nextreg/`
+  returns zero hits for the ID string): `RST-14`, `RST-15`, `RST-16a`,
+  `RST-16b`, `WH-01..04`, `EDGE-01..05`. Git history (`git log -S`)
+  traces all 13 to commit `6a8094fb` ("rewrite in Phase 2 per-row
+  idiom"), which dropped them without replacement when the suite
+  adopted the current VHDL-citation-per-row discipline documented at
+  the top of `test/nextreg/nextreg_test.cpp`. Per-row disposition:
+  - `WH-01..04` and `EDGE-01`/`EDGE-05` tested the bare `NextReg`
+    class's generic handler-registration mechanism (write/read handler
+    dispatch, 256-register round-trip, multi-select "last wins") —
+    implementation-detail tests with no VHDL citation, deliberately
+    incompatible with the current "every row cites VHDL" idiom.
+    Correctly dropped, not a coverage gap.
+  - `EDGE-02` ("reset clears NR 0x7F to 0") and `EDGE-03` ("reset
+    restores NR 0x00=0x0A") are actively **contradicted** by current,
+    VHDL-faithful behaviour: NR 0x7F has no VHDL reset clause and
+    SURVIVES reset (see the `nextreg_integration_test` "NR 0x7F
+    survives reset" row), and the bare class deliberately resets NR
+    0x00 to 0x08 (`HWID_EMULATORS`), not the VHDL 0x0A (see `MID-01`
+    in the companion table, which covers the real 0x0A behaviour at
+    the integration tier). Stale, not a live gap.
+  - `RST-15` ("NR 0x4B sprite transparent = 0xE3") is fully covered
+    today under `NREG-RST-11` in the companion table — same register,
+    same expected value, different (current) ID.
+  - `RST-14` ("NR 0x86-0x89 bus port enables = 0xFF") is superseded by
+    the current, more nuanced `PE-05` (NR 0x89 reset = 0x8F, not 0xFF,
+    reset-type dependent) and the still-open `PE-08` gap (bit-7
+    inversion on `reset_type=0`) — the old blanket-0xFF framing across
+    all four registers does not hold under closer VHDL reading.
+  - `EDGE-04` ("write handler survives reset") and `RST-16a`/`RST-16b`
+    (NR 0x16/0x17 L2 scroll-X/Y reset default = 0x00) are genuine gaps
+    with no current equivalent — dropped as orphans, not folded (no
+    live test exists to fold).
+  All 13 dropped; none folded.
+
+## Planned rows carried over from the traceability matrix (GH #196)
+
+These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a
+generated artifact and can no longer hold a claim of its own. They are
+planned and NOT implemented, so they are recorded here — the one place the
+generator reads planned rows from — and the matrix emits them as `missing`,
+which is what they are.
+
+| ID | Description | VHDL file:line |
+|----|-------------|----------------|
+| FT-D8-01 | NR 0xD8 nr_d8_io_trap_fdc_en write/read-back | zxnext.vhd:5639-5640, 6265-6266 |
+| FT-D8-02 | NR 0xD8 enable=1 must allow strobe_iotrap to assert MF | zxnext.vhd:2601-2602, 3835, 3837 |
+| FT-D9-01 | NR 0xD9 nr_d9_iotrap_write captures CPU write byte | zxnext.vhd:3892-3893 |
+| FT-DA-01 | NR 0xDA nr_da_iotrap_cause encoding 01/10/11 | zxnext.vhd:3872-3877 |
+| FT-DA-02 | NR 0xDA cause clears via NR 0x02 b4 write=0 | zxnext.vhd:3879-3880 |
+| G56-CR-05 | NR 0x05 composed-read divergence | zxnext.vhd:5896-5897 |
+| G56-CR-06 | NR 0x06 psg_mode source-of-truth | zxnext.vhd:5899-5900 |
+| G56-CR-09 | NR 0x09 sprite_tie composed-read | zxnext.vhd:5908-5909 |
+| G56-CR-0A | NR 0x0A divmmc_automap_en mirror | zxnext.vhd:5911-5912 |
+| G56-CR-0B | NR 0x0B joystick composed-read | zxnext.vhd:5914-5915 |
+| G56-CR-10 | NR 0x10 SPKEY_BUTTONS/coreid live composed-read (title says "video-timing cvc": mismatch — that is NR 0x11/NR 0x1E-1F, not this arm) | zxnext.vhd:5923-5924 |
+| G56-CR-15 | NR 0x15 layer composed-read | zxnext.vhd:5938-5939 |
+| G56-CR-22 | NR 0x22 bit 7 dynamic pulse_int_n | zxnext.vhd:5991-5992 |
+| G56-CR-23 | NR 0x23 line-int compare ladder (register readback itself is a plain stored-value passthrough; the actual compare is zxula_timing.vhd:577) | zxnext.vhd:5994-5995 |
+| G56-CR-34 | NR 0x34 sprite-attr index live counter | zxnext.vhd:6032-6033 |
+| G56-CR-40 | NR 0x40 palette idx autoinc state | zxnext.vhd:6035-6036 |
+| G56-CR-43 | NR 0x43 palette ctrl composed-read | zxnext.vhd:6044-6045 |
+| G56-CR-4C | NR 0x4C bits 7:4 mask not propagated | zxnext.vhd:6056-6057 |
+| G56-CR-68 | NR 0x68 b4 from port_ff3b_ulap_en | zxnext.vhd:6092-6093 |
+| G56-CR-69 | NR 0x69 bits composed from port_ff | zxnext.vhd:6095-6096 |
+| G56-CR-6A | NR 0x6A radastan/lores composed | zxnext.vhd:6098-6099 |
+| G56-CR-6B | NR 0x6B b7 from nr_6b_tm_en | zxnext.vhd:6101-6102 |
+| G56-CR-6C | NR 0x6C tilemap composed-read | zxnext.vhd:6104-6105 |
+| G56-CR-6E | NR 0x6E bit 6 always 0 | zxnext.vhd:6107-6108 |
+| G56-CR-6F | NR 0x6F bit 6 always 0 | zxnext.vhd:6110-6111 |
+| G56-CR-70 | NR 0x70 bits 7:6 always 0 | zxnext.vhd:6113-6114 |
+| G56-CR-71 | NR 0x71 bits 7:1 always 0 | zxnext.vhd:6116-6117 |
+| G56-CR-80 | NR 0x80 expansion-bus dynamic state | zxnext.vhd:6122-6123 |
+| G56-CR-81 | NR 0x81 b7 from i_BUS_ROMCS_n | zxnext.vhd:6125-6126 |
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Created 2026-04-15 onwards (Phase 2 Wave 1 commit `0dc128e` and beyond) to host integration-tier rows from the NextREG plan that require the full `Emulator` fixture (subsystem wiring for reset defaults, MMU/Layer2/Sprite/Tilemap clip-window cycling, palette pipeline, NR 0x82-bit-6 port-1F gate, NR 0x07/0x08 read composition, NR 0x03 machine-config state, DMA IM2-delay composition, soft-reset semantics, NR 0x8E RAM-rebuild gate, Layer 2 bank routing). Runtime: `Total:  301  Passed:  301  Failed:    0  Skipped:    0`. The 74 rows listed below are only the ones recorded here; 37 more that the suite asserts are recorded in the parent `## NextREG` table above, and the rest are reported `unrecorded` on every run. Each row cross-references the bare-suite plan row when a re-home applies.

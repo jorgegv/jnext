@@ -2015,7 +2015,7 @@ static void test_group11_priority_propagation() {
         set_l2_palette_with_priority(pal, K, /*RGB=transp*/ 0xE3, /*prio*/ true);
         // Sanity: the palette's RGB8 lookup must equal NR 0x14 so the
         // L2 transparency check fires.
-        check("G11-02a (precond)",
+        check("G11-02a-PRECOND",
               "palette layer2_rgb8(K) == NR 0x14 (= 0xE3)",
               pal.layer2_rgb8(K) == 0xE3,
               DETAIL("rgb8(K)=0x%02X", unsigned(pal.layer2_rgb8(K))));

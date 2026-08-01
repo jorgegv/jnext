@@ -1472,7 +1472,8 @@ void group11_palette() {
         fresh(tm, pal, ram);
         tm.set_control(0x90);                 // bit 4 = 1
         check_pred("TM-101", tm.palette_sel() == true,
-                   "NR 0x6B bit 4 = 1 → tm.palette_sel() = true");
+                   "NR 0x6B bit 4 = 1 → tm.palette_sel() = true "
+                   "— VHDL zxnext.vhd:5462,6826");
     }
 
     // TM-102: palette_sel from NR 0x6B is the authoritative select at
@@ -1487,7 +1488,7 @@ void group11_palette() {
         // would require an Emulator).
         check_pred("TM-102", tm.palette_sel() == true,
                    "palette_sel authoritative at Tilemap layer "
-                   "(VHDL nr_6b_tm_palette_select)");
+                   "(VHDL zxnext.vhd:6826,6921-6922,6981 tm_palette_select)");
     }
 
     // TM-103: standard pixel composition — final index = attr(7:4)<<4 | pix.

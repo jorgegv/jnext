@@ -40,6 +40,16 @@ ARB-G65-01 tied-edge bus arbitration not modelled — see G65).
 unmodelled in the emulator but does not manifest under current stimulus;
 it is on the Task 3 backlog in case other interleavings expose it.
 
+**Update (2026-04-30):** G65 and G117 both landed (cycle-accurate Copper
+scheduler + CPU-NR-write deferral). ARB-G65-01, TIM-CYC-01 and TIM-CYC-02
+were retired from this bare-`Copper`-class suite in favour of genuinely
+equivalent live checks at the full-`Emulator` tier — see their own row
+entries below and `test/copper/copper_integration_test.cpp` (`G65-PRI-01`,
+`G117-MPC-01`). GH #196 phase 1.1 (2026-08-01) confirmed both re-homes are
+real and annotated the matrix accordingly; this paragraph's "not modelled"
+wording for ARB-G65-01 above predates that closure and is left as a
+historical snapshot rather than rewritten.
+
 ## Purpose
 
 The Copper is a simple display-synchronized coprocessor that executes a list
@@ -401,8 +411,8 @@ test starts the Copper from `copper_list_addr=0` via the mode-change reset
 | TIM-03 | 10 consecutive MOVEs take 20 clocks  | Instr[0..9]=distinct MOVEs, Instr[10]=WAIT impossible | step 21 clocks                                     | Exactly 10 `copper_req` pulses observed over clocks 0..19; clock 20 begins the impossible WAIT stall.  | `copper.vhd:85-110` |
 | TIM-04 | WAIT then MOVE pipeline              | see MOV-06                                          | as MOV-06                                            | WAIT match cycle advances addr; MOVE executes on the very next clock, no dead cycle in between.        | `copper.vhd:85-110` |
 | TIM-05 | Dual-port instr fetch available      | Write instr[0] via `NR 0x60`, then immediately set mode=`01` | step 2 clocks                              | On the cycle where Copper enters "run", `copper_list_data_i` already reflects the freshly-written byte pair. Documents that our emulator collapses the pos/neg edge timing correctly. | `zxnext.vhd:3959-3998` |
-| TIM-CYC-01 | Copper MOVE burst rate is per 28 MHz cycle, not per Z80 instr | mode=`01`, Instr[0..31]=`MOVE 0x40, k` for k=0x00..0x1F (32 distinct MOVEs) | Run one Z80 NOP (4 T-states ≈ 32 master cycles at 28 MHz) | Copper executes ≥ 1 MOVE per master cycle while running, so over the NOP window addr advances from 0 to 32, NR 0x40 gets all 32 writes (ending value 0x1F). With per-Z80-instr scheduling jnext advances at most 1 step per NOP and only 1 MOVE fires (NR 0x40 = 0x00). skip — F-skip; integration cadence at `emulator.cpp:2791-2797` (see G117) — `device/copper.vhd:54-119`; `zxnext.vhd:3950` |
-| TIM-CYC-02 | Copper WAIT advances per 28 MHz cycle (boundary detection)    | mode=`01`, Instr[0]=WAIT(hpos=0,vpos=0), Instr[1]=`MOVE 0x40, 0xAA`; start at hc=0 cvc=0 with WAIT condition already true | Tick emulator one Z80 NOP at the precise master-cycle window where (hc,cvc) crosses the WAIT match | WAIT.match → addr advance to 1, then MOVE fires same instruction: NR 0x40 = 0xAA at end of NOP. With per-Z80-instr scheduling the MOVE_pending clear-cycle (`copper.vhd:87-89`) consumes the only step jnext gets per NOP, so NR 0x40 stays unwritten until the NEXT Z80 instr. skip — F-skip; same integration-cadence root cause (see G117) — `device/copper.vhd:87-89, 92-97`; `zxnext.vhd:3950` |
+| TIM-CYC-01 | Copper MOVE burst rate is per 28 MHz cycle, not per Z80 instr | mode=`01`, Instr[0..31]=`MOVE 0x40, k` for k=0x00..0x1F (32 distinct MOVEs) | Run one Z80 NOP (4 T-states ≈ 32 master cycles at 28 MHz) | Copper executes ≥ 1 MOVE per master cycle while running, so over the NOP window addr advances from 0 to 32, NR 0x40 gets all 32 writes (ending value 0x1F). **G117 fix landed 2026-04-30** (cycle-accurate scheduler, `Emulator::tick_copper_for_master_cycles`). No `check()` row here — RE-HOMED to `test/copper/copper_integration_test.cpp` `G117-MPC-01`, which exercises the burst behaviour at the real `Emulator::execute_single_instruction` cadence this bare-`Copper`-class harness cannot reach (see the retirement comment at `copper_test.cpp:1210-1219`). — `device/copper.vhd:54-119`; `zxnext.vhd:3950` |
+| TIM-CYC-02 | Copper WAIT advances per 28 MHz cycle (boundary detection)    | mode=`01`, Instr[0]=WAIT(hpos=0,vpos=0), Instr[1]=`MOVE 0x40, 0xAA`; start at hc=0 cvc=0 with WAIT condition already true | Tick emulator one Z80 NOP at the precise master-cycle window where (hc,cvc) crosses the WAIT match | WAIT.match → addr advance to 1, then MOVE fires same instruction: NR 0x40 = 0xAA at end of NOP. **G117 fix landed 2026-04-30.** No `check()` row here — RE-HOMED: the scheduler-cadence fix is the same one `G117-MPC-01` proves, and the bare-class WAIT-boundary semantics it relies on are already live at WAI-01..12 above; `copper_integration_test.cpp:174-177` notes a dedicated integration row would be redundant. — `device/copper.vhd:87-89, 92-97`; `zxnext.vhd:3950` |
 
 ### Group 6 — Copper vertical offset (`NR 0x64`)
 
@@ -428,7 +438,7 @@ the *same 28 MHz clock* that the Copper issues its MOVE write-pulse.
 | ARB-04 | Copper reg width masked to 7 bits      | Instr[0]=MOVE with reg bits=`1111111` (0x7F)| step 2 clocks                                                                    | `copper_nr_reg = 0x7F` (bit 7 always 0 per the prepend). Copper cannot address `NR 0x80..0xFF`.                | `zxnext.vhd:4731`      |
 | ARB-05 | No Copper request when stopped         | mode=`00`                                  | CPU writes `NR 0x40 <= 0xAA`                                                     | `copper_req` never rises; CPU write completes with 0-cycle stall.                                              | `zxnext.vhd:4709`; `copper.vhd:112-114` |
 | ARB-06 | Copper write to `NR 0x02` triggers NMI signals | mode=`01`, Instr[0]=MOVE to `NR 0x02` with data=0x08 (bit 3) | step 2 clocks                                                         | `nmi_cu_02_we = 1` on the cycle `copper_req=1` with `copper_nr_reg=0x02`; `nmi_gen_nr_mf = 1`.                  | `zxnext.vhd:3830-3832` |
-| ARB-G65-01 | True tied-edge CPU+Copper write | mode=`01`, Instr[0]=MOVE 0x40,0x55; CPU OUT (NR 0x40),0xAA enqueued so its `cpu_req` rises in the **same** 28 MHz cycle as `copper_req` | step 1 clock with both requests latched simultaneously | `nr_wr_en=1`, `nr_wr_reg=0x40`, `nr_wr_dat=0x55` (Copper wins). `cpu_req` HELD (NOT cleared) into next cycle, where it retires as 0xAA. Distinct from ARB-01/02 which serialise the stimulus across two ticks. | `zxnext.vhd:4769, 4775-4777` |
+| ARB-G65-01 | True tied-edge CPU+Copper write | mode=`01`, Instr[0]=MOVE 0x40,0x55; CPU OUT (NR 0x40),0xAA enqueued so its `cpu_req` rises in the **same** 28 MHz cycle as `copper_req` | step 1 clock with both requests latched simultaneously | `nr_wr_en=1`, `nr_wr_reg=0x40`, `nr_wr_dat=0x55` (Copper wins). `cpu_req` HELD (NOT cleared) into next cycle, where it retires as 0xAA. Distinct from ARB-01/02 which serialise the stimulus across two ticks. **G65 fix landed 2026-04-30** (`Emulator` CPU-NR-write deferral). No `check()` row here — RE-HOMED to `test/copper/copper_integration_test.cpp` `G65-PRI-01`, a genuinely equivalent live check at the full-`Emulator` tier (see `copper_test.cpp:1533-1555`); independently confirmed as a valid re-home precedent during the Contention-subsystem GH #196 review (`test/contention/contention_test.cpp:1994-2018`). | `zxnext.vhd:4769, 4775-4777` |
 
 ### Group 8 — Self-modifying Copper (reinstated)
 
@@ -459,10 +469,10 @@ These tests replace the old EDG-03/EDG-04 stubs.
 
 | ID     | Title                | Stimulus    | Expected                                                                                                 | VHDL                |
 |--------|----------------------|-------------|----------------------------------------------------------------------------------------------------------|---------------------|
-| RST-01 | Copper hard reset    | assert reset | `copper_list_addr_s=0`, `copper_dout_s=0`, `copper_data_o=0`.                                           | `copper.vhd:60-65`  |
-| RST-02 | NR state reset       | assert reset | `nr_62_copper_mode="00"`, `nr_copper_addr=0`, `nr_copper_data_stored=0x00`, `nr_64_copper_offset=0x00`. | `zxnext.vhd:5020-5024` |
-| RST-03 | `last_state_s` reset | assert reset, then `NR 0x62 <= 0x00` | On a hard reset `last_state_s` is `"00"` (VHDL initializer `copper.vhd:50`). Writing `NR 0x62 <= 0x00` is therefore a no-op: the mode-change branch is not entered. Verifies initial-value semantics. | `copper.vhd:50, 70` |
-| RST-04 | Soft reset preserves Copper instruction RAM | upload Instr[0]=`0xABCD`, Instr[1]=`0x4055` via `NR 0x63`; assert reset | After reset: `instruction(0)` still equals `0xABCD`, `instruction(1)` still equals `0x4055`. VHDL `zxnext.vhd:3959-3996` declares `copper_inst_msb_ram` / `copper_inst_lsb_ram` as `dpram2` with no reset port — only `nr_copper_addr` and `nr_62_copper_mode` clear on reset. Soft-reset menus that re-run a previously-uploaded Copper program rely on this. G118 closed: `instructions_.fill(0)` removed from `Copper::reset()` (see G118) — `zxnext.vhd:3959-3996`; `copper.vhd:60-65` |
+| COP-RST-01 | Copper hard reset    | assert reset | `copper_list_addr_s=0`, `copper_dout_s=0`, `copper_data_o=0`.                                           | `copper.vhd:60-65`  |
+| COP-RST-02 | NR state reset       | assert reset | `nr_62_copper_mode="00"`, `nr_copper_addr=0`, `nr_copper_data_stored=0x00`, `nr_64_copper_offset=0x00`. | `zxnext.vhd:5020-5024` |
+| COP-RST-03 | `last_state_s` reset | assert reset, then `NR 0x62 <= 0x00` | On a hard reset `last_state_s` is `"00"` (VHDL initializer `copper.vhd:50`). Writing `NR 0x62 <= 0x00` is therefore a no-op: the mode-change branch is not entered. Verifies initial-value semantics. | `copper.vhd:50, 70` |
+| COP-RST-04 | Soft reset preserves Copper instruction RAM | upload Instr[0]=`0xABCD`, Instr[1]=`0x4055` via `NR 0x63`; assert reset | After reset: `instruction(0)` still equals `0xABCD`, `instruction(1)` still equals `0x4055`. VHDL `zxnext.vhd:3959-3996` declares `copper_inst_msb_ram` / `copper_inst_lsb_ram` as `dpram2` with no reset port — only `nr_copper_addr` and `nr_62_copper_mode` clear on reset. Soft-reset menus that re-run a previously-uploaded Copper program rely on this. G118 closed: `instructions_.fill(0)` removed from `Copper::reset()` (see G118) — `zxnext.vhd:3959-3996`; `copper.vhd:60-65` |
 
 ## Test Count Summary
 
@@ -679,3 +689,12 @@ all four timing modes, so a per-machine Copper harness would re-test
 End-to-end witness: `show512.nex` at frame 300 differs between the
 pre-fix and fixed builds on exactly **one framebuffer row (127)**, full
 width — the anomaly filed in GH #181, healed.
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Copper rows that need the full machine: the post-G117 cycle-accurate MOVE
+scheduler, the CPU-vs-Copper NextREG write arbitration, and the 50/60 Hz
+`c_max_vc` wrap re-push.

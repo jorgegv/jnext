@@ -1129,7 +1129,7 @@ static void test_section7_d3f_followup(void) {
 
         check("FB-D3F-02",
               "Port 0xBFFD AY-read alias gate keys on machine_timing_ "
-              "(tim_sel) per VHDL :2771 — init 128K + NR 0x03 = 0xB2 "
+              "(tim_sel) per VHDL zxnext.vhd:2771 — init 128K + NR 0x03 = 0xB2 "
               "(tim_sel=+3, typ_sel=128) → after run_frame() BFFD read "
               "aliases to AY reg 0 = 0x5A (post-fix); pre-fix returned "
               "0xFF (config_.type != ZX_PLUS3)",
@@ -1180,7 +1180,7 @@ static void test_section7_d3f_followup(void) {
 
         check("FB-D3F-03",
               "Port 0xFF ULA-arm gate keys on machine_timing_ (tim_sel) "
-              "per VHDL :4513 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, "
+              "per VHDL zxnext.vhd:4513 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, "
               "typ_sel=48) → after run_frame() port 0xFF returns 0xFF "
               "(machine_timing_ neither 48 nor 128); pre-fix returned "
               "the VRAM byte 0x42 (config_.type == ZX48K)",

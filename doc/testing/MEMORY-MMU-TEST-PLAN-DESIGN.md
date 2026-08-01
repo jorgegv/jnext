@@ -647,16 +647,16 @@ ROM-mapped slot (0x0000-0x3FFF) does, in this priority order:
 3. `nr_03_config_mode='1'` → SRAM at `nr_04_romram_bank & cpu_a(13)`, `sram_pre_rdonly<='0'` (writeable) — :3044-3050
 4. otherwise → `"000000" & sram_rom & cpu_a(13)`, `sram_pre_rdonly <= not (altrom_en and altrom_rw)` (normally read-only) — :3051-3057
 
-| ID      | Test                              | Setup                       | Expected                                      |
-|---------|-----------------------------------|-----------------------------|-----------------------------------------------|
-| CFG-01  | Config mode maps ROMRAM, writeably | config_mode=1, NR 0x04=n    | Writes to 0x0000-0x3FFF land in SRAM at `(n<<1) \| slot` and are NOT dropped — branch 3, `zxnext.vhd:3044-3045` (address) + `:3049` (`sram_pre_rdonly<='0'`) |
-| CFG-02  | Config mode read path             | config_mode=1, NR 0x04=n    | Reads from 0x0000-0x3FFF return the SRAM bank contents, not the ROM image — same branch, `zxnext.vhd:3044-3045` |
-| CFG-03  | MMU-RAM mapping wins over config mode | config_mode=1 **and** an MMU-RAM page mapped on slot 0 | Access lands in the mapped RAM page, not the NR 0x04 bank — branch 2 is tested first (`zxnext.vhd:3037`) |
-| CFG-04  | Config mode off → normal ROM      | config_mode=0               | 0x0000-0x3FFF follows normal ROM selection and writes drop (`sram_pre_rdonly` set) — branch 4, `zxnext.vhd:3051-3057` |
+| ID          | Test                              | Setup                       | Expected                                      |
+|-------------|-----------------------------------|-----------------------------|-----------------------------------------------|
+| MMU-CFG-01  | Config mode maps ROMRAM, writeably | config_mode=1, NR 0x04=n    | Writes to 0x0000-0x3FFF land in SRAM at `(n<<1) \| slot` and are NOT dropped — branch 3, `zxnext.vhd:3044-3045` (address) + `:3049` (`sram_pre_rdonly<='0'`) |
+| MMU-CFG-02  | Config mode read path             | config_mode=1, NR 0x04=n    | Reads from 0x0000-0x3FFF return the SRAM bank contents, not the ROM image — same branch, `zxnext.vhd:3044-3045` |
+| MMU-CFG-03  | MMU-RAM mapping wins over config mode | config_mode=1 **and** an MMU-RAM page mapped on slot 0 | Access lands in the mapped RAM page, not the NR 0x04 bank — branch 2 is tested first (`zxnext.vhd:3037`) |
+| MMU-CFG-04  | Config mode off → normal ROM      | config_mode=0               | 0x0000-0x3FFF follows normal ROM selection and writes drop (`sram_pre_rdonly` set) — branch 4, `zxnext.vhd:3051-3057` |
 
 > **GH #193 — this table was corrected against the VHDL, not against the tests.**
 > Three of the four rows previously named behaviour the suite asserts under a
-> different ID (old CFG-02 ↔ test CFG-04, old CFG-03 ↔ test CFG-01), and old
+> different ID (old CFG-02 ↔ test MMU-CFG-04, old CFG-03 ↔ test MMU-CFG-01), and old
 > CFG-03's "MMU-RAM wins" case was absent from the plan entirely. Each row above
 > was re-derived from the branch chain and matches what `mmu_test.cpp` asserts.
 >
@@ -670,12 +670,27 @@ ROM-mapped slot (0x0000-0x3FFF) does, in this priority order:
 > **survives reset**. That is a NextREG-tier behaviour, not an MMU one: it is
 > owned by `NextReg` (see G62) and pinned by `nextreg_test.cpp` **CFG-07**
 > ("reset() preserves config_mode"), plus **CFG-08** for the soft-reset case.
-> `mmu_test` CFG-06 documents the mirror side of the same fact.
+> `mmu_test` MMU-CFG-06 documents the mirror side of the same fact.
 
-Rows CFG-05..CFG-12 in `mmu_test.cpp` extend this category (bit-13 half-bank
+Rows MMU-CFG-05..MMU-CFG-07 and CFG-08..CFG-12 in `mmu_test.cpp` extend this category (bit-13 half-bank
 select, reset behaviour, out-of-range banks, setter round-trip, and the
-`rom_in_sram` branch-4 variants) and are recorded in the traceability matrix's
-"Extra coverage (not in plan)" table for this suite.
+`rom_in_sram` branch-4 variants) and are tracked as normal rows in the
+traceability matrix's main table for this suite (GH #196 Phase 1.3, 2026-08-01:
+this previously said they lived in the "Extra coverage (not in plan)" table —
+stale; they have been ordinary tracked rows there for some time).
+
+**GH #196 Phase 1.3 (2026-08-01)** — the matrix's "Extra coverage (not in
+plan)" table for this suite has been removed. It held 7 rows (RST-09, RST-10,
+RW-01..RW-05) with no live `check()`/`skip()` call anywhere in `mmu_test.cpp`
+today. `git log -S` on each ID shows they were implemented in commit
+`1b4c54cd` and deleted by the `mmu_test.cpp` Phase-2 per-row rewrite
+(`63e421fc`) — real assertions from an earlier revision, not rows that were
+never implemented. The same short ID strings are independently reused today by
+unrelated subsystems for unrelated behaviour (e.g. NextREG's own `RST-09`,
+Compositor's own `RST-10`), which is a harmless pre-existing collision, not
+folded coverage. Dropped rather than folded: no live test in this suite
+asserts "MMUn is ROM after reset" or the four RW- slot-write behaviours today,
+so recording them as covered would be fabricating coverage no test provides.
 
 #### NR 0x04 `nr_04_romram_bank` reset domain (GH #194)
 
@@ -693,7 +708,7 @@ configuration, not at every reset.
 jnext previously cleared it in **both** `Mmu::reset()` and `NextReg::reset()`,
 citing `:1104` — the same declaration-default-mistaken-for-a-reset-clause error
 already fixed for `nr_03_config_mode` (G62) and `nr_03_machine_type` (G63).
-`mmu_test` **CFG-06** asserted the clearing as correct and was corrected to
+`mmu_test` **MMU-CFG-06** asserted the clearing as correct and was corrected to
 assert preservation.
 
 A hardware HARD reset *does* reconfigure the FPGA
@@ -704,7 +719,7 @@ therefore differ, and are proven apart:
 
 | ID         | Test                                          | Setup                                             | Expected                                          |
 |------------|-----------------------------------------------|---------------------------------------------------|---------------------------------------------------|
-| CFG-06     | `Mmu::reset()` (hard arm) preserves the bank  | config_mode=1, NR 0x04=0x30, `reset()`            | slot-0 write still routes to SRAM page 96, not 0  |
+| MMU-CFG-06 | `Mmu::reset()` (hard arm) preserves the bank  | config_mode=1, NR 0x04=0x30, `reset()`            | slot-0 write still routes to SRAM page 96, not 0  |
 | CFG-12     | `Mmu::reset(hard=false)` preserves it too     | config_mode=1, NR 0x04=0x30, `reset(false)`       | same — VHDL `reset` covers both arms              |
 | RSTD-04-01 | RESET_SOFT preserves `nr_04_romram_bank`      | NR 0x04 ← 0x30, then NR 0x02 ← 0x01               | `nextreg().nr_04_romram_bank()` still 0x30        |
 | RSTD-04-02 | RESET_HARD clears it via the host cold boot   | NR 0x04 ← 0x30, NR 0x02 ← 0x02, `emulator_cold_boot()` | request raised, bank still 0x30 mid-way, 0x00 after |
@@ -715,18 +730,18 @@ therefore differ, and are proven apart:
 | CMG-02     | the gate condition's **`cfg.type == ZXN_ISSUE2` clause**, for EVERY non-Next value | latch cleared while still Next, `Mmu` mirror left true, boot ROM loaded + enabled, then re-`init()` as each of `ZX48K` / `ZX128K` / `ZX_PLUS3` | gate NOT entered though the boot-ROM clause is satisfied: mirror keeps true for all three |
 | CMG-03     | the gate's **POSITION** — it must run after the subsystem resets that establish its inputs | boot ROM loaded, `config_mode` true but `boot_rom_en_` left FALSE so only `Mmu::reset()` can arm it; latch cleared; `init()` as Next | gate entered (armed by the reset) and the mirror follows the latch down; a mirror left true means the block ran before its own input existed |
 
-CFG-06 / CFG-12 are `mmu_test.cpp`; RSTD-04-01..04 are hosted in
+MMU-CFG-06 / CFG-12 are `mmu_test.cpp`; RSTD-04-01..04 are hosted in
 `test/nextreg/nextreg_integration_test.cpp` (group `Reset-Domain`), the only
 tier where hard and soft reset are distinguishable. CFG-12 exists because the
 `hard` flag makes a one-armed model possible: the mutation
-`if (!hard) nr_04_romram_bank_ = 0;` passed CFG-06 and RSTD-04-01/02, and
+`if (!hard) nr_04_romram_bank_ = 0;` passed MMU-CFG-06 and RSTD-04-01/02, and
 CFG-12 is what catches it.
 
 **GH #195 — why -03/-04 exist.** The four rows above split by *which mirror*
 they observe, because jnext holds the one VHDL signal twice: the `NextReg`
 latch and an `Mmu` mirror (the SRAM address compose at `zxnext.vhd:3045` is on
-the `Mmu` hot path). -01/-02 read the latch; CFG-05..12 drive a **bare `Mmu`
-with no `Emulator`**. So no row observed the mirror *through* the emulator, and
+the `Mmu` hot path). -01/-02 read the latch; MMU-CFG-05..MMU-CFG-07 and CFG-08..CFG-12
+drive a **bare `Mmu` with no `Emulator`**. So no row observed the mirror *through* the emulator, and
 a reviewer mutation of the resync in `Emulator::init()` escaped all 6560 unit
 rows and both NextZXOS boot/reset functional rows. -03/-04 close that by
 asserting `Emulator::mmu().nr_04_romram_bank()` — an accessor added for exactly
@@ -867,21 +882,36 @@ Physical address = `mmu_A21_A13 << 13`.
 
 ### Category 16: Memory Contention
 
+> **RE-HOMED 2026-08-01 (GH #196 phase 4.2).** Memory contention was spun out
+> into its own subsystem in 2026-04 ([CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIGN.md),
+> `contention_test`, 68/68 pass), and every row below is asserted there under a
+> `CT-*` ID. The IDs are struck through so the generated traceability matrix
+> stops publishing them as an MMU coverage gap; the table stays as the record
+> of what this plan used to own.
+>
+> **The row-by-row mapping is the "Accurate overlap table" in the Contention
+> plan — do not restate it here.** It is not a 1:1 list (CON-02 is folded into
+> CT-M48-01 as an intentional duplicate-facet trim, and CON-11 splits across
+> CT-GATE-03/04/05), and a second copy is exactly the two-sources-of-truth
+> failure GH #196 exists to remove. CON-12a/12b map onto CT-PENT-01 and
+> CT-GATE-06, both themselves RETIRED 2026-05-04 when the standalone Pentagon
+> machine type was dropped.
+
 | ID      | Test                              | Timing | Speed   | Page  | Expected         |
 |---------|-----------------------------------|--------|---------|-------|------------------|
-| CON-01  | 48K: bank 5 contended             | 48K    | 3.5 MHz | 0x0A  | Contended        |
-| CON-02  | 48K: bank 5 hi contended          | 48K    | 3.5 MHz | 0x0B  | Contended        |
-| CON-03  | 48K: bank 0 not contended         | 48K    | 3.5 MHz | 0x00  | Not contended    |
-| CON-04  | 48K: bank 7 not contended         | 48K    | 3.5 MHz | 0x0E  | Not contended    |
-| CON-05  | 128K: odd banks contended         | 128K   | 3.5 MHz | 0x03  | Contended        |
-| CON-06  | 128K: even banks not contended    | 128K   | 3.5 MHz | 0x04  | Not contended    |
-| CON-07  | +3: banks >= 4 contended          | +3     | 3.5 MHz | 0x08  | Contended        |
-| CON-08  | +3: banks < 4 not contended       | +3     | 3.5 MHz | 0x06  | Not contended    |
-| CON-09  | High page never contended         | 48K    | 3.5 MHz | 0x10  | Not contended    |
-| CON-10  | NR 0x08 bit 6 disables contention | 48K    | 3.5 MHz | 0x0A  | Not contended    |
-| CON-11  | Speed > 3.5 MHz no contention     | 48K    | 7 MHz   | 0x0A  | Not contended    |
-| CON-12a | Pentagon timing: machine type falls through switch | Pent | 3.5 MHz | 0x0A | Not contended    |
-| CON-12b | Pentagon timing: gate zeros 48K bank 5 contention  | 48K  | 3.5 MHz | 0x0A + set_pentagon_timing(true) | Not contended |
+| ~~CON-01~~  | 48K: bank 5 contended             | 48K    | 3.5 MHz | 0x0A  | Contended        |
+| ~~CON-02~~  | 48K: bank 5 hi contended          | 48K    | 3.5 MHz | 0x0B  | Contended        |
+| ~~CON-03~~  | 48K: bank 0 not contended         | 48K    | 3.5 MHz | 0x00  | Not contended    |
+| ~~CON-04~~  | 48K: bank 7 not contended         | 48K    | 3.5 MHz | 0x0E  | Not contended    |
+| ~~CON-05~~  | 128K: odd banks contended         | 128K   | 3.5 MHz | 0x03  | Contended        |
+| ~~CON-06~~  | 128K: even banks not contended    | 128K   | 3.5 MHz | 0x04  | Not contended    |
+| ~~CON-07~~  | +3: banks >= 4 contended          | +3     | 3.5 MHz | 0x08  | Contended        |
+| ~~CON-08~~  | +3: banks < 4 not contended       | +3     | 3.5 MHz | 0x06  | Not contended    |
+| ~~CON-09~~  | High page never contended         | 48K    | 3.5 MHz | 0x10  | Not contended    |
+| ~~CON-10~~  | NR 0x08 bit 6 disables contention | 48K    | 3.5 MHz | 0x0A  | Not contended    |
+| ~~CON-11~~  | Speed > 3.5 MHz no contention     | 48K    | 7 MHz   | 0x0A  | Not contended    |
+| ~~CON-12a~~ | ~~Pentagon timing: machine type falls through switch~~ | — | — | — | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up); `ContentionModel` no longer exposes a `pentagon_timing`/`set_pentagon_timing()` setter, so this row has no machine to run against (matches `contention_test.cpp`'s own CT-PENT-01/04/05 RETIRED comment). CT-GATE-01/07/08 (enable-gate sanity) and CT-M48-\*/CT-M128-\*/CT-MP3-\* (per-machine decode) still cover the surviving path for 48K/128K/+3/Next. No `check()` row exists. |
+| ~~CON-12b~~ | ~~Pentagon timing: gate zeros 48K bank 5 contention~~  | — | — | — | **RETIRED 2026-05-04** — same removal (Wave 0.3); matches `contention_test.cpp`'s own CT-GATE-06 RETIRED comment (no `pentagon_timing` setter left to zero). CT-GATE-01/02/07/08 still cover the surviving enable-gate terms (contention_disable, cpu_speed) for the modeled machines. No `check()` row exists. |
 
 ### Category 17: Layer 2 Memory Mapping
 
@@ -1024,10 +1054,8 @@ carries COVERED-AT comments.
 
 | ID            | Test                                                | Setup                                                                                                | Expected                                                                                                                           |
 |---------------|-----------------------------------------------------|------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------|
-| BOOT-SNAPSAVE-01 | `.sna` save round-trip via GUI/CLI               | Run program; trigger a save action; reload the produced `.sna`                                       | Reloaded state byte-equal on RAM + visible registers. skip — `sna_saver` exists but no UI/CLI consumer wires it (see G35) |
 | BOOT-SNAPSAVE-02 | `.szx` save round-trip via GUI/CLI               | Same; save as `.szx`                                                                                 | pass (Task 13b, REDESIGNED 2026-07-13) — `.szx` is scoped to a classic Spectrum's 8-bank memory model: 48K (`chMachineId=1`, banks {5,2,0} only — `chPageNo` per libspectrum `szx.c:3330-3334`, NOT jnext's own bank numbering "first N"), 128K/+2A/+3 (`chMachineId=2/4/5`, all 8 banks). Full CPU register set, classic paging (7FFD/1FFD), and border round-trip byte-for-byte for every supported machine (`mmu_test.cpp` BOOT-SNAPSAVE-02/02B/02C/02D structural + `mmu_integration_test.cpp` SNAPSAVE-SZX-RT (+3)/SNAPSAVE-SZX-RT-48K (48K)/SNAPSAVE-SZX-RT-REFUSED full pipeline). Next (and any other unsupported machine) is **refused outright** — `SzxSaver::save()` returns no data and a clear error, never a truncated or misrepresenting file — since jnext's default `--machine` is Next, this is the common path, not an edge case. **Independently verified against real `fuse`/`libspectrum` 1.5.0** (not just jnext's own `SzxLoader`): saved 48K/128K/+3 snapshots all load via `libspectrum_snap_read()` with correct `chMachineId`→`libspectrum_machine` mapping and full RAM content; 128K/+3 additionally verified pixel-identical through a save→reload→screenshot round trip via jnext's own renderer. First cut of this redesign (2026-07-13 overnight) instead raised the RAM ceiling to 64 banks/1024 KB for ALL machines — rejected by the user as the wrong shape: `.szx` is a classic-interchange format, not a place to widen for Next RAM. NextREG/video-layer/peripheral state does NOT round-trip — no standard zx-state block exists for it (see `SzxSaver` class doc-comment). |
 | BOOT-SNAPSAVE-03 | `.nex` save round-trip via GUI/CLI               | Same; save as `.nex` v1.2                                                                            | pass (Task 13b) — PC/SP/border/entry_bank/RAM banks (up to the 112-bank ceiling) round-trip (`mmu_test.cpp` BOOT-SNAPSAVE-03/03B/03C structural + `mmu_integration_test.cpp` SNAPSAVE-NEX-RT full pipeline). Does NOT "re-run from the same state" for an arbitrary mid-execution snapshot: the NEX header has no field for AF/BC/DE/HL/IX/IY/alt-set/I/R/IFF/IM, and `Emulator::load_nex()` resets before applying, so only PC/SP survive (see `NexSaver` class doc-comment; demonstrated live via a headless save→reload screenshot: a mid-BASIC-execution `.nex` snapshot reloads to a black screen because the resumed registers don't match the saved RAM/PC context). |
-| BOOT-SNAPSAVE-04 | Save-As dialog exposes all three formats         | Open File→Save-As                                                                                    | Filter shows `.sna`, `.szx`, `.nex` entries. skip — no Save-As dialog wired (see G35)                                                  |
 
 ### Category 25: Tape DeciLoad / Real-time Loading (parked here as `BOOT-DECI-*`)
 
@@ -1201,3 +1229,18 @@ T-states consumed vs. expected.
   - Altrom: lines 2247-2265
   - Config mode: lines 3044-3050
   - Layer 2 mapping: lines 2966-2971, 3077, 3100-3107
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Memory/MMU rows that need a whole `Emulator` rather than a bare `Mmu`: the
+NR-fan-out paths (`V12-MEM-*`, `V13-MEM-*`), the `0xEFF7` port gate, the
+machine-type default, the Multiface SRAM window seen from the memory side
+(`MF-SRAM-*`), the boot-hold frame counter (`G156-HOLD-*`), the SA-BYTES tape
+trap gate (`MMU-G33-TRAP-*`), the live machine switch (`SWITCH-*`) and the
+snapshot save round-trips (`SNAPSAVE-*`).
+The `SNAPSAVE-*` and `G156-HOLD-*` rows read `—` in the VHDL column and always
+will: a .szx/.nex round-trip is a file-format contract and the boot hold is a
+jnext-internal host-side delay, neither of which the FPGA core contains.

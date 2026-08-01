@@ -410,6 +410,12 @@ static void test_fe_read(Emulator& emu) {
     // src/core/emulator.cpp:1166 assembles 0xE0 | (cols & 0x1F) with no
     // border term; the OUT handler at :1182 only calls
     // renderer_.ula().set_border().
+    // ID note: BP-04 is REUSED here, not relocated, from the Audio plan's
+    // dropped BP-04 row. That row's claim was write-side (OUT 0xFE
+    // bits[2:0] sets border colour, zxnext.vhd:3593/3604) and is covered
+    // independently by the still-live BP-01 row in
+    // test/audio/audio_port_dispatch_test.cpp:369. This row asserts the
+    // opposite direction (read does not leak border).
     // Strengthened assertion (Wave D critic follow-up): sweep three
     // border values (0x00, 0x05, 0x07). If border leaked into the read
     // path at all, the low-3 bits of the read byte would track the

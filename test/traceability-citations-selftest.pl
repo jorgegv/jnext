@@ -1224,6 +1224,8 @@ if(ENABLE_DEBUGGER)
     add_executable(debugger_video_panel_test debugger/video_panel_test.cpp)
 endif()
 add_executable(jnext_tests ${GTEST_SOURCES})
+add_executable(tilemap_test tilemap/tilemap_test.cpp)
+add_executable(layer2_test layer2/layer2_test.cpp)
 CML
 write_fixture('src/esp01/CMakeLists.txt', <<'CML');
     add_executable(esp_at_test test/esp_at_test.cpp)
@@ -2853,13 +2855,28 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
         return $rc >> 8;
     };
 
-    # (a) THE REFUSAL. One traced suite's `## ` header removed.
-    my $mpath  = $build_e2e->('## Multiface — ');
+    # (a) THE REFUSAL, rewritten for GH #196 phase 2/3.
+    #
+    # What SELF-102/103 used to assert — that a traced suite whose `## ` header
+    # is missing from the document makes the run refuse — tested a path that no
+    # longer exists: the document is EMITTED from @SUBSYS now, so every traced
+    # suite gets a section by construction and one cannot be absent. The
+    # equivalent invariant today is the exceptions file, the single remaining
+    # hand-maintained input: a malformed record must stop the run rather than
+    # be skipped, because silently dropping one restores exactly the
+    # under-claiming this issue removed.
+    my $exc = "$E2E/test/traceability-exceptions.conf";
+    $build_e2e->();
+    open(my $eh, '>', $exc) or die "e2e: write exceptions: $!";
+    print $eh "# fixture\nRewind | RING-01 | two fields is not three\n";
+    print $eh "Rewind | RING-99\n";
+    close $eh;
+    my $mpath  = "$E2E/doc/testing/TRACEABILITY-MATRIX.md";
     my $before = $digest->($mpath);
     my $rc_a   = $run->();
     my $after  = $digest->($mpath);
 
-    check('SELF-102', 'END TO END: a traced suite whose section is absent makes the real process exit 2',
+    check('SELF-102', 'END TO END: a malformed exceptions record makes the real process exit 2',
           $rc_a == 2, "got exit $rc_a");
 
     check('SELF-103', 'END TO END: and that refusal leaves the document byte-identical',
@@ -2881,6 +2898,219 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
           $before_b ne $after_b,
           $before_b ne $after_b ? "rewritten" : "NOT rewritten ($before_b)");
 }
+
+# ── GH #196 phase 2: the description tiers ────────────────────────────
+#
+# Each row below pins one tier of row_descriptions(). They are unit rows over
+# the real subs, not end-to-end runs, so a failure names the tier that broke.
+{
+    # Written under the eval'd copy's $ROOT — the fixture tree — because
+    # row_descriptions() resolves its argument against THAT root, not the real
+    # repository. Writing to the real $ROOT put fixture .cpp files in the
+    # working tree and still failed to find them.
+    my $tmp = "$FIXTURE_ROOT/desc";
+    mkdir $tmp;
+
+    my $write = sub {
+        my ($name, $body) = @_;
+        open(my $fh, '>', "$tmp/$name") or die "selftest: write $name: $!";
+        print $fh $body;
+        close $fh;
+        return "$tmp/$name";
+    };
+
+    # (1) the description is the first string parameter AFTER the id — which
+    # is argument 1 here and argument 2 in the next fixture. A reader that
+    # assumes a fixed position gets one of the two wrong.
+    my $f1 = $write->('desc_pos1.cpp', <<'CPP');
+static void check(const char* id, const char* desc, bool cond) { (void)id; (void)desc; (void)cond; }
+void t() { check("AAA-01", "first-slot description", true); }
+CPP
+    my $f2 = $write->('desc_pos2.cpp', <<'CPP');
+static void check(const char* id, bool cond, const char* desc) { (void)id; (void)desc; (void)cond; }
+void t() { check("BBB-01", true, "third-slot description"); }
+CPP
+    # (2) an attribute-prefixed declaration is still a declaration.
+    my $f3 = $write->('desc_attr.cpp', <<'CPP');
+[[maybe_unused]] void check(const char* id, const char* desc, bool cond) { (void)id; (void)desc; (void)cond; }
+void t() { check("CCC-01", "attributed declaration", true); }
+CPP
+    # (3) id from a table column, description a literal shared by the loop.
+    my $f4 = $write->('desc_table.cpp', <<'CPP');
+static void check(const char* id, const char* desc, bool cond) { (void)id; (void)desc; (void)cond; }
+void t() {
+    struct Row { const char* id; int a, b; };
+    const Row rows[] = { {"DDD-01", 1, 2}, {"DDD-02", 3, 4} };
+    for (const Row& r : rows) check(r.id, "shared loop sentence", r.a < r.b);
+}
+CPP
+    # (4) BOTH sides table columns — one description per row, zipped.
+    my $f5 = $write->('desc_zip.cpp', <<'CPP');
+static void check(const char* id, const char* desc, bool cond) { (void)id; (void)desc; (void)cond; }
+void t() {
+    struct Row { const char* id; const char* what; int v; };
+    const Row rows[] = { {"EEE-01", "first row text", 1}, {"EEE-02", "second row text", 2} };
+    for (const Row& r : rows) check(r.id, r.what, r.v > 0);
+}
+CPP
+    # (5) a wrapper — and a LAMBDA wrapper — is adopted because its body calls
+    # a helper, so its call sites are where the description lives.
+    my $f6 = $write->('desc_wrapper.cpp', <<'CPP');
+static void check(const char* id, const char* desc, bool cond) { (void)id; (void)desc; (void)cond; }
+static void one(const char* id, const char* desc, int v) { check(id, desc, v > 0); }
+void t() {
+    auto lam = [&](const char* id, const char* desc, int v) { check(id, desc, v > 0); };
+    one("FFF-01", "through a function wrapper", 1);
+    lam("GGG-01", "through a lambda wrapper", 1);
+}
+CPP
+    # (6) a non-literal description is undef, never a guess.
+    my $f7 = $write->('desc_computed.cpp', <<'CPP');
+static void check(const char* id, const char* desc, bool cond) { (void)id; (void)desc; (void)cond; }
+void t() { const char* d = "built at runtime"; check("HHH-01", d, true); }
+CPP
+
+    my $desc_of = sub {
+        my ($abs, $id) = @_;
+        my $rel = $abs;
+        $rel =~ s{^\Q$FIXTURE_ROOT\E/}{};
+        my $d = main::row_descriptions($rel);
+        return $d->{$id};
+    };
+
+    check('SELF-184', 'the description is argument 1 when the id is argument 0',
+          ($desc_of->($f1, 'AAA-01') // '') eq 'first-slot description',
+          $desc_of->($f1, 'AAA-01') // '(undef)');
+    check('SELF-185', 'and argument 2 when the declaration puts the cond first',
+          ($desc_of->($f2, 'BBB-01') // '') eq 'third-slot description',
+          $desc_of->($f2, 'BBB-01') // '(undef)');
+    check('SELF-186', 'an [[attribute]]-prefixed declaration is still parsed',
+          ($desc_of->($f3, 'CCC-01') // '') eq 'attributed declaration',
+          $desc_of->($f3, 'CCC-01') // '(undef)');
+    check('SELF-187', 'ids from a table column share the loop\'s literal sentence',
+          ($desc_of->($f4, 'DDD-01') // '') eq 'shared loop sentence'
+       && ($desc_of->($f4, 'DDD-02') // '') eq 'shared loop sentence',
+          ($desc_of->($f4, 'DDD-02') // '(undef)'));
+    check('SELF-188', 'two table columns zip one description per row',
+          ($desc_of->($f5, 'EEE-01') // '') eq 'first row text'
+       && ($desc_of->($f5, 'EEE-02') // '') eq 'second row text',
+          ($desc_of->($f5, 'EEE-02') // '(undef)'));
+    check('SELF-189', 'a function wrapper is adopted because its body calls a helper',
+          ($desc_of->($f6, 'FFF-01') // '') eq 'through a function wrapper',
+          $desc_of->($f6, 'FFF-01') // '(undef)');
+    check('SELF-190', 'a LAMBDA wrapper is adopted the same way',
+          ($desc_of->($f6, 'GGG-01') // '') eq 'through a lambda wrapper',
+          $desc_of->($f6, 'GGG-01') // '(undef)');
+    check('SELF-191', 'THE REFUSAL: a computed description is undef, never guessed',
+          !defined $desc_of->($f7, 'HHH-01'),
+          defined $desc_of->($f7, 'HHH-01') ? 'INVENTED: ' . $desc_of->($f7, 'HHH-01')
+                                            : 'undef');
+}
+# ── The cross-plan STATUS FALLBACK (%EXTRA_STATUS_FALLBACK, GH #196 ph 4) ──
+#
+# The mechanism that lets a section consult a suite belonging to a DIFFERENT
+# plan doc: 70 rows are owned by one subsystem's plan and asserted by another
+# subsystem's suite (LoRes is not a layer — it SUBSTITUTES the ULA-slot pixel,
+# so its rows live in `compositor_test`), and without it every one of them
+# published `missing` beside its own passing assertion.
+#
+# It shipped UNPINNED and is pinned here. The two invariants are not obvious
+# and pull in opposite directions, which is exactly why they need fixtures:
+#
+#   1. the fallback answers about STATUS ONLY — a suite named as a fallback
+#      must NOT import its own rows into the borrowing section, or the
+#      borrowing subsystem starts publishing coverage it does not own. That is
+#      the manufactured-coverage failure (#190) arriving through a new door;
+#   2. a suite may be a fallback for one section AND own its own section — the
+#      exact opposite of the @SUBSYS rule, where a second mention is a refusal
+#      (SELF-72). The accounting gate never sees this table, and must not.
+#
+# The fixture is a BORROWER (`tilemap_test`, whose plan owns two rows and whose
+# source asserts only one) and a LENDER (`layer2_test`, which asserts the
+# borrower's other row plus one of its own). Both suites are real names so
+# %PLAN_DOC resolves; the sources and plan docs are fixtures.
+#
+# The stub binaries must be chmod 0755: run_fails() calls
+# `fatal("binary not executable")` before it will run anything, which is
+# deliberate (a missing binary would otherwise report an empty FAIL set and
+# pass-whitewash the whole section).
+write_fixture('test/tilemap/tilemap_test.cpp', <<'CPP');
+void borrower() {
+    check("FBK-OWN-01", "the borrower asserts this one itself", cond, detail);
+}
+CPP
+write_fixture('test/layer2/layer2_test.cpp', <<'CPP');
+void lender() {
+    check("FBK-SHARED-01", "asserted HERE, owned by the borrower's plan", cond, detail);
+    check("FBK-LEND-01", "the lender's own row — must stay in the lender's section", cond, detail);
+}
+CPP
+write_fixture('doc/testing/TILEMAP-TEST-PLAN-DESIGN.md', <<'MD');
+| ID | Test | Expected |
+|----|------|----------|
+| FBK-OWN-01 | borrower's own row | asserted by the borrower |
+| FBK-SHARED-01 | borrower's plan, lender's assertion | pass via the fallback |
+MD
+write_fixture('doc/testing/LAYER2-TEST-PLAN-DESIGN.md', <<'MD');
+| ID | Test | Expected |
+|----|------|----------|
+| FBK-LEND-01 | the lender's own row | asserted by the lender |
+MD
+for my $stub ('build/test/fbk_borrow_stub', 'build/test/fbk_lend_stub') {
+    write_fixture($stub, "#!/bin/sh\nexit 0\n");
+    chmod 0755, "$FIXTURE_ROOT/$stub" or die "chmod $stub: $!";
+}
+
+my $fbk_rows = sub {
+    my ($with_fallback) = @_;
+    my %o = (plan => 1);
+    if ($with_fallback) {
+        $o{fallback}      = ['test/layer2/layer2_test.cpp'];
+        $o{fallback_bins} = ['build/test/fbk_lend_stub'];
+    }
+    my $r = emit_section_rows('build/test/fbk_borrow_stub',
+                              ['test/tilemap/tilemap_test.cpp'], \%o);
+    return { map { $_->[0] => { status => $_->[3], loc => $_->[4] } } @$r };
+};
+my $fbk_on  = $fbk_rows->(1);
+my $fbk_off = $fbk_rows->(0);
+# The lender's OWN section, called with the borrowing relationship pointed the
+# other way — the lender is simultaneously somebody's fallback and its own
+# section's source. Its published rows must be exactly its own either way.
+my $lend = { map { $_->[0] => { status => $_->[3], loc => $_->[4] } }
+             @{ emit_section_rows('build/test/fbk_lend_stub',
+                                  ['test/layer2/layer2_test.cpp'],
+                                  { plan => 1,
+                                    fallback      => ['test/tilemap/tilemap_test.cpp'],
+                                    fallback_bins => ['build/test/fbk_borrow_stub'] }) } };
+
+check('SELF-192', 'a fallback suite supplies STATUS for a plan row the borrowing section does not assert',
+      scalar(($fbk_on->{'FBK-SHARED-01'}{status} // '') eq 'pass'
+             && ($fbk_on->{'FBK-SHARED-01'}{loc} // '') eq 'test/layer2/layer2_test.cpp:2'),
+      "status=" . ($fbk_on->{'FBK-SHARED-01'}{status} // '(absent)')
+      . " loc=" . ($fbk_on->{'FBK-SHARED-01'}{loc} // '(absent)'));
+
+check('SELF-193', 'THE CONTROL: without the fallback the same row reads `missing` — SELF-192 is not vacuous',
+      ($fbk_off->{'FBK-SHARED-01'}{status} // '') eq 'missing',
+      "status=" . ($fbk_off->{'FBK-SHARED-01'}{status} // '(absent)'));
+
+check('SELF-194', 'THE REFUSAL: a fallback suite does NOT import its own rows into the borrowing section',
+      !exists $fbk_on->{'FBK-LEND-01'},
+      "borrowing section rows = " . join(' ', sort keys %$fbk_on));
+
+# NOTE what the expected set is, because it is not "its own plan's rows": a
+# section publishes every row its SOURCE asserts, so the lender legitimately
+# carries FBK-SHARED-01 as well — the row it asserts on the borrower's behalf.
+# That is the declared residual of this design (such a row is published twice,
+# both times `pass`, and the Rows total counts it twice). What must NOT appear
+# is FBK-OWN-01: a plan-only row of the OTHER section, which would only arrive
+# by importing the fallback's plan or its row set.
+check('SELF-195', 'a suite may be a fallback elsewhere AND own its section: it publishes what its own source asserts and nothing from the other section\'s plan, whichever way the relationship points (the opposite of the @SUBSYS one-mention rule, SELF-72)',
+      join(' ', sort keys %$lend) eq 'FBK-LEND-01 FBK-SHARED-01'
+      && ($lend->{'FBK-LEND-01'}{status} // '') eq 'pass',
+      "lender section rows = " . join(' ', sort keys %$lend)
+      . " status=" . ($lend->{'FBK-LEND-01'}{status} // '(absent)'));
+
 
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
@@ -2904,7 +3134,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 183;
+my $EXPECTED_ROWS = 195;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
