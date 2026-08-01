@@ -191,9 +191,9 @@
 <!-- fb -->
 <g id="node12" class="node">
 <title>fb</title>
-<path fill="#e3ecf7" stroke="#5a6b80" d="M391.55,-109C391.55,-109 320.45,-109 320.45,-109 314.45,-109 308.45,-103 308.45,-97 308.45,-97 308.45,-85 308.45,-85 308.45,-79 314.45,-73 320.45,-73 320.45,-73 391.55,-73 391.55,-73 397.55,-73 403.55,-79 403.55,-85 403.55,-85 403.55,-97 403.55,-97 403.55,-103 397.55,-109 391.55,-109"/>
+<path fill="#e3ecf7" stroke="#5a6b80" d="M402.05,-109C402.05,-109 309.95,-109 309.95,-109 303.95,-109 297.95,-103 297.95,-97 297.95,-97 297.95,-85 297.95,-85 297.95,-79 303.95,-73 309.95,-73 309.95,-73 402.05,-73 402.05,-73 408.05,-73 414.05,-79 414.05,-85 414.05,-85 414.05,-97 414.05,-97 414.05,-103 408.05,-109 402.05,-109"/>
 <text xml:space="preserve" text-anchor="middle" x="356" y="-93.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">framebuffer</text>
-<text xml:space="preserve" text-anchor="middle" x="356" y="-81.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">640 x 512 ARGB</text>
+<text xml:space="preserve" text-anchor="middle" x="356" y="-81.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">640 x 256 ARGB8888</text>
 </g>
 <!-- comp&#45;&gt;fb -->
 <g id="edge15" class="edge">

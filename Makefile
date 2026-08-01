@@ -65,7 +65,14 @@ GUIDE_OUT         := doc/user-guide
 # output); rendering Mermaid ahead of time means mermaid-cli, i.e. a Node and
 # headless-Chromium dependency. `dot` is already a small, packaged, offline
 # tool of the same class as pandoc and mkdocs, and its output is plain SVG.
-DEVGUIDE_FINGERPRINT := python3 -c "import importlib.metadata as m; print('mkdocs', m.version('mkdocs')); print('mkdocs-material', m.version('mkdocs-material'))"; dot -V 2>&1
+# The braces are load-bearing. Without them `$(DEVGUIDE_FINGERPRINT) > file`
+# expands to `python3 …; dot -V 2>&1 > file`, where the `;` ends the first
+# command (so its output never reaches the file) and `2>&1 >file` sends dot's
+# stderr — which is where `dot -V` writes — to the OLD stdout, i.e. the
+# terminal. The file came out EMPTY, the committed fingerprint never matched,
+# and docs-devguide-check reported a permanent version-gap SKIP: green, and
+# proving nothing. Exactly the failure mode CLAUDE.md warns about.
+DEVGUIDE_FINGERPRINT := { python3 -c "import importlib.metadata as m; print('mkdocs', m.version('mkdocs')); print('mkdocs-material', m.version('mkdocs-material'))"; dot -V 2>&1; }
 DEVGUIDE_RENDERER := src/doc/developer-guide-renderer.txt
 DEVGUIDE_CONFIG   := mkdocs-devguide.yml
 DEVGUIDE_SRC      := src/doc/developer-guide
@@ -906,6 +913,11 @@ docs-devguide-check:
 	 [ $$rc -ne 0 ] && printf "$(BADGE_FAIL) FAIL $(RESET) a developer-guide diagram does not render\n"; \
 	 here=$$($(DEVGUIDE_FINGERPRINT)); \
 	 there=$$(cat $(DEVGUIDE_RENDERER) 2>/dev/null); \
+	 if [ $$rc -eq 0 ] && [ -z "$$there" ]; then \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) $(DEVGUIDE_RENDERER) is missing or empty\n"; \
+	   printf "        Without it every run takes the version-gap SKIP below and this\n"; \
+	   printf "        check proves nothing while reporting green.\n"; rc=1; \
+	 fi; \
 	 compared=0; \
 	 if [ $$rc -eq 0 ] && [ "$$here" != "$$there" ]; then \
 	   printf "$(BADGE_SKIP) SKIP $(RESET) different mkdocs/material/graphviz than rendered the\n"; \

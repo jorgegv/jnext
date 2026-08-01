@@ -25,9 +25,9 @@ void check(const char* id, const char* desc, bool cond, const std::string& detai
 void skip (const char* id, const char* reason);
 ```
 
-`check()` bumps the totals and, on failure, prints `  FAIL <id>: <desc>`, which
-is the one output format every tool in the project relies on. `skip()` records
-the row and prints it in the trailing summary **without touching the pass/fail
+`check()` bumps the totals and, on failure, prints `  FAIL <id>: <desc>` — the
+one output format every tool in the project relies on. `skip()` records the row
+and prints it in the trailing summary **without touching the pass/fail
 counters**. Every suite ends with the line the unit harness parses:
 
 ```
@@ -40,12 +40,11 @@ Four rules about the ID:
   every source reader and vanishes from the traceability matrix.
 - **It must be globally unique.** `traceability-dup-ids.pl` refuses when two
   suites assert the same ID.
-- The description is the second argument, and it is what the matrix publishes.
-  Write one worth reading.
+- The description is what the matrix publishes. Write one worth reading.
 - **Cite the VHDL in the same call** — file and line range. A citation written
-  only in the plan doc still works, but the row-local one is what gets
-  validated against the real FPGA tree, and a disagreement between the two is
-  reported for a human to resolve.
+  only in the plan doc still works, but the row-local one is what gets validated
+  against the real FPGA tree, and a disagreement between the two is reported for
+  a human to resolve.
 
 `skip()` means the facility does not exist in `src/` at all, or is genuinely not
 observable through the public API. It does not mean the assertion is awkward.
@@ -57,18 +56,18 @@ those substrings must not appear in comments either.
 ## The rule that matters most
 
 **A test derives from the specification, never from the existing C++.** The
-specification here is the VHDL at `cores/zxnext/src/` in the FPGA repository.
-Read `src/` only to discover the public API surface. If your assertion matches
+specification is the VHDL at `cores/zxnext/src/` in the FPGA repository; read
+`src/` only to discover the public API surface. If your assertion matches
 whatever the emulator happens to do today, you have written a tautology that
 will pass forever and prove nothing.
 
 The corollary: **a failing unit test does not mean the test is wrong.** The
 default assumption is that the emulator is wrong and the test is a correct
-reading of the VHDL. Only an independent review comparing the assertion, the
-citation and the C++ may change a test. Read the surrounding VHDL process, not
-just the cited line — an oracle can cite a real line and still be unreachable
-under the stimulus the test applies, which is how several "confirmed emulator
-bugs" survived four reviews each.
+reading of the VHDL, and only an independent review comparing assertion,
+citation and C++ may change a test. Read the surrounding VHDL process, not just
+the cited line — an oracle can cite a real line and still be unreachable under
+the stimulus the test applies, which is how several "confirmed emulator bugs"
+survived four reviews each.
 
 ## Registering and pinning it
 
@@ -104,10 +103,10 @@ which is how a real fix gets thrown away along with the mutation. Mutate the
 behavioural branch you actually added, not a shared helper: reverting a helper
 turns everything red and proves nothing about your row.
 
-A row that cannot be made to fail is not a test. This is not a formality — the
-project's own history contains six subsystem plans reporting "100% passing"
-while carrying tautologies, anti-tests that pinned wrong behaviour as expected,
-and 34 plan rows silently dropped from a 95-row plan.
+A row that cannot be made to fail is not a test. Not a formality — the project's
+history contains six subsystem plans reporting "100% passing" while carrying
+tautologies, anti-tests that pinned wrong behaviour as expected, and 34 plan
+rows silently dropped from a 95-row plan.
 
 ## Then: never review your own work
 

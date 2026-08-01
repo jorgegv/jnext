@@ -1772,7 +1772,7 @@ version-bump step.</p>
 <h2 id="where-each-column-comes-from">Where each column comes from<a class="headerlink" href="#where-each-column-comes-from" title="Permanent link">&para;</a></h2>
 <ul>
 <li><strong>Test ID and description</strong> — the row's own <code>check("ID", "description", ...)</code>
-  or <code>skip("ID", "reason")</code> call. The description position varies between
+  or <code>skip("ID", "reason")</code> call. The description's position varies between
   suites, so the generator reads each file's own declaration of <code>check()</code> rather
   than assuming an argument order.</li>
 <li><strong>Status</strong> — <code>fail</code> if the binary printed the row in its FAIL set; otherwise
@@ -1792,11 +1792,11 @@ version-bump step.</p>
 nearest unrelated comment. Both attribute a neighbouring row's VHDL lines to
 this one, and a plausible-but-wrong citation is worse than an honest <code>—</code>.</p>
 <h2 id="editing-it-by-hand-does-nothing">Editing it by hand does nothing<a class="headerlink" href="#editing-it-by-hand-does-nothing" title="Permanent link">&para;</a></h2>
-<p>Nothing in the file is hand-written. An edit is overwritten by the next run, and
-fails the gate in the meantime. That is why the older bookkeeping-drift classes
-no longer exist — there is no hand-written side left to disagree with. The one
-report that survives is a plan doc and a test source citing <em>different</em> VHDL for
-the same row, which is signal about the spec rather than about bookkeeping.</p>
+<p>An edit is overwritten by the next run and fails the gate in the meantime. That
+is why the older bookkeeping-drift classes no longer exist: there is no
+hand-written side left to disagree with. The one report that survives is a plan
+doc and a test source citing <em>different</em> VHDL for the same row — signal about
+the spec, not about bookkeeping.</p>
 <h2 id="a-row-id-must-be-a-literal">A row ID must be a literal<a class="headerlink" href="#a-row-id-must-be-a-literal" title="Permanent link">&para;</a></h2>
 <p>Building one at run time — <code>check((std::string(c.id) + "-35").c_str(), ...)</code> —
 emits a row no source reader can see. When that happened, the matrix carried two
@@ -1813,42 +1813,35 @@ from the matrix's sections, because 49 suites are tombstoned and have no section
 at all, so a matrix-derived audit cannot see them.</p>
 <h2 id="the-exceptions-file">The exceptions file<a class="headerlink" href="#the-exceptions-file" title="Permanent link">&para;</a></h2>
 <p><code>test/traceability-exceptions.conf</code> is the <strong>single</strong> hand-maintained input:
-three <code>|</code>-separated fields per record — section, row ID, description. It exists
-for the one case neither a test source nor a plan doc can answer for, a planned
-row of a suite that has <em>no</em> plan doc because it has no VHDL counterpart. Two
-suites are in that position, <code>rewind_test</code> and <code>sdcard_test</code>, tombstoned as
-<code>(jnext-internal)</code> and <code>(SD SPI spec)</code>; without this file their backlog would
-simply vanish when the matrix became generated.</p>
-<p>It is parsed strictly: a malformed record or a duplicate <code>(section, id)</code> is a
-refusal, not a dropped row. It is not a place to assert coverage — every row in
-it emits as <code>missing</code>, because nothing runs it.</p>
+three <code>|</code>-separated fields per record — section, row ID, description. It covers
+the one case neither a test source nor a plan doc can answer for, a planned row
+of a suite that has <em>no</em> plan doc because it has no VHDL counterpart —
+<code>rewind_test</code> and <code>sdcard_test</code>, tombstoned as <code>(jnext-internal)</code> and
+<code>(SD SPI spec)</code>. It is parsed strictly: a malformed record or a duplicate
+<code>(section, id)</code> is a refusal, not a dropped row. It is not a place to assert
+coverage — every row in it emits as <code>missing</code>, because nothing runs it.</p>
 <h2 id="what-the-generator-refuses-to-do">What the generator refuses to do<a class="headerlink" href="#what-the-generator-refuses-to-do" title="Permanent link">&para;</a></h2>
-<p>Its exit codes are a vocabulary, not decoration: <code>0</code> clean, <code>1</code> the matrix was
-rewritten and still under-records rows, <code>2</code> refusal with nothing written, <code>3</code>
-internal error.</p>
+<p>Its exit codes are a vocabulary, not decoration: <code>0</code> clean, <code>1</code> rewritten but
+still under-recording, <code>2</code> refusal with nothing written, <code>3</code> internal error.</p>
 <ul>
-<li><strong>It refuses (exit 2) when a declared suite is unaccounted for.</strong> Every suite
-  in <code>test/unit-tests.conf</code> must be either <em>traced</em> — mapped to a <code>##</code> section,
-  the one genuinely editorial fact left — or <em>tombstoned</em> with a written reason.
-  Anything else stops the run and the matrix is untouched. That replaced an
-  advisory warning which had saturated: the traced-suite count sat at 28 for a
-  whole release series while the manifest grew 49 → 80, because each of ~31
-  additions arrived as one more name on a warning line that already listed
-  fifty. <code>make traceability-accounting-check</code> runs just this half, in ~0.01 s
-  with no build prerequisite.</li>
+<li><strong>It refuses when a declared suite is unaccounted for.</strong> Every suite in
+  <code>test/unit-tests.conf</code> must be either <em>traced</em> — mapped to a <code>##</code> section, the
+  one genuinely editorial fact left — or <em>tombstoned</em> with a written reason.
+  That replaced an advisory warning which had saturated: the traced-suite count
+  sat at 28 for a whole release series while the manifest grew 49 → 80, each
+  addition arriving as one more name on a warning line that already listed
+  fifty. <code>make traceability-accounting-check</code> runs just this half, in ~0.01 s.</li>
 <li><strong>It refuses to invent a row.</strong> A row the tests assert but the matrix does not
   record is <em>reported</em>, never auto-added: the payload of a matrix row is its
   human-readable description, and the script has no honest source for one. A row
   whose only readable field is <code>—</code> would make the count look right while
-  recording nothing, and would be self-consistent on every later run, so it
-  would never surface again.</li>
+  recording nothing, and would be self-consistent forever after.</li>
 <li><strong>It refuses to guess a source path.</strong> Suite sources are read from CMake, not
   from a naming convention: 80 suite names match their source basename and 7 do
-  not, and the two ESP-01 suites live under <code>src/esp01/test/</code>. A convention that
-  is right 92% of the time is the worst kind.</li>
+  not, and the two ESP-01 suites live under <code>src/esp01/test/</code>. A convention
+  right 92% of the time is the worst kind.</li>
 <li><strong>It leaves hand-written citations alone</strong>, reporting disagreements rather
-  than overwriting them, and leaves rows marked <code>&lt;!-- protected --&gt;</code>
-  byte-identical.</li>
+  than overwriting them, and leaves rows marked <code>&lt;!-- protected --&gt;</code> untouched.</li>
 </ul>
 <p>The extractor is itself pinned by <code>make traceability-selftest</code> — see
 <a href="06-the-harness-selftest.html">4.6</a>. After changing a test, run <code>make unit-test</code>:

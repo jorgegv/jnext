@@ -1789,9 +1789,9 @@ CMakeLists.</p>
 <pre><code class="language-cpp">void check(const char* id, const char* desc, bool cond, const std::string&amp; detail = {});
 void skip (const char* id, const char* reason);
 </code></pre>
-<p><code>check()</code> bumps the totals and, on failure, prints <code>FAIL &lt;id&gt;: &lt;desc&gt;</code>, which
-is the one output format every tool in the project relies on. <code>skip()</code> records
-the row and prints it in the trailing summary <strong>without touching the pass/fail
+<p><code>check()</code> bumps the totals and, on failure, prints <code>FAIL &lt;id&gt;: &lt;desc&gt;</code> — the
+one output format every tool in the project relies on. <code>skip()</code> records the row
+and prints it in the trailing summary <strong>without touching the pass/fail
 counters</strong>. Every suite ends with the line the unit harness parses:</p>
 <pre><code>Total:   82  Passed:   82  Failed:    0  Skipped:    0
 </code></pre>
@@ -1801,12 +1801,11 @@ counters</strong>. Every suite ends with the line the unit harness parses:</p>
   every source reader and vanishes from the traceability matrix.</li>
 <li><strong>It must be globally unique.</strong> <code>traceability-dup-ids.pl</code> refuses when two
   suites assert the same ID.</li>
-<li>The description is the second argument, and it is what the matrix publishes.
-  Write one worth reading.</li>
+<li>The description is what the matrix publishes. Write one worth reading.</li>
 <li><strong>Cite the VHDL in the same call</strong> — file and line range. A citation written
-  only in the plan doc still works, but the row-local one is what gets
-  validated against the real FPGA tree, and a disagreement between the two is
-  reported for a human to resolve.</li>
+  only in the plan doc still works, but the row-local one is what gets validated
+  against the real FPGA tree, and a disagreement between the two is reported for
+  a human to resolve.</li>
 </ul>
 <p><code>skip()</code> means the facility does not exist in <code>src/</code> at all, or is genuinely not
 observable through the public API. It does not mean the assertion is awkward.
@@ -1816,17 +1815,17 @@ rejects it, along with <code>|| true</code> and <code>a == b || a != b</code>; i
 those substrings must not appear in comments either.</p>
 <h2 id="the-rule-that-matters-most">The rule that matters most<a class="headerlink" href="#the-rule-that-matters-most" title="Permanent link">&para;</a></h2>
 <p><strong>A test derives from the specification, never from the existing C++.</strong> The
-specification here is the VHDL at <code>cores/zxnext/src/</code> in the FPGA repository.
-Read <code>src/</code> only to discover the public API surface. If your assertion matches
+specification is the VHDL at <code>cores/zxnext/src/</code> in the FPGA repository; read
+<code>src/</code> only to discover the public API surface. If your assertion matches
 whatever the emulator happens to do today, you have written a tautology that
 will pass forever and prove nothing.</p>
 <p>The corollary: <strong>a failing unit test does not mean the test is wrong.</strong> The
 default assumption is that the emulator is wrong and the test is a correct
-reading of the VHDL. Only an independent review comparing the assertion, the
-citation and the C++ may change a test. Read the surrounding VHDL process, not
-just the cited line — an oracle can cite a real line and still be unreachable
-under the stimulus the test applies, which is how several "confirmed emulator
-bugs" survived four reviews each.</p>
+reading of the VHDL, and only an independent review comparing assertion,
+citation and C++ may change a test. Read the surrounding VHDL process, not just
+the cited line — an oracle can cite a real line and still be unreachable under
+the stimulus the test applies, which is how several "confirmed emulator bugs"
+survived four reviews each.</p>
 <h2 id="registering-and-pinning-it">Registering and pinning it<a class="headerlink" href="#registering-and-pinning-it" title="Permanent link">&para;</a></h2>
 <p>In <code>test/CMakeLists.txt</code>:</p>
 <pre><code class="language-cmake">add_executable(mysub_test mysub/mysub_test.cpp)
@@ -1852,10 +1851,10 @@ revert the mutation from a backup copy of the file — never with <code>git chec
 which is how a real fix gets thrown away along with the mutation. Mutate the
 behavioural branch you actually added, not a shared helper: reverting a helper
 turns everything red and proves nothing about your row.</p>
-<p>A row that cannot be made to fail is not a test. This is not a formality — the
-project's own history contains six subsystem plans reporting "100% passing"
-while carrying tautologies, anti-tests that pinned wrong behaviour as expected,
-and 34 plan rows silently dropped from a 95-row plan.</p>
+<p>A row that cannot be made to fail is not a test. Not a formality — the project's
+history contains six subsystem plans reporting "100% passing" while carrying
+tautologies, anti-tests that pinned wrong behaviour as expected, and 34 plan
+rows silently dropped from a 95-row plan.</p>
 <h2 id="then-never-review-your-own-work">Then: never review your own work<a class="headerlink" href="#then-never-review-your-own-work" title="Permanent link">&para;</a></h2>
 <p>Every change gets an independent review by someone — or some agent — that did
 not write it, working in its own worktree. The verdict is binary, APPROVE or

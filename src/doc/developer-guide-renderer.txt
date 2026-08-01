@@ -1,0 +1,3 @@
+mkdocs 1.6.1
+mkdocs-material 9.7.1
+dot - graphviz version 14.1.4 (20260321.0153)

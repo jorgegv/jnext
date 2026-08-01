@@ -19,9 +19,9 @@ row *N*), and `read_rows()` returns the 5-bit AND of every selected row — bits
 7:5 of the port `0xFE` byte are composed by the caller in `Emulator`, not here.
 Three layers apply before the row-select AND, in this order:
 
-1. **Shift hysteresis.** `membrane.vhd:178` holds the Caps-Shift and Symbol-Shift
-   column state one extra scan, so a release is delayed. `tick_scan()` advances
-   the two-entry history from the frame loop.
+1. **Shift hysteresis** — `membrane.vhd:178` holds the Caps-Shift and
+   Symbol-Shift column state one extra scan, delaying a release. `tick_scan()`
+   advances the two-entry history from the frame loop.
 2. **Extended-key fold** (below).
 3. **`MembraneStick` fold** (below), matching
    `keyb_col <= keyb_col_i_q AND membrane_stick_col AND ps2_kbd_col`.

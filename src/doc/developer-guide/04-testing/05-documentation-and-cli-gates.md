@@ -25,9 +25,9 @@ stale document never hides another and each prints its own remediation line:
   diffs those too. Checking only the site would let a hand-edited SVG through,
   since mkdocs copies it unchanged. Fix: `make docs-devguide`, commit both.
 
-On a host without pandoc, mkdocs or graphviz the relevant part **skips**. In CI
-it **hard-fails**, keyed on `$CI` — a check that skips silently reads as a pass,
-which is exactly the shape being guarded against.
+On a host without pandoc, mkdocs or graphviz the relevant part **skips**; in CI
+it **hard-fails**, keyed on `$CI`, because a check that skips silently reads as
+a pass.
 
 ## The renderer fingerprint
 
@@ -62,10 +62,9 @@ product while writing the user guide, not by any check.
 
 The fix was to stop treating the flag set as control flow. `src/core/cli_options.h`
 holds it as a **data table** — one row per accepted spelling, with its arity, a
-documentation class, and its `OptId` — and `main.cpp` dispatches from that
-table, so a flag that is not in the table cannot be parsed. `cli_options_test`
-then diffs the table against the OPTIONS section of `doc/man/jnext.1.md` in both
-directions:
+documentation class and its `OptId` — and `main.cpp` dispatches from that table,
+so a flag not in the table cannot be parsed. `cli_options_test` then diffs the
+table against the OPTIONS section of `doc/man/jnext.1.md` both ways:
 
 - `CLI-DOC-01` — **implemented but undocumented**: every documented-class
   spelling has a man page entry.
@@ -90,14 +89,12 @@ deliberately needs no compiler.
 ## Declaring a deliberate exception
 
 Exceptions are declared **in the table**, never as a grep exclusion in the
-checker. The documentation class `Doc::UndocumentedAlias` marks a flag that is
-intentionally absent from the man page, with the reason in a comment on its row;
-today that is `--sd-card`, a back-compatibility alias for `--sdcard` that exists
-so older scripts keep working and should not be advertised. `CLI-DOC-05` asserts
-such a flag really is absent — a deliberate exception that quietly became
-documented is drift too, and would otherwise never be noticed.
-`Doc::ShortAlias` covers short forms documented inline on their long form's
-entry.
+checker. `Doc::UndocumentedAlias` marks a flag intentionally absent from the man
+page, with the reason in a comment on its row; today that is `--sd-card`, a
+back-compatibility alias for `--sdcard` that should not be advertised.
+`CLI-DOC-05` asserts such a flag really is absent — a deliberate exception that
+quietly became documented is drift too. `Doc::ShortAlias` covers short forms
+documented inline on their long form's entry.
 
 Adding a flag is therefore four edits: an `OptId`, a table row, a `case` in
 `main.cpp` (the compiler enforces that via `-Wswitch`), and an entry in

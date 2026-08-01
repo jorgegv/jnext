@@ -51,7 +51,7 @@ digraph video_pipeline {
     pal [label="PaletteManager\nULA / Layer 2 / sprite / tilemap banks"];
 
     comp [label="Renderer — compositor\nNR 0x15 priority order, transparency,\nclip windows, blend/stencil,\nNR 0x4A fallback colour", fillcolor="#dfe8dd"];
-    fb   [label="framebuffer\n640 x 512 ARGB", fillcolor="#e3ecf7"];
+    fb   [label="framebuffer\n640 x 256 ARGB8888", fillcolor="#e3ecf7"];
     host [label="frontend\nQt widget / SDL texture / PNG", fillcolor="#e3ecf7"];
 
     cop -> log;
