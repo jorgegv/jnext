@@ -1749,6 +1749,33 @@ my %PLAN_ROWS_CACHE;
 # matrix's own. Exact strings: `Retracted ID` and `ULA plan ID (retired)` head
 # ID-shaped columns too, and are deliberately absent.
 my $EXCEPTIONS = 'test/traceability-exceptions.conf';
+# Suites that ASSERT rows a section's plan doc owns, without being that
+# section's companion (GH #196 phase 4).
+#
+# The plan-doc-derived pairing in emit_matrix() can only attach a `###`
+# companion to the one `##` parent sharing its plan. This is the other shape:
+# the asserting suite belongs to a DIFFERENT plan doc entirely. LoRes is the
+# clearest case and not an accident of filing — LoRes is not a layer, it
+# SUBSTITUTES the ULA-slot pixel (zxnext.vhd:6980), so its behaviour is
+# naturally asserted in the compositor suite.
+#
+# This is STATUS-ONLY, exactly like the companion fallback: emit_section_rows()
+# builds its row set from @sources alone, so a suite named here never imports
+# its own rows into the borrowing section — they stay in its own.
+#
+# It could NOT be done by adding the suite to the borrowing @SUBSYS entry the
+# way `## Audio` names its three: Audio's two extra suites have no section of
+# their own, so that is their FIRST mention, while every suite below already
+# owns a section and a second mention is refused by the accounting gate. That
+# refusal is correct and is left alone.
+my %EXTRA_STATUS_FALLBACK = (
+    'LoRes'            => ['compositor_test', 'nextreg_integration_test'],
+    'Memory/MMU'       => ['nextreg_integration_test'],
+    'Copper'           => ['nextreg_integration_test'],
+    'Tilemap'          => ['nextreg_integration_test'],
+    'DivMMC+SPI'       => ['nextreg_integration_test'],
+);
+
 my @PLAN_ID_HEADERS = ('ID', '#', 'Test', 'Row', 'Row ID', 'Test ID', 'Test IDs');
 sub plan_cites {
     my ($source_rel) = @_;
@@ -3965,6 +3992,19 @@ sub emit_matrix {
             my $parent = $parent_of_doc{$doc} or next;
             push @{ $comp_srcs{$parent} }, as_list($srcs);
             push @{ $comp_bins{$parent} }, as_list($bins);
+        }
+        # The declared cross-plan-doc fallbacks, merged in beside them.
+        my $src_of = cmake_sources();
+        for my $entry (@$subsys) {
+            my ($header) = @$entry;
+            my ($label) = $header =~ /^#+\s*([^—]+?)\s*—/ or next;
+            for my $suite (@{ $EXTRA_STATUS_FALLBACK{$label} || [] }) {
+                my $src = $src_of->{$suite}
+                    or fatal("%EXTRA_STATUS_FALLBACK names '$suite', which "
+                           . "CMake does not build");
+                push @{ $comp_srcs{$header} }, as_list($src);
+                push @{ $comp_bins{$header} }, "build/test/$suite";
+            }
         }
     }
 
