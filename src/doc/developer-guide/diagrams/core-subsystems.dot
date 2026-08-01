@@ -1,0 +1,61 @@
+// What the Emulator owns, grouped by the directory the class lives in.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/core-subsystems.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// This is an OWNERSHIP map, not a call graph: every name below is a member of
+// Emulator (src/core/emulator.h), constructed and destroyed with it. It is
+// deliberately not exhaustive — the media loaders, the recorders and the
+// profiler are members too, and they live in chapters 3.8 and 3.9. Listing
+// every one of them turns a map into a wall.
+//
+// One node per GROUP rather than one node per class, and the members are in
+// the label: a cluster per group laid out either as a 340 x 2867 px column
+// (rankdir=LR) or a 4127 x 212 px strip (rankdir=TB), and neither is a figure
+// anyone can read inline.
+//
+// Palette note: light fills, dark labels, transparent canvas, so the figure
+// reads on both the light and the dark theme of the rendered guide.
+digraph core_subsystems {
+    bgcolor="transparent";
+    rankdir=TB;
+    fontname="Helvetica";
+    ranksep=0.55;
+    nodesep=0.35;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#eef2f7", color="#5a6b80", fontcolor="#1b2430", margin="0.16,0.10"];
+    edge [color="#9aa8b8", arrowhead=none];
+
+    emu [label="Emulator — src/core/emulator.{h,cpp}\nowns every box below; run_frame() drives them",
+         shape=box3d, style="filled", fillcolor="#f6efdc", fontsize=12, margin="0.25,0.14"];
+
+    // One box round all nine, rather than nine edges from Emulator: drawing
+    // the edges to row 1 only made it look as though row 1 were owned and the
+    // other six were not.
+    subgraph cluster_owned {
+        label=""; color="#c3ccd8"; style="rounded";
+
+    time  [label="timing — src/core\lClock · Scheduler · MachineTiming\l"];
+    cpu   [label="CPU — src/cpu\lZ80Cpu (FUSE core + Z80N)\lIm2Controller\l"];
+    mem   [label="memory — src/memory\lRam · Rom · Mmu · ContentionModel\l"];
+    io    [label="I/O — src/port\lPortDispatch · NextReg\l"];
+    video [label="video — src/video\lVideoTiming · Renderer (ULA, LoRes,\lLayer 2, compositing) · SpriteEngine\lTilemap · PaletteManager\l"];
+    audio [label="audio — src/audio\lTurboSound (3x YM2149) · Dac\lBeeper · I2s · Mixer\l"];
+    per   [label="peripherals — src/peripheral\lCopper · Ctc · Dma · DivMmc\lMultiface · NmiSource · I2cRtc\lSpiMaster + SdCardDevice\lUart + ESP-01\l"];
+    input [label="input — src/input\lKeyboard · Joystick · KempstonMouse\l"];
+    debug [label="debug backend — src/debug\lDebugState · TraceLog · CallStack\lRewindBuffer\l"];
+
+        // Three rows of three. The rank sets must live INSIDE the cluster: a
+        // rank set declared outside it claims the nodes and graphviz then
+        // empties the cluster ("already in a rankset, deleted from cluster").
+        {rank=same; time; cpu; mem;}
+        {rank=same; io; video; audio;}
+        {rank=same; per; input; debug;}
+    }
+
+    // The invisible edges are what forces the grid; without them graphviz puts
+    // all nine on one rank.
+    emu -> {time cpu mem} [style=invis];
+    time -> io [style=invis]; cpu -> video [style=invis]; mem -> audio [style=invis];
+    io -> per [style=invis]; video -> input [style=invis]; audio -> debug [style=invis];
+}

@@ -1,0 +1,61 @@
+// JNEXT system overview — the three tiers and what crosses between them.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/system-overview.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Palette note: every fill is light and every label is dark, so the figure
+// reads on both the light and the dark theme of the rendered guide. The canvas
+// is transparent for the same reason. Do not introduce a light-on-dark node.
+digraph system_overview {
+    bgcolor="transparent";
+    rankdir=TB;
+    fontname="Helvetica";
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=11,
+          fillcolor="#eef2f7", color="#5a6b80", fontcolor="#1b2430", margin="0.16,0.09"];
+    edge [color="#5a6b80", fontname="Helvetica", fontsize=9, fontcolor="#3a4757"];
+
+    subgraph cluster_host {
+        label="Host — the only tier that may include SDL or Qt";
+        fontname="Helvetica"; fontsize=11; fontcolor="#3a4757";
+        color="#9aa8b8"; style="rounded";
+
+        qt   [label="Qt GUI frontend\nsrc/gui", fillcolor="#e3ecf7"];
+        sdl  [label="SDL frontend\nsrc/platform", fillcolor="#e3ecf7"];
+        head [label="headless\n(no window, no audio)", fillcolor="#e3ecf7"];
+        dbg  [label="Debugger UI\nsrc/debugger\n(ENABLE_DEBUGGER)", fillcolor="#e3ecf7"];
+    }
+
+    main [label="src/main.cpp\nargument table + frontend selection", fillcolor="#dfe8dd"];
+
+    subgraph cluster_core {
+        label="Emulator core — pure C++17, no platform headers";
+        fontname="Helvetica"; fontsize=11; fontcolor="#3a4757";
+        color="#9aa8b8"; style="rounded";
+
+        emu [label="Emulator\nsrc/core/emulator.{h,cpp}\nowns every subsystem, runs a frame",
+             fillcolor="#f6efdc"];
+
+        // Deliberately one box, not nine: core-subsystems.svg is the map, and
+        // two figures listing the same nine directories go out of step.
+        subs [label="subsystems\nCPU · memory · video · audio · ports and NextREG\nperipherals · input · debug backend"];
+
+        emu -> subs [arrowhead=none, color="#9aa8b8"];
+    }
+
+    spec [label="ZX Spectrum Next FPGA core (VHDL)\nthe authoritative specification",
+          shape=note, fillcolor="#f3e6ea"];
+
+    main -> qt   [style=dashed, label="  ENABLE_QT_UI"];
+    main -> sdl  [style=dashed];
+    main -> head [style=dashed];
+    qt   -> dbg  [style=dashed, arrowhead=none];
+
+    qt   -> emu [label="  run one frame"];
+    sdl  -> emu [label="  run one frame"];
+    head -> emu;
+    emu  -> qt  [label="  framebuffer, audio samples", style=dotted, constraint=false];
+    dbg  -> emu  [style=dotted, arrowhead=none, constraint=false, label="  introspects"];
+
+    spec -> emu [style=dashed, color="#a9707f", fontcolor="#a9707f",
+                 label="  derived from, cited line by line"];
+}
