@@ -663,9 +663,9 @@ Per-row disposition, from `git log -S'"<ID>"' -- test/divmmc/`:
   **orphaned** in the Phase 2 per-row rewrite `cdea45b6` (2026-04-15,
   123 rows), which moved DivMMC-mapping coverage onto state-accessor
   assertions (`is_ram_mapped()`, `is_rom_mapped()`, `is_read_only()`,
-  `bank()`) instead of byte-level read/write. MEM-03, MEM-04 and MEM-05
-  are now asserted in substance by the live rows **CM-06**, **CM-07**
-  and **CM-03** respectively (§2 "conmem paging" — identical
+  `bank()`) instead of byte-level read/write. MEM-03 and MEM-04
+  are now asserted in substance by the live rows **CM-06** and **CM-07**
+  respectively (§2 "conmem paging" — identical
   `write_control()` setup, same VHDL citation `divmmc.vhd:100`/`:95-96`,
   via accessor rather than round-trip). MEM-02 overlaps **CM-05**
   (`is_read_only()`) and, at the Mmu-overlay tier, **PRI-01**/**PRI-04**
@@ -673,9 +673,27 @@ Per-row disposition, from `git log -S'"<ID>"' -- test/divmmc/`:
   an actual byte round-trip through `Mmu`. MEM-01 overlaps **CM-02**/
   **CM-04** (mapping-only, different bank number) and **PRI-02** (an
   actual round-trip, again via the `Mmu` overlay rather than `DivMmc`
-  directly). **MEM-06** (bank-switch data isolation) and **MEM-07**
-  (out-of-range read fallback) have **no live equivalent of any kind**
-  today — true gaps, not just a changed mechanism.
+  directly). **MEM-05** (`slot 0 reads RAM page 3`, proving
+  `divmmc.vhd:96`'s `ram_bank <= X"3" when page0='1' else
+  i_divmmc_reg(3 downto 0)` — i.e. that page0 resolves to the
+  hard-coded bank 3 *regardless of the bank-select register value*) is
+  **not** covered in substance by any live row, contrary to this note's
+  earlier revision. **CM-03** (and its automap analog **AM-03**) were
+  considered but do not prove it: both assert only
+  `is_ram_mapped(0x0000) && !is_rom_mapped()` with the bank register
+  left at 0, which merely proves "page0 is RAM, not ROM" in mapram
+  mode — `is_rom_mapped()` is `is_active() && !mapram_`
+  (`src/peripheral/divmmc.h:189`), and neither `is_ram_mapped()` nor
+  `ram_page_for()` reads `bank_` for `addr < 0x2000`
+  (`src/peripheral/divmmc.cpp:555-560` hard-codes `return 3`), so both
+  assertions would still pass unchanged if the hard-coded-3 rule were
+  removed and page0 fell back to following the bank register instead.
+  No live row anywhere (checked `CM-03`, `AM-03`, `PRI-01`, `PRI-02`,
+  `PRI-04`) seeds a non-zero bank register and then confirms page0
+  still resolves to bank 3. **MEM-05**, **MEM-06** (bank-switch data
+  isolation) and **MEM-07** (out-of-range read fallback) therefore all
+  have **no live equivalent of any kind** today — true gaps, not just a
+  changed mechanism.
 - **NRD-01..04** (`NR 0xB8/0xB9/0xBA/0xBB` reset defaults 0x83/0x01/
   0x00/0xCD) — introduced in `86dc8f85`, orphaned in `cdea45b6`. The
   default values are stated as a documented precondition in the
