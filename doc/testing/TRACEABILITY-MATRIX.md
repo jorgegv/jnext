@@ -616,66 +616,66 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S5.05  | Hi-res mode (100)                               | zxula.vhd:191/389/419/426-427 | pass    | test/ula/ula_test.cpp:681 |
 | S5.06  | Hi-res uses timex border colour                 | zxula.vhd:419,426-427,543-553 | pass    | test/ula/ula_test.cpp:714 |
 | S5.07  | Shadow screen forces mode "000"                 | zxula.vhd:191    | pass    | test/ula/ula_test.cpp:748 |
-| S6.01  | Ink, format 0x07                                | zxnext.vhd:5394  | pass    | test/ula/ula_test.cpp:1526 |
-| S6.02  | Paper, format 0x07                              | zxula.vhd:520    | pass    | test/ula/ula_test.cpp:1540 |
-| S6.03  | Ink, format 0x0F                                | zxula.vhd:510    | pass    | test/ula/ula_test.cpp:1554 |
-| S6.04  | Paper, format 0x0F                              | zxula.vhd:521    | pass    | test/ula/ula_test.cpp:1568 |
-| S6.05  | Ink, format 0xFF                                | zxula.vhd:510    | pass    | test/ula/ula_test.cpp:1584 |
-| S6.06  | Paper, format 0xFF                              | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:1597 |
-| S6.07  | Border, format 0x07                             | zxula.vhd:504    | pass    | test/ula/ula_test.cpp:1612 |
-| S6.08  | Border, format 0xFF                             | zxula.vhd:500-504 | pass    | test/ula/ula_test.cpp:1627 |
-| S6.09  | Ink, format 0x01                                | zxula.vhd:518    | pass    | test/ula/ula_test.cpp:1641 |
-| S6.10  | Paper, format 0x01                              | zxula.vhd:518    | pass    | test/ula/ula_test.cpp:1658 |
-| S6.11  | Ink, format 0x3F                                | zxula.vhd:523    | pass    | test/ula/ula_test.cpp:1672 |
-| S6.12  | Non-standard format (e.g. 0x05)                 | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:1685 |
-| S6.14  | ULA palette reset content, indices 0x20-0xFF    | zxnext.vhd:6960-6965 | pass    | test/ula/ula_test.cpp:1731 |
-| S6.15  | Unwritten ULAnext paper/border render           | zxula.vhd:520    | pass    | test/ula/ula_test.cpp:1796 |
-| S6.16  | STANDARD strip border, ULAnext (GH #96)         | zxula.vhd:494-504 | pass    | test/ula/ula_test.cpp:1854 |
-| S6.17  | STANDARD strip border, format 0xFF (GH #96)     | zxula.vhd:500-502 | pass    | test/ula/ula_test.cpp:1880 |
-| S6.18  | HI_COLOUR strip border, ULAnext (GH #96)        | zxula.vhd:494-504 | pass    | test/ula/ula_test.cpp:1910 |
-| S6.19  | HI_COLOUR strip border, format 0xFF (GH #96)    | zxula.vhd:500-502 | pass    | test/ula/ula_test.cpp:1936 |
-| S6.20  | Scrolled-path paper select_bgnd (GH #97)        | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:1964 |
-| S6.21  | HI_COLOUR-path paper select_bgnd (GH #97)       | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:1989 |
-| S6.22  | HI_RES-path paper select_bgnd (GH #97)          | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:2017 |
-| S6.23  | TMX border-row select_bgnd (GH #97)             | zxula.vhd:500-502 | pass    | test/ula/ula_test.cpp:2045 |
-| S6.24  | STANDARD full border row, ULAnext (GH #103)     | zxula.vhd:494-504,414-415 | pass    | test/ula/ula_test.cpp:2094 |
-| S6.25  | STANDARD full border row, format 0xFF (GH #103) | zxula.vhd:500-502 | pass    | test/ula/ula_test.cpp:2122 |
-| S6.26  | HI_COLOUR full border row, ULAnext (GH #103)    | zxula.vhd:494-504,414-415,426 | pass    | test/ula/ula_test.cpp:2155 |
-| S7.01  | Ink, group 0                                    | zxnext.vhd:4547-4554 | pass    | test/ula/ula_test.cpp:2190 |
-| S7.02  | Paper, group 0                                  | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2206 |
-| S7.03  | Ink, group 3                                    | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2231 |
-| S7.04  | Paper, group 3                                  | zxula.vhd:531-541 | pass    | test/ula/ula_test.cpp:2255 |
-| S7.05  | Hi-res forces bit 3 high                        | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2271 |
-| S7.06  | Flash bit NOT used (attr bit 7 = palette group) | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2301 |
-| S7.07  | STANDARD strip border, ULA+ (GH #104)           | zxula.vhd:535-540,418 | pass    | test/ula/ula_test.cpp:2344 |
-| S7.08  | HI_COLOUR strip border, ULA+ (GH #104)          | zxula.vhd:535-540,418 | pass    | test/ula/ula_test.cpp:2372 |
-| S7.09  | Full border row, ULA+ (GH #104)                 | zxula.vhd:535-540,414-415,418 | pass    | test/ula/ula_test.cpp:2401 |
-| S8.01  | Default window, inside                          | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2421 |
-| S8.02  | Narrow window, inside                           | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2425 |
-| S8.03  | Narrow window, outside left                     | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2429 |
-| S8.04  | Narrow window, outside right                    | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2433 |
-| S8.05  | Narrow window, outside top                      | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2443 |
-| S8.08  | y2 >= 0xC0 clamped to 0xBF                      | zxnext.vhd:6779-6783 | pass    | test/ula/ula_test.cpp:2474 |
-| S9.02  | Scroll Y by 1                                   | zxula.vhd:192,206 | pass    | test/ula/ula_test.cpp:2542 |
-| S9.03  | Scroll Y by 191                                 | zxula.vhd:203-204 | pass    | test/ula/ula_test.cpp:2560 |
-| S9.04  | Scroll Y wraps at 192                           | zxula.vhd:203-204 | pass    | test/ula/ula_test.cpp:2579 |
-| S9.05  | Scroll X by 8 (1 char)                          | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2610 |
-| S9.06  | Scroll X by 1 (fine)                            | zxula.vhd:199,216 | pass    | test/ula/ula_test.cpp:2635 |
-| S9.07  | Scroll X by 255                                 | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2662 |
-| S9.08  | Fine scroll X enabled                           | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2689 |
-| S9.09  | Combined X+Y scroll                             | zxula.vhd:193-216 | pass    | test/ula/ula_test.cpp:2718 |
-| S9.10  | Y scroll wraps mid-third                        | zxula.vhd:206,223 | pass    | test/ula/ula_test.cpp:2740 |
-| S12.01  | ULA enabled (default)                           | zxnext.vhd:5445  | pass    | test/ula/ula_test.cpp:2951 |
-| S13.01  | 48K frame length                                | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2983 |
-| S13.02  | 128K frame length                               | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2993 |
+| S6.01  | Ink, format 0x07                                | zxnext.vhd:5394  | pass    | test/ula/ula_test.cpp:1531 |
+| S6.02  | Paper, format 0x07                              | zxula.vhd:520    | pass    | test/ula/ula_test.cpp:1545 |
+| S6.03  | Ink, format 0x0F                                | zxula.vhd:510    | pass    | test/ula/ula_test.cpp:1559 |
+| S6.04  | Paper, format 0x0F                              | zxula.vhd:521    | pass    | test/ula/ula_test.cpp:1573 |
+| S6.05  | Ink, format 0xFF                                | zxula.vhd:510    | pass    | test/ula/ula_test.cpp:1589 |
+| S6.06  | Paper, format 0xFF                              | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:1602 |
+| S6.07  | Border, format 0x07                             | zxula.vhd:504    | pass    | test/ula/ula_test.cpp:1617 |
+| S6.08  | Border, format 0xFF                             | zxula.vhd:500-504 | pass    | test/ula/ula_test.cpp:1632 |
+| S6.09  | Ink, format 0x01                                | zxula.vhd:518    | pass    | test/ula/ula_test.cpp:1646 |
+| S6.10  | Paper, format 0x01                              | zxula.vhd:518    | pass    | test/ula/ula_test.cpp:1663 |
+| S6.11  | Ink, format 0x3F                                | zxula.vhd:523    | pass    | test/ula/ula_test.cpp:1677 |
+| S6.12  | Non-standard format (e.g. 0x05)                 | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:1690 |
+| S6.14  | ULA palette reset content, indices 0x20-0xFF    | zxnext.vhd:6960-6965 | pass    | test/ula/ula_test.cpp:1736 |
+| S6.15  | Unwritten ULAnext paper/border render           | zxula.vhd:520    | pass    | test/ula/ula_test.cpp:1801 |
+| S6.16  | STANDARD strip border, ULAnext (GH #96)         | zxula.vhd:494-504 | pass    | test/ula/ula_test.cpp:1859 |
+| S6.17  | STANDARD strip border, format 0xFF (GH #96)     | zxula.vhd:500-502 | pass    | test/ula/ula_test.cpp:1885 |
+| S6.18  | HI_COLOUR strip border, ULAnext (GH #96)        | zxula.vhd:494-504 | pass    | test/ula/ula_test.cpp:1915 |
+| S6.19  | HI_COLOUR strip border, format 0xFF (GH #96)    | zxula.vhd:500-502 | pass    | test/ula/ula_test.cpp:1941 |
+| S6.20  | Scrolled-path paper select_bgnd (GH #97)        | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:1969 |
+| S6.21  | HI_COLOUR-path paper select_bgnd (GH #97)       | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:1994 |
+| S6.22  | HI_RES-path paper select_bgnd (GH #97)          | zxula.vhd:525    | pass    | test/ula/ula_test.cpp:2022 |
+| S6.23  | TMX border-row select_bgnd (GH #97)             | zxula.vhd:500-502 | pass    | test/ula/ula_test.cpp:2050 |
+| S6.24  | STANDARD full border row, ULAnext (GH #103)     | zxula.vhd:494-504,414-415 | pass    | test/ula/ula_test.cpp:2099 |
+| S6.25  | STANDARD full border row, format 0xFF (GH #103) | zxula.vhd:500-502 | pass    | test/ula/ula_test.cpp:2127 |
+| S6.26  | HI_COLOUR full border row, ULAnext (GH #103)    | zxula.vhd:494-504,414-415,426 | pass    | test/ula/ula_test.cpp:2160 |
+| S7.01  | Ink, group 0                                    | zxnext.vhd:4547-4554 | pass    | test/ula/ula_test.cpp:2195 |
+| S7.02  | Paper, group 0                                  | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2211 |
+| S7.03  | Ink, group 3                                    | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2236 |
+| S7.04  | Paper, group 3                                  | zxula.vhd:531-541 | pass    | test/ula/ula_test.cpp:2260 |
+| S7.05  | Hi-res forces bit 3 high                        | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2276 |
+| S7.06  | Flash bit NOT used (attr bit 7 = palette group) | zxula.vhd:531    | pass    | test/ula/ula_test.cpp:2306 |
+| S7.07  | STANDARD strip border, ULA+ (GH #104)           | zxula.vhd:535-540,418 | pass    | test/ula/ula_test.cpp:2349 |
+| S7.08  | HI_COLOUR strip border, ULA+ (GH #104)          | zxula.vhd:535-540,418 | pass    | test/ula/ula_test.cpp:2377 |
+| S7.09  | Full border row, ULA+ (GH #104)                 | zxula.vhd:535-540,414-415,418 | pass    | test/ula/ula_test.cpp:2406 |
+| S8.01  | Default window, inside                          | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2426 |
+| S8.02  | Narrow window, inside                           | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2430 |
+| S8.03  | Narrow window, outside left                     | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2434 |
+| S8.04  | Narrow window, outside right                    | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2438 |
+| S8.05  | Narrow window, outside top                      | zxula.vhd:562    | pass    | test/ula/ula_test.cpp:2448 |
+| S8.08  | y2 >= 0xC0 clamped to 0xBF                      | zxnext.vhd:6779-6783 | pass    | test/ula/ula_test.cpp:2479 |
+| S9.02  | Scroll Y by 1                                   | zxula.vhd:192,206 | pass    | test/ula/ula_test.cpp:2547 |
+| S9.03  | Scroll Y by 191                                 | zxula.vhd:203-204 | pass    | test/ula/ula_test.cpp:2565 |
+| S9.04  | Scroll Y wraps at 192                           | zxula.vhd:203-204 | pass    | test/ula/ula_test.cpp:2584 |
+| S9.05  | Scroll X by 8 (1 char)                          | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2615 |
+| S9.06  | Scroll X by 1 (fine)                            | zxula.vhd:199,216 | pass    | test/ula/ula_test.cpp:2640 |
+| S9.07  | Scroll X by 255                                 | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2667 |
+| S9.08  | Fine scroll X enabled                           | zxula.vhd:199    | pass    | test/ula/ula_test.cpp:2694 |
+| S9.09  | Combined X+Y scroll                             | zxula.vhd:193-216 | pass    | test/ula/ula_test.cpp:2723 |
+| S9.10  | Y scroll wraps mid-third                        | zxula.vhd:206,223 | pass    | test/ula/ula_test.cpp:2745 |
+| S12.01  | ULA enabled (default)                           | zxnext.vhd:5445  | pass    | test/ula/ula_test.cpp:2956 |
+| S13.01  | 48K frame length                                | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2988 |
+| S13.02  | 128K frame length                               | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2998 |
 | S13.03  | Pentagon frame length                           | —              | missing | missing                    |
-| S13.04  | Active display start 48K                        | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:3004 |
-| S13.14  | Frame complete flips exactly at 69888 T-states (48K) | zxula_timing.vhd:262,270 | pass    | test/ula/ula_test.cpp:3033 |
+| S13.04  | Active display start 48K                        | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:3009 |
+| S13.14  | Frame complete flips exactly at 69888 T-states (48K) | zxula_timing.vhd:262,270 | pass    | test/ula/ula_test.cpp:3038 |
 | S14.04  | Interrupt disabled                              | —              | missing | missing                                                                                          |
 | S14.05  | Line interrupt fires                            | —              | missing | missing                                                                                         |
 | S14.06  | Line interrupt 0 = last line                    | —              | missing | missing                                                                                         |
-| S15.01  | Normal screen (shadow=0)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:3089 |
-| S15.02  | Shadow screen (shadow=1)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:3108 |
+| S15.01  | Normal screen (shadow=0)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:3094 |
+| S15.02  | Shadow screen (shadow=1)                        | zxnext.vhd:4453  | pass    | test/ula/ula_test.cpp:3113 |
 | S5.10      | Hi-res renders at 512 px wide (mode=100)                                                                    | zxula.vhd:389,419                 | pass   | test/ula/ula_test.cpp:866       |
 | S5.10c     | HI_RES top-border row fills all 640 FB cells with TMX border colour                                         | —                             | pass   | test/ula/ula_test.cpp:981       |
 | S5.11      | Hi-res border uses 6-bit `border_clr_tmx` field (mode=100)                                                  | zxula.vhd:419,504                 | pass   | test/ula/ula_test.cpp:1075      |
@@ -692,16 +692,16 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S5-PSL.02  | Render at line L: STANDARD pixels for L < split, HI_COLOUR pixels for L >= split                             | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1358 |
 | S5-PSL.03  | Mid-frame HI_RES->STANDARD switch at line L: lines >= L revert to 256-px attribute path                      | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1398 |
 | S5-PSL.04  | `Ula::start_frame()` rewinds the per-scanline change-log; line-0 baseline reflects last-frame closing value  | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1427 |
-| S5-PSL.05  | Save-state snapshot includes the per-scanline change-log; round-trip preserves split rendering               | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1479 |
-| S9-PSL.01  | Two NR 0x26 writes at scanlines L1 < L2 captured separately                                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2778      |
-| S9-PSL.02  | Mid-frame NR 0x27 (scroll Y) split renders top/bottom with different scroll                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2826      |
-| S9-PSL.03  | Mid-frame NR 0x26 fine-scroll (NR 0x68 b2) flip at line L                                                    | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2866      |
-| S9-PSL.04  | `Ula::start_frame()` rewinds NR 0x26 / NR 0x27 change-log; line-0 baseline correct                            | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2897      |
-| S16.01     | NR 0xFF write commits ULA palette entry at the slot indexed by `port_bf3b_ulap_index`                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:3195      |
-| S17.01     | Two NR 0x43 b1-3 writes mid-frame at lines L1 < L2 captured separately                                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:3254      |
-| S17.02     | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                           | zxnext.vhd:5462,6826              | pass   | test/ula/ula_test.cpp:3284      |
-| S17.03     | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other                | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3326      |
-| S17.04     | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame          | zxnext.vhd:5391-5393,5462         | pass   | test/ula/ula_test.cpp:3366      |
+| S5-PSL.05  | Save-state snapshot includes the per-scanline change-log; round-trip preserves split rendering               | zxula.vhd:259-266; zxnext.vhd:2397,2713,2813 | pass | test/ula/ula_test.cpp:1482 |
+| S9-PSL.01  | Two NR 0x26 writes at scanlines L1 < L2 captured separately                                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2783      |
+| S9-PSL.02  | Mid-frame NR 0x27 (scroll Y) split renders top/bottom with different scroll                                  | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2831      |
+| S9-PSL.03  | Mid-frame NR 0x26 fine-scroll (NR 0x68 b2) flip at line L                                                    | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2871      |
+| S9-PSL.04  | `Ula::start_frame()` rewinds NR 0x26 / NR 0x27 change-log; line-0 baseline correct                            | zxula.vhd:193-216, 199          | pass   | test/ula/ula_test.cpp:2902      |
+| S16.01     | NR 0xFF write commits ULA palette entry at the slot indexed by `port_bf3b_ulap_index`                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:3200      |
+| S17.01     | Two NR 0x43 b1-3 writes mid-frame at lines L1 < L2 captured separately                                        | zxnext.vhd:6957                 | pass   | test/ula/ula_test.cpp:3259      |
+| S17.02     | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                           | zxnext.vhd:5462,6826              | pass   | test/ula/ula_test.cpp:3289      |
+| S17.03     | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other                | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3331      |
+| S17.04     | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame          | zxnext.vhd:5391-5393,5462         | pass   | test/ula/ula_test.cpp:3371      |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 
@@ -1022,31 +1022,31 @@ Last-touch commit: `44c21eed8032671965579e470d332ac4ce3b6ce0` (`44c21eed80`)
 | G16.PSL-09d     | Render line 100: NO sprite pixel at X=10 (sprite moved)                        | sprites.vhd:327-470         | pass   | test/sprites/sprites_test.cpp:3460   |
 | G16.OVF-01      | Cap-overflow rendering consequence (writes that fit replay; >cap drop)         | sprites.vhd:327-470         | pass   | test/sprites/sprites_test.cpp:3534   |
 | G16.OVF-02      | Overflow warn fires once-per-frame; clears at next start_frame                 | sprites.vhd:327-470         | pass   | test/sprites/sprites_test.cpp:3565   |
-| G16.OVF-03      | Z80N-DMA 32 byte-rewrites/line x 256 lines = 8192 writes (boundary)            | sprites.vhd:368-380         | pass   | test/sprites/sprites_test.cpp:3644   |
-| G17.PSL-PAT-01a | pre-frame pattern write survives rewind (no log entries)                       | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3702   |
-| G17.PSL-PAT-01b | render sees pre-frame pattern byte 0x77 at sprite px 0                         | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3720   |
-| G17.PSL-PAT-02a | Line 0: baseline pattern byte 0xAA at sprite px 0                              | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3784   |
-| G17.PSL-PAT-02b | Line 99: still baseline pattern byte 0xAA at sprite px 0                       | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3793   |
-| G17.PSL-PAT-02c | Line 100: post-write pattern byte 0xBB at sprite px 0                          | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3802   |
-| G17.PSL-PAT-02d | Line 200: pattern byte still 0xBB (carried)                                    | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3811   |
-| G17.PSL-PAT-03a | Line 0 sprite px = baseline 0x33 (pre-mid-frame pattern)                       | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3852   |
-| G17.PSL-PAT-03b | Line 5: tall sprite px = baseline 0x33                                         | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3886   |
-| G17.PSL-PAT-03c | Line 20: tall sprite px = post-rewrite 0x66                                    | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3895   |
-| G17.PSL-PAT-04a | Pattern write logged (count > 0)                                               | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3909   |
-| G17.PSL-PAT-04b | After reset: pattern_change_log_size == 0                                      | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3915   |
-| G17.PSL-PAT-05  | log saturates at MAX_PATTERN_CHANGES_PER_FRAME                                 | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3933   |
-| G17.PSL-PAT-06a | attr log has one mid-frame entry                                               | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3968   |
-| G17.PSL-PAT-06b | pattern log has one mid-frame entry                                            | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3972   |
-| G17.PSL-PAT-06c | Line 0: attribute X = baseline 0                                               | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3981   |
-| G17.PSL-PAT-06d | Line 29: still baseline X=0                                                    | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3988   |
-| G17.PSL-PAT-06e | Line 30: attribute X = 200 (mid-frame attr write)                              | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3995   |
-| G17.PSL-PAT-06f | Line 60: attribute X still 200 (pattern-only mid-frame)                        | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4013   |
-| G17.PSL-PAT-06g | Line 60: rendered pixel uses post-rewrite pattern byte 0x99                    | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4052   |
-| G17.PSL-PAT-07a | Both writes logged (visible + vblank)                                          | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4090   |
-| G17.PSL-PAT-07b | Catch-up: pattern[0]=0xAA in next-frame baseline                               | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4128   |
-| G17.PSL-PAT-07c | Catch-up: pattern[1]=0xBB in next-frame baseline (vblank entry flushed)        | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4132   |
-| G17.PSL-PAT-08  | Full pattern-RAM re-stream (>16384 bytes/frame) overflows cap                  | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4167   |
-| G06.NR70-01     | NR 0x70 b5:4 L2 resolution flip mid-frame must reroute width                   | zxnext.vhd:7400-7470        | pass   | test/sprites/sprites_test.cpp:4247   |
+| G16.OVF-03      | Z80N-DMA 32 byte-rewrites/line x 256 lines = 8192 writes (boundary)            | sprites.vhd:368-380         | pass   | test/sprites/sprites_test.cpp:3648   |
+| G17.PSL-PAT-01a | pre-frame pattern write survives rewind (no log entries)                       | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3706   |
+| G17.PSL-PAT-01b | render sees pre-frame pattern byte 0x77 at sprite px 0                         | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3724   |
+| G17.PSL-PAT-02a | Line 0: baseline pattern byte 0xAA at sprite px 0                              | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3788   |
+| G17.PSL-PAT-02b | Line 99: still baseline pattern byte 0xAA at sprite px 0                       | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3797   |
+| G17.PSL-PAT-02c | Line 100: post-write pattern byte 0xBB at sprite px 0                          | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3806   |
+| G17.PSL-PAT-02d | Line 200: pattern byte still 0xBB (carried)                                    | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3815   |
+| G17.PSL-PAT-03a | Line 0 sprite px = baseline 0x33 (pre-mid-frame pattern)                       | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3856   |
+| G17.PSL-PAT-03b | Line 5: tall sprite px = baseline 0x33                                         | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3890   |
+| G17.PSL-PAT-03c | Line 20: tall sprite px = post-rewrite 0x66                                    | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3899   |
+| G17.PSL-PAT-04a | Pattern write logged (count > 0)                                               | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3913   |
+| G17.PSL-PAT-04b | After reset: pattern_change_log_size == 0                                      | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3919   |
+| G17.PSL-PAT-05  | log saturates at MAX_PATTERN_CHANGES_PER_FRAME                                 | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3937   |
+| G17.PSL-PAT-06a | attr log has one mid-frame entry                                               | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3972   |
+| G17.PSL-PAT-06b | pattern log has one mid-frame entry                                            | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3976   |
+| G17.PSL-PAT-06c | Line 0: attribute X = baseline 0                                               | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3985   |
+| G17.PSL-PAT-06d | Line 29: still baseline X=0                                                    | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3992   |
+| G17.PSL-PAT-06e | Line 30: attribute X = 200 (mid-frame attr write)                              | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:3999   |
+| G17.PSL-PAT-06f | Line 60: attribute X still 200 (pattern-only mid-frame)                        | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4017   |
+| G17.PSL-PAT-06g | Line 60: rendered pixel uses post-rewrite pattern byte 0x99                    | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4056   |
+| G17.PSL-PAT-07a | Both writes logged (visible + vblank)                                          | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4094   |
+| G17.PSL-PAT-07b | Catch-up: pattern[0]=0xAA in next-frame baseline                               | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4132   |
+| G17.PSL-PAT-07c | Catch-up: pattern[1]=0xBB in next-frame baseline (vblank entry flushed)        | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4136   |
+| G17.PSL-PAT-08  | Full pattern-RAM re-stream (>16384 bytes/frame) overflows cap                  | sprites.vhd:561-572         | pass   | test/sprites/sprites_test.cpp:4171   |
+| G06.NR70-01     | NR 0x70 b5:4 L2 resolution flip mid-frame must reroute width                   | zxnext.vhd:7400-7470        | pass   | test/sprites/sprites_test.cpp:4251   |
 
 ## Tilemap — `test/tilemap/tilemap_test.cpp`
 
@@ -1354,16 +1354,16 @@ Last-touch commit: `3fda139` (compositor 5-feature fix: sprite_en, L2 priority, 
 | UDIS-03            | NR 0x68 b6:5 decode → Renderer::blend_mode (UDIS-03 closed)  | zxnext.vhd:7141  | pass    | test/compositor/compositor_test.cpp:2399 |
 | BLANK-G27-01       | rgb_blank_n_6 lockstep with rgb_out_6 pipeline (G27)         | zxnext.vhd:7395  | pass    | test/compositor/compositor_test.cpp:2598 |
 | PSCAN-01           | write_8bit appends change-log entry tagged with current_li…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2781 |
-| PSCAN-02           | rewind_to_baseline restores live palette to frame start      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2802 |
-| PSCAN-03           | apply_changes_for_line replays only matching lines, monoto…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2859 |
-| PSCAN-04           | change_log cap; overflow_warned_ latches once per frame      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2921 |
-| PSCAN-05           | Renderer::render_frame replays per-line palette mid-frame    | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:3066 |
-| PSCAN-G04-01       | NR 0x14 per-scanline replay not implemented (G04)            | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:3304 |
+| PSCAN-02           | rewind_to_baseline restores live palette to frame start      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2807 |
+| PSCAN-03           | apply_changes_for_line replays only matching lines, monoto…  | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2866 |
+| PSCAN-04           | change_log cap; overflow_warned_ latches once per frame      | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:2930 |
+| PSCAN-05           | Renderer::render_frame replays per-line palette mid-frame    | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:3079 |
+| PSCAN-G04-01       | NR 0x14 per-scanline replay not implemented (G04)            | zxnext.vhd:1137  | pass    | test/compositor/compositor_test.cpp:3319 |
 | PSCAN-G04-02       | NR 0x4B per-scanline replay not implemented (G04)            | zxnext.vhd:5016  | missing | missing                                  |
 | PSCAN-G04-03       | NR 0x4C per-scanline replay not implemented (G04)            | zxnext.vhd:5018  | missing | missing                                  |
-| PSCAN-G11-01       | NR 0x68 b0 stencil per-scanline replay not implemented (G11) | zxnext.vhd:5450  | pass    | test/compositor/compositor_test.cpp:3367 |
-| PSCAN-G11-02       | NR 0x68 b6:5 blend per-scanline replay not implemented (G11) | zxnext.vhd:5446  | pass    | test/compositor/compositor_test.cpp:3395 |
-| PSCAN-G11-03       | NR 0x68 b3 ulap_en per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3428 |
+| PSCAN-G11-01       | NR 0x68 b0 stencil per-scanline replay not implemented (G11) | zxnext.vhd:5450  | pass    | test/compositor/compositor_test.cpp:3382 |
+| PSCAN-G11-02       | NR 0x68 b6:5 blend per-scanline replay not implemented (G11) | zxnext.vhd:5446  | pass    | test/compositor/compositor_test.cpp:3410 |
+| PSCAN-G11-03       | NR 0x68 b3 ulap_en per-scanline replay not implemented (G11) | zxnext.vhd:5445  | pass    | test/compositor/compositor_test.cpp:3443 |
 | UTB-10             | Mode 00, TM above                                            | —                | pass    | test/compositor/compositor_test.cpp:1869 |
 | UTB-11             | Mode 00, TM below                                            | —                | pass    | test/compositor/compositor_test.cpp:1882 |
 | UTB-20             | Mode 10, stencil-off combined                                | —                | pass    | test/compositor/compositor_test.cpp:1895 |
