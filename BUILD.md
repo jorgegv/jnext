@@ -40,13 +40,17 @@ Optional:
 - **z88dk** — only to rebuild the demo programs in `demo/`.
 - **pandoc** — only to regenerate the man page and `USAGE.md` (`make docs-man`).
   See [Documentation](#documentation) below.
-- **mkdocs-material** — only to render the user guide (`make docs-userguide`).
+- **mkdocs-material** — only to render the user and developer guides
+  (`make docs-userguide`, `make docs-devguide`).
+  See [Documentation](#documentation) below.
+- **graphviz** — only to render the developer guide's diagrams
+  (`make docs-devguide-diagrams`, which `make docs-devguide` runs for you).
   See [Documentation](#documentation) below.
 
-None of the optional tools are needed to build jnext. In particular the two
-documentation tools are never invoked by a code build: the generated man page
-and `USAGE.md` are committed, so a source-only build ships complete docs on a
-machine that has neither.
+None of the optional tools are needed to build jnext. In particular the three
+documentation tools are never invoked by a code build: the generated man page,
+`USAGE.md`, both rendered guides and the guides' figures are all committed, so
+a source-only build ships complete docs on a machine that has none of them.
 
 ## Build
 
