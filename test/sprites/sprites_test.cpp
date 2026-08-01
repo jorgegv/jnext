@@ -3970,7 +3970,7 @@ static void group17() {
 
         // Both logs should record exactly one entry each.
         check("G17.PSL-PAT-06a",
-              "attr log has one mid-frame entry [sprites.vhd:561-572]",
+              "attr log has one mid-frame entry [sprites.vhd:327-470]",
               spr.change_log_size() == 1,
               DETAIL("attr_log=%zu", spr.change_log_size()));
         check("G17.PSL-PAT-06b",
@@ -3983,21 +3983,21 @@ static void group17() {
         // Line 0: baseline (X=0, pattern[0]=0x11).
         spr.apply_changes_for_line(0);
         check("G17.PSL-PAT-06c",
-              "Line 0: attribute X = baseline 0 [sprites.vhd:561-572]",
+              "Line 0: attribute X = baseline 0 [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 0,
               DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
 
         // Lines 1..29 — neither log fires.
         for (int row = 1; row < 30; ++row) spr.apply_changes_for_line(row);
         check("G17.PSL-PAT-06d",
-              "Line 29: still baseline X=0 [sprites.vhd:561-572]",
+              "Line 29: still baseline X=0 [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 0,
               DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
 
         // Line 30: attribute log fires (X=200), pattern log does NOT.
         spr.apply_changes_for_line(30);
         check("G17.PSL-PAT-06e",
-              "Line 30: attribute X = 200 (mid-frame attr write) [sprites.vhd:561-572]",
+              "Line 30: attribute X = 200 (mid-frame attr write) [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 200,
               DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
 
@@ -4015,7 +4015,7 @@ static void group17() {
         spr.apply_changes_for_line(60);
         // Verify the attribute side is unchanged from line 30 (X=200).
         check("G17.PSL-PAT-06f",
-              "Line 60: attribute X still 200 (pattern-only mid-frame) [sprites.vhd:561-572]",
+              "Line 60: attribute X still 200 (pattern-only mid-frame) [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 200,
               DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
 
