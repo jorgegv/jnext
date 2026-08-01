@@ -3968,20 +3968,29 @@ sub emit_matrix {
         push @sections, emit_section_from_rows($header, $flat[0], $rows);
         my %n;
         $n{ $_->[3] }++ for @$rows;
+        my $uncited = grep { $_->[2] eq '—' } @$rows;
         push @report, [section_label($header, $flat[0]), scalar @$rows,
                        $n{pass} // 0, $n{fail} // 0, $n{skip} // 0,
-                       $n{missing} // 0, 0];
+                       $n{missing} // 0, (scalar @$rows) - $uncited, $uncited];
     }
     my @out = emit_preamble();
     push @out, '## Summary', '';
     push @out, $SUMMARY_BEGIN;
     # render_summary() returns an ARRAYREF, not a list.
-    push @out, @{ render_summary(\@report, tombstoned_suites($declared),
+    push @out, @{ render_summary([map { [@{$_}[0 .. 5], 0] } @report],
+                                 tombstoned_suites($declared),
                                  0, declared_totals(), 0, []) };
     push @out, $SUMMARY_END, '';
     push @out, emit_cite_explainer();
     push @out, @sections;
-    return @out;
+    # The report is returned, never recomputed. main_body() used to build its
+    # own by calling emit_section_rows() a SECOND time without the companion
+    # options, so the stdout table applied the pre-fix "a companion re-lists
+    # its parent's plan" rule and contradicted the Summary written into the
+    # document by the same run (mmu_integration_test: 265 rows/206 missing on
+    # stdout against 59/0 in the document). Two computations of one fact will
+    # always drift; there is now one.
+    return (\@out, \@report);
 }
 
 sub main_body {
@@ -4006,11 +4015,17 @@ sub main_body {
         for my $entry (@SUBSYS) {
             my ($header, $suite) = @$entry;
             next unless $header =~ /\Q$EMIT_SECTION\E/;
-            my @sources = map { cmake_sources()->{$_} } as_list($suite);
-            my @flat = grep { defined } map { as_list($_) } @sources;
-            print "$_\n" for emit_section($header,
-                                           'build/test/' . (as_list($suite))[0],
-                                           \@flat);
+            # Emit the WHOLE document and print the requested section out of
+            # it, rather than emitting the section standalone. A standalone
+            # emit does not know its companions, so it would show the pre-fix
+            # behaviour — and this flag exists to VALIDATE the emitter, which
+            # makes a divergent debug view worse than no debug view.
+            my ($doc) = emit_matrix($subsys, $declared);
+            my $on = 0;
+            for my $l (@$doc) {
+                if ($l =~ /^#{2,3} /) { $on = ($l =~ /\Q$EMIT_SECTION\E/) ? 1 : 0; }
+                print "$l\n" if $on;
+            }
             return 0;
         }
         fatal("no section matching '$EMIT_SECTION'");
@@ -4084,24 +4099,13 @@ sub main_body {
     # doc-vs-computed `drift`, `unrecorded` (a test with no row) and stale
     # locations. None of those classes can exist now: every cell is computed,
     # so there is nothing for a hand edit to disagree with.
-    my @doc = emit_matrix($subsys, $declared);
+    my ($doc, $rep) = emit_matrix($subsys, $declared);
     open(my $out, '>', $MATRIX) or fatal("write $MATRIX: $!");
-    print $out join("\n", @doc), "\n";
+    print $out join("\n", @$doc), "\n";
     close $out;
 
-    my @report;
-    for my $entry (@$subsys) {
-        my ($header, $bins, $srcs) = @$entry;
-        my @flat = as_list($srcs);
-        my $rows = emit_section_rows($bins, \@flat);
-        my %n;
-        $n{ $_->[3] }++ for @$rows;
-        my $uncited = grep { $_->[2] eq '—' } @$rows;
-        push @report, [section_label($header, $flat[0]), scalar @$rows,
-                       $n{pass} // 0, $n{fail} // 0, $n{skip} // 0,
-                       $n{missing} // 0, (scalar @$rows) - $uncited, $uncited,
-                       0, 0, 0, 0];
-    }
+    # The SAME rows the document was written from — see emit_matrix().
+    my @report = map { [@{$_}[0 .. 5], $_->[6], $_->[7], 0, 0, 0, 0] } @$rep;
 
     printf("\n%-38s %5s %5s %5s %5s %5s %6s %6s %6s %6s %6s %6s\n",
            'Subsystem', 'rows', 'pass', 'fail', 'skip', 'miss',
