@@ -2307,7 +2307,7 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | I2C-11  | Pi I2C1 AND-gating: if pi_i2c1_scl = 0, SCL reads 0          | zxnext.vhd:3259  | pass    | test/uart/uart_test.cpp:1496 |
 | I2C-12  | Reset releases both lines                                    | zxnext.vhd:3235-3247 | pass    | test/uart/uart_test.cpp:1511 |
 | I2C-13  | NR 0xA0 bit 3 (pi_i2c1_en) gates GPIO 2/3 -> I2C1 wired-AND mux (G138)                                  | zxnext.vhd:2280,2309-2318               | pass    | test/uart/uart_test.cpp:1542 |
-| I2C-14  | EEPROM 24LC256 at write addr 0xA0: device ACKs (alongside DS1307) (G139)                                | i2c.cpp                                 | missing | missing                      |
+| I2C-14  | EEPROM 24LC256 at write addr 0xA0: device ACKs (alongside DS1307) (G139)                                | —                                        | missing | missing                      |
 | I2C-P01 | START condition: SDA high->low while SCL high                | zxnext.vhd:3237-3249 | pass    | test/uart/uart_test.cpp:1586 |
 | I2C-P02 | STOP condition: SDA low->high while SCL high                 | zxnext.vhd:3237-3249 | pass    | test/uart/uart_test.cpp:1599 |
 | I2C-P03 | Send byte (8 clocks): MSB first, clock each bit              | zxnext.vhd       | pass    | test/uart/uart_test.cpp:1614 |
@@ -2331,7 +2331,7 @@ Last-touch commit: `7cf61e20fa0eb7a804920eda36b9a4532823bc89` (`7cf61e20fa`)
 | RTC-15  | Sequential write: auto-increment register pointer            | —              | pass    | test/uart/uart_test.cpp:1948 |
 | RTC-16  | Clock halt bit (seconds register bit 7)                      | —              | pass    | test/uart/uart_test.cpp:1976 |
 | RTC-17  | NVRAM registers 0x08-0x3F (56 bytes)                         | —              | pass    | test/uart/uart_test.cpp:2008 |
-| RTC-18  | Snapshot in 12h mode preserves bit 6 + AM/PM bit 5 (G161)                                               | i2c.cpp:111                             | pass    | test/uart/uart_test.cpp:2059 |
+| RTC-18  | Snapshot in 12h mode preserves bit 6 + AM/PM bit 5 (G161)                                               | —                                        | pass    | test/uart/uart_test.cpp:2059 |
 | INT-01  | UART 0 RX interrupt: rx_avail when int_en bit set            | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:175 |
 | INT-02  | UART 0 RX near-full always triggers                          | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass    | test/uart/uart_integration_test.cpp:204 |
 | INT-03  | UART 1 RX interrupt: same logic as UART 0                    | zxnext.vhd:1941-1944,1949-1950 | pass    | test/uart/uart_integration_test.cpp:222 |
