@@ -1,5 +1,33 @@
 # ChangeLog
 
+## v0.99.110 (2026-08-01)
+
+### User Features
+- NEX V1.3 files load: new Layer 2 320x256 / 640x256 and tilemap loading screens, copper block, CRC check
+- NEX flags honoured: PC=0 means load without running, DONTRESETNEXTREGS and PRESERVENEXTREG respected
+- Emulated ESP-01 now speaks UDP, so guest programs can fetch the time over SNTP
+- NextSync 1.2 verified working end to end over the emulated ESP-01
+- Copper mid-frame palette-bank switches now take effect for Layer 2, sprites and tilemap
+- Copper WAIT lands on the raster line the hardware uses, so timed effects no longer sit one row early
+- The pawn demo runs again: esxdos file calls no longer fall through to the 48K ROM
+- SD card reports the busy window a block write owes the host, as real cards do
+
+### Developer Features
+- New --nex-args passes a command line to a NEX V1.3 program's CLI buffer
+- ESP-01 status bar distinguishes a blocked address (red REFUSED) from a connection failure
+
+### Bug Fixes
+- Layer 2 and LoRes loading-screen palettes follow the official loader instead of guessing
+- A normal NextSync disconnect is no longer reported as a red error
+- The ROM/RAM bank selector survives a reset, matching the hardware
+- Contention raster origin corrected to match the Copper's
+
+### Internal JNEXT Development
+- The traceability matrix is now generated from the test sources and gated against staleness
+- CI provisions the FPGA core, so the generated matrix is reproducible outside the maintainer's machine
+- CI builds and verifies the macOS disk image on every push, not only when a release is tagged
+- Regression rows are linted for stray EXIT traps that would break the harness cleanup
+
 ## v0.99.74 (2026-07-29)
 
 ### User Features
