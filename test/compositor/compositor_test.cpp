@@ -2779,7 +2779,12 @@ static void test_PSCAN() {
         p.write_8bit(0xE7);     // RGB333 = some non-default value
 
         check("PSCAN-01",
-              "write_8bit logs (line=123, ULA_FIRST, idx=5, rgb333)",
+              "zxnext.vhd:6957-6978 — palette_utm (dpram2) is a genuine "
+              "28 MHz edge-triggered write with no per-frame batching: an "
+              "NR-side palette write (nr_ulatm_we) commits at whatever "
+              "raster line it occurs on; write_8bit logs (line=123, "
+              "ULA_FIRST, idx=5, rgb333) so replay can reproduce that "
+              "same per-line timing",
               p.change_log_size() == 1,
               DETAIL("size=%zu", p.change_log_size()));
     }
@@ -2800,6 +2805,8 @@ static void test_PSCAN() {
         const uint32_t after_rewind = p.ula_colour(false, 5);
 
         check("PSCAN-02",
+              "zxnext.vhd:6957-6978 — palette RAM (palette_utm) holds "
+              "genuine persistent state with no frame-boundary clear; "
               "rewind_to_baseline restores live palette state",
               after_write != baseline_5 && after_rewind == baseline_5,
               DETAIL("baseline=0x%08X after_write=0x%08X after_rewind=0x%08X",
@@ -2857,6 +2864,8 @@ static void test_PSCAN() {
         const bool hundred_ok = (p.ula_colour(false, 3) != baseline_3);
 
         check("PSCAN-03",
+              "zxnext.vhd:6957-6978 — a real palette write (nr_ulatm_we) "
+              "commits immediately at its own raster line, never batched; "
               "apply_changes_for_line replays only matching lines, cursor "
               "monotonic across the frame",
               none_yet && ten_ok && fifty_ok && hundred_ok,
@@ -2919,6 +2928,10 @@ static void test_PSCAN() {
         const bool warned_after_reset = p.overflow_warned_;
 
         check("PSCAN-04",
+              "zxnext.vhd:6957-6978 — real palette writes are rate-"
+              "unlimited (no VHDL throttling or logging exists); "
+              "MAX_CHANGES_PER_FRAME / overflow_warned_ is a jnext-only "
+              "runaway-write safety canary with no hardware counterpart: "
               "change_log_size saturates at the sanity bound; live palette "
               "still tracks past it; overflow_warned_ latches once and "
               "survives further writes; start_frame() resets it",
@@ -3064,9 +3077,11 @@ static void test_PSCAN() {
         const uint32_t exp_cyan = Renderer::rrrgggbb_to_argb(0x1F);
 
         check("PSCAN-05",
-              "Renderer::render_frame replays per-line palette changes — "
-              "lines before the change show baseline red, lines after "
-              "show the mid-frame cyan write",
+              "zxnext.vhd:6957-6978 — end-to-end against the same "
+              "immediate-write hardware model: Renderer::render_frame "
+              "replays per-line palette changes — lines before the change "
+              "show baseline red, lines after show the mid-frame cyan "
+              "write",
               before == exp_red && after == exp_cyan,
               DETAIL("before=0x%08X (exp red 0x%08X)  after=0x%08X (exp cyan 0x%08X)",
                      before, exp_red, after, exp_cyan));
