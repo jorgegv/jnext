@@ -1517,23 +1517,30 @@ sub split_top_level {
 sub file_tables {
     my ($source_rel) = @_;
     my $src  = source_lines("$ROOT/$source_rel");
-    # source_lines() keeps each line's trailing newline, so the parts are
-    # joined with NOTHING. Joining with "\n" inserts a second newline per
-    # line, which silently doubles every byte offset this sub converts back
-    # into a line number — and a nearest-preceding lookup against doubled
-    # line numbers matches nothing at all.
-    my $text = join('', @$src);
-
-    # line number (1-based) of a byte offset
-    my @nl;
-    my $p = -1;
-    push @nl, $p while ($p = index($text, "\n", $p + 1)) >= 0;
+    # Line numbers are taken from the ARRAY INDEX, never counted from the
+    # newlines in the joined text. source_lines() blanks a comment-only line
+    # to the empty string — which drops its newline — so counting newlines
+    # loses one line per comment and every offset converts back SHORT: the
+    # ula S1 table at line 214 was computed as 172, and the nearest-preceding
+    # lookup then resolved a later function's `struct Row` (id, fe, exp, why)
+    # for it. Recording where each line starts is exact and immune to
+    # whatever the blanking does to a line's contents.
+    my (@start, $text);
+    $text = '';
+    for my $k (0 .. $#$src) {
+        push @start, length($text);
+        my $l = $src->[$k];
+        # Keep the line slot for a blanked comment, or the lines either side
+        # of it are concatenated into one.
+        $l = "\n" if $l eq '';
+        $text .= $l;
+    }
     my $line_of = sub {
         my ($off) = @_;
-        my ($lo, $hi) = (0, scalar @nl);
+        my ($lo, $hi) = (0, scalar @start);
         while ($lo < $hi) { my $m = int(($lo + $hi) / 2);
-                            $nl[$m] < $off ? ($lo = $m + 1) : ($hi = $m); }
-        return $lo + 1;
+                            $start[$m] <= $off ? ($lo = $m + 1) : ($hi = $m); }
+        return $lo;      # @start is 0-based; the count IS the 1-based line
     };
 
     my @structs;
@@ -1542,8 +1549,18 @@ sub file_tables {
         my @fields;
         for my $decl (split /;/, $body) {
             next unless $decl =~ /\S/;
-            # last identifier before the end of the declaration is the field
-            push @fields, $1 if $decl =~ /([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*$/;
+            # ONE DECLARATION CAN DECLARE SEVERAL FIELDS: `int py, px;` is two
+            # columns, not one. Taking only the last identifier dropped `py`
+            # from ula's S1 table, which does not merely lose a column — it
+            # shifts every index after it, so a later lookup reads the wrong
+            # one. The first declarator carries the type and contributes its
+            # last identifier; the rest are bare names.
+            my @parts = split /,/, $decl;
+            for my $k (0 .. $#parts) {
+                next unless $parts[$k] =~ /\S/;
+                push @fields, $1
+                    if $parts[$k] =~ /([A-Za-z_]\w*)\s*(?:\[[^\]]*\])?\s*$/;
+            }
         }
         push @structs, { line => $line_of->($off), name => $name, fields => \@fields };
     }
