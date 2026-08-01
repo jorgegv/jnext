@@ -1982,25 +1982,6 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | IN-06            | conmem override during automap: conmem takes priority        | divmmc.vhd:94    | pass    | test/divmmc/divmmc_test.cpp:3473 |
 | IN-07            | DivMMC disabled via NR 0x0A[4]=0: no automap, SPI still wor… | zxnext.vhd:4112  | pass    | test/divmmc/divmmc_test.cpp:3497 |
 
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                   | VHDL file:line | Test file:line                  |
-|---------|-----------------------------------------|----------------|---------------------------------|
-| MEM-01  | Write/read slot 1 RAM bank 2            | —              | missing                         |
-| MEM-02  | Slot 0 writes discarded (ROM read-only) | —              | missing                         |
-| MEM-03  | mapram=1, bank=3: slot 1 read-only      | —              | missing                         |
-| MEM-04  | mapram=1, bank!=3: slot 1 writable      | —              | missing                         |
-| MEM-05  | mapram=1: slot 0 reads RAM page 3       | —              | missing                         |
-| MEM-06  | Bank switching: data preserved per bank | —              | missing                         |
-| MEM-07  | Read outside range returns 0xFF         | —              | missing                         |
-| NRD-01  | NR 0xB8 default = 0x83                  | —              | missing                         |
-| NRD-02  | NR 0xB9 default = 0x01                  | —              | missing                         |
-| NRD-03  | NR 0xBA default = 0x00                  | —              | missing                         |
-| NRD-04  | NR 0xBB default = 0xCD                  | —              | missing                         |
-| SD-01   | SD card: initial exchange returns 0xFF  | —              | missing                         |
-| SD-02   | SD card: deselect after reset           | —              | missing                         |
-| SD-03   | SD card: not mounted initially          | —              | missing                         |
-
 ## Multiface — `test/multiface/multiface_test.cpp`
 
 The Multiface peripheral (`src/peripheral/multiface.{h,cpp}`), implemented in
