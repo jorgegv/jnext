@@ -2015,11 +2015,11 @@ static void g_dac() {
                   dac.pcm_left(), dac.pcm_right()));
     }
 
-    // AUD-SD-02 - chA write.
+    // SD-02 - chA write.
     {
         Dac dac;
         dac.write_channel(0, 0xFF);
-        check("AUD-SD-02", "write channel A latches value",
+        check("SD-02", "write channel A latches value",
               dac.pcm_left() == 0xFF + 0x80,
               fmt("L=0x%03x VHDL soundrive.vhd:81-82", dac.pcm_left()));
     }
@@ -2094,59 +2094,56 @@ static void g_dac() {
     //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0x5F unwired).
     // RE-HOME: SD-11 — Soundrive mode 2 port decode moved to
     //   test/audio/audio_port_dispatch_test.cpp.
-    // RE-HOME: AUD-SD-12 (was SD-12) — Profi Covox port decode moved to
+    // RE-HOME: SD-12 — Profi Covox port decode moved to
     //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0x3F unwired).
-    // RE-HOME: AUD-SD-13 (was SD-13) — Covox port decode moved to
+    // RE-HOME: SD-13 — Covox port decode moved to
     //   test/audio/audio_port_dispatch_test.cpp.
-    // RE-HOME: AUD-SD-14 (was SD-14) — Pentagon/ATM mono port moved to
+    // RE-HOME: SD-14 — Pentagon/ATM mono port moved to
     //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0xFB fan-out gap).
-    // RE-HOME: AUD-SD-15 (was SD-15) — GS Covox port moved to
+    // RE-HOME: SD-15 — GS Covox port moved to
     //   test/audio/audio_port_dispatch_test.cpp (F-skip: 0xB3 unwired).
-    // RE-HOME: AUD-SD-16 (was SD-16) — SpecDrum port 0xDF moved to
+    // RE-HOME: SD-16 — SpecDrum port 0xDF moved to
     //   test/audio/audio_port_dispatch_test.cpp.
-    // RE-HOME: AUD-SD-17 (was SD-17) — nr_08_dac_en gating (zxnext.vhd:6436) requires the
+    // RE-HOME: SD-17 — nr_08_dac_en gating (zxnext.vhd:6436) requires the
     // Emulator + NextReg + Soundrive port-dispatch surface. Re-homed to
     // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
-    // RE-HOME: AUD-SD-18 (was SD-18) — mono-port aliasing moved to
+    // RE-HOME: SD-18 — mono-port aliasing moved to
     //   test/audio/audio_port_dispatch_test.cpp.
-    // NOTE (GH #196 dedup): SD-12..SD-19 and SD-02/20-23 in this section were
-    // renamed to AUD-SD-* to resolve a global ID collision with unrelated
-    // SD-card SPI-command tests in test/sdcard/sdcard_test.cpp. Pure rename.
 
-    // AUD-SD-20 - pcm_L = chA + chB.
+    // SD-20 - pcm_L = chA + chB.
     {
         Dac dac;
         dac.write_channel(0, 0x10);
         dac.write_channel(1, 0x20);
-        check("AUD-SD-20", "pcm_L = chA + chB",
+        check("SD-20", "pcm_L = chA + chB",
               dac.pcm_left() == 0x30,
               fmt("L=0x%03x VHDL soundrive.vhd:112", dac.pcm_left()));
     }
 
-    // AUD-SD-21 - pcm_R = chC + chD.
+    // SD-21 - pcm_R = chC + chD.
     {
         Dac dac;
         dac.write_channel(2, 0x30);
         dac.write_channel(3, 0x40);
-        check("AUD-SD-21", "pcm_R = chC + chD",
+        check("SD-21", "pcm_R = chC + chD",
               dac.pcm_right() == 0x70,
               fmt("R=0x%03x VHDL soundrive.vhd:113", dac.pcm_right()));
     }
 
-    // AUD-SD-22 - max 0xFF+0xFF = 0x1FE.
+    // SD-22 - max 0xFF+0xFF = 0x1FE.
     {
         Dac dac;
         dac.write_channel(0, 0xFF);
         dac.write_channel(1, 0xFF);
-        check("AUD-SD-22", "max pcm_L = 0x1FE (9-bit)",
+        check("SD-22", "max pcm_L = 0x1FE (9-bit)",
               dac.pcm_left() == 0x1FE,
               fmt("L=0x%03x VHDL soundrive.vhd:112", dac.pcm_left()));
     }
 
-    // AUD-SD-23 - reset output 0x100.
+    // SD-23 - reset output 0x100.
     {
         Dac dac;
-        check("AUD-SD-23", "reset output L=R=0x100",
+        check("SD-23", "reset output L=R=0x100",
               dac.pcm_left() == 0x100 && dac.pcm_right() == 0x100,
               fmt("L=0x%03x R=0x%03x VHDL soundrive.vhd:72-78,112-113",
                   dac.pcm_left(), dac.pcm_right()));
@@ -2248,11 +2245,11 @@ static void g_mixer() {
               fmt("L=%d R=%d VHDL audio_mixer.vhd:64,81", s[0], s[1]));
     }
 
-    // RE-HOME: AUD-MX-03 (was MX-03) — exc_i gating (zxnext.vhd:6504) composes
-    // NR 0x06 b6 + NR 0x08 b4. Re-homed to test/audio/audio_nextreg_test.cpp
+    // RE-HOME: MX-03 — exc_i gating (zxnext.vhd:6504) composes NR 0x06 b6
+    // + NR 0x08 b4. Re-homed to test/audio/audio_nextreg_test.cpp
     // (2026-04-24 Wave C).
 
-    // AUD-MX-04 - ay zero-extended 12->13 bit. Drive AY via TurboSound (max
+    // MX-04 - ay zero-extended 12->13 bit. Drive AY via TurboSound (max
     // vol, PSG0 pan=10) and confirm signed output = ay_L * 4 (unscaled).
     {
         Beeper bp; TurboSound ts; Dac dac; Mixer mx;
@@ -2270,7 +2267,7 @@ static void g_mixer() {
         int16_t s[2];
         mx.read_samples(s, 1);
         int32_t expected = static_cast<int32_t>(ay_L_exp) * 4;
-        check("AUD-MX-04", "AY_L routed verbatim (signed = ay_L*4)",
+        check("MX-04", "AY_L routed verbatim (signed = ay_L*4)",
               s[0] == static_cast<int16_t>(expected),
               fmt("L=%d expected=%d ay_L=%u VHDL audio_mixer.vhd:83-84",
                   s[0], expected, ay_L_exp));
@@ -2568,9 +2565,8 @@ static void g_mixer() {
 static void g_nextreg() {
     set_group("NextREG");
 
-    // RE-HOME: AUD-NR-01..AUD-NR-06 (was NR-01..NR-06), AUD-NR-10, AUD-NR-11,
-    // NR-12, AUD-NR-13, AUD-NR-14 (was NR-10..NR-14), NR-20/21, NR-30..32 —
-    // the full NR 0x06 / 0x08 / 0x09 / 0x2C-0x2E handler surface requires the
+    // RE-HOME: NR-01..NR-06, NR-10..NR-14, NR-20/21, NR-30..32 — the
+    // full NR 0x06 / 0x08 / 0x09 / 0x2C-0x2E handler surface requires the
     // Emulator + NextReg integration fixture. All 14 rows re-homed to
     // test/audio/audio_nextreg_test.cpp (2026-04-24 Wave C).
 }

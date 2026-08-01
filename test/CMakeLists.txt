@@ -641,8 +641,7 @@ add_test(NAME atic_atac_nmi_tests COMMAND atic_atac_nmi_test)
 # Emulator + NextReg surface: NR 0x06 bits[1:0]/bit6 (PSG mode + speaker_beep),
 # NR 0x08 bits 5/4/3/1/0 (stereo, speaker_en, dac_en, turbosound_en, issue2),
 # NR 0x09 bits 7:5 (per-PSG mono), NR 0x2C/0x2D/0x2E (Soundrive mirrors),
-# BP-10..13 beep composites, AUD-MX-03/MX-20/MX-22 exc_i gating,
-# AUD-SD-17/IO-10 dac gate.
+# BP-10..13 beep composites, MX-03/20/22 exc_i gating, SD-17/IO-10 dac gate.
 # Mirrors the uart_integration_test / ula_integration_test linkage.
 add_executable(audio_nextreg_test audio/audio_nextreg_test.cpp)
 target_link_libraries(audio_nextreg_test PRIVATE
@@ -655,7 +654,7 @@ add_test(NAME audio_nextreg_tests COMMAND audio_nextreg_test)
 # Audio + port-dispatch integration test (Phase 2 Wave B, 2026-04-24)
 # Hosts the 17 plan rows re-homed from audio_test.cpp that need a full
 # Emulator + NextReg + port-dispatch surface:
-#   SD-10, SD-11, AUD-SD-12..AUD-SD-16 + AUD-SD-18 (DAC port decoding fan-in/out),
+#   SD-10..16 + SD-18 (DAC port decoding fan-in/out),
 #   BP-01, BP-06    (port 0xFE dispatch into beeper/border),
 #   IO-01..05       (AY FFFD/BFFD decoding + unmodelled reg-query/+3 aliases),
 #   IO-11, IO-12    (port-to-channel fan-in + AY vs DAC conflict guard).

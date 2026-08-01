@@ -11,19 +11,14 @@
 // TurboSound / Dac.
 //
 // Covered rows by NR register group:
-//   AUD-NR-01..AUD-NR-05 — NR 0x06 bits[1:0] PSG-mode fan-out (YM/AY/alias/audio_ay_reset)
-//   AUD-NR-06       — NR 0x06 bit 6 internal_speaker_beep store
-//   AUD-NR-10, AUD-NR-11, NR-12, AUD-NR-13, AUD-NR-14 — NR 0x08 stereo / speaker / DAC / turbosound / issue2
+//   NR-01..NR-05    — NR 0x06 bits[1:0] PSG-mode fan-out (YM/AY/alias/audio_ay_reset)
+//   NR-06           — NR 0x06 bit 6 internal_speaker_beep store
+//   NR-10..NR-14    — NR 0x08 stereo / speaker / DAC / turbosound / issue2
 //   NR-20, NR-21    — NR 0x09 per-PSG mono bit→chip mapping
 //   NR-30, NR-31, NR-32 — NR 0x2C/0x2D/0x2E Soundrive mirrors (left/mono/right)
 //   BP-10..BP-13    — beep_mic_final XOR + issue2 cancel + issue3 EAR^MIC + beep_spkr_excl
-//   AUD-MX-03, MX-20, MX-22 — exc_i (beep_spkr_excl) gating into Mixer
-//   AUD-SD-17, IO-10 — dac_hw_en / dac_en gate (NR 0x08 bit 3)
-//
-// NOTE (GH #196 dedup): AUD-NR-* / AUD-MX-* / AUD-SD-* IDs in this file were
-// renamed from bare NR-*/MX-*/SD-* to resolve a global test-ID collision with
-// unrelated tests in DivMMC+SPI / SD Card (same short ID, different subsystem
-// and different behaviour). Pure rename — no logic change.
+//   MX-03, MX-20, MX-22 — exc_i (beep_spkr_excl) gating into Mixer
+//   SD-17, IO-10    — dac_hw_en / dac_en gate (NR 0x08 bit 3)
 //
 // Reference plan: doc/design/TASK3-AUDIO-SKIP-REDUCTION-PLAN.md
 // Reference structural template: test/uart/uart_integration_test.cpp,
@@ -152,56 +147,56 @@ static uint8_t nr_read(Emulator& emu, uint8_t reg) {
 static void test_nr_06(Emulator& emu) {
     set_group("NR-0x06");
 
-    // AUD-NR-01 — NextREG 0x06 bits[1:0] reach TurboSound::ay_mode()
+    // NR-01 — NextREG 0x06 bits[1:0] reach TurboSound::ay_mode()
     // (bit-0 fan-out per VHDL:6389). Spot-check: after writing bit 0 = 1
     // (psg_mode = 01 — AY mode), turbosound_.ay_mode() is true.
     {
         fresh(emu);
         nr_write(emu, 0x06, 0x01);       // psg_mode=01
         const bool ay = emu.turbosound().ay_mode();
-        check("AUD-NR-01",
+        check("NR-01",
               "NR 0x06 bits[1:0] handler forwards to TurboSound::ay_mode "
               "[zxnext.vhd:5170, :6389]",
               ay == true,
               fmt("psg_mode=01 → ay_mode=%d (want 1)", ay ? 1 : 0));
     }
 
-    // AUD-NR-02 — psg_mode=00 (YM). aymode_bit = 0 → TurboSound in YM mode.
+    // NR-02 — psg_mode=00 (YM). aymode_bit = 0 → TurboSound in YM mode.
     {
         fresh(emu);
         nr_write(emu, 0x06, 0x00);       // psg_mode=00
         const bool ay = emu.turbosound().ay_mode();
-        check("AUD-NR-02",
+        check("NR-02",
               "psg_mode=00 sinks to YM mode [zxnext.vhd:6389]",
               ay == false,
               fmt("psg_mode=00 → ay_mode=%d (want 0)", ay ? 1 : 0));
     }
 
-    // AUD-NR-03 — psg_mode=01 (AY). aymode_bit = 1 → AY mode.
+    // NR-03 — psg_mode=01 (AY). aymode_bit = 1 → AY mode.
     {
         fresh(emu);
         nr_write(emu, 0x06, 0x01);       // psg_mode=01
         const bool ay = emu.turbosound().ay_mode();
-        check("AUD-NR-03",
+        check("NR-03",
               "psg_mode=01 sinks to AY mode [zxnext.vhd:6389]",
               ay == true,
               fmt("psg_mode=01 → ay_mode=%d (want 1)", ay ? 1 : 0));
     }
 
-    // AUD-NR-04 — psg_mode=10 (alias). aymode_bit = 0 (bit 0 of "10" = 0) →
+    // NR-04 — psg_mode=10 (alias). aymode_bit = 0 (bit 0 of "10" = 0) →
     // YM mode, duplicating psg_mode=00. This is the VHDL "alias" row —
     // two bit combinations produce identical aymode routing.
     {
         fresh(emu);
         nr_write(emu, 0x06, 0x02);       // psg_mode=10
         const bool ay = emu.turbosound().ay_mode();
-        check("AUD-NR-04",
+        check("NR-04",
               "psg_mode=10 alias (bit 0 = 0 → YM) [zxnext.vhd:6389]",
               ay == false,
               fmt("psg_mode=10 → ay_mode=%d (want 0)", ay ? 1 : 0));
     }
 
-    // AUD-NR-05 — audio_ay_reset = (psg_mode == "11"). The VHDL:6379 signal
+    // NR-05 — audio_ay_reset = (psg_mode == "11"). The VHDL:6379 signal
     // feeds turbosound's reset_i, so after writing psg_mode=11 the AY
     // register file must be cleared (a previously-written register value
     // is gone). Exercise: write a distinctive value to AY#0 reg 0 via
@@ -221,14 +216,14 @@ static void test_nr_06(Emulator& emu) {
         // turbosound_.reset() which re-initialises the register file.
         nr_write(emu, 0x06, 0x03);
         const uint8_t after = emu.turbosound().ay(0).read_register(0);
-        check("AUD-NR-05",
+        check("NR-05",
               "audio_ay_reset = (nr_06_psg_mode=\"11\") clears AY register file "
               "[zxnext.vhd:6379, :6387]",
               before == 0x55 && after == 0x00,
               fmt("before=0x%02X after=0x%02X (want 0x55 → 0x00)", before, after));
     }
 
-    // AUD-NR-06 — NR 0x06 bit 6 stores nr_06_internal_speaker_beep. Observable
+    // NR-06 — NR 0x06 bit 6 stores nr_06_internal_speaker_beep. Observable
     // via the Emulator-level mirror exposed for this integration harness.
     {
         fresh(emu);
@@ -236,7 +231,7 @@ static void test_nr_06(Emulator& emu) {
         const bool on = emu.nr_06_internal_speaker_beep();
         nr_write(emu, 0x06, 0x00);       // bit 6 = 0
         const bool off = emu.nr_06_internal_speaker_beep();
-        check("AUD-NR-06",
+        check("NR-06",
               "NR 0x06 bit 6 latches nr_06_internal_speaker_beep "
               "[zxnext.vhd:5163]",
               on && !off,
@@ -261,21 +256,21 @@ static void test_nr_06(Emulator& emu) {
 static void test_nr_08(Emulator& emu) {
     set_group("NR-0x08");
 
-    // AUD-NR-10 — NR 0x08 bit 5 forwards to TurboSound::stereo_mode.
+    // NR-10 — NR 0x08 bit 5 forwards to TurboSound::stereo_mode.
     {
         fresh(emu);
         nr_write(emu, 0x08, 0x20);       // bit 5 = 1 (ACB)
         const bool acb = emu.turbosound().stereo_mode();
         nr_write(emu, 0x08, 0x00);       // bit 5 = 0 (ABC)
         const bool abc = emu.turbosound().stereo_mode();
-        check("AUD-NR-10",
+        check("NR-10",
               "NR 0x08 bit 5 → nr_08_psg_stereo_mode → TurboSound stereo "
               "[zxnext.vhd:5177, :6400]",
               acb == true && abc == false,
               fmt("acb=%d abc=%d (want 1/0)", acb ? 1 : 0, abc ? 1 : 0));
     }
 
-    // AUD-NR-11 — NR 0x08 bit 4 stores nr_08_internal_speaker_en in the
+    // NR-11 — NR 0x08 bit 4 stores nr_08_internal_speaker_en in the
     // NR 0x08 stored-low mirror (VHDL zxnext.vhd:5178 + read-back :5906).
     // Default value after reset is '1' (VHDL zxnext.vhd:1117 — default '1';
     // src/core/emulator.cpp init() seeds nr_08_stored_low_=0x10).
@@ -286,7 +281,7 @@ static void test_nr_08(Emulator& emu) {
         const uint8_t cleared = emu.nr_08_stored_low() & 0x10;
         nr_write(emu, 0x08, 0x10);       // bit 4 = 1
         const uint8_t set = emu.nr_08_stored_low() & 0x10;
-        check("AUD-NR-11",
+        check("NR-11",
               // :1116 is the nr_08_internal_speaker_en declaration, default
               // '1' — the reset value this row asserts. It used to read :1117,
               // which is nr_08_dac_en, i.e. NR-12's signal (GH #151).
@@ -298,7 +293,7 @@ static void test_nr_08(Emulator& emu) {
     }
 
     // NR-12 — NR 0x08 bit 3 latches nr_08_dac_en → dac_enabled_ which
-    // gates Soundrive DAC port writes (see IO-10 / AUD-SD-17 below).
+    // gates Soundrive DAC port writes (see IO-10 / SD-17 below).
     {
         fresh(emu);
         nr_write(emu, 0x08, 0x08);       // bit 3 = 1
@@ -311,7 +306,7 @@ static void test_nr_08(Emulator& emu) {
               fmt("en=%d dis=%d (want 1/0)", en ? 1 : 0, dis ? 1 : 0));
     }
 
-    // AUD-NR-13 — NR 0x08 bit 1 latches nr_08_psg_turbosound_en → routes to
+    // NR-13 — NR 0x08 bit 1 latches nr_08_psg_turbosound_en → routes to
     // TurboSound::enabled (the flag that promotes AY#1/#2 from dormant).
     {
         fresh(emu);
@@ -319,14 +314,14 @@ static void test_nr_08(Emulator& emu) {
         const bool on = emu.turbosound().enabled();
         nr_write(emu, 0x08, 0x00);
         const bool off = emu.turbosound().enabled();
-        check("AUD-NR-13",
+        check("NR-13",
               "NR 0x08 bit 1 → nr_08_psg_turbosound_en → TurboSound enable "
               "[zxnext.vhd:5181, :6390]",
               on && !off,
               fmt("on=%d off=%d (want 1/0)", on ? 1 : 0, off ? 1 : 0));
     }
 
-    // AUD-NR-14 — NR 0x08 bit 0 latches nr_08_keyboard_issue2. Observable via
+    // NR-14 — NR 0x08 bit 0 latches nr_08_keyboard_issue2. Observable via
     // the stored-low mirror; composes into beep_mic_final (BP-11 below).
     {
         fresh(emu);
@@ -334,7 +329,7 @@ static void test_nr_08(Emulator& emu) {
         const uint8_t issue2_on = emu.nr_08_stored_low() & 0x01;
         nr_write(emu, 0x08, 0x00);       // bit 0 = 0 (issue3)
         const uint8_t issue2_off = emu.nr_08_stored_low() & 0x01;
-        check("AUD-NR-14",
+        check("NR-14",
               "NR 0x08 bit 0 latches nr_08_keyboard_issue2 [zxnext.vhd:5182, :5906]",
               issue2_on == 0x01 && issue2_off == 0x00,
               fmt("on=0x%02X off=0x%02X (want 0x01/0x00)", issue2_on, issue2_off));
@@ -818,7 +813,7 @@ static void test_nr_beep(Emulator& emu) {
 static void test_nr_mixer(Emulator& emu) {
     set_group("NR-MIXER");
 
-    // AUD-MX-03 — exc_i gating wire composition is the same as BP-13 but
+    // MX-03 — exc_i gating wire composition is the same as BP-13 but
     // observed from the "upstream-of-Mixer" side: we verify that flipping
     // either constituent bit changes beep_spkr_excl.
     {
@@ -828,7 +823,7 @@ static void test_nr_mixer(Emulator& emu) {
         const bool both_on = emu.beep_spkr_excl();
         nr_write(emu, 0x08, 0x00);              // drop speaker_en
         const bool en_off = emu.beep_spkr_excl();
-        check("AUD-MX-03",
+        check("MX-03",
               "exc_i (beep_spkr_excl) tracks NR 0x06 bit 6 AND NR 0x08 bit 4 "
               "[zxnext.vhd:6504, :6514]",
               both_on && !en_off,
@@ -999,7 +994,7 @@ static void test_nr_mixer(Emulator& emu) {
 static void test_nr_dac_gate(Emulator& emu) {
     set_group("NR-DAC-GATE");
 
-    // AUD-SD-17 — nr_08_dac_en gates Soundrive port writes. With dac_en=0,
+    // SD-17 — nr_08_dac_en gates Soundrive port writes. With dac_en=0,
     // writes to 0x1F/0x0F/0x4F/0x5F etc. must be dropped; pcm_left/right
     // stay at silence (0x100 each). With dac_en=1, the same writes take
     // effect and pcm_* shifts accordingly.
@@ -1019,7 +1014,7 @@ static void test_nr_dac_gate(Emulator& emu) {
         const uint16_t L_on = emu.dac().pcm_left();    // expect 0x1FE (max L)
         const uint16_t R_on = emu.dac().pcm_right();   // expect 0x100
 
-        check("AUD-SD-17",
+        check("SD-17",
               "nr_08_dac_en gates Soundrive port writes [zxnext.vhd:5179, :6436]",
               L_off == 0x100 && R_off == 0x100 && L_on == 0x1FE && R_on == 0x100,
               fmt("gated L=0x%03X R=0x%03X; open L=0x%03X R=0x%03X "
@@ -1052,7 +1047,7 @@ static void test_nr_dac_gate(Emulator& emu) {
                   L_off, L_on));
     }
 
-    // AUD-SD-19 — soundrive.vhd:69-78 + zxnext.vhd:6436:
+    // SD-19 — soundrive.vhd:69-78 + zxnext.vhd:6436:
     //   soundrive.reset_i <= reset OR NOT nr_08_dac_en;
     // While disabled, all four DAC channels stay latched at 0x80 (DC
     // midpoint). A 1->0 transition on nr_08_dac_en must therefore force
@@ -1075,7 +1070,7 @@ static void test_nr_dac_gate(Emulator& emu) {
         const uint16_t L_off = emu.dac().pcm_left();   // expect 0x100 (silence)
         const uint16_t R_off = emu.dac().pcm_right();  // expect 0x100
 
-        check("AUD-SD-19",
+        check("SD-19",
               "nr_08_dac_en 1->0 resets DAC channels to 0x80 silence "
               "[soundrive.vhd:69-78, zxnext.vhd:6436]",
               L_on == 0x1FE && R_on == 0x1FE && L_off == 0x100 && R_off == 0x100,

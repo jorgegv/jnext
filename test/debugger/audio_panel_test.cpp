@@ -15,9 +15,8 @@
 //
 // The fix routes both fields through TurboSound::stereo_mode() /
 // TurboSound::ay_mode() (src/audio/turbosound.h), the same live accessors
-// AUD-NR-01/AUD-NR-10 (was NR-01/NR-10, renamed GH #196 dedup) in
-// test/audio/audio_nextreg_test.cpp already pin as VHDL-faithful, instead
-// of re-decoding a raw NextREG byte inside the panel.
+// NR-01/NR-10 in test/audio/audio_nextreg_test.cpp already pin as VHDL-
+// faithful, instead of re-decoding a raw NextREG byte inside the panel.
 //
 // Rows AP-02/AP-03 and AP-05/AP-06 are the discriminative ones: they plant
 // the "wrong bit" value the old code actually read (internal-speaker-en for

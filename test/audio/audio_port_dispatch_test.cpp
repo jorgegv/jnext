@@ -18,13 +18,9 @@
 // OUT/IN instruction reaches.
 //
 // Rows covered:
-//   SD-10, SD-11, AUD-SD-12, AUD-SD-13, AUD-SD-14, AUD-SD-15, AUD-SD-16, AUD-SD-18
+//   SD-10, SD-11, SD-12, SD-13, SD-14, SD-15, SD-16, SD-18
 //   BP-01, BP-06
 //   IO-01, IO-02, IO-03, IO-04, IO-05, IO-11, IO-12
-//
-// NOTE (GH #196 dedup): the SD-12/13/14/15/16/18 rows below were renamed to
-// AUD-SD-* to resolve a global test-ID collision with unrelated SD-card SPI
-// tests in test/sdcard/sdcard_test.cpp. Pure rename, no logic change.
 //
 // VHDL oracle: zxnext.vhd:2429 / 2432 / 2658-2662 / 2647-2649 / 3593 /
 //              port dispatch fan-out (:2771-2778).
@@ -202,7 +198,7 @@ static void test_dac_port_decode(Emulator& emu) {
               fmt("L=0x%03x (want 0x033) R=0x%03x (want 0x077)", L, R));
     }
 
-    // AUD-SD-12 — Profi Covox ports: 0x3F(A) + 0x5F(D).
+    // SD-12 — Profi Covox ports: 0x3F(A) + 0x5F(D).
     //
     // Wave F (2026-04-24): ports 0x3F and 0x5F are both wired via the
     // 16-bit-match handlers added in emulator.cpp. VHDL oracle
@@ -217,17 +213,17 @@ static void test_dac_port_decode(Emulator& emu) {
         const uint16_t R = emu.dac().pcm_right();
         // L = chA(0x55) + chB(0x80 reset) = 0xD5
         // R = chC(0x80 reset) + chD(0x77) = 0xF7
-        check("AUD-SD-12",
+        check("SD-12",
               "Profi Covox ports 0x3F(A) + 0x5F(D) reach DAC channels A/D "
               "[zxnext.vhd:2431/2661/2664; emulator.cpp 0xFFFF match]",
               L == (0x55 + 0x80) && R == (0x80 + 0x77),
               fmt("L=0x%03x (want 0x0D5) R=0x%03x (want 0x0F7)", L, R));
     }
 
-    // AUD-SD-13 — Covox ports 0x0F(B) + 0x4F(C).
+    // SD-13 — Covox ports 0x0F(B) + 0x4F(C).
     //
     // Both ports ARE wired (they double as Soundrive-mode-1 channels B
-    // and C per emulator.cpp:1283/1285). AUD-SD-13 asserts that Covox-style
+    // and C per emulator.cpp:1283/1285). SD-13 asserts that Covox-style
     // writes to 0x0F/0x4F feed the left/right halves through the SAME
     // fan-out as Soundrive — consistent with VHDL zxnext.vhd:2659
     // (port_dac_stereo_BC_0f4f_io_en) which shares the same decode.
@@ -240,14 +236,14 @@ static void test_dac_port_decode(Emulator& emu) {
         const uint16_t R = emu.dac().pcm_right();
         // L = chA(0x80, reset) + chB(0x50) = 0xD0
         // R = chC(0x60) + chD(0x80, reset) = 0xE0
-        check("AUD-SD-13",
+        check("SD-13",
               "Covox ports 0x0F(B) + 0x4F(C) reach DAC channels B/C "
               "[zxnext.vhd:2659; emulator.cpp:1283/1285]",
               L == (0x80 + 0x50) && R == (0x60 + 0x80),
               fmt("L=0x%03x (want 0x0D0) R=0x%03x (want 0x0E0)", L, R));
     }
 
-    // AUD-SD-14 — Pentagon/ATM mono port 0xFB → ch A+D.
+    // SD-14 — Pentagon/ATM mono port 0xFB → ch A+D.
     //
     // Wave F (2026-04-24): 0xFB handler honours the VHDL composition at
     // zxnext.vhd:2433/2658/2661/2664 — port_dac_mono_AD_fb_io_en is
@@ -255,7 +251,7 @@ static void test_dac_port_decode(Emulator& emu) {
     // NR 0x84 bit 5 set AND bit 2 clear. Under that configuration a
     // single 0xFB write updates BOTH ch A and ch D. Default NR 0x84=0xFF
     // leaves mono_AD_fb effectively OFF (bit 2=1 wins) — SD-11 covers
-    // that case. AUD-SD-14 configures NR 0x84 = 0x20 (bit 5 only) to open
+    // that case. SD-14 configures NR 0x84 = 0x20 (bit 5 only) to open
     // the mono fan-out gate.
     {
         fresh(emu);
@@ -270,14 +266,14 @@ static void test_dac_port_decode(Emulator& emu) {
         emu.port().out(0x00FB, 0x66);   // mono fan-out write
         const uint16_t L = emu.dac().pcm_left();   // chA(0x66) + chB(0x80)
         const uint16_t R = emu.dac().pcm_right();  // chC(0x80) + chD(0x66)
-        check("AUD-SD-14",
+        check("SD-14",
               "port 0xFB mono fan-out: single write updates ch A + ch D "
               "when NR 0x84 bit 5=1, bit 2=0 [zxnext.vhd:2433/2661/2664]",
               L == (0x66 + 0x80) && R == (0x80 + 0x66),
               fmt("L=0x%03x (want 0x0E6) R=0x%03x (want 0x0E6)", L, R));
     }
 
-    // AUD-SD-15 — GS Covox port 0xB3 → ch B+C.
+    // SD-15 — GS Covox port 0xB3 → ch B+C.
     //
     // Wave F (2026-04-24): port 0xB3 wired via 0xFFFF match and fans out
     // to DAC channels B and C. VHDL zxnext.vhd:2659/2662-2663.
@@ -287,14 +283,14 @@ static void test_dac_port_decode(Emulator& emu) {
         emu.port().out(0x00B3, 0x55);   // mono fan-out write
         const uint16_t L = emu.dac().pcm_left();   // chA(0x80) + chB(0x55) = 0xD5
         const uint16_t R = emu.dac().pcm_right();  // chC(0x55) + chD(0x80) = 0xD5
-        check("AUD-SD-15",
+        check("SD-15",
               "port 0xB3 (GS Covox) mono fan-out updates ch B + ch C "
               "[zxnext.vhd:2659/2662-2663; emulator.cpp 0xFFFF/0x00B3]",
               L == (0x80 + 0x55) && R == (0x55 + 0x80),
               fmt("L=0x%03x (want 0x0D5) R=0x%03x (want 0x0D5)", L, R));
     }
 
-    // AUD-SD-16 — SpecDrum port 0xDF → ch A+D.
+    // SD-16 — SpecDrum port 0xDF → ch A+D.
     // Wired at emulator.cpp:1304-1308 (mask 0x00FF val 0x00DF). A single
     // write touches BOTH ch A and ch D. Verify: pcm_left picks up the
     // value in ch A (summed with reset ch B = 0x80); pcm_right picks it
@@ -305,22 +301,22 @@ static void test_dac_port_decode(Emulator& emu) {
         emu.port().out(0x00DF, 0x40);   // write both ch A and ch D
         const uint16_t L = emu.dac().pcm_left();   // chA(0x40) + chB(0x80) = 0xC0
         const uint16_t R = emu.dac().pcm_right();  // chC(0x80) + chD(0x40) = 0xC0
-        check("AUD-SD-16",
+        check("SD-16",
               "SpecDrum port 0xDF writes both DAC channels A+D "
               "[zxnext.vhd:2662; emulator.cpp:1304-1308]",
               L == (0x40 + 0x80) && R == (0x80 + 0x40),
               fmt("L=0x%03x (want 0x0C0) R=0x%03x (want 0x0C0)", L, R));
     }
 
-    // AUD-SD-18 — Mono-port aliasing: a single write to 0xDF updates ch A
+    // SD-18 — Mono-port aliasing: a single write to 0xDF updates ch A
     // and ch D in the SAME cycle. This asserts the fan-in invariant
     // (VHDL: one port → two channel registers) rather than the ch
     // values per se — the test pattern is chosen so A and D end up at
     // the same value post-write (they were both reset to 0x80, and the
     // write sets them both to 0xAA).
     //
-    // Not redundant with AUD-SD-16: AUD-SD-16 checks the fan-out through
-    // pcm_left/right (8-bit + 8-bit sums), AUD-SD-18 checks the per-channel
+    // Not redundant with SD-16: SD-16 checks the fan-out through
+    // pcm_left/right (8-bit + 8-bit sums), SD-18 checks the per-channel
     // registers at the soundrive layer — that A and D truly both got
     // the written value, not just the folded sums.
     {
@@ -332,7 +328,7 @@ static void test_dac_port_decode(Emulator& emu) {
         // both sums equal 0xAA + 0x80 = 0x12A.
         const uint16_t L = emu.dac().pcm_left();
         const uint16_t R = emu.dac().pcm_right();
-        check("AUD-SD-18",
+        check("SD-18",
               "Mono-port aliasing: one write to 0xDF lands on both "
               "ch A and ch D simultaneously [zxnext.vhd port-decode fan]",
               L == (0xAA + 0x80) && R == (0x80 + 0xAA),
