@@ -1592,7 +1592,7 @@ Last-touch commit: `0020b7102565f8ca8555633aa662e4714db2f86a` (`0020b71025`)
 | MX-21   | `exc_i=0`: EAR and MIC contribute normally                   | —              | missing | missing                        |
 | MX-22   | `exc_i` derived from NextREGs 0x06 bit 6 AND 0x08 bit 4      | zxnext.vhd:6504                         | pass    | test/audio/audio_nextreg_test.cpp:874          |
 | MX-23   | Mixer drops EAR/MIC contribution when `exc_i=1` (downstream gate)                           | audio_mixer.vhd:80-81                   | pass    | test/audio/audio_nextreg_test.cpp:928          |
-| MX-30   | Pi I2S source delivers a continuous 10-bit sample stream (not single-latch)                 | audio_mixer.vhd (I2S input chain)       | missing | missing                                        |
+| MX-30   | Pi I2S source delivers a continuous 10-bit sample stream (not single-latch)                 | audio_mixer.vhd:51-52,89-90,99-100       | missing | missing                                        |
 | AUD-NR-01 | `nr_06_psg_mode[1:0]` from NextREG 0x06 bits [1:0]           | zxnext.vhd:5170,6389                      | pass    | test/audio/audio_nextreg_test.cpp:162          |
 | AUD-NR-02 | Mode "00": YM2149 mode                                       | zxnext.vhd (NR 0x06 b1:0)               | pass    | test/audio/audio_nextreg_test.cpp:174          |
 | AUD-NR-03 | Mode "01": AY-8910 mode                                      | zxnext.vhd (NR 0x06 b1:0)               | pass    | test/audio/audio_nextreg_test.cpp:185          |
