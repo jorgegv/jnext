@@ -178,12 +178,17 @@ Each row carries a short VHDL cite. Row IDs follow the naming pattern
 `GROUP-NN`.
 
 ### Group RST — Reset defaults (4 rows)
+> **Renamed 2026-08-01 (GH #196 phase 4.2): `RST-02`/`RST-03` -> `NMI-RST-02`/`NMI-RST-03`.**
+> The bare names collided with `mmu_test`'s `RST-*` (the MMU reset register),
+> which asserts them; these two are plan-doc-only, so this side moved.
+> `NMI-RST-01` and `NMI-RST-04` already carried the prefix — the group is now
+> consistent.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
 | NMI-RST-01 | FSM in `S_NMI_IDLE` after reset | zxnext.vhd:2120, 2149 | reset; read FSM state accessor |
-| RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | reset; read `nmi_mf` / `_divmmc` / `_expbus` accessors |
-| RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110, 1222 | reset; read gate accessors |
+| NMI-RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | reset; read `nmi_mf` / `_divmmc` / `_expbus` accessors |
+| NMI-RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110, 1222 | reset; read gate accessors |
 | NMI-RST-04 | NR 0x02 reset_type power-on default = "100" (bits 1:0 of read = "00", bit 2 latent) | zxnext.vhd:1306, 5891 | reset; read NR 0x02; observe reset_type[2:0]. **G153 closed (Task 8 t1)** — `NmiSource::reset_type_` modelled, surfaced via `nr_02_read()` bits 1:0. |
 
 ### Group NR02 — NR 0x02 software NMI (Wave A) (8 rows)
@@ -266,13 +271,18 @@ dispatcher.
 | FSM-06 | `nr_03_config_mode = 1` force-clears FSM to IDLE from any state | zxnext.vhd:2102-2105 | drive FSM to FETCH / HOLD / END; raise config_mode; expect IDLE |
 
 ### Group ARB — Priority arbitration (4 rows)
+> **Renamed 2026-08-01 (GH #196 phase 4.2): `ARB-01..04` -> `NMI-ARB-01..04`.**
+> The bare names collided with `copper_test`'s `ARB-*`, which is the
+> CPU-vs-Copper NextREG write arbitration and has the assertions. These four
+> are NMI SOURCE arbitration (MF > DivMMC > ExpBus) and are plan-doc-only, so
+> this side moved.
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
-| ARB-01 | Simultaneous MF + DivMMC assert → MF latches, DivMMC does not | zxnext.vhd:2097-2105 | strobe both; `nmi_mf` = 1, `nmi_divmmc` = 0 |
-| ARB-02 | Simultaneous MF + ExpBus → MF latches, ExpBus does not | zxnext.vhd:2097-2105 | strobe both; `nmi_mf` = 1, `nmi_expbus` = 0 |
-| ARB-03 | Simultaneous DivMMC + ExpBus (no MF) → DivMMC wins | zxnext.vhd:2097-2105 | strobe both; `nmi_divmmc` = 1, `nmi_expbus` = 0 |
-| ARB-04 | `mf_is_active = true` (stub) blocks DivMMC latch even with DivMMC request | zxnext.vhd:2097-2098 | set stub; strobe DivMMC; `nmi_divmmc` = 0 |
+| NMI-ARB-01 | Simultaneous MF + DivMMC assert → MF latches, DivMMC does not | zxnext.vhd:2097-2105 | strobe both; `nmi_mf` = 1, `nmi_divmmc` = 0 |
+| NMI-ARB-02 | Simultaneous MF + ExpBus → MF latches, ExpBus does not | zxnext.vhd:2097-2105 | strobe both; `nmi_mf` = 1, `nmi_expbus` = 0 |
+| NMI-ARB-03 | Simultaneous DivMMC + ExpBus (no MF) → DivMMC wins | zxnext.vhd:2097-2105 | strobe both; `nmi_divmmc` = 1, `nmi_expbus` = 0 |
+| NMI-ARB-04 | `mf_is_active = true` (stub) blocks DivMMC latch even with DivMMC request | zxnext.vhd:2097-2098 | set stub; strobe DivMMC; `nmi_divmmc` = 0 |
 
 <!-- MF rows parked here pending future MULTIFACE-TEST-PLAN-DESIGN.md. -->
 <!-- Prefix `MF-Gxx-NN` makes them easy to migrate later.              -->

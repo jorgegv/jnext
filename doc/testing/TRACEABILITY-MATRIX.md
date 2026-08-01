@@ -63,7 +63,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  4084 | 3817 |    0 |    3 |     264 |          0 |
 
-Rows the sections above carry: **4084**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **3890**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
+Rows the sections above carry: **4084**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **3903**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1954,11 +1954,11 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 | ML-04 | Input and output shift registers are independent | — | missing | — |
 | ML-05 | First read after reset reflects miso_dat power-on initial value 0x00 (VHDL spi_master.vhd:74 signal-init `(others => '0')`; i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause spi_master.vhd:151-152 never fires) | spi_master.vhd:74, zxnext.vhd:3285, spi_master.vhd:151-152 | pass | test/divmmc/divmmc_test.cpp:3277 |
 | ML-06 | 16 cycles minimum between read/write operations | — | missing | — |
-| MX-01 | Flash selected: MISO from flash | — | missing | — |
-| MX-02 | RPI selected: MISO from RPI | — | missing | — |
+| SPI-MX-01 | Flash selected: MISO from flash | — | missing | — |
+| SPI-MX-02 | RPI selected: MISO from RPI | — | missing | — |
 | MX-03 | SD selected: MISO sourced from SD device (VHDL zxnext.vhd:3280) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3324 |
 | MX-04 | No device selected: MISO reads as 0xFF after pipeline prime (VHDL zxnext.vhd:3280 default-else `spi_miso <= '1'` propagates to miso_dat at next state_last_d) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3352 |
-| MX-05 | Priority: Flash > RPI > SD > default | — | missing | — |
+| SPI-MX-05 | Priority: Flash > RPI > SD > default | — | missing | — |
 | IN-01 | Boot automap: M1 at 0x0000 maps DivMMC ROM (VHDL divmmc.vhd:94, zxnext.vhd:2850) | divmmc.vhd:94, zxnext.vhd:2850 | pass | test/divmmc/divmmc_test.cpp:3379 |
 | IN-02 | SD init sequence: select, write, deselect (VHDL zxnext.vhd:3302, spi_master.vhd:109) | zxnext.vhd:3302, spi_master.vhd:109 | pass | test/divmmc/divmmc_test.cpp:3399 |
 | IN-03 | RETN after handler clears automap overlay (VHDL divmmc.vhd:126,139) | divmmc.vhd:126,139 | pass | test/divmmc/divmmc_test.cpp:3417 |
@@ -2396,7 +2396,7 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | SEL-02 | read_selected() after reset reads NR 0x24 [zxnext.vhd:4594-4596] | zxnext.vhd:4594-4596 | pass | test/nextreg/nextreg_test.cpp:147 |
 | SEL-03 | NR 0x00 via select+write+read path returns 0x0A (selection pathway respects read-only) [zxnext.vhd:5884-5885] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1421 |
 | SEL-04 | select(0x7F)+write_selected(0xAB)+read_selected()==0xAB [zxnext.vhd read dispatch, NR 0x7F user scratch] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:166 |
-| SEL-05 | NEXTREG ED 91 instruction | — | missing | — |
+| NR-SEL-05 | NEXTREG ED 91 instruction | — | missing | — |
 | SEL-05a | Pre-select NR 0x7F via 0x243B; execute Z80N `NEXTREG 0x54, 0x04` (ED 91 54 04); read 0x253B without re-selecting | zxnext.vhd:4739-4744 | missing | — |
 | SEL-05b | Same setup with `NEXTREG 0x54,A` (ED 92); after it, write 0x253B ← 0x5C (raw data port) | — | missing | — |
 | SEL-05c | Execute `NEXTREG 0x7E, 0x3C`; read NR 0x7E | — | missing | — |
@@ -2438,10 +2438,10 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | CLIP-08 | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5947-5953] | zxnext.vhd:5947-5953 | pass | test/nextreg/nextreg_integration_test.cpp:1618 |
 | CLIP-09 | Read NR 0x1B twice with no intervening write | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1642 |
 | CLIP-10 | NR 0x1B write lands x1=0xAA AND advances tm idx → NR 0x1C bits 7:6 = 01 (0x40) [zxnext.vhd:5276 write increments idx; :5980 NR 0x1C packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1673 |
-| MMU-01 | Reset defaults | — | missing | — |
+| NR-MMU-01 | Reset defaults | — | missing | — |
 | NR-MMU-02 | NR 0x52 (MMU2) write=0x20 read=0x20 [zxnext.vhd:4613 MMU2 storage] | zxnext.vhd:4613 | pass | test/nextreg/nextreg_test.cpp:455 |
-| MMU-03 | Write port 0x7FFD, check MMU6/7 | — | missing | — |
-| MMU-04 | NextREG write overrides port write | — | missing | — |
+| NR-MMU-03 | Write port 0x7FFD, check MMU6/7 | — | missing | — |
+| NR-MMU-04 | NextREG write overrides port write | — | missing | — |
 | N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0 [zxnext.vhd:3814 port_memory_ram_change_dly, :4677 MMU6/7 gate] | zxnext.vhd:3814 | pass | test/nextreg/nextreg_integration_test.cpp:2714 |
 | N8E-RAM-REBUILD-1 | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank [zxnext.vhd:3814, :4677] | zxnext.vhd:3814,4677 | pass | test/nextreg/nextreg_integration_test.cpp:2739 |
 | CFG-01 | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011") [zxnext.vhd:1099, 5893-5894] | zxnext.vhd:1099,5893-5894 | pass | test/nextreg/nextreg_integration_test.cpp:2509 |
@@ -3428,8 +3428,8 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
 | NMI-RST-01 | FSM idle + latches clear + gates off + nmi_generate_n high + not activated after reset | zxnext.vhd:2120,2149 | pass | test/nmi/nmi_test.cpp:131 |
-| RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | missing | — |
-| RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110,1222 | missing | — |
+| NMI-RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | missing | — |
+| NMI-RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110,1222 | missing | — |
 | NMI-RST-04 | NR 0x02 reset_type[2:0] power-on default = "100" (read bits 1:0 = "00") | zxnext.vhd:1306 | pass | test/nmi/nmi_test.cpp:147 |
 | NR02-01 | NR 0x02 bit 3 write sets nmi_mf latch [zxnext.vhd:3832,3837,2097] | zxnext.vhd:3832,3837,2097 | pass | test/nmi/nmi_test.cpp:189 |
 | NR02-02 | NR 0x02 bit 2 write sets nmi_divmmc latch [zxnext.vhd:3833,3838,2099] | zxnext.vhd:3833,3838,2099 | pass | test/nmi/nmi_test.cpp:206 |
@@ -3471,10 +3471,10 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | FSM-04 | END → IDLE on `cpu_wr_n` rising edge | zxnext.vhd:2149-2162 | missing | — |
 | FSM-05 | END clears all three request latches | zxnext.vhd:2102-2105,2149-2162 | missing | — |
 | FSM-06 | nr_03_config_mode = 1` force-clears FSM to IDLE from any state | zxnext.vhd:2102-2105 | missing | — |
-| ARB-01 | Simultaneous MF + DivMMC assert → MF latches, DivMMC does not | zxnext.vhd:2097-2105 | missing | — |
-| ARB-02 | Simultaneous MF + ExpBus → MF latches, ExpBus does not | zxnext.vhd:2097-2105 | missing | — |
-| ARB-03 | Simultaneous DivMMC + ExpBus (no MF) → DivMMC wins | zxnext.vhd:2097-2105 | missing | — |
-| ARB-04 | mf_is_active = true` (stub) blocks DivMMC latch even with DivMMC request | zxnext.vhd:2097-2098 | missing | — |
+| NMI-ARB-01 | Simultaneous MF + DivMMC assert → MF latches, DivMMC does not | zxnext.vhd:2097-2105 | missing | — |
+| NMI-ARB-02 | Simultaneous MF + ExpBus → MF latches, ExpBus does not | zxnext.vhd:2097-2105 | missing | — |
+| NMI-ARB-03 | Simultaneous DivMMC + ExpBus (no MF) → DivMMC wins | zxnext.vhd:2097-2105 | missing | — |
+| NMI-ARB-04 | mf_is_active = true` (stub) blocks DivMMC latch even with DivMMC request | zxnext.vhd:2097-2098 | missing | — |
 | EXPBUS-01 | Default `expbus_nmi_n = 1` (inactive); no assert | zxnext.vhd:2091 | missing | — |
 | EXPBUS-02 | expbus_nmi_n = 0` with `expbus_nmi_debounce_disable = 1` → immediate assert | zxnext.vhd:2091,1222 | missing | — |
 | EXPBUS-03 | expbus_nmi_n = 0` without debounce-disable → delayed assert (debounce path stubbed) | zxnext.vhd:2091 | missing | — |

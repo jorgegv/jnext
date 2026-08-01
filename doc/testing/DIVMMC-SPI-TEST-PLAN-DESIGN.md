@@ -25,7 +25,7 @@ Updated 2026-04-17 (commit `d4ea4e1`):
   - **ML-05**: Pipeline delay fix covers ishift_r reset — first read returns 0xFF.
   - **SS-10**: Test bug fixed — was using 0x12 which matches VHDL SD card branch; changed to 0x00.
   - E3-04, E3-07, E3-08, EP-02/03/11, NR-01/02/05, SS-09/SS-11: fixed in prior sessions.
-- **Skips**: 56 rows. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (DMC-TM-01..04, TM-05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05).
+- **Skips**: 56 rows. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (DMC-TM-01..04, TM-05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (SPI-MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05).
 
 ## Architecture
 
@@ -421,14 +421,21 @@ synchronization. VHDL reference: `spi_master.vhd` lines 121-168.
 
 When multiple devices could provide MISO, the source is selected based on which
 SS line is active. VHDL reference: `zxnext.vhd` lines 3278-3280.
+> **Renamed 2026-08-01 (GH #196 phase 4.2): `MX-01`/`MX-02`/`MX-05` ->
+> `SPI-MX-*`.** The bare names collided with `audio_test`'s `MX-*` (the audio
+> mixer), which asserts all three; these are the SPI MISO priority mux and are
+> plan-doc-only, so this side moved. `MX-03`/`MX-04` keep their bare names
+> deliberately: `divmmc_test` asserts them, nothing else claims those two, and
+> renaming a row a test asserts is a different and larger change. The group
+> reads inconsistently until someone makes it — that is visible on purpose.
 
 | ID   | Test | Notes |
 |------|------|-------|
-| MX-01 | Flash selected: MISO from flash | `spi_ss_flash_n=0` highest priority |
-| MX-02 | RPI selected: MISO from RPI | Second priority |
+| SPI-MX-01 | Flash selected: MISO from flash | `spi_ss_flash_n=0` highest priority |
+| SPI-MX-02 | RPI selected: MISO from RPI | Second priority |
 | MX-03 | SD selected: MISO from SD | Third priority |
 | MX-04 | No device selected: MISO reads as 1 | Default pull-up |
-| MX-05 | Priority: Flash > RPI > SD > default | Cascaded if-else |
+| SPI-MX-05 | Priority: Flash > RPI > SD > default | Cascaded if-else |
 
 ### 17. Integration -- DivMMC + SPI Typical Sequences
 

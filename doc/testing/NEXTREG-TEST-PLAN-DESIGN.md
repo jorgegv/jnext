@@ -63,6 +63,10 @@ Arbitration: `nr_wr_en = copper_req or cpu_req`. Copper always wins.
 ## Test Case Catalog
 
 ### 1. Register Selection and Access
+> **Renamed 2026-08-01 (GH #196 phase 4.2): `SEL-05` -> `NR-SEL-05`.** The bare
+> name collided with `uart_test`'s `SEL-05` (UART channel select read), which
+> asserts it; this row is plan-doc-only. `SEL-01..04` keep their bare names —
+> `nextreg_test` asserts them and nothing else claims them.
 
 | Test | Scenario | Expected |
 |------|----------|----------|
@@ -70,7 +74,7 @@ Arbitration: `nr_wr_en = copper_req or cpu_req`. Copper always wins.
 | SEL-02 | Reset, read 0x243B | Returns 0x24 (protection default) |
 | SEL-03 | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | Machine ID unaffected (read-only) |
 | SEL-04 | Write 0x243B = 0x7F, write 0x253B = 0xAB, read NR 0x7F | Returns 0xAB (user register) |
-| SEL-05 | NEXTREG ED 91 instruction | Writes correct register without changing nr_register (today defers to fuse_z80_test/z80n_test, coverage unverified — split into SEL-05a/05b below) |
+| NR-SEL-05 | NEXTREG ED 91 instruction | Writes correct register without changing nr_register (today defers to fuse_z80_test/z80n_test, coverage unverified — split into SEL-05a/05b below) |
 | SEL-05a | Pre-select NR 0x7F via 0x243B; execute Z80N `NEXTREG 0x54, 0x04` (ED 91 54 04); read 0x253B without re-selecting | NR 0x7F returned (selection preserved). VHDL `zxnext.vhd:4739-4744` injects `(reg, val)` directly via `cpu_requester_0` and never writes `nr_register` (:4592-4603). **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-01 (was a skip; the defect it described was GH #54 and is fixed) |
 | SEL-05b | Same setup with `NEXTREG 0x54,A` (ED 92); after it, write 0x253B ← 0x5C (raw data port) | NR 0x7F receives 0x5C (selection still pointed at 0x7F). **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-02 |
 | SEL-05c | Execute `NEXTREG 0x7E, 0x3C`; read NR 0x7E | NR 0x7E == 0x3C — the opcode still writes the register named by its own operand (`cpu_requester_reg <= Z80N_data_s(15 downto 8)`). Guards SEL-05a/05b against a no-op "fix". **IMPLEMENTED** as `nextreg_integration_test` Z80N-SEL-03 |
@@ -198,13 +202,17 @@ From `zxnext.vhd` lines 5242-5290:
 ### 6. MMU Registers (0x50-0x57)
 
 From `zxnext.vhd` lines 4607-4700:
+> **Renamed 2026-08-01 (GH #196 phase 4.2): `MMU-01`/`MMU-03`/`MMU-04` ->
+> `NR-MMU-*`.** The bare names collided with `mmu_test`'s `MMU-*`, which
+> asserts them; these three are plan-doc-only. `NR-MMU-02` already carried the
+> prefix, so this completes a convention rather than inventing one.
 
 | Test | Scenario | Expected |
 |------|----------|----------|
-| MMU-01 | Reset defaults | 0xFF,0xFF,0x0A,0x0B,0x04,0x05,0x00,0x01 |
+| NR-MMU-01 | Reset defaults | 0xFF,0xFF,0x0A,0x0B,0x04,0x05,0x00,0x01 |
 | NR-MMU-02 | Write NR 0x52 = 0x20, read back | 0x20 |
-| MMU-03 | Write port 0x7FFD, check MMU6/7 | Updated from 7FFD bank field |
-| MMU-04 | NextREG write overrides port write | Last writer wins |
+| NR-MMU-03 | Write port 0x7FFD, check MMU6/7 | Updated from 7FFD bank field |
+| NR-MMU-04 | NextREG write overrides port write | Last writer wins |
 | N8E-RAM-PRESERVE-0 | NR 0x56=0x20 override, then NR 0x8E=0x00 (bit 3 = 0) | MMU6 stays 0x20 — VHDL:3814 drives `port_memory_ram_change_dly='0'`, :4677 skips MMU6/7 update |
 | N8E-RAM-REBUILD-1  | port_7ffd=0x03, NR 0x56=0x20 override, then NR 0x8E=0x08 (bit 3 = 1, bits 6:4 = 000) | MMU6 becomes 0x00 — 7FFD(2:0) forced to 0 by NR 0x8E bit 3 branch, :4677 rebuild runs and clobbers override |
 
