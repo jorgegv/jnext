@@ -3081,13 +3081,13 @@ static void group16() {
         // call start_frame BEFORE the write, then rewind. After rewind,
         // sprites_[0] should be back to ZERO (since baseline was zero).
         spr.rewind_to_baseline();
-        check("G16.PSL-01a", "rewind restores baseline (slot 0 cleared)",
+        check("G16.PSL-01a", "rewind restores baseline (slot 0 cleared) [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 0 && spr.read_attr_byte(0, 1) == 0,
               DETAIL("b0=%02x b1=%02x", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
 
         // Replay line 0's changes — slot 0 should now show x=10.
         spr.apply_changes_for_line(0);
-        check("G16.PSL-01b", "apply_changes_for_line(0) restores write",
+        check("G16.PSL-01b", "apply_changes_for_line(0) restores write [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 10 && spr.read_attr_byte(0, 1) == 0,
               DETAIL("b0=%02x b1=%02x", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
     }
@@ -3127,7 +3127,7 @@ static void group16() {
         bool line0_ok = (spr.read_attr_byte(0, 0) == 10) &&
                         (spr.read_attr_byte(0, 1) == 20);
         check("G16.PSL-02a",
-              "Line 0: baseline visible (X=10, Y=20)",
+              "Line 0: baseline visible (X=10, Y=20) [sprites.vhd:327-470]",
               line0_ok,
               DETAIL("b0=%d b1=%d", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
 
@@ -3139,7 +3139,7 @@ static void group16() {
         bool pre100_ok = (spr.read_attr_byte(0, 0) == 10) &&
                          (spr.read_attr_byte(0, 1) == 20);
         check("G16.PSL-02b",
-              "Lines 1..99: still baseline (X=10, Y=20)",
+              "Lines 1..99: still baseline (X=10, Y=20) [sprites.vhd:327-470]",
               pre100_ok,
               DETAIL("b0=%d b1=%d", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
 
@@ -3148,7 +3148,7 @@ static void group16() {
         bool post100_ok = (spr.read_attr_byte(0, 0) == 200) &&
                           (spr.read_attr_byte(0, 1) == 200);
         check("G16.PSL-02c",
-              "Line 100: mid-frame write applied (X=200, Y=200)",
+              "Line 100: mid-frame write applied (X=200, Y=200) [sprites.vhd:327-470]",
               post100_ok,
               DETAIL("b0=%d b1=%d", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
 
@@ -3159,7 +3159,7 @@ static void group16() {
         bool tail_ok = (spr.read_attr_byte(0, 0) == 200) &&
                        (spr.read_attr_byte(0, 1) == 200);
         check("G16.PSL-02d",
-              "Lines 101..255: post-write state retained",
+              "Lines 101..255: post-write state retained [sprites.vhd:327-470]",
               tail_ok,
               DETAIL("b0=%d b1=%d", spr.read_attr_byte(0,0), spr.read_attr_byte(0,1)));
     }
@@ -3190,27 +3190,27 @@ static void group16() {
         spr.write_attribute(0x80);
 
         spr.rewind_to_baseline();
-        check("G16.PSL-03a", "After rewind: slot 0 X back to 0",
+        check("G16.PSL-03a", "After rewind: slot 0 X back to 0 [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 0,
               DETAIL("b0=%d", spr.read_attr_byte(0,0)));
 
         for (int row = 0; row < 50; ++row) spr.apply_changes_for_line(row);
-        check("G16.PSL-03b", "Lines 0..49: slot 0 X = 0 (baseline)",
+        check("G16.PSL-03b", "Lines 0..49: slot 0 X = 0 (baseline) [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 0,
               DETAIL("b0=%d", spr.read_attr_byte(0,0)));
 
         spr.apply_changes_for_line(50);
-        check("G16.PSL-03c", "Line 50: slot 0 X = 50",
+        check("G16.PSL-03c", "Line 50: slot 0 X = 50 [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 50,
               DETAIL("b0=%d", spr.read_attr_byte(0,0)));
 
         for (int row = 51; row < 150; ++row) spr.apply_changes_for_line(row);
-        check("G16.PSL-03d", "Lines 51..149: slot 0 X = 50 (carried)",
+        check("G16.PSL-03d", "Lines 51..149: slot 0 X = 50 (carried) [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 50,
               DETAIL("b0=%d", spr.read_attr_byte(0,0)));
 
         spr.apply_changes_for_line(150);
-        check("G16.PSL-03e", "Line 150: slot 0 X = 150 (second write)",
+        check("G16.PSL-03e", "Line 150: slot 0 X = 150 (second write) [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 150,
               DETAIL("b0=%d", spr.read_attr_byte(0,0)));
     }
@@ -3223,12 +3223,12 @@ static void group16() {
         spr.write_slot_select(0);
         spr.write_attribute(99);           // logs one change
         size_t pre = spr.change_log_size();
-        check("G16.PSL-04a", "Write logged (count > 0)",
+        check("G16.PSL-04a", "Write logged (count > 0) [sprites.vhd:327-470]",
               pre > 0,
               DETAIL("count=%zu", pre));
 
         spr.reset();
-        check("G16.PSL-04b", "After reset: change_log_size == 0",
+        check("G16.PSL-04b", "After reset: change_log_size == 0 [sprites.vhd:327-470]",
               spr.change_log_size() == 0,
               DETAIL("count=%zu", spr.change_log_size()));
     }
@@ -3257,14 +3257,14 @@ static void group16() {
 
         // Rewind without applying any line: should restore X=42.
         spr.rewind_to_baseline();
-        check("G16.PSL-05a", "rewind restores baseline X=42",
+        check("G16.PSL-05a", "rewind restores baseline X=42 [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 42,
               DETAIL("b0=%d", spr.read_attr_byte(0,0)));
 
         // Calling start_frame at this point should clear the log and
         // re-baseline at the (post-rewind) state X=42.
         spr.start_frame();
-        check("G16.PSL-05b", "start_frame clears log",
+        check("G16.PSL-05b", "start_frame clears log [sprites.vhd:327-470]",
               spr.change_log_size() == 0);
     }
 
@@ -3280,7 +3280,7 @@ static void group16() {
         for (size_t i = 0; i < cap + 10; ++i) {
             spr.write_attribute(static_cast<uint8_t>(i & 0xFF));
         }
-        check("G16.PSL-06", "log saturates at MAX_CHANGES_PER_FRAME",
+        check("G16.PSL-06", "log saturates at MAX_CHANGES_PER_FRAME [sprites.vhd:327-470]",
               spr.change_log_size() == cap,
               DETAIL("count=%zu cap=%zu", spr.change_log_size(), cap));
     }
@@ -3321,21 +3321,21 @@ static void group16() {
         spr.rewind_to_baseline();
         for (int row = 0; row < 100; ++row) spr.apply_changes_for_line(row);
         check("G16.PSL-07a",
-              "Lines 0..99: byte4 == 0x00 (baseline)",
+              "Lines 0..99: byte4 == 0x00 (baseline) [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 4) == 0x00,
               DETAIL("b4=%02x", spr.read_attr_byte(0, 4)));
 
         // Line 100: byte4 == 0xD0 (replayed mid-frame write).
         spr.apply_changes_for_line(100);
         check("G16.PSL-07b",
-              "Line 100: byte4 replayed (0xD0)",
+              "Line 100: byte4 replayed (0xD0) [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 4) == 0xD0,
               DETAIL("b4=%02x", spr.read_attr_byte(0, 4)));
 
         // Lines 101..255: byte4 carried (0xD0).
         for (int row = 101; row < 256; ++row) spr.apply_changes_for_line(row);
         check("G16.PSL-07c",
-              "Lines 101..255: byte4 carries 0xD0",
+              "Lines 101..255: byte4 carries 0xD0 [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 4) == 0xD0,
               DETAIL("b4=%02x", spr.read_attr_byte(0, 4)));
     }
@@ -3374,7 +3374,7 @@ static void group16() {
         // Lines 0..49: still baseline (everything zero).
         for (int row = 0; row < 50; ++row) spr.apply_changes_for_line(row);
         check("G16.PSL-08a",
-              "Lines 0..49: NR-0x75-path writes not yet visible",
+              "Lines 0..49: NR-0x75-path writes not yet visible [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 0x00 &&
               spr.read_attr_byte(0, 4) == 0x00,
               DETAIL("b0=%02x b4=%02x",
@@ -3383,7 +3383,7 @@ static void group16() {
         // Line 50: NR-0x75-path writes replayed.
         spr.apply_changes_for_line(50);
         check("G16.PSL-08b",
-              "Line 50: write_attr_byte mid-frame replayed",
+              "Line 50: write_attr_byte mid-frame replayed [sprites.vhd:327-470]",
               spr.read_attr_byte(0, 0) == 0xAA &&
               spr.read_attr_byte(0, 1) == 0xBB &&
               spr.read_attr_byte(0, 3) == 0xC0 &&
@@ -3443,22 +3443,22 @@ static void group16() {
         bool baseline_at_10 = (pixel_index(line20, 10) == 0x42);
         bool baseline_clear_at_200 = (pixel_index(line20, 200) == -1);
         check("G16.PSL-09a",
-              "Render line 20: sprite pixel at X=10 (baseline)",
+              "Render line 20: sprite pixel at X=10 (baseline) [sprites.vhd:327-470]",
               baseline_at_10,
               DETAIL("px@10=%d", pixel_index(line20, 10)));
         check("G16.PSL-09b",
-              "Render line 20: NO sprite pixel at X=200",
+              "Render line 20: NO sprite pixel at X=200 [sprites.vhd:327-470]",
               baseline_clear_at_200,
               DETAIL("px@200=%d", pixel_index(line20, 200)));
 
         bool postfix_at_200 = (pixel_index(line100, 200) == 0x42);
         bool postfix_clear_at_10 = (pixel_index(line100, 10) == -1);
         check("G16.PSL-09c",
-              "Render line 100: sprite pixel at X=200 (mid-frame)",
+              "Render line 100: sprite pixel at X=200 (mid-frame) [sprites.vhd:327-470]",
               postfix_at_200,
               DETAIL("px@200=%d", pixel_index(line100, 200)));
         check("G16.PSL-09d",
-              "Render line 100: NO sprite pixel at X=10 (sprite moved)",
+              "Render line 100: NO sprite pixel at X=10 (sprite moved) [sprites.vhd:327-470]",
               postfix_clear_at_10,
               DETAIL("px@10=%d", pixel_index(line100, 10)));
     }
@@ -3532,15 +3532,15 @@ static void group16() {
         // must be 0x42 (sprite pattern fill); pixel at X=10 must be -1
         // (no sprite there).
         check("G16.OVF-01a",
-              "Cap-overflow: writes-that-fit replay (X=180 visible)",
+              "Cap-overflow: writes-that-fit replay (X=180 visible) [sprites.vhd:327-470]",
               pixel_index(line20, 180) == 0x42,
               DETAIL("px@180=%d (expected 0x42)", pixel_index(line20, 180)));
         check("G16.OVF-01b",
-              "Cap-overflow: writes-past-cap dropped (X=10 NOT visible)",
+              "Cap-overflow: writes-past-cap dropped (X=10 NOT visible) [sprites.vhd:327-470]",
               pixel_index(line20, 10) == -1,
               DETAIL("px@10=%d (expected -1)", pixel_index(line20, 10)));
         check("G16.OVF-01c",
-              "Cap-overflow: change-log saturated at cap",
+              "Cap-overflow: change-log saturated at cap [sprites.vhd:327-470]",
               spr.change_log_size() == cap,
               DETAIL("count=%zu cap=%zu", spr.change_log_size(), cap));
     }
@@ -3563,14 +3563,14 @@ static void group16() {
         // slot 0.  No warn yet.
         burst_attr_byte0(spr, 0, static_cast<int>(cap));
         check("G16.OVF-02a",
-              "At-cap (no overflow yet): zero warns",
+              "At-cap (no overflow yet): zero warns [sprites.vhd:327-470]",
               warns.warn_count == 0,
               DETAIL("warns=%d", warns.warn_count));
 
         // First overflow: triggers exactly one warn.
         burst_attr_byte0(spr, 0, 1);
         check("G16.OVF-02b",
-              "First overflow: exactly one warn fired",
+              "First overflow: exactly one warn fired [sprites.vhd:327-470]",
               warns.warn_count == 1,
               DETAIL("warns=%d", warns.warn_count));
 
@@ -3578,7 +3578,7 @@ static void group16() {
         // re-warn (overflow_warned_ latched).
         burst_attr_byte0(spr, 0, 100);
         check("G16.OVF-02c",
-              "Same-frame overflow: still exactly one warn (once-per-frame)",
+              "Same-frame overflow: still exactly one warn (once-per-frame) [sprites.vhd:327-470]",
               warns.warn_count == 1,
               DETAIL("warns=%d", warns.warn_count));
 
@@ -3590,19 +3590,23 @@ static void group16() {
         // Saturate again, then push one over.
         burst_attr_byte0(spr, 0, static_cast<int>(cap));
         check("G16.OVF-02d",
-              "After start_frame: log cleared, warn flag cleared",
+              "After start_frame: log cleared, warn flag cleared [sprites.vhd:327-470]",
               spr.change_log_size() == cap && warns.warn_count == 1,
               DETAIL("count=%zu warns=%d", spr.change_log_size(), warns.warn_count));
 
         burst_attr_byte0(spr, 0, 1);
         check("G16.OVF-02e",
-              "Second-frame overflow re-fires warn (clears at start_frame)",
+              "Second-frame overflow re-fires warn (clears at start_frame) [sprites.vhd:327-470]",
               warns.warn_count == 2,
               DETAIL("warns=%d", warns.warn_count));
     }
 
-    // G16.OVF-03: VHDL sprites.vhd:368-380 (per-line CPU-write commit
-    // visible to next line's FSM). Boundary case at the cap.
+    // G16.OVF-03: VHDL sprites.vhd:327-470 (5 dual-port attribute RAMs,
+    // sync-write async-read — same resource as G16.OVF-01/02; the cap is
+    // purely a C++ emulator constraint, VHDL itself has none). Boundary
+    // case at the cap. (GH #196 phase 1.4: corrected from the earlier
+    // 368-380 citation, which pointed at a commented-out/dead attr1
+    // entity declaration with no bearing on this row's assertion.)
     //
     // Drive exactly MAX_CHANGES_PER_FRAME=8192 byte-0 rewrites spread
     // evenly across all 256 visible scanlines (32 byte rewrites/line × 256
@@ -3642,11 +3646,11 @@ static void group16() {
 
         const size_t cap = SpriteEngine::MAX_CHANGES_PER_FRAME;
         check("G16.OVF-03a",
-              "AT cap (32×256=8192): no overflow warn",
+              "AT cap (32×256=8192): no overflow warn [sprites.vhd:327-470]",
               warns.warn_count == 0,
               DETAIL("warns=%d", warns.warn_count));
         check("G16.OVF-03b",
-              "AT cap: every write logged",
+              "AT cap: every write logged [sprites.vhd:327-470]",
               spr.change_log_size() == cap,
               DETAIL("count=%zu cap=%zu", spr.change_log_size(), cap));
 
@@ -3660,7 +3664,7 @@ static void group16() {
         spr.render_scanline(line100, 20, pal);  // Y=20 baseline, sprite still 16px high → visible at any line in [20..35]
 
         check("G16.OVF-03c",
-              "AT cap: per-line replay produces last-logged X=31",
+              "AT cap: per-line replay produces last-logged X=31 [sprites.vhd:327-470]",
               pixel_index(line100, 31) == 0x42,
               DETAIL("px@31=%d (expected 0x42)", pixel_index(line100, 31)));
     }
@@ -3700,7 +3704,7 @@ static void group17() {
         // assert the byte at pattern_ram_[0] is 0x77 by rendering a
         // sprite at offset 0. Direct API check via change-log size.
         check("G17.PSL-PAT-01a",
-              "pre-frame pattern write survives rewind (no log entries)",
+              "pre-frame pattern write survives rewind (no log entries) [sprites.vhd:561-572]",
               spr.pattern_change_log_size() == 0,
               DETAIL("pat_log=%zu", spr.pattern_change_log_size()));
 
@@ -3718,7 +3722,7 @@ static void group17() {
         uint32_t line0[kSpritesTestBufW]; clear_line(line0);
         spr.render_scanline(line0, 0, pal);
         check("G17.PSL-PAT-01b",
-              "render sees pre-frame pattern byte 0x77 at sprite px 0",
+              "render sees pre-frame pattern byte 0x77 at sprite px 0 [sprites.vhd:561-572]",
               pixel_index(line0, 0) == 0x77,
               DETAIL("px@0=%d", pixel_index(line0, 0)));
     }
@@ -3782,7 +3786,7 @@ static void group17() {
         spr.apply_changes_for_line(0);
         spr.render_scanline(line0b, 0, pal);
         check("G17.PSL-PAT-02a",
-              "Line 0: baseline pattern byte 0xAA at sprite px 0",
+              "Line 0: baseline pattern byte 0xAA at sprite px 0 [sprites.vhd:561-572]",
               pixel_index(line0b, 0) == 0xAA,
               DETAIL("px@0=%d", pixel_index(line0b, 0)));
 
@@ -3791,7 +3795,7 @@ static void group17() {
         uint32_t line99[kSpritesTestBufW]; clear_line(line99);
         spr.render_scanline(line99, 0, pal);
         check("G17.PSL-PAT-02b",
-              "Line 99: still baseline pattern byte 0xAA at sprite px 0",
+              "Line 99: still baseline pattern byte 0xAA at sprite px 0 [sprites.vhd:561-572]",
               pixel_index(line99, 0) == 0xAA,
               DETAIL("px@0=%d", pixel_index(line99, 0)));
 
@@ -3800,7 +3804,7 @@ static void group17() {
         uint32_t line100[kSpritesTestBufW]; clear_line(line100);
         spr.render_scanline(line100, 0, pal);
         check("G17.PSL-PAT-02c",
-              "Line 100: post-write pattern byte 0xBB at sprite px 0",
+              "Line 100: post-write pattern byte 0xBB at sprite px 0 [sprites.vhd:561-572]",
               pixel_index(line100, 0) == 0xBB,
               DETAIL("px@0=%d", pixel_index(line100, 0)));
 
@@ -3809,7 +3813,7 @@ static void group17() {
         uint32_t line200[kSpritesTestBufW]; clear_line(line200);
         spr.render_scanline(line200, 0, pal);
         check("G17.PSL-PAT-02d",
-              "Line 200: pattern byte still 0xBB (carried)",
+              "Line 200: pattern byte still 0xBB (carried) [sprites.vhd:561-572]",
               pixel_index(line200, 0) == 0xBB,
               DETAIL("px@0=%d", pixel_index(line200, 0)));
     }
@@ -3850,7 +3854,7 @@ static void group17() {
         bool line0_baseline = (pixel_index(l0, 10) == 0x33) &&
                               (pixel_index(l0, 25) == 0x33);
         check("G17.PSL-PAT-03a",
-              "Line 0 sprite px = baseline 0x33 (pre-mid-frame pattern)",
+              "Line 0 sprite px = baseline 0x33 (pre-mid-frame pattern) [sprites.vhd:561-572]",
               line0_baseline,
               DETAIL("px@10=%d px@25=%d",
                      pixel_index(l0, 10), pixel_index(l0, 25)));
@@ -3884,7 +3888,7 @@ static void group17() {
         for (int row = 0; row <= 5; ++row) spr.apply_changes_for_line(row);
         spr.render_scanline(l5, 5, pal);
         check("G17.PSL-PAT-03b",
-              "Line 5: tall sprite px = baseline 0x33",
+              "Line 5: tall sprite px = baseline 0x33 [sprites.vhd:561-572]",
               pixel_index(l5, 10) == 0x33,
               DETAIL("px@10=%d", pixel_index(l5, 10)));
 
@@ -3893,7 +3897,7 @@ static void group17() {
         for (int row = 6; row <= 20; ++row) spr.apply_changes_for_line(row);
         spr.render_scanline(l20, 20, pal);
         check("G17.PSL-PAT-03c",
-              "Line 20: tall sprite px = post-rewrite 0x66",
+              "Line 20: tall sprite px = post-rewrite 0x66 [sprites.vhd:561-572]",
               pixel_index(l20, 10) == 0x66,
               DETAIL("px@10=%d", pixel_index(l20, 10)));
     }
@@ -3907,13 +3911,13 @@ static void group17() {
         spr.write_slot_select(0);
         spr.write_pattern(0xCD);
         check("G17.PSL-PAT-04a",
-              "Pattern write logged (count > 0)",
+              "Pattern write logged (count > 0) [sprites.vhd:561-572]",
               spr.pattern_change_log_size() > 0,
               DETAIL("count=%zu", spr.pattern_change_log_size()));
 
         spr.reset();
         check("G17.PSL-PAT-04b",
-              "After reset: pattern_change_log_size == 0",
+              "After reset: pattern_change_log_size == 0 [sprites.vhd:561-572]",
               spr.pattern_change_log_size() == 0,
               DETAIL("count=%zu", spr.pattern_change_log_size()));
     }
@@ -3931,7 +3935,7 @@ static void group17() {
             spr.write_pattern(static_cast<uint8_t>(i & 0xFF));
         }
         check("G17.PSL-PAT-05",
-              "log saturates at MAX_PATTERN_CHANGES_PER_FRAME",
+              "log saturates at MAX_PATTERN_CHANGES_PER_FRAME [sprites.vhd:561-572]",
               spr.pattern_change_log_size() == cap,
               DETAIL("count=%zu cap=%zu",
                      spr.pattern_change_log_size(), cap));
@@ -3966,11 +3970,11 @@ static void group17() {
 
         // Both logs should record exactly one entry each.
         check("G17.PSL-PAT-06a",
-              "attr log has one mid-frame entry",
+              "attr log has one mid-frame entry [sprites.vhd:561-572]",
               spr.change_log_size() == 1,
               DETAIL("attr_log=%zu", spr.change_log_size()));
         check("G17.PSL-PAT-06b",
-              "pattern log has one mid-frame entry",
+              "pattern log has one mid-frame entry [sprites.vhd:561-572]",
               spr.pattern_change_log_size() == 1,
               DETAIL("pat_log=%zu", spr.pattern_change_log_size()));
 
@@ -3979,21 +3983,21 @@ static void group17() {
         // Line 0: baseline (X=0, pattern[0]=0x11).
         spr.apply_changes_for_line(0);
         check("G17.PSL-PAT-06c",
-              "Line 0: attribute X = baseline 0",
+              "Line 0: attribute X = baseline 0 [sprites.vhd:561-572]",
               spr.read_attr_byte(0, 0) == 0,
               DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
 
         // Lines 1..29 — neither log fires.
         for (int row = 1; row < 30; ++row) spr.apply_changes_for_line(row);
         check("G17.PSL-PAT-06d",
-              "Line 29: still baseline X=0",
+              "Line 29: still baseline X=0 [sprites.vhd:561-572]",
               spr.read_attr_byte(0, 0) == 0,
               DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
 
         // Line 30: attribute log fires (X=200), pattern log does NOT.
         spr.apply_changes_for_line(30);
         check("G17.PSL-PAT-06e",
-              "Line 30: attribute X = 200 (mid-frame attr write)",
+              "Line 30: attribute X = 200 (mid-frame attr write) [sprites.vhd:561-572]",
               spr.read_attr_byte(0, 0) == 200,
               DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
 
@@ -4011,7 +4015,7 @@ static void group17() {
         spr.apply_changes_for_line(60);
         // Verify the attribute side is unchanged from line 30 (X=200).
         check("G17.PSL-PAT-06f",
-              "Line 60: attribute X still 200 (pattern-only mid-frame)",
+              "Line 60: attribute X still 200 (pattern-only mid-frame) [sprites.vhd:561-572]",
               spr.read_attr_byte(0, 0) == 200,
               DETAIL("attr0=%d", spr.read_attr_byte(0, 0)));
 
@@ -4050,7 +4054,7 @@ static void group17() {
         uint32_t lpat2[kSpritesTestBufW]; clear_line(lpat2);
         spr.render_scanline(lpat2, 60, pal);
         check("G17.PSL-PAT-06g",
-              "Line 60: rendered pixel uses post-rewrite pattern byte 0x99",
+              "Line 60: rendered pixel uses post-rewrite pattern byte 0x99 [sprites.vhd:561-572]",
               pixel_index(lpat2, 10) == 0x99,
               DETAIL("px@10=%d", pixel_index(lpat2, 10)));
     }
@@ -4088,7 +4092,7 @@ static void group17() {
         spr.write_pattern(0xBB);
 
         check("G17.PSL-PAT-07a",
-              "Both writes logged (visible + vblank)",
+              "Both writes logged (visible + vblank) [sprites.vhd:561-572]",
               spr.pattern_change_log_size() == 2,
               DETAIL("count=%zu", spr.pattern_change_log_size()));
 
@@ -4126,11 +4130,11 @@ static void group17() {
         uint32_t l_t1[kSpritesTestBufW]; clear_line(l_t1);
         spr.render_scanline(l_t1, 0, pal);
         check("G17.PSL-PAT-07b",
-              "Catch-up: pattern[0]=0xAA in next-frame baseline",
+              "Catch-up: pattern[0]=0xAA in next-frame baseline [sprites.vhd:561-572]",
               pixel_index(l_t1, 0) == 0xAA,
               DETAIL("px@0=%d (expected 0xAA)", pixel_index(l_t1, 0)));
         check("G17.PSL-PAT-07c",
-              "Catch-up: pattern[1]=0xBB in next-frame baseline (vblank entry flushed)",
+              "Catch-up: pattern[1]=0xBB in next-frame baseline (vblank entry flushed) [sprites.vhd:561-572]",
               pixel_index(l_t1, 1) == 0xBB,
               DETAIL("px@1=%d (expected 0xBB)", pixel_index(l_t1, 1)));
     }
