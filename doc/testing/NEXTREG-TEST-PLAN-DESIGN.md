@@ -202,7 +202,7 @@ From `zxnext.vhd` lines 4607-4700:
 | Test | Scenario | Expected |
 |------|----------|----------|
 | MMU-01 | Reset defaults | 0xFF,0xFF,0x0A,0x0B,0x04,0x05,0x00,0x01 |
-| MMU-02 | Write NR 0x52 = 0x20, read back | 0x20 |
+| NR-MMU-02 | Write NR 0x52 = 0x20, read back | 0x20 |
 | MMU-03 | Write port 0x7FFD, check MMU6/7 | Updated from 7FFD bank field |
 | MMU-04 | NextREG write overrides port write | Last writer wins |
 | N8E-RAM-PRESERVE-0 | NR 0x56=0x20 override, then NR 0x8E=0x00 (bit 3 = 0) | MMU6 stays 0x20 — VHDL:3814 drives `port_memory_ram_change_dly='0'`, :4677 skips MMU6/7 update |

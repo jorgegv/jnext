@@ -435,7 +435,7 @@ static void test_clip_cycling() {
     // Not a skip here — authoritative status lives at integration tier.
 }
 
-// ── 6. MMU Registers (MMU-01..04) ────────────────────────────────────
+// ── 6. MMU Registers (MMU-01, NR-MMU-02, MMU-03, MMU-04) ─────────────
 
 static void test_mmu() {
     set_group("MMU");
@@ -445,14 +445,14 @@ static void test_mmu() {
     // NR 0x50-0x57 through the port path and matches the VHDL defaults.
     // Not a skip — re-homed to integration tier.
 
-    // MMU-02 — plain write/read round-trip on a single MMU page slot.
+    // NR-MMU-02 — plain write/read round-trip on a single MMU page slot.
     // NextREG-side storage is transparent; the Mmu mirror lives in the
     // Mmu subsystem but the regs_[] byte round-trips.
     {
         NextReg nr;
         nr.write(0x52, 0x20);
         uint8_t got = nr.read(0x52);
-        check("MMU-02",
+        check("NR-MMU-02",
               "NR 0x52 (MMU2) write=0x20 read=0x20 "
               "[zxnext.vhd:4613 MMU2 storage]",
               got == 0x20, detail_eq(got, 0x20));

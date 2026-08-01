@@ -939,7 +939,7 @@ static void test_reset_domain_e3_and_8c() {
     // an Mmu mirror, because the SRAM address compose at zxnext.vhd:3045
     // (sram_pre_A21_A13 <= nr_04_romram_bank & cpu_a(13)) lives on the Mmu hot
     // path. RSTD-04-01/02 above assert only the NextReg latch, and mmu_test
-    // CFG-05..12 drive a BARE Mmu with no Emulator — so nothing proved the NR
+    // MMU-CFG-05..MMU-CFG-07 / CFG-08..12 drive a BARE Mmu with no Emulator — so nothing proved the NR
     // 0x04 write handler reaches the mirror that the address compose actually
     // reads. The pair below closes that: both assert through Emulator::mmu(),
     // never the register accessor.
@@ -969,7 +969,7 @@ static void test_reset_domain_e3_and_8c() {
     }
 
     // RSTD-04-04 — RESET_SOFT preserves the Mmu mirror too, and leaves the two
-    // mirrors in agreement. This is the end-to-end half of #194: CFG-06 proves
+    // mirrors in agreement. This is the end-to-end half of #194: MMU-CFG-06 proves
     // Mmu::reset() preserves the field on a bare fixture, RSTD-04-01 proves the
     // NextReg latch survives — only this row proves the mirror survives the
     // REAL soft-reset path, which re-enters Emulator::init() (where a resync

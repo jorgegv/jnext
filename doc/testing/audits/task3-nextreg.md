@@ -65,7 +65,7 @@ None identified.
   - RW-10: zxnext.vhd:4607-4700 NR 0x50-0x57 MMU pages plain round-trip
   - RW-11: zxnext.vhd read dispatch NR 0x7F user scratch
   - RW-12: zxnext.vhd:5630 NR 0x6B tilemap control plain round-trip
-  - MMU-02: zxnext.vhd:4613 NR 0x52 MMU2 page plain round-trip
+  - NR-MMU-02: zxnext.vhd:4613 NR 0x52 MMU2 page plain round-trip
   - PE-01: zxnext.vhd:2392-2442, 5052-5068 NR 0x82 port-enable plain round-trip (write=0x00)
   - PE-02: zxnext.vhd:2392-2442, 5052-5068 NR 0x82 port-enable plain round-trip (write=0xA5)
   - COP-01: zxnext.vhd:4706-4777 NR 0x15 CPU-path write (copper arbitration at integration tier)

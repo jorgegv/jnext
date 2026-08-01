@@ -13,7 +13,7 @@ the case for this plan:
 ~90% was meta-maintenance of the matrix and its extractor. The exceptions —
 found only *because* the matrix was being cleaned — were: 4 missing tests
 (#191), 3 plan-doc errors out of thousands of rows (#193), one vacuous
-assertion (`CFG-06`, which passed regardless of the code), and **one real
+assertion (`MMU-CFG-06`, which passed regardless of the code), and **one real
 emulator bug** (#194).
 
 **The test plan and suites are fundamentally sound.** 6560 manifest-pinned

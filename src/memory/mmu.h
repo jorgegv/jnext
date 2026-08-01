@@ -191,7 +191,7 @@ public:
     bool config_mode() const { return config_mode_; }
     void set_nr_04_romram_bank(uint8_t v) { nr_04_romram_bank_ = v; }
     // GH #195: the mirror had no reader, so the only way to assert it was a
-    // bare-Mmu fixture (mmu_test CFG-05..12) — the Emulator tier was blind to
+    // bare-Mmu fixture (mmu_test MMU-CFG-05..MMU-CFG-07 / CFG-08..12) — the Emulator tier was blind to
     // whether the NR 0x04 write handler actually reaches it. Rows
     // RSTD-04-03/04 use this to pin the two mirrors in agreement.
     uint8_t nr_04_romram_bank() const { return nr_04_romram_bank_; }
