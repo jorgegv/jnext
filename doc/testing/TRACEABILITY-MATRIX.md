@@ -826,7 +826,7 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | G9-04   | Scroll X with wide branch NOT fired                          | —                    | missing | missing                          |
 | G9-05   | Wide mode clip `x2=0xFF` ⇒ effective 511                     | layer2.vhd:134       | pass    | test/layer2/layer2_test.cpp:1340 |
 | G9-06   | `hc_eff = hc + 1` cannot be detected as a pure scroll (non-… | layer2.vhd:148       | missing | missing                          |
-| L2-G17-01  | Parallax.nex side-by-side duplication root cause (post-LoRes) | (jnext-internal)               | missing | missing                          |
+| L2-G17-01  | Parallax.nex side-by-side duplication root cause (post-LoRes) | —               | missing | missing                          |
 | G9-G28-01  | `hc_eff = hc + 1` per-column observable (cycle-accurate gate) | layer2.vhd:148      | missing | missing                          |
 | G10-01  | start_frame baseline captures scroll_x_/y_                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1452 |
 | G10-02  | Three scroll writes recorded in change log                   | zxnext.vhd:5232      | pass    | test/layer2/layer2_test.cpp:1463 |
