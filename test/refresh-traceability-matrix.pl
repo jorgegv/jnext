@@ -1353,16 +1353,66 @@ sub helper_arg_positions {
     # line numbers matches nothing at all.
     my $text = join('', @$src);
     my %pos;
-    # `[[maybe_unused]]` and friends prefix the declaration in several suites
-    # (videotiming, contention). Skipping the attribute is not cosmetic: those
-    # two files declare the ordinary `check(id, desc, cond, detail)` shape, so
-    # failing to parse them cost 170 rows their descriptions and — worse —
-    # looked exactly like "this suite has none", which is a different and much
-    # more expensive conclusion.
+    # WRAPPERS COUNT, AND ARE FOUND RATHER THAN LISTED.
+    #
+    # A row's assertion is not always a direct `check()`. Suites wrap it —
+    # `single(id, desc, scancode, row, col)` in input_test (a LAMBDA, not a
+    # function), `expect_default` -> `expect_verdict` in esp_socket (two
+    # levels) — and to a source reader those calls are where the row's
+    # description lives.
+    #
+    # Adding "single", "expect_default", ... to a list of known names would
+    # work until the next suite invents its own, which is the drift this whole
+    # issue exists to remove. Instead a definition is ADOPTED as a helper when
+    # its body calls a helper: the base five seed the set, and it is closed to
+    # a fixpoint so a wrapper of a wrapper is found too. Candidates must also
+    # take a string as their ID slot, and every call site still refuses an
+    # argument that is not an ID-shaped literal, so adopting a function that
+    # merely happens to call check() cannot invent rows.
+    my @cand;
+    # Free functions, with optional attributes/qualifiers, and lambdas bound
+    # to a name (`auto single = [&](...)`). Both spellings are in live use.
     while ($text =~ /^[ \t]*(?:\[\[[^\]]*\]\][ \t]*)*(?:static[ \t]+)?
                      (?:inline[ \t]+)?(?:void|bool|int)[ \t]+
-                     (check|check_eq|check_pred|skip|stub)[ \t]*\(([^)]*)\)/gmx) {
-        my ($helper, $params) = ($1, $2);
+                     ([A-Za-z_]\w*)[ \t]*\(([^)]*)\)/gmx) {
+        push @cand, { name => $1, params => $2, at => $-[0] };
+    }
+    while ($text =~ /\bauto[ \t]+([A-Za-z_]\w*)[ \t]*=[ \t]*\[[^\]]*\][ \t]*\(([^)]*)\)/g) {
+        push @cand, { name => $1, params => $2, at => $-[0] };
+    }
+    # Body of each candidate: from its parameter list to the matching close
+    # brace, so "does it call a helper" is asked of the definition and not of
+    # the whole file.
+    for my $c (@cand) {
+        my $open = index($text, '{', $c->{at});
+        next if $open < 0;
+        my ($depth, $i) = (0, $open);
+        for (; $i < length($text); $i++) {
+            my $ch = substr($text, $i, 1);
+            $depth++ if $ch eq '{';
+            if ($ch eq '}') { $depth--; last if $depth == 0; }
+        }
+        $c->{body} = substr($text, $open, $i - $open + 1);
+    }
+    my %helper = map { $_ => 1 } qw(check check_eq check_pred skip stub);
+    my $added = 1;
+    while ($added) {
+        $added = 0;
+        for my $c (@cand) {
+            next if $helper{ $c->{name} } || !defined $c->{body};
+            my $calls = 0;
+            for my $h (keys %helper) {
+                $calls = 1, last if $c->{body} =~ /\b\Q$h\E\s*\(/;
+            }
+            next unless $calls;
+            $helper{ $c->{name} } = 1;
+            $added = 1;
+        }
+    }
+
+    for my $c (@cand) {
+        next unless $helper{ $c->{name} };
+        my ($helper, $params) = ($c->{name}, $c->{params});
         my @p = grep { /\S/ } split(/,/, $params);
         next unless @p;
         my $is_str = sub { $_[0] =~ /char\s*\*|string/ };
@@ -1386,8 +1436,9 @@ sub helper_arg_positions {
 # hot path by the citation tiers and its contract ("the slot the row ID goes
 # in") is narrower than this one.
 sub call_args {
-    my ($text) = @_;
-    return () unless $text =~ /\b(?:check|check_pred|check_eq|skip|stub)\s*\(/g;
+    my ($text, $names) = @_;
+    my $re = $names || 'check|check_pred|check_eq|skip|stub';
+    return () unless $text =~ /\b(?:$re)\s*\(/g;
     my ($depth, $in_dq, $in_sq, $cur, @args) = (0, 0, 0, '');
     for (my $i = pos($text); $i < length($text); $i++) {
         my $ch = substr($text, $i, 1);
@@ -1579,10 +1630,16 @@ sub row_descriptions {
     my ($source_rel) = @_;
     my $src = source_lines("$ROOT/$source_rel");
     my $pos = helper_arg_positions($source_rel);
+    my $helper_re = join('|', map { quotemeta } sort { length($b) <=> length($a) }
+                                                keys %$pos);
+    return {} unless length $helper_re;
     my %desc;
     for my $i (0 .. $#$src) {
         my $head = code_prefix($src->[$i]);
-        next unless $head =~ /\b(check|check_pred|check_eq|skip|stub)\s*\(/;
+        # The helper names come from THIS file's own definitions (base five
+        # plus every wrapper adopted above), so a suite's private wrapper is
+        # matched without being named here.
+        next unless $head =~ /\b($helper_re)\s*\(/;
         my $helper = $1;
         my $p = $pos->{$helper} or next;
         # Same bounded span the citation scan uses, and bounded for the same
@@ -1597,7 +1654,7 @@ sub row_descriptions {
             last if $started && $depth <= 0;
             $j++;
         }
-        my @args = call_args($text);
+        my @args = call_args($text, $helper_re);
         next unless @args > $p->{id};
         next unless defined $p->{desc} && @args > $p->{desc};
 
@@ -3595,6 +3652,19 @@ sub main_body {
                     # as a smaller problem than it is.
                     printf("      no description: %s\n", join(' ', @none))
                         if @none;
+                    # $JNEXT_DESC_SHOW prints the DERIVED text for the ids it
+                    # matches. Counting how many rows got a description says
+                    # nothing about whether the right one was attributed —
+                    # which is the failure a wrapper- or table-resolver makes.
+                    if (my $pat = $ENV{JNEXT_DESC_SHOW}) {
+                        for my $id (sort keys %$ids) {
+                            next unless $id =~ /$pat/;
+                            printf("      %-16s = %s\n", $id,
+                                   defined $desc->{$id} ? $desc->{$id}
+                                 : (defined $plan->{$id} ? "[plan] $plan->{$id}"
+                                                         : '(none)'));
+                        }
+                    }
                 }
             }
         }
