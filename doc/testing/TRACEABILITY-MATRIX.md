@@ -2192,23 +2192,23 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | NR-C2-01        | NMI captures PC into NR 0xC2 (RETN address LSB)                                      | zxnext.vhd:2050-2085,6232         | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:1089 |
 | NR-C3-01        | NMI captures PC into NR 0xC3 (RETN address MSB)                                      | zxnext.vhd:2050-2085,6236         | pass    | test/ctc_interrupts/ctc_interrupts_test.cpp:1094 |
 | Z80-04          | Z80Cpu M1 hook fires per fetched byte (cross-link to G87 ED-prefix observability)    | —                               | missing | missing         |
-| CFG-08          | NR 0x02 reset_type[2:0] FSM advance on soft_reset rising edge (G153)                 | zxnext.vhd:1306,1732-1739       | missing | missing         |
-| NR02-07         | NR 0x02 read returns reset_type[2:0] in bits [1:0] + bit 2 (G153)                    | zxnext.vhd:5891                 | missing | missing         |
-| NR02-08         | NR 0x02 reset_type power-on default = "100"; SPI-Flash-CS arms on first power-on (G153) | zxnext.vhd:1306              | missing | missing         |
+| CFG-08          | NR 0x02 reset_type[2:0] FSM advance on soft_reset rising edge (G153) — RE-HOMED to NMI Source Pipeline plan (NR02-07) | zxnext.vhd:1306,1732-1739       | missing | missing         |
+| NR02-07         | NR 0x02 read returns reset_type[2:0] in bits [1:0] + bit 2 (G153) — RE-HOMED to NMI Source Pipeline plan (NR02-08) | zxnext.vhd:5891                 | missing | missing         |
+| NR02-08         | NR 0x02 reset_type power-on default = "100"; SPI-Flash-CS arms on first power-on (G153) — RE-HOMED to NMI Source Pipeline plan (NMI-RST-04) | zxnext.vhd:1306              | missing | missing         |
 | RST-04          | Hard-reset via host F1 hotkey advances NR 0x02 reset_type FSM (G152 + G153 cross)    | —                               | missing | missing         |
 | HK-06           | Host F1 SDL scancode -> emulator hard reset injector (G152)                          | —                               | missing | missing         |
 | HK-07           | Host F4 SDL scancode -> emulator soft reset injector (G152)                          | —                               | missing | missing         |
 | HK-08           | Host F9 SDL scancode -> Multiface NMI assert (hotkey_m1) (G152)                      | —                               | missing | missing         |
 | HK-09           | Host F10 SDL scancode -> DivMMC button NMI (hotkey_drive) (G152)                     | —                               | missing | missing         |
-| MF-G162-01      | Port 0x2FFD/0x3FFD iotrap decode raises nmi_gen_iotrap                               | zxnext.vhd:3835-3837            | missing | missing         |
-| MF-G162-02      | NmiSource::strobe_iotrap propagates to MF assert (OR with nmi_gen_nr_mf)             | nmi_source.cpp:124-127,384      | missing | missing         |
-| MF-G48-01       | NR 0x0A bits [7:6] -> nr_0a_mf_type forwarded to Multiface entity                    | zxnext.vhd:5193                 | missing | missing         |
-| MF-G48-02       | MF +3 mode (type=00) decodes ports 0x3F / 0xBF                                       | multiface.vhd:122-131           | missing | missing         |
-| MF-G48-03       | MF 128 mode (type=01/10) decodes ports 0xBF / 0x3F                                   | multiface.vhd:122-131           | missing | missing         |
-| MF-G48-04       | MF 48 mode (type=11) decodes ports 0x9F / 0x1F                                       | multiface.vhd:122-131           | missing | missing         |
-| MF-G48-05       | MF a_0066 / mf_is_active / mf_mem_en / mf_port_en signals tracked                    | multiface.vhd:152-163           | missing | missing         |
-| MF-G48-06       | MF +3 readback mux on cpu_a(15:12) returns port_dffd_reg_6 + port_1ffd/7ffd shadow   | zxnext.vhd:4310-4322            | missing | missing         |
-| MF-G48-07       | DivMMC RETN-seen suppressed when mf_is_active=1 (band-aid removal invariant)         | zxnext.vhd:4111                 | missing | missing         |
+| MF-G162-01      | Port 0x2FFD/0x3FFD iotrap decode raises nmi_gen_iotrap — RE-HOMED to NMI Source Pipeline plan (MF-G162-02) | zxnext.vhd:3835-3837            | missing | missing         |
+| MF-G162-02      | NmiSource::strobe_iotrap propagates to MF assert (OR with nmi_gen_nr_mf) — RE-HOMED to NMI Source Pipeline plan (MF-G162-01) | zxnext.vhd:3837,2090      | missing | missing         |
+| MF-G48-01       | NR 0x0A bits [7:6] -> nr_0a_mf_type forwarded to Multiface entity — RE-HOMED to NMI Source Pipeline plan (MF-G48-01) | zxnext.vhd:5193                 | missing | missing         |
+| MF-G48-02       | MF +3 mode (type=00) decodes ports 0x3F / 0xBF — RE-HOMED to Multiface plan (MF-PORT-01..04) | —           | missing | missing         |
+| MF-G48-03       | MF 128 mode (type=01/10) decodes ports 0xBF / 0x3F — RE-HOMED to Multiface plan (MF-PORT-07/08) | —           | missing | missing         |
+| MF-G48-04       | MF 48 mode (type=11) decodes ports 0x9F / 0x1F — RE-HOMED to Multiface plan (MF-PORT-12/13) | —           | missing | missing         |
+| MF-G48-05       | MF a_0066 / mf_is_active / mf_mem_en / mf_port_en signals tracked — RE-HOMED to Multiface plan (MF-CORE-04/10, MF-MUX-06/07) | —           | missing | missing         |
+| MF-G48-06       | MF +3 readback mux on cpu_a(15:12) returns port_dffd_reg_6 + port_1ffd/7ffd shadow — RE-HOMED to Multiface plan (MF-MUX-01/01b/02/03) | zxnext.vhd:4310-4322            | missing | missing         |
+| MF-G48-07       | DivMMC RETN-seen suppressed when mf_is_active=1 (band-aid removal invariant) — RE-HOMED to NMI Source Pipeline plan (MF-G48-06) | zxnext.vhd:4111                 | missing | missing         |
 
 ### Companion integration suite — `test/ctc_interrupts/ctc_interrupts_test.cpp`
 
