@@ -1,6 +1,6 @@
 # 3.3 Video
 
-Video is the largest subsystem — about 12 000 lines across eight modules in
+Video is the largest subsystem — about 10 200 lines across eight modules in
 `src/video/`, plus the part of `src/core/emulator.cpp` that feeds it. It produces
 one thing: a 640×256 ARGB8888 framebuffer, built one scanline at a time by
 `Renderer::render_frame` at the end of every emulated frame (see

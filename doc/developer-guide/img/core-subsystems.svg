@@ -42,36 +42,36 @@
 <!-- mem -->
 <g id="node4" class="node">
 <title>mem</title>
-<path fill="#eef2f7" stroke="#5a6b80" d="M575.64,-277.2C575.64,-277.2 412.36,-277.2 412.36,-277.2 406.36,-277.2 400.36,-271.2 400.36,-265.2 400.36,-265.2 400.36,-250.8 400.36,-250.8 400.36,-244.8 406.36,-238.8 412.36,-238.8 412.36,-238.8 575.64,-238.8 575.64,-238.8 581.64,-238.8 587.64,-244.8 587.64,-250.8 587.64,-250.8 587.64,-265.2 587.64,-265.2 587.64,-271.2 581.64,-277.2 575.64,-277.2"/>
-<text xml:space="preserve" text-anchor="start" x="411.88" y="-260.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">memory — src/memory</text>
-<text xml:space="preserve" text-anchor="start" x="411.88" y="-248.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">Ram · Rom · Mmu · ContentionModel</text>
+<path fill="#eef2f7" stroke="#5a6b80" d="M576.64,-277.2C576.64,-277.2 413.36,-277.2 413.36,-277.2 407.36,-277.2 401.36,-271.2 401.36,-265.2 401.36,-265.2 401.36,-250.8 401.36,-250.8 401.36,-244.8 407.36,-238.8 413.36,-238.8 413.36,-238.8 576.64,-238.8 576.64,-238.8 582.64,-238.8 588.64,-244.8 588.64,-250.8 588.64,-250.8 588.64,-265.2 588.64,-265.2 588.64,-271.2 582.64,-277.2 576.64,-277.2"/>
+<text xml:space="preserve" text-anchor="start" x="412.88" y="-260.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">memory — src/memory</text>
+<text xml:space="preserve" text-anchor="start" x="412.88" y="-248.5" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">Ram · Rom · Mmu · ContentionModel</text>
 </g>
 <!-- emu&#45;&gt;mem -->
 <!-- io -->
 <g id="node5" class="node">
 <title>io</title>
-<path fill="#eef2f7" stroke="#5a6b80" d="M152.02,-180.8C152.02,-180.8 47.98,-180.8 47.98,-180.8 41.98,-180.8 35.98,-174.8 35.98,-168.8 35.98,-168.8 35.98,-154.4 35.98,-154.4 35.98,-148.4 41.98,-142.4 47.98,-142.4 47.98,-142.4 152.02,-142.4 152.02,-142.4 158.02,-142.4 164.02,-148.4 164.02,-154.4 164.02,-154.4 164.02,-168.8 164.02,-168.8 164.02,-174.8 158.02,-180.8 152.02,-180.8"/>
-<text xml:space="preserve" text-anchor="start" x="47.5" y="-164.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">I/O — src/port</text>
-<text xml:space="preserve" text-anchor="start" x="47.5" y="-152.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">PortDispatch · NextReg</text>
+<path fill="#eef2f7" stroke="#5a6b80" d="M151.02,-180.8C151.02,-180.8 46.98,-180.8 46.98,-180.8 40.98,-180.8 34.98,-174.8 34.98,-168.8 34.98,-168.8 34.98,-154.4 34.98,-154.4 34.98,-148.4 40.98,-142.4 46.98,-142.4 46.98,-142.4 151.02,-142.4 151.02,-142.4 157.02,-142.4 163.02,-148.4 163.02,-154.4 163.02,-154.4 163.02,-168.8 163.02,-168.8 163.02,-174.8 157.02,-180.8 151.02,-180.8"/>
+<text xml:space="preserve" text-anchor="start" x="46.5" y="-164.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">I/O — src/port</text>
+<text xml:space="preserve" text-anchor="start" x="46.5" y="-152.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">PortDispatch · NextReg</text>
 </g>
 <!-- time&#45;&gt;io -->
 <!-- video -->
 <g id="node6" class="node">
 <title>video</title>
-<path fill="#eef2f7" stroke="#5a6b80" d="M378.39,-192.8C378.39,-192.8 213.61,-192.8 213.61,-192.8 207.61,-192.8 201.61,-186.8 201.61,-180.8 201.61,-180.8 201.61,-142.4 201.61,-142.4 201.61,-136.4 207.61,-130.4 213.61,-130.4 213.61,-130.4 378.39,-130.4 378.39,-130.4 384.39,-130.4 390.39,-136.4 390.39,-142.4 390.39,-142.4 390.39,-180.8 390.39,-180.8 390.39,-186.8 384.39,-192.8 378.39,-192.8"/>
-<text xml:space="preserve" text-anchor="start" x="213.12" y="-176.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">video — src/video</text>
-<text xml:space="preserve" text-anchor="start" x="213.12" y="-164.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">VideoTiming · Renderer (ULA, LoRes,</text>
-<text xml:space="preserve" text-anchor="start" x="213.12" y="-152.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">Layer 2, compositing) · SpriteEngine</text>
-<text xml:space="preserve" text-anchor="start" x="213.12" y="-140.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">Tilemap · PaletteManager</text>
+<path fill="#eef2f7" stroke="#5a6b80" d="M387.02,-192.8C387.02,-192.8 204.98,-192.8 204.98,-192.8 198.98,-192.8 192.98,-186.8 192.98,-180.8 192.98,-180.8 192.98,-142.4 192.98,-142.4 192.98,-136.4 198.98,-130.4 204.98,-130.4 204.98,-130.4 387.02,-130.4 387.02,-130.4 393.02,-130.4 399.02,-136.4 399.02,-142.4 399.02,-142.4 399.02,-180.8 399.02,-180.8 399.02,-186.8 393.02,-192.8 387.02,-192.8"/>
+<text xml:space="preserve" text-anchor="start" x="204.5" y="-176.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">video — src/video</text>
+<text xml:space="preserve" text-anchor="start" x="204.5" y="-164.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">VideoTiming · Renderer (owns Ula, Lores;</text>
+<text xml:space="preserve" text-anchor="start" x="204.5" y="-152.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">composites the rest) · Layer2</text>
+<text xml:space="preserve" text-anchor="start" x="204.5" y="-140.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">SpriteEngine · Tilemap · PaletteManager</text>
 </g>
 <!-- cpu&#45;&gt;video -->
 <!-- audio -->
 <g id="node7" class="node">
 <title>audio</title>
-<path fill="#eef2f7" stroke="#5a6b80" d="M565.14,-186.8C565.14,-186.8 428.86,-186.8 428.86,-186.8 422.86,-186.8 416.86,-180.8 416.86,-174.8 416.86,-174.8 416.86,-148.4 416.86,-148.4 416.86,-142.4 422.86,-136.4 428.86,-136.4 428.86,-136.4 565.14,-136.4 565.14,-136.4 571.14,-136.4 577.14,-142.4 577.14,-148.4 577.14,-148.4 577.14,-174.8 577.14,-174.8 577.14,-180.8 571.14,-186.8 565.14,-186.8"/>
-<text xml:space="preserve" text-anchor="start" x="428.38" y="-170.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">audio — src/audio</text>
-<text xml:space="preserve" text-anchor="start" x="428.38" y="-158.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">TurboSound (3x YM2149) · Dac</text>
-<text xml:space="preserve" text-anchor="start" x="428.38" y="-146.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">Beeper · I2s · Mixer</text>
+<path fill="#eef2f7" stroke="#5a6b80" d="M572.14,-186.8C572.14,-186.8 435.86,-186.8 435.86,-186.8 429.86,-186.8 423.86,-180.8 423.86,-174.8 423.86,-174.8 423.86,-148.4 423.86,-148.4 423.86,-142.4 429.86,-136.4 435.86,-136.4 435.86,-136.4 572.14,-136.4 572.14,-136.4 578.14,-136.4 584.14,-142.4 584.14,-148.4 584.14,-148.4 584.14,-174.8 584.14,-174.8 584.14,-180.8 578.14,-186.8 572.14,-186.8"/>
+<text xml:space="preserve" text-anchor="start" x="435.38" y="-170.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">audio — src/audio</text>
+<text xml:space="preserve" text-anchor="start" x="435.38" y="-158.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">TurboSound (3x YM2149) · Dac</text>
+<text xml:space="preserve" text-anchor="start" x="435.38" y="-146.1" font-family="Helvetica,sans-Serif" font-size="10.00" fill="#1b2430">Beeper · I2s · Mixer</text>
 </g>
 <!-- mem&#45;&gt;audio -->
 <!-- per -->

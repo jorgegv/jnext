@@ -35,8 +35,12 @@ Grouped roughly, the object holds:
 - **Input** — `Keyboard`, `Joystick`, `KempstonMouse`, `Md6ConnectorX2`,
   `MembraneStick`, `IoMode`, `EmuFnKeys`, `PhantomTypist`.
 - **Host-facing state that is not machine state** — `DebugState`, `TraceLog`,
-  `CallStack`, the tape and snapshot loaders, the video/RZX recorders, the
-  rewind ring, the profiler, and the 640 × 256 framebuffer.
+  `CallStack`, the tape loaders and the tape saver, the video/RZX recorders,
+  the rewind ring, the profiler, and the 640 × 256 framebuffer. The *snapshot*
+  loaders are not members: `NexLoader`, `SnaLoader`, `SzxLoader` and
+  `Z80Loader` are constructed as locals inside `load_nex()`, `load_sna()`,
+  `load_szx()` and `load_z80()`, because a snapshot is read once and then
+  nothing survives.
 
 Accessors (`mmu()`, `nextreg()`, `copper()`, …) hand out references. That is
 how the debugger panels, the unit suites and the frontends all reach

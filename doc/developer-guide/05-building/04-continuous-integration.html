@@ -1749,8 +1749,11 @@
 
 
 <h1 id="54-continuous-integration">5.4 Continuous integration<a class="headerlink" href="#54-continuous-integration" title="Permanent link">&para;</a></h1>
-<p>Two workflows. <code>ci.yml</code> tests, on every push to <code>main</code> and every pull request.
-<code>release.yml</code> builds and publishes packages, on a <code>v*</code> tag push.</p>
+<p>Three workflows. <code>ci.yml</code> tests, on every push to <code>main</code> and every pull
+request. <code>release.yml</code> builds and publishes packages, on a <code>v*</code> tag push.
+<code>macos-build.yml</code> builds, packages and verifies the macOS <code>.dmg</code> on demand —
+it has only a <code>workflow_dispatch</code> trigger, so it never runs by itself; it
+exists so the macOS leg can be exercised without cutting a release.</p>
 <h2 id="the-hard-rule-every-step-is-a-plain-make-target">The hard rule: every step is a plain make target<a class="headerlink" href="#the-hard-rule-every-step-is-a-plain-make-target" title="Permanent link">&para;</a></h2>
 <p>Every <code>run:</code> in <code>ci.yml</code> is a target a human types locally. CI and local must
 never diverge. If CI appears to need something the local flow lacks, the answer
@@ -1765,9 +1768,12 @@ status and a failing <code>make</code> reports success. That is not hypothetical
 here once printed <code>62 pass, 1 fail</code> and <code>UNIT TESTS FAILED</code> in bold and went
 green.</p>
 <h2 id="why-a-fedora-container">Why a Fedora container<a class="headerlink" href="#why-a-fedora-container" title="Permanent link">&para;</a></h2>
-<p>Four of the five <code>ci.yml</code> jobs run in <code>container: fedora:44</code> — the same image
-<code>release.yml</code> builds the rpm and Windows artifacts in, and the distro the
-maintainer develops on. This is load-bearing rather than cosmetic. The man page,
+<p>Three of the five <code>ci.yml</code> jobs — <code>test</code>, <code>qt5-guard</code> and <code>package</code> — run in
+<code>container: fedora:44</code>, the same image <code>release.yml</code> builds the rpm and Windows
+artifacts in, and the distro the maintainer develops on. (The other two cannot:
+<code>macos</code> runs on a <code>macos-latest</code> runner, and <code>flatpak</code> runs in the Flathub
+<code>kde-6.10</code> image because that is where <code>flatpak-builder</code> and the KDE SDK live.)
+This is load-bearing rather than cosmetic. The man page,
 <code>USAGE.md</code>, the rendered user guide and the rendered developer guide (including
 its Graphviz SVGs) are all generated and committed, and pandoc, mkdocs-material
 and graphviz emit byte-different output across versions. A runner on a

@@ -172,6 +172,7 @@ automate JNEXT the way its own test suite does.
 | Document                                                       | What's in it                                                                             |
 |----------------------------------------------------------------|------------------------------------------------------------------------------------------|
 | [User guide](doc/user-guide/index.html)                        | Task-oriented manual: installing, running programs, the debugger, automation (`make read-userguide`) |
+| [Developer guide](doc/developer-guide/index.html)              | How JNEXT is built: architecture, subsystems, the test system, contributing (`make read-devguide`) |
 | [BUILD.md](BUILD.md)                                           | Building from source and building packages: prerequisites, targets, CMake options, tests |
 | [USAGE.md](USAGE.md)                                           | Every CLI option, SD card and ROMs, the GUI, the debugger, keyboard map (= `man jnext`)  |
 | [FEATURES.md](FEATURES.md)                                     | Full feature list                                                                        |

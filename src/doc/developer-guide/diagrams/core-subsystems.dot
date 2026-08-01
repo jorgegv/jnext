@@ -39,7 +39,12 @@ digraph core_subsystems {
     cpu   [label="CPU — src/cpu\lZ80Cpu (FUSE core + Z80N)\lIm2Controller\l"];
     mem   [label="memory — src/memory\lRam · Rom · Mmu · ContentionModel\l"];
     io    [label="I/O — src/port\lPortDispatch · NextReg\l"];
-    video [label="video — src/video\lVideoTiming · Renderer (ULA, LoRes,\lLayer 2, compositing) · SpriteEngine\lTilemap · PaletteManager\l"];
+    // Renderer owns Ula and Lores as members (renderer.h:517-518) and takes
+    // Layer2, SpriteEngine, Tilemap and PaletteManager as PARAMETERS — they
+    // are Emulator's own members, siblings of renderer_. In an ownership map
+    // that distinction is the whole point, so keep Layer 2 out of the
+    // parenthetical.
+    video [label="video — src/video\lVideoTiming · Renderer (owns Ula, Lores;\lcomposites the rest) · Layer2\lSpriteEngine · Tilemap · PaletteManager\l"];
     audio [label="audio — src/audio\lTurboSound (3x YM2149) · Dac\lBeeper · I2s · Mixer\l"];
     per   [label="peripherals — src/peripheral\lCopper · Ctc · Dma · DivMmc\lMultiface · NmiSource · I2cRtc\lSpiMaster + SdCardDevice\lUart + ESP-01\l"];
     input [label="input — src/input\lKeyboard · Joystick · KempstonMouse\l"];

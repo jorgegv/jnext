@@ -1,7 +1,10 @@
 # 5.4 Continuous integration
 
-Two workflows. `ci.yml` tests, on every push to `main` and every pull request.
-`release.yml` builds and publishes packages, on a `v*` tag push.
+Three workflows. `ci.yml` tests, on every push to `main` and every pull
+request. `release.yml` builds and publishes packages, on a `v*` tag push.
+`macos-build.yml` builds, packages and verifies the macOS `.dmg` on demand —
+it has only a `workflow_dispatch` trigger, so it never runs by itself; it
+exists so the macOS leg can be exercised without cutting a release.
 
 ## The hard rule: every step is a plain make target
 
@@ -21,9 +24,12 @@ green.
 
 ## Why a Fedora container
 
-Four of the five `ci.yml` jobs run in `container: fedora:44` — the same image
-`release.yml` builds the rpm and Windows artifacts in, and the distro the
-maintainer develops on. This is load-bearing rather than cosmetic. The man page,
+Three of the five `ci.yml` jobs — `test`, `qt5-guard` and `package` — run in
+`container: fedora:44`, the same image `release.yml` builds the rpm and Windows
+artifacts in, and the distro the maintainer develops on. (The other two cannot:
+`macos` runs on a `macos-latest` runner, and `flatpak` runs in the Flathub
+`kde-6.10` image because that is where `flatpak-builder` and the KDE SDK live.)
+This is load-bearing rather than cosmetic. The man page,
 `USAGE.md`, the rendered user guide and the rendered developer guide (including
 its Graphviz SVGs) are all generated and committed, and pandoc, mkdocs-material
 and graphviz emit byte-different output across versions. A runner on a

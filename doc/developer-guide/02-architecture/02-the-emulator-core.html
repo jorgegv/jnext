@@ -1757,8 +1757,12 @@ the worker thread is joined before anything it holds a pointer to dies.</p>
 <li><strong>Input</strong> — <code>Keyboard</code>, <code>Joystick</code>, <code>KempstonMouse</code>, <code>Md6ConnectorX2</code>,
   <code>MembraneStick</code>, <code>IoMode</code>, <code>EmuFnKeys</code>, <code>PhantomTypist</code>.</li>
 <li><strong>Host-facing state that is not machine state</strong> — <code>DebugState</code>, <code>TraceLog</code>,
-  <code>CallStack</code>, the tape and snapshot loaders, the video/RZX recorders, the
-  rewind ring, the profiler, and the 640 × 256 framebuffer.</li>
+  <code>CallStack</code>, the tape loaders and the tape saver, the video/RZX recorders,
+  the rewind ring, the profiler, and the 640 × 256 framebuffer. The <em>snapshot</em>
+  loaders are not members: <code>NexLoader</code>, <code>SnaLoader</code>, <code>SzxLoader</code> and
+  <code>Z80Loader</code> are constructed as locals inside <code>load_nex()</code>, <code>load_sna()</code>,
+  <code>load_szx()</code> and <code>load_z80()</code>, because a snapshot is read once and then
+  nothing survives.</li>
 </ul>
 <p>Accessors (<code>mmu()</code>, <code>nextreg()</code>, <code>copper()</code>, …) hand out references. That is
 how the debugger panels, the unit suites and the frontends all reach
