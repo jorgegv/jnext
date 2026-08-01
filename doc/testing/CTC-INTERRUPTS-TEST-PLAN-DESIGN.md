@@ -35,6 +35,23 @@ with dashboard refresh at `0336c20`.
 - **Follow-up closure:** NR-C0-02 now passes in `atic_atac_nmi_test`
   ATIC-NMI-02 (GH #84 / G49). Historical phase counts below remain as the landing
   record for the original CTC skip-reduction work.
+- **GH #196 Phase 1.3 (2026-08-01)** — the traceability matrix's "Extra
+  coverage (not in plan)" table for this suite has been removed. It held 3
+  rows: MC-01 ("4 channels loaded with different TCs"), MC-02 ("Channels
+  decrement independently"), MC-03 ("Read invalid channel returns 0xFF") —
+  none with a live `check()`/`skip()` call anywhere in `test/ctc/ctc_test.cpp`
+  or `test/ctc_interrupts/ctc_interrupts_test.cpp` today. `git log -S` on each
+  ID shows all 3 were implemented in the original compliance runner
+  (`f7e1b035`) and removed by the same commit, `8ec4383a`
+  ("rewrite in Phase 2 per-row idiom, 150 rows, 44 check / 106 skip") —
+  real assertions from an earlier revision, not rows that were never
+  implemented. None of the 3 described behaviors is asserted today by a
+  live row under a different ID either: the closest analog, CTC-CH-06,
+  loads all 4 channels with the *same* time constant in counter mode and
+  asserts they stay stuck (no clock source), not 4 *different* TCs
+  decrementing independently in timer mode; no row anywhere probes an
+  out-of-range channel read. Dropped rather than folded: recording them as
+  covered would be fabricating coverage no live test provides.
 
 ## VHDL Source Files
 
