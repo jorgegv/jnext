@@ -439,7 +439,8 @@ static void test_group_registration() {
         emu.port().out(0xFFFD, 0x08);
         uint8_t vol = emu.port().in(0xFFFD);
         check("REG-06+07",
-              "AY select+data latch visible via 0xFFFD read",
+              "AY select+data latch visible via 0xFFFD read "
+              "[zxnext.vhd:2647,2648]",
               (vol & 0x1F) == 0x0F,
               DETAIL("AY08=0x%02x expected low5=0x0F", vol));
     }
@@ -1541,7 +1542,8 @@ static void test_group_expbus() {
         uint8_t r88 = nr_read(emu, 0x88);
         uint8_t r89 = nr_read(emu, 0x89);
         check("BUS-86..89-W",
-              "NR 0x86..0x89 are writable for expansion-bus masking",
+              "NR 0x86..0x89 are writable for expansion-bus masking "
+              "[zxnext.vhd:2392-2393]",
               r86 == 0 && r87 == 0 && r88 == 0 && r89 == 0,
               DETAIL("NR86=0x%02x 87=0x%02x 88=0x%02x 89=0x%02x",
                      r86, r87, r88, r89));

@@ -2973,88 +2973,88 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | REG-03c       | NextZXOS ISR save/restore of the 0x243B selection (GH #52)   | zxnext.vhd:4603      | pass    | test/port/port_test.cpp:401  |
 | REG-04        | NextReg data 0x253B                                          | zxnext.vhd:2626      | pass    | test/port/port_test.cpp:342  |
 | REG-05        | 0x243C/0x253C not decoded                                    | zxnext.vhd:2625      | pass    | test/port/port_test.cpp:427  |
-| REG-06+07     | AY select 0xFFFD real                                        | zxnext.vhd:2647      | pass    | test/port/port_test.cpp:441  |
-| REG-06+07     | AY data 0xBFFD real                                          | zxnext.vhd:2648      | pass    | test/port/port_test.cpp:441  |
-| REG-08        | 0x7FFD MMU bank select                                       | zxnext.vhd:2593      | pass    | test/port/port_test.cpp:454  |
-| REG-09        | 0x1FFD +3 extended                                           | zxnext.vhd:2599      | pass    | test/port/port_test.cpp:473  |
-| REG-10        | 0xDFFD Pentagon ext                                          | zxnext.vhd:2596      | pass    | test/port/port_test.cpp:499  |
-| REG-11        | DivMMC 0xE3 real                                             | zxnext.vhd:2608      | pass    | test/port/port_test.cpp:509  |
-| REG-12        | SPI CS 0xE7, data 0xEB                                       | zxnext.vhd:2620–2621 | pass    | test/port/port_test.cpp:527  |
-| REG-13        | Sprite 0x303B write-then-read                                | zxnext.vhd:2681      | pass    | test/port/port_test.cpp:575  |
-| REG-14        | Layer 2 0x123B                                               | zxnext.vhd:2635      | pass    | test/port/port_test.cpp:584  |
-| REG-15        | I²C 0x103B / 0x113B                                          | zxnext.vhd:2630–2631 | pass    | test/port/port_test.cpp:598  |
-| REG-16        | UART 0x143B / 0x153B                                         | zxnext.vhd:2639      | pass    | test/port/port_test.cpp:610  |
-| REG-17        | UART 0x133B rejected                                         | zxnext.vhd:2639      | pass    | test/port/port_test.cpp:624  |
-| REG-18        | Kempston 1 0x001F                                            | zxnext.vhd:2674      | pass    | test/port/port_test.cpp:634  |
-| REG-19        | Kempston 2 0x0037                                            | zxnext.vhd:2675      | pass    | test/port/port_test.cpp:658  |
-| REG-20        | Mouse 0xFADF/0xFBDF/0xFFDF                                   | zxnext.vhd:2668–2670 | pass    | test/port/port_test.cpp:670  |
-| REG-21        | ULA+ 0xBF3B / 0xFF3B                                         | zxnext.vhd:2685–2686 | pass    | test/port/port_test.cpp:681  |
-| REG-22        | DMA 0x6B vs 0x0B                                             | zxnext.vhd:2643      | pass    | test/port/port_test.cpp:694  |
-| REG-23        | CTC 0x183B range                                             | zxnext.vhd:2690      | pass    | test/port/port_test.cpp:745  |
-| REG-24        | Unmapped port read                                           | zxnext.vhd:2589      | pass    | test/port/port_test.cpp:757  |
-| REG-25        | Unmapped port write                                          | zxnext.vhd:2697      | pass    | test/port/port_test.cpp:775  |
-| REG-26        | 0xDF routes to Specdrum/port_1f sink (positive combo)        | zxnext.vhd:2674      | pass    | test/port/port_test.cpp:795  |
-| REG-27        | 0xDF re-routed away from port_1f when mouse enabled (negati… | zxnext.vhd:2670      | pass    | test/port/port_test.cpp:806  |
-| NR82-00       | 0x82 b0                                                      | zxnext.vhd:2397      | pass    | test/port/port_test.cpp:1211 |
-| NR82-01       | 0x82 b1                                                      | zxnext.vhd:2399      | pass    | test/port/port_test.cpp:1224 |
-| NR82-02       | 0x82 b2                                                      | zxnext.vhd:2400      | pass    | test/port/port_test.cpp:1244 |
-| NR82-03       | 0x82 b3                                                      | zxnext.vhd:2401      | pass    | test/port/port_test.cpp:1261 |
-| NR82-04       | 0x82 b4                                                      | zxnext.vhd:2403      | pass    | test/port/port_test.cpp:1270 |
-| NR82-05       | 0x82 b5                                                      | zxnext.vhd:2405      | pass    | test/port/port_test.cpp:1282 |
-| NR82-06       | 0x82 b6                                                      | zxnext.vhd:2407      | pass    | test/port/port_test.cpp:1290 |
-| NR82-07       | 0x82 b7                                                      | zxnext.vhd:2408      | pass    | test/port/port_test.cpp:1298 |
-| NR83-00       | 0x83 b0                                                      | zxnext.vhd:2412      | pass    | test/port/port_test.cpp:1308 |
-| NR83-01       | 0x83 b1                                                      | zxnext.vhd:2415      | pass    | test/port/port_test.cpp:1309 |
-| NR83-02       | 0x83 b2                                                      | zxnext.vhd:2418      | pass    | test/port/port_test.cpp:1310 |
-| NR83-03       | 0x83 b3                                                      | zxnext.vhd:2419      | pass    | test/port/port_test.cpp:1311 |
-| NR83-04       | 0x83 b4                                                      | zxnext.vhd:2420      | pass    | test/port/port_test.cpp:1312 |
-| NR83-05       | 0x83 b5                                                      | zxnext.vhd:2422      | pass    | test/port/port_test.cpp:1313 |
-| NR83-06       | 0x83 b6                                                      | zxnext.vhd:2423      | pass    | test/port/port_test.cpp:1314 |
-| NR83-07       | 0x83 b7                                                      | zxnext.vhd:2424      | pass    | test/port/port_test.cpp:1315 |
-| NR84-00       | 0x84 b0                                                      | zxnext.vhd:2428      | pass    | test/port/port_test.cpp:1334 |
-| NR84-01       | 0x84 b1                                                      | zxnext.vhd:2429      | pass    | test/port/port_test.cpp:1335 |
-| NR84-02       | 0x84 b2                                                      | zxnext.vhd:2430      | pass    | test/port/port_test.cpp:1336 |
-| NR84-03       | 0x84 b3                                                      | zxnext.vhd:2431      | pass    | test/port/port_test.cpp:1337 |
-| NR84-04       | 0x84 b4                                                      | zxnext.vhd:2432      | pass    | test/port/port_test.cpp:1338 |
-| NR84-05       | 0x84 b5                                                      | zxnext.vhd:2433      | pass    | test/port/port_test.cpp:1339 |
-| NR84-06       | 0x84 b6                                                      | zxnext.vhd:2434      | pass    | test/port/port_test.cpp:1340 |
-| NR84-07       | 0x84 b7                                                      | zxnext.vhd:2435      | pass    | test/port/port_test.cpp:1341 |
-| NR84-07-combo | 0x84 b7 AND 0x83 b5 AND 0x82 b6 (combinatorial)              | zxnext.vhd:2674      | pass    | test/port/port_test.cpp:1375 |
-| NR85-00       | 0x85 b0                                                      | zxnext.vhd:2439      | pass    | test/port/port_test.cpp:1384 |
-| NR85-01       | 0x85 b1                                                      | zxnext.vhd:2440      | pass    | test/port/port_test.cpp:1385 |
-| NR85-02       | 0x85 b2                                                      | zxnext.vhd:2441      | pass    | test/port/port_test.cpp:1386 |
-| NR85-03       | 0x85 b3                                                      | zxnext.vhd:2442      | pass    | test/port/port_test.cpp:1387 |
-| NR85-03b      | 0x85 b3                                                      | zxnext.vhd:2690      | pass    | test/port/port_test.cpp:1423 |
-| NR85-03c      | 0x85 b3                                                      | zxnext.vhd:2690      | pass    | test/port/port_test.cpp:1441 |
-| NR-DEF-01     | Power-on defaults all-enabled                                | zxnext.vhd:1226–1230 | pass    | test/port/port_test.cpp:1454 |
-| NR-RST-01     | Soft reset reloads when reset_type=1                         | zxnext.vhd:5052–5057 | pass    | test/port/port_test.cpp:1482 |
-| NR-RST-02     | Soft reset does NOT reload when reset_type=0                 | zxnext.vhd:5052–5057 | pass    | test/port/port_test.cpp:1496 |
-| NR-85-PK      | NR 0x85 packing: bits 4–6 read back zero                     | zxnext.vhd:5508–5509 | pass    | test/port/port_test.cpp:1470 |
-| BUS-86-01     | NR 0x86 inert when expbus_eff_en=0                           | zxnext.vhd:2392      | pass    | test/port/port_test.cpp:1523 |
-| BUS-86..89-W  | NR 0x86-0x89 register writability (bare write 0x00 / read-back only — does NOT exercise `expbus_eff_en` gating or the AND with NR 0x82-0x85; see the 4 corrected rows below) | zxnext.vhd:2392-2393 | pass    | test/port/port_test.cpp:1543 |
+| REG-06+07     | AY select 0xFFFD real                                        | zxnext.vhd:2647,2648 | pass    | test/port/port_test.cpp:441  |
+| REG-06+07     | AY data 0xBFFD real                                          | zxnext.vhd:2647,2648 | pass    | test/port/port_test.cpp:441  |
+| REG-08        | 0x7FFD MMU bank select                                       | zxnext.vhd:2593      | pass    | test/port/port_test.cpp:455  |
+| REG-09        | 0x1FFD +3 extended                                           | zxnext.vhd:2599      | pass    | test/port/port_test.cpp:474  |
+| REG-10        | 0xDFFD Pentagon ext                                          | zxnext.vhd:2596      | pass    | test/port/port_test.cpp:500  |
+| REG-11        | DivMMC 0xE3 real                                             | zxnext.vhd:2608      | pass    | test/port/port_test.cpp:510  |
+| REG-12        | SPI CS 0xE7, data 0xEB                                       | zxnext.vhd:2620–2621 | pass    | test/port/port_test.cpp:528  |
+| REG-13        | Sprite 0x303B write-then-read                                | zxnext.vhd:2681      | pass    | test/port/port_test.cpp:576  |
+| REG-14        | Layer 2 0x123B                                               | zxnext.vhd:2635      | pass    | test/port/port_test.cpp:585  |
+| REG-15        | I²C 0x103B / 0x113B                                          | zxnext.vhd:2630–2631 | pass    | test/port/port_test.cpp:599  |
+| REG-16        | UART 0x143B / 0x153B                                         | zxnext.vhd:2639      | pass    | test/port/port_test.cpp:611  |
+| REG-17        | UART 0x133B rejected                                         | zxnext.vhd:2639      | pass    | test/port/port_test.cpp:625  |
+| REG-18        | Kempston 1 0x001F                                            | zxnext.vhd:2674      | pass    | test/port/port_test.cpp:635  |
+| REG-19        | Kempston 2 0x0037                                            | zxnext.vhd:2675      | pass    | test/port/port_test.cpp:659  |
+| REG-20        | Mouse 0xFADF/0xFBDF/0xFFDF                                   | zxnext.vhd:2668–2670 | pass    | test/port/port_test.cpp:671  |
+| REG-21        | ULA+ 0xBF3B / 0xFF3B                                         | zxnext.vhd:2685–2686 | pass    | test/port/port_test.cpp:682  |
+| REG-22        | DMA 0x6B vs 0x0B                                             | zxnext.vhd:2643      | pass    | test/port/port_test.cpp:695  |
+| REG-23        | CTC 0x183B range                                             | zxnext.vhd:2690      | pass    | test/port/port_test.cpp:746  |
+| REG-24        | Unmapped port read                                           | zxnext.vhd:2589      | pass    | test/port/port_test.cpp:758  |
+| REG-25        | Unmapped port write                                          | zxnext.vhd:2697      | pass    | test/port/port_test.cpp:776  |
+| REG-26        | 0xDF routes to Specdrum/port_1f sink (positive combo)        | zxnext.vhd:2674      | pass    | test/port/port_test.cpp:796  |
+| REG-27        | 0xDF re-routed away from port_1f when mouse enabled (negati… | zxnext.vhd:2670      | pass    | test/port/port_test.cpp:807  |
+| NR82-00       | 0x82 b0                                                      | zxnext.vhd:2397      | pass    | test/port/port_test.cpp:1212 |
+| NR82-01       | 0x82 b1                                                      | zxnext.vhd:2399      | pass    | test/port/port_test.cpp:1225 |
+| NR82-02       | 0x82 b2                                                      | zxnext.vhd:2400      | pass    | test/port/port_test.cpp:1245 |
+| NR82-03       | 0x82 b3                                                      | zxnext.vhd:2401      | pass    | test/port/port_test.cpp:1262 |
+| NR82-04       | 0x82 b4                                                      | zxnext.vhd:2403      | pass    | test/port/port_test.cpp:1271 |
+| NR82-05       | 0x82 b5                                                      | zxnext.vhd:2405      | pass    | test/port/port_test.cpp:1283 |
+| NR82-06       | 0x82 b6                                                      | zxnext.vhd:2407      | pass    | test/port/port_test.cpp:1291 |
+| NR82-07       | 0x82 b7                                                      | zxnext.vhd:2408      | pass    | test/port/port_test.cpp:1299 |
+| NR83-00       | 0x83 b0                                                      | zxnext.vhd:2412      | pass    | test/port/port_test.cpp:1309 |
+| NR83-01       | 0x83 b1                                                      | zxnext.vhd:2415      | pass    | test/port/port_test.cpp:1310 |
+| NR83-02       | 0x83 b2                                                      | zxnext.vhd:2418      | pass    | test/port/port_test.cpp:1311 |
+| NR83-03       | 0x83 b3                                                      | zxnext.vhd:2419      | pass    | test/port/port_test.cpp:1312 |
+| NR83-04       | 0x83 b4                                                      | zxnext.vhd:2420      | pass    | test/port/port_test.cpp:1313 |
+| NR83-05       | 0x83 b5                                                      | zxnext.vhd:2422      | pass    | test/port/port_test.cpp:1314 |
+| NR83-06       | 0x83 b6                                                      | zxnext.vhd:2423      | pass    | test/port/port_test.cpp:1315 |
+| NR83-07       | 0x83 b7                                                      | zxnext.vhd:2424      | pass    | test/port/port_test.cpp:1316 |
+| NR84-00       | 0x84 b0                                                      | zxnext.vhd:2428      | pass    | test/port/port_test.cpp:1335 |
+| NR84-01       | 0x84 b1                                                      | zxnext.vhd:2429      | pass    | test/port/port_test.cpp:1336 |
+| NR84-02       | 0x84 b2                                                      | zxnext.vhd:2430      | pass    | test/port/port_test.cpp:1337 |
+| NR84-03       | 0x84 b3                                                      | zxnext.vhd:2431      | pass    | test/port/port_test.cpp:1338 |
+| NR84-04       | 0x84 b4                                                      | zxnext.vhd:2432      | pass    | test/port/port_test.cpp:1339 |
+| NR84-05       | 0x84 b5                                                      | zxnext.vhd:2433      | pass    | test/port/port_test.cpp:1340 |
+| NR84-06       | 0x84 b6                                                      | zxnext.vhd:2434      | pass    | test/port/port_test.cpp:1341 |
+| NR84-07       | 0x84 b7                                                      | zxnext.vhd:2435      | pass    | test/port/port_test.cpp:1342 |
+| NR84-07-combo | 0x84 b7 AND 0x83 b5 AND 0x82 b6 (combinatorial)              | zxnext.vhd:2674      | pass    | test/port/port_test.cpp:1376 |
+| NR85-00       | 0x85 b0                                                      | zxnext.vhd:2439      | pass    | test/port/port_test.cpp:1385 |
+| NR85-01       | 0x85 b1                                                      | zxnext.vhd:2440      | pass    | test/port/port_test.cpp:1386 |
+| NR85-02       | 0x85 b2                                                      | zxnext.vhd:2441      | pass    | test/port/port_test.cpp:1387 |
+| NR85-03       | 0x85 b3                                                      | zxnext.vhd:2442      | pass    | test/port/port_test.cpp:1388 |
+| NR85-03b      | 0x85 b3                                                      | zxnext.vhd:2690      | pass    | test/port/port_test.cpp:1424 |
+| NR85-03c      | 0x85 b3                                                      | zxnext.vhd:2690      | pass    | test/port/port_test.cpp:1442 |
+| NR-DEF-01     | Power-on defaults all-enabled                                | zxnext.vhd:1226–1230 | pass    | test/port/port_test.cpp:1455 |
+| NR-RST-01     | Soft reset reloads when reset_type=1                         | zxnext.vhd:5052–5057 | pass    | test/port/port_test.cpp:1483 |
+| NR-RST-02     | Soft reset does NOT reload when reset_type=0                 | zxnext.vhd:5052–5057 | pass    | test/port/port_test.cpp:1497 |
+| NR-85-PK      | NR 0x85 packing: bits 4–6 read back zero                     | zxnext.vhd:5508–5509 | pass    | test/port/port_test.cpp:1471 |
+| BUS-86-01     | NR 0x86 inert when expbus_eff_en=0                           | zxnext.vhd:2392      | pass    | test/port/port_test.cpp:1524 |
+| BUS-86..89-W  | NR 0x86-0x89 register writability (bare write 0x00 / read-back only — does NOT exercise `expbus_eff_en` gating or the AND with NR 0x82-0x85; see the 4 corrected rows below) | zxnext.vhd:2392-2393 | pass    | test/port/port_test.cpp:1544 |
 | BUS-86..89-W  | NR 0x86 AND with NR 0x82 (NOT proven — `port_test.cpp:1543` only writes 0x00 to NR 0x86-0x89 and reads it back; it never toggles `expbus_eff_en` (NR 0x80 b7) or exercises the AND term; a prior claim of coverage here was wrong, corrected GH #196 phase 1.3 — real coverage is `V16-NMP-02-EXPBUS-OFF`/`-ON-MASK`/`-ON-PASS`/`-TOGGLE` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing | <!-- protected: shares literal check() ID "BUS-86..89-W" with the genuinely-proven writability row above; naive ID-match regen would wrongly resolve this to pass (GH #196 phase 1.3 review fix) --> |
 | BUS-86..89-W  | DivMMC enable-diff detection (NOT proven — same reasoning as above; real coverage is `V16-NMP-02-DIVMMC-MASK` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2413 | missing | missing | <!-- protected: shares literal check() ID "BUS-86..89-W" with the genuinely-proven writability row above; naive ID-match regen would wrongly resolve this to pass (GH #196 phase 1.3 review fix) --> |
 | BUS-86..89-W  | NR 0x88 AND with NR 0x84 (AY) (NOT proven — same reasoning as above; the shared AND-gating mechanism (`propagate_effective_port_enables`/`effective_internal_port_enable`) is proven for other register pairs by `V16-NMP-02-EXPBUS-*`/`-DIVMMC-MASK`/`-MF-MASK`/`-NR85-NR89-B0` in `nextreg_integration_test.cpp`, but no NR 0x84/0x88-specific row exists there; itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing | <!-- protected: shares literal check() ID "BUS-86..89-W" with the genuinely-proven writability row above; naive ID-match regen would wrongly resolve this to pass (GH #196 phase 1.3 review fix) --> |
 | BUS-86..89-W  | NR 0x89 AND with NR 0x85 (ULA+) (NOT proven — same reasoning as above; real coverage is `V16-NMP-02-NR85-NR89-B0` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing | <!-- protected: shares literal check() ID "BUS-86..89-W" with the genuinely-proven writability row above; naive ID-match regen would wrongly resolve this to pass (GH #196 phase 1.3 review fix) --> |
-| PR-01         | Registering an overlapping handler must fail (target contra… | zxnext.vhd:2696–2699 | pass    | test/port/port_test.cpp:1623 |
-| PR-02         | One-hot invariant over all real peripherals after `Emulator… | zxnext.vhd:2696–2699 | pass    | test/port/port_test.cpp:1650 |
-| PR-01-CUR     | **Document current-code asymmetry (guard test until PR-01 c… | zxnext.vhd:2696-2699   | pass    | test/port/port_test.cpp:1598 |
-| PR-03         | `clear_handlers()` then re-register on reset                 | —                    | pass    | test/port/port_test.cpp:1667 |
-| PR-04         | Default-read used when no handler matches                    | —                    | pass    | test/port/port_test.cpp:1679 |
-| PR-05         | Default-read NOT used when any handler matches (even with 0… | —                    | pass    | test/port/port_test.cpp:1695 |
+| PR-01         | Registering an overlapping handler must fail (target contra… | zxnext.vhd:2696–2699 | pass    | test/port/port_test.cpp:1625 |
+| PR-02         | One-hot invariant over all real peripherals after `Emulator… | zxnext.vhd:2696–2699 | pass    | test/port/port_test.cpp:1652 |
+| PR-01-CUR     | **Document current-code asymmetry (guard test until PR-01 c… | zxnext.vhd:2696-2699   | pass    | test/port/port_test.cpp:1600 |
+| PR-03         | `clear_handlers()` then re-register on reset                 | —                    | pass    | test/port/port_test.cpp:1669 |
+| PR-04         | Default-read used when no handler matches                    | —                    | pass    | test/port/port_test.cpp:1681 |
+| PR-05         | Default-read NOT used when any handler matches (even with 0… | —                    | pass    | test/port/port_test.cpp:1697 |
 | IORQ-01       | Interrupt ack not routed to `in` (COVERED — resolves via the dedicated `on_int_ack()` callback, structurally separate from `PortDispatch::in`; a prior citation of "FUSE Z80 opcode suite" coverage was wrong, corrected GH #196 phase 1.1 — real coverage is `cpu_z80n_im2_regressions_test.cpp` + `ctc_interrupts_test.cpp`) | zxnext.vhd:2705; z80_cpu.cpp:716 | missing | missing                      |
-| IORQ-02       | Normal IN is routed                                          | zxnext.vhd:2705      | pass    | test/port/port_test.cpp:1786 |
-| IORQ-02b      | Port 0xFE bit 6 follows the OUT-0xFE bit-4 EAR latch         | zxnext.vhd:3459        | pass    | test/port/port_test.cpp:1803 |
-| IORQ-02c      | Pressed key reads the exact byte 0xBD ('O') / 0xBE (SPACE)   | zxnext.vhd:3459        | pass    | test/port/port_test.cpp:1826 |
-| RMW-01        | 0xFE border + beeper latch                                   | zxnext.vhd:2582      | pass    | test/port/port_test.cpp:1864 |
+| IORQ-02       | Normal IN is routed                                          | zxnext.vhd:2705      | pass    | test/port/port_test.cpp:1788 |
+| IORQ-02b      | Port 0xFE bit 6 follows the OUT-0xFE bit-4 EAR latch         | zxnext.vhd:3459        | pass    | test/port/port_test.cpp:1805 |
+| IORQ-02c      | Pressed key reads the exact byte 0xBD ('O') / 0xBE (SPACE)   | zxnext.vhd:3459        | pass    | test/port/port_test.cpp:1828 |
+| RMW-01        | 0xFE border + beeper latch                                   | zxnext.vhd:2582      | pass    | test/port/port_test.cpp:1866 |
 | CTN-01        | Contended-port timing on 0x4000-range port (real, untested gap — contention is nulled on the FUSE Z80 harness path; a prior claim of FUSE-suite coverage was wrong, corrected GH #196 phase 1.1; identical to Contention's CT-FUSE-03) | zxula.vhd:595, zxnext.vhd:4496 | missing | missing                      |
 | CTN-02        | Uncontended `IN A,(nn)` outside 0x4000 range (same corrected reasoning as CTN-01; identical to Contention's CT-FUSE-04) | zxula.vhd:595, zxnext.vhd:4496 | missing | missing                      |
 | AMAP-01       | DivMMC enable diff freezes expansion bus                     | zxnext.vhd:2180      | missing | missing                      |
-| AMAP-02       | 0xE3 writes honoured even when automap held                  | zxnext.vhd:2608      | pass    | test/port/port_test.cpp:1903 |
-| AMAP-03       | NR 0x83 b0 = 0 disables 0xE3 regardless of automap           | zxnext.vhd:2412      | pass    | test/port/port_test.cpp:1917 |
-| BUS-01        | Single-owner invariant over all registered                   | —                    | pass    | test/port/port_test.cpp:1948 |
-| BUS-02        | Disabled port yields default-read byte                       | zxnext.vhd:2428      | pass    | test/port/port_test.cpp:1963 |
-| BUS-03        | SCLD read gated by `nr_08_port_ff_rd_en`, not just `port_ff… | zxnext.vhd:2813      | pass    | test/port/port_test.cpp:2097 |
+| AMAP-02       | 0xE3 writes honoured even when automap held                  | zxnext.vhd:2608      | pass    | test/port/port_test.cpp:1905 |
+| AMAP-03       | NR 0x83 b0 = 0 disables 0xE3 regardless of automap           | zxnext.vhd:2412      | pass    | test/port/port_test.cpp:1919 |
+| BUS-01        | Single-owner invariant over all registered                   | —                    | pass    | test/port/port_test.cpp:1950 |
+| BUS-02        | Disabled port yields default-read byte                       | zxnext.vhd:2428      | pass    | test/port/port_test.cpp:1965 |
+| BUS-03        | SCLD read gated by `nr_08_port_ff_rd_en`, not just `port_ff… | zxnext.vhd:2813      | pass    | test/port/port_test.cpp:2099 |
 
 ## Input — `test/input/input_test.cpp`
 
