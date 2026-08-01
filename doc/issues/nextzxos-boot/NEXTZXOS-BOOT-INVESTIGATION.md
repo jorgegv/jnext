@@ -1001,7 +1001,7 @@ splash** ("Press SPACEBAR for menu", "Firmware v1.44.db / Core v3.02.00").
 Commits:
 - `b43cbfa` — fix(memory): bump default Ram size 1792→2048 KB for NextZXOS boot
 - `de7a095` — fix(tests): widen rewind snap bound + drop stale explicit Ram(1792*1024) in mmu/ula fixtures
-- `71fb0b2` — docs(tests): update mmu_test CFG-07 comment for 2 MB default Ram
+- `71fb0b2` — docs(tests): update mmu_test MMU-CFG-07 comment for 2 MB default Ram
 
 Critic caught `test/rewind_test.cpp:224` assertion (`snap_size < 2 MB`)
 failing because Ram snapshot alone now ≈ 2 MB; round 2 widens to 3 MB.
@@ -1459,7 +1459,7 @@ sector 63 offset). Disassembles cleanly with
 | 0cdf1bf | 2026-04-20 | Merge branch 'fix/mmu-nr8e-ram-gate' — NR 0x8E ram-slots gate landed |
 | b43cbfa | 2026-04-19 | fix(memory): bump default Ram size 1792→2048 KB for NextZXOS boot |
 | de7a095 | 2026-04-19 | fix(tests): widen rewind snap bound + drop stale Ram(1792*1024) |
-| 71fb0b2 | 2026-04-19 | docs(tests): update mmu_test CFG-07 comment for 2 MB default Ram |
+| 71fb0b2 | 2026-04-19 | docs(tests): update mmu_test MMU-CFG-07 comment for 2 MB default Ram |
 | 75b7cdc | 2026-04-19 | Merge branch 'fix/ram-size-2mb' — Task (c) Fix 1 landed (last commit with clean TBBlue logo on boot) |
 | 99415ff | 2026-04-21 | cpu(im2): RETI/RETN/IM-mode decoder — INTRODUCED boot-screen regression by dropping RETN-alias firing for DivMmc::on_retn (band-aided 2026-04-25) |
 | b483e98 | 2026-04-19 | feat(cli): --delayed-screenshot-frames for frame-accurate timing |
