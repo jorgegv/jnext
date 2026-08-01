@@ -192,11 +192,19 @@ my $MATRIX = "$ROOT/doc/testing/TRACEABILITY-MATRIX.md";
 # at its subs, and a file-scope @ARGV walk would then read the selftest's own
 # arguments and exit before a single row ran.
 my $CHECK_ONLY = 0;
+my $DUMP_DESC  = 0;
 sub parse_args {
     for my $arg (@_) {
         if ($arg eq '--check-accounting') { $CHECK_ONLY = 1; next; }
+        # GH #196 phase 2 — print, for every traced source, the description
+        # row_descriptions() derives and the ones it cannot. Reads nothing but
+        # the test sources and writes nothing, so it is safe to run against a
+        # dirty tree; it exists so the derived-position rule is MEASURED
+        # against all 90 suites rather than asserted from a sample.
+        if ($arg eq '--dump-descriptions') { $DUMP_DESC = 1; next; }
         fatal("unknown option '$arg'\n"
-            . "usage: refresh-traceability-matrix.pl [--check-accounting]");
+            . "usage: refresh-traceability-matrix.pl [--check-accounting] "
+            . "[--dump-descriptions]");
     }
 }
 
@@ -1300,6 +1308,163 @@ sub first_arg {
         elsif ($ch eq ',' && $depth == 0)   { last;       }
     }
     return $out;
+}
+
+# ── Row DESCRIPTIONS from the test source (GH #196 phase 2) ───────────
+#
+# Inverting the generator makes a live row's description come from its own
+# assertion instead of a hand-written matrix cell, which is what lets the
+# `unrecorded` class die by construction rather than be reported forever.
+#
+# WHICH ARGUMENT HOLDS IT CANNOT BE ASSUMED, and this is the whole reason the
+# three subs below exist. Measured across the tree: **26 distinct helper
+# signatures**, not one convention. The description sits in argument 1 for the
+# ~4359 rows of 76 files that spell `check(id, desc, cond, detail)`, but in
+# argument 2 for `ctc_test` (`check(id, cond, desc, detail)`, 132 rows) and
+# `tilemap_fetch_split_test`, in argument 3 for `tilemap_test`'s
+# `check(id, actual, expected, note)` (72 rows), and nowhere at all for the
+# `check(id, cond)` shape (100 rows, every one in a tombstoned suite).
+#
+# A filename-keyed table of positions would work today and rot tomorrow — it is
+# the same hand-maintained second source of truth this whole issue exists to
+# delete. So the position is DERIVED from the declaration the file already
+# carries:
+#
+#   the ID parameter is the first string-typed parameter (or the second, when
+#   the first is a `Result&` — `cpu_z80n_im2_regressions_test`);
+#   the DESCRIPTION is the first string-typed parameter AFTER it.
+#
+# Validated against all 26 signatures, including the two that legitimately
+# resolve to "none". A suite that grows a new helper shape is handled by
+# construction instead of by somebody remembering to edit a table.
+#
+# What this deliberately does NOT do is invent a description. An argument that
+# is not a plain string literal (a `fmt(...)` call, a variable) yields undef,
+# and undef reaches the caller as "this row has no derivable description" —
+# the honest answer, and the one the exceptions file exists to answer for the
+# rows that genuinely have none.
+sub helper_arg_positions {
+    my ($source_rel) = @_;
+    my $src = source_lines("$ROOT/$source_rel");
+    my $text = join("\n", @$src);
+    my %pos;
+    # `[[maybe_unused]]` and friends prefix the declaration in several suites
+    # (videotiming, contention). Skipping the attribute is not cosmetic: those
+    # two files declare the ordinary `check(id, desc, cond, detail)` shape, so
+    # failing to parse them cost 170 rows their descriptions and — worse —
+    # looked exactly like "this suite has none", which is a different and much
+    # more expensive conclusion.
+    while ($text =~ /^[ \t]*(?:\[\[[^\]]*\]\][ \t]*)*(?:static[ \t]+)?
+                     (?:inline[ \t]+)?(?:void|bool|int)[ \t]+
+                     (check|check_eq|check_pred|skip|stub)[ \t]*\(([^)]*)\)/gmx) {
+        my ($helper, $params) = ($1, $2);
+        my @p = grep { /\S/ } split(/,/, $params);
+        next unless @p;
+        my $is_str = sub { $_[0] =~ /char\s*\*|string/ };
+        my $id = $is_str->($p[0]) ? 0
+               : (@p > 1 && $is_str->($p[1])) ? 1 : undef;
+        next unless defined $id;
+        my $desc;
+        for my $i ($id + 1 .. $#p) { $desc = $i, last if $is_str->($p[$i]); }
+        # First declaration wins: a file that overloads a helper declares the
+        # ID-bearing form first in every suite measured, and a later overload
+        # must not silently move the slot the earlier calls use.
+        $pos{$helper} //= { id => $id, desc => $desc };
+    }
+    return \%pos;
+}
+
+# The argument list of the first helper call in $text, as raw source strings.
+# Same quote- and nesting-aware scan first_arg() uses — a `,` inside a string
+# or a nested call does not end an argument — generalised to every argument
+# rather than just the first. first_arg() is left alone: it is consulted on a
+# hot path by the citation tiers and its contract ("the slot the row ID goes
+# in") is narrower than this one.
+sub call_args {
+    my ($text) = @_;
+    return () unless $text =~ /\b(?:check|check_pred|check_eq|skip|stub)\s*\(/g;
+    my ($depth, $in_dq, $in_sq, $cur, @args) = (0, 0, 0, '');
+    for (my $i = pos($text); $i < length($text); $i++) {
+        my $ch = substr($text, $i, 1);
+        if ($ch eq '\\')                    { $cur .= $ch . substr($text, ++$i, 1); next; }
+        if ($in_dq)                         { $in_dq = 0 if $ch eq '"';  $cur .= $ch; next; }
+        if ($in_sq)                         { $in_sq = 0 if $ch eq "'";  $cur .= $ch; next; }
+        if    ($ch eq '"')                  { $in_dq = 1; }
+        elsif ($ch eq "'")                  { $in_sq = 1
+                                                  unless is_digit_separator($text, $i); }
+        elsif ($ch eq '(')                  { $depth++;   }
+        elsif ($ch eq ')')                  { if ($depth == 0) { push @args, $cur; last }
+                                              $depth--;   }
+        elsif ($ch eq ',' && $depth == 0)   { push @args, $cur; $cur = ''; next; }
+        $cur .= $ch;
+    }
+    return @args;
+}
+
+# The value of a C++ string-literal argument, or undef when the argument is
+# not one. Adjacent literals concatenate, exactly as the compiler joins them,
+# because a description long enough to matter is routinely written across
+# several lines. Anything that is not purely literals — a variable, a
+# `fmt(...)` call, a ternary — is undef rather than a guess.
+sub literal_value {
+    my ($arg) = @_;
+    return undef unless defined $arg;
+    my $rest = $arg;
+    my $out  = '';
+    my $seen = 0;
+    while ($rest =~ /\G\s*"((?:[^"\\]|\\.)*)"/gc) { $out .= $1; $seen = 1; }
+    return undef unless $seen;
+    # Nothing but whitespace may follow the last literal; a trailing token
+    # means the argument was an expression that merely began with a string.
+    return undef if substr($rest, pos($rest) // 0) =~ /\S/;
+    $out =~ s/\\n/ /g;
+    $out =~ s/\\t/ /g;
+    $out =~ s/\\"/"/g;
+    $out =~ s/\\\\/\\/g;
+    $out =~ s/\s+/ /g;
+    $out =~ s/^\s+|\s+$//g;
+    return $out;
+}
+
+# id -> description, for every row this source file asserts.
+#
+# Keyed the same way grep_row_ids() keys its IDs, and deliberately built from
+# the SAME call spans the citation extractor walks, so a row cannot be found
+# by one reader and missed by the other.
+sub row_descriptions {
+    my ($source_rel) = @_;
+    my $src = source_lines("$ROOT/$source_rel");
+    my $pos = helper_arg_positions($source_rel);
+    my %desc;
+    for my $i (0 .. $#$src) {
+        my $head = code_prefix($src->[$i]);
+        next unless $head =~ /\b(check|check_pred|check_eq|skip|stub)\s*\(/;
+        my $helper = $1;
+        my $p = $pos->{$helper} or next;
+        # Same bounded span the citation scan uses, and bounded for the same
+        # reason: an unbalanced paren inside a literal must not run away.
+        my ($depth, $started, $text, $j) = (0, 0, '', $i);
+        while ($j <= $#$src && $j < $i + 40) {
+            $text .= $src->[$j];
+            for my $ch (split //, $src->[$j]) {
+                if    ($ch eq '(') { $depth++; $started = 1; }
+                elsif ($ch eq ')') { $depth--; }
+            }
+            last if $started && $depth <= 0;
+            $j++;
+        }
+        my @args = call_args($text);
+        next unless @args > $p->{id};
+        my $id = literal_value($args[ $p->{id} ]);
+        # Re-quoted before matching because $ID_LITERAL_RE spells the quotes
+        # itself — it is written to run over raw source, and this is the one
+        # caller holding an already-unquoted value.
+        next unless defined $id && "\"$id\"" =~ /^$ID_LITERAL_RE$/;
+        next unless defined $p->{desc} && @args > $p->{desc};
+        my $d = literal_value($args[ $p->{desc} ]);
+        $desc{$id} //= $d if defined $d;
+    }
+    return \%desc;
 }
 
 # Repo-relative path of the plan doc backing a suite, or undef when it has
@@ -3186,6 +3351,39 @@ sub main_body {
     if ($rc) {
         print STDERR "\nThe matrix was NOT rewritten.\n" unless $CHECK_ONLY;
         return $rc;
+    }
+    if ($DUMP_DESC) {
+        my ($tot, $with, %shape) = (0, 0);
+        for my $entry (@SUBSYS) {
+            for my $suite (as_list($entry->[1])) {
+                for my $src (as_list(cmake_sources()->{$suite})) {
+                    next unless defined $src;
+                    my $ids  = grep_row_ids($src);
+                    my $desc = row_descriptions($src);
+                    my $p    = helper_arg_positions($src);
+                    my @none = sort grep { !defined $desc->{$_} } keys %$ids;
+                    $tot  += scalar keys %$ids;
+                    $with += scalar keys %$ids;
+                    $with -= scalar @none;
+                    $shape{ join(',', map { "$_:id=$p->{$_}{id},desc="
+                                          . (defined $p->{$_}{desc} ? $p->{$_}{desc} : 'NONE') }
+                                      sort keys %$p) }++;
+                    printf("%-52s %4d rows  %4d described  %4d NOT\n",
+                           $src, scalar keys %$ids,
+                           (scalar keys %$ids) - scalar @none, scalar @none);
+                    # Every one of them, never a sample: this list is the
+                    # work-list for closing the gap, and a truncated one reads
+                    # as a smaller problem than it is.
+                    printf("      no description: %s\n", join(' ', @none))
+                        if @none;
+                }
+            }
+        }
+        printf("\nTOTAL traced rows %d, described %d (%.1f%%), not %d\n",
+               $tot, $with, $tot ? 100 * $with / $tot : 0, $tot - $with);
+        printf("distinct declared helper shapes across traced suites: %d\n",
+               scalar keys %shape);
+        return 0;
     }
     if ($CHECK_ONLY) {
         printf("accounting OK: %d suites declared in test/unit-tests.conf, "
