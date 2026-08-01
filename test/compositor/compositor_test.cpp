@@ -2928,13 +2928,13 @@ static void test_PSCAN() {
         const bool warned_after_reset = p.overflow_warned_;
 
         check("PSCAN-04",
-              "zxnext.vhd:6957-6978 — real palette writes are rate-"
-              "unlimited (no VHDL throttling or logging exists); "
-              "MAX_CHANGES_PER_FRAME / overflow_warned_ is a jnext-only "
-              "runaway-write safety canary with no hardware counterpart: "
-              "change_log_size saturates at the sanity bound; live palette "
-              "still tracks past it; overflow_warned_ latches once and "
-              "survives further writes; start_frame() resets it",
+              "(jnext-internal safety canary, no hardware counterpart) — "
+              "real palette writes are rate-unlimited (no VHDL throttling "
+              "or logging exists); MAX_CHANGES_PER_FRAME / overflow_warned_ "
+              "is a jnext-only runaway-write safety canary: change_log_size "
+              "saturates at the sanity bound; live palette still tracks "
+              "past it; overflow_warned_ latches once and survives further "
+              "writes; start_frame() resets it",
               p.change_log_size() == 0
               && size_saturated
               && live_tracks_past_bound
