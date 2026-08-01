@@ -24,7 +24,7 @@
 | CTC+Interrupts                             |   180 |  149 |    0 |    0 |      31 |          0 |
 | UART+I2C/RTC                               |   112 |  109 |    0 |    0 |       3 |          6 |
 | NextREG                                    |   107 |   58 |    0 |    0 |      49 |          0 |
-| IO Port Dispatch                           |    97 |   93 |    0 |    0 |       4 |         26 |
+| IO Port Dispatch                           |    97 |   89 |    0 |    0 |       8 |         26 |
 | Input                                      |   185 |  175 |    0 |    0 |      10 |        169 |
 | Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
 | Floating Bus                               |    27 |   25 |    0 |    0 |       2 |          6 |
@@ -49,7 +49,7 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    22 |   22 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  2988 | 2715 |    0 |    2 |     271 |        884 |
+| **Total**                                  |  2988 | 2711 |    0 |    2 |     275 |        884 |
 
 Rows the sections above carry: **2988**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2972**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
 
@@ -3137,10 +3137,10 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | NR-85-PK      | NR 0x85 packing: bits 4–6 read back zero                     | zxnext.vhd:5508–5509 | pass    | test/port/port_test.cpp:1470 |
 | BUS-86-01     | NR 0x86 inert when expbus_eff_en=0                           | zxnext.vhd:2392      | pass    | test/port/port_test.cpp:1523 |
 | BUS-86..89-W  | NR 0x86-0x89 register writability (bare write 0x00 / read-back only — does NOT exercise `expbus_eff_en` gating or the AND with NR 0x82-0x85; see the 4 corrected rows below) | zxnext.vhd:2392-2393 | pass    | test/port/port_test.cpp:1543 |
-| BUS-86..89-W  | NR 0x86 AND with NR 0x82 (NOT proven — `port_test.cpp:1543` only writes 0x00 to NR 0x86-0x89 and reads it back; it never toggles `expbus_eff_en` (NR 0x80 b7) or exercises the AND term; a prior claim of coverage here was wrong, corrected GH #196 phase 1.3 — real coverage is `V16-NMP-02-EXPBUS-OFF`/`-ON-MASK`/`-ON-PASS`/`-TOGGLE` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing |
-| BUS-86..89-W  | DivMMC enable-diff detection (NOT proven — same reasoning as above; real coverage is `V16-NMP-02-DIVMMC-MASK` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2413 | missing | missing |
-| BUS-86..89-W  | NR 0x88 AND with NR 0x84 (AY) (NOT proven — same reasoning as above; the shared AND-gating mechanism (`propagate_effective_port_enables`/`effective_internal_port_enable`) is proven for other register pairs by `V16-NMP-02-EXPBUS-*`/`-DIVMMC-MASK`/`-MF-MASK`/`-NR85-NR89-B0` in `nextreg_integration_test.cpp`, but no NR 0x84/0x88-specific row exists there; itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing |
-| BUS-86..89-W  | NR 0x89 AND with NR 0x85 (ULA+) (NOT proven — same reasoning as above; real coverage is `V16-NMP-02-NR85-NR89-B0` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing |
+| BUS-86..89-W  | NR 0x86 AND with NR 0x82 (NOT proven — `port_test.cpp:1543` only writes 0x00 to NR 0x86-0x89 and reads it back; it never toggles `expbus_eff_en` (NR 0x80 b7) or exercises the AND term; a prior claim of coverage here was wrong, corrected GH #196 phase 1.3 — real coverage is `V16-NMP-02-EXPBUS-OFF`/`-ON-MASK`/`-ON-PASS`/`-TOGGLE` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing | <!-- protected: shares literal check() ID "BUS-86..89-W" with the genuinely-proven writability row above; naive ID-match regen would wrongly resolve this to pass (GH #196 phase 1.3 review fix) --> |
+| BUS-86..89-W  | DivMMC enable-diff detection (NOT proven — same reasoning as above; real coverage is `V16-NMP-02-DIVMMC-MASK` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2413 | missing | missing | <!-- protected: shares literal check() ID "BUS-86..89-W" with the genuinely-proven writability row above; naive ID-match regen would wrongly resolve this to pass (GH #196 phase 1.3 review fix) --> |
+| BUS-86..89-W  | NR 0x88 AND with NR 0x84 (AY) (NOT proven — same reasoning as above; the shared AND-gating mechanism (`propagate_effective_port_enables`/`effective_internal_port_enable`) is proven for other register pairs by `V16-NMP-02-EXPBUS-*`/`-DIVMMC-MASK`/`-MF-MASK`/`-NR85-NR89-B0` in `nextreg_integration_test.cpp`, but no NR 0x84/0x88-specific row exists there; itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing | <!-- protected: shares literal check() ID "BUS-86..89-W" with the genuinely-proven writability row above; naive ID-match regen would wrongly resolve this to pass (GH #196 phase 1.3 review fix) --> |
+| BUS-86..89-W  | NR 0x89 AND with NR 0x85 (ULA+) (NOT proven — same reasoning as above; real coverage is `V16-NMP-02-NR85-NR89-B0` in `nextreg_integration_test.cpp`, itself unrecorded in this matrix) | zxnext.vhd:2393 | missing | missing | <!-- protected: shares literal check() ID "BUS-86..89-W" with the genuinely-proven writability row above; naive ID-match regen would wrongly resolve this to pass (GH #196 phase 1.3 review fix) --> |
 | PR-01         | Registering an overlapping handler must fail (target contra… | zxnext.vhd:2696–2699 | pass    | test/port/port_test.cpp:1623 |
 | PR-02         | One-hot invariant over all real peripherals after `Emulator… | zxnext.vhd:2696–2699 | pass    | test/port/port_test.cpp:1650 |
 | PR-01-CUR     | **Document current-code asymmetry (guard test until PR-01 c… | zxnext.vhd:2696-2699   | pass    | test/port/port_test.cpp:1598 |
