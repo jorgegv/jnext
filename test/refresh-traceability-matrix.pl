@@ -1159,6 +1159,18 @@ sub vhdl_files {
         }
         close $fh;
     }
+    # A directory that EXISTS but holds no .vhd degrades to exactly the same
+    # unvalidated mode as no directory at all, and fpga_src()'s -d check cannot
+    # see it: the wrong-but-real path (a botched sparse-checkout, one level too
+    # deep, the repo root instead of cores/zxnext/src) is the likelier typo of
+    # the two, and it was silent. Warn on the condition that actually matters —
+    # "citations cannot be validated" — rather than only on the missing path.
+    if (!%base && length $src) {
+        warn "refresh-traceability-matrix: WARNING — '$src' exists but contains\n"
+           . "  no .vhd files, so VHDL citations cannot be validated. The output\n"
+           . "  WILL differ from a run against the real core. Check the path\n"
+           . "  points at cores/zxnext/src inside a ZX Next FPGA checkout.\n";
+    }
     $VHDL_FILES = %base ? { base => \%base, spell => \%spell } : 0;
     return $VHDL_FILES;
 }
@@ -1241,11 +1253,13 @@ sub cite_in {
 sub cite_list {
     my ($text) = @_;
     my (@out, %seen);
+    my $core = fpga_src();    # memoised; named once rather than interpolated
+                              # as ${\ fpga_src() } at each warn site
     while ($text =~ /$VHDL_CITE_RE/g) {
         my ($cited, $lines) = ($1, $2);
         my ($verdict, $file) = resolve_vhd($cited);
         if ($verdict eq 'unknown') {
-            warn "WARN: citation names '$cited', which is not in ${\ fpga_src() }\n";
+            warn "WARN: citation names '$cited', which is not in $core\n";
             next;
         }
         # A wrong DIRECTORY beside a real basename: publish the basename (the
@@ -1254,7 +1268,7 @@ sub cite_list {
         # sites and a warning repeated forty times is the saturated-warning
         # failure this tool has already been bitten by twice.
         if ($verdict eq 'rehomed' && !$REHOMED_WARNED{$cited}++) {
-            warn "WARN: citation names '$cited'; ${\ fpga_src() } has no such path, "
+            warn "WARN: citation names '$cited'; $core has no such path, "
                . "but does carry '$file' — publishing the bare filename\n";
         }
         my $cite;
@@ -4169,6 +4183,17 @@ sub main_body {
         print STDERR "\nThe matrix was NOT rewritten.\n" unless $CHECK_ONLY;
         return $rc;
     }
+    # Resolve the core HERE, before any emitting, so "I cannot validate
+    # citations" is announced deterministically for every real run.
+    #
+    # It used to surface only as a side effect of the first citation lookup,
+    # which means a tree that happens to cite no VHDL degrades in total
+    # silence — and that is not hypothetical: the selftest fixture is such a
+    # tree, and the first version of these rows passed VACUOUSLY against it,
+    # asserting the absence of a warning that was never going to be emitted.
+    # The condition being reported is a property of the RUN, not of whichever
+    # rows happen to carry citations, so it is evaluated like one.
+    vhdl_files() unless $CHECK_ONLY;
     if (defined $EMIT_TO) {
         # emit_matrix() returns TWO array refs, (\@out, \@report) — so a plain
         # `my @doc = emit_matrix(...)` collects the REFS, and join() stringified

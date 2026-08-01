@@ -2933,6 +2933,97 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
     check('SELF-197', 'END TO END: and it contains no stringified array refs (the GH #202 symptom)',
           $emitted_body !~ /ARRAY\(0x/,
           $emitted_body =~ /ARRAY\(0x/ ? 'ARRAY(0x...) present' : 'none');
+
+    # (d) GH #202 — WHERE the FPGA core comes from.
+    #
+    # The first cut of this fix shipped with no rows of its own, and a reviewer
+    # mutation-killed three of its branches without any gate noticing: dropping
+    # the -d refusal, inverting the precedence, and silencing the warning all
+    # left the suite at 197/197. The one branch that did fail only failed
+    # BECAUSE this machine has JNEXT_FPGA_SRC unset — in CI, which always sets
+    # it, nothing would have caught any of them. These rows close that.
+    #
+    # Each runs the REAL script out of process, because precedence lives in
+    # parse_args()/fpga_src() and the eval'd copy never walks @ARGV.
+    my $fake_core = "$FIXTURE_ROOT/fpga";           # the fixture core, has .vhd
+    my $empty_dir = "$FIXTURE_ROOT/empty-core";
+    mkdir $empty_dir unless -d $empty_dir;
+    $build_e2e->(undef);
+
+    # stderr is the subject here, so capture it rather than discard it.
+    my $run_capture = sub {
+        my ($env, @args) = @_;
+        my $err = "$E2E/stderr.txt";
+        my $cmd = join(' ', map { "$_='$env->{$_}'" } sort keys %$env)
+                . " perl '$E2E/test/refresh-traceability-matrix.pl' "
+                . join(' ', @args) . " >/dev/null 2>'$err'";
+        my $rc = system("env $cmd") >> 8;
+        my $body = '';
+        if (open(my $h, '<', $err)) { local $/; $body = <$h>; close $h; }
+        return ($rc, $body);
+    };
+
+    # --fpga-src must WIN over the environment. Point the env at a directory
+    # with no .vhd and the option at the fixture core: if the option wins there
+    # is no "cannot be validated" warning, if the env wins there is one.
+    # An ABSENCE assertion needs a witness that the run got far enough to have
+    # emitted the thing being asserted absent — otherwise a run that refused
+    # early passes it for free. That is not theoretical: the first cut of these
+    # rows passed against a fixture whose rows cite no VHDL, so the warning
+    # could never fire and "no warning" meant nothing. Every row below carries
+    # `$reached`: exit 0 AND a real document on disk.
+    my $reached = sub {
+        my ($rc, $path) = @_;
+        return 0 unless $rc == 0 && -s $path;
+        open(my $h, '<', $path) or return 0;
+        my $n = 0; $n++ while <$h>;
+        close $h;
+        return $n > 100 ? 1 : 0;
+    };
+
+    my ($rc_p, $err_p) = $run_capture->({ JNEXT_FPGA_SRC => $empty_dir },
+                                        "--fpga-src='$fake_core'", "--emit-to='$E2E/p.md'");
+    check('SELF-198', 'GH #202: --fpga-src wins over $JNEXT_FPGA_SRC',
+          scalar($reached->($rc_p, "$E2E/p.md") && $err_p !~ /no \.vhd files/),
+          !$reached->($rc_p, "$E2E/p.md") ? "run did not reach emit (exit $rc_p)"
+            : ($err_p =~ /no \.vhd files/ ? 'env won' : 'option won'));
+
+    # ...and the environment must win over the upward search. $E2E is a temp
+    # tree with no FPGA sibling, so discovery there finds nothing: if the env
+    # is honoured the run is validated and silent about it.
+    my ($rc_e, $err_e) = $run_capture->({ JNEXT_FPGA_SRC => $fake_core },
+                                        "--emit-to='$E2E/e.md'");
+    check('SELF-199', 'GH #202: $JNEXT_FPGA_SRC wins over the upward search',
+          scalar($reached->($rc_e, "$E2E/e.md") && $err_e !~ /no FPGA core found/),
+          !$reached->($rc_e, "$E2E/e.md") ? "run did not reach emit (exit $rc_e)"
+            : ($err_e =~ /no FPGA core found/ ? 'search won' : 'env won'));
+
+    # A non-directory --fpga-src is REFUSED up front, not degraded into the
+    # unvalidated mode. fatal() exits 3.
+    my ($rc_b, $err_b) = $run_capture->({}, "--fpga-src='$E2E/no-such-dir'");
+    check('SELF-200', 'GH #202: --fpga-src refuses a path that is not a directory',
+          scalar($rc_b != 0 && $err_b =~ /is not a directory/),
+          "exit $rc_b: " . (($err_b =~ /(--fpga-src.*)/)[0] // '(no message)'));
+
+    # No core anywhere: the run must SAY SO. Silence here is the whole defect —
+    # an unvalidated run looks exactly like a validated one and emits different
+    # bytes. JNEXT_FPGA_SRC is set to a path that does not exist.
+    my ($rc_n, $err_n) = $run_capture->({ JNEXT_FPGA_SRC => "$E2E/absent" },
+                                        "--emit-to='$E2E/n.md'");
+    check('SELF-201', 'GH #202: a run with no FPGA core warns loudly and says not to commit it',
+          scalar($reached->($rc_n, "$E2E/n.md")
+            && $err_n =~ /no FPGA core found/ && $err_n =~ /do not commit/),
+          !$reached->($rc_n, "$E2E/n.md") ? "run did not reach emit (exit $rc_n)"
+            : ($err_n =~ /no FPGA core found/ ? 'warned' : 'SILENT'));
+
+    # A real directory holding zero .vhd degrades identically, and -d cannot
+    # see it — the wrong-but-existing path is the likelier typo of the two.
+    my ($rc_z, $err_z) = $run_capture->({}, "--fpga-src='$empty_dir'",
+                                        "--emit-to='$E2E/z.md'");
+    check('SELF-202', 'GH #202: an existing but empty core directory warns too, not only a missing one',
+          scalar($reached->($rc_z, "$E2E/z.md") && $err_z =~ /no \.vhd files/),
+          !$reached->($rc_z, "$E2E/z.md") ? "run did not reach emit (exit $rc_z)"
+            : ($err_z =~ /no \.vhd files/ ? 'warned' : 'SILENT (degrades unvalidated)'));
 }
 
 # ── GH #196 phase 2: the description tiers ────────────────────────────
@@ -3170,7 +3261,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 197;
+my $EXPECTED_ROWS = 202;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
