@@ -363,15 +363,33 @@ Plus:
 
 ### Group F. IORQ/M1 / RMW / contention-affected ports
 
+**IORQ-01 disposition.** The underlying VHDL guarantee (M1+IORQ bypasses
+port decode) is real and IS exercised, but a prior citation claiming
+coverage via "the FUSE Z80 opcode suite" was wrong (GH #196 phase 1.1
+review) — the FUSE opcode-test format has no interrupt-ack scenario and
+its `TestIO::in()` is a hardcoded stub. The row below cites the real
+coverage instead.
+
+**CTN-01/CTN-02 disposition.** A prior pass on this packet claimed both
+rows were "exercised end-to-end by the FUSE Z80 opcode suite" — false:
+the FUSE Z80 test harness path nulls the contention runtime entirely
+(`src/cpu/z80_cpu.cpp:62-64`), and `test/fuse/fuse_z80_test.cpp` never
+installs a `ContentionModel`, so every FUSE opcode test — including any
+IN/OUT case — runs with contention completely inert. This is the
+identical gap independently found in the Contention suite as
+CT-FUSE-03/CT-FUSE-04 (`doc/testing/CONTENTION-TEST-PLAN-DESIGN.md`
+§16): real, currently untested, and constructible with the same ON/OFF
+T-state-delta idiom used there. Status stays `missing`.
+
 | ID      | Title                                         | Stimulus                                                | Expected                                                            | Oracle                           |
 |---------|-----------------------------------------------|---------------------------------------------------------|---------------------------------------------------------------------|----------------------------------|
-| IORQ-01 | Interrupt ack not routed to `in`              | Raise IRQ line, let IM1 vector                           | `PortDispatch::in` is **not** called during M1+IORQ                 | `zxnext.vhd:2705`                |
+| IORQ-01 | Interrupt ack not routed to `in`              | Raise IRQ line, let IM1/IM2 vector fetch happen          | `PortDispatch::in` is **not** called during M1+IORQ — vector resolves via the dedicated `on_int_ack()` callback, structurally separate from `IoInterface::in`. **Status: `missing`** (no row-local `check()`), but exercised end-to-end by `test/cpu/cpu_z80n_im2_regressions_test.cpp` (IM2-ACK-VECTOR-EI-GRACE) and `test/ctc_interrupts/ctc_interrupts_test.cpp` (ULA-INT-V19-IM2-04), both asserting the IM2 daisy-chain FSM advances off `on_int_ack()` | `zxnext.vhd:2705`; `z80_cpu.cpp:716` |
 | IORQ-02 | Normal IN is routed, and composes the port-0xFE byte | `OUT (0xFE),0` then `IN A,(0xFE)` with no key pressed | Returns exactly `0xBF` — bit 7 = 1, bit 6 = EAR = 0, bit 5 = 1, bits 4:0 = half-row | `zxnext.vhd:2705`, `:3459` |
 | IORQ-02b| Port-0xFE bit 6 tracks the EAR-out latch      | `OUT (0xFE),0x10` then read; `OUT (0xFE),0x00` then read | bit 6 = 1 then 0                                                   | `zxnext.vhd:3459`, `:3598`       |
 | IORQ-02c| Pressed key yields the exact hardware byte    | Press `O`, read `0xDFFE`; press `SPACE`, read `0x7FFE`   | `0xBD` and `0xBE` respectively (GH #51: programs compare the whole byte, not just bits 4:0) | `zxnext.vhd:3459`  |
 | RMW-01  | 0xFE border + beeper latch                    | OUT 0xFE ← 0x07 (border); OUT 0xFE ← 0x10 (beeper bit)  | ULA border = 7 after first write, bit 4 latches speaker             | `zxnext.vhd:2582`                |
-| CTN-01  | Contended-port timing on 0x4000-range port    | `IN A,(0x4000|n)`                                       | T-state count matches contended-port pattern from `readport`        | `z80_cpu.cpp:84–104`             |
-| CTN-02  | Uncontended `IN A,(nn)` outside 0x4000 range  | `IN A,(0x00FE)` with A=0                                | Only the fixed +1/+3 T-states                                       | `z80_cpu.cpp:84–104`             |
+| CTN-01  | Contended-port timing on 0x4000-range port    | `IN A,(0x4000|n)`                                       | T-state count matches contended-port pattern from `readport`. **Status: `missing`** — real, currently untested gap; NOT covered by the FUSE Z80 opcode suite (contention is nulled on that harness path). Identical to Contention's CT-FUSE-03 | `zxula.vhd:595`; `zxnext.vhd:4496`; `z80_cpu.cpp:62-64` |
+| CTN-02  | Uncontended `IN A,(nn)` outside 0x4000 range  | `IN A,(0x00FE)` with A=0                                | Only the fixed +1/+3 T-states. **Status: `missing`** — same reasoning as CTN-01; identical to Contention's CT-FUSE-04 | `zxula.vhd:595`; `zxnext.vhd:4496`; `z80_cpu.cpp:62-64` |
 
 ### Group G. DivMMC automap interaction
 

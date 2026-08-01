@@ -3147,13 +3147,13 @@ Last-touch commit: `fcbd9aed6138dc8836623e5f558b5c744968b725` (`fcbd9aed61`)
 | PR-03         | `clear_handlers()` then re-register on reset                 | —                    | pass    | test/port/port_test.cpp:1667 |
 | PR-04         | Default-read used when no handler matches                    | —                    | pass    | test/port/port_test.cpp:1679 |
 | PR-05         | Default-read NOT used when any handler matches (even with 0… | —                    | pass    | test/port/port_test.cpp:1695 |
-| IORQ-01       | Interrupt ack not routed to `in`                             | zxnext.vhd:2705      | missing | missing                      |
+| IORQ-01       | Interrupt ack not routed to `in` (COVERED — resolves via the dedicated `on_int_ack()` callback, structurally separate from `PortDispatch::in`; a prior citation of "FUSE Z80 opcode suite" coverage was wrong, corrected GH #196 phase 1.1 — real coverage is `cpu_z80n_im2_regressions_test.cpp` + `ctc_interrupts_test.cpp`) | zxnext.vhd:2705; z80_cpu.cpp:716 | missing | missing                      |
 | IORQ-02       | Normal IN is routed                                          | zxnext.vhd:2705      | pass    | test/port/port_test.cpp:1786 |
 | IORQ-02b      | Port 0xFE bit 6 follows the OUT-0xFE bit-4 EAR latch         | zxnext.vhd:3459        | pass    | test/port/port_test.cpp:1803 |
 | IORQ-02c      | Pressed key reads the exact byte 0xBD ('O') / 0xBE (SPACE)   | zxnext.vhd:3459        | pass    | test/port/port_test.cpp:1826 |
 | RMW-01        | 0xFE border + beeper latch                                   | zxnext.vhd:2582      | pass    | test/port/port_test.cpp:1848 |
-| CTN-01        | Contended-port timing on 0x4000-range port                   | —                    | missing | missing                      |
-| CTN-02        | Uncontended `IN A,(nn)` outside 0x4000 range                 | —                    | missing | missing                      |
+| CTN-01        | Contended-port timing on 0x4000-range port (real, untested gap — contention is nulled on the FUSE Z80 harness path; a prior claim of FUSE-suite coverage was wrong, corrected GH #196 phase 1.1; identical to Contention's CT-FUSE-03) | zxula.vhd:595, zxnext.vhd:4496 | missing | missing                      |
+| CTN-02        | Uncontended `IN A,(nn)` outside 0x4000 range (same corrected reasoning as CTN-01; identical to Contention's CT-FUSE-04) | zxula.vhd:595, zxnext.vhd:4496 | missing | missing                      |
 | AMAP-01       | DivMMC enable diff freezes expansion bus                     | zxnext.vhd:2180      | missing | missing                      |
 | AMAP-02       | 0xE3 writes honoured even when automap held                  | zxnext.vhd:2608      | pass    | test/port/port_test.cpp:1873 |
 | AMAP-03       | NR 0x83 b0 = 0 disables 0xE3 regardless of automap           | zxnext.vhd:2412      | pass    | test/port/port_test.cpp:1887 |
