@@ -51,9 +51,9 @@
 | Companion: uart_integration_test           |    22 |   22 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  2996 | 2719 |    0 |    2 |     275 |        884 |
 
-Rows the sections above carry: **2996**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2910**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
+Rows the sections above carry: **2996**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2897**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
 
-The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **13** rows sit in **2** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
+The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
@@ -3694,47 +3694,17 @@ End-to-end NMI chain on a real `Emulator` fixture (NmiSource FSM → arbitration
 | HK-08-INT  | GUI F4 → soft-reset / reset_type FSM end-to-end                                                           | zxnext.vhd:6370,1732-1739,1102                            | pass    | test/nmi/nmi_integration_test.cpp:440           |
 | HK-09-INT  | GUI F1 → hard-reset Emulator path end-to-end                                                              | zxnext.vhd:6371,1109-1110,2154-2155                       | pass    | test/nmi/nmi_integration_test.cpp:475           |
 
-### Extended/self-streaming NEX — `test/core/extended_nex_test.cpp`
-
-Additive GH #29/#84 coverage uses runtime-generated files only. Runtime:
-`Total: 27 Passed: 27 Failed: 0 Skipped: 0`. The functional witness
-`extended-nex-stream-func` additionally executes synthetic Z80 code through
-the file API, NextZXOS streaming API, port `$EB`, and raw CMD18 paths.
-
-**This table is NOT REFRESHED** by `test/refresh-traceability-matrix.pl`, and
-every cell in it is hand-written. It has no `Test file:line` column and its
-reference column is prose, not a VHDL citation; its `Test ID` column names
-RANGES (`XNEX-01..04`), which no ID lookup can resolve. Nothing here is
-computed — read it as an editorial summary, and re-check it by hand (GH #192).
-
-| Test IDs | Behavior | Contract/source reference | Status |
-|---|---|---|---|
-| XNEX-01..04 | Generated NEX parsing, exact payload boundary, and closed-file form | NEX header offset 140; GH #29 | pass |
-| XNEX-05..08 | Register handle, seek/read, position, and file metadata | NextZXOS `F_SEEK`, `F_READ`, `F_FGETPOS`, `F_FSTAT` | pass |
-| XNEX-09..13 | Read-only same-directory companion sandbox | Host bridge security contract; GH #84 `ATICATAC.CFG` | pass |
-| XNEX-14..16 | File map and port `$EB` stream start/end | NextZXOS `DISK_FILEMAP`, `DISK_STRMSTART`, `DISK_STRMEND` | pass |
-| XNEX-17 | Memory-address file-handle delivery | NEX header offset 140 values `$4000..$FFFF` | pass |
-| XNEX-18..20 | Sector framing, interleaved-handle isolation, final-sector padding, and file-map refill | NextZXOS streaming contract | pass |
-| XNEX-21..23 | Initialized direct-load SDHC state and synthetic raw CMD18 overlay | SD SPI CMD17/CMD18; GH #84 | pass |
-| XNEX-24 | Post-init GUI NEX load activates the otherwise-dormant host bridge | JNext File → Open lifecycle | pass |
-| XNEX-25..27 | GUI/CLI soft and hard resets disarm host calls, streaming state, and synthetic SD overlays | Direct-NEX lifecycle isolation; GH #29/#84 | pass |
-
-### Atic Atac Next NMI regressions — `test/nmi/atic_atac_nmi_test.cpp`
-
-Additive GH #84 coverage using only runtime-generated fixtures. Runtime:
-`Total: 4 Passed: 4 Failed: 0 Skipped: 0`.
-
-**This table is NOT REFRESHED** by `test/refresh-traceability-matrix.pl`, and
-every cell in it is hand-written. It has no `Test file:line` column and its
-reference column is prose, not a VHDL citation, so nothing here is computed —
-read it as an editorial summary, and re-check it by hand (GH #192).
-
-| Test ID | Behavior | RTL/source reference | Status |
-|---|---|---|---|
-| ATIC-NMI-01 | Config-mode writes to physical SRAM page `$08` supply the DivMMC `$0066` handler | zxnext.vhd DivMMC ROM SRAM mapping; divmmc.vhd:120 | pass |
-| ATIC-NMI-02 | NR `$C0` stackless NMI suppresses stack RAM cycles, captures C3:C2, and RETN uses the live pair | zxnext.vhd:2050-2085, 6229-6236 | pass |
-| ATIC-NMI-03 | DivMMC clears after RETN executes and before the returned opcode is predecoded | im2_control.vhd:236; divmmc.vhd:108,126,139 | pass |
-| ATIC-NMI-04 | Multiface clears at the same completed-instruction boundary | multiface.vhd:144,178 | pass |
+Two hand-maintained companion suites were previously narrated here as full
+summary tables: `test/core/extended_nex_test.cpp` (Extended/self-streaming
+NEX, GH #29/#84) and `test/nmi/atic_atac_nmi_test.cpp` (Atic Atac Next NMI
+regressions, GH #84). Both are declared, tombstoned suites (see "Suites with
+no section here" above) with no `Test file:line` or `VHDL file:line` column
+for the generator to compute, so nothing in either was ever machine-verified
+content — keeping them as tables here read as generated when they were not
+(GH #192). Their full hand-asserted summaries now live beside each feature's
+own design doc: [TASK84-EXTENDED-NEX-PLAN.md](../design/TASK84-EXTENDED-NEX-PLAN.md)
+§9 and [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-DESIGN.md)
+(final section). GH #196 phase 1.5.
 
 ## Discrepancies noted
 
