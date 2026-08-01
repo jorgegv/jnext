@@ -77,6 +77,26 @@ jobs:
     # distro removes that whole class instead of pinning tool by tool.
     container: fedora:44
     timeout-minutes: 60
+    # GH #202. Supplied as ENVIRONMENT, never by rewriting the commands: every
+    # `run:` below stays the plain make target a human types locally, which is
+    # the hard rule in CLAUDE.md. The generator reads $JNEXT_FPGA_SRC (and also
+    # accepts --fpga-src=PATH); locally it needs neither, because it finds the
+    # sibling checkout by walking up from its own directory.
+    #
+    # Scoped to THIS job on purpose. `traceability-check` is a prerequisite of
+    # `make unit-test` only, and only this job runs it — pointing the other
+    # jobs at a directory they never clone would be a lie waiting to be read.
+    # Cloned OUTSIDE the workspace (runner.temp), never inside it. Same reason
+    # CLAUDE.md puts agent worktrees outside the repo: anything that walks the
+    # repository file list would walk this too — the generator itself does a
+    # `find $ROOT -name CMakeLists.txt` to discover suites. The FPGA core
+    # happens to contain no CMakeLists.txt today, which is luck, not a
+    # guarantee, and an untracked 2.5 MB tree inside the checkout is a trap for
+    # every other gate that reads `git status`.
+    env:
+      FPGA_CORE_REF: b047011d82bf3086f2b7db76451c6254506f5fe8   # CORE VERSION 3.02.03
+      FPGA_CORE_DIR: ${{ runner.temp }}/fpga-core
+      JNEXT_FPGA_SRC: ${{ runner.temp }}/fpga-core/cores/zxnext/src
     steps:
       # MUST run BEFORE the checkout: a bare fedora:44 has no git, and
       # actions/checkout throws outright when `submodules` is requested
@@ -133,6 +153,34 @@ jobs:
         uses: actions/checkout@v4
         with:
           submodules: recursive
+
+      # GH #202. doc/testing/TRACEABILITY-MATRIX.md is GENERATED and
+      # staleness-gated, and the generator VALIDATES every VHDL citation
+      # against the real FPGA core: with no core it cannot tell a typo'd
+      # filename from a real one, so it publishes citations verbatim and
+      # declines to fold a bare basename into its qualified path. That is
+      # DIFFERENT BYTES from a run that has the core — so a byte-exact
+      # staleness gate could never pass here and locally at the same time.
+      # CI was red on main for exactly this, not for any test failure.
+      #
+      # PINNED to a commit rather than tracking master. The core is an
+      # independent upstream repo; a tip that moved under us would change
+      # which citations resolve and turn the gate red for a reason having
+      # nothing to do with the commit under test. Bump it deliberately, in
+      # step with the maintainer's own checkout — the same discipline as the
+      # SD-image cache key above. The clone is partial + sparse because the
+      # generator reads nothing but the `*.vhd` filenames under this one
+      # directory.
+      - name: Check out the ZX Next FPGA core (VHDL citation oracle)
+        run: |
+          git clone --filter=blob:none --no-checkout \
+            https://gitlab.com/SpectrumNext/ZX_Spectrum_Next_FPGA.git "$FPGA_CORE_DIR"
+          git -C "$FPGA_CORE_DIR" sparse-checkout init --cone
+          git -C "$FPGA_CORE_DIR" sparse-checkout set cores/zxnext/src
+          git -C "$FPGA_CORE_DIR" checkout "$FPGA_CORE_REF"
+          test -d "$JNEXT_FPGA_SRC" || { echo "FPGA core missing at $JNEXT_FPGA_SRC"; exit 1; }
+          echo "core at $(git -C "$FPGA_CORE_DIR" rev-parse HEAD)"
+          echo "$(find "$JNEXT_FPGA_SRC" -name '*.vhd' | wc -l) .vhd files visible"
 
       - name: Cache ccache
         uses: actions/cache@v4
