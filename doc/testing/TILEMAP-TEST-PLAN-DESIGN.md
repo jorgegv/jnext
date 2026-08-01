@@ -530,3 +530,38 @@ A debug view must never mutate the state it observes.
 | DVP-07  | the debug render reads the per-line scroll split (not live scroll) | PASS   |
 
 Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`).
+
+## GH #196 Phase 1.3 (2026-08-01) — "Extra coverage" table dropped
+
+The traceability matrix's "Extra coverage (not in plan)" table for this suite
+held 10 rows (TM-CB1..TM-CB5, TM-RR1..TM-RR5), none with a live
+`check()`/`skip()` call anywhere in `test/tilemap/tilemap_test.cpp` or
+`test/tilemap/tilemap_fetch_split_test.cpp` today. `git log -S` on each ID
+shows all 10 were implemented in the original suite (`d599cd27`, "Group 11:
+Control Bits" and the roundtrip block at the end of "Group 1: Enable/Disable")
+and removed wholesale by the Phase 2 per-row rewrite (`1e1e109e`, "rewrite in
+Phase 2 per-row idiom … anti-tests replaced") — real assertions from an
+earlier revision, not rows that were never implemented. Disposition:
+PHANTOM-REJECTED for all 10 — dropped, not folded verbatim, since none of
+these exact IDs is asserted today. Per-row detail:
+
+| ID      | Described behaviour                          | Orphan / never-impl. | Already covered today by |
+|---------|------------------------------------------------|-----------------------|---------------------------|
+| TM-CB1  | bit 6 = 80-column mode                          | orphan (`d599cd27` → deleted `1e1e109e`) | TM-20 (G3 80-col: `control(6)=1` selects 80-col) |
+| TM-CB2  | bit 7 = enable                                  | orphan | TM-01/TM-02/TM-03 (G1 Enable/Reset) |
+| TM-CB3  | bit 1 = 512-tile mode (forces `below`)          | orphan | TM-30 (512-tile activation) + TM-32 (`mode_512=1, tm_on_top=0` forces below=1) |
+| TM-CB4  | bit 0 = `tm_on_top` overrides per-tile `below`  | orphan | TM-124 (`tm_on_top` overrides per-tile below, exact same VHDL citation) |
+| TM-CB5  | bit 5 mapping — documented VHDL-vs-C++ discrepancy, asserted `true` unconditionally (not a real check even at authoring) | orphan, and the discrepancy it flagged has since been resolved | TM-50..TM-53 (G6 Strip flags: bit 5 is now correctly wired as `strip_flags` per `tilemap.vhd:190`, VHDL-faithful) |
+| TM-RR1  | control register roundtrip (set/get raw byte)   | orphan | no dedicated ID; `set_control`/`get_control` are implicitly exercised across most groups (TM-02, TM-04, G3/G4/G6, …) |
+| TM-RR2  | default-attr roundtrip                          | orphan | no dedicated ID; `set_default_attr`/`get_default_attr` implicitly exercised by TM-04, TM-50, TM-51 |
+| TM-RR3  | map-base roundtrip                              | orphan | no dedicated ID; `set_map_base`/`get_map_base_raw` implicitly exercised by TM-04, TM-30, TM-60/61 |
+| TM-RR4  | def-base roundtrip                              | orphan | no dedicated ID; `set_def_base`/`get_def_base_raw` implicitly exercised by TM-04, TM-62/63 |
+| TM-RR5  | reset restores all defaults (after dirtying every register, incl. scroll) | orphan | partially — TM-04 asserts the same reset-value tuple (control/default_attr/map_base/def_base) from a fresh object, but does not first dirty the registers (incl. scroll) the way TM-RR5 did, so the "reset actually clears a dirtied state" behaviour is not separately live-tested today |
+
+TM-RR1..RR4 and (to a lesser degree) TM-CB1..CB4 are the "anti-test" pattern
+the Phase 2 rewrite (`1e1e109e`) explicitly targeted: bare setter/getter
+roundtrips assert the C++ struct member, not VHDL-derived behaviour, so they
+were correctly retired rather than restored. TM-CB5 was never a real
+assertion (`check("TM-CB5", ..., true, ...)` — a documentation placeholder),
+and the discrepancy it recorded (VHDL bit 5 = `strip_flags` vs the then-current
+C++ bit mapping) is resolved in the current code and covered by TM-50..TM-53.

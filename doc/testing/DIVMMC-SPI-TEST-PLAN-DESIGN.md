@@ -642,3 +642,76 @@ Mutation results: dropping the 0x1FF8 range or the 0x0066 boundary →
 CM1-01 fails; dropping the FF-state terms → CM1-04/05/06 fail; weakening
 the retn-delay wrapper's pending term → DM-RETN-PROPER-01 (here) and
 MF-G48-06 (nmi_test) fail.
+
+## GH #196 Phase 1.3 — "Extra coverage" table dropped (2026-08-01)
+
+`doc/testing/TRACEABILITY-MATRIX.md`'s DivMMC+SPI section carried a
+4-column "Extra coverage (not in plan)" table (no `Status` column) with
+14 rows: `MEM-01..07`, `NRD-01..04`, `SD-01..03`. `grep -rn '"<ID>"'
+test/divmmc/divmmc_test.cpp` returns zero hits for all 14 today — none
+has a live `check()`/`skip()` call in the current suite. All 14 were
+dropped as PHANTOM-REJECTED; the table (and its now-empty header) was
+removed from the matrix.
+
+Per-row disposition, from `git log -S'"<ID>"' -- test/divmmc/`:
+
+- **MEM-01..07** (`Write/read slot 1 RAM bank 2`, `Slot 0 writes
+  discarded`, `mapram=1 bank=3/!=3 read-only/writable`, `slot 0 reads
+  RAM page 3`, `bank switching preserves data`, `read outside range
+  returns 0xFF`) — introduced in `86dc8f85` (the original 76-row test
+  runner) as direct `DivMmc::read()/write()` byte round-trips, then
+  **orphaned** in the Phase 2 per-row rewrite `cdea45b6` (2026-04-15,
+  123 rows), which moved DivMMC-mapping coverage onto state-accessor
+  assertions (`is_ram_mapped()`, `is_rom_mapped()`, `is_read_only()`,
+  `bank()`) instead of byte-level read/write. MEM-03 and MEM-04
+  are now asserted in substance by the live rows **CM-06** and **CM-07**
+  respectively (§2 "conmem paging" — identical
+  `write_control()` setup, same VHDL citation `divmmc.vhd:100`/`:95-96`,
+  via accessor rather than round-trip). MEM-02 overlaps **CM-05**
+  (`is_read_only()`) and, at the Mmu-overlay tier, **PRI-01**/**PRI-04**
+  (§11), which prove the ROM-read-only / discarded-write behaviour via
+  an actual byte round-trip through `Mmu`. MEM-01 overlaps **CM-02**/
+  **CM-04** (mapping-only, different bank number) and **PRI-02** (an
+  actual round-trip, again via the `Mmu` overlay rather than `DivMmc`
+  directly). **MEM-05** (`slot 0 reads RAM page 3`, proving
+  `divmmc.vhd:96`'s `ram_bank <= X"3" when page0='1' else
+  i_divmmc_reg(3 downto 0)` — i.e. that page0 resolves to the
+  hard-coded bank 3 *regardless of the bank-select register value*) is
+  **not** covered in substance by any live row, contrary to this note's
+  earlier revision. **CM-03** (and its automap analog **AM-03**) were
+  considered but do not prove it: both assert only
+  `is_ram_mapped(0x0000) && !is_rom_mapped()` with the bank register
+  left at 0, which merely proves "page0 is RAM, not ROM" in mapram
+  mode — `is_rom_mapped()` is `is_active() && !mapram_`
+  (`src/peripheral/divmmc.h:189`), and neither `is_ram_mapped()` nor
+  `ram_page_for()` reads `bank_` for `addr < 0x2000`
+  (`src/peripheral/divmmc.cpp:555-560` hard-codes `return 3`), so both
+  assertions would still pass unchanged if the hard-coded-3 rule were
+  removed and page0 fell back to following the bank register instead.
+  No live row anywhere (checked `CM-03`, `AM-03`, `PRI-01`, `PRI-02`,
+  `PRI-04`) seeds a non-zero bank register and then confirms page0
+  still resolves to bank 3. **MEM-05**, **MEM-06** (bank-switch data
+  isolation) and **MEM-07** (out-of-range read fallback) therefore all
+  have **no live equivalent of any kind** today — true gaps, not just a
+  changed mechanism.
+- **NRD-01..04** (`NR 0xB8/0xB9/0xBA/0xBB` reset defaults 0x83/0x01/
+  0x00/0xCD) — introduced in `86dc8f85`, orphaned in `cdea45b6`. The
+  default values are stated as a documented precondition in the
+  `group_ep()` comment (line 607: "Default NR state per reset:
+  B8=0x83, B9=0x01, BA=0x00, BB=0xCD") and exercised behaviourally by
+  EP-01..12 / NR-01.. (their *consequences* once latched), but no live
+  row reads a register back and asserts the raw default value. No
+  direct replacement found.
+- **SD-01..03** (`SdCardDevice`-level: initial exchange returns 0xFF,
+  deselect after reset, not mounted initially) — introduced in
+  `86dc8f85` against `SdCardDevice` directly (not `DivMmc`/`SpiMaster`),
+  orphaned in `cdea45b6`. SD-02's original assertion was a placeholder
+  smoke test (`check("SD-02", ..., true, "")` — asserted nothing). The
+  live row **SS-15** (§12 "Port 0xE7 CS") now asserts the same
+  underlying contract for real — `SpiMaster::reset()` pulses
+  `deselect()` on every selected device before clearing CS (VHDL
+  `zxnext.vhd:3308-3309`) — via `SpiMaster`/`MockSpiDevice` rather than
+  `SdCardDevice`, so SD-02 is superseded by a stronger row. SD-01 and
+  SD-03 test `SdCardDevice` in isolation, which is properly the domain
+  of the separate "SD Card" subsystem's own `test/sdcard/sdcard_test.cpp`
+  (out of scope for this change; not touched).

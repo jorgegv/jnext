@@ -773,6 +773,32 @@ horizontal active area.
 | 7 | ULA hc resets correctly | all | hc_ula=0 at min_hactive-12 |
 | 8 | 60Hz frame length | 48K 60Hz | 448 * 264 / 2 = 59136 T-states |
 
+### GH #196 Phase 1.3 — extra-coverage table folded (2026-08-01)
+
+`TRACEABILITY-MATRIX.md`'s ULA Video section carried a 26-row "Extra coverage
+(not in plan)" table (GH #192 lineage). All 26 were independently re-verified:
+
+- **`S13.14`** (frame_done flips exactly at 69888 T-states, 48K) was folded
+  into the main table as a normal pass row. It is genuinely live in
+  `test/ula/ula_test.cpp:3031` and currently passes (`ula_test` reports
+  `Total: 122 Passed: 122 Failed: 0 Skipped: 0`). Its surrounding comment used
+  to read "KNOWN FAIL — Task 2 item 4" — stale: the underlying
+  `VideoTiming::advance` frame-boundary bug it described has since been fixed
+  by other work and nobody updated the comment. The comment was corrected to
+  describe it as a regression witness against reintroducing that bug, not a
+  known failure.
+- The other 25 (`S2.11`; `S13.09`-`S13.13`; `SR.01`-`SR.07`; `SD.01`-`SD.08`;
+  `S03P.01`-`S03P.04`) are **not** asserted anywhere in `ula_test.cpp` or
+  `ula_integration_test.cpp` today and were dropped. 24 of them (all except
+  `S2.11`) are confirmed rewrite orphans — `git log -S'"<ID>"' -- test/ula/`
+  shows exactly 2 historical commits each (implemented, later removed).
+  `S2.11` is never-implemented — its literal only ever appears in 3 doc
+  commits (matrix/plan-doc prose), never in test source. None of the 25 is
+  resurrected elsewhere under a different ID with the same assertion, except
+  that `S13.10`-`S13.13` (display left=128 / top=64 / width=256 / height=192)
+  are already exercised today as a single combined assertion by the live
+  `S13.04` check (`VideoTiming::DISPLAY_LEFT/TOP/W/H`, `ula_test.cpp:3004`).
+
 ## Section 14: Frame Interrupt
 
 ### VHDL reference

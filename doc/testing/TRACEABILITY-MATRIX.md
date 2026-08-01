@@ -11,7 +11,7 @@
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
 | Memory/MMU                                 |   201 |  172 |    0 |    0 |      29 |         63 |
-| ULA Video                                  |   125 |  114 |    0 |    0 |      11 |          6 |
+| ULA Video                                  |   126 |  115 |    0 |    0 |      11 |          6 |
 | Layer2                                     |   122 |  114 |    0 |    0 |       8 |         25 |
 | Sprites                                    |   194 |  187 |    0 |    0 |       7 |         18 |
 | Tilemap                                    |    69 |   59 |    0 |    0 |      10 |         13 |
@@ -49,11 +49,11 @@
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   16 |    0 |    0 |       1 |          1 |
 | Companion: uart_integration_test           |    22 |   22 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  2988 | 2711 |    0 |    2 |     275 |        884 |
+| **Total**                                  |  2989 | 2712 |    0 |    2 |     275 |        884 |
 
-Rows the sections above carry: **2988**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2972**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
+Rows the sections above carry: **2989**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **2947**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
 
-The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **85** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **13** rows sit in **2** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
+The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **59** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **13** rows sit in **2** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
 **`missing`** = a row this document lists that its suite's test source no longer asserts. **`unrecorded`** = the reverse: a row the test source asserts that this document does not list **in the owning subsystem's section** — asked per section, not globally, so an ID string reused by another subsystem cannot vouch for it (GH #118). Both are real gaps; neither is auto-repaired, because the description that makes a row worth recording cannot be derived from the source (GH #117).
 
@@ -493,18 +493,6 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | CFG-11           | set_rom_in_sram 1->0 restores ROM-slot reads to rom_             | zxnext.vhd:5050-5057 | pass    | test/mmu/mmu_test.cpp:2903 |
 | CFG-12           | Mmu::reset(hard=false) also preserves the NR 0x04 bank           | zxnext_top_issue2.vhd:840, zxnext.vhd:1730 | pass | test/mmu/mmu_test.cpp:2795 |
 
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                       | VHDL file:line | Test file:line            |
-|---------|---------------------------------------------|----------------|---------------------------|
-| RST-09  | MMU0 is ROM after reset                     | —              | missing                   |
-| RST-10  | MMU1 is ROM after reset                     | —              | missing                   |
-| RW-01   | Write 0x42 to 0x8000 (page 0x10), read back | —              | missing                   |
-| RW-02   | Independent writes to two slots             | —              | missing                   |
-| RW-03   | Same page in two slots shares data          | —              | missing                   |
-| RW-04   | Write across slot 4/5 boundary              | —              | missing                   |
-| RW-05   | All 8 slots independently writable          | —              | missing                   |
-
 ### Companion integration suite — `test/mmu/mmu_integration_test.cpp`
 
 Memory/MMU rows that need a whole `Emulator` rather than a bare `Mmu`: the
@@ -682,6 +670,7 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S13.02  | 128K frame length                               | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:2993 |
 | S13.03  | Pentagon frame length                           | —              | missing | missing                    |
 | S13.04  | Active display start 48K                        | zxula_timing.vhd | pass    | test/ula/ula_test.cpp:3004 |
+| S13.14  | Frame complete flips exactly at 69888 T-states (48K) | zxula_timing.vhd:262,270 | pass    | test/ula/ula_test.cpp:3031 |
 | S14.04  | Interrupt disabled                              | —              | missing | missing                                                                                          |
 | S14.05  | Line interrupt fires                            | —              | missing | missing                                                                                         |
 | S14.06  | Line interrupt 0 = last line                    | —              | missing | missing                                                                                         |
@@ -713,37 +702,6 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`)
 | S17.02     | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L                           | zxnext.vhd:5462,6826              | pass   | test/ula/ula_test.cpp:3282      |
 | S17.03     | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other                | zxnext.vhd:6957, 3614+          | pass   | test/ula/ula_test.cpp:3324      |
 | S17.04     | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame          | zxnext.vhd:5391-5393,5462         | pass   | test/ula/ula_test.cpp:3364      |
-
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                         | VHDL file:line | Test file:line            |
-|---------|-----------------------------------------------|----------------|---------------------------|
-| S2.11  | Rendered paper pixel (0x00 pixels, 0x47 attr) | —              | missing                   |
-| S13.09  | Pentagon T-states/frame = 71680               | —              | missing                   |
-| S13.10  | Display left = 128                            | —              | missing                   |
-| S13.11  | Display top = 64                              | —              | missing                   |
-| S13.12  | Display width = 256                           | —              | missing                   |
-| S13.13  | Display height = 192                          | —              | missing                   |
-| S13.14  | Frame complete after full T-states            | zxula_timing.vhd | test/ula/ula_test.cpp:3031 |
-| SR.01   | rrrgggbb 0x00 -> black                        | —              | missing                   |
-| SR.02   | rrrgggbb 0xFF -> white                        | —              | missing                   |
-| SR.03   | rrrgggbb 0xE0 -> red                          | —              | missing                   |
-| SR.04   | FB_WIDTH = 320                                | —              | missing                   |
-| SR.05   | FB_HEIGHT = 256                               | —              | missing                   |
-| SR.06   | DISP_X = 32                                   | —              | missing                   |
-| SR.07   | DISP_Y = 32                                   | —              | missing                   |
-| SD.01   | ULA FB_WIDTH = 320                            | —              | missing                   |
-| SD.02   | ULA FB_HEIGHT = 256                           | —              | missing                   |
-| SD.03   | ULA DISP_X = 32 (left border)                 | —              | missing                   |
-| SD.04   | ULA DISP_Y = 32 (top border)                  | —              | missing                   |
-| SD.05   | ULA DISP_W = 256                              | —              | missing                   |
-| SD.06   | ULA DISP_H = 192                              | —              | missing                   |
-| SD.07   | Border widths sum correctly (32+256+32=320)   | —              | missing                   |
-| SD.08   | Border heights sum correctly (32+192+32=256)  | —              | missing                   |
-| S03P.01 | Init fills all lines with current border      | —              | missing                   |
-| S03P.02 | Per-line snapshot at line 100                 | —              | missing                   |
-| S03P.03 | Other lines unchanged                         | —              | missing                   |
-| S03P.04 | Out-of-range line returns current border      | —              | missing                   |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 
@@ -1165,21 +1123,6 @@ Last-touch commit: `d599cd27615bf61efea60c49fdeb38dc7a6116b3` (`d599cd2761`)
 | TM-131  | Stencil transparency            | —              | missing | missing                            |
 | TM-140  | TM disabled, tm_on_top=0        | —              | missing | missing                            |
 | TM-141  | TM disabled, tm_on_top=1        | —              | missing | missing                            |
-
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                      | VHDL file:line | Test file:line                     |
-|---------|--------------------------------------------|----------------|------------------------------------|
-| TM-CB1  | Bit 6 = 80-column mode                     | —              | missing                            |
-| TM-CB2  | Bit 7 = enable                             | —              | missing                            |
-| TM-CB3  | Bit 1 = 512-tile mode (forces below)       | —              | missing                            |
-| TM-CB4  | Bit 0 = tm_on_top overrides per-tile below | —              | missing                            |
-| TM-CB5  | Bit 5 mapping (VHDL=strip, C++ may differ) | —              | missing                            |
-| TM-RR1  | Control register roundtrip                 | —              | missing                            |
-| TM-RR2  | Default attr roundtrip                     | —              | missing                            |
-| TM-RR3  | Map base roundtrip                         | —              | missing                            |
-| TM-RR4  | Def base roundtrip                         | —              | missing                            |
-| TM-RR5  | Reset restores all defaults                | —              | missing                            |
 
 ### Companion regression suite — `test/tilemap/tilemap_fetch_split_test.cpp`
 
@@ -1982,25 +1925,6 @@ Last-touch commit: `d4ea4e1` (SPI pipeline delay + write MISO + SS-10 test fix)
 | IN-06            | conmem override during automap: conmem takes priority        | divmmc.vhd:94    | pass    | test/divmmc/divmmc_test.cpp:3473 |
 | IN-07            | DivMMC disabled via NR 0x0A[4]=0: no automap, SPI still wor… | zxnext.vhd:4112  | pass    | test/divmmc/divmmc_test.cpp:3497 |
 
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                   | VHDL file:line | Test file:line                  |
-|---------|-----------------------------------------|----------------|---------------------------------|
-| MEM-01  | Write/read slot 1 RAM bank 2            | —              | missing                         |
-| MEM-02  | Slot 0 writes discarded (ROM read-only) | —              | missing                         |
-| MEM-03  | mapram=1, bank=3: slot 1 read-only      | —              | missing                         |
-| MEM-04  | mapram=1, bank!=3: slot 1 writable      | —              | missing                         |
-| MEM-05  | mapram=1: slot 0 reads RAM page 3       | —              | missing                         |
-| MEM-06  | Bank switching: data preserved per bank | —              | missing                         |
-| MEM-07  | Read outside range returns 0xFF         | —              | missing                         |
-| NRD-01  | NR 0xB8 default = 0x83                  | —              | missing                         |
-| NRD-02  | NR 0xB9 default = 0x01                  | —              | missing                         |
-| NRD-03  | NR 0xBA default = 0x00                  | —              | missing                         |
-| NRD-04  | NR 0xBB default = 0xCD                  | —              | missing                         |
-| SD-01   | SD card: initial exchange returns 0xFF  | —              | missing                         |
-| SD-02   | SD card: deselect after reset           | —              | missing                         |
-| SD-03   | SD card: not mounted initially          | —              | missing                         |
-
 ## Multiface — `test/multiface/multiface_test.cpp`
 
 The Multiface peripheral (`src/peripheral/multiface.{h,cpp}`), implemented in
@@ -2285,14 +2209,6 @@ Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN
 | MF-G48-05       | MF a_0066 / mf_is_active / mf_mem_en / mf_port_en signals tracked                    | multiface.vhd:152-163           | missing | missing         |
 | MF-G48-06       | MF +3 readback mux on cpu_a(15:12) returns port_dffd_reg_6 + port_1ffd/7ffd shadow   | zxnext.vhd:4310-4322            | missing | missing         |
 | MF-G48-07       | DivMMC RETN-seen suppressed when mf_is_active=1 (band-aid removal invariant)         | zxnext.vhd:4111                 | missing | missing         |
-
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                | VHDL file:line | Test file:line            |
-|---------|--------------------------------------|----------------|---------------------------|
-| MC-01   | 4 channels loaded with different TCs | —              | missing                   |
-| MC-02   | Channels decrement independently     | —              | missing                   |
-| MC-03   | Read invalid channel returns 0xFF    | —              | missing                   |
 
 ### Companion integration suite — `test/ctc_interrupts/ctc_interrupts_test.cpp`
 
@@ -2947,28 +2863,6 @@ Last-touch commit: `044f9c57877c114c6c32221b1f9b6016e24e5958` (`044f9c5787`)
 | G56-CR-80  | NR 0x80 expansion-bus dynamic state                                     | zxnext.vhd:5897-6125          | missing | missing                           |
 | G56-CR-81  | NR 0x81 b7 from i_BUS_ROMCS_n                                           | zxnext.vhd:5897-6125          | missing | missing                           |
 
-### Extra coverage (not in plan)
-
-| Test ID | Assertion description                         | VHDL file:line | Test file:line                    |
-|---------|-----------------------------------------------|----------------|-----------------------------------|
-| NREG-RST-10 | NR 0x12 L2 active bank (VHDL: 0x08)           | zxnext.vhd:4945  | test/nextreg/nextreg_integration_test.cpp:281 |
-| NREG-RST-11 | NR 0x68 ULA control (VHDL: bit7=NOT ula_en=0) | zxnext.vhd:5003  | test/nextreg/nextreg_integration_test.cpp:291 |
-| NREG-RST-12 | NR 0x6B tilemap = 0x00                        | zxnext.vhd:5004  | test/nextreg/nextreg_integration_test.cpp:301 |
-| NREG-RST-13 | NR 0x82-0x85 internal port enables = 0xFF     | zxnext.vhd:5087-5090 | test/nextreg/nextreg_integration_test.cpp:343 |
-| RST-14  | NR 0x86-0x89 bus port enables = 0xFF          | —              | missing                           |
-| RST-15  | NR 0x4B sprite transparent (VHDL: 0xE3)       | —              | missing                           |
-| RST-16a | NR 0x16 L2 scroll X = 0x00                    | —              | missing                           |
-| RST-16b | NR 0x17 L2 scroll Y = 0x00                    | —              | missing                           |
-| WH-01   | Write handler called with correct value       | —              | missing                           |
-| WH-02   | Write handler via write_selected              | —              | missing                           |
-| WH-03   | Read handler returns 0xDD despite cached 0x11 | —              | missing                           |
-| WH-04   | No handler — direct storage round-trip        | —              | missing                           |
-| EDGE-01 | All 256 registers store and retrieve          | —              | missing                           |
-| EDGE-02 | Reset clears NR 0x7F to 0                     | —              | missing                           |
-| EDGE-03 | Reset restores NR 0x00=0x0A, NR 0x01=0x32     | —              | missing                           |
-| EDGE-04 | Write handler survives reset                  | —              | missing                           |
-| EDGE-05 | Multiple selects, last wins                   | —              | missing                           |
-
 ### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`
 
 Created 2026-04-15 onwards (Phase 2 Wave 1 commit `0dc128e` and beyond) to host integration-tier rows from the NextREG plan that require the full `Emulator` fixture (subsystem wiring for reset defaults, MMU/Layer2/Sprite/Tilemap clip-window cycling, palette pipeline, NR 0x82-bit-6 port-1F gate, NR 0x07/0x08 read composition, NR 0x03 machine-config state, DMA IM2-delay composition, soft-reset semantics, NR 0x8E RAM-rebuild gate, Layer 2 bank routing). Runtime: `Total:  301  Passed:  301  Failed:    0  Skipped:    0`. The 74 rows listed below are only the ones recorded here; 37 more that the suite asserts are recorded in the parent `## NextREG` table above, and the rest are reported `unrecorded` on every run. Each row cross-references the bare-suite plan row when a re-home applies.
@@ -2988,6 +2882,7 @@ Created 2026-04-15 onwards (Phase 2 Wave 1 commit `0dc128e` and beyond) to host 
 | NREG-RST-11 | NR 0x4B sprite transparent index reset = 0xE3                                                    | zxnext.vhd:5003                 | pass    | test/nextreg/nextreg_integration_test.cpp:291  |
 | NREG-RST-12 | NR 0x4C tilemap transparent index reset = 0x0F                                                   | zxnext.vhd:5004                 | pass    | test/nextreg/nextreg_integration_test.cpp:301  |
 | RST-09             | NR 0x1B post-reset read returns tilemap clip_x1 = 0x00                                           | zxnext.vhd:4977-4981, 5971-5977 | pass    | test/nextreg/nextreg_integration_test.cpp:316  |
+| NREG-RST-13 | NR 0xB8/0xB9/0xBA/0xBB DivMMC automap EP reset = 0x83/0x01/0x00/0xCD (V17-NMP-01)                | zxnext.vhd:5087-5090            | pass    | test/nextreg/nextreg_integration_test.cpp:343  |
 | RO-01              | NR 0x00 machine ID reset = 0x0A via port path (NextZXOS-boot fix 2026-07-09)                     | src/port/nextreg.cpp:27         | pass    | test/nextreg/nextreg_integration_test.cpp:1311 |
 | RO-02              | NR 0x00 read-only enforcement (write 0x42; read still 0x0A)                                      | zxnext.vhd:5884-5885            | pass    | test/nextreg/nextreg_integration_test.cpp:1327 |
 | RO-03              | NR 0x01 core version reset = 0x32 (core 3.02)                                                    | src/port/nextreg.cpp:28         | pass    | test/nextreg/nextreg_integration_test.cpp:1338 |
@@ -3455,17 +3350,12 @@ Suite covers the two floating-bus surfaces the Next FPGA exposes: port 0xFF (48K
 | FB-07         | 48K NR 0x08 b2=1 + port 0xFF write 0x05 → read returns 0x05 (Timex arm)         | zxnext.vhd:2813,5180,3630                   | pass   | test/floating_bus/floating_bus_test.cpp:953     |
 | FB-6A         | 48K reset NR 0x08 b2=0 → border read returns 0xFF (floating-bus arm wins)       | zxnext.vhd:1118,2813,5180                   | pass   | test/floating_bus/floating_bus_test.cpp:969     |
 | FB-6B         | 48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF                    | zxnext.vhd:2397,2813                        | pass   | test/floating_bus/floating_bus_test.cpp:988     |
-
-### Extra coverage (not in plan)
-
-| Test ID       | Assertion description                                                                  | VHDL file:line                | Test file:line                                  |
-|---------------|----------------------------------------------------------------------------------------|-------------------------------|-------------------------------------------------|
-| FB-3X         | +3 port 0x0FFD dispatches to dedicated 0x0FFD handler not 0x7FFD (mask 0xF003 > 0x8003) | zxula.vhd:573, zxnext.vhd:4478,4499-4508 | test/floating_bus/floating_bus_test.cpp:784     |
-| FB-HARNESS-01 | set_raster_position(line, tstate) lands clock at expected master cycle                  | —                             | test/floating_bus/floating_bus_test.cpp:1287    |
-| FB-HARNESS-02 | set_raster_position_hc(line, hc) lands clock at expected master cycle (7 MHz domain)    | —                             | test/floating_bus/floating_bus_test.cpp:1313    |
-| FB-HARNESS-03 | cpu_in_a_FF executes IN A,(0xFF), PC advances 2, returns border 0xFF                    | —                             | test/floating_bus/floating_bus_test.cpp:1335    |
-| FB-HARNESS-04 | cpu_in_a_0FFD executes IN A,(C) with BC=0x0FFD; PC advances 2, BC preserved             | —                             | test/floating_bus/floating_bus_test.cpp:1353    |
-| FB-HARNESS-05 | read_port_default(0x00FF) on fresh 48K returns 0xFF via port_dispatch default           | —                             | test/floating_bus/floating_bus_test.cpp:1368    |
+| FB-3X         | +3 port 0x0FFD dispatches to dedicated 0x0FFD handler not 0x7FFD (mask 0xF003 > 0x8003) | zxula.vhd:573, zxnext.vhd:4478,4499-4508    | pass   | test/floating_bus/floating_bus_test.cpp:784     |
+| FB-HARNESS-01 | set_raster_position(line, tstate) lands clock at expected master cycle         | —                                            | pass   | test/floating_bus/floating_bus_test.cpp:1287    |
+| FB-HARNESS-02 | set_raster_position_hc(line, hc) lands clock at expected master cycle (7 MHz domain) | —                                       | pass   | test/floating_bus/floating_bus_test.cpp:1313    |
+| FB-HARNESS-03 | cpu_in_a_FF executes IN A,(0xFF), PC advances 2, returns border 0xFF           | —                                            | pass   | test/floating_bus/floating_bus_test.cpp:1335    |
+| FB-HARNESS-04 | cpu_in_a_0FFD executes IN A,(C) with BC=0x0FFD; PC advances 2, BC preserved    | —                                            | pass   | test/floating_bus/floating_bus_test.cpp:1353    |
+| FB-HARNESS-05 | read_port_default(0x00FF) on fresh 48K returns 0xFF via port_dispatch default  | —                                            | pass   | test/floating_bus/floating_bus_test.cpp:1368    |
 
 
 ## VideoTiming — `test/videotiming/videotiming_test.cpp`
