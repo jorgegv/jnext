@@ -932,7 +932,8 @@ static void section9_vblank_top() {
         vt.init(MachineType::ZXN_ISSUE2);
         const int v = vt.vblank_top();
         check("VT-VBT-01",
-              "NEXT 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32",
+              "NEXT 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32 "
+              "(VHDL zxula_timing.vhd:203)",
               v == 32, "got " + std::to_string(v));
     }
     // VT-VBT-02 — 48K 50 Hz: same 64-32=32.
@@ -941,7 +942,8 @@ static void section9_vblank_top() {
         vt.init(MachineType::ZX48K);
         const int v = vt.vblank_top();
         check("VT-VBT-02",
-              "48K 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32",
+              "48K 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32 "
+              "(VHDL zxula_timing.vhd:269)",
               v == 32, "got " + std::to_string(v));
     }
     // VT-VBT-03 — 128K 50 Hz: same 64-32=32.
@@ -950,7 +952,8 @@ static void section9_vblank_top() {
         vt.init(MachineType::ZX128K);
         const int v = vt.vblank_top();
         check("VT-VBT-03",
-              "128K 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32",
+              "128K 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32 "
+              "(VHDL zxula_timing.vhd:203)",
               v == 32, "got " + std::to_string(v));
     }
     // VT-VBT-04 RETIRED 2026-05-04: standalone Pentagon machine type
@@ -964,7 +967,8 @@ static void section9_vblank_top() {
         vt.init(MachineType::ZXN_ISSUE2, /*refresh_60hz=*/true);
         const int v = vt.vblank_top();
         check("VT-VBT-05",
-              "NEXT 60Hz vblank_top() = min_vactive(40) - DISP_Y(32) = 8",
+              "NEXT 60Hz vblank_top() = min_vactive(40) - DISP_Y(32) = 8 "
+              "(VHDL zxula_timing.vhd:237)",
               v == 8, "got " + std::to_string(v));
     }
     // VT-VBT-06 RETIRED 2026-05-04 (paired with VT-VBT-04 retirement).

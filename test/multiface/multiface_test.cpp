@@ -548,10 +548,10 @@ static void g_mf_port_dispatch()
               s_bf_r, "VHDL zxnext.vhd:2613, :2616, :2730-2733");
         check("MF-PORT-05",
               "MF+3 (mf_type=00): OUT 0x9F → no MF strobe (LSB not active)",
-              !s_9f_w, "VHDL: 0x9F is enable_io for mf_type b1=1 only");
+              !s_9f_w, "VHDL zxnext.vhd:2612-2613, :2615-2616 — 0x9F is enable_io for mf_type b1=1 only");
         check("MF-PORT-06",
               "MF+3 (mf_type=00): OUT 0x1F → no MF strobe (LSB not active)",
-              !s_1f_w, "VHDL: 0x1F is disable_io for mf_type b1=1 only");
+              !s_1f_w, "VHDL zxnext.vhd:2612-2613, :2615-2616 — 0x1F is disable_io for mf_type b1=1 only");
     }
 
     // ── MF128 var A (mf_type=01): enable=0xBF, disable=0x3F ──────────────
@@ -592,7 +592,7 @@ static void g_mf_port_dispatch()
         check("MF-PORT-11",
               "MF128 var B (mf_type=10): OUT 0xBF → no MF strobe (var-A LSB)",
               !s_bf_w,
-              "VHDL: 0xBF is the mode_128 var-A enable_io, not var-B");
+              "VHDL zxnext.vhd:2612-2613, :2615-2616 — 0xBF is the mode_128 var-A enable_io, not var-B");
     }
 
     // ── MF1 (mf_type=11): enable=0x9F, disable=0x1F ──────────────────────
@@ -615,7 +615,7 @@ static void g_mf_port_dispatch()
               s_1f_w, "VHDL zxnext.vhd:2613 (b1=1 → 0x1F)");
         check("MF-PORT-14",
               "MF1 (mf_type=11): IN 0x3F → no MF strobe (MF+3 LSB only)",
-              !s_3f_r, "VHDL: 0x3F is MF+3 enable_io, not MF1");
+              !s_3f_r, "VHDL zxnext.vhd:2612-2613, :2615-2616 — 0x3F is MF+3 enable_io, not MF1");
     }
 
     // ── Disable gate (NR 0x83 b1 = 0 / multiface_.is_enabled() == false) ─

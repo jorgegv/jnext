@@ -3688,7 +3688,8 @@ static void group_rb() {
         f.dm.write(0x2123, 0x5A);
         const uint8_t phys = f.ram.page_ptr(18)[0x0123];
         check("RB-02",
-              "DivMMC overlay write (bank 2) lands in physical SRAM page 18",
+              "DivMMC overlay write (bank 2) lands in physical SRAM page 18 "
+              "— VHDL zxnext.vhd:3092-3093 sram_A21_A13 <= \"00001\" & divmmc_bank",
               phys == 0x5A,
               fmt("ram[18][0x123]=0x%02X (expected 0x5A)", phys));
     }

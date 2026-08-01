@@ -175,7 +175,8 @@ static void test_group_libz80() {
         // VHDL zxnext.vhd:2647.
         uint8_t ay0 = emu.port().in(0xFFFD);
         check("LIBZ80-01a",
-              "OUT 0xBFFD reaches AY data (not collapsed into 0x7FFD)",
+              "OUT 0xBFFD reaches AY data (not collapsed into 0x7FFD) "
+              "— VHDL zxnext.vhd:2647-2648",
               ay0 == 0x3F,
               DETAIL("ay_reg0=0x%02x expected=0x3F", ay0));
 
@@ -183,7 +184,8 @@ static void test_group_libz80() {
         // VHDL zxnext.vhd:2593; Mmu::port_7ffd() getter.
         uint8_t bank_sel = emu.mmu().port_7ffd();
         check("LIBZ80-01b",
-              "OUT 0x7FFD reaches MMU (16-bit BC decode, not LSB alias)",
+              "OUT 0x7FFD reaches MMU (16-bit BC decode, not LSB alias) "
+              "— VHDL zxnext.vhd:2593",
               bank_sel == 0x10,
               DETAIL("bank_latch=0x%02x expected=0x10", bank_sel));
     }
@@ -885,7 +887,7 @@ static void test_group_registration() {
         const uint16_t aliased_L = emu.dac().pcm_left();
         check("V18-NMP-02a",
               "Profi DAC ch A write via OUT (0x123F),A reaches Dac (VHDL "
-              ":2661 port_3f_lsb LSB-only, A15..A8 don't-care)",
+              "zxnext.vhd:2661 port_3f_lsb LSB-only, A15..A8 don't-care)",
               aliased_L != baseline_L && aliased_L == (0x60 + 0x80),
               DETAIL("baseline_L=0x%04x aliased_L=0x%04x expected=0x%04x",
                      baseline_L, aliased_L, 0x60 + 0x80));
@@ -896,7 +898,7 @@ static void test_group_registration() {
         const uint16_t aliased_R = emu.dac().pcm_right();
         check("V18-NMP-02b",
               "Profi DAC ch D write via OUT (0x125F),A reaches Dac (VHDL "
-              ":2664 port_5f_lsb LSB-only)",
+              "zxnext.vhd:2664 port_5f_lsb LSB-only)",
               aliased_R != baseline_R && aliased_R == (0x80 + 0x60),
               DETAIL("baseline_R=0x%04x aliased_R=0x%04x expected=0x%04x",
                      baseline_R, aliased_R, 0x80 + 0x60));
@@ -1019,7 +1021,7 @@ static void test_group_registration() {
         uint8_t spr16b0 = emu_local.sprites().read_attr_byte(0x10, 0);
         check("V18-NMP-NIT-01a",
               "NR 0x83 b6=0 silences sprite slot-select port 0x303B "
-              "(VHDL :2423,:2681 port_sprite_io_en)",
+              "(VHDL zxnext.vhd:2392,2423,2681 port_sprite_io_en)",
               spr3b0 == 0xAA && spr16b0 == 0x00,
               DETAIL("spr[3].byte0=0x%02x spr[0x10].byte0=0x%02x",
                      spr3b0, spr16b0));
@@ -1037,7 +1039,7 @@ static void test_group_registration() {
         uint8_t b0 = emu_local.sprites().read_attr_byte(5, 0);
         check("V18-NMP-NIT-01b",
               "NR 0x83 b6=0 silences sprite-attribute port 0x57 "
-              "(VHDL :2423,:2679-2680 port_sprite_io_en)",
+              "(VHDL zxnext.vhd:2392,2423,2679 port_sprite_io_en)",
               b0 == 0x00,
               DETAIL("spr[5].byte0=0x%02x (expected 0x00)", b0));
     }
@@ -1065,7 +1067,7 @@ static void test_group_registration() {
         check("V18-NMP-NIT-01c",
               "NR 0x83 b6=0 silences sprite-pattern port 0x5B — gated "
               "write neither lands nor advances pattern_offset_ "
-              "(VHDL :2423,:2681 port_sprite_io_en)",
+              "(VHDL zxnext.vhd:2392,2423,2680 port_sprite_io_en)",
               off_a == 1 && off_b == 1 && off_c == 2,
               DETAIL("offset after A/B/C = %u/%u/%u (expected 1/1/2)",
                      off_a, off_b, off_c));
@@ -1084,7 +1086,7 @@ static void test_group_registration() {
         bool after = emu_local.layer2().enabled();
         check("V18-NMP-NIT-01d",
               "NR 0x83 b7=0 silences Layer 2 port 0x123B "
-              "(VHDL :2424,:2635 port_layer2_io_en)",
+              "(VHDL zxnext.vhd:2392,2424,2635 port_layer2_io_en)",
               before == after && after == false,
               DETAIL("layer2.enabled before=%d after=%d (expected unchanged)",
                      (int)before, (int)after));
@@ -1104,7 +1106,7 @@ static void test_group_registration() {
         uint8_t after = emu_local.ula().get_ulap_mode();
         check("V18-NMP-NIT-01e",
               "NR 0x85 b0=0 silences ULA+ register-select port 0xBF3B "
-              "(VHDL :2439,:2685-2686 port_ulap_io_en)",
+              "(VHDL zxnext.vhd:2392,2439,2685 port_ulap_io_en)",
               before == 0x00 && after == 0x00,
               DETAIL("ulap_mode before=0x%02x after=0x%02x", before, after));
     }
@@ -1125,7 +1127,7 @@ static void test_group_registration() {
         bool after = emu_local.ula().get_ulap_en();
         check("V18-NMP-NIT-01f",
               "NR 0x85 b0=0 silences ULA+ data port 0xFF3B "
-              "(VHDL :2439,:2685-2686 port_ulap_io_en)",
+              "(VHDL zxnext.vhd:2392,2439,2686 port_ulap_io_en)",
               before == true && after == true,
               DETAIL("ulap_en before=%d after=%d (expected unchanged)",
                      (int)before, (int)after));
@@ -1146,7 +1148,7 @@ static void test_group_registration() {
         uint8_t rd = emu_local.port().in(0x183B);
         check("V18-NMP-NIT-01g",
               "NR 0x85 b3=0 silences CTC port 0x183B "
-              "(VHDL :2442,:2690 port_ctc_io_en)",
+              "(VHDL zxnext.vhd:2392,2442,2690 port_ctc_io_en)",
               ch0_int_en == false && rd == 0xFF,
               DETAIL("ctc.ch0.int_enabled=%d rd=0x%02x (expected 0/0xFF)",
                      (int)ch0_int_en, rd));
@@ -1162,7 +1164,7 @@ static void test_group_registration() {
         uint8_t after = emu_local.port().in(0x006B);
         check("V18-NMP-NIT-01h",
               "NR 0x82 b5=0 silences DMA port 0x6B "
-              "(VHDL :2405,:2643 port_dma_6b_io_en)",
+              "(VHDL zxnext.vhd:2392,2405,2643 port_dma_6b_io_en)",
               before != 0xFF && after == 0xFF,
               DETAIL("dma.read 6B before=0x%02x after=0x%02x", before, after));
     }
@@ -1175,7 +1177,7 @@ static void test_group_registration() {
         uint8_t after = emu_local.port().in(0x000B);
         check("V18-NMP-NIT-01i",
               "NR 0x85 b1=0 silences DMA port 0x0B "
-              "(VHDL :2440,:2643 port_dma_0b_io_en)",
+              "(VHDL zxnext.vhd:2392,2440,2643 port_dma_0b_io_en)",
               before != 0xFF && after == 0xFF,
               DETAIL("dma.read 0B before=0x%02x after=0x%02x", before, after));
     }

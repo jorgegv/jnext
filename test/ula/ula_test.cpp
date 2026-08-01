@@ -791,7 +791,9 @@ static void test_section5_timex() {
         const uint32_t red  = bed_ink_argb(bed.palette, 2);
         check("S5.09",
               "shadow_screen_en=1 must switch ULA to bank 7 (page-14 fallback, no BRAM wired); "
-              "VHDL ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1'",
+              "VHDL zxnext.vhd:6651-6654 ula_bank_do <= vram_bank7_do when "
+              "ula_vram_shadow='1', latched from i_ula_shadow_en at "
+              "zxula.vhd:210,267",
               line_off[Ula::DISP_X] == cyan && line_on[Ula::DISP_X] == red,
               fmt("off=0x%08X (exp cyan 0x%08X)  on=0x%08X (exp red 0x%08X)",
                   line_off[Ula::DISP_X], cyan, line_on[Ula::DISP_X], red));

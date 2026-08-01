@@ -2600,7 +2600,7 @@ static void test_cat27_verify9_regressions() {
         const bool got = cm.port_contend(0x7FFD, /*ulap=*/false);
         check("FIX-CONTEND-7FFD-02",
               "48K + port 0x7FFD + io_en=1: port_contend=0 "
-              "(s128/p3 timing gates off) — VHDL :2594; commit f5ec6d8",
+              "(s128/p3 timing gates off) — VHDL zxnext.vhd:2594; commit f5ec6d8",
               !got,
               std::string("got=") + std::to_string(got) + " (exp 0)");
     }
@@ -2618,7 +2618,7 @@ static void test_cat27_verify9_regressions() {
         const bool got = cm.port_contend(0x7FFD, /*ulap=*/false);
         check("FIX-CONTEND-7FFD-03",
               "+3 + port 0x7FFD + io_en=1: port_contend=1 — "
-              "VHDL :2593-2594; commit f5ec6d8",
+              "VHDL zxnext.vhd:2593-2594; commit f5ec6d8",
               got,
               std::string("got=") + std::to_string(got) + " (exp 1)");
     }
