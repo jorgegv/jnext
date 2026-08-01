@@ -72,7 +72,7 @@ Single-stepping goes through `Emulator::execute_single_instruction()`, which
 shares its per-instruction body verbatim with the free-running loop
 (`step_one_instruction()`), specifically so the two paths cannot drift. Stepping
 must *observe* the emulation, never alter it — see
-[3.2 The emulator core](../02-architecture/02-the-emulator-core.md) for why
+[2.2 The emulator core](../02-architecture/02-the-emulator-core.md) for why
 `run_frame()` refuses to re-begin a frame that is already in progress.
 
 ## Panels

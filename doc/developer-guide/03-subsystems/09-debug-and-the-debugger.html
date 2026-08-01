@@ -1856,7 +1856,7 @@ manual break.</p>
 shares its per-instruction body verbatim with the free-running loop
 (<code>step_one_instruction()</code>), specifically so the two paths cannot drift. Stepping
 must <em>observe</em> the emulation, never alter it — see
-<a href="../02-architecture/02-the-emulator-core.html">3.2 The emulator core</a> for why
+<a href="../02-architecture/02-the-emulator-core.html">2.2 The emulator core</a> for why
 <code>run_frame()</code> refuses to re-begin a frame that is already in progress.</p>
 <h2 id="panels">Panels<a class="headerlink" href="#panels" title="Permanent link">&para;</a></h2>
 <p>Thirteen panels, created by <code>DebuggerWindow::create_panels()</code>. What each one
