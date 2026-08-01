@@ -327,7 +327,7 @@ timing cannot see port 0x0FFD at all) AND on
 | FB-3B  | +3 | 0x0FFD | Active display; `port_p3_floating_bus_io_en = 0` (bit 4 of `internal_port_enable` cleared) | 0xFF (decode `port_p3_float = 0` → `port_p3_float_rd` never asserts → no `port_internal_rd_response` → cpu_di default `X"FF"`; GH #111) | `zxnext.vhd:2403, 2589, 2716, 2803-2806, 1877` |
 | FB-3C  | 48K | 0x0FFD | Active display, any phase (any `port_7ffd_locked`) | 0xFF (decode gated by `p3_timing_hw_en` → port 0x0FFD not decoded on 48K → no read strobe → cpu_di default `X"FF"`; GH #111) | `zxnext.vhd:2589, 2716, 2803-2806, 1877` |
 | FB-3D  | 128K | 0x0FFD | Active display, any phase | 0xFF (same reason as FB-3C; port 0x0FFD is not floating-bus-reactive on 128K) | `zxnext.vhd:2589, 2716, 2803-2806, 1877` |
-| FB-3E  | ~~Pentagon~~ | — | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up), so this row has no machine to run on. FB-3D (128K) and FB-3F (Next) still cover the decode-gate path. No `check()` row exists. | — | — |
+| ~~FB-3E~~  | ~~Pentagon~~ | — | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up), so this row has no machine to run on. FB-3D (128K) and FB-3F (Next) still cover the decode-gate path. No `check()` row exists. | — | — |
 | FB-3F  | Next | 0x0FFD | Border; latch seeded 0x42; fresh Next-base (`tim_sel` default = 011 = +3 timing) | 0x42 — the decode is **active** (`p3_timing_hw_en` follows `machine_timing`, and Next-base defaults to +3 timing), so the border waveform returns the raw latch. NOT 0xFF (which is what a blocked decode yields, GH #111). | `zxnext.vhd:2589, 1099` + `zxula.vhd:573` |
 
 FB-03 is the re-homed S10.05: corrected expected value per
@@ -414,7 +414,7 @@ that signal is wired to port 0xFF at all.
 | Row ID | Machine | Stimulus | Expected | VHDL cite |
 |--------|---------|----------|----------|-----------|
 | FB-4A  | 128K | Active display, capture phase, VRAM byte `0x5A` | 0x5A (ULA floating bus reaches port 0xFF on 128K timing) | `zxnext.vhd:4513` |
-| FB-4B  | ~~Pentagon~~ | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up), so this row has no machine to run on. FB-4C (Next) still covers the same gate path (non-48K/128K timing → port 0xFF hard-forced 0xFF). No `check()` row exists. | — | — |
+| ~~FB-4B~~  | ~~Pentagon~~ | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up), so this row has no machine to run on. FB-4C (Next) still covers the same gate path (non-48K/128K timing → port 0xFF hard-forced 0xFF). No `check()` row exists. | — | — |
 | FB-4C  | Next (default) | Active display, any phase | 0xFF (not 48K/128K, so ULA bus not wired to port 0xFF) | `zxnext.vhd:4513` |
 
 FB-4A and FB-4C are VHDL-justified neighbours of the 5 re-homed rows.

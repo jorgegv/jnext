@@ -1008,7 +1008,10 @@ elements, unknown names, wrong case and double-selection (including
 | LMASK-E01..E14 | Parser rejects: empty list, unknown name, wrong case, whitespace, duplicates, `all`+name, leading/trailing/inner empty element | `""`, `bogus`, `ULA`, `ula ,tiles`, `ula,ula`, `all,ula`, `ula,`, `,ula`, `ula,,tiles`, `,` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
 | LMASK-S01 | Mask → canonical name list | ALL / `ula|tiles` / 0 | `all` / `ula,tiles` / `none` | — (CLI) |
 | LMASK-C01 | Default mask is LAYER_ALL and composes every layer | reset(); all four layers opaque, mode 000 | sprite wins (SLU), mask == 0x0F | 7218 |
-| LMASK-C02..C05 | Each layer captured alone reaches the output regardless of priority position | all four opaque, mask = one layer | that layer's pixel | 7103, 7106, 7109, 7118 |
+| LMASK-C02 | `sprites` alone reaches the output regardless of priority position | all four opaque, mask = `sprites` | sprite pixel | zxnext.vhd:7118 |
+| LMASK-C03 | `layer2` alone reaches the output even though SLU puts sprites on top | all four opaque, mask = `layer2` | Layer 2 pixel | zxnext.vhd:7121 |
+| LMASK-C04 | `ula` alone reaches the output (TM masked, so no ULA/TM override) | all four opaque, mask = `ula` | ULA pixel | zxnext.vhd:7103 |
+| LMASK-C05 | `tiles` alone reaches the output (ULA transparent, TM wins the merge) | all four opaque, mask = `tiles` | tilemap pixel | zxnext.vhd:7109 |
 | LMASK-C06 | A selected-but-transparent layer does not resurrect the masked ones | ULA/S/TM opaque, L2 transparent, mask = `layer2` | NR 0x4A fallback | 7214 |
 | LMASK-C07 | Excluding `ula` removes the BORDER as well | border cell painted by ULA, mask = `layer2` | fallback colour (== hardware `ula_en=0`) | 7103 |
 | LMASK-C08 | `ula_border_2` is raster geometry, not an enable: the mode-100 border exception still fires with the ULA masked | border + opaque sprite, mask = `ula,sprites` vs `ula` | sprite wins; sprite masked ⇒ ULA wins | 7266 |

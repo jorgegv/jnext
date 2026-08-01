@@ -882,21 +882,36 @@ Physical address = `mmu_A21_A13 << 13`.
 
 ### Category 16: Memory Contention
 
+> **RE-HOMED 2026-08-01 (GH #196 phase 4.2).** Memory contention was spun out
+> into its own subsystem in 2026-04 ([CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIGN.md),
+> `contention_test`, 68/68 pass), and every row below is asserted there under a
+> `CT-*` ID. The IDs are struck through so the generated traceability matrix
+> stops publishing them as an MMU coverage gap; the table stays as the record
+> of what this plan used to own.
+>
+> **The row-by-row mapping is the "Accurate overlap table" in the Contention
+> plan — do not restate it here.** It is not a 1:1 list (CON-02 is folded into
+> CT-M48-01 as an intentional duplicate-facet trim, and CON-11 splits across
+> CT-GATE-03/04/05), and a second copy is exactly the two-sources-of-truth
+> failure GH #196 exists to remove. CON-12a/12b map onto CT-PENT-01 and
+> CT-GATE-06, both themselves RETIRED 2026-05-04 when the standalone Pentagon
+> machine type was dropped.
+
 | ID      | Test                              | Timing | Speed   | Page  | Expected         |
 |---------|-----------------------------------|--------|---------|-------|------------------|
-| CON-01  | 48K: bank 5 contended             | 48K    | 3.5 MHz | 0x0A  | Contended        |
-| CON-02  | 48K: bank 5 hi contended          | 48K    | 3.5 MHz | 0x0B  | Contended        |
-| CON-03  | 48K: bank 0 not contended         | 48K    | 3.5 MHz | 0x00  | Not contended    |
-| CON-04  | 48K: bank 7 not contended         | 48K    | 3.5 MHz | 0x0E  | Not contended    |
-| CON-05  | 128K: odd banks contended         | 128K   | 3.5 MHz | 0x03  | Contended        |
-| CON-06  | 128K: even banks not contended    | 128K   | 3.5 MHz | 0x04  | Not contended    |
-| CON-07  | +3: banks >= 4 contended          | +3     | 3.5 MHz | 0x08  | Contended        |
-| CON-08  | +3: banks < 4 not contended       | +3     | 3.5 MHz | 0x06  | Not contended    |
-| CON-09  | High page never contended         | 48K    | 3.5 MHz | 0x10  | Not contended    |
-| CON-10  | NR 0x08 bit 6 disables contention | 48K    | 3.5 MHz | 0x0A  | Not contended    |
-| CON-11  | Speed > 3.5 MHz no contention     | 48K    | 7 MHz   | 0x0A  | Not contended    |
-| CON-12a | ~~Pentagon timing: machine type falls through switch~~ | — | — | — | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up); `ContentionModel` no longer exposes a `pentagon_timing`/`set_pentagon_timing()` setter, so this row has no machine to run against (matches `contention_test.cpp`'s own CT-PENT-01/04/05 RETIRED comment). CT-GATE-01/07/08 (enable-gate sanity) and CT-M48-\*/CT-M128-\*/CT-MP3-\* (per-machine decode) still cover the surviving path for 48K/128K/+3/Next. No `check()` row exists. |
-| CON-12b | ~~Pentagon timing: gate zeros 48K bank 5 contention~~  | — | — | — | **RETIRED 2026-05-04** — same removal (Wave 0.3); matches `contention_test.cpp`'s own CT-GATE-06 RETIRED comment (no `pentagon_timing` setter left to zero). CT-GATE-01/02/07/08 still cover the surviving enable-gate terms (contention_disable, cpu_speed) for the modeled machines. No `check()` row exists. |
+| ~~CON-01~~  | 48K: bank 5 contended             | 48K    | 3.5 MHz | 0x0A  | Contended        |
+| ~~CON-02~~  | 48K: bank 5 hi contended          | 48K    | 3.5 MHz | 0x0B  | Contended        |
+| ~~CON-03~~  | 48K: bank 0 not contended         | 48K    | 3.5 MHz | 0x00  | Not contended    |
+| ~~CON-04~~  | 48K: bank 7 not contended         | 48K    | 3.5 MHz | 0x0E  | Not contended    |
+| ~~CON-05~~  | 128K: odd banks contended         | 128K   | 3.5 MHz | 0x03  | Contended        |
+| ~~CON-06~~  | 128K: even banks not contended    | 128K   | 3.5 MHz | 0x04  | Not contended    |
+| ~~CON-07~~  | +3: banks >= 4 contended          | +3     | 3.5 MHz | 0x08  | Contended        |
+| ~~CON-08~~  | +3: banks < 4 not contended       | +3     | 3.5 MHz | 0x06  | Not contended    |
+| ~~CON-09~~  | High page never contended         | 48K    | 3.5 MHz | 0x10  | Not contended    |
+| ~~CON-10~~  | NR 0x08 bit 6 disables contention | 48K    | 3.5 MHz | 0x0A  | Not contended    |
+| ~~CON-11~~  | Speed > 3.5 MHz no contention     | 48K    | 7 MHz   | 0x0A  | Not contended    |
+| ~~CON-12a~~ | ~~Pentagon timing: machine type falls through switch~~ | — | — | — | **RETIRED 2026-05-04** — the standalone Pentagon machine type was dropped (Wave 0.3 follow-up); `ContentionModel` no longer exposes a `pentagon_timing`/`set_pentagon_timing()` setter, so this row has no machine to run against (matches `contention_test.cpp`'s own CT-PENT-01/04/05 RETIRED comment). CT-GATE-01/07/08 (enable-gate sanity) and CT-M48-\*/CT-M128-\*/CT-MP3-\* (per-machine decode) still cover the surviving path for 48K/128K/+3/Next. No `check()` row exists. |
+| ~~CON-12b~~ | ~~Pentagon timing: gate zeros 48K bank 5 contention~~  | — | — | — | **RETIRED 2026-05-04** — same removal (Wave 0.3); matches `contention_test.cpp`'s own CT-GATE-06 RETIRED comment (no `pentagon_timing` setter left to zero). CT-GATE-01/02/07/08 still cover the surviving enable-gate terms (contention_disable, cpu_speed) for the modeled machines. No `check()` row exists. |
 
 ### Category 17: Layer 2 Memory Mapping
 
