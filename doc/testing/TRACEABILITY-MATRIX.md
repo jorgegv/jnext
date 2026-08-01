@@ -483,7 +483,7 @@ Last-touch commit: `9fcc5802146a4e6a56bc2ad9abf19c0b202e680c` (`9fcc580214`)
 | BOOT-DECI-04     | WAV resampling preserves pulse-edge timing within tolerance      | —                    | pass    | test/mmu/mmu_test.cpp:4871 |
 | BOOT-FDC-01      | `.dsk` (CPCEMU/EDSK) image mounted on +3 drive                   | —                    | missing | missing                    |
 | BOOT-FDC-02      | uPD765 motor-on / read-id behaviour                              | —                    | missing | missing                    |
-| BOOT-FDC-03      | NR 0x81 b3 (`fdc` clken) gates motor-on                          | zxnext.vhd:3751-3757 | missing | missing                    |
+| BOOT-FDC-03      | NR 0x81 b3 (`fdc` clken) gates motor-on                          | zxnext.vhd:5495,3751-3757 | missing | missing                    |
 | MMU-CFG-05 | Addr bit 13 picks upper/lower 8 KB of the NR 0x04 bank           | zxnext.vhd:5060      | pass    | test/mmu/mmu_test.cpp:2729 |
 | MMU-CFG-06 | Mmu::reset() PRESERVES the NR 0x04 bank; config_mode untouched   | zxnext.vhd:4930-5111 | pass | test/mmu/mmu_test.cpp:2765 |
 | MMU-CFG-07 | Out-of-range NR 0x04 bank: read 0xFF, write dropped              | zxnext.vhd:1126      | pass    | test/mmu/mmu_test.cpp:2818 |
