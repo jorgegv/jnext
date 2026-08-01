@@ -1650,6 +1650,7 @@ sub plan_doc_path {
 
 # Read plan-doc rows: "| ID | ... | ... zxnext.vhd:1234 ... |" -> citation.
 my %PLAN_CACHE;
+my %PLAN_DESC_CACHE;
 sub plan_cites {
     my ($source_rel) = @_;
     my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
@@ -1667,6 +1668,48 @@ sub plan_cites {
         close $fh;
     }
     return $PLAN_CACHE{$stem} = \%cites;
+}
+
+# id -> description, read from the suite's plan doc (GH #196 phase 2).
+#
+# The SECOND description tier, after the row's own assertion. §4.1 of the
+# generation plan names plan docs a source of truth in their own right, and
+# they are the only honest source for two classes the test source cannot
+# answer for:
+#
+#   * rows deliberately recorded but NOT asserted — layer2's `log_deferred()`
+#     pushes 44 deferred IDs straight into the results vector, on purpose, so
+#     they are never pass/fail and have no assertion to read;
+#   * live rows whose description is COMPUTED at run time — esp_socket builds
+#     `to_string(ip) + " → " + reason_name(want)`, which is informative on a
+#     failure and invisible to any static reader.
+#
+# Deliberately NOT read from the matrix itself, for the reason grep_row_ids()
+# already skips the generated Summary: a generator that accepts its own
+# previous output as evidence can never catch its own bad data.
+sub plan_descriptions {
+    my ($source_rel) = @_;
+    my $stem = $PLAN_DOC{ suite_for_source($source_rel) };
+    return {} unless defined $stem;
+    return $PLAN_DESC_CACHE{$stem} if $PLAN_DESC_CACHE{$stem};
+    my %desc;
+    my $path = "$ROOT/" . plan_doc_path($source_rel);
+    if (open(my $fh, '<', $path)) {
+        while (my $line = <$fh>) {
+            next unless $line =~ /^\|/;
+            my @cells = split_row_cells($line);
+            next unless @cells >= 3;
+            next if is_header_row(\@cells);
+            my $id = $cells[1];
+            my $d  = $cells[2];
+            for ($id, $d) { s/^\s+|\s+$//g; s/^`|`$//g; }
+            next unless $id =~ /^[A-Za-z0-9][A-Za-z0-9._\-+]*$/;
+            next unless length $d && $d ne '—' && $d ne '-';
+            $desc{$id} //= $d;
+        }
+        close $fh;
+    }
+    return $PLAN_DESC_CACHE{$stem} = \%desc;
 }
 
 # id -> VHDL citation, from the four row-local tiers described above.
@@ -3532,16 +3575,21 @@ sub main_body {
                     my $ids  = grep_row_ids($src);
                     my $desc = row_descriptions($src);
                     my $p    = helper_arg_positions($src);
-                    my @none = sort grep { !defined $desc->{$_} } keys %$ids;
+                    my $plan = plan_descriptions($src);
+                    my @from_plan = sort grep { !defined $desc->{$_}
+                                                && defined $plan->{$_} } keys %$ids;
+                    my @none = sort grep { !defined $desc->{$_}
+                                           && !defined $plan->{$_} } keys %$ids;
                     $tot  += scalar keys %$ids;
                     $with += scalar keys %$ids;
                     $with -= scalar @none;
                     $shape{ join(',', map { "$_:id=$p->{$_}{id},desc="
                                           . (defined $p->{$_}{desc} ? $p->{$_}{desc} : 'NONE') }
                                       sort keys %$p) }++;
-                    printf("%-52s %4d rows  %4d described  %4d NOT\n",
+                    printf("%-52s %4d rows  %4d src  %4d plan  %4d NOT\n",
                            $src, scalar keys %$ids,
-                           (scalar keys %$ids) - scalar @none, scalar @none);
+                           (scalar keys %$ids) - scalar @none - scalar @from_plan,
+                           scalar @from_plan, scalar @none);
                     # Every one of them, never a sample: this list is the
                     # work-list for closing the gap, and a truncated one reads
                     # as a smaller problem than it is.
