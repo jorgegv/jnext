@@ -1023,9 +1023,10 @@ int main() {
     // the claim attached to it — a red `error` on the one line a user sees at
     // the end of an otherwise perfect NextSync transfer.
     //
-    // The pair is the point. RST-01 proves the linger-close shape is no longer
-    // called an error; RST-02 proves that is not a blanket downgrade of resets,
-    // because a peer that resets WITHOUT having served anything is still one.
+    // The pair is the point. ESP-RST-01 proves the linger-close shape is no
+    // longer called an error; ESP-RST-02 proves that is not a blanket
+    // downgrade of resets, because a peer that resets WITHOUT having served
+    // anything is still one.
     {
         Listener l;
         if (l.start()) {
@@ -1068,7 +1069,7 @@ int main() {
                 ended = pump_recv_until_not_connected(*t) &&
                         t->state() == TransportState::Failed;
             });
-            check("RST-01",
+            check("ESP-RST-01",
                   "a peer that RSTs after serving its data is reported at warn, and "
                   "the run carries no error line at all",
                   drained && ended &&
@@ -1090,11 +1091,11 @@ int main() {
                 aborted = pump_recv_until_not_connected(*t) &&
                           t->state() == TransportState::Failed;
             });
-            check("RST-02",
+            check("ESP-RST-02",
                   "a peer that RSTs having served nothing is still an error",
                   aborted && has_level(unserved, LogLevel::Error));
         } else {
-            for (const char* id : {"RST-01", "RST-02"}) {
+            for (const char* id : {"ESP-RST-01", "ESP-RST-02"}) {
                 ++g_total; ++g_skip;
                 std::printf("  SKIP %s: could not bind a loopback listener\n", id);
             }

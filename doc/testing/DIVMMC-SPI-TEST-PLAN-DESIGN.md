@@ -25,7 +25,7 @@ Updated 2026-04-17 (commit `d4ea4e1`):
   - **ML-05**: Pipeline delay fix covers ishift_r reset — first read returns 0xFF.
   - **SS-10**: Test bug fixed — was using 0x12 which matches VHDL SD card branch; changed to 0x00.
   - E3-04, E3-07, E3-08, EP-02/03/11, NR-01/02/05, SS-09/SS-11: fixed in prior sessions.
-- **Skips**: 56 rows. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (TM-01..05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05).
+- **Skips**: 56 rows. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (DMC-TM-01..04, TM-05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05).
 
 ## Architecture
 
@@ -237,10 +237,10 @@ takes effect relative to the triggering M1 fetch. VHDL reference:
 
 | ID   | Test | Notes |
 |------|------|-------|
-| TM-01 | Instant on: DivMMC mapped during the triggering fetch | `automap` includes instant_on directly (no M1 gate) |
-| TM-02 | Delayed on: DivMMC mapped on NEXT fetch after trigger | `automap_hold` set during M1, `automap_held` latched on MREQ rising |
-| TM-03 | automap_held latches on MREQ_n rising edge | `automap_held <= automap_hold` when `cpu_mreq_n=1` |
-| TM-04 | automap_hold updates only during M1+MREQ | `cpu_mreq_n=0 AND cpu_m1_n=0` |
+| DMC-TM-01 | Instant on: DivMMC mapped during the triggering fetch | `automap` includes instant_on directly (no M1 gate) |
+| DMC-TM-02 | Delayed on: DivMMC mapped on NEXT fetch after trigger | `automap_hold` set during M1, `automap_held` latched on MREQ rising |
+| DMC-TM-03 | automap_held latches on MREQ_n rising edge | `automap_held <= automap_hold` when `cpu_mreq_n=1` |
+| DMC-TM-04 | automap_hold updates only during M1+MREQ | `cpu_mreq_n=0 AND cpu_m1_n=0` |
 | TM-05 | Held automap persists across non-deactivating fetches | `automap_held AND NOT delayed_off` keeps hold |
 
 ### 8. Automap ROM3-Conditional Activation

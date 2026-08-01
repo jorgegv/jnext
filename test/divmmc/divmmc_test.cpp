@@ -145,7 +145,7 @@ public:
 // single-cycle model and assume a single M1 fetch activates automap. To
 // keep those tests concise, this helper overrides NR 0xBA to 0xFF (all
 // instant-on), so single-fetch activation works. Tests that explicitly
-// exercise the instant vs delayed distinction (TM-01..05) set
+// exercise the instant vs delayed distinction (DMC-TM-01..04, TM-05) set
 // entry_timing_0_ directly.
 DivMmc make_divmmc() {
     DivMmc d;
@@ -1223,7 +1223,7 @@ void group_tm() {
     // same cycle while delayed matches fire only via held-promotion on
     // the next M1.
 
-    // TM-01: instant_on (NR 0xBA bit=1) activates automap on the
+    // DMC-TM-01: instant_on (NR 0xBA bit=1) activates automap on the
     // triggering M1 via the combinational OR (held || instant). After the
     // first fetch, held is still 0 (it latches from hold on the NEXT MREQ
     // rising edge, which corresponds to the start of the NEXT M1 call in
@@ -1236,7 +1236,7 @@ void group_tm() {
         const bool held_1  = d.automap_held();
         d.check_automap(0x0003, true);
         const bool held_2  = d.automap_held();
-        check("TM-01",
+        check("DMC-TM-01",
               "instant_on: active=1 and hold=1 after fetch 1 (held=0 yet); "
               "held=1 after fetch 2 (VHDL divmmc.vhd:141 latches held from "
               "hold on MREQ rising edge)",
@@ -1245,7 +1245,7 @@ void group_tm() {
                   active_1, hold_1, held_1, held_2));
     }
 
-    // TM-02: delayed_on (NR 0xBA bit=0) sets hold/held this M1 but the
+    // DMC-TM-02: delayed_on (NR 0xBA bit=0) sets hold/held this M1 but the
     // combinational output remains 0 because it reads the PREVIOUS held
     // value. Activation is visible on the next M1.
     {
@@ -1258,7 +1258,7 @@ void group_tm() {
         // hold and active reads 1.
         d.check_automap(0x0003, true);
         bool active_next = d.automap_active();
-        check("TM-02",
+        check("DMC-TM-02",
               "delayed_on: hold=1 this M1, active stays 0; next M1 active=1 "
               "(VHDL divmmc.vhd:129,141,148)",
               hold_same && !active_same && active_next,
@@ -1267,7 +1267,7 @@ void group_tm() {
                   hold_same, active_same, active_next));
     }
 
-    // TM-03: MREQ rising-edge latch — `held` carries forward between M1
+    // DMC-TM-03: MREQ rising-edge latch — `held` carries forward between M1
     // fetches. Seed hold via an instant fetch, then on a subsequent
     // non-trigger fetch the held value is still visible and drives active.
     {
@@ -1279,14 +1279,14 @@ void group_tm() {
         // the MREQ rising edge between fetches). Active = held || instant
         // = 1 || 0 = 1.
         d.check_automap(0x0100, true);
-        check("TM-03",
+        check("DMC-TM-03",
               "held persists across non-trigger M1 via hold propagation "
               "(VHDL divmmc.vhd:141-142,131)",
               d.automap_held() && d.automap_active(),
               fmt("held=%d active=%d", d.automap_held(), d.automap_active()));
     }
 
-    // TM-04: is_m1=false does NOT update hold (VHDL divmmc.vhd:128 gates
+    // DMC-TM-04: is_m1=false does NOT update hold (VHDL divmmc.vhd:128 gates
     // the hold process on `cpu_mreq_n='0' AND cpu_m1_n='0'`). Strong
     // form: first activate via an instant M1 (so there IS real state),
     // then a NON-M1 fetch at an entry-point PC. Held must still promote
@@ -1302,7 +1302,7 @@ void group_tm() {
         const bool post_active = d.automap_active();
         const bool post_hold   = d.automap_hold();
         const bool post_held   = d.automap_held();
-        check("TM-04",
+        check("DMC-TM-04",
               "non-M1 access at entry-point does NOT alter hold/held "
               "(VHDL divmmc.vhd:128 gates on M1+MREQ)",
               pre_active && pre_hold && post_active && post_hold && !post_held,

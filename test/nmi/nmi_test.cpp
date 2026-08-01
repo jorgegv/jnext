@@ -14,7 +14,7 @@
 //     cannot reach uses skip(id, "reason") — no skip() calls in this
 //     scaffold; Phase 1 carries one live row only.
 //
-// Phase 1 scope: a single RST-01 row exercising the reset defaults of
+// Phase 1 scope: a single NMI-RST-01 row exercising the reset defaults of
 // the new NmiSource class. Subsequent waves (Phase 2 A/B/C/E) add the
 // remaining ~48 rows per the plan appendix.
 //
@@ -85,21 +85,21 @@ void skip(const char* id, const char* reason) {
 } // namespace
 
 // =====================================================================
-// Group RST — Reset defaults (3 rows; only RST-01 live in Phase 1)
+// Group RST — Reset defaults (3 rows; only NMI-RST-01 live in Phase 1)
 // =====================================================================
 
 static void g_rst_defaults()
 {
     set_group("RST");
 
-    // RST-01 — VHDL zxnext.vhd:2120, 2149 (FSM power-on S_NMI_IDLE),
+    // NMI-RST-01 — VHDL zxnext.vhd:2120, 2149 (FSM power-on S_NMI_IDLE),
     // 2095-2105 (latches clear on i_reset), 1109-1110, 1222 (gate
     // flags power-on '0'). Plus VHDL:2164-2170 (nmi_generate_n idle
     // = '1') and VHDL:2107 (is_activated = 0 with all latches clear).
     //
     // This scaffold row bundles every visible reset default into a
     // single aggregate check() so Phase 2 waves can split it into
-    // RST-01 / RST-02 / RST-03 per the plan doc. Until then, a single
+    // NMI-RST-01 / RST-02 / RST-03 per the plan doc. Until then, a single
     // failure here means any one of the default conditions is wrong.
     {
         NmiSource nmi;
@@ -128,13 +128,13 @@ static void g_rst_defaults()
             nmi_gen_idle && not_activated &&
             expbus_pin_idle && latched_none;
 
-        check("RST-01",
+        check("NMI-RST-01",
               "FSM idle + latches clear + gates off + nmi_generate_n high + not activated after reset",
               all_defaults_ok,
               "zxnext.vhd:2120,2149 (FSM) / 2095-2105 (latches) / 1109-1110,1222 (gates) / 2164-2170 (nmi_generate_n) / 2107 (nmi_activated)");
     }
 
-    // RST-04 — VHDL zxnext.vhd:1306, 5891 — NR 0x02 reset_type[2:0] FSM
+    // NMI-RST-04 — VHDL zxnext.vhd:1306, 5891 — NR 0x02 reset_type[2:0] FSM
     // power-on default = "100"; bits 1:0 of read = "00", bit 2 latent.
     // (G153 closure: NmiSource::reset_type_ = 0b100 init-value, surfaced
     //  via nr_02_read() bits 1:0.)
@@ -144,7 +144,7 @@ static void g_rst_defaults()
         const uint8_t r02   = nmi.nr_02_read();
         const bool   ok_rt  = (rt == 0b100);
         const bool   ok_r02 = ((r02 & 0x03) == 0x00);
-        check("RST-04",
+        check("NMI-RST-04",
               "NR 0x02 reset_type[2:0] power-on default = \"100\" (read bits 1:0 = \"00\")",
               ok_rt && ok_r02,
               "zxnext.vhd:1306 (init), 5891 (readback)");
@@ -1507,7 +1507,7 @@ static void g_gate_registers()
     {
         NmiSource nmi;
         nmi.reset();
-        // Power-on default '0' — confirmed by RST-01.
+        // Power-on default '0' — confirmed by NMI-RST-01.
         nmi.set_mf_enable(true);
         const bool set_true  = nmi.mf_enable() == true;
         nmi.set_mf_enable(false);
@@ -1644,7 +1644,7 @@ static void g_gate_registers()
     //   VHDL zxnext.vhd:1222 — nr_81_expbus_nmi_debounce_disable power-on '0'.
     //   VHDL zxnext.vhd:369-371 — expbus_eff_en / expbus_eff_disable_mem
     //                              power-on '0' (Pass-9 fix).
-    //   RST-01 bundles this; here we isolate the gate-flag defaults into
+    //   NMI-RST-01 bundles this; here we isolate the gate-flag defaults into
     //   a dedicated row so Wave C owns the gate-register reset contract.
     {
         NmiSource nmi;  // constructor calls reset()

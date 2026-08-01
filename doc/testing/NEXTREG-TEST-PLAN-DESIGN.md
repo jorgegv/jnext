@@ -145,14 +145,14 @@ reset values:
 
 | Test | Scenario | Expected |
 |------|----------|----------|
-| RST-01 | After reset, read NR 0x14 | 0xE3 |
-| RST-02 | After reset, read NR 0x15 | 0x00 |
-| RST-03 | After reset, read NR 0x4A | 0xE3 |
-| RST-04 | After reset, read NR 0x42 | 0x07 |
-| RST-05 | After reset, read NR 0x50-0x57 | MMU defaults |
-| RST-06 | After reset, read NR 0x68 | 0x00 (bit 7 = NOT ula_en, so 0) |
-| RST-07 | After reset, read NR 0x0B | 0x01 |
-| RST-08 | After reset, read NR 0x82-0x85 | 0xFF |
+| NREG-RST-01 | After reset, read NR 0x14 | 0xE3 |
+| NREG-RST-02 | After reset, read NR 0x15 | 0x00 |
+| NREG-RST-03 | After reset, read NR 0x4A | 0xE3 |
+| NREG-RST-04 | After reset, read NR 0x42 | 0x07 |
+| NREG-RST-05 | After reset, read NR 0x50-0x57 | MMU defaults |
+| NREG-RST-06 | After reset, read NR 0x68 | 0x00 (bit 7 = NOT ula_en, so 0) |
+| NREG-RST-07 | After reset, read NR 0x0B | 0x01 |
+| NREG-RST-08 | After reset, read NR 0x82-0x85 | 0xFF |
 | RST-09 | After reset, read NR 0x1B clip | x1=0, x2=0x9F, y1=0, y2=0xFF |
 
 ### 4. Register Read/Write Round-Trip
