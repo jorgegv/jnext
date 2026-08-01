@@ -351,6 +351,13 @@ my %PLAN_DOC = (
     'contention_test'             => 'CONTENTION',
     'lores_test'                  => 'LORES',
     'lores_integration_test'      => 'LORES',
+    # Companions share their parent's plan doc — that shared doc IS the
+    # parent/companion relationship the emitter reads (GH #196). Three were
+    # absent, so their parents never got the GH #121 status fallback and
+    # published rows as `missing` that the companion asserts.
+    'mmu_integration_test'        => 'MEMORY-MMU',
+    'copper_integration_test'     => 'COPPER',
+    'tilemap_fetch_split_test'    => 'TILEMAP',
     'multiface_test'              => 'MULTIFACE',
     'nmi_test'                    => 'NMI-PIPELINE',
     'nmi_integration_test'        => 'NMI-PIPELINE',
@@ -3693,19 +3700,34 @@ sub check_accounting {
 # own order (which groups by behaviour and is editorial), then live rows the
 # plan does not list, in source order.
 sub emit_section_rows {
-    my ($binary, $source_rel) = @_;
+    my ($binary, $source_rel, $opt) = @_;
+    $opt ||= {};
     my @sources = as_list($source_rel);
+    # A `###` companion does NOT re-list its parent's plan (GH #196 fix).
+    # plan_doc_path() resolves a companion's source to the SAME
+    # *-TEST-PLAN-DESIGN.md as its parent, so emitting plan rows for both
+    # republished every row the PARENT asserts as `missing` under the
+    # companion: 939 phantom rows, 731 of them in companions. `EXT-01` read
+    # `pass` under `## Input` and `missing` under its companion in the same
+    # document.
+    my $want_plan = $opt->{plan} // 1;
+    # Sources of this section's `###` companions, consulted ONLY as a status
+    # fallback for a row this section's own sources do not assert. That is the
+    # GH #121 rule: a row is routinely listed in a parent's table and asserted
+    # in its companion suite, and reading the parent's file alone published it
+    # as `missing` while the assertion passed.
+    my @fallback = as_list($opt->{fallback} || []);
     # A section can name several suites (Audio names three), so the FAIL sets
     # of every binary are merged — a row failing in any of them fails.
     my %fails;
-    for my $b (as_list($binary)) {
+    for my $b (as_list($binary), as_list($opt->{fallback_bins} || [])) {
         my $f = run_fails($b);
         $fails{$_} = $f->{$_} for keys %$f;
     }
     my $fails = \%fails;
 
     my (%checks, %skips, %desc, %cites, %where, %cite_line);
-    for my $src (@sources) {
+    for my $src (@sources, @fallback) {
         my ($c, $s) = grep_source($src);
         # First file wins, matching the companion-fallback order the status
         # lookup has used since GH #121.
@@ -3725,7 +3747,7 @@ sub emit_section_rows {
     my $plan_cite = plan_cites($sources[0]);
 
     my (@ids, %seen);
-    push @ids, grep { !$seen{$_}++ } @{ plan_rows($sources[0]) };
+    push @ids, grep { !$seen{$_}++ } @{ plan_rows($sources[0]) } if $want_plan;
     # Live rows the plan does not list — 2.3. Ordered by the line they are
     # asserted on, so the table reads in the same order as the file.
     #
@@ -3739,7 +3761,8 @@ sub emit_section_rows {
     for my $src (@sources) {
         my $ids = grep_row_ids($src);
         $real{$_} = 1 for keys %$ids;
-    }
+    }   # @fallback is deliberately absent: it answers about STATUS, and its
+        # own rows belong to its own section.
     my @live = sort { ($checks{$a} // $skips{$a} // 0) <=> ($checks{$b} // $skips{$b} // 0)
                       || $a cmp $b }
                grep { $real{$_} && !$seen{$_}++ } (keys %checks, keys %skips);
@@ -3749,7 +3772,8 @@ sub emit_section_rows {
     for my $id (@ids) {
         my $status = status_for($id, $fails, \%checks, \%skips);
         my $d = $desc{$id} // $plan_desc->{$id} // '—';
-        my $c = cite_for($id, \%cites, \%checks, \%skips) // $plan_cite->{$id} // '—';
+        my $c = cite_for($id, \%cites, \%checks, \%skips) // $plan_cite->{$id}
+             // $TOMBSTONE{ suite_for_source($sources[0]) } // '—';
         my ($lf, $ll) = line_for($id, \%checks, \%skips, \%where, \%cite_line);
         my $l = (defined $lf && defined $ll) ? "$lf:$ll" : '—';
         push @rows, [$id, $d, $c, $status, $l];
@@ -3888,13 +3912,50 @@ sub emit_matrix {
     my $exceptions = read_exceptions();
     my @report;
     my @sections;
+    # Which `###` companions belong to which `##` parent, read from @SUBSYS
+    # order: a companion follows its parent. The relationship is load-bearing
+    # in BOTH directions — the companion must not re-list the parent's plan,
+    # and the parent must consult the companion before calling a row missing
+    # (GH #121).
+    my (%comp_srcs, %comp_bins);
+    {
+        # Attached by SHARED PLAN DOC, not by position. @SUBSYS lists every
+        # `##` parent first and the `###` companions afterwards, so walking the
+        # list and remembering the last parent seen hangs all eleven companions
+        # off whichever parent happens to be last — which is what it did, and
+        # the GH #121 fallback then fired for exactly one section.
+        # plan_doc_path() is the real relationship: a companion resolves to the
+        # same *-TEST-PLAN-DESIGN.md as its parent, which is also why the
+        # companion must not re-list that plan.
+        my %parent_of_doc;
+        for my $entry (@$subsys) {
+            my ($header, $bins, $srcs) = @$entry;
+            next unless $header =~ /^##[^#]/;
+            my $doc = plan_doc_path((as_list($srcs))[0]) or next;
+            $parent_of_doc{$doc} //= $header;
+        }
+        for my $entry (@$subsys) {
+            my ($header, $bins, $srcs) = @$entry;
+            next unless $header =~ /^###/;
+            my $doc = plan_doc_path((as_list($srcs))[0]) or next;
+            my $parent = $parent_of_doc{$doc} or next;
+            push @{ $comp_srcs{$parent} }, as_list($srcs);
+            push @{ $comp_bins{$parent} }, as_list($bins);
+        }
+    }
+
     for my $entry (@$subsys) {
         # Entries arrive from check_accounting() already resolved to
         # (header, binary, source(s)) — the binary path is not rebuilt here.
         my ($header, $bins, $srcs) = @$entry;
         my @flat    = as_list($srcs);
         my $binary  = $bins;
-        my $rows    = emit_section_rows($binary, \@flat);
+        my $is_comp = ($header =~ /^###/) ? 1 : 0;
+        my $rows    = emit_section_rows($binary, \@flat, {
+            plan          => !$is_comp,
+            fallback      => $comp_srcs{$header} || [],
+            fallback_bins => $comp_bins{$header} || [],
+        });
         # Declared rows for a suite with no plan doc. They emit as `missing`
         # by construction: nothing asserts them, which is what makes them a
         # backlog rather than a coverage claim.

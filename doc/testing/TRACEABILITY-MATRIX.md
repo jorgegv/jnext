@@ -27,22 +27,22 @@ mentions them, so a test can no longer be absent from this document.
 | Layer2                                     |   208 |  200 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   222 |  214 |    0 |    0 |       8 |          0 |
 | Tilemap                                    |    95 |   72 |    0 |    0 |      23 |          0 |
-| Copper                                     |    95 |   82 |    0 |    0 |      13 |          0 |
-| Compositor                                 |   225 |  214 |    0 |    0 |      11 |          0 |
+| Copper                                     |    95 |   86 |    0 |    0 |       9 |          0 |
+| Compositor                                 |   225 |  219 |    0 |    0 |       6 |          0 |
 | Audio                                      |   223 |  200 |    0 |    0 |      23 |          0 |
 | DMA                                        |   165 |  157 |    0 |    0 |       8 |          0 |
 | DivMMC+SPI                                 |   176 |  146 |    0 |    0 |      30 |          0 |
 | Multiface                                  |    55 |   55 |    0 |    0 |       0 |          0 |
-| CTC+Interrupts                             |   179 |  132 |    0 |    0 |      47 |          0 |
-| UART+I2C/RTC                               |   120 |  101 |    0 |    0 |      19 |          0 |
-| NextREG                                    |   115 |   21 |    0 |    0 |      94 |          0 |
+| CTC+Interrupts                             |   179 |  164 |    0 |    0 |      15 |          0 |
+| UART+I2C/RTC                               |   120 |  117 |    0 |    0 |       3 |          0 |
+| NextREG                                    |   115 |   67 |    0 |    0 |      48 |          0 |
 | IO Port Dispatch                           |   127 |  116 |    0 |    0 |      11 |          0 |
-| Input                                      |   353 |  333 |    0 |    0 |      20 |          0 |
+| Input                                      |   353 |  341 |    0 |    0 |      12 |          0 |
 | Rewind                                     |    18 |    0 |    0 |    0 |      18 |          0 |
 | Floating Bus                               |    39 |   37 |    0 |    0 |       2 |          0 |
 | VideoTiming                                |    46 |   43 |    0 |    0 |       3 |          0 |
 | Contention                                 |   133 |  127 |    0 |    0 |       6 |          0 |
-| LoRes                                      |    91 |   48 |    0 |    0 |      43 |          0 |
+| LoRes                                      |    91 |   50 |    0 |    0 |      41 |          0 |
 | SD Card                                    |    52 |   49 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    79 |   57 |    0 |    0 |      22 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -51,19 +51,19 @@ mentions them, so a test can no longer be absent from this document.
 | ESP-01 AT engine                           |   147 |  147 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |    59 |   59 |    0 |    0 |       0 |          0 |
-| Companion: ula_integration_test            |    63 |   14 |    0 |    0 |      49 |          0 |
-| Companion: compositor_integration_test     |   171 |    8 |    0 |    0 |     163 |          0 |
+| Companion: ula_integration_test            |    14 |   14 |    0 |    0 |       0 |          0 |
+| Companion: compositor_integration_test     |     8 |    8 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |     7 |    7 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |     4 |    4 |    0 |    0 |       0 |          0 |
-| Companion: lores_integration_test          |    91 |    2 |    0 |    0 |      89 |          0 |
-| Companion: ctc_interrupts_test             |   195 |   48 |    0 |    0 |     147 |          0 |
-| Companion: nextreg_integration_test        |   376 |  307 |    0 |    0 |      69 |          0 |
-| Companion: nmi_integration_test            |    70 |    9 |    0 |    0 |      61 |          0 |
-| Companion: input_integration_test          |   200 |   17 |    0 |    0 |     183 |          0 |
-| Companion: uart_integration_test           |   127 |   25 |    0 |    0 |     102 |          0 |
-| **Total**                                  |  4970 | 3619 |    0 |    3 |    1348 |          0 |
+| Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
+| Companion: ctc_interrupts_test             |    48 |   48 |    0 |    0 |       0 |          0 |
+| Companion: nextreg_integration_test        |   305 |  305 |    0 |    0 |       0 |          0 |
+| Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
+| Companion: input_integration_test          |    17 |   17 |    0 |    0 |       0 |          0 |
+| Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  4105 | 3730 |    0 |    3 |     372 |          0 |
 
-Rows the sections above carry: **4970**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **0**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
+Rows the sections above carry: **4105**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **0**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1230,10 +1230,10 @@ Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 | COP-RST-02 | NR state fresh: pointer=0, write stores land at word 0 | zxnext.vhd:5020-5024 | pass | test/copper/copper_test.cpp:1873 |
 | COP-RST-03 | Fresh reset + NR 0x62=0x00 is a no-op (pc=0, mode=0) | copper.vhd:50,70 | pass | test/copper/copper_test.cpp:1889 |
 | COP-RST-04 | Soft reset preserves Copper instruction RAM (dpram2 has no reset) | zxnext.vhd:3959-3996, copper.vhd:60-65 | pass | test/copper/copper_test.cpp:1918 |
-| T58-CVC-01 | Runtime 50→60 Hz switch (NR 0x05 bit 2, committed at the frame edge) re-pushes the Copper wrap: WAIT vpos=60 with NR 0x64 offset=100 fires at vc=224 in the 264-line frame (correct mod-264 cvc); with the stale init-time 311-line wrap, cvc over a 264-line frame covers only 100..310 ∪ 0..52 and the WAIT never fires | zxula_timing.vhd:204,238,457-470, zxnext.vhd:6697-6700,6720 | missing | — |
-| GH181-HCULA-01 | ORIGIN: `WAIT(hpos=0, vpos=100)` (threshold 12) fires at `hc_ula==12`, i.e. raw hc `125+12 = 137` of raw line 164 — not at raw hc 3 (pre-fix: 12 master cycles from the raw line start) | copper.vhd:94, zxula_timing.vhd:423-436, zxnext.vhd:3949,6737 | missing | — |
-| GH181-HCULA-02 | SCALE: two WAITs on one `cvc` line differing by `hpos` 0→50 are exactly `50*8 = 400` raw PIXELS apart, not 400 master cycles (= 100 pixels) | copper.vhd:94, zxula_timing.vhd:427-438 | missing | — |
-| GH181-HCULA-03 | show512 worked example: `WAIT(vpos=95, hpos=52)` (threshold 428) → `hc_ula=428` = raw hc `(125+428) mod 456 = 97`, which precedes the `cvc` line boundary at raw hc 125, so it is raw line **160** (fb row 128) — not raw line 159 (fb row 127) | copper.vhd:94, zxula_timing.vhd:423-436,457-470 | missing | — |
+| T58-CVC-01 | Emulator::init(ZXN_ISSUE2) failed | zxula_timing.vhd:204,238,457-470, zxnext.vhd:6697-6700,6720 | pass | test/copper/copper_integration_test.cpp:322 |
+| GH181-HCULA-01 | Emulator::init(ZXN_ISSUE2) failed | copper.vhd:94, zxula_timing.vhd:423-436, zxnext.vhd:3949,6737 | pass | test/copper/copper_integration_test.cpp:455 |
+| GH181-HCULA-02 | hpos step of 50 == 400 raw PIXELS between two WAITs on one cvc line (7 MHz hc_ula), not 400 master cycles = 100 pixels [copper.vhd:94; zxnext.vhd:3949 + :6737] | copper.vhd:94, zxula_timing.vhd:427-438 | pass | test/copper/copper_integration_test.cpp:473 |
+| GH181-HCULA-03 | show512 WAIT(vpos=95,hpos=52) MOVE lands on raw line 160 (fb row 128) at raw hc 97, not raw line 159 (fb row 127) [copper.vhd:94; zxula_timing.vhd:423-436, :457-470] | copper.vhd:94, zxula_timing.vhd:423-436,457-470 | pass | test/copper/copper_integration_test.cpp:496 |
 | VT-GH181-01 | 48K timing: `hc_ula_zero_raw_hc()` = `c_min_hactive - 11` = **117** | zxula_timing.vhd:261,423-436,344 | missing | — |
 | VT-GH181-02 | 128K timing: = **125** | zxula_timing.vhd:195,423-436,344 | missing | — |
 | VT-GH181-03 | +3 timing: = **125** | zxula_timing.vhd:195,423-436,344 | missing | — |
@@ -1315,9 +1315,9 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | L2P-17 | mode 110 + L2 priority bit => blend output shown (VHDL 7300) | — | pass | test/compositor/compositor_test.cpp:1247 |
 | L2P-18 | mode 111 + L2 priority bit => subtracted blend shown (VHDL 7342) | — | pass | test/compositor/compositor_test.cpp:1262 |
 | L2P-19 | Native 640: layer2_priority_[] honours both even and odd columns; L2 promotion fires at every native pixel (VHDL 7039-7050; renderer.cpp:194-201) | zxnext.vhd:7039-7050 | pass | test/compositor/compositor_test.cpp:1319 |
-| PFF-G108-01 | NR 0x69 bits 5:0 fan into `port_ff_reg(5:0) | zxnext.vhd:3617-3618 | missing | — |
-| PFF-G108-02 | NR 0x22 b2 fans into `port_ff_reg(6) | zxnext.vhd:3619-3620 | missing | — |
-| PFF-G108-03 | NR 0xC4 b0 fans into `port_ff_reg(6)` as `not nr_wr_dat(0)` (inverted polarity) | zxnext.vhd:3621-3622 | missing | — |
+| PFF-G108-01 | NR 0x69 b5:0 fans into port_ff_reg(5:0); bits 7:6 unchanged (zxnext.vhd:3617-3618) | zxnext.vhd:3617-3618 | pass | test/compositor/compositor_integration_test.cpp:536 |
+| PFF-G108-02 | NR 0x22 b2 fans into port_ff_reg(6) (zxnext.vhd:3619-3620) | zxnext.vhd:3619-3620 | pass | test/compositor/compositor_integration_test.cpp:555 |
+| PFF-G108-03 | NR 0xC4 b0 fans into port_ff_reg(6) with inverted polarity (zxnext.vhd:3621-3622) | zxnext.vhd:3621-3622 | pass | test/compositor/compositor_integration_test.cpp:593 |
 | BL-10 | mode 110 add no clamp: (3,2,1)+(3,2,1)=(6,4,2) (VHDL 7201-7210,7286) | — | pass | test/compositor/compositor_test.cpp:1377 |
 | BL-11 | mode 110 add clamp to 7 (VHDL 7288-7298) | — | pass | test/compositor/compositor_test.cpp:1390 |
 | BL-12 | mode 110 add 0+0=0 (VHDL 7201) | — | pass | test/compositor/compositor_test.cpp:1403 |
@@ -1356,8 +1356,8 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | STEN-17 | stencil bit=0 => non-stencil path: TM replaces ULA (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:2216 |
 | STEN-20 | NR 0x68 b0 write mid-frame does not retroactively affect a row whose per-line snapshot already ran — row still shows the pre-write non-stencil merge (VHDL 5445,6810,6897-6898,7064) | — | pass | test/compositor/compositor_test.cpp:2331 |
 | STEN-21 | After the deferred snapshot lands, the SAME row selects the stencil AND-branch (VHDL 7112-7113,7130) | — | pass | test/compositor/compositor_test.cpp:2347 |
-| UDIS-01 | NR 0x68 bit 7 wired into render pipeline | zxnext.vhd:5445 | missing | — |
-| UDIS-02 | NR 0x68 bit 7 toggle visible at frame-buffer level | zxnext.vhd:5445 | missing | — |
+| UDIS-01 | NR 0x68 bit 7 toggles ULA transparency → display pixel switches between ULA ink and NR 0x4A fallback (zxnext.vhd:7103; emulator.cpp:816-825; renderer.cpp:83-85) | zxnext.vhd:5445 | pass | test/compositor/compositor_integration_test.cpp:274 |
+| UDIS-02 | Copper mid-frame MOVE NR 0x68,0x80 flips ULA-enable at line 100 → pre-rows show ULA, post-rows show NR 0x4A fallback (zxnext.vhd:7103,6809; copper.cpp:75-154; emulator.cpp:2609-2616) | zxnext.vhd:5445 | pass | test/compositor/compositor_integration_test.cpp:393 |
 | UDIS-03 | NR 0x68 bits 6:5 decode → Renderer::blend_mode (VHDL 7141-7178, emulator.cpp:816-825) | zxnext.vhd:7141-7178 | pass | test/compositor/compositor_test.cpp:2399 |
 | SOB-10 | Opaque sprite beats border-ULA in mode 000 (VHDL 7118,7222) | sprites.vhd | pass | test/compositor/compositor_test.cpp:2425 |
 | LINE-10 | NR0x15 mid-line write -> current line keeps old mode (VHDL 6799) | zxnext.vhd:6799 | pass | test/compositor/compositor_test.cpp:2456 |
@@ -2188,8 +2188,8 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | IM2C-12 | im2_control.vhd:224 ED 5E → im_mode = 10 (IM 2) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1107 |
 | IM2C-13 | IM mode updates on falling edge of CLK_CPU | — | missing | — |
 | IM2C-14 | im2_control.vhd:222 im_mode defaults to 00 on reset | im2_control.vhd:222 | pass | test/ctc/ctc_test.cpp:1126 |
-| IM2C-G87-01 | RETI (ED 4D) seen by Im2Controller via real Z80Cpu M1 stream | — | missing | — |
-| IM2C-G87-02 | RETN (ED 45) seen by Im2Controller via real Z80Cpu M1 stream | — | missing | — |
+| IM2C-G87-01 | RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen [VHDL im2_control.vhd:158-209,234] | im2_control.vhd:158-209,234 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1031 |
+| IM2C-G87-02 | RETN (ED 45) advances IM2 FSM and pulses o_retn_seen [VHDL im2_control.vhd:233-238] | im2_control.vhd:233-238 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1055 |
 | IM2D-01 | im2_device.vhd:106 S_0 → S_REQ on i_int_req=1 | im2_device.vhd:106 | pass | test/ctc/ctc_test.cpp:1144 |
 | IM2D-02 | im2_device.vhd:150 o_int_n=0 in S_REQ with IEI=1 and im2_mode=1 | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1158 |
 | IM2D-03 | im2_device.vhd:150 o_int_n stays high when IEI=0 (CTC0 S_ACK blocks chain) | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1180 |
@@ -2221,10 +2221,10 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | PULSE-07 | zxnext.vhd:2036-2044 pulse counter reset while pulse_int_n=1 | zxnext.vhd:2036-2044 | pass | test/ctc/ctc_test.cpp:1694 |
 | PULSE-08 | zxnext.vhd:1840 INT_n = pulse_int_n AND im2_int_n; im2_int_n high in pulse mode | zxnext.vhd:1840 | pass | test/ctc/ctc_test.cpp:1715 |
 | PULSE-09 | External bus INT: o_BUS_INT_n = pulse_int_n AND im2_int_n | — | missing | — |
-| PULSE-G89-01 | LDIRX samples INT/NMI between iterations | — | missing | — |
-| PULSE-G89-02 | LDDRX samples INT/NMI between iterations | — | missing | — |
-| PULSE-G89-03 | LDPIRX samples INT/NMI between iterations | — | missing | — |
-| PULSE-G89-04 | LDIRSCALE samples INT/NMI between iterations | — | missing | — |
+| PULSE-G89-01 | LDIRX (ED B4) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2095-2138] | t80n_mcode.vhd:2095-2138 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1143 |
+| PULSE-G89-02 | LDDRX (ED BC) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256] | t80n_mcode.vhd:2230-2256 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1184 |
+| PULSE-G89-03 | LDPIRX (ED B7) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991] | t80n_mcode.vhd:1953-1991 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1225 |
+| PULSE-G89-04 | LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226] | t80n_mcode.vhd:2188-2226 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1264 |
 | PULSE-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | — | missing | — |
 | PULSE-G121-01 | zxnext.vhd:2033 pulse_count_end follows runtime NR 0x03 timing change | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1766 |
 | IM2W-01 | im2_peripheral.vhd:90-101 int_req edge detect fires once per rising edge | im2_peripheral.vhd:90-101 | pass | test/ctc/ctc_test.cpp:1803 |
@@ -2237,34 +2237,34 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | IM2W-08 | im2_peripheral.vhd:172 int_unq latches im2_int_req without int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:1982 |
 | IM2W-09 | isr_serviced edge detection across clock domains | — | missing | — |
 | IM2W-G119-01 | zxnext.vhd:1941 ZC/TO must reach IM2 unconditionally; int_en gates at fabric | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2036 |
-| ULA-INT-01 | ULA interrupt generated at specific HC/VC position | — | missing | — |
-| ULA-INT-02 | ULA interrupt disabled by port 0xFF bit (port_ff_interrupt_disable) | — | missing | — |
-| ULA-INT-03 | ULA interrupt enable: ula_int_en[0] = NOT port_ff_interrupt_disable | — | missing | — |
-| ULA-INT-04 | Line interrupt at configurable scanline | — | missing | — |
-| ULA-INT-05 | Line interrupt enable: nr_22_line_interrupt_en | — | missing | — |
-| ULA-INT-06 | Line interrupt scanline 0 maps to c_max_vc | — | missing | — |
+| ULA-INT-01 | ULA HC/VC interrupt fires at int_h/int_v → NR 0xC8 bit 0 set [zxnext.vhd:1937,1941; emulator.cpp:1988-1998; im2.cpp:264-266] | zxnext.vhd:1937,1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:144 |
+| ULA-INT-02 | ULA int suppressed when port_ff(6)/NR 0x22[2] set → NR 0xC8 bit 0 clear [zxnext.vhd:3619-3620, :3635, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3619-3620,3635,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:174 |
+| ULA-INT-03 | NR 0xC4 read bit 0 = NOT port_ff_interrupt_disable [zxnext.vhd:6239, :6711; emulator.cpp:802] | zxnext.vhd:6239,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:198 |
+| ULA-INT-04 | Line interrupt fires at cvc match (int_line pulse → NR 0xC8 bit 1) [zxula_timing.vhd:577-582; zxnext.vhd:1941; emulator.cpp:2392-2402] | zxula_timing.vhd:577-582, zxnext.vhd:1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:254 |
+| ULA-INT-05 | NR 0x22 bit 1 drives line_interrupt_en, visible on NR 0xC4 read bit 1 [zxnext.vhd:5297, :6239; emulator.cpp:542-546, :801] | zxnext.vhd:5297,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:222 |
+| ULA-INT-06 | Line interrupt value 0 still fires within frame (VHDL: wraps to c_max_vc) [zxula_timing.vhd:566-570; emulator.cpp:2392-2402] | zxula_timing.vhd:566-570 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:281 |
 | ULA-INT-07 | zxnext.vhd:1941 priority idx11 (ULA) below LINE (idx0) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2078 |
 | ULA-INT-08 | zxnext.vhd:1941 LINE at priority idx0 (chain head) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2098 |
 | ULA-INT-09 | zxnext.vhd:1964 EXCEPTION=1 only for ULA (IM2-mode pulse fires) | zxnext.vhd:1964 | pass | test/ctc/ctc_test.cpp:2133 |
 | NR-C0-01 | zxnext.vhd:5597/1999 NR 0xC0 stores im2_vector_base[2:0] | zxnext.vhd:5597/1999 | pass | test/ctc/ctc_test.cpp:2150 |
 | NR-C0-02 | Write NextREG 0xC0: bit [3] = stackless NMI | — | missing | — |
 | NR-C0-03 | zxnext.vhd:5599/1975 NR 0xC0 bit 0 toggles pulse/IM2 mode | zxnext.vhd:5599/1975 | pass | test/ctc/ctc_test.cpp:2178 |
-| NR-C0-04 | Read NextREG 0xC0: returns vector, stackless, im_mode, int_mode | — | missing | — |
+| NR-C0-04 | NR 0xC0 read composes VVV_0_S_MM_I (vector + stackless + im_mode + int_mode) [zxnext.vhd:6229-6230; emulator.cpp:771-778] | zxnext.vhd:6229-6230 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:837 |
 | NR-C4-01 | zxnext.vhd NR 0xC4 bit1 enables LINE interrupt fan-out | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2196 |
-| NR-C4-02 | Write NextREG 0xC4: bit [1] = line interrupt enable | — | missing | — |
-| NR-C4-03 | Read NextREG 0xC4: returns expbus & ula_int_en | — | missing | — |
+| NR-C4-02 | NR 0xC4 bit 1 write drives line_interrupt_en (read bit 1 round-trip) [zxnext.vhd:5607-5610, :6239; emulator.cpp:792] | zxnext.vhd:5607-5610,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:858 |
+| NR-C4-03 | NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) [zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804] | zxnext.vhd:6239/3621-3622/3635/6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:890 |
 | NR-C5-01 | zxnext.vhd:4078/1949 NR 0xC5 fans out CTC int_en bits 0..7 | zxnext.vhd:4078/1949 | pass | test/ctc/ctc_test.cpp:2216 |
 | NR-C5-02 | Read NextREG 0xC5: returns ctc_int_en[7:0] | — | missing | — |
 | NR-C6-01 | zxnext.vhd NR 0xC6/1949 UART1_TX int_en enables fabric path | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2235 |
-| NR-C6-02 | Read NextREG 0xC6: returns 0_654_0_210 | — | missing | — |
+| NR-C6-02 | NR 0xC6 read format 0_654_0_210 (bits 7 and 3 read as 0) [zxnext.vhd:6244-6245; emulator.cpp:828-831] | zxnext.vhd:6244-6245 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:906 |
 | NR-C8-01 | zxnext.vhd:6247 NR 0xC8 read {LINE,ULA} → bits 1:0 | zxnext.vhd:6247 | pass | test/ctc/ctc_test.cpp:2255 |
 | NR-C9-01 | zxnext.vhd:6250 NR 0xC9 read CTC7..0 packs int_status bits | zxnext.vhd:6250 | pass | test/ctc/ctc_test.cpp:2271 |
 | NR-CA-01 | zxnext.vhd:6253 NR 0xCA read packs UART int_status | zxnext.vhd:6253 | pass | test/ctc/ctc_test.cpp:2289 |
 | NR-CC-01 | zxnext.vhd:5629-5630/1957-1958 NR 0xCC DMA int enable bit routes through mask | zxnext.vhd:5629-5630/1957-1958 | pass | test/ctc/ctc_test.cpp:2306 |
 | NR-CD-01 | zxnext.vhd:5633/1957 NR 0xCD DMA int enable bit routes through mask | zxnext.vhd:5633/1957 | pass | test/ctc/ctc_test.cpp:2324 |
 | NR-CE-01 | zxnext.vhd:5636-5637/1957-1958 NR 0xCE DMA int enable bit routes through mask | zxnext.vhd:5636-5637/1957-1958 | pass | test/ctc/ctc_test.cpp:2339 |
-| NR-C2-01 | NMI captures PC into NR 0xC2 (RETN address LSB) | — | missing | — |
-| NR-C3-01 | NMI captures PC into NR 0xC3 (RETN address MSB) | — | missing | — |
+| NR-C2-01 | NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6232] | zxnext.vhd:2050-2085,6232 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1089 |
+| NR-C3-01 | NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6236] | zxnext.vhd:2050-2085,6236 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1094 |
 | ISC-01 | zxnext.vhd:1955 NR 0xC8 b1 clears LINE int_status | zxnext.vhd:1955 | pass | test/ctc/ctc_test.cpp:2397 |
 | ISC-02 | zxnext.vhd:1952 NR 0xC8 b0 clears ULA int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2418 |
 | ISC-03 | zxnext.vhd:1953 NR 0xC9 bit clears CTC0 int_status | zxnext.vhd:1953 | pass | test/ctc/ctc_test.cpp:2440 |
@@ -2273,8 +2273,8 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | ISC-06 | zxnext.vhd:1954 NR 0xCA bits 5\|4 clear UART1_RX int_status | zxnext.vhd:1954 | pass | test/ctc/ctc_test.cpp:2503 |
 | ISC-07 | zxnext.vhd:1954 NR 0xCA bits 1\|0 clear UART0_RX int_status | zxnext.vhd:1954 | pass | test/ctc/ctc_test.cpp:2524 |
 | ISC-08 | im2_peripheral.vhd:160 new int_req edge re-sets int_status during clear | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2562 |
-| ISC-09 | Legacy NextREG 0x20 read: returns mixed status | — | missing | — |
-| ISC-10 | Legacy NextREG 0x22 read: includes pulse_int_n state | — | missing | — |
+| ISC-09 | NR 0x20 read = LINE_ULA_00_CTC3..CTC0 mixed status [zxnext.vhd:5988-5989; emulator.cpp:917-926] | zxnext.vhd:5988-5989 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:946 |
+| ISC-10 | NR 0x22 read bit 7 = NOT pulse_int_n (reset: 0x00) [zxnext.vhd:5991-5992 — NR 0x22 read_handler missing in jnext; reset-state invariant only] | zxnext.vhd:5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:976 |
 | DMA-01 | peripherals.vhd:174-184 im2_dma_int OR-reduction across devices | peripherals.vhd:174-184 | pass | test/ctc/ctc_test.cpp:2589 |
 | DMA-02 | zxnext.vhd:2001-2010 im2_dma_delay latches on im2_dma_int | zxnext.vhd:2001-2010 | pass | test/ctc/ctc_test.cpp:2604 |
 | DMA-03 | zxnext.vhd:2007 im2_dma_delay self-holds during RETI SRL window | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2632 |
@@ -2288,18 +2288,18 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | UNQ-05 | im2_peripheral.vhd:160 int_unq feeds int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2804 |
 | JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | — | missing | — |
 | JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | — | missing | — |
-| SSTEP-01 | Pulse-mode CTC INT delivered via execute_single_instruction loop (zxnext.vhd:1840; im2_peripheral.vhd:186-194) | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | missing | — |
-| SSTEP-02 | IM2-mode CTC INT delivered via single-step (zxnext.vhd:1840, :1999) | zxnext.vhd:1840,1999 | missing | — |
-| SSTEP-03 | Trace log records one entry per single-step (parity with run_frame) | — | missing | — |
-| SSTEP-04 | MD6 FSM advances during single-step (md6_joystick_connector_x2.vhd:103-114, :151-152) | md6_joystick_connector_x2.vhd:103-114,151-152 | missing | — |
-| CIM2-QUIESCE-01 | Pulse mode: 1000 quiescent ticks leave `save_state` byte-identical; a pulse raised after the stretch keeps the exact 36-CPU-cycle width (zxnext.vhd:2033-2044); a second edge after a stretch is not masked by a stale `int_req_d` (im2_peripheral.vhd:98-101, :154-162) | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101,154-162 | missing | — |
-| CIM2-QUIESCE-02 | IM2 mode: S_REQ and S_ISR are stable across quiescent stretches (byte-identical snapshots); IntAck after a stretch yields vector 0x06 for CTC0 (zxnext.vhd:1999); RETI decoded after a stretch still clears S_ISR via the tick path (im2_device.vhd:123-128) | zxnext.vhd:1999, im2_device.vhd:123-128 | missing | — |
-| CTC-C1-ACC-01 | Timer /16 TC=3: one tick(150) span crosses three ZC/TO events (ctc_chan.vhd:143-146 prescaler_clk, :162-170 zc_to); prescaler phase survives the closed-form jump | ctc_chan.vhd:143-146 | missing | — |
-| CTC-C1-ACC-02 | ch0 timer /16 TC=3 daisy-chained into ch1 counter TC=2 (zxnext.vhd:4084); one tick(200) vs 200× tick(1) | zxnext.vhd:4084 | missing | — |
-| CTC-C1-ACC-03 | ch1 timer armed with D3=1 (S_TRIGGER) started mid-span by ch0's ZC/TO at 16; activation cycle still ticks the newly-RUN channel (established per-cycle model ordering) | — | missing | — |
-| CTC-CW-INTEN-01 | NR 0xC5 ← 0x01 (CTC0 only), then ch1 control word 0xA5 (D7=1) + TC; `raise_req(CTC1)` + `tick(1)` (ctc_chan.vhd:269,276 → zxnext.vhd:1949) | ctc_chan.vhd:269,276, zxnext.vhd:1949 | missing | — |
-| CTC-CW-INTEN-02 | NR 0xC5 ← 0x0F (all four), then ch1 control word 0x25 (D7=0) + TC; `raise_req(CTC1)` + `tick(1)`. `iowr_cw` writes the WHOLE control_reg, so D7=0 disables | — | missing | — |
-| CTC-CW-INTEN-03 | NR 0xC5 ← 0x01, then ch2 control word 0xA5 (D7=1) + TC; `raise_req` on CTC0/CTC2/CTC3/CTC7 + `tick(1)` (zxnext.vhd:4067 four channels, :4093 `ctc_int_en(7:4) <= "0000"`) | zxnext.vhd:4067 | missing | — |
+| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1396 |
+| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1442 |
+| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1470 |
+| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1501 |
+| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101,154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1589 |
+| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1660 |
+| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 192) | ctc_chan.vhd:143-146 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1716 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1766 |
+| CTC-C1-ACC-03 | timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires at 31: activation cycle still ticks the newly-RUN channel; tick(31) == 31x tick(1) | ctc_chan.vhd, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1813 |
+| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2019 |
+| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2052 |
+| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | zxnext.vhd:4067 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2098 |
 | IM2-G89-01 | LDIRX samples INT/NMI between iterations | — | missing | — |
 | IM2-G89-02 | LDDRX samples INT/NMI between iterations | — | missing | — |
 | IM2-G89-03 | LDPIRX samples INT/NMI between iterations | — | missing | — |
@@ -2371,8 +2371,8 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | DUAL-02 | uart.vhd:282-286,355,371 - UART 0 reads 0x03, UART 1 reads 0x0D | uart.vhd:282-286,355,371 | pass | test/uart/uart_test.cpp:1309 |
 | DUAL-03 | uart.vhd:300-305 - per-channel framing: UART 0=0x1B, UART 1=0x18 | uart.vhd:300-305 | pass | test/uart/uart_test.cpp:1324 |
 | DUAL-04 | uart.vhd:346-378 - UART 1 status unaffected by UART 0 RX byte | uart.vhd:346-378 | pass | test/uart/uart_test.cpp:1337 |
-| DUAL-05 | UART 0 = ESP, UART 1 = Pi channel assignment | zxnext.vhd | missing | — |
-| DUAL-06 | Joystick UART mode multiplexing | — | missing | — |
+| DUAL-05 | uart.vhd gates tx_wr on uart_select_r bit 6; zxnext.vhd:3343-3344 routes UART 0 TX → ESP pin, UART 1 TX → Pi pin. Selecting a channel via port 0x153B directs port 0x133B TX writes to that channel ONLY — cross-talk between channels is impossible | zxnext.vhd | pass | test/uart/uart_integration_test.cpp:629 |
+| DUAL-06 | zxnext.vhd:3340-3341 — joystick-UART RX routes to UART 0 when NR 0x0B bit7=1 & bit0=0, to UART 1 when bit7=1 & bit0=1, and is dropped when bit7=0 | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:678 |
 | I2C-01 | zxnext.vhd:3235-3247 - reset releases SCL and SDA high | zxnext.vhd:3235-3247 | pass | test/uart/uart_test.cpp:1372 |
 | I2C-02 | zxnext.vhd:3237-3238 - write 0 sets SCL output low | zxnext.vhd:3237-3238 | pass | test/uart/uart_test.cpp:1384 |
 | I2C-03 | zxnext.vhd:3237-3238 - write 1 releases SCL output high | zxnext.vhd:3237-3238 | pass | test/uart/uart_test.cpp:1396 |
@@ -2382,7 +2382,7 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | I2C-07 | zxnext.vhd:3266 - SDA read upper bits = 0xFE | zxnext.vhd:3266 | pass | test/uart/uart_test.cpp:1441 |
 | I2C-08 | zxnext.vhd:3238 - SCL write takes cpu_do(0) only; 0xFE -> 0 | zxnext.vhd:3238 | pass | test/uart/uart_test.cpp:1453 |
 | I2C-09 | zxnext.vhd:3259,3266 - read upper 7 bits stay 1 while lines low | zxnext.vhd:3259,3266 | pass | test/uart/uart_test.cpp:1467 |
-| I2C-10 | I2C port enable gated by internal_port_enable(10) | — | missing | — |
+| I2C-10 | internal_port_enable(10) gates 0x103B/0x113B (same mechanism as GATE-02) [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:570 |
 | I2C-11 | zxnext.vhd:3259 - pi_i2c1_scl AND-gates the SCL read path (with NR 0xA0 bit 3 enabling the Pi bridge per G138) | zxnext.vhd:3259 | pass | test/uart/uart_test.cpp:1496 |
 | I2C-12 | zxnext.vhd:3235-3247 - reset releases both lines high | zxnext.vhd:3235-3247 | pass | test/uart/uart_test.cpp:1511 |
 | I2C-13 | zxnext.vhd:2280, 2317-2318 - NR 0xA0 bit 3 gates pi_i2c1_scl/sda; when off the Pi-low is masked to 1 at the wired-AND boundary | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_test.cpp:1542 |
@@ -2415,19 +2415,19 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | RTC-20 | Task 28 fixed-time survives reset() — battery-backed DS1307; NextZXOS mid-boot soft reset must not fall back to host clock | — | pass | test/uart/uart_test.cpp:2118 |
 | RTC-21 | Task 28 fixed-time + 12h mode — pinned 15:00 encodes as 3 PM (0x63: mode bit 6 + PM bit 5 + BCD 03) | — | pass | test/uart/uart_test.cpp:2147 |
 | RTC-22 | Task 28 parse_rtc_datetime — space/'T' forms equivalent; TZ/DST-independent (DST-gap datetime accepted); leap years handled; garbage / trailing chars / out-of-range / invalid dates rejected | — | pass | test/uart/uart_test.cpp:2184 |
-| INT-01 | Vector 1 on UART 0 `rx_avail` (NR 0xC6 bit 0 set, bit 1 clear) | — | missing | — |
-| INT-02 | Vector 1 on UART 0 `rx_near_full` (NR 0xC6 bit 1 set; fires even if bit 0 clear — the "override") | — | missing | — |
-| INT-03 | Vector 2 on UART 1 `rx_avail` (NR 0xC6 bit 4 set, bit 5 clear) | — | missing | — |
-| INT-04 | Vector 2 on UART 1 `rx_near_full` (NR 0xC6 bit 5 set) | — | missing | — |
-| INT-05 | Vector 12 on UART 0 `tx_empty` (NR 0xC6 bit 2 set) | — | missing | — |
-| INT-06 | Vector 13 on UART 1 `tx_empty` (NR 0xC6 bit 6 set) | — | missing | — |
-| INT-07 | Asymmetric vector-1 enable: NR 0xC6 bit 1=1, bit 0=0 (near-full only) on UART 0 RX | zxnext.vhd:1941-1944 | missing | — |
-| GATE-01 | UART port enable (internal_port_enable bit 12) | — | missing | — |
-| GATE-02 | I2C port enable (internal_port_enable bit 10) | — | missing | — |
-| GATE-03 | Enable controlled by NextREG 0x82-0x85 | — | missing | — |
-| NR_A0-01 | Reset default NR 0xA0 reads 0x00 | zxnext.vhd:1241 | missing | — |
-| NR_A0-02 | Write NR 0xA0 = 0x10 (bit 4): `pi_uart_en` asserted | — | missing | — |
-| NR_A0-03 | Pi UART OFF: UART1 writes do NOT egress to GPIO 14/15 | zxnext.vhd:2278-2281 | missing | — |
+| INT-01 | UART0 rx_avail fires UART0_RX (vector 1) with NR 0xC6 bit 0 set [zxnext.vhd:1941-1944, :1949-1950; im2.cpp:313-323] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:175 |
+| INT-02 | UART0 rx_near_full fires UART0_RX with NR 0xC6 bit 1 set only (near-full override) [zxnext.vhd:1943, :1950; plan-drift note] | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass | test/uart/uart_integration_test.cpp:204 |
+| INT-03 | UART1 rx_avail fires UART1_RX (vector 2) with NR 0xC6 bit 4 set [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:222 |
+| INT-04 | UART1 rx_near_full fires UART1_RX with NR 0xC6 bit 5 set only [zxnext.vhd:1942, :1950] | zxnext.vhd:1942,1950 | pass | test/uart/uart_integration_test.cpp:238 |
+| INT-05 | UART0 tx_empty fires UART0_TX (vector 12) with NR 0xC6 bit 2 set [zxnext.vhd:1941, :1949] | zxnext.vhd:1941,1949 | pass | test/uart/uart_integration_test.cpp:264 |
+| INT-06 | UART1 tx_empty fires UART1_TX (vector 13) with NR 0xC6 bit 6 set [zxnext.vhd:1941, :1949] | zxnext.vhd:1941,1949 | pass | test/uart/uart_integration_test.cpp:280 |
+| INT-07 | UART RX request shape is near_full OR (avail AND NOT NR 0xC6 bit 1) — single per-byte avail must NOT fire when bit 1 is set, near-full does [zxnext.vhd:1941-1944, G134] | zxnext.vhd:1941-1944 | pass | test/uart/uart_integration_test.cpp:321 |
+| GATE-01 | UART port enable gate: NR 0x83 bit 4 → ports 0x133B-0x163B; when closed reads=0xFF + writes ignored [zxnext.vhd:2420, :2392; emulator.cpp register_io_ports] | zxnext.vhd:2420,2392 | pass | test/uart/uart_integration_test.cpp:399 |
+| GATE-02 | I2C port enable gate: NR 0x83 bit 2 → ports 0x103B/0x113B; when closed reads=0xFF + writes ignored [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:448 |
+| GATE-03 | NR 0x83 bits 0/2/4 independently gate DivMMC/I2C/UART [zxnext.vhd:2412, :2418, :2420, :2392; :5499-5509] | zxnext.vhd:2412,2418,2420,2392 | pass | test/uart/uart_integration_test.cpp:541 |
+| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:1224 |
+| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1253 |
+| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1284 |
 | TX-C1-ACC-01 | single tick span across a byte boundary: bytes exactly prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,318-320]; boundaries exact to one cycle; tx_empty at end | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:2371 |
 | TX-C1-ACC-02 | one tick(4*2430) span drains 4 FIFO bytes back-to-back (starts at 0/T/2T/3T); last completion exactly at 4T [uart.vhd:297-299,318-320] | uart.vhd:297-299,318-320 | pass | test/uart/uart_test.cpp:2399 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1648 |
@@ -2441,30 +2441,30 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 |---------|-------------|----------------|--------|----------------|
 | SEL-01 | select(0x7F)+write_selected(0x42)+read_selected() [zxnext.vhd:4597-4599] | zxnext.vhd:4597-4599 | pass | test/nextreg/nextreg_test.cpp:123 |
 | SEL-02 | read_selected() after reset reads NR 0x24 [zxnext.vhd:4594-4596] | zxnext.vhd:4594-4596 | pass | test/nextreg/nextreg_test.cpp:147 |
-| SEL-03 | Write 0x243B = 0x00, write 0x253B = 0x42, read NR 0x00 | — | missing | — |
+| SEL-03 | NR 0x00 via select+write+read path returns 0x0A (selection pathway respects read-only) [zxnext.vhd:5884-5885] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1421 |
 | SEL-04 | select(0x7F)+write_selected(0xAB)+read_selected()==0xAB [zxnext.vhd read dispatch, NR 0x7F user scratch] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:166 |
 | SEL-05 | NEXTREG ED 91 instruction | — | missing | — |
 | SEL-05a | Pre-select NR 0x7F via 0x243B; execute Z80N `NEXTREG 0x54, 0x04` (ED 91 54 04); read 0x253B without re-selecting | zxnext.vhd:4739-4744 | missing | — |
 | SEL-05b | Same setup with `NEXTREG 0x54,A` (ED 92); after it, write 0x253B ← 0x5C (raw data port) | — | missing | — |
 | SEL-05c | Execute `NEXTREG 0x7E, 0x3C`; read NR 0x7E | — | missing | — |
-| RO-01 | Read NR 0x00 | — | missing | — |
-| MID-01 | Read NR 0x00 after reset | — | missing | — |
-| RO-02 | Write NR 0x00, read back | — | missing | — |
-| RO-03 | Read NR 0x01 | — | missing | — |
-| RO-04 | Read NR 0x0E | — | missing | — |
-| RO-05 | Read NR 0x0F | — | missing | — |
-| RO-06 | Read NR 0x1E/0x1F | — | missing | — |
-| NREG-RST-01 | After reset, read NR 0x14 | — | missing | — |
-| NREG-RST-02 | After reset, read NR 0x15 | — | missing | — |
-| NREG-RST-03 | After reset, read NR 0x4A | — | missing | — |
-| NREG-RST-04 | After reset, read NR 0x42 | — | missing | — |
-| NREG-RST-05 | After reset, read NR 0x50-0x57 | — | missing | — |
-| NREG-RST-06 | After reset, read NR 0x68 | — | missing | — |
-| NREG-RST-07 | After reset, read NR 0x0B | — | missing | — |
-| NREG-RST-08 | After reset, read NR 0x82-0x85 | — | missing | — |
-| RST-09 | After reset, read NR 0x1B clip | — | missing | — |
-| RW-01 | 0x07 | — | missing | — |
-| RW-02 | 0x08 | — | missing | — |
+| RO-01 | NR 0x00 machine ID reset=0x0A via port path [VHDL g_machine_id, zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:1315 |
+| MID-01 | NR 0x00 machine ID reset=0x0A (VHDL g_machine_id=X"0A") [zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:163 |
+| RO-02 | NR 0x00 read-only: write 0x42 then read returns 0x0A [zxnext.vhd:5884-5885 — read routed to g_machine_id; no write handler] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1331 |
+| RO-03 | NR 0x01 core version reset=0x32 (core 3.02) [zxnext_top_issue2.vhd:37 g_version] | zxnext_top_issue2.vhd:37 | pass | test/nextreg/nextreg_integration_test.cpp:1343 |
+| RO-04 | NR 0x0E sub-version reset=0x03 [zxnext_top_issue2.vhd:38 g_sub_version] | zxnext_top_issue2.vhd:38 | pass | test/nextreg/nextreg_integration_test.cpp:1355 |
+| RO-05 | NR 0x0F board issue reset=0x00 [zxnext.vhd:5921, zxnext_top_issue2.vhd:39] | zxnext.vhd:5921, zxnext_top_issue2.vhd:39 | pass | test/nextreg/nextreg_integration_test.cpp:1367 |
+| RO-06 | NR 0x1E/0x1F return cvc (paper-relative), not raw frame vc: frame-start cvc == 247 for 128K timing [zxnext.vhd:5982-5986, zxula_timing.vhd:455-472] | zxnext.vhd:5982-5986, zxula_timing.vhd:455-472 | pass | test/nextreg/nextreg_integration_test.cpp:1393 |
+| NREG-RST-01 | NR 0x14 global transparent reset=0xE3 [zxnext.vhd:4947 nr_14_global_transparent] | zxnext.vhd:4947 | pass | test/nextreg/nextreg_integration_test.cpp:173 |
+| NREG-RST-02 | NR 0x15 sprite/layer control reset=0x00 [zxnext.vhd:4948] | zxnext.vhd:4948 | pass | test/nextreg/nextreg_integration_test.cpp:184 |
+| NREG-RST-03 | NR 0x4A fallback RGB reset=0xE3 [zxnext.vhd:5002 nr_4a_fallback_colour] | zxnext.vhd:5002 | pass | test/nextreg/nextreg_integration_test.cpp:194 |
+| NREG-RST-04 | NR 0x42 ULANext format reset=0x07 [zxnext.vhd:4993 nr_42_ulanext_format] | zxnext.vhd:4993 | pass | test/nextreg/nextreg_integration_test.cpp:204 |
+| NREG-RST-05 | NR 0x50-0x57 MMU defaults [zxnext.vhd:4610-4618] | zxnext.vhd:4610-4618 | pass | test/nextreg/nextreg_integration_test.cpp:229 |
+| NREG-RST-06 | NR 0x68 ULA control reset=0x00 (ula_en=1 → bit7=0) [zxnext.vhd:5029] | zxnext.vhd:5029 | pass | test/nextreg/nextreg_integration_test.cpp:239 |
+| NREG-RST-07 | NR 0x0B I/O mode reset=0x01 [zxnext.vhd:4939-4941] | zxnext.vhd:4939-4941 | pass | test/nextreg/nextreg_integration_test.cpp:250 |
+| NREG-RST-08 | NR 0x82-0x85 port enables reset=0xFF [zxnext.vhd:5052-5068] | zxnext.vhd:5052-5068 | pass | test/nextreg/nextreg_integration_test.cpp:272 |
+| RST-09 | NR 0x1B post-reset read returns tilemap clip_x1 = 0x00 [zxnext.vhd:5971-5977 read mux; :4977-4981 reset defaults] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:317 |
+| RW-01 | NR 0x07 read = (actual<<4) \| requested, pads 0 in bits[7:6] and bits[3:2] [zxnext.vhd:5902-5903] | zxnext.vhd:5902-5903 | pass | test/nextreg/nextreg_integration_test.cpp:2177 |
+| RW-02 | NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = nr_08_contention_disable [zxnext.vhd:5906] | zxnext.vhd:5906 | pass | test/nextreg/nextreg_integration_test.cpp:2229 |
 | RW-03 | NR 0x12 L2 active bank write=0x10 read=0x10 [zxnext.vhd ~5190 nr_12_layer2_active_bank] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:277 |
 | RW-04 | NR 0x14 global transparent write=0x55 read=0x55 [zxnext.vhd ~5200 nr_14_global_transparent] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:289 |
 | RW-05 | NR 0x15 layer control write=0x15 read=0x15 [zxnext.vhd ~5210 nr_15_sprite_lores] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:302 |
@@ -2475,40 +2475,40 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | RW-10 | NR 0x50-0x57 MMU pages write/read round-trip [zxnext.vhd:4607-4700] | zxnext.vhd:4607-4700 | pass | test/nextreg/nextreg_test.cpp:373 |
 | RW-11 | NR 0x7F user scratch write=0xAB read=0xAB [zxnext.vhd read dispatch, user-scratch slot] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:384 |
 | RW-12 | NR 0x6B tilemap control write=0x81 read=0x81 [zxnext.vhd ~5630 nr_6b_tilemap_control] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:396 |
-| CLIP-01 | Write NR 0x18 four times: 10,20,30,40 | — | missing | — |
-| CLIP-02 | Write NR 0x18 five times | — | missing | — |
-| CLIP-03 | Write NR 0x1C bit 0 = 1 | — | missing | — |
-| CLIP-04 | Write NR 0x1C bit 1 = 1 | — | missing | — |
-| CLIP-05 | Write NR 0x1C bit 2 = 1 | — | missing | — |
-| CLIP-06 | Write NR 0x1C bit 3 = 1 | — | missing | — |
-| CLIP-07 | Read NR 0x1C | — | missing | — |
-| CLIP-08 | Read NR 0x18 returns coord at current idx | — | missing | — |
-| CLIP-09 | Read NR 0x1B twice with no intervening write | — | missing | — |
-| CLIP-10 | Write NR 0x1B once, read NR 0x1C | — | missing | — |
+| CLIP-01 | NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44 [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1454 |
+| CLIP-02 | NR 0x18 fifth write wraps back to x1 (mod-4 idx) [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1474 |
+| CLIP-03 | NR 0x1C bit 0 resets L2 clip idx so next NR 0x18 write → x1 [zxnext.vhd:5278-5281] | zxnext.vhd:5278-5281 | pass | test/nextreg/nextreg_integration_test.cpp:1493 |
+| CLIP-04 | NR 0x1C bit 1 resets sprite clip idx so next NR 0x19 write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1514 |
+| CLIP-05 | NR 0x1C bit 2 resets ULA clip idx so next NR 0x1A write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1536 |
+| CLIP-06 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1554 |
+| CLIP-07 | Read NR 0x1C | zxnext.vhd:5979-5980 | pass | test/nextreg/nextreg_integration_test.cpp:1573 |
+| CLIP-08 | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5947-5953] | zxnext.vhd:5947-5953 | pass | test/nextreg/nextreg_integration_test.cpp:1618 |
+| CLIP-09 | Read NR 0x1B twice with no intervening write | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1642 |
+| CLIP-10 | NR 0x1B write lands x1=0xAA AND advances tm idx → NR 0x1C bits 7:6 = 01 (0x40) [zxnext.vhd:5276 write increments idx; :5980 NR 0x1C packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1673 |
 | MMU-01 | Reset defaults | — | missing | — |
 | NR-MMU-02 | NR 0x52 (MMU2) write=0x20 read=0x20 [zxnext.vhd:4613 MMU2 storage] | zxnext.vhd:4613 | pass | test/nextreg/nextreg_test.cpp:455 |
 | MMU-03 | Write port 0x7FFD, check MMU6/7 | — | missing | — |
 | MMU-04 | NextREG write overrides port write | — | missing | — |
-| N8E-RAM-PRESERVE-0 | NR 0x56=0x20 override, then NR 0x8E=0x00 (bit 3 = 0) | — | missing | — |
-| N8E-RAM-REBUILD-1 | port_7ffd=0x03, NR 0x56=0x20 override, then NR 0x8E=0x08 (bit 3 = 1, bits 6:4 = 000) | — | missing | — |
-| CFG-01 | Write NR 0x03 bits 6:4 for timing | — | missing | — |
-| CFG-02 | Write NR 0x03 bit 3 toggles dt_lock | — | missing | — |
+| N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0 [zxnext.vhd:3814 port_memory_ram_change_dly, :4677 MMU6/7 gate] | zxnext.vhd:3814 | pass | test/nextreg/nextreg_integration_test.cpp:2714 |
+| N8E-RAM-REBUILD-1 | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank [zxnext.vhd:3814, :4677] | zxnext.vhd:3814,4677 | pass | test/nextreg/nextreg_integration_test.cpp:2739 |
+| CFG-01 | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011") [zxnext.vhd:1099, 5893-5894] | zxnext.vhd:1099,5893-5894 | pass | test/nextreg/nextreg_integration_test.cpp:2509 |
+| CFG-02 | NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read composes bit 3 from that state [zxnext.vhd:5121-5151, 5894] | zxnext.vhd:5121-5151,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2545 |
 | CFG-03 | NR 0x03 bits[2:0]=111 re-enters config_mode [zxnext.vhd:5147-5148] | zxnext.vhd:5147-5148 | pass | test/nextreg/nextreg_test.cpp:515 |
 | CFG-04 | NR 0x03 bits[2:0]=001..110 clears config_mode [zxnext.vhd:5149-5150] | zxnext.vhd:5149-5150 | pass | test/nextreg/nextreg_test.cpp:538 |
-| CFG-05 | Machine type only writable in config mode | — | missing | — |
+| CFG-05 | NR 0x03 bits 2:0=001 clears config_mode at write time [zxnext.vhd:5147-5151 — Task 11 Branch 1 implemented] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2576 |
 | CFG-06 | NR 0x03 bits[2:0]=000 is a no-op (no change to config_mode) [zxnext.vhd:5147-5151 no-change branch] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_test.cpp:562 |
 | CFG-07 | reset() preserves config_mode (VHDL has no reset clause; latch survives reset) [zxnext.vhd:1102, :5147-5151 — no reset block] | zxnext.vhd:1102,5147-5151 | pass | test/nextreg/nextreg_test.cpp:592 |
-| PAL-01 | Write NR 0x40 = 0x10 (palette index) | — | missing | — |
-| PAL-02 | Write NR 0x41 (8-bit colour) | — | missing | — |
-| PAL-03 | Write NR 0x44 twice (9-bit colour) | — | missing | — |
-| PAL-04 | Read NR 0x41 | — | missing | — |
-| PAL-05 | Read NR 0x44 | — | missing | — |
-| PAL-06 | Auto-increment disabled (NR 0x43 bit 7) | — | missing | — |
+| PAL-01 | NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03 [zxnext.vhd:4918-4920 palette write] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1851 |
+| PAL-02 | NR 0x41 8-bit palette value round-trips at selected index [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1865 |
+| PAL-03 | NR 0x44 9-bit write: upper 8 bits land at selected idx [zxnext.vhd:4918-4920 palette sub_idx latch] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1885 |
+| PAL-04 | NR 0x41 read returns palette byte at selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1900 |
+| PAL-05 | NR 0x44 read returns priority+LSB for selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1913 |
+| PAL-06 | NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 at idx 0x50 keeps pointer on 0x50, pal[0x51] untouched [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1937 |
 | PE-01 | NR 0x82 internal port-enable write=0x00 read=0x00 [zxnext.vhd:2392-2442, 5052-5068] | zxnext.vhd:2392-2442,5052-5068 | pass | test/nextreg/nextreg_test.cpp:681 |
 | PE-02 | NR 0x82 internal port-enable write=0xA5 read=0xA5 [zxnext.vhd:2392-2442, 5052-5068] | zxnext.vhd:2392-2442,5052-5068 | pass | test/nextreg/nextreg_test.cpp:693 |
-| PE-03 | Disable joystick port (bit 6) | — | missing | — |
+| PE-03 | NR 0x82 bit 6 gates port 0x1F (Kempston 1): bit6=1→handler, bit6=0→0xFF [zxnext.vhd:2392-2442] | zxnext.vhd:2392-2442 | pass | test/nextreg/nextreg_integration_test.cpp:1995 |
 | PE-04 | Reset with reset_type=1 | — | missing | — |
-| PE-05 | Reset with bus reset_type=0 | — | missing | — |
+| PE-05 | NR 0x89 bus port enable reset=0x8F [zxnext.vhd:1234-1235, 6147-6150] | zxnext.vhd:1234-1235,6147-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2014 |
 | PE-06 | Read NR 0x82 after a write, full VHDL packing | zxnext.vhd:5508-5522 | missing | — |
 | PE-07 | Read NR 0x86 (bus-port-enable, no read_handler today) | zxnext.vhd:5061-5067 | missing | — |
 | PE-08 | Read NR 0x89 inverted-reset semantics | zxnext.vhd:6138,6150 | missing | — |
@@ -2521,10 +2521,10 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | WO-02 | Write NR 0x29 ← 0x55; read NR 0x29 | — | missing | — |
 | WO-03 | Write NR 0x60 ← 0x42; read NR 0x60 | — | missing | — |
 | WO-04 | Write NR 0x35 ← 0x33; read NR 0x35 | — | missing | — |
-| T58-NR05-EFF-01 | NEW discriminative row: write 0x05 → read 0x00 BEFORE the frame edge (old eff), 0x05 after | zxnext.vhd:5897,6696-6703 | missing | — |
-| TC-NR05-PRESERVE | corrected: frame edge before sampling so eff == pending | zxnext.vhd:6696-6703 | missing | — |
-| TC-NR05-PENTAGON | reworked: real NR 0x03 write path + frame edges; bit 2 reads 0 after Pentagon entry **+ frame edge** (was: read-time mask, wrong oracle) | zxnext.vhd:5835-5836,6697-6700,5897 | missing | — |
-| V13-NMP-01 | corrected: frame edges added so each sample reads the latched eff value | zxnext.vhd:5835-5836,5897,6696-6703 | missing | — |
+| T58-NR05-EFF-01 | NR 0x05 bits 2/0 are frame-edge-latched on read: write 0x05 reads 0x00 before the frame edge, 0x05 after [zxnext.vhd:5897, :6696-6703] | zxnext.vhd:5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:3220 |
+| TC-NR05-PRESERVE | NR 0x05 survives hard reset (no VHDL reset clause) [zxnext.vhd:1105-1106 / 1302-1303] | zxnext.vhd:6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:4888 |
+| TC-NR05-PENTAGON | NR 0x05 bit 2 reads 0 after Pentagon entry + frame edge (pending FF forced 0, eff latched at frame sync) [zxnext.vhd:5835-5836 / :6697-6700 / :5897] | zxnext.vhd:5835-5836,6697-6700,5897 | pass | test/nextreg/nextreg_integration_test.cpp:4920 |
+| V13-NMP-01 | NR 0x05 bit 2 Pentagon-mode cache canonicalisation: (a) write-while-Pentagon does not leak; (b) Pentagon-engagement clears prior bit-2 latch [zxnext.vhd:5832-5841 / :5897 / :6696-6703] | zxnext.vhd:5835-5836,5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:5798 |
 | FT-D8-01 | NR 0xD8 nr_d8_io_trap_fdc_en write/read-back | zxnext.vhd:5639-5640,6265-6266 | missing | — |
 | FT-D8-02 | NR 0xD8 enable=1 must allow strobe_iotrap to assert MF | zxnext.vhd:2601-2602,3835,3837 | missing | — |
 | FT-D9-01 | NR 0xD9 nr_d9_iotrap_write captures CPU write byte | zxnext.vhd:3892-3893 | missing | — |
@@ -2716,8 +2716,8 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | KBD-19 | CS+SYM, rows 0,7 AND = 0x1C | membrane.vhd:251 | pass | test/input/input_test.cpp:308 |
 | KBD-20 | no rows selected = 0x1F | membrane.vhd:242-251 | pass | test/input/input_test.cpp:317 |
 | KBD-21 | all rows, single Z = 0x1D | membrane.vhd:251 | pass | test/input/input_test.cpp:327 |
-| KBD-22 | none | — | missing | — |
-| KBD-23 | none | — | missing | — |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:157 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:181 |
 | KBDHYS-01 | CS held one extra scan after release (membrane.vhd:178, 188-191, 232) | membrane.vhd:178,188-191,232 | pass | test/input/input_test.cpp:371 |
 | KBDHYS-02 | CS pressed across 3 scans reads pressed each scan (membrane.vhd:190) | membrane.vhd:190 | pass | test/input/input_test.cpp:392 |
 | KBDHYS-03 | the cancel bit does NOT clear the NR 0xB0/0xB1 raw readback (membrane.vhd:253 vs :183-186) | membrane.vhd:253 | pass | test/input/input_test.cpp:425 |
@@ -2867,17 +2867,17 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | NMI-05 | NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1 | zxnext.vhd:2090 | pass | test/input/input_test.cpp:2867 |
 | NMI-06 | NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:2885 |
 | NMI-07 | NR 0x06 bits 3+4=1 + both hotkeys → both gates assert | — | pass | test/input/input_test.cpp:2903 |
-| FE-01 | No keys, EAR=0, no `port_fe_ear | — | missing | — |
-| FE-02 | EAR input high | — | missing | — |
-| FE-03 | Write 0xFE bit 4 high (`port_fe_ear`=1), then read | — | missing | — |
-| FE-04 | NR 0x08 bit 0 = 1 (issue 2), MIC=1, EAR=0 | — | missing | — |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:206 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:227 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:246 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:310 |
 | FE-05 | expbus_eff_en=1`, `port_propagate_fe=1`, expansion bus drives D0=0 | — | missing | — |
 | JCAL-01 | NR 0x28 keymap_sel write handler routes bit 7 + bit 0 | membrane_stick.vhd | pass | test/input/input_test.cpp:2977 |
 | JCAL-02 | NR 0x29 addr-low + NR 0x2B data write + auto-inc | zxnext.vhd:6304-6308, membrane_stick.vhd:182 | pass | test/input/input_test.cpp:3016 |
 | JCAL-03 | NR 0x05=111 + UDK[16]=(4,3) + bit0 press → row4 col3 low | membrane_stick.vhd:172-183 | pass | test/input/input_test.cpp:3060 |
 | FNK-01 | F8 press increments NR 0x07 cpu_speed (VHDL :5789-5791) | input/membrane/emu_fnkeys.vhd:53-202 | pass | test/input/input_test.cpp:3100 |
-| HOTKEY-01 | Host SDL_SCANCODE_F8 → emulator increments NR 0x07 cpu_speed (mod 4); F3 toggles 50/60 Hz; gated by `nr_06_hotkey_*_en | zxnext.vhd:5790-5791,6342-6347 | missing | — |
-| JOY-WIRE-01 | Emulator: OUT (0x253B), 0x40 with reg=0x05; verify MembraneStick fold redirects through full NR-write path through OUT (0x253B) | membrane_stick.vhd:124-131 | missing | — |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:963 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:618 |
 | FNK-02 | F3 press toggles NR 0x05 bit 2 (5060), readable after the frame edge only (VHDL :5839-5841; eff latch :6697-6700) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3133 |
 | FNK-03 | F2 press toggles NR 0x05 bit 0 (scandouble), readable after the frame edge only (VHDL :5849-5852; eff latch :6702) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3161 |
 | KBDHYS-05 | Keyboard::tick_scan()` cancels extended entries when `i_cancel_extended_entries` asserted (prod) | membrane.vhd:178-191 | missing | — |
@@ -3403,8 +3403,8 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-160 | NR $26 / $27 (ULA scroll) do not move the LoRes image (lores.vhd:82,84 - the address generator consumes LoRes's own scroll_x_i/scroll_y_i, which zxnext.vhd:4241-4271 drives from NR $32/$33, never from the ULA's NR $26/$27) | lores.vhd:82,84, zxnext.vhd:4241-4271 | pass | test/lores/lores_test.cpp:730 |
 | LR-161 | C | zxnext.vhd:4241-4271 | missing | — |
 | LR-162 | N | zxnext.vhd:1167-1171,5278 | missing | — |
-| LR-163 | C | zxula.vhd:583, zxnext.vhd:6603-6631 | missing | — |
-| LR-164 | C | zxula.vhd:573 | missing | — |
+| LR-163 | enabling LoRes does not change ULA memory contention — 20000 instructions of contended bank-5 access cost the same T-states with NR $15 bit 7 = 0 and = 1 (zxula.vhd:583; zxnext.vhd:6603-6631, separate BRAM port) | zxula.vhd:583, zxnext.vhd:6603-6631 | pass | test/lores/lores_integration_test.cpp:152 |
+| LR-164 | enabling LoRes does not change the floating-bus value — 500 port 0xFF reads spread across a frame are byte-identical with NR $15 bit 7 = 0 and = 1 (zxula.vhd:573, ULA port B only) | zxula.vhd:573 | pass | test/lores/lores_integration_test.cpp:200 |
 | LR-165 | C | zxnext.vhd:6631,6660 | missing | — |
 | LR-166 | C | zxnext.vhd:4258-4261 | missing | — |
 | LR-167 | C | zxnext.vhd:4258-4261,4424-4427 | missing | — |
@@ -3413,56 +3413,56 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | — | pass | test/sdcard/sdcard_test.cpp:171 |
-| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | — | pass | test/sdcard/sdcard_test.cpp:179 |
-| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | — | pass | test/sdcard/sdcard_test.cpp:205 |
-| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | — | pass | test/sdcard/sdcard_test.cpp:249 |
-| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | — | pass | test/sdcard/sdcard_test.cpp:257 |
-| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | — | pass | test/sdcard/sdcard_test.cpp:265 |
-| CMD18-05 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | — | pass | test/sdcard/sdcard_test.cpp:305 |
-| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | — | pass | test/sdcard/sdcard_test.cpp:344 |
-| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | — | pass | test/sdcard/sdcard_test.cpp:366 |
-| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | — | pass | test/sdcard/sdcard_test.cpp:384 |
-| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | — | pass | test/sdcard/sdcard_test.cpp:407 |
-| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | — | pass | test/sdcard/sdcard_test.cpp:426 |
-| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | — | pass | test/sdcard/sdcard_test.cpp:442 |
-| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | — | pass | test/sdcard/sdcard_test.cpp:512 |
-| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=256 illegal (R1 bit 2 set) | — | pass | test/sdcard/sdcard_test.cpp:535 |
-| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | — | pass | test/sdcard/sdcard_test.cpp:558 |
-| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | — | pass | test/sdcard/sdcard_test.cpp:650 |
-| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | — | pass | test/sdcard/sdcard_test.cpp:657 |
-| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | — | pass | test/sdcard/sdcard_test.cpp:678 |
-| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | — | pass | test/sdcard/sdcard_test.cpp:724 |
-| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | — | pass | test/sdcard/sdcard_test.cpp:766 |
-| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | — | pass | test/sdcard/sdcard_test.cpp:827 |
-| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | — | pass | test/sdcard/sdcard_test.cpp:835 |
-| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | — | pass | test/sdcard/sdcard_test.cpp:891 |
-| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 | — | pass | test/sdcard/sdcard_test.cpp:941 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1006 |
-| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | — | pass | test/sdcard/sdcard_test.cpp:1113 |
-| SD-16 | CMD16 SET_BLOCKLEN arg≠512 R1: initialized card -> 0x04 (illegal only, idle CLEAR); uninitialized card -> 0x05 (idle + illegal). Idle bit must derive from initialized_, not be hard-coded (SD spec § 4.9.1) | — | pass | test/sdcard/sdcard_test.cpp:1160 |
-| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | — | pass | test/sdcard/sdcard_test.cpp:1230 |
-| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | — | pass | test/sdcard/sdcard_test.cpp:1282 |
-| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | — | pass | test/sdcard/sdcard_test.cpp:1320 |
-| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | — | pass | test/sdcard/sdcard_test.cpp:1360 |
-| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | — | pass | test/sdcard/sdcard_test.cpp:1455 |
-| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | — | pass | test/sdcard/sdcard_test.cpp:1543 |
-| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | — | pass | test/sdcard/sdcard_test.cpp:1585 |
-| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | — | pass | test/sdcard/sdcard_test.cpp:1637 |
-| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | — | pass | test/sdcard/sdcard_test.cpp:1704 |
-| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | — | pass | test/sdcard/sdcard_test.cpp:1776 |
-| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | — | pass | test/sdcard/sdcard_test.cpp:1834 |
-| SD-28 | running as root; cannot construct a read-only image | — | skip | test/sdcard/sdcard_test.cpp:1882 |
-| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | — | pass | test/sdcard/sdcard_test.cpp:2017 |
+| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:171 |
+| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:179 |
+| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:205 |
+| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:249 |
+| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:257 |
+| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:265 |
+| CMD18-05 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:305 |
+| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:344 |
+| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:366 |
+| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:384 |
+| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:407 |
+| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:426 |
+| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:442 |
+| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:512 |
+| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=256 illegal (R1 bit 2 set) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:535 |
+| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:558 |
+| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:650 |
+| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:657 |
+| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:678 |
+| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:724 |
+| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:766 |
+| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:827 |
+| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:835 |
+| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:891 |
+| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:941 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1006 |
+| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1113 |
+| SD-16 | CMD16 SET_BLOCKLEN arg≠512 R1: initialized card -> 0x04 (illegal only, idle CLEAR); uninitialized card -> 0x05 (idle + illegal). Idle bit must derive from initialized_, not be hard-coded (SD spec § 4.9.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1160 |
+| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1230 |
+| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1282 |
+| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1320 |
+| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1360 |
+| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1455 |
+| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1543 |
+| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1585 |
+| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1637 |
+| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1704 |
+| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1776 |
+| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1834 |
+| SD-28 | running as root; cannot construct a read-only image | (SD SPI spec) | skip | test/sdcard/sdcard_test.cpp:1882 |
+| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2017 |
 | SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2090 |
 | SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2145 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2191 |
-| SD-33-MOUNT | image mount | — | pass | test/sdcard/sdcard_test.cpp:2226 |
-| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | — | pass | test/sdcard/sdcard_test.cpp:2272 |
-| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | — | pass | test/sdcard/sdcard_test.cpp:2315 |
-| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | — | pass | test/sdcard/sdcard_test.cpp:2339 |
-| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | — | pass | test/sdcard/sdcard_test.cpp:2356 |
-| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | — | pass | test/sdcard/sdcard_test.cpp:2379 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2191 |
+| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2226 |
+| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2272 |
+| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2315 |
+| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2339 |
+| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2356 |
+| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2379 |
 | MMC-02 | CMD8 illegal-cmd response on MMC not modelled (see G41) | — | missing | — |
 | MMC-03 | MMC byte-vs-block addressing duality unsupported (see G41) | — | missing | — |
 
@@ -3601,305 +3601,305 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| POL-LB-01 | 127.0.0.1 → Loopback | — | pass | src/esp01/test/esp_socket_test.cpp:395 |
-| POL-LB-02 | 127.0.0.0 → Loopback | — | pass | src/esp01/test/esp_socket_test.cpp:397 |
-| POL-LB-03 | 127.255.255.255 → Loopback | — | pass | src/esp01/test/esp_socket_test.cpp:399 |
-| POL-LB-04 | 126.255.255.255 → None | — | pass | src/esp01/test/esp_socket_test.cpp:401 |
-| POL-LB-05 | 128.0.0.0 → None | — | pass | src/esp01/test/esp_socket_test.cpp:403 |
-| POL-LB-06 | 0:0:0:0:0:0:0:1 → Loopback | — | pass | src/esp01/test/esp_socket_test.cpp:405 |
-| POL-LB-07 | 0:0:0:0:0:0:0:2 → None | — | pass | src/esp01/test/esp_socket_test.cpp:408 |
-| POL-LB-08 | v4mapped(127, 0, 0, 1) → Loopback | — | pass | src/esp01/test/esp_socket_test.cpp:411 |
-| POL-LB-09 | 127.0.0.1 → None under loopback_ok | — | pass | src/esp01/test/esp_socket_test.cpp:414 |
-| POL-LB-10 | 0:0:0:0:0:0:0:1 → None under loopback_ok | — | pass | src/esp01/test/esp_socket_test.cpp:416 |
-| POL-LL-01 | 169.254.0.0 → LinkLocal | — | pass | src/esp01/test/esp_socket_test.cpp:420 |
-| POL-LL-02 | 169.254.255.255 → LinkLocal | — | pass | src/esp01/test/esp_socket_test.cpp:422 |
-| POL-LL-03 | 169.253.255.255 → None | — | pass | src/esp01/test/esp_socket_test.cpp:424 |
-| POL-LL-04 | 169.255.0.0 → None | — | pass | src/esp01/test/esp_socket_test.cpp:426 |
-| POL-LL-05 | 0xfe80:0:0:0:0:0:0:1 → LinkLocal | — | pass | src/esp01/test/esp_socket_test.cpp:428 |
-| POL-LL-06 | 0xfebf:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff → LinkLocal | — | pass | src/esp01/test/esp_socket_test.cpp:430 |
-| POL-LL-07 | 0xfe7f:0:0:0:0:0:0:1 → None | — | pass | src/esp01/test/esp_socket_test.cpp:433 |
-| POL-LL-08 | 0xfec0:0:0:0:0:0:0:1 → None | — | pass | src/esp01/test/esp_socket_test.cpp:435 |
-| POL-MD-01 | 169.254.169.254 → CloudMetadata | — | pass | src/esp01/test/esp_socket_test.cpp:440 |
-| POL-MD-02 | 100.100.100.200 → CloudMetadata | — | pass | src/esp01/test/esp_socket_test.cpp:444 |
-| POL-MD-03 | 100.100.100.199 → None | — | pass | src/esp01/test/esp_socket_test.cpp:446 |
-| POL-MD-04 | 0xfd00:0x0ec2:0:0:0:0:0:0x0254 → CloudMetadata | — | pass | src/esp01/test/esp_socket_test.cpp:449 |
-| POL-MD-05 | 0xfd00:0x0ec2:0:0:0:0:0:0x0253 → None | — | pass | src/esp01/test/esp_socket_test.cpp:451 |
-| POL-MD-06 | v4mapped(169, 254, 169, 254) → CloudMetadata | — | pass | src/esp01/test/esp_socket_test.cpp:453 |
-| POL-MD-07 | 169.254.169.254 → LinkLocal with deny_cloud_metadata off | — | pass | src/esp01/test/esp_socket_test.cpp:460 |
-| POL-MD-08 | 169.254.169.254 → None with deny_cloud_metadata off, deny_link_local off | — | pass | src/esp01/test/esp_socket_test.cpp:464 |
-| POL-PRIV-01 | 10.0.0.1 → None | — | pass | src/esp01/test/esp_socket_test.cpp:469 |
-| POL-PRIV-02 | 10.255.255.255 → None | — | pass | src/esp01/test/esp_socket_test.cpp:471 |
-| POL-PRIV-03 | 172.16.0.1 → None | — | pass | src/esp01/test/esp_socket_test.cpp:473 |
-| POL-PRIV-04 | 172.31.255.255 → None | — | pass | src/esp01/test/esp_socket_test.cpp:475 |
-| POL-PRIV-05 | 192.168.1.1 → None | — | pass | src/esp01/test/esp_socket_test.cpp:477 |
-| POL-PRIV-06 | 100.64.0.1 → None | — | pass | src/esp01/test/esp_socket_test.cpp:479 |
-| POL-PRIV-07 | 0xfd12:0x3456:0:0:0:0:0:1 → None | — | pass | src/esp01/test/esp_socket_test.cpp:481 |
-| POL-PRIV-08 | 10.0.0.1 → Private with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:487 |
-| POL-PRIV-09 | 192.168.1.1 → Private with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:489 |
-| POL-PRIV-10 | 172.16.0.0 → Private with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:491 |
-| POL-PRIV-11 | 172.15.255.255 → None with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:493 |
-| POL-PRIV-12 | 172.32.0.0 → None with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:495 |
-| POL-PRIV-13 | 100.64.0.1 → Private with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:497 |
-| POL-PRIV-14 | 100.63.255.255 → None with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:499 |
-| POL-PRIV-15 | 0xfd12:0:0:0:0:0:0:1 → Private with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:501 |
-| POL-PRIV-16 | 0xfc00:0:0:0:0:0:0:1 → Private with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:503 |
-| POL-PRIV-17 | 0xfe00:0:0:0:0:0:0:1 → None with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:505 |
-| POL-RSV-01 | 0.0.0.0 → Unspecified | — | pass | src/esp01/test/esp_socket_test.cpp:510 |
-| POL-RSV-02 | 0.255.255.255 → Unspecified | — | pass | src/esp01/test/esp_socket_test.cpp:512 |
-| POL-RSV-03 | 1.0.0.0 → None | — | pass | src/esp01/test/esp_socket_test.cpp:514 |
-| POL-RSV-04 | 0:0:0:0:0:0:0:0 → Unspecified | — | pass | src/esp01/test/esp_socket_test.cpp:516 |
-| POL-RSV-05 | 224.0.0.1 → MulticastOrReserved | — | pass | src/esp01/test/esp_socket_test.cpp:518 |
-| POL-RSV-06 | 223.255.255.255 → None | — | pass | src/esp01/test/esp_socket_test.cpp:520 |
-| POL-RSV-07 | 240.0.0.0 → MulticastOrReserved | — | pass | src/esp01/test/esp_socket_test.cpp:522 |
-| POL-RSV-08 | 255.255.255.255 → MulticastOrReserved | — | pass | src/esp01/test/esp_socket_test.cpp:524 |
-| POL-RSV-09 | 0xff02:0:0:0:0:0:0:1 → MulticastOrReserved | — | pass | src/esp01/test/esp_socket_test.cpp:526 |
-| NORM-01 | ::ffff:1.2.3.4 unwraps to 1.2.3.4 | — | pass | src/esp01/test/esp_socket_test.cpp:530 |
-| NORM-02 | 64:ff9b::1.2.3.4 unwraps to 1.2.3.4 | — | pass | src/esp01/test/esp_socket_test.cpp:536 |
-| NORM-03 | ipv6(nat64) → Loopback | — | pass | src/esp01/test/esp_socket_test.cpp:540 |
-| NORM-04 | IPv4-compatible ::1.2.3.4 unwraps to 1.2.3.4 | — | pass | src/esp01/test/esp_socket_test.cpp:546 |
-| NORM-05 | :: keeps its IPv6 identity (not 0.0.0.0) | — | pass | src/esp01/test/esp_socket_test.cpp:549 |
-| NORM-06 | ::1 keeps its IPv6 identity (not 0.0.0.1) | — | pass | src/esp01/test/esp_socket_test.cpp:551 |
-| NORM-07 | ::0.0.0.5 is not unwrapped either | — | pass | src/esp01/test/esp_socket_test.cpp:553 |
-| NORM-08 | an ordinary IPv6 address is unchanged | — | pass | src/esp01/test/esp_socket_test.cpp:555 |
-| NORM-09 | an IPv4 address is returned unchanged | — | pass | src/esp01/test/esp_socket_test.cpp:558 |
-| POL-TUN-01 | sixtofour(127, 0, 0, 1) → Loopback | — | pass | src/esp01/test/esp_socket_test.cpp:565 |
-| POL-TUN-02 | sixtofour(169, 254, 169, 254) → CloudMetadata | — | pass | src/esp01/test/esp_socket_test.cpp:567 |
-| POL-TUN-03 | sixtofour(169, 254, 0, 1) → LinkLocal | — | pass | src/esp01/test/esp_socket_test.cpp:569 |
-| POL-TUN-04 | sixtofour(93, 184, 216, 34) → None | — | pass | src/esp01/test/esp_socket_test.cpp:571 |
-| POL-TUN-05 | sixtofour(10, 0, 0, 1) → None | — | pass | src/esp01/test/esp_socket_test.cpp:576 |
-| POL-TUN-06 | sixtofour(10, 0, 0, 1) → Private with deny_private on | — | pass | src/esp01/test/esp_socket_test.cpp:581 |
-| POL-TUN-07 | 0x2001:0x0000:0x7f00:0x0001:0:0:0x80ff:0xfffe → None | — | pass | src/esp01/test/esp_socket_test.cpp:589 |
-| POL-TUN-08 | 0x2001:0x0db8:0:0:0:0x5efe:0x7f00:0x0001 → None | — | pass | src/esp01/test/esp_socket_test.cpp:594 |
-| POL-TUN-09 | 0xfe80:0:0:0:0:0x5efe:0x7f00:0x0001 → LinkLocal | — | pass | src/esp01/test/esp_socket_test.cpp:597 |
-| POL-TUN-10 | normalize() leaves a 6to4 address as IPv6 | — | pass | src/esp01/test/esp_socket_test.cpp:599 |
-| POL-TUN-11 | a 6to4 address does not win the IPv4 preference pass | — | pass | src/esp01/test/esp_socket_test.cpp:609 |
-| POL-TUN-12 | tunnel_endpoint() extracts the 6to4 gateway address | — | pass | src/esp01/test/esp_socket_test.cpp:615 |
-| POL-TUN-13 | tunnel_endpoint() declines an ordinary IPv6 address | — | pass | src/esp01/test/esp_socket_test.cpp:618 |
-| POL-TUN-14 | tunnel_endpoint() declines an IPv4 address | — | pass | src/esp01/test/esp_socket_test.cpp:623 |
-| ESP-SEL-01 | an empty candidate list selects nothing | — | pass | src/esp01/test/esp_socket_test.cpp:631 |
-| ESP-SEL-02 | IPv4 is preferred even when IPv6 comes first | — | pass | src/esp01/test/esp_socket_test.cpp:639 |
-| ESP-SEL-03 | a denied candidate is skipped for an allowed one | — | pass | src/esp01/test/esp_socket_test.cpp:647 |
-| ESP-SEL-04 | IPv6 is used when there is no IPv4 candidate | — | pass | src/esp01/test/esp_socket_test.cpp:655 |
-| ESP-SEL-05 | all-denied reports the FIRST candidate's reason | — | pass | src/esp01/test/esp_socket_test.cpp:664 |
-| ESP-SEL-06 | with loopback allowed, IPv4 loopback still wins over IPv6 | — | pass | src/esp01/test/esp_socket_test.cpp:673 |
-| ESP-SEL-07 | a mapped IPv4 candidate counts as IPv4 and is returned verbatim | — | pass | src/esp01/test/esp_socket_test.cpp:682 |
-| FMT-01 | IPv4 renders as a dotted quad | — | pass | src/esp01/test/esp_socket_test.cpp:688 |
-| FMT-02 | IPv6 renders in full, uncompressed 8-group form | — | pass | src/esp01/test/esp_socket_test.cpp:690 |
-| FMT-03 | IPv6 groups drop leading zeros but keep their positions | — | pass | src/esp01/test/esp_socket_test.cpp:692 |
-| FMT-04 | every deny reason has distinct text | — | pass | src/esp01/test/esp_socket_test.cpp:695 |
-| FMT-05 | every transport state has distinct text | — | pass | src/esp01/test/esp_socket_test.cpp:699 |
-| SEAM-01 | the default threshold is info — the module's own quiet default | — | pass | src/esp01/test/esp_socket_test.cpp:712 |
-| SEAM-02 | every level has distinct, non-'unknown' text | — | pass | src/esp01/test/esp_socket_test.cpp:714 |
-| SEAM-03 | a byte renders as two upper-case hex digits, not as a character | — | pass | src/esp01/test/esp_socket_test.cpp:718 |
-| SEAM-04 | an installed sink receives the module's output | — | pass | src/esp01/test/esp_socket_test.cpp:729 |
-| SEAM-04b | ...and clearing the sink restores silence, at any level | — | pass | src/esp01/test/esp_socket_test.cpp:734 |
-| SEAM-05 | the threshold drops everything below it and keeps the rest | — | pass | src/esp01/test/esp_socket_test.cpp:743 |
-| SEAM-06 | lowering the threshold lets trace through | — | pass | src/esp01/test/esp_socket_test.cpp:748 |
-| SEAM-07 | {} substitutes positionally, in order, for mixed types | — | pass | src/esp01/test/esp_socket_test.cpp:758 |
-| SEAM-08 | {{ and }} are literal braces | — | pass | src/esp01/test/esp_socket_test.cpp:760 |
-| SEAM-09 | a format spec inside the braces is ignored, not printed | — | pass | src/esp01/test/esp_socket_test.cpp:761 |
-| SEAM-10 | surplus arguments and surplus placeholders are both harmless | — | pass | src/esp01/test/esp_socket_test.cpp:763 |
-| SOCK-TRACE-01 | an IP literal is resolved without a DNS lookup | — | pass | src/esp01/test/esp_socket_test.cpp:798 |
-| SOCK-TRACE-02 | at the default level a full session logs open + close and nothing else | — | pass | src/esp01/test/esp_socket_test.cpp:816 |
-| SOCK-TRACE-03 | a policy refusal is logged at the default level | — | pass | src/esp01/test/esp_socket_test.cpp:830 |
-| SOCK-TRACE-04 | a host NAME takes the resolve path, not the numeric fast path | — | pass | src/esp01/test/esp_socket_test.cpp:852 |
-| TR-01 | a fresh transport is Idle with no error | — | pass | src/esp01/test/esp_socket_test.cpp:868 |
-| TR-02 | an empty host is rejected outright, leaving the state alone | — | pass | src/esp01/test/esp_socket_test.cpp:870 |
-| TR-03 | port 0 is rejected outright | — | pass | src/esp01/test/esp_socket_test.cpp:872 |
-| TR-04 | close() on an idle transport stays Idle | — | pass | src/esp01/test/esp_socket_test.cpp:874 |
-| TR-05 | send() before Connected moves no bytes | — | pass | src/esp01/test/esp_socket_test.cpp:877 |
-| TR-06 | recv() before Connected moves no bytes | — | pass | src/esp01/test/esp_socket_test.cpp:879 |
-| TR-07 | poll() in Idle is a harmless no-op | — | pass | src/esp01/test/esp_socket_test.cpp:881 |
-| TR-08 | an accepted request parks in Resolving without resolving | — | pass | src/esp01/test/esp_socket_test.cpp:884 |
-| TR-09 | a second request while busy is refused | — | pass | src/esp01/test/esp_socket_test.cpp:887 |
-| SEC-01 | the default policy refuses a loopback connect | — | pass | src/esp01/test/esp_socket_test.cpp:904 |
-| SEC-02 | the refusal says WHY, naming the policy | — | pass | src/esp01/test/esp_socket_test.cpp:906 |
-| SEC-03 | a refused connect never reached the listener | — | pass | src/esp01/test/esp_socket_test.cpp:909 |
-| SEC-04 | an address-policy refusal reports the rule that refused it, without anyone parsing last_error() | — | pass | src/esp01/test/esp_socket_test.cpp:927 |
-| SEC-05 | a fresh request clears the previous refusal verdict | — | pass | src/esp01/test/esp_socket_test.cpp:938 |
-| SEC-06 | a network failure reports no deny reason, so it cannot be mistaken for a deliberate block | — | pass | src/esp01/test/esp_socket_test.cpp:961 |
-| NET-01 | connect request accepted | — | pass | src/esp01/test/esp_socket_test.cpp:974 |
-| NET-02 | the connect completes through poll() alone | — | pass | src/esp01/test/esp_socket_test.cpp:976 |
-| NET-03 | the listener sees the connection | — | pass | src/esp01/test/esp_socket_test.cpp:979 |
-| NET-04 | peer_address() is the loopback address connected to | — | pass | src/esp01/test/esp_socket_test.cpp:980 |
-| NET-05 | send() accepts the bytes | — | pass | src/esp01/test/esp_socket_test.cpp:987 |
-| NET-06 | the server receives exactly what was sent | — | pass | src/esp01/test/esp_socket_test.cpp:989 |
-| NET-07 | recv() with nothing pending returns 0 and stays Connected | — | pass | src/esp01/test/esp_socket_test.cpp:993 |
-| NET-08 | recv() returns exactly what the server sent | — | pass | src/esp01/test/esp_socket_test.cpp:1009 |
-| NET-09 | a peer close moves the transport to Closed | — | pass | src/esp01/test/esp_socket_test.cpp:1013 |
-| NET-10 | send/recv after Closed move no bytes | — | pass | src/esp01/test/esp_socket_test.cpp:1016 |
-| NET-11 | a closed transport accepts a new connect | — | pass | src/esp01/test/esp_socket_test.cpp:1020 |
-| NET-12 | close() on a live connection ends in Closed and the server sees EOF | — | pass | src/esp01/test/esp_socket_test.cpp:1025 |
-| NET-ERR-01 | a connect to a closed port ends in Failed | — | pass | src/esp01/test/esp_socket_test.cpp:1057 |
-| NET-ERR-02 | the failure carries an explanatory error string | — | pass | src/esp01/test/esp_socket_test.cpp:1058 |
-| ESP-RST-01 | a peer that RSTs after serving its data is reported at warn, and the run carries no error line at all | — | pass | src/esp01/test/esp_socket_test.cpp:1125 |
-| ESP-RST-02 | a peer that RSTs having served nothing is still an error | — | pass | src/esp01/test/esp_socket_test.cpp:1147 |
-| SIG-01 | fork() unavailable on this host | — | skip | src/esp01/test/esp_socket_test.cpp:1177 |
-| SIG-02 | fork() unavailable on this host | — | skip | src/esp01/test/esp_socket_test.cpp:1178 |
-| ASYNC-01 | an IP literal resolves synchronously in the first poll() and never reaches the resolver | — | pass | src/esp01/test/esp_socket_test.cpp:1243 |
-| ASYNC-11 | the poll() that STARTS a lookup returns immediately instead of waiting it out | — | pass | src/esp01/test/esp_socket_test.cpp:1279 |
-| ASYNC-02 | 200 poll()s during an outstanding lookup return promptly and leave the transport in Resolving | — | pass | src/esp01/test/esp_socket_test.cpp:1305 |
-| ASYNC-03 | the lookup ran on a thread other than the caller's | — | pass | src/esp01/test/esp_socket_test.cpp:1310 |
-| ASYNC-04 | opening the gate completes the connect through the async path, to the address the resolver returned | — | pass | src/esp01/test/esp_socket_test.cpp:1316 |
-| ASYNC-05 | the address policy is enforced on the RESOLVED address, and the refused connect never reached the listener | — | pass | src/esp01/test/esp_socket_test.cpp:1338 |
-| ASYNC-06 | close() during a lookup returns at once and the late result never resurrects the transport | — | pass | src/esp01/test/esp_socket_test.cpp:1375 |
-| ASYNC-10 | a lookup abandoned by close() is never applied to the next connect | — | pass | src/esp01/test/esp_socket_test.cpp:1391 |
-| ASYNC-07 | destroying a transport mid-lookup returns immediately instead of waiting out the resolver | — | pass | src/esp01/test/esp_socket_test.cpp:1425 |
-| ASYNC-08 | ...and the orphaned lookup runs to completion AFTER it, into a result block that outlived the transport | — | pass | src/esp01/test/esp_socket_test.cpp:1439 |
-| ASYNC-09 | AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the TCP handshake | — | pass | src/esp01/test/esp_socket_test.cpp:1479 |
-| ASYNC-12 | a throwing resolver degrades to a failed lookup instead of aborting the process, and its half-built address list is discarded | — | pass | src/esp01/test/esp_socket_test.cpp:1512 |
+| POL-LB-01 | 127.0.0.1 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:395 |
+| POL-LB-02 | 127.0.0.0 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:397 |
+| POL-LB-03 | 127.255.255.255 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:399 |
+| POL-LB-04 | 126.255.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:401 |
+| POL-LB-05 | 128.0.0.0 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:403 |
+| POL-LB-06 | 0:0:0:0:0:0:0:1 → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:405 |
+| POL-LB-07 | 0:0:0:0:0:0:0:2 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:408 |
+| POL-LB-08 | v4mapped(127, 0, 0, 1) → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:411 |
+| POL-LB-09 | 127.0.0.1 → None under loopback_ok | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:414 |
+| POL-LB-10 | 0:0:0:0:0:0:0:1 → None under loopback_ok | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:416 |
+| POL-LL-01 | 169.254.0.0 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:420 |
+| POL-LL-02 | 169.254.255.255 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:422 |
+| POL-LL-03 | 169.253.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:424 |
+| POL-LL-04 | 169.255.0.0 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:426 |
+| POL-LL-05 | 0xfe80:0:0:0:0:0:0:1 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:428 |
+| POL-LL-06 | 0xfebf:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff:0xffff → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:430 |
+| POL-LL-07 | 0xfe7f:0:0:0:0:0:0:1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:433 |
+| POL-LL-08 | 0xfec0:0:0:0:0:0:0:1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:435 |
+| POL-MD-01 | 169.254.169.254 → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:440 |
+| POL-MD-02 | 100.100.100.200 → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:444 |
+| POL-MD-03 | 100.100.100.199 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:446 |
+| POL-MD-04 | 0xfd00:0x0ec2:0:0:0:0:0:0x0254 → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:449 |
+| POL-MD-05 | 0xfd00:0x0ec2:0:0:0:0:0:0x0253 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:451 |
+| POL-MD-06 | v4mapped(169, 254, 169, 254) → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:453 |
+| POL-MD-07 | 169.254.169.254 → LinkLocal with deny_cloud_metadata off | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:460 |
+| POL-MD-08 | 169.254.169.254 → None with deny_cloud_metadata off, deny_link_local off | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:464 |
+| POL-PRIV-01 | 10.0.0.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:469 |
+| POL-PRIV-02 | 10.255.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:471 |
+| POL-PRIV-03 | 172.16.0.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:473 |
+| POL-PRIV-04 | 172.31.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:475 |
+| POL-PRIV-05 | 192.168.1.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:477 |
+| POL-PRIV-06 | 100.64.0.1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:479 |
+| POL-PRIV-07 | 0xfd12:0x3456:0:0:0:0:0:1 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:481 |
+| POL-PRIV-08 | 10.0.0.1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:487 |
+| POL-PRIV-09 | 192.168.1.1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:489 |
+| POL-PRIV-10 | 172.16.0.0 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:491 |
+| POL-PRIV-11 | 172.15.255.255 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:493 |
+| POL-PRIV-12 | 172.32.0.0 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:495 |
+| POL-PRIV-13 | 100.64.0.1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:497 |
+| POL-PRIV-14 | 100.63.255.255 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:499 |
+| POL-PRIV-15 | 0xfd12:0:0:0:0:0:0:1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:501 |
+| POL-PRIV-16 | 0xfc00:0:0:0:0:0:0:1 → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:503 |
+| POL-PRIV-17 | 0xfe00:0:0:0:0:0:0:1 → None with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:505 |
+| POL-RSV-01 | 0.0.0.0 → Unspecified | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:510 |
+| POL-RSV-02 | 0.255.255.255 → Unspecified | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:512 |
+| POL-RSV-03 | 1.0.0.0 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:514 |
+| POL-RSV-04 | 0:0:0:0:0:0:0:0 → Unspecified | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:516 |
+| POL-RSV-05 | 224.0.0.1 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:518 |
+| POL-RSV-06 | 223.255.255.255 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:520 |
+| POL-RSV-07 | 240.0.0.0 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:522 |
+| POL-RSV-08 | 255.255.255.255 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:524 |
+| POL-RSV-09 | 0xff02:0:0:0:0:0:0:1 → MulticastOrReserved | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:526 |
+| NORM-01 | ::ffff:1.2.3.4 unwraps to 1.2.3.4 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:530 |
+| NORM-02 | 64:ff9b::1.2.3.4 unwraps to 1.2.3.4 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:536 |
+| NORM-03 | ipv6(nat64) → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:540 |
+| NORM-04 | IPv4-compatible ::1.2.3.4 unwraps to 1.2.3.4 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:546 |
+| NORM-05 | :: keeps its IPv6 identity (not 0.0.0.0) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:549 |
+| NORM-06 | ::1 keeps its IPv6 identity (not 0.0.0.1) | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:551 |
+| NORM-07 | ::0.0.0.5 is not unwrapped either | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:553 |
+| NORM-08 | an ordinary IPv6 address is unchanged | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:555 |
+| NORM-09 | an IPv4 address is returned unchanged | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:558 |
+| POL-TUN-01 | sixtofour(127, 0, 0, 1) → Loopback | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:565 |
+| POL-TUN-02 | sixtofour(169, 254, 169, 254) → CloudMetadata | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:567 |
+| POL-TUN-03 | sixtofour(169, 254, 0, 1) → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:569 |
+| POL-TUN-04 | sixtofour(93, 184, 216, 34) → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:571 |
+| POL-TUN-05 | sixtofour(10, 0, 0, 1) → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:576 |
+| POL-TUN-06 | sixtofour(10, 0, 0, 1) → Private with deny_private on | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:581 |
+| POL-TUN-07 | 0x2001:0x0000:0x7f00:0x0001:0:0:0x80ff:0xfffe → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:589 |
+| POL-TUN-08 | 0x2001:0x0db8:0:0:0:0x5efe:0x7f00:0x0001 → None | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:594 |
+| POL-TUN-09 | 0xfe80:0:0:0:0:0x5efe:0x7f00:0x0001 → LinkLocal | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:597 |
+| POL-TUN-10 | normalize() leaves a 6to4 address as IPv6 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:599 |
+| POL-TUN-11 | a 6to4 address does not win the IPv4 preference pass | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:609 |
+| POL-TUN-12 | tunnel_endpoint() extracts the 6to4 gateway address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:615 |
+| POL-TUN-13 | tunnel_endpoint() declines an ordinary IPv6 address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:618 |
+| POL-TUN-14 | tunnel_endpoint() declines an IPv4 address | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:623 |
+| ESP-SEL-01 | an empty candidate list selects nothing | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:631 |
+| ESP-SEL-02 | IPv4 is preferred even when IPv6 comes first | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:639 |
+| ESP-SEL-03 | a denied candidate is skipped for an allowed one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:647 |
+| ESP-SEL-04 | IPv6 is used when there is no IPv4 candidate | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:655 |
+| ESP-SEL-05 | all-denied reports the FIRST candidate's reason | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:664 |
+| ESP-SEL-06 | with loopback allowed, IPv4 loopback still wins over IPv6 | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:673 |
+| ESP-SEL-07 | a mapped IPv4 candidate counts as IPv4 and is returned verbatim | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:682 |
+| FMT-01 | IPv4 renders as a dotted quad | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:688 |
+| FMT-02 | IPv6 renders in full, uncompressed 8-group form | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:690 |
+| FMT-03 | IPv6 groups drop leading zeros but keep their positions | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:692 |
+| FMT-04 | every deny reason has distinct text | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:695 |
+| FMT-05 | every transport state has distinct text | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:699 |
+| SEAM-01 | the default threshold is info — the module's own quiet default | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:712 |
+| SEAM-02 | every level has distinct, non-'unknown' text | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:714 |
+| SEAM-03 | a byte renders as two upper-case hex digits, not as a character | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:718 |
+| SEAM-04 | an installed sink receives the module's output | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:729 |
+| SEAM-04b | ...and clearing the sink restores silence, at any level | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:734 |
+| SEAM-05 | the threshold drops everything below it and keeps the rest | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:743 |
+| SEAM-06 | lowering the threshold lets trace through | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:748 |
+| SEAM-07 | {} substitutes positionally, in order, for mixed types | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:758 |
+| SEAM-08 | {{ and }} are literal braces | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:760 |
+| SEAM-09 | a format spec inside the braces is ignored, not printed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:761 |
+| SEAM-10 | surplus arguments and surplus placeholders are both harmless | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:763 |
+| SOCK-TRACE-01 | an IP literal is resolved without a DNS lookup | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:798 |
+| SOCK-TRACE-02 | at the default level a full session logs open + close and nothing else | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:816 |
+| SOCK-TRACE-03 | a policy refusal is logged at the default level | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:830 |
+| SOCK-TRACE-04 | a host NAME takes the resolve path, not the numeric fast path | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:852 |
+| TR-01 | a fresh transport is Idle with no error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:868 |
+| TR-02 | an empty host is rejected outright, leaving the state alone | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:870 |
+| TR-03 | port 0 is rejected outright | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:872 |
+| TR-04 | close() on an idle transport stays Idle | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:874 |
+| TR-05 | send() before Connected moves no bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:877 |
+| TR-06 | recv() before Connected moves no bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:879 |
+| TR-07 | poll() in Idle is a harmless no-op | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:881 |
+| TR-08 | an accepted request parks in Resolving without resolving | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:884 |
+| TR-09 | a second request while busy is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:887 |
+| SEC-01 | the default policy refuses a loopback connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:904 |
+| SEC-02 | the refusal says WHY, naming the policy | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:906 |
+| SEC-03 | a refused connect never reached the listener | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:909 |
+| SEC-04 | an address-policy refusal reports the rule that refused it, without anyone parsing last_error() | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:927 |
+| SEC-05 | a fresh request clears the previous refusal verdict | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:938 |
+| SEC-06 | a network failure reports no deny reason, so it cannot be mistaken for a deliberate block | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:961 |
+| NET-01 | connect request accepted | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:974 |
+| NET-02 | the connect completes through poll() alone | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:976 |
+| NET-03 | the listener sees the connection | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:979 |
+| NET-04 | peer_address() is the loopback address connected to | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:980 |
+| NET-05 | send() accepts the bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:987 |
+| NET-06 | the server receives exactly what was sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:989 |
+| NET-07 | recv() with nothing pending returns 0 and stays Connected | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:993 |
+| NET-08 | recv() returns exactly what the server sent | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1009 |
+| NET-09 | a peer close moves the transport to Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1013 |
+| NET-10 | send/recv after Closed move no bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1016 |
+| NET-11 | a closed transport accepts a new connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1020 |
+| NET-12 | close() on a live connection ends in Closed and the server sees EOF | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1025 |
+| NET-ERR-01 | a connect to a closed port ends in Failed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1057 |
+| NET-ERR-02 | the failure carries an explanatory error string | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1058 |
+| ESP-RST-01 | a peer that RSTs after serving its data is reported at warn, and the run carries no error line at all | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1125 |
+| ESP-RST-02 | a peer that RSTs having served nothing is still an error | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1147 |
+| SIG-01 | fork() unavailable on this host | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:1177 |
+| SIG-02 | fork() unavailable on this host | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:1178 |
+| ASYNC-01 | an IP literal resolves synchronously in the first poll() and never reaches the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1243 |
+| ASYNC-11 | the poll() that STARTS a lookup returns immediately instead of waiting it out | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1279 |
+| ASYNC-02 | 200 poll()s during an outstanding lookup return promptly and leave the transport in Resolving | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1305 |
+| ASYNC-03 | the lookup ran on a thread other than the caller's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1310 |
+| ASYNC-04 | opening the gate completes the connect through the async path, to the address the resolver returned | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1316 |
+| ASYNC-05 | the address policy is enforced on the RESOLVED address, and the refused connect never reached the listener | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1338 |
+| ASYNC-06 | close() during a lookup returns at once and the late result never resurrects the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1375 |
+| ASYNC-10 | a lookup abandoned by close() is never applied to the next connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1391 |
+| ASYNC-07 | destroying a transport mid-lookup returns immediately instead of waiting out the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1425 |
+| ASYNC-08 | ...and the orphaned lookup runs to completion AFTER it, into a result block that outlived the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1439 |
+| ASYNC-09 | AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the TCP handshake | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1479 |
+| ASYNC-12 | a throwing resolver degrades to a failed lookup instead of aborting the process, and its half-built address list is discarded | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1512 |
 
 ## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| AT-01 | a bare CRLF is an empty command answered ERROR | — | pass | src/esp01/test/esp_at_test.cpp:443 |
-| AT-02 | AT answers exactly \r\ OK\r\ | — | pass | src/esp01/test/esp_at_test.cpp:447 |
-| AT-03 | ATE0 answers OK | — | pass | src/esp01/test/esp_at_test.cpp:449 |
-| AT-03b | ...and leaves echo off | — | pass | src/esp01/test/esp_at_test.cpp:450 |
-| AT-04 | ATE1 is NOT echoed — echo was still off while its own bytes arrived | — | pass | src/esp01/test/esp_at_test.cpp:453 |
-| AT-04b | ...but echo is now really on | — | pass | src/esp01/test/esp_at_test.cpp:456 |
-| AT-04c | so the NEXT line is echoed, terminator and all, before its reply | — | pass | src/esp01/test/esp_at_test.cpp:458 |
-| AT-04d | and ATE0 still echoes itself before switching echo off | — | pass | src/esp01/test/esp_at_test.cpp:461 |
-| AT-05 | AT+CIPMUX=0 answers OK (the only supported mode) | — | pass | src/esp01/test/esp_at_test.cpp:464 |
-| AT-06 | AT+CIPMUX=1 is REFUSED — accepting it would promise a +IPD form nextsync cannot read and cannot ask back | — | pass | src/esp01/test/esp_at_test.cpp:467 |
-| AT-07 | AT+CIPCLOSE with nothing open answers ERROR (nextsync loops until it sees it) | — | pass | src/esp01/test/esp_at_test.cpp:472 |
-| AT-08 | AT+RST answers OK then the two WIFI URCs, never 'ready' | — | pass | src/esp01/test/esp_at_test.cpp:476 |
-| AT-09 | an unsupported command answers ERROR | — | pass | src/esp01/test/esp_at_test.cpp:479 |
-| AT-10 | a bare LF produces nothing — it is only ever the CR's partner | — | pass | src/esp01/test/esp_at_test.cpp:482 |
-| AT-10b | ...and is not echoed either, even with echo on | — | pass | src/esp01/test/esp_at_test.cpp:486 |
-| AT-11 | command names match case-insensitively | — | pass | src/esp01/test/esp_at_test.cpp:488 |
-| AT-12 | an overlong line answers exactly one ERROR | — | pass | src/esp01/test/esp_at_test.cpp:500 |
-| AT-12b | ...and is REFUSED WHOLE — its truncated prefix, a valid CIPSTART, is never run | — | pass | src/esp01/test/esp_at_test.cpp:502 |
-| AT-13 | nextsync's baud switch is acknowledged | — | pass | src/esp01/test/esp_at_test.cpp:506 |
-| AT-13b | ...and the requested baud is recorded for tracing | — | pass | src/esp01/test/esp_at_test.cpp:507 |
-| AT-14 | the _DEF form is accepted too | — | pass | src/esp01/test/esp_at_test.cpp:511 |
-| AT-14b | as is the plain AT+UART form | — | pass | src/esp01/test/esp_at_test.cpp:513 |
-| AT-14c | syncfast's 2 Mbaud is recorded | — | pass | src/esp01/test/esp_at_test.cpp:514 |
-| AT-15 | a non-numeric baud answers ERROR, not a clamped number | — | pass | src/esp01/test/esp_at_test.cpp:516 |
-| CON-01 | AT+CIPSTART answers NOTHING until the transport settles — there is no synchronous connect to answer from | — | pass | src/esp01/test/esp_at_test.cpp:524 |
-| CON-01b | ...and the engine reports it is waiting | — | pass | src/esp01/test/esp_at_test.cpp:528 |
-| CON-02 | a settled connection answers OK | — | pass | src/esp01/test/esp_at_test.cpp:530 |
-| CON-02b | ...the engine is connected | — | pass | src/esp01/test/esp_at_test.cpp:531 |
-| CON-02c | ...and the transport got the parsed host and port | — | pass | src/esp01/test/esp_at_test.cpp:532 |
-| CON-03 | a failed connect answers ERROR only — never FAIL, never CLOSED for a connection that never existed | — | pass | src/esp01/test/esp_at_test.cpp:538 |
-| CON-03b | ...and the engine is not connected | — | pass | src/esp01/test/esp_at_test.cpp:542 |
-| CON-04 | NXtel's 4-argument CIPSTART (with keepalive) connects | — | pass | src/esp01/test/esp_at_test.cpp:546 |
-| CON-04b | ...with host and port parsed past the keepalive | — | pass | src/esp01/test/esp_at_test.cpp:548 |
-| CON-05 | UDP is refused — v1.0 is TCP only | — | pass | src/esp01/test/esp_at_test.cpp:553 |
-| CON-05b | ...and no connect was ever started | — | pass | src/esp01/test/esp_at_test.cpp:554 |
-| CON-06 | a second CIPSTART while connected answers ERROR, not 'ALREADY CONNECTED' | — | pass | src/esp01/test/esp_at_test.cpp:559 |
-| CON-06b | ...and is rejected by the ENGINE — the transport is never asked a second time | — | pass | src/esp01/test/esp_at_test.cpp:562 |
-| CON-07 | guest input during a connect is deferred, not answered early | — | pass | src/esp01/test/esp_at_test.cpp:569 |
-| CON-07b | ...then replayed in order once the connect settles | — | pass | src/esp01/test/esp_at_test.cpp:572 |
-| CON-08 | closing a live connection reports CLOSED then OK | — | pass | src/esp01/test/esp_at_test.cpp:578 |
-| CON-08b | ...and the transport was really closed | — | pass | src/esp01/test/esp_at_test.cpp:580 |
-| CON-09 | port 0 answers ERROR | — | pass | src/esp01/test/esp_at_test.cpp:584 |
-| CON-04c | trailing garbage after a VALID keepalive still answers ERROR | — | pass | src/esp01/test/esp_at_test.cpp:590 |
-| CON-04d | ...and no connect was attempted | — | pass | src/esp01/test/esp_at_test.cpp:592 |
-| CON-11 | a connect that never completes is abandoned with ERROR | — | pass | src/esp01/test/esp_at_test.cpp:606 |
-| CON-11b | ...and the engine stops waiting | — | pass | src/esp01/test/esp_at_test.cpp:608 |
-| CON-11c | ...having released the socket | — | pass | src/esp01/test/esp_at_test.cpp:609 |
-| CON-12 | ...and the slot is reusable afterwards | — | pass | src/esp01/test/esp_at_test.cpp:615 |
-| CON-12b | ...really connected | — | pass | src/esp01/test/esp_at_test.cpp:616 |
-| CON-13 | a connect inside its deadline is still awaited, not refused | — | pass | src/esp01/test/esp_at_test.cpp:622 |
-| CON-13b | ...and remains pending | — | pass | src/esp01/test/esp_at_test.cpp:624 |
-| CON-10 | a transport that refuses the request answers ERROR immediately | — | pass | src/esp01/test/esp_at_test.cpp:629 |
-| SEND-01 | AT+CIPSEND answers \r\ OK\r\ > — TRAILING SPACE INCLUDED; three parsers busy-wait on this with no timeout | — | pass | src/esp01/test/esp_at_test.cpp:638 |
-| SEND-01b | ...and 3 payload bytes are outstanding | — | pass | src/esp01/test/esp_at_test.cpp:642 |
-| SEND-02 | the completed payload answers \r\ SEND OK\r\ | — | pass | src/esp01/test/esp_at_test.cpp:650 |
-| SEND-02b | ...and exactly the payload reached the peer | — | pass | src/esp01/test/esp_at_test.cpp:652 |
-| SEND-03 | NXtel's 5 bytes after CIPSEND=3: 3 are payload and the trailing CRLF becomes an empty command line | — | pass | src/esp01/test/esp_at_test.cpp:663 |
-| SEND-03b | ...and the peer got exactly the 3 IAC bytes, not 5 | — | pass | src/esp01/test/esp_at_test.cpp:667 |
-| SEND-04 | AT+CIPSENDEX is a distinct command with the same prompt | — | pass | src/esp01/test/esp_at_test.cpp:673 |
-| SEND-04b | ...and the same completion | — | pass | src/esp01/test/esp_at_test.cpp:676 |
-| SEND-04c | ...delivering the payload | — | pass | src/esp01/test/esp_at_test.cpp:677 |
-| SEND-05 | AT+CIPSEND with no connection answers ERROR — and no prompt, which would hang the guest waiting to send | — | pass | src/esp01/test/esp_at_test.cpp:680 |
-| SEND-06 | a zero length answers ERROR | — | pass | src/esp01/test/esp_at_test.cpp:686 |
-| SEND-06b | ...as does one over the 2048-byte ceiling | — | pass | src/esp01/test/esp_at_test.cpp:688 |
-| SEND-06c | ...but exactly 2048 IS accepted, prompt and all | — | pass | src/esp01/test/esp_at_test.cpp:693 |
-| SEND-06d | ...with the full payload outstanding | — | pass | src/esp01/test/esp_at_test.cpp:695 |
-| SEND-07 | the send path is 8-bit clean, NUL and ESC included | — | pass | src/esp01/test/esp_at_test.cpp:703 |
-| SEND-08 | a partial socket accept still answers SEND OK exactly once | — | pass | src/esp01/test/esp_at_test.cpp:710 |
-| SEND-08b | ...with only what the kernel took so far delivered | — | pass | src/esp01/test/esp_at_test.cpp:712 |
-| SEND-08c | ...and the remainder flushed by later polls | — | pass | src/esp01/test/esp_at_test.cpp:715 |
-| SEND-09 | payload bytes are never echoed, even with echo on | — | pass | src/esp01/test/esp_at_test.cpp:721 |
-| IPD-01 | inbound data is framed as the unmultiplexed +IPD,<len>: form | — | pass | src/esp01/test/esp_at_test.cpp:730 |
-| IPD-02 | +IPD is 8-bit clean and <len> counts raw bytes | — | pass | src/esp01/test/esp_at_test.cpp:736 |
-| IPD-03 | bytes trickling in while a chunk drains coalesce into ONE following chunk | — | pass | src/esp01/test/esp_at_test.cpp:753 |
-| IPD-04 | SEND OK then +IPD, with no stray '+' between them | — | pass | src/esp01/test/esp_at_test.cpp:767 |
-| IPD-04b | ...the first '+' in the stream is the +IPD's own | — | pass | src/esp01/test/esp_at_test.cpp:769 |
-| IPD-05 | a 3000-byte burst is split at the 2048-byte chunk ceiling | — | pass | src/esp01/test/esp_at_test.cpp:776 |
-| IPD-05b | ...and the remainder is a second chunk, not a dribble | — | pass | src/esp01/test/esp_at_test.cpp:778 |
-| IPD-05c | ...totalling exactly the payload plus two headers | — | pass | src/esp01/test/esp_at_test.cpp:780 |
-| IPD-07 | once the header starts, every byte-slot delivers a byte — no gap can open inside +IPD,<len>: | — | pass | src/esp01/test/esp_at_test.cpp:799 |
-| IPD-07b | ...and the header arrived intact | — | pass | src/esp01/test/esp_at_test.cpp:803 |
-| IPD-08 | a peer close is reported only AFTER its last bytes have been framed | — | pass | src/esp01/test/esp_at_test.cpp:811 |
-| IPD-09 | no +IPD is cut while a command line is half-received | — | pass | src/esp01/test/esp_at_test.cpp:820 |
-| IPD-09b | ...it follows the completed command's reply | — | pass | src/esp01/test/esp_at_test.cpp:823 |
-| IPD-10 | no +IPD is cut between the '>' prompt and the payload's SEND OK | — | pass | src/esp01/test/esp_at_test.cpp:832 |
-| IPD-10b | ...it follows SEND OK | — | pass | src/esp01/test/esp_at_test.cpp:835 |
-| PACE-01 | a burst is drip-fed one byte per byte-time, never dumped into the 512-byte FIFO | — | pass | src/esp01/test/esp_at_test.cpp:845 |
-| PACE-02 | a 10-byte-time span releases exactly 10 bytes | — | pass | src/esp01/test/esp_at_test.cpp:853 |
-| PACE-03 | sub-byte spans accumulate rather than rounding up to a byte | — | pass | src/esp01/test/esp_at_test.cpp:862 |
-| PACE-04 | idle time banks no credit — otherwise a quiet link would burst at unbounded speed the instant data arrived | — | pass | src/esp01/test/esp_at_test.cpp:871 |
-| PACE-05 | a faster byte-time delivers proportionally more bytes | — | pass | src/esp01/test/esp_at_test.cpp:882 |
-| PACE-07 | a span drains the whole reply | — | pass | src/esp01/test/esp_at_test.cpp:891 |
-| PACE-07b | ...and the leftover sub-byte credit does NOT survive into the next burst | — | pass | src/esp01/test/esp_at_test.cpp:894 |
-| PACE-07c | ...the next byte arrives a full byte-time after the refill | — | pass | src/esp01/test/esp_at_test.cpp:898 |
-| PACE-06 | a zero byte-time neither divides by zero nor hangs | — | pass | src/esp01/test/esp_at_test.cpp:905 |
-| HOOK-01 | an idle engine lowers the tick gate | — | pass | src/esp01/test/esp_at_test.cpp:915 |
-| HOOK-02 | queued output raises it | — | pass | src/esp01/test/esp_at_test.cpp:917 |
-| HOOK-02b | ...and draining lowers it again | — | pass | src/esp01/test/esp_at_test.cpp:919 |
-| DIAG-01 | AT+CWJAP? carries NXtel's CWJAP:" SSID anchor | — | pass | src/esp01/test/esp_at_test.cpp:925 |
-| DIAG-01b | ...and the "," anchor that precedes the AP MAC | — | pass | src/esp01/test/esp_at_test.cpp:927 |
-| DIAG-01c | ...ending in an OK | — | pass | src/esp01/test/esp_at_test.cpp:929 |
-| DIAG-02 | AT+CIFSR carries the TAIP," and TAMAC," anchors | — | pass | src/esp01/test/esp_at_test.cpp:933 |
-| DIAG-03 | AT+CIPSTA? carries the gateway:" and netmask:" anchors | — | pass | src/esp01/test/esp_at_test.cpp:938 |
-| DIAG-04 | AT+GMR carries both version anchors | — | pass | src/esp01/test/esp_at_test.cpp:945 |
-| DIAG-04b | ...each terminated by a '(' on its OWN line, so neither field renders as garbage | — | pass | src/esp01/test/esp_at_test.cpp:956 |
-| DIAG-05 | AT+CIPDNS_CUR? carries the +CIPDNS_CUR: anchor twice | — | pass | src/esp01/test/esp_at_test.cpp:962 |
-| DIAG-06 | every diagnostic reply terminates with the exact OK framing .ESPBAUD compares | — | pass | src/esp01/test/esp_at_test.cpp:974 |
-| DIAG-07 | the advertised SSID is the fixed synthetic literal, never a host network | — | pass | src/esp01/test/esp_at_test.cpp:977 |
-| NEVER-01 | a full session emits none of the never-emit URCs | — | pass | src/esp01/test/esp_at_test.cpp:1010 |
-| NEVER-02 | ...and AT+RST drops the connection without an unsolicited CLOSED | — | pass | src/esp01/test/esp_at_test.cpp:1011 |
-| TRACE-01 | at the default level a connection open is reported | — | pass | src/esp01/test/esp_at_test.cpp:1046 |
-| TRACE-02 | ...and the close | — | pass | src/esp01/test/esp_at_test.cpp:1048 |
-| TRACE-03 | ...and NOTHING else — no AT chatter, no prompt, no +IPD, no pacing | — | pass | src/esp01/test/esp_at_test.cpp:1050 |
-| TRACE-04 | at debug every AT command received is traced | — | pass | src/esp01/test/esp_at_test.cpp:1064 |
-| TRACE-05 | ...every response emitted is traced, escaped so framing is visible | — | pass | src/esp01/test/esp_at_test.cpp:1066 |
-| TRACE-06 | ...the payload byte count is traced | — | pass | src/esp01/test/esp_at_test.cpp:1068 |
-| TRACE-07 | ...and the +IPD framing decision is traced | — | pass | src/esp01/test/esp_at_test.cpp:1070 |
-| TRACE-08 | ...but per-byte pacing is not — that is trace level | — | pass | src/esp01/test/esp_at_test.cpp:1072 |
-| TRACE-09 | at trace the RX pacing and queue state are visible | — | pass | src/esp01/test/esp_at_test.cpp:1081 |
-| MODE-01 | an unstarted wrapper is not running | — | pass | src/esp01/test/esp_at_test.cpp:1108 |
-| MODE-02 | driven INLINE, receive() alone answers as the bare core does | — | pass | src/esp01/test/esp_at_test.cpp:1114 |
-| MODE-02b | ...and a connect's reply is still deferred, not invented | — | pass | src/esp01/test/esp_at_test.cpp:1124 |
-| MODE-02c | ...until an inline poll() settles the transport | — | pass | src/esp01/test/esp_at_test.cpp:1128 |
-| MODE-03 | start() brings the worker up | — | pass | src/esp01/test/esp_at_test.cpp:1137 |
-| MODE-04 | the worker drains guest input without being polled | — | pass | src/esp01/test/esp_at_test.cpp:1141 |
-| MODE-05 | driven THREADED it answers with the identical bytes | — | pass | src/esp01/test/esp_at_test.cpp:1142 |
-| MODE-06 | stop() joins and reports it | — | pass | src/esp01/test/esp_at_test.cpp:1145 |
-| MODE-07 | ...and stop() is idempotent | — | pass | src/esp01/test/esp_at_test.cpp:1147 |
-| MODE-08 | a connect completes on the worker thread | — | pass | src/esp01/test/esp_at_test.cpp:1168 |
-| MODE-09 | ...the CIPSEND prompt still comes back byte-exact | — | pass | src/esp01/test/esp_at_test.cpp:1172 |
-| MODE-10 | ...the payload is acknowledged | — | pass | src/esp01/test/esp_at_test.cpp:1177 |
-| MODE-11 | ...and really reached the transport | — | pass | src/esp01/test/esp_at_test.cpp:1178 |
-| MODE-12 | unsolicited peer data is framed and paced out unprompted | — | pass | src/esp01/test/esp_at_test.cpp:1188 |
-| MODE-13 | the worker really ran while the wrapper was alive | — | pass | src/esp01/test/esp_at_test.cpp:1214 |
-| MODE-14 | destroying a running wrapper JOINS: the destructor cannot return while the worker is still inside poll() | — | pass | src/esp01/test/esp_at_test.cpp:1219 |
-| MODE-15 | the worker is inside a long poll() | — | pass | src/esp01/test/esp_at_test.cpp:1245 |
-| MODE-16 | tick() returns immediately rather than waiting for it | — | pass | src/esp01/test/esp_at_test.cpp:1252 |
-| STALL-01a | nothing has been delivered yet — no tick() has run | — | pass | src/esp01/test/esp_at_test.cpp:1286 |
-| STALL-01b | the worker is provably stalled inside the transport poll | — | pass | src/esp01/test/esp_at_test.cpp:1291 |
-| STALL-01 | queued bytes reach the wire DURING a transport stall | — | pass | src/esp01/test/esp_at_test.cpp:1299 |
-| STALL-01c | ...and they did so while the stall was still in progress | — | pass | src/esp01/test/esp_at_test.cpp:1301 |
-| STALL-02a | the connect is outstanding on the worker at destruction | — | pass | src/esp01/test/esp_at_test.cpp:1344 |
-| STALL-02 | destroying the wrapper mid-connect completes promptly, not at the next scheduled pass | — | pass | src/esp01/test/esp_at_test.cpp:1353 |
-| STALL-03a | the worker is inside a slow send(), holding the engine lock | — | pass | src/esp01/test/esp_at_test.cpp:1377 |
-| STALL-03 | set_output() returns without waiting for the engine lock | — | pass | src/esp01/test/esp_at_test.cpp:1385 |
-| STALL-04a | the worker recorded the exception rather than dying on it | — | pass | src/esp01/test/esp_at_test.cpp:1421 |
-| STALL-04 | a transport that throws on the worker costs one service pass, not the process: the connect still completes afterwards | — | pass | src/esp01/test/esp_at_test.cpp:1423 |
+| AT-01 | a bare CRLF is an empty command answered ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:443 |
+| AT-02 | AT answers exactly \r\ OK\r\ | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:447 |
+| AT-03 | ATE0 answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:449 |
+| AT-03b | ...and leaves echo off | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:450 |
+| AT-04 | ATE1 is NOT echoed — echo was still off while its own bytes arrived | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:453 |
+| AT-04b | ...but echo is now really on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:456 |
+| AT-04c | so the NEXT line is echoed, terminator and all, before its reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:458 |
+| AT-04d | and ATE0 still echoes itself before switching echo off | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:461 |
+| AT-05 | AT+CIPMUX=0 answers OK (the only supported mode) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:464 |
+| AT-06 | AT+CIPMUX=1 is REFUSED — accepting it would promise a +IPD form nextsync cannot read and cannot ask back | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:467 |
+| AT-07 | AT+CIPCLOSE with nothing open answers ERROR (nextsync loops until it sees it) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:472 |
+| AT-08 | AT+RST answers OK then the two WIFI URCs, never 'ready' | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:476 |
+| AT-09 | an unsupported command answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:479 |
+| AT-10 | a bare LF produces nothing — it is only ever the CR's partner | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:482 |
+| AT-10b | ...and is not echoed either, even with echo on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:486 |
+| AT-11 | command names match case-insensitively | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:488 |
+| AT-12 | an overlong line answers exactly one ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:500 |
+| AT-12b | ...and is REFUSED WHOLE — its truncated prefix, a valid CIPSTART, is never run | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:502 |
+| AT-13 | nextsync's baud switch is acknowledged | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:506 |
+| AT-13b | ...and the requested baud is recorded for tracing | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:507 |
+| AT-14 | the _DEF form is accepted too | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:511 |
+| AT-14b | as is the plain AT+UART form | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:513 |
+| AT-14c | syncfast's 2 Mbaud is recorded | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:514 |
+| AT-15 | a non-numeric baud answers ERROR, not a clamped number | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:516 |
+| CON-01 | AT+CIPSTART answers NOTHING until the transport settles — there is no synchronous connect to answer from | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:524 |
+| CON-01b | ...and the engine reports it is waiting | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:528 |
+| CON-02 | a settled connection answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:530 |
+| CON-02b | ...the engine is connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:531 |
+| CON-02c | ...and the transport got the parsed host and port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:532 |
+| CON-03 | a failed connect answers ERROR only — never FAIL, never CLOSED for a connection that never existed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:538 |
+| CON-03b | ...and the engine is not connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:542 |
+| CON-04 | NXtel's 4-argument CIPSTART (with keepalive) connects | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:546 |
+| CON-04b | ...with host and port parsed past the keepalive | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:548 |
+| CON-05 | UDP is refused — v1.0 is TCP only | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:553 |
+| CON-05b | ...and no connect was ever started | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:554 |
+| CON-06 | a second CIPSTART while connected answers ERROR, not 'ALREADY CONNECTED' | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:559 |
+| CON-06b | ...and is rejected by the ENGINE — the transport is never asked a second time | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:562 |
+| CON-07 | guest input during a connect is deferred, not answered early | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:569 |
+| CON-07b | ...then replayed in order once the connect settles | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:572 |
+| CON-08 | closing a live connection reports CLOSED then OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:578 |
+| CON-08b | ...and the transport was really closed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:580 |
+| CON-09 | port 0 answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:584 |
+| CON-04c | trailing garbage after a VALID keepalive still answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:590 |
+| CON-04d | ...and no connect was attempted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:592 |
+| CON-11 | a connect that never completes is abandoned with ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:606 |
+| CON-11b | ...and the engine stops waiting | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:608 |
+| CON-11c | ...having released the socket | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:609 |
+| CON-12 | ...and the slot is reusable afterwards | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:615 |
+| CON-12b | ...really connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:616 |
+| CON-13 | a connect inside its deadline is still awaited, not refused | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:622 |
+| CON-13b | ...and remains pending | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:624 |
+| CON-10 | a transport that refuses the request answers ERROR immediately | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:629 |
+| SEND-01 | AT+CIPSEND answers \r\ OK\r\ > — TRAILING SPACE INCLUDED; three parsers busy-wait on this with no timeout | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:638 |
+| SEND-01b | ...and 3 payload bytes are outstanding | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:642 |
+| SEND-02 | the completed payload answers \r\ SEND OK\r\ | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:650 |
+| SEND-02b | ...and exactly the payload reached the peer | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:652 |
+| SEND-03 | NXtel's 5 bytes after CIPSEND=3: 3 are payload and the trailing CRLF becomes an empty command line | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:663 |
+| SEND-03b | ...and the peer got exactly the 3 IAC bytes, not 5 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:667 |
+| SEND-04 | AT+CIPSENDEX is a distinct command with the same prompt | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:673 |
+| SEND-04b | ...and the same completion | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:676 |
+| SEND-04c | ...delivering the payload | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:677 |
+| SEND-05 | AT+CIPSEND with no connection answers ERROR — and no prompt, which would hang the guest waiting to send | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:680 |
+| SEND-06 | a zero length answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:686 |
+| SEND-06b | ...as does one over the 2048-byte ceiling | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:688 |
+| SEND-06c | ...but exactly 2048 IS accepted, prompt and all | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:693 |
+| SEND-06d | ...with the full payload outstanding | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:695 |
+| SEND-07 | the send path is 8-bit clean, NUL and ESC included | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:703 |
+| SEND-08 | a partial socket accept still answers SEND OK exactly once | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:710 |
+| SEND-08b | ...with only what the kernel took so far delivered | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:712 |
+| SEND-08c | ...and the remainder flushed by later polls | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:715 |
+| SEND-09 | payload bytes are never echoed, even with echo on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:721 |
+| IPD-01 | inbound data is framed as the unmultiplexed +IPD,<len>: form | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:730 |
+| IPD-02 | +IPD is 8-bit clean and <len> counts raw bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:736 |
+| IPD-03 | bytes trickling in while a chunk drains coalesce into ONE following chunk | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:753 |
+| IPD-04 | SEND OK then +IPD, with no stray '+' between them | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:767 |
+| IPD-04b | ...the first '+' in the stream is the +IPD's own | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:769 |
+| IPD-05 | a 3000-byte burst is split at the 2048-byte chunk ceiling | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:776 |
+| IPD-05b | ...and the remainder is a second chunk, not a dribble | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:778 |
+| IPD-05c | ...totalling exactly the payload plus two headers | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:780 |
+| IPD-07 | once the header starts, every byte-slot delivers a byte — no gap can open inside +IPD,<len>: | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:799 |
+| IPD-07b | ...and the header arrived intact | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:803 |
+| IPD-08 | a peer close is reported only AFTER its last bytes have been framed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:811 |
+| IPD-09 | no +IPD is cut while a command line is half-received | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:820 |
+| IPD-09b | ...it follows the completed command's reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:823 |
+| IPD-10 | no +IPD is cut between the '>' prompt and the payload's SEND OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:832 |
+| IPD-10b | ...it follows SEND OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:835 |
+| PACE-01 | a burst is drip-fed one byte per byte-time, never dumped into the 512-byte FIFO | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:845 |
+| PACE-02 | a 10-byte-time span releases exactly 10 bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:853 |
+| PACE-03 | sub-byte spans accumulate rather than rounding up to a byte | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:862 |
+| PACE-04 | idle time banks no credit — otherwise a quiet link would burst at unbounded speed the instant data arrived | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:871 |
+| PACE-05 | a faster byte-time delivers proportionally more bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:882 |
+| PACE-07 | a span drains the whole reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:891 |
+| PACE-07b | ...and the leftover sub-byte credit does NOT survive into the next burst | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:894 |
+| PACE-07c | ...the next byte arrives a full byte-time after the refill | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:898 |
+| PACE-06 | a zero byte-time neither divides by zero nor hangs | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:905 |
+| HOOK-01 | an idle engine lowers the tick gate | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:915 |
+| HOOK-02 | queued output raises it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:917 |
+| HOOK-02b | ...and draining lowers it again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:919 |
+| DIAG-01 | AT+CWJAP? carries NXtel's CWJAP:" SSID anchor | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:925 |
+| DIAG-01b | ...and the "," anchor that precedes the AP MAC | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:927 |
+| DIAG-01c | ...ending in an OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:929 |
+| DIAG-02 | AT+CIFSR carries the TAIP," and TAMAC," anchors | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:933 |
+| DIAG-03 | AT+CIPSTA? carries the gateway:" and netmask:" anchors | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:938 |
+| DIAG-04 | AT+GMR carries both version anchors | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:945 |
+| DIAG-04b | ...each terminated by a '(' on its OWN line, so neither field renders as garbage | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:956 |
+| DIAG-05 | AT+CIPDNS_CUR? carries the +CIPDNS_CUR: anchor twice | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:962 |
+| DIAG-06 | every diagnostic reply terminates with the exact OK framing .ESPBAUD compares | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:974 |
+| DIAG-07 | the advertised SSID is the fixed synthetic literal, never a host network | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:977 |
+| NEVER-01 | a full session emits none of the never-emit URCs | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1010 |
+| NEVER-02 | ...and AT+RST drops the connection without an unsolicited CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1011 |
+| TRACE-01 | at the default level a connection open is reported | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1046 |
+| TRACE-02 | ...and the close | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1048 |
+| TRACE-03 | ...and NOTHING else — no AT chatter, no prompt, no +IPD, no pacing | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1050 |
+| TRACE-04 | at debug every AT command received is traced | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1064 |
+| TRACE-05 | ...every response emitted is traced, escaped so framing is visible | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1066 |
+| TRACE-06 | ...the payload byte count is traced | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1068 |
+| TRACE-07 | ...and the +IPD framing decision is traced | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1070 |
+| TRACE-08 | ...but per-byte pacing is not — that is trace level | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1072 |
+| TRACE-09 | at trace the RX pacing and queue state are visible | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1081 |
+| MODE-01 | an unstarted wrapper is not running | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1108 |
+| MODE-02 | driven INLINE, receive() alone answers as the bare core does | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1114 |
+| MODE-02b | ...and a connect's reply is still deferred, not invented | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1124 |
+| MODE-02c | ...until an inline poll() settles the transport | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1128 |
+| MODE-03 | start() brings the worker up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1137 |
+| MODE-04 | the worker drains guest input without being polled | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1141 |
+| MODE-05 | driven THREADED it answers with the identical bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1142 |
+| MODE-06 | stop() joins and reports it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1145 |
+| MODE-07 | ...and stop() is idempotent | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1147 |
+| MODE-08 | a connect completes on the worker thread | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1168 |
+| MODE-09 | ...the CIPSEND prompt still comes back byte-exact | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1172 |
+| MODE-10 | ...the payload is acknowledged | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1177 |
+| MODE-11 | ...and really reached the transport | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1178 |
+| MODE-12 | unsolicited peer data is framed and paced out unprompted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1188 |
+| MODE-13 | the worker really ran while the wrapper was alive | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1214 |
+| MODE-14 | destroying a running wrapper JOINS: the destructor cannot return while the worker is still inside poll() | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1219 |
+| MODE-15 | the worker is inside a long poll() | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1245 |
+| MODE-16 | tick() returns immediately rather than waiting for it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1252 |
+| STALL-01a | nothing has been delivered yet — no tick() has run | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1286 |
+| STALL-01b | the worker is provably stalled inside the transport poll | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1291 |
+| STALL-01 | queued bytes reach the wire DURING a transport stall | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1299 |
+| STALL-01c | ...and they did so while the stall was still in progress | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1301 |
+| STALL-02a | the connect is outstanding on the worker at destruction | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1344 |
+| STALL-02 | destroying the wrapper mid-connect completes promptly, not at the next scheduled pass | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1353 |
+| STALL-03a | the worker is inside a slow send(), holding the engine lock | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1377 |
+| STALL-03 | set_output() returns without waiting for the engine lock | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1385 |
+| STALL-04a | the worker recorded the exception rather than dying on it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1421 |
+| STALL-04 | a transport that throws on the worker costs one service pass, not the process: the connect still completes afterwards | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1423 |
 
 ## ESP-01 jnext UART adapter — `test/esp/esp_uart_adapter_test.cpp`
 
@@ -3937,6 +3937,8 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | LOG-06 | ...and turning it up lowers the threshold within one poll | — | pass | test/esp/esp_uart_adapter_test.cpp:383 |
 
 ### Companion integration suite — `test/mmu/mmu_integration_test.cpp`
+
+Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
@@ -4006,55 +4008,6 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| S5-PSL.01 | Two port-0xFF writes mid-frame at lines L1 < L2 captured at correct scanline boundaries | — | missing | — |
-| S5-PSL.02 | Render at line L produces STANDARD pixels for L < split, HI_COLOUR pixels for L >= split | — | missing | — |
-| S5-PSL.03 | Mid-frame HI_RES→STANDARD switch at line L: lines >= L revert to 256-px attribute path | — | missing | — |
-| S5-PSL.04 | Ula::start_frame()` rewinds the per-scanline change-log; line-0 baseline reflects last-frame closing value | — | missing | — |
-| S5-PSL.05 | Save-state snapshot includes the per-scanline change-log; round-trip preserves split rendering | — | missing | — |
-| S9-PSL.01 | Two NR 0x26 writes at scanlines L1 < L2 captured separately | — | missing | — |
-| S9-PSL.02 | Mid-frame NR 0x27 (scroll Y) split renders top/bottom regions with different scroll | — | missing | — |
-| S9-PSL.03 | Mid-frame NR 0x26 fine-scroll (NR 0x68 b2) flip at line L | — | missing | — |
-| S9-PSL.04 | Ula::start_frame()` rewinds NR 0x26 / NR 0x27 change-log; line-0 baseline correct | — | missing | — |
-| S17.01 | Two NR 0x43 b1-3 writes mid-frame at lines L1 < L2 captured separately | — | missing | — |
-| S17.02 | Mid-frame NR 0x6B b4 flip at line L re-routes tilemap palette select for lines >= L | — | missing | — |
-| S17.03 | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other | — | missing | — |
-| S17.04 | PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame | — | missing | — |
-| DVP-03 | bank-5 view shows bank 5 while the shadow screen is selected | — | missing | — |
-| DVP-03b | bank-5 view shows bank 5 while the primary screen is selected | — | missing | — |
-| DVP-04 | bank-7 view shows bank 7 while the primary screen is selected | — | missing | — |
-| DVP-04a | bank-7 view shows bank 7 while the shadow screen is selected | — | missing | — |
-| DVP-12 | the debug views apply the NR 0x1A clip window | — | missing | — |
-| DVP-12a | …keeping display cells inside the window | — | missing | — |
-| DVP-12b | …and clipping the border strips when clip_x1>0 / clip_x2<255 | — | missing | — |
-| DVP-13 | "All layers" view is pixel-for-pixel the emulator's framebuffer | — | missing | — |
-| DVP-13a | premise: ULA + Layer 2 + tilemap + sprite all reach that frame | — | missing | — |
-| DVP-13b | the composite view is FB_WIDTH × FB_HEIGHT (640 × 256) | — | missing | — |
-| DVP-14 | NR 0x4A fallback shows where EVERY layer is transparent | — | missing | — |
-| DVP-14a | premise: NR 0x4A = 0x13 really is #0092FF (sonic.nex's sky) | — | missing | — |
-| DVP-14b | an opaque tilemap pixel still composites over the fallback | — | missing | — |
-| DVP-14c | …and so does the sprite | — | missing | — |
-| DVP-14d | the fallback appears in NO per-layer view — only the composite | — | missing | — |
-| DVP-15 | composite honours the raster cut-off (row+1 = unrendered) | — | missing | — |
-| DVP-15a | …and every row below the raster is the placeholder | — | missing | — |
-| DVP-16 | compositing for the panel leaves every live register untouched | — | missing | — |
-| DVP-16a | …and does not clobber the tilemap per-line scroll snapshots | — | missing | — |
-| DVP-16b | premise: the vblank writes really did move the live registers | — | missing | — |
-| DVP-16c | …including VBLANK-tagged writes, which only the flush replays | — | missing | — |
-| DVP-17 | "All layers" is the leftmost tab and selected by default | — | missing | — |
-| DVP-17a | …and the per-layer tabs still follow it in order | — | missing | — |
-| DVP-18 | Background view shows the NR 0x4A fallback colour | — | missing | — |
-| DVP-18a | premise: the two fallback colours differ | — | missing | — |
-| DVP-18d | the view reads the PER-LINE snapshot, not the live NR 0x4A | — | missing | — |
-| DVP-18b1 | premise: a real Copper MOVE reached NR 0x4A mid-frame | — | missing | — |
-| DVP-18b | **real Copper program** MOVEs NR 0x4A → band split in the view | — | missing | — |
-| DVP-18c | …and the composite AND the emulator framebuffer agree, row-wise | — | missing | — |
-| DVP-19 | Background view honours the raster cut-off | — | missing | — |
-| DVP-19a | …and rendering it preserves NR 0x4A and its per-line snapshots | — | missing | — |
-| DVP-20 | "Background" is the RIGHTMOST tab (and not the selected one) | — | missing | — |
-| S13.03 | Pentagon frame length | — | missing | — |
-| S14.04 | Interrupt disabled | — | missing | — |
-| S14.05 | Line interrupt fires | — | missing | — |
-| S14.06 | Line interrupt 0 = last line | — | missing | — |
 | INT-SCROLL-01 | nextreg().write(0x26,8) → 8-pixel shift end-to-end (zxula.vhd:199; zxnext.vhd:5304; emulator.cpp:524-526) | zxula.vhd:199, zxnext.vhd:5304 | pass | test/ula/ula_integration_test.cpp:236 |
 | INT-SCROLL-03 | nextreg().write(0x68, 0x04) → fine X-scroll = 1 → 1-pixel shift (zxula.vhd:199,216; zxnext.vhd:5449; emulator.cpp:762-768) | zxula.vhd:199,216, zxnext.vhd:5449 | pass | test/ula/ula_integration_test.cpp:294 |
 | INT-SCROLL-02 | nextreg().write(0x27,32) → Y-scroll 32 rows end-to-end (zxula.vhd:193-207; zxnext.vhd:5307; emulator.cpp:532-534) | zxula.vhd:193-207, zxnext.vhd:5307 | pass | test/ula/ula_integration_test.cpp:345 |
@@ -4076,179 +4029,18 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| TR-10 | ULA pixel with palette output ≠ NR 0x14 is opaque | — | missing | — |
-| TR-11 | ULA pixel with palette output = NR 0x14 is transparent; fallback wins | — | missing | — |
-| TR-12 | ULA palette entry whose LSB differs from NR 0x14 LSB is still transparent | — | missing | — |
-| TR-13 | ula_clipped_2=1` forces ULA transparent regardless of RGB | — | missing | — |
-| TR-14 | ula_en_2=0` forces ULA transparent even if mix_transparent=0 | — | missing | — |
-| TR-15 | Compositor is resolution-agnostic at the ULA input boundary (hi-res / hi-colour / ULANext) | — | missing | — |
-| TR-16 | NR 0x14 = 0x00 with ULA palette output `RGB[8:1]=0x00` → ULA transparent (match succeeds) | — | missing | — |
-| TR-17 | ula_border_2` is ignored by stage-2 mix in modes 000/001/010 (only ULA's `ula_final_transparent` feeds the SLU selector) | — | missing | — |
-| TR-42 | NR 0x15[0] `nr_15_sprite_en = 0` forces every sprite-origin pixel transparent at the compositor output | — | missing | — |
-| TR-20 | Tilemap text-mode RGB compare | — | missing | — |
-| TR-21 | Tilemap non-text (attribute) ignores RGB compare | — | missing | — |
-| TR-22 | Tilemap `pixel_en=0` transparent regardless of mode | — | missing | — |
-| TR-23 | tm_en_2=0` forces TM transparent | — | missing | — |
-| TR-30 | Layer 2 RGB compare | — | missing | — |
-| TR-31 | Layer 2 `pixel_en=0` transparent | — | missing | — |
-| TR-32 | Layer 2 opaque pixel with non-zero `layer2_priority_2` propagates | — | missing | — |
-| TR-33 | Layer 2 priority forced to 0 when layer is transparent | — | missing | — |
-| TR-40 | Sprite `pixel_en=0` transparent | — | missing | — |
-| TR-41 | Sprite `pixel_en=1` opaque regardless of NR 0x14 | — | missing | — |
-| TR-50 | **Deferral** (Task 45): a mid-frame NR 0x14 write does not retroactively affect a row whose per-line snapshot already ran | — | missing | — |
-| TR-51 | **Deferral** (Task 45): the SAME row takes the new NR 0x14 value only once its snapshot is refreshed | — | missing | — |
-| TR-52 | **Skip-write recovery** (Task 46): `Layer2::render_scanline` used a SEPARATE live member (`PaletteManager::global_transparency()`) instead of the per-line snapshot `composite_scanline` uses, so a mid-frame NR 0x14 write could make it wrongly skip-write (destroy) an opaque pixel one row too early — unlike TR-50/51 this drives the REAL `Layer2::render_scanline` via `Renderer::render_row` (not a hand-set `layer2_line_`), because the bug is one pipeline stage before `composite_scanline | — | missing | — |
-| TR-53 | **Deferral round-trip** (Task 46): the SAME row's Layer 2 output takes the new NR 0x14 value only once its snapshot is refreshed | — | missing | — |
-| L2EQ-01 | Whenever Layer2's own transparency gate judges a pixel OPAQUE (writes it), the compositor's redundant RGB-match clause can never independently re-flag it transparent | — | missing | — |
-| TRI-10 | Sprite index matching NR 0x4B produces pixel_en=0 → compositor ignores | sprites.vhd:1067, zxnext.vhd:7118 | missing | — |
-| TRI-11 | Sprite index ≠ NR 0x4B and inside active area → pixel_en=1 | sprites.vhd:1067 | missing | — |
-| TRI-20 | Tilemap nibble matching NR 0x4C → pixel_en=0 | zxnext.vhd:4395 | missing | — |
-| FB-10 | Fallback appears when all layers transparent (mode 000) | — | missing | — |
-| FB-11 | Fallback=0x00 | — | missing | — |
-| FB-12 | Fallback=0x4A = `0100_1010 | — | missing | — |
-| FB-13 | Fallback=0x01 = `0000_0001 | — | missing | — |
-| FB-14 | Fallback=0x02 = `0000_0010 | — | missing | — |
-| FB-15 | Fallback not used when any layer opaque | — | missing | — |
-| FB-16 | Reset default is 0xE3 | — | missing | — |
-| FB-17 | All 8 priority modes converge on fallback when every layer transparent | — | missing | — |
-| PRI-010-SLU-3 | Mode 000, all three opaque | — | missing | — |
-| PRI-010-SLU-LU | Mode 000, only L+U | — | missing | — |
-| PRI-010-SLU-U | Mode 000, only U | — | missing | — |
-| PRI-010-SLU-0 | Mode 000, none | — | missing | — |
-| PRI-011-LSU-3 | Mode 001, all three | — | missing | — |
-| PRI-011-LSU-SU | Mode 001, S+U only | — | missing | — |
-| PRI-011-LSU-U | Mode 001, U only | — | missing | — |
-| PRI-010-SUL-3 | Mode 010, all three | — | missing | — |
-| PRI-010-SUL-UL | Mode 010, U+L | — | missing | — |
-| PRI-010-SUL-L | Mode 010, L only | — | missing | — |
-| PRI-011-LUS-3 | Mode 011, all three | — | missing | — |
-| PRI-011-LUS-US | Mode 011, U(non-border)+S | — | missing | — |
-| PRI-011-LUS-S | Mode 011, S only | — | missing | — |
-| PRI-011-LUS-border | Mode 011, U(border) + S + TM transp | — | missing | — |
-| PRI-100-USL-3 | Mode 100, all three | — | missing | — |
-| PRI-100-USL-border | Mode 100, U(border) + S, TM transp, L=✗ | — | missing | — |
-| PRI-100-USL-L | Mode 100, L only | — | missing | — |
-| PRI-101-ULS-3 | Mode 101, all three | — | missing | — |
-| PRI-101-ULS-border | Mode 101, U(border)+L+S, TM transp | — | missing | — |
-| PRI-101-ULS-S | Mode 101, S only | — | missing | — |
-| PRI-B-0 | In every mode 000..101 with all three transparent, fallback wins | — | missing | — |
-| PRI-B-1 | Mode 000 with NR 0x14 = sprite_rgb[8:1] must not transparent-trigger sprite (sprite has no RGB compare) | — | missing | — |
-| PRI-B-2 | Mode 001: even if sprite opaque, L2 opaque beats it | — | missing | — |
-| L2P-10 | Promotion in mode 000 over sprite | — | missing | — |
-| L2P-11 | Promotion in mode 010 over sprite | — | missing | — |
-| L2P-12 | Promotion in mode 100 over sprite (L2 above U) | — | missing | — |
-| L2P-13 | Promotion in mode 101 over sprite (L2 above U) | — | missing | — |
-| L2P-14 | No-op in mode 001 (L2 already top) | — | missing | — |
-| L2P-15 | No-op in mode 011 (L2 already top) | — | missing | — |
-| L2P-16 | layer2_transparent=1` suppresses promotion | — | missing | — |
-| L2P-17 | Promotion in mode 110 (blend): L2 promoted shows blend output | — | missing | — |
-| L2P-18 | Promotion in mode 111 (blend): L2 promoted shows blend output | — | missing | — |
-| L2P-19 | Native 640 mode + L2 priority bit set: both even and odd pixel columns observe priority promotion | — | missing | — |
-| PFF-G108-01 | NR 0x69 b5:0 fans into port_ff_reg(5:0); bits 7:6 unchanged (zxnext.vhd:3617-3618) | zxnext.vhd:3617-3618 | pass | test/compositor/compositor_integration_test.cpp:536 |
-| PFF-G108-02 | NR 0x22 b2 fans into port_ff_reg(6) (zxnext.vhd:3619-3620) | zxnext.vhd:3619-3620 | pass | test/compositor/compositor_integration_test.cpp:555 |
-| PFF-G108-03 | NR 0xC4 b0 fans into port_ff_reg(6) with inverted polarity (zxnext.vhd:3621-3622) | zxnext.vhd:3621-3622 | pass | test/compositor/compositor_integration_test.cpp:593 |
-| BL-10 | Add no clamp | — | missing | — |
-| BL-11 | Add clamp hi | — | missing | — |
-| BL-12 | Add 0+0 | — | missing | — |
-| BL-13 | Add, `mix_top` opaque beats blend | — | missing | — |
-| BL-14 | Add, sprite between mix_top and mix_bot | — | missing | — |
-| BL-15 | Add, mix_bot wins after sprite transp | — | missing | — |
-| BL-16 | Add, final fallback to blend | — | missing | — |
-| BL-20 | Sub, ≤4 clamps to 0 | — | missing | — |
-| BL-21 | Sub, ≥12 clamps to 7 | — | missing | — |
-| BL-22 | Sub, middle value | — | missing | — |
-| BL-23 | Sub gated by `mix_rgb_transparent | — | missing | — |
-| BL-24 | Sub, mix_top opaque wins over blend | — | missing | — |
-| BL-25 | Sub, sprite between | — | missing | — |
-| BL-26 | Sub, mix_bot fallback | — | missing | — |
-| BL-27 | Sub, final L2-only fallback shows blended L2 | — | missing | — |
-| BL-28 | L2 priority bit overrides blend (mode 110) | — | missing | — |
-| BL-29 | L2 priority bit overrides blend (mode 111) | — | missing | — |
-| UTB-10 | Mode 00, TM above | — | missing | — |
-| UTB-11 | Mode 00, TM below | — | missing | — |
-| UTB-20 | Mode 10, stencil-off combined | — | missing | — |
-| UTB-30 | Mode 11, TM as U, ULA floats below | — | missing | — |
-| UTB-31 | Mode 11, TM as U, ULA floats above | — | missing | — |
-| UTB-40 | Mode 01 (`others`), below=0 | — | missing | — |
-| UTB-41 | Mode 01, below=1 | — | missing | — |
-| UB-G26-01 | UTB-40/41 oracle inversion check: confirm `ula_blend_mode_2 = 01` `mix_top`/`mix_bot` swap on `tm_pixel_below_2` matches FPGA-team intent | zxnext.vhd:7163-7177 | missing | — |
-| UB-G26-02 | L2 priority bit in modes 110/111 *over* opaque `mix_top` matches FPGA-team intent | zxnext.vhd:7300,7342 | missing | — |
-| UTB-50 | **Deferral** (Task 43): a mid-frame NR 0x68 bits 6:5 write does not retroactively affect a row whose per-line snapshot already ran | — | missing | — |
-| UTB-51 | **Deferral** (Task 43): the SAME row takes the new blend mode only once its snapshot is refreshed | — | missing | — |
-| STEN-10 | Bitwise AND | — | missing | — |
-| STEN-11 | AND with zero | — | missing | — |
-| STEN-12 | ULA transparent → stencil transparent | — | missing | — |
-| STEN-13 | TM transparent → stencil transparent | — | missing | — |
-| STEN-14 | Both transparent → transparent | — | missing | — |
-| STEN-15 | Stencil inactive if `tm_en=0` (even with bit set) | — | missing | — |
-| STEN-16 | Stencil inactive if `ula_en=0 | — | missing | — |
-| STEN-17 | Stencil off (bit=0), both enabled | — | missing | — |
-| STEN-20 | **Deferral** (Task 43): a mid-frame NR 0x68 bit 0 write does not retroactively affect a row whose per-line snapshot already ran | — | missing | — |
-| STEN-21 | **Deferral** (Task 43): the SAME row takes stencil mode only once its snapshot is refreshed | — | missing | — |
 | UDIS-01 | NR 0x68 bit 7 toggles ULA transparency → display pixel switches between ULA ink and NR 0x4A fallback (zxnext.vhd:7103; emulator.cpp:816-825; renderer.cpp:83-85) | zxnext.vhd:7103 | pass | test/compositor/compositor_integration_test.cpp:274 |
 | UDIS-02 | Copper mid-frame MOVE NR 0x68,0x80 flips ULA-enable at line 100 → pre-rows show ULA, post-rows show NR 0x4A fallback (zxnext.vhd:7103,6809; copper.cpp:75-154; emulator.cpp:2609-2616) | zxnext.vhd:7103,6809 | pass | test/compositor/compositor_integration_test.cpp:393 |
-| UDIS-03 | NR 0x68 blend mode (bits 6:5) visible end-to-end | zxnext.vhd:5445 | missing | — |
-| SOB-10 | Sprite rgb arrives at compositor with `sprite_pixel_en_2=1` in border when `nr_15_sprite_over_border_en=1`; opaque sprite should beat border-ULA in mode 000 | — | missing | — |
-| LINE-10 | Write NR 0x15[4:2] mid-line | — | missing | — |
-| LINE-11 | Write NR 0x14 mid-line | — | missing | — |
-| LINE-12 | Write NR 0x4A mid-line | — | missing | — |
-| LINE-13 | Copper write to NR 0x15 at end of line | — | missing | — |
-| LINE-14 | Two writes in one line: only the last is visible next line | — | missing | — |
-| PSCAN-G04-01 | NR 0x14 write logged with current scanline (RGB332 global transparent) | zxnext.vhd:1137,5226 | missing | — |
-| PSCAN-G04-02 | NR 0x4B (sprite transparent index) write logged + replayed per scanline | zxnext.vhd:5016,1190 | missing | — |
-| PSCAN-G04-03 | NR 0x4C (TM transparent nibble) write logged + replayed per scanline | zxnext.vhd:5018,4395 | missing | — |
-| PSCAN-G11-01 | NR 0x68 bit 0 (stencil) per-scanline replay | zxnext.vhd:5445,7142-7176 | missing | — |
-| PSCAN-G11-02 | NR 0x68 bits 6:5 (blend mode) per-scanline replay | zxnext.vhd:5445,7142-7176 | missing | — |
-| PSCAN-G11-03 | NR 0x68 bit 3 (ULA+ gate) per-scanline replay | zxnext.vhd:5445 | missing | — |
-| PSCAN-G02-01 | Mid-frame priority change through render_frame | — | missing | — |
-| PSCAN-G02-02 | Cross-frame persistence, no rewrite | — | missing | — |
-| PSCAN-G02-03 | Vblank write survives via flush (audit finding: no flush) | — | missing | — |
-| PSCAN-G02-04 | Sprite enable b0 per-line at render gate + compositor | — | missing | — |
-| PSCAN-G02-05 | Change-log cap + warn latch + live tracking past cap | — | missing | — |
-| PSCAN-G10-01 | Layer 2 colour lane: mid-frame NR 0x43 b2 flip | — | missing | — |
-| PSCAN-G10-02 | Layer 2 NR 0x14 transparency gate follows the same bank | — | missing | — |
-| PSCAN-G10-03 | Layer 2 palette PRIORITY bit follows the same bank | — | missing | — |
-| PSCAN-G10-04 | Sprite colour lane: mid-frame NR 0x43 b3 flip | — | missing | — |
-| PSCAN-G10-05 | Tilemap colour lane: mid-frame NR **0x6B b4** flip | — | missing | — |
-| UCLIP-01 | **Deferral**: mid-frame NR 0x1A write does not retroactively re-mask an already-snapshotted row | — | missing | — |
-| UCLIP-02 | Snapshot is genuinely CAPTURED, not the reset default | — | missing | — |
-| UCLIP-03 | The SAME row takes window B only once its snapshot is refreshed | — | missing | — |
-| UCLIP-04 | Split frame: rows < S masked with window A, rows >= S with window B | — | missing | — |
-| BLANK-10 | Active area passes through | — | missing | — |
-| BLANK-11 | Horizontal blanking forces 0 | — | missing | — |
-| BLANK-12 | Vertical blanking forces 0 | — | missing | — |
-| BLANK-13 | Fallback colour is NOT shown during blank | — | missing | — |
-| BLANK-G27-01 | rgb_blank_n_6` lockstep with `rgb_out_6`: a 1-pixel desync at the active-area edge would surface as a single-pixel artefact at hblank entry/exit | zxnext.vhd:7395-7412 | missing | — |
-| PAL-10 | ULA pixel index → ULA/TM palette | — | missing | — |
-| PAL-11 | ULA background substitution uses fallback | — | missing | — |
-| PAL-12 | LoRes pixel overrides ULA background | — | missing | — |
-| PAL-13 | L2 palette select 0 vs 1 (NR 0x43[2]) | — | missing | — |
-| PAL-14 | L2 palette bit 15 surfaces as `layer2_priority_2 | — | missing | — |
-| PAL-15 | Sprite palette is L2/Sprite RAM `sc(0)=1 | — | missing | — |
-| RST-10 | After reset, all layers are transparent (TM disabled, S disabled, L2 pixel_en=0) → fallback 0xE3 shown (9-bit 0x1C7) | — | missing | — |
-| RST-11 | After reset, mode is 000 (SLU) | — | missing | — |
-| RST-12 | After reset, NR 0x4A = 0xE3 | — | missing | — |
-| RST-13 | After reset, NR 0x14 = 0xE3 | — | missing | — |
-| LMASK-P01..P08 | Parser accepts each name, both orders, and the full spell-out | — | missing | — |
-| LMASK-E01..E14 | Parser rejects: empty list, unknown name, wrong case, whitespace, duplicates, `all`+name, leading/trailing/inner empty element | — | missing | — |
-| LMASK-S01 | Mask → canonical name list | — | missing | — |
-| LMASK-C01 | Default mask is LAYER_ALL and composes every layer | — | missing | — |
-| LMASK-C02..C05 | Each layer captured alone reaches the output regardless of priority position | — | missing | — |
-| LMASK-C06 | A selected-but-transparent layer does not resurrect the masked ones | — | missing | — |
-| LMASK-C07 | Excluding `ula` removes the BORDER as well | — | missing | — |
-| LMASK-C08 | ula_border_2` is raster geometry, not an enable: the mode-100 border exception still fires with the ULA masked | — | missing | — |
-| LMASK-C10 | Masking `layer2` cancels its priority-bit promotion over sprites | — | missing | — |
-| LMASK-C11 | Blend mode 110: masking `ula` zeroes the `mix_rgb` contribution | — | missing | — |
-| LMASK-C09-00 | all | — | missing | — |
-| LMASK-C09-01 | ula | — | missing | — |
-| LMASK-C09-10 | tiles | — | missing | — |
-| LMASK-C09-11 | layer2 | — | missing | — |
-| LMASK-C09-SPR | layer2,sprites,tiles | — | missing | — |
 | PSCAN-VBLANK-COALESCE-01 | Copper MOVE NR 0x68,0x80 at WAIT vpos=258 (raw vc=10, pre-display vblank) → first display row already shows NR 0x4A fallback (G164v2 vblank coalesce-to-0 + snapshot indexing fixes). | — | pass | test/compositor/compositor_integration_test.cpp:495 |
+| PFF-G108-01 | NR 0x69 b5:0 fans into port_ff_reg(5:0); bits 7:6 unchanged (zxnext.vhd:3617-3618) | zxnext.vhd:3617-3618 | pass | test/compositor/compositor_integration_test.cpp:536 |
+| PFF-G108-02 | NR 0x22 b2 fans into port_ff_reg(6) (zxnext.vhd:3619-3620) | zxnext.vhd:3619-3620 | pass | test/compositor/compositor_integration_test.cpp:555 |
 | PFF-G108-02b | NR 0x22 b2=0 clears port_ff_reg(6) (zxnext.vhd:3620) | zxnext.vhd:3620 | pass | test/compositor/compositor_integration_test.cpp:564 |
+| PFF-G108-03 | NR 0xC4 b0 fans into port_ff_reg(6) with inverted polarity (zxnext.vhd:3621-3622) | zxnext.vhd:3621-3622 | pass | test/compositor/compositor_integration_test.cpp:593 |
 | PFF-G108-04 | Port 0xFF write latches the entire byte, beating any subsequent NR-side fan-out (zxnext.vhd:3615-3616) | zxnext.vhd:3615-3616 | pass | test/compositor/compositor_integration_test.cpp:619 |
 
 ### Companion integration suite — `test/copper/copper_integration_test.cpp`
+
+Notes and rationale: [COPPER-TEST-PLAN-DESIGN.md](COPPER-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
@@ -4261,6 +4053,8 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | GH181-HCULA-04 | Emulator::init(ZXN_ISSUE2) failed | zxula_timing.vhd:423-436,457-470, copper.vhd:94 | pass | test/copper/copper_integration_test.cpp:585 |
 
 ### Companion regression suite — `test/tilemap/tilemap_fetch_split_test.cpp`
+
+Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
@@ -4275,97 +4069,8 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| LR-01 | N | zxnext.vhd:5229,5939 | missing | — |
-| LR-02 | N | zxnext.vhd:4948 | missing | — |
-| LR-03 | N | zxnext.vhd:5229 | missing | — |
-| LR-04 | N | zxnext.vhd:5340,6027 | missing | — |
-| LR-05 | N | zxnext.vhd:4995 | missing | — |
-| LR-06 | N | zxnext.vhd:5343,6030 | missing | — |
-| LR-07 | N | zxnext.vhd:4997 | missing | — |
-| LR-08 | N | zxnext.vhd:5456,6099 | missing | — |
-| LR-09 | N | zxnext.vhd:5457,6099 | missing | — |
-| LR-10 | N | zxnext.vhd:5458,6099 | missing | — |
-| LR-11 | N | zxnext.vhd:5456-5458,6099 | missing | — |
-| LR-12 | N | zxnext.vhd:5032-5034 | missing | — |
-| LR-20 | C | zxnext.vhd:6933,6980 | missing | — |
-| LR-21 | C | zxnext.vhd:6980 | missing | — |
-| LR-22 | C | lores.vhd:115, zxula.vhd:414-415, zxula_timing.vhd:513-517 | missing | — |
-| LR-23 | U | lores.vhd:115 | missing | — |
-| LR-24 | U | lores.vhd:115, zxnext.vhd:4974 | missing | — |
-| LR-25 | U | lores.vhd:115 | missing | — |
-| LR-26 | C | zxnext.vhd:6980-6981 | missing | — |
-| LR-27 | C | zxnext.vhd:7103-7104 | missing | — |
-| LR-28 | C | zxnext.vhd:6843 | missing | — |
-| LR-29 | C | zxula.vhd:470, zxnext.vhd:6980 | missing | — |
-| LR-30 | C | zxnext.vhd:6960-6978,6981 | missing | — |
-| LR-31 | C | zxnext.vhd:6825,6981 | missing | — |
-| LR-40 | U | lores.vhd:91 | missing | — |
-| LR-41 | U | lores.vhd:91 | missing | — |
-| LR-42 | U | lores.vhd:91 | missing | — |
-| LR-43 | U | lores.vhd:91 | missing | — |
-| LR-44 | U | lores.vhd:91,93 | missing | — |
-| LR-45 | U | lores.vhd:93-94 | missing | — |
-| LR-46 | U | lores.vhd:91,93 | missing | — |
-| LR-47 | U | lores.vhd:93-94 | missing | — |
-| LR-48 | U | lores.vhd:86-87,93 | missing | — |
-| LR-49 | C | zxnext.vhd:6631,6558-6578, lores.vhd:56 | missing | — |
-| LR-50 | C | zxnext.vhd:6631 | missing | — |
-| LR-51 | U | lores.vhd:96,98 | missing | — |
-| LR-60 | U | lores.vhd:96 | missing | — |
-| LR-61 | U | lores.vhd:96 | missing | — |
-| LR-62 | U | lores.vhd:106 | missing | — |
-| LR-63 | U | lores.vhd:96 | missing | — |
-| LR-64 | U | lores.vhd:96 | missing | — |
-| LR-65 | U | lores.vhd:96 | missing | — |
-| LR-66 | C | zxnext.vhd:6796 | missing | — |
-| LR-67 | U | lores.vhd:96 | missing | — |
-| LR-68 | U | lores.vhd:98 | missing | — |
-| LR-69 | C | lores.vhd:91,96 | missing | — |
-| LR-80 | U | lores.vhd:102,111 | missing | — |
-| LR-81 | U | lores.vhd:102 | missing | — |
-| LR-82 | U | lores.vhd:111 | missing | — |
-| LR-83 | U | lores.vhd:102 | missing | — |
-| LR-84 | U | lores.vhd:107,111 | missing | — |
-| LR-85 | U | lores.vhd:107 | missing | — |
-| LR-86 | U | lores.vhd:107 | missing | — |
-| LR-87 | C | zxnext.vhd:4246 | missing | — |
-| LR-88 | U | lores.vhd:111,115 | missing | — |
-| LR-100 | U | lores.vhd:82,91 | missing | — |
-| LR-101 | U | lores.vhd:82,91 | missing | — |
-| LR-102 | U | lores.vhd:82 | missing | — |
-| LR-103 | U | lores.vhd:82,91 | missing | — |
-| LR-104 | U | lores.vhd:82,96,106 | missing | — |
-| LR-105 | U | lores.vhd:84-87,91 | missing | — |
-| LR-106 | U | lores.vhd:86-87,91 | missing | — |
-| LR-107 | U | lores.vhd:84-87 | missing | — |
-| LR-108 | U | lores.vhd:84-87 | missing | — |
-| LR-109 | U | lores.vhd:84-87 | missing | — |
-| LR-110 | U | lores.vhd:93-94 | missing | — |
-| LR-111 | U | lores.vhd:82,84,91 | missing | — |
-| LR-120 | U | lores.vhd:115, zxnext.vhd:4258-4261 | missing | — |
-| LR-121 | U | lores.vhd:115 | missing | — |
-| LR-122 | U | lores.vhd:115 | missing | — |
-| LR-123 | U | lores.vhd:115, zxnext.vhd:4250 | missing | — |
-| LR-124 | N/C | zxnext.vhd:6779-6783 | missing | — |
-| LR-125 | U | lores.vhd:115 | missing | — |
-| LR-126 | U | lores.vhd:115 | missing | — |
-| LR-127a | C | lores.vhd:115, zxula.vhd:562, zxnext.vhd:4258-4261 | missing | — |
-| LR-140 | C | zxnext.vhd:6986-6991 | missing | — |
-| LR-141 | C | zxnext.vhd:7100-7101 | missing | — |
-| LR-142 | C | zxnext.vhd:7100 | missing | — |
-| LR-143 | C | zxnext.vhd:7112-7113,7130-7132 | missing | — |
-| LR-144 | C | zxnext.vhd:7100-7101,7139-7148 | missing | — |
-| LR-145 | C | zxnext.vhd:7116 | missing | — |
-| LR-146 | C | zxnext.vhd:6980,7139 | missing | — |
-| LR-PSCAN | C | zxnext.vhd:6768-6802 | missing | — |
-| LR-160 | U/C | lores.vhd:37-61, zxnext.vhd:4241-4271 | missing | — |
-| LR-161 | C | zxnext.vhd:4241-4271 | missing | — |
-| LR-162 | N | zxnext.vhd:1167-1171,5278 | missing | — |
 | LR-163 | enabling LoRes does not change ULA memory contention — 20000 instructions of contended bank-5 access cost the same T-states with NR $15 bit 7 = 0 and = 1 (zxula.vhd:583; zxnext.vhd:6603-6631, separate BRAM port) | zxula.vhd:583, zxnext.vhd:6603-6631 | pass | test/lores/lores_integration_test.cpp:152 |
 | LR-164 | enabling LoRes does not change the floating-bus value — 500 port 0xFF reads spread across a frame are byte-identical with NR $15 bit 7 = 0 and = 1 (zxula.vhd:573, ULA port B only) | zxula.vhd:573 | pass | test/lores/lores_integration_test.cpp:200 |
-| LR-165 | C | zxnext.vhd:6631,6660 | missing | — |
-| LR-166 | C | zxnext.vhd:4258-4261 | missing | — |
-| LR-167 | C | zxnext.vhd:4258-4261,4424-4427 | missing | — |
 
 ### Companion integration suite — `test/ctc_interrupts/ctc_interrupts_test.cpp`
 
@@ -4373,185 +4078,12 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| CTC-SM-01 | Hard reset: channel starts in S_RESET | — | missing | — |
-| CTC-SM-02 | Write control word without D2=1 while in S_RESET | — | missing | — |
-| CTC-SM-03 | Write control word with D2=1 (TC follows) | — | missing | — |
-| CTC-SM-04 | Write time constant after D2=1 control word | — | missing | — |
-| CTC-SM-05 | Timer mode (D6=0) without trigger (D3=1): wait in S_TRIGGER | — | missing | — |
-| CTC-SM-06 | Timer mode (D6=0) without trigger (D3=0): immediate S_RUN | — | missing | — |
-| CTC-SM-07 | Counter mode (D6=1): immediate S_RUN from S_TRIGGER | — | missing | — |
-| CTC-SM-08 | Write control word with D2=1 while in S_RUN | — | missing | — |
-| CTC-SM-09 | Write time constant while in S_RUN_TC | — | missing | — |
-| CTC-SM-10 | Soft reset (D1=1, D2=0): return to S_RESET | — | missing | — |
-| CTC-SM-11 | Soft reset (D1=1, D2=1): go to S_RESET_TC | — | missing | — |
-| CTC-SM-12 | Double soft reset required when in S_RESET_TC | — | missing | — |
-| CTC-SM-13 | Control word write while running (D1=0, D2=0) | — | missing | — |
-| CTC-TM-01 | Prescaler = 16 (D5=0): counter decrements every 16 clocks | — | missing | — |
-| CTC-TM-02 | Prescaler = 256 (D5=1): counter decrements every 256 clocks | — | missing | — |
-| CTC-TM-03 | Time constant = 1: ZC/TO after 1 prescaler cycle | — | missing | — |
-| CTC-TM-04 | Time constant = 0 means 256 (8-bit wrap) | — | missing | — |
-| CTC-TM-05 | Prescaler resets on soft reset | — | missing | — |
-| CTC-TM-06 | ZC/TO reloads time constant automatically | — | missing | — |
-| CTC-TM-07 | ZC/TO pulse duration is exactly 1 clock cycle | — | missing | — |
-| CTC-TM-08 | Read port returns current down-counter value | — | missing | — |
-| CTC-TM-G120-01 | Mid-stream TC reload preserves prescaler (S_RUN_TC → S_RUN) | — | missing | — |
-| CTC-CM-01 | Counter mode: decrement on falling external edge (D4=0) | — | missing | — |
-| CTC-CM-02 | Counter mode: decrement on rising external edge (D4=1) | — | missing | — |
-| CTC-CM-03 | Counter mode: ZC/TO when count reaches 0 | — | missing | — |
-| CTC-CM-04 | Counter mode: automatic reload after ZC/TO | — | missing | — |
-| CTC-CM-05 | Changing edge polarity (D4) counts as clock edge | — | missing | — |
-| CTC-CH-01 | Channel 0 trigger = ZC/TO of channel 3 | — | missing | — |
-| CTC-CH-02 | Channel 1 trigger = ZC/TO of channel 0 | — | missing | — |
-| CTC-CH-03 | Channel 2 trigger = ZC/TO of channel 1 | — | missing | — |
-| CTC-CH-04 | Channel 3 trigger = ZC/TO of channel 2 | — | missing | — |
-| CTC-CH-05 | Cascaded chain: ch0 timer -> ch1 counter -> ch2 counter | — | missing | — |
-| CTC-CH-06 | Circular chain avoided: only one channel in timer mode | — | missing | — |
-| CTC-CW-01 | Control word (D0=1): bits [7:3] stored in control_reg | — | missing | — |
-| CTC-CW-02 | Vector word (D0=0): only accepted by channel 0 | — | missing | — |
-| CTC-CW-03 | Vector word to channels 1-3: treated as vector but o_vector_wr not pulsed | ctc.vhd | missing | — |
-| CTC-CW-04 | Time constant follows control word with D2=1 | — | missing | — |
-| CTC-CW-05 | Write during S_RESET_TC: any byte is the time constant | — | missing | — |
-| CTC-CW-06 | Control word with D7=1: enable interrupt for channel | — | missing | — |
-| CTC-CW-07 | Control word with D7=0: disable interrupt for channel | — | missing | — |
-| CTC-CW-08 | External int_en_wr overrides D7 bit | — | missing | — |
-| CTC-CW-09 | Hard reset clears control_reg to all zeros | — | missing | — |
-| CTC-CW-10 | Hard reset clears time_constant_reg to 0x00 | — | missing | — |
-| CTC-CW-11 | Write edge: iowr is rising-edge detected (i_iowr AND NOT iowr_d) | — | missing | — |
-| CTC-NR-01 | NextREG 0xC5 write: sets CTC interrupt enable bits [3:0] | — | missing | — |
-| CTC-NR-02 | NextREG 0xC5 read: returns ctc_int_en[7:0] | — | missing | — |
-| CTC-NR-03 | CTC control word D7 also sets int_en independently | — | missing | — |
-| CTC-NR-04 | NextREG 0xC5 write does not overlap with port CTC write | — | missing | — |
-| IM2C-01 | ED prefix detected: enter S_ED_T4 | — | missing | — |
-| IM2C-02 | ED 4D sequence: o_reti_seen pulsed | — | missing | — |
-| IM2C-03 | ED 45 sequence: o_retn_seen pulsed | — | missing | — |
-| IM2C-04 | ED followed by non-4D/45: return to S_0 | — | missing | — |
-| IM2C-05 | o_reti_decode asserted during S_ED_T4 | — | missing | — |
-| IM2C-06 | CB prefix: enter S_CB_T4, wait for next fetch | — | missing | — |
-| IM2C-07 | DD/FD prefix chain: stay in S_DDFD_T4 | — | missing | — |
-| IM2C-08 | DMA delay: asserted during ED, ED4D, ED45, SRL states | — | missing | — |
-| IM2C-09 | SRL delay states: 2 extra cycles after RETI/RETN | — | missing | — |
-| IM2C-10 | IM mode detection: ED 46 = IM 0 | — | missing | — |
-| IM2C-11 | IM mode detection: ED 56 = IM 1 | — | missing | — |
-| IM2C-12 | IM mode detection: ED 5E = IM 2 | — | missing | — |
-| IM2C-13 | IM mode updates on falling edge of CLK_CPU | — | missing | — |
-| IM2C-14 | IM mode default after reset: IM 0 | — | missing | — |
-| IM2C-G87-01 | RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen [VHDL im2_control.vhd:158-209,234] | im2_control.vhd:158-209,234 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1031 |
-| IM2C-G87-02 | RETN (ED 45) advances IM2 FSM and pulses o_retn_seen [VHDL im2_control.vhd:233-238] | im2_control.vhd:233-238 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1055 |
-| IM2D-01 | Interrupt request: S_0 -> S_REQ when i_int_req=1 and M1=high | — | missing | — |
-| IM2D-02 | INT_n asserted in S_REQ when IEI=1 and IM2 mode | — | missing | — |
-| IM2D-03 | INT_n not asserted when IEI=0 | — | missing | — |
-| IM2D-04 | INT_n not asserted when not in IM2 mode | — | missing | — |
-| IM2D-05 | Acknowledge: S_REQ -> S_ACK on M1=0, IORQ=0, IEI=1 | — | missing | — |
-| IM2D-06 | S_ACK -> S_ISR when M1 returns high | — | missing | — |
-| IM2D-07 | S_ISR -> S_0 on RETI seen with IEI=1 | — | missing | — |
-| IM2D-08 | S_ISR stays in S_ISR without RETI | — | missing | — |
-| IM2D-09 | Vector output during S_ACK (or S_ACK transition) | — | missing | — |
-| IM2D-10 | Vector output = 0 when not in ACK | — | missing | — |
-| IM2D-11 | o_isr_serviced pulsed on S_ISR -> S_0 transition | — | missing | — |
-| IM2D-12 | DMA interrupt: o_dma_int=1 whenever state != S_0 and dma_int_en=1 | — | missing | — |
-| IM2P-01 | IEO = IEI in S_0 state (idle) | — | missing | — |
-| IM2P-02 | IEO = IEI AND reti_decode in S_REQ state | — | missing | — |
-| IM2P-03 | IEO = 0 in S_ACK and S_ISR states | — | missing | — |
-| IM2P-04 | Highest-priority device (index 0) has IEI=1 always | peripherals.vhd | missing | — |
-| IM2P-05 | Two simultaneous requests: lower index wins | — | missing | — |
-| IM2P-06 | Lower-priority device queued while higher is serviced | — | missing | — |
-| IM2P-07 | After RETI of higher-priority ISR: lower device proceeds | — | missing | — |
-| IM2P-08 | Chain of 3: device 0 in ISR, device 1 requesting, device 2 requesting | — | missing | — |
-| IM2P-09 | INT_n is AND of all device int_n signals | — | missing | — |
-| IM2P-10 | Vector OR: only acknowledged device outputs non-zero vector | — | missing | — |
-| PULSE-01 | Pulse mode (nr_c0[0]=0): pulse_en from qualified int_req | — | missing | — |
-| PULSE-02 | IM2 mode (nr_c0[0]=1): pulse_en suppressed | — | missing | — |
-| PULSE-03 | ULA exception (EXCEPTION='1'): pulse even in IM2 when CPU not in IM2 | — | missing | — |
-| PULSE-04 | pulse_int_n goes low on pulse_en, stays low for count duration | — | missing | — |
-| PULSE-05 | 48K/+3 timing: pulse duration = 32 CPU cycles | — | missing | — |
-| PULSE-06 | 128K/Pentagon timing: pulse duration = 36 CPU cycles | — | missing | — |
-| PULSE-07 | Pulse counter resets when pulse_int_n=1 | — | missing | — |
-| PULSE-08 | INT_n to Z80 = pulse_int_n AND im2_int_n | — | missing | — |
-| PULSE-09 | External bus INT: o_BUS_INT_n = pulse_int_n AND im2_int_n | — | missing | — |
-| PULSE-G89-01 | LDIRX (ED B4) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2095-2138] | t80n_mcode.vhd:2095-2138 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1143 |
-| PULSE-G89-02 | LDDRX (ED BC) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256] | t80n_mcode.vhd:2230-2256 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1184 |
-| PULSE-G89-03 | LDPIRX (ED B7) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991] | t80n_mcode.vhd:1953-1991 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1225 |
-| PULSE-G89-04 | LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226] | t80n_mcode.vhd:2188-2226 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1264 |
-| PULSE-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | — | missing | — |
-| PULSE-G121-01 | NR 0x03 machine-timing post-boot updates pulse_count_end | — | missing | — |
-| IM2W-01 | Edge detection: int_req = i_int_req AND NOT int_req_d | — | missing | — |
-| IM2W-02 | im2_int_req latched: stays high until ISR serviced | — | missing | — |
-| IM2W-03 | im2_int_req cleared by im2_isr_serviced | — | missing | — |
-| IM2W-04 | int_status set by int_req or int_unq | — | missing | — |
-| IM2W-05 | int_status cleared by i_int_status_clear | — | missing | — |
-| IM2W-06 | o_int_status = int_status OR im2_int_req | — | missing | — |
-| IM2W-07 | im2_reset_n = mode_pulse AND NOT reset | — | missing | — |
-| IM2W-08 | Unqualified interrupt (int_unq): bypasses int_en | — | missing | — |
-| IM2W-09 | isr_serviced edge detection across clock domains | — | missing | — |
-| IM2W-G119-01 | ZC/TO raised unconditionally; int_en AND at fabric edge | — | missing | — |
 | ULA-INT-01 | ULA HC/VC interrupt fires at int_h/int_v → NR 0xC8 bit 0 set [zxnext.vhd:1937,1941; emulator.cpp:1988-1998; im2.cpp:264-266] | zxnext.vhd:1937,1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:144 |
 | ULA-INT-02 | ULA int suppressed when port_ff(6)/NR 0x22[2] set → NR 0xC8 bit 0 clear [zxnext.vhd:3619-3620, :3635, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3619-3620,3635,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:174 |
 | ULA-INT-03 | NR 0xC4 read bit 0 = NOT port_ff_interrupt_disable [zxnext.vhd:6239, :6711; emulator.cpp:802] | zxnext.vhd:6239,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:198 |
-| ULA-INT-04 | Line interrupt fires at cvc match (int_line pulse → NR 0xC8 bit 1) [zxula_timing.vhd:577-582; zxnext.vhd:1941; emulator.cpp:2392-2402] | zxula_timing.vhd:577-582, zxnext.vhd:1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:254 |
 | ULA-INT-05 | NR 0x22 bit 1 drives line_interrupt_en, visible on NR 0xC4 read bit 1 [zxnext.vhd:5297, :6239; emulator.cpp:542-546, :801] | zxnext.vhd:5297,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:222 |
+| ULA-INT-04 | Line interrupt fires at cvc match (int_line pulse → NR 0xC8 bit 1) [zxula_timing.vhd:577-582; zxnext.vhd:1941; emulator.cpp:2392-2402] | zxula_timing.vhd:577-582, zxnext.vhd:1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:254 |
 | ULA-INT-06 | Line interrupt value 0 still fires within frame (VHDL: wraps to c_max_vc) [zxula_timing.vhd:566-570; emulator.cpp:2392-2402] | zxula_timing.vhd:566-570 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:281 |
-| ULA-INT-07 | ULA interrupt is priority index 11 | — | missing | — |
-| ULA-INT-08 | Line interrupt is priority index 0 (highest) | — | missing | — |
-| ULA-INT-09 | ULA has EXCEPTION='1' in peripherals instantiation | — | missing | — |
-| NR-C0-01 | Write NextREG 0xC0: bits [7:5] = IM2 vector MSBs | — | missing | — |
-| NR-C0-02 | Write NextREG 0xC0: bit [3] = stackless NMI | — | missing | — |
-| NR-C0-03 | Write NextREG 0xC0: bit [0] = pulse(0)/IM2(1) mode | — | missing | — |
-| NR-C0-04 | NR 0xC0 read composes VVV_0_S_MM_I (vector + stackless + im_mode + int_mode) [zxnext.vhd:6229-6230; emulator.cpp:771-778] | zxnext.vhd:6229-6230 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:837 |
-| NR-C4-01 | Write NextREG 0xC4: bit [7] = expansion bus int enable | — | missing | — |
-| NR-C4-02 | NR 0xC4 bit 1 write drives line_interrupt_en (read bit 1 round-trip) [zxnext.vhd:5607-5610, :6239; emulator.cpp:792] | zxnext.vhd:5607-5610,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:858 |
-| NR-C4-03 | NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) [zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804] | zxnext.vhd:6239/3621-3622/3635/6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:890 |
-| NR-C5-01 | Write NextREG 0xC5: CTC interrupt enable bits [3:0] | — | missing | — |
-| NR-C5-02 | Read NextREG 0xC5: returns ctc_int_en[7:0] | — | missing | — |
-| NR-C6-01 | Write NextREG 0xC6: UART interrupt enable | — | missing | — |
-| NR-C6-02 | NR 0xC6 read format 0_654_0_210 (bits 7 and 3 read as 0) [zxnext.vhd:6244-6245; emulator.cpp:828-831] | zxnext.vhd:6244-6245 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:906 |
-| NR-C8-01 | Read NextREG 0xC8: line and ULA interrupt status | — | missing | — |
-| NR-C9-01 | Read NextREG 0xC9: CTC interrupt status [10:3] | — | missing | — |
-| NR-CA-01 | Read NextREG 0xCA: UART interrupt status | — | missing | — |
-| NR-CC-01 | Write NextREG 0xCC: DMA interrupt enable group 0 | — | missing | — |
-| NR-CD-01 | Write NextREG 0xCD: DMA interrupt enable group 1 | — | missing | — |
-| NR-CE-01 | Write NextREG 0xCE: DMA interrupt enable group 2 | — | missing | — |
-| NR-C2-01 | NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6232] | zxnext.vhd:2050-2085,6232 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1089 |
-| NR-C3-01 | NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6236] | zxnext.vhd:2050-2085,6236 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1094 |
-| ISC-01 | Write NextREG 0xC8 bit 1: clear line interrupt status | — | missing | — |
-| ISC-02 | Write NextREG 0xC8 bit 0: clear ULA interrupt status | — | missing | — |
-| ISC-03 | Write NextREG 0xC9: clear individual CTC status bits | — | missing | — |
-| ISC-04 | Write NextREG 0xCA bit 6: clear UART1 TX status | — | missing | — |
-| ISC-05 | Write NextREG 0xCA bit 2: clear UART0 TX status | — | missing | — |
-| ISC-06 | Write NextREG 0xCA bits 5 | — | missing | — |
-| ISC-07 | Write NextREG 0xCA bits 1 | — | missing | — |
-| ISC-08 | Status bit re-set by new interrupt while clear pending | — | missing | — |
-| ISC-09 | NR 0x20 read = LINE_ULA_00_CTC3..CTC0 mixed status [zxnext.vhd:5988-5989; emulator.cpp:917-926] | zxnext.vhd:5988-5989 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:946 |
-| ISC-10 | NR 0x22 read bit 7 = NOT pulse_int_n (reset: 0x00) [zxnext.vhd:5991-5992 — NR 0x22 read_handler missing in jnext; reset-state invariant only] | zxnext.vhd:5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:976 |
-| DMA-01 | im2_dma_int set when any peripheral has dma_int=1 | — | missing | — |
-| DMA-02 | im2_dma_delay latched on im2_dma_int | — | missing | — |
-| DMA-03 | im2_dma_delay held by dma_delay signal | — | missing | — |
-| DMA-04 | NMI also triggers DMA delay when nr_cc_dma_int_en_0_7=1 | — | missing | — |
-| DMA-05 | DMA delay cleared on reset | — | missing | — |
-| DMA-06 | Per-peripheral DMA int enable via NextREGs 0xCC-0xCE | — | missing | — |
-| UNQ-01 | NextREG 0x20 write bit 7: unqualified line interrupt | — | missing | — |
-| UNQ-02 | NextREG 0x20 write bits [3:0]: unqualified CTC 0-3 | — | missing | — |
-| UNQ-03 | NextREG 0x20 write bit 6: unqualified ULA interrupt | — | missing | — |
-| UNQ-04 | Unqualified interrupt bypasses int_en check | — | missing | — |
-| UNQ-05 | Unqualified interrupt sets int_status | — | missing | — |
-| JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | — | missing | — |
-| JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | — | missing | — |
-| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1396 |
-| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1442 |
-| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1470 |
-| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1501 |
-| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1589 |
-| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1660 |
-| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 192) | ctc_chan.vhd:143-146,162-170 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1716 |
-| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1766 |
-| CTC-C1-ACC-03 | timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires at 31: activation cycle still ticks the newly-RUN channel; tick(31) == 31x tick(1) | ctc_chan.vhd, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1813 |
-| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2019 |
-| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2052 |
-| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | ctc_chan.vhd:269,276, zxnext.vhd:4067,4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2098 |
-| IM2-G89-01 | LDIRX samples INT/NMI between iterations | — | missing | — |
-| IM2-G89-02 | LDDRX samples INT/NMI between iterations | — | missing | — |
-| IM2-G89-03 | LDPIRX samples INT/NMI between iterations | — | missing | — |
-| IM2-G89-04 | LDIRSCALE samples INT/NMI between iterations | — | missing | — |
-| IM2-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | — | missing | — |
 | ULA-INT-V12-NMP-02 | OUT (0xFF) bit 6 fans into ula_int_disabled_ shadow / scheduler — NR 0xC4 read bit 0 follows live port_ff_reg(6) for direct port-0xFF writes [zxnext.vhd:3614-3616, :3635, :6711, :6239] | zxnext.vhd:3614-3616,3635,6711,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:326 |
 | ULA-INT-V12-NMP-02b | OUT (0xFF),0x40 suppresses scheduled ULA INT — NR 0xC8 bit 0 stays clear [zxnext.vhd:3614-3616, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3614-3616,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:346 |
 | ULA-INT-V19-IM2-01 | NR 0x22 bit 1 propagates to IM2 fabric dev_[LINE].int_en [zxnext.vhd:5297, :1950, :6711] | zxnext.vhd:5297,1950,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:396 |
@@ -4561,13 +4093,39 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | V20R-CPU-NIT-01-PREV-PULSE-PERSIST | emu_save construction failed | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:618 |
 | V20R-CPU-NIT-02-NO-DOUBLE-STAMP | Exactly one CPU /INT stamp per pulse-mode ULA frame-INT pulse [reviewer V20R-CPU-NIT-02; pre-fix legacy scheduler callback + V20 falling-edge poll both stamped → latent fast-EI double-INT] | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:727 |
 | ULA-INT-V19-IM2-04 | IM2 fabric int_line_asserted() drives CPU /INT in IM2 mode [zxnext.vhd:1840 z80_int_n composition] | zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:795 |
+| NR-C0-04 | NR 0xC0 read composes VVV_0_S_MM_I (vector + stackless + im_mode + int_mode) [zxnext.vhd:6229-6230; emulator.cpp:771-778] | zxnext.vhd:6229-6230 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:837 |
+| NR-C4-02 | NR 0xC4 bit 1 write drives line_interrupt_en (read bit 1 round-trip) [zxnext.vhd:5607-5610, :6239; emulator.cpp:792] | zxnext.vhd:5607-5610,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:858 |
+| NR-C4-03 | NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) [zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804] | zxnext.vhd:6239/3621-3622/3635/6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:890 |
+| NR-C6-02 | NR 0xC6 read format 0_654_0_210 (bits 7 and 3 read as 0) [zxnext.vhd:6244-6245; emulator.cpp:828-831] | zxnext.vhd:6244-6245 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:906 |
+| ISC-09 | NR 0x20 read = LINE_ULA_00_CTC3..CTC0 mixed status [zxnext.vhd:5988-5989; emulator.cpp:917-926] | zxnext.vhd:5988-5989 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:946 |
+| ISC-10 | NR 0x22 read bit 7 = NOT pulse_int_n (reset: 0x00) [zxnext.vhd:5991-5992 — NR 0x22 read_handler missing in jnext; reset-state invariant only] | zxnext.vhd:5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:976 |
+| IM2C-G87-01 | RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen [VHDL im2_control.vhd:158-209,234] | im2_control.vhd:158-209,234 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1031 |
+| IM2C-G87-02 | RETN (ED 45) advances IM2 FSM and pulses o_retn_seen [VHDL im2_control.vhd:233-238] | im2_control.vhd:233-238 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1055 |
+| NR-C2-01 | NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6232] | zxnext.vhd:2050-2085,6232 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1089 |
+| NR-C3-01 | NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6236] | zxnext.vhd:2050-2085,6236 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1094 |
+| PULSE-G89-01 | LDIRX (ED B4) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2095-2138] | t80n_mcode.vhd:2095-2138 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1143 |
+| PULSE-G89-02 | LDDRX (ED BC) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256] | t80n_mcode.vhd:2230-2256 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1184 |
+| PULSE-G89-03 | LDPIRX (ED B7) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991] | t80n_mcode.vhd:1953-1991 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1225 |
+| PULSE-G89-04 | LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226] | t80n_mcode.vhd:2188-2226 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1264 |
 | PULSE-G89-INT | LDIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2095-2138 + zxnext.vhd INT path] | t80n_mcode.vhd:2095-2138, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1319 |
+| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1396 |
+| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1442 |
+| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1470 |
+| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1501 |
+| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1589 |
+| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1660 |
+| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 192) | ctc_chan.vhd:143-146,162-170 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1716 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1766 |
+| CTC-C1-ACC-03 | timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires at 31: activation cycle still ticks the newly-RUN channel; tick(31) == 31x tick(1) | ctc_chan.vhd, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1813 |
 | PW-48K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1910 |
 | PW-48K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1910 |
 | PW-48K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1910 |
 | PW-NEXT-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1912 |
 | PW-NEXT-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1912 |
 | PW-NEXT-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1912 |
+| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2019 |
+| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2052 |
+| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | ctc_chan.vhd:269,276, zxnext.vhd:4067,4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2098 |
 
 ### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`
 
@@ -4575,21 +4133,7 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| SEL-01 | Write 0x243B = 0x15, read 0x243B | — | missing | — |
-| SEL-02 | Reset, read 0x243B | — | missing | — |
-| SEL-03 | NR 0x00 via select+write+read path returns 0x0A (selection pathway respects read-only) [zxnext.vhd:5884-5885] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1421 |
-| SEL-04 | Write 0x243B = 0x7F, write 0x253B = 0xAB, read NR 0x7F | — | missing | — |
-| SEL-05 | NEXTREG ED 91 instruction | — | missing | — |
-| SEL-05a | Pre-select NR 0x7F via 0x243B; execute Z80N `NEXTREG 0x54, 0x04` (ED 91 54 04); read 0x253B without re-selecting | zxnext.vhd:4739-4744 | missing | — |
-| SEL-05b | Same setup with `NEXTREG 0x54,A` (ED 92); after it, write 0x253B ← 0x5C (raw data port) | — | missing | — |
-| SEL-05c | Execute `NEXTREG 0x7E, 0x3C`; read NR 0x7E | — | missing | — |
-| RO-01 | NR 0x00 machine ID reset=0x0A via port path [VHDL g_machine_id, zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:1315 |
 | MID-01 | NR 0x00 machine ID reset=0x0A (VHDL g_machine_id=X"0A") [zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:163 |
-| RO-02 | NR 0x00 read-only: write 0x42 then read returns 0x0A [zxnext.vhd:5884-5885 — read routed to g_machine_id; no write handler] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1331 |
-| RO-03 | NR 0x01 core version reset=0x32 (core 3.02) [zxnext_top_issue2.vhd:37 g_version] | zxnext_top_issue2.vhd:37 | pass | test/nextreg/nextreg_integration_test.cpp:1343 |
-| RO-04 | NR 0x0E sub-version reset=0x03 [zxnext_top_issue2.vhd:38 g_sub_version] | zxnext_top_issue2.vhd:38 | pass | test/nextreg/nextreg_integration_test.cpp:1355 |
-| RO-05 | NR 0x0F board issue reset=0x00 [zxnext.vhd:5921, zxnext_top_issue2.vhd:39] | zxnext.vhd:5921, zxnext_top_issue2.vhd:39 | pass | test/nextreg/nextreg_integration_test.cpp:1367 |
-| RO-06 | NR 0x1E/0x1F return cvc (paper-relative), not raw frame vc: frame-start cvc == 247 for 128K timing [zxnext.vhd:5982-5986, zxula_timing.vhd:455-472] | zxnext.vhd:5982-5986, zxula_timing.vhd:455-472 | pass | test/nextreg/nextreg_integration_test.cpp:1393 |
 | NREG-RST-01 | NR 0x14 global transparent reset=0xE3 [zxnext.vhd:4947 nr_14_global_transparent] | zxnext.vhd:4947 | pass | test/nextreg/nextreg_integration_test.cpp:173 |
 | NREG-RST-02 | NR 0x15 sprite/layer control reset=0x00 [zxnext.vhd:4948] | zxnext.vhd:4948 | pass | test/nextreg/nextreg_integration_test.cpp:184 |
 | NREG-RST-03 | NR 0x4A fallback RGB reset=0xE3 [zxnext.vhd:5002 nr_4a_fallback_colour] | zxnext.vhd:5002 | pass | test/nextreg/nextreg_integration_test.cpp:194 |
@@ -4598,101 +4142,10 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | NREG-RST-06 | NR 0x68 ULA control reset=0x00 (ula_en=1 → bit7=0) [zxnext.vhd:5029] | zxnext.vhd:5029 | pass | test/nextreg/nextreg_integration_test.cpp:239 |
 | NREG-RST-07 | NR 0x0B I/O mode reset=0x01 [zxnext.vhd:4939-4941] | zxnext.vhd:4939-4941 | pass | test/nextreg/nextreg_integration_test.cpp:250 |
 | NREG-RST-08 | NR 0x82-0x85 port enables reset=0xFF [zxnext.vhd:5052-5068] | zxnext.vhd:5052-5068 | pass | test/nextreg/nextreg_integration_test.cpp:272 |
-| RST-09 | NR 0x1B post-reset read returns tilemap clip_x1 = 0x00 [zxnext.vhd:5971-5977 read mux; :4977-4981 reset defaults] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:317 |
-| RW-01 | NR 0x07 read = (actual<<4) \| requested, pads 0 in bits[7:6] and bits[3:2] [zxnext.vhd:5902-5903] | zxnext.vhd:5902-5903 | pass | test/nextreg/nextreg_integration_test.cpp:2177 |
-| RW-02 | NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = nr_08_contention_disable [zxnext.vhd:5906] | zxnext.vhd:5906 | pass | test/nextreg/nextreg_integration_test.cpp:2229 |
-| RW-03 | 0x12 | — | missing | — |
-| RW-04 | 0x14 | — | missing | — |
-| RW-05 | 0x15 | — | missing | — |
-| RW-06 | 0x16 | — | missing | — |
-| RW-07 | 0x42 | — | missing | — |
-| RW-08 | 0x43 | — | missing | — |
-| RW-09 | 0x4A | — | missing | — |
-| RW-10 | 0x50-57 | — | missing | — |
-| RW-11 | 0x7F | — | missing | — |
-| RW-12 | 0x6B | — | missing | — |
-| CLIP-01 | NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44 [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1454 |
-| CLIP-02 | NR 0x18 fifth write wraps back to x1 (mod-4 idx) [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1474 |
-| CLIP-03 | NR 0x1C bit 0 resets L2 clip idx so next NR 0x18 write → x1 [zxnext.vhd:5278-5281] | zxnext.vhd:5278-5281 | pass | test/nextreg/nextreg_integration_test.cpp:1493 |
-| CLIP-04 | NR 0x1C bit 1 resets sprite clip idx so next NR 0x19 write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1514 |
-| CLIP-05 | NR 0x1C bit 2 resets ULA clip idx so next NR 0x1A write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1536 |
-| CLIP-06 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1554 |
-| CLIP-07 | Read NR 0x1C | zxnext.vhd:5979-5980 | pass | test/nextreg/nextreg_integration_test.cpp:1573 |
-| CLIP-08 | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5947-5953] | zxnext.vhd:5947-5953 | pass | test/nextreg/nextreg_integration_test.cpp:1618 |
-| CLIP-09 | Read NR 0x1B twice with no intervening write | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1642 |
-| CLIP-10 | NR 0x1B write lands x1=0xAA AND advances tm idx → NR 0x1C bits 7:6 = 01 (0x40) [zxnext.vhd:5276 write increments idx; :5980 NR 0x1C packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1673 |
-| MMU-01 | Reset defaults | — | missing | — |
-| NR-MMU-02 | Write NR 0x52 = 0x20, read back | — | missing | — |
-| MMU-03 | Write port 0x7FFD, check MMU6/7 | — | missing | — |
-| MMU-04 | NextREG write overrides port write | — | missing | — |
-| N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0 [zxnext.vhd:3814 port_memory_ram_change_dly, :4677 MMU6/7 gate] | zxnext.vhd:3814 | pass | test/nextreg/nextreg_integration_test.cpp:2714 |
-| N8E-RAM-REBUILD-1 | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank [zxnext.vhd:3814, :4677] | zxnext.vhd:3814,4677 | pass | test/nextreg/nextreg_integration_test.cpp:2739 |
-| CFG-01 | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011") [zxnext.vhd:1099, 5893-5894] | zxnext.vhd:1099,5893-5894 | pass | test/nextreg/nextreg_integration_test.cpp:2509 |
-| CFG-02 | NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read composes bit 3 from that state [zxnext.vhd:5121-5151, 5894] | zxnext.vhd:5121-5151,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2545 |
-| CFG-03 | Write NR 0x03 bits 2:0 = 111 | — | missing | — |
-| CFG-04 | Write NR 0x03 bits 2:0 = 001-100 | — | missing | — |
-| CFG-05 | NR 0x03 bits 2:0=001 clears config_mode at write time [zxnext.vhd:5147-5151 — Task 11 Branch 1 implemented] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2576 |
-| CFG-06 | Write NR 0x03 bits 2:0 = 000 | — | missing | — |
-| CFG-07 | Power-on / reset default | zxnext.vhd:1102 | missing | — |
-| PAL-01 | NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03 [zxnext.vhd:4918-4920 palette write] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1851 |
-| PAL-02 | NR 0x41 8-bit palette value round-trips at selected index [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1865 |
-| PAL-03 | NR 0x44 9-bit write: upper 8 bits land at selected idx [zxnext.vhd:4918-4920 palette sub_idx latch] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1885 |
-| PAL-04 | NR 0x41 read returns palette byte at selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1900 |
-| PAL-05 | NR 0x44 read returns priority+LSB for selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1913 |
-| PAL-06 | NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 at idx 0x50 keeps pointer on 0x50, pal[0x51] untouched [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1937 |
-| PE-01 | Write NR 0x82 = 0x00 | — | missing | — |
-| PE-02 | Read NR 0x82 after write | — | missing | — |
-| PE-03 | NR 0x82 bit 6 gates port 0x1F (Kempston 1): bit6=1→handler, bit6=0→0xFF [zxnext.vhd:2392-2442] | zxnext.vhd:2392-2442 | pass | test/nextreg/nextreg_integration_test.cpp:1995 |
-| PE-04 | Reset with reset_type=1 | — | missing | — |
-| PE-05 | NR 0x89 bus port enable reset=0x8F [zxnext.vhd:1234-1235, 6147-6150] | zxnext.vhd:1234-1235,6147-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2014 |
-| PE-06 | Read NR 0x82 after a write, full VHDL packing | zxnext.vhd:5508-5522 | missing | — |
-| PE-07 | Read NR 0x86 (bus-port-enable, no read_handler today) | zxnext.vhd:5061-5067 | missing | — |
-| PE-08 | Read NR 0x89 inverted-reset semantics | zxnext.vhd:6138,6150 | missing | — |
-| PE-09 | Read NR 0x80 / 0x88 not initialised | — | missing | — |
-| COP-01 | CPU write NR 0x15 | — | missing | — |
-| COP-02 | Copper write NR 0x15 simultaneously | — | missing | — |
-| COP-03 | CPU write while copper active | — | missing | — |
-| COP-04 | Copper register limited to 0x7F | — | missing | — |
-| WO-01 | Write NR 0x04 ← 0xA5; read NR 0x04 via 0x243B/0x253B | zxnext.vhd:5878-6289 | missing | — |
-| WO-02 | Write NR 0x29 ← 0x55; read NR 0x29 | — | missing | — |
-| WO-03 | Write NR 0x60 ← 0x42; read NR 0x60 | — | missing | — |
-| WO-04 | Write NR 0x35 ← 0x33; read NR 0x35 | — | missing | — |
-| T58-NR05-EFF-01 | NR 0x05 bits 2/0 are frame-edge-latched on read: write 0x05 reads 0x00 before the frame edge, 0x05 after [zxnext.vhd:5897, :6696-6703] | zxnext.vhd:5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:3220 |
-| TC-NR05-PRESERVE | NR 0x05 survives hard reset (no VHDL reset clause) [zxnext.vhd:1105-1106 / 1302-1303] | zxnext.vhd:1105-1106/1302-1303 | pass | test/nextreg/nextreg_integration_test.cpp:4888 |
-| TC-NR05-PENTAGON | NR 0x05 bit 2 reads 0 after Pentagon entry + frame edge (pending FF forced 0, eff latched at frame sync) [zxnext.vhd:5835-5836 / :6697-6700 / :5897] | zxnext.vhd:5835-5836/6697-6700/5897 | pass | test/nextreg/nextreg_integration_test.cpp:4920 |
-| V13-NMP-01 | NR 0x05 bit 2 Pentagon-mode cache canonicalisation: (a) write-while-Pentagon does not leak; (b) Pentagon-engagement clears prior bit-2 latch [zxnext.vhd:5832-5841 / :5897 / :6696-6703] | zxnext.vhd:5832-5841/5897/6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:5798 |
-| FT-D8-01 | NR 0xD8 nr_d8_io_trap_fdc_en write/read-back | zxnext.vhd:5639-5640,6265-6266 | missing | — |
-| FT-D8-02 | NR 0xD8 enable=1 must allow strobe_iotrap to assert MF | zxnext.vhd:2601-2602,3835,3837 | missing | — |
-| FT-D9-01 | NR 0xD9 nr_d9_iotrap_write captures CPU write byte | zxnext.vhd:3892-3893 | missing | — |
-| FT-DA-01 | NR 0xDA nr_da_iotrap_cause encoding 01/10/11 | zxnext.vhd:3872-3877 | missing | — |
-| FT-DA-02 | NR 0xDA cause clears via NR 0x02 b4 write=0 | zxnext.vhd:3879-3880 | missing | — |
-| G56-CR-05 | NR 0x05 composed-read divergence | zxnext.vhd:5896-5897 | missing | — |
-| G56-CR-06 | NR 0x06 psg_mode source-of-truth | zxnext.vhd:5899-5900 | missing | — |
-| G56-CR-09 | NR 0x09 sprite_tie composed-read | zxnext.vhd:5908-5909 | missing | — |
-| G56-CR-0A | NR 0x0A divmmc_automap_en mirror | zxnext.vhd:5911-5912 | missing | — |
-| G56-CR-0B | NR 0x0B joystick composed-read | zxnext.vhd:5914-5915 | missing | — |
-| G56-CR-10 | NR 0x10 SPKEY_BUTTONS/coreid live composed-read (title says "video-timing cvc": mismatch — that is NR 0x11/NR 0x1E-1F, not this arm) | zxnext.vhd:5923-5924 | missing | — |
-| G56-CR-15 | NR 0x15 layer composed-read | zxnext.vhd:5938-5939 | missing | — |
-| G56-CR-22 | NR 0x22 bit 7 dynamic pulse_int_n | zxnext.vhd:5991-5992 | missing | — |
-| G56-CR-23 | NR 0x23 line-int compare ladder (register readback itself is a plain stored-value passthrough; the actual compare is zxula_timing.vhd:577) | zxula_timing.vhd:577, zxnext.vhd:5994-5995 | missing | — |
-| G56-CR-34 | NR 0x34 sprite-attr index live counter | zxnext.vhd:6032-6033 | missing | — |
-| G56-CR-40 | NR 0x40 palette idx autoinc state | zxnext.vhd:6035-6036 | missing | — |
-| G56-CR-43 | NR 0x43 palette ctrl composed-read | zxnext.vhd:6044-6045 | missing | — |
-| G56-CR-4C | NR 0x4C bits 7:4 mask not propagated | zxnext.vhd:6056-6057 | missing | — |
-| G56-CR-68 | NR 0x68 b4 from port_ff3b_ulap_en | zxnext.vhd:6092-6093 | missing | — |
-| G56-CR-69 | NR 0x69 bits composed from port_ff | zxnext.vhd:6095-6096 | missing | — |
-| G56-CR-6A | NR 0x6A radastan/lores composed | zxnext.vhd:6098-6099 | missing | — |
-| G56-CR-6B | NR 0x6B b7 from nr_6b_tm_en | zxnext.vhd:6101-6102 | missing | — |
-| G56-CR-6C | NR 0x6C tilemap composed-read | zxnext.vhd:6104-6105 | missing | — |
-| G56-CR-6E | NR 0x6E bit 6 always 0 | zxnext.vhd:6107-6108 | missing | — |
-| G56-CR-6F | NR 0x6F bit 6 always 0 | zxnext.vhd:6110-6111 | missing | — |
-| G56-CR-70 | NR 0x70 bits 7:6 always 0 | zxnext.vhd:6113-6114 | missing | — |
-| G56-CR-71 | NR 0x71 bits 7:1 always 0 | zxnext.vhd:6116-6117 | missing | — |
-| G56-CR-80 | NR 0x80 expansion-bus dynamic state | zxnext.vhd:6122-6123 | missing | — |
-| G56-CR-81 | NR 0x81 b7 from i_BUS_ROMCS_n | zxnext.vhd:6125-6126 | missing | — |
 | NREG-RST-10 | NR 0x12 L2 active bank reset=0x08 [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:282 |
 | NREG-RST-11 | NR 0x4B sprite transparent index reset=0xE3 [zxnext.vhd:5003 nr_4b_sprite_transparent_index] | zxnext.vhd:5003 | pass | test/nextreg/nextreg_integration_test.cpp:292 |
 | NREG-RST-12 | NR 0x4C tilemap transparent index reset=0x0F [zxnext.vhd:5004 nr_4c_tm_transparent_index] | zxnext.vhd:5004 | pass | test/nextreg/nextreg_integration_test.cpp:302 |
+| RST-09 | NR 0x1B post-reset read returns tilemap clip_x1 = 0x00 [zxnext.vhd:5971-5977 read mux; :4977-4981 reset defaults] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:317 |
 | NREG-RST-13 | NR 0xB8/0xB9/0xBA/0xBB DivMMC automap EP reset = 0x83/0x01/0x00/0xCD [zxnext.vhd:5087-5090] | zxnext.vhd:5087-5090 | pass | test/nextreg/nextreg_integration_test.cpp:344 |
 | 20.3a | NR 0xCC readback masks to bits 7 and 1:0 [zxnext.vhd:6257] | zxnext.vhd:6257 | pass | test/nextreg/nextreg_integration_test.cpp:368 |
 | 20.3b | NR 0xCC ignores bits 6:2 on readback [zxnext.vhd:5629-5630] | zxnext.vhd:5629-5630 | pass | test/nextreg/nextreg_integration_test.cpp:376 |
@@ -4729,28 +4182,58 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | CMG-03 | the init() config-mode resync observes the POST-reset boot-ROM state: Mmu::reset() arms boot_rom_en_ from the persisted boot ROM + config_mode [mmu.cpp:179], and the gate must run after that, so the mirror follows the NextReg latch down instead of keeping its stale pre-init value | — | pass | test/nextreg/nextreg_integration_test.cpp:1190 |
 | RSTD-04-05 | the boot-ROM-gated resync in Emulator::init() leaves the Mmu config_mode mirror following the NextReg latch [zxnext.vhd:1102 power-on '1', :5122 cleared by an NR 0x03 write] and does NOT disturb the preserved nr_04_romram_bank [zxnext.vhd:1104, absent from the reset block :4930-5111] | zxnext.vhd:1102, zxnext.vhd:1104 | pass | test/nextreg/nextreg_integration_test.cpp:1246 |
 | CB-BP-01 | host cold boot (reconstruct+init) preserves debugger PC breakpoints + active flag [Task 70 review] | — | pass | test/nextreg/nextreg_integration_test.cpp:1290 |
+| RO-01 | NR 0x00 machine ID reset=0x0A via port path [VHDL g_machine_id, zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:1315 |
+| RO-02 | NR 0x00 read-only: write 0x42 then read returns 0x0A [zxnext.vhd:5884-5885 — read routed to g_machine_id; no write handler] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1331 |
+| RO-03 | NR 0x01 core version reset=0x32 (core 3.02) [zxnext_top_issue2.vhd:37 g_version] | zxnext_top_issue2.vhd:37 | pass | test/nextreg/nextreg_integration_test.cpp:1343 |
+| RO-04 | NR 0x0E sub-version reset=0x03 [zxnext_top_issue2.vhd:38 g_sub_version] | zxnext_top_issue2.vhd:38 | pass | test/nextreg/nextreg_integration_test.cpp:1355 |
+| RO-05 | NR 0x0F board issue reset=0x00 [zxnext.vhd:5921, zxnext_top_issue2.vhd:39] | zxnext.vhd:5921, zxnext_top_issue2.vhd:39 | pass | test/nextreg/nextreg_integration_test.cpp:1367 |
+| RO-06 | NR 0x1E/0x1F return cvc (paper-relative), not raw frame vc: frame-start cvc == 247 for 128K timing [zxnext.vhd:5982-5986, zxula_timing.vhd:455-472] | zxnext.vhd:5982-5986, zxula_timing.vhd:455-472 | pass | test/nextreg/nextreg_integration_test.cpp:1393 |
+| SEL-03 | NR 0x00 via select+write+read path returns 0x0A (selection pathway respects read-only) [zxnext.vhd:5884-5885] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1421 |
+| CLIP-01 | NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44 [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1454 |
+| CLIP-02 | NR 0x18 fifth write wraps back to x1 (mod-4 idx) [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1474 |
+| CLIP-03 | NR 0x1C bit 0 resets L2 clip idx so next NR 0x18 write → x1 [zxnext.vhd:5278-5281] | zxnext.vhd:5278-5281 | pass | test/nextreg/nextreg_integration_test.cpp:1493 |
+| CLIP-04 | NR 0x1C bit 1 resets sprite clip idx so next NR 0x19 write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1514 |
+| CLIP-05 | NR 0x1C bit 2 resets ULA clip idx so next NR 0x1A write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1536 |
+| CLIP-06 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1554 |
 | CLIP-07a | NR 0x1C read post-all-reset packs idx=0000 → 0x00 [zxnext.vhd:5979-5980] | zxnext.vhd:5979-5980 | pass | test/nextreg/nextreg_integration_test.cpp:1573 |
 | CLIP-07b | NR 0x1C after one NR 0x1B write: bits 7:6 = 01 → 0x40 [zxnext.vhd:5276 write increments idx; :5979-5980 packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1583 |
+| CLIP-08 | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5947-5953] | zxnext.vhd:5947-5953 | pass | test/nextreg/nextreg_integration_test.cpp:1618 |
 | CLIP-09a | NR 0x1B read does NOT advance idx (two consecutive reads equal) [zxnext.vhd:5971-5977 — combinatorial, no idx increment] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1642 |
 | CLIP-09b | NR 0x1B reads at idx=3 both return y2=0xFF (reset default); read does not wrap idx [zxnext.vhd:5971-5977] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1658 |
+| CLIP-10 | NR 0x1B write lands x1=0xAA AND advances tm idx → NR 0x1C bits 7:6 = 01 (0x40) [zxnext.vhd:5276 write increments idx; :5980 NR 0x1C packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1673 |
 | CLIP-11 | NR 0x19 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5955-5961] | zxnext.vhd:5955-5961 | pass | test/nextreg/nextreg_integration_test.cpp:1711 |
 | CLIP-11b | NR 0x19 read does NOT advance idx (two consecutive reads equal) [zxnext.vhd:5955-5961 — combinatorial, no idx increment] | zxnext.vhd:5955-5961 | pass | test/nextreg/nextreg_integration_test.cpp:1735 |
 | CLIP-12 | NR 0x1A read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5963-5969] | zxnext.vhd:5963-5969 | pass | test/nextreg/nextreg_integration_test.cpp:1768 |
 | CLIP-12b | NR 0x1A read does NOT advance idx (two consecutive reads equal) [zxnext.vhd:5963-5969 — combinatorial, no idx increment] | zxnext.vhd:5963-5969 | pass | test/nextreg/nextreg_integration_test.cpp:1785 |
 | CLIP-12c | NR 0x1A read at idx=3 returns RAW nr_1a_ula_clip_y2=0xFF (NOT consumer-side ula_clip_y2_0 clamped to 0xBF) [zxnext.vhd:5968 raw register read; clamp at :6779-6783 is on consumer signal only] | zxnext.vhd:5968 | pass | test/nextreg/nextreg_integration_test.cpp:1808 |
+| PAL-01 | NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03 [zxnext.vhd:4918-4920 palette write] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1851 |
+| PAL-02 | NR 0x41 8-bit palette value round-trips at selected index [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1865 |
+| PAL-03 | NR 0x44 9-bit write: upper 8 bits land at selected idx [zxnext.vhd:4918-4920 palette sub_idx latch] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1885 |
+| PAL-04 | NR 0x41 read returns palette byte at selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1900 |
+| PAL-05 | NR 0x44 read returns priority+LSB for selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1913 |
+| PAL-06 | NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 at idx 0x50 keeps pointer on 0x50, pal[0x51] untouched [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1937 |
+| PE-03 | NR 0x82 bit 6 gates port 0x1F (Kempston 1): bit6=1→handler, bit6=0→0xFF [zxnext.vhd:2392-2442] | zxnext.vhd:2392-2442 | pass | test/nextreg/nextreg_integration_test.cpp:1995 |
+| PE-05 | NR 0x89 bus port enable reset=0x8F [zxnext.vhd:1234-1235, 6147-6150] | zxnext.vhd:1234-1235,6147-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2014 |
 | PE-INT-80-88 | NR 0x80 reset=0x00, NR 0x88 reset=0xFF [zxnext.vhd:360, 1233] | zxnext.vhd:360,1233 | pass | test/nextreg/nextreg_integration_test.cpp:2057 |
 | PE-INT-82 | NR 0x82 write=0xA5 read=0xA5 (no pack mask) [zxnext.vhd:5499, 6128-6129] | zxnext.vhd:5499,6128-6129 | pass | test/nextreg/nextreg_integration_test.cpp:2073 |
 | PE-INT-86 | NR 0x86 reset=0xFF + write=0x5A read=0x5A [zxnext.vhd:1231, 5512, 6140-6141] | zxnext.vhd:1231,5512,6140-6141 | pass | test/nextreg/nextreg_integration_test.cpp:2089 |
 | PE-INT-87 | NR 0x87 reset=0xFF + write=0x3C read=0x3C [zxnext.vhd:1232, 5514-5515, 6143-6144] | zxnext.vhd:1232,5514-5515,6143-6144 | pass | test/nextreg/nextreg_integration_test.cpp:2108 |
 | PE-INT-89 | NR 0x89 write=0xF7 read=0x87 (bits 6:4 always 0) [zxnext.vhd:5520-5522, 6149-6150] | zxnext.vhd:5520-5522,6149-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2126 |
+| RW-01 | NR 0x07 read = (actual<<4) \| requested, pads 0 in bits[7:6] and bits[3:2] [zxnext.vhd:5902-5903] | zxnext.vhd:5902-5903 | pass | test/nextreg/nextreg_integration_test.cpp:2177 |
+| RW-02 | NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = nr_08_contention_disable [zxnext.vhd:5906] | zxnext.vhd:5906 | pass | test/nextreg/nextreg_integration_test.cpp:2229 |
 | FIX-NR08-EFFLOCK-01 | NR 0x08 bit 7 read returns NOT effective_paging_locked (Pentagon-1024 overrides the raw lock) — VHDL :5906/:3769; commit b6b42dd | — | pass | test/nextreg/nextreg_integration_test.cpp:2280 |
 | FIX-NR5xFF-INT-01 | Emulator construction failed | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:2316 |
 | FIX-NR5xFF-INT-02 | Emulator construction failed | — | pass | test/nextreg/nextreg_integration_test.cpp:2361 |
 | FIX-NR5xFF-INT-03 | Emulator construction failed | — | pass | test/nextreg/nextreg_integration_test.cpp:2391 |
 | FIX-EFF7-FF-INT-01 | Emulator construction failed | — | pass | test/nextreg/nextreg_integration_test.cpp:2419 |
 | FIX-NR12-PROP-INT-01 | Emulator construction failed | zxnext.vhd:2968 | pass | test/nextreg/nextreg_integration_test.cpp:2455 |
+| CFG-01 | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011") [zxnext.vhd:1099, 5893-5894] | zxnext.vhd:1099,5893-5894 | pass | test/nextreg/nextreg_integration_test.cpp:2509 |
+| CFG-02 | NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read composes bit 3 from that state [zxnext.vhd:5121-5151, 5894] | zxnext.vhd:5121-5151,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2545 |
+| CFG-05 | NR 0x03 bits 2:0=001 clears config_mode at write time [zxnext.vhd:5147-5151 — Task 11 Branch 1 implemented] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2576 |
 | CFG-09-INT | NR 0x03 machine-type latch survives soft reset [zxnext.vhd:1103, :5137-5145, :5894 — no reset clause] | zxnext.vhd:1103,5137-5145,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2624 |
 | CFG-08-INT | NR 0x03 config_mode latch survives soft reset [zxnext.vhd:1102, :5147-5151 — no reset clause] | zxnext.vhd:1102,5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2672 |
+| N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0 [zxnext.vhd:3814 port_memory_ram_change_dly, :4677 MMU6/7 gate] | zxnext.vhd:3814 | pass | test/nextreg/nextreg_integration_test.cpp:2714 |
+| N8E-RAM-REBUILD-1 | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank [zxnext.vhd:3814, :4677] | zxnext.vhd:3814,4677 | pass | test/nextreg/nextreg_integration_test.cpp:2739 |
 | N8E-DIVMMC-ROM3-REFRESH | NR 0x8E write refreshes DivMMC.rom3_active_ from sram_rom3() [zxnext.vhd:2981-3008, :3138; mirrors OUT ($1FFD) at emulator.cpp:3399; G46(b)-v2 EOD-29] | zxnext.vhd:2981-3008,3138 | pass | test/nextreg/nextreg_integration_test.cpp:2789 |
 | L2M-05 | NR 0x12 write sets Layer 2 active bank (7-bit) [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:2821 |
 | L2M-05b | NR 0x12 top bit masked on write (Layer2 state) AND on readback (VHDL read-handler) [zxnext.vhd:4945 + 5930] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:2841 |
@@ -4771,6 +4254,7 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | G56-CR-NR05-02 | write 0xA5 → read 0xA5 after frame edge (round-trip; VHDL :5897 permutation-id, eff bits latch at :6696-6703) | — | pass | test/nextreg/nextreg_integration_test.cpp:3168 |
 | G56-CR-NR05-03 | write 0xFF → read 0xFF after frame edge (every bit feeds exactly one read bit) | — | pass | test/nextreg/nextreg_integration_test.cpp:3185 |
 | G56-CR-NR05-04 | write 0x00 → read 0x00 after frame edge (reset-default joy0[0] cleared) | — | pass | test/nextreg/nextreg_integration_test.cpp:3198 |
+| T58-NR05-EFF-01 | NR 0x05 bits 2/0 are frame-edge-latched on read: write 0x05 reads 0x00 before the frame edge, 0x05 after [zxnext.vhd:5897, :6696-6703] | zxnext.vhd:5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:3220 |
 | G56-CR-NR06-01 | Reset default read = 0xA0 [VHDL :5900, :1107-1108, :1111-1112] | — | pass | test/nextreg/nextreg_integration_test.cpp:3276 |
 | G56-CR-NR06-02 | config_mode=1: write 0xFF → read 0xFF (all bits land) | — | pass | test/nextreg/nextreg_integration_test.cpp:3287 |
 | G56-CR-NR06-03 | config_mode=1: write 0x00 → read 0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3296 |
@@ -4859,6 +4343,8 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | FT-INT-DA-01b | NR 0xDA cause=10 after port 0x3FFD READ [zxnext.vhd:3874-3875] | zxnext.vhd:3874-3875 | pass | test/nextreg/nextreg_integration_test.cpp:4813 |
 | FT-INT-DA-01c | NR 0xDA cause=11 after port 0x3FFD WRITE [zxnext.vhd:3876-3878] | zxnext.vhd:3876-3878 | pass | test/nextreg/nextreg_integration_test.cpp:4825 |
 | FT-INT-DA-02 | NR 0xDA cause cleared by NR 0x02 b4=0 write [zxnext.vhd:3879-3880] | zxnext.vhd:3879-3880 | pass | test/nextreg/nextreg_integration_test.cpp:4845 |
+| TC-NR05-PRESERVE | NR 0x05 survives hard reset (no VHDL reset clause) [zxnext.vhd:1105-1106 / 1302-1303] | zxnext.vhd:1105-1106/1302-1303 | pass | test/nextreg/nextreg_integration_test.cpp:4888 |
+| TC-NR05-PENTAGON | NR 0x05 bit 2 reads 0 after Pentagon entry + frame edge (pending FF forced 0, eff latched at frame sync) [zxnext.vhd:5835-5836 / :6697-6700 / :5897] | zxnext.vhd:5835-5836/6697-6700/5897 | pass | test/nextreg/nextreg_integration_test.cpp:4920 |
 | TC-NR02-CFGMODE-NO-CLEAR | NR 0x02 readback bit 3 NOT cleared by config_mode [zxnext.vhd:3840-3864 / nmi_source.cpp:352-358] | zxnext.vhd:3840-3864 | pass | test/nextreg/nextreg_integration_test.cpp:4973 |
 | TC-NR02-BUS-RESET | NR 0x02 bit 7 (bus_reset) read-back from latch [zxnext.vhd:5119 + :5891 + :1579] | zxnext.vhd:5119,5891,1579 | pass | test/nextreg/nextreg_integration_test.cpp:4992 |
 | TC-NR0A-MFTYPE-GATED | NR 0x0A bits 7:6 mf_type sourced from gated state, not cache [zxnext.vhd:5191-5198 / :5912] | zxnext.vhd:5191-5198/5912 | pass | test/nextreg/nextreg_integration_test.cpp:5016 |
@@ -4897,6 +4383,7 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | TC-NR55-FF | NR 0x55 with v=0xFF stores 0xFF verbatim (slot inactive) [zxnext.vhd:4686-4696] | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:5601 |
 | TC-IOTRAP-IDLE-GATE | NR 0xDA/D9 captured ONLY when nmi_accept_cause='1' (IDLE/FETCH); blocked in HOLD [zxnext.vhd:3871 / :3892 / emulator.cpp:2710,2725,2740] | zxnext.vhd:3871/3892 | pass | test/nextreg/nextreg_integration_test.cpp:5659 |
 | V12-NMP-01 | NR 0xC4 b0 write fans into ula_int_disabled_ shadow + video_timing_ INT-enable gate (mirroring NR 0x22 b2 path) [zxnext.vhd:3621-3622 / :3635 / :6711] | zxnext.vhd:3621-3622/3635/6711 | pass | test/nextreg/nextreg_integration_test.cpp:5720 |
+| V13-NMP-01 | NR 0x05 bit 2 Pentagon-mode cache canonicalisation: (a) write-while-Pentagon does not leak; (b) Pentagon-engagement clears prior bit-2 latch [zxnext.vhd:5832-5841 / :5897 / :6696-6703] | zxnext.vhd:5832-5841/5897/6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:5798 |
 | V16-NMP-01-IDLE | NR 0x10 bits 1:0 = 0 when both F9/F10 buttons released [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:5854 |
 | V16-NMP-01-M1 | NR 0x10 bit 0 = 1 when F9 (M1 button) held; bit 1 = 0 [zxnext.vhd:5924 / top_issue2.vhd:2281] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:5867 |
 | V16-NMP-01-DRIVE | NR 0x10 bit 1 = 1 when F10 (Drive button) held; bit 0 = 0 [zxnext.vhd:5924 / top_issue2.vhd:2281] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:5881 |
@@ -4958,67 +4445,6 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| NMI-RST-01 | FSM in `S_NMI_IDLE` after reset | zxnext.vhd:2120,2149 | missing | — |
-| RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | missing | — |
-| RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110,1222 | missing | — |
-| NMI-RST-04 | NR 0x02 reset_type power-on default = "100" (bits 1:0 of read = "00", bit 2 latent) | zxnext.vhd:1306,5891 | missing | — |
-| NR02-01 | NR 0x02 write bit 3 → MF request pending | zxnext.vhd:3830-3838 | missing | — |
-| NR02-02 | NR 0x02 write bit 2 → DivMMC request pending | zxnext.vhd:3830-3838 | missing | — |
-| NR02-03 | NR 0x02 write bits 3+2 together → MF wins priority | zxnext.vhd:2097-2105,3830-3838 | missing | — |
-| NR02-04 | NR 0x02 readback bit layout | zxnext.vhd:5891 | missing | — |
-| NR02-05 | NR 0x02 readback bits 3/2 auto-clear on FSM `S_NMI_END | zxnext.vhd:5891,2149-2162 | missing | — |
-| NR02-06 | Copper MOVE to NR 0x02 reaches same request latches | zxnext.vhd:3830-3872 | missing | — |
-| NR02-07 | Soft-reset rising edge advances reset_type via `'0' & rt(2) & (rt(1) OR rt(0)) | zxnext.vhd:1732-1739 | missing | — |
-| NR02-08 | NR 0x02 readback bits 1:0 reflect reset_type[1:0]; independent of bits 3/2 | zxnext.vhd:5891 | missing | — |
-| HK-01 | set_mf_button(true)` edge → FSM takes MF request | zxnext.vhd:2089,6331 | missing | — |
-| HK-02 | set_divmmc_button(true)` edge → FSM takes DivMMC request | zxnext.vhd:2090,6349 | missing | — |
-| HK-03 | NR 0x06 bit 3 = 0 blocks MF producer | zxnext.vhd:1109,2089 | missing | — |
-| HK-04 | NR 0x06 bit 4 = 0 blocks DivMMC producer | zxnext.vhd:1110,2090 | missing | — |
-| HK-05 | Simultaneous MF + DivMMC button press → MF wins | zxnext.vhd:2097-2105 | missing | — |
-| HK-06 | Host F9 keystroke → NmiSource MF latch via host-key dispatch | zxnext.vhd:6340-6349,2089 | missing | — |
-| HK-07 | Host F10 keystroke → NmiSource DivMMC latch via host-key dispatch | zxnext.vhd:6349,2090 | missing | — |
-| HK-07b | Companion: F10 honours `port_divmmc_io_en` (NR 0x83 bit 0) gate at dispatcher | zxnext.vhd:6349 | missing | — |
-| HK-08 | Host F4 keystroke → soft-reset edge to NmiSource reset_type FSM | zxnext.vhd:6370-6371,2090-2091 | missing | — |
-| HK-09 | Host F1 keystroke → hard-reset path (full Emulator reset) | zxnext.vhd:6371 | missing | — |
-| DIS-01 | FSM IDLE→FETCH for DivMMC path calls `DivMmc::set_button_nmi(true) | zxnext.vhd:2170, divmmc.vhd:108-111 | missing | — |
-| DIS-02 | DivMmc::is_nmi_hold()` feedback drives `divmmc_nmi_hold` at arbiter | divmmc.vhd:150, zxnext.vhd:2118 | missing | — |
-| DIS-03 | o_disable_nmi = automap_held OR button_nmi` observable on DivMmc | divmmc.vhd:150 | missing | — |
-| DIS-04 | FSM HOLD → END on `divmmc_nmi_hold = 0 | zxnext.vhd:2135-2148 | missing | — |
-| CLR-01 | reset clears `button_nmi_ | divmmc.vhd:108 | missing | — |
-| CLR-02 | automap_reset` clears `button_nmi_` (new hook) | divmmc.vhd:108 | missing | — |
-| CLR-03 | on_retn_seen()` clears `button_nmi_` (new hook) | divmmc.vhd:108 | missing | — |
-| CLR-04 | automap_held = 1` one-shot clears `button_nmi_ | divmmc.vhd:112-113 | missing | — |
-| NMI-GATE-01 | NR 0x06 bit 3 decode sets `set_mf_enable | zxnext.vhd:1110 | missing | — |
-| NMI-GATE-02 | NR 0x06 bit 4 decode sets `set_divmmc_enable | zxnext.vhd:1109 | missing | — |
-| NMI-GATE-03 | NR 0x81 bit 5 decode sets `set_expbus_debounce_disable | zxnext.vhd:1222 | missing | — |
-| GATE-04 | port 0xE3 bit 7 (CONMEM) blocks MF assertion | divmmc.vhd, zxnext.vhd:2107 | missing | — |
-| GATE-05 | nr_03_config_mode = 1` force-clears all three latches | zxnext.vhd:2102-2105 | missing | — |
-| GATE-06 | nr_03_config_mode = 1` holds latches clear (set attempts ignored) | zxnext.vhd:2102-2105 | missing | — |
-| GATE-07 | NR 0x81 bit 5 = 1 lets ExpBus fire without debounce | zxnext.vhd:1222,2091 | missing | — |
-| GATE-08 | NR 0x81 bit 5 = 0 requires debounced ExpBus (stubbed — see EXPBUS-03) | zxnext.vhd:1222,2091 | missing | — |
-| FSM-01 | IDLE → FETCH on `nmi_activated` rising | zxnext.vhd:2126-2134 | missing | — |
-| FSM-02 | FETCH → HOLD on M1 fetch at 0x0066 | zxnext.vhd:2135-2138 | missing | — |
-| FSM-03 | HOLD → END on `nmi_hold = 0 | zxnext.vhd:2139-2148 | missing | — |
-| FSM-04 | END → IDLE on `cpu_wr_n` rising edge | zxnext.vhd:2149-2162 | missing | — |
-| FSM-05 | END clears all three request latches | zxnext.vhd:2102-2105,2149-2162 | missing | — |
-| FSM-06 | nr_03_config_mode = 1` force-clears FSM to IDLE from any state | zxnext.vhd:2102-2105 | missing | — |
-| ARB-01 | Simultaneous MF + DivMMC assert → MF latches, DivMMC does not | zxnext.vhd:2097-2105 | missing | — |
-| ARB-02 | Simultaneous MF + ExpBus → MF latches, ExpBus does not | zxnext.vhd:2097-2105 | missing | — |
-| ARB-03 | Simultaneous DivMMC + ExpBus (no MF) → DivMMC wins | zxnext.vhd:2097-2105 | missing | — |
-| ARB-04 | mf_is_active = true` (stub) blocks DivMMC latch even with DivMMC request | zxnext.vhd:2097-2098 | missing | — |
-| EXPBUS-01 | Default `expbus_nmi_n = 1` (inactive); no assert | zxnext.vhd:2091 | missing | — |
-| EXPBUS-02 | expbus_nmi_n = 0` with `expbus_nmi_debounce_disable = 1` → immediate assert | zxnext.vhd:2091,1222 | missing | — |
-| EXPBUS-03 | expbus_nmi_n = 0` without debounce-disable → delayed assert (debounce path stubbed) | zxnext.vhd:2091 | missing | — |
-| NMI-DMA-01 | is_activated()` = true while any latch set | zxnext.vhd:2007 | missing | — |
-| NMI-DMA-02 | im2_dma_delay` latches on `is_activated() AND nr_cc_dma_int_en_0_7 | zxnext.vhd:2007 | missing | — |
-| NMI-DMA-03 | NR 0xCC bit 7 = 0 blocks the NMI-activated contribution | zxnext.vhd:2007 | missing | — |
-| Z80-01 | FSM producing `/NMI` edge calls `Z80Cpu::request_nmi() | zxnext.vhd:1841,2164-2170 | missing | — |
-| Z80-02 | Z80 accepts NMI, PC vectors to 0x0066 | zxnext.vhd:2135-2138 | missing | — |
-| Z80-03 | Reset clears both NmiSource state and Z80 NMI line | zxnext.vhd:2120,2149 | missing | — |
-| Z80-04 | NMIACK_LSB / NMIACK_MSB latch PC into nr_c2/c3 (Z80N command cross-link) | zxnext.vhd:2050-2085,6232-6236 | missing | — |
-| BOOT-LOOP-01 | NextZXOS RAM-test outer loop (208 passes × 112 banks over ~15 s) (**COVERED AT regression tier** — `boot-nextzxos-welcome`, test/00regression/regression_tests.conf; the RAM-test loop must complete and fall through to BASIC before that screenshot renders, Task 8a 2026-07-13 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | — | missing | — |
-| BOOT-LOGO-01 | NextZXOS loader logo + 4-entry log render (**COVERED AT regression tier** — `boot-nextzxos-splash`, test/00regression/regression_tests.conf; pins the clean loading log at frame 252, Task 8a 2026-07-13 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | — | missing | — |
-| BOOT-DOT-01 | NextZXOS BASIC + dot-command surface (**COVERED AT regression tier** — `boot-nextzxos-dotls`, test/00regression/regression_tests.conf; types `.ls` in the NextZXOS Command Line and pins the SD-root listing, Task 57 2026-07-14, closes G47 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | — | missing | — |
 | NMI-INT-01 | DivMMC button → NmiSource FSM → /NMI → Z80 PC=0x0066 (VHDL zxnext.vhd:2091, :2095-2170, :1841) | zxnext.vhd:2091,2095-2170,1841 | pass | test/nmi/nmi_integration_test.cpp:186 |
 | NMI-INT-02 | At PC=0x0066 after NMI + one M1 fetch, DivMmc automap instant-on fires via button_nmi latch (VHDL divmmc.vhd:120 / zxnext.vhd:2170) | divmmc.vhd:120, zxnext.vhd:2170 | pass | test/nmi/nmi_integration_test.cpp:225 |
 | NMI-INT-03 | RETN (ED 45) clears DivMmc button_nmi_ (VHDL divmmc.vhd:108 i_retn_seen branch) | divmmc.vhd:108 | pass | test/nmi/nmi_integration_test.cpp:262 |
@@ -5035,206 +4461,23 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| KBD-01 | none | membrane.vhd | missing | — |
-| KBD-02 | none | — | missing | — |
-| KBD-03 | none | — | missing | — |
-| KBD-04 | none | — | missing | — |
-| KBD-05 | none | — | missing | — |
-| KBD-06 | none | — | missing | — |
-| KBD-07 | none | — | missing | — |
-| KBD-08 | none | — | missing | — |
-| KBD-09 | none | — | missing | — |
-| KBD-10 | none | — | missing | — |
-| KBD-11 | none | — | missing | — |
-| KBD-12 | none | — | missing | — |
-| KBD-13 | none | — | missing | — |
-| KBD-14 | none | — | missing | — |
-| KBD-15 | none | — | missing | — |
-| KBD-16 | none | — | missing | — |
-| KBD-17 | none | — | missing | — |
-| KBD-18 | none | — | missing | — |
-| KBD-19 | none | — | missing | — |
-| KBD-20 | none | — | missing | — |
-| KBD-21 | none | — | missing | — |
 | KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:157 |
 | KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:181 |
-| KBDHYS-01 | Pulse CS for one scan, then release; read the next scan | — | missing | — |
-| KBDHYS-02 | Hold CS continuously across 3 scans | — | missing | — |
-| KBDHYS-03 | i_cancel_extended_entries = 1` mid-scan | membrane.vhd:253 | missing | — |
-| KBDHYS-04 | Production: `Emulator` main loop must call `Keyboard::tick_scan()` each membrane scan-cycle; assert via instrumented spy that tick fires N times across an N-frame run | membrane.vhd:178-191 | missing | — |
-| EXT-01 | Press UP, read NR 0xB0 | — | missing | — |
-| EXT-02 | Press DOWN, read NR 0xB0 | — | missing | — |
-| EXT-03 | Press LEFT, read NR 0xB0 | — | missing | — |
-| EXT-04 | Press RIGHT, read NR 0xB0 | — | missing | — |
-| EXT-05 | Press ';' | — | missing | — |
-| EXT-06 | Press '"' | — | missing | — |
-| EXT-07 | Press ',' | — | missing | — |
-| EXT-08 | Press '.' | — | missing | — |
-| EXT-09 | Press DELETE | — | missing | — |
-| EXT-10 | Press EDIT | — | missing | — |
-| EXT-11 | Press BREAK | — | missing | — |
-| EXT-12 | Press INV VIDEO | — | missing | — |
-| EXT-13 | Press TRUE VIDEO | — | missing | — |
-| EXT-14 | Press GRAPH | — | missing | — |
-| EXT-15 | Press CAPS LOCK | — | missing | — |
-| EXT-16 | Press EXTEND | — | missing | — |
-| EXT-17 | Press EDIT; read 0xF7FE (row 3) | — | missing | — |
-| EXT-18 | Press ','; read 0xDFFE (row 5) | membrane.vhd:214-216, membrane.vhd:239 | missing | — |
-| EXT-19 | Press LEFT; read 0x7FFE (row 7) | membrane.vhd:223-225, membrane.vhd:240 | missing | — |
-| EXT-20 | UP + DOWN + LEFT + RIGHT | — | missing | — |
-| EXTC-01 | UP pressed, cancel clear | — | missing | — |
-| EXTC-02 | UP pressed, cancel set | — | missing | — |
-| EXTC-03 | cancel set then cleared, key still held | — | missing | — |
-| EXTC-04 | "` pressed | — | missing | — |
-| EXTC-05 | EXTEND MODE pressed | — | missing | — |
-| EXTC-06 | host key press/release | — | missing | — |
-| EXTC-07 | guest writes NR 0x68 bit 4 through the NextReg file | — | missing | — |
-| JMODE-01 | NR 0x05 = 0x00 = 0b0000_0000 | — | missing | — |
-| JMODE-02 | NR 0x05 = 0x68 = 0b0110_1000 | — | missing | — |
-| JMODE-02r | NR 0x05 = 0xC9 = 0b1100_1001 | — | missing | — |
-| JMODE-03 | NR 0x05 = 0x40 = 0b0100_0000 | — | missing | — |
-| JMODE-04 | NR 0x05 = 0x08 = 0b0000_1000 | — | missing | — |
-| JMODE-05 | NR 0x05 = 0x88 = 0b1000_1000 | — | missing | — |
-| JMODE-06 | NR 0x05 = 0x22 = 0b0010_0010 | — | missing | — |
-| JMODE-07 | NR 0x05 = 0x30 = 0b0011_0000 | — | missing | — |
-| JMODE-08 | Power-on, read joystick mode | — | missing | — |
-| JMODE-09 | NR 0x05=0x40 (joy0=Kempston1) → MembraneStick::set_mode(joy0) called from Joystick::set_nr_05 | membrane_stick.vhd:117-149 | missing | — |
-| KEMP-01 | joy0=001 | — | missing | — |
-| KEMP-02 | joy0=001 | — | missing | — |
-| KEMP-03 | joy0=001 | — | missing | — |
-| KEMP-04 | joy0=001 | — | missing | — |
-| KEMP-05 | joy0=001 | — | missing | — |
-| KEMP-06 | joy0=001 | — | missing | — |
-| KEMP-07 | joy0=001 | — | missing | — |
-| KEMP-08 | joy0=001 | — | missing | — |
-| KEMP-09 | joy0=001 | — | missing | — |
-| KEMP-10 | joy0=100 | — | missing | — |
-| KEMP-11 | joy0=100 | — | missing | — |
-| KEMP-12 | joy0=000 | — | missing | — |
-| KEMP-13 | joy0=001, joy1=001, L.U + R.R | — | missing | — |
-| KEMP-14 | joy0=001, joy1=100, L.U, R.D | — | missing | — |
-| KEMP-15 | joy0=101, L.A pressed | — | missing | — |
-| KEMP-16 | NR 0x82 b7 = 0; joy0=100 (Kempston2); read port 0x37 → undecoded (floating-bus path), NOT joystick byte | zxnext.vhd:2408,2675 | missing | — |
-| KEMP-17 | joy0=000 (Sinclair2), joy1=010 (Cursor); read port 0x1F → floating-bus 0xFF (port_1f_hw_en=0 because no Kempston/MD source enables it), NOT 0x00 | zxnext.vhd:2454-2455,2674-2675 | missing | — |
-| MD-01 | joy0=101 | — | missing | — |
-| MD-02 | joy0=101 | — | missing | — |
-| MD-03 | joy0=101 | — | missing | — |
-| MD-04 | joy0=101 | — | missing | — |
-| MD-05 | joy0=101 | — | missing | — |
-| MD-06 | joy0=001 | — | missing | — |
-| MD-07 | joy0=110 | — | missing | — |
-| MD-08 | joy1=110 | — | missing | — |
-| MD-09 | joy0=101, joy1=101 (both MD1 — illegal?) | — | missing | — |
-| MD6-01 | joy0=101 | — | missing | — |
-| MD6-02 | joy0=101 | — | missing | — |
-| MD6-03 | joy0=101 | — | missing | — |
-| MD6-04 | joy0=101 | — | missing | — |
-| MD6-05 | joy1=110 | — | missing | — |
-| MD6-06 | joy1=110 | — | missing | — |
-| MD6-07 | joy1=110 | — | missing | — |
-| MD6-08 | joy1=110 | — | missing | — |
-| MD6-09 | both MD | — | missing | — |
-| MD6-10 | joy0=001 (Kempston, not MD), `i_JOY_LEFT(10)=1 | — | missing | — |
-| MD6-11a | 0000 (left, sub=000) | md6_joystick_connector_x2.vhd:135-139 | missing | — |
-| MD6-11b | 0100 (left, sub=010) | — | missing | — |
-| MD6-11c | 0110 (left, sub=011) | — | missing | — |
-| MD6-11d | 1000 (left, sub=100) | — | missing | — |
-| MD6-11e | 1010 (left, sub=101) | — | missing | — |
-| MD6-11f | 0101 (right, sub=010) | — | missing | — |
-| MD6-11g | 0111 (right, sub=011) | — | missing | — |
-| MD6-11h | 1011 (right, sub=101) | — | missing | — |
-| MD6-11i | 1000 (left, sub=100), 3-button pad | — | missing | — |
-| NRB2-01..04 | one of `joy_left` bits 11/8/9/10 | — | missing | — |
-| NRB2-05..08 | one of `joy_right` bits 11/8/9/10 | — | missing | — |
-| NRB2-09 | both vectors, all of 11:8 | — | missing | — |
-| NRB2-10 | nothing pressed / no pad | — | missing | — |
-| NRB2-11 | both vectors = 0x0FF (bits 7:0 only) | — | missing | — |
-| NRB2-12 | Kempston/Kempston + `joy_left(10) | — | missing | — |
-| NRB2-13 | same, read ports instead | — | missing | — |
-| NRB2-14 | live `Emulator`, vectors set, read NR 0xB2 through the NextReg file | — | missing | — |
-| NRB2-15 | raw pad button 5 (L) and 7 (R) via `JoystickDispatcher | — | missing | — |
-| NRB2-16 | controller shoulders + a face button | — | missing | — |
-| NRB2-17 | raw pad button 6 | — | missing | — |
-| NRB2-18 | raw pad buttons 5+6+7 together | — | missing | — |
-| NRB2-19 | LEFTSHOULDER alone | — | missing | — |
-| NRB2-20 | RIGHTSHOULDER alone | — | missing | — |
-| SINC1-01 | joy0=011 | — | missing | — |
-| SINC1-02 | joy0=011 | — | missing | — |
-| SINC1-03 | joy0=011 | — | missing | — |
-| SINC1-04 | joy0=011 | — | missing | — |
-| SINC1-05 | joy0=011 | — | missing | — |
-| SINC2-01 | joy1=000 | — | missing | — |
-| SINC2-02 | joy1=000 | — | missing | — |
-| SINC2-03 | joy1=000 | — | missing | — |
-| SINC2-04 | joy1=000 | — | missing | — |
-| SINC2-05 | joy1=000 | — | missing | — |
-| SINC-06 | joy0=011, joy1=000, both LEFT | — | missing | — |
-| CURS-01 | joy0=010 | — | missing | — |
-| CURS-02 | joy0=010 | — | missing | — |
-| CURS-03 | joy0=010 | — | missing | — |
-| CURS-04 | joy0=010 | — | missing | — |
-| CURS-05 | joy0=010 | — | missing | — |
-| CURS-06 | joy0=010, LEFT + RIGHT | — | missing | — |
-| IOMODE-01 | Reset | — | missing | — |
-| IOMODE-02 | Write NR 0x0B = 0x80 (en=1, mode=00, iomode_0=0) | — | missing | — |
-| IOMODE-03 | Write NR 0x0B = 0x81 (en=1, mode=00, iomode_0=1) | — | missing | — |
-| IOMODE-04 | Write NR 0x0B = 0x91 (en=1, mode=01) + pulse `ctc_zc_to(3) | — | missing | — |
-| IOMODE-05 | Write NR 0x0B = 0xA0 (en=1, mode=10, iomode_0=0) | — | missing | — |
-| IOMODE-06 | Write NR 0x0B = 0xA1 (en=1, mode=10, iomode_0=1) | — | missing | — |
-| IOMODE-07 | NR 0x0B = 0xA0/0xA1 (mode "10" → LEFT), press/release `JOY_LEFT(5)` (button C, active high); press `JOY_RIGHT(5) | — | missing | — |
-| IOMODE-08 | NR 0x0B = 0xB0/0xB1 (mode "11" → RIGHT), press/release `JOY_RIGHT(5)`; press `JOY_LEFT(5) | — | missing | — |
-| IOMODE-09 | Write NR 0x0B = 0xA0, assert `joy_uart_en | — | missing | — |
-| IOMODE-10 | Write NR 0x0B = 0x80 | — | missing | — |
-| IOMODE-11 | NR 0x05 joy0/joy1 = 111 (user I/O) + NR 0x0B configured | — | missing | — |
-| IOMODE-11A | Emulator-level: NR 0x0B mode 10/11 via NR write path; stomp IoMode UART shadows; `run_frame() | — | missing | — |
-| IOMODE-11B | Emulator-level: NR 0x0B = 0xA0 then 0xB0 via NR write path; stomp IoMode line-5 shadow; press button C via `Joystick::set_joy_left/right` (bit 5); `run_frame() | — | missing | — |
-| MOUSE-01 | port_mouse_io_en=1 | — | missing | — |
-| MOUSE-02 | port_mouse_io_en=1 | — | missing | — |
-| MOUSE-03 | port_mouse_io_en=1 | — | missing | — |
-| MOUSE-04 | port_mouse_io_en=1 | — | missing | — |
-| MOUSE-05 | port_mouse_io_en=1 | — | missing | — |
-| MOUSE-06 | port_mouse_io_en=1 | — | missing | — |
-| MOUSE-07 | port_mouse_io_en=1 | — | missing | — |
-| MOUSE-08 | port_mouse_io_en=0 | — | missing | — |
-| MOUSE-09 | NR 0x0A bit 3 = 1 (reverse) | — | missing | — |
-| MOUSE-10 | port_mouse_io_en=1 | — | missing | — |
-| MOUSE-11 | port_mouse_io_en=1`, `nr_0a_mouse_dpi = "00"` vs `"11" | zxnext.vhd | missing | — |
-| MOUSE-12 | port_dac_mono_AD_df_io_en=1` AND `port_mouse_io_en=0` AND joy0=001 (Kempston1) → read 0xDF returns Kempston joy byte (alias path), NOT 0x00 | zxnext.vhd:2674 | missing | — |
-| NMI-01 | NR 0x06 bit 3 = 1 (M1 en) | — | missing | — |
-| NMI-02 | NR 0x06 bit 3 = 0 | — | missing | — |
-| NMI-03 | NR 0x06 bit 4 = 1 | — | missing | — |
-| NMI-04 | NR 0x06 bit 4 = 0 | — | missing | — |
-| NMI-05 | NR 0x06 bit 3 = 1 | — | missing | — |
-| NMI-06 | NR 0x06 bit 4 = 1 | — | missing | — |
-| NMI-07 | both NR 0x06 bits 3,4 = 1, both hotkeys asserted | — | missing | — |
 | FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:206 |
 | FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:227 |
 | FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:246 |
 | FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:310 |
-| FE-05 | expbus_eff_en=1`, `port_propagate_fe=1`, expansion bus drives D0=0 | — | missing | — |
-| JCAL-01 | NR 0x28 keymap_sel write — accepts 2-bit value, persists to NextReg readback | zxnext.vhd:6294-6300 | missing | — |
-| JCAL-02 | NR 0x29 addr-low + NR 0x2B data-write/inc — writes one entry into SDP-RAM-analogue mirroring `keyjoy_64_6.coe | zxnext.vhd:6301-6324 | missing | — |
-| JCAL-03 | NR 0x05 joy0/1=111 + JCAL-01/02-programmed entry → membrane fold redirects through user-defined keymap | zxnext.vhd:5157-5158,3429-3438 | missing | — |
-| FNK-01 | F-key FSM (`emu_fnkeys.vhd` 7-state machine) consuming `i_button_m1_n` + `i_button_reset_n` + membrane → `o_fnkeys[10:1]`; F2 scandouble / F3 50-60 / F7 scanline-weight / F8 cpu-speed pulses | input/membrane/emu_fnkeys.vhd:53-202 | missing | — |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:963 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:618 |
-| FNK-02 | F3 toggles the pending 5060 FF; a read immediately after the press still returns the OLD bit 2 (`mid == before`), the toggle is readable only after the next frame edge (`after == !before`) | zxnext.vhd:5839-5841,5897,6697-6700 | missing | — |
-| FNK-03 | same for F2 / scandouble bit 0 | zxnext.vhd:5849-5852,5897,6702 | missing | — |
-| KBDHYS-05 | Keyboard::tick_scan()` cancels extended entries when `i_cancel_extended_entries` asserted (prod) | membrane.vhd:178-191 | missing | — |
-| HK-WIRE-01 | Host F1 SDL key dispatched into `Emulator::on_hotkey_f1_hard_reset()` injector (G152) (GH #196 phase 1.4: prior cell cited jnext's own `emulator.h:328-329`, which is the unrelated `VideoRecorder` accessor — invalid per GH #150 and stale besides; re-cited to the real downstream-effect VHDL. This exact wiring is already proven LIVE by `HK-09` in `test/nmi/nmi_test.cpp` (F1 -> hotkey_hard_reset -> nr_02_hard_reset, no config_mode gate); no `check()` row exists under the literal ID `HK-WIRE-01`) | zxnext.vhd:6340,6371 | missing | — |
-| HK-WIRE-02 | Host F4 SDL key dispatched into `Emulator::on_hotkey_f4_soft_reset()` injector (G152) (GH #196 phase 1.4: prior cell cited jnext's own `emulator.h:328-329` — same invalid/stale citation as HK-WIRE-01; re-cited. Already proven LIVE by `HK-08` in `test/nmi/nmi_test.cpp` (F4 -> hotkey_soft_reset -> nr_02_soft_reset, config_mode-gated); no `check()` row exists under the literal ID `HK-WIRE-02`) | zxnext.vhd:6343,6370 | missing | — |
-| HK-WIRE-03 | Host F9 SDL key dispatched into NMI source `nmi_assert_mf` injector (G152) (GH #196 phase 1.4: prior cell cited jnext's own `nmi_source.cpp` — invalid per GH #150; re-cited to the real downstream-effect VHDL. Already proven LIVE by `HK-06` in `test/nmi/nmi_test.cpp` (F9 -> hotkey_m1 -> nmi_assert_mf -> nmi_mf latch); no `check()` row exists under the literal ID `HK-WIRE-03`) | zxnext.vhd:6348,2090,2108 | missing | — |
-| HK-WIRE-04 | Host F10 SDL key dispatched into NMI source `nmi_assert_divmmc` injector (G152), gated by `port_divmmc_io_en` (G152) (GH #196 phase 1.4: prior cell cited jnext's own `divmmc.cpp` — invalid per GH #150; re-cited to the real downstream-effect VHDL. Already proven LIVE by `HK-07`/`HK-07b` in `test/nmi/nmi_test.cpp` (F10 -> hotkey_drive -> nmi_assert_divmmc -> nmi_divmmc latch); no `check()` row exists under the literal ID `HK-WIRE-04`) | zxnext.vhd:6349,2091,2110 | missing | — |
-| FE-04A | NR 0x08 b0=1 (issue-2), keyboard EAR/MIC composition with port_fe_ear (G44) (GH #196 phase 1.4: prior cell cited jnext's own `keyboard.cpp` — invalid per GH #150, and also factually wrong: `Keyboard::read_rows()` does NOT compose bits 7/5/6 itself, per its own doc-comment at `keyboard.h:60-66` ("the caller composes them"). This row is a stale duplicate — it cannot be tested at the Keyboard-class level at all; the real planned test is the companion-table `FE-04A` row below in `test/input/input_integration_test.cpp`, retired WONT 2026-04-28. Re-cited to the same real citation for consistency; no `check()` row exists under the literal ID `FE-04A` in this file) | symmetric_relaxation.vhd:89-93, zxnext_top_issue2.vhd:662 | missing | — |
 | BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:434 |
 | BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:453 |
 | BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:486 |
 | BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:526 |
 | BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:558 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:618 |
 | JOY-WIRE-02 | SDL_CONTROLLERBUTTON* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:673 |
 | JOY-WIRE-03 | SDL_CONTROLLERAXISMOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:731 |
 | JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:787 |
 | JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:844 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:963 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
@@ -5242,109 +4485,6 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| UART-SEL-01 | Reset state: read select register | — | missing | — |
-| UART-SEL-02 | Write 0x40 to select, read back | — | missing | — |
-| UART-SEL-03 | Write 0x00 to select, read back | — | missing | — |
-| UART-SEL-04 | Write 0x15 (bit4=1, bits2:0=101), read back with UART 0 | — | missing | — |
-| SEL-05 | Write 0x55 (bit6=1, bit4=1, bits2:0=101), read back with UART 1 | — | missing | — |
-| SEL-06 | Hard reset clears prescaler MSB to 0 | — | missing | — |
-| SEL-07 | Soft reset clears uart_select_r to 0 but preserves prescaler MSB | — | missing | — |
-| FRM-01 | Hard reset state: read frame | — | missing | — |
-| FRM-02 | Write 0x1B (8 bits, parity odd, 2 stop), read back | — | missing | — |
-| FRM-03 | Frame applies to selected UART only | — | missing | — |
-| FRM-04 | Bit 7 write resets FIFO | — | missing | — |
-| FRM-05 | Bit 6 sets break on TX | — | missing | — |
-| FRM-06 | Frame bits 4:0 sampled at transmission start | — | missing | — |
-| BAUD-01 | Default prescaler = 243 (115200 @ 28MHz) | — | missing | — |
-| BAUD-02 | Write 0x33 to port 0x143B (bit7=0): sets LSB bits 6:0 = 0x33 | — | missing | — |
-| BAUD-03 | Write 0x85 to port 0x143B (bit7=1): sets LSB bits 13:7 = 0x05 | — | missing | — |
-| BAUD-04 | Write prescaler MSB via select register | — | missing | — |
-| BAUD-05 | Prescaler applies to selected UART independently | — | missing | — |
-| BAUD-06 | Hard reset restores default prescaler for both UARTs | — | missing | — |
-| BAUD-07 | Prescaler sampled at start of TX/RX (not mid-byte) | — | missing | — |
-| TX-01 | Write byte to port 0x133B when TX FIFO empty | — | missing | — |
-| TX-02 | Write 64 bytes: FIFO full | — | missing | — |
-| TX-03 | Write 65th byte when full | — | missing | — |
-| TX-04 | TX empty flag: requires FIFO empty AND transmitter not busy | — | missing | — |
-| TX-05 | TX FIFO write is edge-triggered | — | missing | — |
-| TX-06 | Frame bit 7 resets TX FIFO and transmitter | — | missing | — |
-| TX-07 | Frame bit 6 (break): TX line held low, busy = 1, cannot send | — | missing | — |
-| TX-08 | 8N1 frame: start(0) + 8 data bits (LSB first) + stop(1) | — | missing | — |
-| TX-09 | 7E2 frame: start + 7 bits + even parity + 2 stops | — | missing | — |
-| TX-10 | 5O1 frame: start + 5 bits + odd parity + 1 stop | — | missing | — |
-| TX-11 | Flow control: bit 5 enabled, CTS_n=1 blocks TX start | — | missing | — |
-| TX-12 | Flow control disabled: CTS_n ignored | — | missing | — |
-| TX-13 | Parity calculation: even parity (frame bit 1 = 0) | — | missing | — |
-| TX-14 | Parity calculation: odd parity (frame bit 1 = 1) | — | missing | — |
-| RX-01 | Inject byte into RX: read port 0x143B | — | missing | — |
-| RX-02 | Read empty RX FIFO | — | missing | — |
-| RX-03 | Fill RX FIFO with 512 bytes | — | missing | — |
-| RX-04 | RX FIFO overflow: 513th byte | — | missing | — |
-| RX-05 | Read advances RX FIFO pointer (edge-triggered) | — | missing | — |
-| RX-06 | RX near-full flag at 3/4 capacity (384 bytes) | — | missing | — |
-| RX-07 | Frame bit 7 resets RX FIFO | — | missing | — |
-| RX-08 | Framing error: missing stop bit | — | missing | — |
-| RX-09 | Parity error | — | missing | — |
-| RX-10 | Break condition: all-zero shift register in error state | — | missing | — |
-| RX-11 | Error byte stored with 9th bit in FIFO | — | missing | — |
-| RX-12 | Noise rejection: pulse < 2^NOISE_REJECTION_BITS / CLK is filtered | — | missing | — |
-| RX-13 | RX state machine: pause mode (frame bit 6) | — | missing | — |
-| RX-14 | RX variables sampled at start bit detection | — | missing | — |
-| RX-15 | Hardware flow control: RTR_n asserted when FIFO almost full | — | missing | — |
-| STAT-01 | Sticky errors (overflow, framing) persist across reads of RX | — | missing | — |
-| STAT-02 | Reading TX/status port (0x133B read) clears sticky errors | — | missing | — |
-| STAT-03 | FIFO reset (frame bit 7) clears sticky errors | — | missing | — |
-| STAT-04 | Status bits reflect correct UART (per select register) | — | missing | — |
-| STAT-05 | tx_empty = tx_fifo_empty AND NOT tx_busy | — | missing | — |
-| STAT-06 | rx_avail = NOT rx_fifo_empty | — | missing | — |
-| DUAL-01 | UART 0 and UART 1 have independent FIFOs | — | missing | — |
-| DUAL-02 | Independent prescalers | — | missing | — |
-| DUAL-03 | Independent frame registers | — | missing | — |
-| DUAL-04 | Independent status registers | — | missing | — |
-| DUAL-05 | uart.vhd gates tx_wr on uart_select_r bit 6; zxnext.vhd:3343-3344 routes UART 0 TX → ESP pin, UART 1 TX → Pi pin. Selecting a channel via port 0x153B directs port 0x133B TX writes to that channel ONLY — cross-talk between channels is impossible | uart.vhd, zxnext.vhd:3343-3344 | pass | test/uart/uart_integration_test.cpp:629 |
-| DUAL-06 | zxnext.vhd:3340-3341 — joystick-UART RX routes to UART 0 when NR 0x0B bit7=1 & bit0=0, to UART 1 when bit7=1 & bit0=1, and is dropped when bit7=0 | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:678 |
-| I2C-01 | Reset state: SCL = 1, SDA = 1 (both released) | — | missing | — |
-| I2C-02 | Write 0x00 to port 0x103B | — | missing | — |
-| I2C-03 | Write 0x01 to port 0x103B | — | missing | — |
-| I2C-04 | Write 0x00 to port 0x113B | — | missing | — |
-| I2C-05 | Write 0x01 to port 0x113B | — | missing | — |
-| I2C-06 | Read port 0x103B | — | missing | — |
-| I2C-07 | Read port 0x113B | — | missing | — |
-| I2C-08 | Only bit 0 is significant for write | — | missing | — |
-| I2C-09 | Bits 7:1 always read as 1 | — | missing | — |
-| I2C-10 | internal_port_enable(10) gates 0x103B/0x113B (same mechanism as GATE-02) [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:570 |
-| I2C-11 | Pi I2C1 AND-gating: if pi_i2c1_scl = 0, SCL reads 0 | — | missing | — |
-| I2C-12 | Reset releases both lines | — | missing | — |
-| I2C-13 | NR 0xA0 bit 3 (`pi_i2c1_en`) gates GPIO 2/3 → I2C1 wired-AND mux | zxnext.vhd:2280,2309-2318 | missing | — |
-| I2C-14 | EEPROM at 0x50 (write addr 0xA0): device ACKs | — | missing | — |
-| I2C-P01 | START condition: SDA high->low while SCL high | — | missing | — |
-| I2C-P02 | STOP condition: SDA low->high while SCL high | — | missing | — |
-| I2C-P03 | Send byte (8 clocks): MSB first, clock each bit | — | missing | — |
-| I2C-P04 | Read ACK: release SDA, clock SCL, read SDA bit 0 | — | missing | — |
-| I2C-P05 | Read byte (8 clocks): release SDA, read 8 bits | — | missing | — |
-| I2C-P06 | Send ACK/NACK after read | — | missing | — |
-| RTC-01 | Address 0xD0 write: device ACKs | — | missing | — |
-| RTC-02 | Address 0xD1 read: device ACKs | — | missing | — |
-| RTC-03 | Wrong address: device NACKs | — | missing | — |
-| RTC-04 | Write register pointer (0x00), read seconds | — | missing | — |
-| RTC-05 | Read minutes (register 0x01) | — | missing | — |
-| RTC-06 | Read hours (register 0x02) | — | missing | — |
-| RTC-07 | Read day-of-week (register 0x03) | — | missing | — |
-| RTC-08 | Read date (register 0x04) | — | missing | — |
-| RTC-09 | Read month (register 0x05) | — | missing | — |
-| RTC-10 | Read year (register 0x06) | — | missing | — |
-| RTC-11 | Read control register (0x07) | — | missing | — |
-| RTC-12 | Write seconds register | — | missing | — |
-| RTC-13 | Write hours in 12h mode (bit 6 = 1) | — | missing | — |
-| RTC-14 | Sequential read: auto-increment register pointer | — | missing | — |
-| RTC-15 | Sequential write: auto-increment register pointer | — | missing | — |
-| RTC-16 | Clock halt bit (seconds register bit 7) | — | missing | — |
-| RTC-17 | NVRAM registers 0x08-0x3F (56 bytes) | — | missing | — |
-| RTC-18 | Snapshot in 12h mode preserves bit 6 + AM/PM bit 5 | — | missing | — |
-| RTC-19 | Task 28 fixed-time mode (`--rtc`): snapshot encodes pinned datetime | — | missing | — |
-| RTC-20 | Task 28 fixed-time survives `reset() | — | missing | — |
-| RTC-21 | Task 28 fixed-time honours 12h mode | — | missing | — |
-| RTC-22 | Task 28 `parse_rtc_datetime()` contract | — | missing | — |
 | INT-01 | UART0 rx_avail fires UART0_RX (vector 1) with NR 0xC6 bit 0 set [zxnext.vhd:1941-1944, :1949-1950; im2.cpp:313-323] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:175 |
 | INT-02 | UART0 rx_near_full fires UART0_RX with NR 0xC6 bit 1 set only (near-full override) [zxnext.vhd:1943, :1950; plan-drift note] | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass | test/uart/uart_integration_test.cpp:204 |
 | INT-03 | UART1 rx_avail fires UART1_RX (vector 2) with NR 0xC6 bit 4 set [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:222 |
@@ -5355,11 +4495,9 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | GATE-01 | UART port enable gate: NR 0x83 bit 4 → ports 0x133B-0x163B; when closed reads=0xFF + writes ignored [zxnext.vhd:2420, :2392; emulator.cpp register_io_ports] | zxnext.vhd:2420,2392 | pass | test/uart/uart_integration_test.cpp:399 |
 | GATE-02 | I2C port enable gate: NR 0x83 bit 2 → ports 0x103B/0x113B; when closed reads=0xFF + writes ignored [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:448 |
 | GATE-03 | NR 0x83 bits 0/2/4 independently gate DivMMC/I2C/UART [zxnext.vhd:2412, :2418, :2420, :2392; :5499-5509] | zxnext.vhd:2412,2418,2420,2392 | pass | test/uart/uart_integration_test.cpp:541 |
-| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:1224 |
-| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1253 |
-| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:1284 |
-| TX-C1-ACC-01 | Single tick span crossing a byte boundary; subsequent boundaries probed to the single cycle | — | missing | — |
-| TX-C1-ACC-02 | One tick(4T) span drains 4 queued FIFO bytes | — | missing | — |
+| I2C-10 | internal_port_enable(10) gates 0x103B/0x113B (same mechanism as GATE-02) [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:570 |
+| DUAL-05 | uart.vhd gates tx_wr on uart_select_r bit 6; zxnext.vhd:3343-3344 routes UART 0 TX → ESP pin, UART 1 TX → Pi pin. Selecting a channel via port 0x153B directs port 0x133B TX writes to that channel ONLY — cross-talk between channels is impossible | uart.vhd, zxnext.vhd:3343-3344 | pass | test/uart/uart_integration_test.cpp:629 |
+| DUAL-06 | zxnext.vhd:3340-3341 — joystick-UART RX routes to UART 0 when NR 0x0B bit7=1 & bit0=0, to UART 1 when bit7=1 & bit0=1, and is dropped when bit7=0 | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:678 |
 | DEV-01 | Uart::attach_device diverts channel TX to UartDevice::receive and suppresses the default loopback [uart.cpp deliver_tx_byte; zxnext.vhd:1611, :3381 UART 0 = ESP] | zxnext.vhd:1611,3381 | pass | test/uart/uart_integration_test.cpp:751 |
 | DEV-02 | UartDevice::send_to_guest injects through Uart::inject_rx: the guest reads the byte at 0x143B and IM2 UART0_RX follows the NR 0xC6 request mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:803 |
 | DEV-03 | Uart::detach_device restores loopback and clears the device's RxSink — a detached channel behaves exactly like one that never had a device [uart_device.h lifetime contract] | — | pass | test/uart/uart_integration_test.cpp:840 |
@@ -5369,4 +4507,7 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | ESP-02 | the ESP's reply lands in the UART 0 RX FIFO and raises the UART0_RX IM2 vector under the NR 0xC6 request mask near_full OR (avail AND NOT bit1) [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:1113 |
 | ESP-03 | NR 0x02 bit 7 (o_RESET_PERIPHERAL) latches and reads back, and in v1.0 drives NO device reset — the attached ESP keeps its state across it; nextsync's recovery path is a v1.1 extension point (design doc §4.2) [zxnext.vhd:5119, :1579; nextreg.txt:48] | zxnext.vhd:5119,1579 | pass | test/uart/uart_integration_test.cpp:1163 |
 | ESP-04 | with no ESP backend attached, UART 0 keeps its loopback: the guest's own bytes come back and nothing answers them | — | pass | test/uart/uart_integration_test.cpp:1188 |
+| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:1224 |
+| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1253 |
+| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:1284 |
 
