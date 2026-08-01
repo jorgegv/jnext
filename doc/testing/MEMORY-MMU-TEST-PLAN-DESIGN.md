@@ -647,16 +647,16 @@ ROM-mapped slot (0x0000-0x3FFF) does, in this priority order:
 3. `nr_03_config_mode='1'` → SRAM at `nr_04_romram_bank & cpu_a(13)`, `sram_pre_rdonly<='0'` (writeable) — :3044-3050
 4. otherwise → `"000000" & sram_rom & cpu_a(13)`, `sram_pre_rdonly <= not (altrom_en and altrom_rw)` (normally read-only) — :3051-3057
 
-| ID      | Test                              | Setup                       | Expected                                      |
-|---------|-----------------------------------|-----------------------------|-----------------------------------------------|
-| CFG-01  | Config mode maps ROMRAM, writeably | config_mode=1, NR 0x04=n    | Writes to 0x0000-0x3FFF land in SRAM at `(n<<1) \| slot` and are NOT dropped — branch 3, `zxnext.vhd:3044-3045` (address) + `:3049` (`sram_pre_rdonly<='0'`) |
-| CFG-02  | Config mode read path             | config_mode=1, NR 0x04=n    | Reads from 0x0000-0x3FFF return the SRAM bank contents, not the ROM image — same branch, `zxnext.vhd:3044-3045` |
-| CFG-03  | MMU-RAM mapping wins over config mode | config_mode=1 **and** an MMU-RAM page mapped on slot 0 | Access lands in the mapped RAM page, not the NR 0x04 bank — branch 2 is tested first (`zxnext.vhd:3037`) |
-| CFG-04  | Config mode off → normal ROM      | config_mode=0               | 0x0000-0x3FFF follows normal ROM selection and writes drop (`sram_pre_rdonly` set) — branch 4, `zxnext.vhd:3051-3057` |
+| ID          | Test                              | Setup                       | Expected                                      |
+|-------------|-----------------------------------|-----------------------------|-----------------------------------------------|
+| MMU-CFG-01  | Config mode maps ROMRAM, writeably | config_mode=1, NR 0x04=n    | Writes to 0x0000-0x3FFF land in SRAM at `(n<<1) \| slot` and are NOT dropped — branch 3, `zxnext.vhd:3044-3045` (address) + `:3049` (`sram_pre_rdonly<='0'`) |
+| MMU-CFG-02  | Config mode read path             | config_mode=1, NR 0x04=n    | Reads from 0x0000-0x3FFF return the SRAM bank contents, not the ROM image — same branch, `zxnext.vhd:3044-3045` |
+| MMU-CFG-03  | MMU-RAM mapping wins over config mode | config_mode=1 **and** an MMU-RAM page mapped on slot 0 | Access lands in the mapped RAM page, not the NR 0x04 bank — branch 2 is tested first (`zxnext.vhd:3037`) |
+| MMU-CFG-04  | Config mode off → normal ROM      | config_mode=0               | 0x0000-0x3FFF follows normal ROM selection and writes drop (`sram_pre_rdonly` set) — branch 4, `zxnext.vhd:3051-3057` |
 
 > **GH #193 — this table was corrected against the VHDL, not against the tests.**
 > Three of the four rows previously named behaviour the suite asserts under a
-> different ID (old CFG-02 ↔ test CFG-04, old CFG-03 ↔ test CFG-01), and old
+> different ID (old CFG-02 ↔ test MMU-CFG-04, old CFG-03 ↔ test MMU-CFG-01), and old
 > CFG-03's "MMU-RAM wins" case was absent from the plan entirely. Each row above
 > was re-derived from the branch chain and matches what `mmu_test.cpp` asserts.
 >
@@ -670,9 +670,9 @@ ROM-mapped slot (0x0000-0x3FFF) does, in this priority order:
 > **survives reset**. That is a NextREG-tier behaviour, not an MMU one: it is
 > owned by `NextReg` (see G62) and pinned by `nextreg_test.cpp` **CFG-07**
 > ("reset() preserves config_mode"), plus **CFG-08** for the soft-reset case.
-> `mmu_test` CFG-06 documents the mirror side of the same fact.
+> `mmu_test` MMU-CFG-06 documents the mirror side of the same fact.
 
-Rows CFG-05..CFG-12 in `mmu_test.cpp` extend this category (bit-13 half-bank
+Rows MMU-CFG-05..MMU-CFG-07 and CFG-08..CFG-12 in `mmu_test.cpp` extend this category (bit-13 half-bank
 select, reset behaviour, out-of-range banks, setter round-trip, and the
 `rom_in_sram` branch-4 variants) and are recorded in the traceability matrix's
 "Extra coverage (not in plan)" table for this suite.
@@ -693,7 +693,7 @@ configuration, not at every reset.
 jnext previously cleared it in **both** `Mmu::reset()` and `NextReg::reset()`,
 citing `:1104` — the same declaration-default-mistaken-for-a-reset-clause error
 already fixed for `nr_03_config_mode` (G62) and `nr_03_machine_type` (G63).
-`mmu_test` **CFG-06** asserted the clearing as correct and was corrected to
+`mmu_test` **MMU-CFG-06** asserted the clearing as correct and was corrected to
 assert preservation.
 
 A hardware HARD reset *does* reconfigure the FPGA
@@ -704,7 +704,7 @@ therefore differ, and are proven apart:
 
 | ID         | Test                                          | Setup                                             | Expected                                          |
 |------------|-----------------------------------------------|---------------------------------------------------|---------------------------------------------------|
-| CFG-06     | `Mmu::reset()` (hard arm) preserves the bank  | config_mode=1, NR 0x04=0x30, `reset()`            | slot-0 write still routes to SRAM page 96, not 0  |
+| MMU-CFG-06 | `Mmu::reset()` (hard arm) preserves the bank  | config_mode=1, NR 0x04=0x30, `reset()`            | slot-0 write still routes to SRAM page 96, not 0  |
 | CFG-12     | `Mmu::reset(hard=false)` preserves it too     | config_mode=1, NR 0x04=0x30, `reset(false)`       | same — VHDL `reset` covers both arms              |
 | RSTD-04-01 | RESET_SOFT preserves `nr_04_romram_bank`      | NR 0x04 ← 0x30, then NR 0x02 ← 0x01               | `nextreg().nr_04_romram_bank()` still 0x30        |
 | RSTD-04-02 | RESET_HARD clears it via the host cold boot   | NR 0x04 ← 0x30, NR 0x02 ← 0x02, `emulator_cold_boot()` | request raised, bank still 0x30 mid-way, 0x00 after |
@@ -715,18 +715,18 @@ therefore differ, and are proven apart:
 | CMG-02     | the gate condition's **`cfg.type == ZXN_ISSUE2` clause**, for EVERY non-Next value | latch cleared while still Next, `Mmu` mirror left true, boot ROM loaded + enabled, then re-`init()` as each of `ZX48K` / `ZX128K` / `ZX_PLUS3` | gate NOT entered though the boot-ROM clause is satisfied: mirror keeps true for all three |
 | CMG-03     | the gate's **POSITION** — it must run after the subsystem resets that establish its inputs | boot ROM loaded, `config_mode` true but `boot_rom_en_` left FALSE so only `Mmu::reset()` can arm it; latch cleared; `init()` as Next | gate entered (armed by the reset) and the mirror follows the latch down; a mirror left true means the block ran before its own input existed |
 
-CFG-06 / CFG-12 are `mmu_test.cpp`; RSTD-04-01..04 are hosted in
+MMU-CFG-06 / CFG-12 are `mmu_test.cpp`; RSTD-04-01..04 are hosted in
 `test/nextreg/nextreg_integration_test.cpp` (group `Reset-Domain`), the only
 tier where hard and soft reset are distinguishable. CFG-12 exists because the
 `hard` flag makes a one-armed model possible: the mutation
-`if (!hard) nr_04_romram_bank_ = 0;` passed CFG-06 and RSTD-04-01/02, and
+`if (!hard) nr_04_romram_bank_ = 0;` passed MMU-CFG-06 and RSTD-04-01/02, and
 CFG-12 is what catches it.
 
 **GH #195 — why -03/-04 exist.** The four rows above split by *which mirror*
 they observe, because jnext holds the one VHDL signal twice: the `NextReg`
 latch and an `Mmu` mirror (the SRAM address compose at `zxnext.vhd:3045` is on
-the `Mmu` hot path). -01/-02 read the latch; CFG-05..12 drive a **bare `Mmu`
-with no `Emulator`**. So no row observed the mirror *through* the emulator, and
+the `Mmu` hot path). -01/-02 read the latch; MMU-CFG-05..MMU-CFG-07 and CFG-08..CFG-12
+drive a **bare `Mmu` with no `Emulator`**. So no row observed the mirror *through* the emulator, and
 a reviewer mutation of the resync in `Emulator::init()` escaped all 6560 unit
 rows and both NextZXOS boot/reset functional rows. -03/-04 close that by
 asserting `Emulator::mmu().nr_04_romram_bank()` — an accessor added for exactly
