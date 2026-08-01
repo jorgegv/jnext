@@ -3376,17 +3376,12 @@ Suite covers the two floating-bus surfaces the Next FPGA exposes: port 0xFF (48K
 | FB-07         | 48K NR 0x08 b2=1 + port 0xFF write 0x05 → read returns 0x05 (Timex arm)         | zxnext.vhd:2813,5180,3630                   | pass   | test/floating_bus/floating_bus_test.cpp:953     |
 | FB-6A         | 48K reset NR 0x08 b2=0 → border read returns 0xFF (floating-bus arm wins)       | zxnext.vhd:1118,2813,5180                   | pass   | test/floating_bus/floating_bus_test.cpp:969     |
 | FB-6B         | 48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF                    | zxnext.vhd:2397,2813                        | pass   | test/floating_bus/floating_bus_test.cpp:988     |
-
-### Extra coverage (not in plan)
-
-| Test ID       | Assertion description                                                                  | VHDL file:line                | Test file:line                                  |
-|---------------|----------------------------------------------------------------------------------------|-------------------------------|-------------------------------------------------|
-| FB-3X         | +3 port 0x0FFD dispatches to dedicated 0x0FFD handler not 0x7FFD (mask 0xF003 > 0x8003) | zxula.vhd:573, zxnext.vhd:4478,4499-4508 | test/floating_bus/floating_bus_test.cpp:784     |
-| FB-HARNESS-01 | set_raster_position(line, tstate) lands clock at expected master cycle                  | —                             | test/floating_bus/floating_bus_test.cpp:1287    |
-| FB-HARNESS-02 | set_raster_position_hc(line, hc) lands clock at expected master cycle (7 MHz domain)    | —                             | test/floating_bus/floating_bus_test.cpp:1313    |
-| FB-HARNESS-03 | cpu_in_a_FF executes IN A,(0xFF), PC advances 2, returns border 0xFF                    | —                             | test/floating_bus/floating_bus_test.cpp:1335    |
-| FB-HARNESS-04 | cpu_in_a_0FFD executes IN A,(C) with BC=0x0FFD; PC advances 2, BC preserved             | —                             | test/floating_bus/floating_bus_test.cpp:1353    |
-| FB-HARNESS-05 | read_port_default(0x00FF) on fresh 48K returns 0xFF via port_dispatch default           | —                             | test/floating_bus/floating_bus_test.cpp:1368    |
+| FB-3X         | +3 port 0x0FFD dispatches to dedicated 0x0FFD handler not 0x7FFD (mask 0xF003 > 0x8003) | zxula.vhd:573, zxnext.vhd:4478,4499-4508    | pass   | test/floating_bus/floating_bus_test.cpp:784     |
+| FB-HARNESS-01 | set_raster_position(line, tstate) lands clock at expected master cycle         | —                                            | pass   | test/floating_bus/floating_bus_test.cpp:1287    |
+| FB-HARNESS-02 | set_raster_position_hc(line, hc) lands clock at expected master cycle (7 MHz domain) | —                                       | pass   | test/floating_bus/floating_bus_test.cpp:1313    |
+| FB-HARNESS-03 | cpu_in_a_FF executes IN A,(0xFF), PC advances 2, returns border 0xFF           | —                                            | pass   | test/floating_bus/floating_bus_test.cpp:1335    |
+| FB-HARNESS-04 | cpu_in_a_0FFD executes IN A,(C) with BC=0x0FFD; PC advances 2, BC preserved    | —                                            | pass   | test/floating_bus/floating_bus_test.cpp:1353    |
+| FB-HARNESS-05 | read_port_default(0x00FF) on fresh 48K returns 0xFF via port_dispatch default  | —                                            | pass   | test/floating_bus/floating_bus_test.cpp:1368    |
 
 
 ## VideoTiming — `test/videotiming/videotiming_test.cpp`
