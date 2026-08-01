@@ -1,5 +1,19 @@
 # JNEXT — Credits
 
+If you contributed to the project in any way and want your name to appear here, I need you to confirm that I can use your name, email, nick or whatever identifier you choose and include it in this file.
+
+## Main author
+
+Jorge Gonzalez, aka ZXjogv <zx@jogv.es>
+
+## Code contributors
+
+
+
+## Testers and bug reporters
+
+
+
 ## Libraries and third-party software
 
 | Library | License | Used for |
