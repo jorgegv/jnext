@@ -1114,3 +1114,10 @@ as the fallback colour) and pass once it is present. Screenshot-level twin:
    blank signal is correctly delayed in lockstep with `rgb_out_6`; a
    timing drift would only show as a one-pixel edge artefact. Noted
    as a known untested edge case.
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that require a full `Emulator` fixture (NR 0x68 bit 7 ULA-disable observed at the framebuffer level, including Copper mid-frame MOVE NR 0x68,0x80). Runtime: `Total:    8  Passed:    8  Failed:    0  Skipped:    0`. Each row is a live pass. Only the 2 UDIS rows are listed below. Of the other 6 live rows, `PFF-G108-01/02/03` are recorded in the parent `## Compositor` table — they are Compositor plan rows re-homed here 2026-04-28, not new rows; `PFF-G108-02b` is recorded only by sub-letter aliasing under `PFF-G108-02` (the script's `ALIASED` report); and `PFF-G108-04` + `PSCAN-VBLANK-COALESCE-01` are recorded nowhere (its `UNRECORDED` report). Both reports print on every run.

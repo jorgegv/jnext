@@ -565,3 +565,23 @@ were correctly retired rather than restored. TM-CB5 was never a real
 assertion (`check("TM-CB5", ..., true, ...)` — a documentation placeholder),
 and the discrepancy it recorded (VHDL bit 5 = `strip_flags` vs the then-current
 C++ bit mapping) is resolved in the current code and covered by TM-50..TM-53.
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Raster-split fetch-state regression (TX-1696): NR `0x6E` / `0x6F` / `0x6C` are
+changed mid-frame so one map/tile pair draws a fixed HUD and another the
+scrolling playfield. The FPGA tilemap consumes these registers as live inputs,
+so rendering a completed frame from only their final values paints one
+configuration across every scanline.
+**What these rows prove is the LATCHING, not a scanline period.** The VHDL
+latch fires when the fetch state machine re-enters `S_IDLE`, and
+`tilemap.vhd:264` forces that on a HORIZONTAL counter condition — once per tile
+COLUMN, ~40/80 times a scanline — so on hardware a mid-scanline write takes
+effect from the next tile column of the SAME line. jnext models the same latch
+at per-scanline granularity (`Tilemap::snapshot_fetch_for_line`), which is the
+project's declared accuracy model. An earlier wording of these rows claimed the
+change "affects only subsequent scanlines", which is jnext's model described as
+if it were the hardware; it is not, and the rows say so now.

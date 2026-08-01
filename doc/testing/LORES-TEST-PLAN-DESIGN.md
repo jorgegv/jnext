@@ -724,3 +724,25 @@ wrong subsystem. See also the tier-S note in "Test Architecture" above.
   ULA+ CLUT is written (zxnext.vhd:6958). LR-85/LR-86 assert the index maths,
   which is all the VHDL states; whether every ULA+-mode program expects that
   region to be populated is a software question, not a hardware one.
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+The LoRes layer (`src/video/lores.{h,cpp}`), 128x96 8-bit and Radastan 4-bit.
+Plan: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md), whose row titles
+are the Description column below. LoRes is **not** a layer of its own — it
+substitutes the ULA-slot pixel (`zxnext.vhd:6980`), which is why its rows are
+about address generation and the NR `$15` b7 / `$32` / `$33` / `$6A` inputs
+rather than about compositing.
+The plan has 91 rows; this suite implements the 48 that are reachable from the
+`LoRes` class alone. Two more need a running CPU and the real memory-timing
+model and live in the companion suite below; the remainder are compositor- or
+demo-level and are recorded in the sections that own them.
+The two LoRes plan rows that assert the ABSENCE of an effect on the CPU-visible
+side of the machine, and therefore need a full 128K emulator with contention
+and a floating bus rather than the bare `LoRes` class. Both follow from one
+hardware fact: the LoRes fetch uses bank 5's dual-port BRAM **port A**
+(`zxnext.vhd:6603-6631`) while ULA contention and the floating bus are
+functions of the ULA's own **port B** fetch.

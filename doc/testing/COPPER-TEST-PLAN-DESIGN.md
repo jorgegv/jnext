@@ -689,3 +689,12 @@ all four timing modes, so a per-machine Copper harness would re-test
 End-to-end witness: `show512.nex` at frame 300 differs between the
 pre-fix and fixed builds on exactly **one framebuffer row (127)**, full
 width — the anomaly filed in GH #181, healed.
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Copper rows that need the full machine: the post-G117 cycle-accurate MOVE
+scheduler, the CPU-vs-Copper NextREG write arbitration, and the 50/60 Hz
+`c_max_vc` wrap re-push.

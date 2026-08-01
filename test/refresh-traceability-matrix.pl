@@ -351,6 +351,7 @@ my %PLAN_DOC = (
     'contention_test'             => 'CONTENTION',
     'lores_test'                  => 'LORES',
     'lores_integration_test'      => 'LORES',
+    'multiface_test'              => 'MULTIFACE',
     'nmi_test'                    => 'NMI-PIPELINE',
     'nmi_integration_test'        => 'NMI-PIPELINE',
 );

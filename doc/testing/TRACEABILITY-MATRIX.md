@@ -2060,6 +2060,8 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 
 ## Multiface — `test/multiface/multiface_test.cpp`
 
+Notes and rationale: [MULTIFACE-TEST-PLAN-DESIGN.md](MULTIFACE-TEST-PLAN-DESIGN.md).
+
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
 | MF-CORE-01 | reset defaults: nmi=0 invisible=1 mf_enable=0 port_io_dly=0 mem=0 hold=0 | multiface.vhd:126,141,156,175 | pass | test/multiface/multiface_test.cpp:118 |

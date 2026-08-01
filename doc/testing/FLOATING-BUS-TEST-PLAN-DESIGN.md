@@ -726,3 +726,10 @@ e.g. `V11-CPU-01-IM2-DDFD-ED-NO-RETI`), and the now-empty
   not allowed — the schedule has four "return-VRAM" phases and four
   "return-0xFF" phases; each side is covered once per offset into
   the byte stream (pixel / attr / pixel+1 / attr+1 / reset).
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Suite covers the two floating-bus surfaces the Next FPGA exposes: port 0xFF (48K/128K timing, ULA capture) and port 0x0FFD (+3 timing, contended-write latch with bit-0 force / `port_7ffd_locked` gate / NR 0x82 b4 `port_p3_floating_bus_io_en` decode). Plan §1-§6 = 26 plan rows (5 re-homed from ULA §10 + 21 VHDL-justified neighbours), plus 1 port-conflict neighbour FB-3X (Branch B reviewer note 2) and 5 FB-HARNESS-NN fixture-helper smoke rows. Closed 2026-04-25 at 32/32 pass / 0 fail / 0 skip via Branches A/B/C/D (commits `0ee05c5`, `8bcae9b`, `c43b201`, `42b52f0`).

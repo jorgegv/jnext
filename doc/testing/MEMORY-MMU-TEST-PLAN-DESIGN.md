@@ -1214,3 +1214,18 @@ T-states consumed vs. expected.
   - Altrom: lines 2247-2265
   - Config mode: lines 3044-3050
   - Layer 2 mapping: lines 2966-2971, 3077, 3100-3107
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Memory/MMU rows that need a whole `Emulator` rather than a bare `Mmu`: the
+NR-fan-out paths (`V12-MEM-*`, `V13-MEM-*`), the `0xEFF7` port gate, the
+machine-type default, the Multiface SRAM window seen from the memory side
+(`MF-SRAM-*`), the boot-hold frame counter (`G156-HOLD-*`), the SA-BYTES tape
+trap gate (`MMU-G33-TRAP-*`), the live machine switch (`SWITCH-*`) and the
+snapshot save round-trips (`SNAPSAVE-*`).
+The `SNAPSAVE-*` and `G156-HOLD-*` rows read `—` in the VHDL column and always
+will: a .szx/.nex round-trip is a file-format contract and the boot hold is a
+jnext-internal host-side delay, neither of which the FPGA core contains.

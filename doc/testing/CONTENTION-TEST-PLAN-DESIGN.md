@@ -1027,3 +1027,23 @@ dropping the `+1` from `hc_adj` kills all six; disabling the +3
 `hc_adj(3:1)="000"` term or zeroing `kPatP3[15]` kills 05; shifting row 06's
 probe origin by a full T-state (+2) instead of +1 makes it fail, proving it
 is not vacuous.
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+The base 28→0 skip closure for this suite landed on 2026-04-26 via a
+three-phase wave (Phase A=28 bare-class rows, Phase B=36 full-Emulator
+rows, Phase C=4 integration-smoke rows — `doc/testing/CONTENTION-TEST-PLAN-DESIGN.md` §15
+"closed 2026-04-26"). Subsequent additions for
+G51 (`CT-TURBO-08`), G53 (`CT-FUSE-05`), G141 (`CT-FUSE-01..04`) and
+G142 (`CT-TURBO-07`) are tracked here as `F-skip` rows pending the
+respective emulator work (FUSE-table retirement, NR 0x07 bus-idle
+commit edge, combined hc(8)+bus-idle ordering). G50
+(`CT-DELAY-01`, full-frame integration drift bound) closed 2026-04-28
+via §14b — drift envelope is `(0, 6·N]` for 48K/128K/+3 and `0` for
+Pentagon, derived from the VHDL `wait_s × pattern` LUT.
+Plan numbering: §4–§14 land green; §16 + post-§14 G-rows are the open
+backlog. The CON-* rows from `test/mmu/mmu_test.cpp` were C2-moved
+into this suite as part of the 2026-04-26 closure.

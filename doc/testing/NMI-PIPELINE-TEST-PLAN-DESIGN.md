@@ -451,3 +451,22 @@ which is what they are.
 | BOOT-LOOP-01 | NextZXOS RAM-test outer loop (208 passes × 112 banks over ~15 s) (**COVERED AT regression tier** — `boot-nextzxos-welcome`, test/00regression/regression_tests.conf; the RAM-test loop must complete and fall through to BASIC before that screenshot renders, Task 8a 2026-07-13 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | (end-to-end behavioural) |
 | BOOT-LOGO-01 | NextZXOS loader logo + 4-entry log render (**COVERED AT regression tier** — `boot-nextzxos-splash`, test/00regression/regression_tests.conf; pins the clean loading log at frame 252, Task 8a 2026-07-13 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | (rendering) |
 | BOOT-DOT-01 | NextZXOS BASIC + dot-command surface (**COVERED AT regression tier** — `boot-nextzxos-dotls`, test/00regression/regression_tests.conf; types `.ls` in the NextZXOS Command Line and pins the SD-root listing, Task 57 2026-07-14, closes G47 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | (end-to-end) |
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+NMI Source Pipeline plan (`doc/testing/NMI-PIPELINE-TEST-PLAN-DESIGN.md`) closed end-to-end 2026-04-24d (per `project_session_handover_20260424d_eod.md` — Phase 1 scaffold + Wave A NR 0x02 + Wave B HK/DIS/CLR + Wave C gate registers + Wave E NMI-activated DMA delay all landed; 5 real emulator bugs fixed). The plan was reopened by Task 7 r1 + r2 (2026-04-24/25) which added skip rows for the residual gaps it surfaced — specifically G87/G88 (NMIACK PC-capture cross-link to NR 0xC2/0xC3 and CTC owner), G152/G153 (host F-key dispatch + NR 0x02 reset_type FSM bits 1:0), and G162 (iotrap strobe + Multiface port 0x2FFD/0x3FFD trap, parked until `MULTIFACE-TEST-PLAN-DESIGN.md` is authored). Companion integration suite `test/nmi/nmi_integration_test.cpp` runs the full button/software-NMI chain through a real `Emulator` fixture (NmiSource → arbiter strobe → DivMmc::set_button_nmi → cpu request_nmi → PC=0x0066 → automap → RETN clear); its 4 skips track the same G152 host-hotkey wiring debt at the GUI level. `nmi_test.cpp` runs at `54 / 32 pass / 0 fail / 22 skip` (Z80-04 re-homed to CTC plan 2026-04-28 — duplicate cross-link with NR-C2-01/NR-C3-01) and `nmi_integration_test.cpp` at `9 / 5 / 0 / 4`.
+End-to-end NMI chain on a real `Emulator` fixture (NmiSource FSM → arbitration strobe → `DivMmc::set_button_nmi` → `cpu_.request_nmi()` → Z80 jumps to 0x0066 → automap activates → RETN clears latches). The 4 host-hotkey skips mirror the `nmi_test.cpp` HK-06..09 rows at the integration tier (G152 — GUI F-key dispatch is not wired). Runtime: `Total:    9  Passed:    5  Failed:    0  Skipped:    4`.
+Two hand-maintained companion suites were previously narrated here as full
+summary tables: `test/core/extended_nex_test.cpp` (Extended/self-streaming
+NEX, GH #29/#84) and `test/nmi/atic_atac_nmi_test.cpp` (Atic Atac Next NMI
+regressions, GH #84). Both are declared, tombstoned suites (see "Suites with
+no section here" above) with no `Test file:line` or `VHDL file:line` column
+for the generator to compute, so nothing in either was ever machine-verified
+content — keeping them as tables here read as generated when they were not
+(GH #192). Their full hand-asserted summaries now live beside each feature's
+own design doc: [TASK84-EXTENDED-NEX-PLAN.md](../design/TASK84-EXTENDED-NEX-PLAN.md)
+§9 and [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-DESIGN.md)
+(final section). GH #196 phase 1.5.

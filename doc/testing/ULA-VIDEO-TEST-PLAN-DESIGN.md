@@ -1149,3 +1149,11 @@ which is what they are.
 | S14.04 | Interrupt disabled | — |
 | S14.05 | Line interrupt fires | — |
 | S14.06 | Line interrupt 0 = last line | — |
+
+## Coverage notes (moved from the traceability matrix, GH #196)
+
+The matrix is a generated artifact now and carries no prose of its own; it
+links here instead. These notes were written alongside the rows they explain.
+
+Task 3 SKIP-reduction plan (`doc/design/TASK3-ULA-VIDEO-SKIP-REDUCTION-PLAN.md`) landed 2026-04-23 Phase 0 → 4 (final state after post-closure walkback + NR 0x68 bit 3 follow-up). `ula_test.cpp` moved from `123/48/0/75` to `110/81/0/29`; 13 rows migrated from `skip()`/`check()` to `// G:` source comments (status `missing` below) — 10 Phase-0 unobservable-at-this-abstraction reclassifications plus the 3 Wave E rows (S14.04/05/06) walked back post-closure because they validated `VideoTiming` interrupt-class logic with no production consumer. 33 rows flipped from `skip()` to live `check()` passes via five parallel Phase-2 waves. 7 integration rows now live as passes in the companion suite `test/ula/ula_integration_test.cpp` (7/7/0/0 — scroll, ULA+, ULAnext, alt-file, NR 0x68 bit 3 ungated ulap_en). Remaining 29 skips are all F-blocked to named subsystem plans: Emulator floating-bus (5), ContentionModel (12), Compositor NR 0x68 blend-mode (3), VideoTiming per-machine + int-position (7), Emulator/MMU shadow-screen routing (2). See `doc/testing/audits/task3-ula-phase4.md` for row-by-row rationale.
+Created 2026-04-23 (commit `08a4296`, renamed and merged at `94ccaf3`) to host end-to-end integration coverage of the Phase-2 flips that require the full `Emulator` fixture (NR 0x26/0x27 scroll composition, port 0xFF3B ULA+ palette, NR 0x43 ULAnext, and HI_COLOUR vs alt-file discrimination). Runtime: `Total:    6  Passed:    6  Failed:    0  Skipped:    0`. No skips; each row is a live pass.
