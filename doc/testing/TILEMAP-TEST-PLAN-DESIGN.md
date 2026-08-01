@@ -524,10 +524,21 @@ drew, which
 
 A debug view must never mutate the state it observes.
 
+> **The `DVP-*` rows below are asserted in `test/debugger/video_panel_test.cpp`,
+> which the traceability matrix deliberately does not trace** — it is a
+> GUI-gated debugger-panel suite, tombstoned in `%NO_MATRIX_SECTION` as
+> "debugger panel RENDERING; the hardware it displays is traced in
+> `## Compositor`/`## Layer2`/`## ULA Video`". Their IDs are therefore struck
+> through: left live, the generator emitted every one of them as a `missing`
+> row of this subsystem, i.e. a coverage gap that does not exist. The `Status`
+> column below is the record, and `video_panel_test` is the proof.
+> (GH #196 phase 4.2 — all 34 struck rows verified asserted there, none of
+> them anywhere else.)
+
 | ID      | Test                                                              | Status |
 |---------|-------------------------------------------------------------------|--------|
-| DVP-06  | a panel refresh does not clobber the per-line scroll snapshots     | PASS   |
-| DVP-07  | the debug render reads the per-line scroll split (not live scroll) | PASS   |
+| ~~DVP-06~~  | a panel refresh does not clobber the per-line scroll snapshots     | PASS   |
+| ~~DVP-07~~  | the debug render reads the per-line scroll split (not live scroll) | PASS   |
 
 Hosted in `test/debugger/video_panel_test.cpp` (`debugger_video_panel_test`).
 

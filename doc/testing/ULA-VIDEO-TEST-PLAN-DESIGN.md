@@ -984,16 +984,28 @@ screen was decoded with the wrong layout.  It saves and restores the live bank
 selector, so it never disturbs emulation state.
 `Ula::vram_bank7()` exposes that selector for the restore assertion.
 
+> **The `DVP-*` rows below are asserted in `test/debugger/video_panel_test.cpp`,
+> which the traceability matrix deliberately does not trace** — it is a
+> GUI-gated debugger-panel suite, tombstoned in `%NO_MATRIX_SECTION` as
+> "debugger panel RENDERING; the hardware it displays is traced in
+> `## Compositor`/`## Layer2`/`## ULA Video`". Their IDs are therefore struck
+> through: left live, the generator emitted every one of them as a `missing`
+> row of this subsystem, i.e. a coverage gap that does not exist. The `Status`
+> column below is the record, and `video_panel_test` is the proof.
+> (GH #196 phase 4.2 — all 34 struck rows verified asserted there, none of
+> them anywhere else.)
+
 | ID       | Test                                                            | Status |
 |----------|-----------------------------------------------------------------|--------|
-| DVP-03   | bank-5 view shows bank 5 while the shadow screen is selected     | PASS   |
-| DVP-03b  | bank-5 view shows bank 5 while the primary screen is selected    | PASS   |
-| DVP-04   | bank-7 view shows bank 7 while the primary screen is selected    | PASS   |
-| DVP-04a  | bank-7 view shows bank 7 while the shadow screen is selected     | PASS   |
-| DVP-04c/d| the live bank selector is restored after the debug render        | PASS   |
-| DVP-12   | the debug views apply the NR 0x1A clip window                    | PASS   |
-| DVP-12a  | …keeping display cells inside the window                         | PASS   |
-| DVP-12b  | …and clipping the border strips when clip_x1>0 / clip_x2<255     | PASS   |
+| ~~DVP-03~~   | bank-5 view shows bank 5 while the shadow screen is selected     | PASS   |
+| ~~DVP-03b~~  | bank-5 view shows bank 5 while the primary screen is selected    | PASS   |
+| ~~DVP-04~~   | bank-7 view shows bank 7 while the primary screen is selected    | PASS   |
+| ~~DVP-04a~~  | bank-7 view shows bank 7 while the shadow screen is selected     | PASS   |
+| ~~DVP-04c~~ | the live bank selector is restored after the debug render     | PASS   |
+| ~~DVP-04d~~ | …and the debug render leaves it exactly as it found it        | PASS   |
+| ~~DVP-12~~   | the debug views apply the NR 0x1A clip window                    | PASS   |
+| ~~DVP-12a~~  | …keeping display cells inside the window                         | PASS   |
+| ~~DVP-12b~~  | …and clipping the border strips when clip_x1>0 / clip_x2<255     | PASS   |
 
 ### ULA clip window in the debug path
 
@@ -1038,33 +1050,44 @@ second, hand-rolled compositor in the debugger unacceptable:
    not touch the once-per-frame ULA flash counter.  The panel wraps it in the
    same rewind → apply-per-row → flush round trip `render_frame` performs.
 
+> **The `DVP-*` rows below are asserted in `test/debugger/video_panel_test.cpp`,
+> which the traceability matrix deliberately does not trace** — it is a
+> GUI-gated debugger-panel suite, tombstoned in `%NO_MATRIX_SECTION` as
+> "debugger panel RENDERING; the hardware it displays is traced in
+> `## Compositor`/`## Layer2`/`## ULA Video`". Their IDs are therefore struck
+> through: left live, the generator emitted every one of them as a `missing`
+> row of this subsystem, i.e. a coverage gap that does not exist. The `Status`
+> column below is the record, and `video_panel_test` is the proof.
+> (GH #196 phase 4.2 — all 34 struck rows verified asserted there, none of
+> them anywhere else.)
+
 | ID       | Test                                                            | Status |
 |----------|-----------------------------------------------------------------|--------|
-| DVP-13   | "All layers" view is pixel-for-pixel the emulator's framebuffer  | PASS   |
-| DVP-13a  | premise: ULA + Layer 2 + tilemap + sprite all reach that frame   | PASS   |
-| DVP-13b  | the composite view is FB_WIDTH × FB_HEIGHT (640 × 256)           | PASS   |
-| DVP-14   | NR 0x4A fallback shows where EVERY layer is transparent          | PASS   |
-| DVP-14a  | premise: NR 0x4A = 0x13 really is #0092FF (sonic.nex's sky)      | PASS   |
-| DVP-14b  | an opaque tilemap pixel still composites over the fallback       | PASS   |
-| DVP-14c  | …and so does the sprite                                          | PASS   |
-| DVP-14d  | the fallback appears in NO per-layer view — only the composite   | PASS   |
-| DVP-15   | composite honours the raster cut-off (row+1 = unrendered)        | PASS   |
-| DVP-15a  | …and every row below the raster is the placeholder               | PASS   |
-| DVP-16   | compositing for the panel leaves every live register untouched   | PASS   |
-| DVP-16a  | …and does not clobber the tilemap per-line scroll snapshots      | PASS   |
-| DVP-16b  | premise: the vblank writes really did move the live registers    | PASS   |
-| DVP-16c  | …including VBLANK-tagged writes, which only the flush replays    | PASS   |
-| DVP-17   | "All layers" is the leftmost tab and selected by default         | PASS   |
-| DVP-17a  | …and the per-layer tabs still follow it in order                 | PASS   |
-| DVP-18   | Background view shows the NR 0x4A fallback colour                | PASS   |
-| DVP-18a  | premise: the two fallback colours differ                         | PASS   |
-| DVP-18d  | the view reads the PER-LINE snapshot, not the live NR 0x4A       | PASS   |
-| DVP-18b1 | premise: a real Copper MOVE reached NR 0x4A mid-frame            | PASS   |
-| DVP-18b  | **real Copper program** MOVEs NR 0x4A → band split in the view   | PASS   |
-| DVP-18c  | …and the composite AND the emulator framebuffer agree, row-wise  | PASS   |
-| DVP-19   | Background view honours the raster cut-off                       | PASS   |
-| DVP-19a  | …and rendering it preserves NR 0x4A and its per-line snapshots   | PASS   |
-| DVP-20   | "Background" is the RIGHTMOST tab (and not the selected one)     | PASS   |
+| ~~DVP-13~~   | "All layers" view is pixel-for-pixel the emulator's framebuffer  | PASS   |
+| ~~DVP-13a~~  | premise: ULA + Layer 2 + tilemap + sprite all reach that frame   | PASS   |
+| ~~DVP-13b~~  | the composite view is FB_WIDTH × FB_HEIGHT (640 × 256)           | PASS   |
+| ~~DVP-14~~   | NR 0x4A fallback shows where EVERY layer is transparent          | PASS   |
+| ~~DVP-14a~~  | premise: NR 0x4A = 0x13 really is #0092FF (sonic.nex's sky)      | PASS   |
+| ~~DVP-14b~~  | an opaque tilemap pixel still composites over the fallback       | PASS   |
+| ~~DVP-14c~~  | …and so does the sprite                                          | PASS   |
+| ~~DVP-14d~~  | the fallback appears in NO per-layer view — only the composite   | PASS   |
+| ~~DVP-15~~   | composite honours the raster cut-off (row+1 = unrendered)        | PASS   |
+| ~~DVP-15a~~  | …and every row below the raster is the placeholder               | PASS   |
+| ~~DVP-16~~   | compositing for the panel leaves every live register untouched   | PASS   |
+| ~~DVP-16a~~  | …and does not clobber the tilemap per-line scroll snapshots      | PASS   |
+| ~~DVP-16b~~  | premise: the vblank writes really did move the live registers    | PASS   |
+| ~~DVP-16c~~  | …including VBLANK-tagged writes, which only the flush replays    | PASS   |
+| ~~DVP-17~~   | "All layers" is the leftmost tab and selected by default         | PASS   |
+| ~~DVP-17a~~  | …and the per-layer tabs still follow it in order                 | PASS   |
+| ~~DVP-18~~   | Background view shows the NR 0x4A fallback colour                | PASS   |
+| ~~DVP-18a~~  | premise: the two fallback colours differ                         | PASS   |
+| ~~DVP-18d~~  | the view reads the PER-LINE snapshot, not the live NR 0x4A       | PASS   |
+| ~~DVP-18b1~~ | premise: a real Copper MOVE reached NR 0x4A mid-frame            | PASS   |
+| ~~DVP-18b~~  | **real Copper program** MOVEs NR 0x4A → band split in the view   | PASS   |
+| ~~DVP-18c~~  | …and the composite AND the emulator framebuffer agree, row-wise  | PASS   |
+| ~~DVP-19~~   | Background view honours the raster cut-off                       | PASS   |
+| ~~DVP-19a~~  | …and rendering it preserves NR 0x4A and its per-line snapshots   | PASS   |
+| ~~DVP-20~~   | "Background" is the RIGHTMOST tab (and not the selected one)     | PASS   |
 
 ### The Background view (NR 0x4A) — why it is per-scanline
 

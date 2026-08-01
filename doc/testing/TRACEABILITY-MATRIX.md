@@ -23,10 +23,10 @@ mentions them, so a test can no longer be absent from this document.
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
 | Memory/MMU                                 |   261 |  248 |    0 |    0 |      13 |          0 |
-| ULA Video                                  |   158 |  122 |    0 |    0 |      36 |          0 |
+| ULA Video                                  |   126 |  122 |    0 |    0 |       4 |          0 |
 | Layer2                                     |   209 |  201 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   222 |  214 |    0 |    0 |       8 |          0 |
-| Tilemap                                    |    95 |   74 |    0 |    0 |      21 |          0 |
+| Tilemap                                    |    93 |   74 |    0 |    0 |      19 |          0 |
 | Copper                                     |    95 |   86 |    0 |    0 |       9 |          0 |
 | Compositor                                 |   224 |  219 |    0 |    0 |       5 |          0 |
 | Audio                                      |   223 |  200 |    0 |    0 |      23 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4118 | 3817 |    0 |    3 |     298 |          0 |
+| **Total**                                  |  4084 | 3817 |    0 |    3 |     264 |          0 |
 
-Rows the sections above carry: **4118**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **3924**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
+Rows the sections above carry: **4084**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **3890**. Rows the 90 suites declared in `test/unit-tests.conf` run live: **6566**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -434,38 +434,6 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | S17.02 | zxnext.vhd:5462 + :6826 — NR 0x6B b4 mid-frame flip lands on the correct scanline | zxnext.vhd:5462,6826 | pass | test/ula/ula_test.cpp:3291 |
 | S17.03 | zxnext.vhd:5391-5393 vs :5462 — NR 0x43 / NR 0x6B b4 are independent change-streams | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3333 |
 | S17.04 | zxnext.vhd:5391-5393 + :5462 — palsel_start_frame clears logs and snapshots baseline from live state | zxnext.vhd:5391-5393,5462 | pass | test/ula/ula_test.cpp:3373 |
-| DVP-03 | bank-5 view shows bank 5 while the shadow screen is selected | — | missing | — |
-| DVP-03b | bank-5 view shows bank 5 while the primary screen is selected | — | missing | — |
-| DVP-04 | bank-7 view shows bank 7 while the primary screen is selected | — | missing | — |
-| DVP-04a | bank-7 view shows bank 7 while the shadow screen is selected | — | missing | — |
-| DVP-12 | the debug views apply the NR 0x1A clip window | — | missing | — |
-| DVP-12a | …keeping display cells inside the window | — | missing | — |
-| DVP-12b | …and clipping the border strips when clip_x1>0 / clip_x2<255 | — | missing | — |
-| DVP-13 | "All layers" view is pixel-for-pixel the emulator's framebuffer | — | missing | — |
-| DVP-13a | premise: ULA + Layer 2 + tilemap + sprite all reach that frame | — | missing | — |
-| DVP-13b | the composite view is FB_WIDTH × FB_HEIGHT (640 × 256) | — | missing | — |
-| DVP-14 | NR 0x4A fallback shows where EVERY layer is transparent | — | missing | — |
-| DVP-14a | premise: NR 0x4A = 0x13 really is #0092FF (sonic.nex's sky) | — | missing | — |
-| DVP-14b | an opaque tilemap pixel still composites over the fallback | — | missing | — |
-| DVP-14c | …and so does the sprite | — | missing | — |
-| DVP-14d | the fallback appears in NO per-layer view — only the composite | — | missing | — |
-| DVP-15 | composite honours the raster cut-off (row+1 = unrendered) | — | missing | — |
-| DVP-15a | …and every row below the raster is the placeholder | — | missing | — |
-| DVP-16 | compositing for the panel leaves every live register untouched | — | missing | — |
-| DVP-16a | …and does not clobber the tilemap per-line scroll snapshots | — | missing | — |
-| DVP-16b | premise: the vblank writes really did move the live registers | — | missing | — |
-| DVP-16c | …including VBLANK-tagged writes, which only the flush replays | — | missing | — |
-| DVP-17 | "All layers" is the leftmost tab and selected by default | — | missing | — |
-| DVP-17a | …and the per-layer tabs still follow it in order | — | missing | — |
-| DVP-18 | Background view shows the NR 0x4A fallback colour | — | missing | — |
-| DVP-18a | premise: the two fallback colours differ | — | missing | — |
-| DVP-18d | the view reads the PER-LINE snapshot, not the live NR 0x4A | — | missing | — |
-| DVP-18b1 | premise: a real Copper MOVE reached NR 0x4A mid-frame | — | missing | — |
-| DVP-18b | **real Copper program** MOVEs NR 0x4A → band split in the view | — | missing | — |
-| DVP-18c | …and the composite AND the emulator framebuffer agree, row-wise | — | missing | — |
-| DVP-19 | Background view honours the raster cut-off | — | missing | — |
-| DVP-19a | …and rendering it preserves NR 0x4A and its per-line snapshots | — | missing | — |
-| DVP-20 | "Background" is the RIGHTMOST tab (and not the selected one) | — | missing | — |
 | S13.03 | Pentagon frame length | — | missing | — |
 | S14.04 | Interrupt disabled | — | missing | — |
 | S14.05 | Line interrupt fires | — | missing | — |
@@ -1111,8 +1079,6 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-131 | Stencil transparency | — | missing | — |
 | TM-140 | TM disabled, tm_on_top=0 | — | missing | — |
 | TM-141 | TM disabled, tm_on_top=1 | — | missing | — |
-| DVP-06 | a panel refresh does not clobber the per-line scroll snapshots | — | missing | — |
-| DVP-07 | the debug render reads the per-line scroll split (not live scroll) | — | missing | — |
 | TM-CB1 | bit 6 = 80-column mode | — | missing | — |
 | TM-CB2 | bit 7 = enable | — | missing | — |
 | TM-CB3 | bit 1 = 512-tile mode (forces `below`) | — | missing | — |
