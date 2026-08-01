@@ -4193,7 +4193,11 @@ sub main_body {
     # asserting the absence of a warning that was never going to be emitted.
     # The condition being reported is a property of the RUN, not of whichever
     # rows happen to carry citations, so it is evaluated like one.
-    vhdl_files() unless $CHECK_ONLY;
+    # Not for --check-accounting (which never emits) and not for
+    # --dump-descriptions, which is documented as reading nothing but the
+    # test sources: it resolves no citation, so warning it about the core
+    # is a diagnostic about a thing it does not do (found in review).
+    vhdl_files() unless $CHECK_ONLY || $DUMP_DESC;
     if (defined $EMIT_TO) {
         # emit_matrix() returns TWO array refs, (\@out, \@report) — so a plain
         # `my @doc = emit_matrix(...)` collects the REFS, and join() stringified
