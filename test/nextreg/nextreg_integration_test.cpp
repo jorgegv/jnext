@@ -161,7 +161,8 @@ static void test_reset_defaults(Emulator& emu) {
     {
         uint8_t got = nr_read(emu, 0x00);
         check("MID-01",
-              "NR 0x00 machine ID reset=0x0A (VHDL g_machine_id=X\"0A\")",
+              "NR 0x00 machine ID reset=0x0A (VHDL g_machine_id=X\"0A\") "
+              "[zxnext_top_issue2.vhd:35]",
               got == 0x0A, detail_eq(got, 0x0A));
     }
 
@@ -447,7 +448,7 @@ static void test_dma_im2_delay(Emulator& emu) {
         nr_write(emu, 0xCE, 0x00);
         emu.update_im2_dma_delay(false, false, false);
         bool latched = emu.im2_dma_delay();
-        check("20.4a", "All inputs deasserted -> im2_dma_delay=0",
+        check("20.4a", "All inputs deasserted -> im2_dma_delay=0 [zxnext.vhd:2007]",
               latched == false, detail_eq(static_cast<uint8_t>(latched ? 1 : 0), uint8_t{0}));
     }
     {
@@ -545,7 +546,7 @@ static void test_tilemap_clip_nr(Emulator& emu) {
                  tm.clip_x1(), tm.clip_x2());
         check("TM-115",
               "NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 "
-              "[emulator.cpp:304-308]",
+              "[zxnext.vhd:5288-5289]",
               ok, detail);
     }
 }
@@ -589,7 +590,8 @@ static void test_soft_reset(Emulator& emu) {
         snprintf(detail, sizeof(detail), "before=0x%02X after=0x%02X", before, after);
         check("SR-01",
               "NR 0x02=0x01 (RESET_SOFT) preserves SRAM contents "
-              "[VHDL: SRAM not in reset domain]",
+              "(external SRAM has no reset pin) "
+              "[zxnext_top_issue2.vhd:2427-2437]",
               before == 0xA5 && after == 0xA5, detail);
     }
 
@@ -611,7 +613,9 @@ static void test_soft_reset(Emulator& emu) {
                  before, requested ? 1 : 0, after);
         check("SR-02",
               "NR 0x02=0x02 (RESET_HARD) requests a host cold boot (deferred); "
-              "SRAM untouched synchronously [Task 70]",
+              "SRAM untouched synchronously (Task 70; VHDL zxn_reset_hard "
+              "triggers FPGA flashboot, the real-hardware equivalent) "
+              "[zxnext_top_issue2.vhd:1195]",
               before == 0x5A && requested && after == 0x5A, detail);
     }
 
@@ -1310,7 +1314,7 @@ static void test_readonly_registers(Emulator& emu) {
         uint8_t got = nr_read(emu, 0x00);
         check("RO-01",
               "NR 0x00 machine ID reset=0x0A via port path "
-              "[VHDL g_machine_id, zxnext_top_issue{2,4,5}.vhd:35]",
+              "[VHDL g_machine_id, zxnext_top_issue2.vhd:35]",
               got == 0x0A, detail_eq(got, 0x0A));
     }
 
@@ -1331,13 +1335,14 @@ static void test_readonly_registers(Emulator& emu) {
               got == 0x0A, detail_eq(got, 0x0A));
     }
 
-    // RO-03 — NR 0x01 core version. VHDL g_version = X"32" (core 3.02).
-    // Seeded at src/port/nextreg.cpp:28.
+    // RO-03 — NR 0x01 core version. VHDL g_version = X"32" (core 3.02),
+    // declared at zxnext_top_issue2.vhd:37; read dispatch routes NR 0x01
+    // to it at zxnext.vhd:5887-5888.
     {
         uint8_t got = nr_read(emu, 0x01);
         check("RO-03",
               "NR 0x01 core version reset=0x32 (core 3.02) "
-              "[src/port/nextreg.cpp:28 — g_version]",
+              "[zxnext_top_issue2.vhd:37 g_version]",
               got == 0x32, detail_eq(got, 0x32));
     }
 
@@ -1353,15 +1358,15 @@ static void test_readonly_registers(Emulator& emu) {
               got == 0x03, detail_eq(got, 0x03));
     }
 
-    // RO-05 — NR 0x0F board issue (lower nibble). VHDL g_board_issue.
-    // JNEXT leaves regs_[0x0F]=0x00, which corresponds to "no board
-    // specified." If a specific VHDL generic value applies, the mismatch
-    // goes to the Emulator Bug backlog.
+    // RO-05 — NR 0x0F board issue (lower nibble). VHDL g_board_issue
+    // defaults to X"0" (zxnext_top_issue2.vhd:39) and the read dispatch
+    // composes "0000" & g_board_issue at zxnext.vhd:5920-5921, so a
+    // default-generic core reads 0x00 — matching JNEXT's regs_[0x0F].
     {
         uint8_t got = nr_read(emu, 0x0F);
         check("RO-05",
               "NR 0x0F board issue reset=0x00 "
-              "[VHDL g_board_issue generic — JNEXT default unset]",
+              "[zxnext.vhd:5921, zxnext_top_issue2.vhd:39]",
               got == 0x00, detail_eq(got, 0x00));
     }
 
