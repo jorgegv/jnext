@@ -976,7 +976,7 @@ bump-patch:
 	 bash packaging/sync-version.sh "$$newver" && \
 	 git add version.yaml $$rel packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
 	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog \
-	         mkdocs.yml doc/user-guide && \
+	         mkdocs.yml doc/user-guide mkdocs-devguide.yml doc/developer-guide && \
 	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
@@ -999,7 +999,7 @@ bump-minor:
 	 bash packaging/sync-version.sh "$$newver" && \
 	 git add version.yaml $$rel packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
 	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog \
-	         mkdocs.yml doc/user-guide && \
+	         mkdocs.yml doc/user-guide mkdocs-devguide.yml doc/developer-guide && \
 	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
@@ -1021,7 +1021,7 @@ bump-major:
 	 bash packaging/sync-version.sh "$$newver" && \
 	 git add version.yaml $$rel packaging/rpm/jnext.spec packaging/flatpak/io.github.zxjogv.jnext.yml \
 	         packaging/assets/io.github.zxjogv.jnext.metainfo.xml packaging/debian/changelog \
-	         mkdocs.yml doc/user-guide && \
+	         mkdocs.yml doc/user-guide mkdocs-devguide.yml doc/developer-guide && \
 	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
