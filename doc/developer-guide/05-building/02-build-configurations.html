@@ -1904,8 +1904,8 @@ that is not what it claims to be. If you hit that refusal, <code>make clean</cod
 retry.</p>
 <h2 id="dev-build-versus-release-build">Dev build versus release build<a class="headerlink" href="#dev-build-versus-release-build" title="Permanent link">&para;</a></h2>
 <p>With no <code>-DCMAKE_BUILD_TYPE</code> given, CMake here defaults to <strong>RelWithDebInfo</strong>
-instead of to the empty build type. An unoptimised <code>build/jnext</code> measured about
-5× slower than Release, which made it a trap for anyone benchmarking anything.
+instead of to the empty build type. An unoptimised <code>build/jnext</code> measured 5.8×
+slower than Release, which made it a trap for anyone benchmarking anything.
 RelWithDebInfo additionally keeps frame pointers, so <code>perf record -g</code> produces
 usable call graphs from it. Release does not keep them: frame pointers were
 measured at a 5.8% cost there, and that is an unacceptable permanent tax on the

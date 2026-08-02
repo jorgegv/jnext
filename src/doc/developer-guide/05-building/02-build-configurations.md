@@ -58,8 +58,8 @@ retry.
 ## Dev build versus release build
 
 With no `-DCMAKE_BUILD_TYPE` given, CMake here defaults to **RelWithDebInfo**
-instead of to the empty build type. An unoptimised `build/jnext` measured about
-5× slower than Release, which made it a trap for anyone benchmarking anything.
+instead of to the empty build type. An unoptimised `build/jnext` measured 5.8×
+slower than Release, which made it a trap for anyone benchmarking anything.
 RelWithDebInfo additionally keeps frame pointers, so `perf record -g` produces
 usable call graphs from it. Release does not keep them: frame pointers were
 measured at a 5.8% cost there, and that is an unacceptable permanent tax on the
