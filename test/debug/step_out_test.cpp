@@ -526,6 +526,57 @@ int main() {
               emu.debug_state().step_mode() == StepMode::OUT);
     }
 
+    // STPOUT-W14 — the third early return, and the reason the gate asks the
+    // CPU instead of inferring from SP.
+    //
+    // The esxdos shim (z80_cpu.cpp:792-816, enabled by --esxdos-stub) also
+    // completes a step without fetching the opcode at PC — but unlike NMI and
+    // INT it deliberately FAKES a return's SP delta (`r.SP = sp + 2`, :807),
+    // so it is indistinguishable from a real RET by arithmetic alone. W12/W13
+    // pass while this one fails, if the gate is an SP-shape test.
+    //
+    // It needs the inline-data idiom to fire: a routine that pops its own
+    // return address parks SP ABOVE the armed point (the shape STPOUT-W10
+    // already covers), so the shim's fake +2 lands PAST the arming SP rather
+    // than on it. The address is parked in MEMORY rather than left in a
+    // register because the shim answers M_DOSVERSION by writing the version
+    // into DE — a register round-trip loses it and the RET goes wild.
+    //   9000  D1           POP DE          ; SP = armed+2
+    //   9001  ED 53 20 90  LD (0x9020),DE  ; survive the shim clobbering DE
+    //   9005  CF           RST $08         ; intercepted by the shim
+    //   9006  88           DEFB $88        ; M_DOSVERSION, always handled
+    //   9007  ED 5B 20 90  LD DE,(0x9020)
+    //   900B  D5           PUSH DE         ; SP = armed
+    //   900C  C9           RET             ; the REAL return
+    {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.esxdos_stub = true;
+        Emulator emu;
+        emu.init(cfg);
+
+        const uint8_t main_prog[] = { 0xCD, 0x00, 0x90, 0x18, 0xFE };
+        for (size_t i = 0; i < sizeof(main_prog); ++i)
+            emu.mmu().write(static_cast<uint16_t>(PROG + i), main_prog[i]);
+        const uint8_t sub[] = { 0xD1, 0xED, 0x53, 0x20, 0x90, 0xCF, 0x88,
+                                0xED, 0x5B, 0x20, 0x90, 0xD5, 0xC9 };
+        for (size_t i = 0; i < sizeof(sub); ++i)
+            emu.mmu().write(static_cast<uint16_t>(SUB + i), sub[i]);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = PROG; r.SP = TEST_SP; r.IFF1 = 0; r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+
+        enter_sub_and_arm(emu);
+        emu.debug_state().breakpoints().add_watchpoint(0x0008, WatchType::READ);
+        run_until_paused(emu);
+        check("STPOUT-W14a", "an intercepted esxdos call does not end the step at the shim's fake return",
+              emu.cpu().get_registers().PC != 0x9007);
+        check("STPOUT-W14b", "the step ends on the routine's REAL return, at 0x8003",
+              emu.debug_state().paused() && emu.cpu().get_registers().PC == 0x8003);
+        check("STPOUT-W14c", "and no phantom watchpoint at the un-fetched 0x0008",
+              !emu.debug_state().data_bp_hit());
+    }
+
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, g_skip);

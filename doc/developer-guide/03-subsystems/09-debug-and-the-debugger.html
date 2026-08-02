@@ -1960,17 +1960,23 @@ and never read, and F8 had the observable behaviour of Run.</p>
 <p>Its position inside that body is load-bearing in both directions, and the
 reason is the general one for any debugger hook here — <strong>it may only read
 memory the CPU itself read</strong>. <code>Mmu::read()</code> is not inert: it fires read
-watchpoints and latches the +3 floating bus. So the SP test runs first and
-touches nothing, and only if it passes are the opcode bytes fetched. That
-ordering is what makes an intercepted instruction safe: <code>Z80Cpu::execute()</code>
-services a pending NMI or <code>INT</code> at its head and returns <em>without</em> fetching the
-opcode at <code>PC</code>, so reading it speculatively beforehand is a read the CPU never
-made — and with a watchpoint on that address the phantom hit ends the step at
-the interrupt vector instead of the routine's return. Every intercepted slot
-moves <code>SP</code> the wrong way, so the SP test excludes exactly those. The decision
-also sits <em>before</em> the deferred RETN overlay clear, because a <code>RETN</code> leaving a
-DivMMC-mapped routine unmaps it there, and a later read would see the
-underlying page rather than the <code>ED 45</code> the CPU fetched.</p>
+watchpoints and latches the +3 floating bus. Reading the opcode speculatively
+before the instruction runs is therefore unsafe, because <code>Z80Cpu::execute()</code>
+has <em>three</em> early returns that complete a step without ever fetching at <code>PC</code> —
+an accepted NMI, an accepted <code>INT</code>, and the esxdos shim. In those slots the
+debugger's read is the only touch of that address, and with a watchpoint on it
+the phantom hit ends the step at the interrupt vector instead of the routine's
+return.</p>
+<p>So the CPU is <strong>asked</strong> rather than deduced: <code>fetched_opcode_last_execute()</code>
+is false through all three early returns and true only once the fetch has
+happened, and the read is gated on it. Deducing it from <code>SP</code> movement does not
+work, and the reason is worth knowing before inventing a fourth shim: NMI and
+<code>INT</code> push, so they <em>do</em> move <code>SP</code> the wrong way and an arithmetic test catches
+them — but the esxdos shim deliberately fakes a return's own <code>+2</code>, and is
+indistinguishable from a real <code>RET</code> by arithmetic alone.</p>
+<p>The decision also sits <em>before</em> the deferred RETN overlay clear, because a
+<code>RETN</code> leaving a DivMMC-mapped routine unmaps it there, and a later read would
+see the underlying page rather than the <code>ED 45</code> the CPU fetched.</p>
 <p>Single-stepping goes through <code>Emulator::execute_single_instruction()</code>, which
 shares its per-instruction body verbatim with the free-running loop
 (<code>step_one_instruction()</code>), specifically so that the two paths cannot drift.

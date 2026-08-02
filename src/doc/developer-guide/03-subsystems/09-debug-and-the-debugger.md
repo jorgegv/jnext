@@ -96,17 +96,25 @@ and never read, and F8 had the observable behaviour of Run.
 Its position inside that body is load-bearing in both directions, and the
 reason is the general one for any debugger hook here — **it may only read
 memory the CPU itself read**. `Mmu::read()` is not inert: it fires read
-watchpoints and latches the +3 floating bus. So the SP test runs first and
-touches nothing, and only if it passes are the opcode bytes fetched. That
-ordering is what makes an intercepted instruction safe: `Z80Cpu::execute()`
-services a pending NMI or `INT` at its head and returns *without* fetching the
-opcode at `PC`, so reading it speculatively beforehand is a read the CPU never
-made — and with a watchpoint on that address the phantom hit ends the step at
-the interrupt vector instead of the routine's return. Every intercepted slot
-moves `SP` the wrong way, so the SP test excludes exactly those. The decision
-also sits *before* the deferred RETN overlay clear, because a `RETN` leaving a
-DivMMC-mapped routine unmaps it there, and a later read would see the
-underlying page rather than the `ED 45` the CPU fetched.
+watchpoints and latches the +3 floating bus. Reading the opcode speculatively
+before the instruction runs is therefore unsafe, because `Z80Cpu::execute()`
+has *three* early returns that complete a step without ever fetching at `PC` —
+an accepted NMI, an accepted `INT`, and the esxdos shim. In those slots the
+debugger's read is the only touch of that address, and with a watchpoint on it
+the phantom hit ends the step at the interrupt vector instead of the routine's
+return.
+
+So the CPU is **asked** rather than deduced: `fetched_opcode_last_execute()`
+is false through all three early returns and true only once the fetch has
+happened, and the read is gated on it. Deducing it from `SP` movement does not
+work, and the reason is worth knowing before inventing a fourth shim: NMI and
+`INT` push, so they *do* move `SP` the wrong way and an arithmetic test catches
+them — but the esxdos shim deliberately fakes a return's own `+2`, and is
+indistinguishable from a real `RET` by arithmetic alone.
+
+The decision also sits *before* the deferred RETN overlay clear, because a
+`RETN` leaving a DivMMC-mapped routine unmaps it there, and a later read would
+see the underlying page rather than the `ED 45` the CPU fetched.
 
 Single-stepping goes through `Emulator::execute_single_instruction()`, which
 shares its per-instruction body verbatim with the free-running loop

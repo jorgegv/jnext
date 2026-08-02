@@ -7842,18 +7842,22 @@ uint64_t Emulator::step_one_instruction()
         // RETN overlay clear below, and the order of the two halves matters as
         // much as the position:
         //
-        //  * The SP test runs FIRST and touches no memory. execute() services
-        //    a pending NMI/INT at its head and returns WITHOUT fetching the
-        //    opcode at PC (z80_cpu.cpp:611-640, :658-734), so an intercepted
-        //    slot has no M1 fetch to hide behind. Reading the opcode
-        //    speculatively BEFORE execute() therefore tripped a READ
-        //    watchpoint on a byte the CPU never read, and the data-breakpoint
-        //    branch in run_frame() then ENDED the step in the wrong place —
-        //    a wrong stop, not the "keeps running" degradation this feature
-        //    promises. An accepted interrupt moves SP the wrong way, so
-        //    gating on the SP test means the read below happens only when an
-        //    instruction really ran and really fetched it. (Found by the
-        //    independent review of GH #203, with a compiled repro.)
+        //  * NOTHING IS READ unless the CPU itself read it. execute() has
+        //    three early returns that complete a step without fetching the
+        //    opcode at PC — NMI, accepted INT, and the esxdos shim
+        //    (z80_cpu.cpp:639, :723, :813). Reading the opcode speculatively
+        //    BEFORE execute() tripped a READ watchpoint on a byte the CPU
+        //    never read in those slots, and the data-breakpoint branch in
+        //    run_frame() then ENDED the step in the wrong place — a wrong
+        //    stop, not the "keeps running" degradation this feature promises.
+        //    So the CPU is ASKED (fetched_opcode_last_execute()) rather than
+        //    having the answer inferred from SP arithmetic: the shim fakes a
+        //    return's own SP delta (`r.SP = sp + 2`, z80_cpu.cpp:807), so an
+        //    SP-shape test cannot see it. Both gaps came from the independent
+        //    review of GH #203, the second one after an SP-shape test had
+        //    already "fixed" the first — which is why the gate is now the
+        //    direct signal and closes the whole class, including any future
+        //    host-side shim wired into on_esxdos_call.
         //
         //  * BEFORE divmmc_.on_retn_instruction_complete(): a RETN leaving a
         //    DivMMC-mapped routine — the esxdos idiom — clears the overlay
@@ -7866,7 +7870,7 @@ uint64_t Emulator::step_one_instruction()
         // CPU fetches a second M1 byte; reading it unconditionally would, for
         // a one-byte instruction at 0x3FFF, leave p3_floating_bus_dat_ holding
         // mem[0x4000] (mmu.h:393, VHDL zxnext.vhd:4498-4509).
-        if (step_out_armed &&
+        if (step_out_armed && cpu_.fetched_opcode_last_execute() &&
             debug_state_.step_out_sp_qualifies(step_out_sp_before,
                                                cpu_.registers().SP)) {
             const uint8_t op0 = mmu_.read(pc_pre_exec);

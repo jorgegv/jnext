@@ -232,6 +232,26 @@ public:
     std::function<bool()> stackless_nmi_enabled;
     std::function<uint16_t()> stackless_nmi_return_address;
 
+    /// Did the LAST execute() actually fetch an opcode at PC?
+    ///
+    /// execute() has three early returns that complete a CPU step WITHOUT
+    /// reaching the opcode fetch: an accepted NMI, an accepted INT, and the
+    /// esxdos shim (z80_cpu.cpp:639, :723, :813). A debugger hook that wants
+    /// to read the executed instruction's bytes back out of memory must ask
+    /// this first — in those three cases there is no such instruction, and
+    /// reading at PC is a memory access the CPU never made, which is enough
+    /// to fire a watchpoint or latch the floating bus.
+    ///
+    /// Inferring it from SP movement instead does NOT work, which is why this
+    /// exists: NMI and INT push (SP down), but the esxdos shim deliberately
+    /// fakes a return's SP delta (`r.SP = sp + 2`, :807) and is therefore
+    /// indistinguishable from a real RET by arithmetic alone. Both were
+    /// found by the independent review of GH #203, the second after the first
+    /// had been "fixed" by an SP-shape test.
+    ///
+    /// Transient per-call state; deliberately not serialised.
+    bool fetched_opcode_last_execute() const { return fetched_opcode_; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -267,4 +287,7 @@ private:
     // During the handler SP remains two below its entry value, exactly as
     // t80n's suppressed NMIACK writes dictate.
     bool             stackless_retn_active_ = false;
+    // Set by execute() only once the opcode fetch at PC has actually happened.
+    // See fetched_opcode_last_execute().
+    bool             fetched_opcode_ = false;
 };
