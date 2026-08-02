@@ -137,7 +137,7 @@ jobs:
             qt6-qtbase-devel \
             ImageMagick xorg-x11-server-Xvfb xdotool python3 python3-pyyaml unzip diffutils \
             ripgrep ffmpeg-free bc file xxd \
-            pandoc mkdocs-material graphviz \
+            pandoc mkdocs-material graphviz liberation-sans-fonts \
             perl-interpreter perl-FindBin perl-File-Temp perl-PathTools
           # The four perl-* entries are the traceability tooling's own
           # dependencies (test/refresh-traceability-matrix.pl,
@@ -151,6 +151,19 @@ jobs:
           # alone is not. Depending on another package's dependency graph is
           # precisely the "discover them one CI run at a time" failure the
           # comment above says this list exists to prevent.
+          # liberation-sans-fonts is a docs dependency, not a font preference.
+          # The developer guide's .dot sources ask for fontname="Helvetica",
+          # which no installed font is actually NAMED: fontconfig resolves it,
+          # and graphviz bakes the resulting TEXT METRICS into every coordinate
+          # of the committed SVG. graphviz hard-requires urw-base35-fonts but
+          # nothing pulls Liberation into the container, so the same dot 14.1.4
+          # that renders system-overview.svg at 731x361 on the maintainer's
+          # Fedora desktop (Helvetica -> Liberation Sans) renders it at 758x383
+          # here (Helvetica -> Noto Sans), and docs-devguide-check reports all
+          # four diagrams stale when nothing is stale. The version fingerprint
+          # in DEVGUIDE_RENDERER cannot catch it: the dot version IS identical.
+          # Verified in a real fedora:44 with the full list above — without this
+          # package 758x383, with it all four SVGs byte-match the committed ones.
           # CMake shells out to `git submodule update`, which refuses on a
           # workspace owned by another uid ("dubious ownership", exit 128).
           # actions/checkout already placed the submodule so the build works
