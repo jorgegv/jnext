@@ -49,6 +49,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -65,7 +67,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -123,7 +125,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -133,7 +135,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -190,15 +192,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -238,15 +273,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1758,36 +1826,40 @@
 
 
 <h1 id="63-house-style">6.3 House style<a class="headerlink" href="#63-house-style" title="Permanent link">&para;</a></h1>
-<p>There is no formatter config and no lint that enforces most of this. What
-follows is what reviewers actually look for, and where each item comes from:
-some is written down in <code>CLAUDE.md</code>, the rest is derived from reading the code
-and the commit history.</p>
+<p>There is no formatter config here, and no lint enforces most of what follows.
+This page is what reviewers actually look for. Some of it is written down in
+<code>CLAUDE.md</code>; the rest is derived from reading the code and the commit history,
+and each section says which.</p>
 <h2 id="match-the-surrounding-code">Match the surrounding code<a class="headerlink" href="#match-the-surrounding-code" title="Permanent link">&para;</a></h2>
 <p><em>(Derived from <code>CLAUDE.md</code>'s "surgical changes" and "scope restriction" rules,
 and visible throughout the tree.)</em></p>
-<p>Touch only what the task requires. Do not reformat adjacent lines, rename
-things you happened to read, or "improve" a comment you did not come to change.
-Match the style of the file you are in rather than importing your own. A diff
-that mixes one real change with thirty cosmetic ones costs the reviewer the
-ability to see the real one.</p>
-<p>If you notice a genuine second problem, say so — in a note, in the pull request,
-or as a new issue. Do not fix it in the same change.</p>
+<p>Touch only what the task requires. Do not reformat adjacent lines, rename things
+you happened to read on the way past, or "improve" a comment you did not come
+there to change. Match the style of the file you are in rather than importing
+your own into it.</p>
+<p>The reason is entirely practical: a diff that mixes one real change with thirty
+cosmetic ones costs the reviewer the ability to see the real one, and that
+reviewer is the gate the whole process depends on.</p>
+<p>If you do notice a genuine second problem, say so — in a note, in the pull
+request, or as a new issue. Just do not fix it in the same change.</p>
 <h2 id="comments-explain-why">Comments explain WHY<a class="headerlink" href="#comments-explain-why" title="Permanent link">&para;</a></h2>
-<p><em>(Derived from reading the sources; the pattern is consistent enough to be a
-convention rather than a habit.)</em></p>
-<p>The code says what it does. Comments here are used almost exclusively for the
-reason it does it, and the reason is very often a hardware fact that is not
-inferable from the C++. <code>src/video/lores.h</code>, for instance, opens by explaining
-that LoRes is <em>not</em> a compositor layer — it substitutes its pixel inside the
-ULA's slot — because a reader who assumed otherwise would design the wrong
-thing. The Makefile uses the same discipline in a different medium: the
-one-line <code>#</code> description above a target is documentation, and every paragraph
-of rationale sits inside the recipe as <code>@#</code> lines.</p>
+<p><em>(Derived from reading the sources; the pattern is consistent enough to count as
+a convention rather than a habit.)</em></p>
+<p>The code already says what it does, so comments here are used almost exclusively
+for the reason it does it — and that reason is very often a hardware fact which
+is not inferable from the C++ in front of you. <code>src/video/lores.h</code>, for example,
+opens by explaining that LoRes is <em>not</em> a compositor layer: it substitutes its
+pixel inside the ULA's slot. A reader who assumed the obvious thing instead
+would go on to design the wrong thing. The Makefile applies the same discipline
+in a different medium, where the one-line <code>#</code> description above a target is the
+documentation and every paragraph of rationale sits inside the recipe as <code>@#</code>
+lines.</p>
 <p>The comments that pay for themselves are the ones recording a decision that
-looks wrong until you know the history: why LTO is disabled for exactly one
+looks wrong until you know its history: why LTO is disabled for exactly one
 build, why a check is a prerequisite of one target and not another, why a test
-cap is not a politeness setting. Several of the longest comment blocks in the
-tree are of that kind, and they exist because the same mistake was made twice.</p>
+concurrency cap is not a politeness setting. Several of the longest comment
+blocks in the tree are of that kind, and they are long because the same mistake
+was made twice before someone wrote it down.</p>
 <h2 id="cite-the-vhdl">Cite the VHDL<a class="headerlink" href="#cite-the-vhdl" title="Permanent link">&para;</a></h2>
 <p><em>(Derived from <code>CLAUDE.md</code>, which makes the FPGA VHDL sources the authoritative
 hardware spec, and confirmed by reading the code: 94 files under <code>src/</code> carry
@@ -1796,46 +1868,46 @@ hardware spec, and confirmed by reading the code: 94 files under <code>src/</cod
 line range</strong>:</p>
 <pre><code class="language-cpp">// VHDL sprites.vhd:655-657 — a port-0x303B write pulses attr_num_change,
 </code></pre>
-<p>Class-level documentation goes further and names the entity being modelled,
-its size, and the test plan that covers it. This is not decoration. It is what
-lets the next reader — or the traceability tooling — check the model against
-the spec instead of against your intent, and it is why "the VHDL says so" is an
-argument that wins here while "the other emulator does it this way" is not.
-When a fix could be either a plausible hack or the faithful reading, be
-faithful.</p>
+<p>Class-level documentation goes a step further and names the entity being
+modelled, its size, and the test plan that covers it.</p>
+<p>This is not decoration. A citation is what lets the next reader — or the
+traceability tooling — check the model against the specification rather than
+against your intent, and it is the reason "the VHDL says so" is an argument that
+wins here while "the other emulator does it this way" is not. When a fix could
+be either a plausible hack or the faithful reading of the hardware, be faithful.</p>
 <h2 id="commit-messages-terse-but-insightful">Commit messages: terse but insightful<a class="headerlink" href="#commit-messages-terse-but-insightful" title="Permanent link">&para;</a></h2>
 <p><em>(<code>CLAUDE.md</code> states the rule; the shape below is read off the recent history.)</em></p>
-<p>One line, lower case, a short type prefix, and — where there is room — the
-reason rather than only the change:</p>
+<p>One line, lower case, a short type prefix, and — where there is room for it —
+the reason rather than only the change:</p>
 <pre><code>release: any packaging error now blocks the release
 ci: actually build the flatpak bundle, instead of skipping it
 fix(ci): runner.temp is not available in job-level env — it rejects the file
 doc(guide): chapter 8 links to the tracker instead of listing issues
 </code></pre>
-<p>Note what the third one does: it names the mechanism, not just the symptom.
-That is the "insightful" half, and it is the difference between a log you can
-bisect against and a list of the word "fix".</p>
+<p>Note what the third one manages to do in one line: it names the mechanism, not
+just the symptom. That is the "insightful" half of the rule, and it is the
+difference between a log you can bisect against and a list of the word "fix".</p>
 <p><strong>No <code>Co-Authored-By</code> trailers.</strong> That is an explicit project rule.</p>
 <h2 id="keep-the-change-scoped">Keep the change scoped<a class="headerlink" href="#keep-the-change-scoped" title="Permanent link">&para;</a></h2>
-<p><em>(<code>CLAUDE.md</code>, and the reason the merge protocol works.)</em></p>
-<p>One branch, one independent change. If a task turns out to contain two
-unrelated changes, split it — parallel branches are the normal state of this
-repository, not an exception, and a reviewer can give a binary verdict on one
-change far more usefully than on two.</p>
+<p><em>(<code>CLAUDE.md</code>, and the reason the merge protocol works at all.)</em></p>
+<p>One branch, one independent change. If a task turns out to contain two unrelated
+changes, split it. Parallel branches are the normal state of this repository
+rather than an exception, and a reviewer can give a binary verdict on one change
+far more usefully than on two tangled together.</p>
 <p>When a change alters an interface or fixes a bug in a subsystem, the
-corresponding test plan is part of the change: add the cases that cover the new
-or fixed behaviour, in the same branch, and let the independent review cover
-the new test code too.</p>
+corresponding test plan is part of that change: add the cases covering the new
+or fixed behaviour in the same branch, and let the independent review cover the
+new test code too.</p>
 <h2 id="documentation-is-part-of-the-change">Documentation is part of the change<a class="headerlink" href="#documentation-is-part-of-the-change" title="Permanent link">&para;</a></h2>
-<p><em>(<code>CLAUDE.md</code>; also enforced mechanically for the generated outputs.)</em></p>
+<p><em>(<code>CLAUDE.md</code>; also enforced mechanically, for the generated outputs.)</em></p>
 <p>The man page, <code>USAGE.md</code>, the user guide and this developer guide are all
-generated from committed sources, and stale committed output fails the next
-test run rather than waiting for a reviewer. Edit the source, re-render, and
-commit both in the same change.</p>
-<p>The half no gate can see is whether the prose is still <em>true</em>. When you change
-a subsystem, check whether this guide still describes it correctly — a stale
-paragraph here is the same class of defect as a stale man page, with the
-difference that nothing will tell you.</p>
+generated from committed sources, and a stale committed output fails the next
+test run rather than waiting for a reviewer to notice. So edit the source,
+re-render, and commit both in the same change.</p>
+<p>The half that no gate can see is whether the prose is still <em>true</em>. When you
+change a subsystem, check whether this guide still describes it correctly — a
+stale paragraph here is the same class of defect as a stale man page, with the
+important difference that nothing will tell you about it.</p>
 
 
 

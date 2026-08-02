@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -818,13 +886,30 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#z80n-interception" class="md-nav__link">
+  <a href="#the-z80n-instruction-set" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Z80N interception
+        The Z80N instruction set
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="The Z80N instruction set">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#interception" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Interception
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1760,111 +1845,157 @@
 
 
 <h1 id="31-cpu">3.1 CPU<a class="headerlink" href="#31-cpu" title="Permanent link">&para;</a></h1>
+<p>The Next runs a Z80, and every program it will ever run is a stream of Z80
+instructions. That makes the CPU the emulator's metronome as much as its
+processor: <code>Emulator</code> executes one instruction, then hands every other subsystem
+the T-states that instruction consumed, and everything else — video, audio,
+timers, DMA — advances by that amount. Nothing in JNEXT moves without the CPU
+moving first.</p>
+<p>It is not quite an ordinary Z80, though. The FPGA implements a soft core called
+T80N: a Z80 with an extra instruction set of its own (Z80N), a clock that
+software can switch between 3.5, 7, 14 and 28 MHz through NextREG 0x07, and an
+interrupt fabric with fourteen prioritised sources instead of the single /INT
+line a 48K Spectrum has. JNEXT reaches memory through <code>Mmu</code> and I/O through
+<code>PortDispatch</code>, both behind abstract interfaces, and calls back out at
+instruction-fetch time so that DivMMC paging, the NMI state machine and the
+Multiface window can settle before the byte they affect is read.</p>
 <p><code>src/cpu/</code> holds the <code>Z80Cpu</code> wrapper (<code>z80_cpu.h/.cpp</code>), the Z80N extension
 opcodes (<code>z80n_ext.h/.cpp</code>), the IM2 interrupt fabric (<code>im2.h/.cpp</code>) and the
 small <code>Im2Client</code> facade peripherals use to reach it. The CTC is <em>not</em> here
 despite driving interrupts — it lives in <code>src/peripheral/ctc.h/.cpp</code>.</p>
 <h2 id="the-wrapper-and-the-backend">The wrapper and the backend<a class="headerlink" href="#the-wrapper-and-the-backend" title="Permanent link">&para;</a></h2>
 <p>The rest of the emulator only ever sees <code>Z80Cpu</code>. No FUSE type appears in
-<code>z80_cpu.h</code>, which is the point: swapping the backend means rewriting
+<code>z80_cpu.h</code>, and that is the point: swapping the backend would mean rewriting
 <code>z80_cpu.cpp</code> and nothing else. <code>Z80Cpu</code> reaches the machine through two
 abstract interfaces declared in that header — <code>MemoryInterface</code> and
 <code>IoInterface</code> — implemented by <code>Mmu</code> and <code>PortDispatch</code>.</p>
-<p>The backend is the FUSE Z80 core, vendored under <code>third_party/fuse-z80/</code> from
-FUSE 1.6.0 (GPLv2-or-later, compatible with JNEXT's GPLv3). <code>fuse_z80_core.c</code>
-is one translation unit that <code>#include</code>s the opcode files; <code>fuse_z80_shim.h</code>
-stubs out every FUSE emulator dependency they would otherwise pull in. The core
-is inherently single-instance — a global <code>z80</code> struct and a global <code>tstates</code>
-counter — which matches JNEXT's one-CPU design. <code>Z80Cpu</code> re-points the
-file-static <code>s_mem</code> / <code>s_io</code> pointers on every <code>reset()</code> and <code>execute()</code>, and
-copies the register file in and out around each instruction.</p>
-<p><code>Z80Registers</code> carries the architectural registers plus MEMPTR, FUSE's <code>Q</code>
-latch, and <code>IncDecZ</code> — a one-bit shadow that exists only in the VHDL
-(<code>t80n.vhd:1358-1367</code>) and becomes observable through the Z80N <code>LDWS</code>
-instruction. It cannot be read out of FUSE, so <code>execute()</code> reconstructs it after
-the fact for DJNZ, <code>INC BC</code> / <code>DEC BC</code> and the ED block transfers, walking any
-DD/FD prefix chain first because those prefixes do not change which mcode path
-runs.</p>
-<h2 id="z80n-interception">Z80N interception<a class="headerlink" href="#z80n-interception" title="Permanent link">&para;</a></h2>
+<p>The backend itself is the FUSE Z80 core, vendored under <code>third_party/fuse-z80/</code>
+from FUSE 1.6.0 (GPLv2-or-later, compatible with JNEXT's GPLv3).
+<code>fuse_z80_core.c</code> is a single translation unit that <code>#include</code>s the opcode
+files, while <code>fuse_z80_shim.h</code> stubs out every FUSE emulator dependency those
+files would otherwise pull in. The core is inherently single-instance — it keeps
+one global <code>z80</code> struct and one global <code>tstates</code> counter — which happens to suit
+JNEXT's one-CPU design. <code>Z80Cpu</code> re-points the file-static <code>s_mem</code> / <code>s_io</code>
+pointers on every <code>reset()</code> and <code>execute()</code>, and copies the register file in and
+out around each instruction.</p>
+<p><code>Z80Registers</code> carries the architectural registers plus MEMPTR, FUSE's <code>Q</code> latch
+and <code>IncDecZ</code>. That last one is a one-bit shadow that exists only in the VHDL
+(<code>t80n.vhd:1358-1367</code>), where it becomes observable through the Z80N <code>LDWS</code>
+instruction. It cannot be read out of FUSE at all, so <code>execute()</code> reconstructs
+it after the fact for DJNZ, <code>INC BC</code> / <code>DEC BC</code> and the ED block transfers,
+walking any DD/FD prefix chain first because those prefixes do not change which
+mcode path runs.</p>
+<h2 id="the-z80n-instruction-set">The Z80N instruction set<a class="headerlink" href="#the-z80n-instruction-set" title="Permanent link">&para;</a></h2>
+<p>Z80N is the Next's own extension to the Z80. Every one of its instructions is
+encoded behind the <code>ED</code> prefix, in slots a real Z80 leaves undefined and quietly
+executes as a two-byte NOP, so Z80N code is harmless on a plain Spectrum and
+does real work on a Next. The additions exist to make cheap the things a Z80 is
+bad at: <code>MUL D,E</code> is an 8×8→16-bit multiply, the <code>BSLA</code> / <code>BSRA</code> / <code>BSRL</code> /
+<code>BSRF</code> / <code>BRLC</code> family barrel-shifts <code>DE</code> by <code>B</code>, <code>PIXELAD</code> converts a (Y, X)
+coordinate pair in <code>DE</code> into the corresponding ULA screen address in <code>HL</code> while
+<code>PIXELDN</code> steps that address down one pixel row, <code>NEXTREG nn,n</code> writes a NextREG
+directly from an opcode, and the <code>LDIX</code> family copies blocks while treating one
+byte value as transparent. This is not an optional corner of the machine —
+NextZXOS itself uses <code>NEXTREG</code>, <code>MUL</code> and the <code>ADD rr,A</code> forms constantly.</p>
+<h3 id="interception">Interception<a class="headerlink" href="#interception" title="Permanent link">&para;</a></h3>
 <p><code>execute()</code> reads the byte at PC itself. On <code>0xED</code> it reads the extension byte
 and consults <code>kZ80NOpcodeTable</code>, a 256-entry table built at static-init from the
 <code>Z80NOpcode</code> enum. A hit dispatches to <code>execute_z80n()</code> and never reaches FUSE,
-which would decode it as a NOP; a miss falls through. <code>ED FF</code> and <code>DD 01</code> are
-checked first, as the two magic-breakpoint encodings.</p>
-<p>Z80N instructions account for their own time: the wrapper charges the two M1
-fetches via <code>contend_read()</code>, <code>execute_z80n()</code> charges every operand access
-through the same FUSE bus callbacks the standard opcodes use, and the wrapper
-returns the elapsed <code>tstates</code> delta rather than a table constant. <code>NEXTREG nn,n</code>
-and <code>NEXTREG nn,A</code> route through <code>IoInterface::nextreg_opcode_write()</code> rather
-than writing ports 0x243B/0x253B, because the opcode must not disturb the
-port-0x243B select latch — a following <code>IN A,(0x253B)</code> still reads whatever the
-port last selected.</p>
+which would otherwise decode it as a NOP; a miss falls through untouched.</p>
+<p>Two encodings are checked before that table: <code>ED FF</code> and <code>DD 01</code>, the two magic
+breakpoints. A magic breakpoint is an instruction a program plants in its own
+code to stop the emulator at that exact spot and hand control to the debugger —
+the two encodings are the ones ZEsarUX and CSpect established, and JNEXT honours
+both. They only bite when <code>--magic-breakpoint</code> is given; otherwise they behave
+as the NOPs they are on real silicon.</p>
+<p>Z80N instructions account for their own time rather than quoting a table
+constant. The wrapper charges the two M1 fetches via <code>contend_read()</code>,
+<code>execute_z80n()</code> charges every operand access through the same FUSE bus
+callbacks the standard opcodes use, and the wrapper returns the elapsed
+<code>tstates</code> delta. <code>NEXTREG nn,n</code> and <code>NEXTREG nn,A</code> route through
+<code>IoInterface::nextreg_opcode_write()</code> instead of writing ports 0x243B/0x253B,
+because the opcode must not disturb the port-0x243B select latch: a following
+<code>IN A,(0x253B)</code> still has to read whatever that port last selected.</p>
 <h2 id="bus-callbacks-and-contention">Bus callbacks and contention<a class="headerlink" href="#bus-callbacks-and-contention" title="Permanent link">&para;</a></h2>
+<p>On a 48K or 128K Spectrum the CPU and the ULA share the same RAM, and the ULA
+wins. While it is fetching display bytes it holds the CPU off the bus, so an
+instruction that touches contended memory takes longer than the data book says —
+and by an amount that depends on where the raster beam happens to be. Software
+can and does measure this, which is why contention has to be modelled rather
+than approximated. On the Next it is a compatibility feature: present under 48K,
+128K and +3 timing, absent under Pentagon timing, switchable off outright
+(NR 0x08 bit 6), and simply outrun at any CPU speed above 3.5 MHz. The gate
+itself lives in <code>ContentionModel</code> — see <a href="02-memory.html">3.2 Memory</a> — and this
+section is about how the CPU calls into it.</p>
 <p><code>fuse_z80_readbyte</code>, <code>fuse_z80_writebyte</code>, <code>fuse_z80_readport</code> and
 <code>fuse_z80_writeport</code> are the <code>extern "C"</code> functions the FUSE macros expand to;
 they dispatch to <code>s_mem</code> / <code>s_io</code> and add the base FUSE timing.</p>
-<p>Contention is the subtle part, and is not applied where you might expect.
-<code>Z80Cpu::on_contention</code> exists but <code>Emulator::init()</code> sets it to <code>nullptr</code>, and
-no pre-computed table is consulted. Every bus cycle instead calls
+<p>Contention is the subtle part, and it is not applied where you might expect.
+<code>Z80Cpu::on_contention</code> exists, but <code>Emulator::init()</code> sets it to <code>nullptr</code> and
+no pre-computed table is ever consulted. Every bus cycle instead calls
 <code>ContentionModel::contention_tick()</code>, a per-cycle transcription of the VHDL
-gate. There are seven such sites: the four callbacks above, plus the three FUSE
-<em>in-opcode</em> macros <code>contend_read</code>, <code>contend_read_no_mreq</code> and
-<code>contend_write_no_mreq</code>. Those three become extern calls because
+gate. There are seven such call sites: the four callbacks above, plus the three
+FUSE <em>in-opcode</em> macros <code>contend_read</code>, <code>contend_read_no_mreq</code> and
+<code>contend_write_no_mreq</code>. Those three become extern calls only because
 <code>src/cpu/CMakeLists.txt</code> compiles the FUSE translation unit — and only that one
-— with <code>-DCORETEST</code>, flipping the macros in <code>z80_macros.h</code> from table lookups to
-overridable functions.</p>
+— with <code>-DCORETEST</code>, which flips the macros in <code>z80_macros.h</code> from table lookups
+into overridable functions.</p>
 <p>Each site first tests <code>contention_possible()</code> (NR 0x08 bit 6, NR 0x07 CPU speed,
-Pentagon timing) so the raster arithmetic is skipped when contention cannot
-fire. When it can, <code>derive_hc_vc()</code> turns the FUSE <code>tstates</code> counter into a raw
-frame position and <code>to_ula_counters()</code> rebases it onto the ULA's own
-display-relative counters — the VHDL gate is written against <code>i_hc</code>/<code>i_vc</code>,
-which reset at the start of the active display rather than of the frame, so raw
-coordinates would contend the top border while missing the bottom 64 display
-lines. The runtime is installed by <code>z80_set_contention_runtime()</code>; with it null,
-all seven sites are inert.</p>
+Pentagon timing), so the raster arithmetic is skipped entirely when contention
+cannot fire. When it can, <code>derive_hc_vc()</code> turns the FUSE <code>tstates</code> counter into
+a raw frame position and <code>to_ula_counters()</code> rebases that onto the ULA's own
+display-relative counters. The rebase is not a nicety: the VHDL gate is written
+against <code>i_hc</code>/<code>i_vc</code>, which reset at the start of the active display rather
+than at the start of the frame, so feeding it raw coordinates would contend the
+top border while missing the bottom 64 display lines. The runtime is installed
+by <code>z80_set_contention_runtime()</code>; with it null, all seven sites are inert.</p>
 <p>A separate stretch is the 28 MHz SRAM read wait (<code>zxnext.vhd:3171-3181</code>): at CPU
-speed 3 every memory <em>read</em> cycle reaching external SRAM costs one extra
+speed 3, every memory <em>read</em> cycle that reaches external SRAM costs one extra
 T-state, qualified per target by <code>Mmu::sram_read_wait28()</code>.</p>
 <h2 id="m1-hooks-and-interrupts">M1 hooks and interrupts<a class="headerlink" href="#m1-hooks-and-interrupts" title="Permanent link">&para;</a></h2>
-<p>Two callbacks bracket the opcode fetch. <code>on_m1_prefetch</code> fires <em>before</em> the
-read, because DivMMC automap, the NMI FSM and the Multiface window must be
-settled before the byte is fetched through them. <code>on_m1_cycle</code> fires <em>after</em>,
-once per fetched byte of a prefix chain — including the inner byte of
-<code>DD ED xx</code> — because the IM2 opcode decoder models one event per M1.</p>
+<p>Two callbacks bracket the opcode fetch, and the order matters. <code>on_m1_prefetch</code>
+fires <em>before</em> the read, because DivMMC automap, the NMI FSM and the Multiface
+window all decide what memory the CPU is about to see, and must be settled
+before the byte is fetched through them. <code>on_m1_cycle</code> fires <em>after</em>, once per
+fetched byte of a prefix chain — including the inner byte of <code>DD ED xx</code> —
+because the IM2 opcode decoder models one event per M1.</p>
 <p><code>request_interrupt()</code> records the T-state at which /INT was asserted, and
 <code>execute()</code> drops a pending request once the hardware pulse window has elapsed
-(32 CPU cycles on 48K/+3, 36 otherwise, per <code>zxnext.vhd:2033</code>) — unconditionally,
-not gated on IFF1, because the hardware line goes high regardless. It also
-replicates FUSE's EI-grace rejection <em>before</em> calling <code>on_int_ack</code>, so the daisy
-chain is not advanced by an acknowledge cycle that never happens. The vector
-comes from <code>on_int_ack()</code> when installed, otherwise from <code>int_vector_</code>. NMI has
-its own path, including the Next stackless mode (NR 0xC0 bit 3), which
+(32 CPU cycles on 48K/+3, 36 otherwise, per <code>zxnext.vhd:2033</code>). It does so
+unconditionally rather than gating on IFF1, because the hardware line goes high
+again regardless of whether anyone was listening. It also replicates FUSE's
+EI-grace rejection <em>before</em> calling <code>on_int_ack</code>, so the daisy chain is not
+advanced by an acknowledge cycle that never happens. The vector comes from
+<code>on_int_ack()</code> when one is installed, and from <code>int_vector_</code> otherwise. NMI has
+a path of its own, including the Next's stackless mode (NR 0xC0 bit 3), which
 suppresses the stack writes and substitutes the live NR 0xC3:0xC2 pair on the
 matching RETN/RETI.</p>
 <h2 id="the-im2-fabric">The IM2 fabric<a class="headerlink" href="#the-im2-fabric" title="Permanent link">&para;</a></h2>
 <p><code>Im2Controller</code> owns 14 device slots in VHDL priority order (<code>DevIdx</code>). Each
-carries the <code>im2_peripheral.vhd</code> wrapper state — request edge detect, enable
-bit, unqualified one-shot, status latch — and the <code>im2_device.vhd</code> four-state
-machine <code>S_0 → S_REQ → S_ACK → S_ISR</code> with its IEI/IEO daisy chain. The
-controller also holds the <code>im2_control.vhd</code> decoder that recognises RETI/RETN
-and IM-mode changes from the M1 byte stream, the legacy pulse-mode /INT
-generator, and the NR 0xCC/CD/CE DMA-delay latch. It is ticked once per
-instruction with the T-states that instruction consumed. Peripherals do not
-call it directly in new code: they hold an <code>Im2Client</code>, a two-field facade
-binding one <code>DevIdx</code>.</p>
+slot carries the <code>im2_peripheral.vhd</code> wrapper state — request edge detect,
+enable bit, unqualified one-shot, status latch — and the <code>im2_device.vhd</code>
+four-state machine <code>S_0 → S_REQ → S_ACK → S_ISR</code> with its IEI/IEO daisy chain.
+The controller additionally holds the <code>im2_control.vhd</code> decoder that recognises
+RETI/RETN and IM-mode changes out of the M1 byte stream, the legacy pulse-mode
+/INT generator, and the NR 0xCC/CD/CE DMA-delay latch. It is ticked once per
+instruction with the T-states that instruction consumed.</p>
+<p>Peripherals do not call the controller directly in new code. They hold an
+<code>Im2Client</code> instead — a two-field facade binding one <code>DevIdx</code> — so a device
+needs to know its own priority slot and nothing else about the fabric.</p>
 <h2 id="what-the-fuse-suite-proves">What the FUSE suite proves<a class="headerlink" href="#what-the-fuse-suite-proves" title="Permanent link">&para;</a></h2>
 <p><code>test/fuse/fuse_z80_test.cpp</code> runs FUSE's own <code>tests.in</code> / <code>tests.expected</code>
-corpus — 1356 cases — comparing the entire register file, MEMPTR, IFF1/IFF2,
-IM, the halt flag, every touched memory byte, and the <strong>total</strong> T-state count.
-<code>test/z80n/z80n_test.cpp</code> is the equivalent harness for the Z80N set (85 cases).</p>
-<p>What it does not prove matters as much. It does not check the per-bus-cycle
-event trace FUSE's coretest emits, only the total. And it runs <code>Z80Cpu</code> against
-a flat 64 KB <code>TestMemory</code> and a <code>TestIO</code> that echoes the port high byte: no MMU,
-no contention runtime, no IM2 acknowledge callback, no M1 hooks. A green
-1356/1356 is a statement about instruction semantics and per-instruction totals
-in isolation; everything the wrapper adds on top — contention stretch, IM2
-arbitration, automap timing, the pulse window — is proved by other suites and by
-the screenshot regression.</p>
+corpus of 1356 cases, comparing the entire register file, MEMPTR, IFF1/IFF2, IM,
+the halt flag, every touched memory byte, and the <strong>total</strong> T-state count.
+<code>test/z80n/z80n_test.cpp</code> is the equivalent harness for the Z80N set, with 85
+cases.</p>
+<p>What those suites do <em>not</em> prove matters just as much. They do not check the
+per-bus-cycle event trace FUSE's coretest emits, only the total. And they run
+<code>Z80Cpu</code> against a flat 64 KB <code>TestMemory</code> and a <code>TestIO</code> that echoes the port
+high byte: no MMU, no contention runtime, no IM2 acknowledge callback, no M1
+hooks. A green 1356/1356 is a statement about instruction semantics and
+per-instruction totals in isolation. Everything the wrapper layers on top —
+contention stretch, IM2 arbitration, automap timing, the interrupt pulse window
+— is proved by other suites and by the screenshot regression.</p>
 
 
 

@@ -15,23 +15,25 @@
 // LoRes is drawn where it is on purpose: it is NOT a fourth layer, it
 // substitutes the pixel the ULA would have emitted in that slot.
 //
-// Palette note: light fills, dark labels, transparent canvas, so the figure
-// reads on both the light and the dark theme of the rendered guide.
+// Palette note: the page theme's pastel dark red family (see css/theme.css).
+// Light fills, dark labels, transparent canvas, so the figure reads on both
+// the light and the dark theme.
 digraph video_pipeline {
     bgcolor="transparent";
     // Top-to-bottom on purpose: left-to-right made this figure ~2200 px wide,
     // which forces a horizontal scroll on a documentation page.
     rankdir=TB;
+    splines=ortho;
     fontname="Helvetica";
     node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
-          fillcolor="#eef2f7", color="#5a6b80", fontcolor="#1b2430", margin="0.15,0.08"];
-    edge [color="#5a6b80", fontname="Helvetica", fontsize=9, fontcolor="#3a4757"];
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.15,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5c4247"];
 
     subgraph cluster_src {
         label="pixel sources — one scanline each"; fontname="Helvetica"; fontsize=10;
-        fontcolor="#3a4757"; color="#c3ccd8"; style="rounded";
+        fontcolor="#5c4247"; color="#d3bdc0"; style="rounded";
         ula [label="Ula\npixels, attributes, border,\nTimex modes, floating bus"];
-        lor [label="Lores\nsubstitutes the ULA slot pixel,\nnot a separate layer", fillcolor="#e8eef0"];
+        lor [label="Lores\nsubstitutes the ULA slot pixel,\nnot a separate layer", fillcolor="#f2e9ea"];
         l2  [label="Layer2\n256x192 / 320x256 / 640x256"];
         tm  [label="Tilemap\n40x32 or 80x32"];
         spr [label="SpriteEngine\nup to 128, scaled, rotated"];
@@ -39,20 +41,20 @@ digraph video_pipeline {
 
     subgraph cluster_state {
         label="per-scanline state"; fontname="Helvetica"; fontsize=10;
-        fontcolor="#3a4757"; color="#c3ccd8"; style="rounded";
+        fontcolor="#5c4247"; color="#d3bdc0"; style="rounded";
         log [label="change logs\nevery register write is tagged with the\nframebuffer row it landed in",
-             fillcolor="#f6efdc"];
-        rep [label="replay\napplied immediately before the row\nis rendered", fillcolor="#f6efdc"];
-        log -> rep [label="  per row"];
+             fillcolor="#e9d3d6"];
+        rep [label="replay\napplied immediately before the row\nis rendered", fillcolor="#e9d3d6"];
+        log -> rep [xlabel="  per row"];
     }
 
-    cop [label="Copper\nWAIT / MOVE against the raster", fillcolor="#f3e6ea"];
-    cpu [label="CPU NextREG writes", fillcolor="#f3e6ea"];
+    cop [label="Copper\nWAIT / MOVE against the raster", fillcolor="#f5dfe2"];
+    cpu [label="CPU NextREG writes", fillcolor="#f5dfe2"];
     pal [label="PaletteManager\nULA / Layer 2 / sprite / tilemap banks"];
 
-    comp [label="Renderer — compositor\nNR 0x15 priority order, transparency,\nclip windows, blend/stencil,\nNR 0x4A fallback colour", fillcolor="#dfe8dd"];
-    fb   [label="framebuffer\n640 x 256 ARGB8888", fillcolor="#e3ecf7"];
-    host [label="frontend\nQt widget / SDL texture / PNG", fillcolor="#e3ecf7"];
+    comp [label="Renderer — compositor\nNR 0x15 priority order, transparency,\nclip windows, blend/stencil,\nNR 0x4A fallback colour", fillcolor="#ecdfe0"];
+    fb   [label="framebuffer\n640 x 256 ARGB8888", fillcolor="#f3e3e6"];
+    host [label="frontend\nQt widget / SDL texture / PNG", fillcolor="#f3e3e6"];
 
     cop -> log;
     cpu -> log;
@@ -63,11 +65,11 @@ digraph video_pipeline {
     rep -> pal  [style=dashed, arrowhead=vee];
 
     ula -> comp;
-    lor -> ula  [label="  substitutes the\n  ULA slot pixel", style=dotted, arrowhead=vee];
+    lor -> ula  [xlabel="  substitutes the\n  ULA slot pixel", style=dotted, arrowhead=vee];
     l2  -> comp;
     tm  -> comp;
     spr -> comp;
-    pal -> comp [label="  palette index to ARGB", style=dashed];
+    pal -> comp [xlabel="  palette index to ARGB", style=dashed];
 
     comp -> fb -> host;
 }

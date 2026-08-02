@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1760,14 +1828,19 @@
 
 
 <h1 id="38-media-and-loaders">3.8 Media and loaders<a class="headerlink" href="#38-media-and-loaders" title="Permanent link">&para;</a></h1>
-<p>Everything under this heading lives in <code>src/core/</code>, and almost none of it is
-emulated hardware. A real Spectrum has a tape port and an SD card; it has no
-notion of a <code>.sna</code> file. These loaders exist because a <em>developer</em> needs to get
-code into the machine and state out of it, so they are host-side conveniences
-that reach directly into the emulator's RAM, registers and MMU. Only two things
-here are hardware the guest could tell apart from the real thing — the
-real-time tape signal and the SD card's SPI transport — and both are called out
-below.</p>
+<p>This is the subsystem that gets code into the machine and gets state, pictures
+and sound back out of it. Almost none of it is emulated hardware. A real
+Spectrum has a tape port and an SD card; it has no notion of a <code>.sna</code> file, and
+nothing inside it can write a PNG. These loaders exist because a <em>developer</em>
+needs a way in and a way out, so they are host-side conveniences that reach
+directly into the emulator's RAM, registers and MMU rather than going through
+any bus the guest can see.</p>
+<p>Everything under this heading lives in <code>src/core/</code>, is driven from the frontend
+(a CLI flag at startup, a menu item later) and drives <code>Emulator</code> — never the
+reverse. Only two things here are hardware the guest could tell apart from the
+real article: the real-time tape signal, which arrives on the EAR line exactly
+as an analogue tape would, and the SD card's SPI transport, which is a device
+the guest's own driver talks to. Both are called out below.</p>
 <h2 id="what-jnext-can-read-and-write">What jnext can read and write<a class="headerlink" href="#what-jnext-can-read-and-write" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1846,59 +1919,80 @@ below.</p>
 </tbody>
 </table>
 <p>Format selection is by <strong>file extension</strong>: for <code>--load</code> in <code>src/main.cpp</code>
-around line 890, and again in the GUI's file dialogs and the headless snapshot
-writer. There is no content sniffing — an extension jnext does not recognise is
-a hard error naming the supported set, rather than a guess.</p>
-<p>The snapshot and program loaders follow the same two-phase shape —
-<code>load(path)</code> parses and validates into member state, <code>apply(emu)</code> writes it
-into the machine — so a malformed file fails before the machine has been
-touched. Several of them additionally define their parse and decompression
-logic <strong>inline in the header</strong> (<code>z80_loader.h</code>, <code>tap_loader.h</code>, <code>nex_loader.h</code>,
-<code>tap_saver.h</code>), for one reason: it lets test tiers that cannot link
-<code>jnext_core</code> exercise the real parser. See <a href="../04-testing/index.html">chapter 4</a>.</p>
+around line 890, and again in the GUI's file dialogs and in the headless
+snapshot writer. There is no content sniffing, and an extension jnext does not
+recognise is a hard error naming the supported set rather than a guess at what
+the file might be.</p>
+<p>The snapshot and program loaders all follow the same two-phase shape.
+<code>load(path)</code> parses and validates into member state; <code>apply(emu)</code> writes that
+state into the machine. Splitting the two means a malformed file fails before
+the machine has been touched, leaving the running session intact. Several
+loaders additionally define their parse and decompression logic <strong>inline in the
+header</strong> — <code>z80_loader.h</code>, <code>tap_loader.h</code>, <code>nex_loader.h</code>, <code>tap_saver.h</code> — for
+one specific reason: it lets test tiers that cannot link <code>jnext_core</code> exercise
+the real parser rather than a copy of it. See
+<a href="../04-testing/index.html">chapter 4</a>.</p>
 <h2 id="tapes-two-completely-different-mechanisms">Tapes: two completely different mechanisms<a class="headerlink" href="#tapes-two-completely-different-mechanisms" title="Permanent link">&para;</a></h2>
-<p>A tape can reach the guest in one of two ways, and they share nothing.</p>
-<p><strong>Fast load</strong> is a ROM trap. When ROM is paged into slot 0 and PC reaches the
+<p>Loading from tape is the one place where the emulator offers you a choice
+between fidelity and speed, so it is worth being clear about what the choice
+actually is. On real hardware a game takes minutes to load, the border stripes
+as it goes, and the loader chatters through the speaker. jnext can reproduce
+all of that, or it can skip it entirely and have the program in memory almost
+instantly. Those are two independent code paths that share nothing.</p>
+<p><strong>Fast load is a ROM trap.</strong> When ROM is paged into slot 0 and PC reaches the
 48K ROM's <code>LD-BYTES</code> entry at <code>0x0556</code>, the run loop hands the next block
-straight to memory and skips the routine — no tape signal is ever generated.
-<code>.tap</code> and <code>.tzx</code> both support this; <code>.wav</code> cannot, because a WAV is audio
-samples with no block structure to extract. Saving works the same way in
-reverse: <code>--tape-save</code> arms <code>TapSaver</code>, which traps <code>SA-BYTES</code> at <code>0x04C2</code> and
-appends a TAP block. That trap is gated on a <strong>ROM identity check</strong> as well as
-the PC, because other ROMs legitimately execute at <code>0x04C2</code> — a plain PC gate
-fired ten times during an ordinary NextZXOS boot.</p>
-<p><strong>Real-time playback</strong> (<code>--tape-realtime</code>) is the honest one: the loader drives
+straight to memory and skips the routine altogether — no tape signal is ever
+generated. <code>.tap</code> and <code>.tzx</code> both support this. <code>.wav</code> cannot, because a WAV is
+just audio samples with no block structure to extract. The gate is a PC match,
+which has one consequence worth knowing: a custom or turbo loader that never
+enters the ROM routine is never intercepted, and real time is then the only way
+it will load.</p>
+<p>Saving works the same way in reverse. <code>--tape-save</code> arms <code>TapSaver</code>, which
+traps <code>SA-BYTES</code> at <code>0x04C2</code> and appends a TAP block. That trap is gated on a
+<strong>ROM identity check</strong> as well as on the PC, because other ROMs legitimately
+execute code at <code>0x04C2</code> — a plain PC gate fired ten times during an ordinary
+NextZXOS boot.</p>
+<p><strong>Real-time playback</strong> (<code>--tape-realtime</code>) is the honest one. The loader drives
 the EAR bit per T-state and the ROM's own loading routine decodes it, so the
-border stripes and the loading noise are real. All three tape formats support
-it. The EAR signal is also routed into the audio mixer, which is why you hear
-it.</p>
-<p>Getting BASIC to <em>start</em> loading is a third mechanism again:
-<code>src/input/phantom_typist.h</code> waits for the ROM to poll all eight keyboard
-half-rows — proof BASIC's input loop is running — before injecting <code>LOAD ""</code>.
-It is armed by <code>load_tap()</code> only; <code>.tzx</code> and <code>.wav</code> still use a fixed 100-frame
-delay.</p>
+border stripes and the timing are produced by the same code that produces them
+on hardware. All three tape formats support it. The EAR signal is also routed
+into the audio mixer, which is why you hear the loader as well as see it.</p>
+<p>Getting BASIC to <em>start</em> loading is a third mechanism again. The phantom typist
+in <code>src/input/phantom_typist.h</code> types <code>LOAD ""</code> for you once it can prove the
+ROM's input loop is running — see <a href="07-input.html">3.7 Input</a> for how it decides
+that. It is armed by <code>load_tap()</code> only; <code>.tzx</code> and <code>.wav</code> still fall back to a
+fixed 100-frame delay.</p>
 <h2 id="nex">NEX<a class="headerlink" href="#nex" title="Permanent link">&para;</a></h2>
-<p><code>.nex</code> is the Next's native program container and the most involved loader
+<p><code>.nex</code> is the Next's native program container, and the most involved loader
 here: four header versions, optional Layer 2 / LoRes / tilemode loading
 screens, palettes, a Copper block, bank ordering and a CRC-32C.</p>
 <p>Its <strong>oracle is Ped7g's <code>nexload2.asm</code></strong>, not the distribution's own
-<code>nexload.asm</code> — the distro loader refuses V1.3 outright, so nexload2 is the only
-executable specification for that version. <code>nex_loader.cpp</code> cites it line by
-line, and the places where the two loaders genuinely disagree (the palette-block
-rule, the V1.3 delay model, the loading bar) are documented as deliberate
-divergences rather than silently reconciled.</p>
-<p><code>NexSaver</code> writes V1.2, and its class comment enumerates what the format cannot
-carry — no register file beyond PC and SP, no NextREG state, no MMU slots 0–5.
-Read that list before treating a NEX round trip as a snapshot.</p>
+<code>nexload.asm</code>. The distro loader refuses V1.3 outright, which makes nexload2
+the only executable specification for that version. <code>nex_loader.cpp</code> cites it
+line by line, and where the two loaders genuinely disagree — the palette-block
+rule, the V1.3 delay model, the loading bar — the difference is documented as a
+deliberate divergence rather than silently reconciled.</p>
+<p><code>NexSaver</code> writes V1.2, and its class comment enumerates what the format simply
+cannot carry: no register file beyond PC and SP, no NextREG state, no MMU slots
+0–5. Read that list before treating a NEX round trip as a snapshot, because it
+is not one.</p>
 <p>A directly loaded NEX can also keep its own file handle open and stream from
-itself; <code>extended_nex_host.*</code> presents the host file to the guest as a synthetic
-block-addressed SD extent so NextZXOS's file APIs work against it.</p>
+itself. <code>extended_nex_host.*</code> presents the host file to the guest as a
+synthetic block-addressed SD extent, so NextZXOS's file APIs work against it.</p>
 <h2 id="rzx">RZX<a class="headerlink" href="#rzx" title="Permanent link">&para;</a></h2>
-<p>RZX records <em>inputs</em>, not state: an embedded snapshot plus, per frame, the
-instruction count and every value returned by an <code>IN</code>. Playback feeds those
-values back through the port dispatch hook so the program takes the same path.
-<code>rzx.h</code> holds the format; <code>rzx_player.*</code> and <code>rzx_recorder.*</code> the two
-directions. jnext embeds a 48K SNA, which is why <code>SnaSaver</code> exists at all.</p>
+<p>RZX records a <em>session</em>, and it does so by recording inputs rather than
+pictures. The file holds an embedded snapshot of the machine at the start plus,
+for every frame that follows, the instruction count and every value the program
+read back from an <code>IN</code>. Playing it back re-runs the original code: jnext feeds
+the recorded values through the port-dispatch hook at the points the program
+asks for them, so the program takes exactly the path it took when the recording
+was made. The result is a very small file that reproduces a run exactly instead
+of showing you a video of it — which is also why an RZX is a good bug report,
+and why it only works at all if the emulator executes the same instructions in
+the same order both times.</p>
+<p><code>rzx.h</code> holds the format, <code>rzx_player.*</code> and <code>rzx_recorder.*</code> the two
+directions. jnext embeds a 48K SNA, which is the reason <code>SnaSaver</code> exists at
+all.</p>
 <h2 id="media-out">Media out<a class="headerlink" href="#media-out" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1931,34 +2025,43 @@ directions. jnext embeds a 48K SNA, which is why <code>SnaSaver</code> exists at
 </tr>
 </tbody>
 </table>
-<p>Screenshots are always written at double height — each framebuffer row emitted
-twice — so a 640×256 frame becomes a 640×512 PNG with square pixels.
-<code>--delayed-screenshot-layers</code> narrows a capture by clearing layer enables in the
-renderer, so the remaining layers still follow NR 0x15 priority (see
-<a href="03-video.html">3.3 Video</a>).</p>
+<p>Screenshots are always written at double height — each framebuffer row is
+emitted twice — so that a 640×256 frame becomes a 640×512 PNG with square
+pixels and the aspect ratio a viewer expects.
+<code>--delayed-screenshot-layers</code> narrows a capture by clearing layer enables in
+the renderer rather than by masking the result, so the layers that remain still
+follow NR 0x15 priority; see <a href="03-video.html">3.3 Video</a>.</p>
 <p>Video recording needs <strong>FFmpeg on the host</strong>. jnext writes raw ARGB frames and
-raw stereo PCM to temporary files during the run — no encoding cost in the hot
-loop — then shells out once at stop, trying <code>libx264</code>, <code>mpeg4</code>, <code>libopenh264</code>
-in that order. The command line is built for two dialects (POSIX <code>sh</code> and
-Windows <code>CreateProcess</code>), both compiled everywhere so both are unit-testable.</p>
+raw stereo PCM to temporary files during the run, so the hot loop pays no
+encoding cost, and shells out once at stop, trying <code>libx264</code>, <code>mpeg4</code> and
+<code>libopenh264</code> in that order. The command line is built for two dialects — POSIX
+<code>sh</code> and Windows <code>CreateProcess</code> — and both are compiled everywhere, so both
+stay unit-testable on any host.</p>
 <h2 id="the-sd-card-is-two-independent-things">The SD card is two independent things<a class="headerlink" href="#the-sd-card-is-two-independent-things" title="Permanent link">&para;</a></h2>
-<p><strong><code>src/core/sd_rom_extractor.*</code> is a host-side FAT32 reader.</strong> At startup the
-emulator opens the <code>.img</code> file <em>as a filesystem</em> and pulls named ROMs out of it
-by path — <code>/MACHINES/NEXT/48.rom</code>, <code>enNxtmmc.rom</code>, <code>enNextMf.rom</code>. It is
-read-only, MBR + FAT32-LBA only, and short-name lookup only. This mirrors real
-hardware, where those ROM images also live on the card.</p>
-<p><strong><code>src/peripheral/sd_card.cpp</code> is emulated hardware.</strong> It implements an SD card
-in SPI mode behind the <code>SpiDevice</code> interface and serves 512-byte blocks to the
-guest over ports <code>0xE7</code>/<code>0xEB</code> (see <a href="06-peripherals.html">3.6 Peripherals</a>). It
-knows nothing about FAT32; NextZXOS's own driver does the filesystem work.</p>
-<p>They point at the same file and never talk to each other: one serves the host at
-init time, the other the guest at run time. The card is opened read-write and
-guest writes persist, so a boot mutates the image — <code>--sdcard-readonly</code> makes
-the guest see a write-protected card instead.</p>
-<p>Provisioning is a third, separate concern: <code>sdcard_provisioner.*</code> locates or
+<p>jnext talks to the same <code>.img</code> file in two entirely different ways, at two
+different times, for two different consumers. The split looks redundant until
+you notice that the two consumers want opposite things.</p>
+<p><strong><code>src/core/sd_rom_extractor.*</code> is a host-side FAT32 reader.</strong> Before the
+machine can start, jnext needs the ROM images that on real hardware live as
+files on the card, and there is no guest yet to ask for them — so the emulator
+opens the <code>.img</code> <em>as a filesystem</em> and pulls them out by path:
+<code>/MACHINES/NEXT/48.rom</code>, <code>enNxtmmc.rom</code>, <code>enNextMf.rom</code>. It is read-only,
+handles MBR + FAT32-LBA only, and does short-name lookup only, which is all
+that job needs.</p>
+<p><strong><code>src/peripheral/sd_card.cpp</code> is emulated hardware.</strong> Once the machine is
+running, the guest wants a card, not a filesystem: NextZXOS carries its own
+FAT driver and expects to do the filesystem work itself, over SPI, one 512-byte
+block at a time. That class implements an SD card in SPI mode behind the
+<code>SpiDevice</code> interface and serves those blocks over ports <code>0xE7</code>/<code>0xEB</code> — see
+<a href="06-peripherals.html">3.6 Peripherals</a>. It knows nothing about FAT32.</p>
+<p>The two never talk to each other: one serves the host at init time, the other
+the guest at run time. The card is opened read-write and guest writes persist,
+so booting the machine mutates the image; <code>--sdcard-readonly</code> makes the guest
+see a write-protected card instead.</p>
+<p>Provisioning is a third, separate concern. <code>sdcard_provisioner.*</code> locates or
 downloads the canonical image and re-clusters a copy via <code>fat32_image.*</code>,
 because the shipped 1 GB image has too few clusters to be a spec-valid FAT32
-and the Next firmware's own FatFs correctly rejects it.</p>
+and the Next firmware's own FatFs — correctly — rejects it.</p>
 
 
 

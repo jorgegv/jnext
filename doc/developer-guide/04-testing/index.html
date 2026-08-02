@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1651,37 +1719,43 @@
 wrong. The test system exists to make wrongness loud, and it is unusually
 strict about one thing in particular: <strong>a green result is only as trustworthy
 as its denominator.</strong> A suite that quietly stopped running, a row that quietly
-stopped asserting, a document that quietly stopped matching its source — each
-of those makes a passing run mean less while looking exactly the same. Every
-gate described in this chapter was added after one of them actually happened.</p>
-<p>So the suites are <strong>declared</strong> — in manifests, with exact expected counts — and
-the harness proves it ran precisely what was declared before it is allowed to
-report anything at all. A missing test is a loud failure, never a silent skip.</p>
-<p>The parts, one sentence each:</p>
+stopped asserting, a generated document that quietly stopped matching its
+source — each of those makes a passing run mean less while looking exactly the
+same as it did before. Every gate described in this chapter was added after one
+of them actually happened.</p>
+<p>The response to that is to make the suites <strong>declared</strong>. Instead of running
+whatever test binaries happen to be lying around and believing whatever they
+happen to print, the project keeps manifests that name every suite and pin the
+exact number of rows each one must report. The harness compares that
+declaration against reality before it is allowed to report anything at all, and
+refuses to run when the two disagree. A missing test is a loud failure, never a
+silent skip.</p>
+<p>The rest of the chapter works through the pieces:</p>
 <ul>
-<li><strong>The test triplet</strong> is the three layers a change must clear: the unit
-  suites, the FUSE Z80 opcode suite, and the screenshot/functional regression.</li>
-<li><strong>The manifests</strong> (<code>test/unit-tests.conf</code>, <code>test/00regression/regression_tests.conf</code>,
-  <code>test/00regression/functional_tests.conf</code>) declare which suites exist and how
-  many rows each must report, and the harnesses refuse to run when reality
-  disagrees.</li>
+<li><strong>The test triplet</strong> is the three layers every change has to clear before it
+  can land — the unit suites, the FUSE Z80 opcode corpus, and the screenshot
+  and functional regression.</li>
+<li><strong>The manifests</strong> are where the pinned counts live: <code>test/unit-tests.conf</code>
+  for the unit suites, <code>test/00regression/regression_tests.conf</code> and
+  <code>functional_tests.conf</code> for the regression. Each harness treats a
+  disagreement with its manifest as a fault in itself, not as a test result.</li>
 <li><strong>The regression suite</strong> boots the real binary headless, compares whole
-  frames against committed reference images, and runs the functional rows that
-  need a real process rather than a linked library.</li>
+  frames against committed reference images, and runs the rows that need a
+  real process rather than a linked library.</li>
 <li><strong>Traceability</strong> maps every test row back to the VHDL line that justifies it,
-  in a document that is generated from the test sources and gated against
-  staleness.</li>
+  in a document that is generated from the test sources and gated against going
+  stale.</li>
 <li><strong>The documentation and CLI gates</strong> prove that the committed generated
-  documents match their sources, and that the documented flag set matches the
-  one the parser implements.</li>
+  documents still match their sources, and that the flag set the man page
+  describes is the one the parser actually implements.</li>
 <li><strong>The harness self-tests</strong> inject each fault into the harnesses themselves
-  and assert the refusal, because a guard that cannot be shown to fire is not a
-  guard.</li>
+  and assert that the refusal happens, because a guard nobody has ever seen
+  fire is not a guard.</li>
 </ul>
-<p>None of this is optional tooling you run when you remember to. <code>make unit-test</code>
-and <code>make regression</code> pull the lints, the documentation checks and the
-traceability gates in as prerequisites, so they run in the inner loop where
-they can still be cheap to fix.</p>
+<p>None of this is optional tooling that you run when you remember to.
+<code>make unit-test</code> and <code>make regression</code> pull the lints, the documentation checks
+and the traceability gates in as prerequisites, so they run in the inner loop,
+where a failure is still cheap to fix.</p>
 <p>Pages in this chapter:</p>
 <ul>
 <li><a href="01-the-test-triplet.html">4.1 The test triplet</a></li>

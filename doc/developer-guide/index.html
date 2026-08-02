@@ -49,6 +49,8 @@
       
     
     
+      <link rel="stylesheet" href="css/theme.css">
+    
     <script>__md_scope=new URL(".",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -65,7 +67,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -123,7 +125,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -133,7 +135,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -190,15 +192,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -238,15 +273,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -316,6 +384,34 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#why-the-project-looks-the-way-it-does" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why the project looks the way it does
+      
+    </span>
+  </a>
+  
+    <nav class="md-nav" aria-label="Why the project looks the way it does">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-practical-suggestion" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A practical suggestion
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#what-this-guide-is-not" class="md-nav__link">
@@ -1716,29 +1812,80 @@
 why it is arranged the way it is, and which invariants you will break if you
 do not know about them.</p>
 <p>It is written for two readers. The first is a new contributor who wants to fix
-a bug or add a feature and needs to find the right file without reading a
+a bug or add a feature, and needs to find the right file without reading a
 hundred thousand lines to get there. The second is the maintainer coming back
 to a subsystem after six months, who needs the shape of it back in their head
 before touching it.</p>
+<h2 id="why-the-project-looks-the-way-it-does">Why the project looks the way it does<a class="headerlink" href="#why-the-project-looks-the-way-it-does" title="Permanent link">&para;</a></h2>
+<p>JNEXT started as an experiment, and the experiment is the reason the
+repository has the shape it has. The question being asked is how far a large,
+complex piece of software can be taken using AI coding tools — so essentially
+all of the code here is AI-generated, with the project owner directing,
+reviewing and accepting the work rather than typing it. That experiment is
+still running; this guide is a snapshot of where it has got to.</p>
+<p>Knowing that explains several things about the repository that otherwise look
+like eccentricity:</p>
+<ul>
+<li><strong>The conventions are written down, in unusual density.</strong> <code>CLAUDE.md</code> at the
+  repository root is close to five hundred lines of rules about branches,
+  tests, versioning, documentation and house style. A human contributor absorbs
+  that sort of thing gradually and keeps it in their head; an assistant starts
+  every session with none of it, so it has to exist as text and be re-read each
+  time. <code>.claude/</code> carries the same idea further, with reusable agent
+  definitions and task recipes for the jobs that recur.</li>
+<li><strong>Explanation sits next to the thing it explains.</strong> Scripts, headers and test
+  files routinely open with several paragraphs describing not just what the
+  code does but which failure made it necessary. The next reader is frequently
+  a fresh session with no memory of the decision, and a comment is the only
+  channel that reaches it.</li>
+<li><strong>Every generated artefact is committed and gated.</strong> The man page, both
+  guides, the diagrams and the traceability matrix are all produced by a tool,
+  checked into git, and re-derived by the test run so that a stale copy fails
+  loudly. <a href="01-orientation/03-the-rules-that-shape-the-code.html">1.3 The rules that shape the code</a>
+  explains the mechanism; the motivation is this one. Generated content that
+  nobody re-derives drifts silently, and a reader — human or otherwise —
+  cannot tell drifted documentation from correct documentation.</li>
+<li><strong>The test apparatus is larger than the emulator.</strong> <code>src/</code> is around 86 000
+  lines of C and C++; <code>test/</code> is around 131 000 lines of tests, harness and
+  tooling. <a href="04-testing/index.html">Chapter 4</a> is about that machinery, and its
+  size is not accidental — it is the mechanism by which generated work gets
+  accepted or rejected.</li>
+</ul>
+<p>What the experiment is <em>not</em> is code taken on trust. Every change goes through
+the protocol in <a href="06-contributing/index.html">chapter 6</a> — its own branch and
+worktree, the full test triplet green, and an independent review by someone,
+or something, that did not write it. This guide is part of the same posture:
+generated code still needs a description a person can read, and no generator
+produces one as a side effect.</p>
+<h3 id="a-practical-suggestion">A practical suggestion<a class="headerlink" href="#a-practical-suggestion" title="Permanent link">&para;</a></h3>
+<p>Read this repository with an AI coding assistant to hand. That is a remark
+about size and shape rather than an endorsement of anything: the codebase is
+large, the conventions are numerous, and most of them are enforced
+mechanically, so the cost of not knowing one is a red test run whose message
+points somewhere other than your change. An assistant that has read <code>CLAUDE.md</code>
+and this guide will surface the relevant rule when you touch the code it
+governs. Working by hand, you will find the same rules — one at a time, by
+tripping over them.</p>
 <h2 id="what-this-guide-is-not">What this guide is not<a class="headerlink" href="#what-this-guide-is-not" title="Permanent link">&para;</a></h2>
 <p>It is not the user guide. Installing JNEXT, running programs, using the
-debugger's panels, and automating screenshots are all covered by the user
-guide under <code>doc/user-guide</code> (rendered from <code>src/doc/user-guide</code>). Nothing
-here repeats it.</p>
-<p>It is not the command-line reference either. The manual page — <code>doc/man/jnext.1</code>,
-also rendered as <code>USAGE.md</code> — is generated from a single source and gated
-against the actual flag table in the code, so it is always right. This guide
-explains the <em>mechanism</em> that keeps it right; it does not restate the flags.</p>
-<p>And it is not a roadmap. <code>doc/design/EMULATOR-DESIGN-PLAN.md</code> is the roadmap:
-it records what was intended, in the order it was intended, and much of it is
-years old. <strong>The design plan is a plan; this guide is a description.</strong> Where
-the two disagree, the code is right, and the disagreements are real — the plan
-still describes a <code>DebuggerInterface</code> class that does not exist, a
-<code>render_scanline(vc)</code> call inside the scanline loop that is not how frames are
-composited, and a Pentagon machine type that was removed in 2026-05. Every
-claim on the following pages was checked against the source. If you find one
-that no longer holds, that is a defect in this guide, and no automated gate can
-catch it — fix it in the same change that made it stale.</p>
+debugger's panels and automating screenshots are all covered there, under
+<code>doc/user-guide</code> (rendered from <code>src/doc/user-guide</code>). Nothing here repeats it.</p>
+<p>It is not the command-line reference either. The manual page —
+<code>doc/man/jnext.1</code>, also rendered as <code>USAGE.md</code> — is generated from a single
+source and gated against the actual flag table in the code, so it is always
+right. This guide explains the <em>mechanism</em> that keeps it right; it does not
+restate the flags.</p>
+<p>And it is not a roadmap. That is <code>doc/design/EMULATOR-DESIGN-PLAN.md</code>, which
+records what was intended and in what order, much of it years ago. <strong>The design
+plan is a plan; this guide is a description.</strong> Where the two disagree, the code
+is right — and they do disagree: the plan still describes a <code>DebuggerInterface</code>
+class that does not exist, a <code>render_scanline(vc)</code> call inside the scanline
+loop that is not how frames are composited, and a Pentagon machine type that
+was removed in 2026-05.</p>
+<p>Every claim on the following pages was checked against the source. If you find
+one that no longer holds, that is a defect in this guide — and it is the one
+class of defect no automated gate can catch, so fix it in the same change that
+made it stale.</p>
 <h2 id="chapters">Chapters<a class="headerlink" href="#chapters" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1781,10 +1928,10 @@ catch it — fix it in the same change that made it stale.</p>
 </tr>
 </tbody>
 </table>
-<p>Start with <a href="01-orientation/03-the-rules-that-shape-the-code.html">1.3 The rules that shape the code</a>
-if you are about to make a change and only have time for one page. Start with
-<a href="02-architecture/03-a-frame-end-to-end.html">2.3 A frame, end to end</a> if you want
-to understand how the emulator actually runs.</p>
+<p>If you are about to make a change and have time for only one page, read
+<a href="01-orientation/03-the-rules-that-shape-the-code.html">1.3 The rules that shape the code</a>.
+If what you want is to understand how the emulator actually runs, start
+instead with <a href="02-architecture/03-a-frame-end-to-end.html">2.3 A frame, end to end</a>.</p>
 
 
 

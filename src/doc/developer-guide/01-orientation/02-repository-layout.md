@@ -1,5 +1,10 @@
 # 1.2 Repository layout
 
+The point of this page is to turn a symptom into a path. A bug report about
+sprite scaling, a feature request for a new tape format, a failing screenshot —
+each of them lives somewhere specific, and the directory tree is regular enough
+that knowing the rule is usually faster than grepping.
+
 ## Top level
 
 | Path | What it is |
@@ -16,15 +21,22 @@
 | `data/` | `48rom.map`, a symbol map for the 48K ROM used when disassembling. |
 | `docker/` | Dockerfiles for the Linux and Windows cross-builds. |
 | `.github/` | CI and release workflows, plus the issue templates. |
-| `.prompts/` | Daily working notes. Not part of the product. |
+| `.claude/` | The AI-assisted development apparatus: reusable agent definitions, task recipes, git hooks that enforce the branch rules, and process notes. Not part of the product, but it is where the project's conventions are made executable. |
+| `.prompts/` | The daily task files, one per working day, kept as part of the project's record. Not part of the product. |
 
 The root also carries `CMakeLists.txt`, a large self-documenting `Makefile`
-(run `make` with no target to list every target), `version.yaml` (the single
-source of truth for the version), `releases.yaml` (the allowlist gating public
-GitHub releases), and the two mkdocs configs — `mkdocs.yml` for the user guide,
-`mkdocs-devguide.yml` for this one.
+(run `make` with no target and it lists every target it has), `version.yaml`
+(the single source of truth for the version), `releases.yaml` (the allowlist
+that gates public GitHub releases), `CLAUDE.md` (the project conventions), and
+the two mkdocs configs — `mkdocs.yml` for the user guide, `mkdocs-devguide.yml`
+for this one.
 
 ## Inside `src/`
+
+Most of these directories hold an emulated subsystem, and
+[chapter 3](../03-subsystems/index.md) opens with a table mapping each one back
+to the VHDL it was derived from. The rest — the frontends, the debugger UI, the
+profiler — surround the emulation rather than being part of it.
 
 | Directory | Responsibility |
 |---|---|
@@ -45,20 +57,49 @@ GitHub releases), and the two mkdocs configs — `mkdocs.yml` for the user guide
 | `doc/` | Markdown sources for the user guide and this developer guide, plus the Graphviz diagram sources. |
 | `save/` | A CMake target that currently has no sources; the serialisation primitives it was meant to hold live in `core/saveable.h`. |
 
+Three of those names describe features rather than hardware, and are worth
+knowing before you meet them in the code.
+
+The **phantom typist** in `src/input/` is what makes `--load game.tap` just
+work. Starting a tape means typing something first — `LOAD ""` at a 48K BASIC
+prompt, `ENTER` on the 128K and +3 loader menus — and the moment that prompt
+becomes ready differs by machine. Rather than guessing with a fixed delay, the
+typist watches the guest scanning its keyboard and starts typing once the ROM's
+input loop is demonstrably running.
+
+**`AttributeMux`** in `src/memory/` exists for multicolour demos. The ULA
+re-reads a character cell's attribute byte on every one of its eight scanlines,
+so a program that rewrites attributes between those reads gets eight different
+colours down a single cell — the technique Nirvana-class engines are built on.
+Since JNEXT composites the frame at the end, those writes have to be logged and
+replayed per scanline to survive at all.
+
+The **rewind ring buffer** in `src/debug/` is the machinery behind the
+debugger's backwards execution: step back one instruction, jump back a frame,
+or drag a slider to a frame in recent history. It works by snapshotting the
+entire machine at every frame boundary into a ring of fixed-size slots, then
+restoring the nearest snapshot and replaying forward to the point you asked
+for. That is why the state-serialisation contract in `core/saveable.h` reaches
+into every subsystem: a rewind is only ever as faithful as the least complete
+`save_state()` in the machine.
+
 ## Which directories may see SDL and Qt
 
-The rule the code actually keeps is that **the emulation core knows about
-neither**. `src/core`, `src/cpu`, `src/memory`, `src/video`, `src/audio`,
-`src/port` and `src/peripheral` contain no `#include` of SDL or Qt at all —
-only prose comments naming them. That is what makes the same `Emulator` usable
-from a window, from a Qt widget and from a headless loop.
+There is one architectural boundary in this tree that is worth stating
+explicitly, because breaking it is easy and the consequence arrives late: **the
+emulation core knows about neither SDL nor Qt**. `src/core`, `src/cpu`,
+`src/memory`, `src/video`, `src/audio`, `src/port` and `src/peripheral` contain
+no `#include` of either — only prose comments naming them. That is precisely
+what makes the same `Emulator` object usable from an SDL window, from a Qt
+widget and from a headless loop with no display at all, and therefore what
+makes the unit suites and the regression suite possible.
 
-Qt is confined to `src/gui` and `src/debugger`. SDL is owned by
-`src/platform` — and, honestly, by four headers in `src/input`:
-`keyboard.h`, `gamepad_host.h`, `joystick_dispatcher.h` and
-`mouse_dispatcher.h` all include `<SDL2/SDL.h>`. The keyboard case is
-structural rather than incidental: `Keyboard::set_key()` takes an
-`SDL_Scancode`, so SDL's scancode enum is the project's host-key vocabulary
-and the Qt frontend translates its own key events into it. Callbacks crossing
-back the other way — `on_input_state_restored`, `on_joystick_source_changed` —
-carry no SDL or Qt type in their signature.
+Qt is confined to `src/gui` and `src/debugger`. SDL is owned by `src/platform`
+— and, to be honest about it, by four headers in `src/input`: `keyboard.h`,
+`gamepad_host.h`, `joystick_dispatcher.h` and `mouse_dispatcher.h` all include
+`<SDL2/SDL.h>`. The keyboard case is structural rather than accidental.
+`Keyboard::set_key()` takes an `SDL_Scancode`, which makes SDL's scancode enum
+the project's vocabulary for host keys; the Qt frontend translates its own key
+events into that vocabulary rather than introducing a second one. Traffic in
+the other direction stays clean: callbacks such as `on_input_state_restored`
+and `on_joystick_source_changed` carry no SDL or Qt type in their signature.

@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1749,49 +1817,59 @@
 
 
 <h1 id="21-startup-and-the-frontends">2.1 Startup and the frontends<a class="headerlink" href="#21-startup-and-the-frontends" title="Permanent link">&para;</a></h1>
-<p>Everything before the first emulated instruction happens in <code>src/main.cpp</code>:
-parse the command line, resolve an SD-card image, build an <code>EmulatorConfig</code>,
-pick a frontend, hand it the config, run it. There is no other entry point —
-all three frontends go through the same function.</p>
+<p>Everything that happens before the first emulated instruction lives in
+<code>src/main.cpp</code>. It parses the command line, resolves an SD-card image, builds
+an <code>EmulatorConfig</code>, picks one of the three frontends, hands it the config and
+runs it. There is no second entry point: the GUI, the SDL frontend and the
+headless runner all reach the machine through that same function, which is what
+keeps them from drifting apart.</p>
 <h2 id="parsing-the-option-table">Parsing: the option table<a class="headerlink" href="#parsing-the-option-table" title="Permanent link">&para;</a></h2>
 <p>Arguments are dispatched from <code>cli::OPTIONS</code> in <code>src/core/cli_options.h</code>, a
-<code>constexpr</code> array of <code>{ name, arity, doc-status, id }</code>. The loop looks each
-argument up with <code>cli::find()</code>, consumes <code>arity</code> values, and switches on
-<code>opt-&gt;id</code>.</p>
-<p>Making the flag set <em>data</em> rather than an <code>if</code> chain buys three things at once:</p>
+<code>constexpr</code> array whose rows are <code>{ name, arity, doc-status, id }</code>. The parsing
+loop looks each argument up with <code>cli::find()</code>, consumes as many following
+values as the row's <code>arity</code> says, and switches on <code>opt-&gt;id</code>.</p>
+<p>Holding the flag set as <em>data</em> rather than as a chain of string comparisons is
+not a style preference — it buys three separate guarantees:</p>
 <ul>
-<li>The parser cannot accept a flag that is not in the table, and
-  <code>-Werror=switch</code> on the <code>OptId</code> switch (set in <code>CMakeLists.txt</code>) makes a
-  table entry with no parser arm a compile error.</li>
-<li><code>cli_options_test</code> can enumerate the table and diff it against the man page's
-  OPTIONS section in both directions, so an undocumented flag and a documented
-  non-flag are equally hard failures of <code>make cli-check</code>.</li>
-<li>Deliberate exceptions are declared on the row itself. There is exactly one —
-  <code>--sd-card</code>, marked <code>Doc::UndocumentedAlias</code>, a back-compat spelling that is
-  kept working but not advertised.</li>
+<li>The parser physically cannot accept a flag that is not in the table. And
+  because <code>CMakeLists.txt</code> sets <code>-Werror=switch</code>, a row added to the table with
+  no matching arm in the <code>OptId</code> switch is a compile error rather than a flag
+  that silently does nothing.</li>
+<li><code>cli_options_test</code> can enumerate the table and diff it against the OPTIONS
+  section of the man page in both directions. An implemented flag that nobody
+  documented and a documented flag that nobody implemented are therefore
+  equally hard failures of <code>make cli-check</code>.</li>
+<li>Where an exception is genuinely wanted, it is declared on the row itself
+  instead of being hidden in the checker. There is exactly one: <code>--sd-card</code>,
+  marked <code>Doc::UndocumentedAlias</code>, a back-compatible spelling that keeps
+  working but is deliberately not advertised.</li>
 </ul>
-<p>Two shapes sit outside the table lookup, both on purpose. <code>--log-level=VALUE</code>
-is the single inline-value form, handled by prefix before lookup because
-scripts predate the table. And a bare argument that does not start with <code>-</code> is
-taken as the program to load, so <code>jnext game.tap</code> works; anything starting
-with <code>-</code> is an unknown option and an error, because a mistyped flag must never
-be swallowed as a filename.</p>
+<p>Two argument shapes bypass the table lookup, both on purpose.
+<code>--log-level=VALUE</code> is the one inline-value form and is matched by prefix
+before the lookup happens, because scripts using that spelling predate the
+table. And a bare argument that does not begin with <code>-</code> is taken as the program
+to load, so <code>jnext game.tap</code> does what you would expect. Anything that <em>does</em>
+begin with <code>-</code> and is not in the table is an error rather than a filename,
+because a mistyped flag must never be quietly swallowed as one.</p>
 <h2 id="before-the-frontend-exists">Before the frontend exists<a class="headerlink" href="#before-the-frontend-exists" title="Permanent link">&para;</a></h2>
-<p>Two things happen between parsing and construction.</p>
-<p>In a Qt build and a non-headless run, <code>AppConfig</code> is loaded from
-<code>~/.jnext/jnext.conf</code> early enough to seed the SD-card path. <strong>CLI values
-always win</strong>: the saved value is only consulted where the flag was absent.
-Headless runs never read the config at all — a saved preference must not be
-able to change what an automated run does.</p>
-<p>Then the SD-card image is resolved by <code>sdcard::provision_sd_card()</code>
-(<code>src/core/sdcard_provisioner.h</code>), in order: an explicit <code>--sdcard</code>, the
-cached image under <code>~/.jnext/sdcard/</code>, or an offer to download and patch the
-canonical distribution image. Headless gets CLI prompts, the GUI gets a
-temporary <code>QApplication</code> and dialogs — torn down before <code>QtApp</code> builds its
-own. Failing to resolve an image is fatal: the SD card is where every ROM
-except the FPGA boot ROM comes from, exactly as on real hardware.</p>
+<p>Two things happen in the gap between parsing and constructing a frontend.</p>
+<p>First, in a Qt build on a non-headless run, <code>AppConfig</code> is loaded from
+<code>~/.jnext/jnext.conf</code>, early enough that a saved SD-card path can seed the
+resolution step below. <strong>CLI values always win</strong>: a saved value is consulted
+only where the corresponding flag was absent. Headless runs do not read the
+configuration file at all, because a preference saved on a developer's machine
+must never be able to change the outcome of an automated run.</p>
+<p>Second, the SD-card image is resolved by <code>sdcard::provision_sd_card()</code> in
+<code>src/core/sdcard_provisioner.h</code>. It tries an explicit <code>--sdcard</code> first, then
+the image cached under <code>~/.jnext/sdcard/</code>, and failing both it offers to
+download and patch the canonical distribution image. Headless asks on the
+terminal; the GUI spins up a temporary <code>QApplication</code> for the dialogs and tears
+it down again before <code>QtApp</code> builds its own. If no image can be resolved,
+startup fails outright — every ROM except the FPGA boot ROM is read out of that
+image, exactly as on real hardware, so there is no machine to run without one.</p>
 <h2 id="choosing-a-frontend">Choosing a frontend<a class="headerlink" href="#choosing-a-frontend" title="Permanent link">&para;</a></h2>
-<p>The choice is one runtime condition and one compile-time arm:</p>
+<p>The choice comes down to a single runtime condition wrapped around a single
+compile-time arm:</p>
 <pre><code class="language-cpp">if (headless) {
     HeadlessApp app;  result = configure_and_run(app);
 } else {
@@ -1802,20 +1880,21 @@ except the FPGA boot ROM comes from, exactly as on real hardware.</p>
 #endif
 }
 </code></pre>
-<p><code>configure_and_run</code> is a generic lambda, which is what lets one body serve
-three unrelated classes: they share an informal interface (<code>set_config</code>,
-<code>init</code>, <code>run</code>, <code>shutdown</code>, <code>emulator()</code>, <code>exit_code()</code>), and the few
-frontend-specific steps are guarded with <code>if constexpr</code> on the deduced type —
-<code>--delayed-snapshot</code> is <code>HeadlessApp</code>-only, some GUI wiring is <code>QtApp</code>-only.</p>
+<p><code>configure_and_run</code> is a generic lambda, and that is what lets a single body
+drive three classes that share no base class. They implement the same informal
+interface — <code>set_config</code>, <code>init</code>, <code>run</code>, <code>shutdown</code>, <code>emulator</code>, <code>exit_code</code> —
+and the handful of steps that genuinely belong to only one of them are guarded
+with <code>if constexpr</code> on the deduced type. <code>--delayed-snapshot</code> wiring is
+<code>HeadlessApp</code>-only that way, and some GUI plumbing is <code>QtApp</code>-only.</p>
 <ul>
-<li><strong><code>QtApp</code></strong> (<code>src/gui/qt_app.h</code>) owns a <code>QApplication</code>, a <code>MainWindow</code> with
-  an <code>EmulatorWidget</code> central widget, and a <code>QTimer</code> that calls <code>run_frame()</code>
-  paced from <code>Emulator::frame_period_ms()</code> and the speed multiplier. SDL is
-  still linked, but only for audio output.</li>
-<li><strong><code>SdlApp</code></strong> (<code>src/platform/sdl_app.h</code>) owns an <code>SdlDisplay</code>, <code>SdlInput</code> and
-  <code>SdlAudio</code> and runs its own event/pace loop.</li>
+<li><strong><code>QtApp</code></strong> (<code>src/gui/qt_app.h</code>) owns a <code>QApplication</code> and a <code>MainWindow</code>
+  whose central widget is an <code>EmulatorWidget</code>. A <code>QTimer</code> drives the machine,
+  paced from <code>Emulator::frame_period_ms()</code> and the current speed multiplier.
+  SDL is still linked into this build, but only to get audio out.</li>
+<li><strong><code>SdlApp</code></strong> (<code>src/platform/sdl_app.h</code>) owns an <code>SdlDisplay</code>, an <code>SdlInput</code>
+  and an <code>SdlAudio</code>, and runs its own event and pacing loop.</li>
 <li><strong><code>HeadlessApp</code></strong> (<code>src/platform/headless_app.h</code>) owns nothing but the
-  <code>Emulator</code>. Its <code>run()</code> is a bare <code>run_frame()</code> loop with no sleep.</li>
+  <code>Emulator</code>. Its <code>run()</code> is a bare <code>run_frame()</code> loop with no sleep in it.</li>
 </ul>
 <h2 id="compile-time-arms">Compile-time arms<a class="headerlink" href="#compile-time-arms" title="Permanent link">&para;</a></h2>
 <table>
@@ -1835,7 +1914,7 @@ frontend-specific steps are guarded with <code>if constexpr</code> on the deduce
 <tr>
 <td><code>ENABLE_DEBUGGER</code></td>
 <td><code>ON</code></td>
-<td>Compiles <code>src/debugger</code> (Qt panels). Turning it off removes the debugger UI entirely; <code>src/debug</code>, the pure-C++ backend, is always built.</td>
+<td>Compiles <code>src/debugger</code> (the Qt panels). Turning it off removes the debugger UI entirely; <code>src/debug</code>, the pure-C++ backend it sits on, is always built.</td>
 </tr>
 <tr>
 <td><code>ENABLE_TESTS</code></td>
@@ -1844,23 +1923,30 @@ frontend-specific steps are guarded with <code>if constexpr</code> on the deduce
 </tr>
 </tbody>
 </table>
-<p>The mismatch on the first row is worth knowing about: a raw <code>cmake</code> with no
-flags produces an SDL-only binary, which is why the Makefile targets pass
+<p>The mismatch on the first row catches people out and is worth knowing: a raw
+<code>cmake</code> invocation with no options produces an SDL-only binary, which is why
+every Makefile target that is meant to yield a usable build passes
 <code>-DENABLE_QT_UI=ON</code> explicitly. See
 <a href="../05-building/02-build-configurations.html">5.2 Build configurations</a>.</p>
 <h2 id="what-headless-actually-skips">What headless actually skips<a class="headerlink" href="#what-headless-actually-skips" title="Permanent link">&para;</a></h2>
-<p><code>--headless</code> is a runtime flag in either build, not a separate binary. It
-opens no window and no audio device, registers no host input dispatchers, and
-never sleeps — the frame loop runs at whatever speed the host manages.
-Everything else is identical: the same <code>Emulator</code>, the same rendering, the
-same audio synthesis (unless <code>--silent</code>). That matters for measurement, and
-<code>--benchmark</code> is headless-only for exactly that reason: in a GUI frontend it
-would measure the frame timer.</p>
-<p>Headless is also where the deterministic automation lives — <code>--delayed-screenshot</code>,
-<code>--delayed-snapshot</code>, <code>--delayed-keypress</code>, <code>--delayed-automatic-exit</code> — all
-counted in emulated frames rather than wall-clock seconds. A requested capture
-that was never taken makes the process exit non-zero rather than quietly
-writing nothing. See <a href="05-save-state-and-rewind.html">2.5</a> and
+<p><code>--headless</code> is a runtime flag understood by either build, not a separate
+binary. It opens no window and no audio device, registers no host input
+dispatchers, and never sleeps, so the frame loop advances as fast as the host
+can manage. Everything else is the same machine doing the same work: the same
+<code>Emulator</code>, the same rendering, and the same audio synthesis unless <code>--silent</code>
+is given. That equivalence is what makes headless useful for measurement, and
+it is why <code>--benchmark</code> is headless-only — run under a GUI frontend it would be
+measuring the frame timer rather than the emulator.</p>
+<p>Headless is also where JNEXT's deterministic automation lives. The
+<code>--delayed-screenshot</code>, <code>--delayed-snapshot</code>, <code>--delayed-keypress</code> and
+<code>--delayed-automatic-exit</code> family lets a script boot the machine, wait a
+defined amount of emulated time, press keys and capture the screen without any
+human present — which is how the project's own screenshot regression suite
+drives the emulator. The delays are counted in emulated frames rather than
+wall-clock seconds precisely so that a loaded machine produces the same bytes
+as an idle one. And a capture that was requested but never taken makes the
+process exit non-zero rather than quietly writing nothing, so a broken test run
+cannot pass by producing no output. See <a href="05-save-state-and-rewind.html">2.5</a> and
 <a href="../04-testing/03-the-regression-suite.html">4.3 The regression suite</a>.</p>
 
 

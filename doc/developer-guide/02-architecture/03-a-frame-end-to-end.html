@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1749,118 +1817,135 @@
 
 
 <h1 id="23-a-frame-end-to-end">2.3 A frame, end to end<a class="headerlink" href="#23-a-frame-end-to-end" title="Permanent link">&para;</a></h1>
-<p>Follow one frame from the frontend's tick to the image it gets back. Almost
-every surprising thing in the video, debug and rewind code follows from the
-order of the steps below.</p>
+<p>This page follows a single frame from the frontend's tick to the image the
+frontend gets back. It is worth reading in order, because almost every
+surprising thing in the video, debug and rewind code turns out to be a
+consequence of the sequence below rather than a decision made locally.</p>
 <p><img alt="Frame execution" src="../img/frame-execution.svg" /></p>
 <p><em>One call to <code>Emulator::run_frame()</code>.</em></p>
 <h2 id="the-tick">The tick<a class="headerlink" href="#the-tick" title="Permanent link">&para;</a></h2>
-<p>A frontend calls <code>Emulator::run_frame()</code> once per displayed frame — from a
-<code>QTimer</code> in <code>QtApp</code> paced by <code>frame_period_ms()</code> and the speed multiplier, from
-<code>SdlApp</code>'s own paced loop, or from a bare uncapped loop in <code>HeadlessApp</code>. When
-it returns, the frontend reads the framebuffer with <code>get_framebuffer()</code> and
-presents it.</p>
+<p>A frontend calls <code>Emulator::run_frame()</code> once per displayed frame. In <code>QtApp</code>
+that call comes from a <code>QTimer</code> paced by <code>frame_period_ms()</code> and the current
+speed multiplier; in <code>SdlApp</code> it comes from that frontend's own paced loop; in
+<code>HeadlessApp</code> it comes from a bare loop with no cap at all. Whichever it is,
+once the call returns the frontend reads the finished image with
+<code>get_framebuffer()</code> and presents it.</p>
 <h2 id="frame-start">Frame start<a class="headerlink" href="#frame-start" title="Permanent link">&para;</a></h2>
-<p><code>run_frame()</code> (<code>src/core/emulator.cpp:7270</code>) begins with two things that must
-happen before anything else: <code>service_esp_frame()</code>, which applies the replay
-gate and mirrors the ESP worker's state into the hot-path flag; and the rewind
-step modes, which return early if the debugger asked to go <em>backwards</em>.</p>
-<p>Then <code>frame_end = frame_cycle_ + timing_.master_cycles_per_frame</code>, and:</p>
+<p><code>run_frame()</code> (<code>src/core/emulator.cpp:7270</code>) opens with two steps that have to
+come before anything else. <code>service_esp_frame()</code> applies the replay gate and
+mirrors the ESP worker thread's state into the flag the hot path reads, and the
+rewind step modes get their chance to return early — if the debugger has asked
+to move <em>backwards</em>, no forward emulation may happen at all.</p>
+<p>The frame's end point is then computed as <code>frame_end = frame_cycle_ +
+timing_.master_cycles_per_frame</code>, and:</p>
 <pre><code class="language-cpp">if (!frame_in_progress_) { begin_new_frame(); frame_in_progress_ = true; }
 </code></pre>
-<p>That guard is load-bearing. The debugger pauses by returning from inside the
-loop below, so the next call must <strong>resume</strong> the half-executed frame. Re-running
-<code>begin_new_frame()</code> mid-frame rewinds the Copper's PC (its WAITs then never
-match again for the rest of the frame) and re-baselines the per-scanline change
-logs the compositor replays — the frame renders flat.</p>
-<p><code>begin_new_frame()</code> (<code>:6917</code>) does, in order:</p>
+<p>That guard is load-bearing, and the reason is the debugger. When the debugger
+pauses, it does so by returning from inside the loop below, part-way through a
+frame; the next call to <code>run_frame()</code> must therefore <strong>resume</strong> that frame
+rather than start a fresh one. Calling <code>begin_new_frame()</code> in the middle of a
+frame would rewind the Copper's program counter, so its WAITs would never match
+again for the rest of that frame, and would re-baseline the per-scanline change
+logs the compositor replays. The visible symptom is a frame that renders flat.</p>
+<p><code>begin_new_frame()</code> (<code>:6917</code>) does the following, in order:</p>
 <ol>
-<li>Take a rewind snapshot, if enabled. This is <em>why</em> snapshots are taken at
-   frame boundaries: the scheduler queue is empty here, so it does not need
-   serialising.</li>
-<li>Commit the frame-edge NextREG latches — NR 0x03 machine timing, NR 0x05
-   50/60 Hz and scandouble — re-deriving every timing surface if the effective
-   mode changed.</li>
-<li>Reset the frame-relative FUSE T-state counter (contention derives <code>(hc, vc)</code>
-   from it) after folding the outgoing frame into the monotonic base that
-   real-time tape playback uses.</li>
+<li>Take a rewind snapshot, if rewind is enabled. Frame boundaries are chosen
+   for this precisely because the scheduler queue is empty at that instant, so
+   it never has to be serialised.</li>
+<li>Commit the frame-edge NextREG latches — NR 0x03 machine timing, and NR 0x05
+   for 50/60 Hz and scandouble — re-deriving every timing surface if the
+   effective mode changed.</li>
+<li>Reset the frame-relative FUSE T-state counter, from which contention derives
+   its <code>(hc, vc)</code> position, after folding the outgoing frame into the monotonic
+   base that real-time tape playback runs off.</li>
 <li>Schedule the <strong>ULA frame interrupt</strong> at
-   <code>VideoTiming::frame_int_master_cycle_offset()</code> and the <strong>line interrupt</strong>
+   <code>VideoTiming::frame_int_master_cycle_offset()</code>, and the <strong>line interrupt</strong>
    via <code>reschedule_line_interrupt()</code>.</li>
-<li>Begin an RZX playback/record frame; notify the Copper of vsync.</li>
-<li>Baseline about fifteen per-scanline change logs and snapshots — palette,
-   Layer 2 scroll and bank, sprite attributes, ULA scroll/palette-select/Timex
-   mode/border, tilemap scroll and fetch state and NR 0x6B, the attribute mux,
-   NR 0x15, NR 0x68, NR 0x14, NR 0x4A, NR 0x1A, LoRes.</li>
-<li><code>schedule_frame_events()</code> — one <code>SCANLINE</code> event per line, plus one <code>VSYNC</code>.</li>
+<li>Begin an RZX playback or recording frame, and notify the Copper of vsync.</li>
+<li>Baseline about fifteen per-scanline change logs and snapshots: the palette,
+   Layer 2 scroll and bank, sprite attributes, ULA scroll, palette-select,
+   Timex mode and border, tilemap scroll and fetch state and NR 0x6B, the
+   attribute mux, NR 0x15, NR 0x68, NR 0x14, NR 0x4A, NR 0x1A and LoRes.</li>
+<li>Call <code>schedule_frame_events()</code>, which queues one <code>SCANLINE</code> event per line
+   plus a single <code>VSYNC</code>.</li>
 </ol>
 <h2 id="the-inner-loop">The inner loop<a class="headerlink" href="#the-inner-loop" title="Permanent link">&para;</a></h2>
 <pre><code class="language-cpp">while (clock_.get() &lt; frame_end) { … }
 </code></pre>
-<p>Each iteration:</p>
-<p><strong>Debugger checks first.</strong> Already paused, PC breakpoint hit, step-into, or
-run-to-cycle satisfied — any of them <code>return</code>s, leaving <code>frame_in_progress_</code>
-true and <code>frame_cycle_</code> untouched.</p>
-<p><strong>Tape ROM traps.</strong> Only while ROM is paged into slot 0: fast-load intercepts
-<code>LD-BYTES</code> at <code>0x0556</code> for TAP and TZX, and <code>--tape-save</code> intercepts
-<code>SA-BYTES</code> at <code>0x04C2</code> (with a ROM-identity check — other ROMs execute at that
-address too). A trap fires, charges a small cycle cost and <code>continue</code>s.</p>
-<p><strong><code>step_one_instruction()</code></strong> (<code>:7594</code>) — the one shared per-instruction body.
-It picks exactly one of four things to do:</p>
+<p>Each iteration does four things.</p>
+<p><strong>Debugger checks come first.</strong> If the machine is already paused, a PC
+breakpoint has been hit, a step-into is pending, or a run-to-cycle target has
+been reached, the function <code>return</code>s immediately — leaving <code>frame_in_progress_</code>
+true and <code>frame_cycle_</code> untouched, which is what the resume guard above relies
+on.</p>
+<p><strong>Then the tape ROM traps</strong>, which only apply while ROM is paged into slot 0.
+Fast loading intercepts <code>LD-BYTES</code> at <code>0x0556</code> for both TAP and TZX, and
+<code>--tape-save</code> intercepts <code>SA-BYTES</code> at <code>0x04C2</code>. The save trap additionally
+checks the ROM's identity, because other ROMs have perfectly ordinary code at
+that address. When a trap fires it charges a small cycle cost and <code>continue</code>s.</p>
+<p><strong>Then <code>step_one_instruction()</code></strong> (<code>:7594</code>), the one shared per-instruction
+body. It picks exactly one of four things to do:</p>
 <ul>
 <li>If the DMA genuinely holds the bus, run a burst of up to 16 bytes and charge
   the cycles to the CPU.</li>
-<li>If the CPU is <em>parked</em> (a load-only NEX with header PC = 0), advance a
-  NOP-sized step and execute nothing.</li>
-<li>If a NEX boot hold is counting down, likewise.</li>
-<li>Otherwise execute one Z80 instruction.</li>
+<li>If the CPU is <em>parked</em> — which happens for a load-only NEX whose header gives
+  PC = 0 — advance by a NOP-sized step and execute nothing.</li>
+<li>If a NEX boot hold is still counting down, likewise.</li>
+<li>Otherwise, execute one Z80 instruction.</li>
 </ul>
-<p>It also records the trace entry, ticks <code>Im2Controller</code>, polls the /INT line in
-both IM2 and pulse modes, counts RZX instructions, ticks real-time tape, and
-advances the master clock. It is shared verbatim with
-<code>execute_single_instruction()</code>: the debugger's single-step used to keep its own
-copy of this cluster, had silently lost <code>im2_.tick()</code> and both /INT polls, and
-so delivered no interrupts while stepping.</p>
-<p><strong>Data-breakpoint check</strong>, which returns early if one fired.</p>
-<p><strong><code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>:8045</code>) — the shared
-post-instruction cluster, in this order: the Copper stepped at 28 MHz
-granularity across the window the instruction consumed; the deferred CPU
-NextREG writes drained (so a same-register collision ends with the CPU's
-value, as in the VHDL); the NR 0x07 and NR 0x08 bit-6 commit edges; CTC, UART
-and MD6 ticks; the I/O-mode injectors; the NMI source pipeline and the /NMI
-falling edge; PSG ticking and audio integration; and finally
-<code>scheduler_.run_until(clock_.get())</code>.</p>
-<p>That last call is where the scheduled events actually fire — so <strong><code>on_scanline</code>
-and the interrupt callbacks run at instruction boundaries</strong>, at the first
-instruction that carries the clock past their timestamp.</p>
-<p><code>Emulator::on_scanline(line)</code> (<code>:9092</code>) renders nothing. It snapshots the
-previous row's fallback colour, ULA-enable, stencil/blend mode, transparent
-RGB, ULA clip, LoRes registers and border; latches the current row's tilemap
-scroll and fetch state; and re-tags every per-scanline change log with the new
-framebuffer row. Raw scanline is converted to framebuffer row by subtracting
-<code>video_timing_.vblank_top()</code>, which is per-machine.</p>
+<p>Around that choice it also records the trace entry, ticks <code>Im2Controller</code>,
+polls the /INT line in both IM2 and pulse modes, counts RZX instructions, ticks
+real-time tape playback, and advances the master clock. All of that is shared
+verbatim with <code>execute_single_instruction()</code>, and the sharing was not free: the
+debugger's single-step once kept its own copy of this cluster, silently lost
+<code>im2_.tick()</code> and both /INT polls, and so delivered no interrupts at all while
+you were stepping.</p>
+<p><strong>Then a data-breakpoint check</strong>, which returns early if one fired.</p>
+<p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>:8045</code>), the
+shared post-instruction cluster. Its order matters: the Copper is stepped at
+28 MHz granularity across the window the instruction consumed; the deferred CPU
+NextREG writes are drained, so that a same-register collision ends up holding
+the CPU's value exactly as the VHDL does; the NR 0x07 and NR 0x08 bit-6 commit
+edges are applied; CTC, UART and MD6 are ticked; the I/O-mode injectors run;
+the NMI source pipeline and the /NMI falling edge are handled; PSG ticking and
+audio integration happen; and last of all <code>scheduler_.run_until(clock_.get())</code>
+is called.</p>
+<p>That final call is where the scheduled events actually fire, and it has a
+consequence worth internalising: <strong><code>on_scanline</code> and the interrupt callbacks
+run at instruction boundaries</strong>, on the first instruction that carries the
+clock past their timestamp — not at the exact cycle they were scheduled for.</p>
+<p><code>Emulator::on_scanline(line)</code> (<code>:9092</code>) renders nothing at all. What it does is
+capture the previous row's fallback colour, ULA-enable, stencil and blend mode,
+transparent RGB, ULA clip, LoRes registers and border; latch the current row's
+tilemap scroll and fetch state; and re-tag every per-scanline change log with
+the new framebuffer row. The conversion from raw scanline to framebuffer row is
+a subtraction of <code>video_timing_.vblank_top()</code>, which differs per machine.</p>
 <h2 id="frame-end">Frame end<a class="headerlink" href="#frame-end" title="Permanent link">&para;</a></h2>
-<p>Out of the loop: the end-of-frame raster position is saved, <code>frame_cycle_</code>
-advances to <code>frame_end</code>, <code>frame_in_progress_</code> clears, and any boot hold counts
-down. The last visible row (255) gets its snapshots, since no <code>on_scanline</code>
-will fire for it.</p>
-<p>Then the picture is made — <strong>once, here</strong>:</p>
+<p>Once the loop exits, the end-of-frame raster position is saved, <code>frame_cycle_</code>
+advances to <code>frame_end</code>, <code>frame_in_progress_</code> clears, and any NEX boot hold
+counts down. The last visible row, 255, gets its snapshots taken here, because
+no <code>on_scanline</code> will ever fire for it.</p>
+<p>Only then is the picture actually made, and it is made <strong>once</strong>:</p>
 <pre><code class="language-cpp">renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
                        layer2_, &amp;sprites_, &amp;tilemap_);
 </code></pre>
-<p>Rendering is skipped in replay mode, and may be skipped when the frontend has
-hinted that nobody will consume this frame (<code>set_render_enabled(false)</code> — the
-Qt GUI at 400 % emulates far more frames than it presents). The hint is
-overridden when video recording or the debugger is active, and headless never
-sets it. A skipped frame still runs <code>run_sprite_side_effects()</code> and
-<code>advance_flash()</code>, because sprite collision and line-budget overtime are
-software-visible through port 0x303B and must be computed every emulated frame.</p>
-<p>Finally: the video recorder captures the frame, RZX recording closes it, and
-the phantom typist and keyboard auto-type/scan state machines tick once.</p>
+<p>Rendering is skipped entirely in replay mode, and may also be skipped when the
+frontend has hinted that nobody is going to look at this frame — the Qt GUI at
+400 % emulates far more frames than it presents, so <code>set_render_enabled(false)</code>
+lets it avoid compositing the ones it will drop. The hint is overridden while
+video recording or the debugger is active, and headless never sets it at all. A
+skipped frame still runs <code>run_sprite_side_effects()</code> and <code>advance_flash()</code>,
+because sprite collision and the line-budget overtime flag are readable by the
+emulated program through port 0x303B and so must be computed on every emulated
+frame regardless.</p>
+<p>The frame closes with the video recorder capturing it, RZX recording ending it,
+and the phantom typist and the keyboard auto-type and scan state machines
+ticking once.</p>
 <h2 id="what-the-frontend-gets">What the frontend gets<a class="headerlink" href="#what-the-frontend-gets" title="Permanent link">&para;</a></h2>
-<p>A complete 640 × 256 ARGB8888 image. Nothing incremental, nothing per-scanline
-— which is the reason the per-scanline change-log machinery in
-<a href="04-the-video-pipeline.html">2.4 The video pipeline</a> has to exist.</p>
+<p>A complete 640 × 256 ARGB8888 image — nothing incremental, nothing delivered
+per scanline. That single fact is the entire reason the per-scanline change-log
+machinery described in <a href="04-the-video-pipeline.html">2.4 The video pipeline</a> has
+to exist.</p>
 
 
 

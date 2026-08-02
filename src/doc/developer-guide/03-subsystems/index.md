@@ -1,27 +1,45 @@
 # 3. Subsystems
 
-JNEXT is organised the way the FPGA core is. Almost every directory under
-`src/` maps onto a group of VHDL modules in the ZX Spectrum Next core, and
-almost every C++ class carries the VHDL file and line numbers it was derived
-from in its header comment. That is not decoration: when the hardware's
-behaviour is ambiguous, the VHDL is the answer, and the citation is how you
-find it again.
+A ZX Spectrum Next is not one design but a couple of dozen cooperating ones,
+synthesised side by side in a single FPGA: a Z80 core, a memory arbiter, a ULA
+alongside three more video generators, three sound chips, a raster co-processor,
+an SD-card interface and a handful of serial devices. JNEXT keeps those pieces
+apart in the same places the hardware does. Each page in this chapter takes one
+of them and answers the same three questions in the same order: what it is on
+the real machine and what job it does there, how JNEXT models it, and what the
+code assumes that a reader would not guess.
 
-The table below is the map. It was built by reading `src/` and the VHDL
-citations the sources themselves carry, so it describes where code *is*, not
-where a plan once said it would go. Two things worth knowing before you use it:
-
-- **A C++ class is rarely a 1:1 port of one VHDL entity.** Much of the Next's
-  behaviour lives in `zxnext.vhd` — the 287 KB top level that wires everything
-  together — rather than in the subsystem entities. So `zxnext.vhd` appears in
-  most rows, and a subsystem's real specification is usually "entity X plus the
-  parts of `zxnext.vhd` that drive it".
-- **Directory boundaries follow the emulator, not the FPGA.** The Copper is a
-  video co-processor but lives in `src/peripheral/`; the IM2 interrupt fabric is
-  a `device/` entity in VHDL but lives in `src/cpu/` because that is who
-  consumes it.
+That the boundaries line up with the FPGA's is not a stylistic preference. The
+VHDL is JNEXT's specification, and a specification is only usable if you can
+find the part of it that answers your question. Because a C++ class covers
+roughly the same ground as the VHDL entity it was derived from, "where does the
+hardware decide this?" has a short answer — and almost every class names the
+VHDL file and line numbers it came from in its header comment. When behaviour is
+ambiguous the VHDL settles it, and the citation is how you find the passage
+again.
 
 ## The map
+
+The table below maps VHDL module to C++ home: what the hardware calls it, which
+class and directory implement it, and what that class is responsible for. It was
+built by reading `src/` and the citations the sources themselves carry, so it
+describes where code *is*, not where a plan once said it would go.
+
+Two things are worth knowing before you use it.
+
+**A C++ class is rarely a 1:1 port of one VHDL entity.** A great deal of the
+Next's behaviour lives in `zxnext.vhd` — the 287 KB top level that wires
+everything together — rather than in the subsystem entities it instantiates.
+That is why `zxnext.vhd` appears in most rows below, and why a subsystem's real
+specification is usually "entity X, plus the parts of `zxnext.vhd` that drive
+it".
+
+**Which directory a class lands in follows the emulator, not the FPGA's file
+tree.** The decomposition matches the hardware; the filing sometimes does not,
+because JNEXT files a class next to whoever consumes it. The Copper is a video
+co-processor but lives in `src/peripheral/`; the IM2 interrupt fabric is a
+`device/` entity in VHDL but lives in `src/cpu/`, because the CPU is what
+consumes its vectors.
 
 | VHDL module(s) | C++ home | Responsibility |
 |---|---|---|
@@ -67,8 +85,9 @@ where a plan once said it would go. Two things worth knowing before you use it:
 
 ## What is deliberately not emulated
 
-Some VHDL has no software counterpart because it describes the FPGA itself, or
-a physical wire that SDL and Qt replace:
+Some VHDL has no software counterpart at all, either because it describes the
+FPGA itself or because it drives a physical wire that SDL and Qt replace. Each
+omission below is a decision with a reason, not a gap waiting to be filled:
 
 | VHDL | Why not |
 |---|---|

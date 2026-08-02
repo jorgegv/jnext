@@ -1,21 +1,24 @@
 # 2. Architecture
 
 JNEXT is one large object surrounded by three interchangeable shells. The
-object is `Emulator`; the shells are the Qt GUI, the SDL-only frontend and the
-headless runner. Everything in this chapter is about that arrangement: how a
-process starts and picks a shell, what the core owns and how its parts reach
-each other, what happens during one frame, how pixels get to the framebuffer,
-and how the whole machine is serialised so it can be rewound.
+object is `Emulator`, and it is the entire emulated machine; the shells are the
+Qt GUI, the SDL-only frontend and the headless runner, and each of them does
+nothing but decide when to advance the machine and what to do with the picture
+it hands back. This chapter is about that arrangement — how a process starts
+and picks a shell, what the core owns and how its parts reach each other, what
+happens during one frame, how pixels get to the framebuffer, and how the whole
+machine is serialised so it can be rewound.
 
 ![System overview](../img/system-overview.svg)
 
 *The frontends, the emulator core and its subsystems. Only the platform, GUI
 and debugger layers see SDL or Qt.*
 
-Read [2.3 A frame, end to end](03-a-frame-end-to-end.md) first if you only
-read one page. It is the spine that the rest of the codebase hangs off, and
-almost every surprising thing in the video and debug code follows from the
-order of operations there.
+If you only read one page, read [2.3 A frame, end to end](03-a-frame-end-to-end.md).
+It is the spine that the rest of the codebase hangs off: the order in which
+that one function does its work is the reason for most of the surprising code
+in the video, debug and rewind subsystems, and a good deal of it looks
+arbitrary until you have seen the sequence.
 
 ## What is in this chapter
 

@@ -1,8 +1,20 @@
 # 4.2 Declared suites and pinned counts
 
-`test/unit-tests.conf` is the single source of truth for what `make unit-test`
-runs. Its own header says it plainly: *this file is a contract, not a
-convenience.*
+Most projects discover their test suites: a runner scans a build tree, executes
+whatever it finds, and adds up whatever those binaries print. JNEXT does the
+opposite. `test/unit-tests.conf` lists every unit suite by name and states, for
+each one, the exact number of rows it must report; the harness then proves that
+what ran matches what was declared, and refuses to produce a result when it
+does not.
+
+The reason is the one that runs through this whole chapter. A discovered test
+run can only tell you that everything it found passed, which says nothing about
+what it did not find — and the failure mode nobody notices is a suite or a row
+quietly disappearing, because that makes the run *greener*, not redder. Pinning
+the numbers turns the denominator into a deliberate, reviewable claim: the file
+says how much this project tests, a human edits it when that changes, and any
+drift between the claim and reality stops the run. The file's own header puts
+it more briefly — *this file is a contract, not a convenience.*
 
 ## A line
 
@@ -10,103 +22,112 @@ convenience.*
 <executable> <expected_rows> [args...]
 ```
 
-- `<executable>` — the binary under `<build>/test/`. A leading `?` marks an
-  **optional** suite: one a legitimate build configuration may not register at
-  all. The `debugger_*` suites exist only under `-DENABLE_DEBUGGER=ON` and
-  `app_config_test` only under `-DENABLE_QT_UI=ON`, so they are declared `?`.
-  An optional suite the build did not register prints a NOTICE and is counted
-  as not-run — skipped, but never silently.
-- `<expected_rows>` — the exact `Total:` the suite must report. It must be
-  `>= 1`; a pin of `0` is rejected outright at parse time, because a suite
-  pinned at 0 reporting 0 rows would pass, while the same suite printing no
-  summary at all is a hard failure. Zeroing a suite is precisely the silent
+- `<executable>` is the binary under `<build>/test/`. A leading `?` marks the
+  suite **optional**, meaning a legitimate build configuration may not register
+  it at all: the `debugger_*` suites exist only under `-DENABLE_DEBUGGER=ON`
+  and `app_config_test` only under `-DENABLE_QT_UI=ON`, so all of them are
+  declared with `?`. When an optional suite is absent, the harness prints a
+  NOTICE and counts it as not-run — skipped, but never silently.
+- `<expected_rows>` is the exact `Total:` the suite must report, and it must be
+  at least 1. A pin of `0` is rejected outright at parse time, because a suite
+  pinned at 0 that reports 0 rows would pass, whereas the same suite printing
+  no summary at all is a hard failure. Zeroing a suite is precisely the silent
   truncation this file exists to forbid.
-- `[args...]` — passed through. `@BUILD@` expands to the build directory, which
-  is how `fuse_z80_test` and `z80n_test` find their data.
+- `[args...]` are passed through to the binary. `@BUILD@` expands to the build
+  directory, which is how `fuse_z80_test` and `z80n_test` locate their data.
 - A `# expect: N` line pins **how many suites the file declares**.
 
-Blank lines and `#` comments are ignored. A duplicate entry is rejected.
+Blank lines and `#` comments are ignored, and a duplicate entry is rejected.
 
 ## Refuse to run — exit 2, before a single test executes
 
-`test/run-unit-tests.sh` cross-checks the manifest against what CMake actually
-registered, read from every `CTestTestfile.cmake` in the build tree (nested
-build trees with their own `CMakeCache.txt` are pruned, so a stray
-`build/gui-debug` cannot make everything look registered twice). It refuses
-when:
+Before anything is executed, `test/run-unit-tests.sh` cross-checks the manifest
+against what CMake actually registered. It reads that from every
+`CTestTestfile.cmake` in the build tree, pruning nested build trees that have
+their own `CMakeCache.txt` so that a stray `build/gui-debug` cannot make
+everything look as though it were registered twice. It refuses when:
 
-- a suite is **declared here but not registered** by CMake — a stale entry;
-- a suite is **registered by CMake but not declared here** — it would never
-  run;
-- a suite is **declared here but not built** — no binary at `<build>/test/<name>`;
-- a suite is **declared twice** — a duplicate runs it twice and inflates every
-  count;
-- one binary is **registered under two `add_test()` names**, which the manifest
-  cannot even express;
+- a suite is **declared here but not registered** by CMake, which means the
+  entry is stale;
+- a suite is **registered by CMake but not declared here**, in which case it
+  would never run;
+- a suite is **declared here but not built** — there is no binary at
+  `<build>/test/<name>`;
+- a suite is **declared twice**, since a duplicate runs it twice and inflates
+  every count that follows;
+- one binary is **registered under two `add_test()` names**, a shape the
+  manifest cannot even express;
 - the parser read fewer `add_test()` lines than the file contains, so it cannot
-  vouch for the list;
-- the `# expect: N` pin is absent, or disagrees with the number of declared
+  vouch for the list it just built;
+- the `# expect: N` pin is missing, or disagrees with the number of declared
   suites.
 
-That last one is the outside witness, and it is the subtle one. Without it,
-"N declared == N registered" is a tautology against the edit that matters most:
-delete a suite's `add_test()` **and** its manifest row, both sides shrink
-together, every count agrees, exit 0, and the suite is gone. A review round did
-exactly that with `log_gate_test` and got a clean green run.
+That last condition is the subtle one, and it is what makes the whole check
+more than bookkeeping. Without it, "N declared equals N registered" is a
+tautology against exactly the edit that matters most: delete a suite's
+`add_test()` **and** its manifest row, and both sides shrink together, every
+count agrees, the run exits 0, and the suite is simply gone. A review round did
+precisely that with `log_gate_test` and got a clean green run for it. The
+`# expect:` pin is the witness from outside that arithmetic.
 
 ## Fail — exit 1, after the run
 
-A suite fails when it:
+Once the suites have run, one fails when it:
 
-- reports a row count **other than the pinned one, in either direction**. Fewer
-  rows means rows vanished; more rows means the manifest has to be updated
-  deliberately;
-- prints **no parseable `Total:` line** — including when it exits 0, which
-  means it asserted nothing;
-- **crashes** or exits non-zero, or any row inside it failed;
-- **times out** (300 s per suite by default).
+- reports a row count **other than the pinned one, in either direction** —
+  fewer rows means rows vanished, and more rows means the manifest needs a
+  deliberate update;
+- prints **no parseable `Total:` line**, which is a failure even when the
+  binary exits 0, because a suite that prints no summary asserted nothing;
+- **crashes**, exits non-zero, or contains any row that failed;
+- **times out**, which by default means 300 s for a single suite.
 
-`make unit-test` exits non-zero when any suite fails, and the harness prints an
-explicit `UNIT TESTS FAILED` banner so the grand-total line — the one people
-copy into status reports — cannot be read as a pass.
+`make unit-test` exits non-zero whenever a suite fails, and the harness prints
+an explicit `UNIT TESTS FAILED` banner so that the grand-total line — the one
+people copy into status reports — cannot be mistaken for a pass.
 
 ## Why the number is edited by hand
 
-**Adding or removing a test row means editing its count in this file.** That
-edit is the point: the number is the project's claim about how much it tests,
-and it is meant to be made deliberately rather than adopted from whatever a
-binary happened to print.
+**Adding or removing a test row means editing that suite's count in this
+file.** The manual edit is the point rather than an inconvenience: the number
+is the project's claim about how much it tests, and a claim should be made
+deliberately, not adopted from whatever a binary happened to print this
+afternoon.
 
-The CMake side, by contrast, is *not* a second hand-kept list — it is read from
-the generated `CTestTestfile.cmake`. Only the counts are human.
+The CMake side is different, and deliberately so. It is *not* a second
+hand-kept list — it is read from the generated `CTestTestfile.cmake`. Only the
+counts are human.
 
 ## The three incidents
 
-All three happened within one day, and all three were found by accident:
+All three of these happened within a single day, and all three were found by
+accident rather than by any check:
 
 - **Task 32** — `cpu_int_pulse_test` and `cpu_z80n_im2_regressions_test` had
-  been compiled and `add_test()`'d for months, were absent from the hand-kept
-  list that then lived inside the Makefile, and had **never run**. 63 passing
-  assertions, uncounted.
-- **Task 35** — `make clean` deleted `build/test/rewind_test` and the suite
-  printed no row at all. Not a skip: the total went 57 → 56 in silence.
+  been compiled and registered with `add_test()` for months, but were absent
+  from the hand-kept list that then lived inside the Makefile, so they had
+  **never run**. That was 63 passing assertions nobody was counting.
+- **Task 35** — `make clean` deleted `build/test/rewind_test`, and the suite
+  then printed no row at all. It was not reported as a skip; the total simply
+  went from 57 to 56 in silence.
 - **Task 37** — a worktree with no `roms/` made `sd_rom_extractor_test` report
   8 rows when it has 26. Eighteen rows ceased to exist and the run still looked
   green.
 
 ## Other things the harness pins down
 
-The run is parallel, so the aggregator must survive a failing suite: each
-suite's exit code is captured with `|| rc=$?` in its subshell, because
-inheriting `set -e` once killed the subshell before the code was recorded and
-dropped every suite after the failure. Membership tests are in-shell hash
-lookups, never `printf ... | grep -q`, which under `pipefail` can report a
-present suite as absent about 4% of the time on a loaded box.
+The run is parallel, so the aggregator has to survive a failing suite. Each
+suite's exit code is captured with `|| rc=$?` inside its subshell, because
+inheriting `set -e` once killed that subshell before the code was recorded,
+which dropped every suite after the failure from the run. Membership tests are
+in-shell hash lookups rather than `printf ... | grep -q`, because under
+`pipefail` that pipeline can report a suite that is present as absent about 4%
+of the time on a loaded machine.
 
-`LC_ALL=C` is exported for the whole run: Qt's `QApplication` constructor calls
-`setlocale(LC_ALL, "")`, which localises `strerror()`, and a test's verdict must
-depend on the code rather than on who ran it. Finally, the harness clones the
+`LC_ALL=C` is exported for the whole run. Qt's `QApplication` constructor calls
+`setlocale(LC_ALL, "")`, which localises `strerror()`, and a test's verdict has
+to depend on the code rather than on who ran it. Finally, the harness clones the
 machine-wide SD master into a private per-run directory and points
-`JNEXT_TEST_SD_IMAGE` at it, so a concurrent manual `jnext` session writing back
-to the card cannot turn `sd_rom_extractor_test` red for reasons that have
-nothing to do with the code.
+`JNEXT_TEST_SD_IMAGE` at the copy, so that a concurrent manual `jnext` session
+writing back to the card cannot turn `sd_rom_extractor_test` red for reasons
+that have nothing to do with the code under test.

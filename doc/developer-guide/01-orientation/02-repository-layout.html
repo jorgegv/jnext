@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1727,6 +1795,10 @@
 
 
 <h1 id="12-repository-layout">1.2 Repository layout<a class="headerlink" href="#12-repository-layout" title="Permanent link">&para;</a></h1>
+<p>The point of this page is to turn a symptom into a path. A bug report about
+sprite scaling, a feature request for a new tape format, a failing screenshot —
+each of them lives somewhere specific, and the directory tree is regular enough
+that knowing the rule is usually faster than grepping.</p>
 <h2 id="top-level">Top level<a class="headerlink" href="#top-level" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1785,17 +1857,26 @@
 <td>CI and release workflows, plus the issue templates.</td>
 </tr>
 <tr>
+<td><code>.claude/</code></td>
+<td>The AI-assisted development apparatus: reusable agent definitions, task recipes, git hooks that enforce the branch rules, and process notes. Not part of the product, but it is where the project's conventions are made executable.</td>
+</tr>
+<tr>
 <td><code>.prompts/</code></td>
-<td>Daily working notes. Not part of the product.</td>
+<td>The daily task files, one per working day, kept as part of the project's record. Not part of the product.</td>
 </tr>
 </tbody>
 </table>
 <p>The root also carries <code>CMakeLists.txt</code>, a large self-documenting <code>Makefile</code>
-(run <code>make</code> with no target to list every target), <code>version.yaml</code> (the single
-source of truth for the version), <code>releases.yaml</code> (the allowlist gating public
-GitHub releases), and the two mkdocs configs — <code>mkdocs.yml</code> for the user guide,
-<code>mkdocs-devguide.yml</code> for this one.</p>
+(run <code>make</code> with no target and it lists every target it has), <code>version.yaml</code>
+(the single source of truth for the version), <code>releases.yaml</code> (the allowlist
+that gates public GitHub releases), <code>CLAUDE.md</code> (the project conventions), and
+the two mkdocs configs — <code>mkdocs.yml</code> for the user guide, <code>mkdocs-devguide.yml</code>
+for this one.</p>
 <h2 id="inside-src">Inside <code>src/</code><a class="headerlink" href="#inside-src" title="Permanent link">&para;</a></h2>
+<p>Most of these directories hold an emulated subsystem, and
+<a href="../03-subsystems/index.html">chapter 3</a> opens with a table mapping each one back
+to the VHDL it was derived from. The rest — the frontends, the debugger UI, the
+profiler — surround the emulation rather than being part of it.</p>
 <table>
 <thead>
 <tr>
@@ -1870,21 +1951,46 @@ GitHub releases), and the two mkdocs configs — <code>mkdocs.yml</code> for the
 </tr>
 </tbody>
 </table>
+<p>Three of those names describe features rather than hardware, and are worth
+knowing before you meet them in the code.</p>
+<p>The <strong>phantom typist</strong> in <code>src/input/</code> is what makes <code>--load game.tap</code> just
+work. Starting a tape means typing something first — <code>LOAD ""</code> at a 48K BASIC
+prompt, <code>ENTER</code> on the 128K and +3 loader menus — and the moment that prompt
+becomes ready differs by machine. Rather than guessing with a fixed delay, the
+typist watches the guest scanning its keyboard and starts typing once the ROM's
+input loop is demonstrably running.</p>
+<p><strong><code>AttributeMux</code></strong> in <code>src/memory/</code> exists for multicolour demos. The ULA
+re-reads a character cell's attribute byte on every one of its eight scanlines,
+so a program that rewrites attributes between those reads gets eight different
+colours down a single cell — the technique Nirvana-class engines are built on.
+Since JNEXT composites the frame at the end, those writes have to be logged and
+replayed per scanline to survive at all.</p>
+<p>The <strong>rewind ring buffer</strong> in <code>src/debug/</code> is the machinery behind the
+debugger's backwards execution: step back one instruction, jump back a frame,
+or drag a slider to a frame in recent history. It works by snapshotting the
+entire machine at every frame boundary into a ring of fixed-size slots, then
+restoring the nearest snapshot and replaying forward to the point you asked
+for. That is why the state-serialisation contract in <code>core/saveable.h</code> reaches
+into every subsystem: a rewind is only ever as faithful as the least complete
+<code>save_state()</code> in the machine.</p>
 <h2 id="which-directories-may-see-sdl-and-qt">Which directories may see SDL and Qt<a class="headerlink" href="#which-directories-may-see-sdl-and-qt" title="Permanent link">&para;</a></h2>
-<p>The rule the code actually keeps is that <strong>the emulation core knows about
-neither</strong>. <code>src/core</code>, <code>src/cpu</code>, <code>src/memory</code>, <code>src/video</code>, <code>src/audio</code>,
-<code>src/port</code> and <code>src/peripheral</code> contain no <code>#include</code> of SDL or Qt at all —
-only prose comments naming them. That is what makes the same <code>Emulator</code> usable
-from a window, from a Qt widget and from a headless loop.</p>
-<p>Qt is confined to <code>src/gui</code> and <code>src/debugger</code>. SDL is owned by
-<code>src/platform</code> — and, honestly, by four headers in <code>src/input</code>:
-<code>keyboard.h</code>, <code>gamepad_host.h</code>, <code>joystick_dispatcher.h</code> and
-<code>mouse_dispatcher.h</code> all include <code>&lt;SDL2/SDL.h&gt;</code>. The keyboard case is
-structural rather than incidental: <code>Keyboard::set_key()</code> takes an
-<code>SDL_Scancode</code>, so SDL's scancode enum is the project's host-key vocabulary
-and the Qt frontend translates its own key events into it. Callbacks crossing
-back the other way — <code>on_input_state_restored</code>, <code>on_joystick_source_changed</code> —
-carry no SDL or Qt type in their signature.</p>
+<p>There is one architectural boundary in this tree that is worth stating
+explicitly, because breaking it is easy and the consequence arrives late: <strong>the
+emulation core knows about neither SDL nor Qt</strong>. <code>src/core</code>, <code>src/cpu</code>,
+<code>src/memory</code>, <code>src/video</code>, <code>src/audio</code>, <code>src/port</code> and <code>src/peripheral</code> contain
+no <code>#include</code> of either — only prose comments naming them. That is precisely
+what makes the same <code>Emulator</code> object usable from an SDL window, from a Qt
+widget and from a headless loop with no display at all, and therefore what
+makes the unit suites and the regression suite possible.</p>
+<p>Qt is confined to <code>src/gui</code> and <code>src/debugger</code>. SDL is owned by <code>src/platform</code>
+— and, to be honest about it, by four headers in <code>src/input</code>: <code>keyboard.h</code>,
+<code>gamepad_host.h</code>, <code>joystick_dispatcher.h</code> and <code>mouse_dispatcher.h</code> all include
+<code>&lt;SDL2/SDL.h&gt;</code>. The keyboard case is structural rather than accidental.
+<code>Keyboard::set_key()</code> takes an <code>SDL_Scancode</code>, which makes SDL's scancode enum
+the project's vocabulary for host keys; the Qt frontend translates its own key
+events into that vocabulary rather than introducing a second one. Traffic in
+the other direction stays clean: callbacks such as <code>on_input_state_restored</code>
+and <code>on_joystick_source_changed</code> carry no SDL or Qt type in their signature.</p>
 
 
 

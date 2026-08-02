@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1751,31 +1819,41 @@
 <h1 id="62-branches-worktrees-and-review">6.2 Branches, worktrees and review<a class="headerlink" href="#62-branches-worktrees-and-review" title="Permanent link">&para;</a></h1>
 <h2 id="one-branch-per-independent-change">One branch per independent change<a class="headerlink" href="#one-branch-per-independent-change" title="Permanent link">&para;</a></h2>
 <p>Never edit <code>main</code> directly. Every change gets a dedicated branch off current
-<code>main</code>, and every <em>independent</em> change gets its own — so that two people (or
-two agents) working in parallel cannot trash each other's tree.</p>
+<code>main</code>, and every <em>independent</em> change gets its own, so that two people — or two
+agents — working in parallel cannot trash each other's tree.</p>
 <h2 id="worktrees-are-the-practical-mechanism">Worktrees are the practical mechanism<a class="headerlink" href="#worktrees-are-the-practical-mechanism" title="Permanent link">&para;</a></h2>
-<p><code>git worktree</code> gives each branch its own checkout directory sharing one
-repository, which is what makes "one branch per change" workable in practice:
-you can have a feature branch building while a reviewer's branch runs the
-regression suite next to it, with no stashing and no switching.</p>
-<p>There is one project convention about them, and it is not negotiable:
-<strong>worktrees live outside the repository directory</strong>, at
-<code>/home/jorgegv/src/spectrum/jnext-worktrees/&lt;name&gt;</code>. Not inside it, not even
-git-ignored. The reason is mechanical rather than aesthetic — anything that
-walks the repository's file list walks the worktrees too. The traceability
-generator does a <code>find</code> for <code>CMakeLists.txt</code> across the whole tree; several
-gates read <code>git status</code>; an untracked multi-megabyte tree inside the checkout is
-a trap for all of them, and the wasted I/O loads the machine that the timing-
-sensitive tests are trying to run on.</p>
-<p>Two practical notes:</p>
+<p>Not everyone uses <code>git worktree</code>, so it is worth a sentence on what it is before
+the rules about it. A worktree is a second (or third, or tenth) checkout
+directory belonging to the <em>same</em> repository: each one has its own working files
+and its own checked-out branch, while sharing a single object store and history.
+Where <code>git checkout</code> swaps one directory between branches, worktrees give each
+branch a directory of its own.</p>
+<p>That is what makes "one branch per independent change" workable in practice
+rather than merely aspirational. You can have a feature branch compiling in one
+directory while a reviewer's branch runs the regression suite in another, with
+no stashing and no switching, and without either of them seeing the other's
+half-finished edits.</p>
+<p>There is one project convention about where they go, and it is not negotiable:
+<strong>worktrees live outside the repository directory</strong> — not inside it, not even
+git-ignored. The convention is a sibling directory next to the repository
+checkout, holding one subdirectory per worktree; if your clone is at
+<code>&lt;somewhere&gt;/jnext</code>, the worktrees go in <code>&lt;somewhere&gt;/jnext-worktrees/&lt;name&gt;</code>.</p>
+<p>The reason is mechanical rather than aesthetic. Anything that walks the
+repository's file list walks the worktrees too, and several things here do: the
+traceability generator runs a <code>find</code> for <code>CMakeLists.txt</code> across the whole tree,
+and a number of gates read <code>git status</code>. An untracked multi-megabyte tree sitting
+inside the checkout is a trap for all of them, and the wasted I/O loads the very
+machine that the timing-sensitive tests are trying to run on.</p>
+<p>Two practical notes on working with them:</p>
 <ul>
-<li><strong>Run <code>make worktree-bootstrap</code> in a fresh worktree.</strong> <code>git worktree add</code>
-  does <em>not</em> populate submodules, and <code>roms/</code> is git-ignored, so a new worktree
-  can have an empty <code>third_party/spdlog</code> and no SD-card image. The target
-  reports what is missing and how to get it. It only reports — it never mutates
-  your checkout.</li>
-<li>Prefer <code>git -C /abs/path &lt;cmd&gt;</code> over <code>cd</code>-ing into a worktree. It keeps the
-  working directory stable across commands and avoids shell-state surprises.</li>
+<li><strong>Run <code>make worktree-bootstrap</code> in a fresh worktree.</strong> <code>git worktree add</code> does
+  <em>not</em> populate submodules, and <code>roms/</code> is git-ignored, so a brand-new worktree
+  can have an empty <code>third_party/spdlog</code> and no SD-card image — and will fail in
+  confusing ways as a result. The target reports what is missing and how to get
+  it. It only reports; it never mutates your checkout.</li>
+<li>Prefer <code>git -C &lt;path&gt; &lt;cmd&gt;</code> over <code>cd</code>-ing into a worktree. It keeps your
+  working directory stable across commands and avoids the shell-state surprises
+  that come from half-remembering which directory you are in.</li>
 </ul>
 <h2 id="the-full-triplet-green-on-the-branch">The full triplet, green, on the branch<a class="headerlink" href="#the-full-triplet-green-on-the-branch" title="Permanent link">&para;</a></h2>
 <p>Before review, on the branch, in this order:</p>
@@ -1785,44 +1863,47 @@ $ ./build/test/fuse_z80_test build/test/fuse       # 1356/1356
 $ JNEXT_TEST_JOBS=4 make regression
 </code></pre>
 <p>No FAIL anywhere, and SKIPs only where they are already declared.</p>
-<p><code>make clean</code> first is deliberate. The regression suite runs
-<code>build/gui-release/jnext</code>, and a stale binary gives both false FAILs (it lacks
-a fix the test expects) and — much worse — false PASSes (it lacks the bug the
-test would have caught). Rebuilding makes "the tests ran against this source"
-true by construction rather than by discipline. ccache makes it cheap; see
+<p>Starting with <code>make clean</code> is deliberate, not caution. The regression suite runs
+<code>build/gui-release/jnext</code>, and a stale binary produces both false FAILs — it
+lacks a fix the test expects — and, much worse, false PASSes, because it also
+lacks the bug the test would have caught. Rebuilding first makes "the tests ran
+against this source" true by construction rather than by discipline, and ccache
+makes it cheap enough that there is no reason to skip it; see
 <a href="../05-building/02-build-configurations.html">5.2</a>.</p>
 <p><strong><code>JNEXT_TEST_JOBS=4</code> stays on every regression run.</strong> It is not politeness
-towards the machine. Parts of the suite are real-time-paced — an audio-underrun
-test reports underruns when the box is loaded, and a paused-emulator screenshot
-row takes about 55 s against a 60 s timeout — so raising in-suite concurrency
-makes the suite intermittently <em>lie</em>. That was measured and rejected. If you
-want more parallelism, run several branches in several build directories at
-once, each capped at 4.</p>
+towards the machine. Parts of the suite are real-time-paced: an audio-underrun
+test genuinely reports underruns when the box is loaded, and a paused-emulator
+screenshot row takes about 55 s against a 60 s timeout. Raising in-suite
+concurrency therefore does not make the suite faster so much as make it
+intermittently <em>lie</em>, which was measured and rejected. If you want more
+parallelism, run several branches in several build directories at once, each one
+still capped at 4.</p>
 <h2 id="independent-review">Independent review<a class="headerlink" href="#independent-review" title="Permanent link">&para;</a></h2>
 <p><strong>Never self-review.</strong> The review is done by an agent or a person who did not
 write the change, working in their own worktree — never the author's.</p>
-<p>The verdict is binary: <strong>APPROVE or REJECT</strong>. There is no
-"approve with nits" — a nit either matters, in which case it is a REJECT with
-the reason cited, or it does not, in which case it is not a verdict. On REJECT,
-fix and re-review.</p>
-<p>The reason this rule is absolute is empirical: on this project a series of
-defects were caught by review and <em>none</em> of them by the green test suite that
-had already run over them. A passing suite proves the tests that exist pass; it
-proves nothing about the tests that should exist. A reviewer's most useful move
-is to revert the fix and confirm the new tests actually fail without it — which
-is exactly the discriminative-test requirement from
+<p>The verdict is binary: <strong>APPROVE or REJECT</strong>. There is no "approve with nits",
+because a nit either matters, in which case it is a REJECT with the reason
+cited, or it does not, in which case it is not part of a verdict. On REJECT, fix
+and re-review.</p>
+<p>The reason this rule is absolute is empirical rather than philosophical. On this
+project a series of real defects were caught by review and <em>none</em> of them by the
+green test suite that had already run over the same code. That is not a
+criticism of the suite: a passing suite proves that the tests which exist pass,
+and it can say nothing at all about the tests that should exist. A reviewer's
+single most useful move is to revert the fix and confirm that the new tests
+actually fail without it — which is the discriminative-test requirement from
 <a href="01-issues-and-pull-requests.html">6.1</a>, checked rather than believed.</p>
 <h2 id="merge-then-bump">Merge, then bump<a class="headerlink" href="#merge-then-bump" title="Permanent link">&para;</a></h2>
 <p>On a green APPROVE, merge — one branch at a time. If a merge conflicts, the
-person who merged <em>last</em> fixes it, on their own branch.</p>
+person who merged <em>last</em> is the one who fixes it, on their own branch.</p>
 <p><strong>Immediately after each merge to <code>main</code>, run <code>make bump-patch</code>.</strong> Every change
-that lands gets its own patch bump; it is per merge, never batched. That is
-separate from the deliberate minor/major release flow in
+that lands gets its own patch bump, per merge and never batched. That is a
+separate thing from the deliberate minor/major release flow described in
 <a href="../05-building/03-packaging-and-release.html">5.3</a>.</p>
-<p>Finally: <strong>never push to origin without explicit authorisation.</strong> Local
-commits, merges, rebases and bump tags on your own branches are fine and stay
+<p>Finally: <strong>never push to origin without explicit authorisation.</strong> Local commits,
+merges, rebases and bump tags on your own branches are all fine, and they stay
 local until the owner says to push. The one standing exception is the merge
-commit of a landing pull request, for the GitHub reason in
+commit of a landing pull request, for the GitHub reason given in
 <a href="01-issues-and-pull-requests.html">6.1</a>.</p>
 
 

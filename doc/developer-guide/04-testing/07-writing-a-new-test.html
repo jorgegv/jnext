@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1310,6 +1378,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#the-rule-everything-else-serves" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The rule everything else serves
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#where-suites-live" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1325,17 +1404,6 @@
     <span class="md-ellipsis">
       
         The row idiom
-      
-    </span>
-  </a>
-  
-</li>
-      
-        <li class="md-nav__item">
-  <a href="#the-rule-that-matters-most" class="md-nav__link">
-    <span class="md-ellipsis">
-      
-        The rule that matters most
       
     </span>
   </a>
@@ -1771,61 +1839,71 @@
 
 
 <h1 id="47-writing-a-new-test">4.7 Writing a new test<a class="headerlink" href="#47-writing-a-new-test" title="Permanent link">&para;</a></h1>
-<p>The authority for this is <code>doc/testing/UNIT-TEST-PLAN-EXECUTION.md</code>. Read it
-before authoring, rewriting or un-skipping any subsystem test plan: it documents
-the VHDL-as-oracle rule, the pass/fail/skip distinction, the 1:1:1
-emulator-fix-plus-un-skip process, the mandatory independent review, and the
-coverage-theatre audit all of it exists to prevent. This page is the practical
-walkthrough, not a replacement.</p>
+<p>The authority for this is <code>doc/testing/UNIT-TEST-PLAN-EXECUTION.md</code>, and you
+should read it before authoring, rewriting or un-skipping any subsystem test
+plan. It documents the VHDL-as-oracle rule, the pass/fail/skip distinction, the
+1:1:1 emulator-fix-plus-un-skip process, the mandatory independent review, and
+the coverage-theatre audit that all of it exists to prevent. This page is the
+practical walkthrough alongside it, not a replacement for it.</p>
+<h2 id="the-rule-everything-else-serves">The rule everything else serves<a class="headerlink" href="#the-rule-everything-else-serves" title="Permanent link">&para;</a></h2>
+<p><strong>A test derives from the specification, never from the existing C++.</strong> That is
+the single most important idea in this chapter, and it is worth stating as an
+idea before it turns into a procedure. The specification is the VHDL at
+<code>cores/zxnext/src/</code> in the FPGA repository — it is what the hardware does, and
+therefore what the emulator is supposed to do. The emulator's current behaviour
+is not evidence of anything; it is the thing under test. Read <code>src/</code> only to
+discover the public API surface you will drive.</p>
+<p>If an assertion is written by observing what the emulator does today and
+writing that down, it will pass forever and prove nothing, and it will do so
+while adding a row to the coverage count. That is what makes the mistake
+expensive: it produces something that looks exactly like a test.</p>
+<p>The corollary follows directly. <strong>A failing unit test does not mean the test is
+wrong.</strong> The default assumption is the other way round — that the emulator is
+wrong and the test is a correct reading of the VHDL — and only an independent
+review that compares the assertion, the citation and the C++ may change a test.
+When you read the VHDL, read the surrounding process and not just the cited
+line: an oracle can cite a perfectly real line that is nevertheless unreachable
+under the stimulus your test applies. That is how several "confirmed emulator
+bugs" each survived four reviews before anyone noticed.</p>
 <h2 id="where-suites-live">Where suites live<a class="headerlink" href="#where-suites-live" title="Permanent link">&para;</a></h2>
-<p>One directory per subsystem under <code>test/</code> — <code>test/copper/copper_test.cpp</code>,
+<p>There is one directory per subsystem under <code>test/</code> — <code>test/copper/copper_test.cpp</code>,
 <code>test/mmu/mmu_test.cpp</code>, and so on. Several subsystems also have a companion
-<code>*_integration_test</code> driving the same area through a more assembled machine.
-Two ESP-01 suites live under <code>src/esp01/test/</code>, declared by that module's own
-CMakeLists.</p>
+<code>*_integration_test</code> that drives the same area through a more fully assembled
+machine. The two ESP-01 suites are the exception to the layout: they live under
+<code>src/esp01/test/</code> and are declared by that module's own CMakeLists.</p>
 <h2 id="the-row-idiom">The row idiom<a class="headerlink" href="#the-row-idiom" title="Permanent link">&para;</a></h2>
-<p>Suites are standalone binaries with a small local harness — no GoogleTest.
-<code>test/copper/copper_test.cpp</code> is the canonical reference:</p>
+<p>Suites are standalone binaries with a small local harness — there is no
+GoogleTest anywhere in the project. <code>test/copper/copper_test.cpp</code> is the
+canonical reference, and the two functions that matter are:</p>
 <pre><code class="language-cpp">void check(const char* id, const char* desc, bool cond, const std::string&amp; detail = {});
 void skip (const char* id, const char* reason);
 </code></pre>
-<p><code>check()</code> bumps the totals and, on failure, prints <code>FAIL &lt;id&gt;: &lt;desc&gt;</code> — the
-one output format every tool in the project relies on. <code>skip()</code> records the row
-and prints it in the trailing summary <strong>without touching the pass/fail
+<p><code>check()</code> bumps the totals and, on failure, prints <code>FAIL &lt;id&gt;: &lt;desc&gt;</code>, which
+is the one output format every tool in the project relies on. <code>skip()</code> records
+the row and prints it in the trailing summary <strong>without touching the pass/fail
 counters</strong>. Every suite ends with the line the unit harness parses:</p>
 <pre><code>Total:   82  Passed:   82  Failed:    0  Skipped:    0
 </code></pre>
-<p>Four rules about the ID:</p>
+<p>Four rules govern the ID:</p>
 <ul>
 <li><strong>It must be a string literal.</strong> An ID assembled at run time is invisible to
-  every source reader and vanishes from the traceability matrix.</li>
+  every reader of the source and vanishes from the traceability matrix.</li>
 <li><strong>It must be globally unique.</strong> <code>traceability-dup-ids.pl</code> refuses when two
   suites assert the same ID.</li>
-<li>The description is what the matrix publishes. Write one worth reading.</li>
-<li><strong>Cite the VHDL in the same call</strong> — file and line range. A citation written
-  only in the plan doc still works, but the row-local one is what gets validated
-  against the real FPGA tree, and a disagreement between the two is reported for
-  a human to resolve.</li>
+<li>The description is what the matrix publishes to everyone else, so write one
+  worth reading.</li>
+<li><strong>Cite the VHDL in the same call</strong>, with file and line range. A citation
+  written only in the plan doc still works, but the row-local one is what gets
+  validated against the real FPGA tree, and a disagreement between the two is
+  reported for a human to resolve.</li>
 </ul>
-<p><code>skip()</code> means the facility does not exist in <code>src/</code> at all, or is genuinely not
-observable through the public API. It does not mean the assertion is awkward.
-<code>check(x, true, ...)</code> as a placeholder is banned outright — it pollutes the pass
-count and can pin a wrong value once the facility lands. The assertion lint
-rejects it, along with <code>|| true</code> and <code>a == b || a != b</code>; it matches raw text, so
-those substrings must not appear in comments either.</p>
-<h2 id="the-rule-that-matters-most">The rule that matters most<a class="headerlink" href="#the-rule-that-matters-most" title="Permanent link">&para;</a></h2>
-<p><strong>A test derives from the specification, never from the existing C++.</strong> The
-specification is the VHDL at <code>cores/zxnext/src/</code> in the FPGA repository; read
-<code>src/</code> only to discover the public API surface. If your assertion matches
-whatever the emulator happens to do today, you have written a tautology that
-will pass forever and prove nothing.</p>
-<p>The corollary: <strong>a failing unit test does not mean the test is wrong.</strong> The
-default assumption is that the emulator is wrong and the test is a correct
-reading of the VHDL, and only an independent review comparing assertion,
-citation and C++ may change a test. Read the surrounding VHDL process, not just
-the cited line — an oracle can cite a real line and still be unreachable under
-the stimulus the test applies, which is how several "confirmed emulator bugs"
-survived four reviews each.</p>
+<p>Use <code>skip()</code> when the facility does not exist in <code>src/</code> at all, or is genuinely
+not observable through the public API. It does not mean that the assertion is
+awkward to write. Writing <code>check(x, true, ...)</code> as a placeholder is banned
+outright, because it pollutes the pass count and can end up pinning a wrong
+value once the facility does land. The assertion lint rejects it, along with
+<code>|| true</code> and <code>a == b || a != b</code>; it matches raw text, so those substrings must
+not appear in comments either.</p>
 <h2 id="registering-and-pinning-it">Registering and pinning it<a class="headerlink" href="#registering-and-pinning-it" title="Permanent link">&para;</a></h2>
 <p>In <code>test/CMakeLists.txt</code>:</p>
 <pre><code class="language-cmake">add_executable(mysub_test mysub/mysub_test.cpp)
@@ -1833,44 +1911,47 @@ target_link_libraries(mysub_test PRIVATE jnext_peripheral jnext_port)
 target_include_directories(mysub_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME mysub_tests COMMAND mysub_test)
 </code></pre>
-<p>Link the narrowest set of libraries that works. The <code>add_test()</code> name is
-conventionally the binary name plus <code>s</code>; the harness reads the <strong>binary path</strong>,
-not the test name.</p>
-<p>Then add the suite to <code>test/unit-tests.conf</code> with its exact row total and bump
-that file's <code># expect: N</code> suite pin. Registering in CMake without declaring it
-here — or the reverse — makes the harness refuse to run; see
-<a href="02-declared-suites-and-pinned-counts.html">4.2</a> for every refusal and failure
-condition. <strong>Adding or removing a row later means editing that number by hand</strong>,
-and the harness fails in both directions, so you cannot skip it.</p>
+<p>Link the narrowest set of libraries that works. By convention the <code>add_test()</code>
+name is the binary name plus an <code>s</code>, but nothing depends on that — the harness
+reads the <strong>binary path</strong>, not the test name.</p>
+<p>Then add the suite to <code>test/unit-tests.conf</code> with its exact row total, and bump
+that file's <code># expect: N</code> suite pin. Registering it in CMake without declaring
+it in the manifest, or the reverse, makes the harness refuse to run;
+<a href="02-declared-suites-and-pinned-counts.html">4.2</a> lists every refusal and failure
+condition. <strong>Adding or removing a row later means editing that number by
+hand</strong>, and since the harness fails in both directions you cannot quietly skip
+that step.</p>
 <p>If the subsystem has a <code>*-TEST-PLAN-DESIGN.md</code>, planned-but-unimplemented rows
-belong there — that is where the traceability generator reads them from, and
-they emit as <code>missing</code>, an honest backlog.</p>
+belong there. That is where the traceability generator reads them from, and
+they emit as <code>missing</code> — an honest backlog rather than an invisible one.</p>
 <h2 id="before-anyone-reviews-it-mutation-test-your-own-rows">Before anyone reviews it: mutation-test your own rows<a class="headerlink" href="#before-anyone-reviews-it-mutation-test-your-own-rows" title="Permanent link">&para;</a></h2>
-<p>Break the thing the row protects, rebuild, and confirm the row <strong>fails</strong>. Then
-revert the mutation from a backup copy of the file — never with <code>git checkout</code>,
-which is how a real fix gets thrown away along with the mutation. Mutate the
-behavioural branch you actually added, not a shared helper: reverting a helper
-turns everything red and proves nothing about your row.</p>
-<p>A row that cannot be made to fail is not a test. Not a formality — the project's
-history contains six subsystem plans reporting "100% passing" while carrying
-tautologies, anti-tests that pinned wrong behaviour as expected, and 34 plan
-rows silently dropped from a 95-row plan.</p>
+<p>Break the thing your row protects, rebuild, and confirm that the row <strong>fails</strong>.
+Then revert the mutation from a backup copy of the file, never with
+<code>git checkout</code>, which is how a real fix gets thrown away along with the
+mutation. Mutate the behavioural branch you actually added rather than a shared
+helper: reverting a helper turns everything red at once and proves nothing
+about your row in particular.</p>
+<p>A row that cannot be made to fail is not a test. This is not a formality — the
+project's own history includes six subsystem plans reporting "100% passing"
+while carrying tautologies, anti-tests that pinned wrong behaviour as the
+expected result, and 34 plan rows silently dropped from a 95-row plan.</p>
 <h2 id="then-never-review-your-own-work">Then: never review your own work<a class="headerlink" href="#then-never-review-your-own-work" title="Permanent link">&para;</a></h2>
 <p>Every change gets an independent review by someone — or some agent — that did
-not write it, working in its own worktree. The verdict is binary, APPROVE or
-REJECT. The reviewer samples VHDL citations at random and traces the stimulus
-through the cited process, classifies every failure (harness bug / wrong
-expected value / real emulator bug / plan bug), checks that each <code>skip()</code> is
-genuinely unreachable, and counts rows against the plan. Missing rows are the
-canonical failure mode.</p>
+not write it, working in its own worktree, and the verdict is binary: APPROVE
+or REJECT. The reviewer samples VHDL citations at random and traces the
+stimulus through the cited process, classifies every failure into one of four
+buckets (harness bug, wrong expected value, real emulator bug, plan bug),
+checks that each <code>skip()</code> is genuinely unreachable, and counts rows against the
+plan. Missing rows are the canonical failure mode, which is why the count is
+checked rather than assumed.</p>
 <h2 id="running-it">Running it<a class="headerlink" href="#running-it" title="Permanent link">&para;</a></h2>
 <pre><code class="language-console">$ make unit-test-build &amp;&amp; ./build/test/mysub_test
 $ make unit-test
 </code></pre>
 <p><code>make unit-test</code> regenerates the traceability matrix and fails if the committed
-copy is stale, so commit the regenerated file with your change. If the change
-touches rendering or CLI behaviour, run the full regression too — see
-<a href="01-the-test-triplet.html">4.1</a>.</p>
+copy is stale, so commit the regenerated file together with your change. If the
+change touches rendering or CLI behaviour, run the full regression as well —
+see <a href="01-the-test-triplet.html">4.1</a>.</p>
 
 
 

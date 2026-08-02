@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1749,87 +1817,95 @@
 
 
 <h1 id="41-the-test-triplet">4.1 The test triplet<a class="headerlink" href="#41-the-test-triplet" title="Permanent link">&para;</a></h1>
-<p>Every change that lands on <code>main</code> clears three layers. They are called the
-triplet, and the commands are:</p>
+<p>Every change that lands on <code>main</code> has to clear three layers of testing. The
+project calls them the triplet, and running them takes four commands:</p>
 <pre><code class="language-console">$ make clean &amp;&amp; make gui-release
 $ make unit-test
 $ ./build/test/fuse_z80_test build/test/fuse
 $ JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh
 </code></pre>
-<p>No FAIL anywhere, in any layer. Skips are acceptable only where the suite
+<p>There must be no FAIL in any layer. Skips are acceptable only where the suite
 already declares them.</p>
 <h2 id="rebuild-first-always">Rebuild first — always<a class="headerlink" href="#rebuild-first-always" title="Permanent link">&para;</a></h2>
-<p>The build step is not a courtesy. <code>make regression</code> declares <code>unit-test-build</code>,
-<code>gui-release</code> and <code>sdl-release</code> as real prerequisites, because the suite runs
-those exact binaries: <code>build/gui-release/jnext</code> for almost every row,
-<code>build/sdl-release/jnext</code> for the one row that drives the SDL-only frontend
-(<code>SdlApp</code> is instantiated only when <code>ENABLE_QT_UI=OFF</code>), and
-<code>build/test/rewind_test</code>, which <code>make clean</code> deletes. Building them from the
-target makes "the tests ran against this source" true by construction instead
-of by discipline. The rule was added after a 14-hour-old binary produced two
-bogus FAILs immediately before a version bump — and a stale binary is worse in
-the other direction too, since it can also lack the bug a test would have
-caught.</p>
-<p>In a fresh agent worktree run <code>make worktree-bootstrap</code> first: <code>roms/*</code> is
-git-ignored, so a new checkout has no SD-card image and cannot run the suites
-at all.</p>
+<p>The build at the top is not a courtesy, and it is not left to your good habits
+either. <code>make regression</code> declares <code>unit-test-build</code>, <code>gui-release</code> and
+<code>sdl-release</code> as real prerequisites, because the suite runs those exact
+binaries. Most rows run <code>build/gui-release/jnext</code>; the four rows that exercise
+the SDL-only frontend need <code>build/sdl-release/jnext</code> instead, because <code>SdlApp</code>
+is instantiated only in a build configured with <code>ENABLE_QT_UI=OFF</code>; and the
+<code>rewind-func</code> row runs <code>build/test/rewind_test</code>, which <code>make clean</code> deletes.
+Building all of them from the target is what makes "the tests ran against this
+source" true by construction rather than by discipline.</p>
+<p>The rule was written after a 14-hour-old binary produced two bogus FAILs
+immediately before a version bump. Staleness cuts the other way too, and that
+direction is worse: an old binary can equally fail to <em>contain</em> the bug a test
+would have caught, and then it reports a pass it never earned.</p>
+<p>In a fresh agent worktree, run <code>make worktree-bootstrap</code> before anything else.
+<code>roms/*</code> is git-ignored, so a new checkout has no SD-card image and cannot run
+the suites at all.</p>
 <h2 id="layer-1-the-unit-suites">Layer 1 — the unit suites<a class="headerlink" href="#layer-1-the-unit-suites" title="Permanent link">&para;</a></h2>
-<p><code>make unit-test</code> runs exactly the suites declared in <code>test/unit-tests.conf</code>,
-in parallel, each bounded by a 300 s timeout. That manifest currently declares
-<strong>90 suites totalling 6610 rows</strong> — the suite count is pinned in the file's own
-<code># expect: 90</code> line, and the row total is the sum of the per-suite counts in
-that same file. <code>test/SUBSYSTEM-TESTS-STATUS.md</code>, the committed dashboard,
-reports the same 6610.</p>
-<p>These suites link the emulator libraries directly and drive classes through
-their public API. They are hermetic — only <code>sd_rom_extractor_test</code> reads the SD
-image — and they are where VHDL compliance is asserted row by row. What they
-cannot catch is anything that only exists once the whole machine is assembled:
-they render no frame, open no window, and drive neither frontend.</p>
-<p><code>make unit-test</code> also pulls in the cheap structural gates ahead of the build:
+<p><code>make unit-test</code> does not go looking for test binaries. It runs exactly the
+suites declared in <code>test/unit-tests.conf</code>, in parallel, each one bounded by a
+300 s timeout. That manifest currently declares <strong>90 suites totalling 6610
+rows</strong>: the suite count is pinned in the file's own <code># expect: 90</code> line, and the
+row total is the sum of the per-suite counts in that same file. The committed
+dashboard, <code>test/SUBSYSTEM-TESTS-STATUS.md</code>, reports the same 6610.
+<a href="02-declared-suites-and-pinned-counts.html">4.2</a> explains what those pins are for.</p>
+<p>These suites link the emulator libraries directly and drive the classes through
+their public API, which makes them fast and hermetic — <code>sd_rom_extractor_test</code>
+is the only one that reads the SD image. This is also where VHDL compliance is
+asserted, row by row. What they cannot catch is anything that only exists once
+the whole machine is assembled: they render no frame, open no window, and drive
+neither frontend.</p>
+<p><code>make unit-test</code> also pulls in the cheap structural gates ahead of the build —
 the tautological-assertion lint, the Makefile help lint, the traceability
-accounting/self-test/duplicate-ID checks, the documentation checks, and the
-hermetic half of the packaging contract tests. A gate the inner loop does not
-reach is not a gate.</p>
+accounting, self-test and duplicate-ID checks, the documentation checks, and
+the hermetic half of the packaging contract tests. They live there rather than
+only in CI for a simple reason: a gate the inner loop never reaches is not a
+gate.</p>
 <h2 id="layer-2-the-fuse-z80-opcode-suite">Layer 2 — the FUSE Z80 opcode suite<a class="headerlink" href="#layer-2-the-fuse-z80-opcode-suite" title="Permanent link">&para;</a></h2>
 <pre><code class="language-console">$ ./build/test/fuse_z80_test build/test/fuse
 </code></pre>
-<p>1356 of 1356 pass. This is the FUSE project's data-driven opcode corpus: every
-instruction, including undocumented behaviour and per-instruction cycle counts.
-It is the only thing that proves the CPU core itself is right, and it proves
-nothing else — Z80N extensions are <code>z80n_test</code> (85 rows), and everything
-Next-specific is elsewhere.</p>
-<p>Note that <code>fuse_z80_test</code> is <em>also</em> a declared row of <code>test/unit-tests.conf</code>
-(pinned at 1356, with its data directory as an argument), so <code>make unit-test</code>
-already runs it. The standalone invocation above runs the same binary against
-the same data; it is a convenience for reading that one number, not a third
-independent execution.</p>
+<p>All 1356 rows pass. This is the FUSE project's data-driven opcode corpus, which
+covers every instruction, including undocumented behaviour and per-instruction
+cycle counts. It is the only thing that proves the CPU core itself is right —
+and it proves nothing else. The Z80N extensions are covered by <code>z80n_test</code> (85
+rows), and everything Next-specific lives elsewhere.</p>
+<p>Note that <code>fuse_z80_test</code> is <em>also</em> a declared row of <code>test/unit-tests.conf</code>,
+pinned at 1356 with its data directory passed as an argument, so <code>make
+unit-test</code> has already run it. The standalone invocation above runs the same
+binary against the same data; it is a convenience for reading that one number,
+not a third independent execution.</p>
 <h2 id="layer-3-the-screenshot-and-functional-regression">Layer 3 — the screenshot and functional regression<a class="headerlink" href="#layer-3-the-screenshot-and-functional-regression" title="Permanent link">&para;</a></h2>
 <pre><code class="language-console">$ JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh
 </code></pre>
 <p>This layer launches the real <code>jnext</code> binary headless and looks at what comes
-out. It reports <strong>119 rows</strong>: 2 preflight lints + 1 SD-image provisioning + 65
-screenshot rows + 51 functional rows. Those two counts come from the
-<code># expect: 65</code> and <code># expect: 51</code> pins in <code>regression_tests.conf</code> and
-<code>functional_tests.conf</code>; the arithmetic is the harness's own end-of-run
-accounting assertion.</p>
-<p>Screenshot rows compare a whole frame, pixel for pixel, against a committed
+out of it. It reports <strong>119 rows</strong>, made up of 2 preflight lints, 1 SD-image
+provisioning row, 65 screenshot rows and 51 functional rows. The last two
+numbers come from the <code># expect: 65</code> and <code># expect: 51</code> pins in
+<code>regression_tests.conf</code> and <code>functional_tests.conf</code>, and the arithmetic that
+ties them to the total is the harness's own end-of-run accounting assertion.</p>
+<p>A screenshot row compares a whole frame, pixel for pixel, against a committed
 reference PNG. That is exactly as strong and as blunt as it sounds: it catches
-any rendering change anywhere, and on failure it tells you the frame changed
-rather than why. Functional rows cover the things a linked library cannot show
-— recording an MP4, an RZX round trip, audio underruns through a real device,
-the CLI's exit contracts, keypress delivery in both frontends.</p>
-<p><code>JNEXT_TEST_JOBS=4</code> caps the screenshot launcher's parallelism. <strong>Keep it.</strong>
-It is not politeness: <code>audio-underrun-func</code> and <code>screenshot-paused-func</code> are
-real-time-pacing bounded and fail under CPU contention, so raising it makes the
-suite intermittently lie. Note that the cap is a caller convention, not a
-default — the launcher falls back to <code>nproc</code> when the variable is unset, so
-<code>make regression</code> on its own is uncapped. CI sets it explicitly.</p>
+any rendering change anywhere in the pipeline, and when it fails it tells you
+the frame changed without telling you why. Functional rows cover the things a
+linked library cannot show at all — recording an MP4, an RZX round trip, audio
+underruns through a real device, the CLI's exit contracts, keypress delivery in
+both frontends.</p>
+<p><code>JNEXT_TEST_JOBS=4</code> caps the screenshot launcher's parallelism, and it is worth
+keeping. The cap is not politeness towards the machine: <code>audio-underrun-func</code>
+and <code>screenshot-paused-func</code> are bounded by real-time pacing and start failing
+under CPU contention, so raising it makes the suite intermittently lie. Note
+also that the cap is a caller convention rather than a default — the launcher
+falls back to <code>nproc</code> when the variable is unset, so <code>make regression</code> on its
+own is uncapped. CI sets it explicitly.</p>
 <h2 id="what-the-triplet-does-not-prove">What the triplet does not prove<a class="headerlink" href="#what-the-triplet-does-not-prove" title="Permanent link">&para;</a></h2>
-<p>It does not prove the emulator matches real hardware where no test row asserts
-it; the traceability matrix (<a href="04-traceability.html">4.4</a>) is what makes those
-gaps visible. It does not prove the prose in the man page or the guides is
-true, only that the generated outputs match their sources — see
-<a href="05-documentation-and-cli-gates.html">4.5</a> for exactly where that line sits.</p>
+<p>It does not prove that the emulator matches real hardware anywhere no test row
+asserts that it does; making those gaps visible is the job of the traceability
+matrix (<a href="04-traceability.html">4.4</a>). And it does not prove that the prose in the
+man page or in the guides is true — only that the generated outputs match their
+sources. <a href="05-documentation-and-cli-gates.html">4.5</a> sets out exactly where that
+line sits.</p>
 
 
 

@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1760,94 +1828,112 @@
 
 
 <h1 id="44-traceability">4.4 Traceability<a class="headerlink" href="#44-traceability" title="Permanent link">&para;</a></h1>
-<p><code>doc/testing/TRACEABILITY-MATRIX.md</code> maps every test row to what it proves, the
-VHDL line that justifies it, its live status, and where the assertion lives. It
-is <strong>generated</strong> by <code>test/refresh-traceability-matrix.pl</code> and <strong>gated</strong> the same
-way the man page is: <code>make traceability-check</code> — a prerequisite of
-<code>make unit-test</code> — regenerates it and fails when the committed copy differs. The
-generator is idempotent, so regenerate-and-diff is an exact staleness test. It
-needs a built test tree, because a row's <code>Status</code> comes from actually running
-its suite; that is why it could not exist while the refresh was a manual
-version-bump step.</p>
+<p>The emulator's specification is the VHDL of the FPGA core, so a test row is
+only meaningful if you can say which lines of that VHDL it was derived from.
+The traceability matrix is where that link is written down. For every test row
+in the project, <code>doc/testing/TRACEABILITY-MATRIX.md</code> records what the row
+proves, the VHDL line that justifies it, its live status, and where the
+assertion lives. Read one way it is a coverage map; read the other way it is
+the honest list of what nothing yet asserts.</p>
+<p>Crucially, it is <strong>generated</strong> rather than written — <code>test/refresh-traceability-matrix.pl</code>
+builds it out of the test sources themselves — and it is <strong>gated</strong> exactly the
+way the man page is. <code>make traceability-check</code>, a prerequisite of
+<code>make unit-test</code>, regenerates the matrix and fails when the committed copy
+differs. The generator is idempotent, so regenerate-and-diff is an exact
+staleness test. It needs a built test tree, because a row's <code>Status</code> comes from
+actually running its suite; that dependency is why it could not exist while
+refreshing the matrix was a manual step of the version bump.</p>
 <h2 id="where-each-column-comes-from">Where each column comes from<a class="headerlink" href="#where-each-column-comes-from" title="Permanent link">&para;</a></h2>
 <ul>
-<li><strong>Test ID and description</strong> — the row's own <code>check("ID", "description", ...)</code>
-  or <code>skip("ID", "reason")</code> call. The description's position varies between
-  suites, so the generator reads each file's own declaration of <code>check()</code> rather
-  than assuming an argument order.</li>
-<li><strong>Status</strong> — <code>fail</code> if the binary printed the row in its FAIL set; otherwise
-  <code>skip</code> for a <code>skip()</code> call, <code>pass</code> for a <code>check()</code> call, and <code>missing</code> if the
-  ID appears in no source at all. A section resolves an ID against its own
-  source files first, then against the other suites of the same <code>##</code> subsystem;
-  the widening stops dead at that boundary.</li>
-<li><strong>VHDL file:line</strong> — recovered from <strong>row-local</strong> evidence, in tiers: the
-  row's own call, a comment block naming the ID, the first call after a
-  table-driven ID literal, and the plan doc's row. Every citation is validated
-  against the real FPGA source tree.</li>
-<li><strong><code>missing</code> rows</strong> — planned-but-unimplemented rows, read from the
-  subsystem's <code>*-TEST-PLAN-DESIGN.md</code>. An honest backlog, and the only remaining
-  hand-made claim in the document.</li>
+<li><strong>Test ID and description</strong> come from the row's own
+  <code>check("ID", "description", ...)</code> or <code>skip("ID", "reason")</code> call. The
+  description's position varies between suites, so the generator reads each
+  file's own declaration of <code>check()</code> instead of assuming an argument order.</li>
+<li><strong>Status</strong> is <code>fail</code> if the binary printed the row in its FAIL set;
+  otherwise <code>skip</code> for a <code>skip()</code> call, <code>pass</code> for a <code>check()</code> call, and
+  <code>missing</code> when the ID appears in no source at all. A section resolves an ID
+  against its own source files first and then against the other suites of the
+  same <code>##</code> subsystem, and the widening stops dead at that boundary.</li>
+<li><strong>VHDL file:line</strong> is recovered from <strong>row-local</strong> evidence, tried in tiers:
+  the row's own call, then a comment block naming the ID, then the first call
+  after a table-driven ID literal, then the plan doc's row. Every citation that
+  results is validated against the real FPGA source tree.</li>
+<li><strong><code>missing</code> rows</strong> are planned-but-unimplemented rows, read from the
+  subsystem's <code>*-TEST-PLAN-DESIGN.md</code>. They are an honest backlog, and the only
+  remaining hand-made claim in the document.</li>
 </ul>
-<p>Two citation tiers were prototyped and <strong>rejected</strong>: banner comments and the
-nearest unrelated comment. Both attribute a neighbouring row's VHDL lines to
-this one, and a plausible-but-wrong citation is worse than an honest <code>—</code>.</p>
+<p>Two further citation tiers were prototyped and then <strong>rejected</strong>: banner
+comments, and the nearest unrelated comment. Both of them end up attributing a
+neighbouring row's VHDL lines to this one, and a plausible-but-wrong citation
+is worse than an honest <code>—</code>.</p>
 <h2 id="editing-it-by-hand-does-nothing">Editing it by hand does nothing<a class="headerlink" href="#editing-it-by-hand-does-nothing" title="Permanent link">&para;</a></h2>
-<p>An edit is overwritten by the next run and fails the gate in the meantime. That
-is why the older bookkeeping-drift classes no longer exist: there is no
-hand-written side left to disagree with. The one report that survives is a plan
-doc and a test source citing <em>different</em> VHDL for the same row — signal about
-the spec, not about bookkeeping.</p>
+<p>Any hand edit is overwritten by the next run, and fails the gate in the
+meantime. That is also why the older bookkeeping-drift classes no longer
+exist — there is no hand-written side left for the generated side to disagree
+with. The one report that survives is a plan doc and a test source citing
+<em>different</em> VHDL for the same row, and that one is worth keeping because it is
+signal about the spec rather than about bookkeeping.</p>
 <h2 id="a-row-id-must-be-a-literal">A row ID must be a literal<a class="headerlink" href="#a-row-id-must-be-a-literal" title="Permanent link">&para;</a></h2>
-<p>Building one at run time — <code>check((std::string(c.id) + "-35").c_str(), ...)</code> —
-emits a row no source reader can see. When that happened, the matrix carried two
-IDs that were not rows and none of the six that were. <strong>Spell every ID out.</strong></p>
+<p>An ID assembled at run time, as in <code>check((std::string(c.id) + "-35").c_str(), ...)</code>,
+emits a row that no reader of the source can see. When that actually happened,
+the matrix ended up carrying two IDs that were not rows and none of the six
+that were. <strong>Spell every ID out.</strong></p>
 <h2 id="an-id-is-a-global-name">An ID is a global name<a class="headerlink" href="#an-id-is-a-global-name" title="Permanent link">&para;</a></h2>
-<p><code>make unit-test</code> runs <code>test/traceability-dup-ids.pl</code>, which <strong>refuses</strong> (exit 2)
-when two suites assert the same ID. That reuse is how manufactured coverage
-happened once: a row read <code>pass</code> because an identically-named row in another
-subsystem was vouching for it. The 29 collisions that already existed are
-baselined in <code>test/traceability-dup-ids.conf</code>; anything new fails, and the
-baseline shrinks only by renaming one side — plan doc and test source together.</p>
-<p>It enumerates suites from <code>test/unit-tests.conf</code> — all 90 — and deliberately not
-from the matrix's sections, because 49 suites are tombstoned and have no section
-at all, so a matrix-derived audit cannot see them.</p>
+<p><code>make unit-test</code> runs <code>test/traceability-dup-ids.pl</code>, which <strong>refuses</strong> with
+exit 2 when two suites assert the same ID. That kind of reuse is how
+manufactured coverage happened once: a row read <code>pass</code> because an
+identically-named row in another subsystem was vouching for it. The 29
+collisions that already existed are baselined in
+<code>test/traceability-dup-ids.conf</code>, so anything new fails, and the baseline
+shrinks only by renaming one side in the plan doc and the test source together.</p>
+<p>The checker enumerates suites from <code>test/unit-tests.conf</code> — all 90 of them —
+and deliberately not from the matrix's own sections, because 49 suites are
+tombstoned and have no section at all, so a matrix-derived audit would never
+see them.</p>
 <h2 id="the-exceptions-file">The exceptions file<a class="headerlink" href="#the-exceptions-file" title="Permanent link">&para;</a></h2>
-<p><code>test/traceability-exceptions.conf</code> is the <strong>single</strong> hand-maintained input:
-three <code>|</code>-separated fields per record — section, row ID, description. It covers
-the one case neither a test source nor a plan doc can answer for, a planned row
-of a suite that has <em>no</em> plan doc because it has no VHDL counterpart —
-<code>rewind_test</code> and <code>sdcard_test</code>, tombstoned as <code>(jnext-internal)</code> and
-<code>(SD SPI spec)</code>. It is parsed strictly: a malformed record or a duplicate
-<code>(section, id)</code> is a refusal, not a dropped row. It is not a place to assert
-coverage — every row in it emits as <code>missing</code>, because nothing runs it.</p>
+<p><code>test/traceability-exceptions.conf</code> is the <strong>single</strong> hand-maintained input to
+the generator: three <code>|</code>-separated fields per record, giving section, row ID and
+description. It exists for the one case that neither a test source nor a plan
+doc can answer — a planned row belonging to a suite that has <em>no</em> plan doc,
+because it has no VHDL counterpart at all. Those are <code>rewind_test</code> and
+<code>sdcard_test</code>, tombstoned as <code>(jnext-internal)</code> and <code>(SD SPI spec)</code>
+respectively. The file is parsed strictly: a malformed record or a duplicate
+<code>(section, id)</code> pair is a refusal, never a quietly dropped row. It is also not a
+place to assert coverage, since every row in it emits as <code>missing</code> — nothing
+runs those rows.</p>
 <h2 id="what-the-generator-refuses-to-do">What the generator refuses to do<a class="headerlink" href="#what-the-generator-refuses-to-do" title="Permanent link">&para;</a></h2>
-<p>Its exit codes are a vocabulary, not decoration: <code>0</code> clean, <code>1</code> rewritten but
-still under-recording, <code>2</code> refusal with nothing written, <code>3</code> internal error.</p>
+<p>Its exit codes are a vocabulary rather than decoration: <code>0</code> is clean, <code>1</code> means
+rewritten but still under-recording, <code>2</code> is a refusal with nothing written, and
+<code>3</code> is an internal error.</p>
 <ul>
 <li><strong>It refuses when a declared suite is unaccounted for.</strong> Every suite in
-  <code>test/unit-tests.conf</code> must be either <em>traced</em> — mapped to a <code>##</code> section, the
-  one genuinely editorial fact left — or <em>tombstoned</em> with a written reason.
-  That replaced an advisory warning which had saturated: the traced-suite count
-  sat at 28 for a whole release series while the manifest grew 49 → 80, each
-  addition arriving as one more name on a warning line that already listed
-  fifty. <code>make traceability-accounting-check</code> runs just this half, in ~0.01 s.</li>
-<li><strong>It refuses to invent a row.</strong> A row the tests assert but the matrix does not
-  record is <em>reported</em>, never auto-added: the payload of a matrix row is its
-  human-readable description, and the script has no honest source for one. A row
-  whose only readable field is <code>—</code> would make the count look right while
-  recording nothing, and would be self-consistent forever after.</li>
-<li><strong>It refuses to guess a source path.</strong> Suite sources are read from CMake, not
-  from a naming convention: 80 suite names match their source basename and 7 do
-  not, and the two ESP-01 suites live under <code>src/esp01/test/</code>. A convention
-  right 92% of the time is the worst kind.</li>
-<li><strong>It leaves hand-written citations alone</strong>, reporting disagreements rather
-  than overwriting them, and leaves rows marked <code>&lt;!-- protected --&gt;</code> untouched.</li>
+  <code>test/unit-tests.conf</code> must be either <em>traced</em> — mapped to a <code>##</code> section,
+  which is the one genuinely editorial fact left in the document — or
+  <em>tombstoned</em> with a written reason. That refusal replaced an advisory
+  warning which had saturated to uselessness: the traced-suite count sat at 28
+  for a whole release series while the manifest grew from 49 suites to 80, and
+  each new suite arrived as one more name on a warning line that already listed
+  fifty. <code>make traceability-accounting-check</code> runs just this half, in about
+  0.01 s.</li>
+<li><strong>It refuses to invent a row.</strong> A row that the tests assert but the matrix
+  does not record is <em>reported</em>, never auto-added. The payload of a matrix row
+  is its human-readable description, and the script has no honest source for
+  one; a row whose only readable field was <code>—</code> would make the count look right
+  while recording nothing, and would then be self-consistent forever after.</li>
+<li><strong>It refuses to guess a source path.</strong> Suite sources are read from CMake
+  rather than inferred from a naming convention, because 80 suite names match
+  their source basename and 7 do not, and the two ESP-01 suites live under
+  <code>src/esp01/test/</code> entirely. A convention that is right 92% of the time is the
+  worst kind.</li>
+<li><strong>It leaves hand-written citations alone</strong>, reporting disagreements instead
+  of overwriting them, and leaves rows marked <code>&lt;!-- protected --&gt;</code> untouched.</li>
 </ul>
-<p>The extractor is itself pinned by <code>make traceability-selftest</code> — see
-<a href="06-the-harness-selftest.html">4.6</a>. After changing a test, run <code>make unit-test</code>:
-it regenerates the matrix and fails if your committed copy is stale, so commit
-the regenerated file with your change. If a row you touched now reads <code>missing</code>,
-the fix is in the test source, not in the document.</p>
+<p>The extractor is itself pinned by <code>make traceability-selftest</code>, described in
+<a href="06-the-harness-selftest.html">4.6</a>. In day-to-day work the thing to remember is
+short: after changing a test, run <code>make unit-test</code>. It regenerates the matrix
+and fails if your committed copy is stale, so commit the regenerated file
+alongside your change — and if a row you touched now reads <code>missing</code>, the fix
+belongs in the test source, not in the document.</p>
 
 
 

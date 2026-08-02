@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1749,111 +1817,136 @@
 
 
 <h1 id="35-ports-and-nextreg">3.5 Ports and NextREG<a class="headerlink" href="#35-ports-and-nextreg" title="Permanent link">&para;</a></h1>
-<p>Two files make up this subsystem: <code>src/port/port_dispatch.{h,cpp}</code> routes Z80
-<code>IN</code>/<code>OUT</code> to whoever owns the address, and <code>src/port/nextreg.{h,cpp}</code> is the
-256-entry NextREG register file behind ports <code>0x243B</code> / <code>0x253B</code>. Both are small.
-Almost all of the <em>content</em> — which port belongs to whom, under what gate — lives
-in <code>Emulator::init()</code>, where every handler is registered.</p>
+<p>Everything on a Spectrum that is not memory is reached through the Z80's I/O
+space, with <code>IN</code> and <code>OUT</code> naming a 16-bit port address. A ZX Spectrum Next
+inherits every port the machine ever had — the ULA, the 128K paging latches, the
+AY chips, a decade of third-party peripherals — and then adds a great deal of
+hardware of its own, far more than the remaining port addresses could sensibly
+express. Its answer is the <strong>NextREG</strong>: a 256-entry register file that holds
+essentially all of the Next-specific control state, reached through just two
+ports, <code>0x243B</code> to select a register and <code>0x253B</code> to read or write the selected
+one.</p>
+<p>NextREG is therefore not a peripheral. It is the machine's control plane, and
+almost every other subsystem in this guide is configured through it — machine
+type and video timing, CPU speed, MMU slot mapping, layer priority and the
+palettes, clip windows, interrupt setup, the DivMMC and Multiface gates. This
+subsystem sits between the CPU and all of them, which has a practical
+consequence for debugging: a mistake in a port decode or a register handler
+almost never shows up here. It shows up as a wrong picture, a silent AY or a
+machine that will not boot.</p>
+<p>Two files do the work. <code>src/port/port_dispatch.{h,cpp}</code> routes <code>IN</code> and <code>OUT</code> to
+whoever owns the address, and <code>src/port/nextreg.{h,cpp}</code> is the register file
+behind the port pair. Both are small; almost all of the <em>content</em> — which port
+belongs to whom, under what gate — lives in <code>Emulator::init()</code>, where every
+handler is registered.</p>
 <h2 id="why-masking-not-comparison">Why masking, not comparison<a class="headerlink" href="#why-masking-not-comparison" title="Permanent link">&para;</a></h2>
 <p>A ZX Spectrum peripheral does not decode a 16-bit port number. It watches a few
 address lines and responds when they match, ignoring the rest. The ULA is the
 canonical case: <code>zxnext.vhd:2582</code> decodes it as <code>port_fe &lt;= '1' when cpu_a(0) =
-'0'</code> — <em>any</em> even port, which is why the <code>OUT (0xFC),A</code> border trick works on
-real hardware. A dispatcher built on <code>port == 0xFE</code> gets that wrong, and jnext's
-did until it was fixed.</p>
+'0'</code> — that is, <em>any</em> even port, which is why the <code>OUT (0xFC),A</code> border trick
+works on real hardware. A dispatcher built on <code>port == 0xFE</code> gets that wrong,
+and jnext's did until it was fixed.</p>
 <p><code>PortHandler</code> is therefore a <code>(mask, value)</code> pair plus optional read and write
 callbacks, and <code>register_handler(mask, value, rd, wr)</code> is the whole registration
 API. The ULA is <code>(0x0001, 0x0000)</code>; Timex screen mode is <code>(0x00FF, 0x00FF)</code> —
 low byte only, so <code>OUT (0x12FF),A</code> reaches it; the Kempston mouse is
-<code>(0x0FFF, 0x0ADF)</code> — twelve lines; NextREG select is <code>(0xFFFF, 0x243B)</code>, a
+<code>(0x0FFF, 0x0ADF)</code>, twelve lines; and NextREG select is <code>(0xFFFF, 0x243B)</code>, a
 genuine full-address decode.</p>
 <h2 id="dispatch">Dispatch<a class="headerlink" href="#dispatch" title="Permanent link">&para;</a></h2>
 <p>There is <strong>one</strong> path, not a fast path and a slow path: a linear scan over a
-<code>std::vector&lt;PortHandler&gt;</code> holding roughly fifty entries. Overlapping decodes are
-resolved by <strong>most-specific-wins</strong> — the handler whose mask has the most set bits
-is the most constrained decode and takes the port. That models the VHDL, where
-decodes are exclusive one-hot equations, without needing to hand-maintain a
-priority list.</p>
+<code>std::vector&lt;PortHandler&gt;</code> holding roughly fifty entries. Overlapping decodes
+are resolved by <strong>most-specific-wins</strong> — the handler whose mask has the most set
+bits is the most constrained decode, so it takes the port. That models the VHDL,
+where decodes are exclusive one-hot equations, without anyone having to
+hand-maintain a priority list.</p>
 <p>Three details are worth knowing before adding a handler:</p>
 <ul>
 <li><strong>Reads fall through on a missing read side.</strong> If the most specific match has
-  no read callback, the scan continues to the next one that does. This models
-  write-only ports whose reads land on an overlapping decode.</li>
+  no read callback, the scan continues to the next match that does. This models
+  write-only ports, whose reads land on an overlapping decode instead.</li>
 <li><strong>Writes can decline.</strong> A handler may call <code>PortDispatch::decline_write()</code> as
-  its last action, and dispatch retries with the next-most-specific match. VHDL
-  port decodes run in <em>parallel</em>, so a decode ANDed with a cleared
-  <code>internal_port_enable</code> bit simply drops out of the equation set and leaves an
-  overlapping decode to fire: with NR <code>0x84</code> bit 2 clear, <code>OUT (0x7FF1),A</code> stops
-  being a Soundrive write and becomes a plain <code>0x7FFD</code> paging write.</li>
+  its last action, and dispatch then retries with the next-most-specific match.
+  The reason is that VHDL port decodes run in <em>parallel</em>: a decode ANDed with a
+  cleared <code>internal_port_enable</code> bit simply drops out of the equation set, and
+  an overlapping decode fires instead. So with NR <code>0x84</code> bit 2 clear,
+  <code>OUT (0x7FF1),A</code> stops being a Soundrive write and becomes a plain <code>0x7FFD</code>
+  paging write.</li>
 <li><strong>Observers run before dispatch, unconditionally.</strong> <code>add_io_observer()</code>
-  installs a side-effect-only callback invoked on every <code>IN</code> and <code>OUT</code> regardless
-  of what matches. The Multiface needs this: its enable/disable strobes share low
-  bytes (<code>0x1F</code>/<code>0x3F</code>/<code>0x9F</code>/<code>0xBF</code>) with the Kempston joystick and the DACs,
-  which win the single-handler dispatch, but the Multiface state machine must
-  still see the strobe.</li>
+  installs a side-effect-only callback invoked on every <code>IN</code> and <code>OUT</code>
+  regardless of what matches. The Multiface needs this: its enable and disable
+  strobes share low bytes (<code>0x1F</code>, <code>0x3F</code>, <code>0x9F</code>, <code>0xBF</code>) with the Kempston
+  joystick and the DACs, which win the single-handler dispatch, yet the
+  Multiface state machine must still see the strobe go past.</li>
 </ul>
 <p>An unmatched read returns <code>0xFF</code> via the default-read callback, matching
 <code>zxnext.vhd:1868-1878</code>. The floating bus is <strong>not</strong> the default: it is the
-registered read handler of port <code>0xFF</code> alone, because the VHDL mux producing it
-is scoped to the <code>port_ff_rd</code> decode. <code>PortDispatch::in()</code>/<code>out()</code> also carry the
-RZX hooks — a playback override substituting recorded <code>IN</code> values, and a
-recording tap.</p>
+registered read handler of port <code>0xFF</code> alone, because the VHDL mux that produces
+it is scoped to the <code>port_ff_rd</code> decode. <code>PortDispatch::in()</code> and <code>out()</code> also
+carry the RZX hooks — a playback override that substitutes recorded <code>IN</code> values,
+and a recording tap.</p>
 <h2 id="how-a-subsystem-gets-a-port">How a subsystem gets a port<a class="headerlink" href="#how-a-subsystem-gets-a-port" title="Permanent link">&para;</a></h2>
 <p>It does not register itself. Every handler is a lambda in <code>Emulator::init()</code>
-capturing <code>this</code>. That is deliberate: nearly every real port is <em>gated</em>, and the
-gate is emulator-tier state — the <code>internal_port_enable</code> vector NR <code>0x82</code>-<code>0x85</code>,
-ANDed with the bus-port mask NR <code>0x86</code>-<code>0x89</code> when NR <code>0x80</code> bit 7 enables the
-expansion bus (<code>zxnext.vhd:2392-2393</code>).
-<code>Emulator::effective_internal_port_enable()</code> computes one byte of it;
-<code>propagate_effective_port_enables()</code> re-pushes the derived bits into the
-subsystems holding their own shadow (contention, DivMMC, Multiface). A handler
-that skips its gate check is a bug, not a shortcut.</p>
-<p><code>init()</code> clears the handler and observer lists first, because a soft reset re-runs
-it and duplicates would double-fire auto-incrementing ports.</p>
+capturing <code>this</code>, and that is deliberate rather than lazy: nearly every real
+port is <em>gated</em>, and the gate is emulator-tier state. The gate is the
+<code>internal_port_enable</code> vector in NR <code>0x82</code>-<code>0x85</code>, ANDed with the bus-port mask
+NR <code>0x86</code>-<code>0x89</code> when NR <code>0x80</code> bit 7 enables the expansion bus
+(<code>zxnext.vhd:2392-2393</code>). <code>Emulator::effective_internal_port_enable()</code> computes
+one byte of it, and <code>propagate_effective_port_enables()</code> re-pushes the derived
+bits into the subsystems that keep their own shadow copy — contention, DivMMC
+and the Multiface. A handler that skips its gate check is a bug, not a shortcut.</p>
+<p><code>init()</code> clears the handler and observer lists before registering anything,
+because a soft reset re-runs it and duplicate handlers would double-fire the
+auto-incrementing ports.</p>
 <h2 id="the-nextreg-file">The NextREG file<a class="headerlink" href="#the-nextreg-file" title="Permanent link">&para;</a></h2>
 <p><code>NextReg</code> holds <code>std::array&lt;uint8_t,256&gt; regs_</code> plus three parallel arrays of
-per-register handlers. Port <code>0x243B</code> writes the select latch, port <code>0x253B</code> reads
-or writes the selected register.</p>
-<p><strong>Writes</strong> go through <code>write_handlers_[reg]</code> if one is installed, and the handler
-<strong>returns the canonical byte to be cached</strong>. That return value is the contract:
-a handler that masks reserved bits or refuses a gated write returns the masked or
-unchanged byte, so the readback matches hardware. Without a handler the raw byte
-is stored. NR <code>0x01</code>, <code>0x0E</code> and <code>0x0F</code> are guarded read-only (board-generic
-constants with no write strobe in the VHDL decoder).</p>
-<p><strong>Reads</strong> go through <code>read_handlers_[reg]</code>, which normally pulls live state from
-the owning subsystem, or fall back to the cache. Two further shapes exist:</p>
+per-register handlers. Port <code>0x243B</code> writes the select latch; port <code>0x253B</code>
+reads or writes the selected register.</p>
+<p><strong>Writes</strong> go through <code>write_handlers_[reg]</code> if one is installed, and the
+handler <strong>returns the canonical byte to be cached</strong>. That return value is the
+contract: a handler that masks reserved bits, or refuses a gated write, returns
+the masked or unchanged byte, so the readback matches hardware. Without a
+handler the raw byte is stored. NR <code>0x01</code>, <code>0x0E</code> and <code>0x0F</code> are guarded
+read-only, being board-generic constants with no write strobe in the VHDL
+decoder.</p>
+<p><strong>Reads</strong> go through <code>read_handlers_[reg]</code>, which normally pull live state from
+the owning subsystem, and otherwise fall back to the cache. Two further shapes
+exist:</p>
 <ul>
-<li><code>set_destructive_read_handler()</code> — for registers whose <em>read</em> mutates state
-  (NR <code>0x2C</code> / <code>0x2E</code> latch the Pi-I2S low bits into the NR <code>0x2D</code> shadow). Such
-  a handler may only be installed together with a side-effect-free twin, because
-  <code>peek()</code> — the debugger's read — refuses to call a destructive handler. The API
-  makes it impossible to declare one without saying how to observe it safely.</li>
-<li><code>cached(reg)</code> is <strong>the last byte written and nothing more</strong>, not the register's
-  value. Several registers are not owned by their cache (NR <code>0x69</code> bit 7 is also
-  latched by port <code>0x123B</code>; NR <code>0x15</code> is recomposed from the renderer). Reading
-  those from <code>cached()</code> yields a stale byte — which is how the debugger once
-  reported Layer 2 as off while displaying its graphics. Use <code>peek()</code>.</li>
+<li><code>set_destructive_read_handler()</code> — for registers whose <em>read</em> mutates state.
+  NR <code>0x2C</code> and <code>0x2E</code> latch the Pi-I2S low bits into the NR <code>0x2D</code> shadow, for
+  instance. Such a handler may only be installed together with a
+  side-effect-free twin, because <code>peek()</code> — the debugger's read — refuses to
+  call a destructive handler. The API is shaped so that it is impossible to
+  declare one without also saying how to observe it safely.</li>
+<li><code>cached(reg)</code> is <strong>the last byte written and nothing more</strong>, not the
+  register's value. Several registers are not owned by their cache: NR <code>0x69</code>
+  bit 7 is also latched by port <code>0x123B</code>, and NR <code>0x15</code> is recomposed from the
+  renderer. Reading those through <code>cached()</code> yields a stale byte, which is
+  exactly how the debugger once reported Layer 2 as off while displaying its
+  graphics. Use <code>peek()</code>.</li>
 </ul>
-<p>The Z80N <code>NEXTREG rr,nn</code> opcode has its <strong>own</strong> write path
-(<code>PortDispatch::nextreg_opcode_write_cb</code>) writing the named register directly and
-leaving the <code>0x243B</code> select latch alone, per <code>zxnext.vhd:4739-4744</code>. Routing it
-through the port pair clobbered the latch and broke raster waits in real games.
-Both paths defer during the per-instruction tick window
+<p>The Z80N <code>NEXTREG rr,nn</code> opcode has its <strong>own</strong> write path,
+<code>PortDispatch::nextreg_opcode_write_cb</code>, which writes the named register
+directly and leaves the <code>0x243B</code> select latch alone, per <code>zxnext.vhd:4739-4744</code>.
+Routing it through the port pair instead clobbered the latch and broke raster
+waits in real games. Both paths defer during the per-instruction tick window
 (<code>Emulator::enqueue_cpu_nr_write</code>); see
 <a href="../02-architecture/03-a-frame-end-to-end.html">A frame, end to end</a>.</p>
 <h2 id="registers-that-are-cached-only">Registers that are cached only<a class="headerlink" href="#registers-that-are-cached-only" title="Permanent link">&para;</a></h2>
 <p>A few registers are stored and read back faithfully but drive nothing, because
-the hardware behind them is out of scope. The expansion-bus control bits of NR
-<code>0x81</code> are latched in <code>nr_81_</code> with no consumer (bit 5, the NMI debounce, <em>is</em>
-wired), as is the expansion-bus/ESP reset line NR <code>0x02</code> bit 7. The Pi GPIO
-output enables NR <code>0x90</code> / <code>0x93</code> are write-masked per VHDL but drive no pins.
-The Pi and ESP GPIO <strong>inputs</strong> — NR <code>0x98</code>-<code>0x9B</code> and <code>0xA9</code> — get read handlers
-returning <code>0x00</code> ("nothing attached"), deliberately rather than leaking the
-output shadow into the input read.</p>
+the hardware behind them is out of scope for a software emulator. The
+expansion-bus control bits of NR <code>0x81</code> are latched in <code>nr_81_</code> with no consumer
+— though bit 5, the NMI debounce, <em>is</em> wired — as is the expansion-bus/ESP reset
+line in NR <code>0x02</code> bit 7. The Pi GPIO output enables NR <code>0x90</code> and <code>0x93</code> are
+write-masked per the VHDL but drive no pins. The Pi and ESP GPIO <strong>inputs</strong>, NR
+<code>0x98</code>-<code>0x9B</code> and <code>0xA9</code>, get read handlers that return <code>0x00</code>, meaning "nothing
+attached" — deliberately, rather than letting the output shadow leak into the
+input read.</p>
 <p><strong>The authoritative register and port lists are not reproduced here.</strong> They live
 in the FPGA source tree as <code>cores/zxnext/nextreg.txt</code> and
 <code>cores/zxnext/ports.txt</code>, with the Next wiki linked from <code>doc/REFERENCES.md</code>.
-What jnext adds is the per-row VHDL citation in <code>test/nextreg/</code> and <code>test/port/</code>.</p>
+What jnext adds on top of them is the per-row VHDL citation in <code>test/nextreg/</code>
+and <code>test/port/</code>.</p>
 
 
 

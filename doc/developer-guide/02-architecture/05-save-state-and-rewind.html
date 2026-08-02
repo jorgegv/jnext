@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -690,6 +758,17 @@
       Table of contents
     </label>
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#what-rewind-is" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What rewind is
+      
+    </span>
+  </a>
+  
+</li>
       
         <li class="md-nav__item">
   <a href="#the-serialisation-convention" class="md-nav__link">
@@ -1727,61 +1806,91 @@
 
 
 <h1 id="25-save-state-rewind-and-determinism">2.5 Save state, rewind and determinism<a class="headerlink" href="#25-save-state-rewind-and-determinism" title="Permanent link">&para;</a></h1>
-<p>Rewinding needs the whole machine in a byte buffer. So does anything else that
-wants to put the machine back where it was. JNEXT has one mechanism for that,
-and it is a convention rather than an inheritance hierarchy.</p>
+<h2 id="what-rewind-is">What rewind is<a class="headerlink" href="#what-rewind-is" title="Permanent link">&para;</a></h2>
+<p>JNEXT can run the emulated machine <strong>backwards</strong>. In the debugger you can press
+Shift+F7 to undo the instruction that just executed, Shift+F6 to jump to the
+start of the previous frame, or drag a slider to any frame still held in the
+buffer — and the entire machine goes back to exactly how it was at that point.
+Not just the registers: memory, the MMU mapping, the video registers, the
+peripherals, everything. You land there paused, with the emulator window
+redrawn to match, and F5 carries on from there. For debugging a crash this
+inverts the usual workflow, because you can step <em>away</em> from the wreckage
+towards its cause instead of restarting and trying to catch the moment on the
+way past.</p>
+<p>It is opt-in, via <code>--rewind-buffer-size N</code> on the command line or
+<strong>Debug ▸ Rewind ▸ Enable Rewind</strong> in the debugger, because it works by
+snapshotting the whole machine at every frame boundary and those snapshots are
+large. The user-facing description lives in the user guide, under
+<em>Debugger ▸ Backward execution (rewind)</em>.</p>
+<p>That is the feature the rest of this page implements. Everything hangs off one
+requirement: the ability to put the entire machine into a byte buffer and get
+it back out again. Save states, snapshots and rewind all use the same
+mechanism, and that mechanism is a convention rather than an inheritance
+hierarchy.</p>
 <h2 id="the-serialisation-convention">The serialisation convention<a class="headerlink" href="#the-serialisation-convention" title="Permanent link">&para;</a></h2>
-<p>There is <strong>no <code>Saveable</code> base class</strong>. <code>src/core/saveable.h</code> — despite the name
-— defines only two concrete helpers:</p>
+<p>There is <strong>no <code>Saveable</code> base class</strong>. <code>src/core/saveable.h</code>, despite the name,
+defines only two concrete helpers:</p>
 <ul>
-<li><code>StateWriter</code> writes into a pre-allocated buffer, or, constructed with a null
-  pointer, runs in <em>measure mode</em> and just counts the bytes it would write.</li>
-<li><code>StateReader</code> reads from a const buffer.</li>
+<li><code>StateWriter</code> writes into a pre-allocated buffer. Constructed with a null
+  pointer it runs in <em>measure mode</em> instead, writing nothing and simply
+  counting the bytes it would have written.</li>
+<li><code>StateReader</code> reads back from a const buffer.</li>
 </ul>
-<p>Both are bounds-disciplined: a write past capacity is suppressed, a read past
-the end is zero-filled, a sticky flag is latched (<code>overflow()</code> /
-<code>out_of_bounds()</code>), and the position counter keeps advancing so diagnostics
-still show the intended offset. No overrun can corrupt memory.</p>
-<p>Each subsystem simply <em>has</em> the two methods:</p>
+<p>Both are bounds-disciplined by construction. A write past capacity is
+suppressed, a read past the end is zero-filled, and either latches a sticky
+flag — <code>overflow()</code> and <code>out_of_bounds()</code> respectively. The position counter
+keeps advancing in both cases, so a diagnostic still reports the offset the
+code <em>intended</em>, which is the number you need to find the culprit. No overrun
+can corrupt memory.</p>
+<p>Each subsystem then simply <em>has</em> the two methods:</p>
 <pre><code class="language-cpp">void save_state(StateWriter&amp; w) const;
 void load_state(StateReader&amp; r);        // or bool, where it can fail
 </code></pre>
 <p><code>Emulator::save_state()</code> (<code>emulator.cpp:9228</code>) calls them in a fixed order —
 core, video, peripherals, audio, then its own private fields — and writes a
-<strong>sentinel</strong> after every block: a <code>u32</code> of <code>kStateSentinelMagic ^ ordinal</code>,
-with a shared counter that keeps both sides in lockstep. <code>load_state()</code> checks
-the same sequence and, on the first mismatch, logs an error naming the
-subsystem and returns false rather than feeding desynced bytes into everything
-downstream.</p>
-<p>A failed load leaves the machine <strong>torn</strong>, and says so: <code>last_state_error()</code>
-holds the subsystem name until a reset re-establishes the machine cleanly, and
-<code>state_error_generation()</code> is a monotonic counter so the GUI can tell a fresh
-incident from one the user already acknowledged. Acknowledging does not clear
-the breadcrumb, because acknowledging does not heal the desync.</p>
-<p>A comment above <code>save_state()</code> lists what is deliberately <em>not</em> serialised: the
-ROM buffer and boot ROM (loaded from disk, never change), the contention model
-(rebuilt from config), the port dispatch table (lambdas, rewired by <code>init()</code>),
-the mixer, the debugger's transient state, the trace and call stack, tape
-position, recorders, the SD card, and the framebuffer.</p>
+<strong>sentinel</strong> after every block: a <code>u32</code> holding <code>kStateSentinelMagic ^
+ordinal</code>, with a shared counter keeping the two sides in lockstep.
+<code>load_state()</code> verifies the same sequence, and on the first mismatch it logs an
+error naming the subsystem that went wrong and returns false, rather than
+feeding desynchronised bytes into everything downstream and producing a machine
+that is subtly wrong in an unrelated place.</p>
+<p>A failed load leaves the machine <strong>torn</strong>, and JNEXT says so rather than
+pretending otherwise. <code>last_state_error()</code> holds the name of the offending
+subsystem until a reset re-establishes the machine cleanly, and
+<code>state_error_generation()</code> is a monotonic counter so the GUI can distinguish a
+fresh incident from one the user has already acknowledged. Acknowledging does
+not clear the breadcrumb, for the obvious reason that acknowledging does not
+heal the desynchronisation.</p>
+<p>A comment above <code>save_state()</code> lists what is deliberately <em>not</em> serialised, and
+the omissions all have reasons: the ROM buffer and boot ROM are loaded from
+disk and never change; the contention model is rebuilt from config; the port
+dispatch table is a set of lambdas that <code>init()</code> rewires anyway; and the mixer,
+the debugger's transient state, the trace and call stack, tape position, the
+recorders, the SD card and the framebuffer are either host-side or
+reconstructible.</p>
 <h2 id="the-rewind-ring">The rewind ring<a class="headerlink" href="#the-rewind-ring" title="Permanent link">&para;</a></h2>
 <p><code>RewindBuffer</code> (<code>src/debug/rewind_buffer.h</code>) is a ring of fixed-width slots
-backed by a single anonymous mapping (<code>anon_mem::alloc</code>, <code>src/core/anon_mem.h</code>),
-so pages fault in lazily instead of eagerly zeroing what may be a gigabyte —
-500 frames of a ~2.3 MB snapshot is over a gigabyte of address space. Slot size
-is decided once, at construction, by running <code>save_state</code> in measure mode:</p>
+backed by a single anonymous mapping, obtained from <code>anon_mem::alloc</code> in
+<code>src/core/anon_mem.h</code>. The mapping matters: 500 frames of a snapshot around
+2.3 MB is over a gigabyte of address space, and an anonymous mapping lets those
+pages fault in lazily as they are first used instead of being eagerly zeroed up
+front. The slot size is decided once, at construction, by running <code>save_state</code>
+in measure mode:</p>
 <pre><code class="language-cpp">StateWriter measure;  save_state(measure);
 size_t snap_bytes = measure.position();
 </code></pre>
-<p>Snapshots are taken in <code>Emulator::begin_new_frame()</code> — at a frame boundary,
-which is precisely why the scheduler queue does not need serialising: it is
-empty there.</p>
-<p><strong>This is why every field must be constant-width.</strong> <code>take_snapshot()</code> refuses
-to publish a slot whose <code>save_state</code> did not write exactly <code>snapshot_bytes</code>,
-which is the correct behaviour but was silent for a long time: three fields
-were written count-prefixed and variable-length, so a single <code>OUT (0xFF),A</code> or
-one received UART byte widened the stream and every snapshot from then on was
-quietly dropped. The header of <code>rewind_buffer.h</code> carries the audited list of
-runtime-variable state and the rule that anything added to it must be
+<p>Snapshots are taken from <code>Emulator::begin_new_frame()</code>, which is to say at a
+frame boundary — and that is precisely why the scheduler queue never has to be
+serialised, because it is empty at that instant.</p>
+<p><strong>This is also why every serialised field must be constant-width.</strong>
+<code>take_snapshot()</code> refuses to publish a slot whose <code>save_state</code> did not write
+exactly <code>snapshot_bytes</code>. That refusal is the correct behaviour, but it was
+silent for a long time, and the consequence was ugly: three fields were being
+written count-prefixed and variable-length, so a single <code>OUT (0xFF),A</code> or one
+byte arriving on the UART widened the stream, and from that point on every
+snapshot was quietly discarded — rewind simply stopped recording, with no
+error. The header of <code>rewind_buffer.h</code> now carries the audited list of
+runtime-variable state along with the rule that anything added to it must be
 fixed-width.</p>
 <p>Three entry points use the ring, and all of them funnel through <code>load_state()</code>:</p>
 <table>
@@ -1806,42 +1915,47 @@ fixed-width.</p>
 </tr>
 </tbody>
 </table>
-<p><code>replay_mode_</code> suppresses audio mixing and rendering during the fast-forward,
-so a rewind of several seconds neither screeches nor flickers; the frame is
-re-rendered once at the end. If the restore fails verification, the rewind is
-aborted and the machine is <em>paused</em> rather than reported as successful.</p>
-<p>Host-side state that shadows emulated state — the joystick and mouse
-dispatchers, which live in the platform layer and are not <code>Emulator</code> members —
-is re-seeded through the <code>on_input_state_restored</code> callback fired at the end of
-every successful load. Without it the next live host event would stomp the
-restore.</p>
+<p><code>replay_mode_</code> suppresses audio mixing and rendering throughout the
+fast-forward, so rewinding several seconds neither screeches through the
+speakers nor flickers through hundreds of frames; the picture is rendered once,
+at the end. And if the restore fails verification, the rewind is aborted and
+the machine is left <em>paused</em> rather than reported as a success.</p>
+<p>One category of state needs special handling: host-side state that shadows
+emulated state. The joystick and mouse dispatchers live in the platform layer
+and are not <code>Emulator</code> members, so a restore cannot reach them directly.
+Instead they are re-seeded through the <code>on_input_state_restored</code> callback,
+fired at the end of every successful load. Without it, the next live host input
+event would stomp on the restored machine.</p>
 <h2 id="determinism">Determinism<a class="headerlink" href="#determinism" title="Permanent link">&para;</a></h2>
-<p>Automated runs have to produce the same bytes on a fast desktop and a loaded
-CI runner. Four things make that true, and they are all in the emulator rather
-than in the harness.</p>
+<p>An automated run has to produce the same bytes on a fast desktop and on a
+loaded CI runner. Four things make that true, and it is worth noting that all
+four live in the emulator rather than in the test harness — a harness cannot
+make a non-deterministic emulator reproducible.</p>
 <p><strong>Count frames, not seconds.</strong> <code>--delayed-screenshot-frames</code>,
 <code>--delayed-automatic-exit-frames</code>, <code>--delayed-keypress-frames</code> and
-<code>--delayed-snapshot-frames</code> are counted in <em>emulated</em> frames, and override
-their wall-clock seconds forms when both are given. <code>HeadlessApp::run()</code> even
-converts a seconds-form keypress using the machine's actual refresh rate
-(<code>video_timing().refresh_60hz() ? 60 : 50</code>) rather than assuming 50 Hz.</p>
+<code>--delayed-snapshot-frames</code> are all counted in <em>emulated</em> frames, and they
+override their wall-clock counterparts when both are given. <code>HeadlessApp::run()</code>
+goes one step further and converts a seconds-form keypress using the machine's
+actual refresh rate, <code>video_timing().refresh_60hz() ? 60 : 50</code>, rather than
+assuming 50 Hz.</p>
 <p><strong>Pin the clock.</strong> <code>--rtc</code> sets <code>EmulatorConfig::rtc_fixed_tm</code>, which reaches
-<code>I2cRtc::set_fixed_time()</code>; the DS1307 then answers from a frozen time instead
-of the host clock, so anything that draws a date — the NextZXOS menu, most
-obviously — is stable.</p>
-<p><strong>Headless never reads the saved configuration.</strong> <code>AppConfig</code> is loaded only
-on the non-headless Qt path, so a developer's preferences cannot change what
-an automated run does. CLI values win over saved ones everywhere else.</p>
+<code>I2cRtc::set_fixed_time()</code>. The emulated DS1307 then answers from a frozen time
+instead of the host clock, so anything that draws a date — the NextZXOS menu
+being the obvious case — comes out the same on every run.</p>
+<p><strong>Headless never reads the saved configuration.</strong> <code>AppConfig</code> is loaded only on
+the non-headless Qt path, so a developer's saved preferences cannot change what
+an automated run does. Everywhere else, CLI values win over saved ones.</p>
 <p><strong>A missing capture is an error, not a silent pass.</strong> If a requested
-<code>--delayed-screenshot</code> or <code>--delayed-snapshot</code> was never written — the exit
-bound fired first, or the debugger stayed paused so no frame was rendered for
-it — the process logs an error and exits non-zero.</p>
-<p>One deliberate asymmetry: the frontend render hint that lets the Qt GUI skip
-compositing frames nobody will see is never set headless, and is overridden
-whenever recording or the debugger is active, so headless output is
-bit-identical to a fully-rendered run. See
+<code>--delayed-screenshot</code> or <code>--delayed-snapshot</code> was never actually written —
+because the exit bound fired first, or the debugger stayed paused so no frame
+was ever rendered for it — the process logs an error and exits non-zero. A test
+that produces no output fails instead of passing.</p>
+<p>There is one deliberate asymmetry to be aware of. The frontend render hint that
+lets the Qt GUI skip compositing frames nobody will see is never set in
+headless mode, and is overridden whenever recording or the debugger is active,
+so headless output stays bit-identical to a fully-rendered run. See
 <a href="../04-testing/03-the-regression-suite.html">4.3 The regression suite</a> for how
-this is used in practice.</p>
+all of this is used in practice.</p>
 
 
 

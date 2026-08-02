@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1031,6 +1099,17 @@
     <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
       
         <li class="md-nav__item">
+  <a href="#two-directories-and-the-split-is-the-design" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Two directories, and the split is the design
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-enable_debuggeroff-removes" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1760,35 +1839,47 @@
 
 
 <h1 id="39-debug-and-the-debugger">3.9 Debug and the debugger<a class="headerlink" href="#39-debug-and-the-debugger" title="Permanent link">&para;</a></h1>
-<p>The debugger is split across two directories, and the split is the design.</p>
-<p><strong><code>src/debug/</code></strong> (target <code>jnext_debug</code>) is the backend: disassembler, breakpoint
-and watchpoint sets, execution-control state, instruction trace log, call-stack
-tracker, symbol table, rewind ring buffer. It has <strong>no Qt dependency at all</strong>.
-<strong><code>src/debugger/</code></strong> (target <code>jnext_debugger</code>) is the Qt 6 UI and nothing else —
-panels, menus, the debugger window.</p>
-<p>Three things fall out of that. The backend is testable without a GUI —
+<p>The debugger is the developer-facing half of jnext: a way to stop the machine,
+look at everything inside it, change some of it, start it again — and, when
+rewind is on, run it backwards. It is not a separate program talking to the
+emulator over a wire. It lives in the same process and the same thread as the
+emulation, so a panel reads machine state by calling straight into <code>Emulator</code>
+rather than marshalling it across a boundary, and the run loop consults the
+debugger's state once per instruction, before the fetch. That single
+consultation point is what makes stepping exact and breakpoints cheap.</p>
+<p>The dependency runs one way and stops halfway. The emulator core owns and
+consults the debug <em>backend</em> — it is an ordinary member, present in every
+build — while the Qt <em>UI</em> sits above both and can be compiled out entirely.</p>
+<h2 id="two-directories-and-the-split-is-the-design">Two directories, and the split is the design<a class="headerlink" href="#two-directories-and-the-split-is-the-design" title="Permanent link">&para;</a></h2>
+<p><strong><code>src/debug/</code></strong> (target <code>jnext_debug</code>) is the backend: disassembler,
+breakpoint and watchpoint sets, execution-control state, instruction trace log,
+call-stack tracker, symbol table, rewind ring buffer. It has <strong>no Qt dependency
+at all</strong>. <strong><code>src/debugger/</code></strong> (target <code>jnext_debugger</code>) is the Qt 6 UI and
+nothing else — panels, menus, the debugger window.</p>
+<p>Three things fall out of that. The backend is testable without a GUI:
 <code>rewind_test</code> and <code>resume_guard_test</code> link it with no Qt anywhere, while the
 <code>debugger_*</code> suites are the ones that need a Qt build. The emulator can own
-debug state permanently without dragging Qt into the core. And the backend is
-present in <em>every</em> build, which is why <code>--magic-breakpoint</code> and <code>--trace</code> are
+debug state permanently without dragging Qt into the core. And because the
+backend is present in <em>every</em> build, <code>--magic-breakpoint</code> and <code>--trace</code> are
 plain CLI flags rather than GUI-only features.</p>
 <p>One caveat about "pure": <code>jnext_debug</code> does link SDL2, because
 <code>rewind_buffer.cpp</code> includes <code>core/emulator.h</code>, which reaches <code>input/keyboard.h</code>
 and thence <code>SDL.h</code>. The rule the split enforces is <em>no GUI toolkit</em>, not <em>no
 dependencies</em>.</p>
 <h2 id="what-enable_debuggeroff-removes">What <code>ENABLE_DEBUGGER=OFF</code> removes<a class="headerlink" href="#what-enable_debuggeroff-removes" title="Permanent link">&para;</a></h2>
-<p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. When it is off,
-<code>jnext_debugger</code> is not compiled or linked and every use site in <code>src/gui/</code> is
-inside an <code>#ifdef</code>. <code>jnext_debug</code> is linked unconditionally, and
-<code>Emulator::debug_state_</code> is an ordinary member either way.</p>
-<p>That is deliberate: the hot loop's cost is not "is the debugger compiled in" but
-"is it <em>active</em>". <code>DebugState::active_</code> starts false and is only set true when
-the UI enables the debugger or a magic breakpoint fires. Every debug check in
-the run loop hangs off that one boolean — the per-instruction breakpoint test,
-the call-stack pre/post hooks (behind their own <code>enabled()</code> flag), and
-<code>video_timing_.advance()</code>, which maintains raster counters nothing but a human
-inspector reads. The watchpoint checks in <code>Mmu::read</code>/<code>write</code> are triple-gated:
-pointer non-null, <code>active()</code>, <em>and</em> <code>has_any_watchpoints()</code>.</p>
+<p><code>ENABLE_DEBUGGER</code> (default <code>ON</code>) gates <strong>only the Qt UI</strong>. With it off,
+<code>jnext_debugger</code> is neither compiled nor linked and every use site in
+<code>src/gui/</code> sits inside an <code>#ifdef</code>. <code>jnext_debug</code> is linked unconditionally,
+and <code>Emulator::debug_state_</code> is an ordinary member either way.</p>
+<p>That is deliberate, because the hot loop's cost is not "is the debugger
+compiled in" but "is it <em>active</em>". <code>DebugState::active_</code> starts false and turns
+true only when the UI enables the debugger or a magic breakpoint fires. Every
+debug check in the run loop hangs off that one boolean: the per-instruction
+breakpoint test, the call-stack pre/post hooks (behind their own <code>enabled()</code>
+flag), and <code>video_timing_.advance()</code>, which maintains raster counters nothing
+but a human inspector ever reads. The watchpoint checks in <code>Mmu::read</code> and
+<code>Mmu::write</code> are triple-gated — pointer non-null, <code>active()</code>, <em>and</em>
+<code>has_any_watchpoints()</code>.</p>
 <p>So "the debugger costs nothing when closed" is a claim about a predictable
 branch, not about conditional compilation.</p>
 <h2 id="execution-control">Execution control<a class="headerlink" href="#execution-control" title="Permanent link">&para;</a></h2>
@@ -1842,20 +1933,20 @@ consults it once per instruction, before the fetch:</p>
 </table>
 <p>Step Over is not a special CPU mode. <code>DebuggerManager::on_step_over()</code> asks the
 disassembler whether the current instruction <code>is_call_like()</code> — <code>CALL nn</code>,
-<code>CALL cc,nn</code>, <code>RST n</code>, <code>DJNZ</code> — and if so sets a one-shot breakpoint at
+<code>CALL cc,nn</code>, <code>RST n</code>, <code>DJNZ</code> — and if it is, sets a one-shot breakpoint at
 <code>PC + instruction_length()</code> and resumes; otherwise it degrades to Step Into.
 Run to Cursor is the same one-shot mechanism with a user-chosen address, and
-Run to End of Frame / End of Scanline are <code>run_to_cycle()</code> with a computed
+Run to End of Frame and End of Scanline are <code>run_to_cycle()</code> with a computed
 target.</p>
 <p><strong><code>StepMode::OUT</code> is set by <code>step_out()</code> but the run loop never reads it, and
 <code>DebugState::check_step_out()</code> — the predicate that would detect the returning
 <code>RET</code>/<code>RETI</code>/<code>RETN</code> at the right stack depth — has no caller anywhere in the
 tree.</strong> Step Out therefore resumes and stops only at a real breakpoint or a
-manual break.</p>
+manual break. This is tracked as issue #203.</p>
 <p>Single-stepping goes through <code>Emulator::execute_single_instruction()</code>, which
 shares its per-instruction body verbatim with the free-running loop
-(<code>step_one_instruction()</code>), specifically so the two paths cannot drift. Stepping
-must <em>observe</em> the emulation, never alter it — see
+(<code>step_one_instruction()</code>), specifically so that the two paths cannot drift.
+Stepping must <em>observe</em> the emulation and never alter it — see
 <a href="../02-architecture/02-the-emulator-core.html">2.2 The emulator core</a> for why
 <code>run_frame()</code> refuses to re-begin a frame that is already in progress.</p>
 <h2 id="panels">Panels<a class="headerlink" href="#panels" title="Permanent link">&para;</a></h2>
@@ -1925,59 +2016,80 @@ introspects:</p>
 </table>
 <p>For what these look like and how to drive them, see chapter 6 of the <strong>user
 guide</strong>, <em>The debugger</em> — a UI reference written against the running product,
-not repeated here.</p>
-<p>Four panels (CPU, Disassembly, Stack, Call Stack) only update while paused.
-That is a performance decision: reading the register file every frame while the
-machine runs produces a blur at real cost.</p>
+and not repeated here.</p>
+<p>Four panels (CPU, Disassembly, Stack, Call Stack) update only while paused.
+That is a performance decision as much as a legibility one: reading the
+register file every frame while the machine runs produces a blur, at real cost.</p>
 <h2 id="symbols">Symbols<a class="headerlink" href="#symbols" title="Permanent link">&para;</a></h2>
 <p><code>src/debug/symbol_table.*</code> is a bidirectional address↔name map with two
-readers: <code>load_z88dk_map()</code> for z88dk linker output and <code>load_simple_map()</code> for
-a plain <code>SYMBOL = $ADDR</code> list. <code>DebuggerManager</code> owns the table; the
-disassembly, breakpoint and watch panels consume it, which is why a symbolic
-breakpoint keeps its name in the list.</p>
+readers: <code>load_z88dk_map()</code> for z88dk linker output, and <code>load_simple_map()</code>
+for a plain <code>SYMBOL = $ADDR</code> list. <code>DebuggerManager</code> owns the table, and the
+disassembly, breakpoint and watch panels all consume it — which is why a
+breakpoint set on a symbol keeps its name in the breakpoint list.</p>
 <h2 id="rewind">Rewind<a class="headerlink" href="#rewind" title="Permanent link">&para;</a></h2>
-<p>Backward execution is a ring of <strong>whole-machine snapshots taken at frame
-boundaries</strong>, not an undo log. <code>RewindBuffer</code> allocates one <code>mmap</code> region of
-<code>max_frames × snapshot_bytes</code> up front — pages fault in lazily rather than being
-memset — and <code>Emulator::run_frame()</code> writes a slot at the top of each frame,
-overwriting the oldest when full.</p>
-<p>The snapshot is produced by the same <code>save_state</code>/<code>load_state</code> interface every
-subsystem implements; see
+<p>Rewind lets you run the machine <em>backwards</em>: step back an instruction at a
+time, jump back a whole frame, or drag a slider to somewhere earlier in the
+session and carry on from there. For a Z80 developer that turns the usual
+debugging move inside out — instead of guessing where to put a breakpoint,
+re-running, and finding you have overshot again, you take the crash and walk
+back from it to the instruction that caused it. It is off by default, because
+it costs a full machine save every frame plus the memory the ring occupies;
+<code>--rewind-buffer-size N</code> or the debugger's own toggle turns it on.</p>
+<p>The implementation is not an undo log. It is a ring of <strong>whole-machine
+snapshots taken at frame boundaries</strong>. <code>RewindBuffer</code> allocates one <code>mmap</code>
+region of <code>max_frames × snapshot_bytes</code> up front, so pages fault in lazily
+rather than being memset, and <code>Emulator::run_frame()</code> writes a slot at the top
+of each frame, overwriting the oldest once the ring is full. Stepping back to a
+point <em>inside</em> a frame means restoring that frame's snapshot and replaying
+forward to the target instruction, which is why enabling rewind also
+force-enables the trace log: <code>step_back()</code> needs the trace to know which cycle
+the target instruction started at. The replay runs with audio and video
+suppressed, so a long rewind neither screeches nor flickers.</p>
+<p>The snapshot itself is produced by the same <code>save_state</code> / <code>load_state</code>
+interface every subsystem implements, described in
 <a href="../02-architecture/05-save-state-and-rewind.html">2.5 Save state and rewind</a>.
-Two properties are load-bearing here:</p>
+Two of its properties are load-bearing here:</p>
 <ul>
-<li><strong>The stream must be fixed-width.</strong> The slot size is measured once at
-  construction by a dry run in measure mode, so any field that serialises a
-  runtime length silently widens the stream and every snapshot from then on is
-  dropped. That is not hypothetical — it shipped once, and a single
-  <code>OUT (0xFF),A</code> triggered it. <code>rewind_buffer.h</code> carries the audited enumeration
-  of every variable-length candidate and what was done about each.</li>
-<li><strong>A failed restore is loud.</strong> A snapshot that does not round-trip is not
-  published, a restore failing verification returns a sentinel rather than
+<li>
+<p><strong>The stream must be fixed-width.</strong> Slot size is measured once at
+  construction, by a dry run in measure mode. Any field that serialises a
+  runtime length silently widens the stream, and from that moment every
+  snapshot is dropped. That is not hypothetical — it shipped once, and a single
+  <code>OUT (0xFF),A</code> was enough to trigger it. <code>rewind_buffer.h</code> carries the
+  audited enumeration of every variable-length candidate and what was done
+  about each.</p>
+</li>
+<li>
+<p><strong>A failed restore is loud.</strong> A snapshot that does not round-trip is never
+  published, a restore that fails verification returns a sentinel instead of
   reporting success, and the emulator latches <code>last_state_error()</code>. The UI then
-  refuses to resume a corrupt machine without explicit confirmation, via the
-  <code>ResumeGuard</code> policy in <code>src/debug/resume_guard.h</code>.</li>
+  refuses to resume a machine known to be corrupt without explicit
+  confirmation, via the <code>ResumeGuard</code> policy in <code>src/debug/resume_guard.h</code>.</p>
+</li>
 </ul>
-<p>Rewind is off unless <code>--rewind-buffer-size N</code> is given or the debugger enables
-it, because it costs a full save every frame plus the ring memory. Enabling it
-also force-enables the trace log: <code>step_back()</code> needs it to find the target
-instruction's cycle inside the restored frame, then replays forward to it with
-audio and video suppressed.</p>
 <h2 id="magic-breakpoint-and-magic-port">Magic breakpoint and magic port<a class="headerlink" href="#magic-breakpoint-and-magic-port" title="Permanent link">&para;</a></h2>
-<p>These are the two hooks a Z80 programmer puts in their <em>own</em> code, and neither
-exists on real hardware.</p>
-<p>The <strong>magic breakpoint</strong> is intercepted in <code>src/cpu/z80_cpu.cpp</code> before the FUSE
-core sees the opcode: <code>ED FF</code> (the ZEsarUX/Spectaculator convention) and <code>DD 01</code>
-(CSpect's). When <code>--magic-breakpoint</code> is set, <code>Emulator::init</code> installs an
-<code>on_magic_breakpoint</code> callback that activates and pauses <code>DebugState</code>; the
-opcode then advances PC by two and costs 8 T-states. With the flag unset the
-callback is null and both sequences fall straight through to normal Z80
-decoding, so they can be left in shipped source.</p>
-<p>The <strong>magic port</strong> is not a CPU feature at all — it is an ordinary port handler
+<p>These two are hooks a Z80 programmer puts in their <em>own</em> source, and neither
+exists on real hardware. They solve the two problems that come up constantly
+when the code under test is on the other side of the emulator: stopping at a
+place you marked in your source rather than at an address you had to look up,
+and getting a value out of a running program without opening a debugger at all
+— a <code>printf</code> that lands on the host's terminal instead of on the screen the
+program is busy drawing.</p>
+<p>The <strong>magic breakpoint</strong> is an opcode that pauses the debugger where it
+executes. jnext intercepts it in <code>src/cpu/z80_cpu.cpp</code> before the FUSE core
+sees it, and recognises both community conventions: <code>ED FF</code>
+(ZEsarUX/Spectaculator) and <code>DD 01</code> (CSpect). With <code>--magic-breakpoint</code> set,
+<code>Emulator::init</code> installs an <code>on_magic_breakpoint</code> callback that activates and
+pauses <code>DebugState</code>; the opcode then advances PC by two and costs 8 T-states.
+With the flag unset the callback is null and both sequences fall straight
+through to normal Z80 decoding — which is the point, because it means the hook
+can be left in shipped source instead of being conditionally assembled out.</p>
+<p>The <strong>magic port</strong> is not a CPU feature at all. It is an ordinary port handler
 registered on a full 16-bit decode (<code>register_handler(0xFFFF, addr, …)</code>) whose
-write side prints to <code>stderr</code> in one of four modes (<code>hex</code>, <code>dec</code>, <code>ascii</code>,
-<code>line</code>, the last buffering until CR/LF). Reads are not intercepted. Being a
-normal registration, it obeys the same dispatch rules as everything else in
+write side prints to <code>stderr</code> in one of four modes: <code>hex</code>, <code>dec</code>, <code>ascii</code> or
+<code>line</code>, the last buffering until CR/LF so a whole string arrives as one line.
+Reads are not intercepted. Being a normal registration, it obeys exactly the
+same dispatch rules as everything else in
 <a href="06-peripherals.html">3.6 Peripherals</a>.</p>
 
 

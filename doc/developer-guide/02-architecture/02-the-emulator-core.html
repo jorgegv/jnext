@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1727,77 +1795,91 @@
 
 
 <h1 id="22-the-emulator-core">2.2 The emulator core<a class="headerlink" href="#22-the-emulator-core" title="Permanent link">&para;</a></h1>
-<p><code>Emulator</code> (<code>src/core/emulator.h</code>, <code>src/core/emulator.cpp</code>) is the whole
-machine. It is a single non-copyable, non-movable object that owns every
-subsystem <strong>by value</strong>, and it is the only thing a frontend needs to hold.</p>
+<p><code>Emulator</code> (<code>src/core/emulator.h</code>, <code>src/core/emulator.cpp</code>) <em>is</em> the machine.
+It is a single non-copyable, non-movable object that owns every subsystem <strong>by
+value</strong>, and it is the only thing a frontend ever needs to hold on to.</p>
 <p><img alt="Core and subsystems" src="../img/core-subsystems.svg" /></p>
 <p><em>What <code>Emulator</code> owns, and the seams through which its parts reach one another.</em></p>
 <h2 id="what-it-owns">What it owns<a class="headerlink" href="#what-it-owns" title="Permanent link">&para;</a></h2>
 <p>Everything, and in a specific order. The member declaration order in
-<code>emulator.h</code> is an initialisation contract — <code>ram_</code> and <code>rom_</code> must precede
-<code>mmu_</code>, and <code>mmu_</code> and <code>port_</code> must precede <code>cpu_</code>, because the constructor
-initialiser list is <code>mmu_(ram_, rom_), cpu_(mmu_, port_)</code>. It is also a
-<em>destruction</em> contract in one place: the emulated ESP-01's four members carry
-a long comment explaining that reverse-order destruction is what guarantees
-the worker thread is joined before anything it holds a pointer to dies.</p>
+<code>emulator.h</code> is an initialisation contract rather than a filing convention:
+<code>ram_</code> and <code>rom_</code> must precede <code>mmu_</code>, and <code>mmu_</code> and <code>port_</code> must precede
+<code>cpu_</code>, because the constructor initialiser list reads <code>mmu_(ram_, rom_),
+cpu_(mmu_, port_)</code> and C++ initialises members in declaration order regardless
+of how that list is written. In one place it is a <em>destruction</em> contract as
+well: the emulated ESP-01's four members carry a long comment explaining that
+reverse-order destruction is what guarantees its worker thread is joined before
+anything the thread holds a pointer to is destroyed.</p>
 <p>Grouped roughly, the object holds:</p>
 <ul>
-<li><strong>Timing</strong> — <code>Clock</code> (the 28 MHz master counter and CPU divisors),
-  <code>Scheduler</code> (a min-heap of <code>(cycle, EventType, callback)</code>), <code>MachineTiming</code>,
-  <code>VideoTiming</code>.</li>
+<li><strong>Timing</strong> — <code>Clock</code> (the 28 MHz master counter and the CPU divisors derived
+  from it), <code>Scheduler</code> (a min-heap of <code>(cycle, EventType, callback)</code>),
+  <code>MachineTiming</code> and <code>VideoTiming</code>.</li>
 <li><strong>Execution</strong> — <code>Z80Cpu</code>, <code>Im2Controller</code>, <code>ContentionModel</code>.</li>
 <li><strong>Memory</strong> — <code>Ram</code>, <code>Rom</code>, <code>Mmu</code>.</li>
 <li><strong>I/O</strong> — <code>PortDispatch</code>, <code>NextReg</code>.</li>
-<li><strong>Video</strong> — <code>PaletteManager</code>, <code>Layer2</code>, <code>SpriteEngine</code>, <code>Tilemap</code>,
-  <code>Renderer</code> (which itself owns the <code>Ula</code> and <code>Lores</code>).</li>
+<li><strong>Video</strong> — <code>PaletteManager</code>, <code>Layer2</code>, <code>SpriteEngine</code>, <code>Tilemap</code>, and
+  <code>Renderer</code>, which itself owns the <code>Ula</code> and <code>Lores</code>.</li>
 <li><strong>Audio</strong> — <code>Beeper</code>, <code>TurboSound</code>, <code>Dac</code>, <code>I2s</code>, <code>Mixer</code>.</li>
 <li><strong>Peripherals</strong> — <code>Copper</code>, <code>Ctc</code>, <code>Dma</code>, <code>SpiMaster</code>, <code>I2cController</code>,
-  <code>I2cRtc</code>, <code>Uart</code>, <code>DivMmc</code>, <code>Multiface</code>, <code>NmiSource</code>, <code>SdCardDevice</code>, and
-  (behind a pointer, off by default) the emulated ESP-01.</li>
+  <code>I2cRtc</code>, <code>Uart</code>, <code>DivMmc</code>, <code>Multiface</code>, <code>NmiSource</code>, <code>SdCardDevice</code>, and the
+  emulated ESP-01, which is off by default and therefore held behind a pointer.</li>
 <li><strong>Input</strong> — <code>Keyboard</code>, <code>Joystick</code>, <code>KempstonMouse</code>, <code>Md6ConnectorX2</code>,
   <code>MembraneStick</code>, <code>IoMode</code>, <code>EmuFnKeys</code>, <code>PhantomTypist</code>.</li>
 <li><strong>Host-facing state that is not machine state</strong> — <code>DebugState</code>, <code>TraceLog</code>,
-  <code>CallStack</code>, the tape loaders and the tape saver, the video/RZX recorders,
-  the rewind ring, the profiler, and the 640 × 256 framebuffer. The <em>snapshot</em>
-  loaders are not members: <code>NexLoader</code>, <code>SnaLoader</code>, <code>SzxLoader</code> and
-  <code>Z80Loader</code> are constructed as locals inside <code>load_nex()</code>, <code>load_sna()</code>,
-  <code>load_szx()</code> and <code>load_z80()</code>, because a snapshot is read once and then
-  nothing survives.</li>
+  <code>CallStack</code>, the tape loaders and the tape saver, the video and RZX
+  recorders, the rewind ring, the profiler, and the 640 × 256 framebuffer.</li>
 </ul>
-<p>Accessors (<code>mmu()</code>, <code>nextreg()</code>, <code>copper()</code>, …) hand out references. That is
-how the debugger panels, the unit suites and the frontends all reach
-subsystems: there is no separate façade. In particular the design plan's
-<code>DebuggerInterface</code> class <strong>does not exist</strong> — the Qt debugger talks to
-<code>Emulator</code> accessors and <code>DebugState</code> directly.</p>
+<p>The snapshot loaders are a deliberate exception to all of that: <code>NexLoader</code>,
+<code>SnaLoader</code>, <code>SzxLoader</code> and <code>Z80Loader</code> are <em>not</em> members. Each is constructed
+as a local inside <code>load_nex()</code>, <code>load_sna()</code>, <code>load_szx()</code> and <code>load_z80()</code>,
+because a snapshot is read exactly once and nothing about the loader needs to
+outlive the call.</p>
+<p>Subsystems are reached through accessors — <code>mmu()</code>, <code>nextreg()</code>, <code>copper()</code> and
+so on — which simply hand out references. That is how the debugger panels, the
+unit suites and the frontends all get at the machine; there is no façade layer
+in between. In particular, the <code>DebuggerInterface</code> class described in the
+design plan <strong>does not exist</strong> in the code. The Qt debugger talks to <code>Emulator</code>
+accessors and to <code>DebugState</code> directly.</p>
 <h2 id="how-subsystems-reach-each-other">How subsystems reach each other<a class="headerlink" href="#how-subsystems-reach-each-other" title="Permanent link">&para;</a></h2>
-<p>Four mechanisms, in rough order of how much of the code they account for.</p>
-<p><strong>Direct calls through owned members.</strong> The overwhelming majority.
-<code>run_frame()</code> calls <code>ctc_.tick()</code>, <code>nmi_source_.tick()</code>,
-<code>renderer_.render_frame(...)</code>. There is no message bus; the design's "direct
-method calls for performance" rule held.</p>
+<p>There are four mechanisms, listed here in rough order of how much of the
+codebase each one accounts for.</p>
+<p><strong>Direct calls through owned members</strong> cover the overwhelming majority.
+<code>run_frame()</code> simply calls <code>ctc_.tick()</code>, <code>nmi_source_.tick()</code> and
+<code>renderer_.render_frame(...)</code>. There is no message bus and no event
+indirection: the design's "direct method calls for performance" rule held all
+the way through.</p>
 <p><strong>Two virtual seams, both declared in <code>src/cpu/z80_cpu.h</code>.</strong> <code>MemoryInterface</code>
 (<code>read</code>/<code>write</code>) and <code>IoInterface</code> (<code>in</code>/<code>out</code>/<code>nextreg_opcode_write</code>) are the
-only abstract base classes in the hot path. <code>Mmu</code> implements the first,
-<code>PortDispatch</code> the second, and <code>Z80Cpu</code> holds references to both. They exist
-so a test can construct a CPU against a stub memory and I/O map without
-building an entire machine — which is exactly what the CPU suites do.</p>
+only abstract base classes anywhere in the hot path. <code>Mmu</code> implements the
+first, <code>PortDispatch</code> the second, and <code>Z80Cpu</code> holds a reference to each. They
+exist so that a test can stand a CPU up against a stub memory and a stub I/O
+map without constructing an entire machine, which is exactly what the CPU
+suites do.</p>
 <p><strong>Callbacks registered at <code>init()</code> time.</strong> <code>Emulator::init()</code> is a very long
-function whose bulk is wiring — over two hundred <code>std::function</code> registrations.
-<code>PortDispatch::register_handler(mask, value, read, write)</code> installs the I/O
-map by address-line masking (most-specific match wins, and a handler may
-<code>decline_write()</code> to fall through when its hardware enable gate is off, which
-mirrors the VHDL's parallel decodes). <code>NextReg::set_write_handler(reg, fn)</code> and
-<code>set_read_handler(reg, fn)</code> install the NextREG file's per-register behaviour.
-Peripherals raise interrupts through <code>Im2Controller</code> callbacks the same way.
-Every one of these lambdas captures <code>this</code>, which is why <code>init()</code> must be
-re-run after any reconstruction of the object.</p>
-<p><strong>Host-boundary callbacks with no SDL or Qt type.</strong> A small set of
-<code>std::function</code> members let the core notify a frontend without knowing what a
+function, and almost all of its length is wiring — more than two hundred
+<code>std::function</code> registrations. <code>PortDispatch::register_handler(mask, value,
+read, write)</code> builds the I/O map by address-line masking, with the most
+specific match winning; a handler may also call <code>decline_write()</code> so the write
+falls through to the next candidate when its hardware enable gate is off, which
+is how the VHDL's parallel decodes are reproduced.
+<code>NextReg::set_write_handler(reg, fn)</code> and <code>set_read_handler(reg, fn)</code> install
+the NextREG file's per-register behaviour, and peripherals raise interrupts
+through <code>Im2Controller</code> callbacks registered the same way. Every one of these
+lambdas captures <code>this</code>, which is the reason <code>init()</code> has to be re-run after
+the object is reconstructed.</p>
+<p><strong>Host-boundary callbacks carrying no SDL or Qt type.</strong> A small set of
+<code>std::function</code> members lets the core notify a frontend without knowing what a
 frontend is: <code>on_joystick_source_changed</code>, <code>on_input_state_restored</code>, and the
-polled <code>take_hard_reset_request()</code>. They are empty by default, so headless and
-the unit suites simply never fire them.</p>
+polled <code>take_hard_reset_request()</code>. They are empty by default, so headless runs
+and the unit suites simply never fire them.</p>
 <h2 id="three-ways-the-machine-restarts">Three ways the machine restarts<a class="headerlink" href="#three-ways-the-machine-restarts" title="Permanent link">&para;</a></h2>
-<p>The distinction matters and is easy to get wrong.</p>
+<p>A ZX Spectrum Next distinguishes between a <em>soft</em> reset, which drops you back
+to NextZXOS without re-running the boot chain, and a <em>power</em> reset, which
+starts the machine over from nothing. Users see both, as <strong>Machine ▸ Soft
+Reset</strong> (F4) and <strong>Machine ▸ Power Reset</strong> (F1). Internally there is a third
+path that is neither of them, and confusing the three is an easy mistake to
+make.</p>
 <table>
 <thead>
 <tr>
@@ -1809,29 +1891,32 @@ the unit suites simply never fire them.</p>
 <tbody>
 <tr>
 <td><code>soft_reset()</code></td>
-<td>Re-runs <code>init(config_, preserve_memory=true)</code>. Clears flip-flop state but keeps RAM, the ROM-in-SRAM window, the boot-ROM overlay and the free-running clock/scheduler. Models tbblue's <code>RESET_SOFT</code> / NR 0x02 bit 0.</td>
+<td>Re-runs <code>init(config_, preserve_memory=true)</code>. Clears flip-flop state but keeps RAM, the ROM-in-SRAM window, the boot-ROM overlay and the free-running clock and scheduler. Models tbblue's <code>RESET_SOFT</code> / NR 0x02 bit 0.</td>
 <td>NR 0x02 bit 0, F4</td>
 </tr>
 <tr>
 <td><code>reset()</code></td>
-<td>Re-runs <code>init(config_)</code> in place: clears RAM, reloads ROM. <strong>Not</strong> the machine's reset button — <code>config_mode</code> is preserved, so it would fall through to 48K BASIC rather than re-booting NextZXOS. It survives as the reinit the file loaders use.</td>
+<td>Re-runs <code>init(config_)</code> in place, clearing RAM and reloading ROM. Despite the name it is <strong>not</strong> the machine's reset button: <code>config_mode</code> is preserved, so it would drop through to 48K BASIC rather than re-booting NextZXOS. It survives as the reinitialisation the file loaders need.</td>
 <td>file loaders, test setup</td>
 </tr>
 <tr>
 <td>Cold boot</td>
-<td><code>emu.~Emulator(); new (&amp;emu) Emulator();</code> at the same address, then <code>init(cfg)</code> — <code>emulator_cold_boot()</code> in <code>src/platform/emulator_boot.h</code>. This is what the reset button, F1 and NR 0x02 bit 1 actually do.</td>
+<td><code>emu.~Emulator(); new (&amp;emu) Emulator();</code> at the same address, followed by <code>init(cfg)</code> — <code>emulator_cold_boot()</code> in <code>src/platform/emulator_boot.h</code>. This is what the reset button, F1 and NR 0x02 bit 1 actually do.</td>
 <td>frontend, after <code>take_hard_reset_request()</code></td>
 </tr>
 </tbody>
 </table>
-<p>Placement-new at a stable address is deliberate: host code holding <code>&amp;emu</code> or
-references into it stays valid. It is also why a live worker thread inside the
-object would be a silent-corruption hazard rather than a crash, and why the
-ESP is owned here rather than by a frontend.</p>
-<p>A program's own hard-reset request cannot be serviced from inside
-<code>run_frame()</code> — you cannot destroy the object you are executing in — so the
-emulator only <em>records</em> it and the frontend polls
-<code>take_hard_reset_request()</code> after each frame.</p>
+<p>Reconstructing in place, at a stable address, is the point of the third row:
+host code that is holding <code>&amp;emu</code>, or a reference to something inside it, stays
+valid across a cold boot. The same trick is why a live worker thread inside the
+object would be a silent-corruption hazard rather than an obvious crash, and it
+is why the emulated ESP is owned here rather than by a frontend.</p>
+<p>One consequence is worth spelling out. A program running on the emulated
+machine can request its own hard reset, but that request cannot be serviced
+from inside <code>run_frame()</code> — you cannot destroy the object whose code you are
+currently executing. So the emulator only <em>records</em> the request, and the
+frontend polls <code>take_hard_reset_request()</code> after each frame returns and
+performs the reconstruction from there.</p>
 
 
 

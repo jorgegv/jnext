@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1738,8 +1806,8 @@
 
 
 <h1 id="52-build-configurations">5.2 Build configurations<a class="headerlink" href="#52-build-configurations" title="Permanent link">&para;</a></h1>
-<p>The <code>make</code> targets pass the right options for you. Use these when invoking
-CMake directly.</p>
+<p>The <code>make</code> targets already pass the right options for you, so this table
+matters mainly when you invoke CMake directly.</p>
 <table>
 <thead>
 <tr>
@@ -1777,7 +1845,7 @@ CMake directly.</p>
 <tr>
 <td><code>JNEXT_FORCE_QT5</code></td>
 <td>OFF</td>
-<td>Build the GUI and debugger against Qt 5.15 instead of Qt 6 (the legacy Windows legs only)</td>
+<td>Build the GUI and debugger against Qt 5 instead of Qt 6 (the legacy Windows legs only)</td>
 </tr>
 <tr>
 <td><code>CYCLE_ACCURATE</code></td>
@@ -1802,67 +1870,74 @@ CMake directly.</p>
 </tbody>
 </table>
 <h2 id="the-combinations-are-gated-not-assumed">The combinations are gated, not assumed<a class="headerlink" href="#the-combinations-are-gated-not-assumed" title="Permanent link">&para;</a></h2>
-<p><code>ENABLE_QT_UI</code> and <code>ENABLE_DEBUGGER</code> give four combinations, and only one of
-them is what you build by hand. <code>make build-matrix</code> builds all four and fails
-if any breaks.</p>
-<p>This exists because of a specific failure mode. CMake derives static-link
-<em>order</em> from the declared dependency graph, so a target that under-declares its
-dependencies still links whenever some other library happens to pull them in at
-a usable position. It shipped twice: <code>jnext_core</code> never declared its subsystem
-libraries and <code>jnext_platform</code> never declared <code>jnext_core</code>, and the default
-combination (both options ON) hid both — the link only broke for someone
-building without the debugger. Link rot appears at build time and only in the
-combinations the default build does not exercise, so the only way to find it is
-to build them all. The matrix keeps going after a failure and reports every
-broken combination, because knowing whether three are broken or one is the
-difference between a missing edge and a wrong graph.</p>
+<p><code>ENABLE_QT_UI</code> and <code>ENABLE_DEBUGGER</code> between them give four combinations, and
+only one of those is the one you build by hand. <code>make build-matrix</code> builds all
+four and fails if any of them breaks.</p>
+<p>That target exists because of a specific and rather subtle failure mode. CMake
+derives static-link <em>order</em> from the dependency graph you declare, which means a
+target that under-declares its dependencies still links successfully whenever
+some other library happens to pull them in at a usable position. The bug is
+real but invisible, and it shipped twice: <code>jnext_core</code> never declared its
+subsystem libraries and <code>jnext_platform</code> never declared <code>jnext_core</code>, and in
+both cases the default combination — both options ON — hid the problem, so the
+link only broke for someone building without the debugger. Link rot of this kind
+appears at build time and only in the combinations the default build does not
+exercise, so the only way to find it is to build them all. The matrix keeps
+going after a failure and reports every broken combination rather than stopping
+at the first, because knowing whether three are broken or only one is the
+difference between a single missing edge and a wrong graph.</p>
 <h2 id="where-each-target-builds">Where each target builds<a class="headerlink" href="#where-each-target-builds" title="Permanent link">&para;</a></h2>
-<p>One scheme, <code>build/&lt;variant&gt;-&lt;config&gt;</code>, everything under <code>build/</code>:
-<code>build/sdl-release</code>, <code>build/gui-release</code>, <code>build/win-release</code>,
+<p>There is one scheme, <code>build/&lt;variant&gt;-&lt;config&gt;</code>, and everything lives under
+<code>build/</code>: <code>build/sdl-release</code>, <code>build/gui-release</code>, <code>build/win-release</code>,
 <code>build/rpm-release</code>, <code>build/deb-release</code>, <code>build/mac-release</code>,
 <code>build/flatpak-release</code>, and so on.</p>
-<p><code>build/</code> itself is the canonical development tree — <code>build/jnext</code> plus every
-test binary. <code>make unit-test-build</code> configures it, and it configures it
-deliberately with <code>ENABLE_QT_UI=ON</code> and <code>ENABLE_DEBUGGER=ON</code>. That is not a
-default it inherits: <code>ENABLE_QT_UI</code> defaults OFF, so an unconfigured <code>build/</code>
-would silently produce an SDL binary with no main window, and the next person
-to check the GUI would find no window and conclude their change had broken it.
-The target also <em>refuses</em> to build on a <code>build/</code> that someone configured by
-hand with either flag off, rather than handing back a binary that is not what
-it claims to be. If that happens, <code>make clean</code> and retry.</p>
+<p><code>build/</code> itself is the canonical development tree, holding <code>build/jnext</code> plus
+every test binary. <code>make unit-test-build</code> configures it, and it does so
+deliberately with <code>ENABLE_QT_UI=ON</code> and <code>ENABLE_DEBUGGER=ON</code> rather than
+inheriting whatever the defaults happen to be. The reason is that <code>ENABLE_QT_UI</code>
+defaults OFF, so an unconfigured <code>build/</code> would silently produce an SDL binary
+with no main window — and the next person to check something in the GUI would
+find no window at all and reasonably conclude their own change had broken it.
+For the same reason the target <em>refuses</em> to build on a <code>build/</code> that someone
+has configured by hand with either flag off, rather than handing back a binary
+that is not what it claims to be. If you hit that refusal, <code>make clean</code> and
+retry.</p>
 <h2 id="dev-build-versus-release-build">Dev build versus release build<a class="headerlink" href="#dev-build-versus-release-build" title="Permanent link">&para;</a></h2>
-<p>With no <code>-DCMAKE_BUILD_TYPE</code>, CMake here defaults to <strong>RelWithDebInfo</strong> rather
-than to the empty build type — an unoptimised <code>build/jnext</code> was about 5×
-slower than Release and a trap for anyone measuring anything. RelWithDebInfo
-additionally keeps frame pointers, so <code>perf record -g</code> produces usable call
-graphs. Release does not: frame pointers were measured at a 5.8% cost there,
-which is an unacceptable permanent tax on the user-facing binary.</p>
-<p>Hence the rule: <strong>any performance measurement or benchmark uses
-<code>build/gui-release/jnext</code></strong> (<code>make gui-release</code>), never <code>build/jnext</code>. To
-profile the release binary, use <code>perf record --call-graph dwarf</code>.</p>
-<p>LTO is enabled for <strong>Release only</strong>, via
-<code>CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE</code>, and guarded by
-<code>check_ipo_supported()</code> so a toolchain without working LTO builds exactly as
-before. It matters here because the emulator is split into fourteen
-per-subsystem static libraries, which makes every hot cross-library call — the
-CPU into <code>Mmu::read</code>, the CPU into <code>PortDispatch</code> — un-inlinable at compile
-time. <code>JNEXT_ENABLE_LTO=OFF</code> exists for the Flatpak build alone: the
+<p>With no <code>-DCMAKE_BUILD_TYPE</code> given, CMake here defaults to <strong>RelWithDebInfo</strong>
+instead of to the empty build type. An unoptimised <code>build/jnext</code> measured about
+5× slower than Release, which made it a trap for anyone benchmarking anything.
+RelWithDebInfo additionally keeps frame pointers, so <code>perf record -g</code> produces
+usable call graphs from it. Release does not keep them: frame pointers were
+measured at a 5.8% cost there, and that is an unacceptable permanent tax on the
+binary users actually run.</p>
+<p>Hence the rule that follows from those two facts: <strong>any performance measurement
+or benchmark uses <code>build/gui-release/jnext</code></strong> (<code>make gui-release</code>), never
+<code>build/jnext</code>. When you do need to profile the release binary, use
+<code>perf record --call-graph dwarf</code>.</p>
+<p>LTO is enabled for <strong>Release only</strong>, through
+<code>CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE</code>, and it is guarded by
+<code>check_ipo_supported()</code> so that a toolchain without working LTO simply builds as
+it did before. It earns its keep here because the emulator is split into
+fourteen per-subsystem static libraries, and that split makes every hot
+cross-library call — the CPU into <code>Mmu::read</code>, the CPU into <code>PortDispatch</code> —
+un-inlinable at compile time.</p>
+<p><code>JNEXT_ENABLE_LTO=OFF</code> exists for exactly one build, the Flatpak one: the
 <code>org.kde.Sdk</code> GCC miscompiles the QApplication init path under whole-program
 LTO and segfaults at GUI launch. That was bisected to the LTO <em>process</em> in that
-toolchain rather than to any single unit or transform, so nothing short of
-disabling it helps. Every other build keeps LTO.</p>
+toolchain rather than to any single translation unit or transform, which is why
+nothing short of disabling it helps. Every other build keeps LTO on.</p>
 <h2 id="ccache">ccache<a class="headerlink" href="#ccache" title="Permanent link">&para;</a></h2>
 <p><code>CMakeLists.txt</code> finds ccache and uses it as <code>CMAKE_{C,CXX}_COMPILER_LAUNCHER</code>.
 This is what makes the project's mandatory clean-rebuild discipline affordable:
-a clean rebuild of <code>gui-release</code> plus <code>build/</code> drops from roughly 65 s to 8 s
-on a warm cache. Reverting a change and rebuilding — the core reviewer move —
-is a pure cache hit, because the source is byte-identical to a state already
-compiled.</p>
-<p>Give it room once per machine; the 5 GB default thrashes on a tree this size:</p>
+a clean rebuild of <code>gui-release</code> plus <code>build/</code> drops from roughly 65 s to 8 s on
+a warm cache. Reverting a change and rebuilding — which is the core reviewer
+move, and one this project asks for often — is a pure cache hit, because the
+source is byte-identical to a state that has already been compiled once.</p>
+<p>Give it room, once per machine; the 5 GB default thrashes on a tree this size:</p>
 <pre><code class="language-console">$ ccache -M 20G
 </code></pre>
-<p>That is a user-level setting, not repository state, so re-apply it on any new
-machine.</p>
+<p>That is a user-level setting rather than repository state, so it has to be
+re-applied on any new machine.</p>
 
 
 

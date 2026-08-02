@@ -12,70 +12,72 @@
 //   * every debugger exit is an EARLY RETURN out of the middle of the loop,
 //     leaving the frame in flight for the next call.
 //
-// Palette note: light fills, dark labels, transparent canvas, so the figure
-// reads on both the light and the dark theme of the rendered guide.
+// Palette note: the page theme's pastel dark red family (see css/theme.css).
+// Light fills, dark labels, transparent canvas, so the figure reads on both
+// the light and the dark theme.
 digraph frame_execution {
     bgcolor="transparent";
     rankdir=TB;
+    splines=ortho;
     fontname="Helvetica";
     node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
-          fillcolor="#eef2f7", color="#5a6b80", fontcolor="#1b2430", margin="0.16,0.08"];
-    edge [color="#5a6b80", fontname="Helvetica", fontsize=9, fontcolor="#3a4757"];
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.16,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5c4247"];
 
-    tick [label="frontend tick\n(Qt timer / SDL loop / headless)", fillcolor="#e3ecf7"];
-    call [label="Emulator::run_frame()", fillcolor="#f6efdc"];
+    tick [label="frontend tick\n(Qt timer / SDL loop / headless)", fillcolor="#f3e3e6"];
+    call [label="Emulator::run_frame()", fillcolor="#e9d3d6"];
 
     esp  [label="service_esp_frame()\nnetwork I/O, before any instruction"];
 
-    rew  [shape=diamond, style="filled", fillcolor="#f3e6ea",
+    rew  [shape=diamond, style="filled", fillcolor="#f5dfe2",
           label="rewind step\nrequested?", margin="0.02,0.02"];
     rewd [label="step_back / rewind_to_cycle\nreturn — no frame runs"];
 
-    inpr [shape=diamond, style="filled", fillcolor="#f3e6ea",
+    inpr [shape=diamond, style="filled", fillcolor="#f5dfe2",
           label="frame already\nin flight?", margin="0.02,0.02"];
     begin [label="begin_new_frame()\nCopper PC rewind, per-scanline change logs\ncleared, interrupts scheduled, rewind snapshot",
-           fillcolor="#dfe8dd"];
+           fillcolor="#ecdfe0"];
 
     loop [label="while clock < frame_end", shape=hexagon, style="filled",
-          fillcolor="#f6efdc", margin="0.1,0.04"];
+          fillcolor="#e9d3d6", margin="0.1,0.04"];
 
-    brk  [shape=diamond, style="filled", fillcolor="#f3e6ea",
+    brk  [shape=diamond, style="filled", fillcolor="#f5dfe2",
           label="debugger:\nbreakpoint, step,\nrun-to-cycle?", margin="0.02,0.02"];
-    pause [label="pause and RETURN\nframe stays in flight", fillcolor="#f3e6ea"];
+    pause [label="pause and RETURN\nframe stays in flight", fillcolor="#f5dfe2"];
 
-    trap [shape=diamond, style="filled", fillcolor="#f3e6ea",
+    trap [shape=diamond, style="filled", fillcolor="#f5dfe2",
           label="ROM trap at PC?\n(tape fast load / save)", margin="0.02,0.02"];
     trapd [label="handle trap, charge fake cycles,\nrun scheduler, continue"];
 
     step [label="step_one_instruction()\nCPU executes; contention applied per access"];
     devs [label="tick_devices_after_instruction()\nCopper, CTC, DMA, UART, audio accumulation,\nscanline boundary work"];
 
-    endf [label="frame accounting\nlast vc/hc, frame_cycle_ = frame_end,\nfinal per-line snapshots", fillcolor="#dfe8dd"];
+    endf [label="frame accounting\nlast vc/hc, frame_cycle_ = frame_end,\nfinal per-line snapshots", fillcolor="#ecdfe0"];
     // The frame is composited HERE, not scanline by scanline as it is
     // executed. on_scanline() renders nothing — it only tags the per-scanline
     // change logs. That is why those logs exist at all.
     comp [label="Renderer::render_frame()\nthe WHOLE frame in one pass, replaying each\nrow's change log immediately before the row",
-          fillcolor="#dfe8dd"];
-    fb   [label="framebuffer + audio samples\nto the frontend", fillcolor="#e3ecf7"];
+          fillcolor="#ecdfe0"];
+    fb   [label="framebuffer + audio samples\nto the frontend", fillcolor="#f3e3e6"];
 
     tick -> call;
     call -> esp -> rew;
-    rew -> rewd  [label="  yes"];
-    rew -> inpr  [label="  no"];
-    inpr -> begin [label="  no"];
-    inpr -> loop  [label="  yes (resume)"];
+    rew -> rewd  [xlabel="  yes"];
+    rew -> inpr  [xlabel="  no"];
+    inpr -> begin [xlabel="  no"];
+    inpr -> loop  [xlabel="  yes (resume)"];
     begin -> loop;
 
     loop -> brk;
-    brk  -> trap  [label="  no"];
-    brk  -> pause [label="  hit"];
-    trap -> step  [label="  no"];
-    trap -> trapd [label="  yes"];
+    brk  -> trap  [xlabel="  no"];
+    brk  -> pause [xlabel="  hit"];
+    trap -> step  [xlabel="  no"];
+    trap -> trapd [xlabel="  yes"];
     step -> devs;
     trapd -> devs [style=invis];
-    devs -> loop  [style=dashed, label="  next instruction", constraint=false];
+    devs -> loop  [style=dashed, xlabel="  next instruction", constraint=false];
     trapd -> loop [style=dashed, constraint=false];
-    loop -> endf  [label="  clock >= frame_end", minlen=6];
+    loop -> endf  [xlabel="  clock >= frame_end", minlen=6];
     endf -> comp -> fb;
 
     // Keep the two loop exits out of the loop body's ranks.

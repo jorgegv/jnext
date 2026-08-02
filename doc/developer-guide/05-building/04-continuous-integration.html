@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1749,97 +1817,114 @@
 
 
 <h1 id="54-continuous-integration">5.4 Continuous integration<a class="headerlink" href="#54-continuous-integration" title="Permanent link">&para;</a></h1>
-<p>Three workflows. <code>ci.yml</code> tests, on every push to <code>main</code> and every pull
-request. <code>release.yml</code> builds and publishes packages, on a <code>v*</code> tag push.
-<code>macos-build.yml</code> builds, packages and verifies the macOS <code>.dmg</code> on demand —
-it has only a <code>workflow_dispatch</code> trigger, so it never runs by itself; it
-exists so the macOS leg can be exercised without cutting a release.</p>
+<p>There are three workflows. <code>ci.yml</code> tests, and runs on every push to <code>main</code> and
+every pull request. <code>release.yml</code> builds and publishes packages, and runs on a
+<code>v*</code> tag push. <code>macos-build.yml</code> builds, packages and verifies the macOS <code>.dmg</code>
+on demand — it has only a <code>workflow_dispatch</code> trigger, so it never runs by
+itself; it exists so that the macOS leg can be exercised without having to cut
+a release to do it.</p>
 <h2 id="the-hard-rule-every-step-is-a-plain-make-target">The hard rule: every step is a plain make target<a class="headerlink" href="#the-hard-rule-every-step-is-a-plain-make-target" title="Permanent link">&para;</a></h2>
-<p>Every <code>run:</code> in <code>ci.yml</code> is a target a human types locally. CI and local must
-never diverge. If CI appears to need something the local flow lacks, the answer
-is almost never a CI-only step: either the project is missing a target — add it
-to the Makefile, so local runs get it too — or the need is imaginary. There is
-exactly one declared exception, the Flatpak job in <code>release.yml</code>, written down
-in that job's comment and in <code>doc/RELEASE-PROTOCOL.md</code> so it stays a decision
-rather than drift.</p>
-<p>The corollary is <strong>never pipe a build or test command</strong>. GitHub's default
-<code>bash -e</code> does not set <code>pipefail</code>, so a piped step takes the <em>pipe's</em> exit
-status and a failing <code>make</code> reports success. That is not hypothetical: a run
-here once printed <code>62 pass, 1 fail</code> and <code>UNIT TESTS FAILED</code> in bold and went
-green.</p>
+<p>The organising idea behind <code>ci.yml</code> is worth stating before the details,
+because it is not how most projects are set up. <strong>Every <code>run:</code> in the workflow
+is a plain make target — the same one a human types locally.</strong> There is no
+CI-only build script, no YAML that knows how to do something the Makefile
+cannot. The purpose is that CI and a local run can never quietly diverge: if
+the suite is green on your machine it is green for the same reasons it will be
+green on the runner, and when it goes red you reproduce it by typing the target
+from the log.</p>
+<p>The rule has a corollary for when CI seems to need something the local flow
+lacks. The answer is almost never a CI-only step. Either the project is missing
+a target — in which case add it to the Makefile, so local runs get it too — or
+the need is imaginary. There is exactly one declared exception, the Flatpak job
+in <code>release.yml</code>, and it is written down both in that job's comment and in
+<code>doc/RELEASE-PROTOCOL.md</code> so that it stays a decision rather than becoming
+drift.</p>
+<p>The second corollary is <strong>never pipe a build or test command</strong>. GitHub's
+default <code>bash -e</code> does not set <code>pipefail</code>, so a piped step takes the <em>pipe's</em>
+exit status, and a failing <code>make</code> therefore reports success. That is not a
+hypothetical worry: a run here once printed <code>62 pass, 1 fail</code> and
+<code>UNIT TESTS FAILED</code> in bold, and went green.</p>
 <h2 id="why-a-fedora-container">Why a Fedora container<a class="headerlink" href="#why-a-fedora-container" title="Permanent link">&para;</a></h2>
-<p>Three of the five <code>ci.yml</code> jobs — <code>test</code>, <code>qt5-guard</code> and <code>package</code> — run in
-<code>container: fedora:44</code>, the same image <code>release.yml</code> builds the rpm and Windows
-artifacts in, and the distro the maintainer develops on. (The other two cannot:
-<code>macos</code> runs on a <code>macos-latest</code> runner, and <code>flatpak</code> runs in the Flathub
-<code>kde-6.10</code> image because that is where <code>flatpak-builder</code> and the KDE SDK live.)
-This is load-bearing rather than cosmetic. The man page,
-<code>USAGE.md</code>, the rendered user guide and the rendered developer guide (including
-its Graphviz SVGs) are all generated and committed, and pandoc, mkdocs-material
-and graphviz emit byte-different output across versions. A runner on a
-different distro therefore reports a <em>version gap</em> as staleness: Ubuntu shipped
-pandoc 3.1.3 against the maintainer's 3.7.0.2 and failed <code>docs-check</code> on every
-run from the day the man page landed. Matching the distro removes the whole
-class instead of pinning tool by tool.</p>
+<p>Three of the five <code>ci.yml</code> jobs — <code>test</code>, <code>qt5-guard</code> and <code>package</code> — run in a
+pinned Fedora container: the same image <code>release.yml</code> builds the rpm and Windows
+artifacts in, and the same distribution family the maintainer develops on. (The
+remaining two cannot: <code>macos</code> needs a <code>macos-latest</code> runner, and <code>flatpak</code> runs
+in the Flathub <code>flatpak-github-actions</code> image, because that is where
+<code>flatpak-builder</code> and the KDE SDK live.)</p>
+<p>Matching the maintainer's distribution is load-bearing rather than cosmetic. The
+man page, <code>USAGE.md</code>, the rendered user guide and the rendered developer guide —
+including its Graphviz SVGs — are all generated and committed, and pandoc,
+mkdocs-material and graphviz all emit byte-different output from one version to
+the next. A runner on a different distribution therefore reports a <em>version gap</em>
+as staleness, which is exactly what happened: a runner whose distribution
+shipped an older pandoc than the maintainer's failed <code>docs-check</code> on every run
+from the day the man page landed. Matching the distribution removes the whole
+class of problem, instead of pinning tool by tool and waiting for the next one.</p>
 <h2 id="the-jobs-in-ciyml">The jobs in <code>ci.yml</code><a class="headerlink" href="#the-jobs-in-ciyml" title="Permanent link">&para;</a></h2>
-<p><strong><code>test</code></strong> is the main one. It installs the dependency set, checks out the
-repository with submodules, then clones the ZX Next FPGA core — sparsely, at a
-pinned commit, into the runner's temp directory outside the workspace — because
-the traceability generator validates every VHDL citation against the real
-source tree and produces different bytes without it. It then runs, in order:
-<code>make clean &amp;&amp; make gui-release</code>, <code>make build-matrix</code>,
-<code>JNEXT_TEST_JOBS=4 make regression</code>, and <code>make unit-test</code>. On failure it
-uploads the screenshot diffs and the test summary.</p>
-<p>That order matters. <code>make regression</code> self-provisions the SD image as one of
-its own rows, and <code>make unit-test</code> needs the same image for
-<code>sd_rom_extractor_test</code>, which finds it already there.</p>
-<p><strong><code>qt5-guard</code></strong> runs <code>make qt5-guard-build</code>: the same GUI and debugger sources
-compiled against native Linux Qt5. Nothing else in CI compiles that
+<p><strong><code>test</code></strong> is the main job. It installs the dependency set, checks out the
+repository with submodules, and then clones the ZX Next FPGA core — sparsely, at
+a pinned commit, into the runner's temp directory outside the workspace. That
+clone is needed because the traceability generator validates every VHDL citation
+against the real source tree, and produces different bytes without it. The job
+then runs, in order: <code>make clean &amp;&amp; make gui-release</code>, <code>make build-matrix</code>,
+<code>JNEXT_TEST_JOBS=4 make regression</code>, and <code>make unit-test</code>. On failure it uploads
+the screenshot diffs and the test summary.</p>
+<p>That order is not arbitrary. <code>make regression</code> self-provisions the SD image as
+one of its own rows, and <code>make unit-test</code> needs the same image for
+<code>sd_rom_extractor_test</code> — running regression first means the image is already
+there when the unit tests ask for it.</p>
+<p><strong><code>qt5-guard</code></strong> runs <code>make qt5-guard-build</code>, which is the same GUI and debugger
+sources compiled against native Linux Qt5. Nothing else in CI compiles that
 combination, so a Qt6-only API creeping into the GUI would otherwise surface
-only at release time, inside the MinGW cross job. Build-only by design.</p>
-<p><strong><code>package</code></strong> runs <code>make package-test</code> in its own parallel job — roughly four
-minutes of package builds with a toolchain the test job has no other use for.
-In CI a missing packaging tool is a <strong>FAIL, not a SKIP</strong>, so a row that quietly
-stopped running cannot read as a pass.</p>
+only at release time, inside the MinGW cross job, which is a slow and confusing
+place to find out. It is build-only by design.</p>
+<p><strong><code>package</code></strong> runs <code>make package-test</code> in its own parallel job, because it is
+roughly four minutes of package builds using a toolchain the test job has no
+other use for. One detail matters here: in CI a missing packaging tool is a
+<strong>FAIL, not a SKIP</strong>, so a row that has quietly stopped running cannot read as
+a pass.</p>
 <p><strong><code>macos</code></strong> runs <code>make package-macos</code> on a real <code>macos-latest</code> runner, and
-<strong><code>flatpak</code></strong> actually builds the bundle in the KDE runtime container. Both
+<strong><code>flatpak</code></strong> actually builds the bundle inside the KDE runtime container. Both
 exist because a platform whose failures are invisible until release time fails
-too late — the v0.98.34 <code>.dmg</code> referenced Homebrew paths and aborted in dyld on
-every Mac but the builder's. Neither is <code>continue-on-error</code>: the entire point is
-to go red when the thing stops working.</p>
+too late to be useful — the v0.98.34 <code>.dmg</code> referenced Homebrew paths and
+aborted in dyld on every Mac except the one that built it. Neither job is
+<code>continue-on-error</code>, since going red when the thing stops working is the entire
+point of having them.</p>
 <h2 id="the-sd-card-image-is-provisioned-never-faked">The SD-card image is provisioned, never faked<a class="headerlink" href="#the-sd-card-image-is-provisioned-never-faked" title="Permanent link">&para;</a></h2>
 <p><code>roms/</code> is git-ignored, so a fresh checkout has no NextZXOS SD image, and
-jnext's harness treats a missing image as a fatal fault rather than a silent
-skip. Either <code>make unit-test</code> or <code>make regression</code> therefore fails outright
-without one — there is no honest way to run most of the suite and still call
-the job green.</p>
-<p>So CI runs <strong>jnext's own provisioner</strong>: the same code path an end user hits
+jnext's harness treats a missing image as a fatal fault rather than as a silent
+skip. Either <code>make unit-test</code> or <code>make regression</code> will therefore fail outright
+without one; there is no honest way to run most of the suite and still call the
+job green.</p>
+<p>So CI runs <strong>jnext's own provisioner</strong> — the same code path an end user reaches
 with <code>--sdcard-download-confirm</code>, downloading and FAT32-patching the official
 public NextZXOS distribution image into its default location, cached on the
 runner. Reimplementing that download in YAML would be exactly the mistake the
-make-target rule exists to prevent — and because the image is always the
-pristine distribution copy rather than a locally-contaminated fixture, every
-declared regression row runs, including the one whose reference screenshot is
-an SD-card directory listing.</p>
+make-target rule exists to prevent. It also has a second benefit: because the
+image is always the pristine distribution copy rather than a locally
+contaminated fixture, every declared regression row runs, including the one
+whose reference screenshot is an SD-card directory listing.</p>
 <h2 id="the-tag-gated-release-workflow">The tag-gated release workflow<a class="headerlink" href="#the-tag-gated-release-workflow" title="Permanent link">&para;</a></h2>
 <p><code>release.yml</code> triggers on a <code>v*</code> tag push. Its first job, <strong><code>gate</code></strong>, reads
 <code>releases.yaml</code> <strong>from the tag's own commit</strong> and decides whether this tag is
-public. If it is not, nothing builds and the tag stays a private history
-marker.</p>
-<p>When it is, six artifact jobs run: <code>deb</code> (a matrix over pinned <code>ubuntu:24.04</code>
-and <code>ubuntu:26.04</code> containers, because <code>dpkg-shlibdeps</code> bakes in the
-container's library package names and a single 24.04-built deb is
-uninstallable on 26.04), <code>rpm</code> in <code>fedora:44</code>, <code>src</code>, <code>windows</code> (three zips
-from one Fedora container), <code>flatpak</code>, and <code>macos</code>. Finally <strong><code>publish</code></strong>
-attaches everything to a GitHub Release, gated on
+public — the allowlist described in <a href="03-packaging-and-release.html">5.3</a>. When it
+is not, nothing builds, and the tag remains a private history marker.</p>
+<p>When it is, six artifact jobs run. <code>deb</code> is a matrix over two pinned Ubuntu LTS
+containers, one per supported release, because <code>dpkg-shlibdeps</code> bakes the
+container's own library package names into the dependency list, so a deb built
+in one release's container is uninstallable on the next. <code>rpm</code> builds in the
+pinned Fedora container, so that its dependencies are Fedora-native. Then <code>src</code>,
+<code>windows</code> (three zips from one Fedora container), <code>flatpak</code>, and <code>macos</code>.
+Finally <strong><code>publish</code></strong> attaches everything to a GitHub Release, gated on
 <code>if: success() &amp;&amp; needs.gate.outputs.publish == 'true'</code>.</p>
-<p>That explicit <code>success()</code> is what makes any failed artifact job withhold the
-release instead of silently omitting a platform. <strong>Every artifact job is
-blocking</strong> as of v0.99.110 — the accepted cost is that a hiccup on one platform
-holds up the others, because a release either covers the platforms it claims or
-it stops and says so. Taking a deliberately partial release means restoring
-<code>continue-on-error</code> on that one job in that one commit: an explicit, visible
-decision each time, never a standing one.</p>
+<p>That explicit <code>success()</code> is what makes a failed artifact job withhold the
+release rather than silently omit a platform. <strong>Every artifact job is blocking</strong>
+as of v0.99.110. The accepted cost is that a hiccup on one platform holds up the
+others, and it is accepted because a release should either cover the platforms
+it claims to cover or stop and say so. Shipping a deliberately partial release
+is still possible — it means restoring <code>continue-on-error</code> on that one job in
+that one commit, which makes it an explicit and visible decision each time
+rather than a standing one.</p>
 
 
 

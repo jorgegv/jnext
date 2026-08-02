@@ -11,21 +11,40 @@ use_directory_urls: false
 
 theme:
   name: material
+  # Override partials/source.html so the top-right shows BOTH the release this
+  # guide was rendered from and the live current release — the same pair the
+  # user guide shows, from the same override. See that file.
+  custom_dir: src/doc/developer-guide-overrides
   features:
     - navigation.indexes
     - toc.integrate
     - content.code.copy
   palette:
+    # `custom` is Material's documented hook for a palette it does not ship:
+    # it stamps data-md-color-primary="custom" on <body>, and css/theme.css
+    # defines the variables under that attribute. Setting the variables on
+    # :root alone does NOT work — Material's own
+    # [data-md-color-primary=indigo] rule is more specific and wins.
     - media: "(prefers-color-scheme: light)"
       scheme: default
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-7
         name: Switch to dark mode
     - media: "(prefers-color-scheme: dark)"
       scheme: slate
+      primary: custom
+      accent: custom
       toggle:
         icon: material/brightness-4
         name: Switch to light mode
+
+# A muted pastel dark red, so a glance at the page says which of the two guides
+# you have open. Material ships no such preset; the file overrides its custom
+# properties directly. The figures use the same family.
+extra_css:
+  - css/theme.css
 
 nav:
   - Home: index.md
@@ -85,6 +104,18 @@ validation:
     anchors: warn
     absolute_links: warn
     unrecognized_links: warn
+
+# The jnext version this guide was rendered from — shown top-right as "This
+# version", beside "Latest version", which the page fetches live from
+# version.yaml on GitHub main (src/doc/developer-guide-overrides/partials/source.html).
+#
+# DO NOT hand-edit: packaging/sync-version.sh rewrites this from version.yaml on
+# every `make bump-*` and re-renders the guide in the same step, exactly as it
+# does for mkdocs.yml. It is a committed literal because the value is baked into
+# every page at render time and docs-devguide-check byte-diffs a fresh render —
+# so config and rendered output must move together.
+extra:
+  doc_release: v0.99.110
 
 markdown_extensions:
   - admonition

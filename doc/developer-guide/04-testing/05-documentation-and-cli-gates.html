@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1760,97 +1828,108 @@
 
 
 <h1 id="45-the-documentation-and-cli-gates">4.5 The documentation and CLI gates<a class="headerlink" href="#45-the-documentation-and-cli-gates" title="Permanent link">&para;</a></h1>
-<p>Several documents here are <strong>generated and committed</strong>: the man page,
-<code>USAGE.md</code>, the rendered user guide, and the rendered developer guide with its
-Graphviz figures. Committed generated output is convenient — a fresh clone reads
-all of it with no toolchain — and it is also a silent lie waiting to happen,
-because nothing else in the build can see it no longer matches its source.</p>
-<p><code>make docs-check</code> closes that, as a prerequisite of <strong>both</strong> <code>make unit-test</code>
-and <code>make regression</code>, so a stale document fails the test run itself rather than
-waiting for CI or a reviewer.</p>
+<p>Several documents in this repository are <strong>generated and then committed</strong>: the
+man page, <code>USAGE.md</code>, the rendered user guide, and the rendered developer guide
+with its Graphviz figures. Committing generated output buys something real — a
+fresh clone can read all of it with no toolchain installed — but it also
+creates a silent lie waiting to happen, because nothing else in the build can
+notice when a committed output stops matching the source it came from.</p>
+<p><code>make docs-check</code> is what closes that hole, and it is a prerequisite of <strong>both</strong>
+<code>make unit-test</code> and <code>make regression</code>, so a stale document fails the test run
+itself rather than waiting for CI or a reviewer to spot it.</p>
 <h2 id="the-three-parts">The three parts<a class="headerlink" href="#the-three-parts" title="Permanent link">&para;</a></h2>
-<p><code>docs-check</code> runs each part as its own target and aggregates the results, so one
-stale document never hides another and each prints its own remediation line:</p>
+<p><code>docs-check</code> runs each part as its own target and aggregates the results, so
+that one stale document never hides another and each one prints its own
+remediation line:</p>
 <ul>
 <li><strong><code>docs-man-check</code></strong> regenerates <code>doc/man/jnext.1</code> and <code>USAGE.md</code> from
-  <code>doc/man/jnext.1.md</code> with pandoc and diffs them. Fix: <code>make docs-man</code>, commit.</li>
+  <code>doc/man/jnext.1.md</code> with pandoc, and diffs them. The fix is <code>make docs-man</code>,
+  then commit.</li>
 <li><strong><code>docs-userguide-check</code></strong> rebuilds the user guide from <code>src/doc/user-guide</code>
-  with <code>mkdocs build --strict</code> and diffs the tree against <code>doc/user-guide</code>.
-  Fix: <code>make docs-userguide</code>, commit.</li>
-<li><strong><code>docs-devguide-check</code></strong> does the same for <code>src/doc/developer-guide</code> →
-  <code>doc/developer-guide</code>, <strong>and</strong> re-renders every <code>diagrams/*.dot</code> to SVG and
-  diffs those too. Checking only the site would let a hand-edited SVG through,
-  since mkdocs copies it unchanged. Fix: <code>make docs-devguide</code>, commit both.</li>
+  with <code>mkdocs build --strict</code> and diffs the resulting tree against
+  <code>doc/user-guide</code>. The fix is <code>make docs-userguide</code>, then commit.</li>
+<li><strong><code>docs-devguide-check</code></strong> does the same for <code>src/doc/developer-guide</code> against
+  <code>doc/developer-guide</code>, <strong>and</strong> additionally re-renders every
+  <code>diagrams/*.dot</code> to SVG and diffs those too. Checking only the rendered site
+  would let a hand-edited SVG through, because mkdocs copies it across
+  unchanged. The fix is <code>make docs-devguide</code>, then commit both.</li>
 </ul>
-<p>On a host without pandoc, mkdocs or graphviz the relevant part <strong>skips</strong>; in CI
-it <strong>hard-fails</strong>, keyed on <code>$CI</code>, because a check that skips silently reads as
-a pass.</p>
+<p>On a machine that has no pandoc, mkdocs or graphviz the relevant part
+<strong>skips</strong>; in CI the same part <strong>hard-fails</strong>, keyed on <code>$CI</code>, because a check
+that skips silently reads as a pass.</p>
 <h2 id="the-renderer-fingerprint">The renderer fingerprint<a class="headerlink" href="#the-renderer-fingerprint" title="Permanent link">&para;</a></h2>
 <p>pandoc, mkdocs-material and graphviz all emit byte-different output across
-versions for identical input. A byte-diff against outputs generated by a
-different toolchain therefore reports a <strong>version gap</strong> as staleness — which is
-precisely what broke CI when it ran Ubuntu's pandoc 3.1.3 against outputs made
-with 3.7.0.2, with nothing in the message hinting that the version rather than
-an edit was the cause.</p>
-<p>So each generator writes a fingerprint file next to its output recording the
-tool versions that produced it, and each check compares fingerprints first. On
-a mismatch it <strong>skips the byte-diff and says so</strong>, reporting "the guide builds
-cleanly (staleness NOT compared)" rather than a false failure. CI runs in a
-<code>fedora:44</code> container — the maintainer's own distro — which removes the whole
-class instead of pinning tool by tool. <code>SOURCE_DATE_EPOCH</code> is pinned for the
-same family of reasons: mkdocs stamps <code>sitemap.xml.gz</code> with the build date, so
-an unchanged guide rendered tomorrow would otherwise differ from today's.</p>
+their own versions for identical input. A byte-diff against outputs that were
+generated by a different toolchain therefore reports a <strong>version gap</strong> as
+staleness — which is exactly what broke CI once, when it ran a stock Ubuntu
+runner's pandoc 3.1.3 against outputs made with 3.7.0.2, with nothing in the
+failure message to hint that the version rather than an edit was the cause.</p>
+<p>So each generator writes a fingerprint file next to its output, recording the
+tool versions that produced it, and each check compares fingerprints before
+anything else. When they do not match, the check <strong>skips the byte-diff and says
+so</strong>, reporting that the guide builds cleanly but that staleness was not
+compared, rather than raising a failure that is not real. CI sidesteps the whole
+class by running in a Fedora container that matches the maintainer's own
+distribution, instead of pinning tool versions one at a time.
+<code>SOURCE_DATE_EPOCH</code> is pinned for a related reason: mkdocs stamps
+<code>sitemap.xml.gz</code> with the build date, so an unchanged guide rendered tomorrow
+would otherwise differ from the same guide rendered today.</p>
 <h2 id="what-docs-check-does-not-prove">What <code>docs-check</code> does NOT prove<a class="headerlink" href="#what-docs-check-does-not-prove" title="Permanent link">&para;</a></h2>
-<p>It proves the generated outputs match <code>jnext.1.md</code>. <strong>It proves nothing about
-whether <code>jnext.1.md</code> describes the CLI that <code>src/main.cpp</code> actually parses.</strong></p>
-<p>That seam was developer diligence only, and it failed twice with every gate
-green: five flags entirely undocumented, and a later man page confidently
-describing a wrong scale range, two GUI menus that do not exist, and a
-status-bar indicator that does not exist. Both were found by reading the running
-product while writing the user guide, not by any check.</p>
+<p>It proves that the generated outputs match <code>jnext.1.md</code>. <strong>It proves nothing
+about whether <code>jnext.1.md</code> describes the CLI that <code>src/main.cpp</code> actually
+parses.</strong></p>
+<p>For a long time that seam was held together by developer diligence alone, and
+it failed twice with every gate green. The first time, five flags were entirely
+undocumented. The second time, a released man page confidently described a
+wrong scale range, two GUI menus that do not exist, and a status-bar indicator
+that does not exist. Both were found by reading the running product while
+writing the user guide, and not by any check.</p>
 <h2 id="make-cli-check"><code>make cli-check</code><a class="headerlink" href="#make-cli-check" title="Permanent link">&para;</a></h2>
-<p>The fix was to stop treating the flag set as control flow. <code>src/core/cli_options.h</code>
-holds it as a <strong>data table</strong> — one row per accepted spelling, with its arity, a
-documentation class and its <code>OptId</code> — and <code>main.cpp</code> dispatches from that table,
-so a flag not in the table cannot be parsed. <code>cli_options_test</code> then diffs the
-table against the OPTIONS section of <code>doc/man/jnext.1.md</code> both ways:</p>
+<p>The fix was to stop treating the flag set as control flow.
+<code>src/core/cli_options.h</code> now holds it as a <strong>data table</strong> — one row per accepted
+spelling, carrying its arity, a documentation class and its <code>OptId</code> — and
+<code>main.cpp</code> dispatches from that table, which means a flag that is not in the
+table cannot be parsed at all. <code>cli_options_test</code> then diffs the table against
+the OPTIONS section of <code>doc/man/jnext.1.md</code> in both directions:</p>
 <ul>
-<li><code>CLI-DOC-01</code> — <strong>implemented but undocumented</strong>: every documented-class
-  spelling has a man page entry.</li>
-<li><code>CLI-DOC-02</code> — <strong>documented but unimplemented</strong>: every man page OPTIONS entry
-  is a spelling the table accepts.</li>
-<li><code>CLI-DOC-03</code> — <strong>arity disagreement</strong>: the value arguments the parser consumes
-  equal the metavars the man page shows.</li>
-<li><code>CLI-DOC-00</code> guards the scrape itself, so a broken parse cannot make
-  <code>CLI-DOC-02</code> vacuously true.</li>
+<li><code>CLI-DOC-01</code> catches <strong>implemented but undocumented</strong>: every
+  documented-class spelling must have a man page entry.</li>
+<li><code>CLI-DOC-02</code> catches <strong>documented but unimplemented</strong>: every man page OPTIONS
+  entry must be a spelling the table accepts.</li>
+<li><code>CLI-DOC-03</code> catches an <strong>arity disagreement</strong>: the value arguments the
+  parser consumes must equal the metavars the man page shows.</li>
+<li><code>CLI-DOC-00</code> guards the scrape itself, so that a broken parse of the man page
+  cannot make <code>CLI-DOC-02</code> vacuously true.</li>
 <li><code>CLI-SRC-01</code> fails if <code>main.cpp</code>'s parse loop reintroduces a hand-rolled
-  <code>arg == "--flag"</code> comparison — the pattern that made the flag set
-  unenumerable, and which would re-open the gap invisibly, because such a flag
-  is in neither the table nor this check.</li>
-<li><code>CLI-BIN-01</code> runs the real binary end to end, proving the table drives the
-  actual parser and not just this test.</li>
+  <code>arg == "--flag"</code> comparison. That is the pattern that made the flag set
+  unenumerable in the first place, and it would re-open the gap invisibly,
+  because such a flag appears neither in the table nor in this check.</li>
+<li><code>CLI-BIN-01</code> runs the real binary end to end, proving that the table drives
+  the actual parser rather than only this test.</li>
 </ul>
-<p>The suite runs both as <code>make cli-check</code> (a prerequisite of <code>make regression</code>)
+<p>The suite runs both as <code>make cli-check</code>, a prerequisite of <code>make regression</code>,
 and as a declared row of <code>test/unit-tests.conf</code>. It hangs off <code>unit-test-build</code>
 rather than off <code>docs-check</code>, because the table is C++ and <code>docs-check</code>
 deliberately needs no compiler.</p>
 <h2 id="declaring-a-deliberate-exception">Declaring a deliberate exception<a class="headerlink" href="#declaring-a-deliberate-exception" title="Permanent link">&para;</a></h2>
-<p>Exceptions are declared <strong>in the table</strong>, never as a grep exclusion in the
-checker. <code>Doc::UndocumentedAlias</code> marks a flag intentionally absent from the man
-page, with the reason in a comment on its row; today that is <code>--sd-card</code>, a
-back-compatibility alias for <code>--sdcard</code> that should not be advertised.
-<code>CLI-DOC-05</code> asserts such a flag really is absent — a deliberate exception that
-quietly became documented is drift too. <code>Doc::ShortAlias</code> covers short forms
-documented inline on their long form's entry.</p>
+<p>Exceptions are declared <strong>in the table</strong>, never as a grep exclusion inside the
+checker. <code>Doc::UndocumentedAlias</code> marks a flag that is intentionally absent
+from the man page, with the reason written in a comment on its row; today the
+only one is <code>--sd-card</code>, a back-compatibility alias for <code>--sdcard</code> that should
+not be advertised. <code>CLI-DOC-05</code> then asserts that such a flag really is absent,
+because a deliberate exception that quietly became documented is drift too.
+<code>Doc::ShortAlias</code> covers short forms that are documented inline on their long
+form's entry.</p>
 <p>Adding a flag is therefore four edits: an <code>OptId</code>, a table row, a <code>case</code> in
-<code>main.cpp</code> (the compiler enforces that via <code>-Wswitch</code>), and an entry in
-<code>doc/man/jnext.1.md</code>. Skip the last and <code>cli-check</code> fails.</p>
+<code>main.cpp</code> — which the compiler enforces through <code>-Wswitch</code> — and an entry in
+<code>doc/man/jnext.1.md</code>. Skip the last one and <code>cli-check</code> fails.</p>
 <h2 id="the-residual-gap-stated-plainly">The residual gap, stated plainly<a class="headerlink" href="#the-residual-gap-stated-plainly" title="Permanent link">&para;</a></h2>
 <p><code>cli-check</code> covers the <strong>flag set</strong>, not the <strong>prose</strong>. The wrong scale range
-and the phantom status-bar indicator were narrative text in the man page, and
-nothing checks narrative text. The same is true of every page in this guide: a
-stale paragraph here is the same class of defect as a stale man page, with the
-difference that no gate can detect it. Keep reading the running product.</p>
+and the phantom status-bar indicator were both narrative text in the man page,
+and nothing checks narrative text. The same is true of every page in this
+guide: a stale paragraph here is the same class of defect as a stale man page,
+with the difference that no gate can detect it. Keep reading the running
+product.</p>
 
 
 

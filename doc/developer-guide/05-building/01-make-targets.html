@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1749,7 +1817,8 @@
 
 
 <h1 id="51-make-targets">5.1 Make targets<a class="headerlink" href="#51-make-targets" title="Permanent link">&para;</a></h1>
-<p>Run <code>make</code> with no arguments. It prints every target with its description:</p>
+<p>The place to start is <code>make</code> with no arguments, which prints every target
+together with its description:</p>
 <pre><code class="language-console">$ make
 
 Available targets:
@@ -1757,50 +1826,55 @@ Available targets:
   sdl-debug        Configure and build the SDL-only frontend in Debug mode ...
   ...
 </code></pre>
-<p>There are 69 documented targets at the time of writing, and the list below
-groups them rather than enumerating them — <code>make</code> is the authority, and the
-number changes.</p>
+<p>There are 69 documented targets at the time of writing. The sections below
+group them into families rather than listing them one by one, because <code>make</code>
+is the authority here and the exact number changes.</p>
 <h2 id="the-self-documenting-convention">The self-documenting convention<a class="headerlink" href="#the-self-documenting-convention" title="Permanent link">&para;</a></h2>
-<p>A <code>#</code> comment line <strong>immediately above a target</strong> <em>is</em> that target's
-description. The default target is a small awk program over <code>$(MAKEFILE_LIST)</code>
-that pairs each such comment with the target underneath it. Nothing else is
-maintained: there is no second list of targets to keep in sync, so a target
-that exists is a target <code>make</code> shows.</p>
-<p>The awk keeps only the <strong>last</strong> <code>#</code> line before a target, which means a second
-comment line silently replaces the description. That is not hypothetical —
-eight targets, <code>unit-test</code> and <code>regression</code> among them, once advertised a
-sentence fragment for as long as nobody re-read the listing. So the rule is
-enforced rather than remembered: <code>make lint-makefile-help</code> fails if any
-target's description would be discarded, and it is a prerequisite of both
-<code>make unit-test</code> and <code>make regression</code>. It costs about 8 ms of awk over one
-file, so it fails before anything expensive starts.</p>
-<p>The corollary, when you add a target: <strong>one <code>#</code> line above it; every word of
-rationale goes inside the recipe as <code>@#</code> comment lines.</strong> The Makefile is full
-of those, and they are where the reasoning lives.</p>
+<p>The convention is a single rule: a <code>#</code> comment line <strong>immediately above a
+target</strong> <em>is</em> that target's description. The default target is a small awk
+program over <code>$(MAKEFILE_LIST)</code> that pairs each such comment with the target
+underneath it. Nothing else is maintained — there is no second list of targets
+to keep in sync — so a target that exists is a target <code>make</code> shows.</p>
+<p>There is one sharp edge. The awk keeps only the <strong>last</strong> <code>#</code> line before a
+target, so a second comment line silently replaces the description rather than
+extending it. That is not a hypothetical: eight targets, <code>unit-test</code> and
+<code>regression</code> among them, advertised a sentence fragment for as long as nobody
+happened to re-read the listing. The rule is therefore enforced rather than
+remembered. <code>make lint-makefile-help</code> fails if any target's description would
+be discarded, and it is a prerequisite of both <code>make unit-test</code> and
+<code>make regression</code>; it costs about 8 ms of awk over one file, so it fails long
+before anything expensive has started.</p>
+<p>That gives you the rule to follow when you add a target: <strong>one <code>#</code> line above
+it, and every word of rationale inside the recipe as <code>@#</code> comment lines.</strong> The
+Makefile is full of those, and they are where the reasoning actually lives.</p>
 <h2 id="build">Build<a class="headerlink" href="#build" title="Permanent link">&para;</a></h2>
-<p><code>sdl-*</code> builds the SDL-only frontend, <code>gui-*</code> the Qt6 GUI, each in <code>-debug</code>
-and <code>-release</code>. Every build variant also has a <code>-run</code> target (build, then run)
-and a <code>-clean</code> target. <code>make clean</code> removes all of them plus <code>build/</code>.</p>
-<p>The <code>win-*</code> family cross-compiles Windows executables with Fedora's MinGW
-toolchain: <code>win-release</code> (x64, Qt6), <code>win-qt5-release</code> and <code>win32-qt5-release</code>
-(the Windows 7-compatible Qt5 legs, 64- and 32-bit), and the SDL-only
-<code>win-sdl-release</code> / <code>win32-sdl-release</code>, which are repo-internal validation
-legs rather than published packages. <code>qt5-guard-build</code> builds the GUI against
-native Linux Qt5 to keep that combination compiling.</p>
+<p><code>sdl-*</code> builds the SDL-only frontend and <code>gui-*</code> builds the Qt6 GUI, each in a
+<code>-debug</code> and a <code>-release</code> flavour. Every build variant also has a <code>-run</code> target,
+which builds and then runs, and a <code>-clean</code> target; <code>make clean</code> removes all of
+them along with <code>build/</code>.</p>
+<p>The <code>win-*</code> family cross-compiles Windows executables with the MinGW toolchain.
+<code>win-release</code> is the x64 Qt6 build; <code>win-qt5-release</code> and <code>win32-qt5-release</code>
+are the legacy Qt5 legs, 64- and 32-bit, which keep a lower Windows floor than
+the Qt6 build can offer; and <code>win-sdl-release</code> / <code>win32-sdl-release</code> are
+SDL-only legs used to validate the cross-build rather than to publish anything.
+Separately, <code>qt5-guard-build</code> compiles the GUI against native Linux Qt5, purely
+to keep that combination building.</p>
 <h2 id="test">Test<a class="headerlink" href="#test" title="Permanent link">&para;</a></h2>
-<p><code>make unit-test</code> builds <code>build/</code> and runs every declared subsystem suite;
+<p><code>make unit-test</code> builds <code>build/</code> and runs every declared subsystem suite, and
 <code>make regression</code> runs the screenshot and functional suite headless. Between
 them they pull in a set of structural gates as prerequisites —
 <code>lint-assertions</code>, <code>lint-makefile-help</code>, <code>cli-check</code>, <code>docs-check</code>,
-<code>traceability-check</code> and friends — so those run in your inner loop rather than
-only in CI. <code>make harness-selftest</code> proves the harness itself fails loudly on
-injected faults, and <code>make build-matrix</code> builds every frontend option
-combination. <code>make unit-test-dashboard</code> runs the unit tests and refreshes the
-committed per-subsystem status table.</p>
-<p>Chapter <a href="../04-testing/index.html">4. Testing</a> covers what each of these
-actually proves.</p>
+<code>traceability-check</code> and friends — which is deliberate: it puts those checks in
+your inner loop instead of leaving them for CI to discover. Alongside them,
+<code>make harness-selftest</code> proves that the test harness itself fails loudly when
+faults are injected into it, <code>make build-matrix</code> builds every combination of the
+frontend options, and <code>make unit-test-dashboard</code> runs the unit tests and
+refreshes the committed per-subsystem status table.</p>
+<p>Chapter <a href="../04-testing/index.html">4. Testing</a> covers what each of these actually
+proves.</p>
 <h2 id="documentation">Documentation<a class="headerlink" href="#documentation" title="Permanent link">&para;</a></h2>
-<p>Sources generate committed outputs, and a staleness check guards each:</p>
+<p>Each documentation source generates a committed output, and each output has a
+staleness check guarding it:</p>
 <table>
 <thead>
 <tr>
@@ -1833,17 +1907,17 @@ actually proves.</p>
 </tbody>
 </table>
 <p><code>make docs-check</code> runs all three guards and aggregates their results, so one
-stale document never hides another. It is a prerequisite of both test targets.
-<code>make read-userguide</code> and <code>make read-devguide</code> serve the rendered site on
-localhost for reading.</p>
+stale document never hides another behind it. It is a prerequisite of both test
+targets. For reading rather than checking, <code>make read-userguide</code> and
+<code>make read-devguide</code> serve the rendered sites on localhost.</p>
 <h2 id="packaging-and-version">Packaging and version<a class="headerlink" href="#packaging-and-version" title="Permanent link">&para;</a></h2>
-<p><code>package-src</code>, <code>package-rpm</code>, <code>package-deb</code>, <code>package-flatpak</code>,
-<code>package-macos</code> and the five <code>package-win*</code> variants each build one
-distributable; <code>package-test</code> builds them all (except macOS) and asserts their
-contents; <code>package-contract-test</code> runs only the hermetic script contract suites.
+<p><code>package-src</code>, <code>package-rpm</code>, <code>package-deb</code>, <code>package-flatpak</code>, <code>package-macos</code>
+and the five <code>package-win*</code> variants each build one distributable.
+<code>package-test</code> builds them all except macOS and then asserts their contents,
+while <code>package-contract-test</code> runs only the hermetic script contract suites.
 <code>version</code> prints the current version, and <code>bump-patch</code> / <code>bump-minor</code> /
-<code>bump-major</code> bump it, commit and tag. <a href="03-packaging-and-release.html">5.3</a>
-covers those.</p>
+<code>bump-major</code> bump it, commit, and tag. <a href="03-packaging-and-release.html">5.3</a> covers
+what those actually do.</p>
 
 
 

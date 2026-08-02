@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -682,6 +750,34 @@
       
     </span>
   </a>
+  
+    <nav class="md-nav" aria-label="The change-log and replay mechanism">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#what-this-buys" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        What this buys
+      
+    </span>
+  </a>
+  
+</li>
+        
+          <li class="md-nav__item">
+  <a href="#why-it-is-not-free-here" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Why it is not free here
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
   
 </li>
       
@@ -1727,58 +1823,75 @@
 
 
 <h1 id="24-the-video-pipeline">2.4 The video pipeline<a class="headerlink" href="#24-the-video-pipeline" title="Permanent link">&para;</a></h1>
-<p>The video code is shaped by one decision: <strong>the picture is composited once, at
-the end of the frame</strong>, not scanline by scanline as the CPU runs. Everything
-below follows from that. Per-layer detail — addressing modes, palettes, sprite
-attributes, tilemap fetch — belongs to
-<a href="../03-subsystems/03-video.html">3.3 Video</a>; this page is about how the pieces
-fit together.</p>
+<p>The whole shape of the video code follows from one decision: <strong>the picture is
+composited once, at the end of the frame</strong>, rather than scanline by scanline as
+the CPU runs. That choice is cheap and fast, and it creates one hard problem
+which the second half of this page is entirely about. Per-layer detail —
+addressing modes, palettes, sprite attributes, tilemap fetch — belongs to
+<a href="../03-subsystems/03-video.html">3.3 Video</a>; here we are concerned with how the
+pieces fit together.</p>
 <p><img alt="Video pipeline" src="../img/video-pipeline.svg" /></p>
 <p><em>Layers, per-scanline replay, and the compositor.</em></p>
 <h2 id="who-renders-what">Who renders what<a class="headerlink" href="#who-renders-what" title="Permanent link">&para;</a></h2>
 <p><code>Renderer</code> (<code>src/video/renderer.h</code>, <code>renderer.cpp</code>) is the compositor. It owns
-the <code>Ula</code> and <code>Lores</code> directly; <code>Layer2</code>, <code>SpriteEngine</code>, <code>Tilemap</code> and
-<code>PaletteManager</code> are owned by <code>Emulator</code> and passed in.</p>
-<p><code>Renderer::render_frame()</code> walks rows 0..255 and calls <code>render_row()</code> for each.
-<code>render_row()</code> clears the per-layer 640-cell ARGB line buffers to transparent,
-then asks each layer to paint its row:</p>
+the <code>Ula</code> and <code>Lores</code> directly, while <code>Layer2</code>, <code>SpriteEngine</code>, <code>Tilemap</code> and
+<code>PaletteManager</code> are owned by <code>Emulator</code> and passed in on each call.</p>
+<p><code>Renderer::render_frame()</code> walks rows 0 to 255 and calls <code>render_row()</code> for
+each one. <code>render_row()</code> starts by clearing the per-layer 640-cell ARGB line
+buffers to transparent, and then asks each layer in turn to paint its row:</p>
 <ol>
-<li><strong>Layer 2</strong> — only when enabled, and only inside the display area unless it
-   is in a wide (320 × 256 / 640 × 256) mode. It also fills a per-pixel
-   priority flag from the palette's priority bit.</li>
-<li><strong>Tilemap</strong> — full framebuffer width, with per-pixel "below ULA" and
-   "text mode" flags for the merge stage.</li>
-<li><strong>Sprites</strong> — gated on the per-line-replayed NR 0x15 bit 0, not the
-   engine's live flag.</li>
-<li><strong>ULA</strong> — emits native 640 including the border, and marks which cells are
-   border for the compositor's priority exceptions.</li>
+<li><strong>Layer 2</strong> — only when it is enabled, and only inside the display area
+   unless it is running in one of the wide modes (320 × 256 or 640 × 256). It
+   also fills in a per-pixel priority flag taken from the palette's priority
+   bit.</li>
+<li><strong>Tilemap</strong> — across the full framebuffer width, producing per-pixel "below
+   ULA" and "text mode" flags that the merge stage will need.</li>
+<li><strong>Sprites</strong> — gated on the per-line-replayed NR 0x15 bit 0 rather than on
+   the engine's own live flag, for the reasons given below.</li>
+<li><strong>ULA</strong> — emits the native 640 pixels including the border, marking which
+   cells are border so the compositor can apply its priority exceptions.</li>
 </ol>
-<p>Then three ULA-slot passes run in VHDL order: <code>apply_lores()</code> substitutes the
-LoRes pixel into the ULA slot (LoRes is <strong>not</strong> a layer — it replaces the ULA
-pixel before palette lookup), NR 0x68 bit 7 blanks the whole ULA output if the
-row's snapshot says it is disabled, and <code>apply_ula_clip()</code> masks the NR 0x1A
-clip window.</p>
+<p>Three ULA-slot passes then run, in the order the VHDL applies them.
+<code>apply_lores()</code> substitutes the LoRes pixel into the ULA slot — LoRes is <strong>not</strong>
+a layer of its own; it replaces the ULA pixel before palette lookup. NR 0x68
+bit 7 blanks the entire ULA output if the row's snapshot says the ULA was
+disabled. And <code>apply_ula_clip()</code> masks off everything outside the NR 0x1A clip
+window.</p>
 <p>Finally <code>composite_scanline()</code> dispatches on the row's NR 0x15 layer priority
-into a <code>composite_scanline_mode&lt;PRIO&gt;</code> template — eight specialisations, so
-the per-pixel <code>switch</code> folds away. Modes 0-5 are the six orderings in the
-<code>LayerPriority</code> enum; 6 and 7 are blending. Transparency is decided against
-the row's NR 0x14 reference colour, and anything still transparent falls
+into a <code>composite_scanline_mode&lt;PRIO&gt;</code> template. There are eight
+specialisations, which is what allows the per-pixel <code>switch</code> to fold away
+entirely: modes 0 to 5 are the six orderings in the <code>LayerPriority</code> enum, and 6
+and 7 are the blending modes. Transparency is decided against the row's NR 0x14
+reference colour, and any pixel still transparent after all of that falls
 through to the row's NR 0x4A fallback colour.</p>
 <h2 id="the-change-log-and-replay-mechanism">The change-log and replay mechanism<a class="headerlink" href="#the-change-log-and-replay-mechanism" title="Permanent link">&para;</a></h2>
-<p>Because compositing happens after the CPU has finished the frame, the live
-value of any register at that moment is the frame's <strong>last</strong> value. A demo
-that changes the palette on every scanline would render one flat colour. Two
-mechanisms fix that, and it is worth telling them apart.</p>
-<p><strong>Per-line snapshot arrays.</strong> For state that is read once per row, an array of
-256 entries is filled as the frame runs: <code>Emulator::on_scanline()</code> calls
-<code>renderer_.snapshot_fallback_for_line(row)</code> and its siblings, and
-<code>render_row()</code> reads <code>fallback_per_line_[row]</code>. This covers NR 0x4A, the ULA
-enable, NR 0x68 stencil and blend, NR 0x14, the NR 0x1A clip, the LoRes
-registers, the ULA border, and the tilemap scroll and fetch bases.</p>
-<p><strong>Change logs with rewind/replay.</strong> For state whose <em>object</em> must be
-time-travelled — a whole palette, the sprite attribute table, the attribute
-plane — each owning class keeps a baseline plus an ordered log of
-<code>(line, change)</code> entries. The lifecycle is fixed and identical everywhere:</p>
+<h3 id="what-this-buys">What this buys<a class="headerlink" href="#what-this-buys" title="Permanent link">&para;</a></h3>
+<p>Programs on this hardware routinely change video registers <em>between scanlines</em>,
+so that different bands of the same frame are drawn with different settings.
+That is how a Next demo paints a sky gradient down the top of the screen, how a
+game scrolls two Layer 2 bands at different speeds to fake parallax, and how it
+keeps a fixed status bar above a playfield that is scrolling underneath it.
+Sprite attributes get rewritten mid-frame for the same reason, to multiplex
+more sprites onto the screen than the hardware has slots for. These effects are
+not exotic; real software depends on them, and an emulator that gets them wrong
+produces a picture that is obviously, visibly flat.</p>
+<h3 id="why-it-is-not-free-here">Why it is not free here<a class="headerlink" href="#why-it-is-not-free-here" title="Permanent link">&para;</a></h3>
+<p>Because compositing happens only after the CPU has finished the whole frame,
+the live value of any register at that moment is the <em>last</em> value the frame
+wrote. A program that changes the palette on every scanline would, naively,
+render in one flat colour. Two distinct mechanisms fix this, and it is worth
+being able to tell them apart.</p>
+<p><strong>Per-line snapshot arrays</strong> handle state that is simply read once per row. An
+array of 256 entries is filled as the frame runs: <code>Emulator::on_scanline()</code>
+calls <code>renderer_.snapshot_fallback_for_line(row)</code> and its siblings, and
+<code>render_row()</code> later reads <code>fallback_per_line_[row]</code>. This covers NR 0x4A, the
+ULA enable, the NR 0x68 stencil and blend bits, NR 0x14, the NR 0x1A clip, the
+LoRes registers, the ULA border, and the tilemap scroll and fetch bases.</p>
+<p><strong>Change logs with rewind and replay</strong> handle state whose whole <em>object</em> has to
+be time-travelled — an entire palette, the sprite attribute table, the
+attribute plane. Each owning class keeps a baseline plus an ordered log of
+<code>(line, change)</code> entries. The lifecycle is fixed, and identical in every class
+that implements it:</p>
 <table>
 <thead>
 <tr>
@@ -1820,39 +1933,43 @@ plane — each owning class keeps a baseline plus an ordered log of
 </tr>
 </tbody>
 </table>
-<p>The classes carrying one are <code>PaletteManager</code>, <code>Layer2</code> (scroll and bank),
+<p>The classes that carry one are <code>PaletteManager</code>, <code>Layer2</code> (scroll and bank),
 <code>SpriteEngine</code> (attributes), <code>Ula</code> (Timex screen mode, scroll, active-palette
 select), <code>Tilemap</code> (NR 0x6B), <code>Mmu</code>'s <code>AttributeMux</code> (Nirvana-class mid-frame
 attribute writes), and <code>Renderer</code> itself (NR 0x15 priority and sprite enable).</p>
-<p>Three details bite newcomers:</p>
+<p>Three details reliably bite newcomers:</p>
 <ul>
 <li><strong>The tag is a framebuffer row, not a raw scanline.</strong> <code>on_scanline</code> converts
-  with <code>line - video_timing_.vblank_top()</code>, which is per-machine (32 for the
-  Next family at 50 Hz, 48 for Pentagon timing, 8 for 60 Hz). Writes before
-  the visible area coalesce to row 0; writes after it stay out of range and
-  are picked up by the drain, becoming next frame's baseline.</li>
+  between them by subtracting <code>video_timing_.vblank_top()</code>, and that value is
+  per-machine: 32 for the Next family at 50 Hz, 48 for Pentagon timing, 8 at
+  60 Hz. Writes that land before the visible area all coalesce onto row 0;
+  writes after it stay out of range and are picked up by the drain, where they
+  become the next frame's baseline.</li>
 <li><strong>Skipping the drain loses vblank writes forever.</strong> <code>rewind_to_baseline()</code>
-  undoes the live mutation the writer performed, and the per-row replay only
-  covers visible rows — so a setup sequence that completes during vblank
-  vanishes unless flushed.</li>
-<li><strong>The bank selectors must come from the replayed state too.</strong> The Layer 2,
+  deliberately undoes the live mutation the writer performed, and the per-row
+  replay only covers visible rows — so a setup sequence that completes during
+  vblank simply vanishes unless it is flushed.</li>
+<li><strong>The bank selectors have to come from the replayed state too.</strong> The Layer 2,
   sprite and tilemap palette-bank bits live in the <code>Ula</code>'s replayed
-  palette-select log, not in <code>PaletteManager</code>'s live member; reading the live
-  one collapses a two-bank frame onto whichever bank the frame ended in.</li>
+  palette-select log, not in <code>PaletteManager</code>'s live member. Reading the live
+  one collapses a frame that used two banks onto whichever bank happened to be
+  selected when the frame ended.</li>
 </ul>
 <h2 id="two-things-that-are-not-the-live-path">Two things that are not the live path<a class="headerlink" href="#two-things-that-are-not-the-live-path" title="Permanent link">&para;</a></h2>
 <p><code>--delayed-screenshot-layers</code> sets <code>Renderer::set_layer_mask()</code>, which forces
-masked-out layers transparent <strong>at the compositor input</strong> — exactly what the
-hardware does when the layer's enable bit is clear, so priority, blending and
-the fallback colour all still behave. It is host-side debug state and is
-deliberately not reset, saved or loaded.</p>
-<p><code>run_sprite_side_effects()</code> is a sprites-only pass with the identical change-log
-lifecycle, run when <code>render_frame()</code> was skipped. Sprite collision and the
-per-line budget overtime flag are readable by software through port 0x303B, so
-they must be computed on every emulated frame whether or not anyone looks at
-the pixels.</p>
+the masked-out layers to transparent <strong>at the compositor's input</strong>. That is
+exactly what the hardware does when a layer's enable bit is clear, so priority,
+blending and the fallback colour all continue to behave correctly rather than
+leaving a hole. It is host-side debug state, and it is deliberately never
+reset, saved or loaded.</p>
+<p><code>run_sprite_side_effects()</code> is a sprites-only pass with the identical
+change-log lifecycle, run in place of the full render when <code>render_frame()</code> was
+skipped. Sprite collision and the per-line budget overtime flag are readable by
+the emulated program through port 0x303B, so they have to be computed on every
+emulated frame whether or not anybody is going to look at the pixels.</p>
 <p>The debugger's per-layer views composite through the same <code>render_row()</code> and
-<code>apply_*</code> helpers rather than a second, drifting copy of the compositor.</p>
+<code>apply_*</code> helpers as the real path, rather than through a second copy of the
+compositor that would inevitably drift away from it.</p>
 
 
 

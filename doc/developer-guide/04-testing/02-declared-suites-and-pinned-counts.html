@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1760,102 +1828,122 @@
 
 
 <h1 id="42-declared-suites-and-pinned-counts">4.2 Declared suites and pinned counts<a class="headerlink" href="#42-declared-suites-and-pinned-counts" title="Permanent link">&para;</a></h1>
-<p><code>test/unit-tests.conf</code> is the single source of truth for what <code>make unit-test</code>
-runs. Its own header says it plainly: <em>this file is a contract, not a
-convenience.</em></p>
+<p>Most projects discover their test suites: a runner scans a build tree, executes
+whatever it finds, and adds up whatever those binaries print. JNEXT does the
+opposite. <code>test/unit-tests.conf</code> lists every unit suite by name and states, for
+each one, the exact number of rows it must report; the harness then proves that
+what ran matches what was declared, and refuses to produce a result when it
+does not.</p>
+<p>The reason is the one that runs through this whole chapter. A discovered test
+run can only tell you that everything it found passed, which says nothing about
+what it did not find — and the failure mode nobody notices is a suite or a row
+quietly disappearing, because that makes the run <em>greener</em>, not redder. Pinning
+the numbers turns the denominator into a deliberate, reviewable claim: the file
+says how much this project tests, a human edits it when that changes, and any
+drift between the claim and reality stops the run. The file's own header puts
+it more briefly — <em>this file is a contract, not a convenience.</em></p>
 <h2 id="a-line">A line<a class="headerlink" href="#a-line" title="Permanent link">&para;</a></h2>
 <pre><code>&lt;executable&gt; &lt;expected_rows&gt; [args...]
 </code></pre>
 <ul>
-<li><code>&lt;executable&gt;</code> — the binary under <code>&lt;build&gt;/test/</code>. A leading <code>?</code> marks an
-  <strong>optional</strong> suite: one a legitimate build configuration may not register at
-  all. The <code>debugger_*</code> suites exist only under <code>-DENABLE_DEBUGGER=ON</code> and
-  <code>app_config_test</code> only under <code>-DENABLE_QT_UI=ON</code>, so they are declared <code>?</code>.
-  An optional suite the build did not register prints a NOTICE and is counted
-  as not-run — skipped, but never silently.</li>
-<li><code>&lt;expected_rows&gt;</code> — the exact <code>Total:</code> the suite must report. It must be
-  <code>&gt;= 1</code>; a pin of <code>0</code> is rejected outright at parse time, because a suite
-  pinned at 0 reporting 0 rows would pass, while the same suite printing no
-  summary at all is a hard failure. Zeroing a suite is precisely the silent
+<li><code>&lt;executable&gt;</code> is the binary under <code>&lt;build&gt;/test/</code>. A leading <code>?</code> marks the
+  suite <strong>optional</strong>, meaning a legitimate build configuration may not register
+  it at all: the <code>debugger_*</code> suites exist only under <code>-DENABLE_DEBUGGER=ON</code>
+  and <code>app_config_test</code> only under <code>-DENABLE_QT_UI=ON</code>, so all of them are
+  declared with <code>?</code>. When an optional suite is absent, the harness prints a
+  NOTICE and counts it as not-run — skipped, but never silently.</li>
+<li><code>&lt;expected_rows&gt;</code> is the exact <code>Total:</code> the suite must report, and it must be
+  at least 1. A pin of <code>0</code> is rejected outright at parse time, because a suite
+  pinned at 0 that reports 0 rows would pass, whereas the same suite printing
+  no summary at all is a hard failure. Zeroing a suite is precisely the silent
   truncation this file exists to forbid.</li>
-<li><code>[args...]</code> — passed through. <code>@BUILD@</code> expands to the build directory, which
-  is how <code>fuse_z80_test</code> and <code>z80n_test</code> find their data.</li>
+<li><code>[args...]</code> are passed through to the binary. <code>@BUILD@</code> expands to the build
+  directory, which is how <code>fuse_z80_test</code> and <code>z80n_test</code> locate their data.</li>
 <li>A <code># expect: N</code> line pins <strong>how many suites the file declares</strong>.</li>
 </ul>
-<p>Blank lines and <code>#</code> comments are ignored. A duplicate entry is rejected.</p>
+<p>Blank lines and <code>#</code> comments are ignored, and a duplicate entry is rejected.</p>
 <h2 id="refuse-to-run-exit-2-before-a-single-test-executes">Refuse to run — exit 2, before a single test executes<a class="headerlink" href="#refuse-to-run-exit-2-before-a-single-test-executes" title="Permanent link">&para;</a></h2>
-<p><code>test/run-unit-tests.sh</code> cross-checks the manifest against what CMake actually
-registered, read from every <code>CTestTestfile.cmake</code> in the build tree (nested
-build trees with their own <code>CMakeCache.txt</code> are pruned, so a stray
-<code>build/gui-debug</code> cannot make everything look registered twice). It refuses
-when:</p>
+<p>Before anything is executed, <code>test/run-unit-tests.sh</code> cross-checks the manifest
+against what CMake actually registered. It reads that from every
+<code>CTestTestfile.cmake</code> in the build tree, pruning nested build trees that have
+their own <code>CMakeCache.txt</code> so that a stray <code>build/gui-debug</code> cannot make
+everything look as though it were registered twice. It refuses when:</p>
 <ul>
-<li>a suite is <strong>declared here but not registered</strong> by CMake — a stale entry;</li>
-<li>a suite is <strong>registered by CMake but not declared here</strong> — it would never
-  run;</li>
-<li>a suite is <strong>declared here but not built</strong> — no binary at <code>&lt;build&gt;/test/&lt;name&gt;</code>;</li>
-<li>a suite is <strong>declared twice</strong> — a duplicate runs it twice and inflates every
-  count;</li>
-<li>one binary is <strong>registered under two <code>add_test()</code> names</strong>, which the manifest
-  cannot even express;</li>
+<li>a suite is <strong>declared here but not registered</strong> by CMake, which means the
+  entry is stale;</li>
+<li>a suite is <strong>registered by CMake but not declared here</strong>, in which case it
+  would never run;</li>
+<li>a suite is <strong>declared here but not built</strong> — there is no binary at
+  <code>&lt;build&gt;/test/&lt;name&gt;</code>;</li>
+<li>a suite is <strong>declared twice</strong>, since a duplicate runs it twice and inflates
+  every count that follows;</li>
+<li>one binary is <strong>registered under two <code>add_test()</code> names</strong>, a shape the
+  manifest cannot even express;</li>
 <li>the parser read fewer <code>add_test()</code> lines than the file contains, so it cannot
-  vouch for the list;</li>
-<li>the <code># expect: N</code> pin is absent, or disagrees with the number of declared
+  vouch for the list it just built;</li>
+<li>the <code># expect: N</code> pin is missing, or disagrees with the number of declared
   suites.</li>
 </ul>
-<p>That last one is the outside witness, and it is the subtle one. Without it,
-"N declared == N registered" is a tautology against the edit that matters most:
-delete a suite's <code>add_test()</code> <strong>and</strong> its manifest row, both sides shrink
-together, every count agrees, exit 0, and the suite is gone. A review round did
-exactly that with <code>log_gate_test</code> and got a clean green run.</p>
+<p>That last condition is the subtle one, and it is what makes the whole check
+more than bookkeeping. Without it, "N declared equals N registered" is a
+tautology against exactly the edit that matters most: delete a suite's
+<code>add_test()</code> <strong>and</strong> its manifest row, and both sides shrink together, every
+count agrees, the run exits 0, and the suite is simply gone. A review round did
+precisely that with <code>log_gate_test</code> and got a clean green run for it. The
+<code># expect:</code> pin is the witness from outside that arithmetic.</p>
 <h2 id="fail-exit-1-after-the-run">Fail — exit 1, after the run<a class="headerlink" href="#fail-exit-1-after-the-run" title="Permanent link">&para;</a></h2>
-<p>A suite fails when it:</p>
+<p>Once the suites have run, one fails when it:</p>
 <ul>
-<li>reports a row count <strong>other than the pinned one, in either direction</strong>. Fewer
-  rows means rows vanished; more rows means the manifest has to be updated
-  deliberately;</li>
-<li>prints <strong>no parseable <code>Total:</code> line</strong> — including when it exits 0, which
-  means it asserted nothing;</li>
-<li><strong>crashes</strong> or exits non-zero, or any row inside it failed;</li>
-<li><strong>times out</strong> (300 s per suite by default).</li>
+<li>reports a row count <strong>other than the pinned one, in either direction</strong> —
+  fewer rows means rows vanished, and more rows means the manifest needs a
+  deliberate update;</li>
+<li>prints <strong>no parseable <code>Total:</code> line</strong>, which is a failure even when the
+  binary exits 0, because a suite that prints no summary asserted nothing;</li>
+<li><strong>crashes</strong>, exits non-zero, or contains any row that failed;</li>
+<li><strong>times out</strong>, which by default means 300 s for a single suite.</li>
 </ul>
-<p><code>make unit-test</code> exits non-zero when any suite fails, and the harness prints an
-explicit <code>UNIT TESTS FAILED</code> banner so the grand-total line — the one people
-copy into status reports — cannot be read as a pass.</p>
+<p><code>make unit-test</code> exits non-zero whenever a suite fails, and the harness prints
+an explicit <code>UNIT TESTS FAILED</code> banner so that the grand-total line — the one
+people copy into status reports — cannot be mistaken for a pass.</p>
 <h2 id="why-the-number-is-edited-by-hand">Why the number is edited by hand<a class="headerlink" href="#why-the-number-is-edited-by-hand" title="Permanent link">&para;</a></h2>
-<p><strong>Adding or removing a test row means editing its count in this file.</strong> That
-edit is the point: the number is the project's claim about how much it tests,
-and it is meant to be made deliberately rather than adopted from whatever a
-binary happened to print.</p>
-<p>The CMake side, by contrast, is <em>not</em> a second hand-kept list — it is read from
-the generated <code>CTestTestfile.cmake</code>. Only the counts are human.</p>
+<p><strong>Adding or removing a test row means editing that suite's count in this
+file.</strong> The manual edit is the point rather than an inconvenience: the number
+is the project's claim about how much it tests, and a claim should be made
+deliberately, not adopted from whatever a binary happened to print this
+afternoon.</p>
+<p>The CMake side is different, and deliberately so. It is <em>not</em> a second
+hand-kept list — it is read from the generated <code>CTestTestfile.cmake</code>. Only the
+counts are human.</p>
 <h2 id="the-three-incidents">The three incidents<a class="headerlink" href="#the-three-incidents" title="Permanent link">&para;</a></h2>
-<p>All three happened within one day, and all three were found by accident:</p>
+<p>All three of these happened within a single day, and all three were found by
+accident rather than by any check:</p>
 <ul>
 <li><strong>Task 32</strong> — <code>cpu_int_pulse_test</code> and <code>cpu_z80n_im2_regressions_test</code> had
-  been compiled and <code>add_test()</code>'d for months, were absent from the hand-kept
-  list that then lived inside the Makefile, and had <strong>never run</strong>. 63 passing
-  assertions, uncounted.</li>
-<li><strong>Task 35</strong> — <code>make clean</code> deleted <code>build/test/rewind_test</code> and the suite
-  printed no row at all. Not a skip: the total went 57 → 56 in silence.</li>
+  been compiled and registered with <code>add_test()</code> for months, but were absent
+  from the hand-kept list that then lived inside the Makefile, so they had
+  <strong>never run</strong>. That was 63 passing assertions nobody was counting.</li>
+<li><strong>Task 35</strong> — <code>make clean</code> deleted <code>build/test/rewind_test</code>, and the suite
+  then printed no row at all. It was not reported as a skip; the total simply
+  went from 57 to 56 in silence.</li>
 <li><strong>Task 37</strong> — a worktree with no <code>roms/</code> made <code>sd_rom_extractor_test</code> report
   8 rows when it has 26. Eighteen rows ceased to exist and the run still looked
   green.</li>
 </ul>
 <h2 id="other-things-the-harness-pins-down">Other things the harness pins down<a class="headerlink" href="#other-things-the-harness-pins-down" title="Permanent link">&para;</a></h2>
-<p>The run is parallel, so the aggregator must survive a failing suite: each
-suite's exit code is captured with <code>|| rc=$?</code> in its subshell, because
-inheriting <code>set -e</code> once killed the subshell before the code was recorded and
-dropped every suite after the failure. Membership tests are in-shell hash
-lookups, never <code>printf ... | grep -q</code>, which under <code>pipefail</code> can report a
-present suite as absent about 4% of the time on a loaded box.</p>
-<p><code>LC_ALL=C</code> is exported for the whole run: Qt's <code>QApplication</code> constructor calls
-<code>setlocale(LC_ALL, "")</code>, which localises <code>strerror()</code>, and a test's verdict must
-depend on the code rather than on who ran it. Finally, the harness clones the
+<p>The run is parallel, so the aggregator has to survive a failing suite. Each
+suite's exit code is captured with <code>|| rc=$?</code> inside its subshell, because
+inheriting <code>set -e</code> once killed that subshell before the code was recorded,
+which dropped every suite after the failure from the run. Membership tests are
+in-shell hash lookups rather than <code>printf ... | grep -q</code>, because under
+<code>pipefail</code> that pipeline can report a suite that is present as absent about 4%
+of the time on a loaded machine.</p>
+<p><code>LC_ALL=C</code> is exported for the whole run. Qt's <code>QApplication</code> constructor calls
+<code>setlocale(LC_ALL, "")</code>, which localises <code>strerror()</code>, and a test's verdict has
+to depend on the code rather than on who ran it. Finally, the harness clones the
 machine-wide SD master into a private per-run directory and points
-<code>JNEXT_TEST_SD_IMAGE</code> at it, so a concurrent manual <code>jnext</code> session writing back
-to the card cannot turn <code>sd_rom_extractor_test</code> red for reasons that have
-nothing to do with the code.</p>
+<code>JNEXT_TEST_SD_IMAGE</code> at the copy, so that a concurrent manual <code>jnext</code> session
+writing back to the card cannot turn <code>sd_rom_extractor_test</code> red for reasons
+that have nothing to do with the code under test.</p>
 
 
 

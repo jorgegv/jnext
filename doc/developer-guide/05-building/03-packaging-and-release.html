@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1739,7 +1807,8 @@
 
 <h1 id="53-packaging-and-release">5.3 Packaging and release<a class="headerlink" href="#53-packaging-and-release" title="Permanent link">&para;</a></h1>
 <p><code>doc/RELEASE-PROTOCOL.md</code> is the authority for everything on this page. What
-follows is the shape of the system, not a replacement for it.</p>
+follows describes the shape of the system so that the protocol makes sense when
+you read it; it is not a replacement for it.</p>
 <h2 id="the-package-targets">The package targets<a class="headerlink" href="#the-package-targets" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1767,7 +1836,7 @@ follows is the shape of the system, not a replacement for it.</p>
 </tr>
 <tr>
 <td><code>make package-win-qt5</code> / <code>package-win32-qt5</code></td>
-<td>the Windows 7-compatible Qt5 zips, 64- and 32-bit</td>
+<td>the legacy Qt5 Windows zips, 64- and 32-bit, which keep a lower Windows floor than the Qt6 build</td>
 </tr>
 <tr>
 <td><code>make package-win-sdl</code> / <code>package-win32-sdl</code></td>
@@ -1791,75 +1860,86 @@ follows is the shape of the system, not a replacement for it.</p>
 </tr>
 </tbody>
 </table>
-<p>The source tarball is not a <code>git archive</code>: that produces an <em>empty</em>
-<code>third_party/spdlog</code> directory, which fails CMake configure. <code>package-src</code> runs
+<p>The source tarball is deliberately not a <code>git archive</code>. That would produce an
+<em>empty</em> <code>third_party/spdlog</code> directory, which fails CMake configure the moment
+anyone tries to build from it; <code>package-src</code> instead runs
 <code>packaging/make-dist-tarball.sh</code>, which vendors the submodule content properly.</p>
-<p><code>package-test</code> matters more than it looks. It builds each package and then
-checks what is inside — that the rpm and deb carry <code>bin/jnext</code>, that the source
-zip carries the vendored submodule, that the Windows zip carries its DLLs and
-its platform plugin, and that <code>jnext.exe</code> is a GUI-subsystem binary with no
-stray console window. For a long time nothing invoked it, which is how a
-permanently-failing packaging row survived 46 tags. It now runs as its own
-parallel CI job, and its hermetic half (<code>package-contract-test</code>) is a
-prerequisite of <code>make unit-test</code>.</p>
+<p><code>package-test</code> matters more than its name suggests. It does not merely build
+each package: it then looks inside and checks what is there — that the rpm and
+deb carry <code>bin/jnext</code>, that the source zip carries the vendored submodule, that
+the Windows zip carries its DLLs and its platform plugin, and that <code>jnext.exe</code>
+is a GUI-subsystem binary with no stray console window attached. For a long time
+nothing actually invoked it, which is how a permanently-failing packaging row
+managed to survive 46 tags unnoticed. It now runs as its own parallel CI job,
+and its hermetic half, <code>package-contract-test</code>, is a prerequisite of
+<code>make unit-test</code>.</p>
 <h2 id="versionyaml-is-the-single-source-of-truth"><code>version.yaml</code> is the single source of truth<a class="headerlink" href="#versionyaml-is-the-single-source-of-truth" title="Permanent link">&para;</a></h2>
-<p>Everything else derives from it. CMake reads it into <code>PROJECT_VERSION</code>, so
-every CPack-generated package already carries the right version with no further
-work.</p>
-<p>The files a <em>person</em> wrote by hand are kept in lockstep by
-<code>packaging/sync-version.sh</code>, which the <code>bump-*</code> targets call automatically. It
-knows about four:</p>
+<p>Everything else derives from it. CMake reads it into <code>PROJECT_VERSION</code>, so every
+CPack-generated package already carries the right version with no further work
+from anyone.</p>
+<p>The files that a <em>person</em> wrote by hand are the ones that need help, and
+<code>packaging/sync-version.sh</code> keeps them in lockstep. The <code>bump-*</code> targets call it
+automatically. It knows about four files:</p>
 <ul>
 <li><code>packaging/rpm/jnext.spec</code> — the <code>Version:</code> field plus a matching
-  <code>%changelog</code> entry (rpmbuild complains if the top changelog version and
-  <code>Version:</code> disagree)</li>
+  <code>%changelog</code> entry, because rpmbuild complains when the top changelog version
+  and <code>Version:</code> disagree</li>
 <li><code>packaging/assets/io.github.zxjogv.jnext.metainfo.xml</code> — the AppStream
   <code>&lt;releases&gt;</code> history, <strong>for public releases only</strong></li>
 <li><code>packaging/debian/changelog</code></li>
-<li><code>mkdocs.yml</code> — the version stamped into every page of the user guide, which
-  is why the script re-renders that guide too</li>
+<li><code>mkdocs.yml</code> — the version stamped into every page of the user guide, which is
+  also why the script re-renders that guide</li>
 </ul>
-<p>The Flatpak manifest is deliberately not in the list: it builds from the local
-checkout and carries no version tag to rewrite.</p>
+<p>The Flatpak manifest is deliberately absent from that list: it builds from the
+local checkout and carries no version tag to rewrite.</p>
 <p><strong>When you add a file that hard-codes the version, add it to
-<code>sync-version.sh</code>.</strong> That script is the one place that must know them all. It
-is idempotent, it fails loudly if a target file or the anchor an edit depends
-on is missing — better to abort the whole bump than to commit a half-synced
+<code>sync-version.sh</code>.</strong> That script is the one place that must know them all. It is
+idempotent; it fails loudly when a target file, or the anchor an edit depends
+on, is missing — aborting the whole bump is better than committing a half-synced
 tree — and it is covered by a contract suite inside <code>make package-test</code>.</p>
 <h2 id="bumping-and-the-publicprivate-distinction">Bumping, and the public/private distinction<a class="headerlink" href="#bumping-and-the-publicprivate-distinction" title="Permanent link">&para;</a></h2>
-<p><strong>A git tag is not the same as a public release.</strong> Every merge to <code>main</code> gets
-its own <code>vX.Y.Z</code> tag, and those are local history markers. Only the curated
-subset listed in <code>releases.yaml</code> becomes a public GitHub Release.</p>
+<p>There is a distinction here that is easy to miss because most projects do not
+make it. <strong>A git tag is not the same thing as a public release.</strong> Every merge
+to <code>main</code> gets its own <code>vX.Y.Z</code> tag, and the great majority of those are private
+history markers that exist only so a change can be pointed at later. Only a
+curated subset ever becomes a public GitHub Release, and the way a tag joins
+that subset is by being listed in <code>releases.yaml</code> — an explicit allowlist file
+in the repository. The release workflow builds nothing for a tag that is not in
+it. So the interesting question at bump time is not "which number" but "is this
+one public", and the tooling asks you exactly that.</p>
 <p>All three of <code>bump-patch</code>, <code>bump-minor</code> and <code>bump-major</code> behave the same way.
 They refuse to run on a dirty working tree; compute the new version; <strong>prompt
-<code>Add vX.Y.Z to releases.yaml (build a public GitHub Release)? [y/N]</code></strong>, default
-No; write <code>version.yaml</code>; run <code>sync-version.sh</code>; then stage, commit
-<code>chore: bump version to &lt;ver&gt;</code> and create the tag. Every step is <code>&amp;&amp;</code>-chained,
-so a failed sync commits and tags nothing.</p>
-<p>Two consequences worth knowing. The prompt only appears on a terminal — a
-non-interactive shell answers <code>n</code>, so a scripted bump is always private.
-And when you answer <code>y</code>, the tag is added to <code>releases.yaml</code> <em>before</em> tagging,
-so the tag's own commit lists itself; the release workflow reads that file from
-the tag's commit, and would otherwise never see it.</p>
+<code>Add vX.Y.Z to releases.yaml (build a public GitHub Release)? [y/N]</code></strong>, with No
+as the default; write <code>version.yaml</code>; run <code>sync-version.sh</code>; and then stage,
+commit <code>chore: bump version to &lt;ver&gt;</code>, and create the tag. Every step is
+<code>&amp;&amp;</code>-chained, so a failed sync commits nothing and tags nothing.</p>
+<p>Two consequences of that flow are worth knowing in advance. The prompt only
+appears on a terminal, so a non-interactive shell answers <code>n</code> and a scripted
+bump is always private. And when you do answer <code>y</code>, the tag is added to
+<code>releases.yaml</code> <em>before</em> the tagging step, which means the tag's own commit is
+the one that lists it — necessary because the release workflow reads that file
+from the tag's commit and would otherwise never see the entry.</p>
 <p><code>make publish-release</code> pushes the branch and then the newest tag <strong>alone</strong>.
-Single-tag pushes are not fussiness: GitHub fires tag events only for three or
-fewer tags pushed at once, and pushing more creates <em>zero</em> events, so nothing
-builds. The target also refuses outright if the newest tag is public but has no
-ChangeLog entry.</p>
+The single-tag push is not fussiness: GitHub fires tag events only when three or
+fewer tags arrive at once, and pushing more than that creates <em>zero</em> events, so
+nothing builds at all. The target also refuses outright when the newest tag is
+public but has no ChangeLog entry.</p>
 <h2 id="the-changelog-rule">The ChangeLog rule<a class="headerlink" href="#the-changelog-rule" title="Permanent link">&para;</a></h2>
 <p><strong>Version headers in the ChangeLog correspond to public releases only</strong> — the
-tags in <code>releases.yaml</code> — never to intermediate private patch tags. Everything
-since the last public release accumulates under a single <code>## Unreleased</code> header,
-which is renamed to the version and date when a release is actually cut.</p>
-<p>A public bump must have the ChangeLog updated <em>before</em> the bump commit, so the
-released tag carries its own entry, and that entry is differential: what changed
-since the previous public release, not the whole history. Four sections, one
-line each, 10-20 words. If a bullet wraps, it is too long — cut it rather than
-reflowing it. <code>doc/RELEASE-PROTOCOL.md</code> §2.1 has the reasoning and the
-counter-example that motivated the rule.</p>
+tags listed in <code>releases.yaml</code> — and never to intermediate private patch tags.
+Everything since the last public release accumulates under a single
+<code>## Unreleased</code> header, which is renamed to the version and the date when a
+release is actually cut.</p>
+<p>A public bump must have the ChangeLog updated <em>before</em> the bump commit, so that
+the released tag carries its own entry rather than pointing forward at one. That
+entry is differential: it describes what changed since the previous public
+release, not the whole history. Four sections, one line each, 10-20 words. If a
+bullet wraps, it is too long, and the fix is to cut it rather than to reflow it.
+<code>doc/RELEASE-PROTOCOL.md</code> §2.1 has the reasoning and the counter-example that
+motivated the rule.</p>
 <p>A public bump also requires the documentation to be checked against the running
-product, which is a separate thing from the automatic staleness gates —
-see <a href="04-continuous-integration.html">5.4</a> and
+product, which is a genuinely different thing from the automatic staleness
+gates — see <a href="04-continuous-integration.html">5.4</a> and
 <a href="../04-testing/05-documentation-and-cli-gates.html">4.5</a> for what those gates do
 and do not prove.</p>
 

@@ -1,17 +1,23 @@
 # 1. Orientation
 
-Three pages of ground truth before any code: what the program is and what
-accuracy it actually delivers, where every directory lives and what it is
-responsible for, and the handful of project-wide invariants that are not
-visible from any single file.
+Three pages of ground truth, to be read before any code. The first says what
+the program is and what accuracy it actually delivers, which is not quite what
+you would guess from the phrase "Spectrum emulator". The second walks every
+directory and says what it is responsible for, so that a bug report about
+sprite scaling or tape loading turns into a path. The third collects the
+project-wide invariants — the ones that are not visible from any single file,
+and therefore cannot be discovered by reading the file you happen to be
+changing.
 
-The third page is the important one. JNEXT has several mechanisms that look
-like bureaucracy until you understand what each of them caught — generated
-documents that fail the test run when stale, test manifests with pinned row
-counts, a command-line option table that is data rather than control flow.
-Every one of them exists because the failure it prevents already happened, and
-went unnoticed. A newcomer who skips that page will trip over at least one of
-them on their first change.
+The third page is the one that matters most on a first visit. JNEXT has several
+mechanisms that look like bureaucracy until you know what each of them caught:
+generated documents that fail the test run when they go stale, test manifests
+that pin an exact row count per suite, a command-line option table that is data
+rather than control flow. In every case the failure being prevented had already
+happened once, and — this is the part that made the mechanism worth building —
+nobody noticed at the time. Skip that page and you will meet at least one of
+them on your first change, as a red test run that appears to have nothing to do
+with what you touched.
 
 ## What is in this chapter
 

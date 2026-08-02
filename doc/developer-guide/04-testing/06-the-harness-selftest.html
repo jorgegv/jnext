@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1749,91 +1817,102 @@
 
 
 <h1 id="46-the-harness-self-test">4.6 The harness self-test<a class="headerlink" href="#46-the-harness-self-test" title="Permanent link">&para;</a></h1>
-<p>Every number this project quotes passes through a harness. If the harness
-under-reports, everything downstream of it is wrong in a way that looks
-identical to being right. So the harnesses are themselves under test.</p>
+<p>Testing the test harness sounds like one turn of the screw too many, until you
+notice where every number this project quotes comes from. Each one has passed
+through a harness on its way to you. If that harness under-reports, everything
+downstream of it is wrong in a way that looks identical to being right — the
+run is green, the totals are plausible, and nothing anywhere says otherwise. So
+the harnesses are themselves under test.</p>
 <pre><code class="language-console">$ make harness-selftest
 </code></pre>
 <p>The regression suite also runs it as the <code>harness-selftest-func</code> row, so it is
-exercised on every full run.</p>
+exercised on every full run rather than only when someone remembers to ask.</p>
 <h2 id="why-it-exists">Why it exists<a class="headerlink" href="#why-it-exists" title="Permanent link">&para;</a></h2>
 <p><code>test/run-unit-tests.sh</code> once shipped with a bug that appeared <strong>only when a
-suite failed</strong> — the one path nobody exercises while everything is green. It
-had been verified against suites that pass. <code>set -e</code> killed the runner subshell
-before it recorded the suite's exit code, the aggregator then aborted, and every
+suite failed</strong>, which is the one path nobody exercises while everything is
+green. It had been verified, thoroughly, against suites that pass. What
+happened when one did not was that <code>set -e</code> killed the runner subshell before
+it could record the suite's exit code; the aggregator then aborted; and every
 suite after the failing one was dropped from the run. A harness that
-under-reports precisely when something is wrong is worse than no harness.</p>
+under-reports precisely when something is wrong is worse than no harness at
+all.</p>
 <h2 id="how-it-works">How it works<a class="headerlink" href="#how-it-works" title="Permanent link">&para;</a></h2>
 <p>Each fault is <strong>injected</strong> against stub suites in a throwaway build directory,
-and the refusal is asserted: the expected exit status plus the exact diagnostic
-text. A guard that cannot be shown to fire is not a guard.</p>
+and the refusal is then asserted — both the expected exit status and the exact
+diagnostic text. The principle is the same one that runs through the chapter: a
+guard that cannot be shown to fire is not a guard.</p>
 <p>The stubs are three lines of bash that print a <code>Total:</code> line and exit with a
-chosen code; <code>register</code> writes a matching <code>CTestTestfile.cmake</code>; <code>manifest</code>
-writes a manifest with a matching (or deliberately wrong) <code># expect:</code> pin. From
-those primitives it drives, among others: a clean two-suite run; a suite that
-fails while a later suite must still be reported; a suite that prints no
-summary; a suite that hangs into its timeout; an entry with no row count; a pin
-of 0; one binary registered under two <code>add_test()</code> names; a wrong suite-count
-pin; a manifest with no pin at all; a nested build tree that must <strong>not</strong> be
-enumerated; an unparseable <code>add_test()</code> line; and a membership probe that proves
-the <code>printf | grep -q</code> SIGPIPE race cannot come back.</p>
-<p>It also reaches beyond the unit harness. Rows <code>HS-21</code>..<code>HS-24</code>, <code>HS-31</code>, <code>HS-32</code>
-drive <code>regression.sh --preflight-only</code> with truncated manifests, a declared
-functional test with no script, and a stray undeclared script — which is why
-<code>make harness-selftest</code> declares <code>unit-test-build</code>, <code>gui-release</code> and
-<code>sdl-release</code> as prerequisites, the same binaries that preflight resolves.
-Others assert that the lints are still <em>wired in</em> (<code>make unit-test</code> reaches the
-assertion lint, and reaches it first; an offending row script fails the whole
-regression preflight, not just the lint), that every SD-clone cleanup script
+chosen code. A <code>register</code> helper writes a matching <code>CTestTestfile.cmake</code>, and a
+<code>manifest</code> helper writes a manifest with a matching — or deliberately wrong —
+<code># expect:</code> pin. From those few primitives the self-test drives, among others,
+a clean two-suite run; a suite that fails while a later suite must still be
+reported; a suite that prints no summary; a suite that hangs into its timeout;
+an entry with no row count; a pin of 0; one binary registered under two
+<code>add_test()</code> names; a wrong suite-count pin; a manifest with no pin at all; a
+nested build tree that must <strong>not</strong> be enumerated; an unparseable <code>add_test()</code>
+line; and a membership probe that proves the <code>printf | grep -q</code> SIGPIPE race
+cannot come back.</p>
+<p>It also reaches beyond the unit harness. Rows <code>HS-21</code>..<code>HS-24</code>, <code>HS-31</code> and
+<code>HS-32</code> drive <code>regression.sh --preflight-only</code> against truncated manifests, a
+declared functional test with no script, and a stray undeclared script — which
+is why <code>make harness-selftest</code> declares <code>unit-test-build</code>, <code>gui-release</code> and
+<code>sdl-release</code> as prerequisites, since those are the same binaries preflight
+resolves. Other rows assert that the lints are still <em>wired in</em> at all: that
+<code>make unit-test</code> reaches the assertion lint and reaches it first, and that an
+offending row script fails the whole regression preflight rather than just the
+lint. The rest cover cleanup, checking that every SD-clone cleanup script
 handles INT and TERM as well as EXIT, that each handler <strong>exits</strong> rather than
 resuming, and that the three real cleanup bodies are bounded and remove only
 their own run directory.</p>
 <h2 id="it-pins-its-own-count">It pins its own count<a class="headerlink" href="#it-pins-its-own-count" title="Permanent link">&para;</a></h2>
-<p><code>EXPECTED_TOTAL = 45</code> sits in the script, next to the rows it counts. Running a
-different number of checks is exit 2 with an explicit refusal message. The
-reasoning is the project's usual one: without the pin, deleting a check shrinks
-the declared and the reported side in lockstep — the exact silent-truncation
-move that the harnesses this file guards were built to forbid. Adding or
-removing a check means editing that number, deliberately.</p>
-<p>The count could not live in <code>test/unit-tests.conf</code>: that manifest is
+<p><code>EXPECTED_TOTAL = 45</code> sits in the script, right next to the rows it counts, and
+running a different number of checks is exit 2 with an explicit refusal
+message. The reasoning is the project's usual one: without the pin, deleting a
+check shrinks the declared side and the reported side in lockstep, which is
+precisely the silent-truncation move that the harnesses this file guards were
+built to forbid. Adding or removing a check means editing that number,
+deliberately.</p>
+<p>The count could not simply live in <code>test/unit-tests.conf</code>. That manifest is
 cross-checked against CMake's <code>add_test()</code> registrations in both directions, so
-a non-CMake entry would make the unit harness refuse to run.</p>
+an entry with no CMake counterpart would make the unit harness refuse to run.</p>
 <h2 id="the-traceability-self-tests">The traceability self-tests<a class="headerlink" href="#the-traceability-self-tests" title="Permanent link">&para;</a></h2>
 <pre><code class="language-console">$ make traceability-selftest          # the citation extractor, 202 pinned rows
 $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 </code></pre>
 <p><code>test/traceability-citations-selftest.pl</code> pins the tool that decides which VHDL
 lines justify each traceability row. Its end-to-end rows build a throwaway
-repository from the real manifest, CMakeLists and matrix with stub sources and
-binaries, then run the real refresh script against it twice, so idempotence and
-the refusal paths are both exercised. It pins <code>$EXPECTED_ROWS = 202</code> in the same
-shape as the harness self-test, and for the same reason cannot live in the unit
-manifest: it is a perl script with no CMake target.</p>
+repository out of the real manifest, CMakeLists and matrix, populated with stub
+sources and binaries, and then run the real refresh script against it twice, so
+that idempotence and the refusal paths are both exercised. It pins
+<code>$EXPECTED_ROWS = 202</code> in the same shape as the harness self-test, and for the
+same reason it cannot live in the unit manifest — it is a perl script with no
+CMake target.</p>
 <p>Both are prerequisites of <code>make unit-test</code>, and that matters more than the
-checks themselves. Until they were wired in, nothing invoked them — not
+checks themselves do. Until they were wired in, nothing invoked them — not
 <code>unit-test</code>, not <code>regression</code>, not CI — and they were the only thing standing
-between the project and a plausible-but-wrong VHDL citation. A guard nobody runs
-is worse than no guard, because it looks like coverage. The same lesson produced
-<code>regression-doc-check</code>, which wired up a screenshot-documentation checker that
-had existed, been correct, and been invoked by nothing for long enough to rot
-into failing on 18 rows.</p>
+between the project and a plausible-but-wrong VHDL citation. A guard nobody
+runs is worse than no guard, because it looks like coverage. The same lesson
+produced <code>regression-doc-check</code>, which wired up a screenshot-documentation
+checker that had existed, had been correct, and had been invoked by nothing for
+long enough to rot into failing on 18 rows.</p>
 <h2 id="the-lint-self-tests">The lint self-tests<a class="headerlink" href="#the-lint-self-tests" title="Permanent link">&para;</a></h2>
-<p>Two lints verify themselves on <strong>every invocation</strong>, before their verdict on
-the real tree is trusted:</p>
+<p>Two of the lints verify themselves on <strong>every invocation</strong>, before their
+verdict on the real tree is trusted at all:</p>
 <ul>
 <li><code>test/lint-assertions.sh</code> writes a fixture containing one instance of each
-  banned tautology — <code>check(id, desc, true)</code>, <code>|| true</code>, <code>a == b || a != b</code> —
-  and refuses (exit 2) if any pattern fails to match it. A lint that has
-  silently become a no-op reports success, which is worse than not running.</li>
+  banned tautology — <code>check(id, desc, true)</code>, <code>|| true</code>, and
+  <code>a == b || a != b</code> — and refuses with exit 2 if any of its patterns fails to
+  match that fixture. A lint that has silently become a no-op reports success,
+  which is worse than not running it.</li>
 <li><code>test/00regression/lint-traps.sh</code> carries <strong>86 pinned cases: 57 that must
-  flag and 29 that must not.</strong> One fixture file per case, deliberately — a
-  combined fixture still passed when a case was lost, whereas per-case a lost
-  case is named. It additionally cross-checks its own prose case table against
-  the fixture files that exist, in both directions, so documentation and
-  fixtures cannot drift apart.</li>
+  flag and 29 that must not.</strong> There is one fixture file per case,
+  deliberately, because a combined fixture still passed when a case was lost,
+  whereas with one file per case the lost case is named. It also cross-checks
+  its own prose case table against the fixture files that exist, in both
+  directions, so that the documentation and the fixtures cannot drift apart.</li>
 </ul>
-<p>Both directions matter. A false negative merely fails to help; a false positive
-blocks a correct row, which is the one that costs.</p>
+<p>Both directions matter, and not equally. A false negative merely fails to help,
+whereas a false positive blocks a correct row — and that is the one that costs.</p>
 
 
 

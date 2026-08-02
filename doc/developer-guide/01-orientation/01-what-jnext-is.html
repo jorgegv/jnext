@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1738,24 +1806,30 @@
 
 
 <h1 id="11-what-jnext-is-in-one-page">1.1 What JNEXT is, in one page<a class="headerlink" href="#11-what-jnext-is-in-one-page" title="Permanent link">&para;</a></h1>
-<p>JNEXT is a ZX Spectrum Next emulator written in C++17. Its specification is
-not a document — it is the VHDL source of the official ZX Spectrum Next FPGA
-core. Where hardware behaviour is ambiguous or undocumented, the answer comes
-from that source and is pinned there by a test citing the file and line.</p>
+<p>JNEXT is a ZX Spectrum Next emulator written in C++17. Its specification is not
+prose but a circuit description: the VHDL source of the official ZX Spectrum
+Next FPGA core. Where hardware behaviour is ambiguous or undocumented, the
+answer comes from that source, and is pinned there by a test citing the file
+and the line it came from.</p>
 <h2 id="what-it-emulates">What it emulates<a class="headerlink" href="#what-it-emulates" title="Permanent link">&para;</a></h2>
 <p>The machine set is small and explicit. <code>MachineType</code> in
-<code>src/memory/contention.h:5</code> has exactly four values —
-<code>ZXN_ISSUE2</code>, <code>ZX48K</code>, <code>ZX128K</code>, <code>ZX_PLUS3</code> — which are the four things
-<code>--machine</code> accepts (<code>next</code>, <code>48k</code>, <code>128k</code>, <code>plus3</code>). Pentagon is <em>not</em> one of
-them: it survives only as <code>MachineTimingMode::TimingPentagon</code>, a video-timing
-mode a guest can select through NextREG 0x03, alongside the 48K, 128K and +3
-timings. The two axes are independent after startup, which is why they are
-separate enums.</p>
-<p>Per-machine geometry lives in <code>MachineTiming</code> (<code>src/core/emulator_config.h:259</code>),
-derived from <code>zxula_timing.vhd</code>: 48K is 448 pixels × 312 lines, 128K/+3/Next
-are 456 × 311. Everything is counted in 28 MHz master cycles
-(<code>MASTER_CLOCK_HZ</code>), from which the 7 MHz pixel clock and the four selectable
-CPU speeds are derived in <code>src/core/clock.h</code>.</p>
+<code>src/memory/contention.h:5</code> has exactly four values — <code>ZXN_ISSUE2</code>, <code>ZX48K</code>,
+<code>ZX128K</code> and <code>ZX_PLUS3</code> — and those are the four things <code>--machine</code> accepts
+(<code>next</code>, <code>48k</code>, <code>128k</code>, <code>plus3</code>).</p>
+<p>Pentagon is deliberately not among them, and the reason is worth understanding
+because it explains why there are two enums where you might expect one. On real
+Next hardware a guest can ask for a different <em>video timing</em> without becoming a
+different machine, by writing NextREG 0x03. JNEXT models that faithfully:
+Pentagon survives only as <code>MachineTimingMode::TimingPentagon</code>, one of the
+timing modes selectable at run time alongside the 48K, 128K and +3 timings,
+while the machine type is fixed at startup. The two axes are independent once
+the emulator is running, so they are separate types.</p>
+<p>Per-machine geometry lives in <code>MachineTiming</code> (<code>src/core/emulator_config.h:259</code>)
+and is derived from <code>zxula_timing.vhd</code>: a 48K frame is 448 pixels × 312 lines,
+while 128K, +3 and Next frames are 456 × 311. Underneath all of it, everything
+is counted in 28 MHz master cycles (<code>MASTER_CLOCK_HZ</code>) — the same master clock
+the FPGA uses — and <code>src/core/clock.h</code> derives the 7 MHz pixel clock and the
+four selectable CPU speeds from it by division.</p>
 <h2 id="the-accuracy-model-as-implemented">The accuracy model, as implemented<a class="headerlink" href="#the-accuracy-model-as-implemented" title="Permanent link">&para;</a></h2>
 <table>
 <thead>
@@ -1791,42 +1865,66 @@ CPU speeds are derived in <code>src/core/clock.h</code>.</p>
 </tr>
 </tbody>
 </table>
-<p>That last row is the one nobody expects, and it shapes a large part of the
-codebase. <code>Emulator::run_frame()</code> does not render as it goes: it schedules one
-<code>SCANLINE</code> event per line, but those callbacks only <em>snapshot and tag</em> display
-state (<code>Emulator::on_scanline</code>). The picture is produced in a single pass by
-<code>Renderer::render_frame()</code> after the CPU has finished the frame, walking rows
-0..255. Because the live registers then hold the frame's <em>last</em> values, every
-register a demo changes mid-frame carries a per-scanline change log that the
-renderer rewinds and replays row by row. <a href="../02-architecture/04-the-video-pipeline.html">2.4 The video pipeline</a>
-covers that mechanism; it is the single most load-bearing idea in the video
-code.</p>
-<p>Extreme cycle-exactness is deliberately not a goal — "good enough to develop
-games on" is. The known consequences are documented rather than hidden: a
-mid-line register write lands from the start of the row it fell in, so an
-effect can appear at most one row early and never late.</p>
+<p>Two rows there deserve unpacking before you read any of the code.</p>
+<p>The <strong>Copper</strong> is a Next-specific piece of hardware that a developer coming
+from other 8-bit machines will not have met. It is a tiny co-processor with its
+own 1 K instruction RAM and exactly two instructions: <code>WAIT</code> until the raster
+reaches a given screen position, and <code>MOVE</code> a value into a hardware register.
+Because its writes bypass the CPU entirely, a guest can repaint the palette or
+flip a layer at an exact point on an exact scanline without spending any Z80
+time on it — which is how a great many Next demo effects are built. That is why
+it gets its own row above, and why that row is finer-grained than "per
+instruction": JNEXT advances it across every 28 MHz cycle the instruction
+consumed, rather than once when the instruction ends.</p>
+<p><strong>Video is composited once, at the end of the frame</strong>, and that is the row
+nobody expects. It shapes a large part of the codebase. <code>Emulator::run_frame()</code>
+does not draw as it goes: it schedules one <code>SCANLINE</code> event per line, but those
+callbacks only <em>snapshot and tag</em> display state (<code>Emulator::on_scanline</code>). The
+picture itself is produced afterwards, in a single pass by
+<code>Renderer::render_frame()</code> walking rows 0..255 once the CPU has finished the
+frame.</p>
+<p>That creates an obvious problem, and its solution is the single most
+load-bearing idea in the video code. By the time the renderer runs, the live
+hardware registers hold the frame's <em>last</em> values — so a demo that changed the
+palette halfway down the screen would have its change applied to the whole
+frame. To avoid that, every register that guests are known to change mid-frame
+carries a per-scanline change log, which the renderer rewinds and replays row by
+row as it descends the screen. <a href="../02-architecture/04-the-video-pipeline.html">2.4 The video pipeline</a>
+covers the mechanism in full.</p>
+<p>Extreme cycle-exactness is deliberately not a goal; "good enough to develop
+games on" is. The consequences of that choice are documented rather than
+hidden. The main one follows directly from the change log above: a register
+write that happens part-way through a line is recorded against that whole line,
+so an effect can appear at most one row early, and never late.</p>
 <h2 id="what-a-frame-is">What a "frame" is<a class="headerlink" href="#what-a-frame-is" title="Permanent link">&para;</a></h2>
 <p>One call to <code>Emulator::run_frame()</code> advances the master clock by
 <code>timing_.master_cycles_per_frame</code> and leaves a complete 640 × 256 ARGB8888
-image in the framebuffer the frontend reads with <code>get_framebuffer()</code>. Real
-time per frame follows the emulated refresh rate (<code>frame_period_ms()</code>), so a
-60 Hz guest paces at 60 fps rather than a hardcoded 50.</p>
-<p>A frame is not necessarily one call, though. The debugger pauses by <em>returning
-from inside</em> the inner loop, so <code>frame_in_progress_</code> records that the next
-call must resume the half-executed frame instead of restarting it — restarting
-would rewind the Copper and wipe the change logs of a frame still in flight.</p>
+image in the framebuffer, which the frontend collects with <code>get_framebuffer()</code>.
+Real time per frame follows the <em>emulated</em> refresh rate rather than a hardcoded
+50 Hz — <code>frame_period_ms()</code> computes it from the machine's own frame length in
+master cycles, so a guest that has switched to 60 Hz paces at 60 fps.</p>
+<p>A frame is not necessarily one call, though. The debugger pauses by returning
+from inside the inner loop, part-way through a frame, so <code>frame_in_progress_</code>
+records that the next call must resume the half-executed frame rather than
+start a new one. Restarting would rewind the Copper and wipe the change logs of
+a frame that is still in flight — which is exactly the state a developer is
+looking at when they hit a breakpoint mid-screen.</p>
 <h2 id="the-three-frontends">The three frontends<a class="headerlink" href="#the-three-frontends" title="Permanent link">&para;</a></h2>
 <p>All three drive the same <code>Emulator</code> and differ only in what surrounds it.</p>
 <ul>
-<li><strong>Qt GUI</strong> — <code>src/gui/qt_app.*</code> plus <code>MainWindow</code>; built when <code>ENABLE_QT_UI=ON</code>.
-  Qt owns the window, the menus and keyboard input; SDL is kept only for audio
-  output. The debugger (<code>src/debugger/</code>) hangs off this frontend.</li>
-<li><strong>SDL-only</strong> — <code>src/platform/sdl_app.*</code>; the fallback when <code>ENABLE_QT_UI=OFF</code>.
-  Window, input and audio all through SDL2.</li>
-<li><strong>Headless</strong> — <code>src/platform/headless_app.cpp</code>; selected at runtime by
-  <code>--headless</code> in either build. No window, no audio device, no host input;
-  runs uncapped and drives everything from frame counters. This is what the
-  regression suite uses.</li>
+<li><strong>Qt GUI</strong> — <code>src/gui/qt_app.*</code> plus <code>MainWindow</code>, built when
+  <code>ENABLE_QT_UI=ON</code>. Qt owns the window, the menus and keyboard input; SDL is
+  kept only for audio output. The debugger (<code>src/debugger/</code>) hangs off this
+  frontend.</li>
+<li><strong>SDL-only</strong> — <code>src/platform/sdl_app.*</code>, the fallback when <code>ENABLE_QT_UI=OFF</code>.
+  Window, input and audio all go through SDL2.</li>
+<li><strong>Headless</strong> — <code>src/platform/headless_app.cpp</code>, selected at run time by
+  <code>--headless</code> in either build. It opens no window, no audio device and no host
+  input, runs uncapped instead of paced to real time, and schedules everything
+  it does — loading a file, injecting a keypress, taking a screenshot, exiting
+  — off frame counters rather than the wall clock. That is what makes a
+  headless run repeatable on a fast host and a slow one alike, and it is the
+  mode the regression suite runs in.</li>
 </ul>
 <p>See <a href="../02-architecture/01-startup-and-the-frontends.html">2.1 Startup and the frontends</a>
 for how one of the three is chosen.</p>

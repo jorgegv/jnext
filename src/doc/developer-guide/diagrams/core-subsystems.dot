@@ -14,26 +14,28 @@
 // (rankdir=LR) or a 4127 x 212 px strip (rankdir=TB), and neither is a figure
 // anyone can read inline.
 //
-// Palette note: light fills, dark labels, transparent canvas, so the figure
-// reads on both the light and the dark theme of the rendered guide.
+// Palette note: the page theme's pastel dark red family (see css/theme.css).
+// Light fills, dark labels, transparent canvas, so the figure reads on both
+// the light and the dark theme.
 digraph core_subsystems {
     bgcolor="transparent";
     rankdir=TB;
+    splines=ortho;
     fontname="Helvetica";
     ranksep=0.55;
     nodesep=0.35;
     node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
-          fillcolor="#eef2f7", color="#5a6b80", fontcolor="#1b2430", margin="0.16,0.10"];
-    edge [color="#9aa8b8", arrowhead=none];
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.16,0.10"];
+    edge [color="#b09296", arrowhead=none];
 
     emu [label="Emulator — src/core/emulator.{h,cpp}\nowns every box below; run_frame() drives them",
-         shape=box3d, style="filled", fillcolor="#f6efdc", fontsize=12, margin="0.25,0.14"];
+         shape=box3d, style="filled", fillcolor="#e9d3d6", fontsize=12, margin="0.25,0.14"];
 
     // One box round all nine, rather than nine edges from Emulator: drawing
     // the edges to row 1 only made it look as though row 1 were owned and the
     // other six were not.
     subgraph cluster_owned {
-        label=""; color="#c3ccd8"; style="rounded";
+        label=""; color="#d3bdc0"; style="rounded";
 
     time  [label="timing — src/core\lClock · Scheduler · MachineTiming\l"];
     cpu   [label="CPU — src/cpu\lZ80Cpu (FUSE core + Z80N)\lIm2Controller\l"];

@@ -4,39 +4,45 @@ JNEXT is a hardware emulator, so most of what it does is invisible until it is
 wrong. The test system exists to make wrongness loud, and it is unusually
 strict about one thing in particular: **a green result is only as trustworthy
 as its denominator.** A suite that quietly stopped running, a row that quietly
-stopped asserting, a document that quietly stopped matching its source — each
-of those makes a passing run mean less while looking exactly the same. Every
-gate described in this chapter was added after one of them actually happened.
+stopped asserting, a generated document that quietly stopped matching its
+source — each of those makes a passing run mean less while looking exactly the
+same as it did before. Every gate described in this chapter was added after one
+of them actually happened.
 
-So the suites are **declared** — in manifests, with exact expected counts — and
-the harness proves it ran precisely what was declared before it is allowed to
-report anything at all. A missing test is a loud failure, never a silent skip.
+The response to that is to make the suites **declared**. Instead of running
+whatever test binaries happen to be lying around and believing whatever they
+happen to print, the project keeps manifests that name every suite and pin the
+exact number of rows each one must report. The harness compares that
+declaration against reality before it is allowed to report anything at all, and
+refuses to run when the two disagree. A missing test is a loud failure, never a
+silent skip.
 
-The parts, one sentence each:
+The rest of the chapter works through the pieces:
 
-- **The test triplet** is the three layers a change must clear: the unit
-  suites, the FUSE Z80 opcode suite, and the screenshot/functional regression.
-- **The manifests** (`test/unit-tests.conf`, `test/00regression/regression_tests.conf`,
-  `test/00regression/functional_tests.conf`) declare which suites exist and how
-  many rows each must report, and the harnesses refuse to run when reality
-  disagrees.
+- **The test triplet** is the three layers every change has to clear before it
+  can land — the unit suites, the FUSE Z80 opcode corpus, and the screenshot
+  and functional regression.
+- **The manifests** are where the pinned counts live: `test/unit-tests.conf`
+  for the unit suites, `test/00regression/regression_tests.conf` and
+  `functional_tests.conf` for the regression. Each harness treats a
+  disagreement with its manifest as a fault in itself, not as a test result.
 - **The regression suite** boots the real binary headless, compares whole
-  frames against committed reference images, and runs the functional rows that
-  need a real process rather than a linked library.
+  frames against committed reference images, and runs the rows that need a
+  real process rather than a linked library.
 - **Traceability** maps every test row back to the VHDL line that justifies it,
-  in a document that is generated from the test sources and gated against
-  staleness.
+  in a document that is generated from the test sources and gated against going
+  stale.
 - **The documentation and CLI gates** prove that the committed generated
-  documents match their sources, and that the documented flag set matches the
-  one the parser implements.
+  documents still match their sources, and that the flag set the man page
+  describes is the one the parser actually implements.
 - **The harness self-tests** inject each fault into the harnesses themselves
-  and assert the refusal, because a guard that cannot be shown to fire is not a
-  guard.
+  and assert that the refusal happens, because a guard nobody has ever seen
+  fire is not a guard.
 
-None of this is optional tooling you run when you remember to. `make unit-test`
-and `make regression` pull the lints, the documentation checks and the
-traceability gates in as prerequisites, so they run in the inner loop where
-they can still be cheap to fix.
+None of this is optional tooling that you run when you remember to.
+`make unit-test` and `make regression` pull the lints, the documentation checks
+and the traceability gates in as prerequisites, so they run in the inner loop,
+where a failure is still cheap to fix.
 
 Pages in this chapter:
 

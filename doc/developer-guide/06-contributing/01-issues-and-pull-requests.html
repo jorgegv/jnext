@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1730,30 +1798,33 @@
 <h2 id="issues">Issues<a class="headerlink" href="#issues" title="Permanent link">&para;</a></h2>
 <p>Pending features and known bugs are tracked as
 <a href="https://github.com/jorgegv/jnext/issues">GitHub issues</a>, never in the
-repository. <code>TODO.md</code> is only a pointer to that page, and
-<code>doc/design/EMULATOR-DESIGN-PLAN.md</code> is a roadmap rather than a bug list.</p>
-<p>Blank issues are disabled; there are two templates, and both ask for the
-things that actually make triage possible.</p>
-<p>A <strong>bug report</strong> wants the jnext version, the platform and package you
-installed (rpm, deb, Flatpak, Windows zip, <code>.dmg</code>, or built from source), the
-OS version, and — the fields that do the most work — the <strong>emulated machine</strong>
-(<code>--machine</code> type) and <strong>whether it also happens on real hardware</strong>. That last
-one is what tells an emulator defect apart from genuine Next behaviour, and a
-"not tested" is a perfectly good answer. Then: what happened and what you
-expected, and exact steps to reproduce, including the full command line if you
-used the CLI.</p>
-<p>A <strong>usage question</strong> is not an issue; the template configuration points those
-at the README, <code>USAGE.md</code> and <code>BUILD.md</code> instead.</p>
-<p>If your report includes a program that misbehaves, a <code>.nex</code>, <code>.tap</code> or <code>.sna</code>
-plus the command line that runs it is worth more than any description. Much of
-the regression suite is exactly that: a small program, a fixed frame count, and
-a screenshot.</p>
+repository itself. <code>TODO.md</code> is only a pointer to that page, and
+<code>doc/design/EMULATOR-DESIGN-PLAN.md</code> is a roadmap rather than a bug list, so
+neither is the place to look for what is currently broken.</p>
+<p>Blank issues are disabled. There are two templates, and both ask for the things
+that actually make triage possible.</p>
+<p>A <strong>bug report</strong> wants the jnext version, the platform and the package you
+installed (rpm, deb, Flatpak, Windows zip, <code>.dmg</code>, or built from source), and
+your OS version. Two further fields do most of the work: the <strong>emulated
+machine</strong> — the <code>--machine</code> type you were running — and <strong>whether the same
+thing happens on real hardware</strong>. That second one is what separates an emulator
+defect from genuine ZX Spectrum Next behaviour, which is a distinction nobody
+can make from a screenshot alone; "not tested" is a perfectly good answer to it.
+After that, the template asks what happened and what you expected instead, plus
+exact steps to reproduce, including the full command line if you were using the
+CLI.</p>
+<p>A <strong>usage question</strong> is not an issue, and the template configuration points
+those at the README, <code>USAGE.md</code> and <code>BUILD.md</code> instead.</p>
+<p>If your report involves a program that misbehaves, attach it. A <code>.nex</code>, <code>.tap</code>
+or <code>.sna</code> plus the command line that runs it is worth more than any prose
+description, because it can be run. Much of the regression suite is exactly
+that shape: a small program, a fixed frame count, and a screenshot.</p>
 <h2 id="pull-requests">Pull requests<a class="headerlink" href="#pull-requests" title="Permanent link">&para;</a></h2>
 <p><code>doc/PULL-REQUEST-PROTOCOL.md</code> is the authoritative gate, and enforcement is
 strict: <strong>a pull request that does not meet every applicable rule is not
-merged</strong> until it does. What follows is a summary; the protocol document is
-what a reviewer works from.</p>
-<p>Every pull request must satisfy the common requirements:</p>
+merged</strong> until it does. What follows is a summary to set expectations; the
+protocol document is what a reviewer actually works from.</p>
+<p>Every pull request, whatever it does, must satisfy the common requirements:</p>
 <ul>
 <li><strong>Tests included</strong> that exercise the change.</li>
 <li><strong>No existing tests modified.</strong> Changing or deleting an existing test needs
@@ -1765,33 +1836,39 @@ what a reviewer works from.</p>
 <li><strong>No new dependencies.</strong> A library, tool or submodule needs manual approval
   from the owner.</li>
 </ul>
-<p>Then one of two flows.</p>
-<p>A <strong>bugfix</strong> needs a bug description covering every field of the bug template —
-or a link to a bug issue, which serves as the justification instead. Its tests
-must be <strong>discriminative</strong>: they FAIL on the unfixed code and PASS with the fix
-applied, and the pull request must <em>demonstrate</em> that, for example by showing
-the test result against the pre-fix code. A test that passes with or without
-the fix does not qualify, however thorough it looks.</p>
-<p>A <strong>feature</strong> needs a functionality description with an <strong>explicit use case</strong> —
-a feature must solve a problem someone actually has — and a <strong>design document
-under <code>doc/</code></strong> following the existing naming and content conventions, covering
-the use case, the functionality and the design. Its tests are discriminative in
-the same sense: they FAIL without the feature and PASS with it, demonstrated.</p>
+<p>Beyond those, a pull request follows one of two flows depending on what it is.</p>
+<p>A <strong>bugfix</strong> needs a bug description covering every field of the bug template,
+or a link to a bug issue that already does, which then serves as the
+justification. Its tests must be <strong>discriminative</strong>: they FAIL on the unfixed
+code and PASS once the fix is applied, and the pull request has to
+<em>demonstrate</em> that — for instance by showing the test result against the
+pre-fix code. A test that passes with or without the fix does not qualify,
+however thorough it looks, because it cannot tell you whether the fix is the
+thing doing the work.</p>
+<p>A <strong>feature</strong> needs a functionality description with an <strong>explicit use case</strong>,
+on the principle that a feature should solve a problem someone actually has,
+and a <strong>design document under <code>doc/</code></strong> following the existing naming and content
+conventions, covering the use case, the functionality and the design. Its tests
+are discriminative in the same sense: they FAIL without the feature and PASS
+with it, demonstrated.</p>
 <h2 id="the-review-checklist-lives-in-the-pull-request">The review checklist lives in the pull request<a class="headerlink" href="#the-review-checklist-lives-in-the-pull-request" title="Permanent link">&para;</a></h2>
 <p>Every review records its result <strong>in the pull request description</strong>, as a
 checklist of the requirements above. The reviewer adds it on the first review
-and updates it on every subsequent one — an out-of-date checklist is worse than
-none. Only verified items are ticked; the unticked ones name exactly what is
-blocking the merge, in the contributor's own pull request, without anyone
-having to read a review thread. The template is in the protocol document.</p>
-<p>Two conventions about landing, both settled decisions:</p>
+and updates it on every subsequent one, since an out-of-date checklist is worse
+than no checklist at all. Only verified items are ticked, which means the
+unticked ones name exactly what is blocking the merge, in the contributor's own
+pull request, without anyone having to read back through a review thread. The
+template is in the protocol document.</p>
+<p>Two conventions about landing, both of them settled decisions rather than
+habits:</p>
 <ul>
 <li><strong>Author agreement is implied by submission.</strong> A pull request <em>is</em> a request
-  to merge, so once the review is green it is merged immediately; the
+  to merge, so once the review is green it is merged immediately and the
   contributor is never asked to confirm.</li>
 <li><strong>The merge commit is pushed before anything is closed.</strong> GitHub flips a
   still-open pull request to <em>merged</em> when the pushed merge reaches the base
-  branch. A hand-closed one shows "closed" — which reads as rejected — forever.</li>
+  branch. Close it by hand first and it shows "closed" instead — which reads as
+  rejected, permanently.</li>
 </ul>
 <p>The rest of the landing flow is in <a href="02-branches-worktrees-and-review.html">6.2</a>.</p>
 

@@ -51,6 +51,8 @@
       
     
     
+      <link rel="stylesheet" href="../css/theme.css">
+    
     <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
     
       
@@ -67,7 +69,7 @@
     
     
     
-    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo">
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
   
     
     <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
@@ -125,7 +127,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
     
       <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -135,7 +137,7 @@
     
     
     
-    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="indigo" data-md-color-accent="indigo"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
     
       <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
@@ -192,15 +194,48 @@
     
     
       <div class="md-header__source">
-        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
       </div>
     
   </nav>
@@ -240,15 +275,48 @@
   </label>
   
     <div class="md-nav__source">
-      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source" data-md-component="source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
   <div class="md-source__icon md-icon">
     
     <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
   </div>
   <div class="md-source__repository">
     GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
   </div>
 </a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
     </div>
   
   <ul class="md-nav__list" data-md-scrollfix>
@@ -1749,31 +1817,47 @@
 
 
 <h1 id="13-the-rules-that-shape-the-code">1.3 The rules that shape the code<a class="headerlink" href="#13-the-rules-that-shape-the-code" title="Permanent link">&para;</a></h1>
-<p>A handful of project-wide invariants are not visible from any single file, and
-each of them exists because the failure it prevents already happened and went
-unnoticed. Break one and a test run goes red for a reason that will look
-unrelated to your change.</p>
+<p>If you read one page of this guide before touching the code, make it this one.</p>
+<p>JNEXT holds a handful of project-wide invariants that are not visible from any
+single file. You cannot discover them by reading the function you are about to
+change, and each of them exists for the same reason: the failure it prevents
+already happened once, and nobody noticed at the time. The practical
+consequence is that breaking one of these rules rarely produces an error
+message about the rule. It produces a red test run somewhere else entirely,
+about something that looks unrelated to your change. Five minutes here saves
+that afternoon.</p>
 <h2 id="the-vhdl-is-the-specification">The VHDL is the specification<a class="headerlink" href="#the-vhdl-is-the-specification" title="Permanent link">&para;</a></h2>
-<p>The authoritative description of the hardware is the VHDL of the official
-ZX Spectrum Next FPGA core — the <code>cores/zxnext/src/</code> tree of the FPGA
-repository, checked out alongside this one. "Authoritative" is not a slogan;
-in practice it means three things.</p>
-<p><strong>Expected values come from the VHDL, never from the current code.</strong> A test
-written by reading <code>Layer2::render_scanline</code> proves only that the function
-still does what it did. <code>doc/testing/UNIT-TEST-PLAN-EXECUTION.md</code> is the
-process document for this and is mandatory reading before writing or
-rewriting a subsystem test plan.</p>
-<p><strong>Fixes are faithful, not convenient.</strong> When a defect could be closed either
-by a targeted hack or by transcribing what the VHDL does, the transcription
-wins even when it is more work. The comment blocks throughout the source that
-quote signal names and line numbers — <code>zxnext.vhd:7103</code>, <code>zxula_timing.vhd:577</code>
-— are the record of that, and they are how the next reader checks the claim.</p>
-<p><strong>Citations are machine-checked.</strong> <code>doc/testing/TRACEABILITY-MATRIX.md</code> is
-generated from those citations, and the generator validates every one against
-the real FPGA source tree. See <a href="../04-testing/04-traceability.html">4.4 Traceability</a>.</p>
+<p>The authoritative description of the hardware is not a manual or a wiki page.
+It is the VHDL source of the official ZX Spectrum Next FPGA core — the
+<code>cores/zxnext/src/</code> tree of the FPGA repository, which is expected to be
+checked out beside this one. When JNEXT and the documentation disagree about
+what the machine does, the VHDL decides.</p>
+<p>Calling it "authoritative" is not a slogan. In practice it means three specific
+things.</p>
+<p><strong>Expected values come from the VHDL, never from the current code.</strong> This is
+the rule most easily broken with good intentions. A test written by reading
+<code>Layer2::render_scanline</code> and asserting what it currently produces proves only
+that the function still does what it did yesterday — it will happily pin a bug
+in place and then defend it. The expected value has to come from the hardware
+description instead. <code>doc/testing/UNIT-TEST-PLAN-EXECUTION.md</code> is the process
+document for all of this, and it is mandatory reading before you write or
+rewrite a subsystem's test plan.</p>
+<p><strong>Fixes are faithful, not convenient.</strong> When a defect could be closed either by
+a targeted hack or by transcribing what the VHDL actually does, the
+transcription wins, even when it is the larger job. The comment blocks
+scattered through the source that quote signal names and line numbers —
+<code>zxnext.vhd:7103</code>, <code>zxula_timing.vhd:577</code> — are the record of those decisions,
+and they exist so the next reader can check the claim rather than take it on
+faith.</p>
+<p><strong>Citations are machine-checked.</strong> Those references are not decorative.
+<code>doc/testing/TRACEABILITY-MATRIX.md</code> is a generated table mapping plan row →
+test ID → VHDL citation → test location, and its generator validates every one
+of those citations against the real FPGA source tree, so a reference that has
+been typo'd or points at a file that no longer exists is caught rather than
+published. See <a href="../04-testing/04-traceability.html">4.4 Traceability</a>.</p>
 <h2 id="some-documents-are-generated-committed-and-gated">Some documents are generated, committed, and gated<a class="headerlink" href="#some-documents-are-generated-committed-and-gated" title="Permanent link">&para;</a></h2>
-<p>Four outputs in the repository are produced by a tool and then committed, so a
-fresh clone reads them with no toolchain installed:</p>
+<p>Four outputs in the repository are produced by a tool and then checked into git
+anyway, so that a fresh clone can read them with no toolchain installed at all:</p>
 <table>
 <thead>
 <tr>
@@ -1805,58 +1889,70 @@ fresh clone reads them with no toolchain installed:</p>
 </tr>
 </tbody>
 </table>
-<p>A committed output that no longer matches its source is a silent lie no
-reviewer can see, so <strong><code>make docs-check</code> is a prerequisite of both
-<code>make unit-test</code> and <code>make regression</code></strong>: a stale generated document fails the
-test run itself. Edit the source, re-render, and commit both halves in the
-same change. On a host without pandoc, mkdocs or graphviz the relevant part
-skips; in CI it hard-fails, because a check that skips silently reads as a
-pass.</p>
-<p>Know exactly what this proves. <code>docs-check</code> proves the outputs match
-<code>jnext.1.md</code>. It does <strong>not</strong> prove <code>jnext.1.md</code> describes the CLI the program
-parses — <code>make cli-check</code> does that, and only for the flag <em>set</em>: prose in the
-man page's narrative sections is checked by nobody. See
+<p>Committing a generated file has an obvious hazard: the copy in git can stop
+matching the source it came from, and a stale copy is a silent lie that no
+reviewer can see by reading the diff. So the project closes that hole
+mechanically — <strong><code>make docs-check</code> is a prerequisite of both <code>make unit-test</code>
+and <code>make regression</code></strong>, which means a stale generated document fails the test
+run itself rather than waiting to be noticed. What that asks of you is simple:
+edit the source, re-render, and commit both halves in the same change.</p>
+<p>On a machine without pandoc, mkdocs or graphviz the relevant part of the check
+skips rather than failing, so you can still work. In CI it hard-fails, because
+a check that quietly skips is indistinguishable from a check that passed.</p>
+<p>It is worth being precise about what this gate does and does not establish.
+<code>docs-check</code> proves the outputs match <code>jnext.1.md</code>. It does <strong>not</strong> prove that
+<code>jnext.1.md</code> describes the command line the program actually parses — that is
+<code>make cli-check</code>, and even then only for the flag <em>set</em>. The prose in the man
+page's narrative sections is checked by nobody at all. See
 <a href="../04-testing/05-documentation-and-cli-gates.html">4.5 The documentation and CLI gates</a>.</p>
 <h2 id="the-command-line-is-data-not-control-flow">The command line is data, not control flow<a class="headerlink" href="#the-command-line-is-data-not-control-flow" title="Permanent link">&para;</a></h2>
 <p><code>src/core/cli_options.h</code> holds every accepted flag as a <code>constexpr</code> table of
-<code>{ name, arity, doc-status, id }</code>. <code>src/main.cpp</code> dispatches from it with a
-<code>switch</code> over <code>cli::OptId</code> compiled with <code>-Werror=switch</code>, so a flag added to
-the table but never given a parser arm is a compile error rather than a flag
-that silently does nothing. <code>cli_options_test</code> diffs the table against the
-man page's OPTIONS section in both directions.</p>
-<p>Before the table, the flag set existed only as a 47-arm <code>if</code> chain. Nothing
-could enumerate it, so nothing could compare it to the documentation, and the
-documentation drifted twice with every gate green. Deliberate exceptions —
-there is exactly one, the undocumented <code>--sd-card</code> back-compat alias — are
-declared <strong>in the table</strong>, never hidden in a checker's exclusion list.</p>
+<code>{ name, arity, doc-status, id }</code>, and <code>src/main.cpp</code> dispatches from it with a
+<code>switch</code> over <code>cli::OptId</code> compiled with <code>-Werror=switch</code>. Adding a flag to the
+table and forgetting to write its parser arm is therefore a compile error, not
+a flag that exists and silently does nothing. Because the flag set is now a
+value the program can enumerate, <code>cli_options_test</code> can diff it against the man
+page's OPTIONS section in both directions at once — undocumented flags and
+documented-but-absent flags are both failures.</p>
+<p>The shape of that is a direct response to what came before it. The flag set
+used to exist only as a 47-arm <code>if</code> chain, which nothing could enumerate;
+because nothing could enumerate it, nothing could compare it to the
+documentation, and the documentation drifted twice while every gate stayed
+green. Deliberate exceptions live <strong>in the table</strong> — there is exactly one, the
+undocumented <code>--sd-card</code> back-compat alias — and never in a checker's exclusion
+list, because an exclusion list is invisible from the code it excuses.</p>
 <h2 id="test-suites-are-declared-and-a-missing-test-is-loud">Test suites are declared, and a missing test is loud<a class="headerlink" href="#test-suites-are-declared-and-a-missing-test-is-loud" title="Permanent link">&para;</a></h2>
-<p><code>test/unit-tests.conf</code> names every unit suite together with the <strong>exact</strong> row
-count it must report. <code>test/run-unit-tests.sh</code> refuses to run at all if that
-manifest and the suites CMake registered disagree in either direction, and
-fails if a suite reports any other count — including a lower one. The
-regression suite has the same contract in
-<code>test/00regression/regression_tests.conf</code> and <code>functional_tests.conf</code>, plus an
-independent witness: every checked-in reference PNG must have a conf entry, so
-truncating the file cannot silently shrink the suite.</p>
-<p>Adding or removing a test row therefore means editing a number in a manifest.
-That edit is the point: the number is the project's claim about how much it
-tests, and it is made deliberately. Three suites had vanished from the counts
-in a single day before this existed, each found by accident — a green result
-is only as trustworthy as its denominator. <a href="../04-testing/02-declared-suites-and-pinned-counts.html">4.2 Declared suites and pinned
-counts</a> has the detail.</p>
+<p><code>test/unit-tests.conf</code> names every unit suite together with the <strong>exact</strong> number
+of rows it must report. <code>test/run-unit-tests.sh</code> refuses to run at all if that
+manifest and the suites CMake registered disagree in either direction, and fails
+the run if a suite reports any other count — including a <em>lower</em> one, which is
+the case that matters. The regression suite carries the same contract in
+<code>test/00regression/regression_tests.conf</code> and <code>functional_tests.conf</code>, with one
+extra witness on top: every checked-in reference PNG must have an entry in the
+conf, so deleting lines from the conf cannot quietly shrink the suite.</p>
+<p>The practical effect is that adding or removing a test row means editing a
+number in a manifest, by hand. That is not friction to be engineered away — it
+is the mechanism. The number is the project's claim about how much it tests, so
+it should only ever change because someone decided to change it. Before this
+existed, three suites vanished from the counts in a single day and each was
+found by accident; a green result is only as trustworthy as its denominator.
+<a href="../04-testing/02-declared-suites-and-pinned-counts.html">4.2 Declared suites and pinned counts</a>
+has the detail.</p>
 <h2 id="the-core-does-not-know-about-the-frontend">The core does not know about the frontend<a class="headerlink" href="#the-core-does-not-know-about-the-frontend" title="Permanent link">&para;</a></h2>
-<p><code>Emulator</code> is constructible and runnable with no window, no audio device and
-no host input, which is what makes headless testing and the unit suites
-possible at all. Nothing under <code>src/core</code>, <code>src/cpu</code>, <code>src/memory</code>,
-<code>src/video</code>, <code>src/audio</code>, <code>src/port</code> or <code>src/peripheral</code> includes SDL or Qt.
-Where the core genuinely needs to notify a host — a joystick source changed, a
-rewind restored input state — it does so through a <code>std::function</code> whose
-signature carries no SDL or Qt type. Adding such an include is the one change
-in this list that no gate will catch; it will simply make the core
-unbuildable in some configuration months later.</p>
-<p>Build configurations and the <code>ENABLE_QT_UI</code> / <code>ENABLE_DEBUGGER</code> arms are in
-<a href="../05-building/02-build-configurations.html">5.2 Build configurations</a>; branch,
-worktree and review discipline is in
+<p><code>Emulator</code> can be constructed and run with no window, no audio device and no
+host input at all. That is what makes headless testing and the unit suites
+possible in the first place, and it is maintained by a simple rule: nothing
+under <code>src/core</code>, <code>src/cpu</code>, <code>src/memory</code>, <code>src/video</code>, <code>src/audio</code>, <code>src/port</code>
+or <code>src/peripheral</code> includes SDL or Qt. When the core genuinely does need to
+tell a host something — a joystick source changed, a rewind restored the input
+state — it goes through a <code>std::function</code> whose signature mentions no SDL or Qt
+type.</p>
+<p>This is the one rule in the list that no gate will catch. Adding such an
+include compiles perfectly well today; it just makes the core unbuildable in
+some configuration, on somebody else's machine, months from now.</p>
+<p>Build configurations and the <code>ENABLE_QT_UI</code> / <code>ENABLE_DEBUGGER</code> arms are
+covered in <a href="../05-building/02-build-configurations.html">5.2 Build configurations</a>;
+branch, worktree and review discipline is in
 <a href="../06-contributing/02-branches-worktrees-and-review.html">6.2 Branches, worktrees and review</a>.</p>
 
 
