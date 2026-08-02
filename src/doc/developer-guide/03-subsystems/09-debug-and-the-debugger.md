@@ -64,6 +64,7 @@ consults it once per instruction, before the fetch:
 | PC breakpoint | `BreakpointSet::add_pc` | `should_break(pc)` matches |
 | `INTO` | `step_into()` | loop pauses on the next iteration |
 | `OVER` | `step_over(next_pc)` | one-shot breakpoint at `next_pc` |
+| `OUT` | `step_out(sp)` | `check_step_out()` matches, after the instruction |
 | `RUN_TO_CYCLE` | `run_to_cycle()` | master clock reaches the target |
 | `STEP_BACK` / `RUN_BACK_TO_CYCLE` | `step_back()`, `run_back_to_cycle()` | handled before the loop starts, by rewinding |
 | watchpoint | `add_watchpoint` | `Mmu` latches `data_bp_hit`; checked after the instruction |
@@ -76,11 +77,44 @@ Run to Cursor is the same one-shot mechanism with a user-chosen address, and
 Run to End of Frame and End of Scanline are `run_to_cycle()` with a computed
 target.
 
-**`StepMode::OUT` is set by `step_out()` but the run loop never reads it, and
-`DebugState::check_step_out()` — the predicate that would detect the returning
-`RET`/`RETI`/`RETN` at the right stack depth — has no caller anywhere in the
-tree.** Step Out therefore resumes and stops only at a real breakpoint or a
-manual break. This is tracked as issue #203.
+Step Out is the one mode whose termination is decided *after* the instruction
+rather than before it. `step_out()` records SP at the moment F8 was pressed;
+`check_step_out()` is then called from the shared per-instruction body once per
+instruction and ends the step when three things hold together: the instruction
+popped exactly one return address (`sp_after == sp_before + 2`, which is what
+tells a taken `RET cc` from an untaken one), its opcode was a return form
+(`RET`, `RET cc`, `RETI`/`RETN` including the undocumented `ED` aliases), and
+the pop unwound the stack *strictly past* the armed SP. That last condition is
+what makes a nested call's own `RET` — and an interrupt handler's `RETI` —
+return *into* the routine being stepped out of rather than end the step.
+
+It is called from `step_one_instruction()`, not from `run_frame()`'s loop, so
+free-running and single-stepping cannot disagree about where a step out ends.
+That call did not exist at all until issue #203 was fixed: the mode was written
+and never read, and F8 had the observable behaviour of Run.
+
+Its position inside that body is load-bearing in both directions, and the
+reason is the general one for any debugger hook here — **it may only read
+memory the CPU itself read**. `Mmu::read()` is not inert: it fires read
+watchpoints and latches the +3 floating bus. Reading the opcode speculatively
+before the instruction runs is therefore unsafe, because `Z80Cpu::execute()`
+has *three* early returns that complete a step without ever fetching at `PC` —
+an accepted NMI, an accepted `INT`, and the esxdos shim. In those slots the
+debugger's read is the only touch of that address, and with a watchpoint on it
+the phantom hit ends the step at the interrupt vector instead of the routine's
+return.
+
+So the CPU is **asked** rather than deduced: `fetched_opcode_last_execute()`
+is false through all three early returns and true only once the fetch has
+happened, and the read is gated on it. Deducing it from `SP` movement does not
+work, and the reason is worth knowing before inventing a fourth shim: NMI and
+`INT` push, so they *do* move `SP` the wrong way and an arithmetic test catches
+them — but the esxdos shim deliberately fakes a return's own `+2`, and is
+indistinguishable from a real `RET` by arithmetic alone.
+
+The decision also sits *before* the deferred RETN overlay clear, because a
+`RETN` leaving a DivMMC-mapped routine unmaps it there, and a later read would
+see the underlying page rather than the `ED 45` the CPU fetched.
 
 Single-stepping goes through `Emulator::execute_single_instruction()`, which
 shares its per-instruction body verbatim with the free-running loop

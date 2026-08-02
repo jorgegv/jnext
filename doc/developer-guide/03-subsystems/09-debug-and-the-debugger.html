@@ -1915,6 +1915,11 @@ consults it once per instruction, before the fetch:</p>
 <td>one-shot breakpoint at <code>next_pc</code></td>
 </tr>
 <tr>
+<td><code>OUT</code></td>
+<td><code>step_out(sp)</code></td>
+<td><code>check_step_out()</code> matches, after the instruction</td>
+</tr>
+<tr>
 <td><code>RUN_TO_CYCLE</code></td>
 <td><code>run_to_cycle()</code></td>
 <td>master clock reaches the target</td>
@@ -1938,11 +1943,40 @@ disassembler whether the current instruction <code>is_call_like()</code> — <co
 Run to Cursor is the same one-shot mechanism with a user-chosen address, and
 Run to End of Frame and End of Scanline are <code>run_to_cycle()</code> with a computed
 target.</p>
-<p><strong><code>StepMode::OUT</code> is set by <code>step_out()</code> but the run loop never reads it, and
-<code>DebugState::check_step_out()</code> — the predicate that would detect the returning
-<code>RET</code>/<code>RETI</code>/<code>RETN</code> at the right stack depth — has no caller anywhere in the
-tree.</strong> Step Out therefore resumes and stops only at a real breakpoint or a
-manual break. This is tracked as issue #203.</p>
+<p>Step Out is the one mode whose termination is decided <em>after</em> the instruction
+rather than before it. <code>step_out()</code> records SP at the moment F8 was pressed;
+<code>check_step_out()</code> is then called from the shared per-instruction body once per
+instruction and ends the step when three things hold together: the instruction
+popped exactly one return address (<code>sp_after == sp_before + 2</code>, which is what
+tells a taken <code>RET cc</code> from an untaken one), its opcode was a return form
+(<code>RET</code>, <code>RET cc</code>, <code>RETI</code>/<code>RETN</code> including the undocumented <code>ED</code> aliases), and
+the pop unwound the stack <em>strictly past</em> the armed SP. That last condition is
+what makes a nested call's own <code>RET</code> — and an interrupt handler's <code>RETI</code> —
+return <em>into</em> the routine being stepped out of rather than end the step.</p>
+<p>It is called from <code>step_one_instruction()</code>, not from <code>run_frame()</code>'s loop, so
+free-running and single-stepping cannot disagree about where a step out ends.
+That call did not exist at all until issue #203 was fixed: the mode was written
+and never read, and F8 had the observable behaviour of Run.</p>
+<p>Its position inside that body is load-bearing in both directions, and the
+reason is the general one for any debugger hook here — <strong>it may only read
+memory the CPU itself read</strong>. <code>Mmu::read()</code> is not inert: it fires read
+watchpoints and latches the +3 floating bus. Reading the opcode speculatively
+before the instruction runs is therefore unsafe, because <code>Z80Cpu::execute()</code>
+has <em>three</em> early returns that complete a step without ever fetching at <code>PC</code> —
+an accepted NMI, an accepted <code>INT</code>, and the esxdos shim. In those slots the
+debugger's read is the only touch of that address, and with a watchpoint on it
+the phantom hit ends the step at the interrupt vector instead of the routine's
+return.</p>
+<p>So the CPU is <strong>asked</strong> rather than deduced: <code>fetched_opcode_last_execute()</code>
+is false through all three early returns and true only once the fetch has
+happened, and the read is gated on it. Deducing it from <code>SP</code> movement does not
+work, and the reason is worth knowing before inventing a fourth shim: NMI and
+<code>INT</code> push, so they <em>do</em> move <code>SP</code> the wrong way and an arithmetic test catches
+them — but the esxdos shim deliberately fakes a return's own <code>+2</code>, and is
+indistinguishable from a real <code>RET</code> by arithmetic alone.</p>
+<p>The decision also sits <em>before</em> the deferred RETN overlay clear, because a
+<code>RETN</code> leaving a DivMMC-mapped routine unmaps it there, and a later read would
+see the underlying page rather than the <code>ED 45</code> the CPU fetched.</p>
 <p>Single-stepping goes through <code>Emulator::execute_single_instruction()</code>, which
 shares its per-instruction body verbatim with the free-running loop
 (<code>step_one_instruction()</code>), specifically so that the two paths cannot drift.

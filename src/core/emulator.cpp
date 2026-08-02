@@ -7807,6 +7807,14 @@ uint64_t Emulator::step_one_instruction()
             call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2);
         }
 
+        // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
+        // sampled. The opcode bytes are read after execute() and only once the
+        // SP test has already passed — see the decision site below for why.
+        const bool step_out_armed =
+            debug_state_.active() && debug_state_.step_mode() == StepMode::OUT;
+        const uint16_t step_out_sp_before =
+            step_out_armed ? cpu_.registers().SP : 0;
+
         // Execute one CPU instruction; returns T-states consumed.
         // Memory contention is applied per-access via the
         // ContentionModel::contention_tick() runtime path installed by
@@ -7829,6 +7837,50 @@ uint64_t Emulator::step_one_instruction()
         const uint16_t pc_pre_exec = cpu_.pc();
         multiface_retn_pending_ = false;
         int tstates = cpu_.execute();
+
+        // GH #203 — Step Out decision. It sits HERE, between execute() and the
+        // RETN overlay clear below, and the order of the two halves matters as
+        // much as the position:
+        //
+        //  * NOTHING IS READ unless the CPU itself read it. execute() has
+        //    three early returns that complete a step without fetching the
+        //    opcode at PC — NMI, accepted INT, and the esxdos shim
+        //    (z80_cpu.cpp:639, :723, :813). Reading the opcode speculatively
+        //    BEFORE execute() tripped a READ watchpoint on a byte the CPU
+        //    never read in those slots, and the data-breakpoint branch in
+        //    run_frame() then ENDED the step in the wrong place — a wrong
+        //    stop, not the "keeps running" degradation this feature promises.
+        //    So the CPU is ASKED (fetched_opcode_last_execute()) rather than
+        //    having the answer inferred from SP arithmetic: the shim fakes a
+        //    return's own SP delta (`r.SP = sp + 2`, z80_cpu.cpp:807), so an
+        //    SP-shape test cannot see it. Both gaps came from the independent
+        //    review of GH #203, the second one after an SP-shape test had
+        //    already "fixed" the first — which is why the gate is now the
+        //    direct signal and closes the whole class, including any future
+        //    host-side shim wired into on_esxdos_call.
+        //
+        //  * BEFORE divmmc_.on_retn_instruction_complete(): a RETN leaving a
+        //    DivMMC-mapped routine — the esxdos idiom — clears the overlay
+        //    there, and a read taken after that point would see the underlying
+        //    page instead of the ED 45 the CPU actually fetched. No return
+        //    form writes a port or an NR, so the mapping here is still the one
+        //    the M1 fetch used.
+        //
+        // PC+1 is read only behind an 0xED prefix, which is the only case the
+        // CPU fetches a second M1 byte; reading it unconditionally would, for
+        // a one-byte instruction at 0x3FFF, leave p3_floating_bus_dat_ holding
+        // mem[0x4000] (mmu.h:393, VHDL zxnext.vhd:4498-4509).
+        if (step_out_armed && cpu_.fetched_opcode_last_execute() &&
+            debug_state_.step_out_sp_qualifies(step_out_sp_before,
+                                               cpu_.registers().SP)) {
+            const uint8_t op0 = mmu_.read(pc_pre_exec);
+            const uint8_t op1 = (op0 == 0xED)
+                ? mmu_.read(static_cast<uint16_t>(pc_pre_exec + 1)) : 0;
+            if (debug_state_.check_step_out(step_out_sp_before,
+                                            cpu_.registers().SP, op0, op1)) {
+                debug_state_.pause();
+            }
+        }
 
         // RETN overlay timing — on real hardware the RETN opcode has
         // already been fetched when i_retn_seen clears the mapping
@@ -7873,6 +7925,14 @@ uint64_t Emulator::step_one_instruction()
             const Z80Registers& post = cpu_.registers();
             call_stack_.on_instruction_post(post.SP, post.PC);
         }
+
+        // GH #203 — the Step Out decision was made just after cpu_.execute()
+        // above (it must precede the RETN overlay clear). Both this shared
+        // body's callers reach it, so run_frame()'s free-running loop and
+        // execute_single_instruction() cannot disagree about where a step out
+        // ends. pause() clears step_mode_ back to NONE, which consumes the
+        // step; run_frame()'s loop head sees paused() on its next iteration
+        // and returns, after this instruction's devices have been ticked.
 
         // Convert T-states to 28 MHz master cycles for the master-clock
         // advance and the CTC / UART / md6 / nmi device ticks below.

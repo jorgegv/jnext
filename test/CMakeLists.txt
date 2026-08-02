@@ -718,6 +718,17 @@ target_link_libraries(profiler_test PRIVATE
 target_include_directories(profiler_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME profiler_tests COMMAND profiler_test)
 
+# GH #203 — Step Out (F8): the check_step_out() predicate AND its wiring
+# into the shared per-instruction body. The wiring half drives a real
+# machine, so this links the emulator exactly as rewind_test does.
+add_executable(step_out_test debug/step_out_test.cpp)
+target_link_libraries(step_out_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(step_out_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME step_out_tests COMMAND step_out_test)
+
 # Task 60e — ResumeGuard: pure corruption-gate policy behind the debugger's
 # single confirm_resume_if_corrupt() choke point. Header-only, no Qt/libs.
 add_executable(resume_guard_test debug/resume_guard_test.cpp)

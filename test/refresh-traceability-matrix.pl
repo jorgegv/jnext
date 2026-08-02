@@ -987,6 +987,7 @@ my %NO_MATRIX_SECTION = (
     'window_attach_test'        => 'host window-attach geometry (GH #39 contract, no VHDL oracle)',
     'quit_cleanup_test'         => 'host shutdown ordering (GUI lifecycle)',
     'resume_guard_test'         => 'debugger resume-confirmation policy (jnext-internal)',
+    'step_out_test'             => 'debugger Step Out execution control (jnext-internal); the T80N core has no debugger',
     'debugger_video_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build)',
     'debugger_audio_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build)',
     'debugger_quit_gate_test'   => 'debugger quit gating (host GUI lifecycle)',
