@@ -1,7 +1,7 @@
 // DMA Subsystem Compliance Test Runner (Phase 2 per-row rewrite)
 //
 // Expected values are read from the ZXN FPGA VHDL sources at
-//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/device/dma.vhd
+//   cores/zxnext/src/device/dma.vhd
 // and cross-checked with the relevant wiring in zxnext.vhd.  The C++
 // implementation is never used as an oracle.
 //

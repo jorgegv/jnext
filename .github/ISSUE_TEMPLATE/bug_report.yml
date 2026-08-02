@@ -35,7 +35,7 @@ body:
     attributes:
       label: OS / version
       description: Operating system and version.
-      placeholder: e.g. Fedora 44, Windows 11, macOS 15
+      placeholder: e.g. Fedora, Debian, Windows, macOS — include the version
     validations:
       required: true
   - type: dropdown

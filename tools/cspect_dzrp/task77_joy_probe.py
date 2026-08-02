@@ -5,8 +5,11 @@ Question: with a USB pad connected, what joystick mode does CSpect run in,
 and does it model the VHDL's port-bit gating (bits 7:6 driven ONLY in MD
 mode, zeroed in Kempston — zxnext.vhd:3470-3494)?
 """
-import sys, time
-sys.path.insert(0, "/home/jorgegv/src/spectrum/jnext/tools/cspect_dzrp")
+import os, sys, time
+
+# Import cspect_dzrp from THIS script's directory, so the script works from
+# any clone or worktree (GH #204).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cspect_dzrp import CSpectDZRP
 
 MODES = {
