@@ -857,6 +857,20 @@ Project home page: <https://github.com/jorgegv/jnext>
 
 Report bugs at <https://github.com/jorgegv/jnext/issues>.
 
+# AUTHORS
+
+Main author: Jorge Gonzalez, aka ZXjogv <zx@jogv.es>.
+
+Code contributors: dcrespo3d, jon263.
+
+Testers and bug reporters: danboid, Duefectu, janko-jj, Utodev,
+WoolyChewbakker.
+
+If you are named here and would prefer not to be, or are not named and would
+like to be, say so at the issue tracker below. `CREDITS.md` in the source
+distribution carries the same list, plus the third-party libraries and the
+reference projects jnext is built and verified against.
+
 # COPYRIGHT
 
 Copyright (C) ZXjogv <zx@jogv.es>. Licensed under the GNU General Public
