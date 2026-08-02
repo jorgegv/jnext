@@ -20,10 +20,11 @@
 #      a half-synced file
 #   9. the Makefile bump-* recipes gate the commit/tag on sync-version.sh with
 #      `&&`, so a sync failure aborts the bump (never commits a broken state)
-#  10. mkdocs.yml's extra.doc_release — the "This version" shown in the user
-#      guide header — is updated too, so the guide always states the version it
-#      was built from. (The re-render that must accompany it is not exercised
-#      here: this fake root deliberately has no src/doc/user-guide, which is the
+#  10. extra.doc_release in BOTH mkdocs configs — the "This version" shown in
+#      the user guide header and in the developer guide header — is updated too,
+#      so each guide always states the version it was built from. (The re-render
+#      that must accompany it is not exercised here: this fake root deliberately
+#      has neither src/doc/user-guide nor src/doc/developer-guide, which is the
 #      state the script skips rendering in.)
 #
 set -u
@@ -52,6 +53,11 @@ cp "$repo/packaging/debian/changelog"                        "$tmp/packaging/deb
 # Copied (not synthesised) so a change to the real key's name or indentation
 # fails here rather than silently skipping the field on the next bump.
 cp "$repo/mkdocs.yml"                                        "$tmp/"
+# mkdocs-devguide.yml carries the SAME key for the developer guide (GH #44).
+# Copied for the same reason, and required for the same reason: sync-version.sh
+# aborts up front if either config is missing, so omitting this one here made
+# every assertion below fail at once the day the second guide landed.
+cp "$repo/mkdocs-devguide.yml"                               "$tmp/"
 
 # releases.yaml — the PUBLIC-release allowlist sync-version.sh gates the
 # AppStream <releases> edit on ($root/releases.yaml, sync-version.sh:77-88).
@@ -68,6 +74,7 @@ spec="$tmp/packaging/rpm/jnext.spec"
 metainfo="$tmp/packaging/assets/io.github.zxjogv.jnext.metainfo.xml"
 deb="$tmp/packaging/debian/changelog"
 mkdocs="$tmp/mkdocs.yml"
+mkdocs_dev="$tmp/mkdocs-devguide.yml"
 sync="$tmp/packaging/sync-version.sh"
 
 printf "${BOLD}=== sync-version.sh contract tests ===${RESET}\n\n"
@@ -89,6 +96,14 @@ if grep -qE '^  doc_release:[[:space:]]*v9\.9\.9$' "$mkdocs"; then
     ok "mkdocs.yml doc_release updated to v9.9.9 (guide header 'This version')"
 else
     bad "mkdocs.yml doc_release was not updated to v9.9.9 (got: $(grep -m1 -E '^  doc_release:' "$mkdocs" || echo '<no doc_release line>'))"
+fi
+# 10b — the DEVELOPER guide's header, same contract, separate assertion. Two
+# guides means two configs, and a bump that stamped only one would leave a
+# visitor reading a version the document is not.
+if grep -qE '^  doc_release:[[:space:]]*v9\.9\.9$' "$mkdocs_dev"; then
+    ok "mkdocs-devguide.yml doc_release updated to v9.9.9 (dev guide header 'This version')"
+else
+    bad "mkdocs-devguide.yml doc_release was not updated to v9.9.9 (got: $(grep -m1 -E '^  doc_release:' "$mkdocs_dev" || echo '<no doc_release line>'))"
 fi
 # spec Version: must equal the TOP %changelog version (rpmbuild consistency)
 specver=$(grep -m1 -E '^Version:' "$spec" | awk '{print $2}')
