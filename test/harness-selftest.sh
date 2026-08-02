@@ -536,7 +536,7 @@ check "HS-48" "worktree-bootstrap: a POPULATED submodule reports ok and reaches 
 # with a leak that only shows up as ~/.jnext/runs/ filling a disk — the exact silence
 # GH #153 was filed about.
 #
-# The row-count witness in regression.sh (`2 lint + 1 sdcard-provision + ...`) is a
+# The row-count witness in regression.sh (`3 lint + 1 sdcard-provision + ...`) is a
 # SECOND, independent check that catches the deletion too, but only via the total: it
 # says a row went missing, not which, and it cannot see the call surviving with its exit
 # status ignored. Both halves below close that.
@@ -556,10 +556,11 @@ run_preflight_lint() {   # run_preflight_lint <clean|dirty>
 
 # A clean fixture must reach the lint (its own "[lint-traps] scanned:" line is printed
 # by lint-traps.sh, so seeing it proves the script actually ran) and pass, giving the
-# preflight its documented 2 rows.
+# preflight its documented 3 rows (assertions, traps, hardcoded paths — GH #204 added
+# the third; this count is deliberately pinned, so adding a fourth fails here first).
 out=$(run_preflight_lint clean); rc=$?
 check "HS-49a" "the trap lint is reached from the regression preflight, as row 2 (GH #153)" 0 $rc \
-    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 2"
+    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 3"
 
 # The other arm: an offending fixture must turn that row red and fail the preflight.
 # Without it HS-49a would also pass on a call whose exit status was discarded.

@@ -217,7 +217,7 @@ echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip
 # --- Completeness: prove the suite ran everything it declares ---
 # A green result is only as trustworthy as its denominator. On a full run, every
 # declared functional test must have reported exactly one row, no undeclared row
-# may appear, and the grand total must equal 2 (preflight lints) +
+# may appear, and the grand total must equal 3 (preflight lints) +
 # 1 (sdcard-provision) + screenshots + functional. Anything else means a test
 # went missing, which is a harness fault, not a pass.
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
@@ -237,10 +237,10 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
         [[ -n "${IS_DECLARED_FUNC[$name]:-}" ]] \
             || faults+=("reported a row but is NOT declared in functional_tests.conf: ${BOLD}$name${RESET}")
     done
-    expected=$(( 2 + 1 + ${#ORDERED_TESTS[@]} + ${#DECLARED_FUNC[@]} ))
+    expected=$(( 3 + 1 + ${#ORDERED_TESTS[@]} + ${#DECLARED_FUNC[@]} ))
     actual=$(( pass + fail + skip ))
     [[ "$actual" -eq "$expected" ]] \
-        || faults+=("row count is ${BOLD}$actual${RESET}, but 2 lint + 1 sdcard-provision + ${#ORDERED_TESTS[@]} screenshot + ${#DECLARED_FUNC[@]} functional = ${BOLD}$expected${RESET} were declared")
+        || faults+=("row count is ${BOLD}$actual${RESET}, but 3 lint + 1 sdcard-provision + ${#ORDERED_TESTS[@]} screenshot + ${#DECLARED_FUNC[@]} functional = ${BOLD}$expected${RESET} were declared")
     if [[ ${#faults[@]} -gt 0 ]]; then
         harness_fault "${faults[@]}" "" \
             "The suite did not run what it says it ran. Treat this as RED, not as a pass."
