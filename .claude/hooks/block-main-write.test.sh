@@ -10,9 +10,10 @@ HOOK="$(dirname "$0")/block-main-write.sh"
 # The PRIMARY checkout (the one the test needs to be on `main`), derived
 # rather than hardcoded to one machine (GH #204). `--git-common-dir` is the
 # shared .git of the whole worktree set, so this resolves to the primary
-# checkout even when the test is run from a worktree; `$0`-relative would
-# resolve to the worktree itself, which is not on `main` and would make
-# every "write to main" case vacuously pass.
+# checkout even when the test is run from a worktree. `$0`-relative would
+# resolve to the WORKTREE, which is on a feature branch, so the hook would
+# correctly decline to block and all nine "must block" cases would FAIL —
+# measured: 8 pass, 9 fail. Loud, but a fault in the test, not in the hook.
 REPO="$(cd "$(git -C "$(dirname "$0")" rev-parse --path-format=absolute --git-common-dir)/.." && pwd)"
 WT="$(git -C "$REPO" worktree list --porcelain | awk '/^worktree /{print $2}' | sed -n 2p)"
 
