@@ -1,0 +1,129 @@
+site_name: JNEXT Developer Guide
+site_description: ZX Spectrum Next emulator — developer guide
+repo_url: https://github.com/jorgegv/jnext
+docs_dir: src/doc/developer-guide
+site_dir: doc/developer-guide
+
+# Same reason as the user guide (mkdocs.yml): this guide is committed and meant
+# to be opened straight off disk from a clone, and under file:// a directory
+# link lands on a directory listing or on nothing at all.
+use_directory_urls: false
+
+theme:
+  name: material
+  # Override partials/source.html so the top-right shows BOTH the release this
+  # guide was rendered from and the live current release — the same pair the
+  # user guide shows, from the same override. See that file.
+  custom_dir: src/doc/developer-guide-overrides
+  features:
+    - navigation.indexes
+    - toc.integrate
+    - content.code.copy
+  palette:
+    # `custom` is Material's documented hook for a palette it does not ship:
+    # it stamps data-md-color-primary="custom" on <body>, and css/theme.css
+    # defines the variables under that attribute. Setting the variables on
+    # :root alone does NOT work — Material's own
+    # [data-md-color-primary=indigo] rule is more specific and wins.
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-7
+        name: Switch to dark mode
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: custom
+      accent: custom
+      toggle:
+        icon: material/brightness-4
+        name: Switch to light mode
+
+# A muted pastel dark red, so a glance at the page says which of the two guides
+# you have open. Material ships no such preset; the file overrides its custom
+# properties directly. The figures use the same family.
+extra_css:
+  - css/theme.css
+
+nav:
+  - Home: index.md
+  - 1. Orientation:
+      - 01-orientation/index.md
+      - 1.1 What JNEXT is, in one page: 01-orientation/01-what-jnext-is.md
+      - 1.2 Repository layout: 01-orientation/02-repository-layout.md
+      - 1.3 The rules that shape the code: 01-orientation/03-the-rules-that-shape-the-code.md
+  - 2. Architecture:
+      - 02-architecture/index.md
+      - 2.1 Startup and the frontends: 02-architecture/01-startup-and-the-frontends.md
+      - 2.2 The emulator core: 02-architecture/02-the-emulator-core.md
+      - 2.3 A frame, end to end: 02-architecture/03-a-frame-end-to-end.md
+      - 2.4 The video pipeline: 02-architecture/04-the-video-pipeline.md
+      - 2.5 Save state, rewind and determinism: 02-architecture/05-save-state-and-rewind.md
+  - 3. Subsystems:
+      - 03-subsystems/index.md
+      - 3.1 CPU: 03-subsystems/01-cpu.md
+      - 3.2 Memory: 03-subsystems/02-memory.md
+      - 3.3 Video: 03-subsystems/03-video.md
+      - 3.4 Audio: 03-subsystems/04-audio.md
+      - 3.5 Ports and NextREG: 03-subsystems/05-ports-and-nextreg.md
+      - 3.6 Peripherals: 03-subsystems/06-peripherals.md
+      - 3.7 Input: 03-subsystems/07-input.md
+      - 3.8 Media and loaders: 03-subsystems/08-media-and-loaders.md
+      - 3.9 Debug and the debugger: 03-subsystems/09-debug-and-the-debugger.md
+  - 4. Testing:
+      - 04-testing/index.md
+      - 4.1 The test triplet: 04-testing/01-the-test-triplet.md
+      - 4.2 Declared suites and pinned counts: 04-testing/02-declared-suites-and-pinned-counts.md
+      - 4.3 The regression suite: 04-testing/03-the-regression-suite.md
+      - 4.4 Traceability: 04-testing/04-traceability.md
+      - 4.5 The documentation and CLI gates: 04-testing/05-documentation-and-cli-gates.md
+      - 4.6 The harness self-test: 04-testing/06-the-harness-selftest.md
+      - 4.7 Writing a new test: 04-testing/07-writing-a-new-test.md
+  - 5. Building and packaging:
+      - 05-building/index.md
+      - 5.1 Make targets: 05-building/01-make-targets.md
+      - 5.2 Build configurations: 05-building/02-build-configurations.md
+      - 5.3 Packaging and release: 05-building/03-packaging-and-release.md
+      - 5.4 Continuous integration: 05-building/04-continuous-integration.md
+  - 6. Contributing:
+      - 06-contributing/index.md
+      - 6.1 Issues and pull requests: 06-contributing/01-issues-and-pull-requests.md
+      - 6.2 Branches, worktrees and review: 06-contributing/02-branches-worktrees-and-review.md
+      - 6.3 House style: 06-contributing/03-house-style.md
+
+# Same posture as the user guide: `mkdocs build --strict` must fail on a page
+# missing from the nav and on a cross-reference that no longer resolves.
+validation:
+  nav:
+    omitted_files: warn
+    not_found: warn
+    absolute_links: warn
+  links:
+    not_found: warn
+    anchors: warn
+    absolute_links: warn
+    unrecognized_links: warn
+
+# The jnext version this guide was rendered from — shown top-right as "This
+# version", beside "Latest version", which the page fetches live from
+# version.yaml on GitHub main (src/doc/developer-guide-overrides/partials/source.html).
+#
+# DO NOT hand-edit: packaging/sync-version.sh rewrites this from version.yaml on
+# every `make bump-*` and re-renders the guide in the same step, exactly as it
+# does for mkdocs.yml. It is a committed literal because the value is baked into
+# every page at render time and docs-devguide-check byte-diffs a fresh render —
+# so config and rendered output must move together.
+extra:
+  doc_release: v0.99.110
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+
+# Working documents, not pages.
+exclude_docs: |
+  TOC.md
+  diagrams/

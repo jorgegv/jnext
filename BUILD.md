@@ -40,13 +40,17 @@ Optional:
 - **z88dk** — only to rebuild the demo programs in `demo/`.
 - **pandoc** — only to regenerate the man page and `USAGE.md` (`make docs-man`).
   See [Documentation](#documentation) below.
-- **mkdocs-material** — only to render the user guide (`make docs-userguide`).
+- **mkdocs-material** — only to render the user and developer guides
+  (`make docs-userguide`, `make docs-devguide`).
+  See [Documentation](#documentation) below.
+- **graphviz** — only to render the developer guide's diagrams
+  (`make docs-devguide-diagrams`, which `make docs-devguide` runs for you).
   See [Documentation](#documentation) below.
 
-None of the optional tools are needed to build jnext. In particular the two
-documentation tools are never invoked by a code build: the generated man page
-and `USAGE.md` are committed, so a source-only build ships complete docs on a
-machine that has neither.
+None of the optional tools are needed to build jnext. In particular the three
+documentation tools are never invoked by a code build: the generated man page,
+`USAGE.md`, both rendered guides and the guides' figures are all committed, so
+a source-only build ships complete docs on a machine that has none of them.
 
 ## Build
 
@@ -154,9 +158,33 @@ both the man page and `USAGE.md`, so the two cannot drift apart:
 
 ```sh
 make docs-man       # regenerate doc/man/jnext.1 and USAGE.md   (needs pandoc)
-make docs-check     # fail if either committed output is stale
+make docs-check     # fail if ANY committed generated document is stale
 make docs-userguide # render src/doc/user-guide -> doc/user-guide  (needs mkdocs)
-make read-userguide # serve the rendered guide on localhost for reading
+make read-userguide # serve the rendered user guide on localhost for reading
+make docs-devguide  # render src/doc/developer-guide -> doc/developer-guide
+make read-devguide  # serve the rendered developer guide on localhost
+```
+
+There are **two** rendered guides, built the same way and both committed. The
+user guide is task-oriented and ships inside the binary packages; the
+[developer guide](doc/developer-guide/index.html) describes how JNEXT is put
+together — architecture, subsystems, the test system, the contribution process —
+and is meant to be read from a clone, so it is not installed by the packages.
+
+The developer guide has one extra generated stage: its figures. The diagram
+sources are Graphviz `.dot` files under `src/doc/developer-guide/diagrams/`,
+rendered by `make docs-devguide-diagrams` (which `make docs-devguide` runs for
+you) into **committed** SVGs under `src/doc/developer-guide/img/`. Both those
+SVGs and the rendered site are byte-diffed by `docs-devguide-check`, so editing
+an SVG by hand fails the gate exactly as editing the man page would — edit the
+`.dot`, re-render, commit both.
+
+`make docs-devguide` therefore needs graphviz as well as mkdocs:
+
+```sh
+sudo dnf install graphviz        # Fedora / RHEL
+sudo apt install graphviz        # Debian / Ubuntu
+brew install graphviz            # macOS
 ```
 
 Never edit `doc/man/jnext.1` or `USAGE.md` by hand — edit the source and rerun

@@ -25,6 +25,10 @@
 #                                       The version is baked into EVERY page at
 #                                       render time, so the guide is re-rendered
 #                                       here too and a bump touches all of it.
+#   - mkdocs-devguide.yml               the same field, for the DEVELOPER guide
+#                                       (GH #44). Same header, same contract,
+#                                       same re-render. Two guides, so two
+#                                       configs to keep in step.
 #
 # The flatpak manifest is NOT listed: it builds from the local checkout
 # (`type: git` + `path`), carrying no `tag: vX.Y.Z` to keep in sync.
@@ -41,19 +45,21 @@ spec="$root/packaging/rpm/jnext.spec"
 metainfo="$root/packaging/assets/io.github.zxjogv.jnext.metainfo.xml"
 debchangelog="$root/packaging/debian/changelog"
 mkdocs="$root/mkdocs.yml"
+mkdocs_dev="$root/mkdocs-devguide.yml"
 
 # Fail loud up front if any target file or the anchor an edit depends on is
 # missing. Without this, e.g. a spec with no `%changelog` line would get its
 # `Version:` rewritten but not its changelog — a silently inconsistent file
 # (rpmbuild warns/errors when the top %changelog version != Version:). Better
 # to abort the whole bump than to commit a half-synced tree.
-for f in "$spec" "$metainfo" "$debchangelog" "$mkdocs"; do
+for f in "$spec" "$metainfo" "$debchangelog" "$mkdocs" "$mkdocs_dev"; do
     [ -f "$f" ] || { echo "sync-version: missing file: $f" >&2; exit 1; }
 done
 grep -qE '^Version:'                              "$spec"     || { echo "sync-version: no 'Version:' line in $spec" >&2; exit 1; }
 grep -qE '^%changelog$'                           "$spec"     || { echo "sync-version: no '%changelog' line in $spec" >&2; exit 1; }
 grep -qE '<releases>'                             "$metainfo" || { echo "sync-version: no '<releases>' element in $metainfo" >&2; exit 1; }
 grep -qE '^  doc_release:'                        "$mkdocs"   || { echo "sync-version: no 'doc_release:' line in $mkdocs" >&2; exit 1; }
+grep -qE '^  doc_release:'                    "$mkdocs_dev"   || { echo "sync-version: no 'doc_release:' line in $mkdocs_dev" >&2; exit 1; }
 
 maint="ZXjogv <zx@jogv.es>"
 d_iso=$(date +%F)              # 2026-07-16
@@ -115,6 +121,7 @@ fi
 # docs gate. Refuse the bump rather than commit that — same discipline as the
 # half-synced-spec case above.
 sed -i -E "s/^(  doc_release:[[:space:]]*).*/\1v$ver/" "$mkdocs"
+sed -i -E "s/^(  doc_release:[[:space:]]*).*/\1v$ver/" "$mkdocs_dev"
 # Re-render only where there is a guide to render. The contract test drives this
 # script against a synthetic root holding just the packaging files, so absent
 # sources are a legitimate state — but a tree that HAS the sources and no mkdocs
@@ -131,4 +138,20 @@ if [ -d "$root/src/doc/user-guide" ]; then
     fi
 fi
 
-echo "sync-version: aligned $ver into spec, metainfo, debian changelog, user guide"
+# --- developer guide: the same, one document over (GH #44) -------------------
+# It additionally needs graphviz, because make docs-devguide renders the .dot
+# figures before mkdocs runs. Missing either tool is the same fault as above:
+# the config would claim v$ver beside a committed render that does not.
+if [ -d "$root/src/doc/developer-guide" ]; then
+    if command -v mkdocs >/dev/null 2>&1 && command -v dot >/dev/null 2>&1; then
+        make -C "$root" --no-print-directory docs-devguide >/dev/null
+    else
+        echo "sync-version: mkdocs or graphviz not installed — cannot re-render the" >&2
+        echo "  developer guide, and mkdocs-devguide.yml now says v$ver while the" >&2
+        echo "  committed guide says otherwise. Install both, or revert" >&2
+        echo "  mkdocs-devguide.yml, before bumping." >&2
+        exit 1
+    fi
+fi
+
+echo "sync-version: aligned $ver into spec, metainfo, debian changelog, user guide, developer guide"

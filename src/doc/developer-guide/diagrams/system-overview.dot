@@ -1,0 +1,71 @@
+// JNEXT system overview — the three tiers and what crosses between them.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/system-overview.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// Palette note: a muted pastel dark red, the same family as the page theme
+// (src/doc/developer-guide/css/theme.css) and deliberately not the user
+// guide's blue. Every fill is light and every label is dark, so the figure
+// reads on both the light and the dark theme. The canvas is transparent for
+// the same reason. Do not introduce a light-on-dark node.
+//
+// Routing note: splines=ortho, so every connector is horizontal or vertical.
+// Ortho cannot place edge labels — graphviz warns and ignores `label` on an
+// edge — hence `xlabel` throughout. xlabels float, so this layout is kept
+// deliberately shallow and its label count deliberately low: an earlier
+// version with back-edges and five labels dropped text on top of the cluster
+// borders.
+digraph system_overview {
+    bgcolor="transparent";
+    rankdir=TB;
+    splines=ortho;
+    fontname="Helvetica";
+    ranksep=0.7;
+    nodesep=0.6;
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=11,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.16,0.09"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5c4247"];
+
+    main [label="src/main.cpp\nargument table + frontend selection", fillcolor="#ecdfe0"];
+
+    subgraph cluster_host {
+        label="Host — the only tier that may include SDL or Qt";
+        fontname="Helvetica"; fontsize=11; fontcolor="#5c4247";
+        color="#d3bdc0"; style="rounded";
+
+        qt   [label="Qt GUI frontend\nsrc/gui", fillcolor="#f3e3e6"];
+        sdl  [label="SDL frontend\nsrc/platform", fillcolor="#f3e3e6"];
+        head [label="headless\nno window, no audio", fillcolor="#f3e3e6"];
+        dbg  [label="Debugger UI\nsrc/debugger\nENABLE_DEBUGGER", fillcolor="#f3e3e6"];
+    }
+
+    subgraph cluster_core {
+        label="Emulator core — pure C++17, no platform headers";
+        fontname="Helvetica"; fontsize=11; fontcolor="#5c4247";
+        color="#d3bdc0"; style="rounded";
+
+        emu [label="Emulator\nsrc/core/emulator.{h,cpp}\nowns every subsystem, runs one frame per call",
+             fillcolor="#e9d3d6"];
+        subs [label="subsystems\nCPU · memory · video · audio · ports and NextREG\nperipherals · input · debug backend"];
+
+        emu -> subs [arrowhead=none, color="#b09296"];
+    }
+
+    spec [label="ZX Spectrum Next FPGA core (VHDL)\nthe authoritative specification",
+          shape=note, fillcolor="#f5dfe2"];
+
+    // main picks exactly one frontend; the debugger UI rides on the Qt one.
+    main -> qt;
+    main -> sdl;
+    main -> head;
+    qt   -> dbg [style=dashed, arrowhead=none];
+
+    // All three frontends drive the core the same way — call run_frame(), then
+    // read the framebuffer back — so one labelled edge says it for all of them.
+    qt   -> emu [xlabel="run one frame,\nthen read the framebuffer  "];
+    sdl  -> emu;
+    head -> emu;
+
+    spec -> emu [style=dashed, color="#a05560", fontcolor="#a05560",
+                 xlabel="derived from,\ncited line by line  "];
+}

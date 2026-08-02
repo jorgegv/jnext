@@ -238,6 +238,33 @@ page. If you edit a guide source, re-render and commit it in the same change —
 otherwise the next test run fails. On a host without mkdocs the check skips; in
 CI it hard-fails.
 
+**The DEVELOPER guide works the same way, with one extra generated stage**
+(GH #44). Source: `src/doc/developer-guide` + `mkdocs-devguide.yml`. Render:
+`make docs-devguide`. Committed output: `doc/developer-guide`. Gate:
+`docs-devguide-check`, the third part of `docs-check`, so it too runs on every
+`make unit-test` and `make regression`. The extra stage is the **figures**: the
+diagram sources are Graphviz `.dot` files under
+`src/doc/developer-guide/diagrams/`, rendered by `make docs-devguide-diagrams`
+into **committed** SVGs under `src/doc/developer-guide/img/`. Both the SVGs and
+the rendered site are byte-diffed, so hand-editing an SVG fails the gate exactly
+as hand-editing the man page would — edit the `.dot`, re-render, commit both.
+`make read-devguide` serves it locally.
+
+Graphviz, not Mermaid, and the reason is the same one that makes the guide
+committed at all: mkdocs-material's Mermaid integration fetches
+`mermaid.min.js` from unpkg.com at page load, so diagrams would be blank for
+exactly the offline reader the committed render exists for. Self-hosting means
+vendoring a 3.5 MB blob; pre-rendering Mermaid means a Node + headless-Chromium
+dependency. `dot` is a small packaged offline tool of the same class as pandoc
+and mkdocs. It is installed in CI alongside them.
+
+**When you change a subsystem, check whether the developer guide still
+describes it correctly.** That guide is a description of the current system, not
+a roadmap — a stale paragraph in it is the same class of defect as a stale man
+page, with the difference that no gate can detect it. `doc/design/EMULATOR-DESIGN-PLAN.md`
+stays the roadmap and is explicitly NOT a source for it: writing the user guide
+proved that plan wrong about the debugger in five separate ways.
+
 ### The test manifests — a missing test is a LOUD FAILURE, never a silent skip
 
 The suites are **declared**, and the harness proves it ran exactly what was declared.

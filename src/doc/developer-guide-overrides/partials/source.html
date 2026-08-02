@@ -1,0 +1,89 @@
+{#-
+  Override of Material's partials/source.html for the DEVELOPER guide.
+
+  Deliberately identical to the one the user guide carries
+  (src/doc/user-guide-overrides/partials/source.html): the two headers answer
+  the same question and must answer it the same way. Keep them in step — a
+  change to one almost certainly belongs in the other. Where the comment below
+  says `mkdocs.yml`, this copy means `mkdocs-devguide.yml`;
+  packaging/sync-version.sh stamps and re-renders both.
+
+  Original rationale (GH #nit, 2026-07-23) follows.
+
+  Material's stock source block carries data-md-component="source", which its
+  bundle.js reads to fetch api.github.com/.../releases/latest and show the
+  latest release top-right. That value is cached in localStorage and went
+  visibly stale. We drop that attribute so Material's cached fetch never runs,
+  and show TWO facts instead:
+
+    * "This version <X>"   — the jnext version THIS COPY of the guide was
+                     rendered from. Static, from config.extra.doc_release in
+                     mkdocs.yml, which packaging/sync-version.sh rewrites from
+                     version.yaml on every bump (re-rendering the guide in the
+                     same step). Baked at render time, so it is correct offline
+                     — the guide ships inside the packages. Deterministic:
+                     docs-check re-renders and byte-diffs, so nothing here may
+                     depend on wall-clock or network.
+    * "Latest version <Y>" — version.yaml on GitHub main, fetched live. NOT the
+                     latest GitHub *release*: the point of the pair is "is the
+                     guide I am looking at current?", and a release tag would
+                     answer a different question (this guide is deployed from
+                     main, and main runs ahead of the last public release).
+                     Fails silently offline, leaving the em dash.
+
+  The fetch must never serve a stale answer, so it defeats caching twice:
+  cache: 'no-store' covers the browser, and a timestamp query parameter defeats
+  the CDN in front of raw.githubusercontent.com, which 'no-store' cannot reach.
+  Deliberately NO custom Cache-Control request header — that would make this a
+  non-simple cross-origin request and force a preflight the raw host need not
+  answer, trading a stale value for no value at all.
+
+  The two stack one per line. Material lays its facts out as a flex ROW with an
+  ellipsis, which put both on one line and truncated the first to "docs v0.99…"
+  — unreadable, and the two were easy to mistake for one another. The inline
+  <style> below is scoped to .jnext-facts so it cannot alter anything else, and
+  it also drops Material's .md-source__fact:before marker: that is a masked
+  icon square, and our facts set no mask, so it painted as a solid block.
+-#}
+<a href="{{ config.repo_url }}" title="{{ lang.t('source') }}" class="md-source">
+  <div class="md-source__icon md-icon">
+    {% set icon = config.theme.icon.repo or "fontawesome/brands/git-alt" %}
+    {% include ".icons/" ~ icon ~ ".svg" %}
+  </div>
+  <div class="md-source__repository">
+    {{ config.repo_name }}
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: {{ config.extra.doc_release }}</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "{{ config.repo_url | replace('https://github.com/', 'https://raw.githubusercontent.com/') }}/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>

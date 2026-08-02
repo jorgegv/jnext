@@ -1,0 +1,75 @@
+// How pixels reach the framebuffer: sources, the per-scanline replay that
+// re-establishes their register state, and the compositor.
+//
+// Rendered by `make docs-devguide-diagrams` into ../img/video-pipeline.svg,
+// which is COMMITTED. Edit this file, never the SVG.
+//
+// The point of the figure is the middle column. JNEXT renders a scanline at a
+// time, but the registers that control a layer can change WITHIN a frame — a
+// Copper MOVE or a mid-frame CPU write. Each source therefore records its
+// changes against the row they landed in, and the renderer replays that log
+// immediately before rendering the row. Without that column the picture would
+// be "whatever the registers said at the end of the frame", and every raster
+// split in the demo corpus would collapse.
+//
+// LoRes is drawn where it is on purpose: it is NOT a fourth layer, it
+// substitutes the pixel the ULA would have emitted in that slot.
+//
+// Palette note: the page theme's pastel dark red family (see css/theme.css).
+// Light fills, dark labels, transparent canvas, so the figure reads on both
+// the light and the dark theme.
+digraph video_pipeline {
+    bgcolor="transparent";
+    // Top-to-bottom on purpose: left-to-right made this figure ~2200 px wide,
+    // which forces a horizontal scroll on a documentation page.
+    rankdir=TB;
+    splines=ortho;
+    fontname="Helvetica";
+    node [shape=box, style="filled,rounded", fontname="Helvetica", fontsize=10,
+          fillcolor="#f7eef0", color="#8c6b70", fontcolor="#2e1c1f", margin="0.15,0.08"];
+    edge [color="#8c6b70", fontname="Helvetica", fontsize=9, fontcolor="#5c4247"];
+
+    subgraph cluster_src {
+        label="pixel sources — one scanline each"; fontname="Helvetica"; fontsize=10;
+        fontcolor="#5c4247"; color="#d3bdc0"; style="rounded";
+        ula [label="Ula\npixels, attributes, border,\nTimex modes, floating bus"];
+        lor [label="Lores\nsubstitutes the ULA slot pixel,\nnot a separate layer", fillcolor="#f2e9ea"];
+        l2  [label="Layer2\n256x192 / 320x256 / 640x256"];
+        tm  [label="Tilemap\n40x32 or 80x32"];
+        spr [label="SpriteEngine\nup to 128, scaled, rotated"];
+    }
+
+    subgraph cluster_state {
+        label="per-scanline state"; fontname="Helvetica"; fontsize=10;
+        fontcolor="#5c4247"; color="#d3bdc0"; style="rounded";
+        log [label="change logs\nevery register write is tagged with the\nframebuffer row it landed in",
+             fillcolor="#e9d3d6"];
+        rep [label="replay\napplied immediately before the row\nis rendered", fillcolor="#e9d3d6"];
+        log -> rep [xlabel="  per row"];
+    }
+
+    cop [label="Copper\nWAIT / MOVE against the raster", fillcolor="#f5dfe2"];
+    cpu [label="CPU NextREG writes", fillcolor="#f5dfe2"];
+    pal [label="PaletteManager\nULA / Layer 2 / sprite / tilemap banks"];
+
+    comp [label="Renderer — compositor\nNR 0x15 priority order, transparency,\nclip windows, blend/stencil,\nNR 0x4A fallback colour", fillcolor="#ecdfe0"];
+    fb   [label="framebuffer\n640 x 256 ARGB8888", fillcolor="#f3e3e6"];
+    host [label="frontend\nQt widget / SDL texture / PNG", fillcolor="#f3e3e6"];
+
+    cop -> log;
+    cpu -> log;
+    rep -> ula  [style=dashed, arrowhead=vee];
+    rep -> l2   [style=dashed, arrowhead=vee];
+    rep -> tm   [style=dashed, arrowhead=vee];
+    rep -> spr  [style=dashed, arrowhead=vee];
+    rep -> pal  [style=dashed, arrowhead=vee];
+
+    ula -> comp;
+    lor -> ula  [xlabel="  substitutes the\n  ULA slot pixel", style=dotted, arrowhead=vee];
+    l2  -> comp;
+    tm  -> comp;
+    spr -> comp;
+    pal -> comp [xlabel="  palette index to ARGB", style=dashed];
+
+    comp -> fb -> host;
+}
