@@ -34,7 +34,7 @@ The non-obvious part is **which counters** it compares against.
 `Copper::execute(hc, vc, …)` takes the VHDL `hc_ula` / `cvc` pair, where `hc` is
 the 7 MHz ULA pixel counter, zeroed 11 pixels before the active display — it is
 **not** the 28 MHz master-cycle offset into the line, and **not** anchored at the
-raw line start. jnext passed the raw 28 MHz offset for a long time, which put
+raw line start. jnext passed the raw 28 MHz offset, which put
 every `WAIT` four times too early and one row off (GH #181). `WAIT` also
 compares `hc >= (hpos<<3)+12` in wrapping 9-bit arithmetic, so `hpos=63` yields
 4, not 516.

@@ -96,7 +96,7 @@ serialised, because it is empty at that instant.
 **This is also why every serialised field must be constant-width.**
 `take_snapshot()` refuses to publish a slot whose `save_state` did not write
 exactly `snapshot_bytes`. That refusal is the correct behaviour, but it was
-silent for a long time, and the consequence was ugly: three fields were being
+silent, and the consequence was ugly: three fields were being
 written count-prefixed and variable-length, so a single `OUT (0xFF),A` or one
 byte arriving on the UART widened the stream, and from that point on every
 snapshot was quietly discarded — rewind simply stopped recording, with no

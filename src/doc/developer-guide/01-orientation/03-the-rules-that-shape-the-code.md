@@ -129,7 +129,7 @@ type.
 
 This is the one rule in the list that no gate will catch. Adding such an
 include compiles perfectly well today; it just makes the core unbuildable in
-some configuration, on somebody else's machine, months from now.
+some configuration, on somebody else's machine, long after you wrote it.
 
 Build configurations and the `ENABLE_QT_UI` / `ENABLE_DEBUGGER` arms are
 covered in [5.2 Build configurations](../05-building/02-build-configurations.md);

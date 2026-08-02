@@ -1918,7 +1918,7 @@ Programming it is via NextREG <code>0x60</code>-<code>0x64</code>; there is no C
 <code>Copper::execute(hc, vc, …)</code> takes the VHDL <code>hc_ula</code> / <code>cvc</code> pair, where <code>hc</code> is
 the 7 MHz ULA pixel counter, zeroed 11 pixels before the active display — it is
 <strong>not</strong> the 28 MHz master-cycle offset into the line, and <strong>not</strong> anchored at the
-raw line start. jnext passed the raw 28 MHz offset for a long time, which put
+raw line start. jnext passed the raw 28 MHz offset, which put
 every <code>WAIT</code> four times too early and one row off (GH #181). <code>WAIT</code> also
 compares <code>hc &gt;= (hpos&lt;&lt;3)+12</code> in wrapping 9-bit arithmetic, so <code>hpos=63</code> yields
 4, not 516.</p>

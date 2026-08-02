@@ -6,9 +6,9 @@ do not know about them.
 
 It is written for two readers. The first is a new contributor who wants to fix
 a bug or add a feature, and needs to find the right file without reading a
-hundred thousand lines to get there. The second is the maintainer coming back
-to a subsystem after six months, who needs the shape of it back in their head
-before touching it.
+hundred thousand lines to get there. The second is the maintainer returning to
+a subsystem after enough time away that its shape has to be rebuilt in their
+head before it can safely be touched.
 
 ## Why the project looks the way it does
 
@@ -78,12 +78,12 @@ right. This guide explains the *mechanism* that keeps it right; it does not
 restate the flags.
 
 And it is not a roadmap. That is `doc/design/EMULATOR-DESIGN-PLAN.md`, which
-records what was intended and in what order, much of it years ago. **The design
-plan is a plan; this guide is a description.** Where the two disagree, the code
+records what was intended and in what order. **The design plan is a plan; this
+guide is a description.** Where the two disagree, the code
 is right — and they do disagree: the plan still describes a `DebuggerInterface`
 class that does not exist, a `render_scanline(vc)` call inside the scanline
 loop that is not how frames are composited, and a Pentagon machine type that
-was removed in 2026-05.
+no longer exists.
 
 Every claim on the following pages was checked against the source. If you find
 one that no longer holds, that is a defect in this guide — and it is the one

@@ -104,7 +104,7 @@ All three of these happened within a single day, and all three were found by
 accident rather than by any check:
 
 - **Task 32** — `cpu_int_pulse_test` and `cpu_z80n_im2_regressions_test` had
-  been compiled and registered with `add_test()` for months, but were absent
+  been compiled and registered with `add_test()` all along, but were absent
   from the hand-kept list that then lived inside the Makefile, so they had
   **never run**. That was 63 passing assertions nobody was counting.
 - **Task 35** — `make clean` deleted `build/test/rewind_test`, and the suite

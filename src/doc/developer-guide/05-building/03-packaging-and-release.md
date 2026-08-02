@@ -28,9 +28,9 @@ anyone tries to build from it; `package-src` instead runs
 each package: it then looks inside and checks what is there — that the rpm and
 deb carry `bin/jnext`, that the source zip carries the vendored submodule, that
 the Windows zip carries its DLLs and its platform plugin, and that `jnext.exe`
-is a GUI-subsystem binary with no stray console window attached. For a long time
-nothing actually invoked it, which is how a permanently-failing packaging row
-managed to survive 46 tags unnoticed. It now runs as its own parallel CI job,
+is a GUI-subsystem binary with no stray console window attached. Nothing
+actually invoked it, which is how a permanently-failing packaging row managed to
+survive 46 tags unnoticed. It now runs as its own parallel CI job,
 and its hermetic half, `package-contract-test`, is a prerequisite of
 `make unit-test`.
 

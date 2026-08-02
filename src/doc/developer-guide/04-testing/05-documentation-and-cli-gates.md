@@ -59,7 +59,7 @@ It proves that the generated outputs match `jnext.1.md`. **It proves nothing
 about whether `jnext.1.md` describes the CLI that `src/main.cpp` actually
 parses.**
 
-For a long time that seam was held together by developer diligence alone, and
+That seam was held together by developer diligence alone, and
 it failed twice with every gate green. The first time, five flags were entirely
 undocumented. The second time, a released man page confidently described a
 wrong scale range, two GUI menus that do not exist, and a status-bar indicator
