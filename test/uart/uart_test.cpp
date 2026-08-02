@@ -3,7 +3,7 @@
 // Full rewrite (Task 1 Wave 2, 2026-04-15) against
 // doc/testing/UART-I2C-TEST-PLAN-DESIGN.md. Every assertion cites a VHDL
 // file and line range from the authoritative FPGA source at
-//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+//   cores/zxnext/src/
 // (external to this repo — cited here for provenance, not edited).
 //
 // Ground rules (per doc/testing/UNIT-TEST-PLAN-EXECUTION.md):

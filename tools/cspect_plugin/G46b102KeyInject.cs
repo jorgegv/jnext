@@ -29,16 +29,16 @@
 //   G46B102_KEYINJECT_SPAMEND   — last frame of the space-mash blanket (default 4200)
 //   G46B102_KEYINJECT_SPAMSTRIDE— blanket stride in frames (default 100)
 //
-// Build:
+// Build (CSPECT_DIR = your CSpect installation directory):
 //   cd tools/cspect_plugin
 //   mcs -target:library \
-//     -r:/home/jorgegv/src/spectrum/CSpect3_1_0_0/Plugin.dll \
+//     -r:"$CSPECT_DIR/Plugin.dll" \
 //     -out:G46b102KeyInject.dll G46b102KeyInject.cs
 //
 // Install (CSpect scans its own exe dir for plugin DLLs; NOT part of the
 // jnext repo — copy into place before each CSpect launch, same convention as
 // CSpectFullTrace.dll):
-//   cp G46b102KeyInject.dll /home/jorgegv/src/spectrum/CSpect3_1_0_0/
+//   cp G46b102KeyInject.dll "$CSPECT_DIR"/
 //
 // G46(b) #102 session 2, 2026-07-26.
 

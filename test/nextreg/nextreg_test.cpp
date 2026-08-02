@@ -4,7 +4,7 @@
 // .prompts/2026-04-15.md) against doc/testing/NEXTREG-TEST-PLAN-DESIGN.md.
 // Every assertion cites a specific VHDL file:line from the authoritative
 // FPGA source at
-//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+//   cores/zxnext/src/
 // (external to this repo — cited here for provenance, not edited).
 //
 // Ground rules (per doc/testing/UNIT-TEST-PLAN-EXECUTION.md §§1-3):

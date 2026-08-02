@@ -20,10 +20,13 @@ If CSpect HITS the same $3D series PCs as jnext, no divergence in
 this window. Extend the trace forward.
 """
 from __future__ import annotations
+import os
 import sys
 import time
 
-sys.path.insert(0, '/home/jorgegv/src/spectrum/jnext/tools/cspect_dzrp')
+# Import cspect_dzrp from THIS script's directory, so the script works from
+# any clone or worktree (GH #204).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import cspect_dzrp as dz
 
 

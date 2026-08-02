@@ -48,11 +48,6 @@
       "Bash(./build/gui-release/jnext:*)",
       "Bash(./build/test/*:*)",
       "Bash(LANG=C ./build/test/*:*)",
-      "Bash(LANG=C /home/jorgegv/src/spectrum/jnext/build/jnext:*)",
-      "Bash(LANG=C /home/jorgegv/src/spectrum/jnext/build/test/*:*)",
-      "Bash(/home/jorgegv/src/spectrum/jnext/build/test/*:*)",
-      "Bash(/home/jorgegv/src/spectrum/jnext/.claude/worktrees/*:*)",
-      "Bash(LANG=C /home/jorgegv/src/spectrum/jnext/.claude/worktrees/*:*)",
 
       "Bash(compare:*)",
       "Bash(python3 tools/cspect_dzrp/*:*)",
@@ -60,10 +55,6 @@
 
       "WebFetch",
       "Write"
-    ],
-    "additionalDirectories": [
-      "/home/jorgegv/src/spectrum/jnext/demo/dapr-nexlib+tests/test00alltests",
-      "/home/jorgegv/src/spectrum/jnext-worktrees"
     ]
   },
   "hooks": {
@@ -71,17 +62,17 @@
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "/home/jorgegv/src/spectrum/jnext/.claude/hooks/block-push.sh" },
-          { "type": "command", "command": "/home/jorgegv/src/spectrum/jnext/.claude/hooks/block-amend.sh" },
-          { "type": "command", "command": "/home/jorgegv/src/spectrum/jnext/.claude/hooks/block-main-write.sh" },
-          { "type": "command", "command": "/home/jorgegv/src/spectrum/jnext/.claude/hooks/warn-cd-git.sh" }
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-push.sh" },
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-amend.sh" },
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/block-main-write.sh" },
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/warn-cd-git.sh" }
         ]
       }
     ],
     "SessionStart": [
       {
         "hooks": [
-          { "type": "command", "command": "/home/jorgegv/src/spectrum/jnext/.claude/hooks/session-start.sh" }
+          { "type": "command", "command": "${CLAUDE_PROJECT_DIR}/.claude/hooks/session-start.sh" }
         ]
       }
     ]
