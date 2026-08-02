@@ -1954,10 +1954,23 @@ the pop unwound the stack <em>strictly past</em> the armed SP. That last conditi
 what makes a nested call's own <code>RET</code> — and an interrupt handler's <code>RETI</code> —
 return <em>into</em> the routine being stepped out of rather than end the step.</p>
 <p>It is called from <code>step_one_instruction()</code>, not from <code>run_frame()</code>'s loop, so
-free-running and single-stepping cannot disagree about where a step out ends;
-and before the IM2 tick, so a pending interrupt cannot hide the return that
-just happened. That call did not exist at all until issue #203 was fixed: the
-mode was written and never read, and F8 had the observable behaviour of Run.</p>
+free-running and single-stepping cannot disagree about where a step out ends.
+That call did not exist at all until issue #203 was fixed: the mode was written
+and never read, and F8 had the observable behaviour of Run.</p>
+<p>Its position inside that body is load-bearing in both directions, and the
+reason is the general one for any debugger hook here — <strong>it may only read
+memory the CPU itself read</strong>. <code>Mmu::read()</code> is not inert: it fires read
+watchpoints and latches the +3 floating bus. So the SP test runs first and
+touches nothing, and only if it passes are the opcode bytes fetched. That
+ordering is what makes an intercepted instruction safe: <code>Z80Cpu::execute()</code>
+services a pending NMI or <code>INT</code> at its head and returns <em>without</em> fetching the
+opcode at <code>PC</code>, so reading it speculatively beforehand is a read the CPU never
+made — and with a watchpoint on that address the phantom hit ends the step at
+the interrupt vector instead of the routine's return. Every intercepted slot
+moves <code>SP</code> the wrong way, so the SP test excludes exactly those. The decision
+also sits <em>before</em> the deferred RETN overlay clear, because a <code>RETN</code> leaving a
+DivMMC-mapped routine unmaps it there, and a later read would see the
+underlying page rather than the <code>ED 45</code> the CPU fetched.</p>
 <p>Single-stepping goes through <code>Emulator::execute_single_instruction()</code>, which
 shares its per-instruction body verbatim with the free-running loop
 (<code>step_one_instruction()</code>), specifically so that the two paths cannot drift.

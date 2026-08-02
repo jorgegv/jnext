@@ -7807,40 +7807,13 @@ uint64_t Emulator::step_one_instruction()
             call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2);
         }
 
-        // GH #203 — Step Out arming snapshot. Same shape as the call-stack
-        // pre-hook above and captured for the same reason (the opcode bytes
-        // must be read BEFORE the instruction runs, since it may page other
-        // memory in, and SP must be sampled before it moves), but gated
-        // independently: the call stack is only tracked while its panel is
-        // open, and Step Out has to work whether or not it is.
-        //
-        // These mmu_.read()s must not be observable — "stepping must OBSERVE
-        // the emulation, never alter it" — and Mmu::read() is NOT inert: it
-        // fires READ watchpoints, and on a contended access it latches
-        // p3_floating_bus_dat_ (mmu.h:393, VHDL zxnext.vhd:4498-4509).
-        // Both are neutralised by reading ONLY bytes the CPU is itself about
-        // to read through the same Mmu::read(), immediately after us:
-        //   * the byte at PC is the M1 fetch, so its watchpoint fires either
-        //     way and its latch write is redone with the same value;
-        //   * the byte at PC+1 is fetched as the second M1 ONLY behind an
-        //     0xED prefix, so it is read only in that case. Reading it
-        //     unconditionally would, for a one-byte instruction at 0x3FFF,
-        //     leave the latch holding mem[0x4000] — a byte the CPU never
-        //     touched, visible on the +3 floating bus.
-        // No other prefix needs a second byte: the predicate only decodes
-        // 0xED-prefixed returns (see DebugState::check_step_out).
+        // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
+        // sampled. The opcode bytes are read after execute() and only once the
+        // SP test has already passed — see the decision site below for why.
         const bool step_out_armed =
             debug_state_.active() && debug_state_.step_mode() == StepMode::OUT;
-        uint16_t step_out_sp_before = 0;
-        uint8_t  step_out_op0 = 0;
-        uint8_t  step_out_op1 = 0;
-        if (step_out_armed) {
-            const Z80Registers& pre = cpu_.registers();
-            step_out_sp_before = pre.SP;
-            step_out_op0 = mmu_.read(pre.PC);
-            if (step_out_op0 == 0xED)
-                step_out_op1 = mmu_.read(static_cast<uint16_t>(pre.PC + 1));
-        }
+        const uint16_t step_out_sp_before =
+            step_out_armed ? cpu_.registers().SP : 0;
 
         // Execute one CPU instruction; returns T-states consumed.
         // Memory contention is applied per-access via the
@@ -7864,6 +7837,46 @@ uint64_t Emulator::step_one_instruction()
         const uint16_t pc_pre_exec = cpu_.pc();
         multiface_retn_pending_ = false;
         int tstates = cpu_.execute();
+
+        // GH #203 — Step Out decision. It sits HERE, between execute() and the
+        // RETN overlay clear below, and the order of the two halves matters as
+        // much as the position:
+        //
+        //  * The SP test runs FIRST and touches no memory. execute() services
+        //    a pending NMI/INT at its head and returns WITHOUT fetching the
+        //    opcode at PC (z80_cpu.cpp:611-640, :658-734), so an intercepted
+        //    slot has no M1 fetch to hide behind. Reading the opcode
+        //    speculatively BEFORE execute() therefore tripped a READ
+        //    watchpoint on a byte the CPU never read, and the data-breakpoint
+        //    branch in run_frame() then ENDED the step in the wrong place —
+        //    a wrong stop, not the "keeps running" degradation this feature
+        //    promises. An accepted interrupt moves SP the wrong way, so
+        //    gating on the SP test means the read below happens only when an
+        //    instruction really ran and really fetched it. (Found by the
+        //    independent review of GH #203, with a compiled repro.)
+        //
+        //  * BEFORE divmmc_.on_retn_instruction_complete(): a RETN leaving a
+        //    DivMMC-mapped routine — the esxdos idiom — clears the overlay
+        //    there, and a read taken after that point would see the underlying
+        //    page instead of the ED 45 the CPU actually fetched. No return
+        //    form writes a port or an NR, so the mapping here is still the one
+        //    the M1 fetch used.
+        //
+        // PC+1 is read only behind an 0xED prefix, which is the only case the
+        // CPU fetches a second M1 byte; reading it unconditionally would, for
+        // a one-byte instruction at 0x3FFF, leave p3_floating_bus_dat_ holding
+        // mem[0x4000] (mmu.h:393, VHDL zxnext.vhd:4498-4509).
+        if (step_out_armed &&
+            debug_state_.step_out_sp_qualifies(step_out_sp_before,
+                                               cpu_.registers().SP)) {
+            const uint8_t op0 = mmu_.read(pc_pre_exec);
+            const uint8_t op1 = (op0 == 0xED)
+                ? mmu_.read(static_cast<uint16_t>(pc_pre_exec + 1)) : 0;
+            if (debug_state_.check_step_out(step_out_sp_before,
+                                            cpu_.registers().SP, op0, op1)) {
+                debug_state_.pause();
+            }
+        }
 
         // RETN overlay timing — on real hardware the RETN opcode has
         // already been fetched when i_retn_seen clears the mapping
@@ -7909,31 +7922,13 @@ uint64_t Emulator::step_one_instruction()
             call_stack_.on_instruction_post(post.SP, post.PC);
         }
 
-        // GH #203 — Step Out: pause when THIS instruction was the return that
-        // unwound the stack past the point where F8 was pressed. Until this
-        // call existed, DebugState::check_step_out() had no caller at all and
-        // StepMode::OUT was written but never read, so F8 had the observable
-        // behaviour of Run: it resumed and never stopped.
-        //
-        // It lives HERE, in the shared per-instruction body, for two reasons:
-        //   * run_frame()'s free-running loop and execute_single_instruction()
-        //     both go through it, so the two paths cannot disagree about when
-        //     a step out ends;
-        //   * it is BEFORE the IM2 tick and the /INT polls below, so the
-        //     decision is made on the SP the return produced. (The CPU accepts
-        //     a pending INT at the head of the NEXT execute(), so the pause
-        //     lands with PC on the returned-to instruction, not in an ISR.)
-        //
-        // pause() clears step_mode_ back to NONE, which is what consumes the
-        // step: run_frame()'s loop head sees paused() on its next iteration
+        // GH #203 — the Step Out decision was made just after cpu_.execute()
+        // above (it must precede the RETN overlay clear). Both this shared
+        // body's callers reach it, so run_frame()'s free-running loop and
+        // execute_single_instruction() cannot disagree about where a step out
+        // ends. pause() clears step_mode_ back to NONE, which consumes the
+        // step; run_frame()'s loop head sees paused() on its next iteration
         // and returns, after this instruction's devices have been ticked.
-        if (step_out_armed) {
-            const Z80Registers& post = cpu_.registers();
-            if (debug_state_.check_step_out(step_out_sp_before, post.SP,
-                                            step_out_op0, step_out_op1)) {
-                debug_state_.pause();
-            }
-        }
 
         // Convert T-states to 28 MHz master cycles for the master-clock
         // advance and the CTC / UART / md6 / nmi device ticks below.

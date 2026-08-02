@@ -475,6 +475,57 @@ int main() {
               !emu.debug_state().data_bp_hit());
     }
 
+    // STPOUT-W12 / W13 — an interrupt that INTERCEPTS the step must not make
+    // the debugger read memory the CPU did not.
+    //
+    // Z80Cpu::execute() services a pending NMI (z80_cpu.cpp:611-640) or INT
+    // (:658-734) at its head and returns WITHOUT ever fetching the opcode at
+    // PC — real acceptance does not read there. So in that slot a speculative
+    // pre-execution opcode read is the ONLY touch of that address, and with a
+    // READ watchpoint on it the phantom hit reaches run_frame()'s
+    // data-breakpoint branch and ends the step at the interrupt vector instead
+    // of the routine's real return: a WRONG STOP, the one outcome Step Out
+    // promises never to produce. Found by the independent review of GH #203,
+    // which reproduced it with a compiled probe.
+    //
+    // The fix is ordering, not a special case: the SP test runs first and
+    // touches nothing, and every intercepted slot moves SP the wrong way, so
+    // the read is never taken there. Both interrupt kinds are pinned because
+    // both take that same early-return path.
+    //   9000  00 00 00  NOP NOP NOP   <- watchpoint on 0x9000, the interrupted PC
+    //   9003  C9        RET
+    {
+        Emulator emu;
+        build(emu, { 0x00, 0x00, 0x00, 0xC9 });
+        enter_sub_and_arm(emu);
+        emu.debug_state().breakpoints().add_watchpoint(SUB, WatchType::READ);
+        emu.cpu().request_nmi();
+        emu.execute_single_instruction();       // NMI taken instead of the NOP
+        check("STPOUT-W12a", "the NMI really was taken (PC at the 0x0066 vector)",
+              emu.cpu().get_registers().PC == 0x0066);
+        check("STPOUT-W12b", "NMI: no phantom watchpoint on a byte the CPU never fetched",
+              !emu.debug_state().data_bp_hit());
+        check("STPOUT-W12c", "NMI: Step Out is still armed, not silently ended",
+              emu.debug_state().step_mode() == StepMode::OUT);
+    }
+    {
+        Emulator emu;
+        build(emu, { 0x00, 0x00, 0x00, 0xC9 });
+        enter_sub_and_arm(emu);
+        Z80Registers r = emu.cpu().get_registers();
+        r.IFF1 = 1; r.IFF2 = 1; r.IM = 1;       // IM 1 -> the INT vectors to 0x0038
+        emu.cpu().set_registers(r);
+        emu.debug_state().breakpoints().add_watchpoint(SUB, WatchType::READ);
+        emu.cpu().request_interrupt(0xFF);
+        emu.execute_single_instruction();       // INT taken instead of the NOP
+        check("STPOUT-W13a", "the INT really was taken (PC at the IM 1 vector 0x0038)",
+              emu.cpu().get_registers().PC == 0x0038);
+        check("STPOUT-W13b", "INT: no phantom watchpoint on a byte the CPU never fetched",
+              !emu.debug_state().data_bp_hit());
+        check("STPOUT-W13c", "INT: Step Out is still armed, not silently ended",
+              emu.debug_state().step_mode() == StepMode::OUT);
+    }
+
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, g_skip);

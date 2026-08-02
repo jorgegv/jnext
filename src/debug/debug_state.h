@@ -58,6 +58,17 @@ public:
     bool check_step_out(uint16_t sp_before, uint16_t sp_after,
                         uint8_t opcode, uint8_t opcode2) const;
 
+    /// The memory-free half of the test above: conditions 1 and 3 only.
+    ///
+    /// check_step_out() calls it, so there is one definition of the SP rules.
+    /// It is public because the caller needs it FIRST, as a gate on whether
+    /// fetching the opcode bytes is safe at all: an accepted NMI/INT executes
+    /// no instruction and fetches nothing, so reading the opcode at PC in that
+    /// slot is a read the CPU never makes — enough to fire a READ watchpoint
+    /// and end the step in the wrong place. Every such slot moves SP the wrong
+    /// way, so a false here means the read must not be taken.
+    bool step_out_sp_qualifies(uint16_t sp_before, uint16_t sp_after) const;
+
     BreakpointSet& breakpoints() { return breakpoints_; }
     const BreakpointSet& breakpoints() const { return breakpoints_; }
 

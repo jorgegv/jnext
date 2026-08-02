@@ -89,10 +89,24 @@ what makes a nested call's own `RET` — and an interrupt handler's `RETI` —
 return *into* the routine being stepped out of rather than end the step.
 
 It is called from `step_one_instruction()`, not from `run_frame()`'s loop, so
-free-running and single-stepping cannot disagree about where a step out ends;
-and before the IM2 tick, so a pending interrupt cannot hide the return that
-just happened. That call did not exist at all until issue #203 was fixed: the
-mode was written and never read, and F8 had the observable behaviour of Run.
+free-running and single-stepping cannot disagree about where a step out ends.
+That call did not exist at all until issue #203 was fixed: the mode was written
+and never read, and F8 had the observable behaviour of Run.
+
+Its position inside that body is load-bearing in both directions, and the
+reason is the general one for any debugger hook here — **it may only read
+memory the CPU itself read**. `Mmu::read()` is not inert: it fires read
+watchpoints and latches the +3 floating bus. So the SP test runs first and
+touches nothing, and only if it passes are the opcode bytes fetched. That
+ordering is what makes an intercepted instruction safe: `Z80Cpu::execute()`
+services a pending NMI or `INT` at its head and returns *without* fetching the
+opcode at `PC`, so reading it speculatively beforehand is a read the CPU never
+made — and with a watchpoint on that address the phantom hit ends the step at
+the interrupt vector instead of the routine's return. Every intercepted slot
+moves `SP` the wrong way, so the SP test excludes exactly those. The decision
+also sits *before* the deferred RETN overlay clear, because a `RETN` leaving a
+DivMMC-mapped routine unmaps it there, and a later read would see the
+underlying page rather than the `ED 45` the CPU fetched.
 
 Single-stepping goes through `Emulator::execute_single_instruction()`, which
 shares its per-instruction body verbatim with the free-running loop
