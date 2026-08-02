@@ -2,7 +2,7 @@
 //
 // Derived one-to-one from doc/testing/INPUT-TEST-PLAN-DESIGN.md, which is
 // itself derived row-by-row from the ZX Next FPGA VHDL source at
-//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+//   cores/zxnext/src/
 //
 // Every check() cites the VHDL file+line its expected value comes from.
 //

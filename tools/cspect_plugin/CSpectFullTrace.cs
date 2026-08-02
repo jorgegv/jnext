@@ -25,14 +25,14 @@
 //   JNEXT_CSPECT_TRACE_FILE  — output path (default /tmp/g46b-cspect-fulltrace/cspect_full_trace.txt)
 //   JNEXT_CSPECT_TRACE_CAP   — instruction cap (default 500000)
 //
-// Build:
+// Build (CSPECT_DIR = your CSpect installation directory):
 //   cd tools/cspect_plugin
 //   mcs -target:library \
-//     -r:/home/jorgegv/src/spectrum/CSpect3_1_0_0/Plugin.dll \
+//     -r:"$CSPECT_DIR/Plugin.dll" \
 //     -out:CSpectFullTrace.dll CSpectFullTrace.cs
 //
 // Install:
-//   cp CSpectFullTrace.dll /home/jorgegv/src/spectrum/CSpect3_1_0_0/
+//   cp CSpectFullTrace.dll "$CSPECT_DIR"/
 //
 // EOD-30i+30: 2026-05-16.
 

@@ -1,7 +1,7 @@
 // Multiface core class compliance test (Wave 1 B1, Task 8 plan).
 //
 // Pins src/peripheral/multiface.{h,cpp} against the authoritative VHDL
-// at /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+// at cores/zxnext/src/
 //   device/multiface.vhd (197 lines)
 // (external to this repo; cited here for provenance, not edited).
 //

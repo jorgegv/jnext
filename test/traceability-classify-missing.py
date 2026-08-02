@@ -64,7 +64,7 @@ also fires for a comment mention, which would misclassify a
 never-implemented row as a deleted one. Require the `check(`/`skip(`/`stub(`
 call syntax, as before.
 """
-import re, subprocess, sys, collections
+import re, subprocess, sys, collections, os, tempfile
 
 MATRIX = 'doc/testing/TRACEABILITY-MATRIX.md'
 
@@ -194,9 +194,24 @@ def selftest():
     print('\nSELFTEST %s' % ('PASS' if ok else 'FAIL'))
     return ok
 
+def out_dir():
+    """Where the two .tsv reports go: argv[1], else $TMPDIR (GH #204).
+
+    This used to be one machine's home directory, hardcoded, so the run died
+    on the final write for anyone else.
+    """
+    if len(sys.argv) > 1:
+        d = sys.argv[1]
+        os.makedirs(d, exist_ok=True)
+        return d
+    return tempfile.gettempdir()
+
+
 def main():
     if len(sys.argv) > 1 and sys.argv[1] == '--selftest':
         sys.exit(0 if selftest() else 1)
+
+    outdir = out_dir()
 
     rows = parse_rows(MATRIX)
     print('missing rows parsed: %d (unique IDs: %d)' % (len(rows), len(set(t for _, t, _ in rows))))
@@ -206,12 +221,16 @@ def main():
         (orphan if existed else planned).append((section, tid, commits[0] if commits else ''))
     print('ORPHAN  (assertion existed in scope, deleted): %d' % len(orphan))
     print('PLANNED (never existed in scope, real backlog): %d' % len(planned))
-    with open('/home/jorgegv/tmp/gh196-orphans.tsv', 'w') as f:
+    orphans_tsv = os.path.join(outdir, 'gh196-orphans.tsv')
+    planned_tsv = os.path.join(outdir, 'gh196-planned.tsv')
+    with open(orphans_tsv, 'w') as f:
         for sec, tid, c in orphan:
             f.write('%s\t%s\t%s\n' % (sec, tid, c))
-    with open('/home/jorgegv/tmp/gh196-planned.tsv', 'w') as f:
+    with open(planned_tsv, 'w') as f:
         for sec, tid, _ in planned:
             f.write('%s\t%s\n' % (sec, tid))
+    print('wrote %s' % orphans_tsv)
+    print('wrote %s' % planned_tsv)
     print('\nper-section ORPHAN counts:')
     for sec, n in collections.Counter(s for s, _, _ in orphan).most_common():
         print('  %-46s %d' % (sec[:46], n))

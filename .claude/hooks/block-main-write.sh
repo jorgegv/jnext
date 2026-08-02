@@ -19,7 +19,10 @@
 
 set -euo pipefail
 
-REPO_ROOT="/home/jorgegv/src/spectrum/jnext"
+# The checkout this hook lives in: <checkout>/.claude/hooks/<this file>.
+# Derived, not hardcoded, so the hook works in any clone (GH #204). Used
+# only as the fallback when the tool call carries no cwd.
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 input="$(cat)"
 cmd="$(printf '%s' "$input" | jq -r '.tool_input.command // ""')"

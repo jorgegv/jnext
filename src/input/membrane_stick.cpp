@@ -71,7 +71,7 @@ namespace {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // COE oracle table — translated 1:1 from
-//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/ram/init/
+//   cores/zxnext/src/ram/init/
 //     keyjoy_64_6.coe
 // (memory_initialization_radix=2, 64 entries × 6 bits each).
 //

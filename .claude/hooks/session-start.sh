@@ -4,7 +4,9 @@
 
 set -euo pipefail
 
-REPO_ROOT="/home/jorgegv/src/spectrum/jnext"
+# Derived from this script's own location, so the banner works in any
+# clone rather than only the maintainer's (GH #204).
+REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 
 cd "$REPO_ROOT" 2>/dev/null || exit 0
 
