@@ -14,24 +14,30 @@
  * which is exactly what happened on the first attempt: the page picked up the
  * new link colours and kept an indigo header.
  *
- * Both schemes are defined. Light gets a deep brick that stays legible against
- * white; dark gets a lifted rose, because the same brick on a slate background
- * fails contrast. The figures under img/ are coloured from the same family (see
- * the palette note at the top of any diagrams/*.dot), so the page and its
- * illustrations do not read as two designs.
+ * Both schemes are defined. Light gets a bright crimson-brick; dark drops it a
+ * little, because the identical value on a slate background is louder than it
+ * looks on white. Every value here clears WCAG AA against the surface it sits
+ * on — the header primaries against their white text (5.6:1 light, 6.0:1 dark)
+ * and the dark accent against the slate page (6.9:1) — which is the constraint
+ * that stops "brighter" drifting into unreadable.
+ *
+ * An earlier revision was a desaturated #8c4a52 and read as dead; these are the
+ * same hues with the saturation put back. The figures under img/ are coloured
+ * from the same family (see the palette note at the top of any diagrams/*.dot),
+ * so the page and its illustrations do not read as two designs.
  */
 
 [data-md-color-primary=custom] {
-  --md-primary-fg-color:        #8c4a52;
-  --md-primary-fg-color--light: #a76a71;
-  --md-primary-fg-color--dark:  #6d383f;
+  --md-primary-fg-color:        #b8434f;
+  --md-primary-fg-color--light: #cd6a74;
+  --md-primary-fg-color--dark:  #93353f;
   --md-primary-bg-color:        #ffffff;
   --md-primary-bg-color--light: #ffffffb3;
 }
 
 [data-md-color-accent=custom] {
-  --md-accent-fg-color:              #b5646c;
-  --md-accent-fg-color--transparent: #b5646c1a;
+  --md-accent-fg-color:              #d1495b;
+  --md-accent-fg-color--transparent: #d1495b1a;
   --md-accent-bg-color:              #ffffff;
   --md-accent-bg-color--light:       #ffffffb3;
 }
@@ -40,14 +46,14 @@
  * background very slightly towards the same hue, so the dark theme is not a
  * neutral grey page with a red header stuck on top. */
 [data-md-color-scheme="slate"][data-md-color-primary=custom] {
-  --md-primary-fg-color:        #7a4048;
-  --md-primary-fg-color--light: #c88a90;
-  --md-primary-fg-color--dark:  #5c3037;
+  --md-primary-fg-color:        #a83f4d;
+  --md-primary-fg-color--light: #e39aa4;
+  --md-primary-fg-color--dark:  #7d2f39;
 }
 
 [data-md-color-scheme="slate"][data-md-color-accent=custom] {
-  --md-accent-fg-color:              #d69aa0;
-  --md-accent-fg-color--transparent: #d69aa01a;
+  --md-accent-fg-color:              #e88a95;
+  --md-accent-fg-color--transparent: #e88a951a;
 }
 
 [data-md-color-scheme="slate"] {
