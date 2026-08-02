@@ -1915,6 +1915,11 @@ consults it once per instruction, before the fetch:</p>
 <td>one-shot breakpoint at <code>next_pc</code></td>
 </tr>
 <tr>
+<td><code>OUT</code></td>
+<td><code>step_out(sp)</code></td>
+<td><code>check_step_out()</code> matches, after the instruction</td>
+</tr>
+<tr>
 <td><code>RUN_TO_CYCLE</code></td>
 <td><code>run_to_cycle()</code></td>
 <td>master clock reaches the target</td>
@@ -1938,11 +1943,21 @@ disassembler whether the current instruction <code>is_call_like()</code> — <co
 Run to Cursor is the same one-shot mechanism with a user-chosen address, and
 Run to End of Frame and End of Scanline are <code>run_to_cycle()</code> with a computed
 target.</p>
-<p><strong><code>StepMode::OUT</code> is set by <code>step_out()</code> but the run loop never reads it, and
-<code>DebugState::check_step_out()</code> — the predicate that would detect the returning
-<code>RET</code>/<code>RETI</code>/<code>RETN</code> at the right stack depth — has no caller anywhere in the
-tree.</strong> Step Out therefore resumes and stops only at a real breakpoint or a
-manual break. This is tracked as issue #203.</p>
+<p>Step Out is the one mode whose termination is decided <em>after</em> the instruction
+rather than before it. <code>step_out()</code> records SP at the moment F8 was pressed;
+<code>check_step_out()</code> is then called from the shared per-instruction body once per
+instruction and ends the step when three things hold together: the instruction
+popped exactly one return address (<code>sp_after == sp_before + 2</code>, which is what
+tells a taken <code>RET cc</code> from an untaken one), its opcode was a return form
+(<code>RET</code>, <code>RET cc</code>, <code>RETI</code>/<code>RETN</code> including the undocumented <code>ED</code> aliases), and
+the pop unwound the stack <em>strictly past</em> the armed SP. That last condition is
+what makes a nested call's own <code>RET</code> — and an interrupt handler's <code>RETI</code> —
+return <em>into</em> the routine being stepped out of rather than end the step.</p>
+<p>It is called from <code>step_one_instruction()</code>, not from <code>run_frame()</code>'s loop, so
+free-running and single-stepping cannot disagree about where a step out ends;
+and before the IM2 tick, so a pending interrupt cannot hide the return that
+just happened. That call did not exist at all until issue #203 was fixed: the
+mode was written and never read, and F8 had the observable behaviour of Run.</p>
 <p>Single-stepping goes through <code>Emulator::execute_single_instruction()</code>, which
 shares its per-instruction body verbatim with the free-running loop
 (<code>step_one_instruction()</code>), specifically so that the two paths cannot drift.

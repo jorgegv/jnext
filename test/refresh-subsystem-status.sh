@@ -149,6 +149,7 @@ BEGIN {
     M["atic_atac_nmi_test"]            = "Atic Atac NMI"
     M["profiler_test"]                 = "Profiler"
     M["resume_guard_test"]             = "Resume Guard"
+    M["step_out_test"]                 = "Debugger Step Out"
     M["app_config_test"]               = "GUI Preferences (AppConfig)"
     M["debugger_video_panel_test"]     = "Debugger Video Panel"
     M["debugger_audio_panel_test"]     = "Debugger Audio Panel"

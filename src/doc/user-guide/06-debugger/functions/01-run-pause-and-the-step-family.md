@@ -20,9 +20,12 @@ instruction. It only does this for instructions that can come back —
 to Single Step. Note the consequence for `DJNZ`: stepping over it runs the
 whole loop.
 
-**Step Out** resumes until a `RET`, `RETI` or `RETN` executes with `SP` at or
-above its value when you pressed it — that is, until the current subroutine
-returns rather than a nested one.
+**Step Out** resumes until a return instruction — `RET`, a taken `RET cc`,
+`RETI` or `RETN` — pops the stack back *past* its level when you pressed it;
+that is, until the current subroutine returns rather than a nested one. A
+subroutine called after you press F8 returns onto that level, not past it, so
+its own `RET` does not end the step; neither does an interrupt handler's
+`RETI`, nor a bare `POP` that happens to move `SP` the same way.
 
 If a subroutine never returns (it jumps away, or is waiting on input that never
 arrives) Step Over and Step Out simply keep running; press **F9** to take back

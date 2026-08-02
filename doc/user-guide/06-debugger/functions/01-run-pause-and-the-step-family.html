@@ -2799,9 +2799,12 @@ instruction. It only does this for instructions that can come back —
 <code>CALL nn</code>, <code>CALL cc,nn</code>, <code>RST n</code> and <code>DJNZ</code>. For anything else it is identical
 to Single Step. Note the consequence for <code>DJNZ</code>: stepping over it runs the
 whole loop.</p>
-<p><strong>Step Out</strong> resumes until a <code>RET</code>, <code>RETI</code> or <code>RETN</code> executes with <code>SP</code> at or
-above its value when you pressed it — that is, until the current subroutine
-returns rather than a nested one.</p>
+<p><strong>Step Out</strong> resumes until a return instruction — <code>RET</code>, a taken <code>RET cc</code>,
+<code>RETI</code> or <code>RETN</code> — pops the stack back <em>past</em> its level when you pressed it;
+that is, until the current subroutine returns rather than a nested one. A
+subroutine called after you press F8 returns onto that level, not past it, so
+its own <code>RET</code> does not end the step; neither does an interrupt handler's
+<code>RETI</code>, nor a bare <code>POP</code> that happens to move <code>SP</code> the same way.</p>
 <p>If a subroutine never returns (it jumps away, or is waiting on input that never
 arrives) Step Over and Step Out simply keep running; press <strong>F9</strong> to take back
 control.</p>

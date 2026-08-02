@@ -32,9 +32,31 @@ public:
     /// Returns true if execution should break (pause).
     bool should_break(uint16_t pc) const;
 
-    /// Called after a step-out instruction completes to check RET condition.
-    /// Returns true if the step-out is satisfied (should re-pause).
-    bool check_step_out(uint16_t sp, uint8_t opcode, uint8_t prev_opcode) const;
+    /// Step Out predicate — called after EVERY instruction while
+    /// StepMode::OUT is armed (GH #203).
+    ///
+    /// Returns true when the instruction that just completed was the return
+    /// that left the subroutine Step Out was armed in, so the caller must
+    /// re-pause. The caller supplies:
+    ///   @param sp_before  SP immediately before the instruction executed
+    ///   @param sp_after   SP immediately after it executed
+    ///   @param opcode     first opcode byte, read at the PRE-execution PC
+    ///   @param opcode2    second opcode byte (only read for the 0xED prefix)
+    ///
+    /// Three conditions, all required:
+    ///   1. the stack actually shrank by one return address (sp_after ==
+    ///      sp_before + 2) — this is what distinguishes a TAKEN `RET cc` from
+    ///      an untaken one, and what makes the predicate inert on the steps
+    ///      that execute no CPU instruction at all (DMA burst, boot hold,
+    ///      parked CPU);
+    ///   2. the opcode was a return form (see the .cpp) — this is what stops
+    ///      a bare `POP rr` from ending the step;
+    ///   3. the pop unwound the stack PAST the arming point (sp_after >
+    ///      step_out_sp_, strictly). A nested call's own RET lands exactly ON
+    ///      it and must NOT end the step; likewise an interrupt taken while
+    ///      stepping out returns to the same routine, not out of it.
+    bool check_step_out(uint16_t sp_before, uint16_t sp_after,
+                        uint8_t opcode, uint8_t opcode2) const;
 
     BreakpointSet& breakpoints() { return breakpoints_; }
     const BreakpointSet& breakpoints() const { return breakpoints_; }
