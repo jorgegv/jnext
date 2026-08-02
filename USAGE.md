@@ -48,6 +48,7 @@ the two can never disagree. For building jnext from source, see
 - [EXIT STATUS](#exit-status)
 - [SEE ALSO](#see-also)
 - [BUGS](#bugs)
+- [AUTHORS](#authors)
 - [COPYRIGHT](#copyright)
 
 ---
@@ -939,6 +940,21 @@ Project home page: <https://github.com/jorgegv/jnext>
 ## BUGS
 
 Report bugs at <https://github.com/jorgegv/jnext/issues>.
+
+## AUTHORS
+
+Main author: Jorge Gonzalez, aka ZXjogv <zx@jogv.es>.
+
+Code contributors: dcrespo3d, jon263.
+
+Testers and bug reporters: danboid, Duefectu, janko-jj, Utodev,
+WoolyChewbakker.
+
+If you are named here and would prefer not to be, or are not named and
+would like to be, say so at the issue tracker below. `CREDITS.md` in the
+source distribution carries the same list, plus the third-party
+libraries and the reference projects jnext is built and verified
+against.
 
 ## COPYRIGHT
 

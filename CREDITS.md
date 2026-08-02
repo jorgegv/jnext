@@ -1,18 +1,25 @@
 # JNEXT — Credits
 
-If you contributed to the project in any way and want your name to appear here, I need you to confirm that I can use your name, email, nick or whatever identifier you choose and include it in this file.
-
 ## Main author
 
 Jorge Gonzalez, aka ZXjogv <zx@jogv.es>
 
 ## Code contributors
 
-
+- dcrespo3d
+- jon263
 
 ## Testers and bug reporters
 
+- danboid
+- Duefectu
+- janko-jj
+- Utodev
+- WoolyChewbakker
 
+If you are listed here and would prefer not to be, or are not listed and would
+like to be, say so on [issue #200](https://github.com/jorgegv/jnext/issues/200)
+and it will be changed.
 
 ## Libraries and third-party software
 
@@ -26,6 +33,7 @@ Jorge Gonzalez, aka ZXjogv <zx@jogv.es>
 | [spdlog](https://github.com/gabime/spdlog) | MIT | Fast C++ logging (git submodule, `third_party/spdlog/`) |
 | FUSE Z80 core | GPLv2 | Z80 CPU core, adapted from the [FUSE](http://fuse-emulator.sourceforge.net/) emulator (`third_party/fuse-z80/`) |
 | [ZOT](https://github.com/antirez/zot) | MIT | TZX/TAP tape player library by antirez (vendored in `third_party/zot/`) |
+| [nexlib + tests](https://github.com/dcrespo3d) by David Crespo | GPLv3 | Next demo/test programs used as rendering and timing fixtures (vendored in `demo/dapr-nexlib+tests/`) |
 | zlib | zlib | Compressed snapshot (SZX) and RZX blocks |
 | libpng | libpng | PNG screenshots |
 
