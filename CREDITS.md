@@ -54,3 +54,5 @@ and it will be changed.
   also used as a behavioural reference during development.
 - **[ZX Next Wiki](https://wiki.specnext.dev/Main_Page)** — the reference point
   for Next development.
+- **[zx_go](https://github.com/conorarmstrong/zx_go)**  — another Next-capable emulator,
+  which played a fundamental oracle role in getting NextZXOS to boot on JNext.
