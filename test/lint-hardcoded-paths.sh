@@ -165,6 +165,30 @@ selftest() {
     t 0 'a relative path segment named home'   'p = "assets/home/banner.png"'
     t 0 '/home with no user component'         'ls /home'
 
+    # ── The exemption matcher ─────────────────────────────────────────────
+    # is_excepted() is what keeps this file's own fixtures out of the scan, so
+    # it decides how big the one documented hole is. It is reached by scan(),
+    # never by t() above, so without these it had no pinned behaviour at all
+    # and a future loosening to a prefix/glob match would silently exempt
+    # neighbours. Flagged by review; not a defect at the time, a missing pin.
+    x() {   # x <want> <desc> <path>
+        local want="$1" desc="$2" path="$3" got=0
+        is_excepted "$path" && got=1
+        if [ "$got" = "$want" ]; then
+            pass=$((pass + 1))
+        else
+            fail=$((fail + 1))
+            printf '  FAIL (want=%s got=%s) is_excepted: %s\n      %s\n' \
+                "$want" "$got" "$desc" "$path"
+        fi
+    }
+    x 1 'the declared exception itself'        'test/lint-hardcoded-paths.sh'
+    x 0 'a suffixed neighbour is NOT exempt'   'test/lint-hardcoded-paths.sh.bak'
+    x 0 'a truncated prefix is NOT exempt'     'test/lint-hardcoded-paths'
+    x 0 'same directory, different file'       'test/lint-traps.sh'
+    x 0 'same basename elsewhere in the tree'  'tools/lint-hardcoded-paths.sh'
+    x 0 'an unrelated tracked file'            'src/core/emulator.cpp'
+
     printf '\n  selftest: %d passed, %d failed\n' "$pass" "$fail"
     [ "$fail" -eq 0 ]
 }
