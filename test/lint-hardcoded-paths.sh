@@ -52,7 +52,7 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 # File types where a path is CODE or CONFIGURATION rather than prose. Extend
 # this list when a new such type appears; do NOT extend it to documentation.
-EXTENSIONS='sh|bash|py|pl|pm|c|cc|cpp|h|hpp|cs|cmake|mk|yml|yaml|json|spec|desktop|in'
+EXTENSIONS='sh|bash|py|pl|pm|js|c|cc|cpp|h|hpp|cs|cmake|mk|yml|yaml|json|conf|spec|desktop|in'
 # Exact filenames with no extension of their own.
 EXACT_NAMES='Makefile|CMakeLists.txt|Dockerfile'
 
@@ -68,6 +68,15 @@ PATTERN='(^|[^A-Za-z0-9_/])/(home|Users)/[A-Za-z0-9._<>-]+/'
 # spelled out here rather than hidden in a glob. Keep this list empty if you
 # can: an entry is a promise that the path genuinely cannot be derived.
 EXCEPTIONS=(
+    # This file. Its doc-comment example and its --selftest fixtures are
+    # deliberately literal instances of the banned pattern — that is what makes
+    # them a test rather than a description. It was NOT self-exempt when first
+    # written, and the omission hid itself: `scan()` walks `git ls-files`, so
+    # while the file was still untracked it was invisible to its own scan, and
+    # `git add` at commit time turned a green run red. Found by review.
+    # Consequence, stated rather than hidden: a genuine hardcoded path added to
+    # THIS file is the one thing the lint cannot catch.
+    "test/lint-hardcoded-paths.sh:its own doc example and selftest fixtures are literal instances of the pattern"
 )
 
 is_excepted() {
@@ -164,6 +173,16 @@ if [ "${1:-}" = "--selftest" ]; then
     echo "lint-hardcoded-paths selftest"
     selftest
     exit $?
+fi
+
+# The matcher proves itself on every run. `--selftest` existing as an opt-in
+# mode is not enough: nothing invoked it, which is precisely the "available but
+# not enforced" gap this lint exists to close for its own subject matter.
+# 24 string matches, so the cost is nil.
+if ! selftest >/dev/null 2>&1; then
+    echo "ERROR: lint-hardcoded-paths matcher self-test FAILED; refusing to report a result." >&2
+    selftest >&2 || true
+    exit 2
 fi
 
 echo "Scanning tracked code/config for owner-absolute home paths..."
