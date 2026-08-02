@@ -171,7 +171,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -208,7 +208,7 @@ jobs:
           echo "JNEXT_FPGA_SRC=$JNEXT_FPGA_SRC" >> "$GITHUB_ENV"
 
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
           key: ccache-fedora44-${{ github.sha }}
@@ -217,7 +217,7 @@ jobs:
 
       - name: Cache NextZXOS SD-card image
         id: sdcache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.jnext/sdcard
           # kDistroUrl in src/core/sdcard_provisioner.cpp is versioned
@@ -271,7 +271,7 @@ jobs:
       # CI exactly as it is locally; no filtering, no partial-run carve-out.
       - name: Upload failure artifacts
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: jnext-ci-failure-artifacts
           path: |
@@ -309,12 +309,12 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
           key: ccache-qt5-fedora44-${{ github.sha }}
@@ -395,7 +395,7 @@ jobs:
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -403,7 +403,7 @@ jobs:
       # two jobs saving the same key collide (GitHub cache entries are
       # immutable). The compilations differ anyway — Release/no-tests here.
       - name: Cache ccache
-        uses: actions/cache@v4
+        uses: actions/cache@v5
         with:
           path: ~/.cache/ccache
           key: ccache-fedora44-package-${{ github.sha }}
@@ -442,7 +442,7 @@ jobs:
     runs-on: macos-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -452,7 +452,7 @@ jobs:
       - name: make package-macos (build, package, verify self-containment)
         run: CMAKE_PREFIX_PATH="$(brew --prefix qt@6)" make package-macos
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: jnext-macos-dmg
           # BUILD_DIR_MAC_RELEASE, the same path release.yml's macos job
@@ -490,7 +490,7 @@ jobs:
     steps:
       # The manifest builds from this checkout (`type: git` + `path: ../..`),
       # so the tree and its submodules have to be here.
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
