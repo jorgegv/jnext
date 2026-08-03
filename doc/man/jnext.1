@@ -272,10 +272,13 @@ both schedules two keypresses.
 \f[B]\-\-delayed\-nmi\f[R] \f[I]SECS\f[R] \f[I]BUTTON\f[R]
 Press an NMI \f[I]BUTTON\f[R] after \f[I]SECS\f[R] seconds.
 Headless only, repeatable.
-\f[I]BUTTON\f[R] is case\-insensitive and names which of the two NMI
-buttons to press: \f[CR]mf\f[R] (or \f[CR]m1\f[R]) for the Multiface M1
-button, \f[CR]divmmc\f[R] (or \f[CR]drive\f[R]) for the DivMMC DRIVE
-button.
+\f[I]BUTTON\f[R] is case\-insensitive and names which button to press,
+spelled as the label on a real Next\(cqs case.
+Of its three buttons, two raise an NMI: \f[CR]nmi\f[R] (aliases
+\f[CR]mf\f[R], \f[CR]m1\f[R]) is the \f[B]NMI\f[R] button, wired to the
+Multiface; \f[CR]drive\f[R] (alias \f[CR]divmmc\f[R]) is the
+\f[B]DRIVE\f[R] button, wired to the DivMMC.
+\f[B]RESET\f[R] is not an NMI button and is not accepted here.
 The press goes through the same path as the host F9 / F10 hotkeys, so it
 is subject to the same enable gates \(em NextREG 0x06 bit 3 for the
 Multiface, bit 4 plus NextREG 0x83 bit 0 for the DivMMC \(em and a press
