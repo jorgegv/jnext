@@ -47,14 +47,6 @@ Without the SD image, `make unit-test` and the regression suite cannot run. They
 say so loudly instead of quietly reporting a smaller number (Task 37) — but the
 agent still can't work, so link the fixtures up front.
 
-**FPGA source for traceability:** from `~/tmp/worktrees` the traceability
-generator's upward search cannot find the FPGA checkout (it lives under
-`/home/jorgegv/src/spectrum/`, not an ancestor of the worktree), so every
-`make unit-test` / `make traceability-check` run in the worktree must export
-`JNEXT_FPGA_SRC=/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src`
-(the same mechanism CI uses). Without it the regenerated matrix differs and
-the staleness gate fails.
-
 ### 4. Sync demo artifacts (only if needed)
 
 Per `feedback_worktree_demo_artifacts`, build artifacts under `demo/` aren't checked in, so they must be rsync'd:
@@ -82,8 +74,6 @@ Hard rules per CLAUDE.md:
 - Do NOT write to main. Commit only on branch <BRANCH>.
 - Do NOT push. The user authorizes pushes separately.
 - Use `git -C <worktree-path> <cmd>` for git ops (not `cd ... && git ...`).
-- Run tests with JNEXT_FPGA_SRC=/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src
-  exported (traceability cannot auto-discover the FPGA tree from this location).
 - When done, report:
   - List of commit SHAs on <BRANCH>
   - Triplet status on <BRANCH> (ctest / FUSE / regression)

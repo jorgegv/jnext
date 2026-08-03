@@ -524,7 +524,9 @@ sub suite_for_source {
 #   --fpga-src=PATH        explicit, wins over everything
 #   $JNEXT_FPGA_SRC        the environment form, which is what CI sets
 #   upward search          a sibling checkout, found by walking up from the
-#                          script's own directory
+#                          script's own directory — and, when that directory
+#                          is inside a LINKED git worktree, also from the main
+#                          checkout the worktree belongs to
 #
 # The default used to be one hardcoded absolute path under the maintainer's
 # home. That was invisible to everyone else, and CI — which has no FPGA
@@ -535,10 +537,20 @@ sub suite_for_source {
 #
 # The search walks up rather than using a fixed depth because the repo and its
 # agent worktrees sit at different depths — `spectrum/jnext/test` is two levels
-# below the sibling, `spectrum/jnext-worktrees/<name>/test` is three — so any
-# constant `../..` is correct for exactly one of them. It starts from $RealBin,
-# NOT $ROOT, because the selftest rebinds $ROOT to a fixture tree while the
-# script itself stays in the real repo.
+# below the sibling, a `<worktree>/test` is wherever the worktree was put — so
+# any constant `../..` is correct for exactly one of them. It starts from
+# $RealBin, NOT $ROOT, because the selftest rebinds $ROOT to a fixture tree
+# while the script itself stays in the real repo.
+#
+# The MAIN-CHECKOUT start exists because agent worktrees no longer live beside
+# the repo (they moved to ~/tmp/worktrees, 2026-08-03), so no ancestor of the
+# worktree contains the FPGA sibling and the walk from $RealBin alone finds
+# nothing. Without it every `make unit-test` in such a worktree regenerated an
+# UNVALIDATED matrix whose bytes differ from the committed one, and the
+# staleness gate failed — in a worktree only, which reads as a phantom
+# regression. Resolving the main checkout from the worktree's `.git` file
+# fixes this for ANY worktree location by construction, with no per-run
+# $JNEXT_FPGA_SRC export and no owner-specific path (GH #204's class).
 my $FPGA_SRC;        # resolved once by fpga_src(), '' when there is no tree
 
 # The parent walk is spelled with a regex rather than File::Basename::dirname
@@ -548,10 +560,45 @@ my $FPGA_SRC;        # resolved once by fpga_src(), '' when there is no tree
 # on `Can't locate FindBin.pm` with no change to script or workflow. Adding no
 # dependency beats declaring one here.
 sub discover_fpga_src {
-    my $dir = $RealBin;
+    for my $start ($RealBin, worktree_main_checkout($RealBin)) {
+        next unless defined $start;
+        my $dir = $start;
+        for (1 .. 8) {
+            my $cand = "$dir/ZX_Spectrum_Next_FPGA/cores/zxnext/src";
+            return $cand if -d $cand;
+            last if $dir eq '/';
+            (my $up = $dir) =~ s{/[^/]*$}{};
+            $up = '/' if $up eq '';
+            $dir = $up;
+        }
+    }
+    return undef;
+}
+
+# The main checkout a linked git worktree belongs to, or undef when $from is
+# not inside one. In a linked worktree the checkout root's `.git` is a plain
+# FILE reading `gitdir: <main>/.git/worktrees/<name>`; the main checkout is
+# read straight out of that line — no git invocation, no new module. A normal
+# checkout has a `.git` DIRECTORY, which ends the walk with undef (there is no
+# indirection to follow). A relative gitdir (git's optional
+# worktree.useRelativePaths form) is resolved against the directory holding
+# the `.git` file before matching, via the already-imported abs_path.
+sub worktree_main_checkout {
+    my ($from) = @_;
+    my $dir = $from;
     for (1 .. 8) {
-        my $cand = "$dir/ZX_Spectrum_Next_FPGA/cores/zxnext/src";
-        return $cand if -d $cand;
+        if (-f "$dir/.git") {
+            open(my $fh, '<', "$dir/.git") or return undef;
+            my $line = <$fh> // '';
+            close $fh;
+            return undef unless $line =~ m{^gitdir:\s*(.*?)\s*$};
+            my $gitdir = $1;
+            $gitdir = "$dir/$gitdir" unless $gitdir =~ m{^/};
+            $gitdir = abs_path($gitdir) // return undef;
+            return undef unless $gitdir =~ m{^(.*)/\.git/worktrees/[^/]+$};
+            return -d $1 ? $1 : undef;
+        }
+        last if -d "$dir/.git";
         last if $dir eq '/';
         (my $up = $dir) =~ s{/[^/]*$}{};
         $up = '/' if $up eq '';

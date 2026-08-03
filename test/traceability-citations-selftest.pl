@@ -3026,6 +3026,83 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
             : ($err_z =~ /no \.vhd files/ ? 'warned' : 'SILENT (degrades unvalidated)'));
 }
 
+# ── The worktree tier of the upward search (2026-08-03) ───────────────
+#
+# Agent worktrees moved to ~/tmp/worktrees, where NO ancestor holds the FPGA
+# sibling, so discover_fpga_src() also walks up from the main checkout named
+# by a linked worktree's `.git` file. Unlike the GH #202 precedence rows
+# above, these are unit rows over the real subs in the eval'd copy: the tier
+# lives wholly in discover_fpga_src() / worktree_main_checkout(), neither of
+# which reads @ARGV, so no out-of-process run is needed. Only $RealBin is
+# local-ized — the same rebinding FindBin performs for real when the script
+# runs from inside a worktree. The fixture places the core as a sibling of a
+# DEEP main checkout only, unreachable by walking up from the fixture
+# worktree itself, so a hit can only have come from the second start.
+{
+    # `modules/thing` EXISTS on disk on purpose: without it abs_path() kills
+    # the submodule row before the /worktrees/ regex is consulted, and
+    # SELF-206 would pass even with the regex loosened (mutation-verified).
+    my $G = "$FIXTURE_ROOT/gitwt";
+    for my $d ("$G/deep/main/.git/worktrees/agent-x",
+               "$G/deep/main/.git/modules/thing",
+               "$G/deep/ZX_Spectrum_Next_FPGA/cores/zxnext/src",
+               "$G/wt/test", "$G/wtrel/test", "$G/wt/plain/.git", "$G/sub/test") {
+        my $sofar = '';
+        for my $part (grep { length } split m{/}, $d) {
+            $sofar .= "/$part";
+            mkdir $sofar unless -d $sofar;
+        }
+    }
+    my $write_gitfile = sub {
+        my ($at, $gitdir) = @_;
+        open(my $fh, '>', "$at/.git") or die "write $at/.git: $!";
+        print $fh "gitdir: $gitdir\n";
+        close $fh;
+    };
+    $write_gitfile->("$G/wt",    "$G/deep/main/.git/worktrees/agent-x");
+    $write_gitfile->("$G/wtrel", "../deep/main/.git/worktrees/agent-x");
+    $write_gitfile->("$G/sub",   "$G/deep/main/.git/modules/thing");
+
+    # Expectations are spelled through abs_path so a symlinked temp root
+    # (macOS /tmp -> /private/tmp) compares equal to what the sub returns.
+    my $main_abs = abs_path("$G/deep/main");
+    (my $deep_abs = $main_abs) =~ s{/main$}{};
+
+    my $got_abs = worktree_main_checkout("$G/wt/test");
+    check('SELF-203', 'worktree tier: absolute gitdir file resolves to the main checkout',
+          defined $got_abs && $got_abs eq $main_abs,
+          $got_abs // '(undef)');
+
+    my $got_rel = worktree_main_checkout("$G/wtrel/test");
+    check('SELF-204', 'worktree tier: relative gitdir (worktree.useRelativePaths) resolves too',
+          defined $got_rel && $got_rel eq $main_abs,
+          $got_rel // '(undef)');
+
+    # The plain checkout sits INSIDE the linked worktree on purpose: stopping
+    # at its `.git` directory is what keeps the walk from escaping to the
+    # OUTER worktree's `.git` file and resolving a different repository's
+    # main checkout. A top-level plain fixture would return undef either way
+    # and could not tell the stop from a walk-through.
+    my $got_plain = worktree_main_checkout("$G/wt/plain");
+    check('SELF-205', 'worktree tier: a normal checkout (.git directory) ends the walk, even nested inside a linked worktree',
+          !defined $got_plain,
+          $got_plain // 'undef');
+
+    my $got_sub = worktree_main_checkout("$G/sub/test");
+    check('SELF-206', 'worktree tier: a submodule-style .git file (gitdir: .../modules/...) yields undef',
+          !defined $got_sub,
+          $got_sub // 'undef');
+
+    my $found;
+    {
+        local $RealBin = "$G/wt/test";
+        $found = discover_fpga_src();
+    }
+    check('SELF-207', 'worktree tier: discover_fpga_src() reaches the core via the main checkout',
+          defined $found && $found eq "$deep_abs/ZX_Spectrum_Next_FPGA/cores/zxnext/src",
+          $found // '(undef)');
+}
+
 # ── GH #196 phase 2: the description tiers ────────────────────────────
 #
 # Each row below pins one tier of row_descriptions(). They are unit rows over
@@ -3261,7 +3338,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 202;
+my $EXPECTED_ROWS = 207;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"
