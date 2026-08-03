@@ -1,6 +1,6 @@
 ---
 name: worktree-launch
-description: Create a fresh agent worktree under /home/jorgegv/src/spectrum/jnext-worktrees/ (OUTSIDE the repo) off an up-to-date main, with the project's hygiene rules baked in. Use when the user says "spin up a worktree", "create a worktree for agent X", "set up a worktree for branch Y", or when about to dispatch an agent that needs an isolated work area.
+description: Create a fresh agent worktree under /home/jorgegv/tmp/worktrees/ (OUTSIDE the repo) off an up-to-date main, with the project's hygiene rules baked in. Use when the user says "spin up a worktree", "create a worktree for agent X", "set up a worktree for branch Y", or when about to dispatch an agent that needs an isolated work area.
 ---
 
 # Launch an agent worktree
@@ -33,19 +33,27 @@ If `behind` > 0, ask the user whether to fast-forward main first. Do NOT auto-pu
 ### 2. Create the worktree
 
 ```bash
-git worktree add /home/jorgegv/src/spectrum/jnext-worktrees/agent-<ID> -b <BRANCH> main
+git worktree add /home/jorgegv/tmp/worktrees/agent-<ID> -b <BRANCH> main
 ```
 
 ### 3. Provision the roms/ fixtures (ALWAYS — the tests need them)
 
 ```bash
-make -C /home/jorgegv/src/spectrum/jnext-worktrees/agent-<ID> worktree-bootstrap
+make -C /home/jorgegv/tmp/worktrees/agent-<ID> worktree-bootstrap
 ```
 
 `roms/*` is git-ignored, so a fresh worktree gets only the tracked `nextboot.rom`.
 Without the SD image, `make unit-test` and the regression suite cannot run. They now
 say so loudly instead of quietly reporting a smaller number (Task 37) — but the
 agent still can't work, so link the fixtures up front.
+
+**FPGA source for traceability:** from `~/tmp/worktrees` the traceability
+generator's upward search cannot find the FPGA checkout (it lives under
+`/home/jorgegv/src/spectrum/`, not an ancestor of the worktree), so every
+`make unit-test` / `make traceability-check` run in the worktree must export
+`JNEXT_FPGA_SRC=/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src`
+(the same mechanism CI uses). Without it the regenerated matrix differs and
+the staleness gate fails.
 
 ### 4. Sync demo artifacts (only if needed)
 
@@ -55,7 +63,7 @@ Per `feedback_worktree_demo_artifacts`, build artifacts under `demo/` aren't che
 rsync -a --include='*.nex' --include='*.bin' --include='*.tap' --include='*.tzx' \
       --include='*.wav' --include='*/' --exclude='*' \
       /home/jorgegv/src/spectrum/jnext/demo/ \
-      /home/jorgegv/src/spectrum/jnext-worktrees/agent-<ID>/demo/
+      /home/jorgegv/tmp/worktrees/agent-<ID>/demo/
 ```
 
 Skip this step if the agent doesn't need to run demos.
@@ -65,7 +73,7 @@ Skip this step if the agent doesn't need to run demos.
 This goes into the agent's prompt:
 
 ```
-WORKING DIRECTORY: /home/jorgegv/src/spectrum/jnext-worktrees/agent-<ID>
+WORKING DIRECTORY: /home/jorgegv/tmp/worktrees/agent-<ID>
 BRANCH: <BRANCH>
 BASE: main @ <SHA>
 
@@ -74,6 +82,8 @@ Hard rules per CLAUDE.md:
 - Do NOT write to main. Commit only on branch <BRANCH>.
 - Do NOT push. The user authorizes pushes separately.
 - Use `git -C <worktree-path> <cmd>` for git ops (not `cd ... && git ...`).
+- Run tests with JNEXT_FPGA_SRC=/home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src
+  exported (traceability cannot auto-discover the FPGA tree from this location).
 - When done, report:
   - List of commit SHAs on <BRANCH>
   - Triplet status on <BRANCH> (ctest / FUSE / regression)
@@ -93,7 +103,7 @@ Hard rules per CLAUDE.md:
 After the agent's branch is merged to main:
 
 ```bash
-git worktree remove /home/jorgegv/src/spectrum/jnext-worktrees/agent-<ID>
+git worktree remove /home/jorgegv/tmp/worktrees/agent-<ID>
 git branch -d <BRANCH>   # only if user authorizes
 ```
 
