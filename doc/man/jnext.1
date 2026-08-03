@@ -267,6 +267,25 @@ Headless only, repeatable.
 Press \f[I]KEY\f[R] after \f[I]N\f[R] emulated frames.
 Overrides the seconds form.
 .TP
+\f[B]\-\-delayed\-nmi\f[R] \f[I]SECS\f[R] \f[I]BUTTON\f[R]
+Press an NMI \f[I]BUTTON\f[R] after \f[I]SECS\f[R] seconds.
+Headless only, repeatable.
+\f[I]BUTTON\f[R] is case\-insensitive and names which of the two NMI
+buttons to press: \f[CR]mf\f[R] (or \f[CR]m1\f[R]) for the Multiface M1
+button, \f[CR]divmmc\f[R] (or \f[CR]drive\f[R]) for the DivMMC DRIVE
+button.
+The press goes through the same path as the host F9 / F10 hotkeys, so it
+is subject to the same enable gates \(em NextREG 0x06 bit 3 for the
+Multiface, bit 4 plus NextREG 0x83 bit 0 for the DivMMC \(em and a press
+with its gate closed does nothing, exactly as on hardware.
+One press generates one NMI, not a repeating one.
+.TP
+\f[B]\-\-delayed\-nmi\-frames\f[R] \f[I]N\f[R] \f[I]BUTTON\f[R]
+Press \f[I]BUTTON\f[R] after \f[I]N\f[R] emulated frames.
+This is the frames\-unit spelling of \f[B]\-\-delayed\-nmi\f[R], not an
+override of it: both forms queue into the same list, so giving both
+schedules two presses.
+.TP
 \f[B]\-\-compositor\-trace\f[R] \f[I]FILE\f[R]
 Dump a per\-pixel compositor trace (CSV) for one frame.
 .TP

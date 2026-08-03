@@ -84,6 +84,8 @@ enum class OptId {
     Joy2Source,
     DelayedKeypress,
     DelayedKeypressFrames,
+    DelayedNmi,
+    DelayedNmiFrames,
     RewindBufferSize,
     Trace,
     CompositorTrace,
@@ -221,9 +223,11 @@ inline constexpr Option OPTIONS[] = {
     { "--delayed-automatic-exit-frames", 1, Doc::Documented, OptId::DelayedAutomaticExitFrames },
     { "--delayed-snapshot",          1, Doc::Documented, OptId::DelayedSnapshot },
     { "--delayed-snapshot-frames",   1, Doc::Documented, OptId::DelayedSnapshotFrames },
-    // The only two-value options: SECS/N and KEY are consumed together.
+    // The two-value options: SECS/N and KEY (or BUTTON) are consumed together.
     { "--delayed-keypress",          2, Doc::Documented, OptId::DelayedKeypress },
     { "--delayed-keypress-frames",   2, Doc::Documented, OptId::DelayedKeypressFrames },
+    { "--delayed-nmi",               2, Doc::Documented, OptId::DelayedNmi },
+    { "--delayed-nmi-frames",        2, Doc::Documented, OptId::DelayedNmiFrames },
     { "--compositor-trace",          1, Doc::Documented, OptId::CompositorTrace },
     { "--compositor-trace-frame",    1, Doc::Documented, OptId::CompositorTraceFrame },
 
