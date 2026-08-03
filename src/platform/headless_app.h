@@ -81,13 +81,15 @@ public:
 
     /// Schedule a hardware NMI BUTTON press after a delay, so an NMI
     /// handler can be exercised headlessly (GH #209). `button` is
-    /// case-insensitive and names which of the Next's two NMI buttons
-    /// to press — they are separate buttons with separate enable gates,
-    /// so there is no default:
-    ///   - "mf" / "m1"      : the Multiface M1 button (host F9)
-    ///   - "divmmc" / "drive": the DivMMC DRIVE button (host F10)
-    /// Returns false (and schedules nothing) if the name is not
-    /// recognised — the caller must fail loudly, never drop a press.
+    /// case-insensitive and names which button to press, spelled as the
+    /// label on a real Next's case. Two of its three buttons raise an
+    /// NMI, and they have separate enable gates, so there is no default:
+    ///   - "nmi"   (aliases "mf", "m1")  : the NMI button   (Multiface, host F9)
+    ///   - "drive" (alias  "divmmc")     : the DRIVE button (DivMMC,    host F10)
+    /// RESET is the third button and is not an NMI source, so it is not
+    /// a name here. Returns false (and schedules nothing) if the name is
+    /// not recognised — including the empty string — because the caller
+    /// must fail loudly rather than drop a press.
     ///
     /// The press goes through `Emulator::on_hotkey_f9_mf_nmi()` /
     /// `on_hotkey_f10_divmmc_nmi()`, the SAME seam the GUI and SDL
