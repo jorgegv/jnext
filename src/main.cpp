@@ -141,13 +141,16 @@ static void print_usage(const char* prog) {
         "  --trace                 Enable the per-instruction trace log (10K-entry ring;\n"
         "                          implied by --rewind-buffer-size N with N>0)\n"
         "  --delayed-keypress SECS KEY  Press KEY after SECS seconds (headless only, repeatable)\n"
-        "  --delayed-keypress-frames N KEY  Press KEY after N emulated frames (overrides SECS form)\n"
+        "  --delayed-keypress-frames N KEY  Press KEY after N emulated frames (frames-unit\n"
+        "                               spelling of --delayed-keypress; both forms queue, not override)\n"
         "                               KEY (case-insensitive): single char (a-z 0-9 . , ; :),\n"
         "                               ENTER / RETURN / SPACE / UP / DOWN / LEFT / RIGHT,\n"
         "                               or a compound sym+<char> / caps+<char> (e.g. sym+m = '.')\n"
         "  --delayed-nmi SECS BUTTON  Press an NMI BUTTON after SECS seconds (headless only,\n"
-        "                               repeatable). BUTTON (case-insensitive): mf / m1 =\n"
-        "                               Multiface M1 button, divmmc / drive = DivMMC DRIVE button\n"
+        "                               repeatable). BUTTON (case-insensitive) is the label on\n"
+        "                               the real case: nmi (aliases mf, m1) = the NMI button,\n"
+        "                               driven by the Multiface; drive (alias divmmc) = the DRIVE\n"
+        "                               button, driven by DivMMC. RESET is not an NMI button\n"
         "  --delayed-nmi-frames N BUTTON  Press BUTTON after N emulated frames (frames-unit\n"
         "                               spelling of --delayed-nmi; both forms queue, not override)\n"
         "  --compositor-trace FILE  Dump per-pixel compositor trace (CSV) for one frame to FILE\n"
@@ -542,10 +545,12 @@ int main(int argc, char* argv[]) {
                 // name here (GH #209).
                 const bool in_frames = (opt->id == cli::OptId::DelayedNmiFrames);
                 int dn_n = std::stoi(v[0]);
-                std::string dn_button = v[1];
-                if (!dn_button.empty()) {
-                    delayed_nmis.push_back({dn_n, dn_button, in_frames});
-                }
+                // Queued UNCONDITIONALLY, including an empty name: the
+                // parser below rejects what it does not recognise, and an
+                // empty BUTTON is exactly such a name. Skipping it here
+                // instead would drop the press silently, which is the one
+                // outcome this option must never produce.
+                delayed_nmis.push_back({dn_n, v[1], in_frames});
                 break;
             }
             case cli::OptId::RewindBufferSize:
@@ -1061,8 +1066,9 @@ int main(int argc, char* argv[]) {
                 : app.set_delayed_nmi_seconds(dn.button, dn.delay);
             if (!ok) {
                 fprintf(stderr, "Unknown --delayed-nmi button name: '%s'\n"
-                        "Valid: mf (or m1) = Multiface M1 button, "
-                        "divmmc (or drive) = DivMMC DRIVE button\n",
+                        "Valid: nmi (or mf, m1)  = the NMI button   (Multiface)\n"
+                        "       drive (or divmmc) = the DRIVE button (DivMMC)\n"
+                        "(RESET is not an NMI button)\n",
                         dn.button.c_str());
                 return 1;
             }

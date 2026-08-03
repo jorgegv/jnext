@@ -309,17 +309,22 @@ Delay in frames for **--delayed-snapshot** (default 0).
 Press *KEY* after *SECS* seconds. Headless only, repeatable.
 
 **--delayed-keypress-frames** *N* *KEY*  
-Press *KEY* after *N* emulated frames. Overrides the seconds form.
+Press *KEY* after *N* emulated frames. This is the frames-unit spelling
+of **--delayed-keypress**, not an override of it: both forms queue into
+the same list, so giving both schedules two keypresses.
 
 **--delayed-nmi** *SECS* *BUTTON*  
 Press an NMI *BUTTON* after *SECS* seconds. Headless only, repeatable.
-*BUTTON* is case-insensitive and names which of the two NMI buttons to
-press: `mf` (or `m1`) for the Multiface M1 button, `divmmc` (or `drive`)
-for the DivMMC DRIVE button. The press goes through the same path as the
-host F9 / F10 hotkeys, so it is subject to the same enable gates —
-NextREG 0x06 bit 3 for the Multiface, bit 4 plus NextREG 0x83 bit 0 for
-the DivMMC — and a press with its gate closed does nothing, exactly as
-on hardware. One press generates one NMI, not a repeating one.
+*BUTTON* is case-insensitive and names which button to press, spelled as
+the label on a real Next’s case. Of its three buttons, two raise an NMI:
+`nmi` (aliases `mf`, `m1`) is the **NMI** button, wired to the
+Multiface; `drive` (alias `divmmc`) is the **DRIVE** button, wired to
+the DivMMC. **RESET** is not an NMI button and is not accepted here. The
+press goes through the same path as the host F9 / F10 hotkeys, so it is
+subject to the same enable gates — NextREG 0x06 bit 3 for the Multiface,
+bit 4 plus NextREG 0x83 bit 0 for the DivMMC — and a press with its gate
+closed does nothing, exactly as on hardware. One press generates one
+NMI, not a repeating one.
 
 **--delayed-nmi-frames** *N* *BUTTON*  
 Press *BUTTON* after *N* emulated frames. This is the frames-unit
