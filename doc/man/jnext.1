@@ -265,7 +265,9 @@ Headless only, repeatable.
 .TP
 \f[B]\-\-delayed\-keypress\-frames\f[R] \f[I]N\f[R] \f[I]KEY\f[R]
 Press \f[I]KEY\f[R] after \f[I]N\f[R] emulated frames.
-Overrides the seconds form.
+This is the frames\-unit spelling of \f[B]\-\-delayed\-keypress\f[R],
+not an override of it: both forms queue into the same list, so giving
+both schedules two keypresses.
 .TP
 \f[B]\-\-delayed\-nmi\f[R] \f[I]SECS\f[R] \f[I]BUTTON\f[R]
 Press an NMI \f[I]BUTTON\f[R] after \f[I]SECS\f[R] seconds.

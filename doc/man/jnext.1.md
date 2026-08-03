@@ -250,7 +250,9 @@ debugger ones.
 :   Press *KEY* after *SECS* seconds. Headless only, repeatable.
 
 **\--delayed-keypress-frames** *N* *KEY*
-:   Press *KEY* after *N* emulated frames. Overrides the seconds form.
+:   Press *KEY* after *N* emulated frames. This is the frames-unit spelling of
+    **\--delayed-keypress**, not an override of it: both forms queue into the
+    same list, so giving both schedules two keypresses.
 
 **\--delayed-nmi** *SECS* *BUTTON*
 :   Press an NMI *BUTTON* after *SECS* seconds. Headless only, repeatable.
