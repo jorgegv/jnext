@@ -145,6 +145,11 @@ static void print_usage(const char* prog) {
         "                               KEY (case-insensitive): single char (a-z 0-9 . , ; :),\n"
         "                               ENTER / RETURN / SPACE / UP / DOWN / LEFT / RIGHT,\n"
         "                               or a compound sym+<char> / caps+<char> (e.g. sym+m = '.')\n"
+        "  --delayed-nmi SECS BUTTON  Press an NMI BUTTON after SECS seconds (headless only,\n"
+        "                               repeatable). BUTTON (case-insensitive): mf / m1 =\n"
+        "                               Multiface M1 button, divmmc / drive = DivMMC DRIVE button\n"
+        "  --delayed-nmi-frames N BUTTON  Press BUTTON after N emulated frames (frames-unit\n"
+        "                               spelling of --delayed-nmi; both forms queue, not override)\n"
         "  --compositor-trace FILE  Dump per-pixel compositor trace (CSV) for one frame to FILE\n"
         "  --compositor-trace-frame N  Target frame for --compositor-trace (default 250)\n"
         "  --profile               Enable the CPU T-state profiler (Task 21).\n"
@@ -254,6 +259,8 @@ int main(int argc, char* argv[]) {
     bool        joy_source_set[2] = { false, false };
     struct DelayedKeyArg { int delay; std::string key; bool in_frames; };
     std::vector<DelayedKeyArg> delayed_keys;
+    struct DelayedNmiArg { int delay; std::string button; bool in_frames; };
+    std::vector<DelayedNmiArg> delayed_nmis;
 
     // Parse command-line arguments.
     //
@@ -521,6 +528,23 @@ int main(int argc, char* argv[]) {
                 // names loudly (Task 57). Just store the raw name here.
                 if (!dk_key.empty()) {
                     delayed_keys.push_back({dk_n, dk_key, in_frames});
+                }
+                break;
+            }
+            case cli::OptId::DelayedNmi:
+            case cli::OptId::DelayedNmiFrames: {
+                // Same two-form shape as --delayed-keypress: SECS is
+                // converted to frames by HeadlessApp at run() start
+                // using the active machine's framerate; FRAMES is
+                // stored directly. Button-name parsing (mf/m1 vs
+                // divmmc/drive) lives in HeadlessApp::set_delayed_nmi,
+                // which rejects unknown names loudly. Store the raw
+                // name here (GH #209).
+                const bool in_frames = (opt->id == cli::OptId::DelayedNmiFrames);
+                int dn_n = std::stoi(v[0]);
+                std::string dn_button = v[1];
+                if (!dn_button.empty()) {
+                    delayed_nmis.push_back({dn_n, dn_button, in_frames});
                 }
                 break;
             }
@@ -1028,6 +1052,18 @@ int main(int argc, char* argv[]) {
                         "Valid: single char (a-z 0-9 . , ; :), ENTER, SPACE, "
                         "UP, DOWN, LEFT, RIGHT, sym+<char>, caps+<char>\n",
                         dk.key.c_str());
+                return 1;
+            }
+        }
+        for (auto& dn : delayed_nmis) {
+            const bool ok = dn.in_frames
+                ? app.set_delayed_nmi(dn.button, dn.delay)
+                : app.set_delayed_nmi_seconds(dn.button, dn.delay);
+            if (!ok) {
+                fprintf(stderr, "Unknown --delayed-nmi button name: '%s'\n"
+                        "Valid: mf (or m1) = Multiface M1 button, "
+                        "divmmc (or drive) = DivMMC DRIVE button\n",
+                        dn.button.c_str());
                 return 1;
             }
         }
