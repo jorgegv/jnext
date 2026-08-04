@@ -78,9 +78,10 @@
 ///     "reset the module between programs" is what the hardware demands too,
 ///     and a jnext-only auto-reset would be a divergence sold as a safety net.
 ///     A hard reset (jnext power-cycles the emulated ESP, `emulator.h`) and
-///     `AT+RST` both clear it; nextsync's own recovery path drives NR 0x02
-///     bit 7, which is the hardware reset line, so a client that resets before
-///     use is unaffected by construction.
+///     `AT+RST` both clear it. NR 0x02 bit 7 — the hardware reset line, and
+///     what nextsync's own recovery path drives — does NOT, because jnext
+///     only latches that bit for readback and nothing consumes it yet (design
+///     doc SS4.2). Do not cite it here as a protection until it is wired.
 ///
 /// Widening the surface (full datasheet-level fidelity) is tracked as its own
 /// v1.1 issue. Do not grow this file by guessing. What this file DOES do is

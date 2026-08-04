@@ -1439,10 +1439,15 @@ Three things bound it, and none of them is a fix:
   the first multiplexed, the second not, with no reset between them. A hard
   reset (jnext power-cycles the emulated ESP — see the member-order note in
   `emulator.h`) and `AT+RST` both clear it.
-- **nextsync's own recovery path already resets the module** — it drives
-  NR 0x02 bit 7, the hardware reset line (`nextsync.c:396-399`,
-  [§4.2](#42-a-real-esp-reset-line-does-exist--nextreg-0x02-bit-7)) — so a
-  client that resets before use is unaffected by construction.
+- **NR 0x02 bit 7 does NOT currently help**, and saying otherwise would be
+  worse than saying nothing. nextsync's "Resetting esp, try again" recovery
+  path drives that hardware reset line (`nextsync.c:396-399`), but jnext only
+  LATCHES the bit for readback and save-state — nothing consumes it, as
+  [§4.2](#42-a-real-esp-reset-line-does-exist--nextreg-0x02-bit-7) states
+  plainly. So in jnext as built, a client writing it does NOT clear a sticky
+  `cipmux_`. Wiring that bit to a device-facing ESP reset is already recorded
+  in §4.2 as a real future requirement; when it lands it will close this
+  window too, and this bullet should be revisited then.
 
 Recorded as a **disclosure**, therefore, not as a defect: the behaviour is
 correct, and what was missing was the sentence saying when the guarantee
