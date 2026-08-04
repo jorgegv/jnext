@@ -38,7 +38,14 @@ opens it. A collision makes the row fail loudly (no connection) rather than
 pass wrongly, and the kernel does not hand out a just-released ephemeral port
 again in any hurry.
 
-Usage: esp-server-peer.py <guest.bin> <ready.txt> <received.bin>
+Usage: esp-server-peer.py <guest.bin> <ready.txt> <received.bin> [--lan]
+
+With `--lan` the client dials this host's own RFC1918 address instead of
+127.0.0.1, which is how `esp-server-lan-func` proves that
+`--esp-listen-address` reaches the socket rather than only the log: a guest
+listening on the DEFAULT is unreachable that way, so the connection succeeds
+only if the flag really moved the bind. Exit 3 = this host has no RFC1918
+address (the shell turns that into a SKIP).
 """
 
 import importlib.util
@@ -95,10 +102,12 @@ def build_guest(port):
     return GUEST_CODE + bytes(SCRIPT_TABLE_ORG - 0x8000 - len(GUEST_CODE)) + table
 
 
-def free_port():
+def free_port(ip):
+    """A port free on `ip` itself — probed there, not on loopback, because a
+    port free on one local address is not necessarily free on another."""
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     try:
-        s.bind(("127.0.0.1", 0))
+        s.bind((ip, 0))
         return s.getsockname()[1]
     finally:
         s.close()
@@ -106,25 +115,38 @@ def free_port():
 
 def main(argv):
     guest_path, ready_path, received_path = argv[1], argv[2], argv[3]
+    want_lan = "--lan" in argv[4:]
 
-    port = free_port()
+    if want_lan:
+        # The host's own private address. Reused from the loopback peer rather
+        # than reimplemented — same UDP-connect probe, and the same reasoning
+        # about why no packet leaves the machine.
+        ip = _loopback.local_ipv4()
+        if not _loopback.is_rfc1918(ip):
+            print("no RFC1918 IPv4 on this host (got %r); there is no non-loopback "
+                  "address to prove the widened bind against" % (ip,))
+            return 3
+    else:
+        ip = "127.0.0.1"
+
+    port = free_port(ip)
     with open(guest_path, "wb") as f:
         f.write(build_guest(port))
     # Written LAST: the shell waits for this file before starting jnext, so it
     # must not appear before the guest binary is complete.
     with open(ready_path, "w") as f:
-        f.write("127.0.0.1 %d\n" % port)
+        f.write("%s %d\n" % (ip, port))
 
     deadline = time.time() + CONNECT_TIMEOUT_S
     conn = None
     while time.time() < deadline:
         try:
-            conn = socket.create_connection(("127.0.0.1", port), timeout=2)
+            conn = socket.create_connection((ip, port), timeout=2)
             break
         except OSError:
             time.sleep(0.2)
     if conn is None:
-        print("peer: nothing accepted a connection on 127.0.0.1:%d" % port)
+        print("peer: nothing accepted a connection on %s:%d" % (ip, port))
         return 1
 
     conn.settimeout(WATCHDOG_S)

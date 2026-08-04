@@ -48,7 +48,7 @@ mentions them, so a test can no longer be absent from this document.
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    52 |   52 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   190 |  186 |    0 |    4 |       0 |          0 |
-| ESP-01 AT engine                           |   230 |  230 |    0 |    0 |       0 |          0 |
+| ESP-01 AT engine                           |   232 |  232 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |    59 |   59 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    14 |   14 |    0 |    0 |       0 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4210 | 3954 |    0 |    5 |     251 |          0 |
+| **Total**                                  |  4212 | 3956 |    0 |    5 |     251 |          0 |
 
-Rows the sections above carry: **4210**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4029**. Rows the 91 suites declared in `test/unit-tests.conf` run live: **6742**.
+Rows the sections above carry: **4212**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4031**. Rows the 91 suites declared in `test/unit-tests.conf` run live: **6744**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3966,54 +3966,56 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | MUX-11 | a CIPMUX=1 session's outbound connection sees +IPD,<id>,<len>: with id 0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1793 |
 | MUX-12 | a connection opened under CIPMUX=0 keeps the unmultiplexed +IPD even after the mode command is attempted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1806 |
 | MUX-13 | and its CLOSED stays unprefixed — NXtel matches a 5-byte 'OSED\r' window | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1814 |
-| MUX-03 | AT+CIPMUX=2 is not a mode — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1820 |
-| MUX-04 | AT+CIPMUX with no argument — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1822 |
-| MUX-05 | AT+CIPMUX=1 is refused while a connection is open | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1830 |
-| MUX-05b | ...and the mode really did not move | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1832 |
-| MUX-06 | AT+CIPMUX=0 while a connection is open is a NO-OP, still OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1840 |
-| MUX-07 | AT+CIPMUX=0 is refused while the server is listening — a server is a promise of multiplexed framing to whoever connects next | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1845 |
-| MUX-07b | ...and the server is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1849 |
-| MUX-08 | AT+RST restores the CIPMUX=0 power-on default | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1853 |
-| SRV-01 | AT+CIPSERVER=1 without AT+CIPMUX=1 first is ERROR (ESP-AT: a server can only be created when multiple connections are activated) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1859 |
-| SRV-01b | ...and nothing was bound | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1863 |
-| SRV-02 | AT+CIPSERVER=1,<port> answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1867 |
-| SRV-02b | ...and the listener really bound that port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1868 |
-| SRV-03 | port 0 is refused although the socket layer accepts it: it means 'let the OS choose', and a guest that named no port cannot be told which it got | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1872 |
-| SRV-04 | AT+CIPSERVER=1 with no port is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1879 |
-| SRV-05 | trailing arguments are refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1883 |
-| SRV-06 | mode 2 does not exist — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1888 |
-| SRV-07 | a bind failure answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1896 |
-| SRV-07b | ...and leaves nothing listening | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1897 |
-| SRV-07c | ...having tried exactly once — no retry, no fallback port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1898 |
-| SRV-08 | a second AT+CIPSERVER=1 while one is running is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1903 |
-| SRV-08b | ...and the running server is untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1905 |
-| SRV-09 | an engine built with NO listener answers ERROR to CIPSERVER | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1916 |
-| SRV-09b | ...and reports no server | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1918 |
-| SRV-10 | AT+CIPSERVER=0 stops the server and answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1922 |
-| SRV-10b | ...and the port is released | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1924 |
-| SRV-11 | AT+CIPSERVER=0 with no server running is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1932 |
-| SRV-12 | ESP-AT's <close_all> argument is refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1937 |
-| SRV-12b | ...and the server is still running | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1939 |
-| SRV-13 | AT+RST closes the server — a listening port that outlived the module that opened it is how this leaks | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1943 |
-| SRV-14 | an accepted connection is announced as <id>,CONNECT | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1956 |
-| SRV-14b | ...and occupies one inbound slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1958 |
-| SRV-15 | its inbound data is framed with the multiplexed +IPD | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1965 |
-| SRV-16 | AT+CIPSEND=<id>,<len> issues the same prompt, byte for byte | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1972 |
-| SRV-16b | ...and the payload is acknowledged | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1975 |
-| SRV-16c | ...having reached THAT connection's transport | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1977 |
-| SRV-16d | ...and not the outbound one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1978 |
-| SRV-17 | the single-connection AT+CIPSEND=<len> form is ERROR under CIPMUX=1 — the argument list is read from the MODE, never sniffed from the text | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1984 |
-| SRV-18 | AT+CIPSEND to a link id with no connection is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1993 |
-| SRV-19 | a peer close is announced as <id>,CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2003 |
-| SRV-19b | ...and the slot is free again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2005 |
-| SRV-20 | a released slot is reused, so the next peer is id 1 again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2014 |
-| SRV-21 | four peers are accepted as ids 1..4, in order | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2024 |
-| SRV-21b | ...and the fifth is closed rather than silently held | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2026 |
-| SRV-22 | an inbound connection never takes slot 0 — AT+CIPSTART still works while a peer is connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2035 |
-| SRV-22b | ...and both connections are live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2038 |
-| SRV-23 | an established inbound connection survives AT+CIPSERVER=0 and keeps delivering | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2049 |
-| SRV-24 | slot 0's transport survives its own connection closing — a reconnect after CLOSED still works | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2066 |
-| SRV-25 | ...and survives AT+RST sweeping every slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2074 |
+| MUX-14 | AT+CIPCLOSE on a CIPMUX=0 connection answers the v1.0 bytes exactly | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1826 |
+| MUX-15 | ...and on a CIPMUX=1 connection it carries the id, like every other CLOSED path | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1833 |
+| MUX-03 | AT+CIPMUX=2 is not a mode — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1839 |
+| MUX-04 | AT+CIPMUX with no argument — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1841 |
+| MUX-05 | AT+CIPMUX=1 is refused while a connection is open | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1849 |
+| MUX-05b | ...and the mode really did not move | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1851 |
+| MUX-06 | AT+CIPMUX=0 while a connection is open is a NO-OP, still OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1859 |
+| MUX-07 | AT+CIPMUX=0 is refused while the server is listening — a server is a promise of multiplexed framing to whoever connects next | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1864 |
+| MUX-07b | ...and the server is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1868 |
+| MUX-08 | AT+RST restores the CIPMUX=0 power-on default | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1872 |
+| SRV-01 | AT+CIPSERVER=1 without AT+CIPMUX=1 first is ERROR (ESP-AT: a server can only be created when multiple connections are activated) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1878 |
+| SRV-01b | ...and nothing was bound | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1882 |
+| SRV-02 | AT+CIPSERVER=1,<port> answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1886 |
+| SRV-02b | ...and the listener really bound that port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1887 |
+| SRV-03 | port 0 is refused although the socket layer accepts it: it means 'let the OS choose', and a guest that named no port cannot be told which it got | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1891 |
+| SRV-04 | AT+CIPSERVER=1 with no port is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1898 |
+| SRV-05 | trailing arguments are refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1902 |
+| SRV-06 | mode 2 does not exist — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1907 |
+| SRV-07 | a bind failure answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1915 |
+| SRV-07b | ...and leaves nothing listening | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1916 |
+| SRV-07c | ...having tried exactly once — no retry, no fallback port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1917 |
+| SRV-08 | a second AT+CIPSERVER=1 while one is running is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1922 |
+| SRV-08b | ...and the running server is untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1924 |
+| SRV-09 | an engine built with NO listener answers ERROR to CIPSERVER | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1935 |
+| SRV-09b | ...and reports no server | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1937 |
+| SRV-10 | AT+CIPSERVER=0 stops the server and answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1941 |
+| SRV-10b | ...and the port is released | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1943 |
+| SRV-11 | AT+CIPSERVER=0 with no server running is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1951 |
+| SRV-12 | ESP-AT's <close_all> argument is refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1956 |
+| SRV-12b | ...and the server is still running | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1958 |
+| SRV-13 | AT+RST closes the server — a listening port that outlived the module that opened it is how this leaks | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1962 |
+| SRV-14 | an accepted connection is announced as <id>,CONNECT | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1975 |
+| SRV-14b | ...and occupies one inbound slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1977 |
+| SRV-15 | its inbound data is framed with the multiplexed +IPD | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1984 |
+| SRV-16 | AT+CIPSEND=<id>,<len> issues the same prompt, byte for byte | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1991 |
+| SRV-16b | ...and the payload is acknowledged | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1994 |
+| SRV-16c | ...having reached THAT connection's transport | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1996 |
+| SRV-16d | ...and not the outbound one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1997 |
+| SRV-17 | the single-connection AT+CIPSEND=<len> form is ERROR under CIPMUX=1 — the argument list is read from the MODE, never sniffed from the text | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2003 |
+| SRV-18 | AT+CIPSEND to a link id with no connection is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2012 |
+| SRV-19 | a peer close is announced as <id>,CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2022 |
+| SRV-19b | ...and the slot is free again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2024 |
+| SRV-20 | a released slot is reused, so the next peer is id 1 again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2033 |
+| SRV-21 | four peers are accepted as ids 1..4, in order | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2043 |
+| SRV-21b | ...and the fifth is closed rather than silently held | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2045 |
+| SRV-22 | an inbound connection never takes slot 0 — AT+CIPSTART still works while a peer is connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2054 |
+| SRV-22b | ...and both connections are live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2057 |
+| SRV-23 | an established inbound connection survives AT+CIPSERVER=0 and keeps delivering | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2068 |
+| SRV-24 | slot 0's transport survives its own connection closing — a reconnect after CLOSED still works | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2085 |
+| SRV-25 | ...and survives AT+RST sweeping every slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2093 |
 
 ## ESP-01 jnext UART adapter — `test/esp/esp_uart_adapter_test.cpp`
 
