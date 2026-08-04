@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -34,22 +35,53 @@
 /// and nextsync (`sync/nextsync.c`). Nothing here is speculative, and the
 /// omissions are as deliberate as the inclusions:
 ///
-///   * NO server/listen mode. `AT+CIPSERVER` appears exactly once in all the
-///     software examined, and only to turn it OFF. Not building it also
-///     removes the inbound attack surface the issue was worried about.
-///   * NO passthrough (`AT+CIPMODE`). Zero consumers anywhere.
+///   * SERVER MODE IS IMPLEMENTED (GH #210). It was omitted from v1.0 for want
+///     of a consumer — `AT+CIPSERVER` appeared exactly once in all the software
+///     examined, and only to turn it OFF — and `dezogif_ng` is one: a Z80 debug
+///     stub that must LISTEN, because DeZog always dials out and never listens.
+///     The inbound attack surface v1.0 avoided by not building it is answered
+///     by design doc §13.4 rather than by the absence: the listener binds
+///     LOOPBACK unless the user widens it, and nothing listens until the guest
+///     sends `AT+CIPSERVER` itself.
+///   * NO passthrough (`AT+CIPMODE`). Zero consumers anywhere, and server mode
+///     forbids it in any case (`CIPSERVER` needs `CIPMUX=1`, which needs
+///     `CIPMODE=0`), so the chosen design could not use it if it existed.
 ///   * UDP IS IMPLEMENTED (GH #198). It was omitted from v1.0 for want of a
 ///     consumer; `newt` (github.com/chris-y/newt, GPLv3) is one — its `sntp`
 ///     command is `AT+CIPSTART="UDP","<server>",123` followed by a 48-byte NTP
 ///     request and a `+IPD` reply. SSL is still out: still no consumer.
-///   * NO multiplexed connections. `AT+CIPMUX=1` is REFUSED with `ERROR`
-///     rather than accepted-and-ignored, because nextsync never sends
-///     `AT+CIPMUX` at all — it relies on the power-on default being 0 — and
-///     its `+IPD` reader silently CORRUPTS the multiplexed
-///     `+IPD,<id>,<len>:` form rather than rejecting it (see
+///   * MULTIPLEXED CONNECTIONS ARE IMPLEMENTED (GH #210), and the reasoning
+///     that made v1.0 REFUSE `AT+CIPMUX=1` survives intact rather than being
+///     overturned. nextsync never sends `AT+CIPMUX` at all — it relies on the
+///     power-on default being 0 — and its `+IPD` reader silently CORRUPTS the
+///     multiplexed `+IPD,<id>,<len>:` form rather than rejecting it (see
 ///     `queue_ipd_header` for the exact mechanism). Since no command can
-///     correct a wrong default at runtime, the default has to be right and the
-///     wrong value has to be rejected loudly.
+///     correct a wrong default at runtime, THE DEFAULT STAYS 0: accepting the
+///     command is not the same as changing the default, and the default is the
+///     part nextsync depends on. The multiplexed form reaches only a connection
+///     that was opened by a session which asked for it, and `Connection::
+///     multiplexed` is where that is recorded.
+///
+///     THE GUARANTEE HAS A PRECONDITION, AND IT IS THIS: "nextsync keeps
+///     working" holds from a FRESH POWER-ON, or after an `AT+RST`. It is not a
+///     property of every moment. `cipmux_` is module state, not per-program
+///     state, and nothing resets it when the guest loads a different program —
+///     a SOFT reset deliberately preserves the whole ESP, connection and all
+///     (the module is on the far end of a cable and does not see the Next's
+///     reset line; design doc §4.3). So a program that sets `AT+CIPMUX=1` and
+///     exits leaves it set, and a nextsync started in the SAME power cycle with
+///     no intervening `AT+RST` has its own outbound connection captured
+///     `multiplexed = true` and receives the framing its reader silently
+///     corrupts.
+///     THIS IS FIRMWARE-FAITHFUL — a real ESP-01 is sticky in exactly the same
+///     way, for exactly the same reason — so it is DISCLOSED rather than fixed:
+///     "reset the module between programs" is what the hardware demands too,
+///     and a jnext-only auto-reset would be a divergence sold as a safety net.
+///     A hard reset (jnext power-cycles the emulated ESP, `emulator.h`) and
+///     `AT+RST` both clear it. NR 0x02 bit 7 — the hardware reset line, and
+///     what nextsync's own recovery path drives — does NOT, because jnext
+///     only latches that bit for readback and nothing consumes it yet (design
+///     doc SS4.2). Do not cite it here as a protection until it is wired.
 ///
 /// Widening the surface (full datasheet-level fidelity) is tracked as its own
 /// v1.1 issue. Do not grow this file by guessing. What this file DOES do is
@@ -233,26 +265,67 @@
 ///     the budget. Unlikely on localhost/LAN and not deterministically
 ///     unit-testable, so it is recorded as a known characteristic rather than
 ///     defended by a floor the code does not implement.
+///  8. SERVER MODE DEVIATES FROM THE FIRMWARE IN FOUR PLACES (GH #210), and
+///     each one is a decision rather than an omission. Design doc §13.7 is the
+///     long form.
+///     (a) AN INBOUND CONNECTION NEVER TAKES SLOT 0. Real firmware would give
+///         the first client id 0; here ids 1..4 are the inbound ones. Slot 0's
+///         transport is the one handed in at construction and it is the ONLY
+///         object that can serve an `AT+CIPSTART`, so letting a peer take that
+///         slot would cost the guest its outbound capability for the rest of
+///         the session. The first `<id>,CONNECT` is therefore `1,CONNECT`.
+///     (b) `AT+CIPSERVER=0` WITH NO SERVER RUNNING ANSWERS `ERROR`. Real
+///         firmware answers `OK`. The one appearance of `AT+CIPSERVER` in all
+///         the software surveyed is a client turning it OFF at init — which
+///         v1.0 answered `ERROR` (an unknown command) and which that client
+///         evidently survives. Answering `ERROR` keeps that path
+///         byte-identical; answering `OK` would change an evidenced client's
+///         input on no evidence at all. It also matches `AT+CIPCLOSE` with
+///         nothing open, where the `ERROR` is load-bearing.
+///     (c) `AT+CIPMUX=<n>` REFUSES A CHANGE, NOT THE COMMAND. Real firmware
+///         refuses `AT+CIPMUX` outright while a connection is open; here a
+///         request for the mode that is ALREADY in force still answers `OK`.
+///         That is what keeps `AT+CIPMUX=0` — which NXtel sends at init and
+///         which v1.0 always answered `OK` — behaving exactly as it did. A
+///         genuine change is refused, which is the part that matters: switching
+///         framing under a live peer hands it a wire format it never
+///         negotiated.
+///     (d) THERE IS NO `AT+CIPCLOSE=<id>`. Real firmware needs it under
+///         `CIPMUX=1`, and no consumer of this asks for it: DeZog closes from
+///         its end, which arrives as `<id>,CLOSED` and frees the slot. The
+///         bare `AT+CIPCLOSE` keeps its v1.0 meaning — close the OUTBOUND
+///         connection — rather than acquiring a second one under `CIPMUX=1`,
+///         because nextsync loops that exact spelling and its behaviour must
+///         not depend on a mode nextsync never sets.
 ///
 /// ---------------------------------------------------------------------------
-/// SHAPED FOR v1.1 (issue #154) WITHOUT IMPLEMENTING ANY OF IT
+/// SHAPED FOR v1.1 (issue #154), AND TWO OF THE THREE HAVE NOW PAID
 /// ---------------------------------------------------------------------------
-/// Three structural choices cost nothing today and are the class of thing a
-/// later branch cannot cheaply retrofit:
+/// Three structural choices cost nothing when they were made and are the class
+/// of thing a later branch cannot cheaply retrofit. GH #210 is the branch that
+/// tested the claim, and it held: (A) and (B) really were filling in blanks.
 ///
 ///  A. CONNECTIONS ARE A TABLE, not "the connection". `conn_` is a fixed
 ///     array of `MAX_CONNECTIONS` slots and every per-connection field —
 ///     transport, host, port, buffers, close state — lives IN the slot. v1.0
-///     only ever touches `SINGLE_CID`, and only that slot is given a
-///     transport, but the state machine already speaks in connection ids.
+///     only ever touched `SINGLE_CID`; server mode fills slots 1..4 from the
+///     listener and changed no loop bound, because the state machine already
+///     spoke in connection ids.
+///     WHAT IT DID NOT COVER, since the prediction is only worth as much as its
+///     exceptions: the table said nothing about who OWNS a slot's transport.
+///     Slot 0's is borrowed and must not be freed, an accepted one is owned and
+///     must be — so `Connection::transport` became a `unique_ptr` with a
+///     stateful deleter (`TransportOwnership`) rather than a raw pointer plus a
+///     comment.
 ///  B. THE `+IPD` EMITTER TAKES AN ID AND A MULTIPLEXED FLAG. The wire format
 ///     genuinely differs (`+IPD,<len>:` vs `+IPD,<id>,<len>:`), so the choice
 ///     is made in ONE function rather than baked into the call site. v1.0
-///     passes `SINGLE_CID, false` and produces exactly the unmultiplexed
-///     bytes nextsync's FSM requires.
+///     passed `SINGLE_CID, false` everywhere; GH #210 passes the connection's
+///     own id and its own `multiplexed` flag, and touched nothing else.
 ///  C. AT DISPATCH IS A TABLE. `kCommands` maps a command string to a
 ///     uniform `void(const std::string& args)` member handler; adding the ~40
 ///     commands v1.1 wants is adding rows, not extending an if/else chain.
+///     `AT+CIPSERVER=` is one row.
 namespace esp {
 
 /// WHAT A DRIVER OF THE EMULATED ESP-01 SEES. Bytes in, bytes out, two service
@@ -318,6 +391,32 @@ public:
     virtual bool wants_tick() const = 0;
 };
 
+/// Frees an OWNED connection transport and leaves a BORROWED one alone.
+///
+/// THE OWNERSHIP IS IN THE TYPE, not in a comment beside a raw pointer, and
+/// that is worth a stateful deleter: the two kinds of connection slot really do
+/// have different lifetimes — slot 0's transport is handed in by reference at
+/// construction and outlives the engine, an accepted one is manufactured by the
+/// listener and dies with its connection — and a `delete` on the wrong one is a
+/// double free of an object the HOST still holds. Written as `EspTransport*`
+/// plus a `bool owned`, the invariant would have to be restated in every
+/// function that clears a slot; written this way, clearing a slot is
+/// `transport.reset()` and it is right by construction.
+///
+/// IT SITS AT NAMESPACE SCOPE ONLY BECAUSE IT CANNOT SIT INSIDE `AtEngine`,
+/// which is where it belongs: a deleter nested in a class that is still being
+/// defined, and not trivially default-constructible, is rejected by GCC 16
+/// ("could not convert '<brace-enclosed initializer list>()'") the moment the
+/// class default-initialises a `unique_ptr` using it. Moving it out is the
+/// smaller price than dropping the member initialiser and relying on
+/// value-initialisation to zero it.
+struct TransportOwnership {
+    bool owned = false;
+    void operator()(EspTransport* t) const {
+        if (owned) delete t;
+    }
+};
+
 class AtEngine : public EspDevice {
 public:
     /// Connection-slot ceiling. This is ESP-AT's own `AT+CIPMUX=1` limit
@@ -325,10 +424,20 @@ public:
     /// number. v1.0 uses SLOT 0 ONLY — see shape note (A).
     static constexpr std::size_t MAX_CONNECTIONS = 5;
 
-    /// The single connection id v1.0 ever uses. Every evidenced client either
-    /// sends `AT+CIPMUX=0` or (nextsync) relies on it being the power-on
-    /// default, so id 0 is the only one that can appear on the wire.
+    /// The connection id an OUTBOUND `AT+CIPSTART` always uses, and the only
+    /// one a `CIPMUX=0` session can ever see. Every evidenced v1.0 client
+    /// either sends `AT+CIPMUX=0` or (nextsync) relies on it being the power-on
+    /// default, so id 0 is the only one that can appear on their wire.
+    ///
+    /// It is also the only slot whose transport is BORROWED — handed in at
+    /// construction — which is why inbound connections start at
+    /// `FIRST_INBOUND_CID` instead of taking it (simplification 8a).
     static constexpr std::size_t SINGLE_CID = 0;
+
+    /// Lowest connection id an accepted inbound connection may occupy
+    /// (GH #210). Everything from here to `MAX_CONNECTIONS - 1` is inbound
+    /// territory, so a server can hold four clients at once.
+    static constexpr std::size_t FIRST_INBOUND_CID = SINGLE_CID + 1;
 
     /// Largest `AT+CIPSEND=<n>` accepted. Matches real ESP-AT firmware.
     static constexpr std::size_t MAX_SEND_LEN = 2048;
@@ -394,10 +503,19 @@ public:
     static constexpr const char* DNS1       = "192.168.1.1";
     static constexpr const char* DNS2       = "8.8.8.8";
 
-    /// Non-owning: the transport must outlive the engine. It becomes the
-    /// transport of connection slot `SINGLE_CID`; the remaining slots stay
-    /// transport-less, which is what makes them inert in v1.0.
-    explicit AtEngine(EspTransport& transport);
+    /// Non-owning, both of them: the transport and the listener must outlive
+    /// the engine. The transport becomes the BORROWED transport of connection
+    /// slot `SINGLE_CID`; slots `FIRST_INBOUND_CID`..`MAX_CONNECTIONS - 1`
+    /// start transport-less and are filled, with OWNED transports, by whatever
+    /// the listener accepts.
+    ///
+    /// A NULL LISTENER IS THE NORMAL CASE FOR A CONSUMER THAT WANTS NO SERVER,
+    /// and it is not a degraded mode: `AT+CIPSERVER=1,<port>` then answers
+    /// `ERROR`, which is the same refusal a failed bind gives and which every
+    /// client already handles. So "this build cannot listen" and "this port
+    /// could not be bound" look identical to the guest, deliberately — neither
+    /// tells it anything it can act on differently.
+    explicit AtEngine(EspTransport& transport, EspListener* listener = nullptr);
 
     // ── EspDevice ─────────────────────────────────────────────
 
@@ -471,6 +589,15 @@ public:
     // per-slot state they read is already indexed.
 
     bool        echo_enabled() const { return echo_; }
+    /// True after an accepted `AT+CIPMUX=1`. Power-on default FALSE, and that
+    /// is the property nextsync depends on — see the header note.
+    bool        cipmux() const { return cipmux_; }
+    /// True while `AT+CIPSERVER=1,<port>` has a port bound.
+    bool        server_listening() const;
+    /// The port the server is bound to; 0 when it is not listening.
+    std::uint16_t server_port() const;
+    /// How many connection slots hold a live inbound connection.
+    std::size_t inbound_connections() const;
     bool        connected() const { return conn_[SINGLE_CID].open; }
     /// What the live (or last requested) connection speaks.
     Protocol    protocol() const { return conn_[SINGLE_CID].protocol; }
@@ -497,16 +624,27 @@ public:
 private:
     enum class Mode : std::uint8_t { Command, Payload };
 
+    using TransportPtr = std::unique_ptr<EspTransport, TransportOwnership>;
+
     /// One connection slot. Everything that belongs to a connection rather
-    /// than to the module lives here, so that adding `AT+CIPMUX=1` later is a
-    /// loop bound change rather than a rewrite. In v1.0 only slot
-    /// `SINGLE_CID` is given a transport; the rest are permanently idle and
-    /// every loop skips them on the null check.
+    /// than to the module lives here, so that adding `AT+CIPMUX=1` was a
+    /// question of filling slots rather than a rewrite. Slot `SINGLE_CID`
+    /// holds the borrowed outbound transport; slots `FIRST_INBOUND_CID`
+    /// upwards hold owned, accepted ones and are transport-less — and
+    /// therefore skipped by every per-slot loop's null check — until a peer
+    /// connects.
     struct Connection {
-        EspTransport* transport     = nullptr;
+        TransportPtr  transport;
         bool          open          = false;  ///< live, send/recv are valid
         bool          connecting    = false;  ///< begin_connect issued, reply deferred
         bool          close_pending = false;  ///< closed; CLOSED owed once buffers drain
+        /// Whether THIS connection's URCs take the multiplexed wire form
+        /// (`+IPD,<id>,<len>:` and `<id>,CLOSED`). Captured from `cipmux_` when
+        /// the connection opens rather than read live, because it describes
+        /// what the peer at the other end was promised — and a peer must keep
+        /// the framing its session negotiated even if the guest's mode were
+        /// somehow to move underneath it.
+        bool          multiplexed   = false;
         std::string   host;
         std::uint16_t port = 0;
         /// What the guest asked for in `AT+CIPSTART`. Chosen per connection, so
@@ -579,6 +717,7 @@ private:
     void cmd_cipsendex(const std::string& args);
     void cmd_cipclose(const std::string& args);
     void cmd_cipmux(const std::string& args);
+    void cmd_cipserver(const std::string& args);
     void cmd_uart(const std::string& args);
     void cmd_gmr(const std::string& args);
     void cmd_cwjap(const std::string& args);
@@ -597,9 +736,14 @@ private:
     void queue_error() { queue("\r\nERROR\r\n"); }
 
     /// Queue a `+IPD` header. The ONE place the wire format is decided:
-    /// unmultiplexed `+IPD,<len>:` when `multiplexed` is false (always, in
-    /// v1.0), `+IPD,<id>,<len>:` when it is true. Emitting the multiplexed
-    /// form today would break nextsync outright, and WORSE THAN CLEANLY: its
+    /// unmultiplexed `+IPD,<len>:` when `multiplexed` is false,
+    /// `+IPD,<id>,<len>:` when it is true. The caller passes the CONNECTION's
+    /// own flag (`Connection::multiplexed`), never the engine's current mode,
+    /// so a session that did not ask for multiplexing cannot be handed the
+    /// multiplexed form by something another session did.
+    ///
+    /// Emitting the multiplexed form to a client that did not ask for it breaks
+    /// nextsync outright, and WORSE THAN CLEANLY: its
     /// reader accumulates before it validates —
     ///     `datalen += r - '0';`  then  `if (r != ':' && (r < '0' || r > '9')) return 0;`
     /// (`sync/nextsync.c`) — so the separating `,` is folded into the length as
@@ -616,6 +760,15 @@ private:
     void drain_socket(std::size_t cid);
     void note_peer_close(std::size_t cid);
     void frame_ipd();
+
+    /// Take whatever the listener accepted into a free inbound slot, and emit
+    /// the `<id>,CONNECT` that tells the guest about it. Engine state, so it
+    /// belongs to the LOCKED half — see `EspListener`'s poll/accept split.
+    void accept_connections();
+
+    /// Drop an inbound connection's transport and return its slot to the pool.
+    /// A no-op on `SINGLE_CID`, whose transport is borrowed and permanent.
+    void release_inbound(std::size_t cid);
 
     /// True while a `+IPD` may be framed: nothing already queued for the
     /// guest, no command line in flight, not mid-payload and no connect in
@@ -646,6 +799,16 @@ private:
     bool     tick_wanted_ = false;
 
     std::array<Connection, MAX_CONNECTIONS> conn_{};
+
+    /// Non-owning; null when the host built no server capability. The engine
+    /// never creates one — a listener needs a bind address, which is host
+    /// configuration and a security decision (design doc §13.4).
+    EspListener* listener_ = nullptr;
+
+    /// `AT+CIPMUX`. FALSE at power-on and after `AT+RST`, and that default is
+    /// load-bearing rather than arbitrary: nextsync never sends the command and
+    /// cannot survive the multiplexed `+IPD` form.
+    bool        cipmux_ = false;
 
     Mode        mode_ = Mode::Command;
     std::string line_;

@@ -117,6 +117,11 @@ static void print_usage(const char* prog) {
         "                           a separator); matching is exact and case-insensitive,\n"
         "                           and an IP literal must be listed as itself. Without\n"
         "                           any --esp-allow the guest may name any host.\n"
+        "  --esp-listen-address ADDR Bind AT+CIPSERVER to ADDR (default 127.0.0.1).\n"
+        "                           A numeric IP, never a name. The default means a\n"
+        "                           guest that opens a server is reachable only from\n"
+        "                           this machine; widening it (e.g. 0.0.0.0) exposes\n"
+        "                           the guest to the network and is deliberate.\n"
         "  --magic-port PORT        Enable magic debug port at PORT (hex, e.g. 0x00FF)\n"
         "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n"
         "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n"
@@ -237,6 +242,10 @@ int main(int argc, char* argv[]) {
     // and the saved-config reader cannot disagree about what an entry means.
     EspHostPolicy esp_allow;
     bool        esp_allow_set = false;
+    // GH #210 — where AT+CIPSERVER binds. Empty means "the user did not say",
+    // which leaves EmulatorConfig's loopback default in place; the flag is
+    // CLI-only, so there is no saved preference to merge against.
+    std::string esp_listen_address;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -446,6 +455,24 @@ int main(int argc, char* argv[]) {
                 }
                 esp_allow_set = true;
                 break;
+            case cli::OptId::EspListenAddress: {
+                // Validated HERE rather than at bind time, because a typo in a
+                // security control must be a usage error the user sees at once,
+                // not an `ERROR` the guest gets minutes later with no way to
+                // tell it from a port already in use.
+                esp::IpAddress parsed;
+                if (!esp::parse_ip(v[0], parsed)) {
+                    fprintf(stderr,
+                            "--esp-listen-address: ADDR must be a numeric IP address "
+                            "(e.g. 127.0.0.1 or 0.0.0.0), not \"%s\".\n"
+                            "  A name is rejected on purpose: a bind address resolved "
+                            "through DNS could change under you.\n",
+                            v[0]);
+                    return 1;
+                }
+                esp_listen_address = v[0];
+                break;
+            }
             case cli::OptId::MagicPort:
                 magic_port_enabled = true;
                 magic_port_address = static_cast<uint16_t>(std::stoul(v[0], nullptr, 0));
@@ -780,6 +807,9 @@ int main(int argc, char* argv[]) {
         cfg.joy_source[1]          = joy_source[1];
         cfg.esp_enabled            = esp_enabled;     // GH #25 (CLI value)
         cfg.esp_allowed_hosts      = esp_allow.allowed_hosts;
+        // GH #210. No merge and no saved form: an unset flag leaves the
+        // config's own loopback default, which is the safe value.
+        if (!esp_listen_address.empty()) cfg.esp_listen_address = esp_listen_address;
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -833,6 +863,12 @@ int main(int argc, char* argv[]) {
         // it reads as "I have restricted the ESP" when in fact the ESP is off.
         if (esp_allow_set && !cfg.esp_enabled) {
             fprintf(stderr, "--esp-allow requires the ESP to be enabled (--esp).\n");
+            return 1;
+        }
+        // Same reasoning: a bind address given for a module that is off reads
+        // as "I have configured where it listens" when nothing will listen.
+        if (!esp_listen_address.empty() && !cfg.esp_enabled) {
+            fprintf(stderr, "--esp-listen-address requires the ESP to be enabled (--esp).\n");
             return 1;
         }
         if (cfg.silent && !wav_record_file.empty()) {

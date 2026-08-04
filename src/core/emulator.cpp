@@ -7207,11 +7207,35 @@ void Emulator::setup_esp()
         esp::make_socket_transport(esp::AddressPolicy{}), std::move(host_policy),
         *esp_events_);
 
+    // GH #210 — the INBOUND half. Built here so that the bind address is fixed
+    // before anything can listen: the guest chooses the PORT with
+    // `AT+CIPSERVER`, never the address, which is what makes the user's
+    // `--esp-listen-address` (loopback unless they widened it) the boundary
+    // (design doc §13.4).
+    //
+    // A listener is created whenever the ESP is enabled, and it costs nothing
+    // until the guest asks: no socket exists until `AT+CIPSERVER=1,<port>`.
+    // There is deliberately no second host-side enable flag — the AT command IS
+    // the opt-in, and a guest that can already dial out is not made more
+    // dangerous by a gate it controls either way (§13.4's rejected alternative).
+    esp::IpAddress bind_ip;
+    if (esp::parse_ip(config_.esp_listen_address, bind_ip)) {
+        esp_listener_ = esp::make_socket_listener(bind_ip);
+    } else {
+        // Unreachable from the CLI, which validates the address and refuses at
+        // startup. Reachable from a caller that builds an EmulatorConfig by
+        // hand, and the answer there is to have NO server rather than to guess
+        // an address: AT+CIPSERVER then answers ERROR.
+        Log::esp01()->error(
+            "ESP listen address '{}' is not a numeric IP — AT+CIPSERVER will answer ERROR",
+            config_.esp_listen_address);
+    }
+
     // The THREADED wrapper, not the bare engine: it is what keeps
     // `EspTransport::poll()` off the frame loop, and its destructor joins the
     // worker (see the member declarations in emulator.h for why that matters
     // at exactly this address).
-    esp_device_ = std::make_unique<esp::ThreadedEsp>(*esp_transport_);
+    esp_device_ = std::make_unique<esp::ThreadedEsp>(*esp_transport_, esp_listener_.get());
     esp_adapter_ = std::make_unique<EspUartAdapter>(*esp_device_);
     esp_device_->start();
 
@@ -7233,6 +7257,14 @@ void Emulator::setup_esp()
         }
         Log::esp01()->info("ESP-01 enabled on UART 0 — allowed hosts: {}", list);
     }
+    // The INBOUND posture, said separately because it is a separate direction
+    // and the allowlist above has nothing to do with it (design doc §13.4).
+    // Named at startup for the same reason the allowlist is: a user who has
+    // widened it should be able to see that they did without a debugger.
+    Log::esp01()->info(
+        "ESP-01 server mode binds {} when the guest sends AT+CIPSERVER "
+        "(nothing listens until it does)",
+        config_.esp_listen_address);
 }
 
 void Emulator::service_esp_frame()

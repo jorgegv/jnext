@@ -233,13 +233,39 @@ Common cases:
 - **Nothing at all happens and the program hangs.** Run it once with `--no-esp`.
   If it behaves the same way, the problem is not the networking.
 
+## Letting a program listen
+
+A program can also **accept** connections instead of only making them: it sends
+`AT+CIPMUX=1`, then `AT+CIPSERVER=1,<port>`, and jnext listens on that port and
+hands it each connection that arrives. A debug stub running on the emulated Next
+needs exactly this, because a debugger on your PC dials out and never listens.
+
+Everything above is about which addresses a program may **dial**. A listening
+port points the other way — it exposes the **program** to whatever can reach the
+port — so the allowed-host list has nothing to say about it, and the boundary is
+the bind address instead:
+
+- by default the port is bound to `127.0.0.1`, so only this machine can reach
+  it. That is all the intended use needs, and it needs no flag;
+- `--esp-listen-address ADDR` widens it. `--esp-listen-address 0.0.0.0` means
+  any machine that can reach yours can talk to the running program, with no
+  authentication in front of it. That is why it has to be typed;
+- nothing listens until the program asks. You cannot open a port from the
+  command line, and no port survives a Power Reset;
+- if the port cannot be bound — already in use, or an address that is not
+  yours — the program is told `ERROR`. jnext never quietly picks a different
+  port or a wider address.
+
+Up to four programs can be connected at once, numbered from 1. Number 0 stays
+reserved for the program's own outbound connection, so opening a server never
+costs it the ability to dial out.
+
 ## What is not emulated yet
 
 The command set is the one **evidenced** in software that actually runs on a
-Next, so a few things a physical ESP-01 can do are not built:
+Next, so a couple of things a physical ESP-01 can do are not built:
 
-- **server / listen mode** (`AT+CIPSERVER`) — so nothing can connect *in*;
-- **multiplexed connections** and **transparent mode**;
+- **transparent mode** (`AT+CIPMODE`);
 - **TLS**, so a program cannot make an `https` request.
 
 UDP **is** emulated, including `AT+CIPSTART="UDP",…` with its optional local

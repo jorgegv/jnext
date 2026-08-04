@@ -151,11 +151,18 @@ by default and enabled with `--esp` (the GUI can persist that choice, which is
 why `--no-esp` also exists).
 
 The command set is deliberately narrow and every command in it is evidenced in
-software that actually runs on a Next. There is no server mode, no
-`AT+CIPMODE` passthrough, no SSL and no multiplexed connections — each omission
-because nothing uses it, and `AT+CIPMUX=1` is refused with `ERROR` rather than
-accepted and ignored, since a guest that assumed it worked would corrupt its own
-`+IPD` parsing.
+software that actually runs on a Next. There is no `AT+CIPMODE` passthrough and
+no SSL, because nothing uses either.
+
+**Server mode and multiplexing exist** (`AT+CIPMUX=1`, `AT+CIPSERVER=1,<port>`,
+`+IPD,<id>,<len>:`), added once a consumer appeared — a debug stub that has to
+listen, because the debugger on the PC only ever dials out. The constraint that
+shaped it is worth knowing before touching that code: **the power-on default
+stays `AT+CIPMUX=0`**, because nextsync never sends the command and its `+IPD`
+reader does not reject the multiplexed form — it silently mis-parses it. So the
+multiplexed framing reaches only a connection whose own session asked for it,
+and the listener binds loopback unless the user widens it with
+`--esp-listen-address`.
 
 ### Why it is a separate component, and what that costs
 

@@ -73,6 +73,48 @@ int fill_sockaddr(const IpAddress& ip, std::uint16_t port, sockaddr_storage& out
     return static_cast<int>(sizeof(sockaddr_in6));
 }
 
+/// Read `ip` and `port` back out of a sockaddr Winsock filled in — the inverse
+/// of `fill_sockaddr`. Twin of the POSIX function of the same name.
+bool read_sockaddr(const sockaddr_storage& sa, IpAddress& ip, std::uint16_t& port) {
+    ip = IpAddress{};
+    if (sa.ss_family == AF_INET) {
+        const auto* sin = reinterpret_cast<const sockaddr_in*>(&sa);
+        ip.family = IpFamily::V4;
+        std::memcpy(ip.bytes.data(), &sin->sin_addr, 4);
+        port = ntohs(sin->sin_port);
+        return true;
+    }
+    if (sa.ss_family == AF_INET6) {
+        const auto* sin6 = reinterpret_cast<const sockaddr_in6*>(&sa);
+        ip.family = IpFamily::V6;
+        std::memcpy(ip.bytes.data(), &sin6->sin6_addr, 16);
+        port = ntohs(sin6->sin6_port);
+        return true;
+    }
+    return false;
+}
+
+/// Put an accepted socket into the same shape an outbound one is created in.
+/// FIONBIO is set EXPLICITLY rather than relied on: Winsock documents that an
+/// accepted socket inherits the listening socket's properties, but the
+/// inheritance that is actually specified is of the WSAAsyncSelect /
+/// WSAEventSelect notification state — and the POSIX twin has to set it anyway
+/// (Linux does not inherit it), so setting it on both is what keeps the twins
+/// in lockstep instead of relying on a platform footnote.
+bool prepare_accepted(SOCKET s, std::string& err) {
+    u_long nonblocking = 1;
+    if (::ioctlsocket(s, FIONBIO, &nonblocking) != 0) {
+        err = wsa_text(::WSAGetLastError());
+        return false;
+    }
+    // Same reasoning as the outbound socket. (Windows has no SIGPIPE, so the
+    // SO_NOSIGPIPE half of the POSIX twin has no counterpart here.)
+    BOOL nodelay = TRUE;
+    ::setsockopt(s, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<const char*>(&nodelay),
+                 sizeof(nodelay));
+    return true;
+}
+
 /// Clamp to what Winsock's int-typed send/recv can express.
 int clamp_len(std::size_t len) {
     constexpr std::size_t kMax = 1u << 20;
@@ -296,6 +338,119 @@ std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool stream
     reset  = (e == WSAECONNRESET);
     err    = wsa_text(e);
     return 0;
+}
+
+NativeSocket open_listener(const IpAddress& ip, std::uint16_t port,
+                           std::uint16_t& bound_port, std::string& hardening_warning,
+                           std::string& err) {
+    bound_port = 0;
+    hardening_warning.clear();
+    const int    domain = (ip.family == IpFamily::V4) ? AF_INET : AF_INET6;
+    const SOCKET s      = ::socket(domain, SOCK_STREAM, IPPROTO_TCP);
+    if (s == INVALID_SOCKET) {
+        err = wsa_text(::WSAGetLastError());
+        return kInvalidSocket;
+    }
+
+    u_long nonblocking = 1;
+    if (::ioctlsocket(s, FIONBIO, &nonblocking) != 0) {
+        err = wsa_text(::WSAGetLastError());
+        ::closesocket(s);
+        return kInvalidSocket;
+    }
+
+    // SO_EXCLUSIVEADDRUSE, **not** SO_REUSEADDR — the twins diverge here on
+    // purpose, because the identically-named Winsock option does not mean what
+    // the POSIX one means. On Windows SO_REUSEADDR lets a DIFFERENT process
+    // bind the same address and port and take over the connections, which
+    // Microsoft documents as a hijacking hazard and answers with this option.
+    // Copying the POSIX flag name across would therefore turn a convenience
+    // into a way for any local process to steal a port carrying a debug
+    // protocol that has no authentication of any kind (design doc §13.4).
+    //
+    // WHAT IT COSTS, stated rather than glossed: this is stricter than the
+    // POSIX side, so a rebind to the same port while a previous connection is
+    // still in TIME_WAIT can fail with WSAEADDRINUSE where Linux would succeed.
+    // That surfaces as `AT+CIPSERVER=1,<port>` answering ERROR — loud and
+    // recoverable by retrying, which is exactly the outcome §13.4 asks for and
+    // strictly better than the silent alternative.
+    //
+    // AND THE RETURN VALUE IS CHECKED HERE ABOVE ALL, because on this platform
+    // the option is the security-relevant one: without it another local process
+    // can bind the same address and port and take the connections. Discarding
+    // the result would let a stated hardening measure fail with no diagnostic
+    // anywhere. The bind still proceeds — the loopback default is the primary
+    // defence — but it says so.
+    BOOL exclusive = TRUE;
+    if (::setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                     reinterpret_cast<const char*>(&exclusive), sizeof(exclusive)) != 0) {
+        hardening_warning = "SO_EXCLUSIVEADDRUSE could not be set: " +
+                            wsa_text(::WSAGetLastError()) +
+                            " — another local process may be able to bind this port";
+    }
+
+    sockaddr_storage sa{};
+    const int        len = fill_sockaddr(ip, port, sa);
+    if (len == 0) {
+        err = "unsupported address family";
+        ::closesocket(s);
+        return kInvalidSocket;
+    }
+    if (::bind(s, reinterpret_cast<sockaddr*>(&sa), len) != 0) {
+        err = wsa_text(::WSAGetLastError());
+        ::closesocket(s);
+        return kInvalidSocket;
+    }
+    if (::listen(s, kListenBacklog) != 0) {
+        err = wsa_text(::WSAGetLastError());
+        ::closesocket(s);
+        return kInvalidSocket;
+    }
+
+    sockaddr_storage bound{};
+    int              blen = sizeof(bound);
+    IpAddress        bound_ip;
+    if (::getsockname(s, reinterpret_cast<sockaddr*>(&bound), &blen) != 0 ||
+        !read_sockaddr(bound, bound_ip, bound_port) || bound_port == 0) {
+        // Same refusal as the POSIX twin, for the same reason.
+        err = "cannot read back the bound port";
+        ::closesocket(s);
+        return kInvalidSocket;
+    }
+    return static_cast<NativeSocket>(s);
+}
+
+NativeSocket accept_nonblocking(NativeSocket listener, IpAddress& peer,
+                                std::uint16_t& peer_port, bool& failed,
+                                std::string& err) {
+    failed    = false;
+    peer      = IpAddress{};
+    peer_port = 0;
+
+    sockaddr_storage sa{};
+    int              len = sizeof(sa);
+    const SOCKET     s =
+        ::accept(static_cast<SOCKET>(listener), reinterpret_cast<sockaddr*>(&sa), &len);
+    if (s == INVALID_SOCKET) {
+        const int e = ::WSAGetLastError();
+        if (would_block(e)) return kInvalidSocket;
+        // WSAECONNRESET is Winsock's spelling of the POSIX twin's ECONNABORTED
+        // case — the peer went away between its SYN and our accept. The
+        // listener is untouched, so it is "nothing pending" rather than a
+        // fault. WSAECONNABORTED is folded in with it for the same reason.
+        if (e == WSAECONNRESET || e == WSAECONNABORTED) return kInvalidSocket;
+        failed = true;
+        err    = wsa_text(e);
+        return kInvalidSocket;
+    }
+
+    if (!read_sockaddr(sa, peer, peer_port) || !prepare_accepted(s, err)) {
+        if (err.empty()) err = "unsupported peer address family";
+        ::closesocket(s);
+        failed = true;
+        return kInvalidSocket;
+    }
+    return static_cast<NativeSocket>(s);
 }
 
 void close(NativeSocket s) {

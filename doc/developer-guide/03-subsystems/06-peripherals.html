@@ -2011,11 +2011,17 @@ emulation is right, since the software on the other end is not ours. It is off
 by default and enabled with <code>--esp</code> (the GUI can persist that choice, which is
 why <code>--no-esp</code> also exists).</p>
 <p>The command set is deliberately narrow and every command in it is evidenced in
-software that actually runs on a Next. There is no server mode, no
-<code>AT+CIPMODE</code> passthrough, no SSL and no multiplexed connections — each omission
-because nothing uses it, and <code>AT+CIPMUX=1</code> is refused with <code>ERROR</code> rather than
-accepted and ignored, since a guest that assumed it worked would corrupt its own
-<code>+IPD</code> parsing.</p>
+software that actually runs on a Next. There is no <code>AT+CIPMODE</code> passthrough and
+no SSL, because nothing uses either.</p>
+<p><strong>Server mode and multiplexing exist</strong> (<code>AT+CIPMUX=1</code>, <code>AT+CIPSERVER=1,&lt;port&gt;</code>,
+<code>+IPD,&lt;id&gt;,&lt;len&gt;:</code>), added once a consumer appeared — a debug stub that has to
+listen, because the debugger on the PC only ever dials out. The constraint that
+shaped it is worth knowing before touching that code: <strong>the power-on default
+stays <code>AT+CIPMUX=0</code></strong>, because nextsync never sends the command and its <code>+IPD</code>
+reader does not reject the multiplexed form — it silently mis-parses it. So the
+multiplexed framing reaches only a connection whose own session asked for it,
+and the listener binds loopback unless the user widens it with
+<code>--esp-listen-address</code>.</p>
 <h3 id="why-it-is-a-separate-component-and-what-that-costs">Why it is a separate component, and what that costs<a class="headerlink" href="#why-it-is-a-separate-component-and-what-that-costs" title="Permanent link">&para;</a></h3>
 <p>The ESP-01 emulation lives in <code>src/esp01/</code>, <strong>outside</strong> <code>src/peripheral/</code>, and
 that is not filing. It is a deliberate isolation contract, stated in that

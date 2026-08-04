@@ -12,8 +12,9 @@ namespace esp {
 
 constexpr std::chrono::milliseconds ThreadedEsp::DEFAULT_POLL_INTERVAL;
 
-ThreadedEsp::ThreadedEsp(EspTransport& transport, std::chrono::milliseconds poll_interval)
-    : core_(transport), poll_interval_(poll_interval) {
+ThreadedEsp::ThreadedEsp(EspTransport& transport, EspListener* listener,
+                         std::chrono::milliseconds poll_interval)
+    : core_(transport, listener), poll_interval_(poll_interval) {
     // THE TRAMPOLINE, installed once and never replaced. `set_output` then
     // swaps `user_sink_` behind `sink_mutex_` alone and never touches
     // `core_mutex_`, so installing a sink cannot be delayed by whatever the

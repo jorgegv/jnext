@@ -1563,6 +1563,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#letting-a-program-listen" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Letting a program listen
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-is-not-emulated-yet" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3106,12 +3117,35 @@ off, nothing reports the connections at all.</p>
 <li><strong>Nothing at all happens and the program hangs.</strong> Run it once with <code>--no-esp</code>.
   If it behaves the same way, the problem is not the networking.</li>
 </ul>
+<h2 id="letting-a-program-listen">Letting a program listen<a class="headerlink" href="#letting-a-program-listen" title="Permanent link">&para;</a></h2>
+<p>A program can also <strong>accept</strong> connections instead of only making them: it sends
+<code>AT+CIPMUX=1</code>, then <code>AT+CIPSERVER=1,&lt;port&gt;</code>, and jnext listens on that port and
+hands it each connection that arrives. A debug stub running on the emulated Next
+needs exactly this, because a debugger on your PC dials out and never listens.</p>
+<p>Everything above is about which addresses a program may <strong>dial</strong>. A listening
+port points the other way — it exposes the <strong>program</strong> to whatever can reach the
+port — so the allowed-host list has nothing to say about it, and the boundary is
+the bind address instead:</p>
+<ul>
+<li>by default the port is bound to <code>127.0.0.1</code>, so only this machine can reach
+  it. That is all the intended use needs, and it needs no flag;</li>
+<li><code>--esp-listen-address ADDR</code> widens it. <code>--esp-listen-address 0.0.0.0</code> means
+  any machine that can reach yours can talk to the running program, with no
+  authentication in front of it. That is why it has to be typed;</li>
+<li>nothing listens until the program asks. You cannot open a port from the
+  command line, and no port survives a Power Reset;</li>
+<li>if the port cannot be bound — already in use, or an address that is not
+  yours — the program is told <code>ERROR</code>. jnext never quietly picks a different
+  port or a wider address.</li>
+</ul>
+<p>Up to four programs can be connected at once, numbered from 1. Number 0 stays
+reserved for the program's own outbound connection, so opening a server never
+costs it the ability to dial out.</p>
 <h2 id="what-is-not-emulated-yet">What is not emulated yet<a class="headerlink" href="#what-is-not-emulated-yet" title="Permanent link">&para;</a></h2>
 <p>The command set is the one <strong>evidenced</strong> in software that actually runs on a
-Next, so a few things a physical ESP-01 can do are not built:</p>
+Next, so a couple of things a physical ESP-01 can do are not built:</p>
 <ul>
-<li><strong>server / listen mode</strong> (<code>AT+CIPSERVER</code>) — so nothing can connect <em>in</em>;</li>
-<li><strong>multiplexed connections</strong> and <strong>transparent mode</strong>;</li>
+<li><strong>transparent mode</strong> (<code>AT+CIPMODE</code>);</li>
 <li><strong>TLS</strong>, so a program cannot make an <code>https</code> request.</li>
 </ul>
 <p>UDP <strong>is</strong> emulated, including <code>AT+CIPSTART="UDP",…</code> with its optional local

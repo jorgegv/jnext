@@ -74,6 +74,7 @@
 // incomplete here.
 namespace esp {
 class EspTransport;
+class EspListener;
 class ThreadedEsp;
 }  // namespace esp
 class EspUartAdapter;
@@ -955,10 +956,13 @@ private:
     //                                  call it again.
     //   esp_device_     dies SECOND -> ~ThreadedEsp JOINS the worker, so no
     //                                  thread survives into anything below.
-    //   esp_transport_  dies THIRD  -> the transport outlived the wrapper that
+    //   esp_listener_   dies THIRD  -> the wrapper drove it too (GH #210), so
+    //                                  it carries the transport's obligation:
+    //                                  outlive the thing that polls it.
+    //   esp_transport_  dies FOURTH -> the transport outlived the wrapper that
     //                                  was driving it, as esp_threaded.h
     //                                  requires.
-    //   esp_events_     dies FOURTH -> the transport wrote into it from the
+    //   esp_events_     dies FIFTH  -> the transport wrote into it from the
     //                                  worker; it must outlive both.
     //
     // ...and ALL of them die before `uart_`, which is declared above, so the
@@ -981,6 +985,9 @@ private:
     // not an ESP decision. A soft reset does NOT rebuild it (see setup_esp()).
     std::unique_ptr<EspConnectionLog>   esp_events_;
     std::unique_ptr<esp::EspTransport>  esp_transport_;
+    /// GH #210. Null when the configured listen address would not parse, which
+    /// makes `AT+CIPSERVER` answer ERROR — see setup_esp().
+    std::unique_ptr<esp::EspListener>   esp_listener_;
     std::unique_ptr<esp::ThreadedEsp>   esp_device_;
     std::unique_ptr<EspUartAdapter>     esp_adapter_;
     /// One-shot latch for esp_note_transport_fault(); see its header comment.

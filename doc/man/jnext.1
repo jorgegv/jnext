@@ -155,6 +155,17 @@ address must be listed as itself.
 With no \f[B]\-\-esp\-allow\f[R] at all the program may name any host
 (subject to the always\-refused addresses in \f[B]NETWORKING\f[R]).
 Requires \f[B]\-\-esp\f[R].
+.TP
+\f[B]\-\-esp\-listen\-address\f[R] \f[I]ADDR\f[R]
+Bind the running program\(cqs \f[CR]AT+CIPSERVER\f[R] to \f[I]ADDR\f[R],
+default \f[CR]127.0.0.1\f[R].
+\f[I]ADDR\f[R] is a numeric IP address, never a name \- an address
+resolved through DNS could change under you.
+The default means a program that opens a server is reachable only from
+this machine; widening it (\f[CR]0.0.0.0\f[R]) exposes that program to
+your network, which is why it has to be asked for.
+Nothing listens until the program itself sends \f[CR]AT+CIPSERVER\f[R].
+Requires \f[B]\-\-esp\f[R].
 .SS Recording and playback
 .TP
 \f[B]\-\-record\f[R] \f[I]FILE\f[R]
@@ -509,8 +520,9 @@ honoured.
 UDP \(lqmodes\(rq 1 and 2, which let the far end of a link become
 whoever last sent a packet, are answered \f[CR]ERROR\f[R] rather than
 accepted and ignored.
-TLS, server/listen mode, multiplexed connections and transparent mode
-are not emulated.
+\f[B]Server mode\f[R] and \f[B]multiplexed connections\f[R] are emulated
+too \- see \f[I]Letting a program listen\f[R] below.
+TLS and transparent mode are not.
 .SS It is off by default, and that is the point
 An enabled ESP gives the running program an \f[B]outbound TCP and UDP
 pipe out of the emulator\f[R], and the program can already read the
@@ -595,19 +607,48 @@ on the next launch.
 The CLI still wins for a single run in both directions \-
 \f[B]\-\-esp\f[R] over a saved \f[I]off\f[R], and \f[B]\-\-no\-esp\f[R]
 over a saved \f[I]on\f[R].
-.SS There is no server mode yet
-The emulated module cannot listen for incoming connections \-
-\f[CR]AT+CIPSERVER\f[R] is not implemented \f[B]yet\f[R], so today there
-is no inbound attack surface at all.
+.SS Letting a program listen (server mode)
+A program can also \f[B]accept\f[R] incoming connections:
+\f[CR]AT+CIPMUX=1\f[R] followed by \f[CR]AT+CIPSERVER=1,<port>\f[R]
+makes jnext listen on that port and hand the program each connection
+that arrives.
+This is what a debug stub running on the emulated Next needs, because a
+debugger on your PC dials out and never listens.
 .PP
-That is a scoping decision, not a permanent one.
-The command set jnext emulates is the one \f[I]evidenced\f[R] in
-software that actually runs on a Next, and \f[CR]AT+CIPSERVER\f[R]
-appears in all of it exactly once, only to turn itself off.
-Emulating the AT firmware down to the datasheet \- server mode, UDP,
-multiplexed connections and transparent mode included \- is tracked as
-its own piece of work (issue #154).
-Expect the security notes above to grow an inbound half when it lands.
+Everything above is about \f[I]outbound\f[R] connections \- which
+addresses the program may dial.
+A listening socket points the other way: it exposes the
+\f[B]program\f[R] to whatever can reach the port, and the allowlist has
+nothing to say about it, because the program does not choose who
+connects.
+So the boundary is the bind address instead:
+.IP \(bu 2
+by default the port is bound to \f[CR]127.0.0.1\f[R], so only this
+machine can reach it \- which is all the intended use needs;
+.IP \(bu 2
+\f[B]\-\-esp\-listen\-address\f[R] \f[I]ADDR\f[R] widens that, and
+\f[CR]0.0.0.0\f[R] means any machine that can reach yours can talk to
+the running program.
+There is no authentication of any kind in front of it;
+.IP \(bu 2
+nothing listens until the program asks.
+There is no way to open a port from the command line, and no port
+survives a Power Reset;
+.IP \(bu 2
+if the port cannot be bound \- already in use, or an address that is not
+yours \- the program is told \f[CR]ERROR\f[R].
+jnext never falls back to a different port or a wider address.
+.PP
+Up to four programs can be connected at once, numbered from 1; number 0
+stays reserved for the program\(cqs own outbound connection, so opening
+a server never costs it the ability to dial out.
+\f[CR]AT+CIPMUX\f[R] cannot be changed while anything is connected.
+.PP
+Still not emulated: TLS and transparent mode (\c
+.UR https://github.com/jorgegv/jnext/issues/154
+issue #154
+.UE \c
+).
 .SS Nothing about your host leaks into the program
 The module reports a fixed synthetic identity: SSID
 \f[CR]JNextWifiHost\f[R], a \f[CR]02:00:00:...\f[R] MAC and BSSID, and a
