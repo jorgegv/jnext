@@ -507,8 +507,17 @@ public:
         last_error_.clear();
 
         std::string   err;
+        std::string   hardening_warning;
         std::uint16_t bound = 0;
-        const net::NativeSocket s = net::open_listener(bind_, port, bound, err);
+        const net::NativeSocket s =
+            net::open_listener(bind_, port, bound, hardening_warning, err);
+        // Emitted whether the bind then succeeded or not: a hardening option
+        // that would not apply is worth saying either way, and this is the one
+        // place in the module where a socket OPTION — not a socket operation —
+        // gets a line of its own.
+        if (!hardening_warning.empty())
+            log_warn("listening socket for {}:{} is not fully hardened — {}",
+                     to_string(bind_), port, hardening_warning);
         if (s == net::kInvalidSocket) {
             last_error_ = err;
             // WARN, matching the outbound refusal: a listening socket the user

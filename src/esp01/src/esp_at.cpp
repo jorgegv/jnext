@@ -520,7 +520,24 @@ void AtEngine::cmd_cipclose(const std::string&) {
     c.clear_buffers();
     // A connection genuinely closed, so CLOSED is honest here — and NXtel's
     // 5-byte `OSED\r` window is what it looks for.
-    queue("\r\nCLOSED\r\n\r\nOK\r\n");
+    //
+    // THE FRAMING FOLLOWS THE CONNECTION, exactly as it does on the peer-close
+    // path (`frame_ipd`). Before GH #210 this line was unconditionally
+    // unmultiplexed and could not be anything else, because no connection could
+    // be multiplexed; the new `CIPMUX=1` then outbound `AT+CIPSTART` path made
+    // that reachable, and a session told `+IPD,0,<len>:` all along must not be
+    // handed a bare `CLOSED` by the one path that forgot to ask. Neither
+    // evidenced client can reach the multiplexed arm — both leave CIPMUX at 0 —
+    // so this costs them nothing and closes a divergence rather than creating
+    // one.
+    // (No `c.multiplexed = false` here: `resolve_connect` sets it from `cipmux_`
+    // every time a connection opens, so clearing it would be a redundant STATE
+    // MUTATION — the class of thing that can paper over a bug rather than a
+    // redundant guard, which can only refuse twice.)
+    if (c.multiplexed)
+        queue("\r\n" + std::to_string(SINGLE_CID) + ",CLOSED\r\n\r\nOK\r\n");
+    else
+        queue("\r\nCLOSED\r\n\r\nOK\r\n");
 }
 
 void AtEngine::cmd_cipmux(const std::string& args) {

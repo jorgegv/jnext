@@ -62,6 +62,26 @@
 ///     that was opened by a session which asked for it, and `Connection::
 ///     multiplexed` is where that is recorded.
 ///
+///     THE GUARANTEE HAS A PRECONDITION, AND IT IS THIS: "nextsync keeps
+///     working" holds from a FRESH POWER-ON, or after an `AT+RST`. It is not a
+///     property of every moment. `cipmux_` is module state, not per-program
+///     state, and nothing resets it when the guest loads a different program —
+///     a SOFT reset deliberately preserves the whole ESP, connection and all
+///     (the module is on the far end of a cable and does not see the Next's
+///     reset line; design doc §4.3). So a program that sets `AT+CIPMUX=1` and
+///     exits leaves it set, and a nextsync started in the SAME power cycle with
+///     no intervening `AT+RST` has its own outbound connection captured
+///     `multiplexed = true` and receives the framing its reader silently
+///     corrupts.
+///     THIS IS FIRMWARE-FAITHFUL — a real ESP-01 is sticky in exactly the same
+///     way, for exactly the same reason — so it is DISCLOSED rather than fixed:
+///     "reset the module between programs" is what the hardware demands too,
+///     and a jnext-only auto-reset would be a divergence sold as a safety net.
+///     A hard reset (jnext power-cycles the emulated ESP, `emulator.h`) and
+///     `AT+RST` both clear it; nextsync's own recovery path drives NR 0x02
+///     bit 7, which is the hardware reset line, so a client that resets before
+///     use is unaffected by construction.
+///
 /// Widening the surface (full datasheet-level fidelity) is tracked as its own
 /// v1.1 issue. Do not grow this file by guessing. What this file DOES do is
 /// keep three shapes open so that widening is filling in blanks rather than

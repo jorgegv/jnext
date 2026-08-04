@@ -316,8 +316,10 @@ std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool stream
 }
 
 NativeSocket open_listener(const IpAddress& ip, std::uint16_t port,
-                           std::uint16_t& bound_port, std::string& err) {
+                           std::uint16_t& bound_port, std::string& hardening_warning,
+                           std::string& err) {
     bound_port = 0;
+    hardening_warning.clear();
     const int domain = (ip.family == IpFamily::V4) ? AF_INET : AF_INET6;
     const int s      = ::socket(domain, SOCK_STREAM, IPPROTO_TCP);
     if (s < 0) {
@@ -341,8 +343,15 @@ NativeSocket open_listener(const IpAddress& ip, std::uint16_t port,
     // session's peers left behind, while a second process still cannot take
     // the port from under us. The Windows twin needs a DIFFERENT option to get
     // the same property; see it.
+    //
+    // The return value is CHECKED rather than discarded, and reported rather
+    // than fatal: losing SO_REUSEADDR here does not weaken who may reach the
+    // socket, it only means a restart on the same port can be refused while a
+    // previous session's connections linger in TIME_WAIT — which would
+    // otherwise look like an unexplained `AT+CIPSERVER` failure minutes later.
     const int on = 1;
-    ::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on));
+    if (::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0)
+        hardening_warning = "SO_REUSEADDR could not be set: " + errno_text(errno);
 
     sockaddr_storage sa{};
     const socklen_t  len = fill_sockaddr(ip, port, sa);

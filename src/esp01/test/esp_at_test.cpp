@@ -1815,6 +1815,25 @@ int main() {
                  "and its CLOSED stays unprefixed — NXtel matches a 5-byte 'OSED\\r' "
                  "window",
                  r.take(), "\r\nCLOSED\r\n"); }
+    {   // THE GUEST-INITIATED CLOSE TAKES THE SAME DECISION, which it did not
+        // before: `cmd_cipclose` emitted a bare `CLOSED` unconditionally. That
+        // was unreachable-by-construction until CIPMUX=1 existed, and once it
+        // did, a session framed `+IPD,0,<len>:` throughout would have been
+        // handed an unprefixed `CLOSED` by this one path.
+        Rig r;
+        r.connect();
+        r.send("AT+CIPCLOSE\r\n"); r.settle();
+        check_eq("MUX-14",
+                 "AT+CIPCLOSE on a CIPMUX=0 connection answers the v1.0 bytes exactly",
+                 r.take(), "\r\nCLOSED\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.settle(); r.take();
+        r.connect();
+        r.send("AT+CIPCLOSE\r\n"); r.settle();
+        check_eq("MUX-15",
+                 "...and on a CIPMUX=1 connection it carries the id, like every other "
+                 "CLOSED path",
+                 r.take(), "\r\n0,CLOSED\r\n\r\nOK\r\n"); }
 
     {   Rig r; r.send("AT+CIPMUX=2\r\n"); r.drain();
         check_eq("MUX-03", "AT+CIPMUX=2 is not a mode — ERROR", r.take(), "\r\nERROR\r\n"); }

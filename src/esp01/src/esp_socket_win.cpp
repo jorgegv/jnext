@@ -341,8 +341,10 @@ std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool stream
 }
 
 NativeSocket open_listener(const IpAddress& ip, std::uint16_t port,
-                           std::uint16_t& bound_port, std::string& err) {
+                           std::uint16_t& bound_port, std::string& hardening_warning,
+                           std::string& err) {
     bound_port = 0;
+    hardening_warning.clear();
     const int    domain = (ip.family == IpFamily::V4) ? AF_INET : AF_INET6;
     const SOCKET s      = ::socket(domain, SOCK_STREAM, IPPROTO_TCP);
     if (s == INVALID_SOCKET) {
@@ -372,9 +374,20 @@ NativeSocket open_listener(const IpAddress& ip, std::uint16_t port,
     // That surfaces as `AT+CIPSERVER=1,<port>` answering ERROR — loud and
     // recoverable by retrying, which is exactly the outcome §13.4 asks for and
     // strictly better than the silent alternative.
+    //
+    // AND THE RETURN VALUE IS CHECKED HERE ABOVE ALL, because on this platform
+    // the option is the security-relevant one: without it another local process
+    // can bind the same address and port and take the connections. Discarding
+    // the result would let a stated hardening measure fail with no diagnostic
+    // anywhere. The bind still proceeds — the loopback default is the primary
+    // defence — but it says so.
     BOOL exclusive = TRUE;
-    ::setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
-                 reinterpret_cast<const char*>(&exclusive), sizeof(exclusive));
+    if (::setsockopt(s, SOL_SOCKET, SO_EXCLUSIVEADDRUSE,
+                     reinterpret_cast<const char*>(&exclusive), sizeof(exclusive)) != 0) {
+        hardening_warning = "SO_EXCLUSIVEADDRUSE could not be set: " +
+                            wsa_text(::WSAGetLastError()) +
+                            " — another local process may be able to bind this port";
+    }
 
     sockaddr_storage sa{};
     const int        len = fill_sockaddr(ip, port, sa);

@@ -1414,6 +1414,40 @@ Real firmware also refuses `AT+CIPMUX` while a connection is open; that
 restriction is kept, because switching framing mid-connection would hand an
 existing peer a wire format it did not negotiate.
 
+#### The guarantee has a precondition, and it is stated rather than implied
+
+**"nextsync keeps working" holds from a fresh power-on, or after an `AT+RST`.**
+It is not a property of every moment, and the difference is worth writing down
+because nothing in the code can express it.
+
+`cipmux_` is **module** state, not per-program state. Nothing resets it when the
+guest loads a different program: a soft reset deliberately preserves the whole
+ESP, live connection included, because the module sits on the far end of a cable
+and does not see the Next's reset line ([§4.3](#43-what-is-not-a-reset)). So a
+program that sets `AT+CIPMUX=1` and exits leaves it set, and a nextsync started
+in the **same power cycle** with no intervening `AT+RST` has its own outbound
+`AT+CIPSTART` captured `multiplexed = true` — and receives exactly the framing
+its reader silently corrupts.
+
+Three things bound it, and none of them is a fix:
+
+- **It is firmware-faithful.** A real ESP-01 is sticky in the same way for the
+  same reason. Auto-resetting `cipmux_` between programs would be a jnext-only
+  divergence sold as a safety net, and §1's whole posture is that a divergence
+  which happens to help is still a divergence.
+- **The sequencing is unusual.** It needs two ESP programs in one power cycle,
+  the first multiplexed, the second not, with no reset between them. A hard
+  reset (jnext power-cycles the emulated ESP — see the member-order note in
+  `emulator.h`) and `AT+RST` both clear it.
+- **nextsync's own recovery path already resets the module** — it drives
+  NR 0x02 bit 7, the hardware reset line (`nextsync.c:396-399`,
+  [§4.2](#42-a-real-esp-reset-line-does-exist--nextreg-0x02-bit-7)) — so a
+  client that resets before use is unaffected by construction.
+
+Recorded as a **disclosure**, therefore, not as a defect: the behaviour is
+correct, and what was missing was the sentence saying when the guarantee
+applies.
+
 ### 13.4 SECURITY REVIEW — the inbound surface
 
 This is the part §10 demanded, and it is a different question from §8's.

@@ -129,8 +129,27 @@ std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool stream
 /// spot: POSIX sets `SO_REUSEADDR`, Windows sets `SO_EXCLUSIVEADDRUSE`. The
 /// names look like opposites because on Windows they are — see either
 /// implementation.
+///
+/// `hardening_warning` reports THAT option failing to apply, and is the one
+/// out-param here that does not mean the call failed: the socket is still
+/// bound and usable, but a stated hardening measure is not in force. On
+/// Windows that is the security-relevant one — without `SO_EXCLUSIVEADDRUSE`
+/// another local process can bind the same address and take the connections —
+/// so it must not be a silent degradation. Empty on success, which is the
+/// overwhelmingly common case.
+///
+/// IT IS REPORTED RATHER THAN LOGGED HERE because the twins hold OS primitives
+/// only: the tracing lives once, in the portable half, where it is compiled and
+/// read on the maintainer's host (§7.5). A `log_warn` in each twin would be one
+/// more line that cannot be built on the machine that maintains it.
+///
+/// The bind is NOT failed over it. The primary defence is the bind ADDRESS —
+/// loopback unless the user widened it — and refusing to listen at all because
+/// a defence-in-depth option would not apply trades a working feature for a
+/// smaller marginal risk.
 NativeSocket open_listener(const IpAddress& ip, std::uint16_t port,
-                           std::uint16_t& bound_port, std::string& err);
+                           std::uint16_t& bound_port, std::string& hardening_warning,
+                           std::string& err);
 
 /// Take one pending inbound connection off `listener`, or report that there is
 /// none. NEVER waits (GH #210).
