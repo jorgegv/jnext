@@ -64,6 +64,7 @@ enum class OptId {
     Esp,
     NoEsp,
     EspAllow,
+    EspListenAddress,
     MagicBreakpoint,
     EsxdosStub,
     MagicPort,
@@ -195,6 +196,12 @@ inline constexpr Option OPTIONS[] = {
     { "--no-esp",                    0, Doc::Documented, OptId::NoEsp },
     // Repeatable: each occurrence appends one host.
     { "--esp-allow",                 1, Doc::Documented, OptId::EspAllow },
+    // The INBOUND half (GH #210). Defaults to loopback, so widening it is an
+    // explicit act recorded on the command line — the whole of the owner
+    // decision in ESP01-EMULATOR-DESIGN.md §13.4. There is deliberately no
+    // saved-configuration form: a listening address that could arrive from a
+    // config file is one the user cannot audit by reading the command they ran.
+    { "--esp-listen-address",        1, Doc::Documented, OptId::EspListenAddress },
 
     // Recording and playback
     { "--record",                    1, Doc::Documented, OptId::Record },

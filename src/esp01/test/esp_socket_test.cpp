@@ -300,6 +300,71 @@ private:
     sockaddr_in   from_{};
 };
 
+/// Dial `ip`:`port` and return the connected socket, or -1. BLOCKING, and only
+/// ever aimed at this host, where a connect either completes or is refused
+/// immediately — this is the test's peer, not the code under test.
+int dial(const std::string& ip, std::uint16_t port) {
+    const int fd = ::socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) return -1;
+    sockaddr_in sa{};
+    sa.sin_family = AF_INET;
+    sa.sin_port   = htons(port);
+    if (::inet_pton(AF_INET, ip.c_str(), &sa.sin_addr) != 1) {
+        ::close(fd);
+        return -1;
+    }
+    if (::connect(fd, reinterpret_cast<sockaddr*>(&sa), sizeof(sa)) != 0) {
+        ::close(fd);
+        return -1;
+    }
+    return fd;
+}
+
+/// This host's own RFC1918 address, or empty when it has none.
+///
+/// A connected UDP socket only sets local routing state — nothing is sent and
+/// nothing needs to be reachable — so this works with the cable out. 192.0.2.1
+/// is TEST-NET-1 (RFC 5737), reserved for exactly this. Same technique as
+/// `test/00regression/esp-loopback-peer.py`, and used here for the opposite
+/// purpose: to prove that a LOOPBACK-bound listener is NOT reachable through it.
+std::string local_rfc1918() {
+    const int fd = ::socket(AF_INET, SOCK_DGRAM, 0);
+    if (fd < 0) return {};
+    sockaddr_in probe{};
+    probe.sin_family = AF_INET;
+    probe.sin_port   = htons(9);
+    ::inet_pton(AF_INET, "192.0.2.1", &probe.sin_addr);
+    std::string out;
+    if (::connect(fd, reinterpret_cast<sockaddr*>(&probe), sizeof(probe)) == 0) {
+        sockaddr_in me{};
+        socklen_t   len = sizeof(me);
+        if (::getsockname(fd, reinterpret_cast<sockaddr*>(&me), &len) == 0) {
+            const std::uint32_t a = ntohl(me.sin_addr.s_addr);
+            const std::uint8_t  b0 = static_cast<std::uint8_t>(a >> 24);
+            const std::uint8_t  b1 = static_cast<std::uint8_t>(a >> 16);
+            if (b0 == 10 || (b0 == 172 && b1 >= 16 && b1 <= 31) || (b0 == 192 && b1 == 168)) {
+                char text[INET_ADDRSTRLEN] = {0};
+                if (::inet_ntop(AF_INET, &me.sin_addr, text, sizeof(text)) != nullptr)
+                    out = text;
+            }
+        }
+    }
+    ::close(fd);
+    return out;
+}
+
+/// Drive `l.poll()` until it has a connection to hand over, or time runs out.
+/// Bounded: a loopback connect completes in microseconds, so a timeout here is
+/// a real failure and not a slow machine.
+std::unique_ptr<EspTransport> pump_accept(EspListener& l, int timeout_ms = 2000) {
+    for (int waited = 0; waited <= timeout_ms; waited += 2) {
+        l.poll();
+        if (std::unique_ptr<EspTransport> t = l.accept()) return t;
+        sleep_ms(2);
+    }
+    return nullptr;
+}
+
 /// Close `fd` so that the OS emits a TCP **RST** instead of a FIN.
 ///
 /// `SO_LINGER` with `l_onoff=1` and `l_linger=0` is the documented way to ask
@@ -1754,6 +1819,204 @@ int main() {
                                    "ASYNC-11", "ASYNC-12",
                                    "ASYNC-09"})
                 skip(id, "could not bind a loopback listener");
+        }
+    }
+
+    // ═══ IPP — parse_ip, the inverse of to_string (GH #210) ════════════════
+    //
+    // Pure and hermetic: `AI_NUMERICHOST` never touches the network. It is the
+    // one function a host uses to turn a configured bind address into an
+    // `IpAddress`, so what it REFUSES matters as much as what it accepts.
+    {
+        IpAddress ip;
+        check("IPP-01", "a dotted quad parses to the address it spells",
+              parse_ip("127.0.0.1", ip) && ip == ipv4(127, 0, 0, 1));
+        check("IPP-02", "the wildcard parses", parse_ip("0.0.0.0", ip) && ip == ipv4(0, 0, 0, 0));
+        check("IPP-03", "an IPv6 literal parses, elision and all",
+              parse_ip("::1", ip) && ip.family == IpFamily::V6 && ip.bytes[15] == 1);
+        check("IPP-04",
+              "a NAME is refused rather than resolved — a bind address that could "
+              "depend on DNS is one that could change under the user",
+              !parse_ip("localhost", ip));
+        check("IPP-05", "so is an empty string", !parse_ip("", ip));
+        check("IPP-06", "and so is a malformed quad", !parse_ip("300.1.2.3", ip));
+        check("IPP-07", "round trip: to_string(parse_ip(x)) == x",
+              parse_ip("10.11.12.13", ip) && to_string(ip) == "10.11.12.13");
+    }
+
+    // ═══ LSN — the real listening socket (GH #210) ═════════════════════════
+    //
+    // The inbound half against REAL sockets, which is the half `esp_at_test`
+    // cannot reach: it drives a fake listener, so nothing there proves that a
+    // port is bound, that accept is non-blocking, or — the row that carries the
+    // security decision — that binding loopback really does exclude every other
+    // address this host answers on.
+    {
+        std::unique_ptr<EspListener> l = make_socket_listener(ipv4(127, 0, 0, 1));
+        if (l && l->open(0)) {
+            check("LSN-01", "open(0) binds and reports the port the OS chose",
+                  l->listening() && l->port() != 0);
+            check("LSN-02",
+                  "accept() with nothing pending returns null rather than waiting",
+                  l->accept() == nullptr);
+
+            const int client = dial("127.0.0.1", l->port());
+            check("LSN-03", "a real client can connect", client >= 0);
+            std::unique_ptr<EspTransport> accepted = pump_accept(*l);
+            check("LSN-04", "poll() + accept() yield a transport, already Connected",
+                  accepted != nullptr && accepted->state() == TransportState::Connected);
+            check("LSN-05", "whose peer_address() is the client's",
+                  accepted != nullptr && accepted->peer_address() == ipv4(127, 0, 0, 1));
+
+            if (accepted != nullptr && client >= 0) {
+                // THE NON-BLOCKING CONTRACT, on the socket the ACCEPT produced
+                // rather than on one `open_nonblocking` made. Linux does not
+                // inherit O_NONBLOCK across accept (BSD does), so this is the
+                // one place a platform assumption could leave a blocking socket
+                // in the engine's hands — where the worker would park in
+                // `recv` and hand that duration to whoever destroys the
+                // wrapper. Read nothing, from a peer that has sent nothing.
+                //
+                // A BLOCKING SOCKET MAKES THIS ROW HANG rather than fail, and
+                // there is no cleaner detection available: the interface
+                // deliberately exposes no native handle, so the only way to ask
+                // "is this non-blocking" is to do something that would block.
+                // `run-unit-tests.sh` bounds every suite with `timeout` and
+                // reports rc 124 as a failure, so the hang is loud.
+                std::uint8_t idle[64];
+                check("LSN-21",
+                      "recv() on the accepted transport with nothing pending returns 0 "
+                      "at once and stays Connected — the accepted socket really is "
+                      "non-blocking",
+                      accepted->recv(idle, sizeof(idle)) == 0 &&
+                          accepted->state() == TransportState::Connected);
+
+                const char* out  = "\r\n1,CONNECT\r\n";
+                const std::size_t olen = std::strlen(out);
+                check("LSN-06", "guest -> peer: send() on the accepted transport",
+                      accepted->send(reinterpret_cast<const std::uint8_t*>(out), olen) == olen);
+                check("LSN-07", "...and the client receives exactly those bytes",
+                      read_some(client, olen, 1000) == std::string(out));
+
+                const char* in = "DZRP";
+                check("LSN-08", "peer -> guest: the client can send",
+                      ::send(client, in, 4, 0) == 4);
+                std::uint8_t buf[64];
+                std::size_t  got = 0;
+                for (int i = 0; i < 500 && got == 0; ++i) {
+                    got = accepted->recv(buf, sizeof(buf));
+                    if (got == 0) sleep_ms(2);
+                }
+                check("LSN-09", "...and recv() on the accepted transport yields them",
+                      got == 4 && std::string(reinterpret_cast<char*>(buf), got) == "DZRP");
+
+                ::close(client);
+                check("LSN-10", "a client close moves the accepted transport to Closed",
+                      pump_recv_until_not_connected(*accepted) &&
+                          accepted->state() == TransportState::Closed);
+            } else {
+                for (const char* id : {"LSN-21", "LSN-06", "LSN-07", "LSN-08", "LSN-09",
+                                       "LSN-10"})
+                    skip(id, "no accepted connection to drive");
+                if (client >= 0) ::close(client);
+            }
+
+            // ONE AT A TIME. The second connection stays in the kernel's listen
+            // backlog until the first has been taken, which is what stops an
+            // unattended listener allocating a transport per inbound SYN.
+            const int a = dial("127.0.0.1", l->port());
+            const int b = dial("127.0.0.1", l->port());
+            l->poll();
+            l->poll();
+            std::unique_ptr<EspTransport> first = l->accept();
+            check("LSN-11", "two connects, but poll() parks only one",
+                  first != nullptr && l->accept() == nullptr);
+            check("LSN-12", "...and the second is taken by the NEXT poll",
+                  pump_accept(*l) != nullptr);
+            if (a >= 0) ::close(a);
+            if (b >= 0) ::close(b);
+
+            const std::uint16_t was = l->port();
+            l->close();
+            check("LSN-13", "close() stops listening", !l->listening() && l->port() == 0);
+            {
+                // The port is genuinely released — the strongest available
+                // statement that nothing outlives AT+CIPSERVER=0.
+                std::unique_ptr<EspListener> again = make_socket_listener(ipv4(127, 0, 0, 1));
+                check("LSN-14", "...and the port can be bound again",
+                      again != nullptr && again->open(was) && again->listening());
+            }
+        } else {
+            for (const char* id : {"LSN-01", "LSN-02", "LSN-03", "LSN-04", "LSN-05",
+                                   "LSN-06", "LSN-07", "LSN-08", "LSN-09", "LSN-10",
+                                   "LSN-11", "LSN-12", "LSN-13", "LSN-14"})
+                skip(id, "could not bind a loopback listener");
+        }
+    }
+
+    // ═══ LSN-ERR — a bind that cannot happen must FAIL, never widen ════════
+    {
+        std::unique_ptr<EspListener> held = make_socket_listener(ipv4(127, 0, 0, 1));
+        if (held && held->open(0)) {
+            // SO_REUSEADDR does not make two LIVE listeners on one address
+            // legal — that would need SO_REUSEPORT, which is deliberately not
+            // set — so this is a genuine conflict rather than a TIME_WAIT one.
+            std::unique_ptr<EspListener> clash = make_socket_listener(ipv4(127, 0, 0, 1));
+            check("LSN-15", "a port already in use is refused",
+                  clash != nullptr && !clash->open(held->port()));
+            check("LSN-16", "...with a reason, and nothing listening",
+                  clash != nullptr && !clash->listening() && !clash->last_error().empty());
+        } else {
+            for (const char* id : {"LSN-15", "LSN-16"})
+                skip(id, "could not bind a loopback listener");
+        }
+
+        // TEST-NET-1 (RFC 5737) is not an address of this machine, so the bind
+        // cannot succeed. It must be a refusal rather than a fall back to the
+        // wildcard, which is the failure mode design doc §13.4 exists to
+        // prevent.
+        std::unique_ptr<EspListener> nowhere = make_socket_listener(ipv4(192, 0, 2, 1));
+        check("LSN-17", "an address that is not local is refused",
+              nowhere != nullptr && !nowhere->open(0));
+        check("LSN-18", "...and does not silently become the wildcard",
+              nowhere != nullptr && !nowhere->listening() && nowhere->port() == 0);
+    }
+
+    // ═══ LSN-BIND — the loopback default is a real boundary ════════════════
+    //
+    // THE ROW THE SECURITY DECISION RESTS ON. Everything else about the bind
+    // address is configuration; this is the pair that says the configuration
+    // means something — a loopback-bound server is unreachable through the
+    // host's own LAN address, and the widened form is reachable through it.
+    {
+        const std::string lan = local_rfc1918();
+        if (!lan.empty()) {
+            std::unique_ptr<EspListener> local = make_socket_listener(ipv4(127, 0, 0, 1));
+            if (local && local->open(0)) {
+                const int through_lan = dial(lan, local->port());
+                check("LSN-19",
+                      "a listener bound to 127.0.0.1 is NOT reachable through this "
+                      "host's LAN address — the default really confines it",
+                      through_lan < 0);
+                if (through_lan >= 0) ::close(through_lan);
+            } else {
+                skip("LSN-19", "could not bind a loopback listener");
+            }
+
+            std::unique_ptr<EspListener> wide = make_socket_listener(ipv4(0, 0, 0, 0));
+            if (wide && wide->open(0)) {
+                const int through_lan = dial(lan, wide->port());
+                check("LSN-20",
+                      "...and --esp-listen-address 0.0.0.0 IS, so widening is a real "
+                      "act and not a no-op",
+                      through_lan >= 0 && pump_accept(*wide) != nullptr);
+                if (through_lan >= 0) ::close(through_lan);
+            } else {
+                skip("LSN-20", "could not bind the wildcard address");
+            }
+        } else {
+            for (const char* id : {"LSN-19", "LSN-20"})
+                skip(id, "this host has no RFC1918 address to test the boundary against");
         }
     }
 

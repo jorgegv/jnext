@@ -795,6 +795,13 @@ void AtEngine::accept_connections() {
 
     while (std::unique_ptr<EspTransport> adopted = listener_->accept()) {
         std::size_t cid = MAX_CONNECTIONS;
+        // Starting at FIRST_INBOUND_CID is REDUNDANT with the null test below
+        // and is kept deliberately: slot 0 always holds the borrowed transport,
+        // so a scan from 0 would skip it anyway and no mutation of this bound
+        // can be made to fail. It is written out because the reason slot 0 is
+        // never a candidate (simplification 8a) is a decision, not a
+        // coincidence of another invariant — and a future change that ever
+        // leaves slot 0 transport-less must not silently start handing it out.
         for (std::size_t i = FIRST_INBOUND_CID; i < MAX_CONNECTIONS; ++i) {
             if (!conn_[i].transport) {
                 cid = i;

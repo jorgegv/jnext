@@ -1497,3 +1497,31 @@ Stated so the surface does not grow past the evidence, exactly as §1.4 did:
   consumer's parser is being written against whatever this subset emits, which
   is the same bargain §5.4 struck.
 - No multiple simultaneous listeners: ESP-AT has one server, and so does this.
+
+### 13.7 What implementation decided that §13 did not
+
+Recorded here because each one is a **deviation from the firmware**, and a
+deviation nobody wrote down is a defect waiting to be "fixed". The short form
+lives beside the code as simplification (8) in `esp_at.h`.
+
+| Decision | Firmware | Here | Why |
+|---|---|---|---|
+| **Inbound connection ids start at 1** | the first client gets id 0 | ids 1..4 | Slot 0's transport is the one handed in at construction and the only object that can serve an `AT+CIPSTART`. Giving it to a peer would cost the guest its outbound capability for the session. Four inbound slots remain, which is one fewer than ESP-AT's five. |
+| **`AT+CIPSERVER=0` with no server running** | `OK` | `ERROR` | The single appearance of `AT+CIPSERVER` in all the software surveyed (§1.4) is a client turning it *off* at init — which v1.0 answered `ERROR`, as an unknown command, and which that client evidently survives. `ERROR` keeps that path byte-identical; `OK` would change an evidenced client's input on no evidence. It also matches `AT+CIPCLOSE` with nothing open, where the `ERROR` is load-bearing (§5.2). |
+| **`AT+CIPMUX=<n>` refuses a CHANGE, not the command** | refuses outright while any connection is open | a request for the mode already in force still answers `OK` | Keeps `AT+CIPMUX=0` — the line NXtel sends at init, and which v1.0 always answered `OK` — behaving exactly as it did in every circumstance. A genuine change is refused, which is the part that matters: switching framing under a live peer hands it a wire format it never negotiated. Going back to `0` is also refused while the server is up, which is ESP-AT's own rule ("you should delete the server first"). |
+| **No `AT+CIPCLOSE=<id>`** | required under `CIPMUX=1` | absent; the bare `AT+CIPCLOSE` keeps its v1.0 meaning (close the outbound connection) | No consumer asks for it: DeZog closes from its end, which arrives as `<id>,CLOSED` and frees the slot. Giving the bare spelling a second meaning under `CIPMUX=1` would make nextsync's behaviour depend on a mode nextsync never sets. |
+| **`AT+CIPSERVER=1,0` is refused** | port 0 is not special-cased | `ERROR`, although the socket layer accepts 0 as "OS-assigned" | A guest that named no port has no way to be told which one it got. The capability stays available to a HOST (`EspListener::open(0)` + `port()`), which is also how the module's own suite binds without a fixed port. |
+| **Windows uses `SO_EXCLUSIVEADDRUSE`, POSIX `SO_REUSEADDR`** | — | the twins differ | The identically-named Winsock option does not mean the POSIX one: on Windows `SO_REUSEADDR` lets a *different process* bind the same address and port and take the connections, which Microsoft documents as a hijacking hazard. Copying the name across would make a local process able to steal a port carrying an unauthenticated debug protocol. The cost is stricter: a rebind while a previous connection is in `TIME_WAIT` can fail with `WSAEADDRINUSE`, surfacing as `ERROR` — loud and retryable, which is what §13.4 asks for. |
+| **One pending accepted connection at a time** | — | `EspListener::poll()` takes one and stops until it is collected | The engine collects it on the very next service pass, so a real client is never throttled; without the bound an unattended listener would allocate a transport per inbound SYN while the guest was not looking. The rest wait in the kernel's listen backlog. |
+| **A fifth simultaneous peer is accepted and closed at once** | refused past the ceiling | same effect, one slot lower | The peer learns immediately that there is nowhere to go, rather than holding a connection that is open on its side and invisible on ours. |
+
+**One obligation of §8.1 is only partly met, and it is stated rather than
+quietly carried:** decision 7 ("a visible log line on every connection made or
+refused") holds for inbound connections — the module logs an accepted
+connection at `info`, which is on by default — but the **GUI status cell does
+not show them**. `EspGatedTransport`, which feeds `EspConnectionLog`, decorates
+the *outbound* transport only; an accepted transport comes from the listener and
+is not decorated. Closing that gap means giving the listener a way to report an
+acceptance to the host, which §13 did not ask for and which is therefore not
+built. Headless runs — the evidenced consumer's own configuration — are
+unaffected, since there the log *is* the report (§8.2).

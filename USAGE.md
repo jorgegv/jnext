@@ -34,7 +34,8 @@ the two can never disagree. For building jnext from source, see
     allow](#what-is-always-refused-whatever-you-allow)
   - [Narrowing it further](#narrowing-it-further)
   - [Making it permanent](#making-it-permanent)
-  - [There is no server mode yet](#there-is-no-server-mode-yet)
+  - [Letting a program listen (server
+    mode)](#letting-a-program-listen-server-mode)
   - [Nothing about your host leaks into the
     program](#nothing-about-your-host-leaks-into-the-program)
 - [LOGGING](#logging)
@@ -209,6 +210,15 @@ force when it is not. Matching is exact and case-insensitive, with no
 wildcards, and an IP address must be listed as itself. With no
 **--esp-allow** at all the program may name any host (subject to the
 always-refused addresses in **NETWORKING**). Requires **--esp**.
+
+**--esp-listen-address** *ADDR*  
+Bind the running program’s `AT+CIPSERVER` to *ADDR*, default
+`127.0.0.1`. *ADDR* is a numeric IP address, never a name - an address
+resolved through DNS could change under you. The default means a program
+that opens a server is reachable only from this machine; widening it
+(`0.0.0.0`) exposes that program to your network, which is why it has to
+be asked for. Nothing listens until the program itself sends
+`AT+CIPSERVER`. Requires **--esp**.
 
 ### Recording and playback
 
@@ -521,8 +531,8 @@ time from an internet SNTP server, so `.newt sntp 0 pool.ntp.org` works;
 the optional local-port argument of `AT+CIPSTART="UDP",...` is honoured.
 UDP “modes” 1 and 2, which let the far end of a link become whoever last
 sent a packet, are answered `ERROR` rather than accepted and ignored.
-TLS, server/listen mode, multiplexed connections and transparent mode
-are not emulated.
+**Server mode** and **multiplexed connections** are emulated too - see
+*Letting a program listen* below. TLS and transparent mode are not.
 
 ### It is off by default, and that is the point
 
@@ -596,19 +606,38 @@ next hard reset (**F1**, or **Machine \> Power Reset**) and on the next
 launch. The CLI still wins for a single run in both directions -
 **--esp** over a saved *off*, and **--no-esp** over a saved *on*.
 
-### There is no server mode yet
+### Letting a program listen (server mode)
 
-The emulated module cannot listen for incoming connections -
-`AT+CIPSERVER` is not implemented **yet**, so today there is no inbound
-attack surface at all.
+A program can also **accept** incoming connections: `AT+CIPMUX=1`
+followed by `AT+CIPSERVER=1,<port>` makes jnext listen on that port and
+hand the program each connection that arrives. This is what a debug stub
+running on the emulated Next needs, because a debugger on your PC dials
+out and never listens.
 
-That is a scoping decision, not a permanent one. The command set jnext
-emulates is the one *evidenced* in software that actually runs on a
-Next, and `AT+CIPSERVER` appears in all of it exactly once, only to turn
-itself off. Emulating the AT firmware down to the datasheet - server
-mode, UDP, multiplexed connections and transparent mode included - is
-tracked as its own piece of work (issue \#154). Expect the security
-notes above to grow an inbound half when it lands.
+Everything above is about *outbound* connections - which addresses the
+program may dial. A listening socket points the other way: it exposes
+the **program** to whatever can reach the port, and the allowlist has
+nothing to say about it, because the program does not choose who
+connects. So the boundary is the bind address instead:
+
+- by default the port is bound to `127.0.0.1`, so only this machine can
+  reach it - which is all the intended use needs;
+- **--esp-listen-address** *ADDR* widens that, and `0.0.0.0` means any
+  machine that can reach yours can talk to the running program. There is
+  no authentication of any kind in front of it;
+- nothing listens until the program asks. There is no way to open a port
+  from the command line, and no port survives a Power Reset;
+- if the port cannot be bound - already in use, or an address that is
+  not yours - the program is told `ERROR`. jnext never falls back to a
+  different port or a wider address.
+
+Up to four programs can be connected at once, numbered from 1; number 0
+stays reserved for the program’s own outbound connection, so opening a
+server never costs it the ability to dial out. `AT+CIPMUX` cannot be
+changed while anything is connected.
+
+Still not emulated: TLS and transparent mode ([issue
+\#154](https://github.com/jorgegv/jnext/issues/154)).
 
 ### Nothing about your host leaks into the program
 
