@@ -47,6 +47,7 @@ engineering reasons in §1.3.
 - [10. v1.1 extension points](#10-v11-extension-points)
 - [11. Open questions — to be tested, not assumed](#11-open-questions--to-be-tested-not-assumed)
 - [12. Evidence index](#12-evidence-index)
+- [13. Server mode (GH #210)](#13-server-mode-gh-210)
 
 ---
 
@@ -1342,3 +1343,157 @@ The jnext side:
 | `esp01` spdlog logger | `src/core/log.h:92` |
 | Cold-boot placement-new hazard | `src/platform/emulator_boot.h:67-77`, `:110-115` |
 | Suites + pinned row counts | `test/unit-tests.conf` |
+
+---
+
+## 13. Server mode (GH #210)
+
+v1.0 did not build `AT+CIPSERVER`, and §1.4 gave two reasons: the command appeared
+exactly once in all the software surveyed and only to turn it *off*, and not
+building it kept the inbound attack surface closed. §10's extension table
+therefore records server mode as needing **its own security review** before it
+can exist. This section is that review, plus the design.
+
+The first reason has expired: there is now a consumer. The second has not
+expired at all, and §13.4 is what answers it.
+
+### 13.1 The consumer, and why server mode is forced rather than chosen
+
+[**dezogif_ng**](https://github.com/jorgegv/dezogif_ng) is a Z80 debug stub that
+ships as the Multiface ROM on real Next hardware and speaks **DZRP** to
+**DeZog** in VS Code. It uses jnext as its development bench and its entire CI.
+
+DeZog always **dials out** and never listens — every existing DZRP remote
+listens instead (the CSpect plugin on port 11000, ZEsarUX on 10000). So for an
+unmodified, released DeZog to attach to a Next, something on the Next must be
+**listening**. This is a property of the client, not a preference of the design:
+a Next in TCP client mode has nothing for DeZog to connect to, and closing the
+gap on the PC side means either a relay splicing two inbound connections or a
+patched DeZog — both of which defeat the point, which is that a released DeZog
+attaches to a Next with no extra moving parts.
+
+### 13.2 Why it is three commands and not one
+
+Espressif's AT set chains the prerequisites: `AT+CIPSERVER` requires
+`AT+CIPMUX=1`, and `AT+CIPMUX=1` requires `AT+CIPMODE=0`. So the ask is a triad:
+
+1. `AT+CIPMUX=1` — accepted, where v1.0 **refused** it.
+2. `AT+CIPSERVER=1,<port>` / `AT+CIPSERVER=0` — listen / stop.
+3. The multiplexed `+IPD,<id>,<len>:` inbound form and `AT+CIPSEND=<id>,<len>`
+   outbound, which follow from (1).
+
+`AT+CIPMODE` passthrough is **not** part of this and is not needed: server mode
+forbids it, so the chosen design could not use it even if it existed. UDP, SSL,
+`_CUR`/`_DEF`, SNTP, ping, GPIO and sleep have no consumer here and stay out.
+
+### 13.3 THE CONSTRAINT THAT MAKES THIS REAL WORK
+
+v1.0 refused `AT+CIPMUX=1` rather than accepting-and-ignoring it, and the
+reasoning must survive this change intact (`esp_at.h`, `queue_ipd_header`):
+
+> nextsync never sends `AT+CIPMUX` at all — it relies on the power-on default
+> being 0 — and its `+IPD` reader **silently corrupts** the multiplexed
+> `+IPD,<id>,<len>:` form rather than rejecting it. Its FSM accumulates before
+> it validates, so the separating `,` is folded into the length as a bogus digit
+> worth `',' - '0'` = -4 and the parse *continues* with a corrupted `<len>`,
+> desynchronising the stream rather than failing.
+
+Since no command can correct a wrong default at run time, the default has to be
+right and the wrong value has to be rejected loudly. Therefore:
+
+- **The power-on default stays `AT+CIPMUX=0`.** Accepting the command is not
+  the same as changing the default, and the default is the part nextsync
+  depends on.
+- **`CIPMUX=1` happens only on explicit command**, and the multiplexed `+IPD`
+  form is emitted only for connections owned by a `CIPMUX=1` session.
+- **nextsync keeps working unchanged**, and that is pinned by a test asserting
+  a nextsync-shaped session still sees `+IPD,<len>:` while a `CIPMUX=1` session
+  sees `+IPD,<id>,<len>:` — the one thing that could regress silently.
+
+Real firmware also refuses `AT+CIPMUX` while a connection is open; that
+restriction is kept, because switching framing mid-connection would hand an
+existing peer a wire format it did not negotiate.
+
+### 13.4 SECURITY REVIEW — the inbound surface
+
+This is the part §10 demanded, and it is a different question from §8's.
+
+§8's address policy governs **outbound**: which addresses the guest may dial.
+Its whole shape — deny loopback and link-local, allow RFC1918 by owner decision
+— is about protecting *the host and its infrastructure from the guest*. A
+listening socket inverts the direction: it exposes *the guest to the network*,
+and `classify_address` has nothing to say about that, because the peer is not
+chosen by the guest at all.
+
+Two facts set the risk. The socket is opened on the **host**, not inside any
+sandbox; and whatever connects to it is speaking to guest software with no
+authentication of any kind — DZRP has none, and a debug stub is by definition a
+remote-control protocol.
+
+**Decision (owner, 2026-08-04): bind to loopback by default; widening is an
+explicit act.**
+
+- Default bind address is `127.0.0.1`. The evidenced consumer — DeZog in VS Code
+  on the developer's own machine — works with no flag at all.
+- `--esp-listen-address ADDR` widens it (e.g. `0.0.0.0`). Reaching the emulated
+  Next from another machine is a deliberate, visible choice recorded in the
+  command line, not a default anyone gets by accident.
+- **No separate enable flag** beyond the existing `--esp`. The guest must still
+  send `AT+CIPMUX=1` and `AT+CIPSERVER=1,<port>`, so nothing listens unless
+  guest software explicitly asks; the AT command *is* the opt-in, and a second
+  host-side gate would be ceremony rather than defence. (Rejected alternative,
+  recorded because it is the obvious counter-proposal: a `--esp-server` flag
+  would protect against an untrusted guest ROM opening a port. That threat is
+  not distinguishable from the one already accepted by running an untrusted ROM
+  with `--esp` at all, which can already dial out to the LAN.)
+
+Consequences kept deliberately:
+
+- A bind failure (port in use, address not local) answers `ERROR` and logs; it
+  never falls back to a wider address. Silent widening is the failure mode this
+  decision exists to prevent.
+- The listener is closed on `AT+CIPSERVER=0`, on engine teardown, and on the
+  same reset paths that drop connections. A port outliving the machine that
+  opened it would be the other way this leaks.
+- No save-state, exactly as §2's simplification (5): a listening socket is host
+  topology, not machine state.
+
+### 13.5 Architecture
+
+Two shapes from §3 pay off here and one piece is genuinely new.
+
+**Already in place.** Connections are a table (`conn_`, `MAX_CONNECTIONS = 5`,
+which is ESP-AT's own `CIPMUX=1` ceiling), and `queue_ipd_header(cid,
+multiplexed, len)` is the single place the wire format is decided. The AT
+dispatch table takes rows. So (1) and (3) of the triad are close to filling in
+blanks, which is what §3 predicted.
+
+**Genuinely new: accepting a connection.** `EspTransport` models an *outbound*
+socket — `begin_connect`, `send`, `recv`, `close`. Nothing in it can listen, and
+nothing in `AtEngine` can own a transport: slot 0's is handed in by reference at
+construction and every other slot is inert precisely because it has none.
+
+So server mode adds:
+
+- **`EspListener`** — a listening socket, with the same non-blocking `poll()`
+  contract as `EspTransport` (the threaded wrapper runs it on a worker thread,
+  so a blocking `accept` would be the same defect a blocking `poll` would be).
+  It yields accepted connections as ready-made `EspTransport`s.
+- **Per-slot transport ownership.** An accepted connection's transport is
+  created by the listener and owned by the slot, alongside slot 0's
+  externally-owned pointer. The distinction is real — one is borrowed and must
+  not be freed, the other is owned — so it is expressed in the type rather than
+  in a comment.
+- **Platform twins.** `esp_socket_posix.cpp` / `esp_socket_win.cpp` gain the
+  bind/listen/accept half, mirroring the existing split (§7.5).
+
+### 13.6 What this does NOT add
+
+Stated so the surface does not grow past the evidence, exactly as §1.4 did:
+
+- No `AT+CIPMODE` passthrough (forbidden in server mode anyway).
+- No UDP server, no SSL server.
+- No faithful `busy p...` / `ALREADY CONNECTED` / `SEND FAIL` strings — the
+  consumer's parser is being written against whatever this subset emits, which
+  is the same bargain §5.4 struck.
+- No multiple simultaneous listeners: ESP-AT has one server, and so does this.
