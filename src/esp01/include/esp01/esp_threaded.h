@@ -109,7 +109,9 @@
 ///      contract is stated on `poll()` rather than assumed of it.
 ///      Detaching instead would bound the destructor and is NOT an option —
 ///      see hazard 3.
-///   2. The transport must outlive the wrapper (the core holds a reference).
+///   2. The transport — and the listener, if one was given — must outlive the
+///      wrapper (the core holds a reference to the first and a pointer to the
+///      second).
 ///   3. THE OWNER MUST DESTROY THE WRAPPER BEFORE ANYTHING THE SINK POINTS AT.
 ///      For jnext that means before `~Emulator()`, and the reason is specific
 ///      and nasty: `emulator_cold_boot` (platform/emulator_boot.h:67-77) does
@@ -140,7 +142,13 @@ public:
     /// Constructs the core; does NOT start the thread. Call `start()`.
     /// Leaving construction and starting separate means an owner can build the
     /// object, install the sink, and only then let anything run.
-    explicit ThreadedEsp(EspTransport& transport,
+    ///
+    /// `listener` is forwarded to the core unchanged and is optional in exactly
+    /// the same sense: null means `AT+CIPSERVER` answers `ERROR`. It carries
+    /// the SAME lifetime obligation as the transport — hazard 2 below applies
+    /// to both — and the same non-blocking `poll()` contract, because the
+    /// worker drives it from the same loop.
+    explicit ThreadedEsp(EspTransport& transport, EspListener* listener = nullptr,
                          std::chrono::milliseconds poll_interval = DEFAULT_POLL_INTERVAL);
     ~ThreadedEsp() override;
 

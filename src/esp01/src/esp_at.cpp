@@ -130,6 +130,7 @@ const AtEngine::CommandEntry AtEngine::kCommands[] = {
     {"AT+CIPSTART=",   true,  &AtEngine::cmd_cipstart},
     {"AT+CIPSENDEX=",  true,  &AtEngine::cmd_cipsendex},
     {"AT+CIPSEND=",    true,  &AtEngine::cmd_cipsend},
+    {"AT+CIPSERVER=",  true,  &AtEngine::cmd_cipserver},
     {"AT+CIPMUX=",     true,  &AtEngine::cmd_cipmux},
     {"AT+UART_CUR=",   true,  &AtEngine::cmd_uart},
     {"AT+UART_DEF=",   true,  &AtEngine::cmd_uart},
@@ -137,11 +138,13 @@ const AtEngine::CommandEntry AtEngine::kCommands[] = {
 };
 const std::size_t AtEngine::kCommandCount = sizeof(kCommands) / sizeof(kCommands[0]);
 
-AtEngine::AtEngine(EspTransport& transport) {
-    // v1.0 gives a transport to slot 0 and to nothing else, which is what
-    // makes the other slots inert without any extra guard: every per-slot
-    // loop skips a slot with no transport.
-    conn_[SINGLE_CID].transport = &transport;
+AtEngine::AtEngine(EspTransport& transport, EspListener* listener)
+    : listener_(listener) {
+    // Slot 0 borrows the host's transport — `owned=false`, so clearing the slot
+    // can never free an object the host still holds. Slots 1..4 start empty and
+    // are filled with OWNED transports by `accept_connections()`, which is what
+    // makes them inert until then: every per-slot loop skips a null.
+    conn_[SINGLE_CID].transport = TransportPtr(&transport, TransportOwnership{/*owned=*/false});
 }
 
 // ─── Guest TX -> engine ───────────────────────────────────────────────
@@ -302,15 +305,28 @@ void AtEngine::cmd_reset(const std::string&) {
         c.open          = false;
         c.connecting    = false;
         c.close_pending = false;
+        c.multiplexed   = false;
         c.protocol      = Protocol::Tcp;  // power-on default
         c.local_port    = 0;
         c.clear_buffers();
+        release_inbound(cid);
+    }
+    // The server does not survive the reboot either. Real firmware requires
+    // `AT+CIPSERVER` to be re-issued after a restart, and design doc §13.4
+    // makes it a security property rather than only a fidelity one: a listening
+    // port that outlived the module that opened it is exactly how this leaks.
+    if (listener_ && listener_->listening()) {
+        log_info("AT+RST — closing the server on port {}", listener_->port());
+        listener_->close();
     }
     mode_        = Mode::Command;
     payload_len_ = 0;
     payload_.clear();
     deferred_.clear();
     echo_ = false;  // power-on default — see simplification (2) in the header
+    // Back to the power-on default, which is the value nextsync depends on
+    // never having to ask for.
+    cipmux_ = false;
 
     // `ready` is on the never-emit list; the two WIFI URCs are what the
     // NextZXOS driver actually looks for after a reset.
@@ -442,20 +458,38 @@ void AtEngine::cmd_cipsend(const std::string& args)   { begin_send(args, "AT+CIP
 void AtEngine::cmd_cipsendex(const std::string& args) { begin_send(args, "AT+CIPSENDEX"); }
 
 void AtEngine::begin_send(const std::string& args, const char* name) {
-    if (!conn_[SINGLE_CID].open) {
-        log_debug("{} with no open connection — answering ERROR", name);
+    // THE ARGUMENT LIST DEPENDS ON THE MODE, and it is read from the mode
+    // rather than sniffed from the text: `AT+CIPSEND=<length>` under CIPMUX=0,
+    // `AT+CIPSEND=<link ID>,<length>` under CIPMUX=1 (ESP-AT AT+CIPSEND).
+    // Deciding by "does it contain a comma" would silently accept the wrong
+    // form for the mode, and the failure would land as a payload length the
+    // guest never meant.
+    std::string   rest = args;
+    std::size_t   cid  = SINGLE_CID;
+    if (cipmux_) {
+        std::uint32_t id = 0;
+        if (!parse_uint(take_field(rest), MAX_CONNECTIONS - 1, id)) {
+            log_debug("{} link id \"{}\" out of range — answering ERROR", name, escape(args));
+            queue_error();
+            return;
+        }
+        cid = id;
+    }
+
+    if (!conn_[cid].open) {
+        log_debug("{} on cid {} which is not open — answering ERROR", name, cid);
         queue_error();
         return;
     }
 
     std::uint32_t len = 0;
-    if (!parse_uint(args, MAX_SEND_LEN, len) || len == 0) {
+    if (!parse_uint(rest, MAX_SEND_LEN, len) || len == 0) {
         log_debug("{} length \"{}\" out of range — answering ERROR", name, escape(args));
         queue_error();
         return;
     }
 
-    payload_cid_ = SINGLE_CID;
+    payload_cid_ = cid;
     payload_len_ = len;
     payload_.clear();
     payload_.reserve(len);
@@ -490,18 +524,134 @@ void AtEngine::cmd_cipclose(const std::string&) {
 }
 
 void AtEngine::cmd_cipmux(const std::string& args) {
-    if (args == "0") {
+    if (args != "0" && args != "1") {
+        log_debug("AT+CIPMUX={} is not a mode (0 or 1) — answering ERROR", escape(args));
+        queue_error();
+        return;
+    }
+    const bool want = (args == "1");
+
+    // A NO-OP IS ALWAYS ACCEPTED, and that is what keeps `AT+CIPMUX=0` — the
+    // line NXtel sends at init and the one v1.0 always answered OK — behaving
+    // exactly as it always did (simplification 8c). Only a real CHANGE is
+    // subject to the guards below.
+    if (want == cipmux_) {
         queue_ok();
         return;
     }
-    // Refused, not ignored: nextsync never sends AT+CIPMUX at all and its
-    // `+IPD` byte FSM cannot survive the multiplexed form, so silently
-    // accepting =1 would promise something that breaks the one client that
-    // cannot ask for it back. The connection TABLE is sized for it (issue
-    // #154); the COMMAND is not implemented.
-    log_debug("AT+CIPMUX={} unsupported (single-connection only) — answering ERROR",
-               escape(args));
-    queue_error();
+
+    // Real firmware: "This mode can only be changed after all connections are
+    // disconnected" (ESP-AT AT+CIPMUX). The hazard is concrete rather than
+    // bureaucratic — the peer of a live connection was promised one `+IPD`
+    // framing and has no way to renegotiate, and nextsync's reader would not
+    // even fail cleanly on the other one (see `queue_ipd_header`).
+    for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
+        if (!conn_[cid].open && !conn_[cid].connecting) continue;
+        log_debug("AT+CIPMUX={} while cid {} is live — answering ERROR", args, cid);
+        queue_error();
+        return;
+    }
+    // Real firmware, same command: to go back to single-connection mode "you
+    // should delete the server first". A server is a promise of `<id>,CONNECT`
+    // and `+IPD,<id>,…` to whoever connects next, so leaving it up under
+    // CIPMUX=0 would mean framing the next client cannot have asked for.
+    if (!want && listener_ && listener_->listening()) {
+        log_debug("AT+CIPMUX=0 while the server is listening on port {} — answering ERROR",
+                  listener_->port());
+        queue_error();
+        return;
+    }
+
+    cipmux_ = want;
+    log_debug("AT+CIPMUX={} accepted — {} connection mode", args,
+              cipmux_ ? "multiple" : "single");
+    queue_ok();
+}
+
+void AtEngine::cmd_cipserver(const std::string& args) {
+    // `<mode>` 0 = delete, 1 = create (ESP-AT AT+CIPSERVER). Only those two
+    // exist, and the second takes a port.
+    std::string   rest = args;
+    std::uint32_t mode = 0;
+    if (!parse_uint(take_field(rest), 1, mode)) {
+        log_debug("AT+CIPSERVER mode \"{}\" is not 0 or 1 — answering ERROR", escape(args));
+        queue_error();
+        return;
+    }
+
+    if (mode == 0) {
+        if (!rest.empty()) {
+            // ESP-AT's `<close_all>` argument. Refused rather than ignored, for
+            // the `AT+CIPMUX=1` reason: accepting it would promise a choice
+            // about existing connections that this engine does not make.
+            log_debug("AT+CIPSERVER=0 takes no further argument — answering ERROR");
+            queue_error();
+            return;
+        }
+        if (!listener_ || !listener_->listening()) {
+            // ERROR, where real firmware says OK — simplification (8b). The one
+            // evidenced sender of this line turns the server off at init and
+            // has always received `ERROR` here (v1.0 had no such command at
+            // all), so this is the spelling that changes nothing for it.
+            log_debug("AT+CIPSERVER=0 with no server running — answering ERROR");
+            queue_error();
+            return;
+        }
+        const std::uint16_t was = listener_->port();
+        listener_->close();
+        // Established connections are deliberately left alone: the guest asked
+        // to stop ACCEPTING, and dropping a live debug session because its
+        // listener was retired would be a surprise nothing asked for.
+        log_info("AT+CIPSERVER=0 — stopped listening on port {}", was);
+        queue_ok();
+        return;
+    }
+
+    // "A TCP/SSL server can only be created when multiple connections are
+    // activated (AT+CIPMUX=1)" — ESP-AT, AT+CIPSERVER. Checked before the port
+    // so that a guest which forgot the prerequisite is not also told its port
+    // is wrong.
+    if (!cipmux_) {
+        log_debug("AT+CIPSERVER=1 needs AT+CIPMUX=1 first — answering ERROR");
+        queue_error();
+        return;
+    }
+
+    std::uint32_t port = 0;
+    if (!parse_uint(take_field(rest), 65535, port) || port == 0 || !rest.empty()) {
+        // Port 0 is refused although the platform layer accepts it: it means
+        // "let the OS choose", and a guest that named no port has no way to be
+        // told which one it got.
+        log_debug("AT+CIPSERVER=1 has no usable port — answering ERROR");
+        queue_error();
+        return;
+    }
+
+    if (listener_ && listener_->listening()) {
+        log_debug("AT+CIPSERVER=1 while already listening on port {} — answering ERROR",
+                  listener_->port());
+        queue_error();
+        return;
+    }
+    if (!listener_) {
+        // No server capability was built. Indistinguishable from a failed bind
+        // on purpose — see the constructor's note.
+        log_warn("AT+CIPSERVER=1,{} but this ESP has no listener — answering ERROR", port);
+        queue_error();
+        return;
+    }
+
+    if (!listener_->open(static_cast<std::uint16_t>(port))) {
+        // NO FALL BACK OF ANY KIND, which is the whole of design doc §13.4's
+        // consequence: not to another port, and above all not to a wider bind
+        // address. The listener has already logged what went wrong.
+        log_warn("AT+CIPSERVER=1,{} failed to bind ({}) — answering ERROR", port,
+                 listener_->last_error());
+        queue_error();
+        return;
+    }
+    log_info("AT+CIPSERVER=1,{} — listening", listener_->port());
+    queue_ok();
 }
 
 void AtEngine::cmd_uart(const std::string& args) {
@@ -609,15 +759,25 @@ void AtEngine::poll() {
 void AtEngine::advance_transports() {
     for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
         Connection& c = conn_[cid];
-        if (!c.transport) continue;  // v1.0: every slot but SINGLE_CID
-        // The ONLY statement in this function, deliberately. Nothing here
-        // reads or writes engine state, which is what lets a threaded host run
-        // it outside its own lock — see the header.
+        if (!c.transport) continue;  // a slot no connection has been put in
+        // Nothing here reads or writes engine state, which is what lets a
+        // threaded host run it outside its own lock — see the header.
         c.transport->poll();
     }
+    // The listener belongs on this side of the split for the same reason and by
+    // the same rule: its `poll()` is the accept SYSCALL and touches no engine
+    // state, while `accept()` — which puts a connection in a slot — is engine
+    // work and runs below, under the lock.
+    if (listener_) listener_->poll();
 }
 
 void AtEngine::service_transports() {
+    // FIRST, so a connection accepted this pass is drained and framed in this
+    // pass too. It also fixes the order of the two things the guest hears about
+    // a new peer: `<id>,CONNECT` is queued here, which makes the wire non-quiet,
+    // so the peer's first `+IPD` can only be framed after it.
+    accept_connections();
+
     for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
         Connection& c = conn_[cid];
         if (!c.transport) continue;
@@ -628,6 +788,63 @@ void AtEngine::service_transports() {
     }
     frame_ipd();
     refresh_tick_gate();
+}
+
+void AtEngine::accept_connections() {
+    if (!listener_) return;
+
+    while (std::unique_ptr<EspTransport> adopted = listener_->accept()) {
+        std::size_t cid = MAX_CONNECTIONS;
+        for (std::size_t i = FIRST_INBOUND_CID; i < MAX_CONNECTIONS; ++i) {
+            if (!conn_[i].transport) {
+                cid = i;
+                break;
+            }
+        }
+        if (cid == MAX_CONNECTIONS) {
+            // Every inbound slot is taken. Closing at once is the honest
+            // answer: the peer learns immediately that it has nowhere to go,
+            // which is better than a connection that is open on its side and
+            // invisible on ours. Real firmware refuses past its own ceiling
+            // too; ours is one lower because slot 0 is reserved
+            // (simplification 8a).
+            log_warn("inbound connection dropped — all {} inbound slots are in use",
+                     MAX_CONNECTIONS - FIRST_INBOUND_CID);
+            adopted->close();
+            continue;
+        }
+
+        Connection& c = conn_[cid];
+        c.transport   = TransportPtr(adopted.release(), TransportOwnership{/*owned=*/true});
+        c.open        = true;
+        c.connecting  = false;
+        c.close_pending = false;
+        c.protocol    = Protocol::Tcp;  // no listener speaks anything else
+        c.local_port  = 0;
+        c.clear_buffers();
+        // An inbound connection exists only because the guest asked for a
+        // server, and a server needs CIPMUX=1, so this is always true here. It
+        // is read rather than assumed because it is the value that decides the
+        // wire format for the life of the connection.
+        c.multiplexed = cipmux_;
+        c.host        = to_string(c.transport->peer_address());
+        c.port        = 0;  // the peer's ephemeral port is of no use to the guest
+
+        log_info("inbound connection from {} accepted as cid {}", c.host, cid);
+        // `[<conn_id>,]CONNECT` — "A network connection of which ID is
+        // <conn_id> is established" (ESP-AT, AT Messages table). The bracketed
+        // id is present exactly when the session is multiplexed, which an
+        // inbound connection always is.
+        queue("\r\n" + std::to_string(cid) + ",CONNECT\r\n");
+    }
+}
+
+void AtEngine::release_inbound(std::size_t cid) {
+    if (cid < FIRST_INBOUND_CID) return;  // slot 0's transport is borrowed
+    // Frees the accepted transport (and with it the socket) via the deleter,
+    // and returns the slot to the pool: a null `transport` is exactly what
+    // `accept_connections` looks for.
+    conn_[cid].transport.reset();
 }
 
 void AtEngine::resolve_connect(std::size_t cid) {
@@ -657,6 +874,12 @@ void AtEngine::resolve_connect(std::size_t cid) {
         case TransportState::Connected:
             c.connecting = false;
             c.open       = true;
+            // The framing this connection will use for the rest of its life,
+            // fixed here because this is the moment the peer exists. An
+            // outbound connection made by a CIPMUX=0 session therefore keeps
+            // the unmultiplexed `+IPD` whatever happens later — which is the
+            // property nextsync's reader depends on.
+            c.multiplexed = cipmux_;
             log_info("{} connection to {}:{} opened ({})", protocol_text(c.protocol), c.host,
                       c.port, to_string(c.transport->peer_address()));
             if (c.protocol == Protocol::Udp) {
@@ -851,7 +1074,7 @@ void AtEngine::frame_ipd() {
             c.rx_datagrams.pop_front();
             log_debug("+IPD framing a {}-byte datagram on cid {}, {} datagram(s) left "
                       "buffered", dg.size(), cid, c.rx_datagrams.size());
-            queue_ipd_header(cid, /*multiplexed=*/false, dg.size());
+            queue_ipd_header(cid, c.multiplexed, dg.size());
             for (std::uint8_t b : dg) out_.push_back(b);
             refresh_tick_gate();
             return;
@@ -867,7 +1090,7 @@ void AtEngine::frame_ipd() {
         // small ones, which is what keeps nextsync inside its
         // 5-chunks-per-packet budget.
         log_debug("+IPD framing {} byte(s) on cid {}, {} left buffered", n, cid, c.rx.size() - n);
-        queue_ipd_header(cid, /*multiplexed=*/false, n);
+        queue_ipd_header(cid, c.multiplexed, n);
         for (std::size_t i = 0; i < n; ++i) {
             out_.push_back(c.rx.front());
             c.rx.pop_front();
@@ -880,7 +1103,18 @@ void AtEngine::frame_ipd() {
         Connection& c = conn_[cid];
         if (!c.close_pending) continue;
         c.close_pending = false;
-        queue("\r\nCLOSED\r\n");
+        // `[<conn_id>,]CLOSED` — "A network connection of which ID is
+        // <conn_id> ends" (ESP-AT, AT Messages table). The unprefixed form is
+        // what NXtel's 5-byte `OSED\r` window looks for, so a CIPMUX=0 session
+        // keeps seeing exactly the bytes v1.0 emitted.
+        if (c.multiplexed)
+            queue("\r\n" + std::to_string(cid) + ",CLOSED\r\n");
+        else
+            queue("\r\nCLOSED\r\n");
+        // Told, therefore finished with: the slot goes back to the pool only
+        // now, so a peer that reconnects immediately cannot be given the id of
+        // a connection the guest has not yet heard about the end of.
+        release_inbound(cid);
         return;
     }
 }
@@ -932,6 +1166,22 @@ void AtEngine::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte) {
                   ticks_per_byte, out_.size());
     }
     refresh_tick_gate();
+}
+
+bool AtEngine::server_listening() const {
+    return listener_ != nullptr && listener_->listening();
+}
+
+std::uint16_t AtEngine::server_port() const {
+    return listener_ != nullptr ? listener_->port() : 0;
+}
+
+std::size_t AtEngine::inbound_connections() const {
+    std::size_t n = 0;
+    for (std::size_t cid = FIRST_INBOUND_CID; cid < MAX_CONNECTIONS; ++cid) {
+        if (conn_[cid].open) ++n;
+    }
+    return n;
 }
 
 std::size_t AtEngine::pending_from_peer() const {

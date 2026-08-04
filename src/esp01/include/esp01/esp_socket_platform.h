@@ -32,6 +32,18 @@ constexpr NativeSocket kInvalidSocket  = -1;
 
 enum class ConnectProgress : std::uint8_t { Pending, Connected, Failed };
 
+/// `listen()` backlog for the AT+CIPSERVER socket (GH #210). Both twins must
+/// pass the same value, which is why it is declared here rather than spelled
+/// twice.
+///
+/// FOUR, and the number follows from the engine rather than from taste: the
+/// AT layer holds at most one accepted connection at a time and the connection
+/// table has four inbound slots (`AtEngine::MAX_CONNECTIONS` minus the
+/// outbound one), so a deeper backlog would only park connections the guest
+/// can never be given. Anything beyond it is refused by the kernel, which is
+/// what a backlog is for.
+constexpr int kListenBacklog = 4;
+
 /// One-time process-wide network init (WSAStartup on Windows, nothing
 /// elsewhere). Idempotent; safe to call from every factory invocation.
 bool init(std::string& err);
@@ -97,6 +109,44 @@ std::size_t send(NativeSocket s, const std::uint8_t* data, std::size_t len,
 /// it. See `SocketTransport::recv` for what the distinction buys (GH #176).
 std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool stream,
                  bool& eof, bool& failed, bool& reset, std::string& err);
+
+/// Create a non-blocking LISTENING socket bound to `ip`:`port` (GH #210).
+/// Returns `kInvalidSocket` on failure, with `err` set.
+///
+/// THE BIND ADDRESS IS A SECURITY DECISION, so there is no fall back of any
+/// kind: a bind that cannot have exactly the address it was given fails, and
+/// the AT layer answers `ERROR` (design doc §13.4 — "silent widening is the
+/// failure mode this decision exists to prevent"). That is also why the address
+/// is a parameter rather than a wildcard with a filter bolted on afterwards:
+/// the kernel is what enforces it.
+///
+/// `port` 0 lets the OS choose one, and `bound_port` always reports what was
+/// actually bound. A caller that named a port gets it back unchanged; a caller
+/// that did not has no other way to learn it, and neither has any way to end up
+/// listening somewhere it did not intend.
+///
+/// THE TWINS DIVERGE ON ONE OPTION, deliberately, and each says why on the
+/// spot: POSIX sets `SO_REUSEADDR`, Windows sets `SO_EXCLUSIVEADDRUSE`. The
+/// names look like opposites because on Windows they are — see either
+/// implementation.
+NativeSocket open_listener(const IpAddress& ip, std::uint16_t port,
+                           std::uint16_t& bound_port, std::string& err);
+
+/// Take one pending inbound connection off `listener`, or report that there is
+/// none. NEVER waits (GH #210).
+///
+/// Three outcomes, and the caller has to be able to tell them apart:
+///   * a socket, with `peer`/`peer_port` filled in and `failed` false — it is
+///     already non-blocking and carries the same options an outbound socket
+///     does, so it is usable through the ordinary send/recv shims;
+///   * `kInvalidSocket` with `failed` FALSE — nothing is pending (the normal
+///     case, once per poll), or a peer that hung up between its SYN and our
+///     accept, which is the peer's business and leaves the listener good;
+///   * `kInvalidSocket` with `failed` TRUE — the listener itself is broken and
+///     `err` says how.
+NativeSocket accept_nonblocking(NativeSocket listener, IpAddress& peer,
+                                std::uint16_t& peer_port, bool& failed,
+                                std::string& err);
 
 void close(NativeSocket s);
 
