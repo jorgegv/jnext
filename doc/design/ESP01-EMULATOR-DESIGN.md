@@ -137,15 +137,23 @@ does not "fix" them.
 
 | Not built | Evidence |
 |---|---|
-| **Server / listen mode** (`AT+CIPSERVER`) | Appears **exactly once** in all software examined, and only to turn it **off**. NextZXOS's own listen/accept API is marked `***TODO, not implemented`. Not building it also removes the entire inbound attack surface. |
+| ~~**Server / listen mode**~~ (`AT+CIPSERVER`) | ~~Appears **exactly once** in all software examined, and only to turn it **off**. NextZXOS's own listen/accept API is marked `***TODO, not implemented`. Not building it also removes the entire inbound attack surface.~~ **BUILT (GH #210)** — the first reason expired: [dezogif_ng](https://github.com/jorgegv/dezogif_ng) is a consumer, and DeZog only ever dials *out*, so something on the Next has to listen. The second did not expire and is **answered rather than retired** ([§13.4](#134-security-review--the-inbound-surface)): the listener binds **127.0.0.1** by default, `--esp-listen-address` is the explicit act that widens it, and a bind failure answers `ERROR` instead of falling back to a wider address. See [§13](#13-server-mode-gh-210). |
 | ~~**UDP**~~ | ~~Zero consumers. nextsync is TCP-only; NXtel and the dot commands are TCP-only.~~ **BUILT (GH #198)** — the justification was "no consumer", and [`newt`](https://github.com/chris-y/newt) (GPLv3) is one. See [§5.7](#57-udp-gh-198). |
 | **Passthrough** (`AT+CIPMODE`) | Appears **nowhere** in any examined software. |
-| **Multiplexed connections** (`AT+CIPMUX=1`) | nextsync never sends `AT+CIPMUX` at all — it relies on the power-on default — and its `+IPD` byte FSM does not merely reject `+IPD,<id>,<len>:`, it **silently mis-parses** it into a corrupted length (§3, choice B). Since **no command can correct a wrong default at runtime**, the default must be 0 and `=1` must be refused loudly rather than accepted-and-ignored. |
+| ~~**Multiplexed connections**~~ (`AT+CIPMUX=1`) | nextsync never sends `AT+CIPMUX` at all — it relies on the power-on default — and its `+IPD` byte FSM does not merely reject `+IPD,<id>,<len>:`, it **silently mis-parses** it into a corrupted length (§3, choice B). Since **no command can correct a wrong default at runtime**, the default must be 0 ~~and `=1` must be refused loudly rather than accepted-and-ignored~~. **BUILT (GH #210)** — `AT+CIPSERVER` requires it, so the command arrived with server mode and now answers `OK`. The evidence above did **not** expire; it changed what it constrains. It is why the **power-on default stays 0**, why `CIPMUX=1` happens only on explicit command, and why the multiplexed `+IPD` form reaches only connections owned by a session that asked ([§13.3](#133-the-constraint-that-makes-this-real-work)). What v1.0 was protecting was the *default*, and that is untouched. |
 | **TLS** | No evidenced consumer. sQLux has it; nothing on the Next asks for it. |
 
-`AT+CIPMUX=1` is answered `ERROR`. That is the one place where refusing is safer than accepting:
-silently accepting would promise a wire format that breaks the one client which cannot ask for it
-back.
+`AT+CIPMUX=1` was answered `ERROR` until GH #210 gave it a consumer; it is answered `OK` now
+([§13.2](#132-why-it-is-three-commands-and-not-one)), and `AT+CIPMUX=0` — the line NXtel sends at
+init — answers `OK` exactly as it always did.
+
+The sentence that used to follow, *"that is the one place where refusing is safer than
+accepting"*, is kept rather than deleted, because it is still true of the thing it was actually
+about: silently accepting **and ignoring** would promise a wire format that breaks the one client
+which cannot ask for it back. That alternative is still rejected ([§9](#9-rejected-alternatives)).
+What GH #210 changed is that the command is now *honoured*, which is the opposite of ignoring it —
+and the protection moved to where the evidence always pointed: the power-on **default**, which
+stays 0 and which no command can correct at run time.
 
 ### 1.5 The two acceptance targets, and why both
 
@@ -357,7 +365,7 @@ Follows directly from [§1.1](#11-how-the-at-surface-was-derived). Case-insensit
 | `AT+CIPSENDEX=<n>` | identical | Alias (simplification 3) |
 | `AT+CIPCLOSE` | `\r\nCLOSED\r\n\r\nOK\r\n`; `\r\nERROR\r\n` if nothing open | The `ERROR` case is load-bearing — see below |
 | `AT+CIPMUX=0` | `\r\nOK\r\n` | |
-| `AT+CIPMUX=1` | `\r\nERROR\r\n` | Refused, not ignored (§1.4) |
+| `AT+CIPMUX=1` | `\r\nOK\r\n` | GH #210, [§13](#13-server-mode-gh-210). Refused until server mode had a consumer. The power-on default is still 0, and a real mode **change** is still refused while a connection is open — or, back to 0, while the server is up |
 | `AT+UART_CUR=<baud>,…` / `AT+UART_DEF=` / `AT+UART=` | `\r\nOK\r\n` | Recorded and traced; pacing follows the channel's **live prescaler**, so nothing else is needed |
 | `AT+GMR` | canned version block | Anchors `T version:` and `DK version:`, each printed to the next `(` |
 | `AT+CWJAP?` | `\r\n+CWJAP:"<SSID>","<BSSID>",1,-55\r\n\r\nOK\r\n` | |
@@ -1076,8 +1084,11 @@ with drop-newest. Pacing is the device's responsibility, and this is exactly why
 the Next-side UART state machine (§4.3). The real reset line is NR 0x02 bit 7 and needs its own
 hook.
 
-**Accepting `AT+CIPMUX=1` and ignoring it.** Rejected: it would promise a wire format that breaks
-the one client that cannot ask for it back (§1.4).
+**Accepting `AT+CIPMUX=1` and ignoring it.** Still rejected, and GH #210 did **not** overturn it:
+the command is now accepted and *honoured* — a session that asks for multiplexing gets
+`+IPD,<id>,<len>:` and a session that never asked keeps `+IPD,<len>:` — which is the opposite of
+ignoring it. Accepting-and-ignoring would still promise a wire format that breaks the one client
+that cannot ask for it back (§1.4, [§13.3](#133-the-constraint-that-makes-this-real-work)).
 
 **Holding the core lock across the transport poll.** Shipped first, then falsified by measurement:
 11 827 226 `tick()` calls delivered **0 of 39 already-queued bytes** across a 500 ms transport
@@ -1124,11 +1135,11 @@ What v1.0 already leaves open, at zero cost today (§3):
 
 | Extension | What is already in place | What v1.1 adds |
 |---|---|---|
-| `AT+CIPMUX=1`, 5 connections | The `conn_` table, per-slot state, per-slot loops, connection ids throughout the state machine | Give slots 1..4 transports; implement the command; pass `multiplexed=true` |
-| Multiplexed `+IPD,<id>,<len>:` | `queue_ipd_header(cid, multiplexed, len)` — the one place the wire format is decided | Flip the flag per connection |
+| ~~`AT+CIPMUX=1`, 5 connections~~ | The `conn_` table, per-slot state, per-slot loops, connection ids throughout the state machine | **DONE (GH #210)**, and §3's prediction held — it was filling in blanks. Two corrections to this row's own wording: the usable ceiling is **4 inbound** connections, because slot 0 stays the guest's outbound transport and accepted ids run 1..4 ([§13.7](#137-what-implementation-decided-that-13-did-not)); and `multiplexed` is **captured per connection when it opens**, not passed globally, which is the part that keeps a `CIPMUX=0` session's framing untouched |
+| ~~Multiplexed `+IPD,<id>,<len>:`~~ | `queue_ipd_header(cid, multiplexed, len)` — the one place the wire format is decided | **DONE (GH #210)** — exactly as predicted, per connection. `MUX-10`..`MUX-13` pin the two wire forms against each other so neither can drift into the other's session |
 | ≈40 further AT commands | `kCommands` table + uniform handler signature | Add rows |
 | ~~UDP~~ / TLS / passthrough | `EspTransport` is an interface | **UDP is done (GH #198)**, and the prediction in this row was WRONG in an instructive way: it did not arrive as a new implementation behind an unchanged seam, because the engine is handed ONE transport per slot at construction and `AT+CIPSTART="UDP"` chooses at run time. It arrived as a `Protocol` argument on `begin_connect` instead. TLS and passthrough would go the same way. |
-| Server / listen | — | New capability; **re-opens the inbound attack surface deliberately closed in v1.0**, so it needs its own security review |
+| ~~Server / listen~~ | — | **DONE (GH #210)**, [§13](#13-server-mode-gh-210). The security review this row demanded is [§13.4](#134-security-review--the-inbound-surface), and it did re-open the inbound surface deliberately: bind is **127.0.0.1** by default, `--esp-listen-address` is the explicit widening, and a bind failure answers `ERROR` rather than falling back to a wider address. `AT+CIPCLOSE=<id>` followed in GH #211 ([§14](#14-per-connection-close-gh-211)) |
 | NR 0x02 bit 7 hardware reset | The bit is already latched (`emulator.cpp:2719`) | A device-facing hook driven from the NR 0x02 **write** — distinct from `UartChannel::reset` (§4.2/§4.3) |
 | Echo on by default | `ATE0`/`ATE1` really toggle it | One line, if datasheet fidelity is wanted (simplification 2) |
 | `AT+CIPSENDEX` `\0` early terminate | Currently an alias | Real early-terminate semantics (simplification 3) |
