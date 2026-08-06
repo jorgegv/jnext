@@ -350,7 +350,16 @@ story, and it is why §6 exists.
 Follows directly from [§1.1](#11-how-the-at-surface-was-derived). Case-insensitive on the command
 **name**; arguments are never case-folded (a hostname keeps its case).
 
-### 5.1 v1.0 commands
+### 5.1 The command set, as shipped
+
+**This table is the whole surface, not v1.0's.** It was headed *"v1.0 commands"*
+until GH #198, #210 and #211 each added to it, and that label is what let the
+`AT+CIPMUX=1` row go on claiming `ERROR` after GH #210 had made it `OK`: a reader
+scanning for a command sees a row, never a scope heading. So a post-v1.0 addition
+is annotated **in place**, with the issue that brought it and the section that
+justifies it — the convention [§5.7](#57-udp-gh-198) already set for UDP — rather
+than filed in a separate table the scanner never reaches. The GH tag in the Notes
+column *is* the version boundary, and it carries more than a heading could.
 
 | Line from guest | Reply (exact bytes) | Notes |
 |---|---|---|
@@ -363,9 +372,12 @@ Follows directly from [§1.1](#11-how-the-at-surface-was-derived). Case-insensit
 | `AT+CIPSTART="SSL",…` and anything else | `\r\nERROR\r\n` | Still no consumer |
 | `AT+CIPSEND=<n>` | `\r\nOK\r\n> ` → *n payload bytes* → `\r\nSEND OK\r\n` | **Trailing space after `>` is mandatory** |
 | `AT+CIPSENDEX=<n>` | identical | Alias (simplification 3) |
-| `AT+CIPCLOSE` | `\r\nCLOSED\r\n\r\nOK\r\n`; `\r\nERROR\r\n` if nothing open | The `ERROR` case is load-bearing — see below |
+| `AT+CIPCLOSE` | `\r\nCLOSED\r\n\r\nOK\r\n` — or `\r\n0,CLOSED\r\n\r\nOK\r\n` on a multiplexed session; `\r\nERROR\r\n` if nothing open | Closes the **outbound** connection, in every mode, and never acquires a second meaning under `CIPMUX=1` ([§14.3](#143-the-bare-spelling-does-not-acquire-a-second-meaning)). The `ERROR` case is load-bearing — see below |
+| `AT+CIPCLOSE=<id>` | `\r\n<id>,CLOSED\r\n\r\nOK\r\n` | GH #211, [§14](#14-per-connection-close-gh-211). Closes that link id and returns its slot to the pool. `ERROR` under `CIPMUX=0`, for an id with no live connection, and for ESP-AT's close-all `=5` — which is refused as a **decision**, not as a range accident |
 | `AT+CIPMUX=0` | `\r\nOK\r\n` | |
 | `AT+CIPMUX=1` | `\r\nOK\r\n` | GH #210, [§13](#13-server-mode-gh-210). Refused until server mode had a consumer. The power-on default is still 0, and a real mode **change** is still refused while a connection is open — or, back to 0, while the server is up |
+| `AT+CIPSERVER=1,<port>` | `\r\nOK\r\n` | GH #210, [§13](#13-server-mode-gh-210). Needs `AT+CIPMUX=1` first, else `ERROR`. Port 0, a second server, an unbindable port and a missing port are all `ERROR` — a bind failure never falls back to another port or a wider address ([§13.4](#134-security-review--the-inbound-surface)) |
+| `AT+CIPSERVER=0` | `\r\nOK\r\n` | Retires the listener and deliberately **leaves established connections alone**. `ERROR` when no server is running — a deliberate divergence from firmware, which says `OK` ([§13.7](#137-what-implementation-decided-that-13-did-not)) — and `ERROR` for ESP-AT's `<close_all>` argument |
 | `AT+UART_CUR=<baud>,…` / `AT+UART_DEF=` / `AT+UART=` | `\r\nOK\r\n` | Recorded and traced; pacing follows the channel's **live prescaler**, so nothing else is needed |
 | `AT+GMR` | canned version block | Anchors `T version:` and `DK version:`, each printed to the next `(` |
 | `AT+CWJAP?` | `\r\n+CWJAP:"<SSID>","<BSSID>",1,-55\r\n\r\nOK\r\n` | |
@@ -376,10 +388,18 @@ Follows directly from [§1.1](#11-how-the-at-surface-was-derived). Case-insensit
 
 **Unsolicited (URC):**
 
+The `+IPD` and `CLOSED` spellings follow the **connection**, fixed when it opens
+and never varying byte to byte: a session that never sent `AT+CIPMUX` sees the
+unprefixed form it has always seen, and only a connection owned by a `CIPMUX=1`
+session sees the prefixed one ([§13.3](#133-the-constraint-that-makes-this-real-work)).
+
 | Emitted | When |
 |---|---|
-| `\r\n+IPD,<len>:<data>` | Peer data, framed only when the wire is quiet (simplification 1) |
+| `\r\n+IPD,<len>:<data>` | Peer data on a single-connection session, framed only when the wire is quiet (simplification 1) |
+| `\r\n+IPD,<id>,<len>:<data>` | The same, on a connection owned by a `CIPMUX=1` session (GH #210) |
 | `\r\nCLOSED\r\n` | Peer closed — deferred until everything already received has been framed and drained |
+| `\r\n<id>,CLOSED\r\n` | Peer closed a multiplexed connection, with the same deferral (GH #210) |
+| `\r\n<id>,CONNECT\r\n` | An inbound connection was **accepted** (GH #210, [§13](#13-server-mode-gh-210)). Always prefixed — a server requires `AT+CIPMUX=1` — and `<id>` runs **1..4**, never 0, which stays the guest's own outbound slot |
 
 ### 5.2 The framing constraints that actually bite
 
