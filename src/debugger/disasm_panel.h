@@ -38,6 +38,10 @@ public:
     void set_watch_panel(WatchPanel* wp) { watch_panel_ = wp; }
 
 signals:
+    /// "The breakpoint set changed at `addr`" — not only the gutter's PC
+    /// toggles: the context menu's Break-on-Read/Write entries emit it too
+    /// (GH #218), because the Breakpoints panel that listens to it lists
+    /// watchpoints as well. The consumer ignores `addr` and refreshes.
     void breakpoint_toggled(uint16_t addr);
     void run_to_requested(uint16_t addr);
 

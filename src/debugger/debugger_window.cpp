@@ -573,6 +573,9 @@ void DebuggerWindow::create_menus() {
         emulator_->debug_state().breakpoints().clear_all_pc();
         emulator_->debug_state().breakpoints().clear_all_watchpoints();
         if (disasm_panel_) disasm_panel_->refresh();
+        // GH #218 — same gap as the Add routes, in the other direction: the
+        // panel kept LISTING every breakpoint the user had just cleared.
+        if (breakpoint_panel_) breakpoint_panel_->refresh();
     });
 
     // --- Watches menu ---
@@ -1115,6 +1118,16 @@ void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
     if (!prompt_bp_address(tr("Add %1 Breakpoint").arg(type_name), addr)) return;
 
     emulator_->debug_state().breakpoints().add_watchpoint(addr, type);
+
+    // GH #218 — the Breakpoints panel lists watchpoints too, and nothing else
+    // repaints it until the next pause/step, so a breakpoint added from the
+    // menu was invisible for as long as the emulator kept running. The panel's
+    // own Add button has always refreshed here; this route had not.
+    //
+    // The disassembly gutter is deliberately NOT refreshed: it draws
+    // bps.has_pc(addr) only (disasm_panel.cpp:153), so a watchpoint changes
+    // nothing in it. That is the one asymmetry with show_add_exec_bp_dialog().
+    if (breakpoint_panel_) breakpoint_panel_->refresh();
 }
 
 // GH #215 — an Execute breakpoint is a PC breakpoint (add_pc), not a
