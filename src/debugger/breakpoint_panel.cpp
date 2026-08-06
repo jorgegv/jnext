@@ -12,6 +12,7 @@
 #include <QFormLayout>
 #include <QLineEdit>
 #include <QComboBox>
+#include <QLabel>
 
 BreakpointPanel::BreakpointPanel(Emulator* emulator, QWidget* parent)
     : QWidget(parent)
@@ -81,7 +82,28 @@ QString BreakpointPanel::type_name(int type_index)
         case 1: return "Read";
         case 2: return "Write";
         case 3: return "Read/Write";
+        case 4: return "IO Read";
+        case 5: return "IO Write";
         default: return "?";
+    }
+}
+
+// The combo index -> WatchType map, in ONE place (GH #222).
+//
+// It used to be spelled out inline at each of the four mutation sites below
+// as `wt = READ; if (idx==2) WRITE; if (idx==3) READ_WRITE;`. Adding the two
+// I/O types would have meant getting the same edit right four times, and the
+// two halves of on_edit() must agree exactly or an edited breakpoint is
+// removed as one type and re-added as another. Index 0 is Execute, which is
+// add_pc() and not a watchpoint at all — every caller tests for it first.
+static WatchType watch_type_for(int type_index)
+{
+    switch (type_index) {
+        case 2:  return WatchType::WRITE;
+        case 3:  return WatchType::READ_WRITE;
+        case 4:  return WatchType::IO_READ;
+        case 5:  return WatchType::IO_WRITE;
+        default: return WatchType::READ;
     }
 }
 
@@ -102,7 +124,8 @@ void BreakpointPanel::rebuild_entries()
             case WatchType::READ:       ti = 1; break;
             case WatchType::WRITE:      ti = 2; break;
             case WatchType::READ_WRITE: ti = 3; break;
-            default: ti = 1; break;
+            case WatchType::IO_READ:    ti = 4; break;
+            case WatchType::IO_WRITE:   ti = 5; break;
         }
         entries_.push_back({wp.addr, ti});
     }
@@ -150,6 +173,8 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, int& 
     type_combo->addItem(tr("Read"));
     type_combo->addItem(tr("Write"));
     type_combo->addItem(tr("Read/Write"));
+    type_combo->addItem(tr("IO Read"));
+    type_combo->addItem(tr("IO Write"));
     type_combo->setCurrentIndex(type_index);
     form->addRow(tr("Type:"), type_combo);
 
@@ -157,6 +182,13 @@ bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, int& 
     addr_edit->setPlaceholderText("e.g. 4000 or $4000");
     addr_edit->setText(QString::asprintf("%04X", addr));
     form->addRow(tr("Address (hex):"), addr_edit);
+
+    // The one thing a user cannot guess about the two IO types: what the
+    // address means. Ports are decoded by address-line masking, so 00-FF is a
+    // low-byte match and anything above is an exact 16-bit port (GH #222).
+    form->addRow(QString(), new QLabel(
+        tr("IO Read/Write: 00-FF matches any port with that low byte\n"
+           "(FE = the ULA); 0100 and up matches that exact port (243B)."), &dlg));
 
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel, &dlg);
@@ -189,10 +221,7 @@ void BreakpointPanel::on_add()
     if (type_index == 0) {
         bps.add_pc(addr);
     } else {
-        WatchType wt = WatchType::READ;
-        if (type_index == 2) wt = WatchType::WRITE;
-        if (type_index == 3) wt = WatchType::READ_WRITE;
-        bps.add_watchpoint(addr, wt);
+        bps.add_watchpoint(addr, watch_type_for(type_index));
     }
     // No repaint call here: the mutation notified, and it notified the RIGHT
     // views. This site used to refresh the disassembly whichever type was
@@ -217,20 +246,14 @@ void BreakpointPanel::on_edit()
     if (old.type_index == 0) {
         bps.remove_pc(old.addr);
     } else {
-        WatchType wt = WatchType::READ;
-        if (old.type_index == 2) wt = WatchType::WRITE;
-        if (old.type_index == 3) wt = WatchType::READ_WRITE;
-        bps.remove_watchpoint(old.addr, wt);
+        bps.remove_watchpoint(old.addr, watch_type_for(old.type_index));
     }
 
     // Add new
     if (type_index == 0) {
         bps.add_pc(addr);
     } else {
-        WatchType wt = WatchType::READ;
-        if (type_index == 2) wt = WatchType::WRITE;
-        if (type_index == 3) wt = WatchType::READ_WRITE;
-        bps.add_watchpoint(addr, wt);
+        bps.add_watchpoint(addr, watch_type_for(type_index));
     }
     // Each of the four mutations above notified; the last one left the table
     // showing the edited breakpoint. Nothing to repaint by hand.
@@ -249,10 +272,7 @@ void BreakpointPanel::on_remove()
     if (e.type_index == 0) {
         bps.remove_pc(e.addr);
     } else {
-        WatchType wt = WatchType::READ;
-        if (e.type_index == 2) wt = WatchType::WRITE;
-        if (e.type_index == 3) wt = WatchType::READ_WRITE;
-        bps.remove_watchpoint(e.addr, wt);
+        bps.remove_watchpoint(e.addr, watch_type_for(e.type_index));
     }
     // As in on_add(): the mutation notified the views its kind concerns.
 }
