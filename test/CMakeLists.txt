@@ -490,6 +490,8 @@ target_include_directories(cli_options_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(cli_options_test PRIVATE
     JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md"
     JNEXT_MAIN_SRC="${CMAKE_SOURCE_DIR}/src/main.cpp"
+    # The user guide's generated option page (GH #213) — CLI-DOC-06.
+    JNEXT_GUIDE_CLI_SRC="${CMAKE_SOURCE_DIR}/src/doc/user-guide/09-reference/01-command-line-options.md"
     JNEXT_BINARY="$<TARGET_FILE:jnext>")
 add_dependencies(cli_options_test jnext)
 add_test(NAME cli_options_tests COMMAND cli_options_test)
