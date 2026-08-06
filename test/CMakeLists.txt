@@ -731,6 +731,17 @@ target_link_libraries(step_out_test PRIVATE
 target_include_directories(step_out_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME step_out_tests COMMAND step_out_test)
 
+# GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState
+# and its wiring into the hot loop and the MMU watchpoint sites. Drives a real
+# machine with the debugger INACTIVE, so it links the emulator like step_out_test.
+add_executable(persistent_bp_test debug/persistent_bp_test.cpp)
+target_link_libraries(persistent_bp_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(persistent_bp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME persistent_bp_tests COMMAND persistent_bp_test)
+
 # Task 60e — ResumeGuard: pure corruption-gate policy behind the debugger's
 # single confirm_resume_if_corrupt() choke point. Header-only, no Qt/libs.
 add_executable(resume_guard_test debug/resume_guard_test.cpp)
@@ -920,6 +931,21 @@ if(ENABLE_DEBUGGER)
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
     target_include_directories(debugger_quit_gate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_quit_gate_tests COMMAND debugger_quit_gate_test)
+
+    # GH #219 — the FRONTEND half of --persistent-breakpoints: closing the
+    # debugger window must not disarm, and a hit with it closed must force it
+    # open again. Drives the real DebuggerManager (set_enabled +
+    # check_breakpoint_hit) against a real 48K Emulator. Needs Qt but no
+    # display — same offscreen QPA idiom as the panel suites above.
+    add_executable(debugger_persistent_bp_test debugger/persistent_bp_test.cpp)
+    set_target_properties(debugger_persistent_bp_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_persistent_bp_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_persistent_bp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_persistent_bp_tests COMMAND debugger_persistent_bp_test)
 
     # Debugger Window Sizing test (GH #114 — "the debugger window does not fit
     # on a small monitor"). Drives the real DebuggerWindow through

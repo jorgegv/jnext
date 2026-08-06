@@ -247,7 +247,11 @@ public:
             // run_frame() composites those frames regardless of the hint; but
             // --magic-breakpoint sets active only AT the hit, so pre-hit burst
             // frames skip compositing and the paused framebuffer can lag until
-            // the first step/resume. Either way the burst MUST stop on the
+            // the first step/resume. --persistent-breakpoints (GH #219) puts an
+            // ordinary breakpoint in that second bucket too: it can fire with
+            // the debugger window closed, i.e. with active() still false, and
+            // the frontend only enables it on the next tick. Either way the
+            // burst MUST stop on the
             // tick the pause happens — continuing to sprint through a paused
             // machine would run hundreds of frames past the breakpoint the
             // user asked to stop at. The while-guard stops the loop; the

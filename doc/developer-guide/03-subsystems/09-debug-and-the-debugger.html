@@ -1873,13 +1873,23 @@ dependencies</em>.</p>
 and <code>Emulator::debug_state_</code> is an ordinary member either way.</p>
 <p>That is deliberate, because the hot loop's cost is not "is the debugger
 compiled in" but "is it <em>active</em>". <code>DebugState::active_</code> starts false and turns
-true only when the UI enables the debugger or a magic breakpoint fires. Every
-debug check in the run loop hangs off that one boolean: the per-instruction
-breakpoint test, the call-stack pre/post hooks (behind their own <code>enabled()</code>
-flag), and <code>video_timing_.advance()</code>, which maintains raster counters nothing
-but a human inspector ever reads. The watchpoint checks in <code>Mmu::read</code> and
-<code>Mmu::write</code> are triple-gated — pointer non-null, <code>active()</code>, <em>and</em>
-<code>has_any_watchpoints()</code>.</p>
+true only when the UI enables the debugger or a magic breakpoint fires.</p>
+<p>There are <strong>two</strong> booleans, and the split is load-bearing (GH #219).
+<code>active_</code> means <em>the debugger is driving the machine</em>: it gates the step modes
+(<code>OUT</code>, <code>STEP_BACK</code>, <code>RUN_BACK_TO_CYCLE</code>), the "render every frame" hint that
+keeps the panels showing a live framebuffer, and <code>video_timing_.advance()</code>,
+which maintains raster counters nothing but a human inspector ever reads.
+<code>armed_</code> — <code>active_ || persistent_</code> — is the narrower <em>are breakpoints live</em>,
+and it is what the per-instruction breakpoint test and the watchpoint checks in
+<code>Mmu::read</code>/<code>Mmu::write</code> hang off. <code>persistent_</code> comes from
+<code>--persistent-breakpoints</code> via <code>EmulatorConfig</code>, and is what lets breakpoints
+survive closing the debugger window without switching the rest of that
+machinery back on. The call-stack pre/post hooks sit behind their own
+<code>enabled()</code> flag. The watchpoint checks are triple-gated — pointer non-null,
+<code>armed()</code>, <em>and</em> <code>has_any_watchpoints()</code>.</p>
+<p><code>armed_</code> is a cached bool recomputed by the two setters rather than an
+expression, so the default configuration executes exactly the load-and-branch
+the single <code>active()</code> gate used to.</p>
 <p>So "the debugger costs nothing when closed" is a claim about a predictable
 branch, not about conditional compilation.</p>
 <h2 id="execution-control">Execution control<a class="headerlink" href="#execution-control" title="Permanent link">&para;</a></h2>

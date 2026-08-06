@@ -296,6 +296,17 @@ debugger ones.
 **\--magic-breakpoint**
 :   Enable the magic-breakpoint opcodes (`ED FF` and `DD 01`).
 
+**\--persistent-breakpoints**
+:   Keep breakpoints and watchpoints armed while the debugger window is
+    **closed**. Without this option — the default — closing the window
+    disarms them, and nothing stops. With it, a hit pauses the machine and
+    reopens the debugger window at the breakpoint. With the window already
+    open, behaviour is unchanged. The breakpoint check then runs on every
+    instruction for the whole run, which is what "persistent" costs; it is
+    accepted but has no effect in **\--headless**, in the SDL-only build and
+    in builds without the debugger, since only the debugger can set a
+    breakpoint.
+
 **\--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
 
@@ -764,7 +775,10 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
   selector
 - **Stack** - SP-relative word view, SP row highlighted
 - **Call stack** - CALL/RST/INT/RET tracking, with symbol resolution
-- **Breakpoints** - execution, read, write and I/O watchpoints, in one panel
+- **Breakpoints** - execution, read, write and I/O watchpoints, in one panel.
+  They are armed only while the debugger window is open; start jnext with
+  **\--persistent-breakpoints** to keep them armed with it closed, in which
+  case a hit reopens the window at the breakpoint
 - **Watch expressions** - byte, word or long at arbitrary addresses, with
   custom labels
 - **Video panels** - All layers (the real composite, through the live

@@ -3097,6 +3097,16 @@ queue into the same list, so giving both schedules two presses.</dd>
 <dl>
 <dt><strong>--magic-breakpoint</strong></dt>
 <dd>Enable the magic-breakpoint opcodes (<code>ED FF</code> and <code>DD 01</code>).</dd>
+<dt><strong>--persistent-breakpoints</strong></dt>
+<dd>Keep breakpoints and watchpoints armed while the debugger window is
+<strong>closed</strong>. Without this option — the default — closing the window
+disarms them, and nothing stops. With it, a hit pauses the machine
+and reopens the debugger window at the breakpoint. With the window
+already open, behaviour is unchanged. The breakpoint check then runs
+on every instruction for the whole run, which is what “persistent”
+costs; it is accepted but has no effect in <strong>--headless</strong>, in the
+SDL-only build and in builds without the debugger, since only the
+debugger can set a breakpoint.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, for example <code>0x00FF</code>).</dd>
 <dt><strong>--magic-port-mode</strong> <em>MODE</em></dt>

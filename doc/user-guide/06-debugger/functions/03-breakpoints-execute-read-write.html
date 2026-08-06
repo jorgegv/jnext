@@ -2121,6 +2121,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Breakpoints: execute, read, write
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="03-breakpoints-execute-read-write.html" class="md-nav__link md-nav__link--active">
         
   
@@ -2137,6 +2155,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#closing-the-debugger-window-disarms-them" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Closing the debugger window disarms them
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2767,6 +2815,16 @@ Breakpoints panel, from <strong>Breakpoints ▸ Add Read/Write/Read-Write
 Breakpoint…</strong>, or from the disassembly right-click menu, which pre-fills the
 address from an immediate or from a register's current contents.</p>
 <p><strong>Breakpoints ▸ Clear All Breakpoints</strong> removes both kinds at once.</p>
+<h2 id="closing-the-debugger-window-disarms-them">Closing the debugger window disarms them<a class="headerlink" href="#closing-the-debugger-window-disarms-them" title="Permanent link">&para;</a></h2>
+<p>Both kinds are checked only while the debugger window is <strong>open</strong>. Close it
+and your breakpoints stay in the list but nothing stops at them — the
+emulator skips the check entirely so that a machine nobody is watching runs
+at full speed.</p>
+<p>If you want them to keep firing with the window closed, start JNEXT with
+<code>--persistent-breakpoints</code>. A hit then pauses the machine and reopens the
+debugger window at the breakpoint, exactly as if you had left it open. It is
+a command-line option only, and it costs the per-instruction breakpoint check
+for the whole run, which is why it is not the default.</p>
 <p>There are no I/O port breakpoints. To trap on port activity, use the
 <a href="08-the-magic-breakpoint-and-the-magic-port.html">magic port</a> — it logs every write to
 a port you choose — or put an execute breakpoint on the <code>OUT</code> itself.</p>

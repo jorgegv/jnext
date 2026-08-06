@@ -321,6 +321,19 @@ example \f[CR]sym+m\f[R] is \f[CR].\f[R]).
 Enable the magic\-breakpoint opcodes (\f[CR]ED FF\f[R] and
 \f[CR]DD 01\f[R]).
 .TP
+\f[B]\-\-persistent\-breakpoints\f[R]
+Keep breakpoints and watchpoints armed while the debugger window is
+\f[B]closed\f[R].
+Without this option \(em the default \(em closing the window disarms
+them, and nothing stops.
+With it, a hit pauses the machine and reopens the debugger window at the
+breakpoint.
+With the window already open, behaviour is unchanged.
+The breakpoint check then runs on every instruction for the whole run,
+which is what \(lqpersistent\(rq costs; it is accepted but has no effect
+in \f[B]\-\-headless\f[R], in the SDL\-only build and in builds without
+the debugger, since only the debugger can set a breakpoint.
+.TP
 \f[B]\-\-magic\-port\f[R] \f[I]PORT\f[R]
 Enable the magic debug port at \f[I]PORT\f[R] (hex, for example
 \f[CR]0x00FF\f[R]).
@@ -981,7 +994,10 @@ page/bank selector
 resolution
 .IP \(bu 2
 \f[B]Breakpoints\f[R] \- execution, read, write and I/O watchpoints, in
-one panel
+one panel.
+They are armed only while the debugger window is open; start jnext with
+\f[B]\-\-persistent\-breakpoints\f[R] to keep them armed with it closed,
+in which case a hit reopens the window at the breakpoint
 .IP \(bu 2
 \f[B]Watch expressions\f[R] \- byte, word or long at arbitrary
 addresses, with custom labels

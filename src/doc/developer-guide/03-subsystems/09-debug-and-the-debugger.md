@@ -42,13 +42,25 @@ and `Emulator::debug_state_` is an ordinary member either way.
 
 That is deliberate, because the hot loop's cost is not "is the debugger
 compiled in" but "is it *active*". `DebugState::active_` starts false and turns
-true only when the UI enables the debugger or a magic breakpoint fires. Every
-debug check in the run loop hangs off that one boolean: the per-instruction
-breakpoint test, the call-stack pre/post hooks (behind their own `enabled()`
-flag), and `video_timing_.advance()`, which maintains raster counters nothing
-but a human inspector ever reads. The watchpoint checks in `Mmu::read` and
-`Mmu::write` are triple-gated — pointer non-null, `active()`, *and*
-`has_any_watchpoints()`.
+true only when the UI enables the debugger or a magic breakpoint fires.
+
+There are **two** booleans, and the split is load-bearing (GH #219).
+`active_` means *the debugger is driving the machine*: it gates the step modes
+(`OUT`, `STEP_BACK`, `RUN_BACK_TO_CYCLE`), the "render every frame" hint that
+keeps the panels showing a live framebuffer, and `video_timing_.advance()`,
+which maintains raster counters nothing but a human inspector ever reads.
+`armed_` — `active_ || persistent_` — is the narrower *are breakpoints live*,
+and it is what the per-instruction breakpoint test and the watchpoint checks in
+`Mmu::read`/`Mmu::write` hang off. `persistent_` comes from
+`--persistent-breakpoints` via `EmulatorConfig`, and is what lets breakpoints
+survive closing the debugger window without switching the rest of that
+machinery back on. The call-stack pre/post hooks sit behind their own
+`enabled()` flag. The watchpoint checks are triple-gated — pointer non-null,
+`armed()`, *and* `has_any_watchpoints()`.
+
+`armed_` is a cached bool recomputed by the two setters rather than an
+expression, so the default configuration executes exactly the load-and-branch
+the single `active()` gate used to.
 
 So "the debugger costs nothing when closed" is a claim about a predictable
 branch, not about conditional compilation.

@@ -912,6 +912,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return im2_.ack_vector();
     };
 
+    // GH #219 — --persistent-breakpoints. Latched here, once, from the config:
+    // it is a run-long property of the machine, not a UI state the debugger
+    // toggles. DebugState::armed() (the hot-path breakpoint gate) becomes
+    // active() || this, so closing the debugger window no longer disarms.
+    debug_state_.set_persistent_breakpoints(cfg.persistent_breakpoints);
+
     // Magic breakpoint: ED FF (ZEsarUX) / DD 01 (CSpect) trigger debugger pause.
     if (cfg.magic_breakpoint) {
         cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
@@ -7354,7 +7360,13 @@ void Emulator::run_frame()
 
     while (clock_.get() < frame_end) {
         // Debugger breakpoint check — before executing the next instruction.
-        if (debug_state_.active()) {
+        //
+        // GH #219: armed(), not active(). armed() is active() OR
+        // --persistent-breakpoints, so breakpoints survive closing the
+        // debugger window; the other active() readers below (render hint,
+        // per-instruction VideoTiming walk, the rewind step modes) stay on
+        // active() so nothing but the check itself is switched on.
+        if (debug_state_.armed()) {
             // Check if an external trigger (e.g. magic breakpoint) already
             // paused the emulator during the previous instruction's execute().
             if (debug_state_.paused())
@@ -7431,7 +7443,8 @@ void Emulator::run_frame()
         const uint64_t master_cycles = step_one_instruction();
 
         // Check if a data breakpoint was hit during this instruction.
-        if (debug_state_.active() && debug_state_.data_bp_hit()) {
+        // GH #219: armed(), matching the MMU sites that raise the flag.
+        if (debug_state_.armed() && debug_state_.data_bp_hit()) {
             debug_state_.pause();
             debug_state_.set_data_bp_hit(false);
             return;

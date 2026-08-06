@@ -299,6 +299,17 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 **--magic-breakpoint**
 :   Enable the magic-breakpoint opcodes (`ED FF` and `DD 01`).
 
+**--persistent-breakpoints**
+:   Keep breakpoints and watchpoints armed while the debugger window is
+    **closed**. Without this option — the default — closing the window
+    disarms them, and nothing stops. With it, a hit pauses the machine
+    and reopens the debugger window at the breakpoint. With the window
+    already open, behaviour is unchanged. The breakpoint check then runs
+    on every instruction for the whole run, which is what “persistent”
+    costs; it is accepted but has no effect in **--headless**, in the
+    SDL-only build and in builds without the debugger, since only the
+    debugger can set a breakpoint.
+
 **--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
 
