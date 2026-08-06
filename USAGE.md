@@ -830,9 +830,10 @@ arrows and Space stop acting as ZX keys.
 
 ## THE DEBUGGER
 
-The debugger opens in its own window (**View \> Debugger**, Alt+D). It
-is driven from the Qt6 UI, so it needs a GUI build (`make gui-release`
-or `make gui-debug`); the SDL-only build has no way to open it.
+The debugger opens in its own window (**Debug \> Debugger** or **View \>
+Debugger** - the same entry in both menus - or Alt+D). It is driven from
+the Qt6 UI, so it needs a GUI build (`make gui-release` or
+`make gui-debug`); the SDL-only build has no way to open it.
 
 - **CPU registers** - all Z80/Z80N registers, flags (S/Z/H/P/V/N/C),
   halt state, interrupt mode, active ULA screen

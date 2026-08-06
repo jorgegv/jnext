@@ -88,6 +88,12 @@ private:
     /// and tell the user — visibly, and recoverably.
     void give_up_on_attachment();
     void show_add_data_bp_dialog(WatchType type);
+    /// GH #215 — Execute is the ordinary PC breakpoint, so it is not a
+    /// WatchType and cannot go through show_add_data_bp_dialog().
+    void show_add_exec_bp_dialog();
+    /// Modal "Address (hex):" prompt shared by both of the above. Returns false
+    /// when the user cancels or types something that is not hex.
+    bool prompt_bp_address(const QString& title, uint16_t& addr);
     void show_rewind_buffer_size_dialog();
     void update_trace_indicator();
     void update_rewind_ui();

@@ -541,6 +541,15 @@ void DebuggerWindow::create_menus() {
     // --- Breakpoints menu ---
     QMenu* bp_menu = bar->addMenu(tr("&Breakpoints"));
 
+    // GH #215 — Execute (the ordinary PC breakpoint) was reachable only from
+    // the Breakpoints PANEL's Add dialog, so the menu offered every type
+    // EXCEPT the one users reach for first. Listed first, and lettered E:
+    // R/W/B/C are already taken by the four entries below (issue #124).
+    QAction* add_exec_bp = bp_menu->addAction(tr("Add &Execute Breakpoint..."));
+    connect(add_exec_bp, &QAction::triggered, this, [this]() {
+        show_add_exec_bp_dialog();
+    });
+
     QAction* add_read_bp = bp_menu->addAction(tr("Add &Read Breakpoint..."));
     connect(add_read_bp, &QAction::triggered, this, [this]() {
         show_add_data_bp_dialog(WatchType::READ);
@@ -1066,16 +1075,9 @@ void DebuggerWindow::activate_follow_pc() {
     if (disasm_panel_) disasm_panel_->activate_follow_pc();
 }
 
-void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
+bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
     QDialog dlg(this);
-    QString type_name;
-    switch (type) {
-        case WatchType::READ:       type_name = "Read"; break;
-        case WatchType::WRITE:      type_name = "Write"; break;
-        case WatchType::READ_WRITE: type_name = "Read/Write"; break;
-        default:                    type_name = "Data"; break;
-    }
-    dlg.setWindowTitle(tr("Add %1 Breakpoint").arg(type_name));
+    dlg.setWindowTitle(title);
     dlg.setMinimumWidth(400);
 
     auto* form = new QFormLayout(&dlg);
@@ -1089,17 +1091,42 @@ void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     form->addRow(buttons);
 
-    if (dlg.exec() != QDialog::Accepted) return;
+    if (dlg.exec() != QDialog::Accepted) return false;
 
     QString addr_text = addr_edit->text().trimmed();
     if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
     if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
 
     bool ok = false;
-    uint16_t addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
-    if (!ok) return;
+    addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
+    return ok;
+}
+
+void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
+    QString type_name;
+    switch (type) {
+        case WatchType::READ:       type_name = "Read"; break;
+        case WatchType::WRITE:      type_name = "Write"; break;
+        case WatchType::READ_WRITE: type_name = "Read/Write"; break;
+        default:                    type_name = "Data"; break;
+    }
+
+    uint16_t addr = 0;
+    if (!prompt_bp_address(tr("Add %1 Breakpoint").arg(type_name), addr)) return;
 
     emulator_->debug_state().breakpoints().add_watchpoint(addr, type);
+}
+
+// GH #215 — an Execute breakpoint is a PC breakpoint (add_pc), not a
+// watchpoint, which is why it needs its own entry point rather than a fourth
+// WatchType. The disassembly gutter draws PC breakpoints, so refresh it.
+void DebuggerWindow::show_add_exec_bp_dialog() {
+    uint16_t addr = 0;
+    if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr)) return;
+
+    emulator_->debug_state().breakpoints().add_pc(addr);
+    if (breakpoint_panel_) breakpoint_panel_->refresh();
+    if (disasm_panel_) disasm_panel_->refresh();
 }
 
 void DebuggerWindow::refresh_panels() {

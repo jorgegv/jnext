@@ -833,6 +833,16 @@ void MainWindow::create_menus() {
     debugger_action_ = view_menu->addAction(tr("&Debugger"));
     debugger_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_D));
     debugger_action_->setCheckable(true);
+
+    // GH #215: the Debug menu used to hold Magic Breakpoint and nothing else,
+    // so a user who opened the menu named Debug looking for the debugger found
+    // an unrelated toggle and concluded it was not in the menus. Put the SAME
+    // QAction there too — not a copy — so both routes toggle one action and
+    // show one checkmark. It has to happen here rather than in the Debug block
+    // above: that menu is built first, before this action exists. View keeps
+    // the entry the design plan's Phase 7.5 asked for; nothing moves.
+    debug_menu->addSeparator();
+    debug_menu->addAction(debugger_action_);
 #endif
 
     // --- Settings menu (Task 66) ---
