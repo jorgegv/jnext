@@ -753,6 +753,16 @@ target_link_libraries(io_watchpoint_test PRIVATE
     jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
 target_include_directories(io_watchpoint_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME io_watchpoint_tests COMMAND io_watchpoint_test)
+# GH #221 — resume steps off the breakpoint it is standing on: the one-shot
+# step-off arm in DebugState and its single consumer, run_frame()'s breakpoint
+# gate. Drives a real machine through run_frame(), so it links like step_out_test.
+add_executable(resume_step_off_test debug/resume_step_off_test.cpp)
+target_link_libraries(resume_step_off_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(resume_step_off_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME resume_step_off_tests COMMAND resume_step_off_test)
 
 # Task 60e — ResumeGuard: pure corruption-gate policy behind the debugger's
 # single confirm_resume_if_corrupt() choke point. Header-only, no Qt/libs.
