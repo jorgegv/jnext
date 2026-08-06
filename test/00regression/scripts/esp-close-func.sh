@@ -116,6 +116,15 @@ if want esp-close-func; then
         mapfile -t observed < <(grep -av '^\[' "$run_log" || true)
 
         fails=()
+        # The peer writes its verdict after the reconnect attempt, which in the
+        # FAILING case is up to a few seconds after jnext has gone. Waiting for
+        # the file is what turns that failure into a readable one — without it
+        # the row still fails, but reports an empty verdict that reads like "the
+        # client never got the greeting".
+        for _ in $(seq 1 100); do
+            [[ $(wc -l <"$received" 2>/dev/null || echo 0) -ge 2 ]] && break
+            sleep 0.1
+        done
         mapfile -t peer_saw < <(cat "$received" 2>/dev/null || true)
         [[ "${peer_saw[0]:-}" == "READY" ]] \
             || fails+=("client received '${peer_saw[0]:-}' from the guest, expected 'READY'")
