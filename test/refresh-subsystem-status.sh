@@ -152,6 +152,7 @@ BEGIN {
     M["resume_guard_test"]             = "Resume Guard"
     M["step_out_test"]                 = "Debugger Step Out"
     M["persistent_bp_test"]            = "Debugger persistent BPs"
+    M["io_watchpoint_test"]            = "Debugger I/O Watchpoints"
     M["app_config_test"]               = "GUI Preferences (AppConfig)"
     M["debugger_video_panel_test"]     = "Debugger Video Panel"
     M["debugger_audio_panel_test"]     = "Debugger Audio Panel"

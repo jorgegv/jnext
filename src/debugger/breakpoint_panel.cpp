@@ -117,9 +117,25 @@ void BreakpointPanel::rebuild_entries()
         entries_.push_back({addr, 0});
     }
 
-    // Data (watchpoint) breakpoints
+    // Data (watchpoint) breakpoints.
+    //
+    // NOTHING MAKES THIS SWITCH EXHAUSTIVE AT COMPILE TIME, and dropping the
+    // `default:` arm does not change that (GH #222 review). The project's one
+    // -Werror=switch is `target_compile_options(jnext PRIVATE ...)` in
+    // CMakeLists.txt:236 — scoped to the `jnext` executable, i.e. main.cpp's
+    // CLI dispatch — and this file is in jnext_debugger; no -Wall is set
+    // anywhere, and -Wswitch needs it. Measured, not assumed: a sixth
+    // WatchType builds jnext_debugger with zero diagnostics.
+    //
+    // So A SIXTH WatchType MUST BE ADDED HERE BY HAND, together with
+    // watch_type_for(), type_name() and the Add dialog's combo.
+    //
+    // The -1 initialiser is the one concession to that: an unhandled type
+    // shows as "?" in the Type column instead of impersonating an Execute
+    // breakpoint (index 0), which on_edit()/on_remove() would then route to
+    // remove_pc(). Wrong and visible beats wrong and destructive.
     for (const auto& wp : bps.watchpoints()) {
-        int ti = 0;
+        int ti = -1;
         switch (wp.type) {
             case WatchType::READ:       ti = 1; break;
             case WatchType::WRITE:      ti = 2; break;

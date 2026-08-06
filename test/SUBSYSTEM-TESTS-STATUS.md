@@ -82,7 +82,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger persistent BPs |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
-| io_watchpoint_test    |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "io_watchpoint_test" to the label map in refresh-subsystem-status.sh. |
+| Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (AppConfig) |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
