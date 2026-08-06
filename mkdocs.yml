@@ -92,7 +92,7 @@ nav:
           - 06-debugger/functions/index.md
           - Run, pause, and the step family: 06-debugger/functions/01-run-pause-and-the-step-family.md
           - Run to cursor, run to end of frame, run to end of scanline: 06-debugger/functions/02-run-to-cursor-run-to-end-of-frame-run-to-end-of-scanline.md
-          - 'Breakpoints: execute, read, write': 06-debugger/functions/03-breakpoints-execute-read-write.md
+          - 'Breakpoints: execute, read, write, I/O': 06-debugger/functions/03-breakpoints-execute-read-write.md
           - Watches and watch sizes: 06-debugger/functions/04-watches-and-watch-sizes.md
           - Symbols from Z88DK MAP files: 06-debugger/functions/05-symbols-from-z88dk-map-files.md
           - The trace log: 06-debugger/functions/06-the-trace-log.md

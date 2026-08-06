@@ -65,6 +65,30 @@ public:
     void add_watchpoint(uint16_t addr, WatchType type);
     void remove_watchpoint(uint16_t addr, WatchType type);
     bool has_watchpoint(uint16_t addr, WatchType type) const;
+
+    /// I/O watchpoint lookup — the port-side counterpart of has_watchpoint(),
+    /// and a SEPARATE entry point because ports are not matched like memory.
+    ///
+    /// A ZX port is decoded by address-line masking, not by a 16-bit compare
+    /// (`src/port/port_dispatch.h`): `OUT (254),A` puts A in the high byte, so
+    /// the ULA is reached at 0x01FE, 0x7FFE, 0xFEFE ... and an exact-match
+    /// watchpoint on 0x00FE would never fire. The stored `addr` is therefore
+    /// read the way the port map itself writes a port (GH #222):
+    ///
+    ///   * high byte ZERO  (0x0000-0x00FF) — a PARTIAL decode: matches any
+    ///     port whose LOW BYTE equals it. 0xFE catches every ULA access.
+    ///   * high byte NON-ZERO             — a FULL 16-bit decode: matches
+    ///     that port exactly. 0x243B catches the NextREG select port and not
+    ///     0x253B, whose low byte is the same.
+    ///
+    /// Consequence, accepted and documented: the exact 16-bit port 0x00xx
+    /// cannot be named. No Next port is a full-16-bit decode with a zero high
+    /// byte, so nothing real is lost.
+    ///
+    /// `type` is IO_READ or IO_WRITE. There is no I/O READ_WRITE: the enum has
+    /// no such value, so a user who wants both adds both.
+    bool has_io_watchpoint(uint16_t port, WatchType type) const;
+
     void clear_all_watchpoints();
     const std::vector<Watchpoint>& watchpoints() const { return watchpoints_; }
     bool has_any_watchpoints() const { return !watchpoints_.empty(); }

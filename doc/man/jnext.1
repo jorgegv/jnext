@@ -995,6 +995,10 @@ resolution
 .IP \(bu 2
 \f[B]Breakpoints\f[R] \- execution, read, write and I/O watchpoints, in
 one panel.
+An I/O watchpoint address of \f[B]00\f[R]\-\f[B]FF\f[R] matches any port
+with that low byte (\f[B]FE\f[R] catches every ULA access, whatever the
+high byte holds); \f[B]0100\f[R] and above matches that exact 16\-bit
+port (\f[B]243B\f[R], not \f[B]253B\f[R]).
 They are armed only while the debugger window is open; start jnext with
 \f[B]\-\-persistent\-breakpoints\f[R] to keep them armed with it closed,
 in which case a hit reopens the window at the breakpoint

@@ -117,7 +117,9 @@
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMenu>
+#include <QComboBox>
 #include <QMenuBar>
+#include <QPushButton>
 #include <QScrollBar>
 #include <QTableWidget>
 #include <QTemporaryDir>
@@ -253,6 +255,60 @@ QStringList panel_rows(DebuggerWindow* dbg) {
                         addr ? addr->text() : QStringLiteral("?"));
     }
     return out;
+}
+
+// ── GH #222 helper: driving the Breakpoints PANEL's own Add dialog ────
+//
+// trigger_and_answer() above cannot do this. The panel's Add/Edit/Remove are
+// QPushButtons, not QActions, and the dialog they open carries a TYPE COMBO
+// that an address-only answer has nothing to say about — which is exactly what
+// the two new I/O entries live in. Same armed-beforehand idiom, for the same
+// reason: QDialog::exec() does not return until the dialog is answered.
+
+struct PanelAnswer {
+    QString typed;                 // into the address field
+    int     combo_index = 0;       // into the type combo
+    bool    seen        = false;   // a dialog appeared at all
+    int     combo_count = 0;       // how many types it offered
+};
+
+/// Click `button` and answer whatever modal it opens.
+void click_and_answer(QPushButton* button, PanelAnswer& ans) {
+    if (!button) return;
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&ans]() {
+        auto* dlg = qobject_cast<QDialog*>(QApplication::activeModalWidget());
+        if (!dlg) return;
+        ans.seen = true;
+        if (QComboBox* combo = dlg->findChild<QComboBox*>()) {
+            ans.combo_count = combo->count();
+            combo->setCurrentIndex(ans.combo_index);
+        }
+        if (QLineEdit* edit = dlg->findChild<QLineEdit*>())
+            edit->setText(ans.typed);
+        dlg->accept();
+    });
+    timer.start(1);
+    button->click();
+    timer.stop();
+    QApplication::processEvents();
+}
+
+/// The Breakpoints panel's button whose VISIBLE text is `text`, or nullptr.
+QPushButton* panel_button(DebuggerWindow* dbg, const QString& text) {
+    BreakpointPanel* panel = dbg ? dbg->breakpoint_panel() : nullptr;
+    if (!panel) return nullptr;
+    for (QPushButton* b : panel->findChildren<QPushButton*>())
+        if (visible(b->text()) == text) return b;
+    return nullptr;
+}
+
+/// Select row `row` of the Breakpoints panel's table (what Edit/Remove act on).
+void select_panel_row(DebuggerWindow* dbg, int row) {
+    BreakpointPanel* panel = dbg ? dbg->breakpoint_panel() : nullptr;
+    if (!panel) return;
+    if (auto* table = panel->findChild<QTableWidget*>())
+        table->setCurrentCell(row, 0);
 }
 
 /// Answers the POPUP a context-menu event opens. A QMenu is a popup widget,
@@ -913,6 +969,137 @@ static void test_observer_lifetime()
     }
 }
 
+// ── BPI: the panel can create an I/O watchpoint ───────────────────────
+//
+// GH #222. WatchType::IO_READ and IO_WRITE existed in the enum and no route in
+// the product could produce one: the panel's Add dialog offered Execute /
+// Read / Write / Read-Write, so the two values were unreachable by a user.
+//
+// These rows drive the REAL dialog through the REAL Add button and read the
+// REAL BreakpointSet, exactly as GH215-02 does for Execute — "the combo has
+// six entries" is not the assertion, "a user who picks the sixth gets an
+// IO_WRITE watchpoint" is. Each also checks the WRONG type is absent, because
+// the four index->WatchType sites in breakpoint_panel.cpp all default to READ:
+// an off-by-one there produces a breakpoint, just not the requested one.
+//
+// Mutation-tested one at a time against the product (reverted from a `cp`
+// backup each time):
+//   the two addItem() calls removed          -> GH222-01/02/03 all fail; the
+//                                               combo reports 4 types and an
+//                                               out-of-range setCurrentIndex
+//                                               leaves it at -1, so the panel
+//                                               shows "Read $00FE"
+//   watch_type_for() case 5 -> IO_READ       -> GH222-02/03 fail on the type,
+//                                               GH222-01 still passes
+//   rebuild_entries() IO_WRITE -> ti = 2     -> GH222-02 fails on the panel
+//                                               row ("Write $243B"), and
+//                                               GH222-03 on the removal it
+//                                               then misdirects
+//   type_name() cases 4/5 removed            -> all three fail ("? $243B")
+//   on_remove() reverted to the old inline
+//   map (which cannot express 4/5)           -> GH222-03 alone fails: the row
+//                                               is still in the panel after
+//                                               Remove
+
+static void test_panel_io_breakpoints()
+{
+    set_group("BPI");
+
+    DebuggerFixture fx;
+    if (!fx.ok) {
+        check("GH222-01", "the panel's Add dialog creates an IO_READ watchpoint", false, "fixture failed");
+        check("GH222-02", "the panel's Add dialog creates an IO_WRITE watchpoint", false, "fixture failed");
+        check("GH222-03", "an I/O watchpoint can be removed again from the panel", false, "fixture failed");
+        return;
+    }
+
+    BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+    QPushButton* add_btn = panel_button(fx.dbg, QStringLiteral("Add"));
+
+    // GH222-01 — index 4, "IO Read". FE is the partial-decode form: any port
+    // with that low byte (see test/debug/io_watchpoint_test.cpp).
+    {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();
+
+        PanelAnswer ans;
+        ans.typed       = QStringLiteral("00FE");
+        ans.combo_index = 4;
+        click_and_answer(add_btn, ans);
+
+        const QStringList rows = panel_rows(fx.dbg);
+        check("GH222-01", "the panel's Add dialog creates an IO_READ watchpoint",
+              add_btn && ans.seen
+                  && bps.has_watchpoint(0x00FE, WatchType::IO_READ)
+                  && !bps.has_watchpoint(0x00FE, WatchType::READ)
+                  && bps.pc_breakpoints().empty()
+                  && rows == QStringList{QStringLiteral("IO Read $00FE")},
+              fmt("button=%d dialog seen=%d combo offered %d types; panel holds: [%s] "
+                  "(want exactly \"IO Read $00FE\")",
+                  add_btn ? 1 : 0, ans.seen ? 1 : 0, ans.combo_count,
+                  rows.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // GH222-02 — index 5, "IO Write", and on a FULL-decode address: 243B is
+    // the NextREG select port and not 253B, whose low byte is the same.
+    {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();
+
+        PanelAnswer ans;
+        ans.typed       = QStringLiteral("243B");
+        ans.combo_index = 5;
+        click_and_answer(add_btn, ans);
+
+        const QStringList rows = panel_rows(fx.dbg);
+        check("GH222-02", "the panel's Add dialog creates an IO_WRITE watchpoint",
+              add_btn && ans.seen
+                  && bps.has_watchpoint(0x243B, WatchType::IO_WRITE)
+                  && !bps.has_watchpoint(0x243B, WatchType::IO_READ)
+                  && !bps.has_watchpoint(0x243B, WatchType::WRITE)
+                  && rows == QStringList{QStringLiteral("IO Write $243B")},
+              fmt("button=%d dialog seen=%d combo offered %d types; panel holds: [%s] "
+                  "(want exactly \"IO Write $243B\")",
+                  add_btn ? 1 : 0, ans.seen ? 1 : 0, ans.combo_count,
+                  rows.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // GH222-03 — the round trip. Remove reconstructs the WatchType from the
+    // table row's type index, so a mapping that cannot express the two I/O
+    // values removes the wrong type — which removes nothing, and leaves the
+    // row sitting in the panel for ever.
+    {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();
+
+        PanelAnswer ans;
+        ans.typed       = QStringLiteral("243B");
+        ans.combo_index = 5;
+        click_and_answer(add_btn, ans);
+        const QStringList before = panel_rows(fx.dbg);
+
+        select_panel_row(fx.dbg, 0);
+        QPushButton* remove_btn = panel_button(fx.dbg, QStringLiteral("Remove"));
+        if (remove_btn) {
+            remove_btn->click();
+            QApplication::processEvents();
+        }
+
+        const QStringList after = panel_rows(fx.dbg);
+        check("GH222-03", "an I/O watchpoint can be removed again from the panel",
+              remove_btn && before == QStringList{QStringLiteral("IO Write $243B")}
+                  && !bps.has_watchpoint(0x243B, WatchType::IO_WRITE)
+                  && bps.watchpoints().empty() && after.isEmpty(),
+              fmt("button=%d panel before: [%s] after: [%s] (want empty)",
+                  remove_btn ? 1 : 0,
+                  before.join(QStringLiteral(", ")).toUtf8().constData(),
+                  after.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+}
+
 // ── DBG: the main window's Debug menu is not a dead end ───────────────
 
 static void test_debug_menu()
@@ -1052,6 +1239,8 @@ int main(int argc, char** argv)
     std::printf("  Group: BPO            — done\n");
     test_observer_lifetime();
     std::printf("  Group: BPX            — done\n");
+    test_panel_io_breakpoints();
+    std::printf("  Group: BPI            — done\n");
     test_debug_menu();
     std::printf("  Group: DBG            — done\n");
 

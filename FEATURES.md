@@ -97,6 +97,7 @@
 - Video panel "Background" view: the NR 0x4A fallback colour the compositor emits where every layer is transparent, shown per scanline (Copper gradients appear as bands)
 - Audio panel per-source mute: AY #0/#1/#2, DAC and Beeper can each be silenced independently to isolate what a program is playing. Gates the output stages only — the AY chips keep running and their registers keep reading back, so muting is invisible to the Z80 and cannot change emulation
 - PC/data/read/write breakpoints with watchpoints
+- I/O port breakpoints: IO Read on an `IN`, IO Write on an `OUT`. A port address of `00`-`FF` matches any port with that low byte (`FE` catches every ULA access, whatever `OUT (254),A` left in the high byte); `0100` and up matches that exact 16-bit port (`243B`, not `253B`). The DMA's own port transfers are seen too
 - Symbol table from Z88DK MAP files; inline symbol names in disassembly
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL

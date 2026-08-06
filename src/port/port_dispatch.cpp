@@ -1,5 +1,6 @@
 #include "port_dispatch.h"
 #include "core/log.h"
+#include "debug/debug_state.h"
 
 PortDispatch::PortDispatch() {
     // All port handlers are registered by Emulator::init() which calls
@@ -10,6 +11,25 @@ void PortDispatch::register_handler(uint16_t mask, uint16_t value,
     std::function<uint8_t(uint16_t)> rd,
     std::function<void(uint16_t, uint8_t)> wr) {
     handlers_.push_back({mask, value, std::move(rd), std::move(wr)});
+}
+
+// I/O watchpoints (GH #222) — the port-side twin of the Mmu's memory
+// watchpoint sites, raising the SAME latch so the user gets the same
+// behaviour: the emulator's hot loop consumes data_bp_hit() after the
+// instruction that made the access has completed, and pauses there.
+//
+// Placed in read()/write() rather than in()/out(): those two are the ONE
+// choke point every bus access reaches. `in`/`out` are only the CPU's
+// IN/OUT; the DMA's own port transfers call read()/write() directly
+// (emulator.cpp's dma_.read_io / dma_.write_io), and so does a handler that
+// nests a port write. Watching a port and missing the DMA's accesses to it
+// would be the wrong answer for a debugger.
+void PortDispatch::check_io_watchpoint_(uint16_t port, WatchType type) const {
+    if (!debug_state_ || !debug_state_->armed()) return;
+    if (!debug_state_->breakpoints().has_any_watchpoints()) return;
+    if (!debug_state_->breakpoints().has_io_watchpoint(port, type)) return;
+    debug_state_->set_data_bp_hit(true);
+    debug_state_->set_data_bp_addr(port);
 }
 
 // Count set bits in a 16-bit mask (handler specificity).
@@ -33,6 +53,8 @@ static int mask_specificity(uint16_t mask) {
 // like Pentagon 0xDFFD where reads go to the AY handler per VHDL 2771).
 
 uint8_t PortDispatch::read(uint16_t port) const {
+    check_io_watchpoint_(port, WatchType::IO_READ);
+
     // IO observers run unconditionally before dispatch (Wave 1 B2 — MF
     // port-strobe). Observers are side-effect-only; their return values
     // never affect the dispatched read value.
@@ -66,6 +88,8 @@ uint8_t PortDispatch::read(uint16_t port) const {
 }
 
 void PortDispatch::write(uint16_t port, uint8_t val) {
+    check_io_watchpoint_(port, WatchType::IO_WRITE);
+
     Log::port()->trace("OUT port={:#06x} ← {:#04x}", port, val);
     for (const auto& obs : io_observers_) obs(port, /*is_read=*/false);
     // Most-specific-match-wins, with decline fall-through: a handler whose
@@ -119,7 +143,15 @@ void PortDispatch::write(uint16_t port, uint8_t val) {
 // IoInterface implementation
 uint8_t PortDispatch::in(uint16_t port) {
     // RZX playback: override all IN reads with recorded values.
-    if (rzx_in_override) return rzx_in_override(port);
+    //
+    // The only bus access that does NOT reach read(), so it carries its own
+    // watchpoint check (GH #222). The CPU really did execute `IN A,(n)`; only
+    // the VALUE comes from the recording, and a user single-stepping a replay
+    // still expects a watched port to stop the machine.
+    if (rzx_in_override) {
+        check_io_watchpoint_(port, WatchType::IO_READ);
+        return rzx_in_override(port);
+    }
 
     uint8_t val = read(port);
 

@@ -5954,6 +5954,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // cpu_a(15:14)='00' window to honour the SRAM arbiter at :3028-3035.
     mmu_.set_multiface(&multiface_);
     mmu_.set_debug_state(&debug_state_);
+    // GH #222 — the same DebugState drives I/O watchpoints on the port bus.
+    port_.set_debug_state(&debug_state_);
     i2c_.attach_device(0x68, &rtc_);
     // Task 28 — pin the RTC to the --rtc fixed date/time (frozen clock,
     // deterministic boot screenshots). Survives the NextZXOS mid-boot
