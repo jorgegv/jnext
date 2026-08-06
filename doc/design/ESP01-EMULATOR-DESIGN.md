@@ -1479,7 +1479,13 @@ Three things bound it, and none of them is a fix:
   plainly. So in jnext as built, a client writing it does NOT clear a sticky
   `cipmux_`. Wiring that bit to a device-facing ESP reset is already recorded
   in §4.2 as a real future requirement; when it lands it will close this
-  window too, and this bullet should be revisited then.
+  window too, and this bullet should be revisited then. **The trigger is one
+  grep, so this paragraph can be checked rather than trusted:**
+  `grep -rn RESET_ESPBUS src/` returns two lines today, both of them comments
+  in `emulator.cpp` saying the bit is a no-op ("*peripheral-bus ESP reset
+  signal, no-op here*" and "*bit 7 alone (RESET_ESPBUS) is intentionally
+  ignored — no ESP*"). The day that grep returns **executable** code, this
+  bullet is wrong and §4.2's requirement has landed.
 
 Recorded as a **disclosure**, therefore, not as a defect: the behaviour is
 correct, and what was missing was the sentence saying when the guarantee
