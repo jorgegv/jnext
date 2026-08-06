@@ -38,8 +38,15 @@ static void crash_handler(int sig) {
     _Exit(1);
 }
 
+// stdout, not stderr (GH #216). This text is only ever printed because the user
+// asked for it with --help, which is a successful result and exits 0; POSIX/GNU
+// convention puts that on stdout, so `jnext --help > file` and `jnext --help |
+// less` work. Usage ERRORS are a different thing and are NOT printed by this
+// function — each one prints its own short message and stays on stderr, which is
+// where a diagnostic belongs. Keep it that way: making an error path call this
+// would move the diagnostic to stdout too.
 static void print_usage(const char* prog) {
-    fprintf(stderr,
+    fprintf(stdout,
         "  jnext is a ZX Spectrum Next emulator.\n"
         "\n"
         "  Usage: %s [options] [file]\n"
