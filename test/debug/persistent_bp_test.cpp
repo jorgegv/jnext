@@ -318,16 +318,19 @@ int main() {
     // then deactivate — and the specified outcome is that armed() survives it,
     // so the NEXT hit still stops the machine.
     //
-    // What this row deliberately does NOT assert is where the machine ends up
-    // afterwards. jnext's resume() does not step off the breakpoint it is
-    // standing on, so a resume with PC still on a live breakpoint re-fires
-    // immediately — and that is PRE-EXISTING and DEFAULT behaviour, not
-    // something --persistent-breakpoints introduced: with no flag at all and
-    // the window OPEN, pressing Run/F5 while stopped at a breakpoint leaves PC
-    // exactly where it was (measured on this same fixture while writing this
-    // suite). Pinning that here would freeze a defect; asserting the opposite
-    // would fail against the tree it is being written on. So the row asserts
-    // the contract of THIS feature and no more.
+    // GH #221 CHANGED WHAT THIS ROW CAN SAY. As written for #219 it deliberately
+    // asserted NOTHING about where the machine ends up, because jnext's resume()
+    // did not step off the breakpoint it was standing on: the close landed
+    // straight back on the live breakpoint, which re-fired having executed
+    // nothing. That was pre-existing DEFAULT behaviour (F5 with the window open
+    // and no flag at all did the same), so pinning it would have frozen a defect
+    // and asserting the opposite would have failed against the tree.
+    //
+    // #221 fixed it, so the row now asserts the outcome too: the machine runs
+    // ON, to the park. The NEXT hit still stopping it is PBPW-12's job, and the
+    // #221 side of this — including the drop/keep rule for the step-off arm that
+    // makes the set_active(false) here safe — is test/debug/resume_step_off_test.cpp
+    // (RSOW-09).
     {
         Emulator emu;
         build(emu, /*persistent=*/true);
@@ -339,11 +342,14 @@ int main() {
         // Exactly what closing the window does, in order.
         emu.debug_state().resume();
         emu.debug_state().set_active(false);
+        run_until_paused(emu);
 
         check("PBPW-11", "closing the debugger window at a hit leaves "
-              "breakpoints armed (armed() true, active() false)",
+              "breakpoints armed (armed() true, active() false) and steps off "
+              "the hit rather than re-firing it",
               stopped && emu.debug_state().armed() &&
-              !emu.debug_state().active());
+              !emu.debug_state().active() &&
+              !emu.debug_state().paused() && pc(emu) == 0x800E);
     }
 
     // PBPW-12 — the SECOND hit, with the window closed throughout. Remove the

@@ -81,6 +81,18 @@ consults it once per instruction, before the fetch:
 | `STEP_BACK` / `RUN_BACK_TO_CYCLE` | `step_back()`, `run_back_to_cycle()` | handled before the loop starts, by rewinding |
 | watchpoint | `add_watchpoint` | `Mmu` latches `data_bp_hit`; checked after the instruction |
 
+Every one of those modes leaves `paused_` through `DebugState::unpause_()`,
+which also arms a one-instruction **step-off**. The loop consumes it
+immediately before `should_break()`, and that first test of a resumed run is
+the only one it suppresses. It has to exist because the breakpoint check sits
+*before* the fetch: without it, resuming with PC still on a breakpoint
+re-matched the unchanged address and the machine re-paused having executed
+nothing — issue #221, and it pinned Step Over, Step Out, Run to Cursor and Run
+to EOF in place exactly as it pinned F5. The arm is PC-exact by construction
+rather than by comparison, since nothing executes between the resume and that
+test; it is dropped by `refresh_armed_()` when breakpoints go dead, because the
+consumer stops running there while PC does not.
+
 Step Over is not a special CPU mode. `DebuggerManager::on_step_over()` asks the
 disassembler whether the current instruction `is_call_like()` — `CALL nn`,
 `CALL cc,nn`, `RST n`, `DJNZ` — and if it is, sets a one-shot breakpoint at

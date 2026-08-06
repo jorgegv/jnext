@@ -58,6 +58,25 @@ public:
     /// Returns true if execution should break (pause).
     bool should_break(uint16_t pc) const;
 
+    /// GH #221 — the one-instruction step-off, consumed by the hot loop's
+    /// breakpoint gate immediately before should_break().
+    ///
+    /// Returns true (and disarms) on the FIRST breakpoint test of a resumed
+    /// run, telling the gate to skip that one test. Every transition out of
+    /// paused arms it — resume(), step_into/over/out(), run_to(),
+    /// run_to_cycle(), step_back(), run_back_to_cycle() — because all of them
+    /// leave PC exactly where the user is looking at it, and the gate runs
+    /// BEFORE the instruction at that PC. Without the skip, F5 at a breakpoint
+    /// cleared paused_, the gate re-matched the unchanged PC and the machine
+    /// re-paused having made no progress: #221.
+    ///
+    /// It is PC-exact by construction rather than by comparison: nothing
+    /// executes between the resume and this test, so the address it suppresses
+    /// IS the resumed-from address. And it is exactly one instruction wide, so
+    /// a breakpoint at the NEXT address — or at this one, on the next pass
+    /// round a loop — still fires.
+    bool consume_step_off();
+
     /// Step Out predicate — called after EVERY instruction while
     /// StepMode::OUT is armed (GH #203).
     ///
@@ -108,12 +127,27 @@ public:
     void set_data_bp_addr(uint16_t a) { data_bp_addr_ = a; }
 
 private:
-    void refresh_armed_() { armed_ = active_ || persistent_; }
+    void refresh_armed_() {
+        armed_ = active_ || persistent_;
+        // Disarming breakpoints drops any pending step-off with them. The gate
+        // that consumes it does not run while !armed(), so PC moves on freely
+        // and a surviving arm would suppress an unrelated test the moment
+        // breakpoints came back (GH #221).
+        if (!armed_) step_off_pending_ = false;
+    }
+
+    /// The ONE way out of paused. Every resume-family transition goes through
+    /// it so the GH #221 step-off arm cannot be forgotten by a path added
+    /// later — the defect was that F5 resumed onto its own breakpoint, and
+    /// Step Over / Step Out / Run to Here resumed onto it in exactly the same
+    /// way.
+    void unpause_() { paused_ = false; step_off_pending_ = true; }
 
     bool active_ = false;
     bool persistent_ = false;
     bool armed_ = false;
     bool paused_ = false;
+    bool step_off_pending_ = false;
     bool data_bp_hit_ = false;
     uint16_t data_bp_addr_ = 0;
     StepMode step_mode_ = StepMode::NONE;

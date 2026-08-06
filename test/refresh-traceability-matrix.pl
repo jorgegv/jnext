@@ -1037,6 +1037,7 @@ my %NO_MATRIX_SECTION = (
     'resume_guard_test'         => 'debugger resume-confirmation policy (jnext-internal)',
     'step_out_test'             => 'debugger Step Out execution control (jnext-internal); the T80N core has no debugger',
     'persistent_bp_test'        => 'debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger',
+    'resume_step_off_test'      => 'debugger resume/step-off execution control (GH #221, jnext-internal); the T80N core has no debugger',
     'debugger_persistent_bp_test' => 'debugger window raise-on-hit (host GUI lifecycle, GH #219)',
     'debugger_video_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build)',
     'debugger_audio_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build)',

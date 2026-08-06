@@ -7372,7 +7372,22 @@ void Emulator::run_frame()
             if (debug_state_.paused())
                 return;
             uint16_t pc = cpu_.pc();
-            if (debug_state_.should_break(pc)) {
+            // GH #221 — step OFF the breakpoint we are standing on.
+            //
+            // This test runs before the instruction at `pc`, so the FIRST one
+            // of a resumed run necessarily sees the address the machine was
+            // resting at when Run / Step Over / Step Out / Run to Here was
+            // pressed: nothing executes in between. Re-matching it pinned the
+            // machine there forever — paused_ cleared, PC unchanged, re-paused
+            // with no progress made — which is the whole of #221, and it
+            // affected every resume path, not just F5.
+            //
+            // consume_step_off() is true exactly once per resume, so the
+            // suppression is one instruction wide and skips nothing else: a
+            // breakpoint at the NEXT address is a later iteration with the arm
+            // already spent, and so is this same address on the next pass
+            // round a loop.
+            if (!debug_state_.consume_step_off() && debug_state_.should_break(pc)) {
                 debug_state_.pause();
                 // Early return: leave frame_cycle_ as-is so resume continues
                 // from this point.  The display shows the previous frame.

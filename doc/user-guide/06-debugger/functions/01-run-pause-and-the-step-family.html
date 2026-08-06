@@ -2791,6 +2791,15 @@
 </tbody>
 </table>
 <p>The same actions are in the <strong>Debug</strong> menu.</p>
+<p><strong>Run / Continue</strong> resumes free execution. When the machine is stopped <em>on</em> a
+breakpoint, that breakpoint does not stop it again for the instruction you are
+standing on — otherwise F5 would put you straight back where you were, having
+executed nothing. The suppression is exactly one instruction wide: a breakpoint
+on the <em>next</em> instruction still stops you, and coming back round a loop to the
+same breakpoint stops you again. Step Over, Step Out, Run to Here and Run to
+EOF/EOSL all resume through the same mechanism, so they step off the breakpoint
+under the PC too. One consequence worth knowing: <strong>Run to Here</strong> on the line you
+are already stopped at runs a full lap and stops when control comes back.</p>
 <p><strong>Single Step</strong> executes exactly one instruction, entering calls, traps and
 interrupt handlers.</p>
 <p><strong>Step Over</strong> sets a one-shot breakpoint after the current instruction and

@@ -1946,6 +1946,17 @@ consults it once per instruction, before the fetch:</p>
 </tr>
 </tbody>
 </table>
+<p>Every one of those modes leaves <code>paused_</code> through <code>DebugState::unpause_()</code>,
+which also arms a one-instruction <strong>step-off</strong>. The loop consumes it
+immediately before <code>should_break()</code>, and that first test of a resumed run is
+the only one it suppresses. It has to exist because the breakpoint check sits
+<em>before</em> the fetch: without it, resuming with PC still on a breakpoint
+re-matched the unchanged address and the machine re-paused having executed
+nothing — issue #221, and it pinned Step Over, Step Out, Run to Cursor and Run
+to EOF in place exactly as it pinned F5. The arm is PC-exact by construction
+rather than by comparison, since nothing executes between the resume and that
+test; it is dropped by <code>refresh_armed_()</code> when breakpoints go dead, because the
+consumer stops running there while PC does not.</p>
 <p>Step Over is not a special CPU mode. <code>DebuggerManager::on_step_over()</code> asks the
 disassembler whether the current instruction <code>is_call_like()</code> — <code>CALL nn</code>,
 <code>CALL cc,nn</code>, <code>RST n</code>, <code>DJNZ</code> — and if it is, sets a one-shot breakpoint at

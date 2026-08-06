@@ -6,38 +6,38 @@ void DebugState::pause() {
 }
 
 void DebugState::resume() {
-    paused_ = false;
+    unpause_();
     step_mode_ = StepMode::NONE;
     data_bp_hit_ = false;
     breakpoints_.clear_oneshot();
 }
 
 void DebugState::step_into() {
-    paused_ = false;
+    unpause_();
     step_mode_ = StepMode::INTO;
 }
 
 void DebugState::step_over(uint16_t next_pc) {
     breakpoints_.set_oneshot(next_pc);
-    paused_ = false;
+    unpause_();
     step_mode_ = StepMode::OVER;
 }
 
 void DebugState::step_out(uint16_t current_sp) {
     step_out_sp_ = current_sp;
-    paused_ = false;
+    unpause_();
     step_mode_ = StepMode::OUT;
 }
 
 void DebugState::run_to(uint16_t addr) {
     breakpoints_.set_oneshot(addr);
-    paused_ = false;
+    unpause_();
     step_mode_ = StepMode::NONE;
 }
 
 void DebugState::run_to_cycle(uint64_t target_cycle) {
     target_cycle_ = target_cycle;
-    paused_ = false;
+    unpause_();
     step_mode_ = StepMode::RUN_TO_CYCLE;
 }
 
@@ -51,15 +51,23 @@ bool DebugState::should_break(uint16_t pc) const {
     return false;
 }
 
+bool DebugState::consume_step_off() {
+    // Branch before store: the common case is "not pending", once per
+    // instruction, on the hot path. See the header for the semantics.
+    if (!step_off_pending_) return false;
+    step_off_pending_ = false;
+    return true;
+}
+
 void DebugState::step_back(int n) {
     step_back_count_ = (n > 0) ? n : 1;
-    paused_ = false;
+    unpause_();
     step_mode_ = StepMode::STEP_BACK;
 }
 
 void DebugState::run_back_to_cycle(uint64_t target_cycle) {
     target_cycle_ = target_cycle;
-    paused_ = false;
+    unpause_();
     step_mode_ = StepMode::RUN_BACK_TO_CYCLE;
 }
 
