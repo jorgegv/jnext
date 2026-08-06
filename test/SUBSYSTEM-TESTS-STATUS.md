@@ -65,7 +65,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Host key minimum-hold latch |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options / docs    |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options / docs    |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |       98 |       98 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       78 |       78 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -97,6 +97,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **6788** | **6788** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **6790** | **6790** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
