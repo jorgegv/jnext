@@ -33,6 +33,7 @@ use strict;
 use warnings;
 use File::Basename qw(dirname);
 use File::Spec;
+use File::Temp ();
 
 my $ROOT     = File::Spec->rel2abs( dirname($0) . '/..' );
 my $MAN_SRC  = "$ROOT/doc/man/jnext.1.md";
@@ -137,17 +138,15 @@ if (@dangling) {
 # same syntax) while stopping pandoc escaping `--` as `\--`, which it does
 # only because roff would turn it into an en dash.
 # --------------------------------------------------------------------------
-my $pid = open( my $pandoc, '-|' );
-fail("cannot fork: $!") unless defined $pid;
-if ( $pid == 0 ) {
-    open( my $w, '|-', 'pandoc', '-f', 'markdown', '-t', 'markdown-smart' )
-        or fail("cannot run pandoc: $!");
-    print {$w} $body;
-    close $w or fail( "pandoc failed with status " . ( $? >> 8 ) );
-    exit 0;
-}
+my $tmp = File::Temp->new( SUFFIX => '.md' );
+print {$tmp} $body;
+$tmp->flush;
+open( my $pandoc, '-|', 'pandoc', '-f', 'markdown', '-t', 'markdown-smart',
+      $tmp->filename )
+    or fail("cannot run pandoc: $!");
 $body = do { local $/; <$pandoc> };
-close $pandoc or fail( "pandoc failed with status " . ( $? >> 8 ) );
+close $pandoc
+    or fail( $! ? "pandoc: $!" : "pandoc exited with status " . ( $? >> 8 ) );
 
 # --------------------------------------------------------------------------
 # Emit: generated-file banner, hand-written preamble, converted options.
