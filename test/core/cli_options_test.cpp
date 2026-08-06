@@ -33,6 +33,13 @@
 //   CLI-DOC-05  Doc::UndocumentedAlias really is absent from the man page — a
 //               deliberate exception that quietly became documented is drift
 //               too, and would otherwise never be noticed.
+//   CLI-DOC-06  The user guide's generated option page (GH #213) lists every
+//               documented spelling. It is generated from the same man page
+//               section, so in a green tree this follows from CLI-DOC-01 — but
+//               only while docs-man-check is actually comparing: on a host with
+//               a different pandoc that check SKIPs, and a hand-edited guide
+//               page would then be seen by nothing at all. This row is the
+//               independent witness, and it needs no pandoc to run.
 //   CLI-SRC-01  main.cpp's parse loop holds no hand-rolled `arg == "--flag"`
 //               comparison. That pattern is exactly how the flag set stopped
 //               being enumerable; a new one would re-open the gap invisibly,
@@ -319,6 +326,37 @@ int main() {
             check("CLI-DOC-05", "undocumented aliases are absent from the man page",
                   leaked.empty(),
                   "documented despite being declared undocumented: " + join(leaked));
+        }
+    }
+
+    // -----------------------------------------------------------------
+    // User guide alignment (GH #213).
+    //
+    // src/doc/user-guide/09-reference/01-command-line-options.md is generated
+    // from the man page's OPTIONS section by tools/gen-userguide-cli.pl, and
+    // is the mkdocs SOURCE the committed render is built from. Checking the
+    // source rather than the rendered HTML is deliberate: docs-userguide-check
+    // already byte-diffs the render against this file, so the source is the
+    // one place the option list can go missing without another gate noticing.
+    // -----------------------------------------------------------------
+    {
+        std::ifstream in(JNEXT_GUIDE_CLI_SRC);
+        if (!in) {
+            // Same posture as the man page above: unreadable is a failure, not
+            // a skip. The file is committed, so it is always there.
+            check("CLI-DOC-06", "user guide option page lists every documented flag",
+                  false, std::string("cannot open ") + JNEXT_GUIDE_CLI_SRC);
+        } else {
+            const std::string page((std::istreambuf_iterator<char>(in)),
+                                    std::istreambuf_iterator<char>());
+            std::vector<std::string> missing;
+            for (const cli::Option& o : cli::OPTIONS) {
+                if (o.doc == cli::Doc::UndocumentedAlias) continue;
+                if (page.find("**" + std::string(o.name) + "**") == std::string::npos)
+                    missing.push_back(o.name);
+            }
+            check("CLI-DOC-06", "user guide option page lists every documented flag",
+                  missing.empty(), "missing from the guide: " + join(missing));
         }
     }
 
