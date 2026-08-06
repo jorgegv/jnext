@@ -4,7 +4,8 @@ JNEXT has two kinds of breakpoint.
 
 **Execute** breakpoints fire before the instruction at that address is
 executed. Set one by clicking the disassembly gutter, from the right-click
-menu, or from the Breakpoints panel.
+menu, from the Breakpoints panel, or from **Breakpoints ▸ Add Execute
+Breakpoint…**.
 
 **Data** breakpoints fire on access to an address: **Read**, **Write** or
 **Read/Write**. They are checked as the access happens, but the machine stops
