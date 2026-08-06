@@ -130,6 +130,10 @@ const AtEngine::CommandEntry AtEngine::kCommands[] = {
     {"AT+CIPSTART=",   true,  &AtEngine::cmd_cipstart},
     {"AT+CIPSENDEX=",  true,  &AtEngine::cmd_cipsendex},
     {"AT+CIPSEND=",    true,  &AtEngine::cmd_cipsend},
+    // The exact `AT+CIPCLOSE` entry above cannot shadow this one: an exact
+    // entry with trailing text is skipped by `dispatch_line`, so
+    // `AT+CIPCLOSE=1` walks past it and lands here (GH #211).
+    {"AT+CIPCLOSE=",   true,  &AtEngine::cmd_cipclose_id},
     {"AT+CIPSERVER=",  true,  &AtEngine::cmd_cipserver},
     {"AT+CIPMUX=",     true,  &AtEngine::cmd_cipmux},
     {"AT+UART_CUR=",   true,  &AtEngine::cmd_uart},
@@ -513,10 +517,65 @@ void AtEngine::cmd_cipclose(const std::string&) {
     }
     log_info("{} connection to {}:{} closed by the guest (AT+CIPCLOSE)",
              protocol_text(c.protocol), c.host, c.port);
+    close_connection(SINGLE_CID);
+}
+
+void AtEngine::cmd_cipclose_id(const std::string& args) {
+    // THE ARGUMENT LIST IS READ FROM THE MODE, never sniffed from the text —
+    // the rule `begin_send` already follows, and real firmware's too: the
+    // parameter belongs to `CIPMUX=1` and a single-connection session has
+    // nothing to name. The bare spelling is untouched by this and keeps
+    // working in both modes, which is what nextsync — the one client that
+    // loops `AT+CIPCLOSE` — depends on.
+    if (!cipmux_) {
+        log_debug("AT+CIPCLOSE=<id> needs AT+CIPMUX=1 first — answering ERROR");
+        queue_error();
+        return;
+    }
+
+    // Parsed against the WHOLE argument, so `AT+CIPCLOSE=`, `AT+CIPCLOSE=x`
+    // and `AT+CIPCLOSE=1,1` are all `ERROR`: exactly one link id, or nothing.
+    //
+    // ID 5 IS REFUSED AS A DECISION, not as a side effect of the slot count
+    // (GH #211). Real firmware reads 5 as "close every connection"; accepting
+    // it here would promise a choice about connections the guest did not name —
+    // which order the `CLOSED`s arrive in, and whether the outbound slot 0 is
+    // among them — and that is the same promise `AT+CIPSERVER=0,<close_all>` is
+    // refused for. The consumer asks for a per-connection close, so a
+    // per-connection close is what exists.
+    std::uint32_t id = 0;
+    if (!parse_uint(args, MAX_CONNECTIONS - 1, id)) {
+        log_debug("AT+CIPCLOSE link id \"{}\" out of range — answering ERROR", escape(args));
+        queue_error();
+        return;
+    }
+
+    const std::size_t cid = id;
+    Connection&       c   = conn_[cid];
+    if (!c.open && !c.connecting) {
+        // Same answer the bare spelling gives for "nothing was open", and for
+        // the same reason: a guest told `OK` here would believe it had freed a
+        // slot that was never taken. A connection the PEER has already dropped
+        // is in this state too — its `<id>,CLOSED` is already owed and will
+        // arrive on its own.
+        log_debug("AT+CIPCLOSE={} but that cid has no connection — answering ERROR", cid);
+        queue_error();
+        return;
+    }
+    log_info("{} connection to {}:{} closed by the guest (AT+CIPCLOSE={})",
+             protocol_text(c.protocol), c.host, c.port, cid);
+    close_connection(cid);
+}
+
+void AtEngine::close_connection(std::size_t cid) {
+    Connection& c = conn_[cid];
     c.transport->close();
     c.open          = false;
     c.connecting    = false;
     c.close_pending = false;
+    // Anything received but not yet framed dies with the connection. The guest
+    // asked for the close, so this is not data lost behind its back — and it is
+    // what the bare spelling has always done.
     c.clear_buffers();
     // A connection genuinely closed, so CLOSED is honest here — and NXtel's
     // 5-byte `OSED\r` window is what it looks for.
@@ -535,9 +594,14 @@ void AtEngine::cmd_cipclose(const std::string&) {
     // MUTATION — the class of thing that can paper over a bug rather than a
     // redundant guard, which can only refuse twice.)
     if (c.multiplexed)
-        queue("\r\n" + std::to_string(SINGLE_CID) + ",CLOSED\r\n\r\nOK\r\n");
+        queue("\r\n" + std::to_string(cid) + ",CLOSED\r\n\r\nOK\r\n");
     else
         queue("\r\nCLOSED\r\n\r\nOK\r\n");
+    // TOLD, THEREFORE FINISHED WITH — the same order `frame_ipd` uses on the
+    // peer-close path, so a peer that reconnects at once cannot be handed the
+    // id of a connection the guest has not yet heard the end of. A no-op on
+    // slot 0, whose transport is borrowed and permanent.
+    release_inbound(cid);
 }
 
 void AtEngine::cmd_cipmux(const std::string& args) {

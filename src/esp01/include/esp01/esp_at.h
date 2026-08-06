@@ -290,13 +290,25 @@
 ///         genuine change is refused, which is the part that matters: switching
 ///         framing under a live peer hands it a wire format it never
 ///         negotiated.
-///     (d) THERE IS NO `AT+CIPCLOSE=<id>`. Real firmware needs it under
-///         `CIPMUX=1`, and no consumer of this asks for it: DeZog closes from
-///         its end, which arrives as `<id>,CLOSED` and frees the slot. The
-///         bare `AT+CIPCLOSE` keeps its v1.0 meaning — close the OUTBOUND
-///         connection — rather than acquiring a second one under `CIPMUX=1`,
+///     (d) `AT+CIPCLOSE=<id>` EXISTS AS A SECOND SPELLING, NOT AS A SECOND
+///         MEANING FOR THE BARE ONE (GH #211; design doc §14). GH #210 shipped
+///         without it — DeZog closes from its end, which arrives as
+///         `<id>,CLOSED` and frees the slot — and a peer that WEDGES rather
+///         than closing is what reopened it: four wedged peers exhaust the four
+///         inbound slots and every later client is refused, with nothing the
+///         guest can say about it. So the argument form closes the connection
+///         it names and frees its slot, and the bare `AT+CIPCLOSE` keeps its
+///         v1.0 meaning — close the OUTBOUND connection — in every mode,
 ///         because nextsync loops that exact spelling and its behaviour must
 ///         not depend on a mode nextsync never sets.
+///         THREE REFUSALS COME WITH IT, all `ERROR`, all deliberate: the
+///         argument form under `CIPMUX=0` (the argument list is read from the
+///         MODE, exactly as `AT+CIPSEND`'s is); an id with no live connection
+///         (which is what the bare form already answers, and what nextsync
+///         depends on); and `AT+CIPCLOSE=5`, real firmware's "close every
+///         connection", which is refused for the reason `AT+CIPSERVER=0`'s
+///         `<close_all>` is — a bulk close promises a choice about connections
+///         the guest did not name, and no consumer asks for one.
 ///
 /// ---------------------------------------------------------------------------
 /// SHAPED FOR v1.1 (issue #154), AND TWO OF THE THREE HAVE NOW PAID
@@ -716,6 +728,7 @@ private:
     void cmd_cipsend(const std::string& args);
     void cmd_cipsendex(const std::string& args);
     void cmd_cipclose(const std::string& args);
+    void cmd_cipclose_id(const std::string& args);
     void cmd_cipmux(const std::string& args);
     void cmd_cipserver(const std::string& args);
     void cmd_uart(const std::string& args);
@@ -727,6 +740,17 @@ private:
 
     /// Shared by `AT+CIPSEND` and `AT+CIPSENDEX` — see simplification (3).
     void begin_send(const std::string& args, const char* name);
+
+    /// Tear a LIVE connection down at the guest's request and tell it so:
+    /// close the socket, drop whatever was buffered, emit
+    /// `[<id>,]CLOSED` + `OK`, and return the slot to the pool. Shared by both
+    /// spellings of `AT+CIPCLOSE` for one reason — the framing decision
+    /// (prefixed or not) must be made in ONE place, exactly as
+    /// `queue_ipd_header` is, or the two spellings drift apart on the wire.
+    /// The caller has already established that the connection is there;
+    /// deciding WHICH `ERROR` a missing one deserves is the caller's job,
+    /// because the two spellings answer to different guests.
+    void close_connection(std::size_t cid);
 
     // Engine -> guest.
     void queue(const char* text);
