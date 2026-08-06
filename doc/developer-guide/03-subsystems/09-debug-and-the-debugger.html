@@ -1983,6 +1983,23 @@ shares its per-instruction body verbatim with the free-running loop
 Stepping must <em>observe</em> the emulation and never alter it — see
 <a href="../02-architecture/02-the-emulator-core.html">2.2 The emulator core</a> for why
 <code>run_frame()</code> refuses to re-begin a frame that is already in progress.</p>
+<p>That function is the <em>raw</em> one-slot primitive, though, and the debugger does
+not use it directly: <code>DebuggerManager::on_step_into()</code> calls
+<code>Emulator::debugger_step()</code>. The difference is the frame boundary, which is
+easy to overlook — while the debugger holds the machine the frontends stop
+calling <code>run_frame()</code> altogether, so a step is the machine's only driver and
+inherits its frame loop as well as its inner one. <code>step_frame_slot()</code> begins a
+frame when none is in flight and calls the shared <code>end_of_frame()</code> once the
+clock reaches the frame's last cycle. Without it, everything scheduled per
+frame — the ULA frame interrupt above all — stops being scheduled the moment
+the debugger pauses, and a <code>HALT</code>ed CPU can never be woken (GH #207). A step
+issued at a <code>HALT</code> consequently runs the halt out rather than stepping one of
+its internal NOP slots, bounded to two frames: the CPU leaves the halt only on
+an accepted interrupt or NMI, and stepping a slot in which nothing observable
+can change is not a step.</p>
+<p>The primitive keeps its frame-agnostic behaviour deliberately. Much of the
+test tree uses it to advance a machine whose frames the test drives itself,
+and several suites depend on a step not touching frame state at all.</p>
 <h2 id="panels">Panels<a class="headerlink" href="#panels" title="Permanent link">&para;</a></h2>
 <p>Thirteen panels, created by <code>DebuggerWindow::create_panels()</code>. What each one
 introspects:</p>
