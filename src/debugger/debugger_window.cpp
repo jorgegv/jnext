@@ -572,10 +572,6 @@ void DebuggerWindow::create_menus() {
     connect(clear_all_bp, &QAction::triggered, this, [this]() {
         emulator_->debug_state().breakpoints().clear_all_pc();
         emulator_->debug_state().breakpoints().clear_all_watchpoints();
-        if (disasm_panel_) disasm_panel_->refresh();
-        // GH #218 — same gap as the Add routes, in the other direction: the
-        // panel kept LISTING every breakpoint the user had just cleared.
-        if (breakpoint_panel_) breakpoint_panel_->refresh();
     });
 
     // --- Watches menu ---
@@ -983,16 +979,11 @@ void DebuggerWindow::create_panels() {
     callstack_panel_ = new CallStackPanel(emulator_);
     breakpoint_panel_ = new BreakpointPanel(emulator_);
 
-    // Keep the breakpoint list and the disassembly gutter in sync, both ways.
-    // Neither direction was actually wired: BreakpointPanel::set_disasm_panel()
-    // was never called (so add/edit/remove in the list left the gutter stale)
-    // and DisasmPanel::breakpoint_toggled was emitted but never connected (so
-    // toggling a breakpoint from the gutter left the list stale).  Both panels
-    // only otherwise repaint on a pause/step transition, so the staleness was
-    // visible for as long as the emulator stayed paused.
-    breakpoint_panel_->set_disasm_panel(disasm_panel_);
-    connect(disasm_panel_, &DisasmPanel::breakpoint_toggled,
-            this, [this](uint16_t) { breakpoint_panel_->refresh(); });
+    // GH #220 — no panel-to-panel wiring here any more. Both panels subscribe
+    // to the BreakpointSet in their own constructors, so the list and the
+    // gutter track it without either of them (or any mutation route) knowing
+    // the other exists. The two hand-wired directions this replaced had each
+    // shipped broken once.
 
     mmu_panel_ = new MmuPanel(emulator_);
 
@@ -1117,29 +1108,21 @@ void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
     uint16_t addr = 0;
     if (!prompt_bp_address(tr("Add %1 Breakpoint").arg(type_name), addr)) return;
 
+    // GH #220 — no repaint here. add_watchpoint() notifies, the Breakpoints
+    // panel redraws, and the disassembly gutter correctly does not: it draws
+    // bps.has_pc(addr) only, and this route touches no PC breakpoint.
     emulator_->debug_state().breakpoints().add_watchpoint(addr, type);
-
-    // GH #218 — the Breakpoints panel lists watchpoints too, and nothing else
-    // repaints it until the next pause/step, so a breakpoint added from the
-    // menu was invisible for as long as the emulator kept running. The panel's
-    // own Add button has always refreshed here; this route had not.
-    //
-    // The disassembly gutter is deliberately NOT refreshed: it draws
-    // bps.has_pc(addr) only (disasm_panel.cpp:153), so a watchpoint changes
-    // nothing in it. That is the one asymmetry with show_add_exec_bp_dialog().
-    if (breakpoint_panel_) breakpoint_panel_->refresh();
 }
 
 // GH #215 — an Execute breakpoint is a PC breakpoint (add_pc), not a
 // watchpoint, which is why it needs its own entry point rather than a fourth
-// WatchType. The disassembly gutter draws PC breakpoints, so refresh it.
+// WatchType. That difference is now expressed once, by add_pc() notifying
+// PcBreakpoints, rather than by this site remembering to repaint the gutter.
 void DebuggerWindow::show_add_exec_bp_dialog() {
     uint16_t addr = 0;
     if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr)) return;
 
     emulator_->debug_state().breakpoints().add_pc(addr);
-    if (breakpoint_panel_) breakpoint_panel_->refresh();
-    if (disasm_panel_) disasm_panel_->refresh();
 }
 
 void DebuggerWindow::refresh_panels() {

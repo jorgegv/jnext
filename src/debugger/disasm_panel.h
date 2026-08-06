@@ -6,6 +6,7 @@
 #include <QPushButton>
 #include <QScrollBar>
 #include <vector>
+#include "debug/breakpoints.h"
 #include "debug/disasm.h"
 
 class Emulator;
@@ -14,10 +15,15 @@ class WatchPanel;
 
 /// Scrollable disassembly view with breakpoint gutter.
 /// Uses custom painting for precise control over the display.
+///
+/// GH #220 — it OBSERVES the BreakpointSet, but only the PC half: the gutter
+/// paints has_pc() and nothing else, so a watchpoint change is correctly none
+/// of its business and must not cost it a re-disassembly.
 class DisasmPanel : public QWidget {
     Q_OBJECT
 public:
     explicit DisasmPanel(Emulator* emulator, QWidget* parent = nullptr);
+    ~DisasmPanel() override;
 
     /// Re-disassemble around current PC and repaint.
     void refresh();
@@ -38,11 +44,6 @@ public:
     void set_watch_panel(WatchPanel* wp) { watch_panel_ = wp; }
 
 signals:
-    /// "The breakpoint set changed at `addr`" — not only the gutter's PC
-    /// toggles: the context menu's Break-on-Read/Write entries emit it too
-    /// (GH #218), because the Breakpoints panel that listens to it lists
-    /// watchpoints as well. The consumer ignores `addr` and refreshes.
-    void breakpoint_toggled(uint16_t addr);
     void run_to_requested(uint16_t addr);
 
 protected:
@@ -97,4 +98,6 @@ private:
     // Optional: symbol table and watch panel for enhanced features
     SymbolTable* symbol_table_ = nullptr;
     WatchPanel* watch_panel_ = nullptr;
+
+    BreakpointSet::ObserverId observer_ = 0;
 };
