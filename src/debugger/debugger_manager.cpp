@@ -363,7 +363,11 @@ void DebuggerManager::on_step_into() {
         emulator_->debug_state().pause();
     }
 
-    emulator_->execute_single_instruction();
+    // GH #207 — debugger_step(), not the raw execute_single_instruction()
+    // primitive: while we hold the machine nothing else calls run_frame(), so
+    // the Step has to turn frames over too, and a Step at a HALT has to run
+    // the halt out (the CPU leaves it only on an accepted interrupt).
+    emulator_->debugger_step();
 
     emulator_->debug_state().pause();
     was_paused_ = true;

@@ -127,10 +127,17 @@ a subtraction of `video_timing_.vblank_top()`, which differs per machine.
 
 ## Frame end
 
-Once the loop exits, the end-of-frame raster position is saved, `frame_cycle_`
-advances to `frame_end`, `frame_in_progress_` clears, and any NEX boot hold
-counts down. The last visible row, 255, gets its snapshots taken here, because
-no `on_scanline` will ever fire for it.
+Once the loop exits, `end_of_frame()` runs: the end-of-frame raster position is
+saved, `frame_cycle_` advances to `frame_end`, `frame_in_progress_` clears, and
+any NEX boot hold counts down. The last visible row, 255, gets its snapshots
+taken here, because no `on_scanline` will ever fire for it.
+
+`end_of_frame()` is a separate function rather than the tail of `run_frame()`
+for the same reason `step_one_instruction()` is: the debugger's Step needs it
+too. `step_frame_slot()` — one instruction slot with the begin-frame and
+end-frame seams around it — is what `debugger_step()` drives, because nothing
+calls `run_frame()` while the debugger holds the machine. See
+[3.9 Debug and the debugger](../03-subsystems/09-debug-and-the-debugger.md).
 
 Only then is the picture actually made, and it is made **once**:
 
