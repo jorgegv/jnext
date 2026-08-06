@@ -1634,7 +1634,25 @@ a different thing from a bulk close smuggled in as a server-mode argument, and
 the refusal is what makes the model's silence about "what happens to existing
 connections" honest rather than accidental. `SRV-12` is untouched.
 
-### 14.5 What this does NOT add
+### 14.5 How it is proved
+
+The AT suite drives a fake transport, so its 37 `CLS-*` rows can assert that
+`close()` reached the fake and that the slot was reused — not that a real host
+socket went away. `esp-close-func`, in the screenshot/functional suite, is the
+row that closes that gap: a real client on a real socket is greeted by the
+guest, the guest sends `AT+CIPCLOSE=1`, and the client then **dials in again**
+and is announced to the guest as `1,CONNECT` — the same id, which is the slot
+having genuinely returned to the pool.
+
+**The reconnect is the assertion and the EOF alone is not**, which was measured
+rather than reasoned: jnext exits at the end of the row and process exit closes
+every socket it owns, so an EOF-only version of that row passed against a build
+with the socket close removed *and* against one with the slot release removed as
+well. What it still cannot distinguish is stated in the row itself — removing
+the explicit `transport->close()` while leaving the slot release in place also
+passes, because destroying the accepted transport closes its descriptor anyway.
+
+### 14.6 What this does NOT add
 
 - **No close-all, under any spelling** (§14.4).
 - **No `AT+CIPSTATUS`**. Knowing *which* ids are live is the obvious companion
