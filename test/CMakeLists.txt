@@ -742,6 +742,18 @@ target_link_libraries(persistent_bp_test PRIVATE
 target_include_directories(persistent_bp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME persistent_bp_tests COMMAND persistent_bp_test)
 
+# GH #222 — I/O watchpoints (WatchType::IO_READ / IO_WRITE): the port-address
+# matching rule in BreakpointSet, and its wiring into PortDispatch::read/write.
+# The wiring half runs real IN/OUT on a real machine, so it links the emulator
+# exactly as persistent_bp_test does.
+add_executable(io_watchpoint_test debug/io_watchpoint_test.cpp)
+target_link_libraries(io_watchpoint_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(io_watchpoint_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME io_watchpoint_tests COMMAND io_watchpoint_test)
+
 # Task 60e — ResumeGuard: pure corruption-gate policy behind the debugger's
 # single confirm_resume_if_corrupt() choke point. Header-only, no Qt/libs.
 add_executable(resume_guard_test debug/resume_guard_test.cpp)

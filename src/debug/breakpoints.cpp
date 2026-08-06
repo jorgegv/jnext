@@ -71,6 +71,17 @@ bool BreakpointSet::has_watchpoint(uint16_t addr, WatchType type) const {
     return false;
 }
 
+// GH #222. See the header for the decode rule and why it is not has_watchpoint().
+bool BreakpointSet::has_io_watchpoint(uint16_t port, WatchType type) const {
+    for (const auto& wp : watchpoints_) {
+        if (wp.type != type) continue;
+        const bool hit = (wp.addr <= 0x00FF) ? ((port & 0x00FF) == wp.addr)
+                                             : (port == wp.addr);
+        if (hit) return true;
+    }
+    return false;
+}
+
 void BreakpointSet::clear_all_watchpoints() {
     watchpoints_.clear();
     notify(BreakpointChange::Watchpoints);
