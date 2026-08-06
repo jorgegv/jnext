@@ -142,6 +142,10 @@ extra:
 
 markdown_extensions:
   - admonition
+  # The generated CLI-options page (9.1) is a definition list, the same
+  # shape the man page uses. python-markdown ships def_list; mkdocs-material
+  # styles the <dl> it produces. No other page uses the syntax.
+  - def_list
   - tables
   - toc:
       permalink: true

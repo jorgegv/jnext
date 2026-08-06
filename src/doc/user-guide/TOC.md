@@ -128,5 +128,6 @@ catch-up; issue #9), the DAC buzzing (#38), and the debugger window positioning
 
 ## 9. Reference
 
-Pointers, not restatements: `jnext(1)` for the full option reference, file and
-directory locations, and links to the ZX Spectrum Next hardware documentation.
+The full option reference, generated from the `jnext(1)` man page source so it
+cannot drift; then pointers, not restatements: file and directory locations,
+and links to the ZX Spectrum Next hardware documentation.

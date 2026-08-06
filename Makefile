@@ -33,8 +33,10 @@ MINGW64_RC        := -DCMAKE_RC_COMPILER=/usr/bin/x86_64-w64-mingw32-windres
 MINGW32_RC        := -DCMAKE_RC_COMPILER=/usr/bin/i686-w64-mingw32-windres
 
 # Documentation single source (see `make docs-man`). doc/man/jnext.1.md generates
-# BOTH outputs below, and both are committed: building jnext from source never
-# needs pandoc, only editing the docs does.
+# ALL THREE outputs below, and all three are committed: building jnext from
+# source never needs pandoc, only editing the docs does. The third one (GH #213)
+# is the user guide's own CLI-options page: the guide carries the full explained
+# option list without it becoming a hand-kept copy that drifts from the man page.
 GUIDE_PORT        ?= 8000
 # mkdocs stamps sitemap.xml.gz with the BUILD DATE, so an unchanged guide
 # rendered tomorrow differs from today's — which would have failed docs-check,
@@ -88,6 +90,13 @@ MAN_RENDERER      := doc/man/pandoc-version.txt
 MAN_SRC           := doc/man/jnext.1.md
 MAN_OUT           := doc/man/jnext.1
 USAGE_OUT         := USAGE.md
+# Third rendering of MAN_SRC: the user guide's "9.1 Command-line options" page
+# (GH #213). Generated into the mkdocs SOURCE tree, so the committed render
+# under doc/user-guide follows through docs-userguide-check as usual. The
+# generator also runs pandoc, which is why it is checked by docs-man-check
+# (and inherits its pandoc-version-gap skip) rather than by the guide's check.
+GUIDE_CLI_GEN     := tools/gen-userguide-cli.pl
+GUIDE_CLI_OUT     := src/doc/user-guide/09-reference/01-command-line-options.md
 
 # Every recipe runs in the C locale. Two reasons, both about not lying:
 #  - builds: compiler/linker diagnostics stay in English (greppable, quotable).
@@ -711,7 +720,7 @@ kloc-count:
 	done; \
 	printf "\n  $(BOLD)%-30s %6d$(RESET)\n\n" "TOTAL" "$$total"
 
-# Regenerate the man page and USAGE.md from doc/man/jnext.1.md (needs pandoc)
+# Regenerate the man page, USAGE.md and the guide's option page (needs pandoc)
 docs-man:
 	@if ! command -v pandoc >/dev/null 2>&1; then \
 	   printf "$(BADGE_FAIL) FAIL $(RESET) pandoc not found. It is a documentation-only\n"; \
@@ -723,8 +732,12 @@ docs-man:
 	    --template=doc/man/usage.template \
 	    --include-before-body=doc/man/usage-preamble.md \
 	    $(MAN_SRC) -o $(USAGE_OUT)
+	perl $(GUIDE_CLI_GEN) $(GUIDE_CLI_OUT)
 	@$(MAN_FINGERPRINT) > $(MAN_RENDERER)
-	printf "$(BADGE_PASS) OK $(RESET) regenerated $(MAN_OUT) and $(USAGE_OUT)\n"
+	printf "$(BADGE_PASS) OK $(RESET) regenerated $(MAN_OUT), $(USAGE_OUT) and $(GUIDE_CLI_OUT)\n"
+	@# The third output feeds the mkdocs source tree, so the committed render
+	@# is now stale too — say so rather than leaving the next docs-check to.
+	@printf "        the guide page changed: run 'make docs-userguide' and commit that too\n"
 
 # Fail if the implemented CLI and the documented CLI disagree (issue #43)
 cli-check: unit-test-build
@@ -757,7 +770,7 @@ docs-check:
 	 $(MAKE) --no-print-directory docs-devguide-check || rc=1; \
 	 exit $$rc
 
-# Fail if the committed man page / USAGE.md are stale vs doc/man/jnext.1.md
+# Fail if the man page, USAGE.md or the guide's option page are stale
 docs-man-check:
 	@# One shell block on purpose: a bare `exit 0` in a recipe line of its own
 	@# ends only THAT line, and make would carry on into the diff below and
@@ -777,19 +790,23 @@ docs-man-check:
 	     --include-before-body=doc/man/usage-preamble.md \
 	     $(MAN_SRC) -o $$tmp/USAGE.md; \
 	 rc=0; compared=0; \
+	 perl $(GUIDE_CLI_GEN) $$tmp/cli-options.md \
+	   || { printf "$(BADGE_FAIL) FAIL $(RESET) $(GUIDE_CLI_GEN) refused to generate\n"; rc=1; }; \
 	 here=$$($(MAN_FINGERPRINT)); there=$$(cat $(MAN_RENDERER) 2>/dev/null); \
 	 if [ -n "$$there" ] && [ "$$here" != "$$there" ]; then \
 	   printf "$(BADGE_SKIP) SKIP $(RESET) different pandoc than generated the committed outputs,\n"; \
 	   printf "        so a byte-diff would report a version gap, not staleness.\n"; \
 	   printf "        here: $$here / committed: $$there\n"; \
-	 else \
+	 elif [ $$rc -eq 0 ]; then \
 	   compared=1; \
 	   diff -q $$tmp/man.1 $(MAN_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(MAN_OUT) is stale\n"; rc=1; }; \
 	   diff -q $$tmp/USAGE.md $(USAGE_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(USAGE_OUT) is stale\n"; rc=1; }; \
+	   diff -q $$tmp/cli-options.md $(GUIDE_CLI_OUT) >/dev/null 2>&1 || { printf "$(BADGE_FAIL) FAIL $(RESET) $(GUIDE_CLI_OUT) is stale\n"; rc=1; }; \
 	 fi; \
 	 rm -rf $$tmp; \
 	 if [ $$rc -ne 0 ]; then printf "        run 'make docs-man' and commit the result\n"; \
-	 elif [ $$compared -eq 1 ]; then printf "$(BADGE_PASS) OK $(RESET) man page and USAGE.md are up to date\n"; \
+	   printf "        (then 'make docs-userguide' — the guide page feeds the rendered guide)\n"; \
+	 elif [ $$compared -eq 1 ]; then printf "$(BADGE_PASS) OK $(RESET) man page, USAGE.md and the guide's option page are up to date\n"; \
 	 else printf "$(BADGE_PASS) OK $(RESET) man page regenerates cleanly (staleness NOT compared)\n"; fi; \
 	 exit $$rc
 
