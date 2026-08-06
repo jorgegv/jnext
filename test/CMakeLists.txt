@@ -960,6 +960,26 @@ if(ENABLE_DEBUGGER)
         Qt${JNEXT_QT_MAJOR}::Test)
     target_include_directories(debugger_accel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_accel_tests COMMAND debugger_accel_test)
+
+    # Debugger menu-reachability test (GH #215 — the Breakpoints menu offered
+    # every breakpoint type EXCEPT Execute, and the main window's Debug menu
+    # did not offer the debugger at all). Drives the real menu actions of both
+    # windows and reads the effect out of the real BreakpointSet /
+    # DebuggerManager. Needs a MainWindow as well as a DebuggerWindow, so it is
+    # additionally gated on ENABLE_QT_UI (jnext_gui) — the quit_cleanup_test
+    # arrangement, inverted, since that one lives in the ENABLE_QT_UI block.
+    # Needs Qt but no display — same offscreen QPA idiom as the suites above.
+    if(ENABLE_QT_UI)
+        add_executable(debugger_menu_test debugger/menu_test.cpp)
+        set_target_properties(debugger_menu_test PROPERTIES AUTOMOC ON)
+        target_link_libraries(debugger_menu_test PRIVATE
+            jnext_gui jnext_debugger
+            jnext_core jnext_cpu jnext_memory jnext_video
+            jnext_audio jnext_port jnext_peripheral jnext_input
+            jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+        target_include_directories(debugger_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        add_test(NAME debugger_menu_tests COMMAND debugger_menu_test)
+    endif()
 endif()
 
 # LoRes pixel-generator compliance tests (GH #63).

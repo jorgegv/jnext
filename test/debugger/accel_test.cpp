@@ -396,7 +396,9 @@ static void test_accelerators(Fixture& fx)
     // AC-05 — the denominator. Every row above passes trivially against an
     // empty harvest, so the shape of the walk is pinned: five menus, eight
     // popups (Debug + its Trace and Rewind submenus, Map + Load MAP File,
-    // Breakpoints, Watches, Window), thirty mnemonics, nine shortcuts. Adding
+    // Breakpoints, Watches, Window), thirty-one mnemonics, nine shortcuts.
+    // (Thirty until GH #215 added "Add &Execute Breakpoint...", whose E is
+    // free in the Breakpoints popup — AC-02 is what proves that.) Adding
     // or removing a menu entry means updating these numbers, and that edit is
     // the point — it is the claim about how much of the menu tree is checked.
     // It counts the SAME vector AC-03 checks, not a second walk that could
@@ -408,7 +410,7 @@ static void test_accelerators(Fixture& fx)
 
         const bool as_expected = top == 5
                               && popup_scopes.size() == 8
-                              && menu_accels.size() == 30
+                              && menu_accels.size() == 31
                               && shortcuts == 9;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
@@ -416,7 +418,7 @@ static void test_accelerators(Fixture& fx)
         // and the counts still agree).
         check("AC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
-              fmt("menus=%zu (want 5), popups=%zu (want 8), mnemonics=%zu (want 30), "
+              fmt("menus=%zu (want 5), popups=%zu (want 8), mnemonics=%zu (want 31), "
                   "shortcuts=%zu (want 9)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }
