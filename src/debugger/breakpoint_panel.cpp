@@ -1,5 +1,4 @@
 #include "debugger/breakpoint_panel.h"
-#include "debugger/disasm_panel.h"
 #include "core/emulator.h"
 #include "debug/debug_state.h"
 #include "debug/symbol_table.h"
@@ -63,6 +62,16 @@ BreakpointPanel::BreakpointPanel(Emulator* emulator, QWidget* parent)
     });
 
     layout->addWidget(table_, 1);
+
+    // GH #220 — the list is driven by the set, not by whoever mutated it. Both
+    // change kinds matter here: this table holds Execute AND data breakpoints.
+    observer_ = emulator_->debug_state().breakpoints().add_observer(
+        [this](BreakpointChange) { refresh(); });
+}
+
+BreakpointPanel::~BreakpointPanel()
+{
+    emulator_->debug_state().breakpoints().remove_observer(observer_);
 }
 
 QString BreakpointPanel::type_name(int type_index)
@@ -185,9 +194,10 @@ void BreakpointPanel::on_add()
         if (type_index == 3) wt = WatchType::READ_WRITE;
         bps.add_watchpoint(addr, wt);
     }
-
-    refresh();
-    if (disasm_panel_) disasm_panel_->refresh();
+    // No repaint call here: the mutation notified, and it notified the RIGHT
+    // views. This site used to refresh the disassembly whichever type was
+    // added; now only add_pc() reaches it, because a watchpoint changes nothing
+    // the gutter draws. Same pixels, less work.
 }
 
 void BreakpointPanel::on_edit()
@@ -222,9 +232,8 @@ void BreakpointPanel::on_edit()
         if (type_index == 3) wt = WatchType::READ_WRITE;
         bps.add_watchpoint(addr, wt);
     }
-
-    refresh();
-    if (disasm_panel_) disasm_panel_->refresh();
+    // Each of the four mutations above notified; the last one left the table
+    // showing the edited breakpoint. Nothing to repaint by hand.
 }
 
 void BreakpointPanel::on_remove()
@@ -232,7 +241,9 @@ void BreakpointPanel::on_remove()
     int row = table_->currentRow();
     if (row < 0 || row >= static_cast<int>(entries_.size())) return;
 
-    auto& e = entries_[row];
+    // A COPY, not a reference: the removal below notifies, refresh() rebuilds
+    // entries_ from under us, and a reference into it would dangle (GH #220).
+    const auto e = entries_[row];
     auto& bps = emulator_->debug_state().breakpoints();
 
     if (e.type_index == 0) {
@@ -243,7 +254,5 @@ void BreakpointPanel::on_remove()
         if (e.type_index == 3) wt = WatchType::READ_WRITE;
         bps.remove_watchpoint(e.addr, wt);
     }
-
-    refresh();
-    if (disasm_panel_) disasm_panel_->refresh();
+    // As in on_add(): the mutation notified the views its kind concerns.
 }

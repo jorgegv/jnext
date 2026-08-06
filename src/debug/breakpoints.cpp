@@ -2,12 +2,32 @@
 
 #include <algorithm>
 
+BreakpointSet::ObserverId
+BreakpointSet::add_observer(std::function<void(BreakpointChange)> fn) {
+    const ObserverId id = next_observer_id_++;
+    observers_.push_back({id, std::move(fn)});
+    return id;
+}
+
+void BreakpointSet::remove_observer(ObserverId id) {
+    observers_.erase(
+        std::remove_if(observers_.begin(), observers_.end(),
+            [id](const Observer& o) { return o.id == id; }),
+        observers_.end());
+}
+
+void BreakpointSet::notify(BreakpointChange what) {
+    for (const auto& o : observers_) o.fn(what);
+}
+
 void BreakpointSet::add_pc(uint16_t addr) {
     pc_bps_.insert(addr);
+    notify(BreakpointChange::PcBreakpoints);
 }
 
 void BreakpointSet::remove_pc(uint16_t addr) {
     pc_bps_.erase(addr);
+    notify(BreakpointChange::PcBreakpoints);
 }
 
 bool BreakpointSet::has_pc(uint16_t addr) const {
@@ -16,6 +36,7 @@ bool BreakpointSet::has_pc(uint16_t addr) const {
 
 void BreakpointSet::clear_all_pc() {
     pc_bps_.clear();
+    notify(BreakpointChange::PcBreakpoints);
 }
 
 void BreakpointSet::add_watchpoint(uint16_t addr, WatchType type) {
@@ -24,6 +45,7 @@ void BreakpointSet::add_watchpoint(uint16_t addr, WatchType type) {
         if (wp.addr == addr && wp.type == type) return;
     }
     watchpoints_.push_back({addr, type});
+    notify(BreakpointChange::Watchpoints);
 }
 
 void BreakpointSet::remove_watchpoint(uint16_t addr, WatchType type) {
@@ -33,6 +55,7 @@ void BreakpointSet::remove_watchpoint(uint16_t addr, WatchType type) {
                 return wp.addr == addr && wp.type == type;
             }),
         watchpoints_.end());
+    notify(BreakpointChange::Watchpoints);
 }
 
 bool BreakpointSet::has_watchpoint(uint16_t addr, WatchType type) const {
@@ -50,8 +73,14 @@ bool BreakpointSet::has_watchpoint(uint16_t addr, WatchType type) const {
 
 void BreakpointSet::clear_all_watchpoints() {
     watchpoints_.clear();
+    notify(BreakpointChange::Watchpoints);
 }
 
+// The one-shots below notify NOBODY, and that is the whole reason a naive
+// observer would have been wrong. rebuild_entries() reads pc_breakpoints() +
+// watchpoints() only, so a one-shot is not drawn anywhere; and every path that
+// sets one (DebugState::resume / step_over / run_to) immediately resumes, so
+// notifying here would fire on every single resume for something invisible.
 void BreakpointSet::set_oneshot(uint16_t addr) {
     oneshot_active_ = true;
     oneshot_addr_ = addr;

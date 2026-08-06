@@ -80,6 +80,21 @@
 // allowed to touch pause/step/refresh_panels.
 // ---------------------------------------------------------------------------
 //
+// GH #220 (groups BPO and BPX) — the same defect class, closed at the source.
+//
+// #218 fixed three forgetful call sites by hand. #220 removed the requirement
+// to remember: BreakpointSet notifies, and the two panels that draw it
+// subscribe. The rows above still pass unchanged — they must, since the refactor
+// is not allowed to move any panel update to a different moment — but they all
+// drive GUI ROUTES, and every GUI route was already fixed. None of them can tell
+// a set that notifies from twelve call sites that were each patched.
+//
+// So the rows below mutate the BreakpointSet DIRECTLY, with no repaint call
+// anywhere near them. That is the future call site the issue is about, in its
+// purest form: code that changes the set and tells nobody. On main every one of
+// them fails; the panels only catch up on the next refresh_panels() tick.
+// ---------------------------------------------------------------------------
+//
 // Run: ./build/test/debugger_menu_test
 // ===========================================================================
 
@@ -93,6 +108,7 @@
 #include "debugger/disasm_panel.h"
 #include "gui/main_window.h"
 #include "memory/mmu.h"
+#include "platform/emulator_boot.h"
 
 #include <QAction>
 #include <QApplication>
@@ -316,11 +332,62 @@ bool fill_disasm_window(Emulator& emu, DisasmPanel* panel, uint16_t base) {
     return true;
 }
 
-bool build_next_emulator(Emulator& emu) {
+// ── GH #220 helpers: seeing a re-disassembly without depending on paint ──
+//
+// The one thing the #220 rows must observe about the DISASSEMBLY is whether it
+// re-read memory — "did the gutter repaint?" is not answerable through the
+// panel's public surface, and counting Qt paint events would make the rows
+// depend on offscreen backing-store delivery. So instead: change the bytes the
+// view is showing WITHOUT telling the panel, and watch the selected line's
+// address. Three-byte instructions put line N at base + 3N; single-byte NOPs
+// put it at base + N. The address therefore moves the instant the panel
+// re-disassembles, and holds still for as long as it does not.
+
+/// Overwrite the bytes under the disassembly view with single-byte NOPs. The
+/// panel is deliberately not told, and nothing here repaints it.
+void poke_nops(Emulator& emu, uint16_t base) {
+    for (int i = 0; i < 256; ++i)
+        emu.mmu().write(static_cast<uint16_t>(base + i), 0x00);
+}
+
+/// Select disassembly line `line` (a plain left-click would do, but the popup
+/// helper above already reaches contextMenuEvent's `selected_line_ = line`).
+/// `wanted` is deliberately unmatched, so nothing is triggered.
+void select_disasm_line(DisasmPanel* panel, int line) {
+    PopupAnswer ans;
+    ans.wanted = QStringLiteral("\x01 no such item");
+    // paint_y_offset_ (52) + line * LINE_HEIGHT (18), landing mid-line.
+    context_menu_and_pick(panel, QPoint(120, 52 + line * 18 + 5), ans);
+}
+
+/// Arm the probe: three-byte instructions under the view, the panel actually
+/// showing them, line 3 selected. Returns that line's address — `base + 9`
+/// while the view holds three-byte instructions, `base + 3` once it has
+/// re-read memory that poke_nops() shortened. 0 if the setup did not take.
+///
+/// The refresh() here is SETUP, and it is not optional: fill_disasm_window()
+/// nudges the scrollbar, and QScrollBar::setValue() is silent when the value
+/// does not change — so a probe armed twice in a row would otherwise keep the
+/// first run's stale entries_ and measure nothing.
+uint16_t arm_disasm_probe(Emulator& emu, DisasmPanel* panel, uint16_t base) {
+    if (!panel) return 0;
+    panel->set_paused(true);   // the gutter only tracks the machine while paused
+    if (!fill_disasm_window(emu, panel, base)) return 0;
+    panel->refresh();
+    select_disasm_line(panel, 3);
+    return panel->selected_address();
+}
+
+/// The fixture's machine, named separately because GH220-06 re-boots with it.
+EmulatorConfig next_config() {
     EmulatorConfig cfg;
     cfg.type = MachineType::ZXN_ISSUE2;
     cfg.rewind_buffer_frames = 0;
-    return emu.init(cfg);
+    return cfg;
+}
+
+bool build_next_emulator(Emulator& emu) {
+    return emu.init(next_config());
 }
 
 /// A headless Next emulator plus the real DebuggerWindow, brought up through
@@ -602,6 +669,250 @@ static void test_disasm_data_breakpoints()
     }
 }
 
+// ── BPO: the set notifies; nobody has to remember to repaint ──────────
+//
+// GH #220. Every row here mutates the BreakpointSet directly — the ONE thing
+// none of the thirteen rows above can do, because every one of them drives a
+// GUI route and every GUI route was already patched by hand in #215/#218. A
+// bare add_pc() with no repaint call anywhere is precisely the "thirteenth call
+// site somebody adds next year" the issue exists to make safe.
+//
+// The clear_all_* + refresh() before each row is SETUP, not the assertion: it
+// establishes a truthful panel by a route that works on main too, so the row
+// keeps failing on main for its own reason (the mutation went unnoticed) rather
+// than for a stale precondition.
+//
+// As in the #218 groups: no pause(), no step(), no refresh_panels(). The one
+// exception is DisasmPanel::set_paused(true) in GH220-04/05, which is not a
+// repaint — it only flips the "gutter tracks the machine" flag that the panel
+// has always required (refresh() is a documented no-op while running), and it
+// rebuilds nothing.
+
+static void test_observer_notifies()
+{
+    set_group("BPO");
+
+    DebuggerFixture fx;
+    if (!fx.ok) {
+        check("GH220-01", "a bare add_pc() with no repaint call still reaches the panel", false, "fixture failed");
+        check("GH220-02", "a bare add_watchpoint() with no repaint call still reaches the panel", false, "fixture failed");
+        check("GH220-03", "bare removals with no repaint call still reach the panel", false, "fixture failed");
+        check("GH220-04", "a PC change re-disassembles the gutter; a watchpoint change does not", false, "fixture failed");
+        check("GH220-05", "a one-shot breakpoint reaches neither panel", false, "fixture failed");
+        return;
+    }
+
+    BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+
+    // GH220-01 — THE point of the exercise, Execute half.
+    {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();   // setup: a truthful panel
+
+        bps.add_pc(0x1234);                      // no repaint call, anywhere
+
+        const QStringList rows = panel_rows(fx.dbg);
+        check("GH220-01", "a bare add_pc() with no repaint call still reaches the panel",
+              rows == QStringList{QStringLiteral("Execute $1234")},
+              fmt("panel holds: [%s] (want exactly \"Execute $1234\")",
+                  rows.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // GH220-02 — the data half. Separate row: the two live in different
+    // containers (pc_bps_ vs watchpoints_) and notify with different kinds, so
+    // a mechanism wired to only one of them passes exactly one of these.
+    {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();
+
+        bps.add_watchpoint(0x4000, WatchType::READ);
+
+        const QStringList rows = panel_rows(fx.dbg);
+        check("GH220-02", "a bare add_watchpoint() with no repaint call still reaches the panel",
+              rows == QStringList{QStringLiteral("Read $4000")},
+              fmt("panel holds: [%s] (want exactly \"Read $4000\")",
+                  rows.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // GH220-03 — the other direction, per item rather than Clear All (which
+    // GH218-04 already covers through the menu). Removal is its own pair of
+    // mutators and would be its own pair of forgotten repaints.
+    {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        bps.add_pc(0x1234);
+        bps.add_watchpoint(0x4000, WatchType::READ);
+        fx.dbg->breakpoint_panel()->refresh();
+        const int before = panel_rows(fx.dbg).size();
+
+        bps.remove_pc(0x1234);
+        const QStringList after_pc = panel_rows(fx.dbg);
+
+        bps.remove_watchpoint(0x4000, WatchType::READ);
+        const QStringList after_wp = panel_rows(fx.dbg);
+
+        check("GH220-03", "bare removals with no repaint call still reach the panel",
+              before == 2
+                  && after_pc == QStringList{QStringLiteral("Read $4000")}
+                  && after_wp.isEmpty(),
+              fmt("rows before=%d after remove_pc: [%s] after remove_watchpoint: [%s]",
+                  before,
+                  after_pc.join(QStringLiteral(", ")).toUtf8().constData(),
+                  after_wp.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    DisasmPanel* disasm = fx.dbg->disasm_panel();
+
+    // GH220-04 — the asymmetry the issue insists must SURVIVE. The gutter
+    // paints has_pc() and nothing else, so an observer that re-disassembles on
+    // every watchpoint change is doing useless work, not fixing a bug. Both
+    // halves are one row on purpose: "no re-disassembly on a watchpoint" is
+    // vacuously true of a panel that never re-disassembles at all, so it is
+    // only meaningful next to a PC change that does.
+    {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+
+        // Three-byte instructions, line 3 selected, address noted.
+        const uint16_t at_3byte = arm_disasm_probe(fx.emu, disasm, 0x8000);
+        const bool     armed    = (at_3byte != 0);
+
+        // Shorten every instruction behind the panel's back. Nothing repaints.
+        poke_nops(fx.emu, 0x8000);
+
+        bps.add_watchpoint(0x5000, WatchType::WRITE);
+        const uint16_t after_watch = disasm ? disasm->selected_address() : 0;
+
+        bps.add_pc(0x8001);
+        const uint16_t after_pc = disasm ? disasm->selected_address() : 0;
+
+        check("GH220-04", "a PC change re-disassembles the gutter; a watchpoint change does not",
+              armed && at_3byte == 0x8009 && after_watch == 0x8009 && after_pc == 0x8003,
+              fmt("armed=%d line 3 at $%04X (want $8009); after add_watchpoint $%04X "
+                  "(want $8009, unmoved); after add_pc $%04X (want $8003, re-read)",
+                  armed ? 1 : 0, at_3byte, after_watch, after_pc));
+    }
+
+    // GH220-05 — one-shots stay invisible. rebuild_entries() reads
+    // pc_breakpoints() + watchpoints() only, and every path that sets a one-shot
+    // (resume / step_over / run_to) immediately resumes — so a set that notified
+    // on set_oneshot()/clear_oneshot() would fire on every resume, for something
+    // no panel draws. Both surfaces are checked: no new list row, no re-read of
+    // memory by the disassembly.
+    {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();
+
+        const uint16_t at_3byte = arm_disasm_probe(fx.emu, disasm, 0x8000);
+        const bool     armed    = (at_3byte != 0);
+        poke_nops(fx.emu, 0x8000);
+
+        fx.emu.debug_state().run_to(0x9000);        // set_oneshot()
+        const bool         armed_oneshot = bps.has_oneshot();
+        const QStringList  rows_set      = panel_rows(fx.dbg);
+        const uint16_t     after_set     = disasm ? disasm->selected_address() : 0;
+
+        fx.emu.debug_state().resume();              // clear_oneshot()
+        const QStringList rows_clear  = panel_rows(fx.dbg);
+        const uint16_t    after_clear = disasm ? disasm->selected_address() : 0;
+
+        // Positive control, on the SAME armed probe: a row that only asserts
+        // "nothing happened" passes against a set that notifies nobody at all.
+        // A real PC breakpoint must still move both surfaces here.
+        bps.add_pc(0x8001);
+        const QStringList rows_real  = panel_rows(fx.dbg);
+        const uint16_t    after_real = disasm ? disasm->selected_address() : 0;
+
+        check("GH220-05", "a one-shot breakpoint reaches neither panel",
+              armed && armed_oneshot && at_3byte == 0x8009
+                  && rows_set.isEmpty() && rows_clear.isEmpty()
+                  && after_set == 0x8009 && after_clear == 0x8009
+                  && rows_real == QStringList{QStringLiteral("Execute $8001")}
+                  && after_real == 0x8003,
+              fmt("armed=%d oneshot=%d line 3 at $%04X (want $8009) -> after set $%04X, "
+                  "after clear $%04X (both want $8009); panel after set: [%s] after clear: [%s]; "
+                  "control add_pc -> $%04X (want $8003) panel: [%s] (want \"Execute $8001\")",
+                  armed ? 1 : 0, armed_oneshot ? 1 : 0, at_3byte, after_set, after_clear,
+                  rows_set.join(QStringLiteral(", ")).toUtf8().constData(),
+                  rows_clear.join(QStringLiteral(", ")).toUtf8().constData(),
+                  after_real,
+                  rows_real.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+}
+
+// ── BPX: the subscription's two lifetime edges ────────────────────────
+//
+// GH #220. Observation is only structurally safe if it survives what the
+// product does to the set and to the panels. Two things do:
+//
+//   * emulator_cold_boot() (a hard reset / F1 / NR 0x02 bit 1) SAVES this set
+//     by value, destroys the whole Emulator, reconstructs it in place, and
+//     restores the set — deliberately, so a target reset does not silently
+//     discard the user's breakpoints. If the observers did not travel with it,
+//     both panels would go quietly stale after every reset: a fresh instance of
+//     the very defect this issue closes.
+//
+//   * a panel that goes away must stop being called, and must not take the
+//     other subscriber with it.
+
+static void test_observer_lifetime()
+{
+    set_group("BPX");
+
+    DebuggerFixture fx;
+    if (!fx.ok) {
+        check("GH220-06", "the panel keeps observing across a cold boot", false, "fixture failed");
+        check("GH220-07", "a destroyed subscriber unsubscribes without disturbing the others", false, "fixture failed");
+        return;
+    }
+
+    // GH220-06
+    {
+        fx.emu.debug_state().breakpoints().clear_all_pc();
+        fx.emu.debug_state().breakpoints().clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();
+
+        emulator_cold_boot(fx.emu, next_config());
+
+        // A different BreakpointSet object now, restored from the saved copy.
+        fx.emu.debug_state().breakpoints().add_pc(0x2000);
+
+        const QStringList rows = panel_rows(fx.dbg);
+        check("GH220-06", "the panel keeps observing across a cold boot",
+              rows == QStringList{QStringLiteral("Execute $2000")},
+              fmt("panel holds: [%s] (want exactly \"Execute $2000\")",
+                  rows.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // GH220-07 — a second, throwaway BreakpointPanel subscribes on construction
+    // and must unsubscribe on destruction. What is asserted is the SURVIVOR:
+    // remove_observer() taking out the wrong entry (or all of them) leaves the
+    // window's own panel deaf, which this row catches directly. The dangling
+    // half — remove_observer() doing nothing, so the freed panel keeps being
+    // called — is caught here only under a sanitiser, and is not claimed
+    // otherwise.
+    {
+        auto* extra = new BreakpointPanel(&fx.emu);
+        delete extra;
+
+        BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();
+
+        bps.add_pc(0x3000);
+
+        const QStringList rows = panel_rows(fx.dbg);
+        check("GH220-07", "a destroyed subscriber unsubscribes without disturbing the others",
+              rows == QStringList{QStringLiteral("Execute $3000")},
+              fmt("panel holds: [%s] (want exactly \"Execute $3000\")",
+                  rows.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+}
+
 // ── DBG: the main window's Debug menu is not a dead end ───────────────
 
 static void test_debug_menu()
@@ -737,6 +1048,10 @@ int main(int argc, char** argv)
     std::printf("  Group: BPR            — done\n");
     test_disasm_data_breakpoints();
     std::printf("  Group: BPC            — done\n");
+    test_observer_notifies();
+    std::printf("  Group: BPO            — done\n");
+    test_observer_lifetime();
+    std::printf("  Group: BPX            — done\n");
     test_debug_menu();
     std::printf("  Group: DBG            — done\n");
 

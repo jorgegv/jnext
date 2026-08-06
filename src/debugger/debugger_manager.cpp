@@ -204,10 +204,10 @@ void DebuggerManager::ensure_window() {
         cs->set_symbol_table(&symbol_table_);
     }
 
-    // Wire breakpoint panel with symbol table and disasm panel.
+    // Wire breakpoint panel with symbol table. It needs no pointer to the
+    // disassembly any more: both panels observe the BreakpointSet (GH #220).
     if (auto* bp = debugger_window_->breakpoint_panel()) {
         bp->set_symbol_table(&symbol_table_);
-        bp->set_disasm_panel(debugger_window_->disasm_panel());
     }
 }
 
