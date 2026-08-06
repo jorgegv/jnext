@@ -61,6 +61,25 @@
 // but not a display: main() forces the offscreen QPA platform, the same idiom
 // as the other debugger and gui suites.
 //
+// ---------------------------------------------------------------------------
+// GH #218 (groups BPR and BPC) — the same menu, the panel behind it.
+//
+// #215's Add Execute route refreshed the Breakpoints panel; the three data
+// routes next to it in the SAME menu did not, so a Read/Write breakpoint added
+// from the menu was invisible until the next pause or step. An audit of every
+// site that mutates the BreakpointSet found two more of the same class (Clear
+// All, and the disassembly's Break-on-Read/Write context items) and two that
+// were already right (the panel's own Add/Edit/Remove, and the gutter's PC
+// toggles, which ride DisasmPanel::breakpoint_toggled).
+//
+// The disassembly gutter is deliberately NOT refreshed on a watchpoint change
+// anywhere: it paints bps.has_pc() only, so a watchpoint changes nothing in
+// it. That asymmetry with the Execute route is intended, not an omission.
+//
+// See the group banners below for what each row pins and why it is not
+// allowed to touch pause/step/refresh_panels.
+// ---------------------------------------------------------------------------
+//
 // Run: ./build/test/debugger_menu_test
 // ===========================================================================
 
@@ -68,21 +87,28 @@
 #include "core/emulator_config.h"
 #include "debug/breakpoints.h"
 #include "debug/debug_state.h"
+#include "debugger/breakpoint_panel.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+#include "debugger/disasm_panel.h"
 #include "gui/main_window.h"
+#include "memory/mmu.h"
 
 #include <QAction>
 #include <QApplication>
+#include <QContextMenuEvent>
 #include <QDialog>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMenu>
 #include <QMenuBar>
+#include <QScrollBar>
+#include <QTableWidget>
 #include <QTemporaryDir>
 #include <QTimer>
 #include <QToolBar>
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <string>
@@ -189,6 +215,105 @@ void trigger_and_answer(QAction* action, ModalAnswer& ans) {
     action->trigger();
     timer.stop();
     QApplication::processEvents();
+}
+
+// ── GH #218 helpers: reading the Breakpoints PANEL, driving a popup ───
+
+/// The Breakpoints panel exactly as a user reads it: one "Type $ADDR" string
+/// per visible table row, in table order. This — not the BreakpointSet — is
+/// what the #218 rows assert against, because the whole defect is that the
+/// two disagreed until the next pause or step.
+QStringList panel_rows(DebuggerWindow* dbg) {
+    QStringList out;
+    BreakpointPanel* panel = dbg ? dbg->breakpoint_panel() : nullptr;
+    if (!panel) return out;
+    auto* table = panel->findChild<QTableWidget*>();
+    if (!table) return out;
+    for (int r = 0; r < table->rowCount(); ++r) {
+        QTableWidgetItem* type = table->item(r, 0);
+        QTableWidgetItem* addr = table->item(r, 1);
+        out << QStringLiteral("%1 %2")
+                   .arg(type ? type->text() : QStringLiteral("?"),
+                        addr ? addr->text() : QStringLiteral("?"));
+    }
+    return out;
+}
+
+/// Answers the POPUP a context-menu event opens. A QMenu is a popup widget,
+/// not a modal one, so this is activePopupWidget() where ModalAnswer above is
+/// activeModalWidget() — otherwise the same armed-beforehand idiom, because
+/// QMenu::exec() likewise blocks in a nested event loop.
+struct PopupAnswer {
+    QString     wanted;          // visible text of the item to trigger
+    bool        seen  = false;   // a popup appeared at all
+    bool        found = false;   // ... and it held `wanted`
+    QStringList items;           // what it held, for the failure detail
+};
+
+/// Send `w` a context-menu event at `pos` and trigger `ans.wanted` in whatever
+/// popup it opens. Returns with the popup closed either way.
+void context_menu_and_pick(QWidget* w, const QPoint& pos, PopupAnswer& ans) {
+    QTimer timer;
+    QObject::connect(&timer, &QTimer::timeout, [&ans]() {
+        auto* menu = qobject_cast<QMenu*>(QApplication::activePopupWidget());
+        if (!menu || ans.seen) return;
+        ans.seen = true;
+        for (QAction* a : menu->actions()) {
+            if (a->isSeparator()) continue;
+            const QString text = visible(a->text());
+            ans.items << text;
+            if (text == ans.wanted) {
+                ans.found = true;
+                a->trigger();
+            }
+        }
+        menu->close();
+    });
+    timer.start(1);
+
+    QContextMenuEvent ev(QContextMenuEvent::Mouse, pos, w->mapToGlobal(pos));
+    QApplication::sendEvent(w, &ev);
+
+    timer.stop();
+    QApplication::processEvents();
+}
+
+/// Right-click the disassembly and pick `wanted`. The y of a disassembly line
+/// is a private layout constant, so walk the plausible ones and stop at the
+/// first that produces a popup holding the item — every line carries the same
+/// item here (see fill_disasm_window), so which one is hit does not matter.
+PopupAnswer pick_from_disasm(DisasmPanel* panel, const QString& wanted) {
+    PopupAnswer last;
+    if (!panel) return last;
+    const int max_y = std::min(panel->height(), 400);
+    for (int y = 55; y < max_y; y += 18) {
+        PopupAnswer ans;
+        ans.wanted = wanted;
+        context_menu_and_pick(panel, QPoint(120, y), ans);
+        if (ans.found) return ans;
+        if (ans.seen) last = ans;   // keep the most informative failure
+    }
+    return last;
+}
+
+/// Fill `base`.. with `LD HL,$4000` (21 00 40) and point the disassembly at
+/// it, so every visible line offers "Break on Read/Write $4000" — the context
+/// menu's immediate-operand route, which is what GH218-05/06 drive. Returns
+/// false if the writes did not stick (`base` must land in RAM, not ROM).
+bool fill_disasm_window(Emulator& emu, DisasmPanel* panel, uint16_t base) {
+    for (int i = 0; i < 256; i += 3) {
+        emu.mmu().write(static_cast<uint16_t>(base + i + 0), 0x21);
+        emu.mmu().write(static_cast<uint16_t>(base + i + 1), 0x00);
+        emu.mmu().write(static_cast<uint16_t>(base + i + 2), 0x40);
+    }
+    if (emu.mmu().read(base) != 0x21 || emu.mmu().read(base + 2) != 0x40)
+        return false;
+
+    if (!panel) return false;
+    if (auto* sb = panel->findChild<QScrollBar*>())
+        sb->setValue(base);
+    QApplication::processEvents();
+    return true;
 }
 
 bool build_next_emulator(Emulator& emu) {
@@ -312,6 +437,168 @@ static void test_breakpoints_menu()
               fmt("dialog seen=%d pc_bps=%zu watchpoints=%zu",
                   ans.seen ? 1 : 0, bps.pc_breakpoints().size(),
                   bps.watchpoints().size()));
+    }
+}
+
+// ── BPR: every breakpoint route repaints the Breakpoints panel ────────
+//
+// GH #218. The panel lists Execute AND data breakpoints, and NOTHING else
+// repaints it while the emulator runs — DebuggerManager::refresh_panels() is
+// driven by the host frame loop and only reaches the panel on a pause/step.
+// So a route that mutated the set without calling breakpoint_panel_->refresh()
+// left the list lying for as long as the user kept running. Three routes did:
+//
+//   show_add_data_bp_dialog()        Breakpoints > Add Read/Write/Read-Write
+//   the Clear All Breakpoints lambda (refreshed the disassembly, not the list)
+//   DisasmPanel's Break-on-Read/Write context items (refreshed nothing)
+//
+// The rows below therefore assert the PANEL's contents, never the
+// BreakpointSet's — the set was always correct, which is exactly why the bug
+// survived. The set is still read, but only to make a failure say WHICH half
+// broke: "the breakpoint was never added" reads differently from "it was
+// added and the panel did not notice".
+//
+// No pause(), step() or refresh_panels() call may appear in these rows. Each
+// one would repaint the panel by itself and make the row pass against the
+// unfixed product — the defect is precisely that the user had to do one of
+// those things.
+
+static void test_breakpoint_panel_refresh()
+{
+    set_group("BPR");
+
+    DebuggerFixture fx;
+    struct Case {
+        const char* id;
+        const char* item;     // visible menu text
+        const char* typed;    // address typed into the modal
+        const char* row;      // the panel row it must produce
+    };
+    static const Case cases[] = {
+        {"GH218-01", "Add Read Breakpoint...",       "4000", "Read $4000"},
+        {"GH218-02", "Add Write Breakpoint...",      "5000", "Write $5000"},
+        {"GH218-03", "Add Read/Write Breakpoint...", "6000", "Read/Write $6000"},
+    };
+
+    if (!fx.ok) {
+        check("GH218-01", "Add Read Breakpoint shows up in the Breakpoints panel at once", false, "fixture failed");
+        check("GH218-02", "Add Write Breakpoint shows up in the Breakpoints panel at once", false, "fixture failed");
+        check("GH218-03", "Add Read/Write Breakpoint shows up in the Breakpoints panel at once", false, "fixture failed");
+        check("GH218-04", "Clear All Breakpoints empties the Breakpoints panel at once", false, "fixture failed");
+        return;
+    }
+
+    QMenu* bp_menu = menu_named(fx.dbg->menuBar(), QStringLiteral("Breakpoints"));
+    BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+
+    // GH218-01/02/03 — THE reported defect, once per data type. Each type is
+    // its own row because each is its own menu entry passing its own WatchType,
+    // and a fix that reached only one of them would still leave two lying.
+    for (const Case& c : cases) {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();   // setup, not the assertion:
+                                                 // start from a truthful panel
+
+        QAction* item = item_named(bp_menu, QString::fromLatin1(c.item));
+        ModalAnswer ans;
+        ans.typed  = QString::fromLatin1(c.typed);
+        ans.accept = true;
+        if (item) trigger_and_answer(item, ans);
+
+        const QStringList rows  = panel_rows(fx.dbg);
+        const bool in_panel = rows.contains(QString::fromLatin1(c.row));
+        const bool in_set   = bps.watchpoints().size() == 1;
+
+        check(c.id,
+              fmt("%s shows up in the Breakpoints panel at once", c.item).c_str(),
+              item && ans.seen && in_set && in_panel,
+              fmt("menu item=%d dialog seen=%d watchpoints=%zu panel holds: [%s] (want \"%s\")",
+                  item ? 1 : 0, ans.seen ? 1 : 0, bps.watchpoints().size(),
+                  rows.join(QStringLiteral(", ")).toUtf8().constData(), c.row));
+    }
+
+    // GH218-04 — the same gap the other way round. Seeded through the
+    // BreakpointSet directly (not through the menu) so this row keeps failing
+    // for its OWN reason if the Add fix above is ever reverted: what it pins
+    // is that Clear All repaints the list, and its precondition is a panel
+    // that really was showing those four.
+    {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        bps.add_pc(0x1234);
+        bps.add_watchpoint(0x4000, WatchType::READ);
+        bps.add_watchpoint(0x5000, WatchType::WRITE);
+        bps.add_watchpoint(0x6000, WatchType::READ_WRITE);
+        fx.dbg->breakpoint_panel()->refresh();
+
+        const int before = panel_rows(fx.dbg).size();
+
+        QAction* clear_item = item_named(bp_menu, QStringLiteral("Clear All Breakpoints"));
+        if (clear_item) {
+            clear_item->trigger();
+            QApplication::processEvents();
+        }
+
+        const QStringList after = panel_rows(fx.dbg);
+        check("GH218-04", "Clear All Breakpoints empties the Breakpoints panel at once",
+              clear_item && before == 4 && bps.empty() && after.isEmpty(),
+              fmt("menu item=%d rows before=%d set empty after=%d panel after: [%s]",
+                  clear_item ? 1 : 0, before, bps.empty() ? 1 : 0,
+                  after.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+}
+
+// ── BPC: the disassembly's own Break-on-Read/Write items ──────────────
+//
+// The third #218 route, and the one furthest from the panel: DisasmPanel has
+// no pointer to BreakpointPanel and must not grow one. It already emits
+// breakpoint_toggled for its gutter's PC toggles, and DebuggerWindow already
+// answers that by refreshing the list — these two rows pin that the data
+// items now ride the same wire.
+
+static void test_disasm_data_breakpoints()
+{
+    set_group("BPC");
+
+    DebuggerFixture fx;
+    struct Case { const char* id; const char* item; const char* row; WatchType type; };
+    static const Case cases[] = {
+        {"GH218-05", "Break on Read $4000",  "Read $4000",  WatchType::READ},
+        {"GH218-06", "Break on Write $4000", "Write $4000", WatchType::WRITE},
+    };
+
+    if (!fx.ok) {
+        for (const Case& c : cases)
+            check(c.id, "a data breakpoint set from the disassembly shows up in the panel at once",
+                  false, "fixture failed");
+        return;
+    }
+
+    DisasmPanel* disasm = fx.dbg->disasm_panel();
+    BreakpointSet& bps  = fx.emu.debug_state().breakpoints();
+
+    for (const Case& c : cases) {
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();
+
+        const bool armed = fill_disasm_window(fx.emu, disasm, 0x8000);
+        PopupAnswer ans;
+        if (armed) ans = pick_from_disasm(disasm, QString::fromLatin1(c.item));
+
+        const QStringList rows = panel_rows(fx.dbg);
+        const bool in_set   = bps.has_watchpoint(0x4000, c.type);
+        const bool in_panel = rows.contains(QString::fromLatin1(c.row));
+
+        check(c.id,
+              fmt("\"%s\" shows up in the Breakpoints panel at once", c.item).c_str(),
+              armed && ans.found && in_set && in_panel,
+              fmt("disasm armed=%d popup seen=%d item found=%d in set=%d "
+                  "popup held: [%s] panel holds: [%s] (want \"%s\")",
+                  armed ? 1 : 0, ans.seen ? 1 : 0, ans.found ? 1 : 0, in_set ? 1 : 0,
+                  ans.items.join(QStringLiteral(", ")).toUtf8().constData(),
+                  rows.join(QStringLiteral(", ")).toUtf8().constData(), c.row));
     }
 }
 
@@ -446,6 +733,10 @@ int main(int argc, char** argv)
 
     test_breakpoints_menu();
     std::printf("  Group: BPM            — done\n");
+    test_breakpoint_panel_refresh();
+    std::printf("  Group: BPR            — done\n");
+    test_disasm_data_breakpoints();
+    std::printf("  Group: BPC            — done\n");
     test_debug_menu();
     std::printf("  Group: DBG            — done\n");
 

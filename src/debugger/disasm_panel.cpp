@@ -621,6 +621,15 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
     }
 
     // --- Data breakpoint actions ---
+    //
+    // GH #218 — every one of these adds a WATCHPOINT, which the Breakpoints
+    // panel lists but this gutter does not draw (it paints has_pc() only), so
+    // the repaint each one needs is the LIST's, not ours. breakpoint_toggled
+    // is that wire: its sole consumer (debugger_window.cpp) ignores the
+    // address and just calls breakpoint_panel_->refresh(). Emitting it here is
+    // why these four routes no longer leave the list stale until the next
+    // pause or step. No update() alongside it — unlike the PC-breakpoint
+    // toggles above, nothing changed in what this panel paints.
     {
         menu.addSeparator();
 
@@ -629,11 +638,13 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
                 QString("Break on Read $%1").arg(imm, 4, 16, QChar('0')));
             connect(bp_read, &QAction::triggered, this, [this, imm]() {
                 emulator_->debug_state().breakpoints().add_watchpoint(imm, WatchType::READ);
+                emit breakpoint_toggled(imm);
             });
             auto* bp_write = menu.addAction(
                 QString("Break on Write $%1").arg(imm, 4, 16, QChar('0')));
             connect(bp_write, &QAction::triggered, this, [this, imm]() {
                 emulator_->debug_state().breakpoints().add_watchpoint(imm, WatchType::WRITE);
+                emit breakpoint_toggled(imm);
             });
         }
 
@@ -644,12 +655,14 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
                         .arg(rp.val, 4, 16, QChar('0')));
                 connect(bp_read, &QAction::triggered, this, [this, rp]() {
                     emulator_->debug_state().breakpoints().add_watchpoint(rp.val, WatchType::READ);
+                    emit breakpoint_toggled(rp.val);
                 });
                 auto* bp_write = menu.addAction(
                     QString("Break on Write (%1) = $%2").arg(rp.name)
                         .arg(rp.val, 4, 16, QChar('0')));
                 connect(bp_write, &QAction::triggered, this, [this, rp]() {
                     emulator_->debug_state().breakpoints().add_watchpoint(rp.val, WatchType::WRITE);
+                    emit breakpoint_toggled(rp.val);
                 });
             }
         }
