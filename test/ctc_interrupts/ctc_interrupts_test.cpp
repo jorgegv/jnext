@@ -1503,6 +1503,194 @@ static void test_single_step_int_delivery(Emulator& emu) {
               "[md6_joystick_connector_x2.vhd:103-114, :151-152]",
               (L & 0x003F) == 0x003F, detail);
     }
+
+    // ── GH #207 — single-stepping must turn FRAMES over, not just
+    //    instructions ────────────────────────────────────────────────────
+    //
+    // Task 60a shared the per-INSTRUCTION body; the per-FRAME body stayed in
+    // run_frame(), and the frontends stop calling run_frame() entirely while
+    // the debugger is paused (frame_sequencer.h: `if (!fx.paused())`). So
+    // during a stepping session the clock ran straight past the end of the
+    // frame it was in and no new frame ever began: begin_new_frame() is the
+    // only site that schedules the ULA frame interrupt (zxula_timing.vhd:551,
+    // fired at (c_int_h, c_int_v) once per frame), the line interrupt, and
+    // the per-scanline SCANLINE/VSYNC events. Nothing per-frame could fire
+    // again for the rest of the session — and a HALTed CPU, which leaves the
+    // halt only on an accepted interrupt (t80n.vhd:1727), could never be
+    // woken by any number of Steps. That is GH #207.
+    //
+    // These four rows drive the machine ONLY through Emulator::debugger_step()
+    // — the entry point DebuggerManager::on_step_into() uses — from the exact
+    // state the debugger is in after Break: debug_state active + paused, and
+    // no frame in flight (frame_in_progress_ == false). The raw one-slot
+    // primitive execute_single_instruction() (SSTEP-01..04 above, and most of
+    // the test tree) deliberately keeps its old frame-agnostic behaviour: a
+    // test that drives its own frames must keep its own frame loop.
+
+    // Put the emulator in the state the debugger leaves it in after Break.
+    auto attach_debugger = [](Emulator& e) {
+        e.debug_state().set_active(true);
+        e.debug_state().pause();
+    };
+
+    // SSTEP-05 — the ULA frame interrupt reaches the CPU while single-
+    // stepping. Deliberately NOT the CTC (SSTEP-01/02 already cover a device
+    // whose request is raised by hand): the ULA frame interrupt is the one
+    // that must be SCHEDULED by begin_new_frame(), so it is the one the
+    // missing frame boundary silenced. Fresh machine = clock 0, frame_cycle_
+    // 0, no frame in flight; IM 1 so acceptance is visible as PC entering the
+    // ROM at the 0x0038 vector.
+    {
+        fresh(emu);
+        attach_debugger(emu);
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM   = 1;
+        regs.PC   = 0x8000;   // user RAM: zeros = NOPs
+        regs.SP   = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        int steps = 0;
+        uint16_t pc = regs.PC;
+        for (; steps < 500; ++steps) {
+            emu.debugger_step();
+            pc = emu.cpu().get_registers().PC;
+            if (pc < 0x4000) break;   // IM1 vector 0x0038 reached
+        }
+        char detail[176];
+        std::snprintf(detail, sizeof(detail),
+                      "PC=0x%04X after %d single-steps (post-fix: <0x4000 via "
+                      "the scheduled ULA frame INT; pre-fix: stuck at 0x8000+ "
+                      "— begin_new_frame() never runs while stepping)",
+                      pc, steps + 1);
+        check("SSTEP-05",
+              "ULA frame INT is scheduled and delivered during debugger "
+              "single-step [zxula_timing.vhd:551; zxnext.vhd:1840]",
+              pc < 0x4000, detail);
+    }
+
+    // SSTEP-06 — a Step issued at a HALT leaves the halt.
+    // VHDL t80n.vhd:496 freezes PC while Halt_FF is set and :502-503 forces
+    // IR to 0x00, so the core issues M1 NOP fetches at the same address
+    // indefinitely; t80n.vhd:1727 clears Halt_FF only on an accepted
+    // interrupt or NMI cycle. One Step at the halt must therefore end with
+    // the CPU out of the halt state and PC in the interrupt handler.
+    {
+        fresh(emu);
+        attach_debugger(emu);
+        emu.mmu().write(0x8000, 0x76);   // HALT
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM   = 1;
+        regs.PC   = 0x8000;
+        regs.SP   = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        emu.debugger_step();          // executes HALT → halted
+        const bool halted_after_1 = emu.cpu().is_halted();
+        emu.debugger_step();          // the Step under test
+        const bool halted_after_2 = emu.cpu().is_halted();
+        const uint16_t pc = emu.cpu().get_registers().PC;
+        char detail[192];
+        std::snprintf(detail, sizeof(detail),
+                      "halted after step 1=%d (must be 1); after step 2=%d, "
+                      "PC=0x%04X (post-fix: 0 and <0x4000 via the 0x0038 "
+                      "vector; pre-fix: 1 and 0x8000 forever)",
+                      halted_after_1 ? 1 : 0, halted_after_2 ? 1 : 0, pc);
+        check("SSTEP-06",
+              "A debugger Step at a HALT leaves the halt into the ISR "
+              "[t80n.vhd:496, :502-503, :1727]",
+              halted_after_1 && !halted_after_2 && pc < 0x4000, detail);
+    }
+
+    // SSTEP-07 — the frame keeps turning over, so a SECOND halt is left too.
+    // SSTEP-06 alone only proves the "begin a frame if none is in flight"
+    // half: from a fresh machine the very first frame's interrupt is enough.
+    // The frame's ULA interrupt is a one-shot scheduler event, so a second
+    // halt can only end if end_of_frame() advanced frame_cycle_ and
+    // begin_new_frame() scheduled the NEXT frame's interrupt — the other half
+    // of the fix. The second halt is entered deliberately at a LATER cycle
+    // than the first interrupt fired at.
+    {
+        fresh(emu);
+        attach_debugger(emu);
+        emu.mmu().write(0x8000, 0x76);   // HALT
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM   = 1;
+        regs.PC   = 0x8000;
+        regs.SP   = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        emu.debugger_step();          // enter halt
+        emu.debugger_step();          // first INT ends it
+        const uint64_t cycle_after_1 = emu.clock().get();
+        // Re-arm: the accepted interrupt cleared IFF1, so put the CPU back at
+        // the HALT with interrupts enabled, exactly as an `EI : HALT` loop
+        // would on the next pass.
+        regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM   = 1;
+        regs.PC   = 0x8000;
+        emu.cpu().set_registers(regs);
+        emu.debugger_step();          // enter halt again
+        emu.debugger_step();          // second INT must end it
+        const bool halted = emu.cpu().is_halted();
+        const uint16_t pc = emu.cpu().get_registers().PC;
+        const uint64_t cycle_after_2 = emu.clock().get();
+        char detail[208];
+        std::snprintf(detail, sizeof(detail),
+                      "second halt: halted=%d PC=0x%04X; clock 1st exit=%llu "
+                      "2nd exit=%llu (post-fix: 0, <0x4000, later frame; "
+                      "pre-fix: the next frame's INT is never scheduled)",
+                      halted ? 1 : 0, pc,
+                      static_cast<unsigned long long>(cycle_after_1),
+                      static_cast<unsigned long long>(cycle_after_2));
+        check("SSTEP-07",
+              "Frames keep turning over while stepping — a second HALT is "
+              "also left [zxula_timing.vhd:551; t80n.vhd:1727]",
+              !halted && pc < 0x4000 && cycle_after_2 > cycle_after_1, detail);
+    }
+
+    // SSTEP-08 — `DI : HALT` is bounded, not a hang. With IFF1 = 0 no
+    // interrupt can ever be accepted (t80n.vhd:1727 needs IntCycle), so real
+    // hardware waits for an NMI or a reset and nothing else. The Step must
+    // return, report no progress (still halted, PC unmoved), and burn no more
+    // than the two-frame budget — the guard against the halt-run loop
+    // becoming an unbounded one that freezes the GUI.
+    {
+        fresh(emu);
+        attach_debugger(emu);
+        emu.mmu().write(0x8000, 0x76);   // HALT
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 0;                   // DI
+        regs.IFF2 = 0;
+        regs.IM   = 1;
+        regs.PC   = 0x8000;
+        regs.SP   = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        emu.debugger_step();          // enter halt
+        const uint64_t before = emu.clock().get();
+        emu.debugger_step();          // the bounded Step
+        const uint64_t spent = emu.clock().get() - before;
+        const uint64_t budget = 2u * emu.timing().master_cycles_per_frame;
+        const bool halted = emu.cpu().is_halted();
+        const uint16_t pc = emu.cpu().get_registers().PC;
+        char detail[192];
+        std::snprintf(detail, sizeof(detail),
+                      "halted=%d PC=0x%04X master cycles spent=%llu budget=%llu "
+                      "(must still be halted, PC unmoved, and within budget)",
+                      halted ? 1 : 0, pc,
+                      static_cast<unsigned long long>(spent),
+                      static_cast<unsigned long long>(budget));
+        check("SSTEP-08",
+              "A Step at a DI'd HALT is bounded and reports no progress "
+              "[t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle]",
+              halted && pc == 0x8000 && spent > 0 &&
+                  spent <= budget + emu.timing().master_cycles_per_line,
+              detail);
+    }
 }
 
 // ── Group: C-IM2 quiescent early-out equivalence (Task 27 C-IM2) ──────
@@ -1878,12 +2066,12 @@ static int measure_pulse_width_tstates(MachineType type, CpuSpeed speed) {
     // First step: the tick observes the int_req rising edge → pulse starts
     // (pulse_int_n LOW, counter reset). The starting tick does NOT advance
     // the counter (VHDL:2038 holds it 0 while pulse_int_n='1' at tick entry).
-    emu.execute_single_instruction();
+    emu.debugger_step();
     if (im2.pulse_int_n()) return -2;   // pulse never started
 
     int width = 0;
     for (int guard = 0; guard < 500 && !im2.pulse_int_n(); ++guard) {
-        width += emu.execute_single_instruction();   // returns CPU T-states
+        width += emu.debugger_step();   // returns CPU T-states
     }
     return im2.pulse_int_n() ? width : -3;            // -3 = never terminated
 }

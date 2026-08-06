@@ -33,7 +33,7 @@ mentions them, so a test can no longer be absent from this document.
 | DMA                                        |   165 |  157 |    0 |    0 |       8 |          0 |
 | DivMMC+SPI                                 |   176 |  148 |    0 |    0 |      28 |          0 |
 | Multiface                                  |    55 |   55 |    0 |    0 |       0 |          0 |
-| CTC+Interrupts                             |   179 |  164 |    0 |    0 |      15 |          0 |
+| CTC+Interrupts                             |   183 |  168 |    0 |    0 |      15 |          0 |
 | UART+I2C/RTC                               |   120 |  117 |    0 |    0 |       3 |          0 |
 | NextREG                                    |   115 |   67 |    0 |    0 |      48 |          0 |
 | IO Port Dispatch                           |   127 |  116 |    0 |    0 |      11 |          0 |
@@ -56,14 +56,14 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: copper_integration_test         |     7 |    7 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
-| Companion: ctc_interrupts_test             |    48 |   48 |    0 |    0 |       0 |          0 |
+| Companion: ctc_interrupts_test             |    52 |   52 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   305 |  305 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4212 | 3956 |    0 |    5 |     251 |          0 |
+| **Total**                                  |  4220 | 3964 |    0 |    5 |     251 |          0 |
 
-Rows the sections above carry: **4212**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4031**. Rows the 91 suites declared in `test/unit-tests.conf` run live: **6744**.
+Rows the sections above carry: **4220**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4035**. Rows the 91 suites declared in `test/unit-tests.conf` run live: **6748**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -2246,14 +2246,18 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1442 |
 | SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1470 |
 | SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1501 |
-| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101,154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1589 |
-| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1660 |
-| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 192) | ctc_chan.vhd:143-146 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1716 |
-| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1766 |
-| CTC-C1-ACC-03 | timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires at 31: activation cycle still ticks the newly-RUN channel; tick(31) == 31x tick(1) | ctc_chan.vhd, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1813 |
-| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2019 |
-| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2052 |
-| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | zxnext.vhd:4067 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2098 |
+| SSTEP-05 | ULA frame INT is scheduled and delivered during debugger single-step [zxula_timing.vhd:551; zxnext.vhd:1840] | zxula_timing.vhd:551, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1566 |
+| SSTEP-06 | A debugger Step at a HALT leaves the halt into the ISR [t80n.vhd:496, :502-503, :1727] | t80n.vhd:496,502-503,1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1600 |
+| SSTEP-07 | Frames keep turning over while stepping — a second HALT is also left [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1650 |
+| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress [t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle] | t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1687 |
+| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101,154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1777 |
+| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1848 |
+| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 192) | ctc_chan.vhd:143-146 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1904 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1954 |
+| CTC-C1-ACC-03 | timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires at 31: activation cycle still ticks the newly-RUN channel; tick(31) == 31x tick(1) | ctc_chan.vhd, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2001 |
+| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2207 |
+| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2240 |
+| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | zxnext.vhd:4067 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2286 |
 | IM2-G89-01 | LDIRX samples INT/NMI between iterations | — | missing | — |
 | IM2-G89-02 | LDDRX samples INT/NMI between iterations | — | missing | — |
 | IM2-G89-03 | LDPIRX samples INT/NMI between iterations | — | missing | — |
@@ -4228,20 +4232,24 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1442 |
 | SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1470 |
 | SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1501 |
-| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1589 |
-| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1660 |
-| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 192) | ctc_chan.vhd:143-146,162-170 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1716 |
-| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1766 |
-| CTC-C1-ACC-03 | timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires at 31: activation cycle still ticks the newly-RUN channel; tick(31) == 31x tick(1) | ctc_chan.vhd, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1813 |
-| PW-48K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1910 |
-| PW-48K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1910 |
-| PW-48K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1910 |
-| PW-NEXT-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1912 |
-| PW-NEXT-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1912 |
-| PW-NEXT-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1912 |
-| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2019 |
-| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2052 |
-| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | ctc_chan.vhd:269,276, zxnext.vhd:4067,4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2098 |
+| SSTEP-05 | ULA frame INT is scheduled and delivered during debugger single-step [zxula_timing.vhd:551; zxnext.vhd:1840] | zxula_timing.vhd:551, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1566 |
+| SSTEP-06 | A debugger Step at a HALT leaves the halt into the ISR [t80n.vhd:496, :502-503, :1727] | t80n.vhd:496,502-503,1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1600 |
+| SSTEP-07 | Frames keep turning over while stepping — a second HALT is also left [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1650 |
+| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress [t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle] | t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1687 |
+| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1777 |
+| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1848 |
+| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 192) | ctc_chan.vhd:143-146,162-170 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1904 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1954 |
+| CTC-C1-ACC-03 | timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires at 31: activation cycle still ticks the newly-RUN channel; tick(31) == 31x tick(1) | ctc_chan.vhd, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2001 |
+| PW-48K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2098 |
+| PW-48K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2098 |
+| PW-48K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2098 |
+| PW-NEXT-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2100 |
+| PW-NEXT-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2100 |
+| PW-NEXT-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2100 |
+| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2207 |
+| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2240 |
+| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | ctc_chan.vhd:269,276, zxnext.vhd:4067,4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2286 |
 
 ### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`
 

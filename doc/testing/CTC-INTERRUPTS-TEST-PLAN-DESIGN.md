@@ -432,6 +432,40 @@ ULA-INT-V19-IM2-04.
 | SSTEP-03 | Trace log records one entry per single-step (parity with run_frame) | +1 entry per step; pre-fix +0 |
 | SSTEP-04 | MD6 FSM advances during single-step (md6_joystick_connector_x2.vhd:103-114, :151-152) | raw bits 5:0 latched into joy_left_word; pre-fix latch stays 0 |
 
+### Section 18b: Debugger Single-Step Frame Turnover (GH #207, 2026-08-06)
+
+Task 60a shared the per-INSTRUCTION body; the per-FRAME body stayed in
+`run_frame()`, and the frontends stop calling `run_frame()` altogether while
+the debugger is paused (`src/platform/frame_sequencer.h`: `if (!fx.paused())`).
+So a stepping session ran the clock straight past the end of the frame it was
+in and never began another: `begin_new_frame()` is the ONLY site that schedules
+the ULA frame interrupt (zxula_timing.vhd:551, fired once per frame at
+(c_int_h, c_int_v)), the line interrupt, and the per-scanline SCANLINE/VSYNC
+events. Nothing per-frame could fire again for the rest of the session.
+
+The user-visible symptom (GH #207) was a `HALT` that no number of Steps could
+leave: t80n.vhd:496 freezes PC while `Halt_FF` is set and :502-503 forces IR to
+0x00 (repeated M1 NOP fetches at the same address), and t80n.vhd:1727 clears
+`Halt_FF` only on an accepted interrupt or NMI cycle — so with no interrupt
+ever scheduled the CPU could never leave the halt.
+
+Fix: `end_of_frame()` extracted from `run_frame()`'s tail and shared with the
+new `step_frame_slot()`, both driven by the new `Emulator::debugger_step()` —
+the debugger's Step, as distinct from the raw one-slot primitive
+`execute_single_instruction()` that most of the test tree uses and that keeps
+its frame-agnostic behaviour. A Step issued at a halt additionally runs the
+halt out (bounded to two frames, since the ULA interrupt fires once per frame
+and the current one may already be past its firing point). Rows live in
+`test/ctc_interrupts/ctc_interrupts_test.cpp` (group SingleStep) and drive
+`debugger_step()`.
+
+| ID | Test | Expected |
+|----|------|----------|
+| SSTEP-05 | ULA frame INT scheduled and delivered during single-step (zxula_timing.vhd:551; zxnext.vhd:1840) | PC reaches IM1 vector 0x0038 (<0x4000); pre-fix stuck at 0x8000+ |
+| SSTEP-06 | A Step at a HALT leaves the halt into the ISR (t80n.vhd:496, :502-503, :1727) | not halted, PC <0x4000 after the step; pre-fix halted at 0x8000 forever |
+| SSTEP-07 | Frames keep turning over — a SECOND HALT is left too (zxula_timing.vhd:551; t80n.vhd:1727) | second halt also left, at a later clock; pre-fix the next frame's INT is never scheduled |
+| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress (t80n.vhd:1727) | still halted, PC unmoved, <= 2-frame budget spent (guards against an unbounded halt-run loop) |
+
 ## Section 15: C-IM2 quiescent early-out equivalence (Task 27 C-IM2, 2026-07-15)
 
 `Im2Controller::tick()` early-outs when the fabric is quiescent (Task 27
