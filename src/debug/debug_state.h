@@ -70,11 +70,20 @@ public:
     /// cleared paused_, the gate re-matched the unchanged PC and the machine
     /// re-paused having made no progress: #221.
     ///
-    /// It is PC-exact by construction rather than by comparison: nothing
-    /// executes between the resume and this test, so the address it suppresses
-    /// IS the resumed-from address. And it is exactly one instruction wide, so
-    /// a breakpoint at the NEXT address — or at this one, on the next pass
-    /// round a loop — still fires.
+    /// It suppresses the RESUMED-FROM address and no other, and it does so
+    /// without storing one — but that rests on a PRECONDITION, stated here
+    /// because it is not self-evident and was wrong in the first cut of this
+    /// fix: **the arm is only ever raised on a real paused -> running edge**
+    /// (see unpause_()). Given that, no instruction can execute between the
+    /// arm and its consumption — the machine was stopped — so the address the
+    /// gate is looking at when it consumes the arm IS the address the resume
+    /// was issued at. Drop the precondition and the property goes with it: a
+    /// resume issued while the machine is already running arms against a PC
+    /// that keeps moving, and the arm lands on some later, unrelated
+    /// breakpoint test and swallows it.
+    ///
+    /// It is also exactly one instruction wide, so a breakpoint at the NEXT
+    /// address — or at this one, on the next pass round a loop — still fires.
     bool consume_step_off();
 
     /// Step Out predicate — called after EVERY instruction while
@@ -141,7 +150,22 @@ private:
     /// later — the defect was that F5 resumed onto its own breakpoint, and
     /// Step Over / Step Out / Run to Here resumed onto it in exactly the same
     /// way.
-    void unpause_() { paused_ = false; step_off_pending_ = true; }
+    ///
+    /// It arms ONLY on a real paused -> running edge, and that guard is the
+    /// whole of consume_step_off()'s correctness, not a tidiness check. A
+    /// resume issued while the machine is ALREADY RUNNING has no "address the
+    /// user is standing on" to protect: PC is wherever the free run has got
+    /// to, and by the time the gate consumes the arm it has moved on again. An
+    /// unconditional arm there would swallow the next legitimate hit, and the
+    /// UI reaches this state by ordinary use — the debugger window's
+    /// "F5: Continue" button is not enable-gated, and the main window's global
+    /// F5 handler fires whenever the debugger is enabled, whatever the machine
+    /// is doing. Guarding here rather than at those call sites covers the ones
+    /// that exist and the ones that do not yet.
+    void unpause_() {
+        if (paused_) step_off_pending_ = true;
+        paused_ = false;
+    }
 
     bool active_ = false;
     bool persistent_ = false;

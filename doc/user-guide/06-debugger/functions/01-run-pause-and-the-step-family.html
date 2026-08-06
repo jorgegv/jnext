@@ -2800,6 +2800,11 @@ same breakpoint stops you again. Step Over, Step Out, Run to Here and Run to
 EOF/EOSL all resume through the same mechanism, so they step off the breakpoint
 under the PC too. One consequence worth knowing: <strong>Run to Here</strong> on the line you
 are already stopped at runs a full lap and stops when control comes back.</p>
+<p>None of that applies when the machine is <em>not</em> stopped. Pressing F5 while a
+program is running — the emulator window takes F5 too, whenever the debugger is
+enabled — does not skip anything: your breakpoints all stay live and stop the
+machine as normal. It does clear a pending <strong>Run to Here</strong> or step, which is
+what asking to run freely means.</p>
 <p><strong>Single Step</strong> executes exactly one instruction, entering calls, traps and
 interrupt handlers.</p>
 <p><strong>Step Over</strong> sets a one-shot breakpoint after the current instruction and

@@ -20,6 +20,12 @@ EOF/EOSL all resume through the same mechanism, so they step off the breakpoint
 under the PC too. One consequence worth knowing: **Run to Here** on the line you
 are already stopped at runs a full lap and stops when control comes back.
 
+None of that applies when the machine is *not* stopped. Pressing F5 while a
+program is running — the emulator window takes F5 too, whenever the debugger is
+enabled — does not skip anything: your breakpoints all stay live and stop the
+machine as normal. It does clear a pending **Run to Here** or step, which is
+what asking to run freely means.
+
 **Single Step** executes exactly one instruction, entering calls, traps and
 interrupt handlers.
 

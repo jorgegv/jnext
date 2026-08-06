@@ -1953,10 +1953,21 @@ the only one it suppresses. It has to exist because the breakpoint check sits
 <em>before</em> the fetch: without it, resuming with PC still on a breakpoint
 re-matched the unchanged address and the machine re-paused having executed
 nothing — issue #221, and it pinned Step Over, Step Out, Run to Cursor and Run
-to EOF in place exactly as it pinned F5. The arm is PC-exact by construction
-rather than by comparison, since nothing executes between the resume and that
-test; it is dropped by <code>refresh_armed_()</code> when breakpoints go dead, because the
-consumer stops running there while PC does not.</p>
+to EOF in place exactly as it pinned F5.</p>
+<p>The arm suppresses the resumed-from address without storing one, and the
+property that makes that sound is a <strong>precondition</strong>, not an accident of the
+call sites: <code>unpause_()</code> raises the arm only on a real paused → running edge.
+Given that, the machine was stopped between the arm and its consumption, so the
+PC the gate sees is necessarily the PC the resume was issued at. Without the
+edge check the guarantee is simply false — a resume issued on an
+already-running machine arms against a PC that keeps moving, and the arm lands
+on a later, unrelated breakpoint and swallows it. The UI reaches that state by
+ordinary use: the debugger toolbar's <code>F5: Continue</code> button is a plain
+<code>QPushButton</code> with no enable gating, and <code>MainWindow</code>'s global F5 handler
+forwards to <code>on_run()</code> whenever the debugger is enabled, regardless of whether
+the machine is paused. The arm is also dropped by <code>refresh_armed_()</code> when
+breakpoints go dead, because the consumer stops running there while PC does
+not.</p>
 <p>Step Over is not a special CPU mode. <code>DebuggerManager::on_step_over()</code> asks the
 disassembler whether the current instruction <code>is_call_like()</code> — <code>CALL nn</code>,
 <code>CALL cc,nn</code>, <code>RST n</code>, <code>DJNZ</code> — and if it is, sets a one-shot breakpoint at

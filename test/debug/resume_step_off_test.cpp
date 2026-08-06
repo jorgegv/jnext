@@ -37,6 +37,18 @@
 // and PC/SP set by hand (same idiom as test/debug/step_out_test.cpp and
 // test/debug/persistent_bp_test.cpp).
 //
+// NOTE FOR ANYONE MUTATION-TESTING THIS SUITE — two ways to break the same
+// mechanism kill DIFFERENT row counts, and neither number is wrong:
+//
+//   * mutate the CALL SITE (drop `!debug_state_.consume_step_off() &&` from
+//     run_frame()'s gate)          -> 11 kills, all RSOW-*.
+//   * mutate the FUNCTION BODY (stub consume_step_off() to return false)
+//                                  -> 14 kills: the same 11, plus RSOP-02,
+//     -03 and -05, which call the predicate directly and never reach the gate.
+//
+// The RSOP rows are predicate-level by design, so a call-site mutation cannot
+// touch them. Two reviewers reached different totals for exactly this reason.
+//
 // Run: ./build/test/resume_step_off_test
 
 #include "core/emulator.h"
@@ -242,6 +254,49 @@ int main() {
         ds.pause();
         check("RSOP-04", "pause() does not arm a step-off",
               !ds.consume_step_off());
+    }
+
+    // RSOP-06 — THE PRECONDITION. A resume-family call on an ALREADY-RUNNING
+    // machine arms nothing, because there is no address the user is standing on
+    // to protect: PC is wherever the free run has reached and keeps moving,
+    // so an arm raised here would be spent on some later, unrelated breakpoint
+    // test — swallowing a hit the user deliberately set. Only a real
+    // paused -> running edge arms.
+    //
+    // Not hypothetical, and not reachable only through the API: the debugger
+    // toolbar's "F5: Continue" is a plain QPushButton that is never
+    // setEnabled()-gated, and MainWindow's global F5 handler forwards to
+    // on_run() whenever the debugger is enabled, whatever the machine is
+    // doing — so pressing F5 at the emulator window while a program runs
+    // reaches exactly this state. RSOW-12/-13 prove the consequence end to end.
+    {
+        struct { const char* what; void (*again)(DebugState&); } cases[] = {
+            { "resume",             [](DebugState& d){ d.resume(); } },
+            { "step_into",          [](DebugState& d){ d.step_into(); } },
+            { "step_over",          [](DebugState& d){ d.step_over(0x8003); } },
+            { "step_out",           [](DebugState& d){ d.step_out(0xFF00); } },
+            { "run_to",             [](DebugState& d){ d.run_to(0x9000); } },
+            { "run_to_cycle",       [](DebugState& d){ d.run_to_cycle(1000); } },
+            { "step_back",          [](DebugState& d){ d.step_back(1); } },
+            { "run_back_to_cycle",  [](DebugState& d){ d.run_back_to_cycle(1000); } },
+        };
+        bool all = true;
+        std::string armed_anyway;
+        for (const auto& c : cases) {
+            DebugState ds;
+            ds.set_active(true);
+            ds.pause();
+            ds.resume();                 // the real edge
+            (void)ds.consume_step_off(); // ...spent by the first gate test
+            c.again(ds);                 // now issued while already running
+            if (ds.consume_step_off()) {
+                all = false;
+                armed_anyway += std::string(" ") + c.what;
+            }
+        }
+        check("RSOP-06", "a resume-family call on an already-running machine "
+              "arms nothing", all,
+              fmt("armed anyway:%s", armed_anyway.c_str()));
     }
 
     // RSOP-05 — disarming breakpoints drops a pending arm with them. The gate
@@ -566,6 +621,90 @@ int main() {
               at_bp && !emu.debug_state().paused() && pc(emu) == LIN_PARK,
               fmt("at_bp=%d paused=%d PC=$%04X (want $%04X)", at_bp ? 1 : 0,
                   emu.debug_state().paused() ? 1 : 0, pc(emu), LIN_PARK));
+    }
+
+    // RSOW-12 — THE SWALLOWED HIT, end to end. A redundant Run on a machine
+    // that is already running must not arm anything: PC is out in the program,
+    // not under the user's cursor, so an arm raised there is spent on whatever
+    // breakpoint test comes next — one the user deliberately set.
+    //
+    // The sequence is ordinary use. Stop at a breakpoint, press Run, alt-tab
+    // back to the game, and press F5 again at the emulator window (MainWindow's
+    // global F5 handler forwards to on_run() unconditionally, and the debugger
+    // toolbar's Continue button is not enable-gated either). Then a breakpoint
+    // is hit — and before the unpause_() edge check it did not stop.
+    //
+    // The park is rewritten to a ONE-WAY jump before the second Run, so the
+    // breakpointed address is visited exactly once more: a self-loop would
+    // re-enter it on the next instruction and hide the swallow completely.
+    {
+        Emulator emu;
+        build_linear(emu);
+        emu.debug_state().set_active(true);
+        emu.debug_state().breakpoints().add_pc(LIN_BP);
+        run_until_paused(emu);
+        const bool stopped = emu.debug_state().paused() && pc(emu) == LIN_BP;
+
+        emu.debug_state().resume();     // the REAL edge; its arm is spent below
+        emu.run_frame();                // free-runs to the park at LIN_PARK
+        const bool running = !emu.debug_state().paused() && pc(emu) == LIN_PARK;
+
+        // JP 0x9100 at the park, and a park of its own at the destination, so
+        // LIN_PARK executes exactly once more and the machine settles either
+        // way — the two outcomes are then unambiguous.
+        static const uint8_t oneway[] = { 0xC3, 0x00, 0x91 };
+        static const uint8_t faraway[] = { 0x18, 0xFE };
+        load(emu, LIN_PARK, oneway, sizeof(oneway));
+        load(emu, 0x9100,   faraway, sizeof(faraway));
+        emu.debug_state().breakpoints().add_pc(LIN_PARK);
+
+        emu.debug_state().resume();     // REDUNDANT: the machine is running
+        run_until_paused(emu);
+
+        check("RSOW-12", "a redundant Run on a running machine does not swallow "
+              "the next breakpoint",
+              stopped && running && emu.debug_state().paused() &&
+              pc(emu) == LIN_PARK,
+              fmt("stopped=%d running=%d paused=%d PC=$%04X (want $%04X; "
+                  "$9100 means the hit was swallowed)", stopped ? 1 : 0,
+                  running ? 1 : 0, emu.debug_state().paused() ? 1 : 0,
+                  pc(emu), LIN_PARK));
+    }
+
+    // RSOW-13 — the same for Run to Here, which has the identical ungated path:
+    // DisasmPanel emits run_to_requested from both Enter and the context menu,
+    // and DebuggerManager's handler calls run_to(addr) with no pause check. The
+    // one-shot here targets an address the program never reaches, so the ONLY
+    // thing under test is whether the call armed a step-off it had no right to.
+    {
+        Emulator emu;
+        build_linear(emu);
+        emu.debug_state().set_active(true);
+        emu.debug_state().breakpoints().add_pc(LIN_BP);
+        run_until_paused(emu);
+        const bool stopped = emu.debug_state().paused() && pc(emu) == LIN_BP;
+
+        emu.debug_state().resume();
+        emu.run_frame();
+        const bool running = !emu.debug_state().paused() && pc(emu) == LIN_PARK;
+
+        static const uint8_t oneway[] = { 0xC3, 0x00, 0x91 };
+        static const uint8_t faraway[] = { 0x18, 0xFE };
+        load(emu, LIN_PARK, oneway, sizeof(oneway));
+        load(emu, 0x9100,   faraway, sizeof(faraway));
+        emu.debug_state().breakpoints().add_pc(LIN_PARK);
+
+        emu.debug_state().run_to(0x9500);   // REDUNDANT, and never reached
+        run_until_paused(emu);
+
+        check("RSOW-13", "a Run to Here issued on a running machine does not "
+              "swallow the next breakpoint",
+              stopped && running && emu.debug_state().paused() &&
+              pc(emu) == LIN_PARK,
+              fmt("stopped=%d running=%d paused=%d PC=$%04X (want $%04X; "
+                  "$9100 means the hit was swallowed)", stopped ? 1 : 0,
+                  running ? 1 : 0, emu.debug_state().paused() ? 1 : 0,
+                  pc(emu), LIN_PARK));
     }
 
     // ── Summary ────────────────────────────────────────────────────────
