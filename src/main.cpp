@@ -110,6 +110,8 @@ static void print_usage(const char* prog) {
         "                       ROM save routine at 0x04C2 runs with ROM paged at slot 0.\n"
         "                       Without this option no SAVE capture happens.\n"
         "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
+        "  --persistent-breakpoints Keep breakpoints armed while the debugger window is\n"
+        "                          closed; a hit reopens it (GUI debugger builds only)\n"
         "  --esxdos-stub            Intercept RST $08 calls; provide in-memory config I/O\n"
         "                           and .RUN sibling-NEX chaining without booting NextZXOS\n"
         "  --esp                    Enable the emulated ESP-01 WiFi module on UART 0.\n"
@@ -239,6 +241,7 @@ int main(int argc, char* argv[]) {
     bool        tape_realtime = false;
     std::string tape_save_file;
     bool        magic_breakpoint = false;
+    bool        persistent_breakpoints = false;
     bool        esxdos_stub = false;
     // GH #25 — emulated ESP-01. `esp_enabled_set` is what makes --no-esp mean
     // something: without it the saved GUI preference could not be told apart
@@ -421,6 +424,9 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::MagicBreakpoint:
                 magic_breakpoint = true;
+                break;
+            case cli::OptId::PersistentBreakpoints:
+                persistent_breakpoints = true;
                 break;
             case cli::OptId::EsxdosStub:
                 esxdos_stub = true;
@@ -791,6 +797,7 @@ int main(int argc, char* argv[]) {
         cfg.load_file = load_file;
         cfg.nex_cli_args = nex_cli_args;
         cfg.magic_breakpoint = magic_breakpoint;
+        cfg.persistent_breakpoints = persistent_breakpoints;
         cfg.esxdos_stub = esxdos_stub;
         cfg.tape_save_file = tape_save_file;
         cfg.magic_port_enabled = magic_port_enabled;

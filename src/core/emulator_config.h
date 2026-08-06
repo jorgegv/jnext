@@ -165,6 +165,13 @@ struct EmulatorConfig {
     // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 
+    // GH #219 (--persistent-breakpoints): keep breakpoints and watchpoints
+    // armed while the debugger window is CLOSED. Default false — closing the
+    // window disarms them, which is the long-standing behaviour and the
+    // owner's explicit choice of default. The frontend raises the debugger
+    // window when a hit pauses the machine.
+    bool persistent_breakpoints = false;
+
     // Host-side esxDOS compatibility for directly loaded NEX programs.
     // Provides one in-memory file and `run sibling.nex` chaining.
     bool esxdos_stub = false;

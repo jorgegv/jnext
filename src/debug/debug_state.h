@@ -9,9 +9,35 @@ enum class StepMode { NONE, INTO, OVER, OUT, RUN_TO_CYCLE, STEP_BACK, RUN_BACK_T
 /// and breakpoint checking.  Pure C++ — no GUI dependency.
 class DebugState {
 public:
-    /// Is the debugger active (has been activated by the UI)?
+    /// Is the debugger active — i.e. DRIVING the machine (the UI has it open)?
+    ///
+    /// This is the gate on everything that only makes sense while a human is
+    /// watching, and it is deliberately NOT the gate on "are breakpoints
+    /// live" — see armed() below. Its readers, all in the hot path:
+    ///   * the STEP machinery (StepMode OUT / STEP_BACK / RUN_BACK_TO_CYCLE)
+    ///   * Emulator::run_frame's "render every frame" hint, so the panels see
+    ///     a live framebuffer
+    ///   * the per-instruction VideoTiming::advance() walk (Task 27 C10),
+    ///     whose only observer is a human reading the raster readout
+    /// Forcing this true with the window closed would switch all of that on
+    /// for nobody's benefit, which is why GH #219 did not do it.
     bool active() const { return active_; }
-    void set_active(bool a) { active_ = a; }
+    void set_active(bool a) { active_ = a; refresh_armed_(); }
+
+    /// GH #219 — `--persistent-breakpoints`: keep breakpoints live for the
+    /// whole run, not just while the debugger window is open. Set once from
+    /// EmulatorConfig at init(); the UI never touches it.
+    bool persistent_breakpoints() const { return persistent_; }
+    void set_persistent_breakpoints(bool p) { persistent_ = p; refresh_armed_(); }
+
+    /// Are breakpoints and watchpoints LIVE? The hot-path gate.
+    ///
+    /// A single cached bool, so the default configuration executes exactly the
+    /// same load-and-branch the old active() gate did — the flag costs nothing
+    /// to the user who does not pass it. With --persistent-breakpoints it is
+    /// true for the whole run: that is what "persistent" means, and the
+    /// per-instruction breakpoint check is the price of it.
+    bool armed() const { return armed_; }
 
     bool paused() const { return paused_; }
     void pause();
@@ -82,7 +108,11 @@ public:
     void set_data_bp_addr(uint16_t a) { data_bp_addr_ = a; }
 
 private:
+    void refresh_armed_() { armed_ = active_ || persistent_; }
+
     bool active_ = false;
+    bool persistent_ = false;
+    bool armed_ = false;
     bool paused_ = false;
     bool data_bp_hit_ = false;
     uint16_t data_bp_addr_ = 0;

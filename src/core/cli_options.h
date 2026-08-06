@@ -66,6 +66,7 @@ enum class OptId {
     EspAllow,
     EspListenAddress,
     MagicBreakpoint,
+    PersistentBreakpoints,
     EsxdosStub,
     MagicPort,
     MagicPortMode,
@@ -240,6 +241,14 @@ inline constexpr Option OPTIONS[] = {
 
     // Debugging
     { "--magic-breakpoint",          0, Doc::Documented, OptId::MagicBreakpoint },
+    // GH #219. Accepted by EVERY build, including --headless, the SDL-only
+    // frontend and -DENABLE_DEBUGGER=OFF, where it is simply inert: nothing
+    // outside src/debugger/ can add a breakpoint, so the armed check never
+    // matches. Making the row conditional would make `make cli-check` — which
+    // diffs this table against ONE man page — disagree with itself per build
+    // configuration, and would make the same command line valid or invalid
+    // depending on how jnext was compiled. Same posture as --magic-breakpoint.
+    { "--persistent-breakpoints",    0, Doc::Documented, OptId::PersistentBreakpoints },
     { "--magic-port",                1, Doc::Documented, OptId::MagicPort },
     { "--magic-port-mode",           1, Doc::Documented, OptId::MagicPortMode },
     { "--profile",                   0, Doc::Documented, OptId::Profile },

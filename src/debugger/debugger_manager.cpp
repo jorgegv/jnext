@@ -657,6 +657,12 @@ void DebuggerManager::refresh_panels() {
 void DebuggerManager::check_breakpoint_hit() {
     // Auto-enable debugger when a magic breakpoint (or other external trigger)
     // pauses the emulator while the debugger window is not yet open.
+    //
+    // GH #219 made this the FRONTEND half of --persistent-breakpoints: an
+    // ordinary breakpoint can now fire with the window shut, and this is what
+    // forces it open on the hit. set_enabled(true) show()s, raise()s and
+    // activateWindow()s, so no GUI call is needed anywhere in the core.
+    // Pinned by debugger_persistent_bp_test PBPUI-02.
     if (!enabled_ && emulator_->debug_state().paused()) {
         set_enabled(true);
     }
