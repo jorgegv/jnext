@@ -64,9 +64,11 @@
 // earns its place by pinning WHICH of the two menus keeps W — the mutation
 // above is a change AC-01 alone would wave through.
 //
-// Deliberately debugger-scoped: src/gui/main_window.cpp has its own menu bar in
-// its own window, and host hotkeys are moving into its Alt namespace under
-// issue #115. Nothing here reads or constrains that file.
+// Debugger-scoped: src/gui/main_window.cpp has its own menu bar in its own
+// window. Nothing here reads or constrains that file — GH #217 gave it a guard
+// of its own (test/gui/main_window_accel_test.cpp), which shares this suite's
+// harvest via test/menu_accel.h but keeps its own rows and its own pinned
+// shape.
 //
 // Run: ./build/test/debugger_accel_test
 
@@ -74,6 +76,8 @@
 #include "core/emulator_config.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+
+#include "menu_accel.h"
 
 #include <QAbstractButton>
 #include <QApplication>
@@ -145,83 +149,20 @@ void settle(int ms = 60) {
 }
 
 // ── Accelerator harvesting ────────────────────────────────────────────
+//
+// The walk itself lives in test/menu_accel.h, shared with the main window's
+// guard (GH #217) so the two cannot drift. Everything below — the rows, the
+// scopes they check, the pinned shape — stays this suite's own.
 
-/// One accelerator: the namespace it lives in, what carries it, and the key.
-struct Accel {
-    QString scope;   ///< "<menu bar>", "Debug", "Debug > Trace", "<window>"...
-    QString label;   ///< the source text, ampersands and all
-    QString key;     ///< "Alt+W", "Shift+F7", ...
-};
+using accel::Accel;
+using accel::collisions;
+using accel::except_scope;
+using accel::harvest_menu;
+using accel::mnemonic_of;
+using accel::only_scope;
+using accel::visible;
 
-const QString kMenuBar = QStringLiteral("<menu bar>");
-
-/// The visible text: Qt eats the mnemonic '&' and renders "&&" as one '&'.
-QString visible(const QString& text) {
-    QString out;
-    for (int i = 0; i < text.size(); ++i) {
-        if (text[i] == u'&') {
-            if (i + 1 < text.size() && text[i + 1] == u'&') { out += u'&'; ++i; }
-            continue;
-        }
-        out += text[i];
-    }
-    return out;
-}
-
-/// Qt's OWN reading of a label's mnemonic, not a hand-rolled parser: this is
-/// the same call Qt uses to turn "Step O&ut" into Alt+U, so the harvest cannot
-/// drift from the rule the running menu bar applies.
-QString mnemonic_of(const QString& text) {
-    const QKeySequence seq = QKeySequence::mnemonic(text);
-    return seq.isEmpty() ? QString() : seq.toString();
-}
-
-/// Recursively harvest one popup's items; each submenu opens a scope of its own.
-void harvest_menu(QMenu* menu, const QString& scope,
-                  std::vector<Accel>& out, std::set<QString>& scopes) {
-    scopes.insert(scope);
-    for (QAction* a : menu->actions()) {
-        if (a->isSeparator() || a->text().isEmpty()) continue;
-        const QString key = mnemonic_of(a->text());
-        if (!key.isEmpty()) out.push_back(Accel{scope, a->text(), key});
-    }
-    for (QAction* a : menu->actions())
-        if (a->menu())
-            harvest_menu(a->menu(), scope + QStringLiteral(" > ") + visible(a->text()),
-                         out, scopes);
-}
-
-/// Every (namespace, key) claimed by more than one label, rendered for a
-/// failure detail. Empty string means no collision.
-std::string collisions(const std::vector<Accel>& all) {
-    std::map<QString, std::vector<QString>> by_key;
-    for (const Accel& a : all)
-        by_key[a.scope + QStringLiteral(" / ") + a.key].push_back(a.label);
-
-    std::string out;
-    for (const auto& kv : by_key) {
-        if (kv.second.size() < 2) continue;
-        if (!out.empty()) out += "; ";
-        out += kv.first.toStdString() + " claimed by";
-        for (const QString& label : kv.second)
-            out += " \"" + label.toStdString() + "\"";
-    }
-    return out;
-}
-
-std::vector<Accel> only_scope(const std::vector<Accel>& all, const QString& scope) {
-    std::vector<Accel> v;
-    for (const Accel& a : all)
-        if (a.scope == scope) v.push_back(a);
-    return v;
-}
-
-std::vector<Accel> except_scope(const std::vector<Accel>& all, const QString& scope) {
-    std::vector<Accel> v;
-    for (const Accel& a : all)
-        if (a.scope != scope) v.push_back(a);
-    return v;
-}
+const QString kMenuBar = accel::menu_bar_scope();
 
 // ── Fixture: a headless Next emulator + the real debugger window ──────
 
@@ -293,14 +234,7 @@ static void test_accelerators(Fixture& fx)
 
     std::vector<Accel> menu_accels;
     std::set<QString>  popup_scopes;
-    for (QAction* a : bar->actions()) {
-        if (a->isSeparator() || a->text().isEmpty()) continue;
-        const QString key = mnemonic_of(a->text());
-        if (!key.isEmpty()) menu_accels.push_back(Accel{kMenuBar, a->text(), key});
-    }
-    for (QAction* a : bar->actions())
-        if (a->menu())
-            harvest_menu(a->menu(), visible(a->text()), menu_accels, popup_scopes);
+    accel::harvest_menu_bar(bar, menu_accels, popup_scopes);
 
     // AC-01 — THE issue-#124 row. Alt+W was on both "&Watches" and "&Window",
     // and Qt answered by alternating between them.
@@ -333,13 +267,7 @@ static void test_accelerators(Fixture& fx)
     // so the two harvests agree — but a guard with a blind spot is worse than
     // ordinary code with one, because everything else is relying on it to be
     // the thing that catches the NEXT Alt+W.
-    std::vector<Accel> key_accels;
-    for (QAction* a : fx.dbg->findChildren<QAction*>())
-        for (const QKeySequence& seq : a->shortcuts()) {
-            if (seq.isEmpty()) continue;
-            key_accels.push_back(Accel{QStringLiteral("<window>"), a->text(),
-                                       seq.toString()});
-        }
+    const std::vector<Accel> key_accels = accel::harvest_shortcuts(fx.dbg);
 
     // AC-03 — clean today, and it is the check being absent, not the collision
     // being present, that this suite exists to fix.
@@ -357,39 +285,14 @@ static void test_accelerators(Fixture& fx)
     // different call site. Nothing today carries one; this is the row that
     // notices when something does.
     {
-        std::vector<Accel> widgets;
-        for (QAbstractButton* b : fx.dbg->findChildren<QAbstractButton*>()) {
-            const QString key = mnemonic_of(b->text());
-            if (!key.isEmpty())
-                widgets.push_back(Accel{QStringLiteral("<window Alt>"), b->text(), key});
-        }
-        for (QLabel* l : fx.dbg->findChildren<QLabel*>()) {
-            if (!l->buddy()) continue;   // no buddy → Qt registers no mnemonic
-            const QString key = mnemonic_of(l->text());
-            if (!key.isEmpty())
-                widgets.push_back(Accel{QStringLiteral("<window Alt>"), l->text(), key});
-        }
+        const std::vector<Accel> widgets = accel::harvest_widget_mnemonics(fx.dbg);
+        const std::vector<Accel> top     = only_scope(menu_accels, kMenuBar);
+        const std::string bad = accel::widget_alt_conflicts(widgets, top);
 
-        std::set<QString> taken;
-        for (const Accel& a : only_scope(menu_accels, kMenuBar)) taken.insert(a.key);
-
-        std::string bad;
-        std::set<QString> seen;
-        for (const Accel& w : widgets) {
-            const char* why = taken.count(w.key)    ? "already a menu-bar mnemonic"
-                            : seen.count(w.key)     ? "already taken by another widget"
-                                                    : nullptr;
-            if (why) {
-                if (!bad.empty()) bad += "; ";
-                bad += "\"" + w.label.toStdString() + "\" wants " + w.key.toStdString()
-                     + " — " + why;
-            }
-            seen.insert(w.key);
-        }
         check("AC-04", "no widget mnemonic collides in the window-wide Alt namespace",
               bad.empty(),
               bad.empty() ? fmt("%zu widget mnemonics vs %zu menu-bar mnemonics",
-                                widgets.size(), taken.size())
+                                widgets.size(), top.size())
                           : bad);
     }
 

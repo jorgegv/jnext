@@ -820,6 +820,21 @@ if(ENABLE_QT_UI)
     # MainWindow and asserts each shifted key resolves to its unshifted
     # sibling's PHYSICAL scancode, then reads the resulting matrix back. Needs
     # a real MainWindow, no display (offscreen QPA forced in main()).
+    # Issue #217 — the main window carried three duplicate menu mnemonics (File
+    # Alt+N, File Alt+M, View Alt+F) and, unlike the debugger since #124, had no
+    # guard. Harvests every mnemonic and key sequence from the REAL MainWindow
+    # and asserts uniqueness per Qt namespace. Shares the walk with
+    # debugger_accel_test via test/menu_accel.h, hence the extra include dir.
+    # Needs Qt but no display — offscreen QPA forced in main(). Deliberately NOT
+    # gated on ENABLE_DEBUGGER: the guard is worth having in a Qt-only build
+    # too, and the suite adjusts its pinned shape for the two debugger entries.
+    add_executable(main_window_accel_test gui/main_window_accel_test.cpp)
+    set_target_properties(main_window_accel_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(main_window_accel_test PRIVATE jnext_gui)
+    target_include_directories(main_window_accel_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
+    add_test(NAME main_window_accel_tests COMMAND main_window_accel_test)
+
     add_executable(shifted_keys_test gui/shifted_keys_test.cpp)
     set_target_properties(shifted_keys_test PROPERTIES AUTOMOC ON)
     target_link_libraries(shifted_keys_test PRIVATE jnext_gui)
@@ -958,7 +973,10 @@ if(ENABLE_DEBUGGER)
         jnext_audio jnext_port jnext_peripheral jnext_input
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
         Qt${JNEXT_QT_MAJOR}::Test)
-    target_include_directories(debugger_accel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # ${CMAKE_SOURCE_DIR}/test is on the path for test/menu_accel.h, the walk
+    # this suite shares with main_window_accel_test (GH #217).
+    target_include_directories(debugger_accel_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
     add_test(NAME debugger_accel_tests COMMAND debugger_accel_test)
 
     # Debugger menu-reachability test (GH #215 — the Breakpoints menu offered

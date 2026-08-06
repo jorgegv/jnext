@@ -438,12 +438,40 @@ void MainWindow::create_menus() {
     // Reserved today: Alt+Q/O/S/R/T/D (shortcuts) and Alt+F/M/I/A/B/V/N/H
     // (mnemonics). Alt+E/G/C/` stay free because the GUEST uses them
     // (keyboard.cpp:163,172-174).
+    //
+    // -----------------------------------------------------------------------
+    // Issue #217 — the SECOND namespace, which the paragraph above does not
+    // cover and which shipped three collisions unnoticed.
+    //
+    // The items inside ONE popup share a namespace of their own, live only
+    // while that popup is open. Qt's answer to a repeat there is the same
+    // ambiguity: with "Load &NEX File..." and "Save S&napshot..." both on N,
+    // pressing N with the File menu open moved between them instead of
+    // choosing one. Three such pairs were reported (File N, File M, View F)
+    // and a fourth was found by the guard written for them (Machine S, on
+    // "&Soft Reset" / "CPU &Speed").
+    //
+    // Replacement letters were picked to collide with NOTHING — not inside
+    // their own popup, not with a menubar title, not with a shortcut above,
+    // not with the guest's Alt+E/G/C — which is why two of them sit on an
+    // awkward letter ("Record MPEG&4 Video...", "CP&U Speed"). An awkward
+    // mnemonic beats a stolen one.
+    //
+    // main_window_accel_test (rows MA-01..05) now harvests every mnemonic and
+    // every key sequence from the live window and fails on a repeat in any of
+    // the three namespaces, so the next one cannot ship. MA-05 pins the SHAPE
+    // of the menu tree: adding or removing an entry here means updating its
+    // numbers, deliberately.
     // -----------------------------------------------------------------------
 
     // --- File menu ---
     QMenu* file_menu = menuBar()->addMenu(tr("&File"));
 
-    QAction* load_nex = file_menu->addAction(tr("Load &NEX File..."));
+    // #217: mnemonic moved off N (shared with "Save S&napshot...") onto L, the
+    // first letter of the verb and of the toolbar button that does the same
+    // thing. L is free everywhere: no menubar title, no shortcut, not a guest
+    // Alt key, and unused in this popup.
+    QAction* load_nex = file_menu->addAction(tr("&Load NEX File..."));
     load_nex->setShortcut(QKeySequence(Qt::ALT | Qt::Key_O));
     connect(load_nex, &QAction::triggered, this, &MainWindow::on_load_nex);
 
@@ -452,7 +480,13 @@ void MainWindow::create_menus() {
 
     file_menu->addSeparator();
 
-    record_start_action_ = file_menu->addAction(tr("Record &MPEG4 Video..."));
+    // #217: this and "&Mount SD Card Image..." both claimed M. Mount keeps it —
+    // M is the first letter of the word a user reaches for, whereas nobody
+    // hunts for video recording under "MPEG4". Every letter of "Record MPEG4
+    // Video" that is free everywhere else is either already used in this popup
+    // (P is "Sto&p MPEG4 Recording") or is the digit; V would read better but
+    // Alt+V is the View menu. So the 4 of MPEG4, underlined in place.
+    record_start_action_ = file_menu->addAction(tr("Record MPEG&4 Video..."));
     record_start_action_->setShortcut(QKeySequence(Qt::CTRL | Qt::Key_F5));
     connect(record_start_action_, &QAction::triggered, this, &MainWindow::on_record_start);
     // Packaging Task 67 follow-up: grey the option out entirely when ffmpeg
@@ -640,7 +674,11 @@ void MainWindow::create_menus() {
 
     machine_menu->addSeparator();
 
-    QMenu* speed_menu = machine_menu->addMenu(tr("CPU &Speed"));
+    // #217, the collision the guard found rather than the issue: this and
+    // "&Soft Reset" above both claimed S in the Machine popup. Soft Reset keeps
+    // S (its own first letter, and #45 named it); CPU Speed takes the U of the
+    // acronym, which is free everywhere.
+    QMenu* speed_menu = machine_menu->addMenu(tr("CP&U Speed"));
     speed_group_ = new QActionGroup(this);
     speed_group_->setExclusive(true);
 
@@ -822,7 +860,11 @@ void MainWindow::create_menus() {
 
     view_menu->addSeparator();
 
-    crt_filter_action_ = view_menu->addAction(tr("CRT &Filter"));
+    // #217: F belonged to "&Fullscreen" above (its own first letter, and the
+    // entry users reach for far more often). C is the guest's Alt+C, R is the
+    // Power Reset shortcut, T the Open Tape one — so the L of "Filter", free
+    // everywhere.
+    crt_filter_action_ = view_menu->addAction(tr("CRT Fi&lter"));
     crt_filter_action_->setCheckable(true);
     connect(crt_filter_action_, &QAction::triggered, this, [this](bool checked) {
         emulator_widget_->set_crt_filter(checked);
