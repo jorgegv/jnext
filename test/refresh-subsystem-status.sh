@@ -130,6 +130,7 @@ BEGIN {
     M["esp_status_test"]               = "ESP-01 status cell (GUI)"
     M["esc_break_test"]                = "Esc/BREAK + fullscreen routing"
     M["host_hotkey_test"]              = "Host hotkeys on Alt (Ctrl to guest)"
+    M["main_window_accel_test"]        = "Main-window menu mnemonics"
     M["shifted_keys_test"]             = "Shifted symbols reach the guest"
     M["quit_cleanup_test"]             = "Quit runs closeEvent cleanup"
     M["log_test"]                      = "Logging"
