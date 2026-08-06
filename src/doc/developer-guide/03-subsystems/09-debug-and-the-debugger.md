@@ -181,6 +181,21 @@ Four panels (CPU, Disassembly, Stack, Call Stack) update only while paused.
 That is a performance decision as much as a legibility one: reading the
 register file every frame while the machine runs produces a blur, at real cost.
 
+Everything else refreshes on `DebuggerManager`'s timer — with one exception.
+The **two views of the breakpoint set** (the Breakpoints list and the
+disassembly gutter) also **observe it**: `BreakpointSet::add_observer()` takes a
+`std::function<void(BreakpointChange)>` — a plain callback, because `src/debug/`
+is Qt-free — and every mutator calls it, so a breakpoint appears the instant it
+is set rather than on the next tick. The two subscribers differ, deliberately:
+the list acts on both change kinds, the gutter only on `PcBreakpoints`, since it
+paints `has_pc()` and nothing else. One-shot breakpoints notify nobody — they
+are transient, are set on every resume, and no panel draws them.
+
+The point is where the notification comes *from*. A dozen call sites mutate that
+set, and each one used to be responsible for repainting the views itself; twice
+a site was added that did not, and the panels lied until the next tick. Emitting
+from the mutator means a new call site cannot get it wrong.
+
 ## Symbols
 
 `src/debug/symbol_table.*` is a bidirectional address↔name map with two
