@@ -7445,6 +7445,28 @@ void Emulator::run_frame()
         tick_devices_after_instruction(master_cycles);
     }
 
+    end_of_frame(frame_end);
+}
+
+void Emulator::end_of_frame(uint64_t frame_end)
+{
+    // GH #207 — everything that must happen exactly ONCE per frame, at its
+    // END. Extracted verbatim from the tail of run_frame() so the debugger's
+    // single-step path (execute_single_instruction() → step_frame_slot())
+    // turns frames over through the SAME body. Before the extraction the
+    // stepping path had no frame boundary at all: begin_new_frame() was never
+    // reached again, so the per-frame ULA/line interrupt and per-scanline
+    // scheduler events stopped being scheduled the moment the debugger paused,
+    // and a HALTed CPU could never be woken by any number of steps. Same
+    // "one shared body" rule as Task 60a's step_one_instruction().
+    //
+    // `frame_end` is the caller's OWN end-of-frame cycle rather than a value
+    // recomputed here: run_frame() samples it before begin_new_frame() and
+    // step_frame_slot() after, and the two can disagree by a frame length in
+    // the one case where begin_new_frame() commits an NR 0x03 / NR 0x05
+    // timing change. Each caller stays self-consistent with the bound it
+    // actually ran to.
+
     // Save end-of-frame raster before advancing frame_cycle_, so snapshot_raster()
     // can show a meaningful position when Break is pressed between frames.
     {
@@ -8324,6 +8346,34 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     scheduler_.run_until(clock_.get());
 }
 
+uint64_t Emulator::step_frame_slot()
+{
+    // GH #207 — one instruction slot WITH the frame bookkeeping run_frame()
+    // does around its own loop: begin a frame when none is in flight, end it
+    // when the clock reaches the frame's last cycle. Without those two seams
+    // the clock simply runs past the end of the frame it is in, forever, and
+    // everything scheduled per frame — begin_new_frame()'s ULA frame interrupt
+    // (zxula_timing.vhd:551), the line interrupt, and the per-scanline
+    // SCANLINE/VSYNC events — is never scheduled again.
+    //
+    // Called only from debugger_step(), which is the machine's sole driver
+    // while the debugger holds it. See that function for why the frame loop
+    // does NOT belong to execute_single_instruction().
+    if (!frame_in_progress_) {
+        begin_new_frame();
+        frame_in_progress_ = true;
+    }
+    const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
+
+    const uint64_t master_cycles = step_one_instruction();
+    tick_devices_after_instruction(master_cycles);
+
+    if (clock_.get() >= frame_end) {
+        end_of_frame(frame_end);
+    }
+    return master_cycles;
+}
+
 int Emulator::execute_single_instruction()
 {
     // Task 60a — delegate to the SAME shared per-instruction body that
@@ -8335,10 +8385,11 @@ int Emulator::execute_single_instruction()
     // recorded trace entries. Sharing the body makes that drift
     // structurally impossible.
     //
-    // run_frame()'s per-frame surroundings (breakpoint checks, tape
-    // ROM traps, frame-end bookkeeping, the data-breakpoint early
-    // return) intentionally stay in run_frame() — the debugger caller
-    // owns pause semantics around a single step.
+    // This is the RAW one-slot primitive: exactly one instruction slot and
+    // nothing around it. run_frame()'s per-instruction surroundings
+    // (breakpoint checks, tape ROM traps, the data-breakpoint early return)
+    // and its per-FRAME surroundings both stay outside. The debugger's Step
+    // is debugger_step(), which adds the frame loop.
     //
     // GH #164 — see resume_from_park(). The shared body below honours
     // cpu_parked_, so on a parked machine every Step would be a silent
@@ -8349,6 +8400,73 @@ int Emulator::execute_single_instruction()
 
     const uint64_t master_cycles = step_one_instruction();
     tick_devices_after_instruction(master_cycles);
+    return static_cast<int>(master_cycles / clock_.cpu_divisor());
+}
+
+int Emulator::debugger_step()
+{
+    // GH #207 — the debugger's Step, as distinct from the raw one-slot
+    // primitive above. Two things separate them, and both come from the same
+    // fact: while the debugger holds the machine the frontends stop calling
+    // run_frame() altogether (src/platform/frame_sequencer.h — `if
+    // (!fx.paused())`), so this call is the machine's ONLY driver and inherits
+    // run_frame()'s job, not just its inner loop.
+    //
+    //   1. It runs the frame loop (step_frame_slot()). Without it the clock
+    //      runs past the end of the frame it is in and no frame ever begins
+    //      again, so nothing scheduled per frame — the ULA frame interrupt
+    //      above all — can ever fire for the rest of the session.
+    //
+    //   2. A Step issued while the CPU is HALTed runs the halt out.
+    //      HALT is not an instruction that completes: VHDL t80n.vhd:496
+    //      freezes PC while Halt_FF is set and :502-503 forces IR to 0x00, so
+    //      the core keeps issuing M1 NOP fetches at the same address, and
+    //      t80n.vhd:1727 clears Halt_FF only on an accepted interrupt or NMI
+    //      cycle. Stepping one of those internal NOPs is observably nothing:
+    //      PC does not move, no register changes, and the user would have to
+    //      press Step once per 4 T-states — 17472 times at 3.5 MHz, 139776 at
+    //      28 MHz — before the frame interrupt that ends the wait arrives.
+    //      That is the whole of GH #207. So the step's unit of progress here
+    //      is the halt, exactly as Step Over's unit is the whole CALL.
+    //      Nothing is faked or skipped: every one of those NOP slots is
+    //      emulated through the same body as any other instruction, devices
+    //      and all — the loop just does not hand control back until the CPU
+    //      has actually left the halt state.
+    //
+    // Keeping both out of execute_single_instruction() is deliberate. That
+    // function is used all over the test tree to advance a machine by exactly
+    // one slot while the test drives its own frames, and several suites depend
+    // on it not touching frame state at all — videotiming_test's G163
+    // line-interrupt rows ("ULA-int still enabled but not scheduled because
+    // run_frame was never called"), lores_integration_test, and step_out_test,
+    // whose hand-injected INT would be dropped by begin_new_frame()'s reset of
+    // the frame-relative T-state counter the /INT pulse window is measured in.
+    //
+    // Returns the CPU T-states the step consumed, like the primitive.
+    resume_from_park("the debugger stepped a single instruction");
+
+    // Bounded at two frames because the ULA frame interrupt fires once per
+    // frame (zxula_timing.vhd:551) and the current frame may already be past
+    // its firing point, so two frames always contain at least one. When the
+    // budget runs out the CPU is still halted and the step reports no
+    // progress — the honest answer for `DI : HALT`, which on real hardware
+    // waits for an NMI or a reset and nothing else.
+    const bool halted_before = cpu_.is_halted();
+    uint64_t master_cycles = step_frame_slot();
+
+    if (halted_before) {
+        const uint64_t budget = 2u * timing_.master_cycles_per_frame;
+        uint64_t spent = master_cycles;
+        // A watchpoint that fires inside the halt (a DMA write, or a READ
+        // watchpoint on the halted PC itself, which the core re-fetches every
+        // slot) ends the step where it fired instead of being spent silently.
+        while (cpu_.is_halted() && spent < budget && !debug_state_.data_bp_hit()) {
+            const uint64_t m = step_frame_slot();
+            spent += m;
+            master_cycles += m;
+        }
+    }
+
     return static_cast<int>(master_cycles / clock_.cpu_divisor());
 }
 
