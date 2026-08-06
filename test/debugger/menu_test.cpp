@@ -1246,17 +1246,21 @@ static void test_debug_menu()
 //             alone, so the Run to Here still fires.
 //   GH223-03  the key never reaches the emulated machine.
 //
-// GH223-03 is not decoration. A "no-op" F5 that fell through would NOT be
-// inert: it would reach `case Qt::Key_F5` further down MainWindow::
-// keyPressEvent and fire the guest's F5 membrane hotkey — expansion-bus enable
-// (zxnext.vhd:6344 `hotkey_expbus_enable`, effect at :2190 `nr_80_expbus(7) <=
-// '1'`). jnext installs no F5 side-effect callback today (F2/F3/F7/F8 only), so
-// the strobe currently changes no NR — but NR 0x80 bit 7 is already live input
-// to NmiSource, to NR 0x07's actual-speed readback and to contention, so the
-// harmlessness is contingent on an unimplemented feature rather than on
-// anything structural. Consuming the key is therefore a deliberate contract,
-// not an accident of implementation, and it gets a row that fails if someone
-// later "tidies" the intercept into a fall-through.
+// GH223-03 is not decoration, but be precise about what it defends. A "no-op"
+// F5 that fell through would reach `case Qt::Key_F5` further down MainWindow::
+// keyPressEvent and drive the guest's F-key FSM — and TODAY that is INERT:
+// jnext implements no F5 side effect at all (emu_fnkeys.h:68-69 puts F5/F6 out
+// of scope for G132, tracked under G147; fire_mf_side_effects() dispatches
+// F2/F3/F7/F8 only), so no NextREG is written. The fall-through mutation below
+// measures exactly that — the FSM moves and nothing else does.
+//
+// On real HARDWARE F5 is the expansion-bus enable hotkey (zxnext.vhd:6344
+// `hotkey_expbus_enable`, effect at :2190 `nr_80_expbus(7) <= '1'`), and NR 0x80
+// bit 7 does have live consumers in jnext — NmiSource, and NR 0x07's
+// actual-speed readback (emulator.cpp:1460, :8972). It is only the F5 WRITE
+// path into that bit which is missing. So this row pins the contract against a
+// future G147 completion rather than against a coupling that exists now, and it
+// fails if someone later "tidies" the intercept into a fall-through.
 //
 // Observing it needs a trick, because a completed F5 dispatch leaves no trace:
 // simulate_mf_fkey_press() drives IDLE -> A11 -> A12 -> CHECK -> DONE -> IDLE
@@ -1433,7 +1437,7 @@ static void test_run_guard()
 
     // GH223-03 — and the no-op F5 does not leak into the guest. See the group
     // banner for why the FSM has to be pre-armed to see this at all, and for
-    // what a fall-through would actually fire.
+    // what a fall-through would and would not reach.
     {
         MainWindowFixture fx;
         DebuggerManager*  mgr = fx.ok ? fx.win.debugger_manager() : nullptr;

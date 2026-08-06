@@ -1671,13 +1671,19 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
                 // GH #223: the debugger owns F5 whenever it is enabled, whether
                 // or not the machine is paused. on_run() is now a deliberate
                 // no-op on a running machine, and the key is STILL consumed —
-                // do not "fix" this into a fall-through. Falling through would
-                // reach `case Qt::Key_F5` below and fire the guest's F5
-                // membrane hotkey (expansion-bus enable, zxnext.vhd:6344,2190),
-                // turning "F5 did nothing" into "F5 poked the Next". NR 0x80
-                // bit 7 already feeds NmiSource, the NR 0x07 speed readback and
-                // contention, so that would be a live coupling, not a harmless
-                // one. Owner decision: F5 while running is fully ignored.
+                // do not "fix" this into a fall-through.
+                //
+                // A fall-through would be INERT TODAY: it would reach
+                // `case Qt::Key_F5` below and drive the EmuFnKeys FSM, but
+                // jnext implements no F5 side effect at all — emu_fnkeys.h:68-69
+                // puts F5/F6 out of scope for G132 (tracked under G147) and
+                // fire_mf_side_effects() dispatches F2/F3/F7/F8 only — so no
+                // NextREG is written. On real HARDWARE F5 is the expansion-bus
+                // enable hotkey (zxnext.vhd:6344 -> :2190 `nr_80_expbus(7) <=
+                // '1'`). Consuming the key keeps "F5 while running does nothing"
+                // true by construction rather than by G147 being unfinished,
+                // which is what this defends. Owner decision: F5 while running
+                // is fully ignored. GH223-03 fails on a fall-through.
                 debugger_mgr_->on_run();
                 event->accept();
                 return;
