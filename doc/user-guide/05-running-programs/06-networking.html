@@ -3140,7 +3140,9 @@ the bind address instead:</p>
 </ul>
 <p>Up to four programs can be connected at once, numbered from 1. Number 0 stays
 reserved for the program's own outbound connection, so opening a server never
-costs it the ability to dial out.</p>
+costs it the ability to dial out. A program can also hang up on any one of them
+by number, so a client that stops answering without disconnecting does not hold
+its place for the rest of the session.</p>
 <h2 id="what-is-not-emulated-yet">What is not emulated yet<a class="headerlink" href="#what-is-not-emulated-yet" title="Permanent link">&para;</a></h2>
 <p>The command set is the one <strong>evidenced</strong> in software that actually runs on a
 Next, so a couple of things a physical ESP-01 can do are not built:</p>

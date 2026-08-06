@@ -38,7 +38,7 @@ opens it. A collision makes the row fail loudly (no connection) rather than
 pass wrongly, and the kernel does not hand out a just-released ephemeral port
 again in any hurry.
 
-Usage: esp-server-peer.py <guest.bin> <ready.txt> <received.bin> [--lan]
+Usage: esp-server-peer.py <guest.bin> <ready.txt> <received.bin> [--lan] [--close]
 
 With `--lan` the client dials this host's own RFC1918 address instead of
 127.0.0.1, which is how `esp-server-lan-func` proves that
@@ -46,6 +46,22 @@ With `--lan` the client dials this host's own RFC1918 address instead of
 listening on the DEFAULT is unreachable that way, so the connection succeeds
 only if the flag really moved the bind. Exit 3 = this host has no RFC1918
 address (the shell turns that into a SKIP).
+
+With `--close` (GH #211) the guest ends the conversation with
+`AT+CIPCLOSE=<id>` instead of sending nothing further, and this process stops
+being a passive socket-holder: it reads to EOF and then DIALS IN AGAIN.
+`<received.bin>` holds the greeting, a newline, and one of
+`EOF+RECONNECT` / `EOF+NORECONNECT` / `OPEN`.
+
+THE RECONNECT IS THE ASSERTION, AND THE EOF ON ITS OWN IS NOT — measured, not
+assumed. jnext exits at the end of the row and process exit closes every socket
+it owns, so a peer that only waits for EOF sees one even against a build that
+never closed anything: both mutations of the close path were run against an
+EOF-only version of this and both PASSED it. Dialling in again removes the
+confound in one step, because it can only succeed while jnext is still running
+AND still listening, and because the id the guest then sees says whether the
+slot was really returned to the pool: `1,CONNECT` only if the closed connection
+freed slot 1, `2,CONNECT` if it merely stopped being open.
 """
 
 import importlib.util
@@ -80,10 +96,18 @@ REQUEST = b"DZRP-REQ\r\n"  # client -> guest, arrives as +IPD,1,10:
 # Long enough for a headless boot plus the 100-frame inject delay on a loaded
 # box (JNEXT_TEST_JOBS=4), far short of the row's own timeout.
 CONNECT_TIMEOUT_S = 45
+# How long the guest may take to issue its close once it has greeted us: three
+# AT commands' worth of emulated time, no boot in it.
+RECLOSE_TIMEOUT_S = 20
+# How long the SECOND connect may take. Deliberately short — the listener is
+# already bound and the slot is already free, so this is a localhost connect and
+# nothing else. A generous bound here would let a connect that only succeeded
+# because it retried past something count as success.
+RECONNECT_TIMEOUT_S = 5
 WATCHDOG_S = 600
 
 
-def build_guest(port):
+def build_guest(port, close_at_end=False):
     def rec(line, expect):
         assert len(line) < 256
         return bytes([len(line)]) + line + expect
@@ -96,8 +120,14 @@ def build_guest(port):
              + rec(b"AT+CIPMUX=1\r\n", b"K")
              + rec(b"AT+CIPSERVER=1,%d\r\n" % port, b"T")
              + rec(b"AT+CIPSEND=1,%d\r\n" % len(GREETING), b">")
-             + rec(GREETING, b"S")
-             + b"\x00")
+             + rec(GREETING, b"S"))
+    if close_at_end:
+        # `D` is the first byte of `1,CLOSED` that cannot occur in what precedes
+        # it on this wire, which is the same sync-point rule every other record
+        # follows. The walker echoes for ever after the last record, so the rest
+        # of `1,CLOSED\r\n\r\nOK\r\n` still reaches the trace.
+        table += rec(b"AT+CIPCLOSE=1\r\n", b"D")
+    table += b"\x00"
     assert len(GUEST_CODE) <= SCRIPT_TABLE_ORG - 0x8000
     return GUEST_CODE + bytes(SCRIPT_TABLE_ORG - 0x8000 - len(GUEST_CODE)) + table
 
@@ -116,6 +146,7 @@ def free_port(ip):
 def main(argv):
     guest_path, ready_path, received_path = argv[1], argv[2], argv[3]
     want_lan = "--lan" in argv[4:]
+    want_close = "--close" in argv[4:]
 
     if want_lan:
         # The host's own private address. Reused from the loopback peer rather
@@ -131,7 +162,7 @@ def main(argv):
 
     port = free_port(ip)
     with open(guest_path, "wb") as f:
-        f.write(build_guest(port))
+        f.write(build_guest(port, close_at_end=want_close))
     # Written LAST: the shell waits for this file before starting jnext, so it
     # must not appear before the guest binary is complete.
     with open(ready_path, "w") as f:
@@ -156,6 +187,51 @@ def main(argv):
         if not chunk:
             break
         got += chunk
+    if want_close:
+        # The guest closes the connection next. A `recv` of zero bytes IS the
+        # FIN. A timeout is reported as `OPEN` rather than raised, so the shell
+        # can print it as a verdict instead of a traceback.
+        conn.settimeout(RECLOSE_TIMEOUT_S)
+        verdict = b"OPEN"
+        try:
+            while True:
+                chunk = conn.recv(64)
+                if not chunk:
+                    verdict = b"EOF"
+                    break
+                got += chunk
+        except OSError as exc:
+            # A reset counts as gone too — the peer learned the connection
+            # ended, which is the property under test.
+            print("peer: recv after greeting raised %r" % (exc,))
+            verdict = b"EOF" if isinstance(exc, ConnectionResetError) else b"OPEN"
+        conn.close()
+
+        # AND NOW DIAL IN AGAIN — see the module docstring. Bounded tightly: the
+        # listener is already up, so a connect that needs seconds is a connect
+        # that is racing jnext's exit, which is the very thing this must not
+        # mistake for success.
+        again = None
+        if verdict == b"EOF":
+            deadline = time.time() + RECONNECT_TIMEOUT_S
+            while time.time() < deadline:
+                try:
+                    again = socket.create_connection((ip, port), timeout=1)
+                    break
+                except OSError:
+                    time.sleep(0.1)
+            verdict = b"EOF+RECONNECT" if again is not None else b"EOF+NORECONNECT"
+
+        with open(received_path, "wb") as f:
+            f.write(got + b"\n" + verdict + b"\n")
+        print("peer: guest greeted with %r, then %s" % (got, verdict.decode()))
+        sys.stdout.flush()
+        # Held open exactly as the non-close mode holds its socket: an early
+        # close here would emit a second unsolicited CLOSED into the guest's
+        # trace as a function of when this process happened to exit.
+        time.sleep(WATCHDOG_S)
+        return 0
+
     with open(received_path, "wb") as f:
         f.write(got)
     # Only now — see the module docstring: sending earlier would make the

@@ -2014,8 +2014,11 @@ why <code>--no-esp</code> also exists).</p>
 software that actually runs on a Next. There is no <code>AT+CIPMODE</code> passthrough and
 no SSL, because nothing uses either.</p>
 <p><strong>Server mode and multiplexing exist</strong> (<code>AT+CIPMUX=1</code>, <code>AT+CIPSERVER=1,&lt;port&gt;</code>,
-<code>+IPD,&lt;id&gt;,&lt;len&gt;:</code>), added once a consumer appeared — a debug stub that has to
-listen, because the debugger on the PC only ever dials out. The constraint that
+<code>+IPD,&lt;id&gt;,&lt;len&gt;:</code>, <code>AT+CIPCLOSE=&lt;id&gt;</code>), added once a consumer appeared — a debug
+stub that has to listen, because the debugger on the PC only ever dials out. The
+argument form of <code>AT+CIPCLOSE</code> frees the named connection's slot; the
+no-argument form still means "close the outbound connection", in every mode,
+because nextsync loops that exact spelling. The constraint that
 shaped it is worth knowing before touching that code: <strong>the power-on default
 stays <code>AT+CIPMUX=0</code></strong>, because nextsync never sends the command and its <code>+IPD</code>
 reader does not reject the multiplexed form — it silently mis-parses it. So the
