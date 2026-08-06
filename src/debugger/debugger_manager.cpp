@@ -312,6 +312,14 @@ bool DebuggerManager::confirm_resume_if_corrupt() {
 
 void DebuggerManager::on_run() {
     if (!enabled_) return;
+    // GH #223: Run on an already-running machine is a no-op, exactly as in
+    // on_run_to_eof() / on_run_to_eosl() below. Without this, F5 pressed out of
+    // habit at the emulator window reached DebugState::resume(), whose
+    // clear_oneshot() silently threw away a pending Run to Here / step-over
+    // target. Ordered BEFORE confirm_resume_if_corrupt() — same as the siblings
+    // — because that call can raise a modal, and prompting the user about a
+    // resume we are about to refuse would be a question about nothing.
+    if (!emulator_->debug_state().paused()) return;
     // Task 60e: THE choke point — never silently resume a torn machine.
     if (!confirm_resume_if_corrupt()) return;
 

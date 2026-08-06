@@ -2802,9 +2802,10 @@ under the PC too. One consequence worth knowing: <strong>Run to Here</strong> on
 are already stopped at runs a full lap and stops when control comes back.</p>
 <p>None of that applies when the machine is <em>not</em> stopped. Pressing F5 while a
 program is running — the emulator window takes F5 too, whenever the debugger is
-enabled — does not skip anything: your breakpoints all stay live and stop the
-machine as normal. It does clear a pending <strong>Run to Here</strong> or step, which is
-what asking to run freely means.</p>
+enabled — does nothing at all. Your breakpoints stay live and stop the machine
+as normal, and a pending <strong>Run to Here</strong> or step target is left alone, so a
+stray F5 while you wait for one cannot cancel it. The key is still swallowed by
+the debugger either way, so it never reaches the emulated machine.</p>
 <p><strong>Single Step</strong> executes exactly one instruction, entering calls, traps and
 interrupt handlers.</p>
 <p><strong>Step Over</strong> sets a one-shot breakpoint after the current instruction and

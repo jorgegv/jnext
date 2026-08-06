@@ -107,6 +107,7 @@
 #include "debugger/debugger_window.h"
 #include "debugger/disasm_panel.h"
 #include "gui/main_window.h"
+#include "input/emu_fnkeys.h"
 #include "memory/mmu.h"
 #include "platform/emulator_boot.h"
 
@@ -114,6 +115,7 @@
 #include <QApplication>
 #include <QContextMenuEvent>
 #include <QDialog>
+#include <QKeyEvent>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMenu>
@@ -1210,6 +1212,293 @@ static void test_debug_menu()
     }
 }
 
+// ── F5R: Run on an already-running machine is a no-op (GH #223) ───────
+//
+// DebuggerManager::on_run() had no pause check, unlike on_run_to_eof() and
+// on_run_to_eosl(), which both open with `if (!paused()) return;`. So F5 on a
+// machine that was already running ran DebugState::resume()'s body anyway.
+// After #221 the dangerous half of that is gone (no step-off arm is raised
+// without a real paused -> running edge, so no breakpoint is swallowed) and
+// exactly one observable effect was left:
+//
+//     void DebugState::resume() {
+//         unpause_();                   // no-op when not paused
+//         step_mode_ = StepMode::NONE;
+//         data_bp_hit_ = false;
+//         breakpoints_.clear_oneshot(); // <-- the pending Run to Here, gone
+//     }
+//
+// It is easy to hit and gives no feedback: MainWindow's F5 handler forwards to
+// on_run() whenever the debugger is ENABLED — no debugger focus or visibility
+// required — so set a Run to Here, alt-tab to the emulator, press F5 out of
+// habit, and the target you are waiting for has been cancelled. The machine
+// runs on and nothing says why.
+//
+// Owner's decision: F5 on a running machine is a no-op, and is NOT passed to
+// the guest either.
+//
+// WHAT THE ROWS PIN
+//
+//   GH223-01  the normal path, unchanged: on_run() while PAUSED still resumes.
+//             This is the row that fails if the guard is written the wrong way
+//             round, which is the one plausible way to get this wrong.
+//   GH223-02  THE DEFECT: on_run() while RUNNING leaves a pending one-shot
+//             alone, so the Run to Here still fires.
+//   GH223-03  the key never reaches the emulated machine.
+//
+// GH223-03 is not decoration, but be precise about what it defends. A "no-op"
+// F5 that fell through would reach `case Qt::Key_F5` further down MainWindow::
+// keyPressEvent and drive the guest's F-key FSM — and TODAY that is INERT:
+// jnext implements no F5 side effect at all (emu_fnkeys.h:68-69 puts F5/F6 out
+// of scope for G132, tracked under G147; fire_mf_side_effects() dispatches
+// F2/F3/F7/F8 only), so no NextREG is written. The fall-through mutation below
+// measures exactly that — the FSM moves and nothing else does.
+//
+// On real HARDWARE F5 is the expansion-bus enable hotkey (zxnext.vhd:6344
+// `hotkey_expbus_enable`, effect at :2190 `nr_80_expbus(7) <= '1'`), and NR 0x80
+// bit 7 does have live consumers in jnext — NmiSource, and NR 0x07's
+// actual-speed readback (emulator.cpp:1460, :8972). It is only the F5 WRITE
+// path into that bit which is missing. So this row pins the contract against a
+// future G147 completion rather than against a coupling that exists now, and it
+// fails if someone later "tidies" the intercept into a fall-through.
+//
+// Observing it needs a trick, because a completed F5 dispatch leaves no trace:
+// simulate_mf_fkey_press() drives IDLE -> A11 -> A12 -> CHECK -> DONE -> IDLE
+// and clears local_fnkeys on the way out, so before and after are identical on
+// a fresh FSM. So the FSM is ARMED into a distinctive mid-scan state first
+// (a membrane F3 press plus one tick = MF_ROW_A11): a dispatched F5 would call
+// press_membrane_fkey(5) + 5 ticks + release_membrane() straight over the top
+// of it and leave the FSM back at IDLE, while a consumed F5 leaves it exactly
+// where it was. Both directions are asserted in the one row — the
+// debugger-disabled arm is what proves the observation has teeth.
+//
+// Discriminative — each row was mutation-tested against the product, one
+// mutation at a time (the product reverted from a `cp` backup each time):
+//   the new `if (!paused()) return;` removed from on_run()
+//                                 -> GH223-02 fails (PC=$800E: the one-shot was
+//                                    cancelled), -01 and -03 still pass.
+//   the guard inverted to `if (paused()) return;`
+//                                 -> BOTH -01 and -02 fail; -03 still passes.
+//                                    -02 dies here too, which is worth stating
+//                                    because it is not obvious: inverting the
+//                                    guard blocks only the paused case, so the
+//                                    running case still falls through to
+//                                    resume() and still cancels the one-shot.
+//                                    -01 is therefore the row that distinguishes
+//                                    this mutation from the one above.
+//   MainWindow's F5 `event->accept(); return;` replaced by a fall-through
+//                                 -> GH223-03 fails (debugger-on state moves to
+//                                    MF_CHECK: the FSM was driven), -01/-02 pass.
+//                                    This one also settles a question the row
+//                                    raises: it proves -03 is measuring
+//                                    MainWindow's intercept and not the debugger
+//                                    window's own F5 QAction, which would
+//                                    otherwise be an alternative explanation for
+//                                    a consumed key.
+
+namespace {
+
+/// A 48K machine with a real DebuggerManager attached. The program is
+/// byte-identical to test/debug/resume_step_off_test.cpp's LINEAR fixture, so
+/// the DebugState-level suite and this DebuggerManager-level one are talking
+/// about the same machine:
+///
+///   8000  00 x6        NOP x6
+///   8006  3A 00 90     LD A,(0x9000)   <- the breakpoint we stop at first
+///   8009  3E 5A        LD A,0x5A
+///   800B  32 00 90     LD (0x9000),A   <- the Run to Here target
+///   800E  18 FE        JR $            <- park; where a cancelled one-shot ends
+struct RunGuardFixture {
+    static constexpr uint16_t PROG = 0x8000;
+    static constexpr uint16_t BP   = 0x8006;
+    static constexpr uint16_t TGT  = 0x800B;
+    static constexpr uint16_t PARK = 0x800E;
+
+    Emulator         emu;
+    QMainWindow      win;
+    DebuggerManager* mgr = nullptr;
+    bool             ok  = false;
+
+    RunGuardFixture() {
+        EmulatorConfig cfg;
+        cfg.type                 = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 0;
+        if (!emu.init(cfg)) return;
+
+        // Interrupts off, so no frame interrupt lands in the middle of a
+        // measured run; SP parked well away from the program.
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC   = PROG;
+        r.SP   = 0xFF00;
+        r.IFF1 = 0;
+        r.IFF2 = 0;
+        emu.cpu().set_registers(r);
+
+        static const uint8_t prog[] = {
+            0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+            0x3A, 0x00, 0x90,
+            0x3E, 0x5A,
+            0x32, 0x00, 0x90,
+            0x18, 0xFE,
+        };
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            emu.mmu().write(static_cast<uint16_t>(PROG + i), prog[i]);
+        emu.mmu().write(0x9000, 0x00);
+
+        mgr = new DebuggerManager(&win, &emu, &win);   // parented → auto-freed
+        ok  = mgr->set_enabled(true);                  // also set_active(true)
+    }
+    ~RunGuardFixture() {
+        if (mgr) mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+    }
+
+    uint16_t pc() { return emu.cpu().get_registers().PC; }
+    bool paused() { return emu.debug_state().paused(); }
+    void run_until_paused(int max_frames = 4) {
+        for (int i = 0; i < max_frames && !paused(); ++i)
+            emu.run_frame();
+    }
+};
+
+} // namespace
+
+static void test_run_guard()
+{
+    set_group("F5R");
+
+    // GH223-01 — the normal path is untouched. Stop at a breakpoint, clear it,
+    // press Run: the machine must resume and reach the park. The guard is a
+    // one-line early return and the obvious way to get it wrong is to test the
+    // wrong sense of paused(), which this row and GH223-02 catch between them.
+    {
+        RunGuardFixture fx;
+        if (!fx.ok) {
+            check("GH223-01", "Run on a PAUSED machine still resumes it",
+                  false, "fixture failed");
+        } else {
+            fx.emu.debug_state().breakpoints().add_pc(RunGuardFixture::BP);
+            fx.run_until_paused();
+            const bool stopped = fx.paused() && fx.pc() == RunGuardFixture::BP;
+
+            fx.emu.debug_state().breakpoints().remove_pc(RunGuardFixture::BP);
+            fx.mgr->on_run();
+            const bool released = !fx.paused();
+
+            fx.run_until_paused();
+            check("GH223-01", "Run on a PAUSED machine still resumes it",
+                  stopped && released && !fx.paused()
+                      && fx.pc() == RunGuardFixture::PARK,
+                  fmt("stopped=%d released=%d after-run paused=%d PC=$%04X "
+                      "(want $%04X)", stopped ? 1 : 0, released ? 1 : 0,
+                      fx.paused() ? 1 : 0, fx.pc(), RunGuardFixture::PARK));
+        }
+    }
+
+    // GH223-02 — THE DEFECT. Stop at a breakpoint, ask for Run to Here at
+    // 0x800B (which unpauses and leaves a one-shot armed), then press F5 as the
+    // user does out of habit at the emulator window. The one-shot must survive
+    // and stop the machine at 0x800B.
+    //
+    // Before the guard, on_run()'s resume() called clear_oneshot() and the
+    // machine sailed past 0x800B to the park at 0x800E without ever pausing —
+    // so PC=$800E with paused=0 is precisely the failure this row names.
+    //
+    // The Run to Here is issued through DebugState::run_to(), which is exactly
+    // what DebuggerManager's run_to_requested handler does. That handler is
+    // deliberately NOT guarded (a fresh one-shot is sensible on a running
+    // machine); on_run() is the one that had no business touching it.
+    {
+        RunGuardFixture fx;
+        if (!fx.ok) {
+            check("GH223-02", "Run on a RUNNING machine leaves a pending "
+                  "Run-to-Here one-shot alone", false, "fixture failed");
+        } else {
+            fx.emu.debug_state().breakpoints().add_pc(RunGuardFixture::BP);
+            fx.run_until_paused();
+            const bool stopped = fx.paused() && fx.pc() == RunGuardFixture::BP;
+
+            fx.emu.debug_state().breakpoints().remove_pc(RunGuardFixture::BP);
+            fx.emu.debug_state().run_to(RunGuardFixture::TGT);   // Run to Here
+            const bool running = !fx.paused();
+
+            fx.mgr->on_run();          // the habitual, redundant F5
+            fx.run_until_paused();
+
+            check("GH223-02", "Run on a RUNNING machine leaves a pending "
+                  "Run-to-Here one-shot alone",
+                  stopped && running && fx.paused()
+                      && fx.pc() == RunGuardFixture::TGT,
+                  fmt("stopped=%d running=%d paused=%d PC=$%04X (want $%04X; "
+                      "$%04X means the one-shot was cancelled)",
+                      stopped ? 1 : 0, running ? 1 : 0, fx.paused() ? 1 : 0,
+                      fx.pc(), RunGuardFixture::TGT, RunGuardFixture::PARK));
+        }
+    }
+
+    // GH223-03 — and the no-op F5 does not leak into the guest. See the group
+    // banner for why the FSM has to be pre-armed to see this at all, and for
+    // what a fall-through would and would not reach.
+    {
+        MainWindowFixture fx;
+        DebuggerManager*  mgr = fx.ok ? fx.win.debugger_manager() : nullptr;
+        if (!mgr) {
+            check("GH223-03", "F5 with the debugger enabled never reaches the "
+                  "guest F-key FSM", false, "fixture failed");
+        } else {
+            mgr->set_enabled(true);
+            // The machine must be RUNNING: that is the case under test.
+            if (fx.emu.debug_state().paused())
+                fx.emu.debug_state().resume();
+            fx.win.activateWindow();
+
+            // Arm the guest FSM mid-scan. No processEvents() from here to the
+            // read-back: MainWindow drives run_frame() off a QTimer, and a
+            // frame would tick the FSM underneath the measurement.
+            auto arm = [&fx]() {
+                fx.emu.emu_fnkeys().reset();
+                fx.emu.emu_fnkeys().press_membrane_fkey(3);
+                fx.emu.emu_fnkeys().tick();      // IDLE -> MF_ROW_A11
+            };
+
+            arm();
+            const auto armed = fx.emu.emu_fnkeys().state();
+            QKeyEvent on(QEvent::KeyPress, Qt::Key_F5, Qt::NoModifier);
+            QApplication::sendEvent(&fx.win, &on);
+            const auto after_enabled = fx.emu.emu_fnkeys().state();
+
+            // Control: with the debugger OFF the very same key DOES drive the
+            // FSM to completion. Without this half the row would pass against a
+            // build where F5 never reached the FSM for some unrelated reason.
+            mgr->set_enabled(false, /*prompt_on_corrupt=*/false);
+            arm();
+            QKeyEvent off(QEvent::KeyPress, Qt::Key_F5, Qt::NoModifier);
+            QApplication::sendEvent(&fx.win, &off);
+            const auto after_disabled = fx.emu.emu_fnkeys().state();
+
+            // The FSM only ever advances when something ticks it, so "did not
+            // move" is exactly "was never dispatched". The control arm's
+            // landing state is deliberately NOT pinned to a literal: five
+            // unsolicited ticks from a mid-scan state land where the FSM's own
+            // transition table puts them (MF_CHECK, as it happens), and that is
+            // an artefact of the arming trick rather than part of the contract.
+            // What is asserted is the only thing that matters — it moved.
+            const bool armed_ok = (armed == EmuFnKeys::State::MF_ROW_A11);
+            const bool held     = (after_enabled == armed);
+            const bool control  = (after_disabled != armed);
+
+            check("GH223-03", "F5 with the debugger enabled never reaches the "
+                  "guest F-key FSM",
+                  armed_ok && held && control,
+                  fmt("armed=%d (want MF_ROW_A11=1) debugger-on state=%d "
+                      "(want unchanged, =%d) debugger-off state=%d (want "
+                      "anything else — the FSM must have been driven)",
+                      static_cast<int>(armed), static_cast<int>(after_enabled),
+                      static_cast<int>(armed),
+                      static_cast<int>(after_disabled)));
+        }
+    }
+}
+
 int main(int argc, char** argv)
 {
     // Both windows own QWidgets, so a QApplication is required — but not a
@@ -1243,6 +1532,8 @@ int main(int argc, char** argv)
     std::printf("  Group: BPI            — done\n");
     test_debug_menu();
     std::printf("  Group: DBG            — done\n");
+    test_run_guard();
+    std::printf("  Group: F5R            — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
