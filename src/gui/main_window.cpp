@@ -1668,6 +1668,16 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         // When debugger is enabled, intercept debug shortcuts.
         if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
             if (key == Qt::Key_F5) {
+                // GH #223: the debugger owns F5 whenever it is enabled, whether
+                // or not the machine is paused. on_run() is now a deliberate
+                // no-op on a running machine, and the key is STILL consumed —
+                // do not "fix" this into a fall-through. Falling through would
+                // reach `case Qt::Key_F5` below and fire the guest's F5
+                // membrane hotkey (expansion-bus enable, zxnext.vhd:6344,2190),
+                // turning "F5 did nothing" into "F5 poked the Next". NR 0x80
+                // bit 7 already feeds NmiSource, the NR 0x07 speed readback and
+                // contention, so that would be a live coupling, not a harmless
+                // one. Owner decision: F5 while running is fully ignored.
                 debugger_mgr_->on_run();
                 event->accept();
                 return;

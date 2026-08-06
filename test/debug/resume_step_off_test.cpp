@@ -263,12 +263,17 @@ int main() {
     // test — swallowing a hit the user deliberately set. Only a real
     // paused -> running edge arms.
     //
-    // Not hypothetical, and not reachable only through the API: the debugger
-    // toolbar's "F5: Continue" is a plain QPushButton that is never
-    // setEnabled()-gated, and MainWindow's global F5 handler forwards to
-    // on_run() whenever the debugger is enabled, whatever the machine is
-    // doing — so pressing F5 at the emulator window while a program runs
-    // reaches exactly this state. RSOW-12/-13 prove the consequence end to end.
+    // Not hypothetical, and not reachable only through the API. GH #223 has
+    // since closed the F5/Run route specifically — DebuggerManager::on_run()
+    // now returns early when the machine is not paused, so neither the global
+    // F5 handler nor the toolbar's "F5: Continue" button reaches resume() any
+    // more — but this is a DebugState-level contract, not an on_run() one, and
+    // the other resume-family entry points are unchanged: "Run to Here" still
+    // has no pause check by deliberate design (run_to() sets a fresh one-shot,
+    // which is sensible on a running machine), and set_enabled(false)'s
+    // auto-resume calls resume() directly. RSOW-13 is the route that is still
+    // live end to end; RSOW-12 now documents the DebugState contract rather
+    // than a reachable F5 sequence.
     {
         struct { const char* what; void (*again)(DebugState&); } cases[] = {
             { "resume",             [](DebugState& d){ d.resume(); } },
@@ -628,11 +633,17 @@ int main() {
     // not under the user's cursor, so an arm raised there is spent on whatever
     // breakpoint test comes next — one the user deliberately set.
     //
-    // The sequence is ordinary use. Stop at a breakpoint, press Run, alt-tab
-    // back to the game, and press F5 again at the emulator window (MainWindow's
-    // global F5 handler forwards to on_run() unconditionally, and the debugger
-    // toolbar's Continue button is not enable-gated either). Then a breakpoint
-    // is hit — and before the unpause_() edge check it did not stop.
+    // The sequence WAS ordinary use: stop at a breakpoint, press Run, alt-tab
+    // back to the game, press F5 again at the emulator window, then hit a
+    // breakpoint — which, before the unpause_() edge check, did not stop.
+    // GH #223 closed that particular door one level up (on_run() now returns
+    // early when the machine is already running), so this row no longer stands
+    // for a reachable F5 sequence. It stays as the DebugState-level contract:
+    // resume() is public, set_enabled(false) calls it directly, and the rule
+    // "an arm is raised only on a real paused -> running edge" is what keeps
+    // any future caller from swallowing a hit. GH223-02 in debugger_menu_test
+    // covers the F5 route itself, at the DebuggerManager level where the guard
+    // actually lives.
     //
     // The park is rewritten to a ONE-WAY jump before the second Run, so the
     // breakpointed address is visited exactly once more: a self-loop would

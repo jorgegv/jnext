@@ -22,9 +22,10 @@ are already stopped at runs a full lap and stops when control comes back.
 
 None of that applies when the machine is *not* stopped. Pressing F5 while a
 program is running — the emulator window takes F5 too, whenever the debugger is
-enabled — does not skip anything: your breakpoints all stay live and stop the
-machine as normal. It does clear a pending **Run to Here** or step, which is
-what asking to run freely means.
+enabled — does nothing at all. Your breakpoints stay live and stop the machine
+as normal, and a pending **Run to Here** or step target is left alone, so a
+stray F5 while you wait for one cannot cancel it. The key is still swallowed by
+the debugger either way, so it never reaches the emulated machine.
 
 **Single Step** executes exactly one instruction, entering calls, traps and
 interrupt handlers.
