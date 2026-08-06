@@ -155,8 +155,11 @@ software that actually runs on a Next. There is no `AT+CIPMODE` passthrough and
 no SSL, because nothing uses either.
 
 **Server mode and multiplexing exist** (`AT+CIPMUX=1`, `AT+CIPSERVER=1,<port>`,
-`+IPD,<id>,<len>:`), added once a consumer appeared — a debug stub that has to
-listen, because the debugger on the PC only ever dials out. The constraint that
+`+IPD,<id>,<len>:`, `AT+CIPCLOSE=<id>`), added once a consumer appeared — a debug
+stub that has to listen, because the debugger on the PC only ever dials out. The
+argument form of `AT+CIPCLOSE` frees the named connection's slot; the
+no-argument form still means "close the outbound connection", in every mode,
+because nextsync loops that exact spelling. The constraint that
 shaped it is worth knowing before touching that code: **the power-on default
 stays `AT+CIPMUX=0`**, because nextsync never sends the command and its `+IPD`
 reader does not reject the multiplexed form — it silently mis-parses it. So the

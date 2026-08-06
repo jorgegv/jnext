@@ -258,7 +258,9 @@ the bind address instead:
 
 Up to four programs can be connected at once, numbered from 1. Number 0 stays
 reserved for the program's own outbound connection, so opening a server never
-costs it the ability to dial out.
+costs it the ability to dial out. A program can also hang up on any one of them
+by number, so a client that stops answering without disconnecting does not hold
+its place for the rest of the session.
 
 ## What is not emulated yet
 
