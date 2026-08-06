@@ -1528,8 +1528,14 @@ static void test_single_step_int_delivery(Emulator& emu) {
     // test that drives its own frames must keep its own frame loop.
 
     // Put the emulator in the state the debugger leaves it in after Break.
+    //
+    // DebugState is NOT reset by Emulator::init(), so the data-breakpoint
+    // latch is cleared here too: without it SSTEP-10 would inherit whatever
+    // SSTEP-09 left behind and stop being an independent row (it does test
+    // the latch, and that is SSTEP-09's job alone).
     auto attach_debugger = [](Emulator& e) {
         e.debug_state().set_active(true);
+        e.debug_state().set_data_bp_hit(false);
         e.debug_state().pause();
     };
 
@@ -1689,6 +1695,130 @@ static void test_single_step_int_delivery(Emulator& emu) {
               "[t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle]",
               halted && pc == 0x8000 && spent > 0 &&
                   spent <= budget + emu.timing().master_cycles_per_line,
+              detail);
+    }
+
+    // SSTEP-09 — the data-breakpoint latch must be CONSUMED by a Step.
+    //
+    // `data_bp_hit_` is set by the MMU and cleared by exactly one place:
+    // run_frame()'s early-return branch (emulator.cpp:7434-7437, `pause();
+    // set_data_bp_hit(false);`). The halt-run loop READS that flag, so if a
+    // Step does not consume it too, the first watchpoint to fire poisons every
+    // later Step: the loop condition is false at iteration 0 and a Step at a
+    // HALT collapses back to one 4-T-state NOP slot — the GH #207 symptom
+    // itself, resurrected by the fix's own guard.
+    //
+    // A READ watchpoint on the halted PC is the sharpest case, because the
+    // core re-fetches that byte every internal M1 slot (t80n.vhd:502-503
+    // forces IR to 0x00 but the fetch still happens), so it fires on entry to
+    // every halt-run. The row therefore checks both halves: the flag is
+    // consumed at the end of each Step, and once the watchpoint is REMOVED a
+    // further Step runs the halt out normally. Pre-fix the removal changes
+    // nothing — the stale latch keeps the loop dead forever.
+    {
+        fresh(emu);
+        attach_debugger(emu);
+        emu.mmu().write(0x8000, 0x76);   // HALT
+        auto regs = emu.cpu().get_registers();
+        regs.IFF1 = 1;
+        regs.IFF2 = 1;
+        regs.IM   = 1;
+        regs.PC   = 0x8000;
+        regs.SP   = 0xFFFE;
+        emu.cpu().set_registers(regs);
+        emu.debug_state().breakpoints().add_watchpoint(0x8000, WatchType::READ);
+
+        emu.debugger_step();                       // executes HALT; fetch trips it
+        const bool consumed_1 = !emu.debug_state().data_bp_hit();
+        emu.debugger_step();                       // halt-run stops on the hit
+        const bool consumed_2 = !emu.debug_state().data_bp_hit();
+        const bool halted_while_armed = emu.cpu().is_halted();
+
+        // Disarm and step again: the halt must now run out.
+        emu.debug_state().breakpoints().remove_watchpoint(0x8000, WatchType::READ);
+        emu.debugger_step();
+        const bool halted_after = emu.cpu().is_halted();
+        const uint16_t pc = emu.cpu().get_registers().PC;
+
+        char detail[224];
+        std::snprintf(detail, sizeof(detail),
+                      "latch consumed after step1=%d step2=%d; halted while "
+                      "armed=%d; after disarm halted=%d PC=0x%04X (pre-fix: "
+                      "latch stays set and every later Step is a single NOP "
+                      "slot — halted=1 PC=0x8000 forever)",
+                      consumed_1 ? 1 : 0, consumed_2 ? 1 : 0,
+                      halted_while_armed ? 1 : 0, halted_after ? 1 : 0, pc);
+        check("SSTEP-09",
+              "A Step consumes the data-breakpoint latch, so a watchpoint "
+              "firing inside a halt cannot freeze every later Step "
+              "[t80n.vhd:502-503 — the halted core re-fetches every slot]",
+              consumed_1 && consumed_2 && halted_while_armed &&
+                  !halted_after && pc < 0x4000,
+              detail);
+    }
+
+    // SSTEP-10 — the halt-run crosses a real frame boundary with the REWIND
+    // BUFFER enabled.
+    //
+    // Every other row runs with rewind_buffer_frames = 0, so nothing proved
+    // that the frames step_frame_slot() now begins and ends are real frames as
+    // far as the rest of the machine is concerned. begin_new_frame() takes the
+    // rewind snapshot, and its comment requires the scheduler queue to be
+    // empty at that point — a promise the stepping path had never had to keep,
+    // because it never reached begin_new_frame() at all.
+    //
+    // Same shape as SSTEP-07 (a SECOND halt, which can only end in a LATER
+    // frame), plus: the buffer must have grown by a frame, and step_back()
+    // must still restore coherently afterwards.
+    {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 8;
+        emu.init(cfg);
+        attach_debugger(emu);
+        emu.trace_log().set_enabled(true);          // required by step_back()
+
+        emu.mmu().write(0x8000, 0x76);   // HALT
+        auto arm = [&emu]() {
+            auto r = emu.cpu().get_registers();
+            r.IFF1 = 1;
+            r.IFF2 = 1;
+            r.IM   = 1;
+            r.PC   = 0x8000;
+            r.SP   = 0xFFFE;
+            emu.cpu().set_registers(r);
+        };
+
+        arm();
+        emu.debugger_step();                        // enter halt
+        emu.debugger_step();                        // frame 0's INT ends it
+        const auto* rb = emu.rewind_buffer();
+        const size_t depth_1 = rb ? rb->depth() : 0;
+        const uint32_t newest_1 = (rb && depth_1) ? rb->newest_frame_num() : 0;
+
+        arm();                                      // re-arm: IFF1 was cleared
+        emu.debugger_step();                        // enter halt again
+        emu.debugger_step();                        // must roll into frame 1
+
+        const size_t depth_2 = rb ? rb->depth() : 0;
+        const uint32_t newest_2 = (rb && depth_2) ? rb->newest_frame_num() : 0;
+        const bool halted = emu.cpu().is_halted();
+        const uint16_t pc = emu.cpu().get_registers().PC;
+        const bool stepped_back = emu.step_back(1);
+
+        char detail[240];
+        std::snprintf(detail, sizeof(detail),
+                      "rewind depth %zu->%zu newest_frame_num %u->%u; halted=%d "
+                      "PC=0x%04X; step_back=%d (a halt-run that crosses a frame "
+                      "boundary must take the frame's rewind snapshot)",
+                      depth_1, depth_2, newest_1, newest_2,
+                      halted ? 1 : 0, pc, stepped_back ? 1 : 0);
+        check("SSTEP-10",
+              "A halt-run crossing a frame boundary takes the frame's rewind "
+              "snapshot and leaves the machine rewindable "
+              "[zxula_timing.vhd:551; t80n.vhd:1727]",
+              !halted && pc < 0x4000 && depth_2 > depth_1 &&
+                  newest_2 > newest_1 && stepped_back,
               detail);
     }
 }

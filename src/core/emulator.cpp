@@ -8467,6 +8467,32 @@ int Emulator::debugger_step()
         }
     }
 
+    // CONSUME the data-breakpoint latch. `data_bp_hit_` is set by the MMU and
+    // is NOT self-clearing: run_frame() is what consumes it, at
+    // emulator.cpp:7434-7437 (`pause(); set_data_bp_hit(false);`), because
+    // that is where a watchpoint ends the instruction it fired in. A step ends
+    // an instruction too, so the same consume belongs here — and leaving it
+    // out is not a cosmetic leak:
+    //
+    //   * the halt-run loop above reads the flag, so a watchpoint that fires
+    //     during ANY step leaves every LATER Step with a false loop condition
+    //     from its first iteration. A Step at a HALT then degrades to one
+    //     4-T-state NOP slot again — PC never moves, indefinitely. That is
+    //     precisely the GH #207 symptom this function exists to remove, and it
+    //     would have persisted until some unrelated DebugState::resume()
+    //     happened to clear the flag;
+    //   * on the next Run, run_frame()'s own check fires one instruction into
+    //     the resume and stops at an address the watchpoint has nothing to do
+    //     with.
+    //
+    // Consuming it unconditionally (not only when the loop broke on it) is
+    // deliberate: both leaks are the same latch, and a step that is not a
+    // halt-run can set it just as easily.
+    if (debug_state_.data_bp_hit()) {
+        debug_state_.pause();
+        debug_state_.set_data_bp_hit(false);
+    }
+
     return static_cast<int>(master_cycles / clock_.cpu_divisor());
 }
 

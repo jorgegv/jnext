@@ -465,6 +465,25 @@ and the current one may already be past its firing point). Rows live in
 | SSTEP-06 | A Step at a HALT leaves the halt into the ISR (t80n.vhd:496, :502-503, :1727) | not halted, PC <0x4000 after the step; pre-fix halted at 0x8000 forever |
 | SSTEP-07 | Frames keep turning over — a SECOND HALT is left too (zxula_timing.vhd:551; t80n.vhd:1727) | second halt also left, at a later clock; pre-fix the next frame's INT is never scheduled |
 | SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress (t80n.vhd:1727) | still halted, PC unmoved, <= 2-frame budget spent (guards against an unbounded halt-run loop) |
+| SSTEP-09 | A Step consumes the data-breakpoint latch (t80n.vhd:502-503) | latch clear after each Step; once the watchpoint is removed the halt runs out; pre-fix the stale latch makes every later Step a single NOP slot |
+| SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot (zxula_timing.vhd:551; t80n.vhd:1727) | rewind depth and newest_frame_num both advance, step_back() still restores |
+
+`data_bp_hit_` is a latch set by the MMU and cleared in exactly one place —
+`run_frame()`'s early-return branch. The halt-run loop READS it, so
+`debugger_step()` has to consume it as well: a watchpoint that fires during any
+Step would otherwise leave the flag set for the rest of the session, giving
+every later halt-run a false loop condition at iteration 0 and reproducing the
+original GH #207 symptom. SSTEP-09 exists for that (found in review).
+
+Mutation coverage of the six rows, each reverted from a `cp` backup:
+
+| Mutation | Rows that fail |
+|----------|----------------|
+| whole fix off | 05, 06, 07, 09, 10 |
+| halt-run loop off | 06, 07, 09, 10 |
+| `end_of_frame()` call off | 07, 10 |
+| two-frame budget removed | 08 (hangs → harness timeout) |
+| latch consume off | 09 |
 
 ## Section 15: C-IM2 quiescent early-out equivalence (Task 27 C-IM2, 2026-07-15)
 
