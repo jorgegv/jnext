@@ -92,7 +92,11 @@ struct Hotkey {
 
 const Hotkey HOTKEYS[] = {
     { Qt::Key_Q, SDL_SCANCODE_Q, 2, 0, "&Quit",              "Alt+Q", "<=" },
-    { Qt::Key_O, SDL_SCANCODE_O, 5, 1, "Load &NEX File...",  "Alt+O", ";"  },
+    // GH #217 moved this label's mnemonic from N to L ("Load &NEX File..." ->
+    // "&Load NEX File..."): N was claimed by "Save S&napshot..." as well. The
+    // ACTION is located by its exact text, so the string tracks the product;
+    // the binding under test here — Alt+O — is untouched.
+    { Qt::Key_O, SDL_SCANCODE_O, 5, 1, "&Load NEX File...",  "Alt+O", ";"  },
     { Qt::Key_S, SDL_SCANCODE_S, 1, 1, "Save &Screenshot...","Alt+S", "|"  },
     { Qt::Key_R, SDL_SCANCODE_R, 2, 3, "&Power Reset",       "Alt+R", "<"  },
     { Qt::Key_T, SDL_SCANCODE_T, 2, 4, "&Open Tape File...", "Alt+T", ">"  },
