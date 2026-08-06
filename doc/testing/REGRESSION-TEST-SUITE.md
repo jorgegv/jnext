@@ -179,12 +179,21 @@ underruns; the fix reports none.
 
 ## Functional test: esp-loopback-func
 
-One of the two tests that exercise the **emulated ESP-01 end to end** (GH #25;
-`nextsync-func` below is the other): a Z80 guest reaching port 0x133B, through
-`UartChannel`, `EspUartAdapter`, `AtEngine` and `EspGatedTransport`, out of a
-**real socket** to a real TCP peer, and every byte back again. The three ESP
-unit suites each replace one end of that path with a fake by design, so none of
-them can fail if the socket path is broken.
+The first of **six** rows that exercise the **emulated ESP-01 end to end**
+(GH #25): a Z80 guest reaching port 0x133B, through `UartChannel`,
+`EspUartAdapter`, `AtEngine` and `EspGatedTransport`, out of a **real socket**
+to a real TCP peer, and every byte back again. The three ESP unit suites each
+replace one end of that path with a fake by design, so none of them can fail if
+the socket path is broken.
+
+The other five, each owning a path this row does not reach: `esp-udp-sntp-func`
+(GH #198, UDP against a real SNTP peer), `esp-server-func` (GH #210, a real
+client dialling **in**, on the shipped loopback default), `esp-server-lan-func`
+(GH #210, the same inbound path with `--esp-listen-address` moving the socket to
+this host's RFC1918 address), `esp-close-func` (GH #211, `AT+CIPCLOSE=<id>`
+freeing a slot that a second real client then takes) and `nextsync-func`
+(GH #167, below). `esp-cli-func` is ESP coverage too, but not part of this set:
+it asserts the CLI contract against the real binary, not a socket path.
 
 This row owns the *protocol* half of that coverage — it pins the exact AT reply
 stream, which `nextsync-func` cannot, because a third-party program's traffic is
@@ -218,8 +227,10 @@ frames per second, so the same frame budget buys *more* wall time, not less.
 
 ## Functional test: nextsync-func
 
-The other end-to-end ESP-01 row (GH #167), and the only test in the suite that
-runs **third-party software** over the emulated module. `esp-loopback-func`
+The only end-to-end ESP-01 row that runs **third-party software** over the
+emulated module (GH #167) — the other five drive purpose-built guests, and
+`esp-udp-sntp-func` only *reproduces* newt's off-by-one rather than running
+newt. `esp-loopback-func`
 proves the transport with a purpose-built 76-byte guest; this one proves the
 product claim — that **NextSync 1.2**, the tool most Next developers use to move
 a build onto the machine, completes a real transfer and the files arrive intact.
