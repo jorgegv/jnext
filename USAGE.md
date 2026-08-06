@@ -857,9 +857,13 @@ the Qt6 UI, so it needs a GUI build (`make gui-release` or
 - **Stack** - SP-relative word view, SP row highlighted
 - **Call stack** - CALL/RST/INT/RET tracking, with symbol resolution
 - **Breakpoints** - execution, read, write and I/O watchpoints, in one
-  panel. They are armed only while the debugger window is open; start
-  jnext with **--persistent-breakpoints** to keep them armed with it
-  closed, in which case a hit reopens the window at the breakpoint
+  panel. An I/O watchpoint address of **00**-**FF** matches any port
+  with that low byte (**FE** catches every ULA access, whatever the high
+  byte holds); **0100** and above matches that exact 16-bit port
+  (**243B**, not **253B**). They are armed only while the debugger
+  window is open; start jnext with **--persistent-breakpoints** to keep
+  them armed with it closed, in which case a hit reopens the window at
+  the breakpoint
 - **Watch expressions** - byte, word or long at arbitrary addresses,
   with custom labels
 - **Video panels** - All layers (the real composite, through the live
