@@ -48,7 +48,7 @@ mentions them, so a test can no longer be absent from this document.
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    52 |   52 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   190 |  186 |    0 |    4 |       0 |          0 |
-| ESP-01 AT engine                           |   232 |  232 |    0 |    0 |       0 |          0 |
+| ESP-01 AT engine                           |   269 |  269 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |    59 |   59 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    14 |   14 |    0 |    0 |       0 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4212 | 3956 |    0 |    5 |     251 |          0 |
+| **Total**                                  |  4249 | 3993 |    0 |    5 |     251 |          0 |
 
-Rows the sections above carry: **4212**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4031**. Rows the 91 suites declared in `test/unit-tests.conf` run live: **6744**.
+Rows the sections above carry: **4249**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4068**. Rows the 91 suites declared in `test/unit-tests.conf` run live: **6781**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -4016,6 +4016,43 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | SRV-23 | an established inbound connection survives AT+CIPSERVER=0 and keeps delivering | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2068 |
 | SRV-24 | slot 0's transport survives its own connection closing — a reconnect after CLOSED still works | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2085 |
 | SRV-25 | ...and survives AT+RST sweeping every slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2093 |
+| CLS-01 | AT+CIPCLOSE=<id> answers <id>,CLOSED then OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2114 |
+| CLS-01b | ...and the slot is free again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2116 |
+| CLS-01c | ...having really closed that peer's socket | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2117 |
+| CLS-01d | ...and the peer-close path does not then announce it a second time | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2120 |
+| CLS-02 | the notification carries the id that was asked for, not the first live one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2134 |
+| CLS-02b | ...and only THAT peer's socket was closed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2136 |
+| CLS-02c | ...leaving the other three connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2139 |
+| CLS-03 | the top inbound slot closes the same way | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2142 |
+| CLS-04 | ...and so does the one between them | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2145 |
+| CLS-05 | ...and the first | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2148 |
+| CLS-05b | so four wedged peers can all be freed — the exhaustion this command exists for | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2149 |
+| CLS-06 | a slot freed by AT+CIPCLOSE=<id> is reused, so the next peer is id 1 again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2163 |
+| CLS-07 | AT+CIPCLOSE to a link id with no connection is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2173 |
+| CLS-07b | ...and the connection that DOES exist is untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2177 |
+| CLS-08 | ESP-AT's close-all id 5 is refused, not honoured | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2191 |
+| CLS-08b | ...and nothing was closed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2193 |
+| CLS-09 | an id past the connection ceiling is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2198 |
+| CLS-10 | a non-numeric id is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2203 |
+| CLS-11 | AT+CIPCLOSE= with no id is ERROR, not the no-argument form | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2211 |
+| CLS-11b | ...and the outbound connection it would have closed is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2213 |
+| CLS-12 | trailing arguments are refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2220 |
+| CLS-12b | ...and the connection is still live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2222 |
+| CLS-13 | the argument form is ERROR under CIPMUX=0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2231 |
+| CLS-13b | ...and the connection is untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2233 |
+| CLS-14 | the no-argument AT+CIPCLOSE still closes the OUTBOUND slot, even with inbound connections present | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2245 |
+| CLS-14b | ...and leaves the inbound connections alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2248 |
+| CLS-15 | AT+CIPCLOSE=0 closes the outbound connection with the same bytes the bare spelling emits | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2255 |
+| CLS-15b | ...and slot 0's BORROWED transport survives it — a reconnect still works | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2258 |
+| CLS-16 | a guest close racing a peer drop emits exactly one CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2272 |
+| CLS-17 | and once the peer close HAS been announced... | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2280 |
+| CLS-17b | ...closing the same id again is ERROR — the slot is already back in the pool | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2283 |
+| CLS-18 | a command line in flight holds the +IPD back, so the peer's bytes really are buffered when the close arrives | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2302 |
+| CLS-18b | ...and they are discarded with the connection — no +IPD follows the CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2305 |
+| CLS-19 | AT+CIPSEND to a closed id is ERROR — the slot is gone, not merely idle | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2313 |
+| CLS-20 | with all four slots wedged, a fifth peer is announced to nobody | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2328 |
+| CLS-20b | ...and dropped at once | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2330 |
+| CLS-21 | ...and one AT+CIPCLOSE=<id> puts the module back in service, the next peer landing in the freed slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2334 |
 
 ## ESP-01 jnext UART adapter — `test/esp/esp_uart_adapter_test.cpp`
 
