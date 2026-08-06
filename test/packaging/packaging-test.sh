@@ -303,6 +303,53 @@ else
     skp_ci_fail package-win-manifest "jnext.exe absent (package-win not built here)"
 fi
 
+# --- package-win console output (GH #212) ------------------------------------
+# `jnext.exe --help` run from a Windows console must actually print the help.
+# It did not: jnext.exe is GUI-subsystem (the row above pins that), so a console
+# launch hands it no stdio at all, and win_attach_parent_console()'s reopen was
+# suppressed by a guard that read the WIN32 standard handles AFTER AttachConsole
+# had already repointed them at the console. Everything looked connected, the
+# freopen never ran, and every CLI invocation on Windows printed nothing.
+#
+# Nothing cheaper can see this. The failure needs a REAL Win32 console: piping
+# `wine jnext.exe --help` from a Unix shell passes the shell's own fds straight
+# through, AttachConsole is never even reached, and the broken binary prints the
+# help perfectly. So the check drives `wine cmd` on a pty (win-console-check.py,
+# python3 stdlib only) and greps what the console received.
+#
+# Plain skp(), not skp_ci_fail(): ci.yml's fedora:44 container does not install
+# wine and provisioning it (plus a prefix bootstrap) for one row is not worth
+# it, exactly as with the flatpak row below. This row guards the maintainer's
+# local `make package-test`.
+#
+# Discriminative: run against the pre-GH#212 binary it reports 0 matches, and
+# against the fixed one it reports 1.
+if [ -f "$WIN_EXE" ] && command -v wine >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+    win_exe_dir=$(cd "$(dirname "$WIN_EXE")" && pwd)
+    win_console_driver=$PWD/test/packaging/win-console-check.py
+    # A prefix of our own: never touch the developer's ~/.wine, and let
+    # `make clean` take the whole thing away with build/. The outer timeout is
+    # deliberately far above the driver's own budget — it is a hang stop, not a
+    # deadline, and a cold prefix pays for a wineboot before anything else runs.
+    if (cd "$win_exe_dir" \
+        && WINEPREFIX="$win_exe_dir/.wineprefix" WINEDEBUG=-all \
+           timeout 600 python3 "$win_console_driver" \
+           "$(basename "$WIN_EXE")" --help) >"$LOGDIR/win-console.log" 2>&1
+    then
+        # Strip the console's ANSI cursor/erase sequences before matching.
+        if sed -e 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$LOGDIR/win-console.log" \
+             | grep -q "Print this help and exit"; then
+            ok package-win-console "--help reaches the parent console (GH #212)"
+        else
+            bad package-win-console "--help printed NOTHING to a real Windows console (GH #212 regressed)" "$LOGDIR/win-console.log"
+        fi
+    else
+        bad package-win-console "could not drive wine cmd on a pty" "$LOGDIR/win-console.log"
+    fi
+else
+    skp package-win-console "wine/python3 absent, or jnext.exe not built here"
+fi
+
 # --- package-win-sdl (SDL-only Windows 8+ variant, GH #108) ------------------
 # The SDL-only zip must contain the exe and the SDL2+SDL3 pair, and must NOT
 # contain any Qt DLL or plugin: a leaked Qt6 DLL would silently re-raise the
