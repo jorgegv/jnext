@@ -2066,12 +2066,12 @@ static int measure_pulse_width_tstates(MachineType type, CpuSpeed speed) {
     // First step: the tick observes the int_req rising edge → pulse starts
     // (pulse_int_n LOW, counter reset). The starting tick does NOT advance
     // the counter (VHDL:2038 holds it 0 while pulse_int_n='1' at tick entry).
-    emu.debugger_step();
+    emu.execute_single_instruction();
     if (im2.pulse_int_n()) return -2;   // pulse never started
 
     int width = 0;
     for (int guard = 0; guard < 500 && !im2.pulse_int_n(); ++guard) {
-        width += emu.debugger_step();   // returns CPU T-states
+        width += emu.execute_single_instruction();   // returns CPU T-states
     }
     return im2.pulse_int_n() ? width : -3;            // -3 = never terminated
 }
