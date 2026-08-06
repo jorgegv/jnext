@@ -1921,10 +1921,16 @@ tilemap scroll and fetch state; and re-tag every per-scanline change log with
 the new framebuffer row. The conversion from raw scanline to framebuffer row is
 a subtraction of <code>video_timing_.vblank_top()</code>, which differs per machine.</p>
 <h2 id="frame-end">Frame end<a class="headerlink" href="#frame-end" title="Permanent link">&para;</a></h2>
-<p>Once the loop exits, the end-of-frame raster position is saved, <code>frame_cycle_</code>
-advances to <code>frame_end</code>, <code>frame_in_progress_</code> clears, and any NEX boot hold
-counts down. The last visible row, 255, gets its snapshots taken here, because
-no <code>on_scanline</code> will ever fire for it.</p>
+<p>Once the loop exits, <code>end_of_frame()</code> runs: the end-of-frame raster position is
+saved, <code>frame_cycle_</code> advances to <code>frame_end</code>, <code>frame_in_progress_</code> clears, and
+any NEX boot hold counts down. The last visible row, 255, gets its snapshots
+taken here, because no <code>on_scanline</code> will ever fire for it.</p>
+<p><code>end_of_frame()</code> is a separate function rather than the tail of <code>run_frame()</code>
+for the same reason <code>step_one_instruction()</code> is: the debugger's Step needs it
+too. <code>step_frame_slot()</code> — one instruction slot with the begin-frame and
+end-frame seams around it — is what <code>debugger_step()</code> drives, because nothing
+calls <code>run_frame()</code> while the debugger holds the machine. See
+<a href="../03-subsystems/09-debug-and-the-debugger.html">3.9 Debug and the debugger</a>.</p>
 <p>Only then is the picture actually made, and it is made <strong>once</strong>:</p>
 <pre><code class="language-cpp">renderer_.render_frame(framebuffer_.data(), mmu_, ram_, palette_,
                        layer2_, &amp;sprites_, &amp;tilemap_);

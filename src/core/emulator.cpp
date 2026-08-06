@@ -7452,20 +7452,35 @@ void Emulator::end_of_frame(uint64_t frame_end)
 {
     // GH #207 — everything that must happen exactly ONCE per frame, at its
     // END. Extracted verbatim from the tail of run_frame() so the debugger's
-    // single-step path (execute_single_instruction() → step_frame_slot())
-    // turns frames over through the SAME body. Before the extraction the
-    // stepping path had no frame boundary at all: begin_new_frame() was never
-    // reached again, so the per-frame ULA/line interrupt and per-scanline
-    // scheduler events stopped being scheduled the moment the debugger paused,
-    // and a HALTed CPU could never be woken by any number of steps. Same
-    // "one shared body" rule as Task 60a's step_one_instruction().
+    // single-step path (debugger_step() → step_frame_slot()) turns frames over
+    // through the SAME body. Before the extraction the stepping path had no
+    // frame boundary at all: begin_new_frame() was never reached again, so the
+    // per-frame ULA/line interrupt and per-scanline scheduler events stopped
+    // being scheduled the moment the debugger paused, and a HALTed CPU could
+    // never be woken by any number of steps. Same "one shared body" rule as
+    // Task 60a's step_one_instruction().
     //
-    // `frame_end` is the caller's OWN end-of-frame cycle rather than a value
-    // recomputed here: run_frame() samples it before begin_new_frame() and
-    // step_frame_slot() after, and the two can disagree by a frame length in
-    // the one case where begin_new_frame() commits an NR 0x03 / NR 0x05
-    // timing change. Each caller stays self-consistent with the bound it
-    // actually ran to.
+    // `frame_end` is the CALLER'S OWN end-of-frame cycle, never a value
+    // recomputed here, and the two callers sample it at deliberately different
+    // points: run_frame() BEFORE its `if (!frame_in_progress_) begin_new_frame()`
+    // block (:7324, pre-existing), step_frame_slot() AFTER it (:8366). They
+    // agree except in one case — begin_new_frame() can commit a pending
+    // NR 0x03 / NR 0x05 timing change and re-derive
+    // `timing_.master_cycles_per_frame` through
+    // repush_video_timing_from_machine_timing() (:6976), so on the ONE frame
+    // that follows such a write, run_frame()'s bound is the OLD frame length
+    // and step_frame_slot()'s is the new one.
+    //
+    // Taking the parameter rather than recomputing keeps each caller
+    // self-consistent with the bound it actually ran its instructions to,
+    // which is what matters for `frame_cycle_ = frame_end` here. Note for a
+    // follow-up (GH #207 review): step_frame_slot()'s ordering looks like the
+    // more VHDL-faithful of the two — the effective timing latch commits at
+    // `video_frame_sync` (zxnext.vhd:6694-6703), i.e. at the frame edge, so
+    // the frame that follows the commit should already be measured with the
+    // new constants. Changing run_frame() to match is NOT done here: it moves
+    // frame geometry for every consumer of a mid-session NR 0x03/0x05 write
+    // and belongs in its own change with its own screenshot evidence.
 
     // Save end-of-frame raster before advancing frame_cycle_, so snapshot_raster()
     // can show a meaningful position when Break is pressed between frames.

@@ -142,6 +142,16 @@ The primitive keeps its frame-agnostic behaviour deliberately. Much of the
 test tree uses it to advance a machine whose frames the test drives itself,
 and several suites depend on a step not touching frame state at all.
 
+Two consequences of the halt-run are worth knowing. A Step that ends on a
+watchpoint **consumes** `data_bp_hit_`, exactly as `run_frame()` does — the
+halt-run loop reads that flag, so a latch left set would make every later Step
+collapse back to a single NOP slot. And **Step and Step Back stop being
+inverses across a halt**: one Step can execute ~10 000 internal NOP slots,
+enough to saturate the circular trace buffer, while Step Back still undoes N
+raw instructions. Nothing corrupts — the rewind buffer's own frame snapshots
+are taken normally — but the two controls are counting different things, so
+stepping *back* out of a halt is not one press.
+
 ## Panels
 
 Thirteen panels, created by `DebuggerWindow::create_panels()`. What each one
