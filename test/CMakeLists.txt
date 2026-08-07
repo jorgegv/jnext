@@ -831,6 +831,20 @@ if(ENABLE_QT_UI)
     target_include_directories(esp_status_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esp_status_tests COMMAND esp_status_test)
 
+    # GH #228 — the experimental-NEX-V1.3 warning dialog's wiring: Proceed
+    # loads with the opt-in, Cancel/Escape abort, Cancel is the default, a
+    # V1.2 file shows no dialog. Drives the REAL QMessageBox through
+    # MainWindow::handle_load_path() with the quit_gate_test modal-watcher
+    # idiom. Exists because this glue once had zero coverage: inverting the
+    # clicked-button comparison made Cancel silently GRANT the load with
+    # every suite green. Needs a real MainWindow, no display (offscreen QPA
+    # forced in main()).
+    add_executable(nex_v13_dialog_test gui/nex_v13_dialog_test.cpp)
+    set_target_properties(nex_v13_dialog_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(nex_v13_dialog_test PRIVATE jnext_gui)
+    target_include_directories(nex_v13_dialog_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME nex_v13_dialog_tests COMMAND nex_v13_dialog_test)
+
     add_executable(esc_break_test gui/esc_break_test.cpp)
     set_target_properties(esc_break_test PROPERTIES AUTOMOC ON)
     target_link_libraries(esc_break_test PRIVATE jnext_gui)

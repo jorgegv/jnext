@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.134</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.135</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.134</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.135</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2758,6 +2758,11 @@ fills it:</p>
 as it would when launched with arguments from NextZXOS. A line longer than the
 buffer the file declares is truncated to fit. Only V1.3 files have the buffer,
 so with anything else the option warns and is ignored.</p>
+<p>Note that NEX <strong>V1.3</strong> is an experimental format and is not supported in any
+way. Loading a V1.3 file needs an explicit opt-in: on the command line, add
+<code>--experimental-nex-v1.3</code> (without it the load is refused with an error); in
+the window, JNEXT shows a warning dialog and only proceeds if you confirm.
+V1.0–V1.2 files load normally, no opt-in involved.</p>
 <p>In the window, <strong>File &gt; Load NEX File…</strong> (Alt+O) opens the same loader and
 accepts every one of those formats despite its name. Tapes have their own
 entry, <strong>Tape &gt; Open Tape File…</strong> (Alt+T), covered in

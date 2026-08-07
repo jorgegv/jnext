@@ -19,7 +19,7 @@ the guest's own driver talks to. Both are called out below.
 
 | Format | In | Out | Where | Notes |
 |---|---|---|---|---|
-| `.nex` | yes | yes | `nex_loader.*`, `nex_saver.*` | Next-native. V1.0–V1.3 |
+| `.nex` | yes | yes | `nex_loader.*`, `nex_saver.*` | Next-native. V1.0–V1.3 (V1.3 gated, see below) |
 | `.sna` | yes | yes | `sna_loader.*`, `sna_saver.*` | Reads 48K and 128K; writes 48K only |
 | `.szx` | yes | yes | `szx_loader.*`, `szx_saver.*` | Writes only 48K/128K/+3; refuses Next |
 | `.z80` | yes | — | `z80_loader.*` | v1/v2/v3, 48K and 128K |
@@ -93,6 +93,17 @@ the only executable specification for that version. `nex_loader.cpp` cites it
 line by line, and where the two loaders genuinely disagree — the palette-block
 rule, the V1.3 delay model, the loading bar — the difference is documented as a
 deliberate divergence rather than silently reconciled.
+
+V1.3 is an **experimental format and not officially supported** (GH #228): the
+user-facing entry points enforce V1.2 conformance. `Emulator::load_nex()`
+refuses a header version above V1.2 unless
+`EmulatorConfig::allow_experimental_nex_v13` is set — the CLI sets it with
+`--experimental-nex-v1.3` (and refuses up front, exit 1, without it), the GUI
+sets it per load after its warning dialog's Proceed. `NexLoader` itself stays
+fully V1.3-capable — the gate lives at the entry seam, not in the loader — so
+the V1.3 test corpus drives `NexLoader::load()`/`apply()` directly. The pure
+policy predicate is `nex_version_needs_v13_optin()`; the pre-load version
+query the entry points share is `NexLoader::probe_version()`.
 
 `NexSaver` writes V1.2, and its class comment enumerates what the format simply
 cannot carry: no register file beyond PC and SP, no NextREG state, no MMU slots

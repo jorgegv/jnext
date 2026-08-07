@@ -123,6 +123,14 @@ with no terminator - which is what the reference V1.3 loader does. Quote
 buffer, so the option is inert - with a warning - for a `V1.0`-`V1.2`
 file, or a V1.3 file whose header declares no buffer.
 
+**--experimental-nex-v1.3**  
+Allow loading NEX **V1.3** files. NEX V1.3 is an experimental format and
+is **not supported in any way**; without this flag, loading a NEX file
+whose header version exceeds `V1.2` is refused with an error naming the
+version found (exit status 1). In the GUI, selecting such a file shows a
+warning dialog instead, with Cancel as the default. `V1.0`-`V1.2` files
+are unaffected either way.
+
 **--sdcard** *FILE*  
 Mount SD-card image *FILE* (`.img`). Optional; see **SD CARD AND ROMS**.
 
@@ -475,7 +483,9 @@ two are equivalent, so use one or the other: combining them
 The format is detected from the extension:
 
 `.nex`  
-v1.0/1.1/1.2; pages, Layer 2 screen and palette from the header.
+v1.0/1.1/1.2; pages, Layer 2 screen and palette from the header. V1.3 is
+experimental and unsupported - it loads only with
+**--experimental-nex-v1.3** (or the GUI warning’s Proceed).
 
 `.sna`  
 48K and 128K snapshots.

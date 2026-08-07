@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.134</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.135</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.134</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.135</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1858,7 +1858,7 @@ the guest's own driver talks to. Both are called out below.</p>
 <td>yes</td>
 <td>yes</td>
 <td><code>nex_loader.*</code>, <code>nex_saver.*</code></td>
-<td>Next-native. V1.0–V1.3</td>
+<td>Next-native. V1.0–V1.3 (V1.3 gated, see below)</td>
 </tr>
 <tr>
 <td><code>.sna</code></td>
@@ -1972,6 +1972,16 @@ the only executable specification for that version. <code>nex_loader.cpp</code> 
 line by line, and where the two loaders genuinely disagree — the palette-block
 rule, the V1.3 delay model, the loading bar — the difference is documented as a
 deliberate divergence rather than silently reconciled.</p>
+<p>V1.3 is an <strong>experimental format and not officially supported</strong> (GH #228): the
+user-facing entry points enforce V1.2 conformance. <code>Emulator::load_nex()</code>
+refuses a header version above V1.2 unless
+<code>EmulatorConfig::allow_experimental_nex_v13</code> is set — the CLI sets it with
+<code>--experimental-nex-v1.3</code> (and refuses up front, exit 1, without it), the GUI
+sets it per load after its warning dialog's Proceed. <code>NexLoader</code> itself stays
+fully V1.3-capable — the gate lives at the entry seam, not in the loader — so
+the V1.3 test corpus drives <code>NexLoader::load()</code>/<code>apply()</code> directly. The pure
+policy predicate is <code>nex_version_needs_v13_optin()</code>; the pre-load version
+query the entry points share is <code>NexLoader::probe_version()</code>.</p>
 <p><code>NexSaver</code> writes V1.2, and its class comment enumerates what the format simply
 cannot carry: no register file beyond PC and SP, no NextREG state, no MMU slots
 0–5. Read that list before treating a NEX round trip as a snapshot, because it

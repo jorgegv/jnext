@@ -24,6 +24,12 @@ as it would when launched with arguments from NextZXOS. A line longer than the
 buffer the file declares is truncated to fit. Only V1.3 files have the buffer,
 so with anything else the option warns and is ignored.
 
+Note that NEX **V1.3** is an experimental format and is not supported in any
+way. Loading a V1.3 file needs an explicit opt-in: on the command line, add
+`--experimental-nex-v1.3` (without it the load is refused with an error); in
+the window, JNEXT shows a warning dialog and only proceeds if you confirm.
+V1.0–V1.2 files load normally, no opt-in involved.
+
 In the window, **File > Load NEX File…** (Alt+O) opens the same loader and
 accepts every one of those formats despite its name. Tapes have their own
 entry, **Tape > Open Tape File…** (Alt+T), covered in

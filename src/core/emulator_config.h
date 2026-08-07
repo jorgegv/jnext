@@ -131,6 +131,12 @@ struct EmulatorConfig {
     // value cannot be delivered rather than dropping it silently.
     std::string nex_cli_args;
 
+    // GH #228 — --experimental-nex-v1.3: allow Emulator::load_nex() to load
+    // NEX V1.3 files. V1.3 is an experimental format jnext does not
+    // officially support, so the default is refuse; the CLI flag and the
+    // GUI's Proceed on its warning dialog are the only ways to set this.
+    bool allow_experimental_nex_v13 = false;
+
     // Task 79 — host input source for each Next joystick connector
     // (index 0 = Joy 1 / port 0x1F, index 1 = Joy 2 / port 0x37). Resolved
     // from --joy1-source/--joy2-source and (Qt build) ~/.jnext config with

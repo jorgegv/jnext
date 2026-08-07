@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.134</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.135</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.134</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.135</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2897,6 +2897,13 @@ V1.3 loader does. Quote <em>LINE</em> to pass more than one word:
 <code>jnext --load game.nex --nex-args "level 3"</code>. Only V1.3 declares a
 CLI buffer, so the option is inert - with a warning - for a
 <code>V1.0</code>-<code>V1.2</code> file, or a V1.3 file whose header declares no buffer.</dd>
+<dt><strong>--experimental-nex-v1.3</strong></dt>
+<dd>Allow loading NEX <strong>V1.3</strong> files. NEX V1.3 is an experimental format
+and is <strong>not supported in any way</strong>; without this flag, loading a
+NEX file whose header version exceeds <code>V1.2</code> is refused with an
+error naming the version found (exit status 1). In the GUI,
+selecting such a file shows a warning dialog instead, with Cancel as
+the default. <code>V1.0</code>-<code>V1.2</code> files are unaffected either way.</dd>
 <dt><strong>--sdcard</strong> <em>FILE</em></dt>
 <dd>Mount SD-card image <em>FILE</em> (<code>.img</code>). Optional; see <a href="../03-first-run/01-why-jnext-needs-an-sd-card-image.html">Why JNEXT needs
 an SD-card
