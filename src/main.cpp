@@ -1089,6 +1089,11 @@ int main(int argc, char* argv[]) {
             app.set_rzx_record(rzx_record_file);
         }
 
+#ifdef _WIN32
+        // Past this point the process is a session, not a quick CLI command:
+        // disarm the GH #212 completion signal (see win_console.h).
+        win_console_note_app_running();
+#endif
         app.run();
 
         // Stop recording before shutdown (encodes the MP4).
