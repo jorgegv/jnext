@@ -10,12 +10,14 @@
 /// ~44030 samples per real second while the sound card consumes 44100.
 ///
 /// That ~70 sample/s deficit is permanent. It drains the audio device queue
-/// to empty within ~20 s, after which SDL pads the device buffer with ZEROS
-/// on every shortfall — a hard step from the current signal level to 0 and
-/// back, several times a second, for the rest of the session. On a host with
-/// little CPU headroom the emulator falls further behind still and the holes
-/// become continuous. That is the "constant noise" of issue #7 and the
-/// clicking over beeper music of Task 23: one bug, two volumes.
+/// to empty within ~20 s, after which every shortfall plays content the
+/// emulator never produced. Under the original push model that content was
+/// SDL-injected ZEROS — a hard step from the current signal level to 0 and
+/// back, several times a second, for the rest of the session: the "constant
+/// noise" of issue #7 and the clicking over beeper music of Task 23, one bug,
+/// two volumes. (Since GH #208 the device callback holds the last real level
+/// instead — see audio_fill.h — so an empty queue stutters rather than
+/// clicks; the deficit itself is still this policy's problem to remove.)
 ///
 /// The cure is to stop pacing emulation on the wall clock and pace it on the
 /// sound card's clock instead: run an extra frame when the device queue runs
@@ -97,17 +99,21 @@ inline constexpr int EMERGENCY_LOW_MS = 39;
 
 /// Never let the device queue fall below this. If the host is too slow to
 /// emulate in real time, no amount of pacing can conjure the missing samples,
-/// so SdlAudio tops the queue up by holding the last sample level instead of
-/// letting SDL inject zeros (a DC hold has no discontinuity, so it stutters
-/// rather than clicks).
+/// so SdlAudio tops the queue up by holding the last sample level (a DC hold
+/// has no discontinuity, so it stutters rather than clicks).
 ///
-/// This MUST exceed the frontends' ~20 ms tick period: the guard can only run
-/// when a tick runs, so a floor below one tick cannot bridge even a single late
-/// tick — the device would drain to empty before the next push and SDL would
-/// inject zeros anyway. It must also stay below QUEUE_LOW_MS so that pacing,
-/// not padding, does the work on a host that can keep up (padding inserts
-/// samples the emulator never produced, so it must remain a rescue, not a
-/// routine).
+/// This pad is the FIRST of two hold layers (GH #208), and its scope is the
+/// merely-LATE tick: it MUST exceed the frontends' ~20 ms tick period, because
+/// it can only run when a tick runs, so a floor below one tick could not
+/// bridge even a single late one. What it structurally cannot bridge is a
+/// tick that does not run at all — a GUI stall, a degraded timer, a host
+/// throttled below real time. That shortfall reaches the device callback,
+/// which holds the last real pair at the device boundary (audio_fill.h): the
+/// second layer, on SDL's audio thread, independent of tick cadence. This
+/// floor's job is to keep that callback fill from becoming routine. The floor
+/// must also stay below QUEUE_LOW_MS so that pacing, not padding, does the
+/// work on a host that can keep up (padding inserts samples the emulator
+/// never produced, so it must remain a rescue, not a routine).
 inline constexpr int QUEUE_FLOOR_MS = 30;
 
 /// Hard ceiling. Beyond this the device is so far ahead (host stall, debugger
