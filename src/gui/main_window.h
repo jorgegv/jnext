@@ -103,6 +103,16 @@ public:
                                                 bool allow_experimental_nex_v13)>;
     void set_load_file_callback(LoadFileCallback cb) { load_file_callback_ = std::move(cb); }
 
+    // GH #228 — everything on_load_nex() does AFTER the file picker returns:
+    // the routes-to-NEX check, the version probe, the experimental-V1.3
+    // warning dialog (Proceed/Cancel, Cancel default), and the
+    // load_file_callback_ invocation with the allow bool. Public and separate
+    // from the picker precisely so nex_v13_dialog_test can drive the REAL
+    // dialog-to-decision wiring — the picker itself is modal and untestable,
+    // and this glue once had zero coverage (a Cancel-grants inversion kept
+    // every suite green).
+    void handle_load_path(const QString& path);
+
     // Issue #40 — a machine-type change is a power cycle, and it must take the
     // ONE canonical cold-boot path (platform/emulator_boot.h) like every other
     // reboot. MainWindow therefore requests it from the frontend instead of
