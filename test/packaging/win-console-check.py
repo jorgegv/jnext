@@ -22,6 +22,15 @@ them measured rather than guessed:
     GUI-subsystem child, so it prompts again immediately while jnext is still
     loading its Qt DLLs. Completion is silence.
 
+Since the GH #212 reopen, a quick-exit CLI invocation (--help/--version/usage
+errors) must ALSO hand the user a fresh prompt when it finishes: jnext posts an
+Enter into the console input buffer at exit (win_console.cpp), cmd reads the
+empty line and prints its prompt again. After the command's output goes quiet
+this driver waits a further COMPLETION_TIMEOUT_S for that extra prompt so it is
+part of the capture — the caller asserts on it (a prompt AFTER the output). A
+binary without the signal simply times that wait out and the capture ends with
+no trailing prompt, which is the failure being tested for.
+
 usage: win-console-check.py <exe-basename> [args...]
        cwd must be the directory holding the exe and its bundled DLLs.
 exit:  0 command ran (console output on stdout), 1 could not drive the console.
@@ -46,6 +55,7 @@ PROMPT_TRIES = 4
 PROMPT_TIMEOUT_S = 20.0
 RUN_TIMEOUT_S = 120.0    # ceiling for the command under test
 OUTPUT_QUIET_S = 12.0    # a GUI child prints nothing while its DLLs load
+COMPLETION_TIMEOUT_S = 20.0  # extra prompt from the GH #212 completion signal
 EXIT_DRAIN_S = 5.0
 
 
@@ -149,6 +159,12 @@ def main() -> int:
         ran = con.wait_for(MARKER, before + 1, RUN_TIMEOUT_S)
         # Actual completion is therefore silence, not a prompt.
         con.drain_quiet(OUTPUT_QUIET_S, RUN_TIMEOUT_S)
+        # The GH #212 completion signal produces ONE MORE prompt after the
+        # output (jnext posts an Enter at exit; cmd runs the empty line).
+        # Wait for it so the capture can prove/disprove it, but do not gate
+        # `ran` on it — the caller asserts, and a missing trailing prompt is
+        # the regression this row exists to catch, not a harness fault.
+        con.wait_for(MARKER, before + 2, COMPLETION_TIMEOUT_S)
 
         con.send("exit")
         deadline = time.monotonic() + EXIT_DRAIN_S
