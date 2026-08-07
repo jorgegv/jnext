@@ -609,6 +609,14 @@ static void g_hotkey()
         build_next_emulator(emu);
         const uint8_t rt0 = emu.nmi_source().reset_type();   // 100
 
+        // This row is ALSO what stops the tempting GH #226 hack. Deleting the
+        // VHDL:6370 gate in on_hotkey_f4_soft_reset() would "fix" F4 on a
+        // firmware-less boot while leaving F9/F10 dead, and while the gate-
+        // closed half of this row inherited its precondition from init() no
+        // test could see the difference. Now that the precondition is
+        // established here, deleting the gate makes rt_gated read 010 and this
+        // row FAILS. Measured, both directions.
+        //
         // ENTER config_mode explicitly (GH #226). Until then this row relied
         // on init() leaving nr_03_config_mode at its FPGA power-on '1'
         // (VHDL:1102) — a state silicon leaves within microseconds and jnext

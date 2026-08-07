@@ -3464,24 +3464,24 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | HK-06 | F9 dispatcher strobes NmiSource MF button -> nmi_mf latch | zxnext.vhd:6348 | pass | test/nmi/nmi_test.cpp:559 |
 | HK-07 | F10 dispatcher strobes NmiSource DivMMC button -> nmi_divmmc latch | zxnext.vhd:6349 | pass | test/nmi/nmi_test.cpp:576 |
 | HK-07b | F10 honours port_divmmc_io_en gate (no strobe when NR 0x83 bit 0 = 0) | zxnext.vhd:6349 | pass | test/nmi/nmi_test.cpp:597 |
-| HK-08 | F4 dispatcher advances reset_type FSM and honours config_mode gate | zxnext.vhd:6370 | pass | test/nmi/nmi_test.cpp:643 |
-| HK-09 | F1 dispatcher requests a host cold boot (deferred hard reset) [Task 70] | zxnext.vhd:6371 | pass | test/nmi/nmi_test.cpp:722 |
-| DIS-01 | FSM IDLE→FETCH for DivMMC path pulses nmi_divmmc_button → DivMmc::set_button_nmi(true) | zxnext.vhd:2170, divmmc.vhd:108-111 | pass | test/nmi/nmi_test.cpp:1350 |
-| DIS-02 | DivMmc automap_held=1 → is_nmi_hold()=1 → NmiSource divmmc_nmi_hold=1 | divmmc.vhd:150, zxnext.vhd:2107,2118 | pass | test/nmi/nmi_test.cpp:1379 |
-| DIS-03 | is_nmi_hold() = automap_held OR button_nmi across {00,10,01,11} | divmmc.vhd:150 | pass | test/nmi/nmi_test.cpp:1420 |
-| DIS-04 | FSM HOLD → END when divmmc_nmi_hold transitions to 0 | zxnext.vhd:2118, divmmc.vhd:150 | pass | test/nmi/nmi_test.cpp:1456 |
-| CLR-01 | reset() clears button_nmi_ | divmmc.vhd:108 | pass | test/nmi/nmi_test.cpp:1479 |
-| CLR-02 | set_enabled(true→false) edge (VHDL i_automap_reset) clears button_nmi_ | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/nmi/nmi_test.cpp:1500 |
-| CLR-03 | on_retn_seen() clears button_nmi_ | divmmc.vhd:108 | pass | test/nmi/nmi_test.cpp:1518 |
-| CLR-04 | automap_held rising edge clears button_nmi_ | divmmc.vhd:112-113 | pass | test/nmi/nmi_test.cpp:1551 |
-| NMI-GATE-01 | NR 0x06 bit 3 decode sets NmiSource::mf_enable() | zxnext.vhd:1110 | pass | test/nmi/nmi_test.cpp:1597 |
-| NMI-GATE-02 | NR 0x06 bit 4 decode sets NmiSource::divmmc_enable() | zxnext.vhd:1109 | pass | test/nmi/nmi_test.cpp:1612 |
-| NMI-GATE-03 | NR 0x81 bit 5 decode sets NmiSource::expbus_debounce_disable() | zxnext.vhd:1222 | pass | test/nmi/nmi_test.cpp:1627 |
-| GATE-04 | CONMEM=1 blocks MF latch even with enable+button set | zxnext.vhd:2107 | pass | test/nmi/nmi_test.cpp:1651 |
-| GATE-05 | mf_is_active=1 blocks DivMMC latch even with enable+button set | zxnext.vhd:2099 | pass | test/nmi/nmi_test.cpp:1672 |
-| GATE-06 | config_mode=1 force-clears all three priority latches | zxnext.vhd:2102-2105 | pass | test/nmi/nmi_test.cpp:1698 |
-| GATE-07 | config_mode=1 force-clears FSM to Idle from any state | zxnext.vhd:2102-2105 | pass | test/nmi/nmi_test.cpp:1718 |
-| GATE-08 | power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, expbus_eff_en, expbus_eff_disable_mem, config_mode) all false | zxnext.vhd:1109-1110/1222/369-371 | pass | test/nmi/nmi_test.cpp:1739 |
+| HK-08 | F4 dispatcher advances reset_type FSM and honours config_mode gate | zxnext.vhd:6370 | pass | test/nmi/nmi_test.cpp:651 |
+| HK-09 | F1 dispatcher requests a host cold boot (deferred hard reset) [Task 70] | zxnext.vhd:6371 | pass | test/nmi/nmi_test.cpp:730 |
+| DIS-01 | FSM IDLE→FETCH for DivMMC path pulses nmi_divmmc_button → DivMmc::set_button_nmi(true) | zxnext.vhd:2170, divmmc.vhd:108-111 | pass | test/nmi/nmi_test.cpp:1358 |
+| DIS-02 | DivMmc automap_held=1 → is_nmi_hold()=1 → NmiSource divmmc_nmi_hold=1 | divmmc.vhd:150, zxnext.vhd:2107,2118 | pass | test/nmi/nmi_test.cpp:1387 |
+| DIS-03 | is_nmi_hold() = automap_held OR button_nmi across {00,10,01,11} | divmmc.vhd:150 | pass | test/nmi/nmi_test.cpp:1428 |
+| DIS-04 | FSM HOLD → END when divmmc_nmi_hold transitions to 0 | zxnext.vhd:2118, divmmc.vhd:150 | pass | test/nmi/nmi_test.cpp:1464 |
+| CLR-01 | reset() clears button_nmi_ | divmmc.vhd:108 | pass | test/nmi/nmi_test.cpp:1487 |
+| CLR-02 | set_enabled(true→false) edge (VHDL i_automap_reset) clears button_nmi_ | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/nmi/nmi_test.cpp:1508 |
+| CLR-03 | on_retn_seen() clears button_nmi_ | divmmc.vhd:108 | pass | test/nmi/nmi_test.cpp:1526 |
+| CLR-04 | automap_held rising edge clears button_nmi_ | divmmc.vhd:112-113 | pass | test/nmi/nmi_test.cpp:1559 |
+| NMI-GATE-01 | NR 0x06 bit 3 decode sets NmiSource::mf_enable() | zxnext.vhd:1110 | pass | test/nmi/nmi_test.cpp:1605 |
+| NMI-GATE-02 | NR 0x06 bit 4 decode sets NmiSource::divmmc_enable() | zxnext.vhd:1109 | pass | test/nmi/nmi_test.cpp:1620 |
+| NMI-GATE-03 | NR 0x81 bit 5 decode sets NmiSource::expbus_debounce_disable() | zxnext.vhd:1222 | pass | test/nmi/nmi_test.cpp:1635 |
+| GATE-04 | CONMEM=1 blocks MF latch even with enable+button set | zxnext.vhd:2107 | pass | test/nmi/nmi_test.cpp:1659 |
+| GATE-05 | mf_is_active=1 blocks DivMMC latch even with enable+button set | zxnext.vhd:2099 | pass | test/nmi/nmi_test.cpp:1680 |
+| GATE-06 | config_mode=1 force-clears all three priority latches | zxnext.vhd:2102-2105 | pass | test/nmi/nmi_test.cpp:1706 |
+| GATE-07 | config_mode=1 force-clears FSM to Idle from any state | zxnext.vhd:2102-2105 | pass | test/nmi/nmi_test.cpp:1726 |
+| GATE-08 | power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, expbus_eff_en, expbus_eff_disable_mem, config_mode) all false | zxnext.vhd:1109-1110/1222/369-371 | pass | test/nmi/nmi_test.cpp:1747 |
 | FSM-01 | IDLE → FETCH on `nmi_activated` rising | zxnext.vhd:2126-2134 | missing | — |
 | FSM-02 | FETCH → HOLD on M1 fetch at 0x0066 | zxnext.vhd:2135-2138 | missing | — |
 | FSM-03 | HOLD → END on `nmi_hold = 0 | zxnext.vhd:2139-2148 | missing | — |
@@ -3495,9 +3495,9 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | EXPBUS-01 | Default `expbus_nmi_n = 1` (inactive); no assert | zxnext.vhd:2091 | missing | — |
 | EXPBUS-02 | expbus_nmi_n = 0` with `expbus_nmi_debounce_disable = 1` → immediate assert | zxnext.vhd:2091,1222 | missing | — |
 | EXPBUS-03 | expbus_nmi_n = 0` without debounce-disable → delayed assert (debounce path stubbed) | zxnext.vhd:2091 | missing | — |
-| NMI-DMA-01 | is_activated() true while any NMI latch is set | zxnext.vhd:2107 | pass | test/nmi/nmi_test.cpp:1847 |
-| NMI-DMA-02 | im2_dma_delay latches when is_activated() AND nr_cc_dma_int_en_0_7 | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:1871 |
-| NMI-DMA-03 | NR 0xCC bit 7 = 0 (or nmi_activated=0) blocks NMI-driven DMA delay | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:1900 |
+| NMI-DMA-01 | is_activated() true while any NMI latch is set | zxnext.vhd:2107 | pass | test/nmi/nmi_test.cpp:1855 |
+| NMI-DMA-02 | im2_dma_delay latches when is_activated() AND nr_cc_dma_int_en_0_7 | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:1879 |
+| NMI-DMA-03 | NR 0xCC bit 7 = 0 (or nmi_activated=0) blocks NMI-driven DMA delay | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:1908 |
 | Z80-01 | FSM producing `/NMI` edge calls `Z80Cpu::request_nmi() | zxnext.vhd:1841,2164-2170 | missing | — |
 | Z80-02 | Z80 accepts NMI, PC vectors to 0x0066 | zxnext.vhd:2135-2138 | missing | — |
 | Z80-03 | Reset clears both NmiSource state and Z80 NMI line | zxnext.vhd:2120,2149 | missing | — |
@@ -3506,25 +3506,25 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | BOOT-LOGO-01 | NextZXOS loader logo + 4-entry log render (**COVERED AT regression tier** — `boot-nextzxos-splash`, test/00regression/regression_tests.conf; pins the clean loading log at frame 252, Task 8a 2026-07-13 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | — | missing | — |
 | BOOT-DOT-01 | NextZXOS BASIC + dot-command surface (**COVERED AT regression tier** — `boot-nextzxos-dotls`, test/00regression/regression_tests.conf; types `.ls` in the NextZXOS Command Line and pins the SD-root listing, Task 57 2026-07-14, closes G47 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | — | missing | — |
 | NR02-INT-01 | NR 0x02 write via OUT 0x253B routes to NmiSource [Wave A handler, zxnext.vhd:3833,3838,2099] | zxnext.vhd:3833,3838,2099 | pass | test/nmi/nmi_test.cpp:421 |
-| HK-CFG-01 | firmware-less cold boot clears nr_03_config_mode (the IPL's own NR 0x03 commit, zxnext.vhd:5147-5151), so host F4 passes the zxnext.vhd:6370 gate and advances the reset_type FSM | zxnext.vhd:1102,5147-5151,6370 | pass | test/nmi/nmi_test.cpp:675 |
-| HK-CFG-02 | legacy --machine cold boot also clears nr_03_config_mode, so F4 is live there too (zxnext.vhd:6370 gate + :1735 FSM) | zxnext.vhd:1102,5147-5151,6370 | pass | test/nmi/nmi_test.cpp:701 |
-| MF-G162-01 | strobe_iotrap() OR's into nmi_assert_mf and latches MF | zxnext.vhd:3835-3837 | pass | test/nmi/nmi_test.cpp:780 |
-| MF-G162-01b | iotrap honours NR 0x06 bit 3 gate (no latch when MF-en off) | zxnext.vhd:2090 | pass | test/nmi/nmi_test.cpp:791 |
-| MF-G162-02 | port 0x2FFD READ + 0x3FFD WRITE strobe iotrap when NR 0xD8 bit 0 = 1, gated off when bit 0 = 0 | zxnext.vhd:2598-2602,3835-3837 | pass | test/nmi/nmi_test.cpp:837 |
-| MF-G48-01 | MF1 mode: NR 0x0A=11/NR 0x83 b1=1 → button arms NMI; OUT 0x9F clears nmi_active and latches port_io_dly | zxnext.vhd:2612-2616, multiface.vhd:122-131 | pass | test/nmi/nmi_test.cpp:904 |
-| MF-G48-02 | NR 0x0A b7:6 = 00 -> MF+3, 11 -> MF1, others -> MF128 | multiface.vhd:105-118 | pass | test/nmi/nmi_test.cpp:931 |
-| MF-G48-03 | port_io_dly edge detector gates nmi_active clear on prior-cycle quiescence | multiface.vhd:122-131 | pass | test/nmi/nmi_test.cpp:973 |
-| MF-G48-04 | INVISIBLE FF: reset=1, button=0, mode_128 disable_wr=1, mode_p3 enable_wr=1 | multiface.vhd:152-163 | pass | test/nmi/nmi_test.cpp:1011 |
-| MF-G48-05 | MF +3 readback mux: cpu_a(15:12)=0x1 → port_1ffd, 0x7 → port_7ffd | zxnext.vhd:4312-4313 | pass | test/nmi/nmi_test.cpp:1058 |
-| MF-G48-06 | DivMMC retn_seen gated by NOT mf_is_active: clears with MF inactive, preserved with MF active | zxnext.vhd:4111 | pass | test/nmi/nmi_test.cpp:1121 |
-| MF-G48-07 | port 0xDFFD bit 6 latches into port_dffd_reg_6; bit 5 hardwired to 0 in readback | zxnext.vhd:3694 | pass | test/nmi/nmi_test.cpp:1164 |
-| MF-INT-01 | NmiSource::mf_is_active() reflects Multiface::is_active() per tick (live wiring) | zxnext.vhd:2099 | pass | test/nmi/nmi_test.cpp:1218 |
-| MF-INT-02 | NmiSource::mf_nmi_hold() reflects Multiface::is_nmi_hold() per tick (live wiring) | zxnext.vhd:2118 | pass | test/nmi/nmi_test.cpp:1254 |
-| GATE-09 | expbus_eff_en=0 blocks nmi_assert_expbus even with /BUS_NMI low | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1761 |
-| GATE-10 | expbus_eff_disable_mem=1 blocks nmi_assert_expbus | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1781 |
-| GATE-11 | expbus_eff_en=1 + disable_mem=0 + pin low → producer + latch + FSM fetch | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1801 |
-| TC-NMI3-END-IDLE | FSM advances End → Idle so subsequent NMIs fire [zxnext.vhd:2149-2162 / Initial NMI-3 fix c1d7998] | zxnext.vhd:2149-2162 | pass | test/nmi/nmi_test.cpp:1949 |
-| TC-NMI-HOLD-LINE-HIGH | /NMI deasserted (HIGH) during HOLD state [zxnext.vhd:2168 / Verify1 78f5f1c] | zxnext.vhd:2168 | pass | test/nmi/nmi_test.cpp:1989 |
+| HK-CFG-01 | firmware-less cold boot clears nr_03_config_mode (the IPL's own NR 0x03 commit, zxnext.vhd:5147-5151), so host F4 passes the zxnext.vhd:6370 gate and advances the reset_type FSM | zxnext.vhd:1102,5147-5151,6370 | pass | test/nmi/nmi_test.cpp:683 |
+| HK-CFG-02 | legacy --machine cold boot also clears nr_03_config_mode, so F4 is live there too (zxnext.vhd:6370 gate + :1735 FSM) | zxnext.vhd:1102,5147-5151,6370 | pass | test/nmi/nmi_test.cpp:709 |
+| MF-G162-01 | strobe_iotrap() OR's into nmi_assert_mf and latches MF | zxnext.vhd:3835-3837 | pass | test/nmi/nmi_test.cpp:788 |
+| MF-G162-01b | iotrap honours NR 0x06 bit 3 gate (no latch when MF-en off) | zxnext.vhd:2090 | pass | test/nmi/nmi_test.cpp:799 |
+| MF-G162-02 | port 0x2FFD READ + 0x3FFD WRITE strobe iotrap when NR 0xD8 bit 0 = 1, gated off when bit 0 = 0 | zxnext.vhd:2598-2602,3835-3837 | pass | test/nmi/nmi_test.cpp:845 |
+| MF-G48-01 | MF1 mode: NR 0x0A=11/NR 0x83 b1=1 → button arms NMI; OUT 0x9F clears nmi_active and latches port_io_dly | zxnext.vhd:2612-2616, multiface.vhd:122-131 | pass | test/nmi/nmi_test.cpp:912 |
+| MF-G48-02 | NR 0x0A b7:6 = 00 -> MF+3, 11 -> MF1, others -> MF128 | multiface.vhd:105-118 | pass | test/nmi/nmi_test.cpp:939 |
+| MF-G48-03 | port_io_dly edge detector gates nmi_active clear on prior-cycle quiescence | multiface.vhd:122-131 | pass | test/nmi/nmi_test.cpp:981 |
+| MF-G48-04 | INVISIBLE FF: reset=1, button=0, mode_128 disable_wr=1, mode_p3 enable_wr=1 | multiface.vhd:152-163 | pass | test/nmi/nmi_test.cpp:1019 |
+| MF-G48-05 | MF +3 readback mux: cpu_a(15:12)=0x1 → port_1ffd, 0x7 → port_7ffd | zxnext.vhd:4312-4313 | pass | test/nmi/nmi_test.cpp:1066 |
+| MF-G48-06 | DivMMC retn_seen gated by NOT mf_is_active: clears with MF inactive, preserved with MF active | zxnext.vhd:4111 | pass | test/nmi/nmi_test.cpp:1129 |
+| MF-G48-07 | port 0xDFFD bit 6 latches into port_dffd_reg_6; bit 5 hardwired to 0 in readback | zxnext.vhd:3694 | pass | test/nmi/nmi_test.cpp:1172 |
+| MF-INT-01 | NmiSource::mf_is_active() reflects Multiface::is_active() per tick (live wiring) | zxnext.vhd:2099 | pass | test/nmi/nmi_test.cpp:1226 |
+| MF-INT-02 | NmiSource::mf_nmi_hold() reflects Multiface::is_nmi_hold() per tick (live wiring) | zxnext.vhd:2118 | pass | test/nmi/nmi_test.cpp:1262 |
+| GATE-09 | expbus_eff_en=0 blocks nmi_assert_expbus even with /BUS_NMI low | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1769 |
+| GATE-10 | expbus_eff_disable_mem=1 blocks nmi_assert_expbus | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1789 |
+| GATE-11 | expbus_eff_en=1 + disable_mem=0 + pin low → producer + latch + FSM fetch | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1809 |
+| TC-NMI3-END-IDLE | FSM advances End → Idle so subsequent NMIs fire [zxnext.vhd:2149-2162 / Initial NMI-3 fix c1d7998] | zxnext.vhd:2149-2162 | pass | test/nmi/nmi_test.cpp:1957 |
+| TC-NMI-HOLD-LINE-HIGH | /NMI deasserted (HIGH) during HOLD state [zxnext.vhd:2168 / Verify1 78f5f1c] | zxnext.vhd:2168 | pass | test/nmi/nmi_test.cpp:1997 |
 
 ## CPU interrupt pulse — `test/cpu/int_pulse_test.cpp`
 
