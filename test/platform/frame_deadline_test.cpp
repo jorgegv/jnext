@@ -410,6 +410,65 @@ int main()
               band && dev >= -1000 && dev <= 1000, "dev=" + fmt(dev));
     }
 
+    // --- FD-13: resync_now, the issue-#35 video-preference catch-up ----------
+    // The frontend declined to run the pacer's second frame and wants the next
+    // frame sooner instead. resync_now() anchors the schedule at now, so the
+    // timer fires at its floor and the grid restarts from that instant.
+    {
+        frame_deadline::Scheduler s;
+        s.rebase(0, P60);
+        const uint64_t stalls_before = s.resyncs();
+        const int iv = s.resync_now(100'000);
+        check("FD-13a", "resync_now returns the 1ms floor: the next tick is due now",
+              iv == 1, "iv=" + fmt(iv));
+        check("FD-13b", "a requested re-anchor is not counted as a stall resync",
+              s.resyncs() == stalls_before, "resyncs=" + fmt((long long)s.resyncs()));
+        check("FD-13c", "the grid restarts from the resync instant",
+              s.next_interval_ms(100'000, P60) == 17);
+    }
+
+    // A host that needs 1.67 periods per tick — ~60% of real time, the regime
+    // the video preference exists for. ADVANCING the deadline on such a tick
+    // leaves it in the past and every later tick inherits the lateness, until
+    // the stall arm fires and parks the machine for a whole period. That
+    // periodic idle IS judder, which is what the preference is trying to
+    // remove, so the catch-up must re-anchor instead.
+    {
+        constexpr int TICKS = 60;
+        const int64_t cost = P60 * 167 / 100;
+
+        struct Out { int idle = 0; uint64_t stalls = 0; int64_t wall = 0; };
+        auto simulate = [&](bool use_resync) {
+            Out o;
+            frame_deadline::Scheduler s;
+            int64_t now = 0;
+            int64_t scheduled = now + static_cast<int64_t>(s.rebase(now, P60)) * 1000;
+            for (int k = 0; k < TICKS; k++) {
+                now = scheduled + cost;   // the tick fires, then costs `cost`
+                const int iv = use_resync ? s.resync_now(now)
+                                          : s.next_interval_ms(now, P60);
+                if (iv > 1) ++o.idle;     // a wait on a machine already behind
+                scheduled = now + static_cast<int64_t>(iv) * 1000;
+            }
+            o.stalls = s.resyncs();
+            o.wall   = now;
+            return o;
+        };
+
+        const Out advanced = simulate(false);
+        const Out anchored = simulate(true);
+
+        check("FD-13d", "advancing on a 60%-speed host parks it and counts stalls",
+              advanced.idle > 0 && advanced.stalls > 0,
+              "idle=" + fmt(advanced.idle) + " stalls=" + fmt((long long)advanced.stalls));
+        check("FD-13e", "resync_now never parks it and never counts a stall",
+              anchored.idle == 0 && anchored.stalls == 0,
+              "idle=" + fmt(anchored.idle) + " stalls=" + fmt((long long)anchored.stalls));
+        check("FD-13f", "so the same frames finish sooner: no idle periods inserted",
+              anchored.wall < advanced.wall,
+              "anchored=" + fmt(anchored.wall) + " advanced=" + fmt(advanced.wall));
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

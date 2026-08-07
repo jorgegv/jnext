@@ -76,6 +76,7 @@
 - FPS counter, CPU speed, and machine mode in status bar
 - Two distinct reset controls in menu and toolbar, as on real hardware: Power Reset (Alt+R/F1, cold boot) and Soft Reset (F4, back to NextZXOS without re-running the boot chain)
 - Emulator speed control (0.5×/1×/2×/4×/custom %, or `--speed`)
+- Selectable degradation policy for a host that cannot emulate in real time (`--when-slow-prefer audio|video`, or Preferences → Startup, applied live): keep the sound smooth and drop video frames, or show every frame and let the machine run slower than real time with the sound stuttering
 - PNG screenshot (Alt+S, toolbar, `--delayed-screenshot`)
 - Video recording to MP4 via FFmpeg pipe (`--record`)
 - Direct audio recording to WAV (`--wav-record`, no FFmpeg required)
@@ -113,6 +114,7 @@
 - `--nex-args "LINE"` — argument line for a NEX V1.3 program, delivered in the CLI buffer its header declares with DE pointing at it; truncated to the header's own declared size, and warns rather than failing when the file cannot carry one
 - `--inject` raw binary with `--inject-org`, `--inject-pc`, `--inject-delay`
 - `--rewind-buffer-size`, `--speed`, `--record`, `--wav-record`, `--dac-trace`, master `--audio-gain-db`, subsystem `--audio-gain-beeper-db`/`--audio-gain-ay0-db`/`--audio-gain-ay1-db`/`--audio-gain-ay2-db`/`--audio-gain-dac-db`, `--rzx-play`, `--rzx-record`
+- `--when-slow-prefer audio|video` (what to sacrifice when the host cannot emulate in real time; persisted as `[startup] when_slow_prefer`)
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
 - `--esp` / `--no-esp` and the repeatable `--esp-allow HOST` (emulated ESP-01 Wi-Fi; off by default)
 - `--delayed-screenshot-layers ula,layer2,sprites,tiles,all` — compose only the named layers into the screenshot (default all), for capturing each graphics layer in isolation

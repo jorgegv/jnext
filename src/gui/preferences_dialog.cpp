@@ -40,6 +40,8 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     machine_combo_->setCurrentIndex(machine_combo_->findData(static_cast<int>(current.machine_type)));
     cpu_speed_combo_->setCurrentIndex(cpu_speed_combo_->findData(static_cast<int>(current.cpu_speed)));
     emu_speed_spin_->setValue(current.emulator_speed_percent);
+    when_slow_combo_->setCurrentIndex(
+        when_slow_combo_->findData(static_cast<int>(current.when_slow_prefer)));
     scale_combo_->setCurrentIndex(scale_combo_->findData(current.window_scale));
     crt_check_->setChecked(current.crt_filter);
     silent_check_->setChecked(current.silent);
@@ -107,6 +109,24 @@ QWidget* PreferencesDialog::build_startup_tab() {
     emu_speed_spin_->setSingleStep(10);
     emu_speed_spin_->setSuffix(tr("%"));
     form->addRow(tr("Emulator speed:"), emu_speed_spin_);
+
+    // Issue #35 — the degradation policy. Sits next to Emulator speed because
+    // it is the other control over how emulated time meets real time, and it
+    // only ever does anything when the two cannot be reconciled.
+    when_slow_combo_ = new QComboBox(tab);
+    when_slow_combo_->setObjectName(QStringLiteral("whenSlowPreferCombo"));
+    when_slow_combo_->addItem(
+        tr("Smooth sound (drop frames)"),
+        static_cast<int>(audio_pacing::WhenSlowPrefer::Audio));
+    when_slow_combo_->addItem(
+        tr("Smooth picture (run slower, sound stutters)"),
+        static_cast<int>(audio_pacing::WhenSlowPrefer::Video));
+    when_slow_combo_->setToolTip(
+        tr("Only takes effect on a host that cannot emulate in real time. "
+           "Smooth sound keeps the sound card fed by emulating two frames in "
+           "one slot, so the first of the pair is never shown. Smooth picture "
+           "shows every frame and lets the machine run slower than real time."));
+    form->addRow(tr("When the host is too slow:"), when_slow_combo_);
 
     scale_combo_ = new QComboBox(tab);
     for (int s = EmulatorWidget::MIN_SCALE; s <= EmulatorWidget::MAX_SCALE; ++s)
@@ -316,6 +336,8 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.machine_type = static_cast<MachineType>(machine_combo_->currentData().toInt());
     cfg.cpu_speed    = static_cast<CpuSpeed>(cpu_speed_combo_->currentData().toInt());
     cfg.emulator_speed_percent = emu_speed_spin_->value();
+    cfg.when_slow_prefer = static_cast<audio_pacing::WhenSlowPrefer>(
+        when_slow_combo_->currentData().toInt());
     cfg.window_scale = scale_combo_->currentData().toInt();
     cfg.crt_filter   = crt_check_->isChecked();
     cfg.silent       = silent_check_->isChecked();

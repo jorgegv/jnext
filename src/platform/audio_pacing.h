@@ -171,6 +171,76 @@ inline constexpr int frames_for_tick(BandState& st, int queued_ms)
     return 1;
 }
 
+/// What to sacrifice when the host cannot emulate in real time (issue #35).
+///
+/// The band above answers "the device queue is low, run an extra frame". That
+/// answer costs one frame of VIDEO: a tick presents once, after its frames, so
+/// the first frame of a double is overwritten in the framebuffer before any
+/// paint can serve it (present_cadence.h calls it `superseded`). On a host with
+/// headroom that happens a few times a minute and nobody sees it. On a host
+/// that is at or over the frame budget it happens ~20 times a second, and the
+/// alternating skip is the judder of issue #9.
+///
+/// Some users would rather have the frames and lose the audio, which is how
+/// FUSE-style emulators degrade: present everything, run slower than real time,
+/// let the sound suffer. That is a preference, not a correctness question, so
+/// it is the user's to make.
+enum class WhenSlowPrefer {
+    /// Keep the sound card fed; drop video frames to do it. The default, and
+    /// the only behaviour that existed before this option.
+    Audio,
+    /// Never drop a frame to feed the sound card.
+    Video,
+};
+
+/// What a tick should do, once the policy has been applied to the pacer's
+/// frame count.
+struct TickPlan {
+    /// Emulator frames to run this tick.
+    int frames = 1;
+    /// Run the NEXT tick as soon as the event loop allows, instead of waiting
+    /// out the rest of the frame period. This is how WhenSlowPrefer::Video
+    /// answers a catch-up: the extra frame the sound card needs still runs,
+    /// one tick later instead of inside this one, so it gets its own present
+    /// and nothing is superseded. The frontends realise it differently and
+    /// both are honest realisations of "do not wait":
+    ///   * QtApp re-anchors the frame deadline at now (frame_deadline.h,
+    ///     Scheduler::resync_now), so the repeating timer fires at its 1 ms
+    ///     floor;
+    ///   * SdlApp skips its end-of-iteration SDL_Delay, the same fast path
+    ///     fastload already uses.
+    bool next_tick_asap = false;
+};
+
+/// Apply the degradation policy to the pacer's decision.
+///
+/// Only ONE of the pacer's outcomes is policy-sensitive: the catch-up double,
+/// because it is the only one that costs a frame. A 0-frame tick delays a
+/// frame rather than dropping one (the picture holds for one period and the
+/// frame still arrives), so both policies keep it — declining it would instead
+/// let the queue run past QUEUE_MAX_MS, where SdlAudio drops the push outright
+/// and the hole is an audible click, for no video gain at all.
+///
+/// The band's own feed-forward has ALREADY been applied by frames_for_tick(),
+/// and that is correct for both policies: video mode still delivers the extra
+/// frame's samples inside roughly the same period, so the queue really does
+/// move by one intervention and the smoothed estimate must know it. Video mode
+/// changes WHEN the frame runs and whether it is presented, not whether the
+/// intervention happens.
+///
+/// Keeping this a separate pure step, rather than a mode flag inside
+/// frames_for_tick(), is deliberate: the band controller is a closed loop with
+/// a modelled response (see the WHY above and audio_pacing_test AP-13..AP-16),
+/// and this option must not be able to perturb it. Every existing row of that
+/// model therefore still exercises the identical function.
+inline constexpr TickPlan plan_for(int paced_frames, WhenSlowPrefer prefer)
+{
+    if (prefer == WhenSlowPrefer::Video && paced_frames >= 2) {
+        return TickPlan{1, true};
+    }
+    return TickPlan{paced_frames, false};
+}
+
 /// Stereo sample pairs that `ms` of playback occupies at `sample_rate`.
 inline constexpr int ms_to_samples(int ms, int sample_rate)
 {

@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.132</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.133</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.132</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.133</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2768,6 +2768,13 @@ the Preferences <strong>Network</strong> tab, and the persistent form of <code>-
 <code>--esp-allow</code>. Whenever <code>enabled</code> is true the status bar carries an ESP cell, so
 editing this file cannot put a program on the network without saying so, and
 <code>--no-esp</code> turns it off again for one run.</p>
+<p>The too-slow degradation policy is stored in the <code>[startup]</code> section as
+<code>when_slow_prefer</code>, either <code>audio</code> or <code>video</code>. It is the persistent form of
+<code>--when-slow-prefer</code> and of the Preferences <strong>Startup</strong> setting of the same
+name; anything else in that key keeps the default rather than changing how
+JNEXT degrades. <code>audio</code> keeps the sound card fed and lets the picture lose
+frames; <code>video</code> shows every frame and lets the machine run slower than real
+time. Both are inert on a host with headroom.</p>
 <p>Host audio gains are stored in the <code>[audio]</code> section: <code>gain_db</code> is the master,
 with <code>gain_beeper_db</code>, <code>gain_ay0_db</code>, <code>gain_ay1_db</code>, <code>gain_ay2_db</code>, and
 <code>gain_dac_db</code> for the individual sources. Each accepts -24 through +24; an

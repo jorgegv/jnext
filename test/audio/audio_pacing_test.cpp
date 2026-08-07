@@ -690,6 +690,63 @@ int main()
               fmt_d("doubles", r.doubles) + " " + fmt_d("skips", r.skips));
     }
 
+    // --- AP-17: the degradation policy (issue #35) --------------------------
+    // plan_for() maps the band's answer to what the tick actually does. Only
+    // the catch-up is policy-sensitive, because it is the only outcome that
+    // costs a frame: a tick presents once, after its frames, so the first
+    // frame of a double is overwritten before any paint can serve it.
+    //
+    // The band itself is NOT parameterised by the policy, and AP-17g is the
+    // row that says so: whatever the user prefers, the closed loop modelled by
+    // AP-13..AP-16 above must move identically.
+    {
+        using audio_pacing::WhenSlowPrefer;
+        constexpr auto A = WhenSlowPrefer::Audio;
+        constexpr auto V = WhenSlowPrefer::Video;
+
+        check("AP-17a", "audio: a catch-up runs two frames inside this tick",
+              audio_pacing::plan_for(2, A).frames == 2 &&
+                  !audio_pacing::plan_for(2, A).next_tick_asap);
+        check("AP-17b", "video: a catch-up runs ONE frame and pulls the next tick in",
+              audio_pacing::plan_for(2, V).frames == 1 &&
+                  audio_pacing::plan_for(2, V).next_tick_asap);
+        check("AP-17c", "an ordinary tick passes through unchanged under both",
+              audio_pacing::plan_for(1, A).frames == 1 &&
+                  !audio_pacing::plan_for(1, A).next_tick_asap &&
+                  audio_pacing::plan_for(1, V).frames == 1 &&
+                  !audio_pacing::plan_for(1, V).next_tick_asap);
+        // The skip DELAYS a frame, it does not drop one — and declining it
+        // would let the queue pass QUEUE_MAX_MS, where SdlAudio drops the push
+        // and the hole is an audible click. So video keeps it too.
+        check("AP-17d", "both policies keep the 0-frame skip",
+              audio_pacing::plan_for(0, A).frames == 0 &&
+                  !audio_pacing::plan_for(0, A).next_tick_asap &&
+                  audio_pacing::plan_for(0, V).frames == 0 &&
+                  !audio_pacing::plan_for(0, V).next_tick_asap);
+        // frames_for_tick() never returns more than 2 today, but the policy is
+        // stated over "a tick that would supersede a frame", not over the
+        // literal value 2: a wider burst must not slip past as frames the
+        // video preference never shows.
+        check("AP-17e", "video: any multi-frame tick is reduced to one",
+              audio_pacing::plan_for(5, V).frames == 1 &&
+                  audio_pacing::plan_for(5, V).next_tick_asap);
+
+        // Discriminative end to end: the same starving reading, the same band,
+        // two policies, two different plans.
+        audio_pacing::BandState band_a{}, band_v{};
+        const int starving = audio_pacing::EMERGENCY_LOW_MS - 1;
+        const audio_pacing::TickPlan pa =
+            audio_pacing::plan_for(audio_pacing::frames_for_tick(band_a, starving), A);
+        const audio_pacing::TickPlan pv =
+            audio_pacing::plan_for(audio_pacing::frames_for_tick(band_v, starving), V);
+        check("AP-17f", "a starving queue: audio supersedes a frame, video does not",
+              pa.frames == 2 && !pa.next_tick_asap &&
+                  pv.frames == 1 && pv.next_tick_asap);
+        check("AP-17g", "the band's estimate moves identically under both policies",
+              band_a.smoothed_ms == band_v.smoothed_ms,
+              fmt_d("audio", band_a.smoothed_ms) + " " + fmt_d("video", band_v.smoothed_ms));
+    }
+
     std::printf("\n====================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);

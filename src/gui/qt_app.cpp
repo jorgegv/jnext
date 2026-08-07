@@ -129,6 +129,21 @@ void QtApp::set_speed_multiplier(double multiplier) {
     Log::platform()->info("Emulator speed: {}x", multiplier);
 }
 
+void QtApp::set_when_slow_prefer(audio_pacing::WhenSlowPrefer prefer) {
+    // Logged only on a change, and only away from the default, so an ordinary
+    // session says nothing: the line exists so a user who selected the video
+    // preference can confirm it took effect, and so a bug report that shows
+    // uneven motion also shows which policy produced it.
+    if (prefer != seq_.when_slow_prefer()) {
+        Log::platform()->info(
+            "when the host cannot keep up, preferring {}",
+            prefer == audio_pacing::WhenSlowPrefer::Video
+                ? "smooth video (every frame shown, machine runs slow, audio stutters)"
+                : "smooth audio (frames dropped to keep the sound card fed)");
+    }
+    seq_.set_when_slow_prefer(prefer);
+}
+
 void QtApp::set_delayed_exit(int delay_frames) {
     exit_countdown_ = delay_frames;
     Log::platform()->info("--delayed-automatic-exit: will exit after {} frame(s)",
@@ -261,6 +276,13 @@ bool QtApp::init(int argc, char* argv[]) {
     main_window_->set_speed_callback([this](double multiplier) {
         set_speed_multiplier(multiplier);
     });
+
+    // Issue #35 — route the degradation policy from Preferences to the frame
+    // sequencer that acts on it.
+    main_window_->set_when_slow_prefer_callback(
+        [this](audio_pacing::WhenSlowPrefer prefer) {
+            set_when_slow_prefer(prefer);
+        });
 
     // Task 70 — route menu file-loads through a full cold boot (reconstruct +
     // init as if launched with --load <file>).
@@ -645,10 +667,11 @@ void QtApp::on_status_tick() {
         Log::platform()->debug(
             "cadence: emulated={} presented={} dropped={} "
             "(superseded={} unrendered={} lost={}) over {}ms | "
-            "audio-catchup: {} doubles, {} skips{}",
+            "audio-catchup: {} doubles, {} skips, {} pull-ins{}",
             cad.emulated, cad.presented, cad.dropped,
             cad.superseded, cad.unrendered, cad.lost, cad.elapsed_ms,
-            seq_.audio_doubles(), seq_.audio_skips(), fill_note);
+            seq_.audio_doubles(), seq_.audio_skips(), seq_.audio_pull_ins(),
+            fill_note);
     }
     seq_.reset_audio_counters();
 

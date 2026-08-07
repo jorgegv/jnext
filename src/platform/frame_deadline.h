@@ -92,6 +92,32 @@ public:
         return interval_to(now_us);
     }
 
+    /// Re-anchor at `now` and return the (floor) interval to it, so the next
+    /// tick runs as soon as the event loop allows. This is the
+    /// WhenSlowPrefer::Video catch-up (issue #35): the caller is behind the
+    /// sound card and has declined to drop a frame, so it asks for the next
+    /// frame sooner instead of running two frames in this tick.
+    ///
+    /// Re-anchoring rather than advancing is what makes the policy stable on a
+    /// host that cannot keep up. Advancing would leave the deadline in the
+    /// past, and every subsequent tick would inherit that lateness until it
+    /// crossed STALL_PERIODS — at which point the stall arm above resyncs to
+    /// now + period and the machine sits IDLE for a whole frame period.
+    /// Measured on a host costing 1.67 periods per tick (~60% of real time,
+    /// the regime this option is for): advancing idles on every OTHER tick and
+    /// delivers 26.5 frames/s, re-anchoring never idles and delivers 33.4.
+    /// That periodic hitch is precisely the judder the video preference exists
+    /// to remove (frame_deadline_test FD-13d..f).
+    ///
+    /// Deliberately does NOT count as a stall resync: resyncs() is the
+    /// diagnostic for "the host went away", and a deliberate, requested
+    /// re-anchor is not that.
+    int resync_now(int64_t now_us)
+    {
+        deadline_us_ = now_us;
+        return interval_to(now_us);
+    }
+
     /// Stall resyncs since construction (diagnostics/tests).
     uint64_t resyncs() const { return resyncs_; }
 
