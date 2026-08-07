@@ -997,6 +997,13 @@ my %NO_MATRIX_SECTION = (
     'esp_wiring_test'  => 'jnext host ESP policy/visibility/wiring, no core counterpart',
     'esp_status_test'  => 'host status-bar ESP indicator (GUI), no core counterpart',
 
+    # ── NEX V1.3 gate dialog ─────────────────────────────────────────
+    # GH #228 — the GUI warning dialog's Proceed/Cancel wiring for the
+    # experimental-NEX-V1.3 policy. Pure jnext policy + Qt glue; the FPGA
+    # core has no loader and no dialog, so there is nothing to cite. The
+    # policy predicate/probe/enforcement rows live in nex_loader_test.
+    'nex_v13_dialog_test' => 'experimental NEX V1.3 warning dialog (GUI), no core counterpart',
+
     # ── Host input translation ───────────────────────────────────────
     # Qt/SDL event -> ZX matrix translation on the HOST side. The guest-side
     # membrane matrix these feed is traced by `## Input`; what is asserted
