@@ -645,14 +645,33 @@ void QtApp::on_status_tick() {
     // A window with no duration is not a measurement — do not print one.
     // (last_status_ms_ is seeded when the timer starts, so this only guards
     // a clock anomaly, not the ordinary first tick.)
+    // GH #208 — drain the device-boundary fill window on the same cadence as
+    // the audio-catchup counters below, unconditionally (a non-reportable
+    // window must not leak its counts into the next one).
+    const audio_fill::StatsWindow fill =
+        audio_ ? audio_->take_fill_stats() : audio_fill::StatsWindow{};
     if (cad.reportable) {
+        // Appended only when the device callback actually manufactured
+        // samples: a healthy host's line reads exactly as before, and any
+        // nonzero figure IS the #208 symptom, quantified — ms of held audio
+        // and the number of distinct starvation episodes in the window.
+        std::string fill_note;
+        if (fill.fill_pairs > 0) {
+            char buf[64];
+            std::snprintf(buf, sizeof(buf), " | audio-fill: %lld ms (%lld events)",
+                          static_cast<long long>(fill.fill_pairs * 1000 /
+                                                 Mixer::SAMPLE_RATE),
+                          static_cast<long long>(fill.fill_events));
+            fill_note = buf;
+        }
         Log::platform()->debug(
             "cadence: emulated={} presented={} dropped={} "
             "(superseded={} unrendered={} lost={}) over {}ms | "
-            "audio-catchup: {} doubles, {} skips, {} pull-ins",
+            "audio-catchup: {} doubles, {} skips, {} pull-ins{}",
             cad.emulated, cad.presented, cad.dropped,
             cad.superseded, cad.unrendered, cad.lost, cad.elapsed_ms,
-            seq_.audio_doubles(), seq_.audio_skips(), seq_.audio_pull_ins());
+            seq_.audio_doubles(), seq_.audio_skips(), seq_.audio_pull_ins(),
+            fill_note);
     }
     seq_.reset_audio_counters();
 

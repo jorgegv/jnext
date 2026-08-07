@@ -8,23 +8,42 @@ Background
 jnext synthesises audio on the *emulated* clock (44100 samples per emulated
 second). If the frontend paces emulation on the wall clock instead of on the
 sound card's clock, it feeds the device fewer samples per real second than the
-device consumes, the device queue drains to empty, and SDL pads the buffer with
-ZEROS. Those zeros are spliced into a live waveform: the signal steps abruptly
-to 0 and back a few milliseconds later. That is an audible click, and it
-repeats for as long as the emulator runs — the "constant noise" of issue #7 and
+device consumes and the device queue drains to empty. Historically SDL then
+padded the buffer with ZEROS spliced into a live waveform: the signal steps
+abruptly to 0 and back a few milliseconds later — an audible click, repeated
+for as long as the emulator runs. That is the "constant noise" of issue #7 and
 the clicking over beeper music of Task 23.
+
+Since GH #208 that zero path no longer exists in a correctly-wired jnext: the
+SDL device is opened in callback mode and any shortfall is filled by repeating
+the last REAL sample pair (a DC hold, src/platform/audio_fill.h), so a starved
+host stutters at the signal level instead of stepping to 0. Foreign zeros in a
+live waveform therefore now indicate a broken device-boundary wiring (or a
+regression back to the queue-push model), which is exactly what this checker
+must stay able to see.
 
 Detection
 ---------
 An underrun is a run of *exactly zero* stereo samples, long enough to be
 audible, that is entered abruptly from a non-trivial signal level and left back
-to one. An SDL-injected hole cuts in from whatever the waveform was doing
+to one. An injected hole cuts in from whatever the waveform was doing
 (…, 972, 971, | 0, 0, 0 … | 970, 969, …) and the emulator's own stream resumes
 seamlessly on the far side of the gap, which is precisely what proves the zeros
 are foreign.
 
 So: run length >= MIN_RUN, and |sample immediately before the zero-run| >= EDGE
-and |sample immediately after| >= EDGE  =>  an SDL-injected hole, i.e. a click.
+and |sample immediately after| >= EDGE  =>  an injected hole, i.e. a click.
+
+PRECONDITION — the capture must contain signal at all (GH #208 review). The
+edge conditions make the zero-run scan VACUOUS on an all-zero capture: no run
+can be entered from |level| >= EDGE when no sample ever reaches EDGE, so a
+completely dead audio pipeline — measured with the callback wiring mutated to
+callback=nullptr: the ring fills, pacing pins the emulator at zero frames, and
+the device plays pure silence forever — sailed through as "OK" while the whole
+emulator was frozen. A capture whose post-skip samples never exceed EDGE is
+therefore a loud FAILURE of its own, not a pass: the stimulus this test runs
+(bin/beeper_tone.bin) drives the beeper to ~2048, a decade above EDGE, so a
+capture without a single such sample means no jnext audio reached the device.
 
 WHAT MIN_RUN IS LOAD-BEARING FOR (changed by GH #116). This docstring used to
 claim the mixer never emits exactly zero — that an idle machine sits at a flat
@@ -82,6 +101,21 @@ def main() -> int:
     skip = int(skip_secs * RATE)   # startup: the device legitimately plays zeros
                                    # before the first push, and the machine is
                                    # silent then anyway
+
+    # PRECONDITION (see docstring): a capture with no post-skip sample above
+    # EDGE on either channel cannot fail the zero-run scan by construction, so
+    # it must not be allowed to pass it either — it means no jnext audio ever
+    # reached the device (dead callback wiring, frozen emulator, or a capture
+    # too short to contain the stimulus).
+    peak = 0
+    for i in range(skip * 2, frames * 2):
+        v = abs(pcm[i])
+        if v > peak:
+            peak = v
+    if peak < EDGE:
+        print("FAIL: capture contains no signal above EDGE (peak %d < %d) — "
+              "dead audio pipeline?" % (peak, EDGE))
+        return 1
 
     underruns = []
     i = skip

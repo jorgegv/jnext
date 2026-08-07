@@ -512,6 +512,12 @@ add_executable(audio_pacing_test audio/audio_pacing_test.cpp)
 target_include_directories(audio_pacing_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME audio_pacing_tests COMMAND audio_pacing_test)
 
+# Device-boundary audio fill/hold policy test (GH #208). Header-only policy
+# under test (src/platform/audio_fill.h) — no SDL, no emulator core needed.
+add_executable(audio_fill_test platform/audio_fill_test.cpp)
+target_include_directories(audio_fill_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME audio_fill_tests COMMAND audio_fill_test)
+
 # Present-cadence accounting test (issue #9 / Task 63). Header-only accounting
 # under test (src/platform/present_cadence.h) — no Qt, no SDL, no emulator core.
 add_executable(present_cadence_test platform/present_cadence_test.cpp)

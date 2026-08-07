@@ -127,12 +127,21 @@ snapshots.
 
 ## Getting samples to the host
 
-`src/platform/sdl_audio.*` is the only place SDL audio appears.
-`push_from_mixer()` drains the ring buffer, converts through an
-`SDL_AudioStream` and queues to the device. It refuses to push when the queue is
-already past `QUEUE_MAX_MS`, and it *never* clears the queue — discarding
-samples that are queued or freshly read punches a hole in the stream, and a hole
-in the stream is a click.
+`src/platform/sdl_audio.*` is the only place SDL audio appears. The device is
+opened in *callback* mode (GH #208): SDL's audio thread pulls samples from a
+fixed-size ring buffer owned by `SdlAudio`, and `push_from_mixer()` drains the
+mixer into that ring once per frontend tick. It refuses to push when the ring
+is already past `QUEUE_MAX_MS`, and it *never* clears the ring — discarding
+samples that are queued or freshly read punches a hole in the stream, and a
+hole in the stream is a click.
+
+The callback's shortfall policy is the pure header
+`src/platform/audio_fill.h`: whatever the ring cannot cover is filled by
+repeating the last *real* sample pair delivered — a DC hold, never zeros —
+so the device can never play content jnext did not choose, no matter what the
+GUI thread is doing. Before this, the queue-push model let SDL inject zeros
+whenever the queue ran dry, which over any nonzero programme content is an
+audible click train (issues #7/#208).
 
 Headless opens no device at all; the mixer still synthesises and the ring buffer
 simply self-limits. `--silent` goes further and makes
@@ -147,8 +156,9 @@ broken. The mixer emits exactly 44 100 samples per *emulated* second, but a
 frontend driven by a 20 ms timer runs 50.00 frames per *real* second (see
 [A frame, end to end](../02-architecture/03-a-frame-end-to-end.md)), and no
 machine's frame is exactly 20 ms. That small permanent mismatch drains the
-device queue to empty within about twenty seconds, after which SDL pads with
-zeros several times a second, forever.
+device queue to empty within about twenty seconds, after which every shortfall
+plays content the emulator never produced — under the original push model,
+SDL-injected zeros several times a second, forever.
 
 The fix is to pace on the sound card instead of on the wall clock.
 `src/platform/audio_pacing.h` holds the whole policy as pure constexpr
@@ -162,12 +172,19 @@ smoothing. The header records the alternatives that were modelled and rejected,
 so read it before changing a threshold.
 
 When the host genuinely cannot keep real time, no pacing policy can conjure the
-missing samples. `SdlAudio` then pads the queue up to `QUEUE_FLOOR_MS` by
-repeating the last emitted level, because a DC hold has no discontinuity in it —
-a starved host stutters instead of clicking. Since that inserts samples the
+missing samples, and two layers of last-level hold take over (GH #208). The
+tick-side layer: `SdlAudio` pads the ring up to `QUEUE_FLOOR_MS` by repeating
+the last emitted level, because a DC hold has no discontinuity in it — a
+starved host stutters instead of clicking. Since that inserts samples the
 emulator never produced, it is armed only when pacing is in charge: not at a
 `--speed` other than 1x, and not during a tape fastload, where emulated time is
-deliberately decoupled from real time.
+deliberately decoupled from real time. But that pad only runs when a tick runs,
+so it cannot bridge a tick that never arrives — a GUI stall, a degraded timer,
+a host throttled below real time. The device-boundary layer covers exactly
+that: the SDL audio callback holds the last real pair for any shortfall
+(`audio_fill.h`), on SDL's audio thread, independent of tick cadence. Fill
+activity is reported on the periodic `cadence:` log line as
+`audio-fill: N ms (M events)` — on a healthy host it never appears.
 
 The ordering and lifetime around all of this live in
 `src/platform/frame_sequencer.h`, used by the Qt frontend and deliberately

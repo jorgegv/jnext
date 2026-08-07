@@ -114,6 +114,7 @@ BEGIN {
     M["audio_nextreg_test"]            = "Audio (NextREG)"
     M["audio_port_dispatch_test"]      = "Audio (port dispatch)"
     M["audio_pacing_test"]             = "Audio (pacing)"
+    M["audio_fill_test"]               = "Audio (device fill)"
     M["audio_capture_test"]            = "Audio (capture)"
     M["audio_gain_test"]               = "Audio (host gain)"
     M["subsystem_gain_test"]            = "Audio (subsystem gains)"
