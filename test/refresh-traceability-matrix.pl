@@ -965,9 +965,10 @@ my %NO_MATRIX_SECTION = (
 
     # ── Host audio pipeline, downstream of the modelled mixer ────────
     # `## Audio` traces the VHDL-modelled AY/DAC/beeper/mixer chain. These
-    # four start where it ends: SDL pacing, WAV capture and the user gain
-    # controls, none of which exist in the core.
+    # five start where it ends: SDL pacing, the device-boundary fill, WAV
+    # capture and the user gain controls, none of which exist in the core.
     'audio_pacing_test'   => 'host SDL audio pacing/underrun policy, downstream of the mixer',
+    'audio_fill_test'     => 'host SDL device-boundary fill/hold policy (GH #208), downstream of the mixer',
     'audio_capture_test'  => 'host WAV capture of the mixer output',
     'audio_gain_test'     => 'host output-gain control (a user setting, not a core register)',
     'subsystem_gain_test' => 'host per-subsystem gain control (a user setting)',
