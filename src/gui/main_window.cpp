@@ -9,6 +9,8 @@
 #include "core/sna_saver.h"
 #include "core/szx_saver.h"
 #include "core/nex_saver.h"
+#include "core/nex_loader.h"          // GH #228 — probe_version + policy
+#include "platform/emulator_boot.h"   // GH #228 — emulator_load_routes_to_nex
 #include "core/log.h"
 #include "platform/screenshot.h"
 #include "peripheral/esp_host_policy.h"
@@ -31,6 +33,7 @@
 #include <QFileDialog>
 #include <QIODevice>
 #include <QMessageBox>
+#include <QPushButton>
 #include <QLabel>
 #include <QAction>
 #include <QActionGroup>
@@ -1073,12 +1076,50 @@ void MainWindow::on_load_nex() {
         // Task 66 — remember the containing directory for the next dialog.
         app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
         app_config_.save();
+
+        // GH #228 — NEX V1.3 is an experimental format jnext does not
+        // officially support: warn, and only proceed on an explicit
+        // confirmation, Cancel being the default. The decision itself is the
+        // pure seam (emulator_load_routes_to_nex + NexLoader::probe_version +
+        // nex_version_needs_v13_optin, all unit-tested in nex_loader_test
+        // NEXGATE-*); this dialog is only its consumer — and even a skipped
+        // dialog cannot load V1.3 silently, because Emulator::load_nex()
+        // enforces the same policy and fails the load.
+        const std::string file = path.toStdString();
+        bool allow_experimental_nex_v13 = false;
+        if (emulator_load_routes_to_nex(file)) {
+            uint8_t ver_bcd = 0;
+            char    ver[5]  = {0};
+            if (NexLoader::probe_version(file, ver_bcd, ver) &&
+                nex_version_needs_v13_optin(ver_bcd)) {
+                QMessageBox box(QMessageBox::Warning, tr("Experimental NEX V1.3"),
+                                tr("'%1' is NEX version %2.\n\n"
+                                   "NEX V1.3 is an EXPERIMENTAL format and is NOT "
+                                   "supported in any way: it may load incorrectly, "
+                                   "misbehave, or not work at all, and no support "
+                                   "is provided for it.\n\n"
+                                   "Load it anyway?")
+                                    .arg(QFileInfo(path).fileName(),
+                                         QString::fromLatin1(ver)),
+                                QMessageBox::NoButton, this);
+                QPushButton* proceed =
+                    box.addButton(tr("Proceed (unsupported)"), QMessageBox::AcceptRole);
+                box.addButton(QMessageBox::Cancel);
+                box.setDefaultButton(QMessageBox::Cancel);  // Cancel is the default
+                box.exec();
+                if (box.clickedButton() != proceed) {
+                    return;  // Cancel aborts: nothing is loaded, nothing reset
+                }
+                allow_experimental_nex_v13 = true;
+            }
+        }
+
         // Task 70 — a menu file-load is a full cold boot as if the file had
         // been passed with --load at startup (reset the Next to a known state,
         // then load and run). QtApp performs the reconstruct+init+load; the
         // per-format loader dispatch lives in the shared startup path.
         if (load_file_callback_) {
-            load_file_callback_(path.toStdString());
+            load_file_callback_(file, allow_experimental_nex_v13);
         }
         emit load_nex_requested(path);
     }

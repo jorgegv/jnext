@@ -95,7 +95,12 @@ public:
     /// re-run the proven startup init() path. `load_file` empty = clean
     /// NextZXOS boot (Reset button / F1 / a program's NR 0x02 hard reset);
     /// non-empty = boot as if launched with --load <file> (menu file load).
-    void cold_boot(const std::string& load_file = std::string());
+    /// `allow_experimental_nex_v13` (GH #228) is the GUI warning dialog's
+    /// Proceed for THIS load only: it overlays the config for this one boot
+    /// and is NOT remembered — a later boot uses the startup config again
+    /// (where --experimental-nex-v1.3, if given, already set it).
+    void cold_boot(const std::string& load_file = std::string(),
+                   bool allow_experimental_nex_v13 = false);
 
 private:
     void on_frame_tick();

@@ -96,7 +96,11 @@ public:
     // Task 70 — file load from the menu triggers a full cold boot (as if the
     // file had been passed with --load at startup). The frontend (QtApp)
     // supplies this; MainWindow does not touch the emulator directly for loads.
-    using LoadFileCallback = std::function<void(const std::string&)>;
+    // The bool is GH #228: true only when the user confirmed the experimental
+    // NEX V1.3 warning dialog for THIS file, so the boot may set
+    // EmulatorConfig::allow_experimental_nex_v13 for this load alone.
+    using LoadFileCallback = std::function<void(const std::string&,
+                                                bool allow_experimental_nex_v13)>;
     void set_load_file_callback(LoadFileCallback cb) { load_file_callback_ = std::move(cb); }
 
     // Issue #40 — a machine-type change is a power cycle, and it must take the

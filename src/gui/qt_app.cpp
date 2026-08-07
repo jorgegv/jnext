@@ -285,10 +285,12 @@ bool QtApp::init(int argc, char* argv[]) {
         });
 
     // Task 70 — route menu file-loads through a full cold boot (reconstruct +
-    // init as if launched with --load <file>).
-    main_window_->set_load_file_callback([this](const std::string& file) {
-        cold_boot(file);
-    });
+    // init as if launched with --load <file>). The bool is GH #228: the
+    // user's Proceed on the experimental NEX V1.3 warning, granted per load.
+    main_window_->set_load_file_callback(
+        [this](const std::string& file, bool allow_experimental_nex_v13) {
+            cold_boot(file, allow_experimental_nex_v13);
+        });
 
     // Issue #40 — a machine-type change (Machine menu or Preferences) is a
     // power cycle routed through the SAME cold boot. The new type is written
@@ -405,7 +407,7 @@ void QtApp::shutdown() {
     qapp_ = nullptr;
 }
 
-void QtApp::cold_boot(const std::string& load_file) {
+void QtApp::cold_boot(const std::string& load_file, bool allow_experimental_nex_v13) {
     Log::platform()->info("Cold boot (reconstruct + init), load_file='{}'",
                           load_file.empty() ? "(none)" : load_file.c_str());
 
@@ -434,8 +436,12 @@ void QtApp::cold_boot(const std::string& load_file) {
         // rate — a cold boot is a restart, so rebase rather than glide.
         rebase_frame_timer();
     };
-    emulator_frontend_cold_boot(emulator_, config_set_ ? config_ : EmulatorConfig{},
-                                load_file, hooks);
+    // GH #228 — the warning dialog's Proceed grants the V1.3 opt-in for this
+    // boot's load only; the stored config_ is left untouched, so the next
+    // boot (hard reset, another menu load) starts from the startup policy.
+    EmulatorConfig boot_cfg = config_set_ ? config_ : EmulatorConfig{};
+    if (allow_experimental_nex_v13) boot_cfg.allow_experimental_nex_v13 = true;
+    emulator_frontend_cold_boot(emulator_, std::move(boot_cfg), load_file, hooks);
 }
 
 int64_t QtApp::TickEffects::now_us() const { return steady_now_us(); }
