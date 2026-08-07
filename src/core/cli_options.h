@@ -42,6 +42,7 @@ enum class OptId {
     InjectDelay,
     Load,
     NexArgs,
+    ExperimentalNexV13,
     Sdcard,
     SdcardDownloadConfirm,
     SdcardDownloadForce,
@@ -168,6 +169,9 @@ inline constexpr Option OPTIONS[] = {
     { "--machine",                   1, Doc::Documented, OptId::Machine },
     { "--load",                      1, Doc::Documented, OptId::Load },
     { "--nex-args",                  1, Doc::Documented, OptId::NexArgs },
+    // GH #228 — NEX V1.3 is experimental and unsupported; without this flag a
+    // --load of a NEX whose header version exceeds V1.2 is refused.
+    { "--experimental-nex-v1.3",     0, Doc::Documented, OptId::ExperimentalNexV13 },
     { "--sdcard",                    1, Doc::Documented, OptId::Sdcard },
     // Backward-compatibility alias for --sdcard, deliberately never documented:
     // it exists so older scripts keep working, and promoting it to the man page

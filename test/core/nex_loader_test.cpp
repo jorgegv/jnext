@@ -74,6 +74,7 @@
 #include "core/emulator_config.h"
 #include "core/nex_loader.h"
 #include "core/saveable.h"
+#include "platform/emulator_boot.h"   // emulator_load_routes_to_nex (GH #228)
 #include "memory/mmu.h"
 #include "video/layer2.h"
 #include "video/palette.h"
@@ -286,12 +287,13 @@ struct LoadedFixture {
 bool write_nex_bank_fixture(const std::string& path, uint16_t pc, uint16_t sp,
                             uint8_t preserve_regs, uint8_t entry_bank,
                             uint8_t bank_no, const std::vector<uint8_t>& lead,
-                            uint8_t start_delay = 0) {
+                            uint8_t start_delay = 0,
+                            const char* version = "V1.2") {
     constexpr size_t BANK = 16384;
     std::vector<uint8_t> file(512 + BANK, 0x00);
 
     std::memcpy(file.data() + 0, "Next", 4);
-    std::memcpy(file.data() + 4, "V1.2", 4);
+    std::memcpy(file.data() + 4, version, 4);
     file[8]  = 0;  // ram_required: 768 KB
     file[9]  = 1;  // num_banks — matches the single bitmap entry below
     file[10] = 0;  // screen_flags: no screen block
@@ -958,6 +960,228 @@ void test_preserve_nextregs() {
 }
 
 } // namespace
+
+// ── GH #228 — the experimental-V1.3 entry-point gate ─────────────────
+//
+// Oracle: the GH #228 policy decision itself — NEX V1.3 is an experimental
+// format jnext does not officially support, so the user-facing entry points
+// enforce V1.2 conformance and V1.3 loads only behind an explicit opt-in
+// (--experimental-nex-v1.3 / the GUI warning's Proceed). This is a jnext
+// policy, not a file-format or hardware behaviour, so there is no VHDL or
+// reference-loader citation: the rows pin the policy's pure predicate, the
+// pre-load probe, and the enforcement seam (Emulator::load_nex), including
+// the contract that NexLoader itself stays fully V1.3-capable — the gate
+// governs entry points, not the loader.
+void test_v13_gate() {
+    set_group("NEXGATE");
+
+    // Pure predicate, conforming side: everything up to and including V1.2
+    // passes with no opt-in. 0x12 is the exact boundary.
+    check("NEXGATE-01",
+          "nex_version_needs_v13_optin: V1.0/V1.1/V1.2 (bcd 0x10/0x11/0x12) need no "
+          "opt-in — V1.2 conformance is the supported envelope (GH #228)",
+          !nex_version_needs_v13_optin(0x10) &&
+          !nex_version_needs_v13_optin(0x11) &&
+          !nex_version_needs_v13_optin(0x12),
+          fmt("0x10=%d 0x11=%d 0x12=%d want 0/0/0",
+              nex_version_needs_v13_optin(0x10) ? 1 : 0,
+              nex_version_needs_v13_optin(0x11) ? 1 : 0,
+              nex_version_needs_v13_optin(0x12) ? 1 : 0));
+
+    // Pure predicate, gated side: 0x13 is the exact boundary, and anything
+    // above is gated too (load() separately refuses > 0x13, so the opt-in
+    // only ever admits exactly V1.3 among loadable files).
+    check("NEXGATE-02",
+          "nex_version_needs_v13_optin: V1.3 (bcd 0x13) and above (0x20, 0x99) need "
+          "the opt-in (GH #228)",
+          nex_version_needs_v13_optin(0x13) &&
+          nex_version_needs_v13_optin(0x20) &&
+          nex_version_needs_v13_optin(0x99),
+          fmt("0x13=%d 0x20=%d 0x99=%d want 1/1/1",
+              nex_version_needs_v13_optin(0x13) ? 1 : 0,
+              nex_version_needs_v13_optin(0x20) ? 1 : 0,
+              nex_version_needs_v13_optin(0x99) ? 1 : 0));
+
+    // Malformed / unknown version strings pack (via nex_version_bcd) above
+    // 0x12 and are therefore gated — refuse-by-default is the documented
+    // posture for anything that does not verifiably conform to V1.2.
+    {
+        const uint8_t garbage = nex_version_bcd("Vx.y");
+        const uint8_t query   = nex_version_bcd("V?.?");
+        const uint8_t future  = nex_version_bcd("V2.0");
+        check("NEXGATE-03",
+              "malformed or unknown version strings ('Vx.y', 'V?.?', 'V2.0') pack above "
+              "0x12 and are gated — refuse-by-default (GH #228)",
+              nex_version_needs_v13_optin(garbage) &&
+              nex_version_needs_v13_optin(query) &&
+              nex_version_needs_v13_optin(future),
+              fmt("bcd Vx.y=0x%02X V?.?=0x%02X V2.0=0x%02X — all must be > 0x12",
+                  garbage, query, future));
+    }
+
+    // Pre-load probe on a real V1.2 file: version reported exactly.
+    {
+        const std::string path = fixture_path("gate_probe12");
+        const bool built = write_nex_bank_fixture(path, kHdrPC, kHdrSP, 0, 0, 2, {});
+        uint8_t bcd = 0xFF;
+        char ver[5] = {0};
+        const bool probed = built && NexLoader::probe_version(path, bcd, ver);
+        check("NEXGATE-04",
+              "probe_version on a V1.2 file: true, bcd 0x12, string \"V1.2\" (GH #228)",
+              probed && bcd == 0x12 && std::strcmp(ver, "V1.2") == 0,
+              fmt("built=%d probed=%d bcd=0x%02X ver='%s'", built ? 1 : 0,
+                  probed ? 1 : 0, bcd, ver));
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // Pre-load probe on a real V1.3 file.
+    {
+        const std::string path = fixture_path("gate_probe13");
+        const bool built =
+            write_nex_bank_fixture(path, kHdrPC, kHdrSP, 0, 0, 2, {}, 0, "V1.3");
+        uint8_t bcd = 0;
+        char ver[5] = {0};
+        const bool probed = built && NexLoader::probe_version(path, bcd, ver);
+        check("NEXGATE-05",
+              "probe_version on a V1.3 file: true, bcd 0x13, string \"V1.3\" (GH #228)",
+              probed && bcd == 0x13 && std::strcmp(ver, "V1.3") == 0,
+              fmt("built=%d probed=%d bcd=0x%02X ver='%s'", built ? 1 : 0,
+                  probed ? 1 : 0, bcd, ver));
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // The probe answers false — never "gated" — for a non-NEX file and for a
+    // file that cannot be read: those fall through to the full load(), whose
+    // own error names the real problem.
+    {
+        const std::string bad = fixture_path("gate_notnex");
+        std::ofstream f(bad, std::ios::binary | std::ios::trunc);
+        f.write("NOPE1234", 8);
+        f.close();
+        uint8_t bcd = 0;
+        char ver[5] = {0};
+        const bool bad_probed  = NexLoader::probe_version(bad, bcd, ver);
+        const bool gone_probed = NexLoader::probe_version(bad + ".missing", bcd, ver);
+        check("NEXGATE-06",
+              "probe_version is false for a non-NEX magic and for an unreadable path — "
+              "the gate never fires on files the NEX loader would not parse (GH #228)",
+              !bad_probed && !gone_probed,
+              fmt("bad_magic=%d missing=%d want 0/0", bad_probed ? 1 : 0,
+                  gone_probed ? 1 : 0));
+        std::error_code ec;
+        std::filesystem::remove(bad, ec);
+    }
+
+    // Enforcement seam: Emulator::load_nex refuses a V1.3 file under the
+    // default config, while NexLoader::load() itself still accepts the very
+    // same file — the gate governs the entry point, not the loader.
+    {
+        const std::string path = fixture_path("gate_refuse13");
+        const bool built =
+            write_nex_bank_fixture(path, kHdrPC, kHdrSP, 0, 0, 2, {}, 0, "V1.3");
+
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        Emulator emu;
+        const bool refused = built && emu.init(cfg) && !emu.load_nex(path);
+
+        NexLoader loader;
+        const bool loader_ok = built && loader.load(path);
+
+        check("NEXGATE-07",
+              "Emulator::load_nex refuses a V1.3 file without the opt-in, yet "
+              "NexLoader::load() accepts the same file — the gate sits at the entry "
+              "seam, the V1.3 loader stays functional (GH #228)",
+              refused && loader_ok,
+              fmt("built=%d entry_refused=%d loader_load=%d want 1/1/1", built ? 1 : 0,
+                  refused ? 1 : 0, loader_ok ? 1 : 0));
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // The opt-in admits the same V1.3 file.
+    {
+        const std::string path = fixture_path("gate_allow13");
+        const bool built =
+            write_nex_bank_fixture(path, kHdrPC, kHdrSP, 0, 0, 2, {}, 0, "V1.3");
+
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        cfg.allow_experimental_nex_v13 = true;
+        Emulator emu;
+        const bool loaded = built && emu.init(cfg) && emu.load_nex(path);
+        check("NEXGATE-08",
+              "with allow_experimental_nex_v13 (--experimental-nex-v1.3 / GUI Proceed) "
+              "Emulator::load_nex loads the identical V1.3 file (GH #228)",
+              loaded,
+              fmt("built=%d loaded=%d want 1/1", built ? 1 : 0, loaded ? 1 : 0));
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // Control: V1.0/V1.1/V1.2 load through the same entry point with NO
+    // opt-in — the gate changed nothing for conforming files.
+    {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        bool all_ok = true;
+        std::string detail;
+        for (const char* ver : {"V1.0", "V1.1", "V1.2"}) {
+            const std::string path = fixture_path("gate_conform");
+            const bool built =
+                write_nex_bank_fixture(path, kHdrPC, kHdrSP, 0, 0, 2, {}, 0, ver);
+            Emulator emu;
+            const bool loaded = built && emu.init(cfg) && emu.load_nex(path);
+            if (!loaded) {
+                all_ok = false;
+                detail = fmt("%s: built=%d loaded=%d", ver, built ? 1 : 0, loaded ? 1 : 0);
+            }
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+        }
+        check("NEXGATE-09",
+              "control: V1.0, V1.1 and V1.2 files load via Emulator::load_nex without "
+              "any opt-in — conforming behaviour is unchanged (GH #228)",
+              all_ok, detail);
+    }
+
+    // The GUI keys its probe on the same dispatch emulator_apply_load() uses:
+    // .nex and unknown extensions reach load_nex, the seven named formats do
+    // not, and the match is case-insensitive like the dispatch itself.
+    check("NEXGATE-10",
+          "emulator_load_routes_to_nex: true for .nex/.NEX/unknown/none, false for "
+          "every extension with its own emulator_apply_load branch (GH #228)",
+          emulator_load_routes_to_nex("a.nex") &&
+          emulator_load_routes_to_nex("a.NEX") &&
+          emulator_load_routes_to_nex("a.xyz") &&
+          emulator_load_routes_to_nex("noext") &&
+          !emulator_load_routes_to_nex("a.tap") &&
+          !emulator_load_routes_to_nex("a.tzx") &&
+          !emulator_load_routes_to_nex("a.sna") &&
+          !emulator_load_routes_to_nex("a.szx") &&
+          !emulator_load_routes_to_nex("a.z80") &&
+          !emulator_load_routes_to_nex("a.wav") &&
+          !emulator_load_routes_to_nex("a.rzx") &&
+          !emulator_load_routes_to_nex("a.TAP"),
+          fmt("nex=%d NEX=%d xyz=%d noext=%d tap=%d tzx=%d sna=%d szx=%d z80=%d wav=%d rzx=%d TAP=%d",
+              emulator_load_routes_to_nex("a.nex") ? 1 : 0,
+              emulator_load_routes_to_nex("a.NEX") ? 1 : 0,
+              emulator_load_routes_to_nex("a.xyz") ? 1 : 0,
+              emulator_load_routes_to_nex("noext") ? 1 : 0,
+              emulator_load_routes_to_nex("a.tap") ? 1 : 0,
+              emulator_load_routes_to_nex("a.tzx") ? 1 : 0,
+              emulator_load_routes_to_nex("a.sna") ? 1 : 0,
+              emulator_load_routes_to_nex("a.szx") ? 1 : 0,
+              emulator_load_routes_to_nex("a.z80") ? 1 : 0,
+              emulator_load_routes_to_nex("a.wav") ? 1 : 0,
+              emulator_load_routes_to_nex("a.rzx") ? 1 : 0,
+              emulator_load_routes_to_nex("a.TAP") ? 1 : 0));
+}
 
 int main() {
     std::printf("NEX loader screen-ingest tests (issue #68)\n\n");
@@ -1915,6 +2139,9 @@ int main() {
         std::filesystem::remove(parked_path, ec);
         std::filesystem::remove(running_path, ec);
     }
+
+    // GH #228 — the experimental-V1.3 entry-point gate.
+    test_v13_gate();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);

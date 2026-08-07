@@ -6566,6 +6566,24 @@ bool Emulator::load_nex(const std::string& path)
     NexLoader loader;
     if (!loader.load(path)) return false;
 
+    // GH #228 — NEX V1.3 is an experimental format jnext does not officially
+    // support: refuse it here, at the ONE seam every user-facing load path
+    // funnels through (CLI --load, GUI menu load, esxDOS chain-load), unless
+    // the user explicitly opted in. Checked BEFORE any state is touched, so
+    // a refusal leaves the running machine exactly as it was. The CLI refuses
+    // earlier with exit 1 (main.cpp) and the GUI shows a warning dialog; this
+    // gate is what makes skipping either of those a load FAILURE rather than
+    // a silent unsupported load.
+    if (nex_version_needs_v13_optin(loader.header().version_bcd) &&
+        !config_.allow_experimental_nex_v13) {
+        Log::emulator()->error(
+            "NEX: '{}' is version '{:.4s}' — NEX V1.3 is an experimental format "
+            "and is not supported; refusing to load. Pass --experimental-nex-v1.3 "
+            "(or confirm the GUI warning) to load it anyway, unsupported.",
+            path, loader.header().version);
+        return false;
+    }
+
     // A new directly-loaded program invalidates any host handle/stream left by
     // the previous one. The path is restored below only when this NEX asks the
     // loader to keep its own file open.

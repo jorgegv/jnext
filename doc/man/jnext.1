@@ -57,6 +57,16 @@ Only V1.3 declares a CLI buffer, so the option is inert \- with a
 warning \- for a \f[CR]V1.0\f[R]\-\f[CR]V1.2\f[R] file, or a V1.3 file
 whose header declares no buffer.
 .TP
+\f[B]\-\-experimental\-nex\-v1.3\f[R]
+Allow loading NEX \f[B]V1.3\f[R] files.
+NEX V1.3 is an experimental format and is \f[B]not supported in any
+way\f[R]; without this flag, loading a NEX file whose header version
+exceeds \f[CR]V1.2\f[R] is refused with an error naming the version
+found (exit status 1).
+In the GUI, selecting such a file shows a warning dialog instead, with
+Cancel as the default.
+\f[CR]V1.0\f[R]\-\f[CR]V1.2\f[R] files are unaffected either way.
+.TP
 \f[B]\-\-sdcard\f[R] \f[I]FILE\f[R]
 Mount SD\-card image \f[I]FILE\f[R] (\f[CR].img\f[R]).
 Optional; see \f[B]SD CARD AND ROMS\f[R].
@@ -452,6 +462,8 @@ The format is detected from the extension:
 .TP
 \f[CR].nex\f[R]
 v1.0/1.1/1.2; pages, Layer 2 screen and palette from the header.
+V1.3 is experimental and unsupported \- it loads only with
+\f[B]\-\-experimental\-nex\-v1.3\f[R] (or the GUI warning\(cqs Proceed).
 .TP
 \f[CR].sna\f[R]
 48K and 128K snapshots.
