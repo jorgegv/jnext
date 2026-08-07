@@ -304,50 +304,128 @@ else
 fi
 
 # --- package-win console output (GH #212) ------------------------------------
-# `jnext.exe --help` run from a Windows console must actually print the help.
-# It did not: jnext.exe is GUI-subsystem (the row above pins that), so a console
-# launch hands it no stdio at all, and win_attach_parent_console()'s reopen was
-# suppressed by a guard that read the WIN32 standard handles AFTER AttachConsole
-# had already repointed them at the console. Everything looked connected, the
-# freopen never ran, and every CLI invocation on Windows printed nothing.
+# `jnext.exe --help` run from a Windows console must behave like a command:
+# print the help AND hand the prompt back. Two shipped regressions define the
+# two assertions:
 #
-# Nothing cheaper can see this. The failure needs a REAL Win32 console: piping
+#   text     jnext.exe is GUI-subsystem (the row above pins that), so a console
+#            launch hands it no stdio; win_attach_parent_console()'s reopen was
+#            once suppressed by a guard that read the WIN32 standard handles
+#            AFTER AttachConsole had repointed them, and every CLI invocation
+#            printed nothing (the original #212).
+#   prompt   cmd.exe does not WAIT for a GUI-subsystem child: it prompts again
+#            immediately, the help lands AFTER that prompt, and with no fresh
+#            prompt following it the session looks stuck until a keypress (the
+#            #212 reopen — "it doesn't exit"). jnext now posts an Enter to the
+#            console input at quick-CLI exit so cmd redraws its prompt; the
+#            capture must show a prompt AFTER the help text. The first fix
+#            shipped green because the old row asserted only `text`.
+#
+# Nothing cheaper can see either. Both need a REAL Win32 console: piping
 # `wine jnext.exe --help` from a Unix shell passes the shell's own fds straight
-# through, AttachConsole is never even reached, and the broken binary prints the
+# through, AttachConsole is never even reached, and a broken binary prints the
 # help perfectly. So the check drives `wine cmd` on a pty (win-console-check.py,
-# python3 stdlib only) and greps what the console received.
+# python3 stdlib only) and asserts on what the console received.
+#
+# What wine does and does not prove: wine's cmd/conhost reproduce the
+# documented prompt-vs-GUI-child behaviour and the reporter's real-Windows
+# transcript matches them, but wine's msvcrt is a reimplementation — final
+# confirmation of a fix in shipped form needs a real-Windows retest (the
+# "Windows Build (manual)" workflow exists for exactly that).
 #
 # Plain skp(), not skp_ci_fail(): ci.yml's fedora:44 container does not install
-# wine and provisioning it (plus a prefix bootstrap) for one row is not worth
-# it, exactly as with the flatpak row below. This row guards the maintainer's
-# local `make package-test`.
+# wine and provisioning it (plus a prefix bootstrap) for these rows is not
+# worth it, exactly as with the flatpak row below. These rows guard the
+# maintainer's local `make package-test`.
 #
-# Discriminative: run against the pre-GH#212 binary it reports 0 matches, and
-# against the fixed one it reports 1.
-if [ -f "$WIN_EXE" ] && command -v wine >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
-    win_exe_dir=$(cd "$(dirname "$WIN_EXE")" && pwd)
-    win_console_driver=$PWD/test/packaging/win-console-check.py
-    # A prefix of our own: never touch the developer's ~/.wine, and let
-    # `make clean` take the whole thing away with build/. The outer timeout is
-    # deliberately far above the driver's own budget — it is a hang stop, not a
-    # deadline, and a cold prefix pays for a wineboot before anything else runs.
-    if (cd "$win_exe_dir" \
-        && WINEPREFIX="$win_exe_dir/.wineprefix" WINEDEBUG=-all \
+# Discriminative both ways: against a binary without the reopen fix the `text`
+# assertion passes and the `prompt` assertion fails; against the pre-#212
+# binary both fail.
+WIN_QT5_EXE=build/win-qt5-release/jnext.exe
+# One shared prefix for every console row: created under build/ (so `make
+# clean` removes it) and paid for once — the second and third sessions reuse
+# the booted prefix instead of each running their own wineboot.
+WIN_CONSOLE_PREFIX=$PWD/build/.wineprefix-win-console
+win_console_driver=$PWD/test/packaging/win-console-check.py
+
+# win_console_capture <exe-path> <logfile> [args...] — drive `<exe> args` in a
+# wine cmd console; ANSI/CR-stripped capture lands in <logfile>. Returns the
+# driver's status (0 = the command ran; nonzero = could not drive the console).
+win_console_capture() {
+    wcc_exe=$1; wcc_log=$2; shift 2
+    wcc_dir=$(cd "$(dirname "$wcc_exe")" && pwd)
+    # The outer timeout is deliberately far above the driver's own budget — it
+    # is a hang stop, not a deadline, and a cold prefix pays for a wineboot
+    # before anything else runs.
+    (cd "$wcc_dir" \
+        && WINEPREFIX="$WIN_CONSOLE_PREFIX" WINEDEBUG=-all \
            timeout 600 python3 "$win_console_driver" \
-           "$(basename "$WIN_EXE")" --help) >"$LOGDIR/win-console.log" 2>&1
-    then
-        # Strip the console's ANSI cursor/erase sequences before matching.
-        if sed -e 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$LOGDIR/win-console.log" \
-             | grep -q "Print this help and exit"; then
-            ok package-win-console "--help reaches the parent console (GH #212)"
-        else
-            bad package-win-console "--help printed NOTHING to a real Windows console (GH #212 regressed)" "$LOGDIR/win-console.log"
-        fi
+           "$(basename "$wcc_exe")" "$@") >"$wcc_log.raw" 2>&1
+    wcc_st=$?
+    sed -e 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$wcc_log.raw" | tr -d '\r' >"$wcc_log"
+    return $wcc_st
+}
+
+# win_console_help_row <row-name> <exe-path> — the two `--help` assertions.
+win_console_help_row() {
+    wch_row=$1; wch_exe=$2
+    wch_log=$LOGDIR/$wch_row.log
+    if ! win_console_capture "$wch_exe" "$wch_log" --help; then
+        bad "$wch_row" "could not drive wine cmd on a pty" "$wch_log"
+        return
+    fi
+    if ! grep -q "Print this help and exit" "$wch_log"; then
+        bad "$wch_row" "--help printed NOTHING to a real Windows console (GH #212 regressed)" "$wch_log"
+        return
+    fi
+    # "Print version and exit" is the final line of the help text by
+    # construction; a prompt AFTER it is the completion signal. In the broken
+    # case the driver's blind `exit` echoes with no prompt prefix, so the
+    # marker cannot appear past the help at all.
+    wch_last=$(grep -n "Print version and exit" "$wch_log" | tail -1 | cut -d: -f1)
+    if [ -n "$wch_last" ] && tail -n +$((wch_last + 1)) "$wch_log" | grep -q "JNEXTRDY>"; then
+        ok "$wch_row" "--help reaches the console AND the prompt returns (GH #212)"
     else
-        bad package-win-console "could not drive wine cmd on a pty" "$LOGDIR/win-console.log"
+        bad "$wch_row" "--help printed but the prompt never returned — session looks stuck (GH #212 reopen regressed)" "$wch_log"
+    fi
+}
+
+if command -v wine >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
+    if [ -f "$WIN_EXE" ]; then
+        win_console_help_row package-win-console "$WIN_EXE"
+    else
+        skp package-win-console "jnext.exe not built here (package-win)"
+    fi
+    # Same rows against the Qt5 -legacy exe: the Windows-8.1 reporter of the
+    # #212 reopen runs THIS binary, and its startup path differs (qt5main
+    # WinMain bridge vs Qt6::EntryPointPrivate).
+    if [ -f "$WIN_QT5_EXE" ]; then
+        win_console_help_row package-win-console-qt5 "$WIN_QT5_EXE"
+    else
+        skp package-win-console-qt5 "legacy jnext.exe not built here (package-win-qt5)"
+    fi
+    # Redirection through the same real console: `--version >file` must land
+    # the version in the FILE (stdout stays on the shell's redirect handle —
+    # the fc36a59b handle restoration — and --help/--version go to stdout,
+    # GH #216). Identical CRT-level code in both legs, so one leg suffices.
+    if [ -f "$WIN_EXE" ]; then
+        win_redir_dir=$(cd "$(dirname "$WIN_EXE")" && pwd)
+        rm -f "$win_redir_dir/jnext-212-redir.txt"
+        if win_console_capture "$WIN_EXE" "$LOGDIR/win-console-redir.log" \
+               --version '>jnext-212-redir.txt' \
+           && grep -q "^jnext [0-9]" "$win_redir_dir/jnext-212-redir.txt" 2>/dev/null; then
+            ok package-win-redirect "--version >file lands in the file from a real console (GH #212/#216)"
+        else
+            bad package-win-redirect "console redirect did NOT reach the file (GH #212 handle restoration regressed)" "$LOGDIR/win-console-redir.log"
+        fi
+        rm -f "$win_redir_dir/jnext-212-redir.txt"
+    else
+        skp package-win-redirect "jnext.exe not built here (package-win)"
     fi
 else
-    skp package-win-console "wine/python3 absent, or jnext.exe not built here"
+    skp package-win-console "wine or python3 absent"
+    skp package-win-console-qt5 "wine or python3 absent"
+    skp package-win-redirect "wine or python3 absent"
 fi
 
 # --- package-win-sdl (SDL-only Windows 8+ variant, GH #108) ------------------
