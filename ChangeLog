@@ -1,20 +1,30 @@
 # ChangeLog
 
-## Unreleased (2026-08-04)
+## v0.99.132 (2026-08-07)
+
+### User Features
+- Command-line help now works on Windows, where it had never printed anything
+- Menu entries that could not be reached by their keyboard shortcut now work
 
 ### Developer Features
-- Emulated ESP-01 can now listen: AT+CIPMUX=1, AT+CIPSERVER and the multiplexed +IPD form
-- dezogif_ng, the WiFi remote debugger for REAL Next hardware, can now be developed and tested in jnext
-- The server socket binds loopback by default; --esp-listen-address widens it deliberately
-- New --delayed-nmi presses the NMI or DRIVE button headlessly, so NMI handlers can be tested
-- Developer guide published: architecture, every subsystem, the test system and how to contribute
+- The emulated ESP-01 accepts incoming connections, so WiFi tools like remote debuggers run under jnext
+- Debugger gains I/O watchpoints: break on a read or a write to any port
+- Breakpoints can stay armed while the debugger window is closed, reopening it on a hit
+- Headless NMI and DRIVE button presses, for testing NMI handlers without a GUI
+- Developer guide published, covering the architecture, every subsystem, testing and contribution
+- The user guide now documents every command-line option
 
 ### Bug Fixes
-- Debugger Step Out (F8) never stopped anywhere; it now returns from the current call
+- A wave of debugger stepping fixes, most long-standing: Step Out, Step Over, Run to Cycle and stepping a HALT
+- Run no longer re-stops on the breakpoint it is standing on, and does nothing while already running
+- The Breakpoints panel no longer goes stale after a breakpoint is added
+- Command-line help can be redirected to a file on every platform
 
 ### Internal JNEXT Development
-- Traceability matrix finds the FPGA sources from any git worktree, with no environment variable
-- Owner-specific absolute paths removed from tracked code, and linted so they cannot return
+- The traceability matrix is now a generated, staleness-gated artifact instead of a hand-maintained document
+- Breakpoint views observe the breakpoint set, instead of every call site remembering to refresh them
+- The main window's keyboard shortcuts are guarded against collisions, as the debugger's already were
+- Owner-specific paths removed from tracked code, and linted so they cannot return
 
 ## v0.99.110 (2026-08-01)
 
