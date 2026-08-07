@@ -541,6 +541,15 @@ void DebuggerWindow::create_menus() {
     // --- Breakpoints menu ---
     QMenu* bp_menu = bar->addMenu(tr("&Breakpoints"));
 
+    // GH #215 — Execute (the ordinary PC breakpoint) was reachable only from
+    // the Breakpoints PANEL's Add dialog, so the menu offered every type
+    // EXCEPT the one users reach for first. Listed first, and lettered E:
+    // R/W/B/C are already taken by the four entries below (issue #124).
+    QAction* add_exec_bp = bp_menu->addAction(tr("Add &Execute Breakpoint..."));
+    connect(add_exec_bp, &QAction::triggered, this, [this]() {
+        show_add_exec_bp_dialog();
+    });
+
     QAction* add_read_bp = bp_menu->addAction(tr("Add &Read Breakpoint..."));
     connect(add_read_bp, &QAction::triggered, this, [this]() {
         show_add_data_bp_dialog(WatchType::READ);
@@ -563,7 +572,6 @@ void DebuggerWindow::create_menus() {
     connect(clear_all_bp, &QAction::triggered, this, [this]() {
         emulator_->debug_state().breakpoints().clear_all_pc();
         emulator_->debug_state().breakpoints().clear_all_watchpoints();
-        if (disasm_panel_) disasm_panel_->refresh();
     });
 
     // --- Watches menu ---
@@ -971,16 +979,11 @@ void DebuggerWindow::create_panels() {
     callstack_panel_ = new CallStackPanel(emulator_);
     breakpoint_panel_ = new BreakpointPanel(emulator_);
 
-    // Keep the breakpoint list and the disassembly gutter in sync, both ways.
-    // Neither direction was actually wired: BreakpointPanel::set_disasm_panel()
-    // was never called (so add/edit/remove in the list left the gutter stale)
-    // and DisasmPanel::breakpoint_toggled was emitted but never connected (so
-    // toggling a breakpoint from the gutter left the list stale).  Both panels
-    // only otherwise repaint on a pause/step transition, so the staleness was
-    // visible for as long as the emulator stayed paused.
-    breakpoint_panel_->set_disasm_panel(disasm_panel_);
-    connect(disasm_panel_, &DisasmPanel::breakpoint_toggled,
-            this, [this](uint16_t) { breakpoint_panel_->refresh(); });
+    // GH #220 — no panel-to-panel wiring here any more. Both panels subscribe
+    // to the BreakpointSet in their own constructors, so the list and the
+    // gutter track it without either of them (or any mutation route) knowing
+    // the other exists. The two hand-wired directions this replaced had each
+    // shipped broken once.
 
     mmu_panel_ = new MmuPanel(emulator_);
 
@@ -1066,16 +1069,9 @@ void DebuggerWindow::activate_follow_pc() {
     if (disasm_panel_) disasm_panel_->activate_follow_pc();
 }
 
-void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
+bool DebuggerWindow::prompt_bp_address(const QString& title, uint16_t& addr) {
     QDialog dlg(this);
-    QString type_name;
-    switch (type) {
-        case WatchType::READ:       type_name = "Read"; break;
-        case WatchType::WRITE:      type_name = "Write"; break;
-        case WatchType::READ_WRITE: type_name = "Read/Write"; break;
-        default:                    type_name = "Data"; break;
-    }
-    dlg.setWindowTitle(tr("Add %1 Breakpoint").arg(type_name));
+    dlg.setWindowTitle(title);
     dlg.setMinimumWidth(400);
 
     auto* form = new QFormLayout(&dlg);
@@ -1089,17 +1085,44 @@ void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
     connect(buttons, &QDialogButtonBox::rejected, &dlg, &QDialog::reject);
     form->addRow(buttons);
 
-    if (dlg.exec() != QDialog::Accepted) return;
+    if (dlg.exec() != QDialog::Accepted) return false;
 
     QString addr_text = addr_edit->text().trimmed();
     if (addr_text.startsWith('$')) addr_text = addr_text.mid(1);
     if (addr_text.startsWith("0x", Qt::CaseInsensitive)) addr_text = addr_text.mid(2);
 
     bool ok = false;
-    uint16_t addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
-    if (!ok) return;
+    addr = static_cast<uint16_t>(addr_text.toUInt(&ok, 16));
+    return ok;
+}
 
+void DebuggerWindow::show_add_data_bp_dialog(WatchType type) {
+    QString type_name;
+    switch (type) {
+        case WatchType::READ:       type_name = "Read"; break;
+        case WatchType::WRITE:      type_name = "Write"; break;
+        case WatchType::READ_WRITE: type_name = "Read/Write"; break;
+        default:                    type_name = "Data"; break;
+    }
+
+    uint16_t addr = 0;
+    if (!prompt_bp_address(tr("Add %1 Breakpoint").arg(type_name), addr)) return;
+
+    // GH #220 — no repaint here. add_watchpoint() notifies, the Breakpoints
+    // panel redraws, and the disassembly gutter correctly does not: it draws
+    // bps.has_pc(addr) only, and this route touches no PC breakpoint.
     emulator_->debug_state().breakpoints().add_watchpoint(addr, type);
+}
+
+// GH #215 — an Execute breakpoint is a PC breakpoint (add_pc), not a
+// watchpoint, which is why it needs its own entry point rather than a fourth
+// WatchType. That difference is now expressed once, by add_pc() notifying
+// PcBreakpoints, rather than by this site remembering to repaint the gutter.
+void DebuggerWindow::show_add_exec_bp_dialog() {
+    uint16_t addr = 0;
+    if (!prompt_bp_address(tr("Add Execute Breakpoint"), addr)) return;
+
+    emulator_->debug_state().breakpoints().add_pc(addr);
 }
 
 void DebuggerWindow::refresh_panels() {

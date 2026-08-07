@@ -217,11 +217,89 @@ public:
     }
     void peer_closes() { state_ = TransportState::Closed; }
 
+    /// Start life already connected, the way a transport handed over by a
+    /// listener does (`SocketTransport::adopt_connected`). An inbound
+    /// connection never passes through `begin_connect`, so a fake that could
+    /// only reach `Connected` through it could not model one at all.
+    void arrive_connected() { state_ = TransportState::Connected; }
+
 private:
     TransportState state_ = TransportState::Idle;
     std::string    error_;
     IpAddress      peer_ = ipv4(192, 0, 2, 1);
 };
+
+// ── Fake listener (GH #210) ───────────────────────────────────────────────
+//
+// Scriptable and in-memory, exactly like `FakeTransport`: nothing binds, so the
+// AT rows stay hermetic. The real bind/accept path — where SO_REUSEADDR, the
+// non-blocking accept and the loopback default live — is proved against real
+// sockets in `esp_socket_test`, which is the only suite in this module allowed
+// to open one.
+
+class FakeListener : public EspListener {
+public:
+    /// Model a bind that fails: a port already in use, or an address that is
+    /// not local. The engine must turn it into `ERROR` and must not fall back.
+    bool        refuse_open = false;
+    std::string refuse_reason = "address already in use";
+
+    int open_calls  = 0;
+    int close_calls = 0;
+
+    /// Connections the peer side is about to make, oldest first. `poll()` moves
+    /// ONE at a time into `pending_`, which is the real listener's own
+    /// one-at-a-time rule rather than a convenience.
+    std::deque<std::unique_ptr<EspTransport>> arrivals;
+
+    bool open(std::uint16_t port) override {
+        ++open_calls;
+        if (refuse_open) {
+            last_error_ = refuse_reason;
+            return false;
+        }
+        listening_ = true;
+        port_      = port;
+        last_error_.clear();
+        return true;
+    }
+
+    void close() override {
+        if (listening_) ++close_calls;
+        listening_ = false;
+        port_      = 0;
+        pending_.reset();
+    }
+
+    bool               listening() const override  { return listening_; }
+    std::uint16_t      port() const override       { return port_; }
+    const std::string& last_error() const override { return last_error_; }
+
+    void poll() override {
+        if (!listening_ || pending_ || arrivals.empty()) return;
+        pending_ = std::move(arrivals.front());
+        arrivals.pop_front();
+    }
+
+    std::unique_ptr<EspTransport> accept() override { return std::move(pending_); }
+
+private:
+    bool                          listening_ = false;
+    std::uint16_t                 port_      = 0;
+    std::string                   last_error_;
+    std::unique_ptr<EspTransport> pending_;
+};
+
+/// Queue one inbound connection on `lsn` and return a borrowed pointer to it,
+/// so a row can drive the peer side (`queue_from_peer`) and read what the guest
+/// sent it (`sent`) after the engine has taken ownership.
+static FakeTransport* add_inbound(FakeListener& lsn) {
+    auto peer = std::unique_ptr<FakeTransport>(new FakeTransport);
+    peer->arrive_connected();
+    FakeTransport* raw = peer.get();
+    lsn.arrivals.push_back(std::move(peer));
+    return raw;
+}
 
 /// Counts `poll()` calls, atomically, and is DELIBERATELY declared so that it
 /// outlives the wrapper that polls it — which is what lets a row observe
@@ -429,7 +507,12 @@ static constexpr std::uint32_t BYTE_TICKS = 243 * 10;
 
 struct Rig {
     FakeTransport tr;
-    AtEngine      eng{tr};
+    /// Every rig gets one, because a server that cannot be asked for is not a
+    /// server. It costs the pre-GH #210 rows nothing: an unopened listener is
+    /// polled and accepted from on every pass and answers "nothing", so the
+    /// bytes those rows assert are unchanged.
+    FakeListener  lsn;
+    AtEngine      eng{tr, &lsn};
     std::string   guest;  ///< everything the engine has released toward the guest
 
     Rig() {
@@ -519,10 +602,15 @@ int main() {
         check_eq("AT-05", "AT+CIPMUX=0 answers OK (the only supported mode)", r.take(),
                  "\r\nOK\r\n"); }
     {   Rig r; r.send("AT+CIPMUX=1\r\n"); r.drain();
+        // v1.0 answered ERROR here, and this row asserted it. GH #210 gives the
+        // command a consumer, so the row now pins the new answer — while the
+        // reason the old one existed is pinned harder than before, one group
+        // down: the DEFAULT is what nextsync depends on, and MUX-01 asserts it
+        // is still 0.
         check_eq("AT-06",
-                 "AT+CIPMUX=1 is REFUSED — accepting it would promise a +IPD form "
-                 "nextsync cannot read and cannot ask back",
-                 r.take(), "\r\nERROR\r\n"); }
+                 "AT+CIPMUX=1 is accepted (GH #210) — it was refused until server mode "
+                 "had a consumer",
+                 r.take(), "\r\nOK\r\n"); }
     {   Rig r; r.send("AT+CIPCLOSE\r\n"); r.drain();
         check_eq("AT-07",
                  "AT+CIPCLOSE with nothing open answers ERROR (nextsync loops until it sees it)",
@@ -1571,7 +1659,7 @@ int main() {
         //     lookup, not a later one.)
         AsyncResolveTransport tr;
         auto esp = std::unique_ptr<ThreadedEsp>(
-            new ThreadedEsp(tr, std::chrono::milliseconds(2000)));
+            new ThreadedEsp(tr, /*listener=*/nullptr, std::chrono::milliseconds(2000)));
         esp->start();
         for (unsigned char c : std::string("AT+CIPSTART=\"TCP\",\"example.test\",80\r\n"))
             esp->receive(c);
@@ -1665,6 +1753,587 @@ int main() {
               "process: the connect still completes afterwards",
               ok_seen);
         esp.stop(); }
+
+    // ══ Group K — multiplexing and server mode (GH #210) ═══════════════
+    //
+    // THE FIRST FOUR ROWS ARE THE ONES THAT MATTER, and they are first for that
+    // reason. `AT+CIPMUX=1` exists now, but the power-on default does not
+    // change and nextsync — which never sends the command and whose `+IPD`
+    // reader silently CORRUPTS the multiplexed form rather than rejecting it —
+    // must keep seeing exactly the bytes it saw before. MUX-10..13 pin both
+    // wire forms against each other so that neither can drift into the other's
+    // session.
+
+    {   Rig r;
+        check("MUX-01",
+              "the power-on default is CIPMUX=0 — no command can correct a wrong "
+              "default at run time, so this is the value nextsync depends on",
+              !r.eng.cipmux()); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.drain();
+        check("MUX-02", "...and AT+CIPMUX=1 really changes it, rather than being humoured",
+              r.eng.cipmux()); }
+
+    {   // THE NEXTSYNC GUARD. A session that never mentioned CIPMUX gets the
+        // unmultiplexed form, byte for byte, exactly as it did before GH #210.
+        Rig r;
+        r.connect();
+        r.tr.queue_from_peer("hello");
+        r.settle();
+        check_eq("MUX-10",
+                 "a CIPMUX=0 session still sees the unmultiplexed +IPD,<len>: — the one "
+                 "thing GH #210 could have broken silently",
+                 r.take(), "\r\n+IPD,5:hello"); }
+    {   // The other side of the same guard, on the SAME outbound connection.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.settle(); r.take();
+        r.connect();
+        r.tr.queue_from_peer("hello");
+        r.settle();
+        check_eq("MUX-11",
+                 "a CIPMUX=1 session's outbound connection sees +IPD,<id>,<len>: with "
+                 "id 0",
+                 r.take(), "\r\n+IPD,0,5:hello"); }
+    {   // And a connection opened BEFORE the mode changed keeps its framing.
+        // The mode cannot in fact change under it (MUX-05 is why), so this is
+        // the belt to that braces: the flag is per connection, not global.
+        Rig r;
+        r.connect();
+        r.send("AT+CIPMUX=1\r\n"); r.settle();
+        r.take();
+        r.tr.queue_from_peer("hi");
+        r.settle();
+        check_eq("MUX-12",
+                 "a connection opened under CIPMUX=0 keeps the unmultiplexed +IPD even "
+                 "after the mode command is attempted",
+                 r.take(), "\r\n+IPD,2:hi"); }
+    {   Rig r;
+        r.connect();
+        r.tr.peer_closes();
+        r.settle();
+        check_eq("MUX-13",
+                 "and its CLOSED stays unprefixed — NXtel matches a 5-byte 'OSED\\r' "
+                 "window",
+                 r.take(), "\r\nCLOSED\r\n"); }
+    {   // THE GUEST-INITIATED CLOSE TAKES THE SAME DECISION, which it did not
+        // before: `cmd_cipclose` emitted a bare `CLOSED` unconditionally. That
+        // was unreachable-by-construction until CIPMUX=1 existed, and once it
+        // did, a session framed `+IPD,0,<len>:` throughout would have been
+        // handed an unprefixed `CLOSED` by this one path.
+        Rig r;
+        r.connect();
+        r.send("AT+CIPCLOSE\r\n"); r.settle();
+        check_eq("MUX-14",
+                 "AT+CIPCLOSE on a CIPMUX=0 connection answers the v1.0 bytes exactly",
+                 r.take(), "\r\nCLOSED\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.settle(); r.take();
+        r.connect();
+        r.send("AT+CIPCLOSE\r\n"); r.settle();
+        check_eq("MUX-15",
+                 "...and on a CIPMUX=1 connection it carries the id, like every other "
+                 "CLOSED path",
+                 r.take(), "\r\n0,CLOSED\r\n\r\nOK\r\n"); }
+
+    {   Rig r; r.send("AT+CIPMUX=2\r\n"); r.drain();
+        check_eq("MUX-03", "AT+CIPMUX=2 is not a mode — ERROR", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CIPMUX=\r\n"); r.drain();
+        check_eq("MUX-04", "AT+CIPMUX with no argument — ERROR", r.take(), "\r\nERROR\r\n"); }
+
+    {   // Real firmware: "This mode can only be changed after all connections
+        // are disconnected". The peer was promised one framing and cannot
+        // renegotiate.
+        Rig r;
+        r.connect();
+        r.send("AT+CIPMUX=1\r\n"); r.drain();
+        check_eq("MUX-05", "AT+CIPMUX=1 is refused while a connection is open", r.take(),
+                 "\r\nERROR\r\n");
+        check("MUX-05b", "...and the mode really did not move", !r.eng.cipmux()); }
+    {   // The deliberate deviation (simplification 8c): a request for the mode
+        // already in force is a no-op, not a change — which is what keeps
+        // NXtel's init `AT+CIPMUX=0` answering OK in every circumstance it
+        // answered OK before.
+        Rig r;
+        r.connect();
+        r.send("AT+CIPMUX=0\r\n"); r.drain();
+        check_eq("MUX-06", "AT+CIPMUX=0 while a connection is open is a NO-OP, still OK",
+                 r.take(), "\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        r.send("AT+CIPMUX=0\r\n"); r.drain();
+        check_eq("MUX-07",
+                 "AT+CIPMUX=0 is refused while the server is listening — a server is a "
+                 "promise of multiplexed framing to whoever connects next",
+                 r.take(), "\r\nERROR\r\n");
+        check("MUX-07b", "...and the server is still up", r.eng.server_listening()); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.settle(); r.take();
+        r.send("AT+RST\r\n"); r.drain(); r.take();
+        check("MUX-08", "AT+RST restores the CIPMUX=0 power-on default", !r.eng.cipmux()); }
+
+    // ── AT+CIPSERVER ──────────────────────────────────────────────────────
+
+    {   Rig r;
+        r.send("AT+CIPSERVER=1,4000\r\n"); r.drain();
+        check_eq("SRV-01",
+                 "AT+CIPSERVER=1 without AT+CIPMUX=1 first is ERROR (ESP-AT: a server "
+                 "can only be created when multiple connections are activated)",
+                 r.take(), "\r\nERROR\r\n");
+        check("SRV-01b", "...and nothing was bound", r.lsn.open_calls == 0); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSERVER=1,4000\r\n"); r.drain();
+        check_eq("SRV-02", "AT+CIPSERVER=1,<port> answers OK", r.take(), "\r\nOK\r\n");
+        check("SRV-02b", "...and the listener really bound that port",
+              r.eng.server_listening() && r.eng.server_port() == 4000); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,0\r\n"); r.drain(); r.take();
+        check("SRV-03",
+              "port 0 is refused although the socket layer accepts it: it means 'let "
+              "the OS choose', and a guest that named no port cannot be told which it got",
+              !r.eng.server_listening()); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSERVER=1\r\n"); r.drain();
+        check_eq("SRV-04", "AT+CIPSERVER=1 with no port is ERROR", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSERVER=1,4000,7\r\n"); r.drain();
+        check_eq("SRV-05", "trailing arguments are refused, not ignored", r.take(),
+                 "\r\nERROR\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSERVER=2,4000\r\n"); r.drain();
+        check_eq("SRV-06", "mode 2 does not exist — ERROR", r.take(), "\r\nERROR\r\n"); }
+    {   // A BIND FAILURE MUST NEVER WIDEN ANYTHING. The engine has one answer
+        // available and it is `ERROR`; there is no second port and no second
+        // address to try, which is the whole consequence of design doc §13.4.
+        Rig r;
+        r.lsn.refuse_open = true;
+        r.send("AT+CIPMUX=1\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSERVER=1,4000\r\n"); r.drain();
+        check_eq("SRV-07", "a bind failure answers ERROR", r.take(), "\r\nERROR\r\n");
+        check("SRV-07b", "...and leaves nothing listening", !r.eng.server_listening());
+        check("SRV-07c", "...having tried exactly once — no retry, no fallback port",
+              r.lsn.open_calls == 1); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSERVER=1,4001\r\n"); r.drain();
+        check_eq("SRV-08", "a second AT+CIPSERVER=1 while one is running is ERROR",
+                 r.take(), "\r\nERROR\r\n");
+        check("SRV-08b", "...and the running server is untouched",
+              r.eng.server_port() == 4000 && r.lsn.open_calls == 1); }
+    {   // A consumer that built no listener. Indistinguishable from a failed
+        // bind on purpose: neither tells the guest anything it can act on.
+        FakeTransport tr;
+        AtEngine      eng{tr};
+        std::string   guest;
+        eng.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        for (unsigned char c : std::string("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"))
+            eng.receive(c);
+        for (int i = 0; i < 200000 && eng.wants_tick(); ++i) eng.tick(1, 1);
+        check_eq("SRV-09", "an engine built with NO listener answers ERROR to CIPSERVER",
+                 guest, "\r\nOK\r\n\r\nERROR\r\n");
+        check("SRV-09b", "...and reports no server", !eng.server_listening()); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSERVER=0\r\n"); r.drain();
+        check_eq("SRV-10", "AT+CIPSERVER=0 stops the server and answers OK", r.take(),
+                 "\r\nOK\r\n");
+        check("SRV-10b", "...and the port is released", !r.eng.server_listening() &&
+              r.lsn.close_calls == 1); }
+    {   // Deliberate deviation (simplification 8b): real firmware says OK. The
+        // one evidenced sender of this line turns the server off at init and
+        // has always been answered ERROR here, because v1.0 had no such command
+        // at all — so ERROR is the spelling that changes nothing for it.
+        Rig r;
+        r.send("AT+CIPSERVER=0\r\n"); r.drain();
+        check_eq("SRV-11", "AT+CIPSERVER=0 with no server running is ERROR", r.take(),
+                 "\r\nERROR\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSERVER=0,1\r\n"); r.drain();
+        check_eq("SRV-12", "ESP-AT's <close_all> argument is refused, not ignored",
+                 r.take(), "\r\nERROR\r\n");
+        check("SRV-12b", "...and the server is still running", r.eng.server_listening()); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.drain(); r.take();
+        r.send("AT+RST\r\n"); r.drain(); r.take();
+        check("SRV-13",
+              "AT+RST closes the server — a listening port that outlived the module "
+              "that opened it is how this leaks",
+              !r.eng.server_listening() && r.lsn.close_calls == 1); }
+
+    // ── Accepted connections ──────────────────────────────────────────────
+
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle();
+        // `[<conn_id>,]CONNECT` — "A network connection of which ID is
+        // <conn_id> is established" (ESP-AT, AT Messages table).
+        check_eq("SRV-14", "an accepted connection is announced as <id>,CONNECT", r.take(),
+                 "\r\n1,CONNECT\r\n");
+        check("SRV-14b", "...and occupies one inbound slot", r.eng.inbound_connections() == 1); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        peer->queue_from_peer("DZRP");
+        r.settle();
+        check_eq("SRV-15", "its inbound data is framed with the multiplexed +IPD",
+                 r.take(), "\r\n+IPD,1,4:DZRP"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPSEND=1,5\r\n"); r.drain();
+        check_eq("SRV-16", "AT+CIPSEND=<id>,<len> issues the same prompt, byte for byte",
+                 r.take(), "\r\nOK\r\n> ");
+        r.send("PONG!"); r.settle();
+        check_eq("SRV-16b", "...and the payload is acknowledged", r.take(),
+                 "\r\nSEND OK\r\n");
+        check("SRV-16c", "...having reached THAT connection's transport", peer->sent == "PONG!");
+        check("SRV-16d", "...and not the outbound one", r.tr.sent.empty()); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPSEND=5\r\n"); r.drain();
+        check_eq("SRV-17",
+                 "the single-connection AT+CIPSEND=<len> form is ERROR under CIPMUX=1 — "
+                 "the argument list is read from the MODE, never sniffed from the text",
+                 r.take(), "\r\nERROR\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPSEND=2,5\r\n"); r.drain();
+        check_eq("SRV-18", "AT+CIPSEND to a link id with no connection is ERROR", r.take(),
+                 "\r\nERROR\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        peer->peer_closes();
+        r.settle();
+        // `[<conn_id>,]CLOSED` — "A network connection of which ID is
+        // <conn_id> ends" (ESP-AT, AT Messages table).
+        check_eq("SRV-19", "a peer close is announced as <id>,CLOSED", r.take(),
+                 "\r\n1,CLOSED\r\n");
+        check("SRV-19b", "...and the slot is free again", r.eng.inbound_connections() == 0); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* first = add_inbound(r.lsn);
+        r.settle(); r.take();
+        first->peer_closes();
+        r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle();
+        check_eq("SRV-20", "a released slot is reused, so the next peer is id 1 again",
+                 r.take(), "\r\n1,CONNECT\r\n"); }
+    {   // FOUR inbound slots, because slot 0 is the outbound one
+        // (simplification 8a). The fifth peer is closed at once rather than
+        // left open on its own side and invisible on ours.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        std::vector<FakeTransport*> peers;
+        for (int i = 0; i < 5; ++i) peers.push_back(add_inbound(r.lsn));
+        for (int i = 0; i < 8; ++i) r.settle();
+        check_eq("SRV-21", "four peers are accepted as ids 1..4, in order", r.take(),
+                 "\r\n1,CONNECT\r\n\r\n2,CONNECT\r\n\r\n3,CONNECT\r\n\r\n4,CONNECT\r\n");
+        check("SRV-21b", "...and the fifth is closed rather than silently held",
+              r.eng.inbound_connections() == 4 && peers[4]->close_calls == 1); }
+    {   // The reason for 8a, asserted rather than asserted about: accepting a
+        // peer must not cost the guest the connection slot it dials out on.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle();
+        check_eq("SRV-22", "an inbound connection never takes slot 0 — AT+CIPSTART still "
+                 "works while a peer is connected",
+                 r.take(), "\r\nOK\r\n");
+        check("SRV-22b", "...and both connections are live",
+              r.eng.connected() && r.eng.inbound_connections() == 1); }
+    {   // AT+CIPSERVER=0 stops ACCEPTING. Dropping a live debug session because
+        // its listener was retired would be a surprise nothing asked for.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPSERVER=0\r\n"); r.settle(); r.take();
+        peer->queue_from_peer("still here");
+        r.settle();
+        check_eq("SRV-23",
+                 "an established inbound connection survives AT+CIPSERVER=0 and keeps "
+                 "delivering",
+                 r.take(), "\r\n+IPD,1,10:still here"); }
+
+    {   // THE BORROWED TRANSPORT IS NEVER RELEASED. Slot 0's transport belongs
+        // to the host and outlives the engine, so the paths that free an
+        // ACCEPTED one — a CLOSED that retires a connection, and AT+RST, which
+        // sweeps every slot — must leave it alone. Freeing it does not crash
+        // here (the deleter refuses), it NULLS the slot, and the next
+        // AT+CIPSTART dereferences it. Both routes are exercised because they
+        // are separate call sites.
+        Rig r;
+        r.connect();
+        r.tr.peer_closes();
+        r.settle(); r.take();
+        r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle();
+        check_eq("SRV-24",
+                 "slot 0's transport survives its own connection closing — a reconnect "
+                 "after CLOSED still works",
+                 r.take(), "\r\nOK\r\n"); }
+    {   Rig r;
+        r.connect();
+        r.send("AT+RST\r\n"); r.settle(); r.take();
+        r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle();
+        check_eq("SRV-25", "...and survives AT+RST sweeping every slot", r.take(),
+                 "\r\nOK\r\n"); }
+
+    // ── AT+CIPCLOSE=<id> (GH #211) ────────────────────────────────────────
+    //
+    // GH #210 shipped without the argument form because DeZog closes from its
+    // end. A peer that WEDGES rather than closing is the case that reopened it:
+    // four wedged peers occupy all four inbound slots for the rest of the
+    // session, and the guest had nothing to say about it.
+    //
+    // TWO PROPERTIES CARRY THE WHOLE GROUP. The named connection — and ONLY the
+    // named one — goes, slot included; and the bare spelling is untouched,
+    // because nextsync loops that one and never sends `AT+CIPMUX`.
+
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPCLOSE=1\r\n"); r.settle();
+        // `[<conn_id>,]CLOSED` then the result code, exactly as the bare
+        // spelling frames its own close (MUX-14/MUX-15).
+        check_eq("CLS-01", "AT+CIPCLOSE=<id> answers <id>,CLOSED then OK", r.take(),
+                 "\r\n1,CLOSED\r\n\r\nOK\r\n");
+        check("CLS-01b", "...and the slot is free again", r.eng.inbound_connections() == 0);
+        check("CLS-01c", "...having really closed that peer's socket",
+              peer->close_calls == 1);
+        r.settle();
+        check_eq("CLS-01d",
+                 "...and the peer-close path does not then announce it a second time",
+                 r.take(), ""); }
+
+    {   // EVERY inbound slot, and the id in the notification is the slot's own.
+        // Closed out of order on purpose: a bug that closed "the first live
+        // one" would pass a 1,2,3,4 sweep.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        std::vector<FakeTransport*> peers;
+        for (int i = 0; i < 4; ++i) peers.push_back(add_inbound(r.lsn));
+        for (int i = 0; i < 8; ++i) r.settle();
+        r.take();
+        r.send("AT+CIPCLOSE=2\r\n"); r.settle();
+        check_eq("CLS-02", "the notification carries the id that was asked for, not the "
+                 "first live one", r.take(), "\r\n2,CLOSED\r\n\r\nOK\r\n");
+        check("CLS-02b", "...and only THAT peer's socket was closed",
+              peers[1]->close_calls == 1 && peers[0]->close_calls == 0 &&
+              peers[2]->close_calls == 0 && peers[3]->close_calls == 0);
+        check("CLS-02c", "...leaving the other three connected",
+              r.eng.inbound_connections() == 3);
+        r.send("AT+CIPCLOSE=4\r\n"); r.settle();
+        check_eq("CLS-03", "the top inbound slot closes the same way", r.take(),
+                 "\r\n4,CLOSED\r\n\r\nOK\r\n");
+        r.send("AT+CIPCLOSE=3\r\n"); r.settle();
+        check_eq("CLS-04", "...and so does the one between them", r.take(),
+                 "\r\n3,CLOSED\r\n\r\nOK\r\n");
+        r.send("AT+CIPCLOSE=1\r\n"); r.settle();
+        check_eq("CLS-05", "...and the first", r.take(), "\r\n1,CLOSED\r\n\r\nOK\r\n");
+        check("CLS-05b", "so four wedged peers can all be freed — the exhaustion this "
+              "command exists for", r.eng.inbound_connections() == 0 &&
+              peers[0]->close_calls == 1 && peers[1]->close_calls == 1 &&
+              peers[2]->close_calls == 1 && peers[3]->close_calls == 1); }
+
+    {   // THE SLOT IS REALLY BACK IN THE POOL, not merely marked not-open: the
+        // next peer is given the same id.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPCLOSE=1\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle();
+        check_eq("CLS-06", "a slot freed by AT+CIPCLOSE=<id> is reused, so the next peer "
+                 "is id 1 again", r.take(), "\r\n1,CONNECT\r\n"); }
+
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPCLOSE=2\r\n"); r.settle();
+        // The bare spelling's answer for "nothing was open", for the same
+        // reason: a guest told OK would believe it had freed a slot.
+        check_eq("CLS-07", "AT+CIPCLOSE to a link id with no connection is ERROR", r.take(),
+                 "\r\nERROR\r\n");
+        peer->queue_from_peer("alive");
+        r.settle();
+        check_eq("CLS-07b", "...and the connection that DOES exist is untouched", r.take(),
+                 "\r\n+IPD,1,5:alive"); }
+
+    {   // ESP-AT reads id 5 as "close every connection". Refused here, and the
+        // refusal is a DECISION rather than a consequence of the slot count:
+        // a bulk close promises a choice about connections the guest did not
+        // name — which order, and whether the outbound slot 0 is included —
+        // and that is the promise AT+CIPSERVER=0,<close_all> is refused for
+        // (SRV-12).
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPCLOSE=5\r\n"); r.settle();
+        check_eq("CLS-08", "ESP-AT's close-all id 5 is refused, not honoured", r.take(),
+                 "\r\nERROR\r\n");
+        check("CLS-08b", "...and nothing was closed",
+              r.eng.inbound_connections() == 1 && peer->close_calls == 0); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.settle(); r.take();
+        r.send("AT+CIPCLOSE=9\r\n"); r.drain();
+        check_eq("CLS-09", "an id past the connection ceiling is ERROR", r.take(),
+                 "\r\nERROR\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.settle(); r.take();
+        r.send("AT+CIPCLOSE=x\r\n"); r.drain();
+        check_eq("CLS-10", "a non-numeric id is ERROR", r.take(), "\r\nERROR\r\n"); }
+    {   // `AT+CIPCLOSE=` IS NOT THE BARE SPELLING. It names no connection, so
+        // it closes none — falling back on the outbound one would close a
+        // connection the guest did not ask about.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.settle(); r.take();
+        r.connect();
+        r.send("AT+CIPCLOSE=\r\n"); r.settle();
+        check_eq("CLS-11", "AT+CIPCLOSE= with no id is ERROR, not the no-argument form",
+                 r.take(), "\r\nERROR\r\n");
+        check("CLS-11b", "...and the outbound connection it would have closed is still up",
+              r.eng.connected()); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPCLOSE=1,1\r\n"); r.settle();
+        check_eq("CLS-12", "trailing arguments are refused, not ignored", r.take(),
+                 "\r\nERROR\r\n");
+        check("CLS-12b", "...and the connection is still live",
+              r.eng.inbound_connections() == 1); }
+
+    {   // The mirror of SRV-17: the argument list is read from the MODE, never
+        // sniffed from the text. Real firmware rejects the parameter in
+        // single-connection mode too.
+        Rig r;
+        r.connect();
+        r.send("AT+CIPCLOSE=0\r\n"); r.settle();
+        check_eq("CLS-13", "the argument form is ERROR under CIPMUX=0", r.take(),
+                 "\r\nERROR\r\n");
+        check("CLS-13b", "...and the connection is untouched", r.eng.connected()); }
+
+    {   // THE NO-ARGUMENT FORM IS UNCHANGED, which is the requirement the whole
+        // group is built around: nextsync loops that exact spelling and never
+        // sends AT+CIPMUX, so it must keep meaning "close the outbound
+        // connection" even in a session that has four inbound ones.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.connect();
+        r.send("AT+CIPCLOSE\r\n"); r.settle();
+        check_eq("CLS-14", "the no-argument AT+CIPCLOSE still closes the OUTBOUND slot, "
+                 "even with inbound connections present", r.take(),
+                 "\r\n0,CLOSED\r\n\r\nOK\r\n");
+        check("CLS-14b", "...and leaves the inbound connections alone",
+              r.eng.inbound_connections() == 1 && peer->close_calls == 0 &&
+              !r.eng.connected()); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.settle(); r.take();
+        r.connect();
+        r.send("AT+CIPCLOSE=0\r\n"); r.settle();
+        check_eq("CLS-15", "AT+CIPCLOSE=0 closes the outbound connection with the same "
+                 "bytes the bare spelling emits", r.take(), "\r\n0,CLOSED\r\n\r\nOK\r\n");
+        r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle();
+        check_eq("CLS-15b", "...and slot 0's BORROWED transport survives it — a reconnect "
+                 "still works", r.take(), "\r\nOK\r\n"); }
+
+    {   // The race the recovery path actually runs into: the peer drops while
+        // the guest is already typing the close. The engine has not polled yet,
+        // so the connection is still live to it and the close succeeds — and
+        // the deferred peer-close notification must NOT then arrive as a
+        // second CLOSED for a connection the guest has been told about once.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        peer->peer_closes();
+        r.send("AT+CIPCLOSE=1\r\n"); r.settle(); r.settle();
+        check_eq("CLS-16", "a guest close racing a peer drop emits exactly one CLOSED",
+                 r.take(), "\r\n1,CLOSED\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        peer->peer_closes();
+        r.settle();
+        check_eq("CLS-17", "and once the peer close HAS been announced...", r.take(),
+                 "\r\n1,CLOSED\r\n");
+        r.send("AT+CIPCLOSE=1\r\n"); r.settle();
+        check_eq("CLS-17b", "...closing the same id again is ERROR — the slot is already "
+                 "back in the pool", r.take(), "\r\nERROR\r\n"); }
+
+    {   // Buffered-but-unframed peer data dies with a guest-requested close.
+        // Stated rather than hidden: the guest asked for the close, and this is
+        // what the bare spelling has always done.
+        //
+        // THE COMMAND IS SENT WITHOUT ITS TERMINATOR FIRST, and that is the
+        // whole row. A command line in flight makes the wire non-quiet, so the
+        // settle below reads the peer's bytes into the CONNECTION's buffer and
+        // frames nothing — which is the only state in which "discarded on
+        // close" means anything. Delivering the close in one go instead would
+        // pass against an engine that never buffered the data at all.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        peer->queue_from_peer("unread");
+        r.send("AT+CIPCLOSE=1"); r.settle();
+        check_eq("CLS-18", "a command line in flight holds the +IPD back, so the peer's "
+                 "bytes really are buffered when the close arrives", r.take(), "");
+        r.send("\r\n"); r.settle(); r.settle();
+        check_eq("CLS-18b", "...and they are discarded with the connection — no +IPD "
+                 "follows the CLOSED", r.take(), "\r\n1,CLOSED\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPCLOSE=1\r\n"); r.settle(); r.take();
+        r.send("AT+CIPSEND=1,4\r\n"); r.settle();
+        check_eq("CLS-19", "AT+CIPSEND to a closed id is ERROR — the slot is gone, not "
+                 "merely idle", r.take(), "\r\nERROR\r\n"); }
+
+    {   // THE FAILURE THE COMMAND EXISTS FOR, end to end. Four peers wedge
+        // rather than close, a fifth is turned away — which on real hardware is
+        // a power-cycle-level failure — and one AT+CIPCLOSE=<id> puts the
+        // module back in service. This is the row that proves the slot is
+        // returned to the POOL and not merely marked not-open.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        for (int i = 0; i < 4; ++i) add_inbound(r.lsn);
+        for (int i = 0; i < 8; ++i) r.settle();
+        r.take();
+        FakeTransport* turned_away = add_inbound(r.lsn);
+        for (int i = 0; i < 2; ++i) r.settle();
+        check_eq("CLS-20", "with all four slots wedged, a fifth peer is announced to "
+                 "nobody", r.take(), "");
+        check("CLS-20b", "...and dropped at once", turned_away->close_calls == 1);
+        r.send("AT+CIPCLOSE=2\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        for (int i = 0; i < 2; ++i) r.settle();
+        check_eq("CLS-21", "...and one AT+CIPCLOSE=<id> puts the module back in service, "
+                 "the next peer landing in the freed slot", r.take(),
+                 "\r\n2,CONNECT\r\n"); }
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,

@@ -42,8 +42,15 @@ static void crash_handler(int sig) {
     _Exit(1);
 }
 
+// stdout, not stderr (GH #216). This text is only ever printed because the user
+// asked for it with --help, which is a successful result and exits 0; POSIX/GNU
+// convention puts that on stdout, so `jnext --help > file` and `jnext --help |
+// less` work. Usage ERRORS are a different thing and are NOT printed by this
+// function — each one prints its own short message and stays on stderr, which is
+// where a diagnostic belongs. Keep it that way: making an error path call this
+// would move the diagnostic to stdout too.
 static void print_usage(const char* prog) {
-    fprintf(stderr,
+    fprintf(stdout,
         "  jnext is a ZX Spectrum Next emulator.\n"
         "\n"
         "  Usage: %s [options] [file]\n"
@@ -107,6 +114,8 @@ static void print_usage(const char* prog) {
         "                       ROM save routine at 0x04C2 runs with ROM paged at slot 0.\n"
         "                       Without this option no SAVE capture happens.\n"
         "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
+        "  --persistent-breakpoints Keep breakpoints armed while the debugger window is\n"
+        "                          closed; a hit reopens it (GUI debugger builds only)\n"
         "  --esxdos-stub            Intercept RST $08 calls; provide in-memory config I/O\n"
         "                           and .RUN sibling-NEX chaining without booting NextZXOS\n"
         "  --esp                    Enable the emulated ESP-01 WiFi module on UART 0.\n"
@@ -121,6 +130,11 @@ static void print_usage(const char* prog) {
         "                           a separator); matching is exact and case-insensitive,\n"
         "                           and an IP literal must be listed as itself. Without\n"
         "                           any --esp-allow the guest may name any host.\n"
+        "  --esp-listen-address ADDR Bind AT+CIPSERVER to ADDR (default 127.0.0.1).\n"
+        "                           A numeric IP, never a name. The default means a\n"
+        "                           guest that opens a server is reachable only from\n"
+        "                           this machine; widening it (e.g. 0.0.0.0) exposes\n"
+        "                           the guest to the network and is deliberate.\n"
         "  --magic-port PORT        Enable magic debug port at PORT (hex, e.g. 0x00FF)\n"
         "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n"
         "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n"
@@ -149,10 +163,18 @@ static void print_usage(const char* prog) {
         "  --trace                 Enable the per-instruction trace log (10K-entry ring;\n"
         "                          implied by --rewind-buffer-size N with N>0)\n"
         "  --delayed-keypress SECS KEY  Press KEY after SECS seconds (headless only, repeatable)\n"
-        "  --delayed-keypress-frames N KEY  Press KEY after N emulated frames (overrides SECS form)\n"
+        "  --delayed-keypress-frames N KEY  Press KEY after N emulated frames (frames-unit\n"
+        "                               spelling of --delayed-keypress; both forms queue, not override)\n"
         "                               KEY (case-insensitive): single char (a-z 0-9 . , ; :),\n"
         "                               ENTER / RETURN / SPACE / UP / DOWN / LEFT / RIGHT,\n"
         "                               or a compound sym+<char> / caps+<char> (e.g. sym+m = '.')\n"
+        "  --delayed-nmi SECS BUTTON  Press an NMI BUTTON after SECS seconds (headless only,\n"
+        "                               repeatable). BUTTON (case-insensitive) is the label on\n"
+        "                               the real case: nmi (aliases mf, m1) = the NMI button,\n"
+        "                               driven by the Multiface; drive (alias divmmc) = the DRIVE\n"
+        "                               button, driven by DivMMC. RESET is not an NMI button\n"
+        "  --delayed-nmi-frames N BUTTON  Press BUTTON after N emulated frames (frames-unit\n"
+        "                               spelling of --delayed-nmi; both forms queue, not override)\n"
         "  --compositor-trace FILE  Dump per-pixel compositor trace (CSV) for one frame to FILE\n"
         "  --compositor-trace-frame N  Target frame for --compositor-trace (default 250)\n"
         "  --profile               Enable the CPU T-state profiler (Task 21).\n"
@@ -227,6 +249,7 @@ int main(int argc, char* argv[]) {
     bool        tape_realtime = false;
     std::string tape_save_file;
     bool        magic_breakpoint = false;
+    bool        persistent_breakpoints = false;
     bool        esxdos_stub = false;
     // GH #25 — emulated ESP-01. `esp_enabled_set` is what makes --no-esp mean
     // something: without it the saved GUI preference could not be told apart
@@ -237,6 +260,10 @@ int main(int argc, char* argv[]) {
     // and the saved-config reader cannot disagree about what an entry means.
     EspHostPolicy esp_allow;
     bool        esp_allow_set = false;
+    // GH #210 — where AT+CIPSERVER binds. Empty means "the user did not say",
+    // which leaves EmulatorConfig's loopback default in place; the flag is
+    // CLI-only, so there is no saved preference to merge against.
+    std::string esp_listen_address;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -266,6 +293,8 @@ int main(int argc, char* argv[]) {
     bool        joy_source_set[2] = { false, false };
     struct DelayedKeyArg { int delay; std::string key; bool in_frames; };
     std::vector<DelayedKeyArg> delayed_keys;
+    struct DelayedNmiArg { int delay; std::string button; bool in_frames; };
+    std::vector<DelayedNmiArg> delayed_nmis;
 
     // Parse command-line arguments.
     //
@@ -408,6 +437,9 @@ int main(int argc, char* argv[]) {
             case cli::OptId::MagicBreakpoint:
                 magic_breakpoint = true;
                 break;
+            case cli::OptId::PersistentBreakpoints:
+                persistent_breakpoints = true;
+                break;
             case cli::OptId::EsxdosStub:
                 esxdos_stub = true;
                 break;
@@ -448,6 +480,24 @@ int main(int argc, char* argv[]) {
                 }
                 esp_allow_set = true;
                 break;
+            case cli::OptId::EspListenAddress: {
+                // Validated HERE rather than at bind time, because a typo in a
+                // security control must be a usage error the user sees at once,
+                // not an `ERROR` the guest gets minutes later with no way to
+                // tell it from a port already in use.
+                esp::IpAddress parsed;
+                if (!esp::parse_ip(v[0], parsed)) {
+                    fprintf(stderr,
+                            "--esp-listen-address: ADDR must be a numeric IP address "
+                            "(e.g. 127.0.0.1 or 0.0.0.0), not \"%s\".\n"
+                            "  A name is rejected on purpose: a bind address resolved "
+                            "through DNS could change under you.\n",
+                            v[0]);
+                    return 1;
+                }
+                esp_listen_address = v[0];
+                break;
+            }
             case cli::OptId::MagicPort:
                 magic_port_enabled = true;
                 magic_port_address = static_cast<uint16_t>(std::stoul(v[0], nullptr, 0));
@@ -551,6 +601,25 @@ int main(int argc, char* argv[]) {
                 if (!dk_key.empty()) {
                     delayed_keys.push_back({dk_n, dk_key, in_frames});
                 }
+                break;
+            }
+            case cli::OptId::DelayedNmi:
+            case cli::OptId::DelayedNmiFrames: {
+                // Same two-form shape as --delayed-keypress: SECS is
+                // converted to frames by HeadlessApp at run() start
+                // using the active machine's framerate; FRAMES is
+                // stored directly. Button-name parsing (mf/m1 vs
+                // divmmc/drive) lives in HeadlessApp::set_delayed_nmi,
+                // which rejects unknown names loudly. Store the raw
+                // name here (GH #209).
+                const bool in_frames = (opt->id == cli::OptId::DelayedNmiFrames);
+                int dn_n = std::stoi(v[0]);
+                // Queued UNCONDITIONALLY, including an empty name: the
+                // parser below rejects what it does not recognise, and an
+                // empty BUTTON is exactly such a name. Skipping it here
+                // instead would drop the press silently, which is the one
+                // outcome this option must never produce.
+                delayed_nmis.push_back({dn_n, v[1], in_frames});
                 break;
             }
             case cli::OptId::RewindBufferSize:
@@ -766,6 +835,7 @@ int main(int argc, char* argv[]) {
         cfg.load_file = load_file;
         cfg.nex_cli_args = nex_cli_args;
         cfg.magic_breakpoint = magic_breakpoint;
+        cfg.persistent_breakpoints = persistent_breakpoints;
         cfg.esxdos_stub = esxdos_stub;
         cfg.tape_save_file = tape_save_file;
         cfg.magic_port_enabled = magic_port_enabled;
@@ -789,6 +859,9 @@ int main(int argc, char* argv[]) {
         cfg.joy_source[1]          = joy_source[1];
         cfg.esp_enabled            = esp_enabled;     // GH #25 (CLI value)
         cfg.esp_allowed_hosts      = esp_allow.allowed_hosts;
+        // GH #210. No merge and no saved form: an unset flag leaves the
+        // config's own loopback default, which is the safe value.
+        if (!esp_listen_address.empty()) cfg.esp_listen_address = esp_listen_address;
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -842,6 +915,12 @@ int main(int argc, char* argv[]) {
         // it reads as "I have restricted the ESP" when in fact the ESP is off.
         if (esp_allow_set && !cfg.esp_enabled) {
             fprintf(stderr, "--esp-allow requires the ESP to be enabled (--esp).\n");
+            return 1;
+        }
+        // Same reasoning: a bind address given for a module that is off reads
+        // as "I have configured where it listens" when nothing will listen.
+        if (!esp_listen_address.empty() && !cfg.esp_enabled) {
+            fprintf(stderr, "--esp-listen-address requires the ESP to be enabled (--esp).\n");
             return 1;
         }
         if (cfg.silent && !wav_record_file.empty()) {
@@ -1081,6 +1160,19 @@ int main(int argc, char* argv[]) {
                         "Valid: single char (a-z 0-9 . , ; :), ENTER, SPACE, "
                         "UP, DOWN, LEFT, RIGHT, sym+<char>, caps+<char>\n",
                         dk.key.c_str());
+                return 1;
+            }
+        }
+        for (auto& dn : delayed_nmis) {
+            const bool ok = dn.in_frames
+                ? app.set_delayed_nmi(dn.button, dn.delay)
+                : app.set_delayed_nmi_seconds(dn.button, dn.delay);
+            if (!ok) {
+                fprintf(stderr, "Unknown --delayed-nmi button name: '%s'\n"
+                        "Valid: nmi (or mf, m1)  = the NMI button   (Multiface)\n"
+                        "       drive (or divmmc) = the DRIVE button (DivMMC)\n"
+                        "(RESET is not an NMI button)\n",
+                        dn.button.c_str());
                 return 1;
             }
         }

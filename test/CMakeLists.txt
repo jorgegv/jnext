@@ -490,6 +490,8 @@ target_include_directories(cli_options_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 target_compile_definitions(cli_options_test PRIVATE
     JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md"
     JNEXT_MAIN_SRC="${CMAKE_SOURCE_DIR}/src/main.cpp"
+    # The user guide's generated option page (GH #213) — CLI-DOC-06.
+    JNEXT_GUIDE_CLI_SRC="${CMAKE_SOURCE_DIR}/src/doc/user-guide/09-reference/01-command-line-options.md"
     JNEXT_BINARY="$<TARGET_FILE:jnext>")
 add_dependencies(cli_options_test jnext)
 add_test(NAME cli_options_tests COMMAND cli_options_test)
@@ -718,6 +720,50 @@ target_link_libraries(profiler_test PRIVATE
 target_include_directories(profiler_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME profiler_tests COMMAND profiler_test)
 
+# GH #203 — Step Out (F8): the check_step_out() predicate AND its wiring
+# into the shared per-instruction body. The wiring half drives a real
+# machine, so this links the emulator exactly as rewind_test does.
+add_executable(step_out_test debug/step_out_test.cpp)
+target_link_libraries(step_out_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(step_out_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME step_out_tests COMMAND step_out_test)
+
+# GH #219 — --persistent-breakpoints: the armed()/active() split in DebugState
+# and its wiring into the hot loop and the MMU watchpoint sites. Drives a real
+# machine with the debugger INACTIVE, so it links the emulator like step_out_test.
+add_executable(persistent_bp_test debug/persistent_bp_test.cpp)
+target_link_libraries(persistent_bp_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(persistent_bp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME persistent_bp_tests COMMAND persistent_bp_test)
+
+# GH #222 — I/O watchpoints (WatchType::IO_READ / IO_WRITE): the port-address
+# matching rule in BreakpointSet, and its wiring into PortDispatch::read/write.
+# The wiring half runs real IN/OUT on a real machine, so it links the emulator
+# exactly as persistent_bp_test does.
+add_executable(io_watchpoint_test debug/io_watchpoint_test.cpp)
+target_link_libraries(io_watchpoint_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(io_watchpoint_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME io_watchpoint_tests COMMAND io_watchpoint_test)
+# GH #221 — resume steps off the breakpoint it is standing on: the one-shot
+# step-off arm in DebugState and its single consumer, run_frame()'s breakpoint
+# gate. Drives a real machine through run_frame(), so it links like step_out_test.
+add_executable(resume_step_off_test debug/resume_step_off_test.cpp)
+target_link_libraries(resume_step_off_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(resume_step_off_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME resume_step_off_tests COMMAND resume_step_off_test)
+
 # Task 60e — ResumeGuard: pure corruption-gate policy behind the debugger's
 # single confirm_resume_if_corrupt() choke point. Header-only, no Qt/libs.
 add_executable(resume_guard_test debug/resume_guard_test.cpp)
@@ -807,6 +853,21 @@ if(ENABLE_QT_UI)
     # MainWindow and asserts each shifted key resolves to its unshifted
     # sibling's PHYSICAL scancode, then reads the resulting matrix back. Needs
     # a real MainWindow, no display (offscreen QPA forced in main()).
+    # Issue #217 — the main window carried three duplicate menu mnemonics (File
+    # Alt+N, File Alt+M, View Alt+F) and, unlike the debugger since #124, had no
+    # guard. Harvests every mnemonic and key sequence from the REAL MainWindow
+    # and asserts uniqueness per Qt namespace. Shares the walk with
+    # debugger_accel_test via test/menu_accel.h, hence the extra include dir.
+    # Needs Qt but no display — offscreen QPA forced in main(). Deliberately NOT
+    # gated on ENABLE_DEBUGGER: the guard is worth having in a Qt-only build
+    # too, and the suite adjusts its pinned shape for the two debugger entries.
+    add_executable(main_window_accel_test gui/main_window_accel_test.cpp)
+    set_target_properties(main_window_accel_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(main_window_accel_test PRIVATE jnext_gui)
+    target_include_directories(main_window_accel_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
+    add_test(NAME main_window_accel_tests COMMAND main_window_accel_test)
+
     add_executable(shifted_keys_test gui/shifted_keys_test.cpp)
     set_target_properties(shifted_keys_test PROPERTIES AUTOMOC ON)
     target_link_libraries(shifted_keys_test PRIVATE jnext_gui)
@@ -893,6 +954,21 @@ if(ENABLE_DEBUGGER)
     target_include_directories(debugger_quit_gate_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_quit_gate_tests COMMAND debugger_quit_gate_test)
 
+    # GH #219 — the FRONTEND half of --persistent-breakpoints: closing the
+    # debugger window must not disarm, and a hit with it closed must force it
+    # open again. Drives the real DebuggerManager (set_enabled +
+    # check_breakpoint_hit) against a real 48K Emulator. Needs Qt but no
+    # display — same offscreen QPA idiom as the panel suites above.
+    add_executable(debugger_persistent_bp_test debugger/persistent_bp_test.cpp)
+    set_target_properties(debugger_persistent_bp_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_persistent_bp_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_persistent_bp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_persistent_bp_tests COMMAND debugger_persistent_bp_test)
+
     # Debugger Window Sizing test (GH #114 — "the debugger window does not fit
     # on a small monitor"). Drives the real DebuggerWindow through
     # DebuggerManager::set_enabled, shrinking it below the panels' combined
@@ -945,8 +1021,31 @@ if(ENABLE_DEBUGGER)
         jnext_audio jnext_port jnext_peripheral jnext_input
         jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
         Qt${JNEXT_QT_MAJOR}::Test)
-    target_include_directories(debugger_accel_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    # ${CMAKE_SOURCE_DIR}/test is on the path for test/menu_accel.h, the walk
+    # this suite shares with main_window_accel_test (GH #217).
+    target_include_directories(debugger_accel_test PRIVATE
+        ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
     add_test(NAME debugger_accel_tests COMMAND debugger_accel_test)
+
+    # Debugger menu-reachability test (GH #215 — the Breakpoints menu offered
+    # every breakpoint type EXCEPT Execute, and the main window's Debug menu
+    # did not offer the debugger at all). Drives the real menu actions of both
+    # windows and reads the effect out of the real BreakpointSet /
+    # DebuggerManager. Needs a MainWindow as well as a DebuggerWindow, so it is
+    # additionally gated on ENABLE_QT_UI (jnext_gui) — the quit_cleanup_test
+    # arrangement, inverted, since that one lives in the ENABLE_QT_UI block.
+    # Needs Qt but no display — same offscreen QPA idiom as the suites above.
+    if(ENABLE_QT_UI)
+        add_executable(debugger_menu_test debugger/menu_test.cpp)
+        set_target_properties(debugger_menu_test PROPERTIES AUTOMOC ON)
+        target_link_libraries(debugger_menu_test PRIVATE
+            jnext_gui jnext_debugger
+            jnext_core jnext_cpu jnext_memory jnext_video
+            jnext_audio jnext_port jnext_peripheral jnext_input
+            jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+        target_include_directories(debugger_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        add_test(NAME debugger_menu_tests COMMAND debugger_menu_test)
+    endif()
 endif()
 
 # LoRes pixel-generator compliance tests (GH #63).

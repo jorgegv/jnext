@@ -38,7 +38,7 @@ code comments.
 - When launching Agent Teams, the Manager agent should NOT write or touch any code
 - When launching Agent Teams, each independent function should be worked on in a different branch, to avoid code trashing between agents. When code is ready on each branch, they should be merged to main. If merge problems occur, the agent responsible for fixing them is the one that tried to merge last, and it should try to fix them on their own branch.
 - Agents should NOT write to the main branch, ever. Only on their own branches and worktrees!
-- **Git worktrees live OUTSIDE the repository directory.** Canonical location: `/home/jorgegv/src/spectrum/jnext-worktrees/<name>`. Never create a worktree checkout inside the repo — even gitignored (the old `.claude/worktrees/` convention is retired, 2026-07-19): anything walking the repository file list also walks the worktrees, which is unneeded work and loads the machine.
+- **Git worktrees live OUTSIDE the repository directory.** Canonical location: `/home/jorgegv/tmp/worktrees/<name>` (2026-08-03; the previous sibling `/home/jorgegv/src/spectrum/jnext-worktrees/` is retired, as is the older in-repo `.claude/worktrees/` from 2026-07-19). Never create a worktree checkout inside the repo — even gitignored: anything walking the repository file list also walks the worktrees, which is unneeded work and loads the machine. The traceability generator finds the FPGA checkout from any worktree location on its own — it resolves the worktree's main checkout from its `.git` file and walks up from there — so no `JNEXT_FPGA_SRC` export is needed in worktrees (the env var remains for machines with no sibling checkout, e.g. CI).
 - **NEVER push to origin without explicit user authorization.** This applies to the manager AND every spawned agent. Local commits, rebases, and merges on owned branches/worktrees are fine; `git push`, `git push -u`, `git push --force`, `gh pr create`, and any equivalent are all forbidden unless the user explicitly says "push" or "open a PR".
 - Update task status on the main plan whenever a task is finished
 - When the user tells you to prepare for a session handvover, immediately save your memories
@@ -237,6 +237,33 @@ it runs on every `make unit-test` and `make regression` exactly like the man
 page. If you edit a guide source, re-render and commit it in the same change —
 otherwise the next test run fails. On a host without mkdocs the check skips; in
 CI it hard-fails.
+
+**The DEVELOPER guide works the same way, with one extra generated stage**
+(GH #44). Source: `src/doc/developer-guide` + `mkdocs-devguide.yml`. Render:
+`make docs-devguide`. Committed output: `doc/developer-guide`. Gate:
+`docs-devguide-check`, the third part of `docs-check`, so it too runs on every
+`make unit-test` and `make regression`. The extra stage is the **figures**: the
+diagram sources are Graphviz `.dot` files under
+`src/doc/developer-guide/diagrams/`, rendered by `make docs-devguide-diagrams`
+into **committed** SVGs under `src/doc/developer-guide/img/`. Both the SVGs and
+the rendered site are byte-diffed, so hand-editing an SVG fails the gate exactly
+as hand-editing the man page would — edit the `.dot`, re-render, commit both.
+`make read-devguide` serves it locally.
+
+Graphviz, not Mermaid, and the reason is the same one that makes the guide
+committed at all: mkdocs-material's Mermaid integration fetches
+`mermaid.min.js` from unpkg.com at page load, so diagrams would be blank for
+exactly the offline reader the committed render exists for. Self-hosting means
+vendoring a 3.5 MB blob; pre-rendering Mermaid means a Node + headless-Chromium
+dependency. `dot` is a small packaged offline tool of the same class as pandoc
+and mkdocs. It is installed in CI alongside them.
+
+**When you change a subsystem, check whether the developer guide still
+describes it correctly.** That guide is a description of the current system, not
+a roadmap — a stale paragraph in it is the same class of defect as a stale man
+page, with the difference that no gate can detect it. `doc/design/EMULATOR-DESIGN-PLAN.md`
+stays the roadmap and is explicitly NOT a source for it: writing the user guide
+proved that plan wrong about the debugger in five separate ways.
 
 ### The test manifests — a missing test is a LOUD FAILURE, never a silent skip
 

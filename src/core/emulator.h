@@ -74,6 +74,7 @@
 // incomplete here.
 namespace esp {
 class EspTransport;
+class EspListener;
 class ThreadedEsp;
 }  // namespace esp
 class EspUartAdapter;
@@ -518,9 +519,24 @@ public:
     /// Current master cycle within the current frame.
     uint64_t current_frame_cycle() const { return frame_cycle_; }
 
-    /// Execute a single CPU instruction with all subsystem ticking.
-    /// Returns T-states consumed. Used by debugger step operations.
+    /// Execute a single CPU instruction slot with all subsystem ticking, and
+    /// nothing around it. Returns T-states consumed.
+    ///
+    /// This is the RAW primitive. It is what a test uses to advance a machine
+    /// whose frames the test drives itself; it deliberately does not touch
+    /// frame state. **The debugger's Step is debugger_step()** — see there.
     int execute_single_instruction();
+
+    /// GH #207 — the debugger's Step: one instruction slot PLUS the per-frame
+    /// bookkeeping run_frame() performs, because while the debugger holds the
+    /// machine the frontends stop calling run_frame() and this becomes its only
+    /// driver. A Step issued at a HALT additionally runs the halt out (bounded
+    /// to two frames): the CPU leaves a halt only on an accepted interrupt or
+    /// NMI (t80n.vhd:1727), so stepping its internal NOP slots one at a time
+    /// shows the user nothing and never terminates in practice.
+    ///
+    /// Returns T-states consumed — the whole halt, when it ran one out.
+    int debugger_step();
 
     const EmulatorConfig& config() const { return config_; }
     const MachineTiming& timing() const { return timing_; }
@@ -955,10 +971,13 @@ private:
     //                                  call it again.
     //   esp_device_     dies SECOND -> ~ThreadedEsp JOINS the worker, so no
     //                                  thread survives into anything below.
-    //   esp_transport_  dies THIRD  -> the transport outlived the wrapper that
+    //   esp_listener_   dies THIRD  -> the wrapper drove it too (GH #210), so
+    //                                  it carries the transport's obligation:
+    //                                  outlive the thing that polls it.
+    //   esp_transport_  dies FOURTH -> the transport outlived the wrapper that
     //                                  was driving it, as esp_threaded.h
     //                                  requires.
-    //   esp_events_     dies FOURTH -> the transport wrote into it from the
+    //   esp_events_     dies FIFTH  -> the transport wrote into it from the
     //                                  worker; it must outlive both.
     //
     // ...and ALL of them die before `uart_`, which is declared above, so the
@@ -981,6 +1000,9 @@ private:
     // not an ESP decision. A soft reset does NOT rebuild it (see setup_esp()).
     std::unique_ptr<EspConnectionLog>   esp_events_;
     std::unique_ptr<esp::EspTransport>  esp_transport_;
+    /// GH #210. Null when the configured listen address would not parse, which
+    /// makes `AT+CIPSERVER` answer ERROR — see setup_esp().
+    std::unique_ptr<esp::EspListener>   esp_listener_;
     std::unique_ptr<esp::ThreadedEsp>   esp_device_;
     std::unique_ptr<EspUartAdapter>     esp_adapter_;
     /// One-shot latch for esp_note_transport_fault(); see its header comment.
@@ -1525,6 +1547,27 @@ private:
     /// data-breakpoint check (which early-returns without running this
     /// tail — pre-existing behaviour, preserved).
     void tick_devices_after_instruction(uint64_t master_cycles);
+
+    /// GH #207 — the SINGLE shared end-of-frame body: end-of-frame raster
+    /// snapshot, `frame_cycle_` advance to `frame_end`, the boot-hold
+    /// countdown, the last-row display-state snapshots, the frame render
+    /// (or the sprite-side-effects-only pass), video/RZX capture, and the
+    /// phantom-typist / auto-type / membrane-scan per-frame ticks.
+    ///
+    /// Called by BOTH run_frame() (once its loop reaches `frame_end`) and
+    /// step_frame_slot(), for the same reason step_one_instruction() is
+    /// shared: the debugger's stepping path had NO frame boundary at all, so
+    /// begin_new_frame() was never reached again once the debugger paused and
+    /// nothing scheduled per frame — the ULA frame interrupt above all — ever
+    /// fired again.
+    void end_of_frame(uint64_t frame_end);
+
+    /// GH #207 — one instruction slot plus the per-FRAME bookkeeping that
+    /// run_frame() performs around its own loop: begin a frame if none is in
+    /// flight, run the shared per-instruction body, and end the frame once
+    /// the clock reaches its last cycle. Returns the master cycles consumed.
+    /// Only debugger_step() calls it.
+    uint64_t step_frame_slot();
 
     /// G65 — deferred CPU NR-write commit. VHDL `zxnext.vhd:4769-4777`
     /// edge-detects CPU write requests (cpu_requester → cpu_requester_d

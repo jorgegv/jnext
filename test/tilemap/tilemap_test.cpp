@@ -4,7 +4,7 @@
 // Full rewrite (Task 1 Wave 3, 2026-04-15) against
 // doc/testing/TILEMAP-TEST-PLAN-DESIGN.md. Every assertion cites a
 // VHDL file+line from the authoritative FPGA source at
-//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+//   cores/zxnext/src/
 // Expected values are derived from VHDL, NEVER from the C++ emulator.
 //
 // Ground rules (see doc/testing/UNIT-TEST-PLAN-EXECUTION.md §1–§3):

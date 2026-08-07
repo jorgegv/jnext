@@ -174,6 +174,41 @@ public:
             log_debug("transport closed before the connection was live");
     }
 
+    /// Take over a socket that is ALREADY CONNECTED — an inbound connection a
+    /// listener accepted (GH #210). Only `SocketListener` below calls it.
+    ///
+    /// IT DOES NOT TOUCH THE OUTBOUND STATE MACHINE, and could not: it lands
+    /// directly in `Connected`, which every outbound entry point already treats
+    /// as busy. `begin_connect` refuses (its first test), `poll()` has nothing
+    /// to do in that state, and `send`/`recv`/`close` are written against
+    /// `Connected` and do not care how it was reached. So an adopted transport
+    /// is an ordinary live transport to every existing caller, which is what
+    /// lets the AT engine hold inbound and outbound connections in the same
+    /// table without a second type.
+    ///
+    /// `host_` becomes the peer's numeric address because that is the only name
+    /// an inbound connection has — nobody dialled a hostname — and every log
+    /// line in this file reads `host_:port_` as "the other end".
+    ///
+    /// THE ADDRESS POLICY IS NOT CONSULTED, deliberately: the peer was not
+    /// chosen by the guest, so `classify_address` has nothing to judge. What
+    /// bounds who may reach this socket is the listener's BIND ADDRESS (see
+    /// `make_socket_listener`), enforced by the kernel rather than here.
+    void adopt_connected(net::NativeSocket s, const IpAddress& peer, std::uint16_t port) {
+        release();
+        sock_       = s;
+        peer_       = normalize(peer);
+        host_       = to_string(peer_);
+        port_       = port;
+        protocol_   = Protocol::Tcp;
+        local_port_ = 0;
+        last_error_.clear();
+        denial_     = DenyReason::None;
+        received_   = 0;
+        state_      = TransportState::Connected;
+        log_info("TCP connection ACCEPTED from {}:{}", host_, port_);
+    }
+
 private:
     void release() {
         if (sock_ != net::kInvalidSocket) {
@@ -459,6 +494,121 @@ private:
     std::shared_ptr<ResolveJob> job_;
 };
 
+/// The real listener (GH #210). Everything OS-specific is two calls into the
+/// platform twins; what lives here is the one-pending-connection rule, the
+/// fault handling and the tracing.
+class SocketListener final : public EspListener {
+public:
+    explicit SocketListener(const IpAddress& bind_address) : bind_(bind_address) {}
+    ~SocketListener() override { drop_socket(); }
+
+    bool open(std::uint16_t port) override {
+        close();
+        last_error_.clear();
+
+        std::string   err;
+        std::string   hardening_warning;
+        std::uint16_t bound = 0;
+        const net::NativeSocket s =
+            net::open_listener(bind_, port, bound, hardening_warning, err);
+        // Emitted whether the bind then succeeded or not: a hardening option
+        // that would not apply is worth saying either way, and this is the one
+        // place in the module where a socket OPTION — not a socket operation —
+        // gets a line of its own.
+        if (!hardening_warning.empty())
+            log_warn("listening socket for {}:{} is not fully hardened — {}",
+                     to_string(bind_), port, hardening_warning);
+        if (s == net::kInvalidSocket) {
+            last_error_ = err;
+            // WARN, matching the outbound refusal: a listening socket the user
+            // asked for and did not get is exactly as user-visible an event as
+            // a connection that was refused, and it must never be inferred from
+            // the absence of a line.
+            log_warn("cannot listen on {}:{} — {}", to_string(bind_), port, err);
+            return false;
+        }
+        sock_ = s;
+        port_ = bound;
+        log_info("listening for inbound connections on {}:{}", to_string(bind_), port_);
+        return true;
+    }
+
+    void close() override {
+        if (sock_ == net::kInvalidSocket) return;
+        const std::uint16_t was = port_;
+        drop_socket();
+        log_info("stopped listening on {}:{}", to_string(bind_), was);
+    }
+
+    bool               listening() const override  { return sock_ != net::kInvalidSocket; }
+    std::uint16_t      port() const override       { return port_; }
+    const std::string& last_error() const override { return last_error_; }
+
+    void poll() override {
+        if (sock_ == net::kInvalidSocket) return;
+        // ONE PENDING CONNECTION AT A TIME, and the bound is the point rather
+        // than a shortcut. `accept()` is called from the very next engine
+        // service pass, so a depth of one never throttles a real client — but
+        // without it, an unattended listener would allocate a transport per
+        // inbound SYN for as long as anything kept connecting, while the guest
+        // was not looking. Everything beyond it waits in the kernel's listen
+        // backlog, which is what a backlog is for.
+        if (pending_) return;
+
+        IpAddress     peer;
+        std::uint16_t peer_port = 0;
+        bool          failed    = false;
+        std::string   err;
+        const net::NativeSocket s =
+            net::accept_nonblocking(sock_, peer, peer_port, failed, err);
+        if (s == net::kInvalidSocket) {
+            if (!failed) {
+                log_trace("poll: nothing waiting on {}:{}", to_string(bind_), port_);
+                return;
+            }
+            // The LISTENING socket is broken, not a peer — a peer that vanished
+            // mid-handshake comes back as "nothing pending" from the twins. So
+            // stop rather than spin: the guest can re-issue AT+CIPSERVER, and a
+            // listener that kept failing every poll forever would be the worse
+            // of the two silences.
+            last_error_ = err;
+            log_error("accept failed on {}:{} — {}; no longer listening",
+                      to_string(bind_), port_, err);
+            drop_socket();
+            return;
+        }
+
+        // Created here rather than by the factory because it is born connected:
+        // there is no policy to apply and no resolver to give it.
+        auto adopted = std::unique_ptr<SocketTransport>(
+            new SocketTransport(AddressPolicy{}, nullptr));
+        adopted->adopt_connected(s, peer, peer_port);
+        pending_ = std::move(adopted);
+    }
+
+    std::unique_ptr<EspTransport> accept() override { return std::move(pending_); }
+
+private:
+    /// Release the socket without saying anything. `close()` is this plus the
+    /// log line; the fault path and the destructor want the release alone.
+    void drop_socket() {
+        if (sock_ != net::kInvalidSocket) {
+            net::close(sock_);
+            sock_ = net::kInvalidSocket;
+        }
+        port_ = 0;
+        // An accepted-but-never-taken connection has no other owner, so
+        // dropping it here is what closes its socket.
+        pending_.reset();
+    }
+
+    const IpAddress               bind_;
+    net::NativeSocket             sock_ = net::kInvalidSocket;
+    std::uint16_t                 port_ = 0;
+    std::string                   last_error_;
+    std::unique_ptr<EspTransport> pending_;
+};
+
 }  // namespace
 
 const char* protocol_text(Protocol p) {
@@ -481,6 +631,18 @@ const char* transport_state_text(TransportState s) {
     return "unknown";
 }
 
+bool parse_ip(const std::string& text, IpAddress& out) {
+    std::string err;
+    // Windows needs WSAStartup before getaddrinfo, and this is reachable before
+    // any transport has been built (a host validating a configured address).
+    if (!net::init(err)) return false;
+
+    std::vector<IpAddress> found;
+    if (!net::resolve(text, /*numeric_only=*/true, found, err) || found.empty()) return false;
+    out = found.front();
+    return true;
+}
+
 std::unique_ptr<EspTransport> make_socket_transport(const AddressPolicy& policy,
                                                     ResolveFn resolver) {
     std::string err;
@@ -489,6 +651,15 @@ std::unique_ptr<EspTransport> make_socket_transport(const AddressPolicy& policy,
         return nullptr;
     }
     return std::unique_ptr<EspTransport>(new SocketTransport(policy, std::move(resolver)));
+}
+
+std::unique_ptr<EspListener> make_socket_listener(const IpAddress& bind_address) {
+    std::string err;
+    if (!net::init(err)) {
+        log_error("network initialisation failed: {}", err);
+        return nullptr;
+    }
+    return std::unique_ptr<EspListener>(new SocketListener(bind_address));
 }
 
 }  // namespace esp

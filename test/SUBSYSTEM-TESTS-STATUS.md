@@ -22,12 +22,12 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Input (integration)   |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CTC (integration)     |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CTC (integration)     |       54 |       54 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 socket transport |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 AT command engine |      176 |      176 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 socket transport |      188 |      188 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 AT command engine |      269 |      269 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -65,7 +65,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Host key minimum-hold latch |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging (gate)        |        3 |        3 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CLI options / docs    |       13 |       13 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CLI options / docs    |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |       98 |       98 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       78 |       78 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -80,6 +80,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Atic Atac NMI         |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Profiler              |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Resume Guard          |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger Step Out     |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger persistent BPs |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger resume step-off |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (AppConfig) |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -87,15 +91,18 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host hotkeys on Alt (Ctrl to guest) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Shifted symbols reach the guest |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply) |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |       92 |       92 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Debugger persist. BP (GUI) |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **6641** | **6641** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **6919** | **6919** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

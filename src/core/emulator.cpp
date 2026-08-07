@@ -912,6 +912,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return im2_.ack_vector();
     };
 
+    // GH #219 — --persistent-breakpoints. Latched here, once, from the config:
+    // it is a run-long property of the machine, not a UI state the debugger
+    // toggles. DebugState::armed() (the hot-path breakpoint gate) becomes
+    // active() || this, so closing the debugger window no longer disarms.
+    debug_state_.set_persistent_breakpoints(cfg.persistent_breakpoints);
+
     // Magic breakpoint: ED FF (ZEsarUX) / DD 01 (CSpect) trigger debugger pause.
     if (cfg.magic_breakpoint) {
         cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
@@ -5948,6 +5954,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // cpu_a(15:14)='00' window to honour the SRAM arbiter at :3028-3035.
     mmu_.set_multiface(&multiface_);
     mmu_.set_debug_state(&debug_state_);
+    // GH #222 — the same DebugState drives I/O watchpoints on the port bus.
+    port_.set_debug_state(&debug_state_);
     i2c_.attach_device(0x68, &rtc_);
     // Task 28 — pin the RTC to the --rtc fixed date/time (frozen clock,
     // deterministic boot screenshots). Survives the NextZXOS mid-boot
@@ -7207,11 +7215,35 @@ void Emulator::setup_esp()
         esp::make_socket_transport(esp::AddressPolicy{}), std::move(host_policy),
         *esp_events_);
 
+    // GH #210 — the INBOUND half. Built here so that the bind address is fixed
+    // before anything can listen: the guest chooses the PORT with
+    // `AT+CIPSERVER`, never the address, which is what makes the user's
+    // `--esp-listen-address` (loopback unless they widened it) the boundary
+    // (design doc §13.4).
+    //
+    // A listener is created whenever the ESP is enabled, and it costs nothing
+    // until the guest asks: no socket exists until `AT+CIPSERVER=1,<port>`.
+    // There is deliberately no second host-side enable flag — the AT command IS
+    // the opt-in, and a guest that can already dial out is not made more
+    // dangerous by a gate it controls either way (§13.4's rejected alternative).
+    esp::IpAddress bind_ip;
+    if (esp::parse_ip(config_.esp_listen_address, bind_ip)) {
+        esp_listener_ = esp::make_socket_listener(bind_ip);
+    } else {
+        // Unreachable from the CLI, which validates the address and refuses at
+        // startup. Reachable from a caller that builds an EmulatorConfig by
+        // hand, and the answer there is to have NO server rather than to guess
+        // an address: AT+CIPSERVER then answers ERROR.
+        Log::esp01()->error(
+            "ESP listen address '{}' is not a numeric IP — AT+CIPSERVER will answer ERROR",
+            config_.esp_listen_address);
+    }
+
     // The THREADED wrapper, not the bare engine: it is what keeps
     // `EspTransport::poll()` off the frame loop, and its destructor joins the
     // worker (see the member declarations in emulator.h for why that matters
     // at exactly this address).
-    esp_device_ = std::make_unique<esp::ThreadedEsp>(*esp_transport_);
+    esp_device_ = std::make_unique<esp::ThreadedEsp>(*esp_transport_, esp_listener_.get());
     esp_adapter_ = std::make_unique<EspUartAdapter>(*esp_device_);
     esp_device_->start();
 
@@ -7233,6 +7265,14 @@ void Emulator::setup_esp()
         }
         Log::esp01()->info("ESP-01 enabled on UART 0 — allowed hosts: {}", list);
     }
+    // The INBOUND posture, said separately because it is a separate direction
+    // and the allowlist above has nothing to do with it (design doc §13.4).
+    // Named at startup for the same reason the allowlist is: a user who has
+    // widened it should be able to see that they did without a debugger.
+    Log::esp01()->info(
+        "ESP-01 server mode binds {} when the guest sends AT+CIPSERVER "
+        "(nothing listens until it does)",
+        config_.esp_listen_address);
 }
 
 void Emulator::service_esp_frame()
@@ -7322,13 +7362,37 @@ void Emulator::run_frame()
 
     while (clock_.get() < frame_end) {
         // Debugger breakpoint check — before executing the next instruction.
-        if (debug_state_.active()) {
+        //
+        // GH #219: armed(), not active(). armed() is active() OR
+        // --persistent-breakpoints, so breakpoints survive closing the
+        // debugger window; the other active() readers below (render hint,
+        // per-instruction VideoTiming walk, the rewind step modes) stay on
+        // active() so nothing but the check itself is switched on.
+        if (debug_state_.armed()) {
             // Check if an external trigger (e.g. magic breakpoint) already
             // paused the emulator during the previous instruction's execute().
             if (debug_state_.paused())
                 return;
             uint16_t pc = cpu_.pc();
-            if (debug_state_.should_break(pc)) {
+            // GH #221 — step OFF the breakpoint we are standing on.
+            //
+            // This test runs before the instruction at `pc`. The arm is raised
+            // only when a resume actually takes the machine from PAUSED to
+            // running (DebugState::unpause_()), so between the arm and this
+            // consumption the CPU executed nothing and `pc` is still the
+            // address Run / Step Over / Step Out / Run to Here was pressed at.
+            // Re-matching it pinned the machine there forever — paused_
+            // cleared, PC unchanged, re-paused with no progress made — which
+            // is the whole of #221, and it affected every resume path, not
+            // just F5.
+            //
+            // consume_step_off() is true at most once per resume, so the
+            // suppression is one instruction wide and skips nothing else: a
+            // breakpoint at the NEXT address is a later iteration with the arm
+            // already spent, and so is this same address on the next pass
+            // round a loop. A redundant resume on an already-running machine
+            // raises no arm at all, so it cannot swallow a later hit.
+            if (!debug_state_.consume_step_off() && debug_state_.should_break(pc)) {
                 debug_state_.pause();
                 // Early return: leave frame_cycle_ as-is so resume continues
                 // from this point.  The display shows the previous frame.
@@ -7399,7 +7463,8 @@ void Emulator::run_frame()
         const uint64_t master_cycles = step_one_instruction();
 
         // Check if a data breakpoint was hit during this instruction.
-        if (debug_state_.active() && debug_state_.data_bp_hit()) {
+        // GH #219: armed(), matching the MMU sites that raise the flag.
+        if (debug_state_.armed() && debug_state_.data_bp_hit()) {
             debug_state_.pause();
             debug_state_.set_data_bp_hit(false);
             return;
@@ -7412,6 +7477,43 @@ void Emulator::run_frame()
         // semantics preserved).
         tick_devices_after_instruction(master_cycles);
     }
+
+    end_of_frame(frame_end);
+}
+
+void Emulator::end_of_frame(uint64_t frame_end)
+{
+    // GH #207 — everything that must happen exactly ONCE per frame, at its
+    // END. Extracted verbatim from the tail of run_frame() so the debugger's
+    // single-step path (debugger_step() → step_frame_slot()) turns frames over
+    // through the SAME body. Before the extraction the stepping path had no
+    // frame boundary at all: begin_new_frame() was never reached again, so the
+    // per-frame ULA/line interrupt and per-scanline scheduler events stopped
+    // being scheduled the moment the debugger paused, and a HALTed CPU could
+    // never be woken by any number of steps. Same "one shared body" rule as
+    // Task 60a's step_one_instruction().
+    //
+    // `frame_end` is the CALLER'S OWN end-of-frame cycle, never a value
+    // recomputed here, and the two callers sample it at deliberately different
+    // points: run_frame() BEFORE its `if (!frame_in_progress_) begin_new_frame()`
+    // block (:7324, pre-existing), step_frame_slot() AFTER it (:8366). They
+    // agree except in one case — begin_new_frame() can commit a pending
+    // NR 0x03 / NR 0x05 timing change and re-derive
+    // `timing_.master_cycles_per_frame` through
+    // repush_video_timing_from_machine_timing() (:6976), so on the ONE frame
+    // that follows such a write, run_frame()'s bound is the OLD frame length
+    // and step_frame_slot()'s is the new one.
+    //
+    // Taking the parameter rather than recomputing keeps each caller
+    // self-consistent with the bound it actually ran its instructions to,
+    // which is what matters for `frame_cycle_ = frame_end` here. Note for a
+    // follow-up (GH #207 review): step_frame_slot()'s ordering looks like the
+    // more VHDL-faithful of the two — the effective timing latch commits at
+    // `video_frame_sync` (zxnext.vhd:6694-6703), i.e. at the frame edge, so
+    // the frame that follows the commit should already be measured with the
+    // new constants. Changing run_frame() to match is NOT done here: it moves
+    // frame geometry for every consumer of a mid-session NR 0x03/0x05 write
+    // and belongs in its own change with its own screenshot evidence.
 
     // Save end-of-frame raster before advancing frame_cycle_, so snapshot_raster()
     // can show a meaningful position when Break is pressed between frames.
@@ -7807,6 +7909,14 @@ uint64_t Emulator::step_one_instruction()
             call_stack_.on_instruction_pre(regs2.PC, regs2.SP, op0, op1, op2);
         }
 
+        // GH #203 — Step Out. Nothing is READ here, deliberately: only SP is
+        // sampled. The opcode bytes are read after execute() and only once the
+        // SP test has already passed — see the decision site below for why.
+        const bool step_out_armed =
+            debug_state_.active() && debug_state_.step_mode() == StepMode::OUT;
+        const uint16_t step_out_sp_before =
+            step_out_armed ? cpu_.registers().SP : 0;
+
         // Execute one CPU instruction; returns T-states consumed.
         // Memory contention is applied per-access via the
         // ContentionModel::contention_tick() runtime path installed by
@@ -7829,6 +7939,50 @@ uint64_t Emulator::step_one_instruction()
         const uint16_t pc_pre_exec = cpu_.pc();
         multiface_retn_pending_ = false;
         int tstates = cpu_.execute();
+
+        // GH #203 — Step Out decision. It sits HERE, between execute() and the
+        // RETN overlay clear below, and the order of the two halves matters as
+        // much as the position:
+        //
+        //  * NOTHING IS READ unless the CPU itself read it. execute() has
+        //    three early returns that complete a step without fetching the
+        //    opcode at PC — NMI, accepted INT, and the esxdos shim
+        //    (z80_cpu.cpp:639, :723, :813). Reading the opcode speculatively
+        //    BEFORE execute() tripped a READ watchpoint on a byte the CPU
+        //    never read in those slots, and the data-breakpoint branch in
+        //    run_frame() then ENDED the step in the wrong place — a wrong
+        //    stop, not the "keeps running" degradation this feature promises.
+        //    So the CPU is ASKED (fetched_opcode_last_execute()) rather than
+        //    having the answer inferred from SP arithmetic: the shim fakes a
+        //    return's own SP delta (`r.SP = sp + 2`, z80_cpu.cpp:807), so an
+        //    SP-shape test cannot see it. Both gaps came from the independent
+        //    review of GH #203, the second one after an SP-shape test had
+        //    already "fixed" the first — which is why the gate is now the
+        //    direct signal and closes the whole class, including any future
+        //    host-side shim wired into on_esxdos_call.
+        //
+        //  * BEFORE divmmc_.on_retn_instruction_complete(): a RETN leaving a
+        //    DivMMC-mapped routine — the esxdos idiom — clears the overlay
+        //    there, and a read taken after that point would see the underlying
+        //    page instead of the ED 45 the CPU actually fetched. No return
+        //    form writes a port or an NR, so the mapping here is still the one
+        //    the M1 fetch used.
+        //
+        // PC+1 is read only behind an 0xED prefix, which is the only case the
+        // CPU fetches a second M1 byte; reading it unconditionally would, for
+        // a one-byte instruction at 0x3FFF, leave p3_floating_bus_dat_ holding
+        // mem[0x4000] (mmu.h:393, VHDL zxnext.vhd:4498-4509).
+        if (step_out_armed && cpu_.fetched_opcode_last_execute() &&
+            debug_state_.step_out_sp_qualifies(step_out_sp_before,
+                                               cpu_.registers().SP)) {
+            const uint8_t op0 = mmu_.read(pc_pre_exec);
+            const uint8_t op1 = (op0 == 0xED)
+                ? mmu_.read(static_cast<uint16_t>(pc_pre_exec + 1)) : 0;
+            if (debug_state_.check_step_out(step_out_sp_before,
+                                            cpu_.registers().SP, op0, op1)) {
+                debug_state_.pause();
+            }
+        }
 
         // RETN overlay timing — on real hardware the RETN opcode has
         // already been fetched when i_retn_seen clears the mapping
@@ -7873,6 +8027,14 @@ uint64_t Emulator::step_one_instruction()
             const Z80Registers& post = cpu_.registers();
             call_stack_.on_instruction_post(post.SP, post.PC);
         }
+
+        // GH #203 — the Step Out decision was made just after cpu_.execute()
+        // above (it must precede the RETN overlay clear). Both this shared
+        // body's callers reach it, so run_frame()'s free-running loop and
+        // execute_single_instruction() cannot disagree about where a step out
+        // ends. pause() clears step_mode_ back to NONE, which consumes the
+        // step; run_frame()'s loop head sees paused() on its next iteration
+        // and returns, after this instruction's devices have been ticked.
 
         // Convert T-states to 28 MHz master cycles for the master-clock
         // advance and the CTC / UART / md6 / nmi device ticks below.
@@ -8232,6 +8394,34 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     scheduler_.run_until(clock_.get());
 }
 
+uint64_t Emulator::step_frame_slot()
+{
+    // GH #207 — one instruction slot WITH the frame bookkeeping run_frame()
+    // does around its own loop: begin a frame when none is in flight, end it
+    // when the clock reaches the frame's last cycle. Without those two seams
+    // the clock simply runs past the end of the frame it is in, forever, and
+    // everything scheduled per frame — begin_new_frame()'s ULA frame interrupt
+    // (zxula_timing.vhd:551), the line interrupt, and the per-scanline
+    // SCANLINE/VSYNC events — is never scheduled again.
+    //
+    // Called only from debugger_step(), which is the machine's sole driver
+    // while the debugger holds it. See that function for why the frame loop
+    // does NOT belong to execute_single_instruction().
+    if (!frame_in_progress_) {
+        begin_new_frame();
+        frame_in_progress_ = true;
+    }
+    const uint64_t frame_end = frame_cycle_ + timing_.master_cycles_per_frame;
+
+    const uint64_t master_cycles = step_one_instruction();
+    tick_devices_after_instruction(master_cycles);
+
+    if (clock_.get() >= frame_end) {
+        end_of_frame(frame_end);
+    }
+    return master_cycles;
+}
+
 int Emulator::execute_single_instruction()
 {
     // Task 60a — delegate to the SAME shared per-instruction body that
@@ -8243,10 +8433,11 @@ int Emulator::execute_single_instruction()
     // recorded trace entries. Sharing the body makes that drift
     // structurally impossible.
     //
-    // run_frame()'s per-frame surroundings (breakpoint checks, tape
-    // ROM traps, frame-end bookkeeping, the data-breakpoint early
-    // return) intentionally stay in run_frame() — the debugger caller
-    // owns pause semantics around a single step.
+    // This is the RAW one-slot primitive: exactly one instruction slot and
+    // nothing around it. run_frame()'s per-instruction surroundings
+    // (breakpoint checks, tape ROM traps, the data-breakpoint early return)
+    // and its per-FRAME surroundings both stay outside. The debugger's Step
+    // is debugger_step(), which adds the frame loop.
     //
     // GH #164 — see resume_from_park(). The shared body below honours
     // cpu_parked_, so on a parked machine every Step would be a silent
@@ -8257,6 +8448,99 @@ int Emulator::execute_single_instruction()
 
     const uint64_t master_cycles = step_one_instruction();
     tick_devices_after_instruction(master_cycles);
+    return static_cast<int>(master_cycles / clock_.cpu_divisor());
+}
+
+int Emulator::debugger_step()
+{
+    // GH #207 — the debugger's Step, as distinct from the raw one-slot
+    // primitive above. Two things separate them, and both come from the same
+    // fact: while the debugger holds the machine the frontends stop calling
+    // run_frame() altogether (src/platform/frame_sequencer.h — `if
+    // (!fx.paused())`), so this call is the machine's ONLY driver and inherits
+    // run_frame()'s job, not just its inner loop.
+    //
+    //   1. It runs the frame loop (step_frame_slot()). Without it the clock
+    //      runs past the end of the frame it is in and no frame ever begins
+    //      again, so nothing scheduled per frame — the ULA frame interrupt
+    //      above all — can ever fire for the rest of the session.
+    //
+    //   2. A Step issued while the CPU is HALTed runs the halt out.
+    //      HALT is not an instruction that completes: VHDL t80n.vhd:496
+    //      freezes PC while Halt_FF is set and :502-503 forces IR to 0x00, so
+    //      the core keeps issuing M1 NOP fetches at the same address, and
+    //      t80n.vhd:1727 clears Halt_FF only on an accepted interrupt or NMI
+    //      cycle. Stepping one of those internal NOPs is observably nothing:
+    //      PC does not move, no register changes, and the user would have to
+    //      press Step once per 4 T-states — 17472 times at 3.5 MHz, 139776 at
+    //      28 MHz — before the frame interrupt that ends the wait arrives.
+    //      That is the whole of GH #207. So the step's unit of progress here
+    //      is the halt, exactly as Step Over's unit is the whole CALL.
+    //      Nothing is faked or skipped: every one of those NOP slots is
+    //      emulated through the same body as any other instruction, devices
+    //      and all — the loop just does not hand control back until the CPU
+    //      has actually left the halt state.
+    //
+    // Keeping both out of execute_single_instruction() is deliberate. That
+    // function is used all over the test tree to advance a machine by exactly
+    // one slot while the test drives its own frames, and several suites depend
+    // on it not touching frame state at all — videotiming_test's G163
+    // line-interrupt rows ("ULA-int still enabled but not scheduled because
+    // run_frame was never called"), lores_integration_test, and step_out_test,
+    // whose hand-injected INT would be dropped by begin_new_frame()'s reset of
+    // the frame-relative T-state counter the /INT pulse window is measured in.
+    //
+    // Returns the CPU T-states the step consumed, like the primitive.
+    resume_from_park("the debugger stepped a single instruction");
+
+    // Bounded at two frames because the ULA frame interrupt fires once per
+    // frame (zxula_timing.vhd:551) and the current frame may already be past
+    // its firing point, so two frames always contain at least one. When the
+    // budget runs out the CPU is still halted and the step reports no
+    // progress — the honest answer for `DI : HALT`, which on real hardware
+    // waits for an NMI or a reset and nothing else.
+    const bool halted_before = cpu_.is_halted();
+    uint64_t master_cycles = step_frame_slot();
+
+    if (halted_before) {
+        const uint64_t budget = 2u * timing_.master_cycles_per_frame;
+        uint64_t spent = master_cycles;
+        // A watchpoint that fires inside the halt (a DMA write, or a READ
+        // watchpoint on the halted PC itself, which the core re-fetches every
+        // slot) ends the step where it fired instead of being spent silently.
+        while (cpu_.is_halted() && spent < budget && !debug_state_.data_bp_hit()) {
+            const uint64_t m = step_frame_slot();
+            spent += m;
+            master_cycles += m;
+        }
+    }
+
+    // CONSUME the data-breakpoint latch. `data_bp_hit_` is set by the MMU and
+    // is NOT self-clearing: run_frame() is what consumes it, at
+    // emulator.cpp:7434-7437 (`pause(); set_data_bp_hit(false);`), because
+    // that is where a watchpoint ends the instruction it fired in. A step ends
+    // an instruction too, so the same consume belongs here — and leaving it
+    // out is not a cosmetic leak:
+    //
+    //   * the halt-run loop above reads the flag, so a watchpoint that fires
+    //     during ANY step leaves every LATER Step with a false loop condition
+    //     from its first iteration. A Step at a HALT then degrades to one
+    //     4-T-state NOP slot again — PC never moves, indefinitely. That is
+    //     precisely the GH #207 symptom this function exists to remove, and it
+    //     would have persisted until some unrelated DebugState::resume()
+    //     happened to clear the flag;
+    //   * on the next Run, run_frame()'s own check fires one instruction into
+    //     the resume and stops at an address the watchpoint has nothing to do
+    //     with.
+    //
+    // Consuming it unconditionally (not only when the loop broke on it) is
+    // deliberate: both leaks are the same latch, and a step that is not a
+    // halt-run can set it just as easily.
+    if (debug_state_.data_bp_hit()) {
+        debug_state_.pause();
+        debug_state_.set_data_bp_hit(false);
+    }
+
     return static_cast<int>(master_cycles / clock_.cpu_divisor());
 }
 

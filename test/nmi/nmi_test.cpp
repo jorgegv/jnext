@@ -3,7 +3,7 @@
 // Phase 1 scaffold (2026-04-24) against
 // doc/testing/NMI-PIPELINE-TEST-PLAN-DESIGN.md. Every assertion cites
 // the exact VHDL file and line from the authoritative FPGA source at
-//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+//   cores/zxnext/src/
 // (external to this repo; cited here for provenance, not edited).
 //
 // Ground rules (per doc/testing/UNIT-TEST-PLAN-EXECUTION.md):

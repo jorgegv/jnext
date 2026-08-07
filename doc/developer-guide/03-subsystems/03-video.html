@@ -1,0 +1,2133 @@
+
+<!doctype html>
+<html lang="en" class="no-js">
+  <head>
+    
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width,initial-scale=1">
+      
+        <meta name="description" content="ZX Spectrum Next emulator — developer guide">
+      
+      
+      
+      
+        <link rel="prev" href="02-memory.html">
+      
+      
+        <link rel="next" href="04-audio.html">
+      
+      
+        
+      
+      
+      <link rel="icon" href="../assets/images/favicon.png">
+      <meta name="generator" content="mkdocs-1.6.1, mkdocs-material-9.7.1">
+    
+    
+      
+        <title>3.3 Video - JNEXT Developer Guide</title>
+      
+    
+    
+      <link rel="stylesheet" href="../assets/stylesheets/main.484c7ddc.min.css">
+      
+        
+        <link rel="stylesheet" href="../assets/stylesheets/palette.ab4e12ef.min.css">
+      
+      
+
+
+    
+    
+      
+    
+    
+      
+        
+        
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:300,300i,400,400i,700,700i%7CRoboto+Mono:400,400i,700,700i&display=fallback">
+        <style>:root{--md-text-font:"Roboto";--md-code-font:"Roboto Mono"}</style>
+      
+    
+    
+      <link rel="stylesheet" href="../css/theme.css">
+    
+    <script>__md_scope=new URL("..",location),__md_hash=e=>[...e].reduce(((e,_)=>(e<<5)-e+_.charCodeAt(0)),0),__md_get=(e,_=localStorage,t=__md_scope)=>JSON.parse(_.getItem(t.pathname+"."+e)),__md_set=(e,_,t=localStorage,a=__md_scope)=>{try{t.setItem(a.pathname+"."+e,JSON.stringify(_))}catch(e){}}</script>
+    
+      
+
+    
+    
+  </head>
+  
+  
+    
+    
+      
+    
+    
+    
+    
+    <body dir="ltr" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom">
+  
+    
+    <input class="md-toggle" data-md-toggle="drawer" type="checkbox" id="__drawer" autocomplete="off">
+    <input class="md-toggle" data-md-toggle="search" type="checkbox" id="__search" autocomplete="off">
+    <label class="md-overlay" for="__drawer"></label>
+    <div data-md-component="skip">
+      
+        
+        <a href="#33-video" class="md-skip">
+          Skip to content
+        </a>
+      
+    </div>
+    <div data-md-component="announce">
+      
+    </div>
+    
+    
+      
+
+  
+
+<header class="md-header md-header--shadow" data-md-component="header">
+  <nav class="md-header__inner md-grid" aria-label="Header">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-header__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    <label class="md-header__button md-icon" for="__drawer">
+      
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M3 6h18v2H3zm0 5h18v2H3zm0 5h18v2H3z"/></svg>
+    </label>
+    <div class="md-header__title" data-md-component="header-title">
+      <div class="md-header__ellipsis">
+        <div class="md-header__topic">
+          <span class="md-ellipsis">
+            JNEXT Developer Guide
+          </span>
+        </div>
+        <div class="md-header__topic" data-md-component="header-topic">
+          <span class="md-ellipsis">
+            
+              3.3 Video
+            
+          </span>
+        </div>
+      </div>
+    </div>
+    
+      
+        <form class="md-header__option" data-md-component="palette">
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: light)" data-md-color-scheme="default" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to dark mode"  type="radio" name="__palette" id="__palette_0">
+    
+      <label class="md-header__button md-icon" title="Switch to dark mode" for="__palette_1" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a4 4 0 0 0-4 4 4 4 0 0 0 4 4 4 4 0 0 0 4-4 4 4 0 0 0-4-4m0 10a6 6 0 0 1-6-6 6 6 0 0 1 6-6 6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+    
+    
+    
+    <input class="md-option" data-md-color-media="(prefers-color-scheme: dark)" data-md-color-scheme="slate" data-md-color-primary="custom" data-md-color-accent="custom"  aria-label="Switch to light mode"  type="radio" name="__palette" id="__palette_1">
+    
+      <label class="md-header__button md-icon" title="Switch to light mode" for="__palette_0" hidden>
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 18c-.89 0-1.74-.2-2.5-.55C11.56 16.5 13 14.42 13 12s-1.44-4.5-3.5-5.45C10.26 6.2 11.11 6 12 6a6 6 0 0 1 6 6 6 6 0 0 1-6 6m8-9.31V4h-4.69L12 .69 8.69 4H4v4.69L.69 12 4 15.31V20h4.69L12 23.31 15.31 20H20v-4.69L23.31 12z"/></svg>
+      </label>
+    
+  
+</form>
+      
+    
+    
+      <script>var palette=__md_get("__palette");if(palette&&palette.color){if("(prefers-color-scheme)"===palette.color.media){var media=matchMedia("(prefers-color-scheme: light)"),input=document.querySelector(media.matches?"[data-md-color-media='(prefers-color-scheme: light)']":"[data-md-color-media='(prefers-color-scheme: dark)']");palette.color.media=input.getAttribute("data-md-color-media"),palette.color.scheme=input.getAttribute("data-md-color-scheme"),palette.color.primary=input.getAttribute("data-md-color-primary"),palette.color.accent=input.getAttribute("data-md-color-accent")}for(var[key,value]of Object.entries(palette.color))document.body.setAttribute("data-md-color-"+key,value)}</script>
+    
+    
+    
+      
+      
+        <label class="md-header__button md-icon" for="__search">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        </label>
+        <div class="md-search" data-md-component="search" role="dialog">
+  <label class="md-search__overlay" for="__search"></label>
+  <div class="md-search__inner" role="search">
+    <form class="md-search__form" name="search">
+      <input type="text" class="md-search__input" name="query" aria-label="Search" placeholder="Search" autocapitalize="off" autocorrect="off" autocomplete="off" spellcheck="false" data-md-component="search-query" required>
+      <label class="md-search__icon md-icon" for="__search">
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M9.5 3A6.5 6.5 0 0 1 16 9.5c0 1.61-.59 3.09-1.56 4.23l.27.27h.79l5 5-1.5 1.5-5-5v-.79l-.27-.27A6.52 6.52 0 0 1 9.5 16 6.5 6.5 0 0 1 3 9.5 6.5 6.5 0 0 1 9.5 3m0 2C7 5 5 7 5 9.5S7 14 9.5 14 14 12 14 9.5 12 5 9.5 5"/></svg>
+        
+        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M20 11v2H8l5.5 5.5-1.42 1.42L4.16 12l7.92-7.92L13.5 5.5 8 11z"/></svg>
+      </label>
+      <nav class="md-search__options" aria-label="Search">
+        
+        <button type="reset" class="md-search__icon md-icon" title="Clear" aria-label="Clear" tabindex="-1">
+          
+          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M19 6.41 17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+        </button>
+      </nav>
+      
+    </form>
+    <div class="md-search__output">
+      <div class="md-search__scrollwrap" tabindex="0" data-md-scrollfix>
+        <div class="md-search-result" data-md-component="search-result">
+          <div class="md-search-result__meta">
+            Initializing search
+          </div>
+          <ol class="md-search-result__list" role="presentation"></ol>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+      
+    
+    
+      <div class="md-header__source">
+        <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.132</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+      </div>
+    
+  </nav>
+  
+</header>
+    
+    <div class="md-container" data-md-component="container">
+      
+      
+        
+          
+        
+      
+      <main class="md-main" data-md-component="main">
+        <div class="md-main__inner md-grid">
+          
+            
+              
+              <div class="md-sidebar md-sidebar--primary" data-md-component="sidebar" data-md-type="navigation" >
+                <div class="md-sidebar__scrollwrap">
+                  <div class="md-sidebar__inner">
+                    
+
+
+
+  
+
+<nav class="md-nav md-nav--primary md-nav--integrated" aria-label="Navigation" data-md-level="0">
+  <label class="md-nav__title" for="__drawer">
+    <a href="../index.html" title="JNEXT Developer Guide" class="md-nav__button md-logo" aria-label="JNEXT Developer Guide" data-md-component="logo">
+      
+  
+  <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24"><path d="M12 8a3 3 0 0 0 3-3 3 3 0 0 0-3-3 3 3 0 0 0-3 3 3 3 0 0 0 3 3m0 3.54C9.64 9.35 6.5 8 3 8v11c3.5 0 6.64 1.35 9 3.54 2.36-2.19 5.5-3.54 9-3.54V8c-3.5 0-6.64 1.35-9 3.54"/></svg>
+
+    </a>
+    JNEXT Developer Guide
+  </label>
+  
+    <div class="md-nav__source">
+      <a href="https://github.com/jorgegv/jnext" title="Go to repository" class="md-source">
+  <div class="md-source__icon md-icon">
+    
+    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 448 512"><!--! Font Awesome Free 7.1.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2025 Fonticons, Inc.--><path d="M439.6 236.1 244 40.5c-5.4-5.5-12.8-8.5-20.4-8.5s-15 3-20.4 8.4L162.5 81l51.5 51.5c27.1-9.1 52.7 16.8 43.4 43.7l49.7 49.7c34.2-11.8 61.2 31 35.5 56.7-26.5 26.5-70.2-2.9-56-37.3L240.3 199v121.9c25.3 12.5 22.3 41.8 9.1 55-6.4 6.4-15.2 10.1-24.3 10.1s-17.8-3.6-24.3-10.1c-17.6-17.6-11.1-46.9 11.2-56v-123c-20.8-8.5-24.6-30.7-18.6-45L142.6 101 8.5 235.1C3 240.6 0 247.9 0 255.5s3 15 8.5 20.4l195.6 195.7c5.4 5.4 12.7 8.4 20.4 8.4s15-3 20.4-8.4l194.7-194.7c5.4-5.4 8.4-12.8 8.4-20.4s-3-15-8.4-20.4"/></svg>
+  </div>
+  <div class="md-source__repository">
+    GitHub
+    <ul class="md-source__facts jnext-facts">
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.132</li>
+      <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
+    </ul>
+  </div>
+</a>
+<style>
+  .md-source__facts.jnext-facts {
+    flex-direction: column;
+    gap: 0;
+    font-size: .5rem;
+    line-height: 1.3;
+  }
+  .md-source__facts.jnext-facts .md-source__fact {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  .md-source__facts.jnext-facts .md-source__fact::before {
+    content: none;
+  }
+</style>
+<script>
+  (function () {
+    var el = document.getElementById("jnext-latest-fact");
+    if (!el || !window.fetch) return;
+    var raw = "https://raw.githubusercontent.com/jorgegv/jnext/main/version.yaml";
+    fetch(raw + "?t=" + Date.now(), { cache: "no-store" })
+      .then(function (r) { return r.ok ? r.text() : null; })
+      .then(function (t) {
+        var m = t && t.match(/^version:\s*(\S+)/m);
+        if (m) el.textContent = "Latest version: v" + m[1];
+      })
+      .catch(function () { /* offline: keep the em dash */ });
+  })();
+</script>
+    </div>
+  
+  <ul class="md-nav__list" data-md-scrollfix>
+    
+      
+      
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../index.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Home
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_2" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../01-orientation/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1. Orientation
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_2" id="__nav_2_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_2_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_2">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    1. Orientation
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/01-what-jnext-is.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.1 What JNEXT is, in one page
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/02-repository-layout.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.2 Repository layout
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../01-orientation/03-the-rules-that-shape-the-code.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    1.3 The rules that shape the code
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_3" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../02-architecture/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2. Architecture
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_3" id="__nav_3_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_3_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_3">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    2. Architecture
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/01-startup-and-the-frontends.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.1 Startup and the frontends
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/02-the-emulator-core.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.2 The emulator core
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/03-a-frame-end-to-end.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.3 A frame, end to end
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/04-the-video-pipeline.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.4 The video pipeline
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../02-architecture/05-save-state-and-rewind.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    2.5 Save state, rewind and determinism
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+    
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--active md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_4" checked>
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3. Subsystems
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_4" id="__nav_4_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_4_label" aria-expanded="true">
+          <label class="md-nav__title" for="__nav_4">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    3. Subsystems
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="01-cpu.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.1 CPU
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="02-memory.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.2 Memory
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+    
+  
+  
+  
+    <li class="md-nav__item md-nav__item--active">
+      
+      <input class="md-nav__toggle md-toggle" type="checkbox" id="__toc">
+      
+      
+        
+      
+      
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.3 Video
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
+      <a href="03-video.html" class="md-nav__link md-nav__link--active">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.3 Video
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#raster-counters-and-their-clock-domains" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Raster counters and their clock domains
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-ula" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The ULA
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#lores-is-not-a-layer" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        LoRes is not a layer
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layer-2-tilemap-sprites" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layer 2, tilemap, sprites
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-compositor" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The compositor
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#per-scanline-state-snapshots-and-change-logs" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Per-scanline state: snapshots and change logs
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#accepted-limitation-mid-line-writes-apply-from-the-start-of-the-row" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Accepted limitation: mid-line writes apply from the start of the row
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
+      
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="04-audio.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.4 Audio
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="05-ports-and-nextreg.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.5 Ports and NextREG
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="06-peripherals.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.6 Peripherals
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="07-input.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.7 Input
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="08-media-and-loaders.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.8 Media and loaders
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="09-debug-and-the-debugger.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    3.9 Debug and the debugger
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_5" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../04-testing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4. Testing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_5" id="__nav_5_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_5_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_5">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    4. Testing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/01-the-test-triplet.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.1 The test triplet
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/02-declared-suites-and-pinned-counts.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.2 Declared suites and pinned counts
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/03-the-regression-suite.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.3 The regression suite
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/04-traceability.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.4 Traceability
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/05-documentation-and-cli-gates.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.5 The documentation and CLI gates
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/06-the-harness-selftest.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.6 The harness self-test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../04-testing/07-writing-a-new-test.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    4.7 Writing a new test
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_6" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../05-building/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5. Building and packaging
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_6" id="__nav_6_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_6_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_6">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    5. Building and packaging
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/01-make-targets.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.1 Make targets
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/02-build-configurations.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.2 Build configurations
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/03-packaging-and-release.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.3 Packaging and release
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-building/04-continuous-integration.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.4 Continuous integration
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+      
+      
+  
+  
+  
+  
+    
+    
+      
+        
+          
+        
+      
+        
+      
+        
+      
+        
+      
+    
+    
+    
+    
+    <li class="md-nav__item md-nav__item--nested">
+      
+        
+        
+        <input class="md-nav__toggle md-toggle " type="checkbox" id="__nav_7" >
+        
+          
+          <div class="md-nav__link md-nav__container">
+            <a href="../06-contributing/index.html" class="md-nav__link ">
+              
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6. Contributing
+  
+
+    
+  </span>
+  
+  
+
+            </a>
+            
+              
+              <label class="md-nav__link " for="__nav_7" id="__nav_7_label" tabindex="0">
+                <span class="md-nav__icon md-icon"></span>
+              </label>
+            
+          </div>
+        
+        <nav class="md-nav" data-md-level="1" aria-labelledby="__nav_7_label" aria-expanded="false">
+          <label class="md-nav__title" for="__nav_7">
+            <span class="md-nav__icon md-icon"></span>
+            
+  
+    6. Contributing
+  
+
+          </label>
+          <ul class="md-nav__list" data-md-scrollfix>
+            
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/01-issues-and-pull-requests.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.1 Issues and pull requests
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/02-branches-worktrees-and-review.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.2 Branches, worktrees and review
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-contributing/03-house-style.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    6.3 House style
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+          </ul>
+        </nav>
+      
+    </li>
+  
+
+    
+  </ul>
+</nav>
+                  </div>
+                </div>
+              </div>
+            
+            
+          
+          
+            <div class="md-content" data-md-component="content">
+              
+              <article class="md-content__inner md-typeset">
+                
+                  
+
+
+  
+  
+
+
+<h1 id="33-video">3.3 Video<a class="headerlink" href="#33-video" title="Permanent link">&para;</a></h1>
+<p>The picture a ZX Spectrum Next puts on screen is composed, not drawn. Four
+generators run in parallel — the classic ULA screen, a Layer 2 bitmap, a tilemap
+and a sprite engine — each offering a pixel for every position on the display,
+and a hardware compositor chooses between them using a programmable priority
+order, per-layer transparency and a pair of blend modes. A fifth mode, LoRes,
+does not add a layer at all: it substitutes chunky pixels into the ULA's slot.
+All of it is under software control at scanline granularity, and through the
+Copper at a position <em>within</em> a scanline, which is what makes raster effects on
+this machine so much richer than on a 48K Spectrum.</p>
+<p>That makes video the largest subsystem in JNEXT — about 10 200 lines across
+eight modules in <code>src/video/</code>, plus the part of <code>src/core/emulator.cpp</code> that
+feeds it. It produces exactly one artefact: a 640×256 ARGB8888 framebuffer,
+built one scanline at a time by <code>Renderer::render_frame</code> at the end of every
+emulated frame (see
+<a href="../02-architecture/04-the-video-pipeline.html">The video pipeline</a>).</p>
+<p>The consequence of that last sentence shapes most of this page. Hardware draws
+the picture <em>while</em> the CPU runs, so a register written half-way down the screen
+affects only the rows below it. JNEXT runs the whole frame first and renders
+afterwards, so a naive renderer would see nothing but end-of-frame register
+values and every mid-screen change would vanish. A large part of the video code
+therefore exists to record what each register was at each row, so that the
+deferred render can reconstruct a picture that changed while it was being drawn.</p>
+<h2 id="raster-counters-and-their-clock-domains">Raster counters and their clock domains<a class="headerlink" href="#raster-counters-and-their-clock-domains" title="Permanent link">&para;</a></h2>
+<p>Confusing these has cost this project real bugs. Three counters exist, at three
+rates:</p>
+<table>
+<thead>
+<tr>
+<th>Counter</th>
+<th>Rate</th>
+<th>Lives in</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>master cycle</td>
+<td>28 MHz</td>
+<td><code>Clock</code>, <code>MachineTiming</code> in <code>src/core/emulator_config.h</code></td>
+</tr>
+<tr>
+<td><code>hc</code> / <code>vc</code> raw frame counters</td>
+<td>7 MHz pixel clock</td>
+<td><code>VideoTiming</code> in <code>src/video/timing.h</code></td>
+</tr>
+<tr>
+<td><code>hc_ula</code> / <code>cvc</code> ULA pixel counters</td>
+<td>7 MHz, shifted origin</td>
+<td>derived from <code>VideoTiming</code></td>
+</tr>
+</tbody>
+</table>
+<p>One pixel tick is 4 master cycles, and one 3.5 MHz T-state is 2 pixel ticks. The
+per-machine limits — <code>c_max_hc</code>, <code>c_max_vc</code>, <code>c_min_hactive</code>, <code>c_min_vactive</code>
+and the interrupt position — are VHDL constants held by <code>VideoTiming</code>, keyed on
+the NR 0x03 <em>timing</em> axis rather than on the machine personality.</p>
+<p><code>hc_ula</code> is not <code>hc</code>. It is a registered counter, reset one tick after <code>hc</code>
+matches <code>c_min_hactive - 12</code>, so <code>hc_ula == 0</code> at raw <code>hc == c_min_hactive - 11</code>
+(<code>VideoTiming::hc_ula_zero_raw_hc</code>), and <code>cvc</code> counts lines in <em>that</em> counter's
+frame. The Copper compares its <code>WAIT</code> against <code>hc_ula</code>/<code>cvc</code>, which is why
+<code>Emulator::tick_copper_for_master_cycles</code> rebases the master-cycle position onto
+that pair before stepping it. Passing the raw master-cycle offset through
+instead — wrong by a factor of four in scale <em>and</em> wrong in origin — made every
+non-trivial <code>WAIT</code> fire early. That was a real defect here, not a hypothetical
+one.</p>
+<p>The other conversion that matters everywhere is
+<code>framebuffer_row = vc - VideoTiming::vblank_top()</code>. <code>vblank_top</code> is
+<code>min_vactive - 32</code> and it is <strong>per-machine</strong> — 32 for the Next family, 48 for
+Pentagon timing, 8 for the 60 Hz branches — so the constant 32 is right only by
+coincidence. <code>Emulator::schedule_frame_events</code> queues one <code>SCANLINE</code> event per
+line plus a <code>VSYNC</code>, and <code>Emulator::on_scanline(line)</code> is the hook all per-line
+work hangs off.</p>
+<h2 id="the-ula">The ULA<a class="headerlink" href="#the-ula" title="Permanent link">&para;</a></h2>
+<p>The ULA is the original Spectrum display generator, and on the Next it is still
+the layer everything else is composited around: 256×192 pixels with the familiar
+attribute cells, a border, and the Timex extensions that predate the Next
+itself. The Next adds hardware scrolling and a choice of palettes on top of it.</p>
+<p><code>src/video/ula.{h,cpp}</code> renders one framebuffer row at a time through
+<code>Ula::render_scanline</code>. Border rows go to <code>render_border_line</code>; display rows
+dispatch on the Timex screen mode last written to port 0xFF. <code>STANDARD</code>,
+<code>STANDARD_1</code> (the 0x6000 screen) and <code>HI_COLOUR</code> each double every source bit
+into two adjacent framebuffer cells, while <code>HI_RES</code> emits a true 512-pixel line
+from screens 0 and 1 byte-interleaved. The ULA also owns ULA scroll (NR 0x26 /
+0x27, NR 0x68 b2), ULAnext (NR 0x42/0x43), ULA+ (ports 0xBF3B/0xFF3B), the
+shadow-screen bank selector, the flash counter, and the active-palette selector
+bits for <em>all four</em> palettes.</p>
+<p>Two things a reader expects to find here are somewhere else. The <strong>clip window</strong>
+is one: <code>Ula::render_scanline</code> emits an unclipped line and
+<code>Renderer::apply_ula_clip</code> masks it afterwards, because in hardware NR 0x1A
+feeds a compositor-stage signal — Layer 2, tilemap and sprites each clip
+themselves instead. The <strong>floating bus</strong> is the other:
+<code>Emulator::floating_bus_read</code> is the port-0xFF read mux, with its NR 0x08 b2
+Timex arm, its NR 0x82 b0 gate, and the per-machine gate that delivers ULA
+content only under 48K/128K timing. <code>ula_floating_bus_active_arm</code> derives the
+byte from the current raster position, and the +3's separate latch lives on the
+<code>Mmu</code>.</p>
+<h2 id="lores-is-not-a-layer">LoRes is not a layer<a class="headerlink" href="#lores-is-not-a-layer" title="Permanent link">&para;</a></h2>
+<p>LoRes trades resolution for colour freedom: 128×96 chunky pixels, each carrying
+its own palette index, which is exactly what the ULA's attribute cells prevent.
+Radastan mode is the 4-bit variant of the same idea. Neither is a new plane in
+the display — the hardware feeds these pixels into the ULA's own slot in the
+compositor, and the rest of the machine cannot tell the difference.</p>
+<p><code>src/video/lores.{h,cpp}</code> models the <code>lores</code> VHDL entity as pure functions plus
+its registers (NR 0x15 b7, 0x32, 0x33, 0x6A), and JNEXT keeps the substitution
+literal: <code>Renderer::apply_lores</code> writes into the already-rendered ULA scanline,
+and there is deliberately no fifth layer buffer. The LoRes byte indexes the
+<em>ULA</em> palette in the bank NR 0x43 b1 selects, and is clipped by the ULA's window
+because that is where hardware wires it. Both 8-bit LoRes and Radastan fetch
+from bank 5 directly.</p>
+<h2 id="layer-2-tilemap-sprites">Layer 2, tilemap, sprites<a class="headerlink" href="#layer-2-tilemap-sprites" title="Permanent link">&para;</a></h2>
+<p>These three are the Next's own additions, and each removes a specific piece of
+work a Spectrum program used to do in software.</p>
+<p><strong>Layer 2</strong> is a linear bitmap: every pixel carries its own palette index in a
+straight run of RAM, so it has none of the ULA's one-colour-pair-per-cell
+restriction, and it scrolls in hardware on both axes. NR 0x70 selects between
+three geometries, listed below. Because the frame can be larger than a 16 KB
+bank and is fetched by the display hardware rather than by the CPU, <code>Layer2</code>
+reads physical RAM banks directly instead of going through the MMU.</p>
+<p><strong>Tilemap</strong> is a character display in the modern sense. A 40×32 or 80×32 grid of
+cells names 8×8 patterns held once in RAM as 4-bit-per-pixel definitions, so a
+screenful of graphics costs a screenful of <em>indices</em>; the hardware scrolls the
+whole grid (NR 0x2F/0x30/0x31) without anything being copied. Each cell normally
+carries an attribute byte alongside its index — palette offset in the top
+nibble, X mirror, Y mirror, rotate, and a per-tile "ULA over tilemap" bit — and
+NR 0x6B can strip those flags, extend the palette offset for text mode, or
+repurpose the low bit as a ninth tile-index bit for 512-tile mode.</p>
+<p><strong>Sprites</strong> are drawn by the display hardware as the raster passes, so moving an
+object costs a few attribute writes rather than a blit and a background restore.
+There are 128 of them, 16×16 pixels, at 4 or 8 bits per pixel, with mirroring,
+rotation, ×1/2/4/8 scaling, and anchor-plus-relative composites for objects
+bigger than one sprite.</p>
+<table>
+<thead>
+<tr>
+<th>Layer</th>
+<th>File</th>
+<th>Modes</th>
+<th>Notes</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Layer 2</td>
+<td><code>src/video/layer2.*</code></td>
+<td>256×192 8bpp, 320×256 8bpp, 640×256 4bpp (NR 0x70)</td>
+<td>reads physical RAM banks directly, not through the MMU; clip NR 0x18, scroll NR 0x16/0x17/0x71, banks NR 0x12/0x13; per-pixel priority promotion from palette bit 15</td>
+</tr>
+<tr>
+<td>Tilemap</td>
+<td><code>src/video/tilemap.*</code></td>
+<td>40×32 and 80×32, 4bpp patterns + text mode</td>
+<td>map and definitions in bank 5 or the dedicated bank-7 BRAM; emits the per-pixel <code>tm_pixel_below</code> and <code>tm_pixel_textmode</code> flags the compositor needs</td>
+</tr>
+<tr>
+<td>Sprites</td>
+<td><code>src/video/sprites.*</code></td>
+<td>128 sprites, 16×16, 4/8-bit, ×1/2/4/8 scale, anchored composites</td>
+<td>ports 0x303B/0x57/0x5B, 16 KB pattern RAM, clip NR 0x19</td>
+</tr>
+</tbody>
+</table>
+<p>Each of the four clip windows is a single NextREG written as a rotating 4-value
+cycle — NR 0x18 Layer 2, NR 0x19 sprites, NR 0x1A ULA (and LoRes), NR 0x1B
+tilemap — with the rotating index held by <code>Emulator</code> rather than by the layer.</p>
+<p>Sprite collision and the per-line-budget overtime flag (port 0x303B) are
+computed <em>inside</em> <code>SpriteEngine::render_scanline</code> and are software-visible, so
+they cannot be skipped along with the pixels. A frame whose render the frontend
+drops still runs <code>Renderer::run_sprite_side_effects</code>: the same pipeline, with
+the pixels discarded.</p>
+<p><code>PaletteManager</code> (<code>src/video/palette.*</code>) holds all four palettes in two banks
+each, RGB333 internally with an ARGB8888 cache rebuilt on write, plus the ULA+
+region aliased at ULA indices 0xC0-0xFF. See
+<a href="05-ports-and-nextreg.html">Ports and NextREG</a> for the register plumbing and
+<a href="06-peripherals.html">Peripherals</a> for the Copper.</p>
+<h2 id="the-compositor">The compositor<a class="headerlink" href="#the-compositor" title="Permanent link">&para;</a></h2>
+<p><code>Renderer::render_row</code> is the whole per-row pipeline: clear the layer buffers,
+render each layer, substitute LoRes, apply the NR 0x68 b7 blank and the ULA
+clip, then call <code>composite_scanline</code>. That last step dispatches once per row on
+the NR 0x15 priority into a <code>composite_scanline_mode&lt;PRIO&gt;</code> specialisation, so
+the per-pixel loop that follows carries no branch on the mode at all.</p>
+<p>The per-pixel logic follows the VHDL compositor point for point: per-layer
+transparency (an NR 0x14 RGB compare, the layer's own enable, the clip result),
+the ULA/tilemap merge with its <code>tm_pixel_below</code> and stencil (NR 0x68 b0)
+variants, Layer 2 priority promotion, blend modes 6 and 7 with their NR 0x68
+b6:5 source selection, the border exception, and the NR 0x4A fallback colour
+wherever <em>every</em> layer is transparent. <code>Renderer::LayerMask</code> — what
+<code>--delayed-screenshot-layers</code> drives — forces a layer transparent at that input;
+it is host-side debug state, which is why <code>reset()</code> and <code>save_state()</code>
+deliberately ignore it.</p>
+<h2 id="per-scanline-state-snapshots-and-change-logs">Per-scanline state: snapshots and change logs<a class="headerlink" href="#per-scanline-state-snapshots-and-change-logs" title="Permanent link">&para;</a></h2>
+<p>This is where the deferred-rendering problem from the top of the page is paid
+for. Splitting the screen mid-frame is the standard trick of the machine: change
+the palette at row 96 for a sky gradient, change Layer 2's scroll each row for
+parallax, change the layer priority so a HUD sits above the playfield. All of
+those are register writes that land while the beam is somewhere specific, and a
+renderer that only sees the final register values would show one flat frame. Two
+mechanisms prevent that.</p>
+<p><strong>Snapshot arrays</strong> store one value per framebuffer row, sampled in
+<code>Emulator::on_scanline</code>. They cover the NR 0x4A fallback colour, ULA enable
+(NR 0x68 b7), stencil and blend mode (NR 0x68 b0 / b6:5), NR 0x14 transparent
+RGB, the NR 0x1A ULA clip window, the LoRes register set, the ULA border colour,
+and tilemap scroll plus fetch state (NR 0x6C/0x6E/0x6F). All but tilemap scroll
+snapshot the <em>previous</em> row, because by the time <code>on_scanline(N)</code> fires the
+Copper has finished line N-1; tilemap scroll latches at the start of the current
+row, as hardware does.</p>
+<p><strong>Change logs</strong> are the finer instrument: they record every write with a line
+tag and replay it during render. Each owner exposes the same five calls —
+<code>start_frame</code>, <code>set_current_line</code>, <code>rewind_to_baseline</code>, <code>apply_changes_for_line</code>
+and <code>flush_remaining_changes</code> — so a new one costs no new protocol. The logs
+are: palette contents (<code>PaletteManager</code>); Layer 2 scroll, clip, bank, enable and
+NR 0x70 (five separate logs); sprite attributes and sprite patterns; the ULA's
+port-0xFF screen mode, ULA scroll, and the NR 0x43 / NR 0x6B b4 active-palette
+selectors; the tilemap's NR 0x6B; the <code>AttributeMux</code> on the <code>Mmu</code>
+(Nirvana-class mid-frame attribute rewrites, resolved per <em>column</em> rather than
+per row); and NR 0x15 layer priority plus sprite enable on the <code>Renderer</code>
+itself.</p>
+<p>Two details there are load-bearing. Writes tagged during vblank never match a
+visible row, so <code>flush_remaining_changes</code> must drain them or they are lost
+forever — the next frame's baseline would not contain them. And writes that
+arrive before the display starts are coalesced to row 0 rather than given a
+sentinel tag, because a sentinel at the head of the log stalls the cursor walk.</p>
+<p>A few registers are still read live, at frame granularity: NR 0x4B/0x4C
+transparency indices, the sprite and tilemap clip windows, and NR 0x68 b3 (ULA+
+enable — <code>Ula</code> has the per-line snapshot API, but nothing calls it). The
+coverage is demand-driven by design: a register gets a log when a real program
+turns out to need one.</p>
+<h2 id="accepted-limitation-mid-line-writes-apply-from-the-start-of-the-row">Accepted limitation: mid-line writes apply from the start of the row<a class="headerlink" href="#accepted-limitation-mid-line-writes-apply-from-the-start-of-the-row" title="Permanent link">&para;</a></h2>
+<p>Both mechanisms are row-granular, so a register write that physically lands
+part-way through a scanline is applied from the <strong>beginning</strong> of that row.
+Hardware samples those latches per pixel and would change only the pixels after
+the write. The residual error is therefore <strong>bounded to at most one row, and is
+one-directional</strong> — an effect can appear early, never late. Closing it properly
+would need either sub-row granularity or the cycle-accurate rendering refactor,
+both of which have been assessed and declined; this is a known modelling
+limitation rather than a bug. <code>AttributeMux</code> is the one place the finer
+granularity was genuinely needed, and it resolves per column.</p>
+
+
+
+
+
+
+
+
+
+
+
+
+                
+              </article>
+            </div>
+          
+          
+<script>var target=document.getElementById(location.hash.slice(1));target&&target.name&&(target.checked=target.name.startsWith("__tabbed_"))</script>
+        </div>
+        
+      </main>
+      
+        <footer class="md-footer">
+  
+  <div class="md-footer-meta md-typeset">
+    <div class="md-footer-meta__inner md-grid">
+      <div class="md-copyright">
+  
+  
+    Made with
+    <a href="https://squidfunk.github.io/mkdocs-material/" target="_blank" rel="noopener">
+      Material for MkDocs
+    </a>
+  
+</div>
+      
+    </div>
+  </div>
+</footer>
+      
+    </div>
+    <div class="md-dialog" data-md-component="dialog">
+      <div class="md-dialog__inner md-typeset"></div>
+    </div>
+    
+    
+    
+      
+      
+      <script id="__config" type="application/json">{"annotate": null, "base": "..", "features": ["navigation.indexes", "toc.integrate", "content.code.copy"], "search": "../assets/javascripts/workers/search.2c215733.min.js", "tags": null, "translations": {"clipboard.copied": "Copied to clipboard", "clipboard.copy": "Copy to clipboard", "search.result.more.one": "1 more on this page", "search.result.more.other": "# more on this page", "search.result.none": "No matching documents", "search.result.one": "1 matching document", "search.result.other": "# matching documents", "search.result.placeholder": "Type to start searching", "search.result.term.missing": "Missing", "select.version": "Select version"}, "version": null}</script>
+    
+    
+      <script src="../assets/javascripts/bundle.79ae519e.min.js"></script>
+      
+    
+  </body>
+</html>

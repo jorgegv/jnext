@@ -1,0 +1,61 @@
+/* Developer guide palette — a muted, pastel dark red.
+ *
+ * Deliberately NOT the user guide's blue. The two documents answer different
+ * questions for different readers, and a glance at the header should say which
+ * one you have open. Material ships no "pastel dark red" preset, so the palette
+ * is set by overriding its custom properties directly rather than by naming one
+ * of its stock colours, which are all fully saturated.
+ *
+ * The selectors matter. mkdocs-devguide.yml sets `primary: custom` and
+ * `accent: custom`, which makes Material stamp data-md-color-primary="custom"
+ * and data-md-color-accent="custom" on <body>; the rules below hang off those
+ * attributes. Setting the same variables on :root alone does NOT work —
+ * Material's own [data-md-color-primary=indigo] rule is more specific and wins,
+ * which is exactly what happened on the first attempt: the page picked up the
+ * new link colours and kept an indigo header.
+ *
+ * Both schemes are defined. Light gets a bright crimson-brick; dark drops it a
+ * little, because the identical value on a slate background is louder than it
+ * looks on white. Every value here clears WCAG AA against the surface it sits
+ * on — the header primaries against their white text (5.6:1 light, 6.0:1 dark)
+ * and the dark accent against the slate page (6.9:1) — which is the constraint
+ * that stops "brighter" drifting into unreadable.
+ *
+ * An earlier revision was a desaturated #8c4a52 and read as dead; these are the
+ * same hues with the saturation put back. The figures under img/ are coloured
+ * from the same family (see the palette note at the top of any diagrams/*.dot),
+ * so the page and its illustrations do not read as two designs.
+ */
+
+[data-md-color-primary=custom] {
+  --md-primary-fg-color:        #b8434f;
+  --md-primary-fg-color--light: #cd6a74;
+  --md-primary-fg-color--dark:  #93353f;
+  --md-primary-bg-color:        #ffffff;
+  --md-primary-bg-color--light: #ffffffb3;
+}
+
+[data-md-color-accent=custom] {
+  --md-accent-fg-color:              #d1495b;
+  --md-accent-fg-color--transparent: #d1495b1a;
+  --md-accent-bg-color:              #ffffff;
+  --md-accent-bg-color--light:       #ffffffb3;
+}
+
+/* Dark scheme: lift the primary so it reads against slate, and warm the page
+ * background very slightly towards the same hue, so the dark theme is not a
+ * neutral grey page with a red header stuck on top. */
+[data-md-color-scheme="slate"][data-md-color-primary=custom] {
+  --md-primary-fg-color:        #a83f4d;
+  --md-primary-fg-color--light: #e39aa4;
+  --md-primary-fg-color--dark:  #7d2f39;
+}
+
+[data-md-color-scheme="slate"][data-md-color-accent=custom] {
+  --md-accent-fg-color:              #e88a95;
+  --md-accent-fg-color--transparent: #e88a951a;
+}
+
+[data-md-color-scheme="slate"] {
+  --md-hue: 345;
+}

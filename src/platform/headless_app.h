@@ -79,6 +79,49 @@ public:
     /// "seconds" here means emulated-machine seconds.
     bool set_delayed_keypress_seconds(const std::string& key, int delay_seconds);
 
+    /// Schedule a hardware NMI BUTTON press after a delay, so an NMI
+    /// handler can be exercised headlessly (GH #209). `button` is
+    /// case-insensitive and names which button to press, spelled as the
+    /// label on a real Next's case. Two of its three buttons raise an
+    /// NMI, and they have separate enable gates, so there is no default:
+    ///   - "nmi"   (aliases "mf", "m1")  : the NMI button   (Multiface, host F9)
+    ///   - "drive" (alias  "divmmc")     : the DRIVE button (DivMMC,    host F10)
+    /// RESET is the third button and is not an NMI source, so it is not
+    /// a name here. Returns false (and schedules nothing) if the name is
+    /// not recognised — including the empty string — because the caller
+    /// must fail loudly rather than drop a press.
+    ///
+    /// The press goes through `Emulator::on_hotkey_f9_mf_nmi()` /
+    /// `on_hotkey_f10_divmmc_nmi()`, the SAME seam the GUI and SDL
+    /// front-ends use for F9/F10, so every NR 0x06 / NR 0x83 / CONMEM /
+    /// config-mode gate and the whole arbitration chain are exercised
+    /// exactly as on hardware. It is deliberately NOT a synthetic
+    /// `request_nmi()` on the CPU, which would bypass all of that and
+    /// prove nothing about the button path.
+    ///
+    /// One press = one strobe, which is what the hardware does, not a
+    /// convenience: `hotkey_m1` / `hotkey_drive` are one-cycle edge
+    /// pulses (zxnext.vhd:6348-6349), and the arbitration latch is
+    /// guarded by `elsif nmi_activated = '0'` (zxnext.vhd:2106), so a
+    /// button HELD across many frames still yields exactly ONE NMI
+    /// until the in-flight one retires via RETN / automap-hold / the
+    /// Multiface exit port sequence. A hold-for-N-frames press would
+    /// therefore be indistinguishable from this one on the Next, while
+    /// on real Multiface hardware a hold longer than ~1 s is not an NMI
+    /// at all (emu_fnkeys.vhd:114-157 turns it into the M1+key combo).
+    /// Repeatable: each call queues one independent press.
+    bool set_delayed_nmi(const std::string& button, int delay_frames);
+
+    /// Same as set_delayed_nmi, but in emulated seconds. Conversion to
+    /// frames is deferred to run() so the actual machine framerate is
+    /// used — identical treatment to set_delayed_keypress_seconds.
+    bool set_delayed_nmi_seconds(const std::string& button, int delay_seconds);
+
+    /// Which of the two NMI buttons a --delayed-nmi press targets.
+    /// Public because the name→enum parser is a free function in the
+    /// .cpp, alongside the keypress name parser.
+    enum class NmiButtonName { Mf, DivMmc };
+
 private:
     Emulator emulator_;
 
@@ -137,6 +180,23 @@ private:
         int  delay_seconds;
     };
     std::vector<PendingSecondsKey> pending_seconds_keys_;
+
+    // Pending --delayed-nmi state (GH #209). Which of the two buttons
+    // was named is resolved at schedule time (unknown names are
+    // rejected there, never dropped at fire time).
+    struct DelayedNmi {
+        std::string   name;     // original button name (for logging)
+        NmiButtonName button;
+        int           countdown;  // in frames
+    };
+    std::vector<DelayedNmi> delayed_nmis_;
+
+    // Pending seconds-form NMI presses awaiting conversion in run().
+    struct PendingSecondsNmi {
+        DelayedNmi nmi;     // countdown unused until conversion
+        int  delay_seconds;
+    };
+    std::vector<PendingSecondsNmi> pending_seconds_nmis_;
 
     // In-memory framebuffer size (canonical 640×256 post-G104). Headless
     // never opens a window; these constants are declarative for symmetry

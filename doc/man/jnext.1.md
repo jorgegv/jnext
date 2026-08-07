@@ -170,6 +170,14 @@ debugger ones.
     the program may name any host (subject to the always-refused addresses in
     **NETWORKING**). Requires **\--esp**.
 
+**\--esp-listen-address** *ADDR*
+:   Bind the running program's `AT+CIPSERVER` to *ADDR*, default `127.0.0.1`.
+    *ADDR* is a numeric IP address, never a name - an address resolved through
+    DNS could change under you. The default means a program that opens a server
+    is reachable only from this machine; widening it (`0.0.0.0`) exposes that
+    program to your network, which is why it has to be asked for. Nothing
+    listens until the program itself sends `AT+CIPSERVER`. Requires **\--esp**.
+
 ## Recording and playback
 
 **\--record** *FILE*
@@ -269,7 +277,27 @@ debugger ones.
 :   Press *KEY* after *SECS* seconds. Headless only, repeatable.
 
 **\--delayed-keypress-frames** *N* *KEY*
-:   Press *KEY* after *N* emulated frames. Overrides the seconds form.
+:   Press *KEY* after *N* emulated frames. This is the frames-unit spelling of
+    **\--delayed-keypress**, not an override of it: both forms queue into the
+    same list, so giving both schedules two keypresses.
+
+**\--delayed-nmi** *SECS* *BUTTON*
+:   Press an NMI *BUTTON* after *SECS* seconds. Headless only, repeatable.
+    *BUTTON* is case-insensitive and names which button to press, spelled as
+    the label on a real Next's case. Of its three buttons, two raise an NMI:
+    `nmi` (aliases `mf`, `m1`) is the **NMI** button, wired to the Multiface;
+    `drive` (alias `divmmc`) is the **DRIVE** button, wired to the DivMMC.
+    **RESET** is not an NMI button and is not accepted here.
+    The press goes through the same path as the
+    host F9 / F10 hotkeys, so it is subject to the same enable gates —
+    NextREG 0x06 bit 3 for the Multiface, bit 4 plus NextREG 0x83 bit 0 for
+    the DivMMC — and a press with its gate closed does nothing, exactly as on
+    hardware. One press generates one NMI, not a repeating one.
+
+**\--delayed-nmi-frames** *N* *BUTTON*
+:   Press *BUTTON* after *N* emulated frames. This is the frames-unit spelling
+    of **\--delayed-nmi**, not an override of it: both forms queue into the
+    same list, so giving both schedules two presses.
 
 **\--compositor-trace** *FILE*
 :   Dump a per-pixel compositor trace (CSV) for one frame.
@@ -286,6 +314,17 @@ debugger ones.
 
 **\--magic-breakpoint**
 :   Enable the magic-breakpoint opcodes (`ED FF` and `DD 01`).
+
+**\--persistent-breakpoints**
+:   Keep breakpoints and watchpoints armed while the debugger window is
+    **closed**. Without this option — the default — closing the window
+    disarms them, and nothing stops. With it, a hit pauses the machine and
+    reopens the debugger window at the breakpoint. With the window already
+    open, behaviour is unchanged. The breakpoint check then runs on every
+    instruction for the whole run, which is what "persistent" costs; it is
+    accepted but has no effect in **\--headless**, in the SDL-only build and
+    in builds without the debugger, since only the debugger can set a
+    breakpoint.
 
 **\--magic-port** *PORT*
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
@@ -455,8 +494,9 @@ Both **TCP and UDP** are emulated. UDP is what `newt` uses to read the time from
 an internet SNTP server, so `.newt sntp 0 pool.ntp.org` works; the optional
 local-port argument of `AT+CIPSTART="UDP",...` is honoured. UDP "modes" 1 and 2,
 which let the far end of a link become whoever last sent a packet, are answered
-`ERROR` rather than accepted and ignored. TLS, server/listen mode, multiplexed
-connections and transparent mode are not emulated.
+`ERROR` rather than accepted and ignored. **Server mode** and **multiplexed
+connections** are emulated too - see *Letting a program listen* below. TLS and
+transparent mode are not.
 
 ## It is off by default, and that is the point
 
@@ -527,18 +567,37 @@ reset (**F1**, or **Machine > Power Reset**) and on the next launch. The CLI sti
 wins for a single run in both directions - **\--esp** over a saved *off*, and
 **\--no-esp** over a saved *on*.
 
-## There is no server mode yet
+## Letting a program listen (server mode)
 
-The emulated module cannot listen for incoming connections - `AT+CIPSERVER` is
-not implemented **yet**, so today there is no inbound attack surface at all.
+A program can also **accept** incoming connections: `AT+CIPMUX=1` followed by
+`AT+CIPSERVER=1,<port>` makes jnext listen on that port and hand the program
+each connection that arrives. This is what a debug stub running on the emulated
+Next needs, because a debugger on your PC dials out and never listens.
 
-That is a scoping decision, not a permanent one. The command set jnext emulates
-is the one *evidenced* in software that actually runs on a Next, and
-`AT+CIPSERVER` appears in all of it exactly once, only to turn itself off.
-Emulating the AT firmware down to the datasheet - server mode, UDP, multiplexed
-connections and transparent mode included - is tracked as its own piece of work
-(issue #154). Expect the security notes above to grow an inbound half when it
-lands.
+Everything above is about *outbound* connections - which addresses the program
+may dial. A listening socket points the other way: it exposes the **program** to
+whatever can reach the port, and the allowlist has nothing to say about it,
+because the program does not choose who connects. So the boundary is the bind
+address instead:
+
+* by default the port is bound to `127.0.0.1`, so only this machine can reach
+  it - which is all the intended use needs;
+* **\--esp-listen-address** *ADDR* widens that, and `0.0.0.0` means any machine
+  that can reach yours can talk to the running program. There is no
+  authentication of any kind in front of it;
+* nothing listens until the program asks. There is no way to open a port from
+  the command line, and no port survives a Power Reset;
+* if the port cannot be bound - already in use, or an address that is not
+  yours - the program is told `ERROR`. jnext never falls back to a different
+  port or a wider address.
+
+Up to four programs can be connected at once, numbered from 1; number 0 stays
+reserved for the program's own outbound connection, so opening a server never
+costs it the ability to dial out. `AT+CIPMUX` cannot be changed while anything
+is connected.
+
+Still not emulated: TLS and transparent mode
+([issue #154](https://github.com/jorgegv/jnext/issues/154)).
 
 ## Nothing about your host leaks into the program
 
@@ -720,7 +779,8 @@ while it does, the arrows and Space stop acting as ZX keys.
 
 # THE DEBUGGER
 
-The debugger opens in its own window (**View > Debugger**, Alt+D). It is
+The debugger opens in its own window (**Debug > Debugger** or
+**View > Debugger** - the same entry in both menus - or Alt+D). It is
 driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
 `make gui-debug`); the SDL-only build has no way to open it.
 
@@ -734,7 +794,13 @@ driven from the Qt6 UI, so it needs a GUI build (`make gui-release` or
   selector
 - **Stack** - SP-relative word view, SP row highlighted
 - **Call stack** - CALL/RST/INT/RET tracking, with symbol resolution
-- **Breakpoints** - execution, read, write and I/O watchpoints, in one panel
+- **Breakpoints** - execution, read, write and I/O watchpoints, in one panel.
+  An I/O watchpoint address of **00**-**FF** matches any port with that low
+  byte (**FE** catches every ULA access, whatever the high byte holds);
+  **0100** and above matches that exact 16-bit port (**243B**, not **253B**).
+  They are armed only while the debugger window is open; start jnext with
+  **\--persistent-breakpoints** to keep them armed with it closed, in which
+  case a hit reopens the window at the breakpoint
 - **Watch expressions** - byte, word or long at arbitrary addresses, with
   custom labels
 - **Video panels** - All layers (the real composite, through the live
@@ -879,6 +945,20 @@ Project home page: <https://github.com/jorgegv/jnext>
 # BUGS
 
 Report bugs at <https://github.com/jorgegv/jnext/issues>.
+
+# AUTHORS
+
+Main author: Jorge Gonzalez, aka ZXjogv <zx@jogv.es>.
+
+Code contributors: dcrespo3d, jon263.
+
+Testers and bug reporters: danboid, Duefectu, janko-jj, Utodev,
+WoolyChewbakker.
+
+If you are named here and would prefer not to be, or are not named and would
+like to be, say so at the issue tracker below. `CREDITS.md` in the source
+distribution carries the same list, plus the third-party libraries and the
+reference projects jnext is built and verified against.
 
 # COPYRIGHT
 

@@ -4,7 +4,7 @@
 // doc/testing/ULA-VIDEO-TEST-PLAN-DESIGN.md. Every plan row maps to exactly
 // one check() or skip() with a VHDL file:line citation. Expected values are
 // derived from the authoritative FPGA VHDL at
-//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+//   cores/zxnext/src/
 // (external to this repo). The C++ implementation is NEVER the oracle; where
 // a row cannot be exercised through the current public Ula API surface it is
 // reported via skip() with a one-line reason.

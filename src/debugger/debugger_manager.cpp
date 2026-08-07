@@ -204,10 +204,10 @@ void DebuggerManager::ensure_window() {
         cs->set_symbol_table(&symbol_table_);
     }
 
-    // Wire breakpoint panel with symbol table and disasm panel.
+    // Wire breakpoint panel with symbol table. It needs no pointer to the
+    // disassembly any more: both panels observe the BreakpointSet (GH #220).
     if (auto* bp = debugger_window_->breakpoint_panel()) {
         bp->set_symbol_table(&symbol_table_);
-        bp->set_disasm_panel(debugger_window_->disasm_panel());
     }
 }
 
@@ -312,6 +312,14 @@ bool DebuggerManager::confirm_resume_if_corrupt() {
 
 void DebuggerManager::on_run() {
     if (!enabled_) return;
+    // GH #223: Run on an already-running machine is a no-op, exactly as in
+    // on_run_to_eof() / on_run_to_eosl() below. Without this, F5 pressed out of
+    // habit at the emulator window reached DebugState::resume(), whose
+    // clear_oneshot() silently threw away a pending Run to Here / step-over
+    // target. Ordered BEFORE confirm_resume_if_corrupt() — same as the siblings
+    // — because that call can raise a modal, and prompting the user about a
+    // resume we are about to refuse would be a question about nothing.
+    if (!emulator_->debug_state().paused()) return;
     // Task 60e: THE choke point — never silently resume a torn machine.
     if (!confirm_resume_if_corrupt()) return;
 
@@ -363,7 +371,11 @@ void DebuggerManager::on_step_into() {
         emulator_->debug_state().pause();
     }
 
-    emulator_->execute_single_instruction();
+    // GH #207 — debugger_step(), not the raw execute_single_instruction()
+    // primitive: while we hold the machine nothing else calls run_frame(), so
+    // the Step has to turn frames over too, and a Step at a HALT has to run
+    // the halt out (the CPU leaves it only on an accepted interrupt).
+    emulator_->debugger_step();
 
     emulator_->debug_state().pause();
     was_paused_ = true;
@@ -653,6 +665,12 @@ void DebuggerManager::refresh_panels() {
 void DebuggerManager::check_breakpoint_hit() {
     // Auto-enable debugger when a magic breakpoint (or other external trigger)
     // pauses the emulator while the debugger window is not yet open.
+    //
+    // GH #219 made this the FRONTEND half of --persistent-breakpoints: an
+    // ordinary breakpoint can now fire with the window shut, and this is what
+    // forces it open on the hit. set_enabled(true) show()s, raise()s and
+    // activateWindow()s, so no GUI call is needed anywhere in the core.
+    // Pinned by debugger_persistent_bp_test PBPUI-02.
     if (!enabled_ && emulator_->debug_state().paused()) {
         set_enabled(true);
     }

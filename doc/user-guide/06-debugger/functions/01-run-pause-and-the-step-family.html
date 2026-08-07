@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.132</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.132</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2129,7 +2129,7 @@
   <span class="md-ellipsis">
     
   
-    Breakpoints: execute, read, write
+    Breakpoints: execute, read, write, I/O
   
 
     
@@ -2791,6 +2791,21 @@
 </tbody>
 </table>
 <p>The same actions are in the <strong>Debug</strong> menu.</p>
+<p><strong>Run / Continue</strong> resumes free execution. When the machine is stopped <em>on</em> a
+breakpoint, that breakpoint does not stop it again for the instruction you are
+standing on — otherwise F5 would put you straight back where you were, having
+executed nothing. The suppression is exactly one instruction wide: a breakpoint
+on the <em>next</em> instruction still stops you, and coming back round a loop to the
+same breakpoint stops you again. Step Over, Step Out, Run to Here and Run to
+EOF/EOSL all resume through the same mechanism, so they step off the breakpoint
+under the PC too. One consequence worth knowing: <strong>Run to Here</strong> on the line you
+are already stopped at runs a full lap and stops when control comes back.</p>
+<p>None of that applies when the machine is <em>not</em> stopped. Pressing F5 while a
+program is running — the emulator window takes F5 too, whenever the debugger is
+enabled — does nothing at all. Your breakpoints stay live and stop the machine
+as normal, and a pending <strong>Run to Here</strong> or step target is left alone, so a
+stray F5 while you wait for one cannot cancel it. The key is still swallowed by
+the debugger either way, so it never reaches the emulated machine.</p>
 <p><strong>Single Step</strong> executes exactly one instruction, entering calls, traps and
 interrupt handlers.</p>
 <p><strong>Step Over</strong> sets a one-shot breakpoint after the current instruction and
@@ -2799,9 +2814,12 @@ instruction. It only does this for instructions that can come back —
 <code>CALL nn</code>, <code>CALL cc,nn</code>, <code>RST n</code> and <code>DJNZ</code>. For anything else it is identical
 to Single Step. Note the consequence for <code>DJNZ</code>: stepping over it runs the
 whole loop.</p>
-<p><strong>Step Out</strong> resumes until a <code>RET</code>, <code>RETI</code> or <code>RETN</code> executes with <code>SP</code> at or
-above its value when you pressed it — that is, until the current subroutine
-returns rather than a nested one.</p>
+<p><strong>Step Out</strong> resumes until a return instruction — <code>RET</code>, a taken <code>RET cc</code>,
+<code>RETI</code> or <code>RETN</code> — pops the stack back <em>past</em> its level when you pressed it;
+that is, until the current subroutine returns rather than a nested one. A
+subroutine called after you press F8 returns onto that level, not past it, so
+its own <code>RET</code> does not end the step; neither does an interrupt handler's
+<code>RETI</code>, nor a bare <code>POP</code> that happens to move <code>SP</code> the same way.</p>
 <p>If a subroutine never returns (it jumps away, or is waiting on input that never
 arrives) Step Over and Step Out simply keep running; press <strong>F9</strong> to take back
 control.</p>

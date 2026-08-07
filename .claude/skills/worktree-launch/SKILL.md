@@ -1,6 +1,6 @@
 ---
 name: worktree-launch
-description: Create a fresh agent worktree under /home/jorgegv/src/spectrum/jnext-worktrees/ (OUTSIDE the repo) off an up-to-date main, with the project's hygiene rules baked in. Use when the user says "spin up a worktree", "create a worktree for agent X", "set up a worktree for branch Y", or when about to dispatch an agent that needs an isolated work area.
+description: Create a fresh agent worktree under /home/jorgegv/tmp/worktrees/ (OUTSIDE the repo) off an up-to-date main, with the project's hygiene rules baked in. Use when the user says "spin up a worktree", "create a worktree for agent X", "set up a worktree for branch Y", or when about to dispatch an agent that needs an isolated work area.
 ---
 
 # Launch an agent worktree
@@ -33,13 +33,13 @@ If `behind` > 0, ask the user whether to fast-forward main first. Do NOT auto-pu
 ### 2. Create the worktree
 
 ```bash
-git worktree add /home/jorgegv/src/spectrum/jnext-worktrees/agent-<ID> -b <BRANCH> main
+git worktree add /home/jorgegv/tmp/worktrees/agent-<ID> -b <BRANCH> main
 ```
 
 ### 3. Provision the roms/ fixtures (ALWAYS — the tests need them)
 
 ```bash
-make -C /home/jorgegv/src/spectrum/jnext-worktrees/agent-<ID> worktree-bootstrap
+make -C /home/jorgegv/tmp/worktrees/agent-<ID> worktree-bootstrap
 ```
 
 `roms/*` is git-ignored, so a fresh worktree gets only the tracked `nextboot.rom`.
@@ -55,7 +55,7 @@ Per `feedback_worktree_demo_artifacts`, build artifacts under `demo/` aren't che
 rsync -a --include='*.nex' --include='*.bin' --include='*.tap' --include='*.tzx' \
       --include='*.wav' --include='*/' --exclude='*' \
       /home/jorgegv/src/spectrum/jnext/demo/ \
-      /home/jorgegv/src/spectrum/jnext-worktrees/agent-<ID>/demo/
+      /home/jorgegv/tmp/worktrees/agent-<ID>/demo/
 ```
 
 Skip this step if the agent doesn't need to run demos.
@@ -65,7 +65,7 @@ Skip this step if the agent doesn't need to run demos.
 This goes into the agent's prompt:
 
 ```
-WORKING DIRECTORY: /home/jorgegv/src/spectrum/jnext-worktrees/agent-<ID>
+WORKING DIRECTORY: /home/jorgegv/tmp/worktrees/agent-<ID>
 BRANCH: <BRANCH>
 BASE: main @ <SHA>
 
@@ -93,7 +93,7 @@ Hard rules per CLAUDE.md:
 After the agent's branch is merged to main:
 
 ```bash
-git worktree remove /home/jorgegv/src/spectrum/jnext-worktrees/agent-<ID>
+git worktree remove /home/jorgegv/tmp/worktrees/agent-<ID>
 git branch -d <BRANCH>   # only if user authorizes
 ```
 

@@ -2,7 +2,7 @@
 //
 // Implements the tier-U rows of doc/testing/LORES-TEST-PLAN-DESIGN.md, whose
 // expected values are derived EXCLUSIVELY from the authoritative FPGA VHDL at
-//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+//   cores/zxnext/src/
 // (chiefly video/lores.vhd, 117 lines, plus the wiring in zxnext.vhd).
 //
 // The plan was written BEFORE the implementation existed; no row here was

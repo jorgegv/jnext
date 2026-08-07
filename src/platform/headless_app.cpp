@@ -282,6 +282,71 @@ bool HeadlessApp::set_delayed_keypress_seconds(const std::string& key, int delay
     return true;
 }
 
+// Parse a --delayed-nmi button name (GH #209). The Next has TWO NMI
+// buttons with separate NextREG enable gates — so there is no sensible
+// default and the name is mandatory.
+//
+// NAMED AFTER THE PHYSICAL CASE LABELS FIRST. A real Next has three
+// buttons, NMI / DRIVE / RESET, and two of them raise an NMI:
+//
+//   NMI    the Multiface NMI button  -> `nmi`,   aliases `mf`, `m1`
+//   DRIVE  the DivMMC NMI button     -> `drive`, alias `divmmc`
+//   RESET  not an NMI at all (reset), so it is not a name here
+//
+// The VHDL agrees, and names the pins for the SUBSYSTEM while putting
+// the case label in a comment: `-- multiface nmi button (nmi)` and
+// `-- divmmc nmi button (drive)` (zxnext_top_issue2.vhd:1768, :1800),
+// with `btn_multiface_n_i` / `btn_divmmc_n_i` at :94-95. The
+// subsystem spellings are kept as aliases because they are what the
+// emulator's own internals, the F-key comments (`F9 = m1 button`,
+// `F10 = drive button`, :2277-2278) and the NextREG documentation
+// use — but someone holding the hardware reads `NMI` off the case, so
+// that spelling has to work, and is the one the docs lead with.
+static bool nmi_button_from_name(const std::string& name,
+                                 HeadlessApp::NmiButtonName& out) {
+    std::string k;
+    k.reserve(name.size());
+    for (char c : name)
+        k.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
+    if (k == "nmi" || k == "mf" || k == "m1")  { out = HeadlessApp::NmiButtonName::Mf;     return true; }
+    if (k == "drive" || k == "divmmc")         { out = HeadlessApp::NmiButtonName::DivMmc; return true; }
+    return false;
+}
+
+bool HeadlessApp::set_delayed_nmi(const std::string& button, int delay_frames) {
+    NmiButtonName which;
+    if (!nmi_button_from_name(button, which)) {
+        Log::platform()->error("delayed-nmi: unknown button name '{}' "
+                               "(expected 'nmi' (aliases 'mf'/'m1') or 'drive' (alias 'divmmc'))", button);
+        return false;
+    }
+    DelayedNmi dn;
+    dn.name      = button;
+    dn.button    = which;
+    dn.countdown = delay_frames;
+    delayed_nmis_.push_back(dn);
+    Log::platform()->info("delayed-nmi: will press '{}' NMI button after {} frame(s)",
+                          button, delay_frames);
+    return true;
+}
+
+bool HeadlessApp::set_delayed_nmi_seconds(const std::string& button, int delay_seconds) {
+    NmiButtonName which;
+    if (!nmi_button_from_name(button, which)) {
+        Log::platform()->error("delayed-nmi: unknown button name '{}' "
+                               "(expected 'nmi' (aliases 'mf'/'m1') or 'drive' (alias 'divmmc'))", button);
+        return false;
+    }
+    DelayedNmi dn;
+    dn.name      = button;
+    dn.button    = which;
+    dn.countdown = -1;  // converted to frames in run()
+    pending_seconds_nmis_.push_back({dn, delay_seconds});
+    Log::platform()->info("delayed-nmi: will press '{}' NMI button after {} emulated second(s)",
+                          button, delay_seconds);
+    return true;
+}
+
 void HeadlessApp::run() {
     // Convert any seconds-form delayed keypresses to frames now that the
     // emulator is fully initialized and the machine framerate is known.
@@ -295,6 +360,19 @@ void HeadlessApp::run() {
                                    dk.name, dk.countdown, pk.delay_seconds, fps);
         }
         pending_seconds_keys_.clear();
+    }
+
+    // Same framerate-aware conversion for seconds-form NMI presses.
+    if (!pending_seconds_nmis_.empty()) {
+        const int fps = emulator_.video_timing().refresh_60hz() ? 60 : 50;
+        for (const auto& pn : pending_seconds_nmis_) {
+            DelayedNmi dn = pn.nmi;
+            dn.countdown = pn.delay_seconds * fps;
+            delayed_nmis_.push_back(dn);
+            Log::platform()->info("delayed-nmi: '{}' scheduled at frame {} ({} s × {} fps)",
+                                   dn.name, dn.countdown, pn.delay_seconds, fps);
+        }
+        pending_seconds_nmis_.clear();
     }
 
     // Apply RZX play/record at startup.
@@ -486,6 +564,26 @@ void HeadlessApp::run() {
                 emulator_.keyboard().queue_auto_type(keys);
                 Log::platform()->info("Delayed keypress '{}' injected", it->name);
                 it = delayed_keys_.erase(it);
+            } else {
+                --it->countdown;
+                ++it;
+            }
+        }
+
+        // Delayed NMI button presses (GH #209). Dispatched through the
+        // same hotkey seam the GUI/SDL front-ends use for F9/F10, so
+        // every enable gate and the arbitration chain are exercised.
+        // One press = one strobe (VHDL hotkey_m1 / hotkey_drive are
+        // one-cycle edge pulses, zxnext.vhd:6348-6349), hence erase
+        // after firing rather than holding a level down.
+        for (auto it = delayed_nmis_.begin(); it != delayed_nmis_.end(); ) {
+            if (it->countdown <= 0) {
+                if (it->button == NmiButtonName::Mf)
+                    emulator_.on_hotkey_f9_mf_nmi();
+                else
+                    emulator_.on_hotkey_f10_divmmc_nmi();
+                Log::platform()->info("Delayed NMI button '{}' pressed", it->name);
+                it = delayed_nmis_.erase(it);
             } else {
                 --it->countdown;
                 ++it;

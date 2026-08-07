@@ -605,6 +605,11 @@ int Z80Cpu::execute() {
     s_mem = &mem_;
     s_io  = &io_;
 
+    // Cleared here and set only at the real opcode fetch below, so a caller
+    // can tell a completed instruction from an NMI/INT acknowledge or an
+    // intercepted esxdos call. See fetched_opcode_last_execute().
+    fetched_opcode_ = false;
+
     // Push any externally set registers into FUSE state
     sync_fuse_from_regs(regs_);
 
@@ -820,6 +825,7 @@ int Z80Cpu::execute() {
     if (on_m1_prefetch) on_m1_prefetch(pc);
 
     uint8_t  opcode = mem_.read(pc);
+    fetched_opcode_ = true;   // past every early return; the CPU read PC itself
 
     if (opcode == 0xED) {
         uint8_t ext = mem_.read(static_cast<uint16_t>(pc + 1));

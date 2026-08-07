@@ -7,7 +7,7 @@ engine, `6a79f6fd`), 3.5 (modularisation, `779b7103`, v0.99.68), `fix/esp-async-
 (CLI/config/wiring) and 5 (functional test + the pacing measurement) are all **merged**.
 **UDP added by [#198](https://github.com/jorgegv/jnext/issues/198)** — see
 [§5.7](#57-udp-gh-198).
-**Last updated:** 2026-08-01.
+**Last updated:** 2026-08-06.
 **Audience:** jnext maintainers **and anyone reusing this module in another project**. The module
 is deliberately shaped to be liftable; this document is its specification, not a jnext-internal
 note.
@@ -47,6 +47,8 @@ engineering reasons in §1.3.
 - [10. v1.1 extension points](#10-v11-extension-points)
 - [11. Open questions — to be tested, not assumed](#11-open-questions--to-be-tested-not-assumed)
 - [12. Evidence index](#12-evidence-index)
+- [13. Server mode (GH #210)](#13-server-mode-gh-210)
+- [14. Per-connection close (GH #211)](#14-per-connection-close-gh-211)
 
 ---
 
@@ -135,15 +137,23 @@ does not "fix" them.
 
 | Not built | Evidence |
 |---|---|
-| **Server / listen mode** (`AT+CIPSERVER`) | Appears **exactly once** in all software examined, and only to turn it **off**. NextZXOS's own listen/accept API is marked `***TODO, not implemented`. Not building it also removes the entire inbound attack surface. |
+| ~~**Server / listen mode**~~ (`AT+CIPSERVER`) | ~~Appears **exactly once** in all software examined, and only to turn it **off**. NextZXOS's own listen/accept API is marked `***TODO, not implemented`. Not building it also removes the entire inbound attack surface.~~ **BUILT (GH #210)** — the first reason expired: [dezogif_ng](https://github.com/jorgegv/dezogif_ng) is a consumer, and DeZog only ever dials *out*, so something on the Next has to listen. The second did not expire and is **answered rather than retired** ([§13.4](#134-security-review--the-inbound-surface)): the listener binds **127.0.0.1** by default, `--esp-listen-address` is the explicit act that widens it, and a bind failure answers `ERROR` instead of falling back to a wider address. See [§13](#13-server-mode-gh-210). |
 | ~~**UDP**~~ | ~~Zero consumers. nextsync is TCP-only; NXtel and the dot commands are TCP-only.~~ **BUILT (GH #198)** — the justification was "no consumer", and [`newt`](https://github.com/chris-y/newt) (GPLv3) is one. See [§5.7](#57-udp-gh-198). |
 | **Passthrough** (`AT+CIPMODE`) | Appears **nowhere** in any examined software. |
-| **Multiplexed connections** (`AT+CIPMUX=1`) | nextsync never sends `AT+CIPMUX` at all — it relies on the power-on default — and its `+IPD` byte FSM does not merely reject `+IPD,<id>,<len>:`, it **silently mis-parses** it into a corrupted length (§3, choice B). Since **no command can correct a wrong default at runtime**, the default must be 0 and `=1` must be refused loudly rather than accepted-and-ignored. |
+| ~~**Multiplexed connections**~~ (`AT+CIPMUX=1`) | nextsync never sends `AT+CIPMUX` at all — it relies on the power-on default — and its `+IPD` byte FSM does not merely reject `+IPD,<id>,<len>:`, it **silently mis-parses** it into a corrupted length (§3, choice B). Since **no command can correct a wrong default at runtime**, the default must be 0 ~~and `=1` must be refused loudly rather than accepted-and-ignored~~. **BUILT (GH #210)** — `AT+CIPSERVER` requires it, so the command arrived with server mode and now answers `OK`. The evidence above did **not** expire; it changed what it constrains. It is why the **power-on default stays 0**, why `CIPMUX=1` happens only on explicit command, and why the multiplexed `+IPD` form reaches only connections owned by a session that asked ([§13.3](#133-the-constraint-that-makes-this-real-work)). What v1.0 was protecting was the *default*, and that is untouched. |
 | **TLS** | No evidenced consumer. sQLux has it; nothing on the Next asks for it. |
 
-`AT+CIPMUX=1` is answered `ERROR`. That is the one place where refusing is safer than accepting:
-silently accepting would promise a wire format that breaks the one client which cannot ask for it
-back.
+`AT+CIPMUX=1` was answered `ERROR` until GH #210 gave it a consumer; it is answered `OK` now
+([§13.2](#132-why-it-is-three-commands-and-not-one)), and `AT+CIPMUX=0` — the line NXtel sends at
+init — answers `OK` exactly as it always did.
+
+The sentence that used to follow, *"that is the one place where refusing is safer than
+accepting"*, is kept rather than deleted, because it is still true of the thing it was actually
+about: silently accepting **and ignoring** would promise a wire format that breaks the one client
+which cannot ask for it back. That alternative is still rejected ([§9](#9-rejected-alternatives)).
+What GH #210 changed is that the command is now *honoured*, which is the opposite of ignoring it —
+and the protection moved to where the evidence always pointed: the power-on **default**, which
+stays 0 and which no command can correct at run time.
 
 ### 1.5 The two acceptance targets, and why both
 
@@ -340,7 +350,16 @@ story, and it is why §6 exists.
 Follows directly from [§1.1](#11-how-the-at-surface-was-derived). Case-insensitive on the command
 **name**; arguments are never case-folded (a hostname keeps its case).
 
-### 5.1 v1.0 commands
+### 5.1 The command set, as shipped
+
+**This table is the whole surface, not v1.0's.** It was headed *"v1.0 commands"*
+until GH #198, #210 and #211 each added to it, and that label is what let the
+`AT+CIPMUX=1` row go on claiming `ERROR` after GH #210 had made it `OK`: a reader
+scanning for a command sees a row, never a scope heading. So a post-v1.0 addition
+is annotated **in place**, with the issue that brought it and the section that
+justifies it — the convention [§5.7](#57-udp-gh-198) already set for UDP — rather
+than filed in a separate table the scanner never reaches. The GH tag in the Notes
+column *is* the version boundary, and it carries more than a heading could.
 
 | Line from guest | Reply (exact bytes) | Notes |
 |---|---|---|
@@ -353,9 +372,12 @@ Follows directly from [§1.1](#11-how-the-at-surface-was-derived). Case-insensit
 | `AT+CIPSTART="SSL",…` and anything else | `\r\nERROR\r\n` | Still no consumer |
 | `AT+CIPSEND=<n>` | `\r\nOK\r\n> ` → *n payload bytes* → `\r\nSEND OK\r\n` | **Trailing space after `>` is mandatory** |
 | `AT+CIPSENDEX=<n>` | identical | Alias (simplification 3) |
-| `AT+CIPCLOSE` | `\r\nCLOSED\r\n\r\nOK\r\n`; `\r\nERROR\r\n` if nothing open | The `ERROR` case is load-bearing — see below |
+| `AT+CIPCLOSE` | `\r\nCLOSED\r\n\r\nOK\r\n` — or `\r\n0,CLOSED\r\n\r\nOK\r\n` on a multiplexed session; `\r\nERROR\r\n` if nothing open | Closes the **outbound** connection, in every mode, and never acquires a second meaning under `CIPMUX=1` ([§14.3](#143-the-bare-spelling-does-not-acquire-a-second-meaning)). The `ERROR` case is load-bearing — see below |
+| `AT+CIPCLOSE=<id>` | `\r\n<id>,CLOSED\r\n\r\nOK\r\n` | GH #211, [§14](#14-per-connection-close-gh-211). Closes that link id and returns its slot to the pool. `ERROR` under `CIPMUX=0`, for an id with no live connection, and for ESP-AT's close-all `=5` — which is refused as a **decision**, not as a range accident |
 | `AT+CIPMUX=0` | `\r\nOK\r\n` | |
-| `AT+CIPMUX=1` | `\r\nERROR\r\n` | Refused, not ignored (§1.4) |
+| `AT+CIPMUX=1` | `\r\nOK\r\n` | GH #210, [§13](#13-server-mode-gh-210). Refused until server mode had a consumer. The power-on default is still 0, and a real mode **change** is still refused while a connection is open — or, back to 0, while the server is up |
+| `AT+CIPSERVER=1,<port>` | `\r\nOK\r\n` | GH #210, [§13](#13-server-mode-gh-210). Needs `AT+CIPMUX=1` first, else `ERROR`. Port 0, a second server, an unbindable port and a missing port are all `ERROR` — a bind failure never falls back to another port or a wider address ([§13.4](#134-security-review--the-inbound-surface)) |
+| `AT+CIPSERVER=0` | `\r\nOK\r\n` | Retires the listener and deliberately **leaves established connections alone**. `ERROR` when no server is running — a deliberate divergence from firmware, which says `OK` ([§13.7](#137-what-implementation-decided-that-13-did-not)) — and `ERROR` for ESP-AT's `<close_all>` argument |
 | `AT+UART_CUR=<baud>,…` / `AT+UART_DEF=` / `AT+UART=` | `\r\nOK\r\n` | Recorded and traced; pacing follows the channel's **live prescaler**, so nothing else is needed |
 | `AT+GMR` | canned version block | Anchors `T version:` and `DK version:`, each printed to the next `(` |
 | `AT+CWJAP?` | `\r\n+CWJAP:"<SSID>","<BSSID>",1,-55\r\n\r\nOK\r\n` | |
@@ -366,10 +388,18 @@ Follows directly from [§1.1](#11-how-the-at-surface-was-derived). Case-insensit
 
 **Unsolicited (URC):**
 
+The `+IPD` and `CLOSED` spellings follow the **connection**, fixed when it opens
+and never varying byte to byte: a session that never sent `AT+CIPMUX` sees the
+unprefixed form it has always seen, and only a connection owned by a `CIPMUX=1`
+session sees the prefixed one ([§13.3](#133-the-constraint-that-makes-this-real-work)).
+
 | Emitted | When |
 |---|---|
-| `\r\n+IPD,<len>:<data>` | Peer data, framed only when the wire is quiet (simplification 1) |
+| `\r\n+IPD,<len>:<data>` | Peer data on a single-connection session, framed only when the wire is quiet (simplification 1) |
+| `\r\n+IPD,<id>,<len>:<data>` | The same, on a connection owned by a `CIPMUX=1` session (GH #210) |
 | `\r\nCLOSED\r\n` | Peer closed — deferred until everything already received has been framed and drained |
+| `\r\n<id>,CLOSED\r\n` | Peer closed a multiplexed connection, with the same deferral (GH #210) |
+| `\r\n<id>,CONNECT\r\n` | An inbound connection was **accepted** (GH #210, [§13](#13-server-mode-gh-210)). Always prefixed — a server requires `AT+CIPMUX=1` — and `<id>` runs **1..4**, never 0, which stays the guest's own outbound slot |
 
 ### 5.2 The framing constraints that actually bite
 
@@ -1074,8 +1104,11 @@ with drop-newest. Pacing is the device's responsibility, and this is exactly why
 the Next-side UART state machine (§4.3). The real reset line is NR 0x02 bit 7 and needs its own
 hook.
 
-**Accepting `AT+CIPMUX=1` and ignoring it.** Rejected: it would promise a wire format that breaks
-the one client that cannot ask for it back (§1.4).
+**Accepting `AT+CIPMUX=1` and ignoring it.** Still rejected, and GH #210 did **not** overturn it:
+the command is now accepted and *honoured* — a session that asks for multiplexing gets
+`+IPD,<id>,<len>:` and a session that never asked keeps `+IPD,<len>:` — which is the opposite of
+ignoring it. Accepting-and-ignoring would still promise a wire format that breaks the one client
+that cannot ask for it back (§1.4, [§13.3](#133-the-constraint-that-makes-this-real-work)).
 
 **Holding the core lock across the transport poll.** Shipped first, then falsified by measurement:
 11 827 226 `tick()` calls delivered **0 of 39 already-queued bytes** across a 500 ms transport
@@ -1122,11 +1155,11 @@ What v1.0 already leaves open, at zero cost today (§3):
 
 | Extension | What is already in place | What v1.1 adds |
 |---|---|---|
-| `AT+CIPMUX=1`, 5 connections | The `conn_` table, per-slot state, per-slot loops, connection ids throughout the state machine | Give slots 1..4 transports; implement the command; pass `multiplexed=true` |
-| Multiplexed `+IPD,<id>,<len>:` | `queue_ipd_header(cid, multiplexed, len)` — the one place the wire format is decided | Flip the flag per connection |
+| ~~`AT+CIPMUX=1`, 5 connections~~ | The `conn_` table, per-slot state, per-slot loops, connection ids throughout the state machine | **DONE (GH #210)**, and §3's prediction held — it was filling in blanks. Two corrections to this row's own wording: the usable ceiling is **4 inbound** connections, because slot 0 stays the guest's outbound transport and accepted ids run 1..4 ([§13.7](#137-what-implementation-decided-that-13-did-not)); and `multiplexed` is **captured per connection when it opens**, not passed globally, which is the part that keeps a `CIPMUX=0` session's framing untouched |
+| ~~Multiplexed `+IPD,<id>,<len>:`~~ | `queue_ipd_header(cid, multiplexed, len)` — the one place the wire format is decided | **DONE (GH #210)** — exactly as predicted, per connection. `MUX-10`..`MUX-13` pin the two wire forms against each other so neither can drift into the other's session |
 | ≈40 further AT commands | `kCommands` table + uniform handler signature | Add rows |
 | ~~UDP~~ / TLS / passthrough | `EspTransport` is an interface | **UDP is done (GH #198)**, and the prediction in this row was WRONG in an instructive way: it did not arrive as a new implementation behind an unchanged seam, because the engine is handed ONE transport per slot at construction and `AT+CIPSTART="UDP"` chooses at run time. It arrived as a `Protocol` argument on `begin_connect` instead. TLS and passthrough would go the same way. |
-| Server / listen | — | New capability; **re-opens the inbound attack surface deliberately closed in v1.0**, so it needs its own security review |
+| ~~Server / listen~~ | — | **DONE (GH #210)**, [§13](#13-server-mode-gh-210). The security review this row demanded is [§13.4](#134-security-review--the-inbound-surface), and it did re-open the inbound surface deliberately: bind is **127.0.0.1** by default, `--esp-listen-address` is the explicit widening, and a bind failure answers `ERROR` rather than falling back to a wider address. `AT+CIPCLOSE=<id>` followed in GH #211 ([§14](#14-per-connection-close-gh-211)) |
 | NR 0x02 bit 7 hardware reset | The bit is already latched (`emulator.cpp:2719`) | A device-facing hook driven from the NR 0x02 **write** — distinct from `UartChannel::reset` (§4.2/§4.3) |
 | Echo on by default | `ATE0`/`ATE1` really toggle it | One line, if datasheet fidelity is wanted (simplification 2) |
 | `AT+CIPSENDEX` `\0` early terminate | Currently an alias | Real early-terminate semantics (simplification 3) |
@@ -1342,3 +1375,325 @@ The jnext side:
 | `esp01` spdlog logger | `src/core/log.h:92` |
 | Cold-boot placement-new hazard | `src/platform/emulator_boot.h:67-77`, `:110-115` |
 | Suites + pinned row counts | `test/unit-tests.conf` |
+
+---
+
+## 13. Server mode (GH #210)
+
+v1.0 did not build `AT+CIPSERVER`, and §1.4 gave two reasons: the command appeared
+exactly once in all the software surveyed and only to turn it *off*, and not
+building it kept the inbound attack surface closed. §10's extension table
+therefore records server mode as needing **its own security review** before it
+can exist. This section is that review, plus the design.
+
+The first reason has expired: there is now a consumer. The second has not
+expired at all, and §13.4 is what answers it.
+
+### 13.1 The consumer, and why server mode is forced rather than chosen
+
+[**dezogif_ng**](https://github.com/jorgegv/dezogif_ng) is a Z80 debug stub that
+ships as the Multiface ROM on real Next hardware and speaks **DZRP** to
+**DeZog** in VS Code. It uses jnext as its development bench and its entire CI.
+
+DeZog always **dials out** and never listens — every existing DZRP remote
+listens instead (the CSpect plugin on port 11000, ZEsarUX on 10000). So for an
+unmodified, released DeZog to attach to a Next, something on the Next must be
+**listening**. This is a property of the client, not a preference of the design:
+a Next in TCP client mode has nothing for DeZog to connect to, and closing the
+gap on the PC side means either a relay splicing two inbound connections or a
+patched DeZog — both of which defeat the point, which is that a released DeZog
+attaches to a Next with no extra moving parts.
+
+### 13.2 Why it is three commands and not one
+
+Espressif's AT set chains the prerequisites: `AT+CIPSERVER` requires
+`AT+CIPMUX=1`, and `AT+CIPMUX=1` requires `AT+CIPMODE=0`. So the ask is a triad:
+
+1. `AT+CIPMUX=1` — accepted, where v1.0 **refused** it.
+2. `AT+CIPSERVER=1,<port>` / `AT+CIPSERVER=0` — listen / stop.
+3. The multiplexed `+IPD,<id>,<len>:` inbound form and `AT+CIPSEND=<id>,<len>`
+   outbound, which follow from (1).
+
+`AT+CIPMODE` passthrough is **not** part of this and is not needed: server mode
+forbids it, so the chosen design could not use it even if it existed. UDP, SSL,
+`_CUR`/`_DEF`, SNTP, ping, GPIO and sleep have no consumer here and stay out.
+
+### 13.3 THE CONSTRAINT THAT MAKES THIS REAL WORK
+
+v1.0 refused `AT+CIPMUX=1` rather than accepting-and-ignoring it, and the
+reasoning must survive this change intact (`esp_at.h`, `queue_ipd_header`):
+
+> nextsync never sends `AT+CIPMUX` at all — it relies on the power-on default
+> being 0 — and its `+IPD` reader **silently corrupts** the multiplexed
+> `+IPD,<id>,<len>:` form rather than rejecting it. Its FSM accumulates before
+> it validates, so the separating `,` is folded into the length as a bogus digit
+> worth `',' - '0'` = -4 and the parse *continues* with a corrupted `<len>`,
+> desynchronising the stream rather than failing.
+
+Since no command can correct a wrong default at run time, the default has to be
+right and the wrong value has to be rejected loudly. Therefore:
+
+- **The power-on default stays `AT+CIPMUX=0`.** Accepting the command is not
+  the same as changing the default, and the default is the part nextsync
+  depends on.
+- **`CIPMUX=1` happens only on explicit command**, and the multiplexed `+IPD`
+  form is emitted only for connections owned by a `CIPMUX=1` session.
+- **nextsync keeps working unchanged**, and that is pinned by a test asserting
+  a nextsync-shaped session still sees `+IPD,<len>:` while a `CIPMUX=1` session
+  sees `+IPD,<id>,<len>:` — the one thing that could regress silently.
+
+Real firmware also refuses `AT+CIPMUX` while a connection is open; that
+restriction is kept, because switching framing mid-connection would hand an
+existing peer a wire format it did not negotiate.
+
+#### The guarantee has a precondition, and it is stated rather than implied
+
+**"nextsync keeps working" holds from a fresh power-on, or after an `AT+RST`.**
+It is not a property of every moment, and the difference is worth writing down
+because nothing in the code can express it.
+
+`cipmux_` is **module** state, not per-program state. Nothing resets it when the
+guest loads a different program: a soft reset deliberately preserves the whole
+ESP, live connection included, because the module sits on the far end of a cable
+and does not see the Next's reset line ([§4.3](#43-what-is-not-a-reset)). So a
+program that sets `AT+CIPMUX=1` and exits leaves it set, and a nextsync started
+in the **same power cycle** with no intervening `AT+RST` has its own outbound
+`AT+CIPSTART` captured `multiplexed = true` — and receives exactly the framing
+its reader silently corrupts.
+
+Three things bound it, and none of them is a fix:
+
+- **It is firmware-faithful.** A real ESP-01 is sticky in the same way for the
+  same reason. Auto-resetting `cipmux_` between programs would be a jnext-only
+  divergence sold as a safety net, and §1's whole posture is that a divergence
+  which happens to help is still a divergence.
+- **The sequencing is unusual.** It needs two ESP programs in one power cycle,
+  the first multiplexed, the second not, with no reset between them. A hard
+  reset (jnext power-cycles the emulated ESP — see the member-order note in
+  `emulator.h`) and `AT+RST` both clear it.
+- **NR 0x02 bit 7 does NOT currently help**, and saying otherwise would be
+  worse than saying nothing. nextsync's "Resetting esp, try again" recovery
+  path drives that hardware reset line (`nextsync.c:396-399`), but jnext only
+  LATCHES the bit for readback and save-state — nothing consumes it, as
+  [§4.2](#42-a-real-esp-reset-line-does-exist--nextreg-0x02-bit-7) states
+  plainly. So in jnext as built, a client writing it does NOT clear a sticky
+  `cipmux_`. Wiring that bit to a device-facing ESP reset is already recorded
+  in §4.2 as a real future requirement; when it lands it will close this
+  window too, and this bullet should be revisited then. **The trigger is one
+  grep, so this paragraph can be checked rather than trusted:**
+  `grep -rn RESET_ESPBUS src/` returns two lines today, both of them comments
+  in `emulator.cpp` saying the bit is a no-op ("*peripheral-bus ESP reset
+  signal, no-op here*" and "*bit 7 alone (RESET_ESPBUS) is intentionally
+  ignored — no ESP*"). The day that grep returns **executable** code, this
+  bullet is wrong and §4.2's requirement has landed.
+
+Recorded as a **disclosure**, therefore, not as a defect: the behaviour is
+correct, and what was missing was the sentence saying when the guarantee
+applies.
+
+### 13.4 SECURITY REVIEW — the inbound surface
+
+This is the part §10 demanded, and it is a different question from §8's.
+
+§8's address policy governs **outbound**: which addresses the guest may dial.
+Its whole shape — deny loopback and link-local, allow RFC1918 by owner decision
+— is about protecting *the host and its infrastructure from the guest*. A
+listening socket inverts the direction: it exposes *the guest to the network*,
+and `classify_address` has nothing to say about that, because the peer is not
+chosen by the guest at all.
+
+Two facts set the risk. The socket is opened on the **host**, not inside any
+sandbox; and whatever connects to it is speaking to guest software with no
+authentication of any kind — DZRP has none, and a debug stub is by definition a
+remote-control protocol.
+
+**Decision (owner, 2026-08-04): bind to loopback by default; widening is an
+explicit act.**
+
+- Default bind address is `127.0.0.1`. The evidenced consumer — DeZog in VS Code
+  on the developer's own machine — works with no flag at all.
+- `--esp-listen-address ADDR` widens it (e.g. `0.0.0.0`). Reaching the emulated
+  Next from another machine is a deliberate, visible choice recorded in the
+  command line, not a default anyone gets by accident.
+- **No separate enable flag** beyond the existing `--esp`. The guest must still
+  send `AT+CIPMUX=1` and `AT+CIPSERVER=1,<port>`, so nothing listens unless
+  guest software explicitly asks; the AT command *is* the opt-in, and a second
+  host-side gate would be ceremony rather than defence. (Rejected alternative,
+  recorded because it is the obvious counter-proposal: a `--esp-server` flag
+  would protect against an untrusted guest ROM opening a port. That threat is
+  not distinguishable from the one already accepted by running an untrusted ROM
+  with `--esp` at all, which can already dial out to the LAN.)
+
+Consequences kept deliberately:
+
+- A bind failure (port in use, address not local) answers `ERROR` and logs; it
+  never falls back to a wider address. Silent widening is the failure mode this
+  decision exists to prevent.
+- The listener is closed on `AT+CIPSERVER=0`, on engine teardown, and on the
+  same reset paths that drop connections. A port outliving the machine that
+  opened it would be the other way this leaks.
+- No save-state, exactly as §2's simplification (5): a listening socket is host
+  topology, not machine state.
+
+### 13.5 Architecture
+
+Two shapes from §3 pay off here and one piece is genuinely new.
+
+**Already in place.** Connections are a table (`conn_`, `MAX_CONNECTIONS = 5`,
+which is ESP-AT's own `CIPMUX=1` ceiling), and `queue_ipd_header(cid,
+multiplexed, len)` is the single place the wire format is decided. The AT
+dispatch table takes rows. So (1) and (3) of the triad are close to filling in
+blanks, which is what §3 predicted.
+
+**Genuinely new: accepting a connection.** `EspTransport` models an *outbound*
+socket — `begin_connect`, `send`, `recv`, `close`. Nothing in it can listen, and
+nothing in `AtEngine` can own a transport: slot 0's is handed in by reference at
+construction and every other slot is inert precisely because it has none.
+
+So server mode adds:
+
+- **`EspListener`** — a listening socket, with the same non-blocking `poll()`
+  contract as `EspTransport` (the threaded wrapper runs it on a worker thread,
+  so a blocking `accept` would be the same defect a blocking `poll` would be).
+  It yields accepted connections as ready-made `EspTransport`s.
+- **Per-slot transport ownership.** An accepted connection's transport is
+  created by the listener and owned by the slot, alongside slot 0's
+  externally-owned pointer. The distinction is real — one is borrowed and must
+  not be freed, the other is owned — so it is expressed in the type rather than
+  in a comment.
+- **Platform twins.** `esp_socket_posix.cpp` / `esp_socket_win.cpp` gain the
+  bind/listen/accept half, mirroring the existing split (§7.5).
+
+### 13.6 What this does NOT add
+
+Stated so the surface does not grow past the evidence, exactly as §1.4 did:
+
+- No `AT+CIPMODE` passthrough (forbidden in server mode anyway).
+- No UDP server, no SSL server.
+- No faithful `busy p...` / `ALREADY CONNECTED` / `SEND FAIL` strings — the
+  consumer's parser is being written against whatever this subset emits, which
+  is the same bargain §5.4 struck.
+- No multiple simultaneous listeners: ESP-AT has one server, and so does this.
+
+### 13.7 What implementation decided that §13 did not
+
+Recorded here because each one is a **deviation from the firmware**, and a
+deviation nobody wrote down is a defect waiting to be "fixed". The short form
+lives beside the code as simplification (8) in `esp_at.h`.
+
+| Decision | Firmware | Here | Why |
+|---|---|---|---|
+| **Inbound connection ids start at 1** | the first client gets id 0 | ids 1..4 | Slot 0's transport is the one handed in at construction and the only object that can serve an `AT+CIPSTART`. Giving it to a peer would cost the guest its outbound capability for the session. Four inbound slots remain, which is one fewer than ESP-AT's five. |
+| **`AT+CIPSERVER=0` with no server running** | `OK` | `ERROR` | The single appearance of `AT+CIPSERVER` in all the software surveyed (§1.4) is a client turning it *off* at init — which v1.0 answered `ERROR`, as an unknown command, and which that client evidently survives. `ERROR` keeps that path byte-identical; `OK` would change an evidenced client's input on no evidence. It also matches `AT+CIPCLOSE` with nothing open, where the `ERROR` is load-bearing (§5.2). |
+| **`AT+CIPMUX=<n>` refuses a CHANGE, not the command** | refuses outright while any connection is open | a request for the mode already in force still answers `OK` | Keeps `AT+CIPMUX=0` — the line NXtel sends at init, and which v1.0 always answered `OK` — behaving exactly as it did in every circumstance. A genuine change is refused, which is the part that matters: switching framing under a live peer hands it a wire format it never negotiated. Going back to `0` is also refused while the server is up, which is ESP-AT's own rule ("you should delete the server first"). |
+| **No `AT+CIPCLOSE=<id>`** — **superseded by [§14](#14-per-connection-close-gh-211) (GH #211)** | required under `CIPMUX=1` | *was* absent; the argument form now exists, and the bare `AT+CIPCLOSE` still keeps its v1.0 meaning (close the outbound connection) | The reasoning here was that DeZog closes from its end, which arrives as `<id>,CLOSED` and frees the slot — true, and it does not cover a peer that **wedges** instead of closing. §14 is what that costs and what was built. The second half of the row survives intact and is the constraint §14 is built around: giving the bare spelling a second meaning under `CIPMUX=1` would make nextsync's behaviour depend on a mode nextsync never sets. |
+| **`AT+CIPSERVER=1,0` is refused** | port 0 is not special-cased | `ERROR`, although the socket layer accepts 0 as "OS-assigned" | A guest that named no port has no way to be told which one it got. The capability stays available to a HOST (`EspListener::open(0)` + `port()`), which is also how the module's own suite binds without a fixed port. |
+| **Windows uses `SO_EXCLUSIVEADDRUSE`, POSIX `SO_REUSEADDR`** | — | the twins differ | The identically-named Winsock option does not mean the POSIX one: on Windows `SO_REUSEADDR` lets a *different process* bind the same address and port and take the connections, which Microsoft documents as a hijacking hazard. Copying the name across would make a local process able to steal a port carrying an unauthenticated debug protocol. The cost is stricter: a rebind while a previous connection is in `TIME_WAIT` can fail with `WSAEADDRINUSE`, surfacing as `ERROR` — loud and retryable, which is what §13.4 asks for. |
+| **One pending accepted connection at a time** | — | `EspListener::poll()` takes one and stops until it is collected | The engine collects it on the very next service pass, so a real client is never throttled; without the bound an unattended listener would allocate a transport per inbound SYN while the guest was not looking. The rest wait in the kernel's listen backlog. |
+| **A fifth simultaneous peer is accepted and closed at once** | refused past the ceiling | same effect, one slot lower | The peer learns immediately that there is nowhere to go, rather than holding a connection that is open on its side and invisible on ours. |
+
+**One obligation of §8.1 is only partly met, and it is stated rather than
+quietly carried:** decision 7 ("a visible log line on every connection made or
+refused") holds for inbound connections — the module logs an accepted
+connection at `info`, which is on by default — but the **GUI status cell does
+not show them**. `EspGatedTransport`, which feeds `EspConnectionLog`, decorates
+the *outbound* transport only; an accepted transport comes from the listener and
+is not decorated. Closing that gap means giving the listener a way to report an
+acceptance to the host, which §13 did not ask for and which is therefore not
+built. Headless runs — the evidenced consumer's own configuration — are
+unaffected, since there the log *is* the report (§8.2).
+
+---
+
+## 14. Per-connection close (GH #211)
+
+§13.7 recorded "No `AT+CIPCLOSE=<id>`" as a decision, and the reasoning was that
+DeZog closes from its end — which arrives as `<id>,CLOSED` and frees the slot,
+so nothing needed the command. That is true of a peer that **closes**. It says
+nothing about a peer that **wedges**, and that is the case the consumer hit.
+
+### 14.1 The failure this exists for
+
+[dezogif_ng](https://github.com/jorgegv/dezogif_ng) — the same consumer that
+forced §13 — re-runs its AT chain after N consecutive transport faults. That
+recovery cannot free a connection whose peer has stopped answering rather than
+disconnected:
+
+- `AT+CIPSERVER=0` retires the **listener** and deliberately leaves established
+  connections alone (§13.7, and it is `SRV-23` in the suite);
+- `AT+CIPSERVER=0,<close_all>` is **refused**, and stays refused — see §14.4;
+- nothing else in the surface names a connection.
+
+With four inbound slots, four wedged peers exhaust the module and every later
+client is turned away for the rest of the session. On real hardware that is a
+power-cycle-level failure. The suite states it as a row rather than as prose:
+`CLS-20`/`CLS-21` wedge all four slots, watch a fifth peer be turned away, and
+then put the module back in service with one command.
+
+### 14.2 What was added
+
+| Line from guest | Reply (exact bytes) | Notes |
+|---|---|---|
+| `AT+CIPCLOSE=<id>` | `\r\n<id>,CLOSED\r\n\r\nOK\r\n` | Closes the connection with that link id and **returns its slot to the pool**. `<id>` is echoed, so the guest observes the close it asked for |
+| `AT+CIPCLOSE` | unchanged — `\r\nCLOSED\r\n\r\nOK\r\n` (`\r\n0,CLOSED\r\n\r\nOK\r\n` on a multiplexed session); `\r\nERROR\r\n` if nothing is open | Still means **close the outbound connection**, in every mode |
+
+Both spellings run the same tear-down (`AtEngine::close_connection`), so the
+choice between the prefixed and unprefixed `CLOSED` is made in exactly one
+place — the rule `queue_ipd_header` already establishes for `+IPD`. The
+notification is emitted **immediately** rather than deferred behind buffered
+data, unlike the peer-close path: the guest asked for the close, and anything
+received-but-not-yet-framed dies with the connection, which is what the bare
+spelling has always done (`CLS-18`/`CLS-18b`).
+
+### 14.3 The bare spelling does not acquire a second meaning
+
+The constraint from §13.7 survives intact and is the reason the argument form is
+a separate dispatch entry rather than an optional argument to the old one:
+**nextsync loops `AT+CIPCLOSE` up to ten times while `ERROR` is not seen** and
+never sends `AT+CIPMUX`. Its behaviour must not become mode-dependent. So
+`AT+CIPCLOSE` closes the outbound connection whatever the mode, and
+`AT+CIPCLOSE=` — the argument form with no argument — is `ERROR`, **not** a
+fall-back to the bare form (`CLS-11`): a spelling that names no connection
+closes none.
+
+### 14.4 The refusals, and why each one is `ERROR`
+
+| Input | Answer | Why |
+|---|---|---|
+| `AT+CIPCLOSE=<id>` under `CIPMUX=0` | `ERROR` | The argument list is read from the **mode**, never sniffed from the text — the rule `AT+CIPSEND` already follows (`SRV-17` is its mirror). Real firmware rejects the parameter in single-connection mode too |
+| An id with no live connection | `ERROR` | What the bare spelling already answers for "nothing was open", and what nextsync depends on. `OK` would tell a guest it had freed a slot that was never taken. A connection the **peer** has already dropped is in this state too: its `<id>,CLOSED` is already owed and arrives on its own (`CLS-17`/`CLS-17b`) |
+| `AT+CIPCLOSE=5` — ESP-AT's **close-all** | `ERROR` | A **decision**, not a consequence of the slot count. Accepting it would promise a choice about connections the guest did not name — in which order the `CLOSED`s arrive, and whether the outbound slot 0 is among them. That is precisely the promise `AT+CIPSERVER=0,<close_all>` is refused for, and refusing both keeps the model honest. The consumer asked for a per-connection close, so a per-connection close is what exists |
+| `AT+CIPCLOSE=9`, `=x`, `=1,1` | `ERROR` | Out of range, not a number, trailing argument. One link id, or nothing |
+
+**`AT+CIPSERVER=0,<close_all>` stays refused.** GH #211 explicitly did not ask
+to change it, and it should not be changed: an explicit per-connection close is
+a different thing from a bulk close smuggled in as a server-mode argument, and
+the refusal is what makes the model's silence about "what happens to existing
+connections" honest rather than accidental. `SRV-12` is untouched.
+
+### 14.5 How it is proved
+
+The AT suite drives a fake transport, so its 37 `CLS-*` rows can assert that
+`close()` reached the fake and that the slot was reused — not that a real host
+socket went away. `esp-close-func`, in the screenshot/functional suite, is the
+row that closes that gap: a real client on a real socket is greeted by the
+guest, the guest sends `AT+CIPCLOSE=1`, and the client then **dials in again**
+and is announced to the guest as `1,CONNECT` — the same id, which is the slot
+having genuinely returned to the pool.
+
+**The reconnect is the assertion and the EOF alone is not**, which was measured
+rather than reasoned: jnext exits at the end of the row and process exit closes
+every socket it owns, so an EOF-only version of that row passed against a build
+with the socket close removed *and* against one with the slot release removed as
+well. What it still cannot distinguish is stated in the row itself — removing
+the explicit `transport->close()` while leaving the slot release in place also
+passes, because destroying the accepted transport closes its descriptor anyway.
+
+### 14.6 What this does NOT add
+
+- **No close-all, under any spelling** (§14.4).
+- **No `AT+CIPSTATUS`**. Knowing *which* ids are live is the obvious companion
+  request, and no consumer has made it — the recovery path closes the id it was
+  using. Adding it would mean inventing a status format nothing parses.
+- **No change to who may connect.** This command only tears connections down;
+  the bind address and the security posture of §13.4 are untouched.

@@ -165,6 +165,13 @@ struct EmulatorConfig {
     // Magic breakpoint: ED FF (ZEsarUX) and DD 01 (CSpect) trigger debugger pause
     bool magic_breakpoint = false;
 
+    // GH #219 (--persistent-breakpoints): keep breakpoints and watchpoints
+    // armed while the debugger window is CLOSED. Default false — closing the
+    // window disarms them, which is the long-standing behaviour and the
+    // owner's explicit choice of default. The frontend raises the debugger
+    // window when a hit pauses the machine.
+    bool persistent_breakpoints = false;
+
     // Host-side esxDOS compatibility for directly loaded NEX programs.
     // Provides one in-memory file and `run sibling.nex` chaining.
     bool esxdos_stub = false;
@@ -238,6 +245,19 @@ struct EmulatorConfig {
     // ESP can reach the user's own LAN.
     bool                     esp_enabled = false;
     std::vector<std::string> esp_allowed_hosts;
+
+    // Where `AT+CIPSERVER` binds (GH #210, design doc §13.4). A listening
+    // socket inverts the direction the two controls above govern: it exposes
+    // the GUEST to the network, and the peer is not chosen by the guest at all,
+    // so neither the hostname allowlist nor `esp::AddressPolicy` has anything
+    // to say about it. What bounds it is this address, enforced by the kernel.
+    //
+    // LOOPBACK BY DEFAULT. The evidenced consumer — a debugger on the
+    // developer's own machine — needs no flag; reaching the emulated Next from
+    // another machine is a deliberate, visible choice
+    // (`--esp-listen-address 0.0.0.0`). Numeric only: a bind address that could
+    // depend on DNS is one that could change under the user.
+    std::string              esp_listen_address = "127.0.0.1";
 
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;

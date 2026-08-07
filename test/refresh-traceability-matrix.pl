@@ -524,7 +524,9 @@ sub suite_for_source {
 #   --fpga-src=PATH        explicit, wins over everything
 #   $JNEXT_FPGA_SRC        the environment form, which is what CI sets
 #   upward search          a sibling checkout, found by walking up from the
-#                          script's own directory
+#                          script's own directory — and, when that directory
+#                          is inside a LINKED git worktree, also from the main
+#                          checkout the worktree belongs to
 #
 # The default used to be one hardcoded absolute path under the maintainer's
 # home. That was invisible to everyone else, and CI — which has no FPGA
@@ -535,10 +537,20 @@ sub suite_for_source {
 #
 # The search walks up rather than using a fixed depth because the repo and its
 # agent worktrees sit at different depths — `spectrum/jnext/test` is two levels
-# below the sibling, `spectrum/jnext-worktrees/<name>/test` is three — so any
-# constant `../..` is correct for exactly one of them. It starts from $RealBin,
-# NOT $ROOT, because the selftest rebinds $ROOT to a fixture tree while the
-# script itself stays in the real repo.
+# below the sibling, a `<worktree>/test` is wherever the worktree was put — so
+# any constant `../..` is correct for exactly one of them. It starts from
+# $RealBin, NOT $ROOT, because the selftest rebinds $ROOT to a fixture tree
+# while the script itself stays in the real repo.
+#
+# The MAIN-CHECKOUT start exists because agent worktrees no longer live beside
+# the repo (they moved to ~/tmp/worktrees, 2026-08-03), so no ancestor of the
+# worktree contains the FPGA sibling and the walk from $RealBin alone finds
+# nothing. Without it every `make unit-test` in such a worktree regenerated an
+# UNVALIDATED matrix whose bytes differ from the committed one, and the
+# staleness gate failed — in a worktree only, which reads as a phantom
+# regression. Resolving the main checkout from the worktree's `.git` file
+# fixes this for ANY worktree location by construction, with no per-run
+# $JNEXT_FPGA_SRC export and no owner-specific path (GH #204's class).
 my $FPGA_SRC;        # resolved once by fpga_src(), '' when there is no tree
 
 # The parent walk is spelled with a regex rather than File::Basename::dirname
@@ -548,10 +560,45 @@ my $FPGA_SRC;        # resolved once by fpga_src(), '' when there is no tree
 # on `Can't locate FindBin.pm` with no change to script or workflow. Adding no
 # dependency beats declaring one here.
 sub discover_fpga_src {
-    my $dir = $RealBin;
+    for my $start ($RealBin, worktree_main_checkout($RealBin)) {
+        next unless defined $start;
+        my $dir = $start;
+        for (1 .. 8) {
+            my $cand = "$dir/ZX_Spectrum_Next_FPGA/cores/zxnext/src";
+            return $cand if -d $cand;
+            last if $dir eq '/';
+            (my $up = $dir) =~ s{/[^/]*$}{};
+            $up = '/' if $up eq '';
+            $dir = $up;
+        }
+    }
+    return undef;
+}
+
+# The main checkout a linked git worktree belongs to, or undef when $from is
+# not inside one. In a linked worktree the checkout root's `.git` is a plain
+# FILE reading `gitdir: <main>/.git/worktrees/<name>`; the main checkout is
+# read straight out of that line — no git invocation, no new module. A normal
+# checkout has a `.git` DIRECTORY, which ends the walk with undef (there is no
+# indirection to follow). A relative gitdir (git's optional
+# worktree.useRelativePaths form) is resolved against the directory holding
+# the `.git` file before matching, via the already-imported abs_path.
+sub worktree_main_checkout {
+    my ($from) = @_;
+    my $dir = $from;
     for (1 .. 8) {
-        my $cand = "$dir/ZX_Spectrum_Next_FPGA/cores/zxnext/src";
-        return $cand if -d $cand;
+        if (-f "$dir/.git") {
+            open(my $fh, '<', "$dir/.git") or return undef;
+            my $line = <$fh> // '';
+            close $fh;
+            return undef unless $line =~ m{^gitdir:\s*(.*?)\s*$};
+            my $gitdir = $1;
+            $gitdir = "$dir/$gitdir" unless $gitdir =~ m{^/};
+            $gitdir = abs_path($gitdir) // return undef;
+            return undef unless $gitdir =~ m{^(.*)/\.git/worktrees/[^/]+$};
+            return -d $1 ? $1 : undef;
+        }
+        last if -d "$dir/.git";
         last if $dir eq '/';
         (my $up = $dir) =~ s{/[^/]*$}{};
         $up = '/' if $up eq '';
@@ -958,6 +1005,7 @@ my %NO_MATRIX_SECTION = (
     'pointer_capture_test' => 'host mouse-capture policy (window-manager behaviour)',
     'esc_break_test'      => 'host ESC->BREAK binding; guest matrix is `## Input`',
     'host_hotkey_test'    => 'host hotkey bindings (Alt vs the guest Symbol Shift)',
+    'main_window_accel_test' => 'main-window menu mnemonics (host GUI)',
     'shifted_keys_test'   => 'host shifted-scancode translation; guest matrix is `## Input`',
 
     # ── CLI, configuration, logging, profiling ───────────────────────
@@ -987,12 +1035,18 @@ my %NO_MATRIX_SECTION = (
     'window_attach_test'        => 'host window-attach geometry (GH #39 contract, no VHDL oracle)',
     'quit_cleanup_test'         => 'host shutdown ordering (GUI lifecycle)',
     'resume_guard_test'         => 'debugger resume-confirmation policy (jnext-internal)',
+    'step_out_test'             => 'debugger Step Out execution control (jnext-internal); the T80N core has no debugger',
+    'persistent_bp_test'        => 'debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger',
+    'io_watchpoint_test'        => 'debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger',
+    'resume_step_off_test'      => 'debugger resume/step-off execution control (GH #221, jnext-internal); the T80N core has no debugger',
+    'debugger_persistent_bp_test' => 'debugger window raise-on-hit (host GUI lifecycle, GH #219)',
     'debugger_video_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build)',
     'debugger_audio_panel_test' => 'debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build)',
     'debugger_quit_gate_test'   => 'debugger quit gating (host GUI lifecycle)',
     'debugger_window_size_test' => 'debugger window geometry (host GUI)',
     'debugger_window_grow_test' => 'debugger window geometry (host GUI)',
     'debugger_accel_test'       => 'debugger keyboard accelerators (host GUI)',
+    'debugger_menu_test'        => 'debugger menu reachability (host GUI)',
 );
 
 # The head Summary table is generated between these markers. They are HTML

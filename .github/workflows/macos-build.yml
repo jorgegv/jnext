@@ -22,7 +22,7 @@ jobs:
     # had to be cancelled by hand after 16-21 minutes of silence.
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           submodules: recursive
 
@@ -51,7 +51,7 @@ jobs:
 
       - name: Upload package
         if: ${{ inputs.package }}
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: jnext-macos-package
           path: build/mac-release/*.dmg

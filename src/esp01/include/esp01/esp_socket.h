@@ -86,6 +86,17 @@ IpAddress   ipv6(const std::array<std::uint8_t, 16>& raw);
 /// Dotted-quad for V4; full uncompressed 8-group hex for V6 (no `::` elision —
 /// a log line must be unambiguous, not short).
 std::string to_string(const IpAddress& ip);
+
+/// The inverse of `to_string` for a NUMERIC address, and numeric only: a name
+/// is rejected rather than looked up (GH #210).
+///
+/// It is the platform's `AI_NUMERICHOST` pass, so it accepts every spelling the
+/// platform does — dotted-quad, `::1`, an IPv6 form with `::` elision — and
+/// touches no network and no resolver. Refusing names is the point rather than
+/// a limitation: the only caller is a host turning a configured BIND address
+/// into one, and a bind address that could depend on DNS would be a bind
+/// address that could change under the user (design doc §13.4).
+bool parse_ip(const std::string& text, IpAddress& out);
 bool        operator==(const IpAddress& a, const IpAddress& b);
 
 /// Collapse the IPv6 forms that ARE an IPv4 address into that address, so one
@@ -455,5 +466,98 @@ using ResolveFn = std::function<bool(const std::string& host,
 /// engine's deadline check therefore gets to run at all.
 std::unique_ptr<EspTransport> make_socket_transport(const AddressPolicy& policy,
                                                     ResolveFn resolver = nullptr);
+
+// ---------------------------------------------------------------------------
+// Listener — the INBOUND half (GH #210)
+// ---------------------------------------------------------------------------
+
+/// A listening socket, and the source of the `EspTransport`s an inbound
+/// connection arrives as.
+///
+/// WHY IT IS A SECOND INTERFACE RATHER THAN A MODE OF `EspTransport`. A
+/// transport models ONE connection: it has a peer, a state machine that walks
+/// toward that peer, and buffers belonging to it. A listener has no peer, no
+/// handshake and no data — it manufactures transports. Folding the two together
+/// would put `begin_connect` and `accept` on the same object and leave every
+/// caller checking which half of it is live.
+///
+/// ---------------------------------------------------------------------------
+/// `poll()` MUST NOT BLOCK, for exactly the reason `EspTransport::poll()` must
+/// not
+/// ---------------------------------------------------------------------------
+/// `esp::ThreadedEsp` drives this from the same worker loop and its destructor
+/// JOINS, so shutdown is bounded by one `poll()` call here as well as by one on
+/// the transport. Read the contract on `EspTransport::poll()`; it applies here
+/// word for word, and the measurement behind it (a 2000 ms blocking poll made
+/// the destructor take 2007 ms) did not care which object was slow.
+///
+/// ---------------------------------------------------------------------------
+/// THE SPLIT BETWEEN `poll()` AND `accept()` IS THE THREADING DESIGN
+/// ---------------------------------------------------------------------------
+/// It mirrors `AtEngine::advance_transports()` / `service_transports()`, and
+/// for the same reason. `poll()` is PURE SOCKET WORK — it takes whatever the
+/// kernel has ready and parks it — so the engine runs it with its core lock
+/// RELEASED. `accept()` hands a connection over to a connection SLOT, which is
+/// engine state, so it runs under the lock. A listener that did both in one
+/// call would force the socket work back inside the lock, which is the defect
+/// §7.2 of the design doc records being measured and fixed.
+///
+/// NO METHOD MAY THROW, on the same terms as `EspTransport`: this is driven
+/// from a `std::thread` entry point where an escaping exception is a process
+/// abort rather than an error. Report failure through `listening()` and
+/// `last_error()`.
+class EspListener {
+public:
+    virtual ~EspListener() = default;
+
+    /// Start listening on `port`. Returns false — with `last_error()` set and
+    /// nothing listening — when the bind or the listen fails, which is what the
+    /// AT layer turns into `ERROR`.
+    ///
+    /// `port` 0 asks the OS to choose, and `port()` then reports what it chose.
+    /// That is not a guest-reachable spelling — `AT+CIPSERVER=1,0` is refused,
+    /// because a guest that named no port has no way to be told which one it
+    /// got — but a host that wants an ephemeral port has no other way to ask,
+    /// and neither has this module's own suite, which is forbidden a fixed
+    /// port.
+    virtual bool open(std::uint16_t port) = 0;
+
+    /// Stop listening and release the port. Always safe, always immediate,
+    /// idempotent. Connections already accepted are NOT affected — they are
+    /// their own objects by then, owned by whoever took them.
+    virtual void close() = 0;
+
+    virtual bool               listening() const  = 0;
+    /// The port actually bound; 0 when not listening.
+    virtual std::uint16_t      port() const       = 0;
+    /// Empty unless the last `open()` failed or the listener faulted.
+    virtual const std::string& last_error() const = 0;
+
+    /// Take whatever the kernel has ready. See the split note above: this is
+    /// the unlocked half, so it must touch nothing but the socket.
+    virtual void poll() = 0;
+
+    /// Hand over the next connection `poll()` accepted, already `Connected`, or
+    /// null when there is none. The caller OWNS what it gets back.
+    virtual std::unique_ptr<EspTransport> accept() = 0;
+};
+
+/// Build the real POSIX/Winsock listener, bound to `bind_address` whenever it
+/// is opened.
+///
+/// THE ADDRESS IS FIXED AT CONSTRUCTION, and that is the security shape rather
+/// than an API convenience: it comes from the host's configuration
+/// (`--esp-listen-address`, defaulting to loopback), and the guest chooses only
+/// the PORT. A guest that could choose the address could widen the exposure the
+/// user set — which is the whole of the owner decision in design doc §13.4, so
+/// the interface is built so the guest has no way to express it.
+///
+/// NO ADDRESS POLICY APPLIES, and its absence is deliberate rather than
+/// forgotten. `AddressPolicy` governs which addresses the guest may DIAL, to
+/// protect the host from the guest; a listening socket inverts the direction
+/// and `classify_address` has nothing to say about a peer the guest did not
+/// choose. What protects the guest here is the bind address, enforced by the
+/// kernel.
+std::unique_ptr<EspListener> make_socket_listener(const IpAddress& bind_address);
 
 }  // namespace esp

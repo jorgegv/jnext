@@ -1,5 +1,5 @@
 Name:           jnext
-Version:        0.99.110
+Version:        0.99.132
 Release:        1%{?dist}
 Summary:        Real-time ZX Spectrum Next emulator with an integrated debugger
 
@@ -59,6 +59,72 @@ appstream-util validate-relax --nonet %{buildroot}%{_datadir}/metainfo/io.github
 %{_datadir}/icons/hicolor/512x512/apps/io.github.zxjogv.jnext.png
 
 %changelog
+* Fri Aug 07 2026 ZXjogv <zx@jogv.es> - 0.99.132-1
+- New release 0.99.132.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.131-1
+- New release 0.99.131.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.130-1
+- New release 0.99.130.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.129-1
+- New release 0.99.129.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.128-1
+- New release 0.99.128.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.127-1
+- New release 0.99.127.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.126-1
+- New release 0.99.126.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.125-1
+- New release 0.99.125.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.124-1
+- New release 0.99.124.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.123-1
+- New release 0.99.123.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.122-1
+- New release 0.99.122.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.121-1
+- New release 0.99.121.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.120-1
+- New release 0.99.120.
+
+* Thu Aug 06 2026 ZXjogv <zx@jogv.es> - 0.99.119-1
+- New release 0.99.119.
+
+* Tue Aug 04 2026 ZXjogv <zx@jogv.es> - 0.99.118-1
+- New release 0.99.118.
+
+* Mon Aug 03 2026 ZXjogv <zx@jogv.es> - 0.99.117-1
+- New release 0.99.117.
+
+* Mon Aug 03 2026 ZXjogv <zx@jogv.es> - 0.99.116-1
+- New release 0.99.116.
+
+* Mon Aug 03 2026 ZXjogv <zx@jogv.es> - 0.99.115-1
+- New release 0.99.115.
+
+* Sun Aug 02 2026 ZXjogv <zx@jogv.es> - 0.99.114-1
+- New release 0.99.114.
+
+* Sun Aug 02 2026 ZXjogv <zx@jogv.es> - 0.99.113-1
+- New release 0.99.113.
+
+* Sun Aug 02 2026 ZXjogv <zx@jogv.es> - 0.99.112-1
+- New release 0.99.112.
+
+* Sun Aug 02 2026 ZXjogv <zx@jogv.es> - 0.99.111-1
+- New release 0.99.111.
+
 * Sat Aug 01 2026 ZXjogv <zx@jogv.es> - 0.99.110-1
 - New release 0.99.110.
 

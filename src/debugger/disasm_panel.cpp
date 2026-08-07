@@ -88,6 +88,19 @@ DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
         disassemble_from(view_addr_, visible_lines());
         update();
     });
+
+    // GH #220 — the gutter is driven by the set, not by whoever mutated it.
+    // PcBreakpoints ONLY: the gutter paints bps.has_pc() (see paintEvent), so
+    // re-disassembling on a watchpoint change would be pure waste.
+    observer_ = emulator_->debug_state().breakpoints().add_observer(
+        [this](BreakpointChange what) {
+            if (what == BreakpointChange::PcBreakpoints) refresh();
+        });
+}
+
+DisasmPanel::~DisasmPanel()
+{
+    emulator_->debug_state().breakpoints().remove_observer(observer_);
 }
 
 void DisasmPanel::navigate_to_address(const QString& text)
@@ -381,8 +394,12 @@ void DisasmPanel::mousePressEvent(QMouseEvent* event)
         } else {
             bps.add_pc(addr);
         }
-        entries_[line].has_breakpoint = bps.has_pc(addr);
-        emit breakpoint_toggled(addr);
+        // The set's observer has already run. While PAUSED it re-disassembled,
+        // so entries_ was rebuilt underneath us — hence the bounds check. While
+        // RUNNING refresh() is a no-op by design, and this patch plus update()
+        // is what still shows the dot the instant it is clicked.
+        if (line < static_cast<int>(entries_.size()))
+            entries_[line].has_breakpoint = bps.has_pc(addr);
         update();
     } else {
         // Select line
@@ -548,8 +565,9 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
         } else {
             bps.add_pc(addr);
         }
-        entries_[line].has_breakpoint = bps.has_pc(addr);
-        emit breakpoint_toggled(addr);
+        // Same as the gutter click above — see mousePressEvent().
+        if (line < static_cast<int>(entries_.size()))
+            entries_[line].has_breakpoint = bps.has_pc(addr);
         update();
     });
 
@@ -621,6 +639,13 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
     }
 
     // --- Data breakpoint actions ---
+    //
+    // GH #218/#220 — every one of these adds a WATCHPOINT, which the
+    // Breakpoints panel lists but this gutter does not draw (it paints has_pc()
+    // only). #218 gave them an explicit signal to repaint that list; #220
+    // deleted it, because add_watchpoint() now notifies the list itself. Note
+    // what is NOT here as a result: no repaint of our own, and no wire to a
+    // panel we do not own.
     {
         menu.addSeparator();
 

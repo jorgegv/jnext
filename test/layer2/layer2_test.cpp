@@ -3,7 +3,7 @@
 //
 // Every expected value below is justified by an inline citation to the
 // authoritative VHDL sources at
-//   /home/jorgegv/src/spectrum/ZX_Spectrum_Next_FPGA/cores/zxnext/src/
+//   cores/zxnext/src/
 // in the form "// VHDL: <file>:<line>  <short rationale>".
 //
 // This file replaces the previous Layer 2 test suite that was flagged as

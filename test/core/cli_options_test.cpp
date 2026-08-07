@@ -33,6 +33,13 @@
 //   CLI-DOC-05  Doc::UndocumentedAlias really is absent from the man page — a
 //               deliberate exception that quietly became documented is drift
 //               too, and would otherwise never be noticed.
+//   CLI-DOC-06  The user guide's generated option page (GH #213) lists every
+//               documented spelling. It is generated from the same man page
+//               section, so in a green tree this follows from CLI-DOC-01 — but
+//               only while docs-man-check is actually comparing: on a host with
+//               a different pandoc that check SKIPs, and a hand-edited guide
+//               page would then be seen by nothing at all. This row is the
+//               independent witness, and it needs no pandoc to run.
 //   CLI-SRC-01  main.cpp's parse loop holds no hand-rolled `arg == "--flag"`
 //               comparison. That pattern is exactly how the flag set stopped
 //               being enumerable; a new one would re-open the gap invisibly,
@@ -42,6 +49,12 @@
 //               parser, not just this test) and rejects a spelling that is not
 //               in the table. Every invocation is bounded by timeout(1) — see
 //               the comment on the row.
+//   CLI-BIN-02  ...and prints them to STDOUT, so `jnext --help > file` is not
+//               empty (GH #216). CLI-BIN-01 cannot see this: it discards both
+//               streams and reads only the exit status.
+//   CLI-BIN-03  ...while a usage error stays on stderr and leaves stdout clean.
+//               The complement of CLI-BIN-02: without it, "help goes to stdout"
+//               is satisfiable by sending everything there.
 //
 // Every row above was mutation-tested: the thing it protects was broken, the
 // suite rebuilt, and the row confirmed to fail. CLI-BIN-01's timeout guard
@@ -323,6 +336,37 @@ int main() {
     }
 
     // -----------------------------------------------------------------
+    // User guide alignment (GH #213).
+    //
+    // src/doc/user-guide/09-reference/01-command-line-options.md is generated
+    // from the man page's OPTIONS section by tools/gen-userguide-cli.pl, and
+    // is the mkdocs SOURCE the committed render is built from. Checking the
+    // source rather than the rendered HTML is deliberate: docs-userguide-check
+    // already byte-diffs the render against this file, so the source is the
+    // one place the option list can go missing without another gate noticing.
+    // -----------------------------------------------------------------
+    {
+        std::ifstream in(JNEXT_GUIDE_CLI_SRC);
+        if (!in) {
+            // Same posture as the man page above: unreadable is a failure, not
+            // a skip. The file is committed, so it is always there.
+            check("CLI-DOC-06", "user guide option page lists every documented flag",
+                  false, std::string("cannot open ") + JNEXT_GUIDE_CLI_SRC);
+        } else {
+            const std::string page((std::istreambuf_iterator<char>(in)),
+                                    std::istreambuf_iterator<char>());
+            std::vector<std::string> missing;
+            for (const cli::Option& o : cli::OPTIONS) {
+                if (o.doc == cli::Doc::UndocumentedAlias) continue;
+                if (page.find("**" + std::string(o.name) + "**") == std::string::npos)
+                    missing.push_back(o.name);
+            }
+            check("CLI-DOC-06", "user guide option page lists every documented flag",
+                  missing.empty(), "missing from the guide: " + join(missing));
+        }
+    }
+
+    // -----------------------------------------------------------------
     // The parser really is table-driven.
     // -----------------------------------------------------------------
     {
@@ -380,8 +424,16 @@ int main() {
         if (!probe) {
             skip("CLI-BIN-01", "real binary honours the table",
                  "jnext binary not built at " + bin);
+            skip("CLI-BIN-02", "--help/--version print to stdout",
+                 "jnext binary not built at " + bin);
+            skip("CLI-BIN-03", "a usage error stays on stderr",
+                 "jnext binary not built at " + bin);
         } else if (!have_timeout) {
             skip("CLI-BIN-01", "real binary honours the table",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-BIN-02", "--help/--version print to stdout",
+                 "no timeout(1) on this host; refusing to run unbounded");
+            skip("CLI-BIN-03", "a usage error stays on stderr",
                  "no timeout(1) on this host; refusing to run unbounded");
         } else {
             probe.close();
@@ -402,6 +454,80 @@ int main() {
                 bad.push_back("accepted --definitely-not-a-flag");
             check("CLI-BIN-01", "real binary accepts table spellings, rejects others",
                   bad.empty(), join(bad));
+
+            // --- CLI-BIN-02 / CLI-BIN-03: which STREAM (GH #216) -------------
+            // CLI-BIN-01 sends both streams to /dev/null and reads only the
+            // exit status, so it was green throughout the bug it sits next to:
+            // `jnext --help > file` wrote the whole help to stderr and left the
+            // file empty. Reproduce the reported shape literally — redirect the
+            // two streams to two files and read them.
+            //
+            // The temp files live beside the binary rather than in /tmp: the
+            // path is unique per build tree, so concurrent runs from different
+            // worktrees on one host cannot collide, and `make clean` takes them.
+            const std::string out_path = bin + ".gh216.out";
+            const std::string err_path = bin + ".gh216.err";
+            auto run_split = [&](const std::string& args) {
+                std::remove(out_path.c_str());
+                std::remove(err_path.c_str());
+                std::system(("timeout 20 " + quoted + " " + args +
+                             " >'" + out_path + "' 2>'" + err_path +
+                             "' </dev/null").c_str());
+            };
+            auto slurp = [](const std::string& path) {
+                std::ifstream in(path, std::ios::binary);
+                std::ostringstream ss;
+                ss << in.rdbuf();
+                return ss.str();
+            };
+            // The help's own last line. Also the needle the package-win-console
+            // row greps, so the two checks agree on what "the help printed"
+            // means.
+            const std::string help_needle = "Print this help and exit";
+
+            std::vector<std::string> streams;
+            for (const cli::Option& o : cli::OPTIONS) {
+                if (o.id != cli::OptId::Help && o.id != cli::OptId::Version) continue;
+                run_split(o.name);
+                const std::string out = slurp(out_path);
+                const std::string err = slurp(err_path);
+                const std::string name = o.name;
+                // The reported symptom, asserted directly.
+                if (out.empty()) {
+                    streams.push_back(name + ": redirected stdout is EMPTY");
+                    continue;
+                }
+                // Non-empty is not enough: it must be the actual output, not a
+                // stray line that happened to land there.
+                const std::string want =
+                    (o.id == cli::OptId::Help) ? help_needle : std::string("jnext ");
+                if (out.find(want) == std::string::npos)
+                    streams.push_back(name + ": stdout lacks \"" + want + "\"");
+                // Moved, not duplicated. stderr still carries the startup log
+                // line, so only the help text itself is asserted absent.
+                if (o.id == cli::OptId::Help && err.find(help_needle) != std::string::npos)
+                    streams.push_back(name + ": help ALSO on stderr");
+            }
+            check("CLI-BIN-02",
+                  "--help/--version print to stdout, so `jnext --help > file` has content",
+                  streams.empty(), join(streams));
+
+            // The other half of the convention, and the reason print_usage was
+            // not switched blindly: a usage ERROR is a diagnostic and stays on
+            // stderr, with stdout left clean for a caller that is piping it.
+            run_split("--definitely-not-a-flag");
+            const std::string err_out = slurp(out_path);
+            const std::string err_err = slurp(err_path);
+            std::vector<std::string> errbad;
+            if (err_err.find("Unknown option") == std::string::npos)
+                errbad.push_back("usage error not on stderr");
+            if (!err_out.empty())
+                errbad.push_back("usage error polluted stdout: " + err_out);
+            check("CLI-BIN-03", "a usage error stays on stderr, stdout stays clean",
+                  errbad.empty(), join(errbad));
+
+            std::remove(out_path.c_str());
+            std::remove(err_path.c_str());
         }
     }
 

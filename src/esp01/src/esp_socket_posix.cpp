@@ -49,6 +49,51 @@ bool would_block(int e) {
 
 /// Build the sockaddr for `ip`:`port`. Returns the used length, 0 on a family
 /// we cannot express.
+/// Read `ip` and `port` back out of a sockaddr the kernel filled in — the
+/// inverse of `fill_sockaddr`, used for `getsockname` on a listener and for the
+/// peer address `accept` hands back. Returns false on a family we cannot
+/// express.
+bool read_sockaddr(const sockaddr_storage& sa, IpAddress& ip, std::uint16_t& port) {
+    ip = IpAddress{};
+    if (sa.ss_family == AF_INET) {
+        const auto* sin = reinterpret_cast<const sockaddr_in*>(&sa);
+        ip.family = IpFamily::V4;
+        std::memcpy(ip.bytes.data(), &sin->sin_addr, 4);
+        port = ntohs(sin->sin_port);
+        return true;
+    }
+    if (sa.ss_family == AF_INET6) {
+        const auto* sin6 = reinterpret_cast<const sockaddr_in6*>(&sa);
+        ip.family = IpFamily::V6;
+        std::memcpy(ip.bytes.data(), &sin6->sin6_addr, 16);
+        port = ntohs(sin6->sin6_port);
+        return true;
+    }
+    return false;
+}
+
+/// Put an accepted socket into the same shape an outbound one is created in:
+/// non-blocking, SIGPIPE suppressed where that is a per-socket option, Nagle
+/// off. Linux does NOT inherit `O_NONBLOCK` across `accept` (BSD does), so this
+/// is required rather than tidy — an inherited-mode assumption would make the
+/// engine's non-blocking `recv` block on Linux only.
+bool prepare_accepted(int s, std::string& err) {
+    const int flags = ::fcntl(s, F_GETFL, 0);
+    if (flags < 0 || ::fcntl(s, F_SETFL, flags | O_NONBLOCK) < 0) {
+        err = errno_text(errno);
+        return false;
+    }
+#ifdef SO_NOSIGPIPE
+    const int on = 1;
+    ::setsockopt(s, SOL_SOCKET, SO_NOSIGPIPE, &on, sizeof(on));
+#endif
+    // Same reasoning as the outbound socket: DZRP is small request/response
+    // frames, so Nagle would add ~40 ms to every exchange for no benefit.
+    const int nodelay = 1;
+    ::setsockopt(s, IPPROTO_TCP, TCP_NODELAY, &nodelay, sizeof(nodelay));
+    return true;
+}
+
 socklen_t fill_sockaddr(const IpAddress& ip, std::uint16_t port,
                         sockaddr_storage& out) {
     std::memset(&out, 0, sizeof(out));
@@ -268,6 +313,112 @@ std::size_t recv(NativeSocket s, std::uint8_t* buf, std::size_t cap, bool stream
     reset  = (errno == ECONNRESET);
     err    = errno_text(errno);
     return 0;
+}
+
+NativeSocket open_listener(const IpAddress& ip, std::uint16_t port,
+                           std::uint16_t& bound_port, std::string& hardening_warning,
+                           std::string& err) {
+    bound_port = 0;
+    hardening_warning.clear();
+    const int domain = (ip.family == IpFamily::V4) ? AF_INET : AF_INET6;
+    const int s      = ::socket(domain, SOCK_STREAM, IPPROTO_TCP);
+    if (s < 0) {
+        err = errno_text(errno);
+        return kInvalidSocket;
+    }
+
+    const int flags = ::fcntl(s, F_GETFL, 0);
+    if (flags < 0 || ::fcntl(s, F_SETFL, flags | O_NONBLOCK) < 0) {
+        err = errno_text(errno);
+        ::close(s);
+        return kInvalidSocket;
+    }
+
+    // SO_REUSEADDR, and POSIX semantics are what make it safe here: it permits
+    // a bind over the TIME_WAIT remains of connections a PREVIOUS listener
+    // accepted, and nothing else. Two live listeners on one address still
+    // conflict — that needs SO_REUSEPORT, which is deliberately not set. So a
+    // guest that stops and restarts its server (AT+CIPSERVER=0 then =1 on the
+    // same port) is not refused for two minutes by the sockets its last
+    // session's peers left behind, while a second process still cannot take
+    // the port from under us. The Windows twin needs a DIFFERENT option to get
+    // the same property; see it.
+    //
+    // The return value is CHECKED rather than discarded, and reported rather
+    // than fatal: losing SO_REUSEADDR here does not weaken who may reach the
+    // socket, it only means a restart on the same port can be refused while a
+    // previous session's connections linger in TIME_WAIT — which would
+    // otherwise look like an unexplained `AT+CIPSERVER` failure minutes later.
+    const int on = 1;
+    if (::setsockopt(s, SOL_SOCKET, SO_REUSEADDR, &on, sizeof(on)) < 0)
+        hardening_warning = "SO_REUSEADDR could not be set: " + errno_text(errno);
+
+    sockaddr_storage sa{};
+    const socklen_t  len = fill_sockaddr(ip, port, sa);
+    if (len == 0) {
+        err = "unsupported address family";
+        ::close(s);
+        return kInvalidSocket;
+    }
+    if (::bind(s, reinterpret_cast<sockaddr*>(&sa), len) < 0) {
+        err = errno_text(errno);
+        ::close(s);
+        return kInvalidSocket;
+    }
+    if (::listen(s, kListenBacklog) < 0) {
+        err = errno_text(errno);
+        ::close(s);
+        return kInvalidSocket;
+    }
+
+    sockaddr_storage bound{};
+    socklen_t        blen = sizeof(bound);
+    IpAddress        bound_ip;
+    if (::getsockname(s, reinterpret_cast<sockaddr*>(&bound), &blen) < 0 ||
+        !read_sockaddr(bound, bound_ip, bound_port) || bound_port == 0) {
+        // A listener whose port cannot be read back is useless rather than
+        // merely undiagnosed: with `port` 0 the OS chose one and this is the
+        // only way to learn it, and with a named port a disagreement would mean
+        // we are not listening where we said. Both are refusals.
+        err = "cannot read back the bound port";
+        ::close(s);
+        return kInvalidSocket;
+    }
+    return s;
+}
+
+NativeSocket accept_nonblocking(NativeSocket listener, IpAddress& peer,
+                                std::uint16_t& peer_port, bool& failed,
+                                std::string& err) {
+    failed    = false;
+    peer      = IpAddress{};
+    peer_port = 0;
+
+    sockaddr_storage sa{};
+    socklen_t        len = sizeof(sa);
+    const int        s   = ::accept(listener, reinterpret_cast<sockaddr*>(&sa), &len);
+    if (s < 0) {
+        if (would_block(errno)) return kInvalidSocket;
+        // ECONNABORTED: the peer sent SYN and then went away before we got to
+        // it. POSIX explicitly allows accept to report that, the listener is
+        // untouched, and the next call must simply be tried — so it is "nothing
+        // pending", not a fault.
+        if (errno == ECONNABORTED) return kInvalidSocket;
+        failed = true;
+        err    = errno_text(errno);
+        return kInvalidSocket;
+    }
+
+    if (!read_sockaddr(sa, peer, peer_port) || !prepare_accepted(s, err)) {
+        // Dropped rather than handed on half-configured: a socket whose peer we
+        // cannot name, or that we could not put in non-blocking mode, would
+        // stall the engine's service pass the first time it was read.
+        if (err.empty()) err = "unsupported peer address family";
+        ::close(s);
+        failed = true;
+        return kInvalidSocket;
+    }
+    return s;
 }
 
 void close(NativeSocket s) {

@@ -7,9 +7,13 @@ PNG, disconnect.
 
 Usage: g46b_102_live_screenshot.py OUTFILE.png
 """
+import os
 import sys
 import struct
-sys.path.insert(0, "/home/jorgegv/src/spectrum/jnext/tools/cspect_dzrp")
+
+# Import cspect_dzrp from THIS script's directory, so the script works from
+# any clone or worktree (GH #204).
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from cspect_dzrp import CSpectDZRP
 
 # Standard 8-colour ZX Spectrum palette (normal / bright), RGB.

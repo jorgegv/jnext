@@ -50,7 +50,8 @@
 - **Settings > Preferences > Network** makes both settings permanent, so a program you run often needs no flags; the change takes effect at the next machine start
 - **Always refused, allowlist or not**: loopback, link-local, cloud-metadata (`169.254.169.254` and friends), unspecified and multicast addresses. Your own **LAN stays reachable** — RFC1918 is deliberately allowed, so a guest can talk to a machine on your network
 - Every connection opened, refused or failed is **logged and never silent**, and a **GUI status cell** shows the current state with refusals in red
-- No server/listen mode, no UDP, no TLS — outbound TCP only, which is what the evidenced Next software uses
+- **Server mode**: a guest can listen for incoming connections (`AT+CIPMUX=1` + `AT+CIPSERVER=1,<port>`), which is what a debug stub on the emulated Next needs — the debugger on the PC only dials out. Bound to **loopback by default**; `--esp-listen-address` widens it deliberately, a bind failure answers `ERROR` and never falls back, and nothing listens until the guest asks. Up to four inbound connections, multiplexed `+IPD,<id>,<len>:` framing for the sessions that asked for it and the unmultiplexed form for everyone else. **`AT+CIPCLOSE=<id>`** drops one named connection and frees its slot, so a peer that stops answering instead of disconnecting cannot occupy the module for the rest of the session
+- No TLS and no transparent mode (`AT+CIPMODE`) — no evidenced consumer for either
 - Downloads through it are paced at the UART's real baud rate, so software that reprograms the link speed behaves as it does on hardware
 
 ## File format support
@@ -97,6 +98,7 @@
 - Video panel "Background" view: the NR 0x4A fallback colour the compositor emits where every layer is transparent, shown per scanline (Copper gradients appear as bands)
 - Audio panel per-source mute: AY #0/#1/#2, DAC and Beeper can each be silenced independently to isolate what a program is playing. Gates the output stages only — the AY chips keep running and their registers keep reading back, so muting is invisible to the Z80 and cannot change emulation
 - PC/data/read/write breakpoints with watchpoints
+- I/O port breakpoints: IO Read on an `IN`, IO Write on an `OUT`. A port address of `00`-`FF` matches any port with that low byte (`FE` catches every ULA access, whatever `OUT (254),A` left in the high byte); `0100` and up matches that exact 16-bit port (`243B`, not `253B`). The DMA's own port transfers are seen too
 - Symbol table from Z88DK MAP files; inline symbol names in disassembly
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL

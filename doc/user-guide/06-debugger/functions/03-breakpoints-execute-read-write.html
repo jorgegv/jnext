@@ -25,7 +25,7 @@
     
     
       
-        <title>Breakpoints: execute, read, write - JNEXT User Guide</title>
+        <title>Breakpoints: execute, read, write, I/O - JNEXT User Guide</title>
       
     
     
@@ -76,7 +76,7 @@
     <div data-md-component="skip">
       
         
-        <a href="#breakpoints-execute-read-write" class="md-skip">
+        <a href="#breakpoints-execute-read-write-io" class="md-skip">
           Skip to content
         </a>
       
@@ -112,7 +112,7 @@
         <div class="md-header__topic" data-md-component="header-topic">
           <span class="md-ellipsis">
             
-              Breakpoints: execute, read, write
+              Breakpoints: execute, read, write, I/O
             
           </span>
         </div>
@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.132</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.110</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.132</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2121,6 +2121,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Breakpoints: execute, read, write, I/O
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="03-breakpoints-execute-read-write.html" class="md-nav__link md-nav__link--active">
         
   
@@ -2128,7 +2146,7 @@
   <span class="md-ellipsis">
     
   
-    Breakpoints: execute, read, write
+    Breakpoints: execute, read, write, I/O
   
 
     
@@ -2137,6 +2155,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#closing-the-debugger-window-disarms-them" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Closing the debugger window disarms them
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2753,11 +2801,12 @@
   
 
 
-<h1 id="breakpoints-execute-read-write">Breakpoints: execute, read, write<a class="headerlink" href="#breakpoints-execute-read-write" title="Permanent link">&para;</a></h1>
-<p>JNEXT has two kinds of breakpoint.</p>
+<h1 id="breakpoints-execute-read-write-io">Breakpoints: execute, read, write, I/O<a class="headerlink" href="#breakpoints-execute-read-write-io" title="Permanent link">&para;</a></h1>
+<p>JNEXT has three kinds of breakpoint.</p>
 <p><strong>Execute</strong> breakpoints fire before the instruction at that address is
 executed. Set one by clicking the disassembly gutter, from the right-click
-menu, or from the Breakpoints panel.</p>
+menu, from the Breakpoints panel, or from <strong>Breakpoints ▸ Add Execute
+Breakpoint…</strong>.</p>
 <p><strong>Data</strong> breakpoints fire on access to an address: <strong>Read</strong>, <strong>Write</strong> or
 <strong>Read/Write</strong>. They are checked as the access happens, but the machine stops
 <em>after</em> the current instruction completes — so when you land, the access has
@@ -2765,10 +2814,38 @@ already taken effect and <code>PC</code> is on the next instruction. Set them fr
 Breakpoints panel, from <strong>Breakpoints ▸ Add Read/Write/Read-Write
 Breakpoint…</strong>, or from the disassembly right-click menu, which pre-fills the
 address from an immediate or from a register's current contents.</p>
-<p><strong>Breakpoints ▸ Clear All Breakpoints</strong> removes both kinds at once.</p>
-<p>There are no I/O port breakpoints. To trap on port activity, use the
-<a href="08-the-magic-breakpoint-and-the-magic-port.html">magic port</a> — it logs every write to
-a port you choose — or put an execute breakpoint on the <code>OUT</code> itself.</p>
+<p><strong>I/O</strong> breakpoints fire on a port access: <strong>IO Read</strong> on an <code>IN</code>, <strong>IO Write</strong>
+on an <code>OUT</code>. They stop the machine the same way data breakpoints do — after
+the instruction that made the access — and they are set from the Breakpoints
+panel's <strong>Add</strong> dialog, where they are the last two entries in the type list.</p>
+<p>The address you type is a <em>port</em>, and ZX ports are not addressed like memory:
+an address of <strong>00</strong>–<strong>FF</strong> matches any port with that low byte, and an address
+of <strong>0100</strong> or above matches that exact 16-bit port.</p>
+<p>That split is not arbitrary — it is how the machine decodes ports and how the
+port map itself writes them down. <code>OUT (254),A</code> puts the accumulator in the
+high byte, so the ULA is reached at <code>01FE</code>, <code>7FFE</code>, <code>FEFE</code> and 253 other
+addresses; typing <code>FE</code> catches all of them. Ports that really are decoded on
+all sixteen lines are written that way, so <code>243B</code> catches the NextREG select
+port and <em>not</em> <code>253B</code>, whose low byte is the same. One consequence: the exact
+port <code>00xx</code> cannot be named — no Next port is decoded that way, so nothing is
+lost.</p>
+<p>Read and write are separate breakpoints; if you want both on a port, add both.
+An I/O breakpoint never fires on a <em>memory</em> access at the same number, and a
+memory breakpoint never fires on a port access.</p>
+<p><strong>Breakpoints ▸ Clear All Breakpoints</strong> removes all three kinds at once.</p>
+<h2 id="closing-the-debugger-window-disarms-them">Closing the debugger window disarms them<a class="headerlink" href="#closing-the-debugger-window-disarms-them" title="Permanent link">&para;</a></h2>
+<p>All three kinds are checked only while the debugger window is <strong>open</strong>. Close it
+and your breakpoints stay in the list but nothing stops at them — the
+emulator skips the check entirely so that a machine nobody is watching runs
+at full speed.</p>
+<p>If you want them to keep firing with the window closed, start JNEXT with
+<code>--persistent-breakpoints</code>. A hit then pauses the machine and reopens the
+debugger window at the breakpoint, exactly as if you had left it open. It is
+a command-line option only, and it costs the per-instruction breakpoint check
+for the whole run, which is why it is not the default.</p>
+<p>If you want a <em>log</em> of port activity rather than a stop at it, use the
+<a href="08-the-magic-breakpoint-and-the-magic-port.html">magic port</a> instead — it prints
+every write to a port you choose and lets the machine run on.</p>
 
 
 

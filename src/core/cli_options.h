@@ -64,7 +64,9 @@ enum class OptId {
     Esp,
     NoEsp,
     EspAllow,
+    EspListenAddress,
     MagicBreakpoint,
+    PersistentBreakpoints,
     EsxdosStub,
     MagicPort,
     MagicPortMode,
@@ -85,6 +87,8 @@ enum class OptId {
     Joy2Source,
     DelayedKeypress,
     DelayedKeypressFrames,
+    DelayedNmi,
+    DelayedNmiFrames,
     RewindBufferSize,
     Trace,
     CompositorTrace,
@@ -195,6 +199,12 @@ inline constexpr Option OPTIONS[] = {
     { "--no-esp",                    0, Doc::Documented, OptId::NoEsp },
     // Repeatable: each occurrence appends one host.
     { "--esp-allow",                 1, Doc::Documented, OptId::EspAllow },
+    // The INBOUND half (GH #210). Defaults to loopback, so widening it is an
+    // explicit act recorded on the command line — the whole of the owner
+    // decision in ESP01-EMULATOR-DESIGN.md §13.4. There is deliberately no
+    // saved-configuration form: a listening address that could arrive from a
+    // config file is one the user cannot audit by reading the command they ran.
+    { "--esp-listen-address",        1, Doc::Documented, OptId::EspListenAddress },
 
     // Recording and playback
     { "--record",                    1, Doc::Documented, OptId::Record },
@@ -223,14 +233,24 @@ inline constexpr Option OPTIONS[] = {
     { "--delayed-automatic-exit-frames", 1, Doc::Documented, OptId::DelayedAutomaticExitFrames },
     { "--delayed-snapshot",          1, Doc::Documented, OptId::DelayedSnapshot },
     { "--delayed-snapshot-frames",   1, Doc::Documented, OptId::DelayedSnapshotFrames },
-    // The only two-value options: SECS/N and KEY are consumed together.
+    // The two-value options: SECS/N and KEY (or BUTTON) are consumed together.
     { "--delayed-keypress",          2, Doc::Documented, OptId::DelayedKeypress },
     { "--delayed-keypress-frames",   2, Doc::Documented, OptId::DelayedKeypressFrames },
+    { "--delayed-nmi",               2, Doc::Documented, OptId::DelayedNmi },
+    { "--delayed-nmi-frames",        2, Doc::Documented, OptId::DelayedNmiFrames },
     { "--compositor-trace",          1, Doc::Documented, OptId::CompositorTrace },
     { "--compositor-trace-frame",    1, Doc::Documented, OptId::CompositorTraceFrame },
 
     // Debugging
     { "--magic-breakpoint",          0, Doc::Documented, OptId::MagicBreakpoint },
+    // GH #219. Accepted by EVERY build, including --headless, the SDL-only
+    // frontend and -DENABLE_DEBUGGER=OFF, where it is simply inert: nothing
+    // outside src/debugger/ can add a breakpoint, so the armed check never
+    // matches. Making the row conditional would make `make cli-check` — which
+    // diffs this table against ONE man page — disagree with itself per build
+    // configuration, and would make the same command line valid or invalid
+    // depending on how jnext was compiled. Same posture as --magic-breakpoint.
+    { "--persistent-breakpoints",    0, Doc::Documented, OptId::PersistentBreakpoints },
     { "--magic-port",                1, Doc::Documented, OptId::MagicPort },
     { "--magic-port-mode",           1, Doc::Documented, OptId::MagicPortMode },
     { "--profile",                   0, Doc::Documented, OptId::Profile },

@@ -3,6 +3,9 @@
 #include <functional>
 #include <vector>
 #include "cpu/z80_cpu.h"
+#include "debug/breakpoints.h"   // WatchType (GH #222)
+
+class DebugState;
 
 struct PortHandler {
     uint16_t mask;
@@ -30,6 +33,12 @@ public:
     /// Set a default read callback for unmatched ports (e.g. floating bus).
     /// If not set, unmatched reads return 0xFF.
     void set_default_read(std::function<uint8_t(uint16_t)> cb) { default_read_ = std::move(cb); }
+
+    /// Debugger state — set by Emulator::init(), exactly as Mmu is, so an
+    /// I/O watchpoint can raise the same data-breakpoint latch a memory
+    /// watchpoint does (GH #222). Null in a standalone PortDispatch, which is
+    /// what every port unit test uses.
+    void set_debug_state(DebugState* ds) { debug_state_ = ds; }
 
     /// IO observers — invoked unconditionally on every IN/OUT BEFORE the
     /// regular handler dispatch, regardless of whether a handler matches.
@@ -70,6 +79,12 @@ public:
     /// IoInterface::nextreg_opcode_write for the VHDL citation. When unset
     /// (a PortDispatch used standalone in a test), the base-class port-pair
     /// fallback is used.
+    ///
+    /// No I/O watchpoint fires on this route, and that is faithful rather than
+    /// an omission (GH #222): the opcode never touches the I/O bus — the VHDL
+    /// drives the NextReg fabric directly from the Z80N strobes — so there is
+    /// no port access for a port watchpoint to see. A user watching NextREG
+    /// traffic wants ports 0x243B / 0x253B, which this deliberately is not.
     std::function<void(uint8_t /*reg*/, uint8_t /*val*/)> nextreg_opcode_write_cb;
 
     void nextreg_opcode_write(uint8_t reg, uint8_t val) override {
@@ -85,6 +100,14 @@ public:
     std::function<void(uint8_t)> rzx_in_record;
 
 private:
+    /// Raise the data-breakpoint latch if `port` is watched for `type`
+    /// (WatchType::IO_READ / IO_WRITE). Out of line in the .cpp: read() and
+    /// write() are already out of line, and the gate order here is the one the
+    /// eight Mmu watchpoint sites use — null pointer, then DebugState::armed()
+    /// (GH #219: breakpoints LIVE, not "debugger window open"), then
+    /// has_any_watchpoints(), and only then the scan.
+    void check_io_watchpoint_(uint16_t port, WatchType type) const;
+
     std::vector<PortHandler> handlers_;
     std::function<uint8_t(uint16_t)> default_read_;
     // Set by decline_write(); cleared by write() immediately before each
@@ -96,4 +119,8 @@ private:
     // calls necessarily mutate. Marking the vector mutable keeps the
     // existing const contract for the IoInterface read().
     mutable std::vector<std::function<void(uint16_t, bool)>> io_observers_;
+
+    // APPENDED, not interleaved (GH #222): the members above keep the offsets
+    // they had before I/O watchpoints existed.
+    DebugState* debug_state_ = nullptr;
 };
