@@ -1,0 +1,72 @@
+# Standalone Windows build, triggered by hand from the GitHub Actions UI
+# (Actions → "Windows Build (manual)" → Run workflow). Lets the Windows zips be
+# built and handed to a reporter for testing WITHOUT cutting a release — the
+# windows leg in release.yml only runs on a published tag. Motivated by GH #208:
+# a Win 8.1 reporter needs a fix build to retest against, ahead of the next
+# public release.
+#
+# Same container, same dnf toolchain line and the SAME plain make targets as
+# release.yml's windows job (CLAUDE.md: CI runs the EXACT same commands as a
+# local run). The zips land as a workflow artifact (download needs a GitHub
+# login), named by the version.yaml of the dispatched ref.
+name: Windows Build (manual)
+
+on:
+  workflow_dispatch:
+    inputs:
+      qt6:
+        description: 'Build the x64 Qt6 zip (Win10+)'
+        type: boolean
+        default: true
+      qt5:
+        description: 'Build the x64 Qt5 legacy zip (Win7/8)'
+        type: boolean
+        default: true
+      win32:
+        description: 'Build the i686 Qt5 zip (32-bit, Win7 SP1+)'
+        type: boolean
+        default: false
+
+jobs:
+  windows-build:
+    runs-on: ubuntu-latest
+    container: fedora:44
+    # Backstop against a silent hang; each leg is ~5-10 min in this container.
+    timeout-minutes: 60
+    steps:
+      # Identical dependency line to release.yml's windows job — all three
+      # toolchains installed regardless of the input toggles (conditionalising
+      # the dnf line buys minutes at the cost of a second list to keep in sync).
+      - name: Install MinGW cross toolchain + build tools
+        run: |
+          dnf install -y \
+            make git findutils gawk grep coreutils diffutils zip \
+            mingw64-gcc mingw64-gcc-c++ mingw64-binutils mingw64-filesystem \
+            mingw64-qt6-qtbase mingw64-sdl2-compat \
+            mingw64-qt5-qtbase mingw64-qt5-qtbase-devel mingw64-qt5-qmake \
+            mingw64-zlib mingw64-libpng mingw64-winpthreads \
+            mingw32-gcc mingw32-gcc-c++ mingw32-binutils mingw32-filesystem \
+            mingw32-sdl2-compat \
+            mingw32-qt5-qtbase mingw32-qt5-qtbase-devel mingw32-qt5-qmake \
+            mingw32-zlib mingw32-libpng mingw32-winpthreads \
+            qt6-qtbase-devel
+      - uses: actions/checkout@v5
+        with:
+          submodules: recursive
+      - name: make package-win
+        if: ${{ inputs.qt6 }}
+        run: make package-win
+      - name: make package-win-qt5
+        if: ${{ inputs.qt5 }}
+        run: make package-win-qt5
+      - name: make package-win32-qt5
+        if: ${{ inputs.win32 }}
+        run: make package-win32-qt5
+      - uses: actions/upload-artifact@v6
+        with:
+          name: jnext-windows-testbuild
+          path: |
+            build/win-release/*.zip
+            build/win-qt5-release/*.zip
+            build/win32-qt5-release/*.zip
+          if-no-files-found: error
