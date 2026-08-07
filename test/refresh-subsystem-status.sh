@@ -134,6 +134,7 @@ BEGIN {
     M["main_window_accel_test"]        = "Main-window menu mnemonics"
     M["shifted_keys_test"]             = "Shifted symbols reach the guest"
     M["quit_cleanup_test"]             = "Quit runs closeEvent cleanup"
+    M["nex_v13_dialog_test"]           = "NEX V1.3 GUI warning dialog"
     M["log_test"]                      = "Logging"
     M["log_gate_test"]                 = "Logging (gate)"
     M["cli_options_test"]              = "CLI options / docs"
