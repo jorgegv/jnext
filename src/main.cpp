@@ -2,6 +2,7 @@
 #include "audio/dac_trace_recorder.h"
 #include "core/cli_options.h"
 #include "core/log.h"
+#include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
 #include "peripheral/esp_host_policy.h"
@@ -71,6 +72,9 @@ static void print_usage(const char* prog) {
         "  --nex-args LINE      Argument line for a NEX V1.3 program: placed in the CLI\n"
         "                       buffer its header declares, with DE pointing at it.\n"
         "                       Truncated to that buffer's size. V1.3 files only.\n"
+        "  --experimental-nex-v1.3  Allow loading NEX V1.3 files. V1.3 is an experimental\n"
+        "                       format and is NOT supported in any way; without this flag\n"
+        "                       a NEX above V1.2 is refused. V1.0-V1.2 are unaffected.\n"
         "  --sdcard FILE        Mount SD card image FILE (.img). If omitted, jnext falls\n"
         "                       back to ~/.jnext/sdcard/ (offering to download the image).\n"
         "  --sdcard-download-confirm  Skip the download prompt and proceed automatically\n"
@@ -225,6 +229,7 @@ int main(int argc, char* argv[]) {
     int      inject_delay = 0;
     std::string load_file;
     std::string nex_cli_args;      // --nex-args: argument line for a V1.3 CLI buffer
+    bool     experimental_nex_v13 = false;  // --experimental-nex-v1.3 (GH #228)
     std::string positional_file;   // bare filename arg; shorthand for --load
     std::string sd_card_image;
     bool        sdcard_download_confirm = false;
@@ -349,6 +354,9 @@ int main(int argc, char* argv[]) {
                 // live in NexLoader::apply(), which knows the version and the
                 // declared buffer (GH #172).
                 nex_cli_args = v[0];
+                break;
+            case cli::OptId::ExperimentalNexV13:
+                experimental_nex_v13 = true;
                 break;
             case cli::OptId::Sdcard:
                 // --sdcard is canonical; --sd-card is a silent (undocumented)
@@ -834,6 +842,7 @@ int main(int argc, char* argv[]) {
         // get the firmware overlay.
         cfg.load_file = load_file;
         cfg.nex_cli_args = nex_cli_args;
+        cfg.allow_experimental_nex_v13 = experimental_nex_v13;
         cfg.magic_breakpoint = magic_breakpoint;
         cfg.persistent_breakpoints = persistent_breakpoints;
         cfg.esxdos_stub = esxdos_stub;
@@ -1032,7 +1041,32 @@ int main(int argc, char* argv[]) {
                 // RZX files are handled via --rzx-play, not --load.
                 // But support it here for convenience.
                 rzx_play_file = load_file;
-            } else if (ext == ".nex" || ext == ".sna" || ext == ".szx" || ext == ".z80") {
+            } else if (ext == ".nex") {
+                // GH #228 — NEX V1.3 is an experimental format jnext does not
+                // officially support: refuse it up front, with exit 1, unless
+                // --experimental-nex-v1.3 was given. The probe reads only the
+                // 8-byte magic+version prologue; a file it cannot read or that
+                // is not NEX at all falls through, and the loader's own error
+                // reports the real problem when the pending load fires.
+                // Emulator::load_nex() enforces the same policy as a backstop.
+                if (!experimental_nex_v13) {
+                    uint8_t ver_bcd = 0;
+                    char    ver[5]  = {0};
+                    if (NexLoader::probe_version(load_file, ver_bcd, ver) &&
+                        nex_version_needs_v13_optin(ver_bcd)) {
+                        fprintf(stderr,
+                                "--load: '%s' is NEX version %s — NEX V1.3 is an experimental "
+                                "format and is not supported in any way.\n"
+                                "Pass --experimental-nex-v1.3 to load it anyway (unsupported; "
+                                "V1.0-V1.2 files load normally).\n",
+                                load_file.c_str(), ver);
+                        audio_recorder.stop();
+                        dac_trace_recorder.stop();
+                        return 1;
+                    }
+                }
+                app.set_pending_load(load_file, 0);
+            } else if (ext == ".sna" || ext == ".szx" || ext == ".z80") {
                 app.set_pending_load(load_file, 0);
             } else if (ext == ".tap") {
                 // Task 19: TAP loading uses the phantom typist
