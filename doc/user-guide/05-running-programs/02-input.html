@@ -2943,8 +2943,9 @@ menu and on the toolbar: <strong>Power Reset</strong> (Alt+R, same as F1) is a p
 off/on cold boot that re-runs the whole boot chain; <strong>Soft Reset</strong> (same as
 F4) is the front-panel reset button — it returns to NextZXOS without
 re-running the boot chain. Soft Reset does nothing while the firmware is
-still booting, or after a direct <code>--load</code> (the firmware never ran there, so
-there is no NextZXOS to return to — use Power Reset).</p>
+still booting. After a direct <code>--load</code> it resets into 48K BASIC and discards
+the program you loaded: that boot never ran the firmware, so there is no
+NextZXOS to come back to — use Power Reset there.</p>
 <h2 id="joysticks-and-gamepads">Joysticks and gamepads<a class="headerlink" href="#joysticks-and-gamepads" title="Permanent link">&para;</a></h2>
 <p>Up to two USB gamepads are picked up automatically, hot-plug included, and
 wired to the Next's two joystick connectors. The joystick <em>protocol</em> —
