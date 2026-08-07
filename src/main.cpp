@@ -746,6 +746,15 @@ int main(int argc, char* argv[]) {
     // Unit-test fixtures construct Emulator directly and never reach this
     // path. When resolution ultimately fails, fall back to the historical
     // "--sdcard is required" error so behaviour is unchanged for scripts.
+#ifdef _WIN32
+    // Past this point the process is no longer a quick CLI command: SD-card
+    // provisioning can sit in a confirm prompt or a download for minutes, and
+    // everything after it is the app session. Disarm the GH #212 completion
+    // signal here — every exit it exists for (--help, --version, unknown
+    // option, argument validation) has already happened during parsing,
+    // milliseconds ago (see win_console.h).
+    win_console_note_app_running();
+#endif
     {
         sdcard::ProvisionOptions opts;
         opts.explicit_path   = sd_card_image;
@@ -1089,11 +1098,6 @@ int main(int argc, char* argv[]) {
             app.set_rzx_record(rzx_record_file);
         }
 
-#ifdef _WIN32
-        // Past this point the process is a session, not a quick CLI command:
-        // disarm the GH #212 completion signal (see win_console.h).
-        win_console_note_app_running();
-#endif
         app.run();
 
         // Stop recording before shutdown (encodes the MP4).

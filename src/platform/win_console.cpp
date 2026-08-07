@@ -80,19 +80,25 @@ static bool settle_stream(DWORD std_id, HANDLE shell_handle,
 // on exit, post one Enter key into the console INPUT buffer
 // (WriteConsoleInputW). cmd is already blocked in ReadConsole on that same
 // buffer, reads an empty line, and prints a fresh prompt — the ordinary
-// "command finished" experience. PowerShell behaves the same way.
+// "command finished" experience. PowerShell plausibly benefits the same way,
+// but that is unverified: the reporter's case and the packaging rows exercise
+// cmd.exe only.
 //
 // Deliberately narrow, because an injected Enter submits whatever is on the
 // shell's pending line:
 //   * only when the attach succeeded AND at least one output stream was bound
 //     to the console — if everything was redirected, nothing printed after the
 //     prompt, the screen is not disturbed, and no signal is needed;
-//   * only for invocations that never reached the app phase (--help,
-//     --version, usage/startup errors): win_console_note_app_running() is
-//     called right before the GUI/headless app starts and disarms the signal.
-//     A GUI or headless session can run for minutes — long enough for the
-//     user to have typed a real command into the waiting shell, which the
-//     injected Enter would execute. The quick-exit window is milliseconds.
+//   * only for invocations that exit during argument parsing/validation
+//     (--help, --version, unknown options, bad values):
+//     win_console_note_app_running() disarms the signal immediately before
+//     the first potentially-slow phase — SD-card provisioning, which can sit
+//     in a confirm prompt or a download for minutes — and everything after it
+//     (the GUI/headless session) stays disarmed too. Anything slow is long
+//     enough for the user to have typed a real command into the waiting
+//     shell, which the injected Enter would submit; quick errors that happen
+//     past provisioning therefore do not signal either — the safe direction.
+//     The armed window is milliseconds.
 static bool s_signal_cli_completion = false;
 
 void win_console_note_app_running() {
