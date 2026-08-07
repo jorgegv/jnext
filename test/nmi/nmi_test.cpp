@@ -609,7 +609,19 @@ static void g_hotkey()
         build_next_emulator(emu);
         const uint8_t rt0 = emu.nmi_source().reset_type();   // 100
 
-        // Default state: nr_03_config_mode='1' → F4 must NOT advance.
+        // ENTER config_mode explicitly (GH #226). Until then this row relied
+        // on init() leaving nr_03_config_mode at its FPGA power-on '1'
+        // (VHDL:1102) — a state silicon leaves within microseconds and jnext
+        // no longer reproduces, because Emulator::init() now performs the
+        // firmware's own NR 0x03 commit for firmware-less cold boots. The
+        // gate-CLOSED half of this row must therefore establish its own
+        // precondition, exactly as HK-07b does for port_divmmc_io_en. NR 0x03
+        // with bits[2:0]="111" is the VHDL:5147-5149 way in, and it leaves
+        // machine_type untouched (:5143 `when others => null`).
+        emu.port().out(0x243B, 0x03);
+        emu.port().out(0x253B, 0x07);
+
+        // Gate closed: nr_03_config_mode='1' → F4 must NOT advance.
         emu.on_hotkey_f4_soft_reset();
         const uint8_t rt_gated = emu.nmi_source().reset_type(); // expect 100
 
@@ -633,6 +645,66 @@ static void g_hotkey()
               ok,
               std::string("zxnext.vhd:6370; rt0=") + std::to_string(rt0)
                   + " rt_gated=" + std::to_string(rt_gated)
+                  + " rt1=" + std::to_string(rt1));
+    }
+    {
+        // HK-CFG-01 — a FIRMWARE-LESS cold boot must not leave config_mode set,
+        // or the VHDL:6370 gate swallows F4 for the whole session (GH #226).
+        //
+        // HK-08 above proves the gate is ported correctly. This row proves the
+        // STATE it reads is reachable. `nr_03_config_mode` is '1' only as an
+        // FPGA-configuration-time initialiser (zxnext.vhd:1102); on real
+        // hardware the IPL clears it within microseconds by writing NR 0x03
+        // with bits[2:0] in {001..110} (:5147-5151). jnext skips tbblue.fw
+        // entirely for a boot with no SD image / with --load (the boot-ROM
+        // overlay gate in Emulator::init()), so nothing ever wrote NR 0x03 and
+        // the bit stayed at its power-on value — a state silicon cannot hold.
+        // Emulator::init() now performs that one commit itself for exactly
+        // these boots.
+        //
+        // The assertion is the FSM, not the flag: reset_type advancing
+        // 100 -> 010 (zxnext.vhd:1735) is downstream of the gate, so it fails
+        // if either the commit or the strobe is missing. Asserting only
+        // `nr_03_config_mode()==false` would pass with a dead dispatcher.
+        Emulator emu;
+        build_next_emulator(emu);              // Next, no SD image, no --load
+        const bool cfg_cleared = !emu.nextreg().nr_03_config_mode();
+        const uint8_t rt0 = emu.nmi_source().reset_type();   // expect 100
+        emu.on_hotkey_f4_soft_reset();
+        const uint8_t rt1 = emu.nmi_source().reset_type();   // expect 010
+        check("HK-CFG-01",
+              "firmware-less cold boot clears nr_03_config_mode (the IPL's own "
+              "NR 0x03 commit, zxnext.vhd:5147-5151), so host F4 passes the "
+              "zxnext.vhd:6370 gate and advances the reset_type FSM",
+              cfg_cleared && rt0 == 0b100 && rt1 == 0b010,
+              std::string("zxnext.vhd:1102,5147-5151,6370; cfg_cleared=")
+                  + std::to_string(static_cast<int>(cfg_cleared))
+                  + " rt0=" + std::to_string(rt0)
+                  + " rt1=" + std::to_string(rt1));
+    }
+    {
+        // HK-CFG-02 — same, for a LEGACY machine type. `--machine 48k/128k/plus3`
+        // never loads the boot ROM either (the overlay at Emulator::init()
+        // requires ZXN_ISSUE2), so those sessions had the identical stuck bit.
+        // Separate row because the init() arm is keyed on
+        // `!mmu_.boot_rom_enabled()`, not on the machine type, and a narrower
+        // predicate (e.g. gating on ZXN_ISSUE2) would pass HK-CFG-01 and fail here.
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        const bool cfg_cleared = !emu.nextreg().nr_03_config_mode();
+        const uint8_t rt0 = emu.nmi_source().reset_type();
+        emu.on_hotkey_f4_soft_reset();
+        const uint8_t rt1 = emu.nmi_source().reset_type();
+        check("HK-CFG-02",
+              "legacy --machine cold boot also clears nr_03_config_mode, so F4 "
+              "is live there too (zxnext.vhd:6370 gate + :1735 FSM)",
+              cfg_cleared && rt0 == 0b100 && rt1 == 0b010,
+              std::string("zxnext.vhd:1102,5147-5151,6370; cfg_cleared=")
+                  + std::to_string(static_cast<int>(cfg_cleared))
+                  + " rt0=" + std::to_string(rt0)
                   + " rt1=" + std::to_string(rt1));
     }
     {
@@ -787,6 +859,16 @@ static void g_mf_g162_skips()
         cfg.type = MachineType::ZXN_ISSUE2;
         cfg.rewind_buffer_frames = 0;
         emu.init(cfg);
+
+        // Enter config_mode first (GH #226). VHDL zxnext.vhd:5191-5198 latches
+        // nr_0a_mf_type ONLY while nr_03_config_mode='1', which is why the
+        // firmware sets the Multiface type during its config-mode window. This
+        // row used to inherit that mode from init()'s FPGA power-on default;
+        // now that a firmware-less cold boot clears it like the IPL does, the
+        // row establishes the precondition itself. NR 0x03 bits[2:0]="111" is
+        // the VHDL:5147-5149 entry and leaves machine_type alone (:5143).
+        emu.port().out(0x243B, 0x03);
+        emu.port().out(0x253B, 0x07);
 
         // Configure MF for MF1 mode and enable it via the real NextReg
         // port path. NR 0x0A b7:6 = 11 (mf_type=11 → mode_48 = MF1);

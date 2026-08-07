@@ -399,7 +399,8 @@ static void g_host_hotkey()
 
     // HK-08-INT — F4 dispatcher end-to-end with config_mode gate. Two
     // sub-assertions (VHDL zxnext.vhd:6370):
-    //   (a) nr_03_config_mode = 1 (power-on default per VHDL:1102):
+    //   (a) nr_03_config_mode = 1 (the firmware has RE-ENTERED config mode
+    //       by writing NR 0x03 bits[2:0]="111", VHDL:5147-5149):
     //       on_hotkey_f4_soft_reset() must early-return → reset_type
     //       FSM unchanged AND CPU is NOT reset (PC stays at 0xC000).
     //   (b) nr_03_config_mode = 0 (firmware has exited config_mode):
@@ -410,8 +411,17 @@ static void g_host_hotkey()
         // Sub (a): gated path. Use build_next_emulator (NOT
         // fresh_cpu_at_c000 — that helper exits config_mode). Park the
         // CPU at 0xC000 by hand and exercise the gate.
+        //
+        // GH #226: ENTER config mode explicitly. This sub-assertion used to
+        // inherit it from init(), which left nr_03_config_mode at the FPGA
+        // power-on '1' (VHDL:1102) for a firmware-less boot — a state real
+        // silicon leaves within microseconds of the IPL's first NR 0x03 write,
+        // and one Emulator::init() no longer reproduces. Writing "111" is the
+        // VHDL:5147-5149 way in and leaves machine_type/timing untouched
+        // (:5143 `when others => null`; the :5124 timing update needs bit 7).
         Emulator emu_gated;
         build_next_emulator(emu_gated);
+        emu_gated.nextreg().write(0x03, 0x07);
         inject_idle_loop_at_c000(emu_gated);
         park_cpu_at_c000(emu_gated);
         const uint8_t  rt0_gated     = emu_gated.nmi_source().reset_type();
