@@ -81,7 +81,22 @@ public:
         ulap_mode_           = 0;     // port_bf3b_ulap_mode reset "00" (zxnext.vhd:4529)
         ulap_index_          = 0;     // port_bf3b_ulap_index reset "000000" (zxnext.vhd:4530)
         alt_file_            = false; // port 0xFF bit 0 (screen bank) default 0
-        shadow_screen_en_    = false; // i_ula_shadow_en default '0'
+        // i_ula_shadow_en default '0'. Through the SETTER, never by direct
+        // assignment: in VHDL this is ONE wire, so a reset cannot clear half
+        // of it. Port 0x7FFD bit 3 lives in port_7ffd_reg, cleared
+        // unconditionally at zxnext.vhd:3646-3648; it becomes
+        // port_7ffd_shadow (:3768) and enters the ULA as the single port
+        // i_ula_shadow_en (:4453), which drives BOTH the standard-mode force
+        // (zxula.vhd:191) and the bank-5/bank-7 fetch select (zxula.vhd:210,267
+        // -> zxnext.vhd:6651-6654). jnext mirrors that one wire in two members
+        // and set_shadow_screen_en() is the only place that knows they are one
+        // — a bare `shadow_screen_en_ = false` here left vram_use_bank7_ stuck,
+        // so a soft reset out of a shadow-screen program kept fetching the dead
+        // bank-7 buffer while the rebooted OS painted bank 5 (GH #226).
+        // Identical to the old assignment for b == false: the `if (b)`
+        // screen-mode force does not run, and the surrounding assignments are
+        // order-independent of both members.
+        set_shadow_screen_en(false);
         border_clr_tmx_src_  = false; // hi-res/tmx border route selector (Wave D)
 
         // Per-scanline port-0xFF change-log (G07).
