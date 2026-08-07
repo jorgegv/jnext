@@ -85,6 +85,14 @@ public:
     using SpeedCallback = std::function<void(double)>;
     void set_speed_callback(SpeedCallback cb) { speed_callback_ = std::move(cb); }
 
+    // Issue #35 — the degradation policy lives in the frame sequencer, which
+    // the frontend owns, so Preferences routes it the same way as the speed
+    // multiplier rather than reaching into the emulator.
+    using WhenSlowPreferCallback = std::function<void(audio_pacing::WhenSlowPrefer)>;
+    void set_when_slow_prefer_callback(WhenSlowPreferCallback cb) {
+        when_slow_prefer_callback_ = std::move(cb);
+    }
+
     // Task 70 — file load from the menu triggers a full cold boot (as if the
     // file had been passed with --load at startup). The frontend (QtApp)
     // supplies this; MainWindow does not touch the emulator directly for loads.
@@ -245,6 +253,7 @@ private:
     Emulator*       emulator_        = nullptr;
     KeyCallback      key_callback_;
     SpeedCallback    speed_callback_;
+    WhenSlowPreferCallback when_slow_prefer_callback_;
     LoadFileCallback load_file_callback_;
     RebootCallback   reboot_callback_;
     ConfirmRestartCallback confirm_restart_callback_;

@@ -92,6 +92,11 @@ static void test_defaults_no_file(QTemporaryDir& dir) {
     check("AC-06", "crt_filter defaults to false", d.crt_filter == def.crt_filter);
     check("AC-07", "silent defaults to false", d.silent == def.silent);
     check("AC-08", "tape_fast_load defaults to true", d.tape_fast_load == def.tape_fast_load);
+    // Issue #35 — the default must be the behaviour that existed before the
+    // option, or an upgrade changes how every machine degrades.
+    check("AC-58", "when_slow_prefer defaults to Audio",
+          d.when_slow_prefer == audio_pacing::WhenSlowPrefer::Audio &&
+              def.when_slow_prefer == audio_pacing::WhenSlowPrefer::Audio);
     check("AC-46", "audio_gain_db defaults to 0 dB", d.audio_gain_db == 0.0f);
     check("AC-43", "joy_source defaults to Sdl/Sdl",
           d.joy_source[0] == JoySource::Sdl && d.joy_source[1] == JoySource::Sdl);
@@ -124,6 +129,7 @@ static void test_roundtrip(QTemporaryDir& dir) {
         writer.data().crt_filter             = true;
         writer.data().silent                 = true;
         writer.data().tape_fast_load         = false;
+        writer.data().when_slow_prefer       = audio_pacing::WhenSlowPrefer::Video;
         writer.data().audio_gain_db          = -12.5f;
         writer.data().joy_source[0]          = JoySource::CursorKeys;
         writer.data().joy_source[1]          = JoySource::Sdl;
@@ -150,6 +156,8 @@ static void test_roundtrip(QTemporaryDir& dir) {
     check("AC-18", "crt_filter round-trips", d.crt_filter == written.crt_filter);
     check("AC-19", "silent round-trips", d.silent == written.silent);
     check("AC-20", "tape_fast_load round-trips", d.tape_fast_load == written.tape_fast_load);
+    check("AC-59", "when_slow_prefer round-trips",
+          d.when_slow_prefer == written.when_slow_prefer);
     check("AC-47", "audio_gain_db round-trips",
           std::abs(d.audio_gain_db - written.audio_gain_db) < 0.001f);
     check("AC-21", "last_load_dir round-trips", d.last_load_dir == written.last_load_dir);
@@ -213,6 +221,7 @@ static void test_malformed_values(QTemporaryDir& dir) {
         raw.setValue("cpu_speed", "banana");              // non-numeric
         raw.setValue("emulator_speed_percent", 999999);   // out of [10,1000]
         raw.setValue("window_scale", 0);                  // out of [MIN_SCALE,MAX_SCALE]
+        raw.setValue("when_slow_prefer", "pictures");     // issue #35: not a policy
         raw.endGroup();
         raw.beginGroup("input");
         raw.setValue("joy1_source", "not-a-source");      // parse_joy_source() rejects
@@ -244,6 +253,9 @@ static void test_malformed_values(QTemporaryDir& dir) {
           d.window_scale == def.window_scale);
     check("AC-45", "unparseable joy1_source string falls back to default",
           d.joy_source[0] == def.joy_source[0]);
+    // A typo must not silently change how the emulator degrades.
+    check("AC-60", "unknown when_slow_prefer string falls back to default",
+          d.when_slow_prefer == def.when_slow_prefer);
     check("AC-49", "out-of-range audio gain falls back to default",
           d.audio_gain_db == def.audio_gain_db);
     check("AC-57", "a hand-edited allowlist drops blanks and case-duplicates",

@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "core/emulator_config.h"
+#include "platform/audio_pacing.h"
 
 /// Persisted GUI preferences (Task 66 — Configurability).
 ///
@@ -23,6 +24,12 @@ struct AppConfigData {
     bool        crt_filter             = false;
     bool        silent                 = false; // matches --silent's default
     bool        tape_fast_load         = true;  // matches the Tape menu's default
+
+    // Issue #35 — what a host that cannot emulate in real time sacrifices.
+    // Default Audio is the behaviour that existed before the option, so a
+    // machine with no config file is unchanged. Persisted as "audio"/"video".
+    audio_pacing::WhenSlowPrefer when_slow_prefer =
+        audio_pacing::WhenSlowPrefer::Audio;
 
     // Host-side gain applied after the emulated hardware mix. Unlike
     // `silent`, this can be changed live from Preferences. The CLI option

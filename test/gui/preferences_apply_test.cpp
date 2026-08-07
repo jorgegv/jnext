@@ -49,6 +49,7 @@
 
 #include <QApplication>
 #include <QCheckBox>
+#include <QComboBox>
 #include <QDialogButtonBox>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -544,6 +545,91 @@ void test_esp_forward_precedes_the_reboot()
           joined());
 }
 
+/// PA-15 — issue #35: the too-slow degradation policy has a control, that
+/// control round-trips, and Apply hands the value to the frontend that owns
+/// the frame sequencer.
+///
+/// The pass-through row (PA-15d) is the one that matters most, for the reason
+/// spelled out above PA-12: collect() builds a FRESH AppConfigData, so a
+/// persisted field without a control is not merely uneditable, it is wiped the
+/// moment the user presses OK. A hand-edited `when_slow_prefer = video` must
+/// survive a visit to Preferences that never touches the Startup tab.
+void test_when_slow_prefer_control()
+{
+    AppConfigData initial;
+    initial.when_slow_prefer = audio_pacing::WhenSlowPrefer::Video;
+
+    PreferencesDialog dlg(initial);
+    auto* combo = dlg.findChild<QComboBox*>(QStringLiteral("whenSlowPreferCombo"));
+    check("PA-15a", "Preferences exposes the too-slow policy control", combo != nullptr);
+    if (!combo) return;
+
+    check("PA-15b", "the control starts from the persisted value",
+          combo->currentData().toInt() ==
+              static_cast<int>(audio_pacing::WhenSlowPrefer::Video));
+
+    AppConfigData collected;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; collected = cfg; });
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    combo->setCurrentIndex(
+        combo->findData(static_cast<int>(audio_pacing::WhenSlowPrefer::Audio)));
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    check("PA-15c", "Apply returns the edited policy",
+          emitted &&
+              collected.when_slow_prefer == audio_pacing::WhenSlowPrefer::Audio);
+
+    PreferencesDialog untouched(initial);
+    AppConfigData passthrough;
+    bool passthrough_emitted = false;
+    QObject::connect(&untouched, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) {
+                         passthrough_emitted = true;
+                         passthrough = cfg;
+                     });
+    auto* untouched_buttons = untouched.findChild<QDialogButtonBox*>();
+    if (untouched_buttons && untouched_buttons->button(QDialogButtonBox::Apply))
+        untouched_buttons->button(QDialogButtonBox::Apply)->click();
+    check("PA-15d", "an untouched dialog does NOT wipe the persisted policy",
+          passthrough_emitted &&
+              passthrough.when_slow_prefer == audio_pacing::WhenSlowPrefer::Video);
+}
+
+/// PA-16 — issue #35: the policy lives in the frontend's frame sequencer, not
+/// in the emulator, so Apply must forward it. It applies live in every
+/// outcome, including the one where the user declined a machine-type restart.
+void test_when_slow_prefer_reaches_the_frontend()
+{
+    Fixture f(MachineType::ZX48K);
+    std::vector<audio_pacing::WhenSlowPrefer> seen;
+    f.win.set_when_slow_prefer_callback(
+        [&](audio_pacing::WhenSlowPrefer p) { seen.push_back(p); });
+
+    AppConfigData cfg = live_prefs(MachineType::ZX48K);
+    cfg.when_slow_prefer = audio_pacing::WhenSlowPrefer::Video;
+    f.win.apply_preferences(cfg);
+    check("PA-16a", "Apply forwards the policy to the frontend exactly once",
+          seen.size() == 1 && seen[0] == audio_pacing::WhenSlowPrefer::Video,
+          "calls=" + std::to_string(seen.size()));
+
+    // Declining a machine-type restart must not discard it either.
+    Fixture g(MachineType::ZX48K);
+    g.answer = false;
+    std::vector<audio_pacing::WhenSlowPrefer> seen_declined;
+    g.win.set_when_slow_prefer_callback(
+        [&](audio_pacing::WhenSlowPrefer p) { seen_declined.push_back(p); });
+    AppConfigData other = live_prefs(MachineType::ZX128K);   // a real type change
+    other.when_slow_prefer = audio_pacing::WhenSlowPrefer::Video;
+    g.win.apply_preferences(other);
+    check("PA-16b", "a declined machine-type restart still applies the policy",
+          seen_declined.size() == 1 &&
+              seen_declined[0] == audio_pacing::WhenSlowPrefer::Video &&
+              g.reboots.empty(),
+          "calls=" + std::to_string(seen_declined.size()));
+}
+
 }  // namespace
 
 int main(int argc, char** argv)
@@ -564,6 +650,8 @@ int main(int argc, char** argv)
     test_esp_preference_controls();
     test_esp_settings_reach_the_frontend();
     test_esp_forward_precedes_the_reboot();
+    test_when_slow_prefer_control();
+    test_when_slow_prefer_reaches_the_frontend();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);

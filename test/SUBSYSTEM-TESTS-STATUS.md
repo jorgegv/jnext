@@ -48,7 +48,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (pacing)        |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (pacing)        |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (capture)       |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (host gain)     |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (subsystem gains) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -58,8 +58,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Frame-deadline scheduler |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Frame-tick sequencer (wiring) |      103 |      103 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Frame-deadline scheduler |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Frame-tick sequencer (wiring) |      112 |      112 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tick-delivery stats   |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host key minimum-hold latch |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -84,7 +84,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger persistent BPs |       18 |       18 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger I/O Watchpoints |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger resume step-off |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (AppConfig) |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (AppConfig) |       60 |       60 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain configuration |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio gain Preferences |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present count (widget) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -94,7 +94,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Shifted symbols reach the guest |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Quit runs closeEvent cleanup |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
-| GUI Preferences (Apply) |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
+| GUI Preferences (Apply) |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Video Panel  |       92 |       92 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Audio Panel  |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Quit Gate    |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -103,6 +103,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **6888** | **6888** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **6919** | **6919** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
