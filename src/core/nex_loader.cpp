@@ -309,6 +309,23 @@ static bool compute_nex_crc32c(std::ifstream& f, uint64_t file_size, uint32_t& o
     return true;
 }
 
+bool NexLoader::probe_version(const std::string& path, uint8_t& version_bcd,
+                              char version_str[5])
+{
+    // GH #228 — see the header doc-comment. Deliberately reads ONLY the
+    // 8-byte prologue: this runs before the user has opted into anything,
+    // so it must not depend on the rest of the header being sane.
+    std::ifstream f(path, std::ios::binary);
+    if (!f) return false;
+    char prologue[8];
+    f.read(prologue, 8);
+    if (!f || std::memcmp(prologue, "Next", 4) != 0) return false;
+    std::memcpy(version_str, prologue + 4, 4);
+    version_str[4] = '\0';
+    version_bcd = nex_version_bcd(prologue + 4);
+    return true;
+}
+
 bool NexLoader::load(const std::string& path)
 {
     loaded_ = false;

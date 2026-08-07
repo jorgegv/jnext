@@ -125,6 +125,24 @@ inline uint8_t nex_version_bcd(const char version[4]) {
     return static_cast<uint8_t>((major << 4) | minor);
 }
 
+/// GH #228 — NEX V1.3 is an EXPERIMENTAL format jnext does not officially
+/// support. The user-facing entry points (`--load` and the GUI file dialog)
+/// enforce V1.2 conformance: a header whose BCD-packed version exceeds 0x12
+/// loads only behind an explicit opt-in (`--experimental-nex-v1.3`, or the
+/// GUI's Proceed on its warning dialog). Returns true when this version_bcd
+/// needs that opt-in.
+///
+/// Everything conforming to V1.2 (bcd <= 0x12, i.e. V1.0/V1.1/V1.2 and any
+/// hypothetical lower version) passes unchanged. V1.3 needs the opt-in. A
+/// malformed or unknown version string packs, via nex_version_bcd(), to some
+/// value above 0x12 and is therefore ALSO gated — refuse-by-default is the
+/// deliberate posture; note versions above V1.3 are refused by load() itself
+/// regardless of the opt-in (kNexLoaderVersionBcd ceiling), so the opt-in
+/// only ever admits exactly V1.3 among loadable files.
+inline bool nex_version_needs_v13_optin(uint8_t version_bcd) {
+    return version_bcd > 0x12;
+}
+
 /// True when the core version a NEX header requires is met by the version
 /// jnext advertises. nexload.asm:314-316 compares major, then minor, then
 /// subminor, and only demands an update when a field is strictly greater:
@@ -233,6 +251,17 @@ public:
 
     /// True when the header's version string is exactly "V1.3".
     bool is_v13() const { return std::memcmp(header_.version, "V1.3", 4) == 0; }
+
+    /// GH #228 — pre-load version query for the user-facing entry points.
+    /// Reads only the 8-byte "Next"+version prologue of `path`. Returns true
+    /// and fills `version_bcd` (BCD-packed as nex_version_bcd() does) and
+    /// `version_str` (the raw 4 header chars, NUL-terminated) when the file
+    /// starts with the "Next" magic. Returns false when the file cannot be
+    /// read or is not a NEX file at all — callers then fall through to the
+    /// full load(), whose own error names the real problem, so a probe
+    /// failure is never a reason to refuse here.
+    static bool probe_version(const std::string& path, uint8_t& version_bcd,
+                              char version_str[5]);
 
     /// File offset at which the first 16K bank's data begins. Derived from
     /// the header-described blocks, or taken from the V1.3 `banks_offset`

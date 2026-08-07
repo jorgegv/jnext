@@ -41,6 +41,24 @@ inline bool emulator_apply_load(Emulator& emu, const std::string& file,
     return emu.load_nex(file);   // .nex + unknown extensions
 }
 
+/// True when emulator_apply_load() above would route `file` to
+/// Emulator::load_nex() — i.e. the extension is `.nex` or unrecognised (the
+/// fallback). The GH #228 experimental-V1.3 gate applies to exactly that
+/// route, so the GUI uses this to decide whether a selected file needs the
+/// V1.3 probe at all. Must mirror emulator_apply_load()'s chain: every
+/// extension with its own branch there is listed here.
+inline bool emulator_load_routes_to_nex(const std::string& file) {
+    std::string ext;
+    auto dot = file.rfind('.');
+    if (dot != std::string::npos) {
+        ext = file.substr(dot);
+        for (auto& c : ext)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return ext != ".tap" && ext != ".tzx" && ext != ".sna" && ext != ".szx" &&
+           ext != ".z80" && ext != ".wav" && ext != ".rzx";
+}
+
 /// The per-format boot delay the CLI startup uses (main.cpp): tape formats that
 /// still key through BASIC need the machine at its prompt first; everything else
 /// loads immediately. Kept here so cold_boot schedules the load identically.
