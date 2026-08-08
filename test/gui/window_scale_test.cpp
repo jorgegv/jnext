@@ -1,5 +1,5 @@
 // ===========================================================================
-// Main-window scale geometry suite (GitHub issue #236).
+// Main-window scale and fullscreen geometry suite (GitHub issues #236, #242).
 //
 // No VHDL oracle: this is host window sizing, not emulated hardware. The
 // oracle is the project's own rule for the windowed viewport — the emulator
@@ -64,6 +64,26 @@
 // setFixedSize(size());` turns GH236-03, -04, -06, -07 and -09 red and leaves
 // -01, -02, -05 and -08 green. The four that stay green are controls, each
 // with its own stated job on the row; they are not padding.
+//
+// GH #242 — THE FULLSCREEN ROUND TRIP, a separate defect that was found here
+// while measuring #236 and is causally independent of it: reverting #236's
+// sizeHint() fix and removing #242's restore TOGETHER still collapses the
+// window, so the old adjustSize() code carried the same bug. Entering
+// fullscreen releases the viewport with setFixedSize(QWIDGETSIZE_MAX, ...),
+// which Qt reads as no constraint at all, and EmulatorWidget implements no
+// sizeHint() — so on the way back out the layout had nothing to size itself
+// from. GH242-01 pins before == after across an F11 round trip.
+//
+// The collapsed figure depends on the surrounding code state, so both numbers
+// this project's #236 notes recorded are real and neither is the other's
+// correction: 239x100 offscreen (235x100 with the real binary) against the
+// pre-#236 adjustSize() path, and 239x83 offscreen against the current
+// sizeHint() path with the restore removed. The row asserts before == after,
+// not any literal, so it is indifferent to which.
+//
+// Discriminative on its own: removing the set_scale() restore from
+// toggle_fullscreen()'s exit branch turns GH242-01 red and leaves the nine
+// GH236 rows green.
 //
 // WHAT IT DOES NOT PROVE. It runs on the offscreen QPA, so it says nothing
 // about a real compositor's own opinion of the geometry it is handed — a
@@ -211,7 +231,7 @@ int main(int argc, char** argv)
 
     QApplication app(argc, argv);
 
-    std::printf("Issue #236 - the saved startup scale and the menu produce the same window\n");
+    std::printf("Issues #236 / #242 - window scale and fullscreen geometry\n");
     std::printf("=========================================================================\n\n");
 
     const std::vector<uint32_t> fb(
@@ -319,6 +339,38 @@ int main(int argc, char** argv)
               "window == viewport + a chrome that does not depend on the scale",
               ok, ok ? fmt("chrome 0 wide, %d high at every scale", chrome_h)
                      : detail);
+    }
+
+    // ── GH242-01 — the fullscreen round trip ─────────────────────────
+    // Leaving fullscreen must give back the window that entered it, at every
+    // scale. See the GH #242 note in the header: independent of #236's fix,
+    // and red on its own when the restore is removed.
+    {
+        bool ok = true;
+        std::string detail;
+        for (int s = EmulatorWidget::MIN_SCALE; s <= EmulatorWidget::MAX_SCALE; ++s) {
+            MainWindow w;
+            w.show();
+            AppConfigData cfg;
+            cfg.window_scale = s;
+            w.apply_startup_config(cfg);
+            pump(w, fb);
+            const Geom before = read(w);
+            w.toggle_fullscreen();
+            pump(w, fb);
+            w.toggle_fullscreen();
+            pump(w, fb);
+            const Geom after = read(w);
+            if (before.win_w != after.win_w || before.win_h != after.win_h) {
+                ok = false;
+                detail += fmt("%dx: %dx%d -> fullscreen -> %dx%d; ",
+                              s, before.win_w, before.win_h,
+                              after.win_w, after.win_h);
+            }
+        }
+        check("GH242-01",
+              "leaving fullscreen restores the exact windowed size at every scale",
+              ok, ok ? "1x, 2x, 3x all restored" : detail);
     }
 
     std::printf("\n=========================================================================\n");

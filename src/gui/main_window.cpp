@@ -333,6 +333,17 @@ void MainWindow::toggle_fullscreen() {
         showNormal();
         is_fullscreen_ = false;
         emulator_widget_->set_fullscreen_mode(false);
+        // GH #242 — give the viewport its fixed size back BEFORE the window is
+        // sized around it. Entering fullscreen releases the constraint by
+        // passing QWIDGETSIZE_MAX to setFixedSize(), and Qt reads that as "no
+        // constraint at all" (QWidgetPrivate::setMinimumSize_helper maps a
+        // QWIDGETSIZE_MAX minimum to 0) — which is exactly why it works as a
+        // release, but it also means the viewport comes back with no size of
+        // its own, and EmulatorWidget implements no sizeHint(). Without this
+        // the layout had nothing to size itself from and the window collapsed
+        // to the chrome's own minimum on every fullscreen exit, staying wrong
+        // until the next scale change put the constraint back.
+        emulator_widget_->set_scale(current_scale_);
         // Restore fixed windowed size.
         apply_fixed_window_size();
     } else {

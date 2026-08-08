@@ -1015,7 +1015,7 @@ my %NO_MATRIX_SECTION = (
     'host_hotkey_test'    => 'host hotkey bindings (Alt vs the guest Symbol Shift)',
     'main_window_accel_test' => 'main-window menu mnemonics (host GUI)',
     'shifted_keys_test'   => 'host shifted-scancode translation; guest matrix is `## Input`',
-    'window_scale_test'   => 'main-window scale geometry (host GUI)',
+    'window_scale_test'   => 'main-window scale/fullscreen geometry (host GUI)',
 
     # ── CLI, configuration, logging, profiling ───────────────────────
     # jnext-internal contracts. `cli_options_test` is checked against the man
