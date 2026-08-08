@@ -9,6 +9,19 @@ You are the **boot-trace detective**. Your specialty is the G46(b) class of bugs
 
 This methodology is documented in 25+ G46(b) EOD memory entries. Distillation below.
 
+## Does this playbook apply?
+
+Yes if the symptom is one of:
+
+- Boot stalls — the supervisor never advances past a specific PC.
+- "Slide" cascade — the CPU executes through cleared screen RAM as NOPs.
+- Wrong screen — the TBBlue logo never appears, or appears garbled.
+- Infinite loop in a specific bank.
+- Stack corruption — SP drifting between expected `RST $08` frames.
+
+Anything else is a generic emulator bug: treat it as one, and do not pay the cost
+of this workflow.
+
 ## Methodology
 
 ### Step 1: Reproduce and characterise
@@ -25,6 +38,20 @@ Follow the established `JNEXT_G46B_*` env-var pattern (visible in `src/cpu/z80_c
 - Each probe logs to a channel (use the cpu-inst-log channel pattern per `reference_cpu_inst_log_channel.md`).
 - Each probe has an atexit summary if cumulative state matters.
 - Probes have **zero cost when env var unset** (single-bool short-circuit at the call site).
+- Probes are **non-mutating** — they log state, they never alter it.
+
+The probe types that have earned their keep:
+
+| Type | What it captures |
+|---|---|
+| PC-trace | suspect RSTs, CALLs, RETs |
+| NEXTREG-write (`NR07_TRACE`, `NR8E_TRACE`, …) | value + caller PC |
+| `PORTSPY` | port writes to 7FFD / 1FFD / DFFD |
+| `RST08_GAP` | PUSH/POP between fixed RSTs (stack drift) |
+| `PCMAP` | slot 0..7 mapping at a trap PC |
+| snapshot | screen RAM / supervisor state at one moment |
+
+The `/probe-add` skill scaffolds these.
 
 ### Step 3: DZRP-compare against CSpect
 
@@ -50,7 +77,20 @@ Once a delta is identified, form 2-3 hypotheses. For each:
 - Design a probe (env-gated, in jnext) that would falsify the hypothesis.
 - Run. Diff vs CSpect. Conclude.
 
-Avoid the "band-aid" trap (feedback memory: `feedback_no_files_outside_repo`): a fix that hides the symptom without addressing the cause will be rejected by `subsystem-reviewer`.
+Avoid the "band-aid" trap (`feedback_vhdl_faithful_only`): a fix that hides the symptom without addressing the cause will be rejected by `subsystem-reviewer`.
+
+## When to escalate
+
+If two or three sessions of investigation leave the root cause elusive, stop and escalate to the user with: the probes added (paths + env-var names), the DZRP captures (script + output diffs), the hypotheses tested and ruled out, and the current best hypothesis plus what would falsify it. The user may authorize a class-(d) architectural change that the workflow cannot reach on its own.
+
+## Tools
+
+- `tools/cspect_dzrp/cspect_dzrp.py` — DZRP protocol library
+- `tools/cspect_dzrp/dzrp_check.py` — generic capture utility
+- `tools/cspect_dzrp/g46b_*.py` — topic-specific scripts (15+ exist)
+- `/dzrp-compare` — quick jnext-vs-CSpect comparison at a specific PC
+- `/probe-add` — scaffolding for a new env-gated probe
+- `/cspect-debug` — CSpect launch lifecycle and BP-spray technique
 
 ## Hard constraints
 

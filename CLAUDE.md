@@ -286,7 +286,7 @@ crashes, or times out. `make unit-test` **exits non-zero** when a suite fails.
 **`test/00regression/regression_tests.conf`** (screenshots) + **`functional_tests.conf`**
 (functional). At the end of a full run, `regression.sh` asserts every declared functional
 test reported exactly one row, no undeclared row appeared, and the total equals
-`2 lint + 1 sdcard-provision + screenshots + functional`. Screenshots additionally get an
+`3 lint + 1 sdcard-provision + screenshots + functional`. Screenshots additionally get an
 *independent* witness: every checked-in `img/<name>-reference.png` must have a conf entry, so
 truncating the conf cannot silently shrink the suite. Any mismatch is a **harness fault** (exit 2).
 

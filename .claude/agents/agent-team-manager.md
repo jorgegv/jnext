@@ -56,7 +56,8 @@ After each worker reports complete:
 
 1. Spawn `subsystem-reviewer` (or another independent reviewer) — NEVER the worker who wrote the code.
 2. Give the reviewer the worktree path, the original mandate, and the worker's report.
-3. Wait for verdict: APPROVE / APPROVE-WITH-NITS / REJECT.
+3. Wait for verdict: APPROVE / REJECT. Binary — no third option. If the reviewer
+   returns a hybrid ("approve with nits"), resolve it yourself and say which way.
 4. If REJECT, send the findings back to the original worker for revision (still on their branch, not yours).
 
 ### Merge

@@ -17,13 +17,17 @@ Ask the user (if not already specified):
 
 ## Worktrees
 
-For each subsystem in scope, create a dedicated worktree:
+For each subsystem in scope, create a dedicated worktree — **outside the repo**,
+per CLAUDE.md (anything walking the repository file list also walks an in-repo
+worktree):
 
 ```
-git worktree add .claude/worktrees/audit-<subsystem>-pass<N> -b audit-<subsystem>-pass<N>
+git worktree add /home/jorgegv/tmp/worktrees/audit-<subsystem>-pass<N> -b audit-<subsystem>-pass<N> main
 ```
 
-Verify the base branch is fresh (per `feedback_agent_worktree_stale_base`).
+Verify the base branch is fresh (per `feedback_agent_worktree_stale_base`), and
+stop if the branch or worktree already exists — another session may hold it. The
+`worktree-launch` skill does both checks plus fixture provisioning.
 
 ## Dispatch — auditors in parallel
 
@@ -46,7 +50,8 @@ For each auditor that produced findings, spawn a `subsystem-reviewer` in paralle
 - Auditor's report path
 - List of commit SHAs
 
-Reviewer is critical-by-default. Verdicts: APPROVE / APPROVE-WITH-NITS / REJECT.
+Reviewer is critical-by-default. Verdicts are binary: APPROVE / REJECT. Residual
+observations go in the body as notes, never in the verdict.
 
 ## Convergence accounting
 
@@ -91,10 +96,59 @@ ctest N/N • FUSE 1356/1356 • regression P/F/S
 - Any architectural class-(d) items escalated to user: <list>
 ```
 
+## The five mandates
+
+Every pass is governed by these. The `subsystem-auditor` agent enforces them;
+you reject any pass that violates one. Distilled from Task 2's 25 audit passes
+(May 2026) on the boot-critical subsystems, after the "defensive zero / coverage
+theatre" failures earlier in the project.
+
+1. **Enumeration table at the top of every audit report**
+   (`feedback_task2_audit_enumeration_table`) — a complete table covering *every
+   surface in scope*, before any finding count. For MMU that means every NextREG
+   written to it, every port that touches it, every slot-mapping operation, every
+   IPL/loader/supervisor consumer, and every test rig that should validate it.
+   Row format: `Surface | C++ site | VHDL line | Match ✓/✗ | Notes`.
+   **Sparse table → reject. "No findings" without a complete table → reject.**
+2. **Fix + discriminative regression test, in the same commit** — the test must
+   FAIL on pre-fix code and PASS on post-fix code, with a file+line reference to
+   the motivating VHDL. A fix "too obvious to need a test" is a red flag: the test
+   documents the bug for the next reader. Write it anyway.
+3. **Thorough per pass** (`feedback_task2_audit_thorough_per_pass`) — find as many
+   bugs as possible in ONE pass. Agents drift into a wasteful
+   find-one-fix-one-re-audit loop unless the prompt says otherwise.
+4. **Enumerate consumers per boot stage**
+   (`feedback_audit_enumerate_all_protocol_consumers_per_boot_stage`) — for any
+   protocol bits (SD R1, OCR, NextREG readback, port masks, save-state schema),
+   cover IPL/loader, kernel/runtime, supervisor, and test rigs separately.
+   Single-layer enumeration is defensive zero: it shipped V20-DIVMMC-01, a
+   class-(a) regression filed as class-(c).
+5. **The audit prompt must carry the fix mandate**
+   (`feedback_task2_audit_prompt_must_include_fix_mandate`) — the literal text
+   *"fix + discriminative regression test in same commit"*. Without it agents
+   default to report-only and you pay for an extra fix-of-audit cycle.
+
+## Finding classes
+
+- **class-a** — silent regression: wrong behaviour, no test catches it. Highest priority.
+- **class-b** — test gap: right behaviour, but nothing would catch a future regression.
+- **class-c** — lint/clean-up. Lowest priority, still fixed in the pass.
+- **class-d** — architectural: too big for an audit fix. Escalate to the user with
+  a cost/benefit, and implement on its own branch with its own audit + review.
+
+## Pitfalls that mean reject
+
+- **Defensive zero** — "audited X, found nothing" with no enumeration table.
+- **Single-layer enumeration** — IPL consumers listed, supervisor consumers skipped.
+- **Self-review** — the auditor approving its own work.
+- **Non-discriminative test** — it passes on pre-fix code, so it proves nothing.
+- **"Follow-up later"** — a reviewer noting a bug and deferring it
+  (`feedback_review_no_defer`). Fix in this pass or escalate as class-d.
+- **Coalesced fixes** — one commit for several findings breaks the fix↔test pairing.
+
 ## Hard rules
 
 - **No self-review.** If you can't find a distinct agent for review, escalate.
 - **No merge until APPROVE.** REJECTS go back to the auditor on its own branch.
 - **No pushes.** Always local.
 - **No main-branch writes by workers.** Only the manager merges to main, and only after APPROVE.
-- **Five mandates from feedback memory.** See `subsystem-auditor` agent definition — it enforces them, but you must reject any pass that violates them (e.g. sparse enumeration tables, missing regression tests).
