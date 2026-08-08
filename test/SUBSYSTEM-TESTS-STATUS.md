@@ -15,7 +15,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Copper (integration)  |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      251 |      251 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU (int)      |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NextREG (bare)        |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NextREG (bare)        |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      313 |      313 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |       46 |       46 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      334 |      334 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -44,7 +44,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Floating Bus          |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
-| I/O Port Dispatch     |      115 |      115 |      0 |       0 |    100% | 🟢 All tests pass. |
+| I/O Port Dispatch     |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -71,7 +71,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NEX loader (screen ingest) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       78 |       78 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| DMA                   |      157 |      157 |      0 |       0 |    100% | 🟢 All tests pass. |
+| DMA                   |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap raster splits |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes                 |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -105,6 +105,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **6985** | **6985** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **6995** | **6995** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

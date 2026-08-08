@@ -712,7 +712,19 @@ int Dma::execute_burst(int max_bytes) {
 
         // Write byte to destination
         if (dst_is_io) {
-            if (write_io) write_io(dst_, data);
+            // GH #230: copy before invoking. This is the outermost frame of
+            // the one route by which a guest can destroy a live callable
+            // through NR 0x02 bit 0 — an I/O destination of port 0x253B
+            // reaches PortDispatch::write and then the NR 0x02 write handler,
+            // which calls Emulator::soft_reset() -> Emulator::init(), and
+            // init() reassigns dma_.write_io while this call is still on the
+            // stack. Same fix and same reasoning as PortDispatch::write and
+            // NextReg::write; the copy is allocation-free for the `[this]`
+            // lambda Emulator::init() installs.
+            if (write_io) {
+                const auto io_write = write_io;
+                io_write(dst_, data);
+            }
         } else {
             if (write_memory) write_memory(dst_, data);
         }

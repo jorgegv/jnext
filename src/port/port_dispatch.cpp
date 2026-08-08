@@ -133,7 +133,26 @@ void PortDispatch::write(uint16_t port, uint8_t val) {
             return;
         }
         write_declined_ = false;
-        best->write(port, val);
+        // GH #230: copy the callable out of the vector before invoking it, for
+        // the same reason NextReg::write does — a port write that reaches
+        // NR 0x02 bit 0 re-enters Emulator::init() through soft_reset(), and
+        // init() calls clear_handlers() here, destroying `handlers_` and with
+        // it the std::function currently executing.
+        //
+        // The route is narrow but real: the CPU's own OUT ($253B) cannot get
+        // here synchronously, because Emulator holds defer_cpu_nr_writes_ for
+        // the whole of cpu_.execute() and the port handler only queues the
+        // write. What remains is a DMA burst with an I/O destination of port
+        // 0x253B (Dma::execute_burst -> dma_.write_io -> here), which runs
+        // outside that window.
+        //
+        // `best` itself is not dereferenced after the call — best_bits /
+        // best_idx are already copies — so the callable is the only thing
+        // needing to outlive the invocation. Every handler registered today
+        // captures `this` alone and so stays in libstdc++'s small-object
+        // buffer: the copy allocates nothing.
+        const auto handler = best->write;
+        handler(port, val);
         if (!write_declined_) return;   // handled
         prev_bits = best_bits;
         prev_idx = best_idx;

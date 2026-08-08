@@ -46,6 +46,8 @@
 
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -874,6 +876,128 @@ static void test_composed_read_divergence() {
     // RE-HOME G56-CR-81 → nextreg_integration_test.cpp G56-CR-Cluster-E (landed; some DROPPED per Phase-2)
 }
 
+// ── GH #230 — write-handler lifetime across re-entrant re-registration ─
+//
+// NO VHDL ORACLE, deliberately: this is a C++ object-lifetime invariant of
+// the register file, not a hardware behaviour. It is asserted here because
+// the invariant, and the fix, live in src/port/nextreg.cpp.
+//
+// The defect: NextReg::write invoked the handler THROUGH the array slot
+//     regs_[reg] = write_handlers_[reg](val);
+// and the NR 0x02 write handler calls Emulator::soft_reset() ->
+// Emulator::init(), which re-registers write_handlers_[0x02]. The
+// std::function was therefore destroyed while its own body was on the
+// stack — undefined behaviour, reachable from any guest program that
+// writes NR 0x02 bit 0.
+//
+// Undefined behaviour is not directly observable, so these rows assert the
+// two things that ARE:
+//   * the executing callable is still alive at the moment its slot is
+//     re-registered (counted from OUTSIDE the closure via a shared_ptr the
+//     closure holds a copy of — the observation never touches memory the
+//     defect frees);
+//   * the executing callable can still read its own capture afterwards,
+//     with the allocator deliberately churned in between so that a stale
+//     `this` reads somebody else's bytes rather than its own leftovers.
+// Under -fsanitize=address the second one is a direct heap-use-after-free
+// report rather than a value comparison.
+
+namespace {
+
+NextReg*             g230_nr               = nullptr;
+std::shared_ptr<int> g230_token;                    // the handler holds a copy
+long                 g230_use_count_seen   = 0;
+uint8_t              g230_own_capture_seen = 0;
+bool                 g230_completed        = false;
+
+// Reclaim whatever the re-registration just freed. Emulator::init() does
+// this incidentally — it registers 181 further handlers after the one that
+// is executing — so modelling it here is faithful, not a trick. Sizes 8..256
+// in steps of 8 cover every allocator size class a closure of this shape can
+// land in.
+std::vector<std::unique_ptr<uint8_t[]>> g230_churn() {
+    std::vector<std::unique_ptr<uint8_t[]>> held;
+    for (std::size_t sz = 8; sz <= 256; sz += 8) {
+        for (int rep = 0; rep < 4; ++rep) {
+            auto p = std::make_unique<uint8_t[]>(sz);
+            std::memset(p.get(), 0x5A, sz);
+            held.push_back(std::move(p));
+        }
+    }
+    return held;
+}
+
+} // namespace
+
+static void test_handler_lifetime() {
+    set_group("GH230");
+
+    NextReg nr;
+    g230_nr               = &nr;
+    g230_token            = std::make_shared<int>(0);
+    g230_use_count_seen   = 0;
+    g230_own_capture_seen = 0;
+    g230_completed        = false;
+
+    // 64-byte capture: far past libstdc++'s small-object buffer, so the
+    // closure really is heap-allocated and re-registering really does free it.
+    struct Payload { uint8_t b[64]; };
+    Payload mine{};
+    std::memset(mine.b, 0xA5, sizeof(mine.b));
+
+    nr.set_write_handler(0x02, [tok = g230_token, mine](uint8_t v) -> uint8_t {
+        // Exactly what Emulator::init() does to write_handlers_[0x02] from
+        // inside this very call.
+        g230_nr->set_write_handler(0x02, [](uint8_t) -> uint8_t { return 0x5A; });
+
+        // 2 = outer copy + a live copy of this handler. 1 = the executing
+        // closure has been destroyed underneath us.
+        g230_use_count_seen = g230_token.use_count();
+
+        const auto held = g230_churn();
+
+        // Read our OWN capture back. volatile so the load cannot be hoisted
+        // above the re-registration.
+        g230_own_capture_seen =
+            *static_cast<const volatile uint8_t*>(&mine.b[0]);
+        g230_completed = true;
+        (void)tok;
+        (void)held;
+        return static_cast<uint8_t>(v | 0x40);   // canonical byte (G56)
+    });
+
+    nr.write(0x02, 0x01);
+
+    check("GH230-01",
+          "write handler still alive when its own slot is re-registered",
+          g230_completed && g230_use_count_seen == 2,
+          "completed=" + std::string(g230_completed ? "yes" : "no") +
+              " use_count=" + std::to_string(g230_use_count_seen) +
+              " expected=2");
+
+    check("GH230-02",
+          "executing write handler reads its own capture after re-registration",
+          g230_own_capture_seen == 0xA5,
+          detail_eq(g230_own_capture_seen, 0xA5));
+
+    check("GH230-03",
+          "G56 canonicalisation preserved: regs_[] takes the EXECUTING "
+          "handler's return, not the raw byte",
+          nr.cached(0x02) == 0x41,
+          detail_eq(nr.cached(0x02), 0x41));
+
+    // The re-registration must still win: the handler installed from inside
+    // the call is the one the NEXT write dispatches to.
+    nr.write(0x02, 0x00);
+    check("GH230-04",
+          "handler re-registered mid-call is the one in place afterwards",
+          nr.cached(0x02) == 0x5A,
+          detail_eq(nr.cached(0x02), 0x5A));
+
+    g230_nr = nullptr;
+    g230_token.reset();
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -921,6 +1045,9 @@ int main() {
 
     test_composed_read_divergence();
     std::printf("  Group: G56-CR         — done\n");
+
+    test_handler_lifetime();
+    std::printf("  Group: GH230          — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

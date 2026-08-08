@@ -476,7 +476,29 @@ void NextReg::write(uint8_t reg, uint8_t val) {
     // gated writes — making `regs_[]` diverge from the VHDL-faithful
     // value the handler had committed to subsystem state.
     if (write_handlers_[reg]) {
-        regs_[reg] = write_handlers_[reg](val);
+        // GH #230: hold the callable alive across its OWN invocation, rather
+        // than calling through the array slot. The NR 0x02 write handler calls
+        // Emulator::soft_reset() -> Emulator::init(), and init() re-registers
+        // every NextREG handler — including write_handlers_[0x02]. Calling
+        // through the slot therefore destroyed the std::function while its
+        // body was still on the stack, which is undefined behaviour, and it is
+        // reachable from ordinary guest code (any program writing NR 0x02
+        // bit 0). It only ever appeared to work because every handler
+        // registered today captures `this` alone: that fits libstdc++'s
+        // small-object buffer, so the assignment overwrote the capture in
+        // place with a byte-identical one instead of freeing it.
+        //
+        // Cost: for those same handlers the copy allocates nothing (a
+        // trivially-copyable 8-byte capture stays in the SOO buffer), so a
+        // NextREG write pays two extra indirect calls (clone + destroy).
+        // NextREG writes come from the deferred CPU queue, Copper MOVEs and
+        // the debugger — O(10^4-10^5)/s at worst, so this is noise.
+        //
+        // Semantics are unchanged: the handler still returns the canonical
+        // byte stored in regs_[reg] (G56, above), and a handler that
+        // re-registers its own slot still leaves the NEW handler installed.
+        const auto handler = write_handlers_[reg];
+        regs_[reg] = handler(val);
     } else {
         regs_[reg] = val;
     }
