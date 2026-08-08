@@ -359,6 +359,13 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 :   Set per-subsystem log levels; see [the LOGGING section of the man
     page](https://github.com/jorgegv/jnext/blob/main/USAGE.md#logging).
 
+**--log-file** *FILE*
+:   Write the log to *FILE* instead of the console. *FILE* is truncated
+    at the start of every run, and jnext exits non-zero if it cannot be
+    opened rather than quietly logging to the console instead. See [the
+    LOGGING section of the man
+    page](https://github.com/jorgegv/jnext/blob/main/USAGE.md#logging).
+
 ## Misc
 
 **--help**, **-h**

@@ -120,5 +120,6 @@
 - `--esp` / `--no-esp` and the repeatable `--esp-allow HOST` (emulated ESP-01 Wi-Fi; off by default)
 - `--delayed-screenshot-layers ula,layer2,sprites,tiles,all` — compose only the named layers into the screenshot (default all), for capturing each graphics layer in isolation
 - `--log-level` per subsystem (cpu, video, audio, etc.)
+- `--log-file FILE` (write the log to FILE instead of the console, truncated per run; jnext exits non-zero if FILE cannot be opened rather than quietly logging to the console it was redirected away from)
 - `--rtc "YYYY-MM-DD HH:MM:SS"` — pin the DS1307 RTC to a fixed date/time (frozen clock; deterministic boot screenshots)
 - `--version`

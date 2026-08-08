@@ -2580,6 +2580,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#capturing-a-log-to-attach" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Capturing a log to attach
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2818,6 +2829,26 @@ most:</p>
 <li>for a performance problem, <code>--log-level platform=debug</code>, which reports the
   per-second frame cadence.</li>
 </ul>
+<h2 id="capturing-a-log-to-attach">Capturing a log to attach<a class="headerlink" href="#capturing-a-log-to-attach" title="Permanent link">&para;</a></h2>
+<p>Add <code>--log-file</code> and JNEXT writes its log to a file instead of the console:</p>
+<pre><code class="language-console">$ jnext game.nex --log-level nextreg=debug --log-file trace.log
+</code></pre>
+<p>That is easier than it sounds to get wrong without it. JNEXT logs to standard
+error, so <code>&gt; trace.log</code> captures nothing and you need <code>2&gt; trace.log</code>; on
+PowerShell, redirected output from a native program is re-encoded on the way to
+the file. <code>--log-file</code> sidesteps both — the program writes where you told it to.</p>
+<p>The file replaces the console rather than adding to it, and is emptied at the
+start of every run, so what you attach describes the run you just did and
+nothing else. If it cannot be opened JNEXT says so and stops, rather than
+quietly logging to the console you redirected it away from and leaving you with
+an empty file.</p>
+<p>A trace at <code>debug</code> or <code>trace</code> level grows quickly — a few megabytes a minute is
+normal — so aim the level at the subsystem you are asking about rather than
+turning everything up.</p>
+<p>If you want the console log without ANSI colour, set <code>NO_COLOR</code> to any non-empty
+value; JNEXT follows the <a href="https://no-color.org/">no-color.org</a> convention, and
+an empty value counts as unset. A <code>--log-file</code> is never coloured either way, so
+you do not need <code>NO_COLOR</code> to make a captured log readable.</p>
 
 
 

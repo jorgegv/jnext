@@ -25,9 +25,12 @@
 // Run: ./build/test/log_test
 
 #include "core/log.h"
+#include "core/cli_options.h"
+#include "core/log_sink_policy.h"
 
 #include <spdlog/sinks/ringbuffer_sink.h>
 
+#include <cctype>
 #include <cstdarg>
 #include <cstdio>
 #include <fstream>
@@ -260,6 +263,223 @@ int main()
             check("LOG-11", "no subsystem is documented but unimplemented",
                   unimplemented.empty(), join(unimplemented));
         }
+    }
+
+    // === Sink policy: where the log goes and whether it is coloured =========
+    //
+    // GH #235 (--log-file) and GH #227 (NO_COLOR) are one decision, made by the
+    // pure log_sink_policy::decide() and consumed by Log::apply_sink_policy().
+    // LOG-12..17 drive the pure half directly — no spdlog, no environment
+    // mutation, every case reachable — and LOG-18/19 pin the two contracts that
+    // only the consumer can express: the loud failure, and the ordering.
+
+    using namespace log_sink_policy;
+
+    // --- LOG-12: no NO_COLOR means the historical behaviour ------------------
+    // Auto, not "colour on": spdlog still does its own tty detection, so a
+    // redirected console stays uncoloured exactly as it always did.
+    check("LOG-12", "NO_COLOR unset leaves colour on spdlog's tty detection (Auto)",
+          decide(nullptr, nullptr).colour == Colour::Auto &&
+          !no_color_suppresses(nullptr));
+
+    // --- LOG-13: a non-empty NO_COLOR suppresses colour ----------------------
+    // https://no-color.org/ — the VALUE is never interpreted. "0" and "false"
+    // suppress colour just as "1" does, because the spec asks about presence
+    // and non-emptiness only. A `if (getenv("NO_COLOR") == "1")` reading would
+    // pass a naive test and fail every one of these.
+    check("LOG-13", "any non-empty NO_COLOR suppresses colour, whatever it says",
+          decide(nullptr, "1").colour     == Colour::Never &&
+          decide(nullptr, "0").colour     == Colour::Never &&
+          decide(nullptr, "false").colour == Colour::Never &&
+          decide(nullptr, " ").colour     == Colour::Never,
+          msg("1=%d 0=%d false=%d space=%d (want %d for all)",
+              static_cast<int>(decide(nullptr, "1").colour),
+              static_cast<int>(decide(nullptr, "0").colour),
+              static_cast<int>(decide(nullptr, "false").colour),
+              static_cast<int>(decide(nullptr, " ").colour),
+              static_cast<int>(Colour::Never)));
+
+    // --- LOG-14: an EMPTY NO_COLOR is the same as unset ----------------------
+    // The spec's own explicit case, and not a corner: setting NO_COLOR= is how
+    // a script re-enables colour for a child whose environment it cannot unset
+    // the variable in. Treating empty as "set" breaks that one escape hatch.
+    check("LOG-14", "an empty NO_COLOR counts as unset (the spec's explicit case)",
+          decide(nullptr, "").colour == Colour::Auto &&
+          !no_color_suppresses(""));
+
+    // --- LOG-15: the two features do not contradict each other ---------------
+    // A file destination is Never with NO_COLOR set AND unset. A file sink
+    // emits no escapes either way; recording that as one readable field is what
+    // stops "is this run coloured?" depending on which sink class was picked.
+    check("LOG-15", "a file destination is uncoloured with NO_COLOR set and unset",
+          decide("trace.log", nullptr).colour == Colour::Never &&
+          decide("trace.log", "1").colour     == Colour::Never &&
+          decide("trace.log", "").colour      == Colour::Never);
+
+    // --- LOG-16: the destination follows the flag ----------------------------
+    // Including the two degenerate values. An empty --log-file "" is still a
+    // File destination (with an unopenable path, reported by LOG-18's contract)
+    // rather than being quietly turned back into console logging.
+    {
+        const Policy console = decide(nullptr, nullptr);
+        const Policy file    = decide("trace.log", nullptr);
+        check("LOG-16", "File when --log-file is given (path kept), Console when not",
+              console.destination == Destination::Console && console.path.empty() &&
+              file.destination    == Destination::File    && file.path == "trace.log" &&
+              decide("", nullptr).destination == Destination::File,
+              msg("console=%d file=%d empty-arg=%d (Console=%d File=%d)",
+                  static_cast<int>(console.destination), static_cast<int>(file.destination),
+                  static_cast<int>(decide("", nullptr).destination),
+                  static_cast<int>(Destination::Console), static_cast<int>(Destination::File)));
+    }
+
+    // --- LOG-17: the pre-scan is arity-aware ---------------------------------
+    // --log-file has to be read before the parse loop (see LOG-19), so it is
+    // read by a second walk over argv. A bare string search would find the
+    // `--log-file` inside --nex-args' VALUE and write the log to "x"; walking
+    // with the table's arity skips values as values.
+    {
+        const char* plain[]  = { "jnext", "--log-file", "out.log", "game.nex" };
+        const char* hidden[] = { "jnext", "--nex-args", "--log-file", "game.nex" };
+        const char* twice[]  = { "jnext", "--log-file", "first.log",
+                                 "--log-file", "second.log" };
+        const char* none[]   = { "jnext", "--headless", "game.nex" };
+        const char* v_plain  = cli::prescan_value(4, plain,  cli::OptId::LogFile);
+        const char* v_hidden = cli::prescan_value(4, hidden, cli::OptId::LogFile);
+        const char* v_twice  = cli::prescan_value(5, twice,  cli::OptId::LogFile);
+        const char* v_none   = cli::prescan_value(3, none,   cli::OptId::LogFile);
+        check("LOG-17", "prescan reads --log-file, skips it inside another option's value, last wins",
+              v_plain != nullptr && std::string(v_plain) == "out.log" &&
+              v_hidden == nullptr &&
+              v_twice != nullptr && std::string(v_twice) == "second.log" &&
+              v_none == nullptr,
+              msg("plain=%s hidden=%s twice=%s none=%s",
+                  v_plain ? v_plain : "(null)", v_hidden ? v_hidden : "(null)",
+                  v_twice ? v_twice : "(null)", v_none ? v_none : "(null)"));
+    }
+
+    // --- LOG-18: an unopenable log file FAILS, it does not fall back ---------
+    // The outcome that must never happen: the user redirects a trace to a file,
+    // the open fails, jnext keeps logging to the console it was redirected away
+    // from, and the empty file reads as "the feature works". So the failure is
+    // reported AND nothing is rebound — checked on the sink pointer itself,
+    // because a fallback that constructed a console sink would replace it.
+    {
+        // Blocked by a regular FILE standing where a directory would have to
+        // be. A merely absent directory is NOT unopenable: spdlog's file_helper
+        // calls create_dir() on the parent first, so `no_such_dir/jnext.log`
+        // succeeds and would have made this row pass vacuously.
+        const char* blocker = "log_test_blocker.tmp";
+        const char* blocked = "log_test_blocker.tmp/jnext.log";
+        { std::ofstream mk(blocker); mk << "not a directory\n"; }
+
+        auto  logger      = Log::emulator();
+        auto  sink_before = logger->sinks().at(0);
+        const Log::SinkResult r = Log::apply_sink_policy(decide(blocked, nullptr));
+        check("LOG-18", "an unopenable --log-file is reported and never silently downgraded to console",
+              !r.ok && !r.error.empty() &&
+              r.error.find(blocked) != std::string::npos &&
+              logger->sinks().size() == 1 && logger->sinks().at(0) == sink_before,
+              msg("ok=%d error=\"%s\" sink_replaced=%d", static_cast<int>(r.ok),
+                  r.error.c_str(),
+                  static_cast<int>(logger->sinks().at(0) != sink_before)));
+        std::remove(blocker);
+    }
+
+    // --- LOG-19: the file receives the lines, including from later loggers ---
+    // The ordering contract. Loggers are function-local statics bound to
+    // whatever sink was current when they were first touched, so main() applies
+    // the policy BEFORE Log::init() and before the startup banner. Two halves
+    // are checked here: an ALREADY-CREATED logger must be rebound in place (its
+    // shared_ptr is cached in a static, so replacing the logger object would
+    // leave that static pointing at the old one), and a logger created LATER
+    // must be built on the new sink by make().
+    {
+        const char* path = "log_test_sink.tmp.log";
+        std::remove(path);
+        const Log::SinkResult r = Log::apply_sink_policy(decide(path, nullptr));
+
+        Log::parse_levels("info");
+        Log::emulator()->info("already-created-logger");
+
+        // A logger make() builds AFTER the policy was applied: drop one from
+        // the registry and let Log::init() re-create it.
+        spdlog::drop("spi");
+        Log::init();
+        spdlog::get("spi")->info("later-created-logger");
+        spdlog::apply_all([](std::shared_ptr<spdlog::logger> l) { l->flush(); });
+
+        std::ifstream in(path);
+        std::string   body((std::istreambuf_iterator<char>(in)),
+                           std::istreambuf_iterator<char>());
+        check("LOG-19", "--log-file receives lines from loggers created before AND after it was applied",
+              r.ok && body.find("already-created-logger") != std::string::npos &&
+              body.find("later-created-logger") != std::string::npos &&
+              body.find("\033[") == std::string::npos,
+              msg("ok=%d bytes=%zu body=[%s]", static_cast<int>(r.ok), body.size(),
+                  body.c_str()));
+
+        // Put the console back so nothing after this writes into the temp file,
+        // then remove it: the sink still holds the handle until it is replaced.
+        Log::apply_sink_policy(decide(nullptr, nullptr));
+        std::remove(path);
+    }
+
+    // --- LOG-20: main.cpp applies the policy BEFORE it logs anything ---------
+    //
+    // LOG-19 proves apply_sink_policy() works. It cannot prove main() CALLS it
+    // early enough, and that is the whole defect: jnext emits its version
+    // banner — and an ffmpeg warning — before the argument loop runs, so a
+    // --log-file wired into that loop would silently lose them, and a test
+    // written afterwards would see a mostly-correct file and pass. Nothing else
+    // can see this seam, so it is checked where it lives: in the source order.
+    // Same technique as cli_options_test's CLI-SRC-01.
+    {
+        // `//` comments are stripped first, exactly as CLI-SRC-01 does: the
+        // prose explaining WHY the policy is applied early necessarily names
+        // Log::init(), and an unstripped scan matches the comment instead of
+        // the call. (It found that on its first run, which is the argument for
+        // stripping rather than for wording comments around a checker.)
+        std::ifstream in(JNEXT_MAIN_SRC);
+        std::string   src;
+        for (std::string line; std::getline(in, line); ) {
+            size_t quotes = 0;
+            for (size_t i = 0; i + 1 < line.size(); ++i) {
+                if (line[i] == '"') ++quotes;
+                if (line[i] == '/' && line[i + 1] == '/' && quotes % 2 == 0) {
+                    line.erase(i);
+                    break;
+                }
+            }
+            src += line;
+            src += '\n';
+        }
+        // Anchored at `int main(`, not at the start of the file: main.cpp also
+        // defines helpers ABOVE main that log when they are later called, and
+        // their source position says nothing about run order.
+        const size_t main_pos  = src.find("int main(");
+        const size_t apply     = src.find("Log::apply_sink_policy(", main_pos);
+        const size_t init      = src.find("Log::init()", main_pos);
+        // The first CALL main makes into the logging subsystem must be the one
+        // that points it somewhere; anything earlier is a line --log-file
+        // cannot catch. Calls only — `Log::SinkResult r = ...` names the type
+        // before the call on the very same line, and a plain "Log::" search
+        // reports that as an earlier use.
+        size_t first_call = std::string::npos;
+        for (size_t p = src.find("Log::", main_pos); p != std::string::npos;
+             p = src.find("Log::", p + 1)) {
+            size_t q = p + 5;
+            while (q < src.size() && (std::isalnum(static_cast<unsigned char>(src[q])) ||
+                                      src[q] == '_')) ++q;
+            if (q < src.size() && src[q] == '(') { first_call = p; break; }
+        }
+        const size_t first_use = first_call;
+        check("LOG-20", "main.cpp applies the sink policy before Log::init() and before any other Log:: use",
+              !src.empty() && main_pos != std::string::npos &&
+              apply != std::string::npos && init != std::string::npos &&
+              apply == first_use && apply < init,
+              msg("main@%zu apply@%zu init@%zu first_use@%zu", main_pos, apply, init,
+                  first_use));
     }
 
     std::printf("\n====================================================\n");

@@ -10,6 +10,11 @@
 /// Each subsystem has a dedicated named logger whose level can be
 /// changed independently at runtime via Log::set_level().
 ///
+/// WHERE the lines go — the console or a `--log-file`, coloured or not — is a
+/// separate decision, made once in src/core/log_sink_policy.h and handed to
+/// apply_sink_policy() below. This file only consumes it. The level policy
+/// that follows is about WHAT is logged and is unaffected by either.
+///
 /// ---------------------------------------------------------------------------
 /// LEVEL POLICY (Task 24, 2026-07-12). Read this before adding a log line.
 ///
@@ -54,7 +59,10 @@
 #include <memory>
 #include <string>
 #include <spdlog/spdlog.h>
+#include <spdlog/sinks/basic_file_sink.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
+
+#include "core/log_sink_policy.h"
 
 class Log {
 public:
@@ -194,12 +202,87 @@ public:
         for (const char* name : SUBSYSTEMS) make(name);
     }
 
+    /// Outcome of apply_sink_policy(). `ok == false` means the requested log
+    /// file could not be opened; `error` is a ready-to-print explanation.
+    struct SinkResult {
+        bool        ok = true;
+        std::string error;
+    };
+
+    /// Point every logger — the ones that exist and the ones make() will create
+    /// later — at the sink the policy asks for (GH #235 `--log-file`, GH #227
+    /// `NO_COLOR`).
+    ///
+    /// ORDERING. Loggers are function-local statics built lazily by make(), so
+    /// a logger touched before this call is already bound to the previous sink
+    /// and its lines are already gone. main() therefore calls this BEFORE
+    /// Log::init() and before the startup banner, which is the first line jnext
+    /// emits. That is the ordering that matters and the one log_test pins; the
+    /// rebind of already-created loggers below is the belt to that braces, and
+    /// covers a logger some future static initialiser touches even earlier.
+    ///
+    /// FAIL LOUDLY. A file that cannot be opened returns `ok == false` and
+    /// changes NOTHING — no fallback to the console, not even a partial one.
+    /// The caller reports and exits non-zero. Quietly logging to a console the
+    /// user has deliberately redirected away from is the one outcome that must
+    /// not happen: they would read the empty file, conclude the feature works,
+    /// and lose the trace they were capturing.
+    static SinkResult apply_sink_policy(const log_sink_policy::Policy& policy) {
+        std::shared_ptr<spdlog::sinks::sink> sink;
+        if (policy.destination == log_sink_policy::Destination::File) {
+            try {
+                // truncate = true: a run's log describes THAT run. Appending
+                // invites a reader to attribute a previous run's lines to this
+                // one, which is exactly the confusion a captured trace exists
+                // to remove.
+                sink = std::make_shared<spdlog::sinks::basic_file_sink_mt>(policy.path, true);
+            } catch (const std::exception& e) {
+                return { false, "cannot open log file '" + policy.path + "': " + e.what() };
+            }
+        } else {
+            sink = std::make_shared<spdlog::sinks::stderr_color_sink_mt>(
+                policy.colour == log_sink_policy::Colour::Never
+                    ? spdlog::color_mode::never
+                    : spdlog::color_mode::automatic);
+        }
+        sink->set_pattern(PATTERN);
+        current_sink() = sink;
+        spdlog::apply_all([&sink](std::shared_ptr<spdlog::logger> l) {
+            l->sinks().assign(1, sink);
+        });
+        return {};
+    }
+
 private:
+    /// One pattern for every logger. `%n` is the logger name, so a single
+    /// shared sink formats all 22 subsystems correctly.
+    static constexpr const char* PATTERN = "[%H:%M:%S.%e] [%n] [%^%l%$] %v";
+
+    /// The sink every logger is built on. Defaults to the historical coloured
+    /// stderr sink with spdlog's own tty detection, so a program that never
+    /// calls apply_sink_policy() (every unit test but log_test) behaves exactly
+    /// as it did before GH #235. Shared rather than one-per-logger because a
+    /// file destination must be ONE file handle opened — and truncated — once.
+    static std::shared_ptr<spdlog::sinks::sink>& current_sink() {
+        static std::shared_ptr<spdlog::sinks::sink> sink = [] {
+            auto s = std::make_shared<spdlog::sinks::stderr_color_sink_mt>(
+                spdlog::color_mode::automatic);
+            s->set_pattern(PATTERN);
+            return std::shared_ptr<spdlog::sinks::sink>(s);
+        }();
+        return sink;
+    }
+
     static std::shared_ptr<spdlog::logger> make(const char* name) {
         auto existing = spdlog::get(name);
         if (existing) return existing;
-        auto logger = spdlog::stderr_color_mt(name);
-        logger->set_pattern("[%H:%M:%S.%e] [%n] [%^%l%$] %v");
+        auto logger = std::make_shared<spdlog::logger>(name, current_sink());
+        // Applies the registry's level for this name (so --log-level survives a
+        // logger created later) and registers it, exactly as the spdlog factory
+        // this replaced did. It also installs the registry's DEFAULT formatter
+        // on the sink, which is why the pattern is re-applied straight after.
+        spdlog::initialize_logger(logger);
+        logger->set_pattern(PATTERN);
         return logger;
     }
 };
