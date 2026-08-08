@@ -135,6 +135,8 @@ const AtEngine::CommandEntry AtEngine::kCommands[] = {
     // `AT+CIPCLOSE=1` walks past it and lands here (GH #211).
     {"AT+CIPCLOSE=",   true,  &AtEngine::cmd_cipclose_id},
     {"AT+CIPSERVER=",  true,  &AtEngine::cmd_cipserver},
+    {"AT+CIPSTO?",     false, &AtEngine::cmd_cipsto_query},
+    {"AT+CIPSTO=",     true,  &AtEngine::cmd_cipsto},
     {"AT+CIPMUX=",     true,  &AtEngine::cmd_cipmux},
     {"AT+UART_CUR=",   true,  &AtEngine::cmd_uart},
     {"AT+UART_DEF=",   true,  &AtEngine::cmd_uart},
@@ -331,6 +333,11 @@ void AtEngine::cmd_reset(const std::string&) {
     // Back to the power-on default, which is the value nextsync depends on
     // never having to ask for.
     cipmux_ = false;
+    // And so is the server idle timeout: `AT+CIPSTO` is absent from the v1.5.4
+    // list of commands that write to flash, so a restart really does forget it
+    // (GH #240, simplification 9c). Real hardware answering `+CIPSTO:180` on a
+    // module that had been running for weeks is the evidence for that.
+    server_timeout_ = DEFAULT_SERVER_TIMEOUT_S;
 
     // `ready` is on the never-emit list; the two WIFI URCs are what the
     // NextZXOS driver actually looks for after a reset.
@@ -451,7 +458,9 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     // answering OK before the socket is up would let the guest send into
     // nothing.
     c.connecting       = true;
-    c.connect_deadline = std::chrono::steady_clock::now() + connect_timeout_;
+    // Through `now()`, like every other wall-clock read here: one notion of
+    // time, so a host (or a row) that supplies a clock supplies all of it.
+    c.connect_deadline = now() + connect_timeout_;
     log_debug("AT+CIPSTART accepted: {} {}:{} (local port {}) on cid {} — reply deferred to "
               "poll() (deadline {} ms)",
                protocol_text(protocol), c.host, c.port, local_port, SINGLE_CID,
@@ -735,6 +744,37 @@ void AtEngine::cmd_cipserver(const std::string& args) {
     queue_ok();
 }
 
+void AtEngine::cmd_cipsto(const std::string& args) {
+    // "<time> TCP server timeout, range 0~7200 seconds" (ESP8266 AT
+    // Instruction Set v1.5.4 §5.17). Parsed against the WHOLE argument, so
+    // `AT+CIPSTO=`, `AT+CIPSTO=-1`, `AT+CIPSTO=10,20` and `AT+CIPSTO=7201` are
+    // all ERROR: exactly one in-range number, or nothing. `parse_uint` refuses
+    // a leading '-' as a non-digit, which is how a negative gets here.
+    std::uint32_t seconds = 0;
+    if (!parse_uint(args, MAX_SERVER_TIMEOUT_S, seconds)) {
+        log_debug("AT+CIPSTO=\"{}\" is not 0..{} — answering ERROR", escape(args),
+                  MAX_SERVER_TIMEOUT_S);
+        queue_error();
+        return;
+    }
+    server_timeout_ = seconds;
+    // Applied LIVE rather than to the next connection: `enforce_server_timeout`
+    // re-reads this on every pass, so a guest that raises the value while a
+    // client is already connected extends THAT client.
+    if (seconds == 0) {
+        log_info("AT+CIPSTO=0 — inbound connections will never be timed out");
+    } else {
+        log_debug("AT+CIPSTO={} — an inbound client silent for that long is dropped", seconds);
+    }
+    queue_ok();
+}
+
+void AtEngine::cmd_cipsto_query(const std::string&) {
+    // `+CIPSTO:<time>` then OK, matching what a real Ai-Thinker ESP-01 on
+    // AT 1.2.0.0 / SDK 1.5.4.1 answers (measured 2026-08-08: `+CIPSTO:180`).
+    queue("\r\n+CIPSTO:" + std::to_string(server_timeout_) + "\r\n\r\nOK\r\n");
+}
+
 void AtEngine::cmd_uart(const std::string& args) {
     std::string rest = args;
     std::uint32_t baud = 0;
@@ -867,6 +907,11 @@ void AtEngine::service_transports() {
         drain_socket(cid);
         note_peer_close(cid);
     }
+    // AFTER `drain_socket`, so a client that spoke on this very pass has
+    // re-armed its timer before it is judged, and BEFORE `frame_ipd`, so the
+    // `[<id>,]CLOSED` a timeout owes is emitted on the same pass a peer close
+    // would have been (GH #240).
+    enforce_server_timeout();
     frame_ipd();
     refresh_tick_gate();
 }
@@ -917,6 +962,11 @@ void AtEngine::accept_connections() {
         c.multiplexed = cipmux_;
         c.host        = to_string(c.transport->peer_address());
         c.port        = 0;  // the peer's ephemeral port is of no use to the guest
+        // `AT+CIPSTO` starts counting HERE, not at the client's first byte: the
+        // measured hardware case is a client that connects, completes one
+        // exchange and then says nothing, and one that says nothing at all must
+        // not be immortal for want of a starting point (GH #240).
+        c.last_client_data = now();
 
         log_info("inbound connection from {} accepted as cid {}", c.host, cid);
         // `[<conn_id>,]CONNECT` — "A network connection of which ID is
@@ -942,7 +992,7 @@ void AtEngine::resolve_connect(std::size_t cid) {
     switch (c.transport->state()) {
         case TransportState::Resolving:
         case TransportState::Connecting:
-            if (std::chrono::steady_clock::now() < c.connect_deadline) {
+            if (now() < c.connect_deadline) {
                 return;  // still in flight; keep deferring guest input
             }
             // DEADLINE BLOWN. Without this the answer comes only when the OS
@@ -1082,6 +1132,9 @@ void AtEngine::drain_socket(std::size_t cid) {
             if (c.transport->state() != TransportState::Connected) break;
         }
         if (count != 0) {
+            // The client spoke, so `AT+CIPSTO`'s silence window restarts — see
+            // the note on the byte path below.
+            c.last_client_data = now();
             log_debug("buffered {} datagram(s) from the peer on cid {} ({} awaiting +IPD "
                       "framing)", count, cid, c.rx_datagrams.size());
         }
@@ -1098,6 +1151,14 @@ void AtEngine::drain_socket(std::size_t cid) {
         if (c.transport->state() != TransportState::Connected) break;
     }
     if (total != 0) {
+        // THE ONE PLACE `AT+CIPSTO`'s TIMER IS RE-ARMED (GH #240). Bytes from
+        // the CLIENT, and nothing else: `flush_outbound` deliberately does not
+        // touch this, because whether server-initiated traffic restarts the
+        // timer is exactly what v1.5.4 does not say and what simplification
+        // (9a) refuses to invent. What the requirement DOES say is that a
+        // client which has sent nothing is the one that gets dropped, so this
+        // is the direction that counts.
+        c.last_client_data = now();
         log_debug("buffered {} byte(s) from the peer on cid {} ({} awaiting +IPD framing)",
                    total, cid, c.rx.size());
     }
@@ -1124,6 +1185,39 @@ void AtEngine::note_peer_close(std::size_t cid) {
     // framed and drained — telling the guest the connection is gone while its
     // last bytes are still queued would lose them.
     c.close_pending = true;
+}
+
+void AtEngine::enforce_server_timeout() {
+    // "If AT+CIPSTO=0, it will never timeout" (v1.5.4 §5.17). Tested first so
+    // that the disabled case costs one compare and no clock read.
+    if (server_timeout_ == 0) return;
+
+    const std::chrono::seconds                  window(server_timeout_);
+    const std::chrono::steady_clock::time_point t = now();
+
+    // INBOUND SLOTS ONLY. This is the TCP *server* timeout, and slot 0 is the
+    // guest's own outbound connection, which no server ever accepted into
+    // (simplification 8a/9b). A silent outbound peer stays connected, exactly
+    // as it did before this existed.
+    for (std::size_t cid = FIRST_INBOUND_CID; cid < MAX_CONNECTIONS; ++cid) {
+        Connection& c = conn_[cid];
+        if (!c.transport || !c.open) continue;
+        if (t - c.last_client_data < window) continue;
+
+        log_info("inbound connection {} on cid {} idle for {} s — closing it (AT+CIPSTO)",
+                 c.host, cid, server_timeout_);
+        // MODELLED AS A PEER CLOSE, deliberately. The module hangs up, but the
+        // guest did not ask it to, so this is a URC and not a command reply —
+        // no `OK` follows it — and `close_pending` gives it the same deferral a
+        // peer close gets: whatever the client already sent is framed first.
+        // That the guest sees `[<id>,]CLOSED` at all is INFERRED for this
+        // firmware (simplification 9d), not observed.
+        c.transport->close();
+        c.open = false;
+        c.tx.clear();
+        c.tx_datagrams.clear();
+        c.close_pending = true;
+    }
 }
 
 // ─── Emulated-time half ───────────────────────────────────────────────

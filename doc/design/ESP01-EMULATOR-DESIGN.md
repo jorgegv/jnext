@@ -49,6 +49,7 @@ engineering reasons in §1.3.
 - [12. Evidence index](#12-evidence-index)
 - [13. Server mode (GH #210)](#13-server-mode-gh-210)
 - [14. Per-connection close (GH #211)](#14-per-connection-close-gh-211)
+- [15. Server idle timeout (GH #240)](#15-server-idle-timeout-gh-240)
 
 ---
 
@@ -378,6 +379,8 @@ column *is* the version boundary, and it carries more than a heading could.
 | `AT+CIPMUX=1` | `\r\nOK\r\n` | GH #210, [§13](#13-server-mode-gh-210). Refused until server mode had a consumer. The power-on default is still 0, and a real mode **change** is still refused while a connection is open — or, back to 0, while the server is up |
 | `AT+CIPSERVER=1,<port>` | `\r\nOK\r\n` | GH #210, [§13](#13-server-mode-gh-210). Needs `AT+CIPMUX=1` first, else `ERROR`. Port 0, a second server, an unbindable port and a missing port are all `ERROR` — a bind failure never falls back to another port or a wider address ([§13.4](#134-security-review--the-inbound-surface)) |
 | `AT+CIPSERVER=0` | `\r\nOK\r\n` | Retires the listener and deliberately **leaves established connections alone**. `ERROR` when no server is running — a deliberate divergence from firmware, which says `OK` ([§13.7](#137-what-implementation-decided-that-13-did-not)) — and `ERROR` for ESP-AT's `<close_all>` argument |
+| `AT+CIPSTO=<time>` | `\r\nOK\r\n` | GH #240, [§15](#15-server-idle-timeout-gh-240). Server idle timeout, `0~7200` seconds inclusive; anything else — out of range, negative, empty, non-numeric, a trailing argument — is `ERROR`. `0` means never. Enforced against **inbound** connections only, and **not** written to flash |
+| `AT+CIPSTO?` | `\r\n+CIPSTO:<time>\r\n\r\nOK\r\n` | GH #240. Power-on **180**, which is what a real Ai-Thinker ESP-01 on AT 1.2.0.0 answers, and what `AT+RST` restores |
 | `AT+UART_CUR=<baud>,…` / `AT+UART_DEF=` / `AT+UART=` | `\r\nOK\r\n` | Recorded and traced; pacing follows the channel's **live prescaler**, so nothing else is needed |
 | `AT+GMR` | canned version block | Anchors `T version:` and `DK version:`, each printed to the next `(` |
 | `AT+CWJAP?` | `\r\n+CWJAP:"<SSID>","<BSSID>",1,-55\r\n\r\nOK\r\n` | |
@@ -400,6 +403,7 @@ session sees the prefixed one ([§13.3](#133-the-constraint-that-makes-this-real
 | `\r\nCLOSED\r\n` | Peer closed — deferred until everything already received has been framed and drained |
 | `\r\n<id>,CLOSED\r\n` | Peer closed a multiplexed connection, with the same deferral (GH #210) |
 | `\r\n<id>,CONNECT\r\n` | An inbound connection was **accepted** (GH #210, [§13](#13-server-mode-gh-210)). Always prefixed — a server requires `AT+CIPMUX=1` — and `<id>` runs **1..4**, never 0, which stays the guest's own outbound slot |
+| `\r\n<id>,CLOSED\r\n` | The **module** hung up on an inbound client that had been silent for `AT+CIPSTO` seconds (GH #240, [§15](#15-server-idle-timeout-gh-240)). Byte-identical to a peer close, and deliberately so — the guest has one thing to parse, not two. That this is the spelling real firmware uses here is **inferred**, not observed ([§15.3](#153-what-is-inferred-and-what-is-measured)) |
 
 ### 5.2 The framing constraints that actually bite
 
@@ -1697,3 +1701,101 @@ passes, because destroying the accepted transport closes its descriptor anyway.
   using. Adding it would mean inventing a status format nothing parses.
 - **No change to who may connect.** This command only tears connections down;
   the bind address and the security posture of §13.4 are untouched.
+
+---
+
+## 15. Server idle timeout (GH #240)
+
+`AT+CIPSTO` is the first command in this surface whose behaviour was **measured
+on real hardware before anything was written**, and that changes what the model
+is answerable to. Everywhere else the authority is VHDL or guest source; here
+there is neither — the module is on the far end of a UART cable — so the
+oracle is an actual Ai-Thinker ESP-01, plus the [ESP8266 AT Instruction Set
+v1.5.4](https://www.espressif.com/sites/default/files/4a-esp8266_at_instruction_set_en_v1.5.4_0.pdf)
+§5.17 for the range.
+
+### 15.1 The measurement
+
+Owner's Next, 2026-08-08. Module identified with `.UART`:
+
+```
+AT version:1.2.0.0(Jul  1 2016 20:04:45)
+SDK version:1.5.4.1(39cb9a32)   Ai-Thinker Technology Co. Ltd.
+AT+CIPSTO?  →  +CIPSTO:180
+```
+
+Then, over DZRP against `dezogif_ng` running as a TCP server (`AT+CIPMUX=1` +
+`AT+CIPSERVER=1,11000`): a client connects, completes a `CMD_INIT` exchange and
+then says nothing. The module dropped it after **182.5 s** and **181.8 s** on two
+runs. Same subnet, no NAT; the stub has no code path that closes an established
+connection, and the client neither sent nor closed.
+
+So the timeout is a **live mechanism** rather than a documented one, 180 is the
+firmware default, and it is what quietly kills an idle debug session.
+
+### 15.2 What was added
+
+| Line from guest | Reply (exact bytes) | Notes |
+|---|---|---|
+| `AT+CIPSTO=<time>` | `\r\nOK\r\n` | `0~7200` seconds, **inclusive** at both ends. Applied live, so raising it extends a client that is already connected |
+| `AT+CIPSTO?` | `\r\n+CIPSTO:<time>\r\n\r\nOK\r\n` | 180 at power-on and after `AT+RST` |
+| `AT+CIPSTO=7201` / `=-1` / `=` / `=abc` / `=10,20` | `\r\nERROR\r\n` | One in-range number, or nothing — the rule `AT+CIPCLOSE=<id>` already follows |
+
+Enforcement lives in `AtEngine::enforce_server_timeout()`, called from
+`service_transports()` **after** `drain_socket` (so a client that spoke on this
+pass has re-armed before it is judged) and **before** `frame_ipd` (so the
+`CLOSED` it owes is emitted on the same pass a peer close would have been). The
+close is modelled exactly as a peer close: `close_pending` defers the
+notification until everything already received has been framed, the slot returns
+to the pool, and **no `OK` follows** — the guest did not ask for this, so it is a
+URC and not a command reply.
+
+### 15.3 What is inferred, and what is measured
+
+The one part of this that hardware has **not** confirmed is what the guest sees.
+v1.5.4's `CIPSTO` entry does not say; the `[<id>,]CLOSED` spelling is inferred
+from `AT+CIPMODE`'s note that a broken normal-TCP connection prompts exactly
+that, and from there being no other spelling a guest could parse. It is recorded
+as an inference in `esp_at.h` simplification (9d) rather than presented as fact,
+and a real Next could still contradict it.
+
+### 15.4 Three things this deliberately does NOT model
+
+- **Whether server-initiated traffic restarts the timer.** Newer esp-at
+  documentation says it does not; **v1.5.4 is silent**, and this module does not
+  invent behaviour it cannot cite for the firmware it emulates. An
+  implementation must nonetheless pick one, and it picks the one the requirement
+  states — *a connection whose client has sent nothing* — so only peer → guest
+  bytes re-arm the timer (`AtEngine::drain_socket`) and an `AT+CIPSEND` never
+  does. That is a consequence of the requirement, not a claim about hardware.
+- **The outbound connection.** This is the TCP *server* timeout, and slot 0 is
+  the guest's own dial-out, which no server accepted into (§13.7 (a)). §2's
+  simplification 6 — "an established connection that goes silent is never timed
+  out" — therefore still holds in full for outbound connections and is now
+  false only for inbound ones.
+- **Persistence.** `AT+CIPSTO` is absent from v1.5.4's list of commands that
+  write to flash, so the value does not survive a restart. `AT+RST` puts it back
+  to 180, exactly as `echo_` and `cipmux_` go back to their power-on defaults —
+  and a module that had been running for weeks still answering `+CIPSTO:180` is
+  the evidence for that.
+
+### 15.5 How it is proved, and what the proof does not cover
+
+The default window is **three minutes**, so a suite that proved this by waiting
+would be a suite nobody runs. `AtEngine` therefore gained its one new seam: an
+injectable clock (`set_clock`), defaulting to `std::steady_clock::now()` so that
+every consumer and every pre-existing row is unchanged by construction. Both
+wall-clock reads in the engine — the `AT+CIPSTART` deadline and this one — go
+through it, so a caller that supplies time supplies all of it.
+
+The 33 `STO-*` rows in `esp_at_test` drive that clock by hand: the default is
+reported *and* enforced, the window is exact at its boundary (29 s leaves the
+client alone, 30 s drops it), `0` survives 100 000 s, client traffic restarts
+the window while the passage of time alone does not, the outbound slot is
+untouched, and `AT+RST` forgets the value.
+
+**What they prove is that the engine honours the window it is given.** They do
+not prove the window a real ESP-01 uses — that took the hardware probe in §15.1,
+and the issue is explicit that the accepted-and-changed arm is verifiable on
+hardware only: re-run the probe with `AT+CIPSTO=7200` and require the connection
+to survive past 300 s where it died at ~182 s.

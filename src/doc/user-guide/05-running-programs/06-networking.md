@@ -262,6 +262,14 @@ costs it the ability to dial out. A program can also hang up on any one of them
 by number, so a client that stops answering without disconnecting does not hold
 its place for the rest of the session.
 
+**An idle client is hung up on after three minutes.** Something that connects
+and then sends nothing for 180 seconds is disconnected, and the program is told
+so — the same thing a real ESP-01 does, and the usual reason a debug session
+dies while you were reading something else. A program that wants a different
+answer sets one: `AT+CIPSTO=<seconds>`, anywhere from 0 to 7200, where **0 means
+never hang up**. The setting is forgotten on a reset, exactly as it is on
+hardware, so it has to be sent each time.
+
 ## What is not emulated yet
 
 The command set is the one **evidenced** in software that actually runs on a
