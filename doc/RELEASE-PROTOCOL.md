@@ -54,6 +54,13 @@ All three, in order:
    the version to the AppStream metainfo — §3). On `N` (or a non-interactive
    shell), leave `releases.yaml` untouched — a private history tag.
    **Before answering `y`, the ChangeLog MUST be up to date — see §2.1.**
+
+   **`PUBLIC_RELEASE=y|n` answers the prompt without a terminal**, e.g.
+   `make bump-patch PUBLIC_RELEASE=y`. It exists because the prompt is gated on
+   `[ -t 0 ]`: without a TTY the target silently takes the `n` branch, so a
+   scripted or agent-driven release would produce a *private* tag while
+   reporting success, and publish nothing. The variable overrides both the
+   prompt and that fallback; unset, behaviour is exactly as before.
 4. Write `version.yaml`, then run `packaging/sync-version.sh <newver>` to
    propagate the version into every hand-maintained packaging file (§3).
 5. Stage `version.yaml`, the synced packaging files, and (if added)
@@ -302,7 +309,8 @@ so it stays a decision rather than drift.
    Commit those.
 3. `make bump-minor` (or `bump-major`) and answer the
    `Add … to releases.yaml?` prompt **`y`** — this is the step that makes it a
-   public release.
+   public release. Non-interactively, pass `PUBLIC_RELEASE=y` (§2); without it
+   the target defaults to a private tag and publishes nothing.
 4. Get the user's explicit **"push"** authorization.
 5. Push `main`, then push the single release tag (`git push origin vX.Y.Z`).
 6. CI sees the tag is in `releases.yaml` → builds all packages → publishes the

@@ -973,7 +973,7 @@ version:
 	@ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
 	 printf "$(BOLD)jnext $$ver$(RESET)\n"
 
-# Bump patch version (x.y.Z → x.y.Z+1)
+# Bump patch version (x.y.Z → x.y.Z+1) — PUBLIC_RELEASE=y|n answers the public-release prompt
 bump-patch:
 	@if ! git diff --quiet || ! git diff --cached --quiet; then \
 	   printf "$(BOLD)Error: uncommitted changes present. Commit or stash first.$(RESET)\n"; exit 1; \
@@ -985,7 +985,8 @@ bump-patch:
 	 patch=$$((patch + 1)); \
 	 newver="$$major.$$minor.$$patch"; \
 	 rel=""; \
-	 if [ -t 0 ]; then \
+	 if [ -n "$(PUBLIC_RELEASE)" ]; then ans="$(PUBLIC_RELEASE)"; \
+	 elif [ -t 0 ]; then \
 	   printf "Add v$$newver to releases.yaml (build a public GitHub Release)? [y/N] "; read ans || ans=n; \
 	 else ans=n; fi; \
 	 case "$$ans" in [yY]*) bash packaging/add-release.sh "v$$newver" && rel="releases.yaml" ;; *) : ;; esac && \
@@ -997,7 +998,7 @@ bump-patch:
 	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
-# Bump minor version (x.Y.z → x.Y+1.0)
+# Bump minor version (x.Y.z → x.Y+1.0) — PUBLIC_RELEASE=y|n answers the public-release prompt
 bump-minor:
 	@if ! git diff --quiet || ! git diff --cached --quiet; then \
 	   printf "$(BOLD)Error: uncommitted changes present. Commit or stash first.$(RESET)\n"; exit 1; \
@@ -1008,7 +1009,8 @@ bump-minor:
 	 minor=$$((minor + 1)); \
 	 newver="$$major.$$minor.0"; \
 	 rel=""; \
-	 if [ -t 0 ]; then \
+	 if [ -n "$(PUBLIC_RELEASE)" ]; then ans="$(PUBLIC_RELEASE)"; \
+	 elif [ -t 0 ]; then \
 	   printf "Add v$$newver to releases.yaml (build a public GitHub Release)? [y/N] "; read ans || ans=n; \
 	 else ans=n; fi; \
 	 case "$$ans" in [yY]*) bash packaging/add-release.sh "v$$newver" && rel="releases.yaml" ;; *) : ;; esac && \
@@ -1020,7 +1022,7 @@ bump-minor:
 	 git commit -m "chore: bump version to $$newver" && git tag "v$$newver" && \
 	 printf "$(BOLD)Bumped to $$newver and tagged v$$newver$(RESET)\n"
 
-# Bump major version (X.y.z → X+1.0.0)
+# Bump major version (X.y.z → X+1.0.0) — PUBLIC_RELEASE=y|n answers the public-release prompt
 bump-major:
 	@if ! git diff --quiet || ! git diff --cached --quiet; then \
 	   printf "$(BOLD)Error: uncommitted changes present. Commit or stash first.$(RESET)\n"; exit 1; \
@@ -1030,7 +1032,8 @@ bump-major:
 	 major=$$((major + 1)); \
 	 newver="$$major.0.0"; \
 	 rel=""; \
-	 if [ -t 0 ]; then \
+	 if [ -n "$(PUBLIC_RELEASE)" ]; then ans="$(PUBLIC_RELEASE)"; \
+	 elif [ -t 0 ]; then \
 	   printf "Add v$$newver to releases.yaml (build a public GitHub Release)? [y/N] "; read ans || ans=n; \
 	 else ans=n; fi; \
 	 case "$$ans" in [yY]*) bash packaging/add-release.sh "v$$newver" && rel="releases.yaml" ;; *) : ;; esac && \
