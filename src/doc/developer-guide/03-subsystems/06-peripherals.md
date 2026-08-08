@@ -167,6 +167,16 @@ multiplexed framing reaches only a connection whose own session asked for it,
 and the listener binds loopback unless the user widens it with
 `--esp-listen-address`.
 
+**`AT+CIPSTO` closes an idle inbound connection** (0-7200 s, default 180), which
+is the one behaviour here derived from a *measurement* rather than from a
+document or a source: a real Ai-Thinker ESP-01 answers `+CIPSTO:180` and drops a
+silent server-accepted client at ~182 s. It is also why `AtEngine` has an
+injectable clock — a three-minute default is not provable by waiting, so
+`set_clock()` exists and both of the engine's wall-clock deadlines read through
+it. Only bytes arriving **from the peer** restart the window; whether
+server-initiated traffic does is what the matching firmware document does not
+say, and is deliberately not modelled.
+
 ### Why it is a separate component, and what that costs
 
 The ESP-01 emulation lives in `src/esp01/`, **outside** `src/peripheral/`, and

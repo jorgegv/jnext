@@ -133,6 +133,15 @@ public:
     std::uint16_t            last_local_port = 0;
     int                      begin_calls = 0;
     int                      close_calls = 0;
+    /// Where `close()` records itself a SECOND time, when a row points this
+    /// somewhere (GH #240).
+    ///
+    /// The engine OWNS an accepted transport and deletes it the instant the
+    /// slot is released, which on the `AT+CIPSTO` path happens in the very
+    /// same `settle()` that emits the `CLOSED` a row wants to assert. Reading
+    /// `close_calls` after that reads a freed object; a row-local int does
+    /// not. Null by default, so no existing row's behaviour changes.
+    int*                     close_tally = nullptr;
 
     bool begin_connect(const std::string& host, std::uint16_t port, Protocol proto,
                        std::uint16_t local_port) override {
@@ -203,6 +212,7 @@ public:
 
     void close() override {
         ++close_calls;
+        if (close_tally) ++*close_tally;
         if (state_ != TransportState::Idle) state_ = TransportState::Closed;
     }
 
@@ -515,9 +525,26 @@ struct Rig {
     AtEngine      eng{tr, &lsn};
     std::string   guest;  ///< everything the engine has released toward the guest
 
+    /// What the engine believes the time is, once `freeze_clock()` has been
+    /// called. Untouched — and unread — until then.
+    std::chrono::steady_clock::time_point clock_now = std::chrono::steady_clock::now();
+
     Rig() {
         eng.set_output([this](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
     }
+
+    /// Put the engine's clock under this row's control (GH #240).
+    ///
+    /// OPT-IN, and that is the point: `AT+CIPSTO`'s default is 180 SECONDS, so
+    /// the only alternative to an injectable clock is a suite that waits three
+    /// minutes per row — which is to say, a suite nobody runs and a feature
+    /// nobody proves. Every OTHER row keeps running against the real
+    /// `steady_clock`, so the pre-existing connect-deadline rows (CON-11..13)
+    /// are untouched by this seam existing.
+    void freeze_clock() { eng.set_clock([this] { return clock_now; }); }
+
+    /// Move the frozen clock forward. Only meaningful after `freeze_clock()`.
+    void advance(int seconds) { clock_now += std::chrono::seconds(seconds); }
 
     /// Guest transmits a string, byte by byte, exactly as `UartChannel`
     /// would deliver it.
@@ -2334,6 +2361,182 @@ int main() {
         check_eq("CLS-21", "...and one AT+CIPCLOSE=<id> puts the module back in service, "
                  "the next peer landing in the freed slot", r.take(),
                  "\r\n2,CONNECT\r\n"); }
+
+    // ── AT+CIPSTO — the server idle timeout (GH #240) ─────────────────────
+    //
+    // UNUSUALLY FOR THIS SUITE, THE ORACLE IS A MEASUREMENT. There is no VHDL
+    // for a thing on the far end of a UART cable, so the authority is a real
+    // Ai-Thinker ESP-01 (AT 1.2.0.0 / SDK 1.5.4.1) probed on 2026-08-08 — it
+    // answers `+CIPSTO:180` and drops a silent server-accepted client after
+    // 182.5 s and 181.8 s on two runs — plus the ESP8266 AT Instruction Set
+    // v1.5.4 §5.17 for the range and the "0 means never" rule.
+    //
+    // THE CLOCK IS FROZEN, NOT WAITED ON. `Rig::freeze_clock()` exists for
+    // exactly these rows: the default window is three minutes, so a row that
+    // proved the timeout by sleeping would be a row that never runs. What that
+    // buys is also what it costs — see the note above STO-11 for what these
+    // rows do NOT prove.
+
+    {   Rig r;
+        r.send("AT+CIPSTO?\r\n"); r.drain();
+        check_eq("STO-01", "AT+CIPSTO? answers the default a real module reports", r.take(),
+                 "\r\n+CIPSTO:180\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPSTO=10\r\n"); r.drain();
+        check_eq("STO-02", "an in-range AT+CIPSTO=<time> answers OK", r.take(), "\r\nOK\r\n");
+        r.send("AT+CIPSTO?\r\n"); r.drain();
+        check_eq("STO-02b", "...and the query reads back what was set", r.take(),
+                 "\r\n+CIPSTO:10\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPSTO=0\r\n"); r.drain();
+        check_eq("STO-03", "0 — \"it will never timeout\" — is a legal setting, not a "
+                 "refusal", r.take(), "\r\nOK\r\n");
+        r.send("AT+CIPSTO?\r\n"); r.drain();
+        check_eq("STO-03b", "...and reads back as 0", r.take(), "\r\n+CIPSTO:0\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPSTO=7200\r\n"); r.drain();
+        check_eq("STO-04", "the top of the documented 0~7200 range is INCLUSIVE", r.take(),
+                 "\r\nOK\r\n");
+        check("STO-04b", "...and really took", r.eng.server_timeout() == 7200); }
+    {   Rig r;
+        r.send("AT+CIPSTO=7201\r\n"); r.drain();
+        check_eq("STO-05", "one past the range is ERROR", r.take(), "\r\nERROR\r\n");
+        r.send("AT+CIPSTO?\r\n"); r.drain();
+        check_eq("STO-05b", "...and a refused value changes nothing", r.take(),
+                 "\r\n+CIPSTO:180\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPSTO=-1\r\n"); r.drain();
+        check_eq("STO-06", "a negative time is ERROR", r.take(), "\r\nERROR\r\n");
+        check("STO-06b", "...and did not wrap into a huge unsigned window",
+              r.eng.server_timeout() == 180); }
+    {   Rig r;
+        r.send("AT+CIPSTO=\r\n"); r.drain();
+        check_eq("STO-07", "AT+CIPSTO= with no time is ERROR, not a reset to 0", r.take(),
+                 "\r\nERROR\r\n");
+        check("STO-07b", "...and 0 is emphatically not what it meant",
+              r.eng.server_timeout() == 180); }
+    {   Rig r;
+        r.send("AT+CIPSTO=abc\r\n"); r.drain();
+        check_eq("STO-08", "a non-numeric time is ERROR", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPSTO=10,20\r\n"); r.drain();
+        check_eq("STO-09", "a trailing argument is refused, not ignored", r.take(),
+                 "\r\nERROR\r\n");
+        check("STO-09b", "...and nothing was taken from the part that did parse",
+              r.eng.server_timeout() == 180); }
+    {   // v1.5.4 lists the commands that write to flash and AT+CIPSTO is NOT
+        // among them — which is why a module that had been running for weeks
+        // still answered 180. A restart forgets it.
+        Rig r;
+        r.send("AT+CIPSTO=7200\r\n"); r.drain(); r.take();
+        r.send("AT+RST\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSTO?\r\n"); r.drain();
+        check_eq("STO-10", "the value does not survive AT+RST — the command does not "
+                 "persist to flash", r.take(), "\r\n+CIPSTO:180\r\n\r\nOK\r\n"); }
+
+    {   // THE ARM THAT MATTERS, and the limit of what it proves. These rows
+        // drive the engine's own notion of time, so they prove the ENGINE
+        // closes an idle inbound connection at the window it was given and
+        // tells the guest in the bytes below. They do NOT prove the window a
+        // real ESP-01 uses — that took a hardware probe, is recorded in the
+        // issue, and is what fixed the default at 180 (STO-01/STO-12).
+        Rig r;
+        r.freeze_clock();
+        r.send("AT+CIPSTO=30\r\nAT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        int            closes = 0;
+        FakeTransport* peer   = add_inbound(r.lsn);
+        peer->close_tally     = &closes;  // outlives the transport — see close_tally
+        r.settle(); r.take();
+        r.advance(29);
+        r.settle();
+        check_eq("STO-11", "a client one second short of the window is left alone", r.take(),
+                 "");
+        check("STO-11b", "...and is still connected",
+              r.eng.inbound_connections() == 1 && closes == 0);
+        r.advance(1);
+        r.settle();
+        // `[<id>,]CLOSED` and nothing else: the module hung up, the guest did
+        // not ask it to, so this is a URC and no `OK` follows. That the guest
+        // sees this spelling at all is INFERRED for AT 1.2.0.0 — v1.5.4's
+        // CIPSTO entry does not say (esp_at.h simplification 9d).
+        check_eq("STO-11c", "an idle client is dropped at the window, announced as "
+                 "<id>,CLOSED with no OK", r.take(), "\r\n1,CLOSED\r\n");
+        check("STO-11d", "...having really closed the socket", closes == 1);
+        check("STO-11e", "...and returned the slot to the pool",
+              r.eng.inbound_connections() == 0); }
+    {   // The DEFAULT is enforced, not merely reported. A module that answered
+        // `+CIPSTO:180` and then never timed anything out would pass STO-01.
+        Rig r;
+        r.freeze_clock();
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.advance(179);
+        r.settle();
+        check_eq("STO-12", "the 180 s default really governs, with no AT+CIPSTO sent at all",
+                 r.take(), "");
+        r.advance(1);
+        r.settle();
+        check_eq("STO-12b", "...and fires at 180", r.take(), "\r\n1,CLOSED\r\n"); }
+    {   // "If AT+CIPSTO=0, it will never timeout" (v1.5.4 §5.17).
+        //
+        // THE ACCEPT PASS IS ASSERTED RATHER THAN DISCARDED, deliberately: a
+        // zero window read as "expired the instant it was armed" closes the
+        // connection in the SAME settle that announces it, so a row that
+        // take()s the CONNECT away and only looks afterwards sees silence and
+        // passes. Reading both URCs out of one take() is what makes 0 mean
+        // never rather than always.
+        Rig r;
+        r.freeze_clock();
+        r.send("AT+CIPSTO=0\r\nAT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        int            closes = 0;
+        FakeTransport* peer   = add_inbound(r.lsn);
+        peer->close_tally     = &closes;
+        r.settle();
+        check_eq("STO-13", "AT+CIPSTO=0 does not close the client the moment it arrives",
+                 r.take(), "\r\n1,CONNECT\r\n");
+        r.advance(100000);  // well past the 7200 s ceiling of the setting form
+        r.settle(); r.settle();
+        check_eq("STO-13b", "...nor 100 000 seconds later — 0 really is never", r.take(), "");
+        check("STO-13c", "...and the socket was left alone",
+              r.eng.inbound_connections() == 1 && closes == 0); }
+    {   // CLIENT SILENCE IS WHAT ARMS IT — the requirement's wording, and the
+        // whole reason the refresh lives in `drain_socket`. Nothing here says
+        // anything about the OTHER direction: whether server-initiated traffic
+        // restarts the timer is what v1.5.4 does not state and what this
+        // module deliberately does not model (esp_at.h simplification 9a).
+        Rig r;
+        r.freeze_clock();
+        r.send("AT+CIPSTO=30\r\nAT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        FakeTransport* peer = add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.advance(20);
+        peer->queue_from_peer("x");
+        r.settle();
+        check_eq("STO-14", "the client speaks at 20 s and is heard", r.take(),
+                 "\r\n+IPD,1,1:x");
+        r.advance(20);
+        r.settle();
+        check_eq("STO-14b", "...which restarts the window: 40 s after connecting, but 20 s "
+                 "after speaking, it is still up", r.take(), "");
+        check("STO-14c", "...and really still connected", r.eng.inbound_connections() == 1);
+        r.advance(11);
+        r.settle();
+        check_eq("STO-14d", "...and it is the SILENCE that is measured — 31 s after the last "
+                 "byte it goes", r.take(), "\r\n1,CLOSED\r\n"); }
+    {   // AT+CIPSTO is the TCP *SERVER* timeout. Slot 0 is the guest's own
+        // outbound connection and no server ever accepted into it
+        // (simplification 8a), so a silent outbound peer stays connected
+        // exactly as it did before this feature existed.
+        Rig r;
+        r.freeze_clock();
+        r.connect();
+        r.send("AT+CIPSTO=10\r\n"); r.settle(); r.take();
+        r.advance(1000);
+        r.settle(); r.settle();
+        check_eq("STO-15", "the OUTBOUND connection is not subject to the server timeout",
+                 r.take(), "");
+        check("STO-15b", "...and is still live", r.eng.connected() && r.tr.close_calls == 0); }
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,
