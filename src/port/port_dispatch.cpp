@@ -148,9 +148,12 @@ void PortDispatch::write(uint16_t port, uint8_t val) {
         //
         // `best` itself is not dereferenced after the call — best_bits /
         // best_idx are already copies — so the callable is the only thing
-        // needing to outlive the invocation. Every handler registered today
-        // captures `this` alone and so stays in libstdc++'s small-object
-        // buffer: the copy allocates nothing.
+        // needing to outlive the invocation. The copy allocates nothing for
+        // any handler registered today: all but one capture `this` alone,
+        // and the exception — the magic-port writer at emulator.cpp:5822 —
+        // captures a lone `MagicPortMode`, an `enum class : uint8_t`. Both
+        // are trivially copyable and well inside libstdc++'s 16-byte
+        // small-object buffer, so neither leaves it.
         const auto handler = best->write;
         handler(port, val);
         if (!write_declined_) return;   // handled
