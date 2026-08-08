@@ -133,6 +133,7 @@ BEGIN {
     M["host_hotkey_test"]              = "Host hotkeys on Alt (Ctrl to guest)"
     M["main_window_accel_test"]        = "Main-window menu mnemonics"
     M["shifted_keys_test"]             = "Shifted symbols reach the guest"
+    M["window_scale_test"]             = "Window scale geometry"
     M["quit_cleanup_test"]             = "Quit runs closeEvent cleanup"
     M["nex_v13_dialog_test"]           = "NEX V1.3 GUI warning dialog"
     M["log_test"]                      = "Logging"

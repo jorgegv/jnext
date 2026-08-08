@@ -897,6 +897,12 @@ if(ENABLE_QT_UI)
     target_include_directories(shifted_keys_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME shifted_keys_tests COMMAND shifted_keys_test)
 
+    add_executable(window_scale_test gui/window_scale_test.cpp)
+    set_target_properties(window_scale_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(window_scale_test PRIVATE jnext_gui)
+    target_include_directories(window_scale_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME window_scale_tests COMMAND window_scale_test)
+
     # Issue #131 — File > Quit was wired straight to QApplication::quit(), so
     # MainWindow::closeEvent() never ran and its cleanup (stop an active
     # recording, tear the debugger down) was skipped. Asserts the OBSERVABLE
