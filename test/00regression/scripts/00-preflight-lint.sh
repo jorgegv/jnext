@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Group rows: the two static preflight lints, always rows 1-2 of the suite.
+# Group rows: the three static preflight lints, always rows 1-3 of the suite.
 # Sourced by regression.sh (the driver); also directly executable.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
