@@ -1269,6 +1269,253 @@ static void section11_t56_nr05_5060() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 12 — GH #237: the boot-time raster/interrupt geometry comes
+// from the NR 0x03 tim_sel axis, not from the CLI machine type.
+//
+// VHDL derivation (every link checked, none inferred from the C++):
+//   * zxnext.vhd:6721   — zxula_timing's `i_timing` port is driven by
+//                         `eff_nr_03_machine_timing` and by nothing else.
+//                         `machine_type_*` (typ_sel, :5741-5757) reaches
+//                         the raster generator through no path at all.
+//   * zxnext.vhd:6703   — that latch loads from `nr_03_machine_timing`
+//                         at every `video_frame_sync`.
+//   * zxnext.vhd:1099   — `nr_03_machine_timing := "011"`, an initialiser
+//                         only; :1377 gives the eff copy the same "011".
+//   * zxnext.vhd:4926-5111 — the master reset block contains NO
+//                         assignment to it, so it survives hard AND soft
+//                         reset; only the gated NR 0x03 write at
+//                         :5124-5135 changes it.
+//   ⇒ the Next boots with i_timing = "011": zxula_timing takes the
+//     `i_timing(1)='1'` branch (:178) and, inside it, the
+//     `i_timing(0)='1'` arm (:189) — c_int_h = 136+2-12 = 126, NOT the
+//     128 of the `i_timing(0)='0'` arm at :187.
+//
+// The 128K and +3 arms differ in c_int_h and in NOTHING else: c_max_hc
+// (:196), c_max_vc (:204), c_min_hactive (:195), c_min_vactive (:203),
+// c_int_v (:199) and the whole blank/sync/hdmi group sit outside the
+// `if i_timing(0)` — at 50 Hz (:182-204) and at 60 Hz (:216-238) alike.
+// So the fix must move the interrupt position and must move nothing else.
+// ══════════════════════════════════════════════════════════════════════
+
+namespace gh237 {
+
+static bool build_emu(Emulator& emu, MachineType type) {
+    EmulatorConfig cfg;
+    cfg.type = type;
+    cfg.rewind_buffer_frames = 0;
+    return emu.init(cfg);
+}
+
+// Write NR via the real port path, so the production NR 0x03 / NR 0x02
+// handlers fire exactly as a guest's OUT would make them.
+static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0x243B, reg);
+    emu.port().out(0x253B, val);
+}
+
+static std::string geom(const Emulator& emu) {
+    return "hc_max=" + std::to_string(emu.video_timing().hc_max()) +
+           " vc_max=" + std::to_string(emu.video_timing().vc_max()) +
+           " int=(" + std::to_string(emu.video_timing().int_position().hc) +
+           "," + std::to_string(emu.video_timing().int_position().vc) + ")" +
+           " px/line=" + std::to_string(emu.timing().pixels_per_line) +
+           " lines=" + std::to_string(emu.timing().lines_per_frame);
+}
+
+}  // namespace gh237
+
+static void section12_gh237_init_from_nr03() {
+    set_group("VT-S12-GH237-INIT-FROM-NR03");
+
+    // Every row below folds "did init() succeed" into its own condition
+    // rather than emitting a second check() under the same ID from a guard
+    // branch: a row is one check() call, so the traceability matrix records
+    // the row's real description instead of an init-failure message.
+
+    // VT-GH237-01 — the headline defect. A Next cold boot must place the
+    // ULA interrupt on the +3 arm.
+    {
+        Emulator   emu;
+        const bool built = gh237::build_emu(emu, MachineType::ZXN_ISSUE2);
+        const RasterPos p =
+            built ? emu.video_timing().int_position() : RasterPos{0, 0};
+        check("VT-GH237-01",
+              "Next cold boot: ULA interrupt at (126, 1) — the "
+              "i_timing(0)='1' arm the \"011\" power-on tim_sel selects, not "
+              "the 128 of the 128K arm "
+              "[zxnext.vhd:1099,:6721; zxula_timing.vhd:186-190,199]",
+              built && p.hc == 126 && p.vc == 1,
+              built ? gh237::geom(emu) : std::string("init(ZXN) failed"));
+    }
+
+    // VT-GH237-02 — the SOURCE, not just the number. The boot geometry has
+    // to be what the NR 0x03 tim_sel field decodes to, and must NOT be what
+    // the CLI-machine-type mapping decodes to — those two disagree for the
+    // Next, which is the whole defect.
+    {
+        Emulator   emu;
+        const bool built = gh237::build_emu(emu, MachineType::ZXN_ISSUE2);
+        const uint8_t tim = built ? emu.nextreg().nr_03_machine_timing() : 0xFF;
+        VideoTiming from_reg;
+        from_reg.init_timing(decode_nr_03_machine_timing(tim));
+        VideoTiming from_cli;
+        from_cli.init_timing(
+            default_machine_timing_for(MachineType::ZXN_ISSUE2));
+        const RasterPos p =
+            built ? emu.video_timing().int_position() : RasterPos{0, 0};
+        const bool tracks_reg = p.hc == from_reg.int_position().hc &&
+                                p.vc == from_reg.int_position().vc;
+        // Guard the premise: were the two axes ever to agree the row would
+        // be vacuous, so assert that they still disagree.
+        const bool axes_disagree =
+            from_reg.int_position().hc != from_cli.int_position().hc;
+        check("VT-GH237-02",
+              "Next cold boot: the interrupt position tracks the NR 0x03 "
+              "tim_sel register (\"011\") and NOT "
+              "default_machine_timing_for(cfg.type), which still says 128K "
+              "— the two disagree, and the register wins "
+              "[zxnext.vhd:6721 i_timing <= eff_nr_03_machine_timing]",
+              built && tim == 0x03 && axes_disagree && tracks_reg,
+              "tim_sel=" + std::to_string(tim) + " reg_int_hc=" +
+                  std::to_string(from_reg.int_position().hc) +
+                  " cli_int_hc=" +
+                  std::to_string(from_cli.int_position().hc) +
+                  " actual_int_hc=" + std::to_string(p.hc));
+    }
+
+    // VT-GH237-03 — only c_int_h moved. Everything else in the 128K/+3
+    // branch is shared between the two arms, so a fix that also shifted the
+    // frame envelope or the display origin would be wrong even though the
+    // interrupt landed right. The master-cycle frame is asserted in the same
+    // row because it is derived from the same constants and must not drift.
+    {
+        Emulator   emu;
+        const bool built = gh237::build_emu(emu, MachineType::ZXN_ISSUE2);
+        bool ok = false;
+        if (built) {
+            const auto  p = emu.video_timing().int_position();
+            const auto  o = emu.video_timing().display_origin();
+            const auto& t = emu.timing();
+            ok = p.hc == 126 && p.vc == 1 &&
+                 emu.video_timing().hc_max() == 455 &&
+                 emu.video_timing().vc_max() == 310 && o.hc == 136 &&
+                 o.vc == 64 && t.pixels_per_line == 456 &&
+                 t.lines_per_frame == 311 && t.tstates_per_line == 228 &&
+                 t.tstates_per_frame == 228 * 311;
+        }
+        check("VT-GH237-03",
+              "Next cold boot: c_int_h is the ONLY constant that moves — "
+              "c_max_hc 455, c_max_vc 310, origin (136,64) and the 456x311 "
+              "master-cycle frame are shared by the 128K and +3 arms "
+              "[zxula_timing.vhd:195,196,203,204, all outside the "
+              "if i_timing(0) at :186-190]",
+              ok, built ? gh237::geom(emu) : std::string("init(ZXN) failed"));
+    }
+
+    // VT-GH237-04 — soft reset. A guest moves the timing axis to +3 on a
+    // 128K machine; RESET_SOFT must not put the raster back on the CLI
+    // machine's arm. VHDL: no reset clause for nr_03_machine_timing
+    // (:4926-5111), and i_timing follows it (:6721).
+    {
+        Emulator   emu;
+        const bool built = gh237::build_emu(emu, MachineType::ZX128K);
+        RasterPos  boot{0, 0}, post{0, 0};
+        if (built) {
+            boot = emu.video_timing().int_position();
+            // bit7=1 arms the tim_sel commit (:5124), bit3=0 leaves
+            // user_dt_lock clear, and bits[2:0]="000" is VHDL's no-change
+            // for typ_sel (:5143), so only the timing axis moves.
+            gh237::nr_write(emu, 0x03, 0xB0);   // tim_sel = "011" (+3)
+            gh237::nr_write(emu, 0x02, 0x01);   // RESET_SOFT
+            post = emu.video_timing().int_position();
+        }
+        check("VT-GH237-04",
+              "128K + guest-selected +3 timing: RESET_SOFT keeps the "
+              "interrupt on the +3 arm (126) instead of reverting to the CLI "
+              "machine's 128 [zxnext.vhd:1099 no reset clause; "
+              "zxula_timing.vhd:189]",
+              built && boot.hc == 128 && boot.vc == 1 && post.hc == 126 &&
+                  post.vc == 1,
+              "boot_int_hc=" + std::to_string(boot.hc) + " post_reset " +
+                  (built ? gh237::geom(emu) : std::string("init failed")));
+    }
+
+    // VT-GH237-05 — the counterpart guard, and the reason the NextReg
+    // reset-clobber had to go with this change. A 48K machine that
+    // soft-resets with nobody having touched NR 0x03 must come back on 48K
+    // constants. With the raster reading tim_sel but reset() still rewriting
+    // tim_sel to "011", a plain 48K soft reset silently acquires +3 timing.
+    {
+        Emulator   emu;
+        const bool built = gh237::build_emu(emu, MachineType::ZX48K);
+        bool ok = false;
+        if (built) {
+            gh237::nr_write(emu, 0x02, 0x01);   // RESET_SOFT
+            const auto  p = emu.video_timing().int_position();
+            const auto& t = emu.timing();
+            ok = p.hc == 116 && p.vc == 0 &&
+                 emu.video_timing().hc_max() == 447 &&
+                 emu.video_timing().vc_max() == 311 &&
+                 t.pixels_per_line == 448 && t.lines_per_frame == 312;
+        }
+        check("VT-GH237-05",
+              "48K RESET_SOFT with no guest NR 0x03 write stays on 48K "
+              "constants: INT (116,0) and 448x312 in BOTH VideoTiming and "
+              "the master-cycle frame [zxula_timing.vhd:257,261,262,265]",
+              ok, built ? gh237::geom(emu) : std::string("init(48K) failed"));
+    }
+
+    // VT-GH237-06 — the latch itself, asserted directly rather than through
+    // a consumer. nr_03_machine_timing has no reset clause anywhere in
+    // zxnext.vhd, so a soft reset must not rewrite it to the "011" power-on
+    // initialiser.
+    {
+        Emulator   emu;
+        const bool built = gh237::build_emu(emu, MachineType::ZX48K);
+        uint8_t boot = 0xFF, post = 0xFF;
+        if (built) {
+            boot = emu.nextreg().nr_03_machine_timing();
+            gh237::nr_write(emu, 0x02, 0x01);   // RESET_SOFT
+            post = emu.nextreg().nr_03_machine_timing();
+        }
+        check("VT-GH237-06",
+              "NR 0x03 tim_sel survives RESET_SOFT — it is a plain FF with "
+              "an initial value only and appears nowhere in the master reset "
+              "block [zxnext.vhd:1099, :4926-5111]",
+              built && boot == 0x01 && post == 0x01,
+              "boot=" + std::to_string(boot) + " post_reset=" +
+                  std::to_string(post));
+    }
+
+    // VT-GH237-07 — coherence under a preserved mode that changes the frame
+    // ENVELOPE, not just the interrupt position. Pentagon is the only
+    // tim_sel value whose c_max_hc/c_max_vc differ from the 128K/+3 pair, so
+    // it is the case that proves VideoTiming and the master-cycle frame
+    // geometry are programmed from one source and cannot disagree.
+    {
+        Emulator   emu;
+        const bool built = gh237::build_emu(emu, MachineType::ZX128K);
+        bool ok = false;
+        if (built) {
+            gh237::nr_write(emu, 0x03, 0xC0);   // tim_sel = "100" (Pentagon)
+            gh237::nr_write(emu, 0x02, 0x01);   // RESET_SOFT
+            const auto  p = emu.video_timing().int_position();
+            const auto& t = emu.timing();
+            ok = emu.video_timing().hc_max() == 447 &&
+                 emu.video_timing().vc_max() == 319 && p.hc == 439 &&
+                 p.vc == 319 && t.pixels_per_line == 448 &&
+                 t.lines_per_frame == 320 && t.tstates_per_frame == 224 * 320;
+        }
+        check("VT-GH237-07",
+              "128K + guest-selected Pentagon timing across RESET_SOFT: "
+              "VideoTiming AND the master-cycle frame both follow the "
+              "preserved tim_sel (448x320, INT (439,319)) — one source, no "
+              "drift [zxula_timing.vhd:155,159,160,163,167,168]",
+              ok, built ? gh237::geom(emu) : std::string("init(128K) failed"));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1314,6 +1561,9 @@ int main() {
 
     section11_t56_nr05_5060();
     std::printf("  Section 11: VT-S11-T56-NR05-5060    — done (4 live)\n");
+
+    section12_gh237_init_from_nr03();
+    std::printf("  Section 12: VT-S12-GH237-INIT-FROM-NR03 — done (7 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

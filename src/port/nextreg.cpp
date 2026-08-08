@@ -384,13 +384,30 @@ void NextReg::reset() {
     // and soft reset — only the signal initialiser at :1103 (FPGA
     // power-on) sets it to "011". The C++ member initialiser in
     // nextreg.h handles power-on; reset() must NOT overwrite it.
-    // The analogous machine_timing / user_dt_lock latches are also
-    // preserved by VHDL but not yet covered by a test row; left at the
-    // current reset-clobber behavior pending a dedicated test plan
-    // (matches CLAUDE.md's "scope to the task" rule).
-    nr_03_machine_timing_ = 0x03;
+    // GH #237: nr_03_machine_timing is the SAME shape and is now treated
+    // the same way. It is mutated only by the gated NR 0x03 write at
+    // zxnext.vhd:5124-5135, it has no reset clause anywhere in zxnext.vhd
+    // (:4930-5111 contains no assignment to it), and only the :1099
+    // initialiser sets it to "011" at FPGA power-on. Clobbering it here was
+    // load-bearing in the wrong direction: Emulator::init() derives the
+    // ContentionModel / Mmu machine-timing axis, the pulse-mode /INT width
+    // and — since GH #237 — the whole raster geometry from this field, so a
+    // soft reset silently rewrote a 48K or 128K machine's timing axis to +3
+    // and unwound a guest-committed tim_sel the guest can still legitimately
+    // hold. A hard reset re-seeds it from the CLI machine type in
+    // Emulator::init()'s `!preserve_memory` block, and a true power-on is
+    // modelled by reconstructing the Emulator (member initialiser in
+    // nextreg.h), so nothing needs the clobber.
+    // Rows: videotiming VT-GH237-04/05/06.
+    //
+    // nr_03_user_dt_lock is preserved by VHDL too (:1100, likewise absent
+    // from the reset block) but is left clobbered here: it gates tim_sel
+    // writes only in the permissive direction (clearing it can never block
+    // a write that hardware would allow), no jnext surface derives state
+    // from it, and it is out of scope for GH #237. Untouched, not endorsed.
     nr_03_user_dt_lock_   = false;
-    // nr_03_machine_type_ NOT reset here — VHDL latch survives reset.
+    // nr_03_machine_timing_ NOT reset here — VHDL latch survives reset.
+    // nr_03_machine_type_   NOT reset here — VHDL latch survives reset.
 }
 
 void NextReg::apply_nr_03_config_mode_transition(uint8_t low3) {

@@ -40,7 +40,7 @@ mentions them, so a test can no longer be absent from this document.
 | Input                                      |   354 |  342 |    0 |    0 |      12 |          0 |
 | Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
 | Floating Bus                               |    37 |   37 |    0 |    0 |       0 |          0 |
-| VideoTiming                                |    46 |   43 |    0 |    0 |       3 |          0 |
+| VideoTiming                                |    53 |   50 |    0 |    0 |       3 |          0 |
 | Contention                                 |   129 |  127 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    52 |   49 |    0 |    1 |       2 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4296 | 4040 |    0 |    5 |     251 |          0 |
+| **Total**                                  |  4303 | 4047 |    0 |    5 |     251 |          0 |
 
-Rows the sections above carry: **4296**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4109**. Rows the 99 suites declared in `test/unit-tests.conf` run live: **7016**.
+Rows the sections above carry: **4303**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4116**. Rows the 99 suites declared in `test/unit-tests.conf` run live: **7023**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3154,6 +3154,13 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-VBT-02 | 48K 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32 (VHDL zxula_timing.vhd:269) | zxula_timing.vhd:269 | pass | test/videotiming/videotiming_test.cpp:944 |
 | VT-VBT-03 | 128K 50Hz vblank_top() = min_vactive(64) - DISP_Y(32) = 32 (VHDL zxula_timing.vhd:203) | zxula_timing.vhd:203 | pass | test/videotiming/videotiming_test.cpp:954 |
 | VT-VBT-05 | NEXT 60Hz vblank_top() = min_vactive(40) - DISP_Y(32) = 8 (VHDL zxula_timing.vhd:237) | zxula_timing.vhd:237 | pass | test/videotiming/videotiming_test.cpp:969 |
+| VT-GH237-01 | Next cold boot: ULA interrupt at (126, 1) — the i_timing(0)='1' arm the "011" power-on tim_sel selects, not the 128 of the 128K arm [zxnext.vhd:1099,:6721; zxula_timing.vhd:186-190,199] | zxnext.vhd:1099,6721, zxula_timing.vhd:186-190,199 | pass | test/videotiming/videotiming_test.cpp:1343 |
+| VT-GH237-02 | Next cold boot: the interrupt position tracks the NR 0x03 tim_sel register ("011") and NOT default_machine_timing_for(cfg.type), which still says 128K — the two disagree, and the register wins [zxnext.vhd:6721 i_timing <= eff_nr_03_machine_timing] | zxnext.vhd:6721 | pass | test/videotiming/videotiming_test.cpp:1373 |
+| VT-GH237-03 | Next cold boot: c_int_h is the ONLY constant that moves — c_max_hc 455, c_max_vc 310, origin (136,64) and the 456x311 master-cycle frame are shared by the 128K and +3 arms [zxula_timing.vhd:195,196,203,204, all outside the if i_timing(0) at :186-190] | zxula_timing.vhd:195,196,203,204 | pass | test/videotiming/videotiming_test.cpp:1407 |
+| VT-GH237-04 | 128K + guest-selected +3 timing: RESET_SOFT keeps the interrupt on the +3 arm (126) instead of reverting to the CLI machine's 128 [zxnext.vhd:1099 no reset clause; zxula_timing.vhd:189] | zxnext.vhd:1099, zxula_timing.vhd:189 | pass | test/videotiming/videotiming_test.cpp:1433 |
+| VT-GH237-05 | 48K RESET_SOFT with no guest NR 0x03 write stays on 48K constants: INT (116,0) and 448x312 in BOTH VideoTiming and the master-cycle frame [zxula_timing.vhd:257,261,262,265] | zxula_timing.vhd:257,261,262,265 | pass | test/videotiming/videotiming_test.cpp:1462 |
+| VT-GH237-06 | NR 0x03 tim_sel survives RESET_SOFT — it is a plain FF with an initial value only and appears nowhere in the master reset block [zxnext.vhd:1099, :4926-5111] | zxnext.vhd:1099,4926-5111 | pass | test/videotiming/videotiming_test.cpp:1482 |
+| VT-GH237-07 | 128K + guest-selected Pentagon timing across RESET_SOFT: VideoTiming AND the master-cycle frame both follow the preserved tim_sel (448x320, INT (439,319)) — one source, no drift [zxula_timing.vhd:155,159,160,163,167,168] | zxula_timing.vhd:155,159,160,163,167,168 | pass | test/videotiming/videotiming_test.cpp:1510 |
 
 ## Contention — `test/contention/contention_test.cpp`
 
