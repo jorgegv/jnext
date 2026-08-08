@@ -36,6 +36,19 @@ If `behind` > 0, ask the user whether to fast-forward main first. Do NOT auto-pu
 git worktree add /home/jorgegv/tmp/worktrees/agent-<ID> -b <BRANCH> main
 ```
 
+**If the branch or the worktree already exists, STOP** — an existing workspace is
+a signal, not a convenience. Another Claude session may be live in it:
+
+```bash
+ps -eo pid,etimes,cmd | grep -c '[c]laude --output-format stream-json'
+```
+
+A failed `worktree add`, an uncommitted diff nobody in this session wrote, or a
+file changing under you are all the same tell-tale. Ask the user which session
+should continue; never merge the two streams of work yourself. Two agents in one
+worktree trash each other, which is what the one-branch-per-agent rule exists to
+prevent (`feedback_check_for_concurrent_sessions`).
+
 ### 3. Provision the roms/ fixtures (ALWAYS — the tests need them)
 
 ```bash
@@ -71,6 +84,9 @@ BASE: main @ <SHA>
 
 Hard rules per CLAUDE.md:
 - Work ONLY in this worktree. Do NOT touch /home/jorgegv/src/spectrum/jnext directly.
+- Never `cd` out of this worktree, and run `pwd` before every commit to confirm it
+  matches the path above. Worktree isolation does NOT sandbox the shell: an
+  absolute `cd` lands your commits on main.
 - Do NOT write to main. Commit only on branch <BRANCH>.
 - Do NOT push. The user authorizes pushes separately.
 - Use `git -C <worktree-path> <cmd>` for git ops (not `cd ... && git ...`).

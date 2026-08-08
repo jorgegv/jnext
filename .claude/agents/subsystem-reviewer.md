@@ -32,7 +32,7 @@ Always structure your review as:
 
 ```
 ## Verdict
-APPROVE | APPROVE-WITH-NITS | REJECT
+APPROVE | REJECT
 
 ## Mandate adherence
 - [✓/✗] Enumeration table covers all surfaces in scope: <evidence or gap>
