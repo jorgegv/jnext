@@ -333,6 +333,17 @@ void MainWindow::toggle_fullscreen() {
         showNormal();
         is_fullscreen_ = false;
         emulator_widget_->set_fullscreen_mode(false);
+        // GH #242 — give the viewport its fixed size back BEFORE the window is
+        // sized around it. Entering fullscreen releases the constraint by
+        // passing QWIDGETSIZE_MAX to setFixedSize(), and Qt reads that as "no
+        // constraint at all" (QWidgetPrivate::setMinimumSize_helper maps a
+        // QWIDGETSIZE_MAX minimum to 0) — which is exactly why it works as a
+        // release, but it also means the viewport comes back with no size of
+        // its own, and EmulatorWidget implements no sizeHint(). Without this
+        // the layout had nothing to size itself from and the window collapsed
+        // to the chrome's own minimum on every fullscreen exit, staying wrong
+        // until the next scale change put the constraint back.
+        emulator_widget_->set_scale(current_scale_);
         // Restore fixed windowed size.
         apply_fixed_window_size();
     } else {
@@ -381,15 +392,44 @@ void MainWindow::set_scale(int factor) {
 }
 
 void MainWindow::apply_fixed_window_size() {
-    // The widget has a fixed size; let Qt compute the minimum window size
-    // that fits the widget + chrome (menu bar, toolbar, status bar).
-    // Then lock the window to exactly that size.
+    // The widget has a fixed size; lock the window to exactly the size the
+    // layout wants for it plus the chrome (menu bar, toolbar, status bar).
+    //
+    // GH #236 — sizeHint(), NOT adjustSize(). QWidget::adjustSize() is
+    // documented to clamp a WINDOW to two thirds of the screen, and that clamp
+    // is what shipped a 2x window 1280x960 instead of 1280x1109 on the
+    // reporter's 2560x1440 display (960 == 1440*2/3; at 3x it came out
+    // 1706x960 == 2560*2/3 x 1440*2/3, which is what identified it).
+    //
+    // The clamp is normally invisible because adjustSize() also activates the
+    // layout, and QLayout::SetDefaultConstraint then re-imposes the layout's
+    // minimum on the window, which resize() clamps the too-small size back up
+    // to. The setMinimumSize(0, 0) below clears that minimum, so the rescue
+    // only happens when the activation actually runs — and it does not when
+    // the layout is already clean.
+    //
+    // Which is the startup path exactly. main.cpp applies the saved scale
+    // before the event loop starts (correct: the layout is still dirty), and
+    // then this runs AGAIN on a mapped window with the scale already at its
+    // final value — from EmulatorWidget's devicePixelRatio one-shot via
+    // scale_changed, and again from QtApp::init's 100 ms re-apply. Re-applying
+    // an unchanged scale re-sets the viewport to the fixed size it already
+    // has, and a fixed-size child's updateGeometry() does NOT invalidate its
+    // parent layout (QWidgetPrivate::updateGeometry_helper skips that when
+    // minw==maxw && minh==maxh). Nothing dirties the layout, activate() is a
+    // no-op, and the clamped size gets locked in — while a scale change made
+    // from the menu, which does dirty the layout, was always correct. Hence
+    // the report's "started at 2x" vs "switched to 2x" mismatch.
+    //
+    // sizeHint() is that same layout size with no screen clamp applied, so it
+    // is right whichever way we got here. A window bigger than the screen is
+    // then possible (3x on a 1440-tall display), but that is what picking 3x
+    // means and is already what the menu path does.
     emulator_widget_->setSizePolicy(QSizePolicy::Fixed, QSizePolicy::Fixed);
     setMinimumSize(0, 0);
     setMaximumSize(QWIDGETSIZE_MAX, QWIDGETSIZE_MAX);
     emulator_widget_->updateGeometry();
-    adjustSize();
-    setFixedSize(size());
+    setFixedSize(sizeHint());
 }
 
 void MainWindow::cycle_scale() {
