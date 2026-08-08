@@ -158,6 +158,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // V20-IM2-01 — reset pulse-mode edge-detect shadow (init path).
     prev_pulse_int_n_ = true;
     keyboard_.reset();
+    // GH #233 — the phantom typist is host-side input state bound to the
+    // keyboard it drives, so it belongs with keyboard_.reset(): a reset
+    // cancels a pending TAP autostart instead of typing LOAD"" into the
+    // machine that came up after it. Pre-fix the call lived ONLY in
+    // Emulator::reset() (the hard-reset path), so a soft reset — which
+    // routes through init(preserve_memory=true) and never through
+    // reset() — left an armed typist running.
+    //
+    // Unconditional (no preserve_memory guard) and safe against the one
+    // ordering that could disarm a legitimate autostart: `arm()` has a
+    // single caller, Emulator::load_tap(), and every load path runs it
+    // strictly AFTER init(). The frontend cold boot re-inits the machine
+    // first and only then schedules the load
+    // (platform/emulator_boot.h:176-181), the CLI does the same via
+    // set_pending_load(), and load_tap() itself calls no reset/init.
+    phantom_typist_.reset();
     // Input subsystem Phase 1 scaffold (Task 3). See src/input/*.
     joystick_.reset();
     mouse_.reset();
@@ -340,6 +356,37 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     im2_int_status_[2] = 0;
     im2_c4_expbus_     = true;   // NR 0xC4 bit 7 reset default '1'
     nr_c6_uart_int_en_ = 0;
+    // GH #231 — NR 0xCC/0xCD/0xCE IM2 DMA-delay enables. VHDL
+    // zxnext.vhd:5101-5105 puts all five fields in the MASTER reset block:
+    //   nr_cc_dma_int_en_0_7    <= '0'
+    //   nr_cc_dma_int_en_0_10   <= (others => '0')
+    //   nr_cd_dma_int_en_1      <= (others => '0')
+    //   nr_ce_dma_int_en_2_654  <= (others => '0')
+    //   nr_ce_dma_int_en_2_210  <= (others => '0')
+    // and zxnext.vhd:2003-2004 clears the im2_dma_delay flip-flop in the
+    // same domain. That domain is ONE wire — `reset <= i_RESET`
+    // (zxnext.vhd:1730), driven by `reset_hard or reset_soft`
+    // (zxnext_top_issue2.vhd:840) — so these clear on soft reset exactly
+    // as on hard reset. Hence unconditional, with no preserve_memory
+    // guard, unlike the deliberately-preserved NR fields elsewhere in
+    // init(). Pre-fix the only writers were the NR 0xCC/0xCD/0xCE write
+    // handlers and load_state(), so a stale DMA-delay configuration
+    // survived every reset while the NR read-back handlers kept
+    // recomposing it from these fields.
+    //
+    // The mirrors these values fan out to are already cleared by the
+    // subsystem resets run above: Im2Controller::reset() zeroes
+    // dma_int_en_mask14_ / nr_cc_dma_int_en_0_7_ / its own im2_dma_delay
+    // latch (im2.cpp:45-48), and Dma::reset() clears dma_delay_
+    // (dma.cpp:74). NextReg::reset()'s regs_.fill(0) leaves the cached
+    // 0xCC/0xCD/0xCE bytes at 0, which is what these cleared fields now
+    // recompose to — cache and fields agree again.
+    nr_cc_dma_delay_on_nmi_   = false;
+    nr_cc_dma_delay_en_ula_   = 0;
+    nr_cd_dma_delay_en_ctc_   = 0;
+    nr_ce_dma_delay_en_uart1_ = 0;
+    nr_ce_dma_delay_en_uart0_ = 0;
+    im2_dma_delay_latched_    = false;
     // V19-IM2-02 init: VHDL zxnext.vhd:6711 — `ula_int_en(0) =
     // NOT port_ff_interrupt_disable` = NOT port_ff_reg(6). With
     // port_ff_reg=0 at reset, ULA int_en=1. Fan this initial value
@@ -377,7 +424,28 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // follow-up, 2026-05-04); the VHDL `machine_timing_pentagon` term
     // (NR 0x03 b2) is not currently wired into ContentionModel — see
     // contention.cpp::is_contended_access() comment for the rationale.
-    contention_.build(cfg.type);
+    //
+    // GH #232 — the machine type is NextREG state, not a CLI constant.
+    // There is no `machine_type` input pin in the VHDL: `nr_03_machine_type`
+    // is a plain FF with an initial value only (zxnext.vhd:1103,
+    // `:= "011"`), it appears NOWHERE in the master reset block
+    // (:4926-5111), and the single reset wire covers hard AND soft alike
+    // (`reset <= i_RESET` :1730, `reset_hard or reset_soft`
+    // zxnext_top_issue2.vhd:840). So it survives a reset and only firmware
+    // writing NR 0x03 under config_mode (:5137-5145) changes it. jnext
+    // already models exactly that: mmu_.set_machine_type() below is
+    // hard-reset-only, and the NR 0x03 commit path
+    // (`contention_.rebuild_for_type(new_mt)`) and load_state()
+    // (`contention_.rebuild_for_type(mmu_.machine_type())`) both take the
+    // Mmu's value as canonical. Rebuilding from cfg.type on a soft reset
+    // was the one path that disagreed — it unwound a supervisor-committed
+    // type in the ContentionModel while leaving it committed in the Mmu,
+    // with config_mode correctly cleared so the guest could not re-commit
+    // NR 0x03 to reconcile them. Take the same authority the other two
+    // paths take.
+    const MachineType init_machine_type =
+        preserve_memory ? mmu_.machine_type() : cfg.type;
+    contention_.build(init_machine_type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
     // Verify9-memory class-(c) → class-(a) fix: seed
     // ContentionModel's port_7ffd_io_en gate from NR 0x82 bit 1
@@ -515,7 +583,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // AND Z80Cpu (which uses the same width to expire a pending /INT that
     // was never acknowledged, e.g. inside an ISR with iff1=0). Same VHDL
     // line, two consumers — must stay in lock-step.
-    const bool is_48_or_p3_at_reset = (cfg.type == MachineType::ZX48K || cfg.type == MachineType::ZX_PLUS3);
+    //
+    // GH #232 — derive it from `init_tim_mode` (the tim_sel axis) rather
+    // than from the CLI MachineType. VHDL :2033 reads `machine_timing_48 or
+    // machine_timing_p3`, and those one-hot signals come combinationally
+    // from `eff_nr_03_machine_timing` (:5761-5776) — the tim_sel axis, never
+    // from `machine_type_*`. Keying on cfg.type was wrong on both counts:
+    // wrong axis, and wrong source on a soft reset (where NR 0x03 is
+    // preserved). It also disagreed with the two paths that already read
+    // NR 0x03 for this same gate — the NR 0x03 write handler and
+    // load_state() — so on the Next, whose NR 0x03 tim_sel powers on at
+    // "011" (+3, zxnext.vhd:1099), a guest writing NR 0x03 back with the
+    // value already in the register flipped the pulse width from 36 to 32
+    // cycles. Reading the register the VHDL reads removes that seam.
+    const bool is_48_or_p3_at_reset =
+        (init_tim_mode == MachineTimingMode::Timing48 ||
+         init_tim_mode == MachineTimingMode::TimingPlus3);
     im2_.set_machine_timing_48_or_p3(is_48_or_p3_at_reset);
     cpu_.set_machine_timing_48_or_p3(is_48_or_p3_at_reset);
 

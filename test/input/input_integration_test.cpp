@@ -128,6 +128,19 @@ static uint8_t read_fe(Emulator& emu, uint8_t addr_high) {
     return emu.port().in(port);
 }
 
+// Write a NextREG through the real port path — OUT (0x243B),reg /
+// OUT (0x253B),val, exactly as guest code does.
+static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
+    emu.port().out(0x243B, reg);
+    emu.port().out(0x253B, val);
+}
+
+static std::string detail(const char* f, int a, int b = 0) {
+    char buf[160];
+    std::snprintf(buf, sizeof(buf), f, a, b);
+    return std::string(buf);
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Section A — KBD-22 / KBD-23 — full port 0xFE byte assembly
 // VHDL: zxnext.vhd:3459 (composition); src/core/emulator.cpp:1107-1129
@@ -968,6 +981,140 @@ static void test_hotkey(Emulator& emu) {
     }
 }
 
+// ── GH #233: a reset cancels a pending TAP autostart ──────────────────
+//
+// The phantom typist (src/input/phantom_typist.h) is host-side input
+// state: `Emulator::load_tap()` arms it, the port-0xFE read handler feeds
+// it row selects, and on a full 8-row scan it queues LOAD"" into
+// Keyboard's auto-type queue. It has no VHDL counterpart — the oracle
+// here is the machine it drives: a reset clears the keyboard matrix and
+// restarts the ROM, so keystrokes aimed at the pre-reset machine must not
+// be delivered to the post-reset one.
+//
+// `phantom_typist_.reset()` used to be called only from
+// `Emulator::reset()`. A soft reset never goes through that function —
+// it routes through `init(preserve_memory=true)` — so an armed typist
+// survived it and typed into the freshly reset machine.
+//
+// These rows drive the REAL port path (`IN A,(0xFE)` per row) and the
+// real guest reset (NR 0x02 bit 0), so they exercise the same wiring a
+// tape autostart does.
+static void test_gh233_phantom_typist_reset(Emulator& emu) {
+    set_group("GH233-PHANTOM-RESET");
+
+    // The eight active-low row-select high bytes the ROM's scan loop walks.
+    static const uint8_t kRows[8] = {0xFE, 0xFD, 0xFB, 0xF7,
+                                     0xEF, 0xDF, 0xBF, 0x7F};
+
+    // GH233-01 — a soft reset disarms the typist.
+    {
+        fresh(emu);
+        emu.phantom_typist().arm(MachineType::ZX48K);
+        const bool armed = emu.phantom_typist().is_active();
+        nr_write(emu, 0x02, 0x01);        // RESET_SOFT (VHDL zxnext.vhd:6370)
+        const bool still = emu.phantom_typist().is_active();
+        check("GH233-01",
+              "NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart",
+              armed && !still,
+              detail("armed=%d after_soft_reset=%d (want 1 then 0)",
+                     armed ? 1 : 0, still ? 1 : 0));
+    }
+
+    // GH233-02 — the user-visible symptom: after the soft reset, the ROM's
+    // keyboard scan must not make the typist fire LOAD"" into the machine
+    // that came up after it.
+    {
+        fresh(emu);
+        emu.phantom_typist().arm(MachineType::ZX48K);
+        nr_write(emu, 0x02, 0x01);        // RESET_SOFT
+
+        // A full 8-row scan through the real port-0xFE read handler, then
+        // enough frame ticks to clear the post-trigger delay.
+        for (uint8_t row : kRows) (void)read_fe(emu, row);
+        for (int f = 0; f < 64; ++f) emu.phantom_typist().tick_frame();
+
+        check("GH233-02",
+              "after a soft reset a full ROM keyboard scan queues no "
+              "keystrokes — the cancelled autostart cannot type into the "
+              "machine that came up after the reset",
+              !emu.phantom_typist().is_active() &&
+                  !emu.keyboard().auto_typing(),
+              detail("active=%d auto_typing=%d (want 0 and 0)",
+                     emu.phantom_typist().is_active() ? 1 : 0,
+                     emu.keyboard().auto_typing() ? 1 : 0));
+    }
+
+    // GH233-03 — a partially-observed scan is cancelled too, not merely
+    // paused: the accumulator must not carry rows seen before the reset
+    // into the scan of the machine after it.
+    {
+        fresh(emu);
+        emu.phantom_typist().arm(MachineType::ZX48K);
+        for (int i = 0; i < 7; ++i) (void)read_fe(emu, kRows[i]);   // 7 of 8
+        nr_write(emu, 0x02, 0x01);        // RESET_SOFT
+        (void)read_fe(emu, kRows[7]);     // the row that would complete it
+        for (int f = 0; f < 64; ++f) emu.phantom_typist().tick_frame();
+        check("GH233-03",
+              "a mid-scan soft reset cancels the autostart outright "
+              "(the pre-reset row accumulator cannot complete afterwards)",
+              !emu.phantom_typist().is_active() &&
+                  !emu.keyboard().auto_typing(),
+              detail("active=%d auto_typing=%d (want 0 and 0)",
+                     emu.phantom_typist().is_active() ? 1 : 0,
+                     emu.keyboard().auto_typing() ? 1 : 0));
+    }
+
+    // GH233-04 — Emulator::reset(), the in-place reinit method, still
+    // cancels. It called phantom_typist_.reset() directly before the fix
+    // and now reaches it twice (once itself, once via init()); the two
+    // calls must remain idempotent.
+    //
+    // This row pins THAT METHOD and nothing more. It is NOT a test of the
+    // hard reset a user performs: `Emulator::reset()` has no callers in
+    // src/ at all. F1, Machine > Power Reset and a guest's NR 0x02 bit 1
+    // all go request_hard_reset() -> emulator_cold_boot()
+    // (platform/emulator_boot.h:85-95), which runs `emu.~Emulator(); new
+    // (&emu) Emulator(); emu.init(cfg);` — the typist is a freshly
+    // constructed, INACTIVE object before init() is even entered, so the
+    // GH #233 defect was unreachable on that path by construction. Soft
+    // reset was the only way to hit it, which is why GH233-01/02/03 are
+    // the rows that discriminate the fix.
+    {
+        fresh(emu);
+        emu.phantom_typist().arm(MachineType::ZX48K);
+        const bool armed = emu.phantom_typist().is_active();
+        emu.reset();                      // the in-place reinit method
+        check("GH233-04",
+              "Emulator::reset() (the in-place reinit method, no production "
+              "callers) also disarms a pending TAP autostart — its own call "
+              "and init()'s stay idempotent",
+              armed && !emu.phantom_typist().is_active(),
+              detail("armed=%d after_reset=%d (want 1 then 0)",
+                     armed ? 1 : 0,
+                     emu.phantom_typist().is_active() ? 1 : 0));
+    }
+
+    // GH233-05 — the ordering guard. `arm()` has exactly one caller
+    // (Emulator::load_tap()) and every load path runs it strictly AFTER
+    // init(): the frontend cold boot re-inits and only then schedules the
+    // load (platform/emulator_boot.h:176-181), and load_tap() itself calls
+    // no reset/init. So arming after a reset must stick — otherwise the
+    // new init() call would silently cancel legitimate autostarts.
+    {
+        fresh(emu);
+        nr_write(emu, 0x02, 0x01);        // RESET_SOFT
+        emu.phantom_typist().arm(MachineType::ZX48K);
+        for (uint8_t row : kRows) (void)read_fe(emu, row);
+        for (int f = 0; f < 64; ++f) emu.phantom_typist().tick_frame();
+        check("GH233-05",
+              "arming AFTER a reset still fires — the reset-on-init does "
+              "not cancel a legitimate autostart (load always follows init)",
+              emu.keyboard().auto_typing(),
+              detail("auto_typing=%d (want 1)",
+                     emu.keyboard().auto_typing() ? 1 : 0));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -995,6 +1142,9 @@ int main() {
 
     test_hotkey(emu);
     std::printf("  Group: HOTKEY  — done\n");
+
+    test_gh233_phantom_typist_reset(emu);
+    std::printf("  Group: GH233-PHANTOM-RESET — done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

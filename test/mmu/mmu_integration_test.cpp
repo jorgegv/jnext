@@ -95,6 +95,12 @@ static bool build_next_emulator(Emulator& emu) {
     return true;
 }
 
+// NR 0x03 read-back layout (VHDL zxnext.vhd:5894):
+//   port_253b_dat <= palette_sub_idx & nr_03_machine_timing(2:0)
+//                    & nr_03_user_dt_lock & nr_03_machine_type(2:0)
+// so tim_sel is bits 6:4. Read through the real port path.
+static uint8_t nextreg_tim_sel(Emulator& emu);
+
 // NextREG read/write through the real port path — exactly like Z80
 // code would do via OUT (0x243B),reg / IN A,(0x253B) / OUT (0x253B),val.
 static uint8_t nr_read(Emulator& emu, uint8_t reg) {
@@ -105,6 +111,10 @@ static uint8_t nr_read(Emulator& emu, uint8_t reg) {
 static void nr_write(Emulator& emu, uint8_t reg, uint8_t val) {
     emu.port().out(0x243B, reg);
     emu.port().out(0x253B, val);
+}
+
+static uint8_t nextreg_tim_sel(Emulator& emu) {
+    return static_cast<uint8_t>((nr_read(emu, 0x03) >> 4) & 0x07);
 }
 
 // ── Port 0xEFF7 NR 0x85 b2 gate (G143 re-home) ───────────────────────
@@ -705,6 +715,151 @@ static void test_nr03_machine_type_cold_boot_default() {
           "+3 (ZX_PLUS3) cold-boot NR $03 machine-type = 011 (+3)",
           p3_mt == 0x03,
           fmt("nr03_mtype=0x%02X (want 0x03)", p3_mt));
+}
+
+// ── GH #232: a soft reset re-derives from NR 0x03, not from the CLI ───
+//
+// There is no machine-type input pin in the VHDL. Both NR 0x03 axes are
+// plain flip-flops with initial values only —
+//   nr_03_machine_timing : ... := "011"   (zxnext.vhd:1099)
+//   nr_03_machine_type   : ... := "011"   (zxnext.vhd:1103)
+// — neither appears anywhere in the master reset block (:4926-5111), and
+// the single reset wire covers hard and soft alike (`reset <= i_RESET`
+// :1730; `reset <= reset_hard or reset_soft` zxnext_top_issue2.vhd:840).
+// So a reset PRESERVES both, and only firmware writing NR 0x03 changes
+// them (:5124-5135 tim_sel, :5137-5145 typ_sel gated on config_mode).
+//
+// jnext models exactly that — mmu_.set_machine_type() in Emulator::init()
+// is hard-reset-only, and both the NR 0x03 commit path and load_state()
+// take the Mmu's value as canonical for ContentionModel. init()'s
+// `contention_.build(cfg.type)` and its `is_48_or_p3` derivation were the
+// two places that went back to the CLI type instead, so a soft reset
+// unwound guest-committed state that the guest could no longer re-commit
+// (the typ_sel write clears config_mode by construction).
+static void test_gh232_soft_reset_uses_nextreg_state() {
+    set_group("GH232-SOFT-RESET-AXES");
+
+    // GH232-01/02/03 — machine TYPE (typ_sel). Boot a Next, let the guest
+    // commit +3 through the real NR 0x03 config-mode path, soft-reset.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // A firmware-less cold boot performs the IPL's own NR 0x03 commit
+        // and leaves config_mode clear (GH #226), so re-enter it first —
+        // VHDL :5147-5151 sets the mode on bits[2:0] = "111". Then commit
+        // typ_sel = "011" (+3). The SAME write clears config_mode again,
+        // which is precisely why the guest cannot re-commit afterwards to
+        // reconcile a machine type the reset unwound.
+        nr_write(emu, 0x03, 0x07);        // re-enter config mode
+        nr_write(emu, 0x03, 0x03);        // commit +3, exit config mode
+        const bool committed = emu.mmu().machine_type() == MachineType::ZX_PLUS3;
+        const bool cfg_mode_off = !emu.nextreg().nr_03_config_mode();
+
+        nr_write(emu, 0x02, 0x01);        // RESET_SOFT
+
+        check("GH232-01",
+              "the NR 0x03 typ_sel commit survives a soft reset in the Mmu "
+              "(no reset clause for nr_03_machine_type) "
+              "[zxnext.vhd:1103, :4926-5111]",
+              committed && cfg_mode_off &&
+                  emu.mmu().machine_type() == MachineType::ZX_PLUS3,
+              fmt("committed=%d cfg_mode_off=%d post=%d",
+                  committed ? 1 : 0, cfg_mode_off ? 1 : 0,
+                  static_cast<int>(emu.mmu().machine_type())));
+
+        // Pre-fix: init() rebuilt from cfg.type = ZXN_ISSUE2, whose LUT is
+        // all-zero and whose per-machine bank decode leaves slot 1
+        // uncontended — so the model disagreed with the Mmu it is paired
+        // with. Post-fix: rebuilt from the preserved +3 type.
+        check("GH232-02",
+              "soft reset rebuilds the contention bank decode from the "
+              "PRESERVED machine type, not the CLI one "
+              "[zxnext.vhd:4490-4492 mem_contend; :2981-3008 machine_type_*]",
+              emu.contention().is_contended_address(0x4000) == true,
+              fmt("is_contended(0x4000)=%d (want 1)",
+                  emu.contention().is_contended_address(0x4000) ? 1 : 0));
+
+        // hc(3:0)=3 → hc_adj=4 → wait_s via hc_adj(3:2)/=0 on every
+        // machine; the magnitude is the discriminator (zxula.vhd:582-583 +
+        // the +3 pattern): +3 → 7, 128K/48K → 6, Next → 0 (no LUT).
+        const uint8_t d = emu.contention().delay(/*hc=*/3, /*vc=*/100);
+        check("GH232-03",
+              "soft reset rebuilds the contention LUT with the +3 pattern "
+              "the preserved machine type selects [zxula.vhd:582-583]",
+              d == 7, fmt("delay(hc=3,vc=100)=%u (want 7; 6=48K/128K, "
+                          "0=Next-typed LUT)", static_cast<unsigned>(d)));
+    }
+
+    // GH232-04/05 — machine TIMING (tim_sel) → the pulse-mode /INT width
+    // gate. VHDL :2033 reads machine_timing_48 / machine_timing_p3, which
+    // come from eff_nr_03_machine_timing (:5761-5776) — never from
+    // machine_type_*. Boot 128K (tim_sel "010" → 36 cycles), have the guest
+    // select +3 timing (→ 32), soft-reset.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX128K;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        const bool boot_gate = emu.cpu().machine_timing_48_or_p3();
+
+        // bit7=1 arms the tim_sel commit (:5124), dt_lock is 0 at boot and
+        // bit3=0 keeps it there, bits 2:0 = 000 is VHDL's "no change" for
+        // typ_sel (:5143) so only the timing axis moves.
+        nr_write(emu, 0x03, 0xB0);
+        const bool after_write = emu.cpu().machine_timing_48_or_p3();
+
+        nr_write(emu, 0x02, 0x01);        // RESET_SOFT
+        const uint8_t tim = nextreg_tim_sel(emu);
+
+        check("GH232-04",
+              "the pulse-mode /INT width gate follows NR 0x03 tim_sel across "
+              "a soft reset, not the CLI machine type "
+              "[zxnext.vhd:2033 pulse_count_end; :5761-5776 machine_timing_*]",
+              boot_gate == false && after_write == true && tim == 0x03 &&
+                  emu.cpu().machine_timing_48_or_p3() == true,
+              fmt("boot=%d after_write=%d tim_sel=0x%02X post_reset=%d",
+                  boot_gate ? 1 : 0, after_write ? 1 : 0, tim,
+                  emu.cpu().machine_timing_48_or_p3() ? 1 : 0));
+
+        check("GH232-05",
+              "Im2Controller's copy of that same gate stays in lock-step "
+              "with Z80Cpu's across the soft reset [zxnext.vhd:2033 — one "
+              "VHDL signal, two jnext consumers]",
+              emu.im2().machine_timing_48_or_p3() ==
+                  emu.cpu().machine_timing_48_or_p3() &&
+                  emu.im2().machine_timing_48_or_p3() == true,
+              fmt("im2=%d cpu=%d",
+                  emu.im2().machine_timing_48_or_p3() ? 1 : 0,
+                  emu.cpu().machine_timing_48_or_p3() ? 1 : 0));
+    }
+
+    // GH232-06 — the same seam at cold boot. The Next's NR 0x03 tim_sel
+    // powers on at "011" (+3) per zxnext.vhd:1099, and jnext seeds exactly
+    // that in init(); the gate must agree with the register on the very
+    // first cycle. Pre-fix it did not, so a guest writing NR 0x03 back with
+    // the value already in the register changed the pulse width.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        const uint8_t tim = nextreg_tim_sel(emu);
+        check("GH232-06",
+              "Next cold boot: the /INT pulse-width gate agrees with the "
+              "NR 0x03 tim_sel it booted with (011 = +3 → 32 cycles) "
+              "[zxnext.vhd:1099 initialiser; :2033 gate]",
+              tim == 0x03 && emu.cpu().machine_timing_48_or_p3() == true &&
+                  emu.im2().machine_timing_48_or_p3() == true,
+              fmt("tim_sel=0x%02X cpu=%d im2=%d", tim,
+                  emu.cpu().machine_timing_48_or_p3() ? 1 : 0,
+                  emu.im2().machine_timing_48_or_p3() ? 1 : 0));
+    }
 }
 
 // ── Task 26 item 5: Multiface window backed by external SRAM 0x0A/0x0B ─
@@ -1540,6 +1695,12 @@ int main() {
 
     test_g33_tapesave_trap();
     std::printf("  Group: G33-TAPESAVE-TRAP (Task 57 SA-BYTES SAVE trap + gate) — done\n");
+
+    // Last: several groups above never call set_group(), so their rows land
+    // in whatever bucket was current. Running this one at the end keeps the
+    // per-group breakdown's existing attribution untouched.
+    test_gh232_soft_reset_uses_nextreg_state();
+    std::printf("  Group: GH232-SOFT-RESET-AXES — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %d Passed: %d Failed: %d Skipped: %zu\n",
