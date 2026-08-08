@@ -1064,18 +1064,32 @@ static void test_gh233_phantom_typist_reset(Emulator& emu) {
                      emu.keyboard().auto_typing() ? 1 : 0));
     }
 
-    // GH233-04 — the hard-reset path keeps working. It called
-    // phantom_typist_.reset() before the fix and must still cancel now
-    // that init() does it too (the two calls are idempotent).
+    // GH233-04 — Emulator::reset(), the in-place reinit method, still
+    // cancels. It called phantom_typist_.reset() directly before the fix
+    // and now reaches it twice (once itself, once via init()); the two
+    // calls must remain idempotent.
+    //
+    // This row pins THAT METHOD and nothing more. It is NOT a test of the
+    // hard reset a user performs: `Emulator::reset()` has no callers in
+    // src/ at all. F1, Machine > Power Reset and a guest's NR 0x02 bit 1
+    // all go request_hard_reset() -> emulator_cold_boot()
+    // (platform/emulator_boot.h:85-95), which runs `emu.~Emulator(); new
+    // (&emu) Emulator(); emu.init(cfg);` — the typist is a freshly
+    // constructed, INACTIVE object before init() is even entered, so the
+    // GH #233 defect was unreachable on that path by construction. Soft
+    // reset was the only way to hit it, which is why GH233-01/02/03 are
+    // the rows that discriminate the fix.
     {
         fresh(emu);
         emu.phantom_typist().arm(MachineType::ZX48K);
         const bool armed = emu.phantom_typist().is_active();
-        emu.reset();                      // hard reset
+        emu.reset();                      // the in-place reinit method
         check("GH233-04",
-              "a hard reset still disarms a pending TAP autostart",
+              "Emulator::reset() (the in-place reinit method, no production "
+              "callers) also disarms a pending TAP autostart — its own call "
+              "and init()'s stay idempotent",
               armed && !emu.phantom_typist().is_active(),
-              detail("armed=%d after_hard_reset=%d (want 1 then 0)",
+              detail("armed=%d after_reset=%d (want 1 then 0)",
                      armed ? 1 : 0,
                      emu.phantom_typist().is_active() ? 1 : 0));
     }

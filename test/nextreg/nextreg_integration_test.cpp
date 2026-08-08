@@ -613,8 +613,17 @@ static void test_gh231_dma_delay_reset() {
               agree, worst);
     }
 
-    // GH231-07 — hard reset clears them too. One reset wire in the VHDL:
-    // there is no field here that is hard-only or soft-only.
+    // GH231-07 — the in-place reinit path clears them too: there is no
+    // field here that is hard-only or soft-only, because the VHDL has one
+    // reset wire.
+    //
+    // Same caveat as input_integration_test's GH233-04: `Emulator::reset()`
+    // has no callers in src/. The hard reset a USER performs (F1, Machine >
+    // Power Reset, guest NR 0x02 bit 1) goes request_hard_reset() ->
+    // emulator_cold_boot() (platform/emulator_boot.h:85-95), which
+    // destroys and placement-new-reconstructs the Emulator, so these fields
+    // start at their member initialisers regardless. This row pins the
+    // in-place reinit method, not that path.
     {
         Emulator emu;
         build_next_emulator(emu);
@@ -622,14 +631,15 @@ static void test_gh231_dma_delay_reset() {
         nr_write(emu, 0xCD, 0xFF);
         nr_write(emu, 0xCE, 0x77);
         emu.update_im2_dma_delay(/*im2_dma_int=*/true, false, false);
-        emu.reset();                        // hard reset (re-runs init())
+        emu.reset();                        // in-place reinit (re-runs init())
         const uint8_t cc = nr_read(emu, 0xCC);
         const uint8_t cd = nr_read(emu, 0xCD);
         const uint8_t ce = nr_read(emu, 0xCE);
         const bool    dl = emu.im2_dma_delay();
         check("GH231-07",
-              "hard reset clears NR 0xCC/0xCD/0xCE and im2_dma_delay as well "
-              "(same reset wire) [zxnext.vhd:1730; "
+              "Emulator::reset() (the in-place reinit method) clears NR "
+              "0xCC/0xCD/0xCE and im2_dma_delay as well — no field here is "
+              "hard-only or soft-only [zxnext.vhd:1730; "
               "zxnext_top_issue2.vhd:840 reset <= reset_hard or reset_soft]",
               cc == 0 && cd == 0 && ce == 0 && !dl,
               fmt("cc=0x%02X cd=0x%02X ce=0x%02X delay=%d",
