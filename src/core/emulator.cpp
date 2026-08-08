@@ -340,6 +340,37 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     im2_int_status_[2] = 0;
     im2_c4_expbus_     = true;   // NR 0xC4 bit 7 reset default '1'
     nr_c6_uart_int_en_ = 0;
+    // GH #231 — NR 0xCC/0xCD/0xCE IM2 DMA-delay enables. VHDL
+    // zxnext.vhd:5101-5105 puts all five fields in the MASTER reset block:
+    //   nr_cc_dma_int_en_0_7    <= '0'
+    //   nr_cc_dma_int_en_0_10   <= (others => '0')
+    //   nr_cd_dma_int_en_1      <= (others => '0')
+    //   nr_ce_dma_int_en_2_654  <= (others => '0')
+    //   nr_ce_dma_int_en_2_210  <= (others => '0')
+    // and zxnext.vhd:2003-2004 clears the im2_dma_delay flip-flop in the
+    // same domain. That domain is ONE wire — `reset <= i_RESET`
+    // (zxnext.vhd:1730), driven by `reset_hard or reset_soft`
+    // (zxnext_top_issue2.vhd:840) — so these clear on soft reset exactly
+    // as on hard reset. Hence unconditional, with no preserve_memory
+    // guard, unlike the deliberately-preserved NR fields elsewhere in
+    // init(). Pre-fix the only writers were the NR 0xCC/0xCD/0xCE write
+    // handlers and load_state(), so a stale DMA-delay configuration
+    // survived every reset while the NR read-back handlers kept
+    // recomposing it from these fields.
+    //
+    // The mirrors these values fan out to are already cleared by the
+    // subsystem resets run above: Im2Controller::reset() zeroes
+    // dma_int_en_mask14_ / nr_cc_dma_int_en_0_7_ / its own im2_dma_delay
+    // latch (im2.cpp:45-48), and Dma::reset() clears dma_delay_
+    // (dma.cpp:74). NextReg::reset()'s regs_.fill(0) leaves the cached
+    // 0xCC/0xCD/0xCE bytes at 0, which is what these cleared fields now
+    // recompose to — cache and fields agree again.
+    nr_cc_dma_delay_on_nmi_   = false;
+    nr_cc_dma_delay_en_ula_   = 0;
+    nr_cd_dma_delay_en_ctc_   = 0;
+    nr_ce_dma_delay_en_uart1_ = 0;
+    nr_ce_dma_delay_en_uart0_ = 0;
+    im2_dma_delay_latched_    = false;
     // V19-IM2-02 init: VHDL zxnext.vhd:6711 — `ula_int_en(0) =
     // NOT port_ff_interrupt_disable` = NOT port_ff_reg(6). With
     // port_ff_reg=0 at reset, ULA int_en=1. Fan this initial value
@@ -377,6 +408,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // follow-up, 2026-05-04); the VHDL `machine_timing_pentagon` term
     // (NR 0x03 b2) is not currently wired into ContentionModel — see
     // contention.cpp::is_contended_access() comment for the rationale.
+    //
     contention_.build(cfg.type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
     // Verify9-memory class-(c) → class-(a) fix: seed

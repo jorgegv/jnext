@@ -57,13 +57,13 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: tilemap_fetch_split_test        |     4 |    4 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: ctc_interrupts_test             |    54 |   54 |    0 |    0 |       0 |          0 |
-| Companion: nextreg_integration_test        |   305 |  305 |    0 |    0 |       0 |          0 |
+| Companion: nextreg_integration_test        |   312 |  312 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    17 |   17 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4265 | 4009 |    0 |    5 |     251 |          0 |
+| **Total**                                  |  4272 | 4016 |    0 |    5 |     251 |          0 |
 
-Rows the sections above carry: **4265**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4078**. Rows the 99 suites declared in `test/unit-tests.conf` run live: **6985**.
+Rows the sections above carry: **4272**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4085**. Rows the 99 suites declared in `test/unit-tests.conf` run live: **6992**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -271,22 +271,22 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | ALT-07 | hard reset copies NR 0x8C bits 3:0 into bits 7:4 — VHDL zxnext.vhd:2254-2256 | zxnext.vhd:2254-2256 | pass | test/mmu/mmu_test.cpp:2576 |
 | ALT-08 | altrom SRAM address formula routes 0x0000 to SRAM page 12 when alt_128_n=0 — VHDL zxnext.vhd:2981-3001, 3021, 3078, 3117 | zxnext.vhd:2981-3001,3021,3078,3117 | pass | test/mmu/mmu_test.cpp:2601 |
 | ALT-09 | NR 0x8C read-back returns stored byte — VHDL zxnext.vhd:6156 | zxnext.vhd:6156 | pass | test/mmu/mmu_test.cpp:2616 |
-| RSTD-8C-01 | reset RELOADS nr_8c_altrom_lock_rom1 (bit 5) from bit 1 — it does NOT clear: NR 0x8C=0x02 -> after RESET_SOFT lock_rom1=1, lock_rom0=0, byte=0x22 [zxnext.vhd:2254-2255 nibble copy, :2264 lock_rom1 <= nr_8c_altrom(5); nextreg.txt:861-864] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:834 |
-| RSTD-8C-02 | reset RELOADS nr_8c_altrom_lock_rom0 (bit 4) from bit 0 — it does NOT clear: NR 0x8C=0x01 -> after RESET_SOFT lock_rom0=1, lock_rom1=0, byte=0x11 [zxnext.vhd:2254-2255 nibble copy, :2265 lock_rom0 <= nr_8c_altrom(4); nextreg.txt:861-865] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:859 |
+| RSTD-8C-01 | reset RELOADS nr_8c_altrom_lock_rom1 (bit 5) from bit 1 — it does NOT clear: NR 0x8C=0x02 -> after RESET_SOFT lock_rom1=1, lock_rom0=0, byte=0x22 [zxnext.vhd:2254-2255 nibble copy, :2264 lock_rom1 <= nr_8c_altrom(5); nextreg.txt:861-864] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:973 |
+| RSTD-8C-02 | reset RELOADS nr_8c_altrom_lock_rom0 (bit 4) from bit 0 — it does NOT clear: NR 0x8C=0x01 -> after RESET_SOFT lock_rom0=1, lock_rom1=0, byte=0x11 [zxnext.vhd:2254-2255 nibble copy, :2265 lock_rom0 <= nr_8c_altrom(4); nextreg.txt:861-865] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:998 |
 | MMU-CFG-01 | config_mode=1 routes 0x0000-0x3FFF ROM-slot writes to SRAM via NR 0x04 — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2649 |
 | MMU-CFG-02 | config_mode=1 reads from 0x0000-0x3FFF ROM-slot return SRAM bank contents — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2669 |
 | MMU-CFG-03 | MMU-RAM mapping on ROM-slot range wins over config_mode routing — VHDL zxnext.vhd:3037 | zxnext.vhd:3037 | pass | test/mmu/mmu_test.cpp:2690 |
 | MMU-CFG-04 | config_mode=0 suppresses ROM-slot routing; writes drop — VHDL zxnext.vhd:3044-3050 bypassed | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2710 |
 | MMU-CFG-06 | Mmu::reset() PRESERVES nr_04_romram_bank — no reset clause in VHDL zxnext.vhd:4930-5111 (the only sites are :1104 declaration, :3045 use, :5717/:5732 writes; a declaration default is FPGA power-on, not a reset clause); config_mode is Emulator-owned | zxnext.vhd:4930-5111 | pass | test/mmu/mmu_test.cpp:2765 |
 | CFG-12 | Mmu::reset(hard=false) ALSO preserves nr_04_romram_bank — zxnext.vhd's `reset` is reset_hard OR reset_soft (zxnext_top_issue2.vhd:840, zxnext.vhd:1730) and the signal is in no reset block at all (:4930-5111) | zxnext_top_issue2.vhd:840, zxnext.vhd:1730 | pass | test/mmu/mmu_test.cpp:2795 |
-| RSTD-04-01 | RESET_SOFT PRESERVES nr_04_romram_bank — the signal is absent from the reset block [zxnext.vhd:4930-5111]; its only sites are zxnext.vhd:1104 (declaration), zxnext.vhd:3045 (use) and the write handlers zxnext.vhd:5717 / zxnext.vhd:5732, gated solely on nr_04_we | zxnext.vhd:4930-5111, zxnext.vhd:1104, zxnext.vhd:3045, zxnext.vhd:5717, zxnext.vhd:5732 | pass | test/nextreg/nextreg_integration_test.cpp:904 |
-| RSTD-04-02 | RESET_HARD clears nr_04_romram_bank to the zxnext.vhd:1104 power-on default via the host cold boot (FPGA reconfiguration, zxnext_top_issue2.vhd:1195); the NR 0x02 b1 write itself only raises the deferred request [Task 70] | zxnext.vhd:1104, zxnext_top_issue2.vhd:1195 | pass | test/nextreg/nextreg_integration_test.cpp:932 |
-| RSTD-04-03 | NR 0x04 write reaches the Mmu mirror consumed by the SRAM address compose [zxnext.vhd:3045], bit 7 masked off per gen_romram_234 [zxnext.vhd:5709-5722]; both mirrors agree | zxnext.vhd:3045, zxnext.vhd:5709-5722 | pass | test/nextreg/nextreg_integration_test.cpp:968 |
-| RSTD-04-04 | RESET_SOFT PRESERVES the Mmu mirror of nr_04_romram_bank — the signal has no reset clause anywhere in zxnext.vhd (absent from the reset block at :4930-5111; write handlers :5717/:5732 are gated solely on nr_04_we) — and both mirrors still agree | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:992 |
-| RSTD-04-05 | the boot-ROM-gated resync in Emulator::init() leaves the Mmu config_mode mirror following the NextReg latch [zxnext.vhd:1102 power-on '1', :5122 cleared by an NR 0x03 write] and does NOT disturb the preserved nr_04_romram_bank [zxnext.vhd:1104, absent from the reset block :4930-5111] | zxnext.vhd:1102, zxnext.vhd:1104 | pass | test/nextreg/nextreg_integration_test.cpp:1262 |
-| CMG-01 | a Next start with NO boot ROM leaves the Mmu config_mode mirror at its power-on false, and the NextReg latch agrees because init() makes the IPL's own NR 0x03 commit [zxnext.vhd:1102, :5147-5151], so a write into the still-ROM low slot is DROPPED instead of being rerouted into SRAM [zxnext.vhd:3044-3050] | zxnext.vhd:1102, zxnext.vhd:3044-3050 | pass | test/nextreg/nextreg_integration_test.cpp:1073 |
-| CMG-02 | NO non-Next machine type runs the config-mode resync, even with a boot ROM enabled: the gate's machine-type clause holds it shut for every value in the enum's non-Next set [contention.h:5], so the Mmu mirror keeps its own value instead of following the NextReg latch [zxnext.vhd:1102,5122] | zxnext.vhd:1102,5122 | pass | test/nextreg/nextreg_integration_test.cpp:1148 |
-| CMG-03 | the init() config-mode resync observes the POST-reset boot-ROM state: Mmu::reset() arms boot_rom_en_ from the persisted boot ROM + config_mode [mmu.cpp:179], and the gate must run after that, so the mirror follows the NextReg latch down instead of keeping its stale pre-init value | — | pass | test/nextreg/nextreg_integration_test.cpp:1206 |
+| RSTD-04-01 | RESET_SOFT PRESERVES nr_04_romram_bank — the signal is absent from the reset block [zxnext.vhd:4930-5111]; its only sites are zxnext.vhd:1104 (declaration), zxnext.vhd:3045 (use) and the write handlers zxnext.vhd:5717 / zxnext.vhd:5732, gated solely on nr_04_we | zxnext.vhd:4930-5111, zxnext.vhd:1104, zxnext.vhd:3045, zxnext.vhd:5717, zxnext.vhd:5732 | pass | test/nextreg/nextreg_integration_test.cpp:1043 |
+| RSTD-04-02 | RESET_HARD clears nr_04_romram_bank to the zxnext.vhd:1104 power-on default via the host cold boot (FPGA reconfiguration, zxnext_top_issue2.vhd:1195); the NR 0x02 b1 write itself only raises the deferred request [Task 70] | zxnext.vhd:1104, zxnext_top_issue2.vhd:1195 | pass | test/nextreg/nextreg_integration_test.cpp:1071 |
+| RSTD-04-03 | NR 0x04 write reaches the Mmu mirror consumed by the SRAM address compose [zxnext.vhd:3045], bit 7 masked off per gen_romram_234 [zxnext.vhd:5709-5722]; both mirrors agree | zxnext.vhd:3045, zxnext.vhd:5709-5722 | pass | test/nextreg/nextreg_integration_test.cpp:1107 |
+| RSTD-04-04 | RESET_SOFT PRESERVES the Mmu mirror of nr_04_romram_bank — the signal has no reset clause anywhere in zxnext.vhd (absent from the reset block at :4930-5111; write handlers :5717/:5732 are gated solely on nr_04_we) — and both mirrors still agree | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1131 |
+| RSTD-04-05 | the boot-ROM-gated resync in Emulator::init() leaves the Mmu config_mode mirror following the NextReg latch [zxnext.vhd:1102 power-on '1', :5122 cleared by an NR 0x03 write] and does NOT disturb the preserved nr_04_romram_bank [zxnext.vhd:1104, absent from the reset block :4930-5111] | zxnext.vhd:1102, zxnext.vhd:1104 | pass | test/nextreg/nextreg_integration_test.cpp:1401 |
+| CMG-01 | a Next start with NO boot ROM leaves the Mmu config_mode mirror at its power-on false, and the NextReg latch agrees because init() makes the IPL's own NR 0x03 commit [zxnext.vhd:1102, :5147-5151], so a write into the still-ROM low slot is DROPPED instead of being rerouted into SRAM [zxnext.vhd:3044-3050] | zxnext.vhd:1102, zxnext.vhd:3044-3050 | pass | test/nextreg/nextreg_integration_test.cpp:1212 |
+| CMG-02 | NO non-Next machine type runs the config-mode resync, even with a boot ROM enabled: the gate's machine-type clause holds it shut for every value in the enum's non-Next set [contention.h:5], so the Mmu mirror keeps its own value instead of following the NextReg latch [zxnext.vhd:1102,5122] | zxnext.vhd:1102,5122 | pass | test/nextreg/nextreg_integration_test.cpp:1287 |
+| CMG-03 | the init() config-mode resync observes the POST-reset boot-ROM state: Mmu::reset() arms boot_rom_en_ from the persisted boot ROM + config_mode [mmu.cpp:179], and the gate must run after that, so the mirror follows the NextReg latch down instead of keeping its stale pre-init value | — | pass | test/nextreg/nextreg_integration_test.cpp:1345 |
 | ADR-01 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2922 |
 | ADR-02 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2923 |
 | ADR-03 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2924 |
@@ -309,8 +309,8 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | L2M-02b | L2 read-over OFF → MMU slot wins — VHDL zxnext.vhd:3077 sram_pre_layer2_rd_en gate | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3195 |
 | L2M-03 | L2 auto-segment follows cpu_a(15:14) — VHDL zxnext.vhd:3100-3107 | zxnext.vhd:3100-3107 | pass | test/mmu/mmu_test.cpp:3219 |
 | L2M-04 | L2 write-over does not apply to 0xC000-0xFFFF — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3237 |
-| L2M-05 | NR 0x12 write sets Layer 2 active bank (7-bit) [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:2837 |
-| L2M-06 | NR 0x13 write sets Layer 2 shadow bank (7-bit) [zxnext.vhd:4946 nr_13_layer2_shadow_bank] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:2873 |
+| L2M-05 | NR 0x12 write sets Layer 2 active bank (7-bit) [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:2976 |
+| L2M-06 | NR 0x13 write sets Layer 2 shadow bank (7-bit) [zxnext.vhd:4946 nr_13_layer2_shadow_bank] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:3012 |
 | PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2365 |
 | PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2399 |
 | PRI-03 | L2 write-over outranks MMU in 0-16K — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3296 |
@@ -1077,8 +1077,8 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-111 | Y outside clip (y=0x20 < clip_y1=0x40) → scanline transparent | — | pass | test/tilemap/tilemap_test.cpp:1629 |
 | TM-112 | clip_x1=clip_x2=0x10 → 4 opaque cells at x=0x40..0x43 (VHDL tilemap.vhd:416-417,424 — clip comparator runs against hcounter_i, doubled into 640-grid) | tilemap.vhd:416-417,424 | pass | test/tilemap/tilemap_test.cpp:1660 |
 | TM-113 | Y clip inclusive at clip_y1/clip_y2, outside transparent | — | pass | test/tilemap/tilemap_test.cpp:1686 |
-| TM-114 | NR 0x1B 4-write cycle programs x1/x2/y1/y2 in order [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:524 |
-| TM-115 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5288-5289] | zxnext.vhd:5288-5289 | pass | test/nextreg/nextreg_integration_test.cpp:547 |
+| TM-114 | NR 0x1B 4-write cycle programs x1/x2/y1/y2 in order [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:663 |
+| TM-115 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5288-5289] | zxnext.vhd:5288-5289 | pass | test/nextreg/nextreg_integration_test.cpp:686 |
 | TM-116 | clip getters return programmed values | — | pass | test/tilemap/tilemap_test.cpp:1706 |
 | TM-120 | VHDL tilemap.vhd:388 — default attr(0)=0 yields below=0 | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1725 |
 | TM-121 | VHDL tilemap.vhd:388 — tm_on_top=1 overrides per-tile below | tilemap.vhd:388 | pass | test/tilemap/tilemap_test.cpp:1738 |
@@ -1853,8 +1853,8 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 | E3-06 | Write 0x0F selects bank 15 (VHDL zxnext.vhd:4188) | zxnext.vhd:4188 | pass | test/divmmc/divmmc_test.cpp:276 |
 | E3-07 | Read 0xE3 masks bits 5:4 to 0 (VHDL zxnext.vhd:4190) | zxnext.vhd:4190 | pass | test/divmmc/divmmc_test.cpp:291 |
 | E3-08 | Bits 5:4 of write are ignored (VHDL zxnext.vhd:4190) | zxnext.vhd:4190 | pass | test/divmmc/divmmc_test.cpp:304 |
-| RSTD-E3-01 | RESET_SOFT clears port 0xE3 conmem (bit 7) and the whole register [zxnext.vhd:4176-4177 port_e3_reg <= 0 on reset; :1730 reset <= i_RESET; zxnext_top_issue2.vhd:840 reset <= reset_hard or reset_soft] | zxnext.vhd:4176-4177, zxnext_top_issue2.vhd:840 | pass | test/nextreg/nextreg_integration_test.cpp:775 |
-| RSTD-E3-02 | RESET_HARD clears port 0xE3 conmem via the host cold boot; the NR 0x02 b1 write itself only raises the deferred request [zxnext.vhd:4176-4177 + :1730; zxnext_top_issue2.vhd:840; Task 70 deferred hard reset] | zxnext.vhd:4176-4177,1730, zxnext_top_issue2.vhd:840 | pass | test/nextreg/nextreg_integration_test.cpp:808 |
+| RSTD-E3-01 | RESET_SOFT clears port 0xE3 conmem (bit 7) and the whole register [zxnext.vhd:4176-4177 port_e3_reg <= 0 on reset; :1730 reset <= i_RESET; zxnext_top_issue2.vhd:840 reset <= reset_hard or reset_soft] | zxnext.vhd:4176-4177, zxnext_top_issue2.vhd:840 | pass | test/nextreg/nextreg_integration_test.cpp:914 |
+| RSTD-E3-02 | RESET_HARD clears port 0xE3 conmem via the host cold boot; the NR 0x02 b1 write itself only raises the deferred request [zxnext.vhd:4176-4177 + :1730; zxnext_top_issue2.vhd:840; Task 70 deferred hard reset] | zxnext.vhd:4176-4177,1730, zxnext_top_issue2.vhd:840 | pass | test/nextreg/nextreg_integration_test.cpp:947 |
 | CM-01 | conmem=1 mapram=0: ROM mapped at page0 (VHDL divmmc.vhd:94) | divmmc.vhd:94 | pass | test/divmmc/divmmc_test.cpp:369 |
 | CM-02 | conmem=1 mapram=0: page1 RAM from reg(3:0) (VHDL divmmc.vhd:95-96) | divmmc.vhd:95-96 | pass | test/divmmc/divmmc_test.cpp:384 |
 | CM-03 | conmem=1 mapram=1: page0 maps to RAM bank 3 (VHDL divmmc.vhd:95-96) | divmmc.vhd:95-96 | pass | test/divmmc/divmmc_test.cpp:402 |
@@ -2411,19 +2411,19 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 |---------|-------------|----------------|--------|----------------|
 | SEL-01 | select(0x7F)+write_selected(0x42)+read_selected() [zxnext.vhd:4597-4599] | zxnext.vhd:4597-4599 | pass | test/nextreg/nextreg_test.cpp:123 |
 | SEL-02 | read_selected() after reset reads NR 0x24 [zxnext.vhd:4594-4596] | zxnext.vhd:4594-4596 | pass | test/nextreg/nextreg_test.cpp:147 |
-| SEL-03 | NR 0x00 via select+write+read path returns 0x0A (selection pathway respects read-only) [zxnext.vhd:5884-5885] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1437 |
+| SEL-03 | NR 0x00 via select+write+read path returns 0x0A (selection pathway respects read-only) [zxnext.vhd:5884-5885] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1576 |
 | SEL-04 | select(0x7F)+write_selected(0xAB)+read_selected()==0xAB [zxnext.vhd read dispatch, NR 0x7F user scratch] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:166 |
 | NR-SEL-05 | NEXTREG ED 91 instruction | — | missing | — |
 | SEL-05a | Pre-select NR 0x7F via 0x243B; execute Z80N `NEXTREG 0x54, 0x04` (ED 91 54 04); read 0x253B without re-selecting | zxnext.vhd:4739-4744 | missing | — |
 | SEL-05b | Same setup with `NEXTREG 0x54,A` (ED 92); after it, write 0x253B ← 0x5C (raw data port) | — | missing | — |
 | SEL-05c | Execute `NEXTREG 0x7E, 0x3C`; read NR 0x7E | — | missing | — |
-| RO-01 | NR 0x00 machine ID reset=0x0A via port path [VHDL g_machine_id, zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:1331 |
+| RO-01 | NR 0x00 machine ID reset=0x0A via port path [VHDL g_machine_id, zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:1470 |
 | MID-01 | NR 0x00 machine ID reset=0x0A (VHDL g_machine_id=X"0A") [zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:163 |
-| RO-02 | NR 0x00 read-only: write 0x42 then read returns 0x0A [zxnext.vhd:5884-5885 — read routed to g_machine_id; no write handler] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1347 |
-| RO-03 | NR 0x01 core version reset=0x32 (core 3.02) [zxnext_top_issue2.vhd:37 g_version] | zxnext_top_issue2.vhd:37 | pass | test/nextreg/nextreg_integration_test.cpp:1359 |
-| RO-04 | NR 0x0E sub-version reset=0x03 [zxnext_top_issue2.vhd:38 g_sub_version] | zxnext_top_issue2.vhd:38 | pass | test/nextreg/nextreg_integration_test.cpp:1371 |
-| RO-05 | NR 0x0F board issue reset=0x00 [zxnext.vhd:5921, zxnext_top_issue2.vhd:39] | zxnext.vhd:5921, zxnext_top_issue2.vhd:39 | pass | test/nextreg/nextreg_integration_test.cpp:1383 |
-| RO-06 | NR 0x1E/0x1F return cvc (paper-relative), not raw frame vc: frame-start cvc == 247 for 128K timing [zxnext.vhd:5982-5986, zxula_timing.vhd:455-472] | zxnext.vhd:5982-5986, zxula_timing.vhd:455-472 | pass | test/nextreg/nextreg_integration_test.cpp:1409 |
+| RO-02 | NR 0x00 read-only: write 0x42 then read returns 0x0A [zxnext.vhd:5884-5885 — read routed to g_machine_id; no write handler] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1486 |
+| RO-03 | NR 0x01 core version reset=0x32 (core 3.02) [zxnext_top_issue2.vhd:37 g_version] | zxnext_top_issue2.vhd:37 | pass | test/nextreg/nextreg_integration_test.cpp:1498 |
+| RO-04 | NR 0x0E sub-version reset=0x03 [zxnext_top_issue2.vhd:38 g_sub_version] | zxnext_top_issue2.vhd:38 | pass | test/nextreg/nextreg_integration_test.cpp:1510 |
+| RO-05 | NR 0x0F board issue reset=0x00 [zxnext.vhd:5921, zxnext_top_issue2.vhd:39] | zxnext.vhd:5921, zxnext_top_issue2.vhd:39 | pass | test/nextreg/nextreg_integration_test.cpp:1522 |
+| RO-06 | NR 0x1E/0x1F return cvc (paper-relative), not raw frame vc: frame-start cvc == 247 for 128K timing [zxnext.vhd:5982-5986, zxula_timing.vhd:455-472] | zxnext.vhd:5982-5986, zxula_timing.vhd:455-472 | pass | test/nextreg/nextreg_integration_test.cpp:1548 |
 | NREG-RST-01 | NR 0x14 global transparent reset=0xE3 [zxnext.vhd:4947 nr_14_global_transparent] | zxnext.vhd:4947 | pass | test/nextreg/nextreg_integration_test.cpp:173 |
 | NREG-RST-02 | NR 0x15 sprite/layer control reset=0x00 [zxnext.vhd:4948] | zxnext.vhd:4948 | pass | test/nextreg/nextreg_integration_test.cpp:184 |
 | NREG-RST-03 | NR 0x4A fallback RGB reset=0xE3 [zxnext.vhd:5002 nr_4a_fallback_colour] | zxnext.vhd:5002 | pass | test/nextreg/nextreg_integration_test.cpp:194 |
@@ -2433,8 +2433,8 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | NREG-RST-07 | NR 0x0B I/O mode reset=0x01 [zxnext.vhd:4939-4941] | zxnext.vhd:4939-4941 | pass | test/nextreg/nextreg_integration_test.cpp:250 |
 | NREG-RST-08 | NR 0x82-0x85 port enables reset=0xFF [zxnext.vhd:5052-5068] | zxnext.vhd:5052-5068 | pass | test/nextreg/nextreg_integration_test.cpp:272 |
 | RST-09 | NR 0x1B post-reset read returns tilemap clip_x1 = 0x00 [zxnext.vhd:5971-5977 read mux; :4977-4981 reset defaults] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:317 |
-| RW-01 | NR 0x07 read = (actual<<4) \| requested, pads 0 in bits[7:6] and bits[3:2] [zxnext.vhd:5902-5903] | zxnext.vhd:5902-5903 | pass | test/nextreg/nextreg_integration_test.cpp:2193 |
-| RW-02 | NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = nr_08_contention_disable [zxnext.vhd:5906] | zxnext.vhd:5906 | pass | test/nextreg/nextreg_integration_test.cpp:2245 |
+| RW-01 | NR 0x07 read = (actual<<4) \| requested, pads 0 in bits[7:6] and bits[3:2] [zxnext.vhd:5902-5903] | zxnext.vhd:5902-5903 | pass | test/nextreg/nextreg_integration_test.cpp:2332 |
+| RW-02 | NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = nr_08_contention_disable [zxnext.vhd:5906] | zxnext.vhd:5906 | pass | test/nextreg/nextreg_integration_test.cpp:2384 |
 | RW-03 | NR 0x12 L2 active bank write=0x10 read=0x10 [zxnext.vhd ~5190 nr_12_layer2_active_bank] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:277 |
 | RW-04 | NR 0x14 global transparent write=0x55 read=0x55 [zxnext.vhd ~5200 nr_14_global_transparent] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:289 |
 | RW-05 | NR 0x15 layer control write=0x15 read=0x15 [zxnext.vhd ~5210 nr_15_sprite_lores] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:302 |
@@ -2445,40 +2445,40 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | RW-10 | NR 0x50-0x57 MMU pages write/read round-trip [zxnext.vhd:4607-4700] | zxnext.vhd:4607-4700 | pass | test/nextreg/nextreg_test.cpp:373 |
 | RW-11 | NR 0x7F user scratch write=0xAB read=0xAB [zxnext.vhd read dispatch, user-scratch slot] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:384 |
 | RW-12 | NR 0x6B tilemap control write=0x81 read=0x81 [zxnext.vhd ~5630 nr_6b_tilemap_control] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:396 |
-| CLIP-01 | NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44 [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1470 |
-| CLIP-02 | NR 0x18 fifth write wraps back to x1 (mod-4 idx) [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1490 |
-| CLIP-03 | NR 0x1C bit 0 resets L2 clip idx so next NR 0x18 write → x1 [zxnext.vhd:5278-5281] | zxnext.vhd:5278-5281 | pass | test/nextreg/nextreg_integration_test.cpp:1509 |
-| CLIP-04 | NR 0x1C bit 1 resets sprite clip idx so next NR 0x19 write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1530 |
-| CLIP-05 | NR 0x1C bit 2 resets ULA clip idx so next NR 0x1A write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1552 |
-| CLIP-06 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1570 |
-| CLIP-07 | Read NR 0x1C | zxnext.vhd:5979-5980 | pass | test/nextreg/nextreg_integration_test.cpp:1589 |
-| CLIP-08 | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5947-5953] | zxnext.vhd:5947-5953 | pass | test/nextreg/nextreg_integration_test.cpp:1634 |
-| CLIP-09 | Read NR 0x1B twice with no intervening write | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1658 |
-| CLIP-10 | NR 0x1B write lands x1=0xAA AND advances tm idx → NR 0x1C bits 7:6 = 01 (0x40) [zxnext.vhd:5276 write increments idx; :5980 NR 0x1C packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1689 |
+| CLIP-01 | NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44 [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1609 |
+| CLIP-02 | NR 0x18 fifth write wraps back to x1 (mod-4 idx) [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1629 |
+| CLIP-03 | NR 0x1C bit 0 resets L2 clip idx so next NR 0x18 write → x1 [zxnext.vhd:5278-5281] | zxnext.vhd:5278-5281 | pass | test/nextreg/nextreg_integration_test.cpp:1648 |
+| CLIP-04 | NR 0x1C bit 1 resets sprite clip idx so next NR 0x19 write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1669 |
+| CLIP-05 | NR 0x1C bit 2 resets ULA clip idx so next NR 0x1A write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1691 |
+| CLIP-06 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1709 |
+| CLIP-07 | Read NR 0x1C | zxnext.vhd:5979-5980 | pass | test/nextreg/nextreg_integration_test.cpp:1728 |
+| CLIP-08 | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5947-5953] | zxnext.vhd:5947-5953 | pass | test/nextreg/nextreg_integration_test.cpp:1773 |
+| CLIP-09 | Read NR 0x1B twice with no intervening write | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1797 |
+| CLIP-10 | NR 0x1B write lands x1=0xAA AND advances tm idx → NR 0x1C bits 7:6 = 01 (0x40) [zxnext.vhd:5276 write increments idx; :5980 NR 0x1C packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1828 |
 | NR-MMU-01 | Reset defaults | — | missing | — |
 | NR-MMU-02 | NR 0x52 (MMU2) write=0x20 read=0x20 [zxnext.vhd:4613 MMU2 storage] | zxnext.vhd:4613 | pass | test/nextreg/nextreg_test.cpp:455 |
 | NR-MMU-03 | Write port 0x7FFD, check MMU6/7 | — | missing | — |
 | NR-MMU-04 | NextREG write overrides port write | — | missing | — |
-| N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0 [zxnext.vhd:3814 port_memory_ram_change_dly, :4677 MMU6/7 gate] | zxnext.vhd:3814 | pass | test/nextreg/nextreg_integration_test.cpp:2730 |
-| N8E-RAM-REBUILD-1 | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank [zxnext.vhd:3814, :4677] | zxnext.vhd:3814,4677 | pass | test/nextreg/nextreg_integration_test.cpp:2755 |
-| CFG-01 | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011") [zxnext.vhd:1099, 5893-5894] | zxnext.vhd:1099,5893-5894 | pass | test/nextreg/nextreg_integration_test.cpp:2525 |
-| CFG-02 | NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read composes bit 3 from that state [zxnext.vhd:5121-5151, 5894] | zxnext.vhd:5121-5151,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2561 |
+| N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0 [zxnext.vhd:3814 port_memory_ram_change_dly, :4677 MMU6/7 gate] | zxnext.vhd:3814 | pass | test/nextreg/nextreg_integration_test.cpp:2869 |
+| N8E-RAM-REBUILD-1 | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank [zxnext.vhd:3814, :4677] | zxnext.vhd:3814,4677 | pass | test/nextreg/nextreg_integration_test.cpp:2894 |
+| CFG-01 | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011") [zxnext.vhd:1099, 5893-5894] | zxnext.vhd:1099,5893-5894 | pass | test/nextreg/nextreg_integration_test.cpp:2664 |
+| CFG-02 | NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read composes bit 3 from that state [zxnext.vhd:5121-5151, 5894] | zxnext.vhd:5121-5151,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2700 |
 | CFG-03 | NR 0x03 bits[2:0]=111 re-enters config_mode [zxnext.vhd:5147-5148] | zxnext.vhd:5147-5148 | pass | test/nextreg/nextreg_test.cpp:515 |
 | CFG-04 | NR 0x03 bits[2:0]=001..110 clears config_mode [zxnext.vhd:5149-5150] | zxnext.vhd:5149-5150 | pass | test/nextreg/nextreg_test.cpp:538 |
-| CFG-05 | NR 0x03 bits 2:0=001 clears config_mode at write time [zxnext.vhd:5147-5151 — Task 11 Branch 1 implemented] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2592 |
+| CFG-05 | NR 0x03 bits 2:0=001 clears config_mode at write time [zxnext.vhd:5147-5151 — Task 11 Branch 1 implemented] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2731 |
 | CFG-06 | NR 0x03 bits[2:0]=000 is a no-op (no change to config_mode) [zxnext.vhd:5147-5151 no-change branch] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_test.cpp:562 |
 | CFG-07 | reset() preserves config_mode (VHDL has no reset clause; latch survives reset) [zxnext.vhd:1102, :5147-5151 — no reset block] | zxnext.vhd:1102,5147-5151 | pass | test/nextreg/nextreg_test.cpp:592 |
-| PAL-01 | NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03 [zxnext.vhd:4918-4920 palette write] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1867 |
-| PAL-02 | NR 0x41 8-bit palette value round-trips at selected index [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1881 |
-| PAL-03 | NR 0x44 9-bit write: upper 8 bits land at selected idx [zxnext.vhd:4918-4920 palette sub_idx latch] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1901 |
-| PAL-04 | NR 0x41 read returns palette byte at selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1916 |
-| PAL-05 | NR 0x44 read returns priority+LSB for selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1929 |
-| PAL-06 | NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 at idx 0x50 keeps pointer on 0x50, pal[0x51] untouched [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1953 |
+| PAL-01 | NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03 [zxnext.vhd:4918-4920 palette write] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2006 |
+| PAL-02 | NR 0x41 8-bit palette value round-trips at selected index [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2020 |
+| PAL-03 | NR 0x44 9-bit write: upper 8 bits land at selected idx [zxnext.vhd:4918-4920 palette sub_idx latch] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2040 |
+| PAL-04 | NR 0x41 read returns palette byte at selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:2055 |
+| PAL-05 | NR 0x44 read returns priority+LSB for selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:2068 |
+| PAL-06 | NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 at idx 0x50 keeps pointer on 0x50, pal[0x51] untouched [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2092 |
 | PE-01 | NR 0x82 internal port-enable write=0x00 read=0x00 [zxnext.vhd:2392-2442, 5052-5068] | zxnext.vhd:2392-2442,5052-5068 | pass | test/nextreg/nextreg_test.cpp:681 |
 | PE-02 | NR 0x82 internal port-enable write=0xA5 read=0xA5 [zxnext.vhd:2392-2442, 5052-5068] | zxnext.vhd:2392-2442,5052-5068 | pass | test/nextreg/nextreg_test.cpp:693 |
-| PE-03 | NR 0x82 bit 6 gates port 0x1F (Kempston 1): bit6=1→handler, bit6=0→0xFF [zxnext.vhd:2392-2442] | zxnext.vhd:2392-2442 | pass | test/nextreg/nextreg_integration_test.cpp:2011 |
+| PE-03 | NR 0x82 bit 6 gates port 0x1F (Kempston 1): bit6=1→handler, bit6=0→0xFF [zxnext.vhd:2392-2442] | zxnext.vhd:2392-2442 | pass | test/nextreg/nextreg_integration_test.cpp:2150 |
 | PE-04 | Reset with reset_type=1 | — | missing | — |
-| PE-05 | NR 0x89 bus port enable reset=0x8F [zxnext.vhd:1234-1235, 6147-6150] | zxnext.vhd:1234-1235,6147-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2030 |
+| PE-05 | NR 0x89 bus port enable reset=0x8F [zxnext.vhd:1234-1235, 6147-6150] | zxnext.vhd:1234-1235,6147-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2169 |
 | PE-06 | Read NR 0x82 after a write, full VHDL packing | zxnext.vhd:5508-5522 | missing | — |
 | PE-07 | Read NR 0x86 (bus-port-enable, no read_handler today) | zxnext.vhd:5061-5067 | missing | — |
 | PE-08 | Read NR 0x89 inverted-reset semantics | zxnext.vhd:6138,6150 | missing | — |
@@ -2491,10 +2491,10 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | WO-02 | Write NR 0x29 ← 0x55; read NR 0x29 | — | missing | — |
 | WO-03 | Write NR 0x60 ← 0x42; read NR 0x60 | — | missing | — |
 | WO-04 | Write NR 0x35 ← 0x33; read NR 0x35 | — | missing | — |
-| T58-NR05-EFF-01 | NR 0x05 bits 2/0 are frame-edge-latched on read: write 0x05 reads 0x00 before the frame edge, 0x05 after [zxnext.vhd:5897, :6696-6703] | zxnext.vhd:5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:3236 |
-| TC-NR05-PRESERVE | NR 0x05 survives hard reset (no VHDL reset clause) [zxnext.vhd:1105-1106 / 1302-1303] | zxnext.vhd:6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:4904 |
-| TC-NR05-PENTAGON | NR 0x05 bit 2 reads 0 after Pentagon entry + frame edge (pending FF forced 0, eff latched at frame sync) [zxnext.vhd:5835-5836 / :6697-6700 / :5897] | zxnext.vhd:5835-5836,6697-6700,5897 | pass | test/nextreg/nextreg_integration_test.cpp:4936 |
-| V13-NMP-01 | NR 0x05 bit 2 Pentagon-mode cache canonicalisation: (a) write-while-Pentagon does not leak; (b) Pentagon-engagement clears prior bit-2 latch [zxnext.vhd:5832-5841 / :5897 / :6696-6703] | zxnext.vhd:5835-5836,5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:5814 |
+| T58-NR05-EFF-01 | NR 0x05 bits 2/0 are frame-edge-latched on read: write 0x05 reads 0x00 before the frame edge, 0x05 after [zxnext.vhd:5897, :6696-6703] | zxnext.vhd:5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:3375 |
+| TC-NR05-PRESERVE | NR 0x05 survives hard reset (no VHDL reset clause) [zxnext.vhd:1105-1106 / 1302-1303] | zxnext.vhd:6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:5043 |
+| TC-NR05-PENTAGON | NR 0x05 bit 2 reads 0 after Pentagon entry + frame edge (pending FF forced 0, eff latched at frame sync) [zxnext.vhd:5835-5836 / :6697-6700 / :5897] | zxnext.vhd:5835-5836,6697-6700,5897 | pass | test/nextreg/nextreg_integration_test.cpp:5075 |
+| V13-NMP-01 | NR 0x05 bit 2 Pentagon-mode cache canonicalisation: (a) write-while-Pentagon does not leak; (b) Pentagon-engagement clears prior bit-2 latch [zxnext.vhd:5832-5841 / :5897 / :6696-6703] | zxnext.vhd:5835-5836,5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:5953 |
 | FT-D8-01 | NR 0xD8 nr_d8_io_trap_fdc_en write/read-back | zxnext.vhd:5639-5640,6265-6266 | missing | — |
 | FT-D8-02 | NR 0xD8 enable=1 must allow strobe_iotrap to assert MF | zxnext.vhd:2601-2602,3835,3837 | missing | — |
 | FT-D9-01 | NR 0xD9 nr_d9_iotrap_write captures CPU write byte | zxnext.vhd:3892-3893 | missing | — |
@@ -3287,18 +3287,18 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| LR-01 | NR $15 bit 7 stores the LoRes enable; bits 6:0 read back what was written (zxnext.vhd:5229, 5939) | zxnext.vhd:5229,5939 | pass | test/nextreg/nextreg_integration_test.cpp:6747 |
-| LR-02 | NR $15 bit 7 (LoRes enable) resets to 0 (zxnext.vhd:4948) | zxnext.vhd:4948 | pass | test/nextreg/nextreg_integration_test.cpp:6720 |
-| LR-03 | NR $15 bit 7 is independent of bits 6:0 — writing 0x7F clears bit 7 and keeps 0x7F (zxnext.vhd:5229) | zxnext.vhd:5229 | pass | test/nextreg/nextreg_integration_test.cpp:6757 |
-| LR-04 | NR $32 stores all 8 bits of the LoRes X scroll and reaches the generator (zxnext.vhd:5340, 6027, 4262) | zxnext.vhd:5340,6027 | pass | test/nextreg/nextreg_integration_test.cpp:6771 |
-| LR-05 | NR $32 (LoRes X scroll) resets to 0x00 (zxnext.vhd:4995) | zxnext.vhd:4995 | pass | test/nextreg/nextreg_integration_test.cpp:6726 |
-| LR-06 | NR $33 stores all 8 bits of the LoRes Y scroll and reaches the generator (zxnext.vhd:5343, 6030, 4263) | zxnext.vhd:5343,6030 | pass | test/nextreg/nextreg_integration_test.cpp:6781 |
-| LR-07 | NR $33 (LoRes Y scroll) resets to 0x00 (zxnext.vhd:4997) | zxnext.vhd:4997 | pass | test/nextreg/nextreg_integration_test.cpp:6732 |
-| LR-08 | NR $6A bit 5 selects Radastan mode and reads back (zxnext.vhd:5456, 6099) | zxnext.vhd:5456,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6793 |
-| LR-09 | NR $6A bit 4 is the Timex display-file XOR and reads back (zxnext.vhd:5457, 6099) | zxnext.vhd:5457,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6802 |
-| LR-10 | NR $6A bits 3:0 are the palette offset and read back (zxnext.vhd:5458, 6099) | zxnext.vhd:5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6811 |
-| LR-11 | NR $6A bits 7:6 are not stored — the read mux hard-wires "00", so 0xFF reads back 0x3F (zxnext.vhd:5456-5458, 6099) | zxnext.vhd:5456-5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6820 |
-| LR-12 | NR $6A resets to 0x00 — 8-bit mode, no XOR, offset 0 (zxnext.vhd:5032-5034) | zxnext.vhd:5032-5034 | pass | test/nextreg/nextreg_integration_test.cpp:6738 |
+| LR-01 | NR $15 bit 7 stores the LoRes enable; bits 6:0 read back what was written (zxnext.vhd:5229, 5939) | zxnext.vhd:5229,5939 | pass | test/nextreg/nextreg_integration_test.cpp:6886 |
+| LR-02 | NR $15 bit 7 (LoRes enable) resets to 0 (zxnext.vhd:4948) | zxnext.vhd:4948 | pass | test/nextreg/nextreg_integration_test.cpp:6859 |
+| LR-03 | NR $15 bit 7 is independent of bits 6:0 — writing 0x7F clears bit 7 and keeps 0x7F (zxnext.vhd:5229) | zxnext.vhd:5229 | pass | test/nextreg/nextreg_integration_test.cpp:6896 |
+| LR-04 | NR $32 stores all 8 bits of the LoRes X scroll and reaches the generator (zxnext.vhd:5340, 6027, 4262) | zxnext.vhd:5340,6027 | pass | test/nextreg/nextreg_integration_test.cpp:6910 |
+| LR-05 | NR $32 (LoRes X scroll) resets to 0x00 (zxnext.vhd:4995) | zxnext.vhd:4995 | pass | test/nextreg/nextreg_integration_test.cpp:6865 |
+| LR-06 | NR $33 stores all 8 bits of the LoRes Y scroll and reaches the generator (zxnext.vhd:5343, 6030, 4263) | zxnext.vhd:5343,6030 | pass | test/nextreg/nextreg_integration_test.cpp:6920 |
+| LR-07 | NR $33 (LoRes Y scroll) resets to 0x00 (zxnext.vhd:4997) | zxnext.vhd:4997 | pass | test/nextreg/nextreg_integration_test.cpp:6871 |
+| LR-08 | NR $6A bit 5 selects Radastan mode and reads back (zxnext.vhd:5456, 6099) | zxnext.vhd:5456,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6932 |
+| LR-09 | NR $6A bit 4 is the Timex display-file XOR and reads back (zxnext.vhd:5457, 6099) | zxnext.vhd:5457,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6941 |
+| LR-10 | NR $6A bits 3:0 are the palette offset and read back (zxnext.vhd:5458, 6099) | zxnext.vhd:5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6950 |
+| LR-11 | NR $6A bits 7:6 are not stored — the read mux hard-wires "00", so 0xFF reads back 0x3F (zxnext.vhd:5456-5458, 6099) | zxnext.vhd:5456-5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6959 |
+| LR-12 | NR $6A resets to 0x00 — 8-bit mode, no XOR, offset 0 (zxnext.vhd:5032-5034) | zxnext.vhd:5032-5034 | pass | test/nextreg/nextreg_integration_test.cpp:6877 |
 | LR-20 | with NR $15 bit 7 = 0 every framebuffer cell is bit-identical to the pure-ULA pipeline — LoRes content in bank 5 is invisible (zxnext.vhd:6933, 6980) | zxnext.vhd:6933,6980 | pass | test/compositor/compositor_test.cpp:5007 |
 | LR-21 | with NR $15 bit 7 = 1 all 256x192 display pixels take LoRes values and none takes a ULA value (zxnext.vhd:6980) | zxnext.vhd:6980 | pass | test/compositor/compositor_test.cpp:5035 |
 | LR-22 | LoRes never paints the border — every border cell keeps the port $FE colour (lores.vhd:115; zxula.vhd:414-415) | lores.vhd:115, zxula.vhd:414-415, zxula_timing.vhd:513-517 | pass | test/compositor/compositor_test.cpp:5073 |
@@ -3358,7 +3358,7 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-121 | clip X bounds are inclusive at both ends (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:630 |
 | LR-122 | clip Y bounds are inclusive at both ends (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:640 |
 | LR-123 | clip X is in 256-pixel display units, so a clip edge can fall mid-LoRes-pixel: x2=127 ends at LoRes column 63, x2=128 draws only the left half of column 64 (lores.vhd:115; zxnext.vhd:4250) | lores.vhd:115, zxnext.vhd:4250 | pass | test/lores/lores_test.cpp:656 |
-| LR-124 | clip_y2 values with bits 7:6 = "11" clamp to 0xBF at the consumer latch LoRes shares with the ULA; 0xA0 is left alone and the raw NR $1A byte is preserved (zxnext.vhd:6779-6783) | zxnext.vhd:6779-6783 | pass | test/nextreg/nextreg_integration_test.cpp:6854 |
+| LR-124 | clip_y2 values with bits 7:6 = "11" clamp to 0xBF at the consumer latch LoRes shares with the ULA; 0xA0 is left alone and the raw NR $1A byte is preserved (zxnext.vhd:6779-6783) | zxnext.vhd:6779-6783 | pass | test/nextreg/nextreg_integration_test.cpp:6993 |
 | LR-125 | an inverted X window (x1 > x2) draws nothing (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:671 |
 | LR-126 | an inverted Y window (y1 > y2) draws nothing (lores.vhd:115) | lores.vhd:115 | pass | test/lores/lores_test.cpp:679 |
 | LR-127a | LoRes and the ULA share ONE clip window and are suppressed together: inside NR $1A the LoRes pixel draws, outside it the pixel falls to the NR $4A fallback and no ULA pixel shows through (zxula.vhd:562; lores.vhd:115; zxnext.vhd:4258-4261, 7100/7104) | lores.vhd:115, zxula.vhd:562, zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:5783 |
@@ -3372,7 +3372,7 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-PSCAN | NR $15 bit 7 / $32 / $33 / $6A are replayed per scanline — a mid-frame enable+scroll affects only the rows from the write onward, never the rows the beam already passed (zxnext.vhd:6768-6802, 6817) | zxnext.vhd:6768-6802 | pass | test/compositor/compositor_test.cpp:5834 |
 | LR-160 | NR $26 / $27 (ULA scroll) do not move the LoRes image (lores.vhd:82,84 - the address generator consumes LoRes's own scroll_x_i/scroll_y_i, which zxnext.vhd:4241-4271 drives from NR $32/$33, never from the ULA's NR $26/$27) | lores.vhd:82,84, zxnext.vhd:4241-4271 | pass | test/lores/lores_test.cpp:730 |
 | LR-161 | NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes image (zxnext.vhd:4241-4271 — no such port on the LoRes module) | zxnext.vhd:4241-4271 | pass | test/compositor/compositor_test.cpp:5864 |
-| LR-162 | NR $1D is not a LoRes clip register — writing it changes neither the shared ULA/LoRes clip window nor any LoRes register (zxnext.vhd:1167-1171, 5278 undecoded, 6785-6793) | zxnext.vhd:1167-1171,5278 | pass | test/nextreg/nextreg_integration_test.cpp:6900 |
+| LR-162 | NR $1D is not a LoRes clip register — writing it changes neither the shared ULA/LoRes clip window nor any LoRes register (zxnext.vhd:1167-1171, 5278 undecoded, 6785-6793) | zxnext.vhd:1167-1171,5278 | pass | test/nextreg/nextreg_integration_test.cpp:7039 |
 | LR-163 | enabling LoRes does not change ULA memory contention — 20000 instructions of contended bank-5 access cost the same T-states with NR $15 bit 7 = 0 and = 1 (zxula.vhd:583; zxnext.vhd:6603-6631, separate BRAM port) | zxula.vhd:583, zxnext.vhd:6603-6631 | pass | test/lores/lores_integration_test.cpp:152 |
 | LR-164 | enabling LoRes does not change the floating-bus value — 500 port 0xFF reads spread across a frame are byte-identical with NR $15 bit 7 = 0 and = 1 (zxula.vhd:573, ULA port B only) | zxula.vhd:573 | pass | test/lores/lores_integration_test.cpp:200 |
 | LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:5884 |
@@ -4337,284 +4337,291 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | 20.4d | nmi=1 & nr_cc_7=1 -> im2_dma_delay=1 [zxnext.vhd:2007] | zxnext.vhd:2007 | pass | test/nextreg/nextreg_integration_test.cpp:475 |
 | 20.4e | latched_prev=1 & dma_delay=1 -> im2_dma_delay stays 1 [zxnext.vhd:2007] | zxnext.vhd:2007 | pass | test/nextreg/nextreg_integration_test.cpp:485 |
 | 20.4f | latched_prev=1 & dma_delay=0 -> im2_dma_delay drops to 0 [zxnext.vhd:2007] | zxnext.vhd:2007 | pass | test/nextreg/nextreg_integration_test.cpp:494 |
-| TM-114 | NR 0x1B 4-write cycle programs x1/x2/y1/y2 in order [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:524 |
-| TM-115 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5288-5289] | zxnext.vhd:5288-5289 | pass | test/nextreg/nextreg_integration_test.cpp:547 |
-| SR-01 | NR 0x02=0x01 (RESET_SOFT) preserves SRAM contents (external SRAM has no reset pin) [zxnext_top_issue2.vhd:2427-2437] | zxnext_top_issue2.vhd:2427-2437 | pass | test/nextreg/nextreg_integration_test.cpp:591 |
-| SR-02 | NR 0x02=0x02 (RESET_HARD) requests a host cold boot (deferred); SRAM untouched synchronously (Task 70; VHDL zxn_reset_hard triggers FPGA flashboot, the real-hardware equivalent) [zxnext_top_issue2.vhd:1195] | zxnext_top_issue2.vhd:1195 | pass | test/nextreg/nextreg_integration_test.cpp:614 |
-| SR-03 | boot_rom_en_ cleared state survives RESET_SOFT with boot ROM loaded [zxnext.vhd:1101,5109-5111,5122] | zxnext.vhd:1101,5109-5111,5122 | pass | test/nextreg/nextreg_integration_test.cpp:642 |
-| SR-04 | NR 0x02=0x80 (RESET_ESPBUS alone) is a no-op — SRAM untouched | — | pass | test/nextreg/nextreg_integration_test.cpp:657 |
-| SR-05 | NR 0x02=0x03 (RESET_HARD\|RESET_SOFT): hard wins — host cold boot requested [Task 70] | — | pass | test/nextreg/nextreg_integration_test.cpp:672 |
-| SR-06 | ROM-in-SRAM window (ram_ pages 0..7) survives RESET_SOFT [Branch 3 core: tbblue-loaded ROMs persist across reset] | — | pass | test/nextreg/nextreg_integration_test.cpp:689 |
-| SR-07 | init() re-seeds the ROM-in-SRAM window from rom_ [Branch 2 seed loop; exercised via in-place emu.reset()] | — | pass | test/nextreg/nextreg_integration_test.cpp:707 |
-| RSTD-E3-01 | RESET_SOFT clears port 0xE3 conmem (bit 7) and the whole register [zxnext.vhd:4176-4177 port_e3_reg <= 0 on reset; :1730 reset <= i_RESET; zxnext_top_issue2.vhd:840 reset <= reset_hard or reset_soft] | zxnext.vhd:4176-4177, zxnext_top_issue2.vhd:840 | pass | test/nextreg/nextreg_integration_test.cpp:775 |
-| RSTD-E3-02 | RESET_HARD clears port 0xE3 conmem via the host cold boot; the NR 0x02 b1 write itself only raises the deferred request [zxnext.vhd:4176-4177 + :1730; zxnext_top_issue2.vhd:840; Task 70 deferred hard reset] | zxnext.vhd:4176-4177,1730, zxnext_top_issue2.vhd:840 | pass | test/nextreg/nextreg_integration_test.cpp:808 |
-| RSTD-8C-01 | reset RELOADS nr_8c_altrom_lock_rom1 (bit 5) from bit 1 — it does NOT clear: NR 0x8C=0x02 -> after RESET_SOFT lock_rom1=1, lock_rom0=0, byte=0x22 [zxnext.vhd:2254-2255 nibble copy, :2264 lock_rom1 <= nr_8c_altrom(5); nextreg.txt:861-864] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:834 |
-| RSTD-8C-02 | reset RELOADS nr_8c_altrom_lock_rom0 (bit 4) from bit 0 — it does NOT clear: NR 0x8C=0x01 -> after RESET_SOFT lock_rom0=1, lock_rom1=0, byte=0x11 [zxnext.vhd:2254-2255 nibble copy, :2265 lock_rom0 <= nr_8c_altrom(4); nextreg.txt:861-865] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:859 |
-| RSTD-04-01 | RESET_SOFT PRESERVES nr_04_romram_bank — the signal is absent from the reset block [zxnext.vhd:4930-5111]; its only sites are zxnext.vhd:1104 (declaration), zxnext.vhd:3045 (use) and the write handlers zxnext.vhd:5717 / zxnext.vhd:5732, gated solely on nr_04_we | zxnext.vhd:4930-5111, zxnext.vhd:1104, zxnext.vhd:3045, zxnext.vhd:5717, zxnext.vhd:5732 | pass | test/nextreg/nextreg_integration_test.cpp:904 |
-| RSTD-04-02 | RESET_HARD clears nr_04_romram_bank to the zxnext.vhd:1104 power-on default via the host cold boot (FPGA reconfiguration, zxnext_top_issue2.vhd:1195); the NR 0x02 b1 write itself only raises the deferred request [Task 70] | zxnext.vhd:1104, zxnext_top_issue2.vhd:1195 | pass | test/nextreg/nextreg_integration_test.cpp:932 |
-| RSTD-04-03 | NR 0x04 write reaches the Mmu mirror consumed by the SRAM address compose [zxnext.vhd:3045], bit 7 masked off per gen_romram_234 [zxnext.vhd:5709-5722]; both mirrors agree | zxnext.vhd:3045, zxnext.vhd:5709-5722 | pass | test/nextreg/nextreg_integration_test.cpp:968 |
-| RSTD-04-04 | RESET_SOFT PRESERVES the Mmu mirror of nr_04_romram_bank — the signal has no reset clause anywhere in zxnext.vhd (absent from the reset block at :4930-5111; write handlers :5717/:5732 are gated solely on nr_04_we) — and both mirrors still agree | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:992 |
-| CMG-01 | a Next start with NO boot ROM leaves the Mmu config_mode mirror at its power-on false, and the NextReg latch agrees because init() makes the IPL's own NR 0x03 commit [zxnext.vhd:1102, :5147-5151], so a write into the still-ROM low slot is DROPPED instead of being rerouted into SRAM [zxnext.vhd:3044-3050] | zxnext.vhd:1102, zxnext.vhd:3044-3050 | pass | test/nextreg/nextreg_integration_test.cpp:1073 |
-| CMG-02 | NO non-Next machine type runs the config-mode resync, even with a boot ROM enabled: the gate's machine-type clause holds it shut for every value in the enum's non-Next set [contention.h:5], so the Mmu mirror keeps its own value instead of following the NextReg latch [zxnext.vhd:1102,5122] | zxnext.vhd:1102,5122 | pass | test/nextreg/nextreg_integration_test.cpp:1148 |
-| CMG-03 | the init() config-mode resync observes the POST-reset boot-ROM state: Mmu::reset() arms boot_rom_en_ from the persisted boot ROM + config_mode [mmu.cpp:179], and the gate must run after that, so the mirror follows the NextReg latch down instead of keeping its stale pre-init value | — | pass | test/nextreg/nextreg_integration_test.cpp:1206 |
-| RSTD-04-05 | the boot-ROM-gated resync in Emulator::init() leaves the Mmu config_mode mirror following the NextReg latch [zxnext.vhd:1102 power-on '1', :5122 cleared by an NR 0x03 write] and does NOT disturb the preserved nr_04_romram_bank [zxnext.vhd:1104, absent from the reset block :4930-5111] | zxnext.vhd:1102, zxnext.vhd:1104 | pass | test/nextreg/nextreg_integration_test.cpp:1262 |
-| CB-BP-01 | host cold boot (reconstruct+init) preserves debugger PC breakpoints + active flag [Task 70 review] | — | pass | test/nextreg/nextreg_integration_test.cpp:1306 |
-| RO-01 | NR 0x00 machine ID reset=0x0A via port path [VHDL g_machine_id, zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:1331 |
-| RO-02 | NR 0x00 read-only: write 0x42 then read returns 0x0A [zxnext.vhd:5884-5885 — read routed to g_machine_id; no write handler] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1347 |
-| RO-03 | NR 0x01 core version reset=0x32 (core 3.02) [zxnext_top_issue2.vhd:37 g_version] | zxnext_top_issue2.vhd:37 | pass | test/nextreg/nextreg_integration_test.cpp:1359 |
-| RO-04 | NR 0x0E sub-version reset=0x03 [zxnext_top_issue2.vhd:38 g_sub_version] | zxnext_top_issue2.vhd:38 | pass | test/nextreg/nextreg_integration_test.cpp:1371 |
-| RO-05 | NR 0x0F board issue reset=0x00 [zxnext.vhd:5921, zxnext_top_issue2.vhd:39] | zxnext.vhd:5921, zxnext_top_issue2.vhd:39 | pass | test/nextreg/nextreg_integration_test.cpp:1383 |
-| RO-06 | NR 0x1E/0x1F return cvc (paper-relative), not raw frame vc: frame-start cvc == 247 for 128K timing [zxnext.vhd:5982-5986, zxula_timing.vhd:455-472] | zxnext.vhd:5982-5986, zxula_timing.vhd:455-472 | pass | test/nextreg/nextreg_integration_test.cpp:1409 |
-| SEL-03 | NR 0x00 via select+write+read path returns 0x0A (selection pathway respects read-only) [zxnext.vhd:5884-5885] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1437 |
-| CLIP-01 | NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44 [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1470 |
-| CLIP-02 | NR 0x18 fifth write wraps back to x1 (mod-4 idx) [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1490 |
-| CLIP-03 | NR 0x1C bit 0 resets L2 clip idx so next NR 0x18 write → x1 [zxnext.vhd:5278-5281] | zxnext.vhd:5278-5281 | pass | test/nextreg/nextreg_integration_test.cpp:1509 |
-| CLIP-04 | NR 0x1C bit 1 resets sprite clip idx so next NR 0x19 write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1530 |
-| CLIP-05 | NR 0x1C bit 2 resets ULA clip idx so next NR 0x1A write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1552 |
-| CLIP-06 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1570 |
-| CLIP-07a | NR 0x1C read post-all-reset packs idx=0000 → 0x00 [zxnext.vhd:5979-5980] | zxnext.vhd:5979-5980 | pass | test/nextreg/nextreg_integration_test.cpp:1589 |
-| CLIP-07b | NR 0x1C after one NR 0x1B write: bits 7:6 = 01 → 0x40 [zxnext.vhd:5276 write increments idx; :5979-5980 packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1599 |
-| CLIP-08 | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5947-5953] | zxnext.vhd:5947-5953 | pass | test/nextreg/nextreg_integration_test.cpp:1634 |
-| CLIP-09a | NR 0x1B read does NOT advance idx (two consecutive reads equal) [zxnext.vhd:5971-5977 — combinatorial, no idx increment] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1658 |
-| CLIP-09b | NR 0x1B reads at idx=3 both return y2=0xFF (reset default); read does not wrap idx [zxnext.vhd:5971-5977] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1674 |
-| CLIP-10 | NR 0x1B write lands x1=0xAA AND advances tm idx → NR 0x1C bits 7:6 = 01 (0x40) [zxnext.vhd:5276 write increments idx; :5980 NR 0x1C packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1689 |
-| CLIP-11 | NR 0x19 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5955-5961] | zxnext.vhd:5955-5961 | pass | test/nextreg/nextreg_integration_test.cpp:1727 |
-| CLIP-11b | NR 0x19 read does NOT advance idx (two consecutive reads equal) [zxnext.vhd:5955-5961 — combinatorial, no idx increment] | zxnext.vhd:5955-5961 | pass | test/nextreg/nextreg_integration_test.cpp:1751 |
-| CLIP-12 | NR 0x1A read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5963-5969] | zxnext.vhd:5963-5969 | pass | test/nextreg/nextreg_integration_test.cpp:1784 |
-| CLIP-12b | NR 0x1A read does NOT advance idx (two consecutive reads equal) [zxnext.vhd:5963-5969 — combinatorial, no idx increment] | zxnext.vhd:5963-5969 | pass | test/nextreg/nextreg_integration_test.cpp:1801 |
-| CLIP-12c | NR 0x1A read at idx=3 returns RAW nr_1a_ula_clip_y2=0xFF (NOT consumer-side ula_clip_y2_0 clamped to 0xBF) [zxnext.vhd:5968 raw register read; clamp at :6779-6783 is on consumer signal only] | zxnext.vhd:5968 | pass | test/nextreg/nextreg_integration_test.cpp:1824 |
-| PAL-01 | NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03 [zxnext.vhd:4918-4920 palette write] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1867 |
-| PAL-02 | NR 0x41 8-bit palette value round-trips at selected index [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1881 |
-| PAL-03 | NR 0x44 9-bit write: upper 8 bits land at selected idx [zxnext.vhd:4918-4920 palette sub_idx latch] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1901 |
-| PAL-04 | NR 0x41 read returns palette byte at selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1916 |
-| PAL-05 | NR 0x44 read returns priority+LSB for selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1929 |
-| PAL-06 | NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 at idx 0x50 keeps pointer on 0x50, pal[0x51] untouched [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:1953 |
-| PE-03 | NR 0x82 bit 6 gates port 0x1F (Kempston 1): bit6=1→handler, bit6=0→0xFF [zxnext.vhd:2392-2442] | zxnext.vhd:2392-2442 | pass | test/nextreg/nextreg_integration_test.cpp:2011 |
-| PE-05 | NR 0x89 bus port enable reset=0x8F [zxnext.vhd:1234-1235, 6147-6150] | zxnext.vhd:1234-1235,6147-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2030 |
-| PE-INT-80-88 | NR 0x80 reset=0x00, NR 0x88 reset=0xFF [zxnext.vhd:360, 1233] | zxnext.vhd:360,1233 | pass | test/nextreg/nextreg_integration_test.cpp:2073 |
-| PE-INT-82 | NR 0x82 write=0xA5 read=0xA5 (no pack mask) [zxnext.vhd:5499, 6128-6129] | zxnext.vhd:5499,6128-6129 | pass | test/nextreg/nextreg_integration_test.cpp:2089 |
-| PE-INT-86 | NR 0x86 reset=0xFF + write=0x5A read=0x5A [zxnext.vhd:1231, 5512, 6140-6141] | zxnext.vhd:1231,5512,6140-6141 | pass | test/nextreg/nextreg_integration_test.cpp:2105 |
-| PE-INT-87 | NR 0x87 reset=0xFF + write=0x3C read=0x3C [zxnext.vhd:1232, 5514-5515, 6143-6144] | zxnext.vhd:1232,5514-5515,6143-6144 | pass | test/nextreg/nextreg_integration_test.cpp:2124 |
-| PE-INT-89 | NR 0x89 write=0xF7 read=0x87 (bits 6:4 always 0) [zxnext.vhd:5520-5522, 6149-6150] | zxnext.vhd:5520-5522,6149-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2142 |
-| RW-01 | NR 0x07 read = (actual<<4) \| requested, pads 0 in bits[7:6] and bits[3:2] [zxnext.vhd:5902-5903] | zxnext.vhd:5902-5903 | pass | test/nextreg/nextreg_integration_test.cpp:2193 |
-| RW-02 | NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = nr_08_contention_disable [zxnext.vhd:5906] | zxnext.vhd:5906 | pass | test/nextreg/nextreg_integration_test.cpp:2245 |
-| FIX-NR08-EFFLOCK-01 | NR 0x08 bit 7 read returns NOT effective_paging_locked (Pentagon-1024 overrides the raw lock) — VHDL :5906/:3769; commit b6b42dd | — | pass | test/nextreg/nextreg_integration_test.cpp:2296 |
-| FIX-NR5xFF-INT-01 | Emulator construction failed | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:2332 |
-| FIX-NR5xFF-INT-02 | Emulator construction failed | — | pass | test/nextreg/nextreg_integration_test.cpp:2377 |
-| FIX-NR5xFF-INT-03 | Emulator construction failed | — | pass | test/nextreg/nextreg_integration_test.cpp:2407 |
-| FIX-EFF7-FF-INT-01 | Emulator construction failed | — | pass | test/nextreg/nextreg_integration_test.cpp:2435 |
-| FIX-NR12-PROP-INT-01 | Emulator construction failed | zxnext.vhd:2968 | pass | test/nextreg/nextreg_integration_test.cpp:2471 |
-| CFG-01 | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011") [zxnext.vhd:1099, 5893-5894] | zxnext.vhd:1099,5893-5894 | pass | test/nextreg/nextreg_integration_test.cpp:2525 |
-| CFG-02 | NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read composes bit 3 from that state [zxnext.vhd:5121-5151, 5894] | zxnext.vhd:5121-5151,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2561 |
-| CFG-05 | NR 0x03 bits 2:0=001 clears config_mode at write time [zxnext.vhd:5147-5151 — Task 11 Branch 1 implemented] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2592 |
-| CFG-09-INT | NR 0x03 machine-type latch survives soft reset [zxnext.vhd:1103, :5137-5145, :5894 — no reset clause] | zxnext.vhd:1103,5137-5145,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2640 |
-| CFG-08-INT | NR 0x03 config_mode latch survives soft reset [zxnext.vhd:1102, :5147-5151 — no reset clause] | zxnext.vhd:1102,5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2688 |
-| N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0 [zxnext.vhd:3814 port_memory_ram_change_dly, :4677 MMU6/7 gate] | zxnext.vhd:3814 | pass | test/nextreg/nextreg_integration_test.cpp:2730 |
-| N8E-RAM-REBUILD-1 | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank [zxnext.vhd:3814, :4677] | zxnext.vhd:3814,4677 | pass | test/nextreg/nextreg_integration_test.cpp:2755 |
-| N8E-DIVMMC-ROM3-REFRESH | NR 0x8E write refreshes DivMMC.rom3_active_ from sram_rom3() [zxnext.vhd:2981-3008, :3138; mirrors OUT ($1FFD) at emulator.cpp:3399; G46(b)-v2 EOD-29] | zxnext.vhd:2981-3008,3138 | pass | test/nextreg/nextreg_integration_test.cpp:2805 |
-| L2M-05 | NR 0x12 write sets Layer 2 active bank (7-bit) [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:2837 |
-| L2M-05b | NR 0x12 top bit masked on write (Layer2 state) AND on readback (VHDL read-handler) [zxnext.vhd:4945 + 5930] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:2857 |
-| L2M-06 | NR 0x13 write sets Layer 2 shadow bank (7-bit) [zxnext.vhd:4946 nr_13_layer2_shadow_bank] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:2873 |
-| L2M-06b | NR 0x13 top bit masked on write (Layer2 state) AND on readback (VHDL read-handler) [zxnext.vhd:4946 + 5931] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:2890 |
-| ULAP-01 | NR 0x68 bit 3 = 0 at reset (ulap_en=0) | — | pass | test/nextreg/nextreg_integration_test.cpp:2915 |
-| ULAP-02 | NR 0x68 bit 3 reflects port 0xFF3B write (ulap_en=1) [zxnext.vhd:6093 read composes from port_ff3b_ulap_en] | zxnext.vhd:6093 | pass | test/nextreg/nextreg_integration_test.cpp:2926 |
-| ULAP-03 | NR 0x68 bit 3 prefers LIVE port_ff3b_ulap_en over cached regs_[0x68] (port 0xFF3B clear after NR 0x68 set bit3) | — | pass | test/nextreg/nextreg_integration_test.cpp:2941 |
-| ULAP-04 | NR 0x68 read preserves cached blend bits + reflects ulap_en (write 0x68 → read 0x68) | — | pass | test/nextreg/nextreg_integration_test.cpp:2953 |
-| G108-NR69-MODE | NR 0x69 bits 5:0 fan out to port_ff_reg(5:0) AND Ula::screen_mode_reg_; mode bits 2:0 = 110 (HI_RES) per VHDL [zxnext.vhd:3617-3618 + zxula.vhd:191] | zxnext.vhd:3617-3618, zxula.vhd:191 | pass | test/nextreg/nextreg_integration_test.cpp:2998 |
-| G108-NR69-PRESERVE-BIT7 | NR 0x69 fan-out only touches port_ff_reg(5:0); bit 6 (carried in from earlier port-FF write) preserved [zxnext.vhd:3617-3618] | zxnext.vhd:3617-3618 | pass | test/nextreg/nextreg_integration_test.cpp:3016 |
-| G108-NR22-INTDIS-SET | NR 0x22 bit 2 → port_ff_reg(6); port_ff_reg(5:0) preserved; Ula::screen_mode_reg_ propagated [zxnext.vhd:3619-3620] | zxnext.vhd:3619-3620 | pass | test/nextreg/nextreg_integration_test.cpp:3032 |
-| G108-NR22-INTDIS-CLR | NR 0x22 bit 2 = 0 clears port_ff_reg(6); bits 5:0 preserved [zxnext.vhd:3619-3620] | zxnext.vhd:3619-3620 | pass | test/nextreg/nextreg_integration_test.cpp:3046 |
-| G108-NRC4-INTDIS-CLR | NR 0xC4 bit 0 = 1 → port_ff_reg(6) ← 0 (inverted polarity); bits 5:0 preserved; Ula::screen_mode_reg_ propagated [zxnext.vhd:3621-3622] | zxnext.vhd:3621-3622 | pass | test/nextreg/nextreg_integration_test.cpp:3064 |
-| G108-NRC4-INTDIS-SET | NR 0xC4 bit 0 = 0 → port_ff_reg(6) ← 1 (inverted polarity) [zxnext.vhd:3621-3622] | zxnext.vhd:3621-3622 | pass | test/nextreg/nextreg_integration_test.cpp:3078 |
-| G108-PORTFF-WINS | Direct port-FF write supersedes accumulated NR-side fan-out; all 8 bits replaced [zxnext.vhd:3614-3622 elsif chain] | zxnext.vhd:3614-3622 | pass | test/nextreg/nextreg_integration_test.cpp:3097 |
-| G56-CR-NR05-01 | Reset default read = 0x41 [VHDL zxnext.vhd:5897, :1105-1106, :1302-1303] | zxnext.vhd:5897,1105-1106,1302-1303 | pass | test/nextreg/nextreg_integration_test.cpp:3157 |
-| G56-CR-NR05-02 | write 0xA5 → read 0xA5 after frame edge (round-trip; VHDL :5897 permutation-id, eff bits latch at :6696-6703) | — | pass | test/nextreg/nextreg_integration_test.cpp:3184 |
-| G56-CR-NR05-03 | write 0xFF → read 0xFF after frame edge (every bit feeds exactly one read bit) | — | pass | test/nextreg/nextreg_integration_test.cpp:3201 |
-| G56-CR-NR05-04 | write 0x00 → read 0x00 after frame edge (reset-default joy0[0] cleared) | — | pass | test/nextreg/nextreg_integration_test.cpp:3214 |
-| T58-NR05-EFF-01 | NR 0x05 bits 2/0 are frame-edge-latched on read: write 0x05 reads 0x00 before the frame edge, 0x05 after [zxnext.vhd:5897, :6696-6703] | zxnext.vhd:5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:3236 |
-| G56-CR-NR06-01 | Reset default read = 0xA0 [VHDL :5900, :1107-1108, :1111-1112] | — | pass | test/nextreg/nextreg_integration_test.cpp:3292 |
-| G56-CR-NR06-02 | config_mode=1: write 0xFF → read 0xFF (all bits land) | — | pass | test/nextreg/nextreg_integration_test.cpp:3303 |
-| G56-CR-NR06-03 | config_mode=1: write 0x00 → read 0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3312 |
-| G56-CR-NR06-04 | config_mode=0: write 0x00 keeps ps2_mode sticky [VHDL :5167-5169 gate; pre-fix would read 0x00] | — | pass | test/nextreg/nextreg_integration_test.cpp:3336 |
-| G56-CR-NR06-05 | config_mode=0: write 0xFB still has ps2_mode=1 (sticky); other bits track write [VHDL :5162-5166, :5170 ungated] | — | pass | test/nextreg/nextreg_integration_test.cpp:3349 |
-| G56-CR-NR06-RESET-PRESERVE | PASS-6: NR 0x06 bits 6,4,3,2,1,0 survive reset; bits 7,5 re-assert to '1' [VHDL zxnext.vhd:4932-4933 reset clause covers ONLY hotkey_cpu_speed_en/hotkey_5060_en] | zxnext.vhd:4932-4933 | pass | test/nextreg/nextreg_integration_test.cpp:3394 |
-| G56-09-01 | NR 0x09 write=0xFF read=0xF7 (bit 3 const-0) | — | pass | test/nextreg/nextreg_integration_test.cpp:3442 |
-| G56-09-02 | NR 0x09 write=0x00 read=0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3450 |
-| G56-09-03 | NR 0x09 write=0x14 → bit4 (sprite_tie) + bit2 (hdmi_audio) [zxnext.vhd:5909] | zxnext.vhd:5909 | pass | test/nextreg/nextreg_integration_test.cpp:3460 |
-| G56-09-04 | NR 0x09 write=0x08 → read=0x00 (bit 3 forced 0) [zxnext.vhd:5909] | zxnext.vhd:5909 | pass | test/nextreg/nextreg_integration_test.cpp:3469 |
-| G56-0A-01 | NR 0x0A write=0xFF read=0xFB (bit 2 const-0) [zxnext.vhd:5912] | zxnext.vhd:5912 | pass | test/nextreg/nextreg_integration_test.cpp:3484 |
-| G56-0A-02 | NR 0x0A write=0x00 read=0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3495 |
-| G56-0A-03 | NR 0x0A write=0x10 → bit 4 (divmmc_automap_en) only [zxnext.vhd:5912] | zxnext.vhd:5912 | pass | test/nextreg/nextreg_integration_test.cpp:3505 |
-| G56-0A-04 | NR 0x0A write=0x04 → read=0x00 (bit 2 forced 0) [zxnext.vhd:5912] | zxnext.vhd:5912 | pass | test/nextreg/nextreg_integration_test.cpp:3514 |
-| V11-NMP-02 | NR 0x0A bits 7:6 (mf_type) survive an out-of-config_mode attempted clear AND a subsequent hard reset — VHDL :5191 gates the latch on config_mode='1'; pre-fix the C++ cache leaked the rejected write into the post-reset fan-out | zxnext.vhd:5191-5198 | pass | test/nextreg/nextreg_integration_test.cpp:3560 |
-| V11-NMP-03 | NR 0x06 bit 2 (ps2_mode) survives an out-of-config_mode attempted clear AND a subsequent hard reset — VHDL :5167-5169 gates the latch on config_mode='1'; pre-fix the C++ cache leaked the rejected write into the post-reset init/reset fan-out at emulator.cpp:3272-3276 | zxnext.vhd:5167-5169 | pass | test/nextreg/nextreg_integration_test.cpp:3625 |
-| G56-0B-01 | NR 0x0B write=0xFF read=0xB1 (bits 6 + 3:1 forced 0) [zxnext.vhd:5915] | zxnext.vhd:5915 | pass | test/nextreg/nextreg_integration_test.cpp:3647 |
-| G56-0B-02 | NR 0x0B write=0x00 read=0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3655 |
-| G56-0B-03 | NR 0x0B write=0x4E → read=0x00 (bits 6 + 3:1 forced 0) [zxnext.vhd:5915] | zxnext.vhd:5915 | pass | test/nextreg/nextreg_integration_test.cpp:3663 |
-| G56-0B-04 | NR 0x0B write=0xB1 → read=0xB1 (en + iomode 5:4 + iomode_0) [zxnext.vhd:5915] | zxnext.vhd:5915 | pass | test/nextreg/nextreg_integration_test.cpp:3672 |
-| G56-10-01 | NR 0x10 coreid=0x01 → read=0x04 (bit7=0, coreid<<2, buttons=0 idle) [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:3694 |
-| G56-10-02 | NR 0x10 coreid=0x1F → read=0x7C (bits 6:2 set, bit 7 + 1:0 = 0) [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:3703 |
-| G56-10-03 | NR 0x10 write=0x80 (flashboot) → read=0x00 (flashboot not exposed in NR 0x10 read) [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:3712 |
-| G56-10-04 | NR 0x10 write=0x03 → read bits 1:0 = 0 (buttons idle; bits 1:0 only respond to live SPKEY_BUTTONS) [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:3730 |
-| G56-15-01 | NR 0x15 write=0xFF read=0xFF (round-trip) [zxnext.vhd:5939] | zxnext.vhd:5939 | pass | test/nextreg/nextreg_integration_test.cpp:3750 |
-| G56-15-02 | NR 0x15 write=0x00 read=0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3758 |
-| G56-15-03 | NR 0x15 write=0x19 → priority=110 + sprite_en [zxnext.vhd:5939] | zxnext.vhd:5939 | pass | test/nextreg/nextreg_integration_test.cpp:3766 |
-| G56-15-04 | NR 0x15 write=0x60 → bit6 (sprite_priority) + bit5 (border_clip_en) [zxnext.vhd:5939] | zxnext.vhd:5939 | pass | test/nextreg/nextreg_integration_test.cpp:3775 |
-| G56-34-01 | NR 0x34 write=0xFF read=0x7F (bit 7 const-0) [zxnext.vhd:6033] | zxnext.vhd:6033 | pass | test/nextreg/nextreg_integration_test.cpp:3792 |
-| G56-34-02 | NR 0x34 write=0x00 read=0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3800 |
-| G56-34-03 | NR 0x34 write=0x42 → read=0x42 (bit 7 already 0) | — | pass | test/nextreg/nextreg_integration_test.cpp:3808 |
-| G56-34-04 | NR 0x34 write=0x80 → read=0x00 (bit 7 forced 0) [zxnext.vhd:6033] | zxnext.vhd:6033 | pass | test/nextreg/nextreg_integration_test.cpp:3816 |
-| G56-10-SAVE-LOAD | NR 0x10 coreid round-trips save_state / load_state into fresh Emulator [Cluster-B regression guard] | — | pass | test/nextreg/nextreg_integration_test.cpp:3847 |
-| L22-01 | NR 0x22 reset/idle reads 0x00 (no line-int, no INT pulse) [zxnext.vhd:5992] | zxnext.vhd:5992 | pass | test/nextreg/nextreg_integration_test.cpp:3908 |
-| L22-02 | NR 0x22 round-trip: write 0x07 → read 0x07 [zxnext.vhd:5992 composes bits 2/1/0 from port_ff_reg(6)/line-int-en/target-msb] | zxnext.vhd:5992 | pass | test/nextreg/nextreg_integration_test.cpp:3928 |
-| L22-03 | NR 0x22 middle-nibble bits 6:3 read as constant 0 even after write 0xFF [zxnext.vhd:5992 'X' & "0000" & ...] | zxnext.vhd:5992 | pass | test/nextreg/nextreg_integration_test.cpp:3951 |
-| L22-04 | NR 0x22 bit 2 reflects port-0xFF-driven port_ff_reg(6) [zxnext.vhd:3615 + :3635 + :5992] | zxnext.vhd:3615,3635,5992 | pass | test/nextreg/nextreg_integration_test.cpp:3975 |
-| L22-05 | NR 0x22 bit 7 = 0 at idle (pulse_int_n=1 → NOT = 0) [zxnext.vhd:5992 + :2017-2031] | zxnext.vhd:5992,2017-2031 | pass | test/nextreg/nextreg_integration_test.cpp:3992 |
-| L23-02 | NR 0x22/NR 0x23 split a 9-bit line-int target; NR 0x23 reads bits 7:0 only [zxnext.vhd:5992 + :5995] | zxnext.vhd:5992,5995 | pass | test/nextreg/nextreg_integration_test.cpp:4038 |
-| G56-D-40a | NR 0x40 plain write/read round-trip [zxnext.vhd:6035-6036 nr_palette_idx] | zxnext.vhd:6035-6036 | pass | test/nextreg/nextreg_integration_test.cpp:4079 |
-| G56-D-40b | NR 0x40 read reflects post-NR-0x44 autoinc (0xAA → 0xAB) [zxnext.vhd:6035 + advance_index] | zxnext.vhd:6035 | pass | test/nextreg/nextreg_integration_test.cpp:4095 |
-| G56-D-43a | NR 0x43 round-trip via PaletteManager.read_control() [zxnext.vhd:6044-6045] | zxnext.vhd:6044-6045 | pass | test/nextreg/nextreg_integration_test.cpp:4110 |
-| G56-D-43b | NR 0x43 second round-trip pattern [zxnext.vhd:6044-6045] | zxnext.vhd:6044-6045 | pass | test/nextreg/nextreg_integration_test.cpp:4122 |
-| G56-D-4Ca | NR 0x4C bits 7:4 masked on read (write 0xFF → read 0x0F) [zxnext.vhd:6056 "0000" & nr_4c_tm_transparent_index] | zxnext.vhd:6056 | pass | test/nextreg/nextreg_integration_test.cpp:4135 |
-| G56-D-4Cb | NR 0x4C low nibble retained, high nibble forced 0 [zxnext.vhd:6056] | zxnext.vhd:6056 | pass | test/nextreg/nextreg_integration_test.cpp:4145 |
-| G56-D-69a | NR 0x69 composes from port 0x123B L2 + 7FFD shadow + port_ff_reg(5:0) [zxnext.vhd:6095-6096] | zxnext.vhd:6095-6096 | pass | test/nextreg/nextreg_integration_test.cpp:4167 |
-| G56-D-69b | NR 0x69 bit 6 reflects port 0x7FFD bit 3 shadow flag [zxnext.vhd:6095 port_7ffd_shadow] | zxnext.vhd:6095 | pass | test/nextreg/nextreg_integration_test.cpp:4181 |
-| G56-D-6Aa | NR 0x6A bits 7:6 forced '00' on read (write 0xFF → 0x3F) [zxnext.vhd:6098-6099 "00" & lores fields] | zxnext.vhd:6098-6099 | pass | test/nextreg/nextreg_integration_test.cpp:4198 |
-| G56-D-6Ab | NR 0x6A bits 7:6 read as 0 even when only those bits written [zxnext.vhd:6098-6099] | zxnext.vhd:6098-6099 | pass | test/nextreg/nextreg_integration_test.cpp:4208 |
-| G56-D-6Ba | NR 0x6B round-trip via Tilemap.get_control() [zxnext.vhd:6101-6102] | zxnext.vhd:6101-6102 | pass | test/nextreg/nextreg_integration_test.cpp:4221 |
-| G56-D-6Bb | NR 0x6B read mirrors cleared tm_en (bit 7) [zxnext.vhd:6101] | zxnext.vhd:6101 | pass | test/nextreg/nextreg_integration_test.cpp:4233 |
-| G56-D-6Ca | NR 0x6C round-trip via Tilemap.get_default_attr() [zxnext.vhd:6104-6105 nr_6c_tm_default_attr] | zxnext.vhd:6104-6105 | pass | test/nextreg/nextreg_integration_test.cpp:4246 |
-| G56-D-6Cb | NR 0x6C second round-trip pattern [zxnext.vhd:6104-6105] | zxnext.vhd:6104-6105 | pass | test/nextreg/nextreg_integration_test.cpp:4256 |
-| G56-CR-6E-MASK | NR 0x6E read masks bit 6 (write 0xFF -> read 0xBF) [zxnext.vhd:6107 + G99] | zxnext.vhd:6107 | pass | test/nextreg/nextreg_integration_test.cpp:4285 |
-| G56-CR-6E-RT | NR 0x6E round-trip canonical (bits 7,5:0 preserved; bit 6 zero) [zxnext.vhd:6107] | zxnext.vhd:6107 | pass | test/nextreg/nextreg_integration_test.cpp:4294 |
-| G56-CR-6F-MASK | NR 0x6F read masks bit 6 (write 0xFF -> read 0xBF) [zxnext.vhd:6110 + G99] | zxnext.vhd:6110 | pass | test/nextreg/nextreg_integration_test.cpp:4306 |
-| G56-CR-6F-RT | NR 0x6F round-trip canonical (bits 7,5:0 preserved; bit 6 zero) [zxnext.vhd:6110] | zxnext.vhd:6110 | pass | test/nextreg/nextreg_integration_test.cpp:4315 |
-| G56-CR-70-MASK | NR 0x70 read masks bits 7:6 (write 0xFF -> read 0x3F) [zxnext.vhd:6113] | zxnext.vhd:6113 | pass | test/nextreg/nextreg_integration_test.cpp:4328 |
-| G56-CR-70-RT | NR 0x70 round-trip resolution=01 + pal_off=0xA [zxnext.vhd:6113 via Layer2 fields] | zxnext.vhd:6113 | pass | test/nextreg/nextreg_integration_test.cpp:4339 |
-| G56-CR-71-MASK | NR 0x71 read masks bits 7:1 (write 0xFF -> read 0x01) [zxnext.vhd:6116] | zxnext.vhd:6116 | pass | test/nextreg/nextreg_integration_test.cpp:4352 |
-| G56-CR-71-RT | NR 0x71 round-trip bit 0 toggle (0x00 -> 0x00, 0x01 -> 0x01) [zxnext.vhd:6116 via Layer2 scroll_x bit 8] | zxnext.vhd:6116 | pass | test/nextreg/nextreg_integration_test.cpp:4363 |
-| G56-CR-80-FF | NR 0x80 full 8-bit round-trip (write 0xFF -> read 0xFF) [zxnext.vhd:6122 — expbus stored, G45 inert] | zxnext.vhd:6122 | pass | test/nextreg/nextreg_integration_test.cpp:4377 |
-| G56-CR-80-RT | NR 0x80 canonical round-trip 0x5A [zxnext.vhd:6122 — full byte preserved] | zxnext.vhd:6122 | pass | test/nextreg/nextreg_integration_test.cpp:4386 |
-| G56-CR-81-MASK | NR 0x81 read masks bits 2 + 1:0 + forces bit 7=1 (write 0xFF -> read 0xF8) [zxnext.vhd:5496+6126, G45 expbus inert] | zxnext.vhd:5496 | pass | test/nextreg/nextreg_integration_test.cpp:4410 |
-| G56-CR-81-RESET | NR 0x81 write 0x00 reads 0x80 (only bit 7 ROMCS_n forced) [zxnext.vhd:6126] | zxnext.vhd:6126 | pass | test/nextreg/nextreg_integration_test.cpp:4419 |
-| G56-CR-81-RT | NR 0x81 round-trip stored bits 6:3 + ROMCS_n force (write 0x6B -> read 0xE8; bits 1:0 always 0 per :5496) [zxnext.vhd:5496+6126] | zxnext.vhd:5496 | pass | test/nextreg/nextreg_integration_test.cpp:4428 |
-| V11-NMP-01-LO2 | NR 0x81 write 0x03 (bits 1:0 only) reads 0x80 — VHDL :5496 hardwires nr_81_expbus_speed to "00" so bits 1:0 always read 0 | — | pass | test/nextreg/nextreg_integration_test.cpp:4446 |
-| V11-NMP-01-MIXED | NR 0x81 write 0x41 reads 0xC0 — bit 6 (ula_override) preserved, bit 0 (expbus_speed[0]) dropped per :5496 | — | pass | test/nextreg/nextreg_integration_test.cpp:4457 |
-| WO-INT-04 | NR 0x04 write-only — read returns 0 (no leak of romram_bank) [zxnext.vhd:5878-6289 others=>'0'] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:4488 |
-| WO-INT-29 | NR 0x29 write-only — read returns 0 (no leak of keymap LSB) [zxnext.vhd:5878-6289 others=>'0'] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:4502 |
-| WO-INT-35 | NR 0x35 write-only — read returns 0 (no leak of sprite attr) [zxnext.vhd:5878-6289 others=>'0'] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:4516 |
-| WO-INT-60 | NR 0x60 write-only — read returns 0 (no leak of copper data) [zxnext.vhd:5878-6289 others=>'0'] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:4531 |
-| WO-INT-2B | NR 0x2B write-only — read returns 0 (no leak of keymap data) [zxnext.vhd:5878-6289 others=>'0', :6306-6307 nr_2b_we] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:4554 |
-| WO-INT-2A | NR 0x2A dead-register — read returns 0 (no leak of cached write byte) [zxnext.vhd:4850 commented, :5878-6289 others=>'0'] | zxnext.vhd:4850 | pass | test/nextreg/nextreg_integration_test.cpp:4577 |
-| WO-INT-63 | NR 0x63 write-only Copper data — read returns 0 (no leak of cached write byte) [zxnext.vhd:4887 nr_copper_we, :5433-5439 write side, :5878-6289 others=>'0'] | zxnext.vhd:4887 | pass | test/nextreg/nextreg_integration_test.cpp:4606 |
-| WO-INT-FF | NR 0xFF write-only ULA+ palette poke — read returns 0 (no leak of cached write byte) [zxnext.vhd:4906 nr_ff_we, :4919 nr_palette_value, :5878-6289 others=>'0'] | zxnext.vhd:4906 | pass | test/nextreg/nextreg_integration_test.cpp:4633 |
-| V14-NMP-02-NR28-01 | NR 0x28 read at reset — `nr_stored_palette_value` default 0x00 [zxnext.vhd:1190, :5011, :6004] | zxnext.vhd:1190,5011,6004 | pass | test/nextreg/nextreg_integration_test.cpp:4669 |
-| V14-NMP-02-NR28-02 | NR 0x28 write does NOT affect NR 0x28 read (palette signal, not regs_[] cache) [zxnext.vhd:6004, :6301-6303] | zxnext.vhd:6004,6301-6303 | pass | test/nextreg/nextreg_integration_test.cpp:4683 |
-| V14-NMP-02-NR28-03 | NR 0x28 read returns nr_stored_palette_value latched on the first half of NR 0x44 9-bit write [zxnext.vhd:5398-5399, :6004] | zxnext.vhd:5398-5399,6004 | pass | test/nextreg/nextreg_integration_test.cpp:4697 |
-| V14-NMP-02-NR28-04 | NR 0x28 read unchanged across NR 0x44 second-half write [zxnext.vhd:5400 ELSIF, :6004] | zxnext.vhd:5400 | pass | test/nextreg/nextreg_integration_test.cpp:4712 |
-| FT-INT-D8-01 | NR 0xD8 nr_d8_io_trap_fdc_en write/read-back round-trip [zxnext.vhd:5640 + 6266] | zxnext.vhd:5640 | pass | test/nextreg/nextreg_integration_test.cpp:4752 |
-| FT-INT-D8-02 | NR 0xD8=1 + NR 0x06 b3=1 + port 0x3FFD write → NmiSource::nmi_assert_mf() asserts [zxnext.vhd:3835-3837] | zxnext.vhd:3835-3837 | pass | test/nextreg/nextreg_integration_test.cpp:4778 |
-| FT-INT-D9-01a | NR 0xD9 firmware direct-write round-trip [zxnext.vhd:4901 nr_d9_we + :3894-3895] | zxnext.vhd:4901 | pass | test/nextreg/nextreg_integration_test.cpp:4791 |
-| FT-INT-D9-01b | NR 0xD9 captures port 0x3FFD write byte when NR 0xD8=1 [zxnext.vhd:3892-3893] | zxnext.vhd:3892-3893 | pass | test/nextreg/nextreg_integration_test.cpp:4805 |
-| FT-INT-DA-01a | NR 0xDA cause=01 after port 0x2FFD READ [zxnext.vhd:3871-3873] | zxnext.vhd:3871-3873 | pass | test/nextreg/nextreg_integration_test.cpp:4817 |
-| FT-INT-DA-01b | NR 0xDA cause=10 after port 0x3FFD READ [zxnext.vhd:3874-3875] | zxnext.vhd:3874-3875 | pass | test/nextreg/nextreg_integration_test.cpp:4829 |
-| FT-INT-DA-01c | NR 0xDA cause=11 after port 0x3FFD WRITE [zxnext.vhd:3876-3878] | zxnext.vhd:3876-3878 | pass | test/nextreg/nextreg_integration_test.cpp:4841 |
-| FT-INT-DA-02 | NR 0xDA cause cleared by NR 0x02 b4=0 write [zxnext.vhd:3879-3880] | zxnext.vhd:3879-3880 | pass | test/nextreg/nextreg_integration_test.cpp:4861 |
-| TC-NR05-PRESERVE | NR 0x05 survives hard reset (no VHDL reset clause) [zxnext.vhd:1105-1106 / 1302-1303] | zxnext.vhd:1105-1106/1302-1303 | pass | test/nextreg/nextreg_integration_test.cpp:4904 |
-| TC-NR05-PENTAGON | NR 0x05 bit 2 reads 0 after Pentagon entry + frame edge (pending FF forced 0, eff latched at frame sync) [zxnext.vhd:5835-5836 / :6697-6700 / :5897] | zxnext.vhd:5835-5836/6697-6700/5897 | pass | test/nextreg/nextreg_integration_test.cpp:4936 |
-| TC-NR02-CFGMODE-NO-CLEAR | NR 0x02 readback bit 3 NOT cleared by config_mode [zxnext.vhd:3840-3864 / nmi_source.cpp:352-358] | zxnext.vhd:3840-3864 | pass | test/nextreg/nextreg_integration_test.cpp:4989 |
-| TC-NR02-BUS-RESET | NR 0x02 bit 7 (bus_reset) read-back from latch [zxnext.vhd:5119 + :5891 + :1579] | zxnext.vhd:5119,5891,1579 | pass | test/nextreg/nextreg_integration_test.cpp:5008 |
-| TC-NR0A-MFTYPE-GATED | NR 0x0A bits 7:6 mf_type sourced from gated state, not cache [zxnext.vhd:5191-5198 / :5912] | zxnext.vhd:5191-5198/5912 | pass | test/nextreg/nextreg_integration_test.cpp:5032 |
-| TC-NR04-MASK7F | NR 0x04 internal bank latched as v & 0x7F (Issue-2) [zxnext.vhd:5717 gen_romram_234] | zxnext.vhd:5717 | pass | test/nextreg/nextreg_integration_test.cpp:5050 |
-| TC-NR11-MASK07 | NR 0x11 read masked to bits 2:0 [zxnext.vhd:5208-5217 + read mux] | zxnext.vhd:5208-5217 | pass | test/nextreg/nextreg_integration_test.cpp:5067 |
-| TC-NR2F-MASK03 | NR 0x2F write masks to bits 1:0 [zxnext.vhd:5331] | zxnext.vhd:5331 | pass | test/nextreg/nextreg_integration_test.cpp:5082 |
-| TC-NR8A-MASK3F | NR 0x8A read masked to bits 5:0 [zxnext.vhd:5525 + :5970 read prefix '00'] | zxnext.vhd:5525,5970 | pass | test/nextreg/nextreg_integration_test.cpp:5097 |
-| TC-NR90-MASKFC | NR 0x90 write forces bits 1:0 = 0 [zxnext.vhd:5537] | zxnext.vhd:5537 | pass | test/nextreg/nextreg_integration_test.cpp:5111 |
-| TC-NR93-MASK0F | NR 0x93 write masks to low nibble [zxnext.vhd:5546] | zxnext.vhd:5546 | pass | test/nextreg/nextreg_integration_test.cpp:5125 |
-| TC-NR98-9B-READZERO | NR 0x98..0x9B read returns 0 (i_GPIO unmodelled) [zxnext.vhd:6176-6186] | zxnext.vhd:6176-6186 | pass | test/nextreg/nextreg_integration_test.cpp:5146 |
-| TC-NRA8-MASK01 | NR 0xA8 write masks to bit 0 only [zxnext.vhd:5570] | zxnext.vhd:5570 | pass | test/nextreg/nextreg_integration_test.cpp:5161 |
-| TC-NRA9-READZERO | NR 0xA9 read returns 0 (i_ESP_GPIO unmodelled) [zxnext.vhd:6200-6201] | zxnext.vhd:6200-6201 | pass | test/nextreg/nextreg_integration_test.cpp:5176 |
-| TC-NR75-79-WRITEZERO | NR 0x75-0x79 write-only mirror reads 0 [zxnext.vhd:5878-6289 others=>'0'] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:5195 |
-| TC-NR09-BIT3-READS-ZERO | NR 0x09 bit 3 does not affect sprites.over_border; NR 0x15 bit 1 is the authoritative wiring [zxnext.vhd:4184-4186 / :5909 / emulator.cpp:3616-3632 / :1209] | zxnext.vhd:4184-4186/5909 | pass | test/nextreg/nextreg_integration_test.cpp:5233 |
-| TC-NR7F-PRESERVE | NR 0x7F survives reset (VHDL has no reset clause) [zxnext.vhd:1216] | zxnext.vhd:1216 | pass | test/nextreg/nextreg_integration_test.cpp:5253 |
-| TC-NR80-LOHI-FOLD | NR 0x80 reset folds bits 3:0 into bits 7:4 [zxnext.vhd:2185-2186] | zxnext.vhd:2185-2186 | pass | test/nextreg/nextreg_integration_test.cpp:5271 |
-| TC-NR06-PRESERVE-MIXED | NR 0x06 reset preserves bits 6,4,3,2,1,0; forces 7,5=1 [zxnext.vhd:4932-4933 / :1109-1113] | zxnext.vhd:4932-4933/1109-1113 | pass | test/nextreg/nextreg_integration_test.cpp:5291 |
-| TC-NR09-PRESERVE | NR 0x09 reset preserves bits 7:5,2,1:0 (sprite_tie cleared) [zxnext.vhd:4937 / :1115-1118] | zxnext.vhd:4937/1115-1118 | pass | test/nextreg/nextreg_integration_test.cpp:5313 |
-| TC-NR81-PRESERVE-SOFT | NR 0x81 survives soft reset (no VHDL reset clause; preserve across NR 0x02 b0 soft reset) [zxnext.vhd:1221-1225] | zxnext.vhd:1221-1225 | pass | test/nextreg/nextreg_integration_test.cpp:5342 |
-| TC-NR0A-PRESERVE | NR 0x0A bits 7:6 mf_type survive reset [zxnext.vhd:1124-1128] | zxnext.vhd:1124-1128 | pass | test/nextreg/nextreg_integration_test.cpp:5362 |
-| TC-NR10-PRESERVE | NR 0x10 coreid survives reset (composed read = coreid<<2) [zxnext.vhd:1132-1133 / :5924] | zxnext.vhd:1132-1133/5924 | pass | test/nextreg/nextreg_integration_test.cpp:5382 |
-| TC-NR11-PRESERVE | NR 0x11 survives reset (no VHDL reset clause) [zxnext.vhd:1134] | zxnext.vhd:1134 | pass | test/nextreg/nextreg_integration_test.cpp:5404 |
-| TC-NR8A-PRESERVE | NR 0x8A survives reset (no VHDL reset clause) [zxnext.vhd:1236] | zxnext.vhd:1236 | pass | test/nextreg/nextreg_integration_test.cpp:5420 |
-| TC-NR14-RESET-DEFAULT | NR 0x14 reset default = 0xE3 [zxnext.vhd master reset block] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:5433 |
-| TC-NR4A-RESET-DEFAULT | NR 0x4A reset default = 0xE3 [zxnext.vhd master reset block] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:5444 |
-| TC-NR4B-RESET-DEFAULT | NR 0x4B reset default = 0xE3 [zxnext.vhd master reset block] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:5455 |
-| TC-NR4C-RESET-DEFAULT | NR 0x4C reset default = 0x0F [zxnext.vhd master reset block] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:5466 |
-| TC-NR01-RO | NR 0x01 RO — write must not change cached value [zxnext.vhd no write strobe] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:5480 |
-| TC-NR0E-RO | NR 0x0E RO — write must not change cached value | — | pass | test/nextreg/nextreg_integration_test.cpp:5493 |
-| TC-NR0F-RO | NR 0x0F RO — write must not change cached value | — | pass | test/nextreg/nextreg_integration_test.cpp:5505 |
-| TC-MOUSE-RESET-PRESERVE | KempstonMouse shadows survive reset (NR 0x0A preserved) [zxnext.vhd:1124-1128 / :5197 / :5191-5198] | zxnext.vhd:1124-1128/5197/5191-5198 | pass | test/nextreg/nextreg_integration_test.cpp:5527 |
-| TC-JOYSTICK-RESET-PRESERVE | Joystick mode shadows survive reset (NR 0x05 preserved) [zxnext.vhd:1105-1106 / :1302-1303] | zxnext.vhd:1105-1106/1302-1303 | pass | test/nextreg/nextreg_integration_test.cpp:5554 |
-| TC-NR52-FF | NR 0x52 with v=0xFF stores 0xFF verbatim (slot inactive) [zxnext.vhd:4686-4696] | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:5578 |
-| TC-NR53-FF | NR 0x53 with v=0xFF stores 0xFF verbatim (slot inactive) [zxnext.vhd:4686-4696] | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:5591 |
-| TC-NR54-FF | NR 0x54 with v=0xFF stores 0xFF verbatim (slot inactive) [zxnext.vhd:4686-4696] | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:5604 |
-| TC-NR55-FF | NR 0x55 with v=0xFF stores 0xFF verbatim (slot inactive) [zxnext.vhd:4686-4696] | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:5617 |
-| TC-IOTRAP-IDLE-GATE | NR 0xDA/D9 captured ONLY when nmi_accept_cause='1' (IDLE/FETCH); blocked in HOLD [zxnext.vhd:3871 / :3892 / emulator.cpp:2710,2725,2740] | zxnext.vhd:3871/3892 | pass | test/nextreg/nextreg_integration_test.cpp:5675 |
-| V12-NMP-01 | NR 0xC4 b0 write fans into ula_int_disabled_ shadow + video_timing_ INT-enable gate (mirroring NR 0x22 b2 path) [zxnext.vhd:3621-3622 / :3635 / :6711] | zxnext.vhd:3621-3622/3635/6711 | pass | test/nextreg/nextreg_integration_test.cpp:5736 |
-| V13-NMP-01 | NR 0x05 bit 2 Pentagon-mode cache canonicalisation: (a) write-while-Pentagon does not leak; (b) Pentagon-engagement clears prior bit-2 latch [zxnext.vhd:5832-5841 / :5897 / :6696-6703] | zxnext.vhd:5832-5841/5897/6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:5814 |
-| V16-NMP-01-IDLE | NR 0x10 bits 1:0 = 0 when both F9/F10 buttons released [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:5870 |
-| V16-NMP-01-M1 | NR 0x10 bit 0 = 1 when F9 (M1 button) held; bit 1 = 0 [zxnext.vhd:5924 / top_issue2.vhd:2281] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:5883 |
-| V16-NMP-01-DRIVE | NR 0x10 bit 1 = 1 when F10 (Drive button) held; bit 0 = 0 [zxnext.vhd:5924 / top_issue2.vhd:2281] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:5897 |
-| V16-NMP-01-BOTH | NR 0x10 bits 1:0 = 11 when both F9 + F10 held [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:5911 |
-| V16-NMP-01-COMPOSE | NR 0x10 = (coreid<<2) \| spkey_buttons composed; coreid bits 6:2 not stomped by held-state path [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:5932 |
-| V16-NMP-01-LIVE | NR 0x10 bit 0 tracks F9 hold transitions live (combinational; no NR 0x10 write needed) [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:5954 |
-| V16-NMP-02-EXPBUS-OFF | NR 0x86 b1=0 has NO effect on port 0x7FFD when expbus_eff_en=0 (default; NR 0x86-0x89 inert) [zxnext.vhd:2392-2393] | zxnext.vhd:2392-2393 | pass | test/nextreg/nextreg_integration_test.cpp:6009 |
-| V16-NMP-02-EXPBUS-ON-MASK | NR 0x86 b1=0 silences OUT 0x7FFD when expbus_eff_en=1 (effective port_7ffd_io_en = NR 0x82 b1 AND NR 0x86 b1 = 0) [zxnext.vhd:2392-2393 / :2399] | zxnext.vhd:2392-2393/2399 | pass | test/nextreg/nextreg_integration_test.cpp:6032 |
-| V16-NMP-02-EXPBUS-ON-PASS | NR 0x86 b1=1 leaves port 0x7FFD live with expbus_eff_en=1 [zxnext.vhd:2392-2393 / :2399] | zxnext.vhd:2392-2393/2399 | pass | test/nextreg/nextreg_integration_test.cpp:6050 |
-| V16-NMP-02-EXPBUS-TOGGLE | NR 0x80 b7 toggle live-refreshes port_7ffd_io_en shadow (propagate_effective_port_enables on NR 0x80 write) [zxnext.vhd:2392-2393] | zxnext.vhd:2392-2393 | pass | test/nextreg/nextreg_integration_test.cpp:6070 |
-| V16-NMP-02-DIVMMC-MASK | DivMmc::port_io_enable=false when expbus_eff_en=1 + NR 0x83 b0=1 + NR 0x87 b0=0 (effective AND = 0) [zxnext.vhd:2392-2393 / :2412] | zxnext.vhd:2392-2393/2412 | pass | test/nextreg/nextreg_integration_test.cpp:6088 |
-| V16-NMP-02-MF-MASK | Multiface::is_enabled=false when expbus_eff_en=1 + NR 0x83 b1=1 + NR 0x87 b1=0 (effective AND = 0) [zxnext.vhd:2392-2393 / :2415] | zxnext.vhd:2392-2393/2415 | pass | test/nextreg/nextreg_integration_test.cpp:6102 |
-| V16-NMP-02-NR85-NR89-B0 | NR 0x89 b0=0 masks NR 0x85 b0 (port_ulap_io_en) when expbus_eff_en=1 [zxnext.vhd:2392-2393 / :2439] | zxnext.vhd:2392-2393/2439 | pass | test/nextreg/nextreg_integration_test.cpp:6120 |
-| V19R-NMP-NIT-03 | NR 0xF0 XADC composed-read stub returns 0x00 even after 0xAA write (Issue 2 path: nr_f0_xdev_cmd hard-wired to 0) [zxnext.vhd:6273-6274, :7423] | zxnext.vhd:6273-6274,7423 | pass | test/nextreg/nextreg_integration_test.cpp:6170 |
-| V19R-NMP-NIT-04 | NR 0xF8 read masks bit 7: write 0xC5 reads back 0x45 (VHDL '0' & nr_f8_xadc_daddr) [zxnext.vhd:6277-6278, :7555] | zxnext.vhd:6277-6278,7555 | pass | test/nextreg/nextreg_integration_test.cpp:6194 |
-| V20-NMP-XADC-F9 | NR 0xF9 XADC d0 composed-read stub returns 0x00 even after 0x5A write (Issue 2 path: nr_f9_xadc_d0 hard-wired to 0) [zxnext.vhd:6280-6281, :7428] | zxnext.vhd:6280-6281,7428 | pass | test/nextreg/nextreg_integration_test.cpp:6219 |
-| V20-NMP-XADC-FA | NR 0xFA XADC d1 composed-read stub returns 0x00 even after 0xA5 write (Issue 2 path: nr_fa_xadc_d1 hard-wired to 0) [zxnext.vhd:6283-6284, :7429] | zxnext.vhd:6283-6284,7429 | pass | test/nextreg/nextreg_integration_test.cpp:6229 |
-| V20-NMP-02 | NR 0x68 read bit 1 reads back as '0' regardless of writes (VHDL :6093 literal '0' bit; :5444-5450 has no bit-1 store) [zxnext.vhd:6092-6093, :5444-5450] | zxnext.vhd:6092-6093,5444-5450 | pass | test/nextreg/nextreg_integration_test.cpp:6251 |
-| V21-NMP-01-A | NR 0x03 bit 7 = 0 at reset (nr_palette_sub_idx default '0', VHDL :1182, :5000) [zxnext.vhd:5894] | zxnext.vhd:5894 | pass | test/nextreg/nextreg_integration_test.cpp:6289 |
-| V21-NMP-01-B | NR 0x03 bit 7 = 1 after a single NR 0x44 write (VHDL :5403 toggle: 0 -> 1) [zxnext.vhd:5894] | zxnext.vhd:5894 | pass | test/nextreg/nextreg_integration_test.cpp:6302 |
-| V21-NMP-01-C | NR 0x03 bit 7 = 0 after two NR 0x44 writes (VHDL :5403 toggle: 0 -> 1 -> 0) [zxnext.vhd:5894] | zxnext.vhd:5894 | pass | test/nextreg/nextreg_integration_test.cpp:6314 |
-| V21-NMP-01-D | NR 0x03 bit 7 = 0 after NR 0x44 + NR 0x40 sequence (VHDL :5376 NR 0x40 write resets nr_palette_sub_idx) [zxnext.vhd:5894] | zxnext.vhd:5894 | pass | test/nextreg/nextreg_integration_test.cpp:6328 |
-| V21-NMP-01-E | NR 0x03 bits 6:0 unchanged by NR 0x44 toggle (only bit 7 / sub_idx flips) [zxnext.vhd:5894] | zxnext.vhd:5894 | pass | test/nextreg/nextreg_integration_test.cpp:6354 |
-| V21-NMP-01-F | NR 0x03 bit 7 toggles independently from lower fields | — | pass | test/nextreg/nextreg_integration_test.cpp:6362 |
-| V21-NMP-03-A | NR 0x07 read with expbus_eff_en=0 → act = req (VHDL :5817 `cpu_speed <= nr_07_cpu_speed`) [zxnext.vhd:5902-5903] | zxnext.vhd:5902-5903 | pass | test/nextreg/nextreg_integration_test.cpp:6397 |
-| V21-NMP-03-B | NR 0x07 read with expbus_eff_en=1 → act = 0 even when req = 0x03 (VHDL :5819 `cpu_speed <= expbus_speed`, :5496 expbus_speed hard-wired "00") [zxnext.vhd:5816-5820] | zxnext.vhd:5816-5820 | pass | test/nextreg/nextreg_integration_test.cpp:6415 |
-| V21-NMP-03-C-pre | expbus_eff_en=1 pre-clear → act = 0 (req=2 → readback=0x02) | — | pass | test/nextreg/nextreg_integration_test.cpp:6431 |
-| V21-NMP-03-C-post | expbus_eff_en=0 post-clear → act = req (req=2 → readback=0x22) | — | pass | test/nextreg/nextreg_integration_test.cpp:6435 |
-| V22-NMP-01-A | NR 0xC2 writable via NextReg port — write 0xAA must update the latch [VHDL :4894 nr_c2_we asserted in process A → :2064-2065 elsif latches nr_wr_dat → :6232-6233 read mux returns nr_c2_retn_address_lsb] | — | pass | test/nextreg/nextreg_integration_test.cpp:6473 |
-| V22-NMP-01-B | NR 0xC3 writable via NextReg port — write 0x55 must update the latch [VHDL :4895 nr_c3_we asserted in process A → :2066-2067 elsif latches nr_wr_dat → :6235-6236 read mux returns nr_c3_retn_address_msb] | — | pass | test/nextreg/nextreg_integration_test.cpp:6487 |
-| V22-NMP-01-C-LSB | NMIACK pathway via set_nmi_return_address() writes NR 0xC2 latch (NMIACK_LSB path per VHDL :2060-2061) | — | pass | test/nextreg/nextreg_integration_test.cpp:6506 |
-| V22-NMP-01-C-MSB | NMIACK pathway via set_nmi_return_address() writes NR 0xC3 latch (NMIACK_MSB path per VHDL :2062-2063) | — | pass | test/nextreg/nextreg_integration_test.cpp:6511 |
-| V22-NMP-01-D-LSB | Post-NMIACK NextReg port write to NR 0xC2 overwrites the latch [VHDL :2064-2065 elsif fires when no NMIACK is active] | — | pass | test/nextreg/nextreg_integration_test.cpp:6531 |
-| V22-NMP-01-D-MSB | Post-NMIACK NextReg port write to NR 0xC3 overwrites the latch [VHDL :2066-2067 elsif fires when no NMIACK is active] | — | pass | test/nextreg/nextreg_integration_test.cpp:6537 |
-| Z80N-SEL-01 | NEXTREG rr,nn (ED 91) does not move the port-0x243B select latch (VHDL zxnext.vhd:4739-4744 cpu_requester_0 vs :4592-4603) | zxnext.vhd:4739-4744 | pass | test/nextreg/nextreg_integration_test.cpp:6603 |
-| Z80N-SEL-02 | NEXTREG rr,A (ED 92) leaves the select latch on 0x7F, so the next 0x253B write still lands on NR 0x7F (VHDL zxnext.vhd:4739-4744) | zxnext.vhd:4739-4744 | pass | test/nextreg/nextreg_integration_test.cpp:6622 |
-| Z80N-SEL-03 | NEXTREG rr,nn still writes the register named by the opcode operand (VHDL cpu_requester_reg <= Z80N_data_s(15 downto 8)) | — | pass | test/nextreg/nextreg_integration_test.cpp:6635 |
-| FP-01 | 50 Hz default: 567264 mc/frame, frame_period_ms=20.26 [issue #9] | — | pass | test/nextreg/nextreg_integration_test.cpp:6655 |
-| FP-02 | 60 Hz (NR 0x05 bit2=1): 481536 mc/frame, frame_period_ms=17.20 [Task 56 / issue #9] | — | pass | test/nextreg/nextreg_integration_test.cpp:6668 |
-| FP-03 | clear NR 0x05 bit2 -> back to 50 Hz: 567264 mc/frame, 20.26 ms [issue #9] | — | pass | test/nextreg/nextreg_integration_test.cpp:6681 |
-| LR-02 | NR $15 bit 7 (LoRes enable) resets to 0 (zxnext.vhd:4948) | zxnext.vhd:4948 | pass | test/nextreg/nextreg_integration_test.cpp:6720 |
-| LR-05 | NR $32 (LoRes X scroll) resets to 0x00 (zxnext.vhd:4995) | zxnext.vhd:4995 | pass | test/nextreg/nextreg_integration_test.cpp:6726 |
-| LR-07 | NR $33 (LoRes Y scroll) resets to 0x00 (zxnext.vhd:4997) | zxnext.vhd:4997 | pass | test/nextreg/nextreg_integration_test.cpp:6732 |
-| LR-12 | NR $6A resets to 0x00 — 8-bit mode, no XOR, offset 0 (zxnext.vhd:5032-5034) | zxnext.vhd:5032-5034 | pass | test/nextreg/nextreg_integration_test.cpp:6738 |
-| LR-01 | NR $15 bit 7 stores the LoRes enable; bits 6:0 read back what was written (zxnext.vhd:5229, 5939) | zxnext.vhd:5229,5939 | pass | test/nextreg/nextreg_integration_test.cpp:6747 |
-| LR-03 | NR $15 bit 7 is independent of bits 6:0 — writing 0x7F clears bit 7 and keeps 0x7F (zxnext.vhd:5229) | zxnext.vhd:5229 | pass | test/nextreg/nextreg_integration_test.cpp:6757 |
-| LR-04 | NR $32 stores all 8 bits of the LoRes X scroll and reaches the generator (zxnext.vhd:5340, 6027, 4262) | zxnext.vhd:5340,6027,4262 | pass | test/nextreg/nextreg_integration_test.cpp:6771 |
-| LR-06 | NR $33 stores all 8 bits of the LoRes Y scroll and reaches the generator (zxnext.vhd:5343, 6030, 4263) | zxnext.vhd:5343,6030,4263 | pass | test/nextreg/nextreg_integration_test.cpp:6781 |
-| LR-08 | NR $6A bit 5 selects Radastan mode and reads back (zxnext.vhd:5456, 6099) | zxnext.vhd:5456,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6793 |
-| LR-09 | NR $6A bit 4 is the Timex display-file XOR and reads back (zxnext.vhd:5457, 6099) | zxnext.vhd:5457,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6802 |
-| LR-10 | NR $6A bits 3:0 are the palette offset and read back (zxnext.vhd:5458, 6099) | zxnext.vhd:5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6811 |
-| LR-11 | NR $6A bits 7:6 are not stored — the read mux hard-wires "00", so 0xFF reads back 0x3F (zxnext.vhd:5456-5458, 6099) | zxnext.vhd:5456-5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6820 |
-| LR-124 | clip_y2 values with bits 7:6 = "11" clamp to 0xBF at the consumer latch LoRes shares with the ULA; 0xA0 is left alone and the raw NR $1A byte is preserved (zxnext.vhd:6779-6783) | zxnext.vhd:6779-6783 | pass | test/nextreg/nextreg_integration_test.cpp:6854 |
-| LR-162 | NR $1D is not a LoRes clip register — writing it changes neither the shared ULA/LoRes clip window nor any LoRes register (zxnext.vhd:1167-1171, 5278 undecoded, 6785-6793) | zxnext.vhd:1167-1171,5278 | pass | test/nextreg/nextreg_integration_test.cpp:6900 |
+| GH231-01 | soft reset clears NR 0xCC (dma delay on NMI + ULA/line enables) [zxnext.vhd:5101-5102 master reset block; :1730 + zxnext_top_issue2.vhd:840 one reset wire] | zxnext.vhd:5101-5102, zxnext_top_issue2.vhd:840 | pass | test/nextreg/nextreg_integration_test.cpp:534 |
+| GH231-02 | soft reset clears NR 0xCD (CTC 7..0 dma delay enables) [zxnext.vhd:5103] | zxnext.vhd:5103 | pass | test/nextreg/nextreg_integration_test.cpp:540 |
+| GH231-03 | soft reset clears NR 0xCE (UART1/UART0 dma delay enables) [zxnext.vhd:5104-5105] | zxnext.vhd:5104-5105 | pass | test/nextreg/nextreg_integration_test.cpp:545 |
+| GH231-04 | soft reset zeroes the composed im2_dma_int_en mask [zxnext.vhd:1957-1958 composition; :5101-5105 reset] | zxnext.vhd:1957-1958 | pass | test/nextreg/nextreg_integration_test.cpp:563 |
+| GH231-05 | soft reset clears the latched im2_dma_delay flip-flop [zxnext.vhd:2003-2004] | zxnext.vhd:2003-2004 | pass | test/nextreg/nextreg_integration_test.cpp:580 |
+| GH231-06 | after reset the cached NR 0xCC/0xCD/0xCE bytes and the recomposed read-back agree (both 0) [zxnext.vhd:6257-6263 read mux; :5101-5105 reset] | zxnext.vhd:6257-6263 | pass | test/nextreg/nextreg_integration_test.cpp:609 |
+| GH231-07 | hard reset clears NR 0xCC/0xCD/0xCE and im2_dma_delay as well (same reset wire) [zxnext.vhd:1730; zxnext_top_issue2.vhd:840 reset <= reset_hard or reset_soft] | zxnext.vhd:1730, zxnext_top_issue2.vhd:840 | pass | test/nextreg/nextreg_integration_test.cpp:630 |
+| TM-114 | NR 0x1B 4-write cycle programs x1/x2/y1/y2 in order [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:663 |
+| TM-115 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5288-5289] | zxnext.vhd:5288-5289 | pass | test/nextreg/nextreg_integration_test.cpp:686 |
+| SR-01 | NR 0x02=0x01 (RESET_SOFT) preserves SRAM contents (external SRAM has no reset pin) [zxnext_top_issue2.vhd:2427-2437] | zxnext_top_issue2.vhd:2427-2437 | pass | test/nextreg/nextreg_integration_test.cpp:730 |
+| SR-02 | NR 0x02=0x02 (RESET_HARD) requests a host cold boot (deferred); SRAM untouched synchronously (Task 70; VHDL zxn_reset_hard triggers FPGA flashboot, the real-hardware equivalent) [zxnext_top_issue2.vhd:1195] | zxnext_top_issue2.vhd:1195 | pass | test/nextreg/nextreg_integration_test.cpp:753 |
+| SR-03 | boot_rom_en_ cleared state survives RESET_SOFT with boot ROM loaded [zxnext.vhd:1101,5109-5111,5122] | zxnext.vhd:1101,5109-5111,5122 | pass | test/nextreg/nextreg_integration_test.cpp:781 |
+| SR-04 | NR 0x02=0x80 (RESET_ESPBUS alone) is a no-op — SRAM untouched | — | pass | test/nextreg/nextreg_integration_test.cpp:796 |
+| SR-05 | NR 0x02=0x03 (RESET_HARD\|RESET_SOFT): hard wins — host cold boot requested [Task 70] | — | pass | test/nextreg/nextreg_integration_test.cpp:811 |
+| SR-06 | ROM-in-SRAM window (ram_ pages 0..7) survives RESET_SOFT [Branch 3 core: tbblue-loaded ROMs persist across reset] | — | pass | test/nextreg/nextreg_integration_test.cpp:828 |
+| SR-07 | init() re-seeds the ROM-in-SRAM window from rom_ [Branch 2 seed loop; exercised via in-place emu.reset()] | — | pass | test/nextreg/nextreg_integration_test.cpp:846 |
+| RSTD-E3-01 | RESET_SOFT clears port 0xE3 conmem (bit 7) and the whole register [zxnext.vhd:4176-4177 port_e3_reg <= 0 on reset; :1730 reset <= i_RESET; zxnext_top_issue2.vhd:840 reset <= reset_hard or reset_soft] | zxnext.vhd:4176-4177, zxnext_top_issue2.vhd:840 | pass | test/nextreg/nextreg_integration_test.cpp:914 |
+| RSTD-E3-02 | RESET_HARD clears port 0xE3 conmem via the host cold boot; the NR 0x02 b1 write itself only raises the deferred request [zxnext.vhd:4176-4177 + :1730; zxnext_top_issue2.vhd:840; Task 70 deferred hard reset] | zxnext.vhd:4176-4177,1730, zxnext_top_issue2.vhd:840 | pass | test/nextreg/nextreg_integration_test.cpp:947 |
+| RSTD-8C-01 | reset RELOADS nr_8c_altrom_lock_rom1 (bit 5) from bit 1 — it does NOT clear: NR 0x8C=0x02 -> after RESET_SOFT lock_rom1=1, lock_rom0=0, byte=0x22 [zxnext.vhd:2254-2255 nibble copy, :2264 lock_rom1 <= nr_8c_altrom(5); nextreg.txt:861-864] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:973 |
+| RSTD-8C-02 | reset RELOADS nr_8c_altrom_lock_rom0 (bit 4) from bit 0 — it does NOT clear: NR 0x8C=0x01 -> after RESET_SOFT lock_rom0=1, lock_rom1=0, byte=0x11 [zxnext.vhd:2254-2255 nibble copy, :2265 lock_rom0 <= nr_8c_altrom(4); nextreg.txt:861-865] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:998 |
+| RSTD-04-01 | RESET_SOFT PRESERVES nr_04_romram_bank — the signal is absent from the reset block [zxnext.vhd:4930-5111]; its only sites are zxnext.vhd:1104 (declaration), zxnext.vhd:3045 (use) and the write handlers zxnext.vhd:5717 / zxnext.vhd:5732, gated solely on nr_04_we | zxnext.vhd:4930-5111, zxnext.vhd:1104, zxnext.vhd:3045, zxnext.vhd:5717, zxnext.vhd:5732 | pass | test/nextreg/nextreg_integration_test.cpp:1043 |
+| RSTD-04-02 | RESET_HARD clears nr_04_romram_bank to the zxnext.vhd:1104 power-on default via the host cold boot (FPGA reconfiguration, zxnext_top_issue2.vhd:1195); the NR 0x02 b1 write itself only raises the deferred request [Task 70] | zxnext.vhd:1104, zxnext_top_issue2.vhd:1195 | pass | test/nextreg/nextreg_integration_test.cpp:1071 |
+| RSTD-04-03 | NR 0x04 write reaches the Mmu mirror consumed by the SRAM address compose [zxnext.vhd:3045], bit 7 masked off per gen_romram_234 [zxnext.vhd:5709-5722]; both mirrors agree | zxnext.vhd:3045, zxnext.vhd:5709-5722 | pass | test/nextreg/nextreg_integration_test.cpp:1107 |
+| RSTD-04-04 | RESET_SOFT PRESERVES the Mmu mirror of nr_04_romram_bank — the signal has no reset clause anywhere in zxnext.vhd (absent from the reset block at :4930-5111; write handlers :5717/:5732 are gated solely on nr_04_we) — and both mirrors still agree | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:1131 |
+| CMG-01 | a Next start with NO boot ROM leaves the Mmu config_mode mirror at its power-on false, and the NextReg latch agrees because init() makes the IPL's own NR 0x03 commit [zxnext.vhd:1102, :5147-5151], so a write into the still-ROM low slot is DROPPED instead of being rerouted into SRAM [zxnext.vhd:3044-3050] | zxnext.vhd:1102, zxnext.vhd:3044-3050 | pass | test/nextreg/nextreg_integration_test.cpp:1212 |
+| CMG-02 | NO non-Next machine type runs the config-mode resync, even with a boot ROM enabled: the gate's machine-type clause holds it shut for every value in the enum's non-Next set [contention.h:5], so the Mmu mirror keeps its own value instead of following the NextReg latch [zxnext.vhd:1102,5122] | zxnext.vhd:1102,5122 | pass | test/nextreg/nextreg_integration_test.cpp:1287 |
+| CMG-03 | the init() config-mode resync observes the POST-reset boot-ROM state: Mmu::reset() arms boot_rom_en_ from the persisted boot ROM + config_mode [mmu.cpp:179], and the gate must run after that, so the mirror follows the NextReg latch down instead of keeping its stale pre-init value | — | pass | test/nextreg/nextreg_integration_test.cpp:1345 |
+| RSTD-04-05 | the boot-ROM-gated resync in Emulator::init() leaves the Mmu config_mode mirror following the NextReg latch [zxnext.vhd:1102 power-on '1', :5122 cleared by an NR 0x03 write] and does NOT disturb the preserved nr_04_romram_bank [zxnext.vhd:1104, absent from the reset block :4930-5111] | zxnext.vhd:1102, zxnext.vhd:1104 | pass | test/nextreg/nextreg_integration_test.cpp:1401 |
+| CB-BP-01 | host cold boot (reconstruct+init) preserves debugger PC breakpoints + active flag [Task 70 review] | — | pass | test/nextreg/nextreg_integration_test.cpp:1445 |
+| RO-01 | NR 0x00 machine ID reset=0x0A via port path [VHDL g_machine_id, zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:1470 |
+| RO-02 | NR 0x00 read-only: write 0x42 then read returns 0x0A [zxnext.vhd:5884-5885 — read routed to g_machine_id; no write handler] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1486 |
+| RO-03 | NR 0x01 core version reset=0x32 (core 3.02) [zxnext_top_issue2.vhd:37 g_version] | zxnext_top_issue2.vhd:37 | pass | test/nextreg/nextreg_integration_test.cpp:1498 |
+| RO-04 | NR 0x0E sub-version reset=0x03 [zxnext_top_issue2.vhd:38 g_sub_version] | zxnext_top_issue2.vhd:38 | pass | test/nextreg/nextreg_integration_test.cpp:1510 |
+| RO-05 | NR 0x0F board issue reset=0x00 [zxnext.vhd:5921, zxnext_top_issue2.vhd:39] | zxnext.vhd:5921, zxnext_top_issue2.vhd:39 | pass | test/nextreg/nextreg_integration_test.cpp:1522 |
+| RO-06 | NR 0x1E/0x1F return cvc (paper-relative), not raw frame vc: frame-start cvc == 247 for 128K timing [zxnext.vhd:5982-5986, zxula_timing.vhd:455-472] | zxnext.vhd:5982-5986, zxula_timing.vhd:455-472 | pass | test/nextreg/nextreg_integration_test.cpp:1548 |
+| SEL-03 | NR 0x00 via select+write+read path returns 0x0A (selection pathway respects read-only) [zxnext.vhd:5884-5885] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1576 |
+| CLIP-01 | NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44 [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1609 |
+| CLIP-02 | NR 0x18 fifth write wraps back to x1 (mod-4 idx) [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1629 |
+| CLIP-03 | NR 0x1C bit 0 resets L2 clip idx so next NR 0x18 write → x1 [zxnext.vhd:5278-5281] | zxnext.vhd:5278-5281 | pass | test/nextreg/nextreg_integration_test.cpp:1648 |
+| CLIP-04 | NR 0x1C bit 1 resets sprite clip idx so next NR 0x19 write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1669 |
+| CLIP-05 | NR 0x1C bit 2 resets ULA clip idx so next NR 0x1A write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1691 |
+| CLIP-06 | NR 0x1C bit 3 resets tilemap clip idx so next 0x1B write → x1 [zxnext.vhd:5242-5290] | zxnext.vhd:5242-5290 | pass | test/nextreg/nextreg_integration_test.cpp:1709 |
+| CLIP-07a | NR 0x1C read post-all-reset packs idx=0000 → 0x00 [zxnext.vhd:5979-5980] | zxnext.vhd:5979-5980 | pass | test/nextreg/nextreg_integration_test.cpp:1728 |
+| CLIP-07b | NR 0x1C after one NR 0x1B write: bits 7:6 = 01 → 0x40 [zxnext.vhd:5276 write increments idx; :5979-5980 packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1738 |
+| CLIP-08 | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5947-5953] | zxnext.vhd:5947-5953 | pass | test/nextreg/nextreg_integration_test.cpp:1773 |
+| CLIP-09a | NR 0x1B read does NOT advance idx (two consecutive reads equal) [zxnext.vhd:5971-5977 — combinatorial, no idx increment] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1797 |
+| CLIP-09b | NR 0x1B reads at idx=3 both return y2=0xFF (reset default); read does not wrap idx [zxnext.vhd:5971-5977] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1813 |
+| CLIP-10 | NR 0x1B write lands x1=0xAA AND advances tm idx → NR 0x1C bits 7:6 = 01 (0x40) [zxnext.vhd:5276 write increments idx; :5980 NR 0x1C packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1828 |
+| CLIP-11 | NR 0x19 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5955-5961] | zxnext.vhd:5955-5961 | pass | test/nextreg/nextreg_integration_test.cpp:1866 |
+| CLIP-11b | NR 0x19 read does NOT advance idx (two consecutive reads equal) [zxnext.vhd:5955-5961 — combinatorial, no idx increment] | zxnext.vhd:5955-5961 | pass | test/nextreg/nextreg_integration_test.cpp:1890 |
+| CLIP-12 | NR 0x1A read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5963-5969] | zxnext.vhd:5963-5969 | pass | test/nextreg/nextreg_integration_test.cpp:1923 |
+| CLIP-12b | NR 0x1A read does NOT advance idx (two consecutive reads equal) [zxnext.vhd:5963-5969 — combinatorial, no idx increment] | zxnext.vhd:5963-5969 | pass | test/nextreg/nextreg_integration_test.cpp:1940 |
+| CLIP-12c | NR 0x1A read at idx=3 returns RAW nr_1a_ula_clip_y2=0xFF (NOT consumer-side ula_clip_y2_0 clamped to 0xBF) [zxnext.vhd:5968 raw register read; clamp at :6779-6783 is on consumer signal only] | zxnext.vhd:5968 | pass | test/nextreg/nextreg_integration_test.cpp:1963 |
+| PAL-01 | NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03 [zxnext.vhd:4918-4920 palette write] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2006 |
+| PAL-02 | NR 0x41 8-bit palette value round-trips at selected index [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2020 |
+| PAL-03 | NR 0x44 9-bit write: upper 8 bits land at selected idx [zxnext.vhd:4918-4920 palette sub_idx latch] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2040 |
+| PAL-04 | NR 0x41 read returns palette byte at selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:2055 |
+| PAL-05 | NR 0x44 read returns priority+LSB for selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:2068 |
+| PAL-06 | NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 at idx 0x50 keeps pointer on 0x50, pal[0x51] untouched [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2092 |
+| PE-03 | NR 0x82 bit 6 gates port 0x1F (Kempston 1): bit6=1→handler, bit6=0→0xFF [zxnext.vhd:2392-2442] | zxnext.vhd:2392-2442 | pass | test/nextreg/nextreg_integration_test.cpp:2150 |
+| PE-05 | NR 0x89 bus port enable reset=0x8F [zxnext.vhd:1234-1235, 6147-6150] | zxnext.vhd:1234-1235,6147-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2169 |
+| PE-INT-80-88 | NR 0x80 reset=0x00, NR 0x88 reset=0xFF [zxnext.vhd:360, 1233] | zxnext.vhd:360,1233 | pass | test/nextreg/nextreg_integration_test.cpp:2212 |
+| PE-INT-82 | NR 0x82 write=0xA5 read=0xA5 (no pack mask) [zxnext.vhd:5499, 6128-6129] | zxnext.vhd:5499,6128-6129 | pass | test/nextreg/nextreg_integration_test.cpp:2228 |
+| PE-INT-86 | NR 0x86 reset=0xFF + write=0x5A read=0x5A [zxnext.vhd:1231, 5512, 6140-6141] | zxnext.vhd:1231,5512,6140-6141 | pass | test/nextreg/nextreg_integration_test.cpp:2244 |
+| PE-INT-87 | NR 0x87 reset=0xFF + write=0x3C read=0x3C [zxnext.vhd:1232, 5514-5515, 6143-6144] | zxnext.vhd:1232,5514-5515,6143-6144 | pass | test/nextreg/nextreg_integration_test.cpp:2263 |
+| PE-INT-89 | NR 0x89 write=0xF7 read=0x87 (bits 6:4 always 0) [zxnext.vhd:5520-5522, 6149-6150] | zxnext.vhd:5520-5522,6149-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2281 |
+| RW-01 | NR 0x07 read = (actual<<4) \| requested, pads 0 in bits[7:6] and bits[3:2] [zxnext.vhd:5902-5903] | zxnext.vhd:5902-5903 | pass | test/nextreg/nextreg_integration_test.cpp:2332 |
+| RW-02 | NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = nr_08_contention_disable [zxnext.vhd:5906] | zxnext.vhd:5906 | pass | test/nextreg/nextreg_integration_test.cpp:2384 |
+| FIX-NR08-EFFLOCK-01 | NR 0x08 bit 7 read returns NOT effective_paging_locked (Pentagon-1024 overrides the raw lock) — VHDL :5906/:3769; commit b6b42dd | — | pass | test/nextreg/nextreg_integration_test.cpp:2435 |
+| FIX-NR5xFF-INT-01 | Emulator construction failed | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:2471 |
+| FIX-NR5xFF-INT-02 | Emulator construction failed | — | pass | test/nextreg/nextreg_integration_test.cpp:2516 |
+| FIX-NR5xFF-INT-03 | Emulator construction failed | — | pass | test/nextreg/nextreg_integration_test.cpp:2546 |
+| FIX-EFF7-FF-INT-01 | Emulator construction failed | — | pass | test/nextreg/nextreg_integration_test.cpp:2574 |
+| FIX-NR12-PROP-INT-01 | Emulator construction failed | zxnext.vhd:2968 | pass | test/nextreg/nextreg_integration_test.cpp:2610 |
+| CFG-01 | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011") [zxnext.vhd:1099, 5893-5894] | zxnext.vhd:1099,5893-5894 | pass | test/nextreg/nextreg_integration_test.cpp:2664 |
+| CFG-02 | NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read composes bit 3 from that state [zxnext.vhd:5121-5151, 5894] | zxnext.vhd:5121-5151,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2700 |
+| CFG-05 | NR 0x03 bits 2:0=001 clears config_mode at write time [zxnext.vhd:5147-5151 — Task 11 Branch 1 implemented] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2731 |
+| CFG-09-INT | NR 0x03 machine-type latch survives soft reset [zxnext.vhd:1103, :5137-5145, :5894 — no reset clause] | zxnext.vhd:1103,5137-5145,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2779 |
+| CFG-08-INT | NR 0x03 config_mode latch survives soft reset [zxnext.vhd:1102, :5147-5151 — no reset clause] | zxnext.vhd:1102,5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2827 |
+| N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0 [zxnext.vhd:3814 port_memory_ram_change_dly, :4677 MMU6/7 gate] | zxnext.vhd:3814 | pass | test/nextreg/nextreg_integration_test.cpp:2869 |
+| N8E-RAM-REBUILD-1 | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank [zxnext.vhd:3814, :4677] | zxnext.vhd:3814,4677 | pass | test/nextreg/nextreg_integration_test.cpp:2894 |
+| N8E-DIVMMC-ROM3-REFRESH | NR 0x8E write refreshes DivMMC.rom3_active_ from sram_rom3() [zxnext.vhd:2981-3008, :3138; mirrors OUT ($1FFD) at emulator.cpp:3399; G46(b)-v2 EOD-29] | zxnext.vhd:2981-3008,3138 | pass | test/nextreg/nextreg_integration_test.cpp:2944 |
+| L2M-05 | NR 0x12 write sets Layer 2 active bank (7-bit) [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:2976 |
+| L2M-05b | NR 0x12 top bit masked on write (Layer2 state) AND on readback (VHDL read-handler) [zxnext.vhd:4945 + 5930] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:2996 |
+| L2M-06 | NR 0x13 write sets Layer 2 shadow bank (7-bit) [zxnext.vhd:4946 nr_13_layer2_shadow_bank] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:3012 |
+| L2M-06b | NR 0x13 top bit masked on write (Layer2 state) AND on readback (VHDL read-handler) [zxnext.vhd:4946 + 5931] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:3029 |
+| ULAP-01 | NR 0x68 bit 3 = 0 at reset (ulap_en=0) | — | pass | test/nextreg/nextreg_integration_test.cpp:3054 |
+| ULAP-02 | NR 0x68 bit 3 reflects port 0xFF3B write (ulap_en=1) [zxnext.vhd:6093 read composes from port_ff3b_ulap_en] | zxnext.vhd:6093 | pass | test/nextreg/nextreg_integration_test.cpp:3065 |
+| ULAP-03 | NR 0x68 bit 3 prefers LIVE port_ff3b_ulap_en over cached regs_[0x68] (port 0xFF3B clear after NR 0x68 set bit3) | — | pass | test/nextreg/nextreg_integration_test.cpp:3080 |
+| ULAP-04 | NR 0x68 read preserves cached blend bits + reflects ulap_en (write 0x68 → read 0x68) | — | pass | test/nextreg/nextreg_integration_test.cpp:3092 |
+| G108-NR69-MODE | NR 0x69 bits 5:0 fan out to port_ff_reg(5:0) AND Ula::screen_mode_reg_; mode bits 2:0 = 110 (HI_RES) per VHDL [zxnext.vhd:3617-3618 + zxula.vhd:191] | zxnext.vhd:3617-3618, zxula.vhd:191 | pass | test/nextreg/nextreg_integration_test.cpp:3137 |
+| G108-NR69-PRESERVE-BIT7 | NR 0x69 fan-out only touches port_ff_reg(5:0); bit 6 (carried in from earlier port-FF write) preserved [zxnext.vhd:3617-3618] | zxnext.vhd:3617-3618 | pass | test/nextreg/nextreg_integration_test.cpp:3155 |
+| G108-NR22-INTDIS-SET | NR 0x22 bit 2 → port_ff_reg(6); port_ff_reg(5:0) preserved; Ula::screen_mode_reg_ propagated [zxnext.vhd:3619-3620] | zxnext.vhd:3619-3620 | pass | test/nextreg/nextreg_integration_test.cpp:3171 |
+| G108-NR22-INTDIS-CLR | NR 0x22 bit 2 = 0 clears port_ff_reg(6); bits 5:0 preserved [zxnext.vhd:3619-3620] | zxnext.vhd:3619-3620 | pass | test/nextreg/nextreg_integration_test.cpp:3185 |
+| G108-NRC4-INTDIS-CLR | NR 0xC4 bit 0 = 1 → port_ff_reg(6) ← 0 (inverted polarity); bits 5:0 preserved; Ula::screen_mode_reg_ propagated [zxnext.vhd:3621-3622] | zxnext.vhd:3621-3622 | pass | test/nextreg/nextreg_integration_test.cpp:3203 |
+| G108-NRC4-INTDIS-SET | NR 0xC4 bit 0 = 0 → port_ff_reg(6) ← 1 (inverted polarity) [zxnext.vhd:3621-3622] | zxnext.vhd:3621-3622 | pass | test/nextreg/nextreg_integration_test.cpp:3217 |
+| G108-PORTFF-WINS | Direct port-FF write supersedes accumulated NR-side fan-out; all 8 bits replaced [zxnext.vhd:3614-3622 elsif chain] | zxnext.vhd:3614-3622 | pass | test/nextreg/nextreg_integration_test.cpp:3236 |
+| G56-CR-NR05-01 | Reset default read = 0x41 [VHDL zxnext.vhd:5897, :1105-1106, :1302-1303] | zxnext.vhd:5897,1105-1106,1302-1303 | pass | test/nextreg/nextreg_integration_test.cpp:3296 |
+| G56-CR-NR05-02 | write 0xA5 → read 0xA5 after frame edge (round-trip; VHDL :5897 permutation-id, eff bits latch at :6696-6703) | — | pass | test/nextreg/nextreg_integration_test.cpp:3323 |
+| G56-CR-NR05-03 | write 0xFF → read 0xFF after frame edge (every bit feeds exactly one read bit) | — | pass | test/nextreg/nextreg_integration_test.cpp:3340 |
+| G56-CR-NR05-04 | write 0x00 → read 0x00 after frame edge (reset-default joy0[0] cleared) | — | pass | test/nextreg/nextreg_integration_test.cpp:3353 |
+| T58-NR05-EFF-01 | NR 0x05 bits 2/0 are frame-edge-latched on read: write 0x05 reads 0x00 before the frame edge, 0x05 after [zxnext.vhd:5897, :6696-6703] | zxnext.vhd:5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:3375 |
+| G56-CR-NR06-01 | Reset default read = 0xA0 [VHDL :5900, :1107-1108, :1111-1112] | — | pass | test/nextreg/nextreg_integration_test.cpp:3431 |
+| G56-CR-NR06-02 | config_mode=1: write 0xFF → read 0xFF (all bits land) | — | pass | test/nextreg/nextreg_integration_test.cpp:3442 |
+| G56-CR-NR06-03 | config_mode=1: write 0x00 → read 0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3451 |
+| G56-CR-NR06-04 | config_mode=0: write 0x00 keeps ps2_mode sticky [VHDL :5167-5169 gate; pre-fix would read 0x00] | — | pass | test/nextreg/nextreg_integration_test.cpp:3475 |
+| G56-CR-NR06-05 | config_mode=0: write 0xFB still has ps2_mode=1 (sticky); other bits track write [VHDL :5162-5166, :5170 ungated] | — | pass | test/nextreg/nextreg_integration_test.cpp:3488 |
+| G56-CR-NR06-RESET-PRESERVE | PASS-6: NR 0x06 bits 6,4,3,2,1,0 survive reset; bits 7,5 re-assert to '1' [VHDL zxnext.vhd:4932-4933 reset clause covers ONLY hotkey_cpu_speed_en/hotkey_5060_en] | zxnext.vhd:4932-4933 | pass | test/nextreg/nextreg_integration_test.cpp:3533 |
+| G56-09-01 | NR 0x09 write=0xFF read=0xF7 (bit 3 const-0) | — | pass | test/nextreg/nextreg_integration_test.cpp:3581 |
+| G56-09-02 | NR 0x09 write=0x00 read=0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3589 |
+| G56-09-03 | NR 0x09 write=0x14 → bit4 (sprite_tie) + bit2 (hdmi_audio) [zxnext.vhd:5909] | zxnext.vhd:5909 | pass | test/nextreg/nextreg_integration_test.cpp:3599 |
+| G56-09-04 | NR 0x09 write=0x08 → read=0x00 (bit 3 forced 0) [zxnext.vhd:5909] | zxnext.vhd:5909 | pass | test/nextreg/nextreg_integration_test.cpp:3608 |
+| G56-0A-01 | NR 0x0A write=0xFF read=0xFB (bit 2 const-0) [zxnext.vhd:5912] | zxnext.vhd:5912 | pass | test/nextreg/nextreg_integration_test.cpp:3623 |
+| G56-0A-02 | NR 0x0A write=0x00 read=0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3634 |
+| G56-0A-03 | NR 0x0A write=0x10 → bit 4 (divmmc_automap_en) only [zxnext.vhd:5912] | zxnext.vhd:5912 | pass | test/nextreg/nextreg_integration_test.cpp:3644 |
+| G56-0A-04 | NR 0x0A write=0x04 → read=0x00 (bit 2 forced 0) [zxnext.vhd:5912] | zxnext.vhd:5912 | pass | test/nextreg/nextreg_integration_test.cpp:3653 |
+| V11-NMP-02 | NR 0x0A bits 7:6 (mf_type) survive an out-of-config_mode attempted clear AND a subsequent hard reset — VHDL :5191 gates the latch on config_mode='1'; pre-fix the C++ cache leaked the rejected write into the post-reset fan-out | zxnext.vhd:5191-5198 | pass | test/nextreg/nextreg_integration_test.cpp:3699 |
+| V11-NMP-03 | NR 0x06 bit 2 (ps2_mode) survives an out-of-config_mode attempted clear AND a subsequent hard reset — VHDL :5167-5169 gates the latch on config_mode='1'; pre-fix the C++ cache leaked the rejected write into the post-reset init/reset fan-out at emulator.cpp:3272-3276 | zxnext.vhd:5167-5169 | pass | test/nextreg/nextreg_integration_test.cpp:3764 |
+| G56-0B-01 | NR 0x0B write=0xFF read=0xB1 (bits 6 + 3:1 forced 0) [zxnext.vhd:5915] | zxnext.vhd:5915 | pass | test/nextreg/nextreg_integration_test.cpp:3786 |
+| G56-0B-02 | NR 0x0B write=0x00 read=0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3794 |
+| G56-0B-03 | NR 0x0B write=0x4E → read=0x00 (bits 6 + 3:1 forced 0) [zxnext.vhd:5915] | zxnext.vhd:5915 | pass | test/nextreg/nextreg_integration_test.cpp:3802 |
+| G56-0B-04 | NR 0x0B write=0xB1 → read=0xB1 (en + iomode 5:4 + iomode_0) [zxnext.vhd:5915] | zxnext.vhd:5915 | pass | test/nextreg/nextreg_integration_test.cpp:3811 |
+| G56-10-01 | NR 0x10 coreid=0x01 → read=0x04 (bit7=0, coreid<<2, buttons=0 idle) [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:3833 |
+| G56-10-02 | NR 0x10 coreid=0x1F → read=0x7C (bits 6:2 set, bit 7 + 1:0 = 0) [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:3842 |
+| G56-10-03 | NR 0x10 write=0x80 (flashboot) → read=0x00 (flashboot not exposed in NR 0x10 read) [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:3851 |
+| G56-10-04 | NR 0x10 write=0x03 → read bits 1:0 = 0 (buttons idle; bits 1:0 only respond to live SPKEY_BUTTONS) [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:3869 |
+| G56-15-01 | NR 0x15 write=0xFF read=0xFF (round-trip) [zxnext.vhd:5939] | zxnext.vhd:5939 | pass | test/nextreg/nextreg_integration_test.cpp:3889 |
+| G56-15-02 | NR 0x15 write=0x00 read=0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3897 |
+| G56-15-03 | NR 0x15 write=0x19 → priority=110 + sprite_en [zxnext.vhd:5939] | zxnext.vhd:5939 | pass | test/nextreg/nextreg_integration_test.cpp:3905 |
+| G56-15-04 | NR 0x15 write=0x60 → bit6 (sprite_priority) + bit5 (border_clip_en) [zxnext.vhd:5939] | zxnext.vhd:5939 | pass | test/nextreg/nextreg_integration_test.cpp:3914 |
+| G56-34-01 | NR 0x34 write=0xFF read=0x7F (bit 7 const-0) [zxnext.vhd:6033] | zxnext.vhd:6033 | pass | test/nextreg/nextreg_integration_test.cpp:3931 |
+| G56-34-02 | NR 0x34 write=0x00 read=0x00 | — | pass | test/nextreg/nextreg_integration_test.cpp:3939 |
+| G56-34-03 | NR 0x34 write=0x42 → read=0x42 (bit 7 already 0) | — | pass | test/nextreg/nextreg_integration_test.cpp:3947 |
+| G56-34-04 | NR 0x34 write=0x80 → read=0x00 (bit 7 forced 0) [zxnext.vhd:6033] | zxnext.vhd:6033 | pass | test/nextreg/nextreg_integration_test.cpp:3955 |
+| G56-10-SAVE-LOAD | NR 0x10 coreid round-trips save_state / load_state into fresh Emulator [Cluster-B regression guard] | — | pass | test/nextreg/nextreg_integration_test.cpp:3986 |
+| L22-01 | NR 0x22 reset/idle reads 0x00 (no line-int, no INT pulse) [zxnext.vhd:5992] | zxnext.vhd:5992 | pass | test/nextreg/nextreg_integration_test.cpp:4047 |
+| L22-02 | NR 0x22 round-trip: write 0x07 → read 0x07 [zxnext.vhd:5992 composes bits 2/1/0 from port_ff_reg(6)/line-int-en/target-msb] | zxnext.vhd:5992 | pass | test/nextreg/nextreg_integration_test.cpp:4067 |
+| L22-03 | NR 0x22 middle-nibble bits 6:3 read as constant 0 even after write 0xFF [zxnext.vhd:5992 'X' & "0000" & ...] | zxnext.vhd:5992 | pass | test/nextreg/nextreg_integration_test.cpp:4090 |
+| L22-04 | NR 0x22 bit 2 reflects port-0xFF-driven port_ff_reg(6) [zxnext.vhd:3615 + :3635 + :5992] | zxnext.vhd:3615,3635,5992 | pass | test/nextreg/nextreg_integration_test.cpp:4114 |
+| L22-05 | NR 0x22 bit 7 = 0 at idle (pulse_int_n=1 → NOT = 0) [zxnext.vhd:5992 + :2017-2031] | zxnext.vhd:5992,2017-2031 | pass | test/nextreg/nextreg_integration_test.cpp:4131 |
+| L23-02 | NR 0x22/NR 0x23 split a 9-bit line-int target; NR 0x23 reads bits 7:0 only [zxnext.vhd:5992 + :5995] | zxnext.vhd:5992,5995 | pass | test/nextreg/nextreg_integration_test.cpp:4177 |
+| G56-D-40a | NR 0x40 plain write/read round-trip [zxnext.vhd:6035-6036 nr_palette_idx] | zxnext.vhd:6035-6036 | pass | test/nextreg/nextreg_integration_test.cpp:4218 |
+| G56-D-40b | NR 0x40 read reflects post-NR-0x44 autoinc (0xAA → 0xAB) [zxnext.vhd:6035 + advance_index] | zxnext.vhd:6035 | pass | test/nextreg/nextreg_integration_test.cpp:4234 |
+| G56-D-43a | NR 0x43 round-trip via PaletteManager.read_control() [zxnext.vhd:6044-6045] | zxnext.vhd:6044-6045 | pass | test/nextreg/nextreg_integration_test.cpp:4249 |
+| G56-D-43b | NR 0x43 second round-trip pattern [zxnext.vhd:6044-6045] | zxnext.vhd:6044-6045 | pass | test/nextreg/nextreg_integration_test.cpp:4261 |
+| G56-D-4Ca | NR 0x4C bits 7:4 masked on read (write 0xFF → read 0x0F) [zxnext.vhd:6056 "0000" & nr_4c_tm_transparent_index] | zxnext.vhd:6056 | pass | test/nextreg/nextreg_integration_test.cpp:4274 |
+| G56-D-4Cb | NR 0x4C low nibble retained, high nibble forced 0 [zxnext.vhd:6056] | zxnext.vhd:6056 | pass | test/nextreg/nextreg_integration_test.cpp:4284 |
+| G56-D-69a | NR 0x69 composes from port 0x123B L2 + 7FFD shadow + port_ff_reg(5:0) [zxnext.vhd:6095-6096] | zxnext.vhd:6095-6096 | pass | test/nextreg/nextreg_integration_test.cpp:4306 |
+| G56-D-69b | NR 0x69 bit 6 reflects port 0x7FFD bit 3 shadow flag [zxnext.vhd:6095 port_7ffd_shadow] | zxnext.vhd:6095 | pass | test/nextreg/nextreg_integration_test.cpp:4320 |
+| G56-D-6Aa | NR 0x6A bits 7:6 forced '00' on read (write 0xFF → 0x3F) [zxnext.vhd:6098-6099 "00" & lores fields] | zxnext.vhd:6098-6099 | pass | test/nextreg/nextreg_integration_test.cpp:4337 |
+| G56-D-6Ab | NR 0x6A bits 7:6 read as 0 even when only those bits written [zxnext.vhd:6098-6099] | zxnext.vhd:6098-6099 | pass | test/nextreg/nextreg_integration_test.cpp:4347 |
+| G56-D-6Ba | NR 0x6B round-trip via Tilemap.get_control() [zxnext.vhd:6101-6102] | zxnext.vhd:6101-6102 | pass | test/nextreg/nextreg_integration_test.cpp:4360 |
+| G56-D-6Bb | NR 0x6B read mirrors cleared tm_en (bit 7) [zxnext.vhd:6101] | zxnext.vhd:6101 | pass | test/nextreg/nextreg_integration_test.cpp:4372 |
+| G56-D-6Ca | NR 0x6C round-trip via Tilemap.get_default_attr() [zxnext.vhd:6104-6105 nr_6c_tm_default_attr] | zxnext.vhd:6104-6105 | pass | test/nextreg/nextreg_integration_test.cpp:4385 |
+| G56-D-6Cb | NR 0x6C second round-trip pattern [zxnext.vhd:6104-6105] | zxnext.vhd:6104-6105 | pass | test/nextreg/nextreg_integration_test.cpp:4395 |
+| G56-CR-6E-MASK | NR 0x6E read masks bit 6 (write 0xFF -> read 0xBF) [zxnext.vhd:6107 + G99] | zxnext.vhd:6107 | pass | test/nextreg/nextreg_integration_test.cpp:4424 |
+| G56-CR-6E-RT | NR 0x6E round-trip canonical (bits 7,5:0 preserved; bit 6 zero) [zxnext.vhd:6107] | zxnext.vhd:6107 | pass | test/nextreg/nextreg_integration_test.cpp:4433 |
+| G56-CR-6F-MASK | NR 0x6F read masks bit 6 (write 0xFF -> read 0xBF) [zxnext.vhd:6110 + G99] | zxnext.vhd:6110 | pass | test/nextreg/nextreg_integration_test.cpp:4445 |
+| G56-CR-6F-RT | NR 0x6F round-trip canonical (bits 7,5:0 preserved; bit 6 zero) [zxnext.vhd:6110] | zxnext.vhd:6110 | pass | test/nextreg/nextreg_integration_test.cpp:4454 |
+| G56-CR-70-MASK | NR 0x70 read masks bits 7:6 (write 0xFF -> read 0x3F) [zxnext.vhd:6113] | zxnext.vhd:6113 | pass | test/nextreg/nextreg_integration_test.cpp:4467 |
+| G56-CR-70-RT | NR 0x70 round-trip resolution=01 + pal_off=0xA [zxnext.vhd:6113 via Layer2 fields] | zxnext.vhd:6113 | pass | test/nextreg/nextreg_integration_test.cpp:4478 |
+| G56-CR-71-MASK | NR 0x71 read masks bits 7:1 (write 0xFF -> read 0x01) [zxnext.vhd:6116] | zxnext.vhd:6116 | pass | test/nextreg/nextreg_integration_test.cpp:4491 |
+| G56-CR-71-RT | NR 0x71 round-trip bit 0 toggle (0x00 -> 0x00, 0x01 -> 0x01) [zxnext.vhd:6116 via Layer2 scroll_x bit 8] | zxnext.vhd:6116 | pass | test/nextreg/nextreg_integration_test.cpp:4502 |
+| G56-CR-80-FF | NR 0x80 full 8-bit round-trip (write 0xFF -> read 0xFF) [zxnext.vhd:6122 — expbus stored, G45 inert] | zxnext.vhd:6122 | pass | test/nextreg/nextreg_integration_test.cpp:4516 |
+| G56-CR-80-RT | NR 0x80 canonical round-trip 0x5A [zxnext.vhd:6122 — full byte preserved] | zxnext.vhd:6122 | pass | test/nextreg/nextreg_integration_test.cpp:4525 |
+| G56-CR-81-MASK | NR 0x81 read masks bits 2 + 1:0 + forces bit 7=1 (write 0xFF -> read 0xF8) [zxnext.vhd:5496+6126, G45 expbus inert] | zxnext.vhd:5496 | pass | test/nextreg/nextreg_integration_test.cpp:4549 |
+| G56-CR-81-RESET | NR 0x81 write 0x00 reads 0x80 (only bit 7 ROMCS_n forced) [zxnext.vhd:6126] | zxnext.vhd:6126 | pass | test/nextreg/nextreg_integration_test.cpp:4558 |
+| G56-CR-81-RT | NR 0x81 round-trip stored bits 6:3 + ROMCS_n force (write 0x6B -> read 0xE8; bits 1:0 always 0 per :5496) [zxnext.vhd:5496+6126] | zxnext.vhd:5496 | pass | test/nextreg/nextreg_integration_test.cpp:4567 |
+| V11-NMP-01-LO2 | NR 0x81 write 0x03 (bits 1:0 only) reads 0x80 — VHDL :5496 hardwires nr_81_expbus_speed to "00" so bits 1:0 always read 0 | — | pass | test/nextreg/nextreg_integration_test.cpp:4585 |
+| V11-NMP-01-MIXED | NR 0x81 write 0x41 reads 0xC0 — bit 6 (ula_override) preserved, bit 0 (expbus_speed[0]) dropped per :5496 | — | pass | test/nextreg/nextreg_integration_test.cpp:4596 |
+| WO-INT-04 | NR 0x04 write-only — read returns 0 (no leak of romram_bank) [zxnext.vhd:5878-6289 others=>'0'] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:4627 |
+| WO-INT-29 | NR 0x29 write-only — read returns 0 (no leak of keymap LSB) [zxnext.vhd:5878-6289 others=>'0'] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:4641 |
+| WO-INT-35 | NR 0x35 write-only — read returns 0 (no leak of sprite attr) [zxnext.vhd:5878-6289 others=>'0'] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:4655 |
+| WO-INT-60 | NR 0x60 write-only — read returns 0 (no leak of copper data) [zxnext.vhd:5878-6289 others=>'0'] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:4670 |
+| WO-INT-2B | NR 0x2B write-only — read returns 0 (no leak of keymap data) [zxnext.vhd:5878-6289 others=>'0', :6306-6307 nr_2b_we] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:4693 |
+| WO-INT-2A | NR 0x2A dead-register — read returns 0 (no leak of cached write byte) [zxnext.vhd:4850 commented, :5878-6289 others=>'0'] | zxnext.vhd:4850 | pass | test/nextreg/nextreg_integration_test.cpp:4716 |
+| WO-INT-63 | NR 0x63 write-only Copper data — read returns 0 (no leak of cached write byte) [zxnext.vhd:4887 nr_copper_we, :5433-5439 write side, :5878-6289 others=>'0'] | zxnext.vhd:4887 | pass | test/nextreg/nextreg_integration_test.cpp:4745 |
+| WO-INT-FF | NR 0xFF write-only ULA+ palette poke — read returns 0 (no leak of cached write byte) [zxnext.vhd:4906 nr_ff_we, :4919 nr_palette_value, :5878-6289 others=>'0'] | zxnext.vhd:4906 | pass | test/nextreg/nextreg_integration_test.cpp:4772 |
+| V14-NMP-02-NR28-01 | NR 0x28 read at reset — `nr_stored_palette_value` default 0x00 [zxnext.vhd:1190, :5011, :6004] | zxnext.vhd:1190,5011,6004 | pass | test/nextreg/nextreg_integration_test.cpp:4808 |
+| V14-NMP-02-NR28-02 | NR 0x28 write does NOT affect NR 0x28 read (palette signal, not regs_[] cache) [zxnext.vhd:6004, :6301-6303] | zxnext.vhd:6004,6301-6303 | pass | test/nextreg/nextreg_integration_test.cpp:4822 |
+| V14-NMP-02-NR28-03 | NR 0x28 read returns nr_stored_palette_value latched on the first half of NR 0x44 9-bit write [zxnext.vhd:5398-5399, :6004] | zxnext.vhd:5398-5399,6004 | pass | test/nextreg/nextreg_integration_test.cpp:4836 |
+| V14-NMP-02-NR28-04 | NR 0x28 read unchanged across NR 0x44 second-half write [zxnext.vhd:5400 ELSIF, :6004] | zxnext.vhd:5400 | pass | test/nextreg/nextreg_integration_test.cpp:4851 |
+| FT-INT-D8-01 | NR 0xD8 nr_d8_io_trap_fdc_en write/read-back round-trip [zxnext.vhd:5640 + 6266] | zxnext.vhd:5640 | pass | test/nextreg/nextreg_integration_test.cpp:4891 |
+| FT-INT-D8-02 | NR 0xD8=1 + NR 0x06 b3=1 + port 0x3FFD write → NmiSource::nmi_assert_mf() asserts [zxnext.vhd:3835-3837] | zxnext.vhd:3835-3837 | pass | test/nextreg/nextreg_integration_test.cpp:4917 |
+| FT-INT-D9-01a | NR 0xD9 firmware direct-write round-trip [zxnext.vhd:4901 nr_d9_we + :3894-3895] | zxnext.vhd:4901 | pass | test/nextreg/nextreg_integration_test.cpp:4930 |
+| FT-INT-D9-01b | NR 0xD9 captures port 0x3FFD write byte when NR 0xD8=1 [zxnext.vhd:3892-3893] | zxnext.vhd:3892-3893 | pass | test/nextreg/nextreg_integration_test.cpp:4944 |
+| FT-INT-DA-01a | NR 0xDA cause=01 after port 0x2FFD READ [zxnext.vhd:3871-3873] | zxnext.vhd:3871-3873 | pass | test/nextreg/nextreg_integration_test.cpp:4956 |
+| FT-INT-DA-01b | NR 0xDA cause=10 after port 0x3FFD READ [zxnext.vhd:3874-3875] | zxnext.vhd:3874-3875 | pass | test/nextreg/nextreg_integration_test.cpp:4968 |
+| FT-INT-DA-01c | NR 0xDA cause=11 after port 0x3FFD WRITE [zxnext.vhd:3876-3878] | zxnext.vhd:3876-3878 | pass | test/nextreg/nextreg_integration_test.cpp:4980 |
+| FT-INT-DA-02 | NR 0xDA cause cleared by NR 0x02 b4=0 write [zxnext.vhd:3879-3880] | zxnext.vhd:3879-3880 | pass | test/nextreg/nextreg_integration_test.cpp:5000 |
+| TC-NR05-PRESERVE | NR 0x05 survives hard reset (no VHDL reset clause) [zxnext.vhd:1105-1106 / 1302-1303] | zxnext.vhd:1105-1106/1302-1303 | pass | test/nextreg/nextreg_integration_test.cpp:5043 |
+| TC-NR05-PENTAGON | NR 0x05 bit 2 reads 0 after Pentagon entry + frame edge (pending FF forced 0, eff latched at frame sync) [zxnext.vhd:5835-5836 / :6697-6700 / :5897] | zxnext.vhd:5835-5836/6697-6700/5897 | pass | test/nextreg/nextreg_integration_test.cpp:5075 |
+| TC-NR02-CFGMODE-NO-CLEAR | NR 0x02 readback bit 3 NOT cleared by config_mode [zxnext.vhd:3840-3864 / nmi_source.cpp:352-358] | zxnext.vhd:3840-3864 | pass | test/nextreg/nextreg_integration_test.cpp:5128 |
+| TC-NR02-BUS-RESET | NR 0x02 bit 7 (bus_reset) read-back from latch [zxnext.vhd:5119 + :5891 + :1579] | zxnext.vhd:5119,5891,1579 | pass | test/nextreg/nextreg_integration_test.cpp:5147 |
+| TC-NR0A-MFTYPE-GATED | NR 0x0A bits 7:6 mf_type sourced from gated state, not cache [zxnext.vhd:5191-5198 / :5912] | zxnext.vhd:5191-5198/5912 | pass | test/nextreg/nextreg_integration_test.cpp:5171 |
+| TC-NR04-MASK7F | NR 0x04 internal bank latched as v & 0x7F (Issue-2) [zxnext.vhd:5717 gen_romram_234] | zxnext.vhd:5717 | pass | test/nextreg/nextreg_integration_test.cpp:5189 |
+| TC-NR11-MASK07 | NR 0x11 read masked to bits 2:0 [zxnext.vhd:5208-5217 + read mux] | zxnext.vhd:5208-5217 | pass | test/nextreg/nextreg_integration_test.cpp:5206 |
+| TC-NR2F-MASK03 | NR 0x2F write masks to bits 1:0 [zxnext.vhd:5331] | zxnext.vhd:5331 | pass | test/nextreg/nextreg_integration_test.cpp:5221 |
+| TC-NR8A-MASK3F | NR 0x8A read masked to bits 5:0 [zxnext.vhd:5525 + :5970 read prefix '00'] | zxnext.vhd:5525,5970 | pass | test/nextreg/nextreg_integration_test.cpp:5236 |
+| TC-NR90-MASKFC | NR 0x90 write forces bits 1:0 = 0 [zxnext.vhd:5537] | zxnext.vhd:5537 | pass | test/nextreg/nextreg_integration_test.cpp:5250 |
+| TC-NR93-MASK0F | NR 0x93 write masks to low nibble [zxnext.vhd:5546] | zxnext.vhd:5546 | pass | test/nextreg/nextreg_integration_test.cpp:5264 |
+| TC-NR98-9B-READZERO | NR 0x98..0x9B read returns 0 (i_GPIO unmodelled) [zxnext.vhd:6176-6186] | zxnext.vhd:6176-6186 | pass | test/nextreg/nextreg_integration_test.cpp:5285 |
+| TC-NRA8-MASK01 | NR 0xA8 write masks to bit 0 only [zxnext.vhd:5570] | zxnext.vhd:5570 | pass | test/nextreg/nextreg_integration_test.cpp:5300 |
+| TC-NRA9-READZERO | NR 0xA9 read returns 0 (i_ESP_GPIO unmodelled) [zxnext.vhd:6200-6201] | zxnext.vhd:6200-6201 | pass | test/nextreg/nextreg_integration_test.cpp:5315 |
+| TC-NR75-79-WRITEZERO | NR 0x75-0x79 write-only mirror reads 0 [zxnext.vhd:5878-6289 others=>'0'] | zxnext.vhd:5878-6289 | pass | test/nextreg/nextreg_integration_test.cpp:5334 |
+| TC-NR09-BIT3-READS-ZERO | NR 0x09 bit 3 does not affect sprites.over_border; NR 0x15 bit 1 is the authoritative wiring [zxnext.vhd:4184-4186 / :5909 / emulator.cpp:3616-3632 / :1209] | zxnext.vhd:4184-4186/5909 | pass | test/nextreg/nextreg_integration_test.cpp:5372 |
+| TC-NR7F-PRESERVE | NR 0x7F survives reset (VHDL has no reset clause) [zxnext.vhd:1216] | zxnext.vhd:1216 | pass | test/nextreg/nextreg_integration_test.cpp:5392 |
+| TC-NR80-LOHI-FOLD | NR 0x80 reset folds bits 3:0 into bits 7:4 [zxnext.vhd:2185-2186] | zxnext.vhd:2185-2186 | pass | test/nextreg/nextreg_integration_test.cpp:5410 |
+| TC-NR06-PRESERVE-MIXED | NR 0x06 reset preserves bits 6,4,3,2,1,0; forces 7,5=1 [zxnext.vhd:4932-4933 / :1109-1113] | zxnext.vhd:4932-4933/1109-1113 | pass | test/nextreg/nextreg_integration_test.cpp:5430 |
+| TC-NR09-PRESERVE | NR 0x09 reset preserves bits 7:5,2,1:0 (sprite_tie cleared) [zxnext.vhd:4937 / :1115-1118] | zxnext.vhd:4937/1115-1118 | pass | test/nextreg/nextreg_integration_test.cpp:5452 |
+| TC-NR81-PRESERVE-SOFT | NR 0x81 survives soft reset (no VHDL reset clause; preserve across NR 0x02 b0 soft reset) [zxnext.vhd:1221-1225] | zxnext.vhd:1221-1225 | pass | test/nextreg/nextreg_integration_test.cpp:5481 |
+| TC-NR0A-PRESERVE | NR 0x0A bits 7:6 mf_type survive reset [zxnext.vhd:1124-1128] | zxnext.vhd:1124-1128 | pass | test/nextreg/nextreg_integration_test.cpp:5501 |
+| TC-NR10-PRESERVE | NR 0x10 coreid survives reset (composed read = coreid<<2) [zxnext.vhd:1132-1133 / :5924] | zxnext.vhd:1132-1133/5924 | pass | test/nextreg/nextreg_integration_test.cpp:5521 |
+| TC-NR11-PRESERVE | NR 0x11 survives reset (no VHDL reset clause) [zxnext.vhd:1134] | zxnext.vhd:1134 | pass | test/nextreg/nextreg_integration_test.cpp:5543 |
+| TC-NR8A-PRESERVE | NR 0x8A survives reset (no VHDL reset clause) [zxnext.vhd:1236] | zxnext.vhd:1236 | pass | test/nextreg/nextreg_integration_test.cpp:5559 |
+| TC-NR14-RESET-DEFAULT | NR 0x14 reset default = 0xE3 [zxnext.vhd master reset block] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:5572 |
+| TC-NR4A-RESET-DEFAULT | NR 0x4A reset default = 0xE3 [zxnext.vhd master reset block] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:5583 |
+| TC-NR4B-RESET-DEFAULT | NR 0x4B reset default = 0xE3 [zxnext.vhd master reset block] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:5594 |
+| TC-NR4C-RESET-DEFAULT | NR 0x4C reset default = 0x0F [zxnext.vhd master reset block] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:5605 |
+| TC-NR01-RO | NR 0x01 RO — write must not change cached value [zxnext.vhd no write strobe] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:5619 |
+| TC-NR0E-RO | NR 0x0E RO — write must not change cached value | — | pass | test/nextreg/nextreg_integration_test.cpp:5632 |
+| TC-NR0F-RO | NR 0x0F RO — write must not change cached value | — | pass | test/nextreg/nextreg_integration_test.cpp:5644 |
+| TC-MOUSE-RESET-PRESERVE | KempstonMouse shadows survive reset (NR 0x0A preserved) [zxnext.vhd:1124-1128 / :5197 / :5191-5198] | zxnext.vhd:1124-1128/5197/5191-5198 | pass | test/nextreg/nextreg_integration_test.cpp:5666 |
+| TC-JOYSTICK-RESET-PRESERVE | Joystick mode shadows survive reset (NR 0x05 preserved) [zxnext.vhd:1105-1106 / :1302-1303] | zxnext.vhd:1105-1106/1302-1303 | pass | test/nextreg/nextreg_integration_test.cpp:5693 |
+| TC-NR52-FF | NR 0x52 with v=0xFF stores 0xFF verbatim (slot inactive) [zxnext.vhd:4686-4696] | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:5717 |
+| TC-NR53-FF | NR 0x53 with v=0xFF stores 0xFF verbatim (slot inactive) [zxnext.vhd:4686-4696] | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:5730 |
+| TC-NR54-FF | NR 0x54 with v=0xFF stores 0xFF verbatim (slot inactive) [zxnext.vhd:4686-4696] | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:5743 |
+| TC-NR55-FF | NR 0x55 with v=0xFF stores 0xFF verbatim (slot inactive) [zxnext.vhd:4686-4696] | zxnext.vhd:4686-4696 | pass | test/nextreg/nextreg_integration_test.cpp:5756 |
+| TC-IOTRAP-IDLE-GATE | NR 0xDA/D9 captured ONLY when nmi_accept_cause='1' (IDLE/FETCH); blocked in HOLD [zxnext.vhd:3871 / :3892 / emulator.cpp:2710,2725,2740] | zxnext.vhd:3871/3892 | pass | test/nextreg/nextreg_integration_test.cpp:5814 |
+| V12-NMP-01 | NR 0xC4 b0 write fans into ula_int_disabled_ shadow + video_timing_ INT-enable gate (mirroring NR 0x22 b2 path) [zxnext.vhd:3621-3622 / :3635 / :6711] | zxnext.vhd:3621-3622/3635/6711 | pass | test/nextreg/nextreg_integration_test.cpp:5875 |
+| V13-NMP-01 | NR 0x05 bit 2 Pentagon-mode cache canonicalisation: (a) write-while-Pentagon does not leak; (b) Pentagon-engagement clears prior bit-2 latch [zxnext.vhd:5832-5841 / :5897 / :6696-6703] | zxnext.vhd:5832-5841/5897/6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:5953 |
+| V16-NMP-01-IDLE | NR 0x10 bits 1:0 = 0 when both F9/F10 buttons released [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:6009 |
+| V16-NMP-01-M1 | NR 0x10 bit 0 = 1 when F9 (M1 button) held; bit 1 = 0 [zxnext.vhd:5924 / top_issue2.vhd:2281] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:6022 |
+| V16-NMP-01-DRIVE | NR 0x10 bit 1 = 1 when F10 (Drive button) held; bit 0 = 0 [zxnext.vhd:5924 / top_issue2.vhd:2281] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:6036 |
+| V16-NMP-01-BOTH | NR 0x10 bits 1:0 = 11 when both F9 + F10 held [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:6050 |
+| V16-NMP-01-COMPOSE | NR 0x10 = (coreid<<2) \| spkey_buttons composed; coreid bits 6:2 not stomped by held-state path [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:6071 |
+| V16-NMP-01-LIVE | NR 0x10 bit 0 tracks F9 hold transitions live (combinational; no NR 0x10 write needed) [zxnext.vhd:5924] | zxnext.vhd:5924 | pass | test/nextreg/nextreg_integration_test.cpp:6093 |
+| V16-NMP-02-EXPBUS-OFF | NR 0x86 b1=0 has NO effect on port 0x7FFD when expbus_eff_en=0 (default; NR 0x86-0x89 inert) [zxnext.vhd:2392-2393] | zxnext.vhd:2392-2393 | pass | test/nextreg/nextreg_integration_test.cpp:6148 |
+| V16-NMP-02-EXPBUS-ON-MASK | NR 0x86 b1=0 silences OUT 0x7FFD when expbus_eff_en=1 (effective port_7ffd_io_en = NR 0x82 b1 AND NR 0x86 b1 = 0) [zxnext.vhd:2392-2393 / :2399] | zxnext.vhd:2392-2393/2399 | pass | test/nextreg/nextreg_integration_test.cpp:6171 |
+| V16-NMP-02-EXPBUS-ON-PASS | NR 0x86 b1=1 leaves port 0x7FFD live with expbus_eff_en=1 [zxnext.vhd:2392-2393 / :2399] | zxnext.vhd:2392-2393/2399 | pass | test/nextreg/nextreg_integration_test.cpp:6189 |
+| V16-NMP-02-EXPBUS-TOGGLE | NR 0x80 b7 toggle live-refreshes port_7ffd_io_en shadow (propagate_effective_port_enables on NR 0x80 write) [zxnext.vhd:2392-2393] | zxnext.vhd:2392-2393 | pass | test/nextreg/nextreg_integration_test.cpp:6209 |
+| V16-NMP-02-DIVMMC-MASK | DivMmc::port_io_enable=false when expbus_eff_en=1 + NR 0x83 b0=1 + NR 0x87 b0=0 (effective AND = 0) [zxnext.vhd:2392-2393 / :2412] | zxnext.vhd:2392-2393/2412 | pass | test/nextreg/nextreg_integration_test.cpp:6227 |
+| V16-NMP-02-MF-MASK | Multiface::is_enabled=false when expbus_eff_en=1 + NR 0x83 b1=1 + NR 0x87 b1=0 (effective AND = 0) [zxnext.vhd:2392-2393 / :2415] | zxnext.vhd:2392-2393/2415 | pass | test/nextreg/nextreg_integration_test.cpp:6241 |
+| V16-NMP-02-NR85-NR89-B0 | NR 0x89 b0=0 masks NR 0x85 b0 (port_ulap_io_en) when expbus_eff_en=1 [zxnext.vhd:2392-2393 / :2439] | zxnext.vhd:2392-2393/2439 | pass | test/nextreg/nextreg_integration_test.cpp:6259 |
+| V19R-NMP-NIT-03 | NR 0xF0 XADC composed-read stub returns 0x00 even after 0xAA write (Issue 2 path: nr_f0_xdev_cmd hard-wired to 0) [zxnext.vhd:6273-6274, :7423] | zxnext.vhd:6273-6274,7423 | pass | test/nextreg/nextreg_integration_test.cpp:6309 |
+| V19R-NMP-NIT-04 | NR 0xF8 read masks bit 7: write 0xC5 reads back 0x45 (VHDL '0' & nr_f8_xadc_daddr) [zxnext.vhd:6277-6278, :7555] | zxnext.vhd:6277-6278,7555 | pass | test/nextreg/nextreg_integration_test.cpp:6333 |
+| V20-NMP-XADC-F9 | NR 0xF9 XADC d0 composed-read stub returns 0x00 even after 0x5A write (Issue 2 path: nr_f9_xadc_d0 hard-wired to 0) [zxnext.vhd:6280-6281, :7428] | zxnext.vhd:6280-6281,7428 | pass | test/nextreg/nextreg_integration_test.cpp:6358 |
+| V20-NMP-XADC-FA | NR 0xFA XADC d1 composed-read stub returns 0x00 even after 0xA5 write (Issue 2 path: nr_fa_xadc_d1 hard-wired to 0) [zxnext.vhd:6283-6284, :7429] | zxnext.vhd:6283-6284,7429 | pass | test/nextreg/nextreg_integration_test.cpp:6368 |
+| V20-NMP-02 | NR 0x68 read bit 1 reads back as '0' regardless of writes (VHDL :6093 literal '0' bit; :5444-5450 has no bit-1 store) [zxnext.vhd:6092-6093, :5444-5450] | zxnext.vhd:6092-6093,5444-5450 | pass | test/nextreg/nextreg_integration_test.cpp:6390 |
+| V21-NMP-01-A | NR 0x03 bit 7 = 0 at reset (nr_palette_sub_idx default '0', VHDL :1182, :5000) [zxnext.vhd:5894] | zxnext.vhd:5894 | pass | test/nextreg/nextreg_integration_test.cpp:6428 |
+| V21-NMP-01-B | NR 0x03 bit 7 = 1 after a single NR 0x44 write (VHDL :5403 toggle: 0 -> 1) [zxnext.vhd:5894] | zxnext.vhd:5894 | pass | test/nextreg/nextreg_integration_test.cpp:6441 |
+| V21-NMP-01-C | NR 0x03 bit 7 = 0 after two NR 0x44 writes (VHDL :5403 toggle: 0 -> 1 -> 0) [zxnext.vhd:5894] | zxnext.vhd:5894 | pass | test/nextreg/nextreg_integration_test.cpp:6453 |
+| V21-NMP-01-D | NR 0x03 bit 7 = 0 after NR 0x44 + NR 0x40 sequence (VHDL :5376 NR 0x40 write resets nr_palette_sub_idx) [zxnext.vhd:5894] | zxnext.vhd:5894 | pass | test/nextreg/nextreg_integration_test.cpp:6467 |
+| V21-NMP-01-E | NR 0x03 bits 6:0 unchanged by NR 0x44 toggle (only bit 7 / sub_idx flips) [zxnext.vhd:5894] | zxnext.vhd:5894 | pass | test/nextreg/nextreg_integration_test.cpp:6493 |
+| V21-NMP-01-F | NR 0x03 bit 7 toggles independently from lower fields | — | pass | test/nextreg/nextreg_integration_test.cpp:6501 |
+| V21-NMP-03-A | NR 0x07 read with expbus_eff_en=0 → act = req (VHDL :5817 `cpu_speed <= nr_07_cpu_speed`) [zxnext.vhd:5902-5903] | zxnext.vhd:5902-5903 | pass | test/nextreg/nextreg_integration_test.cpp:6536 |
+| V21-NMP-03-B | NR 0x07 read with expbus_eff_en=1 → act = 0 even when req = 0x03 (VHDL :5819 `cpu_speed <= expbus_speed`, :5496 expbus_speed hard-wired "00") [zxnext.vhd:5816-5820] | zxnext.vhd:5816-5820 | pass | test/nextreg/nextreg_integration_test.cpp:6554 |
+| V21-NMP-03-C-pre | expbus_eff_en=1 pre-clear → act = 0 (req=2 → readback=0x02) | — | pass | test/nextreg/nextreg_integration_test.cpp:6570 |
+| V21-NMP-03-C-post | expbus_eff_en=0 post-clear → act = req (req=2 → readback=0x22) | — | pass | test/nextreg/nextreg_integration_test.cpp:6574 |
+| V22-NMP-01-A | NR 0xC2 writable via NextReg port — write 0xAA must update the latch [VHDL :4894 nr_c2_we asserted in process A → :2064-2065 elsif latches nr_wr_dat → :6232-6233 read mux returns nr_c2_retn_address_lsb] | — | pass | test/nextreg/nextreg_integration_test.cpp:6612 |
+| V22-NMP-01-B | NR 0xC3 writable via NextReg port — write 0x55 must update the latch [VHDL :4895 nr_c3_we asserted in process A → :2066-2067 elsif latches nr_wr_dat → :6235-6236 read mux returns nr_c3_retn_address_msb] | — | pass | test/nextreg/nextreg_integration_test.cpp:6626 |
+| V22-NMP-01-C-LSB | NMIACK pathway via set_nmi_return_address() writes NR 0xC2 latch (NMIACK_LSB path per VHDL :2060-2061) | — | pass | test/nextreg/nextreg_integration_test.cpp:6645 |
+| V22-NMP-01-C-MSB | NMIACK pathway via set_nmi_return_address() writes NR 0xC3 latch (NMIACK_MSB path per VHDL :2062-2063) | — | pass | test/nextreg/nextreg_integration_test.cpp:6650 |
+| V22-NMP-01-D-LSB | Post-NMIACK NextReg port write to NR 0xC2 overwrites the latch [VHDL :2064-2065 elsif fires when no NMIACK is active] | — | pass | test/nextreg/nextreg_integration_test.cpp:6670 |
+| V22-NMP-01-D-MSB | Post-NMIACK NextReg port write to NR 0xC3 overwrites the latch [VHDL :2066-2067 elsif fires when no NMIACK is active] | — | pass | test/nextreg/nextreg_integration_test.cpp:6676 |
+| Z80N-SEL-01 | NEXTREG rr,nn (ED 91) does not move the port-0x243B select latch (VHDL zxnext.vhd:4739-4744 cpu_requester_0 vs :4592-4603) | zxnext.vhd:4739-4744 | pass | test/nextreg/nextreg_integration_test.cpp:6742 |
+| Z80N-SEL-02 | NEXTREG rr,A (ED 92) leaves the select latch on 0x7F, so the next 0x253B write still lands on NR 0x7F (VHDL zxnext.vhd:4739-4744) | zxnext.vhd:4739-4744 | pass | test/nextreg/nextreg_integration_test.cpp:6761 |
+| Z80N-SEL-03 | NEXTREG rr,nn still writes the register named by the opcode operand (VHDL cpu_requester_reg <= Z80N_data_s(15 downto 8)) | — | pass | test/nextreg/nextreg_integration_test.cpp:6774 |
+| FP-01 | 50 Hz default: 567264 mc/frame, frame_period_ms=20.26 [issue #9] | — | pass | test/nextreg/nextreg_integration_test.cpp:6794 |
+| FP-02 | 60 Hz (NR 0x05 bit2=1): 481536 mc/frame, frame_period_ms=17.20 [Task 56 / issue #9] | — | pass | test/nextreg/nextreg_integration_test.cpp:6807 |
+| FP-03 | clear NR 0x05 bit2 -> back to 50 Hz: 567264 mc/frame, 20.26 ms [issue #9] | — | pass | test/nextreg/nextreg_integration_test.cpp:6820 |
+| LR-02 | NR $15 bit 7 (LoRes enable) resets to 0 (zxnext.vhd:4948) | zxnext.vhd:4948 | pass | test/nextreg/nextreg_integration_test.cpp:6859 |
+| LR-05 | NR $32 (LoRes X scroll) resets to 0x00 (zxnext.vhd:4995) | zxnext.vhd:4995 | pass | test/nextreg/nextreg_integration_test.cpp:6865 |
+| LR-07 | NR $33 (LoRes Y scroll) resets to 0x00 (zxnext.vhd:4997) | zxnext.vhd:4997 | pass | test/nextreg/nextreg_integration_test.cpp:6871 |
+| LR-12 | NR $6A resets to 0x00 — 8-bit mode, no XOR, offset 0 (zxnext.vhd:5032-5034) | zxnext.vhd:5032-5034 | pass | test/nextreg/nextreg_integration_test.cpp:6877 |
+| LR-01 | NR $15 bit 7 stores the LoRes enable; bits 6:0 read back what was written (zxnext.vhd:5229, 5939) | zxnext.vhd:5229,5939 | pass | test/nextreg/nextreg_integration_test.cpp:6886 |
+| LR-03 | NR $15 bit 7 is independent of bits 6:0 — writing 0x7F clears bit 7 and keeps 0x7F (zxnext.vhd:5229) | zxnext.vhd:5229 | pass | test/nextreg/nextreg_integration_test.cpp:6896 |
+| LR-04 | NR $32 stores all 8 bits of the LoRes X scroll and reaches the generator (zxnext.vhd:5340, 6027, 4262) | zxnext.vhd:5340,6027,4262 | pass | test/nextreg/nextreg_integration_test.cpp:6910 |
+| LR-06 | NR $33 stores all 8 bits of the LoRes Y scroll and reaches the generator (zxnext.vhd:5343, 6030, 4263) | zxnext.vhd:5343,6030,4263 | pass | test/nextreg/nextreg_integration_test.cpp:6920 |
+| LR-08 | NR $6A bit 5 selects Radastan mode and reads back (zxnext.vhd:5456, 6099) | zxnext.vhd:5456,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6932 |
+| LR-09 | NR $6A bit 4 is the Timex display-file XOR and reads back (zxnext.vhd:5457, 6099) | zxnext.vhd:5457,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6941 |
+| LR-10 | NR $6A bits 3:0 are the palette offset and read back (zxnext.vhd:5458, 6099) | zxnext.vhd:5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6950 |
+| LR-11 | NR $6A bits 7:6 are not stored — the read mux hard-wires "00", so 0xFF reads back 0x3F (zxnext.vhd:5456-5458, 6099) | zxnext.vhd:5456-5458,6099 | pass | test/nextreg/nextreg_integration_test.cpp:6959 |
+| LR-124 | clip_y2 values with bits 7:6 = "11" clamp to 0xBF at the consumer latch LoRes shares with the ULA; 0xA0 is left alone and the raw NR $1A byte is preserved (zxnext.vhd:6779-6783) | zxnext.vhd:6779-6783 | pass | test/nextreg/nextreg_integration_test.cpp:6993 |
+| LR-162 | NR $1D is not a LoRes clip register — writing it changes neither the shared ULA/LoRes clip window nor any LoRes register (zxnext.vhd:1167-1171, 5278 undecoded, 6785-6793) | zxnext.vhd:1167-1171,5278 | pass | test/nextreg/nextreg_integration_test.cpp:7039 |
 
 ### Companion integration suite — `test/nmi/nmi_integration_test.cpp`
 

@@ -498,6 +498,145 @@ static void test_dma_im2_delay(Emulator& emu) {
     }
 }
 
+// ── GH #231: NR 0xCC/0xCD/0xCE + im2_dma_delay are reset state ────────
+//
+// VHDL zxnext.vhd:5101-5105 assigns all five DMA-delay enable fields
+// inside the MASTER reset block, and :2003-2004 clears the im2_dma_delay
+// flip-flop in the same domain. That domain is a single wire — `reset <=
+// i_RESET` (zxnext.vhd:1730), driven by `reset_hard or reset_soft`
+// (zxnext_top_issue2.vhd:840) — so BOTH reset kinds clear them, unlike the
+// NR fields jnext deliberately preserves (NR 0x05/0x06/0x08/0x0A/0x10/...,
+// which have no reset clause in the VHDL at all).
+//
+// Pre-fix the only writers were the NR 0xCC/0xCD/0xCE write handlers and
+// load_state(), so a guest that had enabled DMA delays left them enabled
+// through every reset. Each row here uses a FRESH emulator so the
+// pre-reset value is unambiguously the one it wrote.
+static void test_gh231_dma_delay_reset() {
+    set_group("GH231-DMA-Delay-Reset");
+
+    // GH231-01/02/03 — the three registers' read-back (which the read
+    // handlers recompose from the member fields, NOT from regs_[]) is 0
+    // after a soft reset.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0xCC, 0x83);
+        nr_write(emu, 0xCD, 0xFF);
+        nr_write(emu, 0xCE, 0x77);
+        const uint8_t pre_cc = nr_read(emu, 0xCC);
+        const uint8_t pre_cd = nr_read(emu, 0xCD);
+        const uint8_t pre_ce = nr_read(emu, 0xCE);
+        nr_write(emu, 0x02, 0x01);          // RESET_SOFT
+        const uint8_t cc = nr_read(emu, 0xCC);
+        const uint8_t cd = nr_read(emu, 0xCD);
+        const uint8_t ce = nr_read(emu, 0xCE);
+        check("GH231-01",
+              "soft reset clears NR 0xCC (dma delay on NMI + ULA/line enables) "
+              "[zxnext.vhd:5101-5102 master reset block; :1730 + "
+              "zxnext_top_issue2.vhd:840 one reset wire]",
+              pre_cc == 0x83 && cc == 0x00,
+              fmt("pre=0x%02X post=0x%02X (want 0x83 then 0x00)", pre_cc, cc));
+        check("GH231-02",
+              "soft reset clears NR 0xCD (CTC 7..0 dma delay enables) "
+              "[zxnext.vhd:5103]",
+              pre_cd == 0xFF && cd == 0x00,
+              fmt("pre=0x%02X post=0x%02X (want 0xFF then 0x00)", pre_cd, cd));
+        check("GH231-03",
+              "soft reset clears NR 0xCE (UART1/UART0 dma delay enables) "
+              "[zxnext.vhd:5104-5105]",
+              pre_ce == 0x77 && ce == 0x00,
+              fmt("pre=0x%02X post=0x%02X (want 0x77 then 0x00)", pre_ce, ce));
+    }
+
+    // GH231-04 — the composed 14-bit im2_dma_int_en mask follows: the whole
+    // point of the register fields is what they compose to (:1957-1958).
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0xCC, 0x83);
+        nr_write(emu, 0xCD, 0xFF);
+        nr_write(emu, 0xCE, 0x77);
+        const uint16_t pre = emu.compose_im2_dma_int_en();
+        nr_write(emu, 0x02, 0x01);          // RESET_SOFT
+        const uint16_t post = emu.compose_im2_dma_int_en();
+        check("GH231-04",
+              "soft reset zeroes the composed im2_dma_int_en mask "
+              "[zxnext.vhd:1957-1958 composition; :5101-5105 reset]",
+              pre == 0x3FFF && post == 0x0000,
+              fmt("pre=0x%04X post=0x%04X (want 0x3FFF then 0x0000)",
+                  pre, post));
+    }
+
+    // GH231-05 — the im2_dma_delay flip-flop itself. VHDL :2003-2004:
+    //   if reset = '1' then im2_dma_delay <= '0';
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.update_im2_dma_delay(/*im2_dma_int=*/true, false, false);
+        const bool pre = emu.im2_dma_delay();
+        nr_write(emu, 0x02, 0x01);          // RESET_SOFT
+        const bool post = emu.im2_dma_delay();
+        check("GH231-05",
+              "soft reset clears the latched im2_dma_delay flip-flop "
+              "[zxnext.vhd:2003-2004]",
+              pre == true && post == false,
+              fmt("pre=%d post=%d (want 1 then 0)", pre ? 1 : 0, post ? 1 : 0));
+    }
+
+    // GH231-06 — cache/field agreement. NextReg::reset()'s regs_.fill(0)
+    // already zeroed the cached 0xCC/0xCD/0xCE bytes on every reset, so
+    // pre-fix the cache and the read handlers disagreed: `cached()` said 0
+    // while `read()` recomposed the stale enables. Pin that they agree.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0xCC, 0x83);
+        nr_write(emu, 0xCD, 0xFF);
+        nr_write(emu, 0xCE, 0x77);
+        nr_write(emu, 0x02, 0x01);          // RESET_SOFT
+        bool agree = true;
+        std::string worst;
+        for (uint8_t reg : {uint8_t{0xCC}, uint8_t{0xCD}, uint8_t{0xCE}}) {
+            const uint8_t live   = nr_read(emu, reg);
+            const uint8_t cached = emu.nextreg().cached(reg);
+            if (live != cached || live != 0x00) {
+                agree = false;
+                worst = fmt("NR 0x%02X live=0x%02X cached=0x%02X",
+                            reg, live, cached);
+            }
+        }
+        check("GH231-06",
+              "after reset the cached NR 0xCC/0xCD/0xCE bytes and the "
+              "recomposed read-back agree (both 0) "
+              "[zxnext.vhd:6257-6263 read mux; :5101-5105 reset]",
+              agree, worst);
+    }
+
+    // GH231-07 — hard reset clears them too. One reset wire in the VHDL:
+    // there is no field here that is hard-only or soft-only.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        nr_write(emu, 0xCC, 0x83);
+        nr_write(emu, 0xCD, 0xFF);
+        nr_write(emu, 0xCE, 0x77);
+        emu.update_im2_dma_delay(/*im2_dma_int=*/true, false, false);
+        emu.reset();                        // hard reset (re-runs init())
+        const uint8_t cc = nr_read(emu, 0xCC);
+        const uint8_t cd = nr_read(emu, 0xCD);
+        const uint8_t ce = nr_read(emu, 0xCE);
+        const bool    dl = emu.im2_dma_delay();
+        check("GH231-07",
+              "hard reset clears NR 0xCC/0xCD/0xCE and im2_dma_delay as well "
+              "(same reset wire) [zxnext.vhd:1730; "
+              "zxnext_top_issue2.vhd:840 reset <= reset_hard or reset_soft]",
+              cc == 0 && cd == 0 && ce == 0 && !dl,
+              fmt("cc=0x%02X cd=0x%02X ce=0x%02X delay=%d",
+                  cc, cd, ce, dl ? 1 : 0));
+    }
+}
+
 // ── Tilemap clip NR routing (Tilemap plan rows TM-114, TM-115) ────────
 
 static void test_tilemap_clip_nr(Emulator& emu) {
@@ -6961,6 +7100,11 @@ int main() {
 
     test_dma_im2_delay(emu);
     std::printf("  Group: DMA-IM2-Delay — done\n");
+
+    // GH #231 — own emulators per row (a reset is the stimulus, so the
+    // shared `emu` must not be dragged through it).
+    test_gh231_dma_delay_reset();
+    std::printf("  Group: GH231-DMA-Delay-Reset — done\n");
 
     test_tilemap_clip_nr(emu);
     std::printf("  Group: Tilemap-Clip-NR — done\n");
