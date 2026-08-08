@@ -3143,6 +3143,13 @@ reserved for the program's own outbound connection, so opening a server never
 costs it the ability to dial out. A program can also hang up on any one of them
 by number, so a client that stops answering without disconnecting does not hold
 its place for the rest of the session.</p>
+<p><strong>An idle client is hung up on after three minutes.</strong> Something that connects
+and then sends nothing for 180 seconds is disconnected, and the program is told
+so — the same thing a real ESP-01 does, and the usual reason a debug session
+dies while you were reading something else. A program that wants a different
+answer sets one: <code>AT+CIPSTO=&lt;seconds&gt;</code>, anywhere from 0 to 7200, where <strong>0 means
+never hang up</strong>. The setting is forgotten on a reset, exactly as it is on
+hardware, so it has to be sent each time.</p>
 <h2 id="what-is-not-emulated-yet">What is not emulated yet<a class="headerlink" href="#what-is-not-emulated-yet" title="Permanent link">&para;</a></h2>
 <p>The command set is the one <strong>evidenced</strong> in software that actually runs on a
 Next, so a couple of things a physical ESP-01 can do are not built:</p>

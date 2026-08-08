@@ -685,6 +685,12 @@ stays reserved for the program’s own outbound connection, so opening a
 server never costs it the ability to dial out. `AT+CIPMUX` cannot be
 changed while anything is connected.
 
+A connected client that sends nothing for **180 seconds** is hung up on
+and the program is told `<id>,CLOSED`, which is what a real ESP-01 does
+and the usual reason an idle debug session dies. `AT+CIPSTO=<seconds>`
+changes the window (0-7200, and **0 means never**); like the real
+module, jnext forgets the setting on a reset.
+
 Still not emulated: TLS and transparent mode ([issue
 \#154](https://github.com/jorgegv/jnext/issues/154)).
 

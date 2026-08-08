@@ -241,9 +241,12 @@
 ///     after `Connect` (esp.asm:39-40) has no timeout AND runs under `di`, so
 ///     a black-holed connect FREEZES the guest rather than degrading it. No
 ///     other command can outlive its own dispatch, so none needs a deadline.
-///     ONE RESIDUAL GAP, stated rather than hidden: an ESTABLISHED connection
-///     that goes silent is never timed out, because TCP itself does not
-///     consider that an error and no evidenced client expects one.
+///     ONE RESIDUAL GAP, stated rather than hidden, AND NOW HALF CLOSED. An
+///     established OUTBOUND connection that goes silent is still never timed
+///     out, because TCP itself does not consider that an error and no evidenced
+///     client expects one. An established INBOUND one IS, by `AT+CIPSTO`
+///     (GH #240) — real firmware does exactly that, measured, and it is the
+///     mechanism that drops an idle debug session. See simplification (9).
 ///     A SECOND GAP RECORDED HERE IS NOW CLOSED — the deadline used to bound
 ///     the TCP handshake only, because it is checked in `poll()` and the
 ///     transport's `getaddrinfo` was SYNCHRONOUS, so `poll()` did not return
@@ -309,6 +312,42 @@
 ///         connection", which is refused for the reason `AT+CIPSERVER=0`'s
 ///         `<close_all>` is — a bulk close promises a choice about connections
 ///         the guest did not name, and no consumer asks for one.
+///  9. `AT+CIPSTO` TIMES OUT AN IDLE INBOUND CONNECTION, AND THE MODEL IS
+///     NARROWER THAN THE COMMAND (GH #240; design doc §15). The consumer is
+///     `dezogif_ng` again, and unusually the behaviour was MEASURED on a real
+///     Ai-Thinker ESP-01 (AT 1.2.0.0 / SDK 1.5.4.1) before anything was
+///     written: `AT+CIPSTO?` answers `+CIPSTO:180`, and a server-accepted
+///     client that connects and then says nothing is dropped after 182.5 s and
+///     181.8 s on two runs. So 180 is the firmware default, and the timeout is
+///     a live mechanism rather than a documented one. The matching document is
+///     the ESP8266 AT Instruction Set v1.5.4 §5.17, whose own example is the
+///     multiplexed server case.
+///     FOUR THINGS ARE DELIBERATELY NOT MODELLED, each for its own reason:
+///     (a) WHETHER SERVER-INITIATED TRAFFIC RESTARTS THE TIMER. Newer esp-at
+///         documentation says it does not; v1.5.4 is SILENT, and this module
+///         does not invent a behaviour it cannot cite for the firmware it
+///         emulates. An implementation must nonetheless do one thing or the
+///         other, and it does the one the requirement states: CLIENT silence
+///         is what arms the timer, so only bytes arriving FROM the peer re-arm
+///         it and an `AT+CIPSEND` never does. That is a consequence of the
+///         requirement, not a claim about hardware — see
+///         `Connection::last_client_data`.
+///     (b) THE OUTBOUND CONNECTION. `AT+CIPSTO` is the TCP *server* timeout,
+///         so slot 0 — which no server ever accepts into (8a) — is untouched,
+///         and simplification (6)'s statement about outbound silence still
+///         holds in full.
+///     (c) PERSISTENCE. `AT+CIPSTO` is absent from v1.5.4's list of commands
+///         that write to flash, so the value does NOT survive a module
+///         restart: `AT+RST` puts it back to 180, exactly as `echo_` and
+///         `cipmux_` go back to their power-on defaults.
+///     (d) THAT THE CLOSE IS ANNOUNCED AS `[<id>,]CLOSED` IS INFERRED, NOT
+///         OBSERVED. The v1.5.4 entry for `CIPSTO` does not say what the guest
+///         sees; the inference comes from `AT+CIPMODE`'s note that a broken
+///         normal-TCP connection prompts `[<link ID>,]CLOSED`, and from there
+///         being no other spelling a guest could parse. It is therefore
+///         modelled as an ordinary peer close — same deferral, same slot
+///         release — and flagged here as the one part of this feature a real
+///         Next could still contradict.
 ///
 /// ---------------------------------------------------------------------------
 /// SHAPED FOR v1.1 (issue #154), AND TWO OF THE THREE HAVE NOW PAID
@@ -500,6 +539,16 @@ public:
     /// of a mean one is refusing connections that would have worked.
     static constexpr int DEFAULT_CONNECT_TIMEOUT_MS = 10000;
 
+    /// `AT+CIPSTO`'s power-on value, in seconds, and its ceiling (GH #240).
+    ///
+    /// 180 IS A MEASUREMENT, not a guess and not a round number picked to look
+    /// like one: a real Ai-Thinker ESP-01 on AT 1.2.0.0 / SDK 1.5.4.1 answers
+    /// `+CIPSTO:180` to the query and really does drop a silent client at
+    /// ~182 s. 7200 is the range top the v1.5.4 document states (`0~7200`), and
+    /// it is INCLUSIVE — `AT+CIPSTO=7200` is accepted, 7201 is `ERROR`.
+    static constexpr std::uint32_t DEFAULT_SERVER_TIMEOUT_S = 180;
+    static constexpr std::uint32_t MAX_SERVER_TIMEOUT_S     = 7200;
+
     /// The advertised network. Owner decision (GH #25, 2026-07-28, as
     /// corrected): a CONSTANT, obviously synthetic name — never the host
     /// machine's real SSIDs — and the same principle for the BSSID, channel,
@@ -626,12 +675,36 @@ public:
     /// engine does not act on it — pacing follows the channel's live
     /// prescaler — but it is worth tracing.
     std::uint32_t requested_baud() const { return requested_baud_; }
+    /// `AT+CIPSTO`, in seconds; 0 means "never time out" (GH #240).
+    std::uint32_t server_timeout() const { return server_timeout_; }
 
     /// Override the `AT+CIPSTART` deadline. Configuration, not a test hook:
     /// the CLI/config branch is the natural place to expose it, and the unit
     /// suite uses a zero timeout to make the expiry deterministic.
     void set_connect_timeout(std::chrono::milliseconds t) { connect_timeout_ = t; }
     std::chrono::milliseconds connect_timeout() const { return connect_timeout_; }
+
+    /// THE ENGINE'S NOTION OF "NOW", AND THE ONLY REASON IT IS A SEAM (GH #240).
+    ///
+    /// Two things here are wall-clock deadlines: the `AT+CIPSTART` timeout, and
+    /// `AT+CIPSTO`'s idle-server timeout. The first is testable by setting the
+    /// deadline to zero; the second is NOT — its default is 180 SECONDS, and a
+    /// suite that proved it by waiting is a suite nobody runs. So the clock
+    /// becomes injectable, which is the smallest seam that makes the feature
+    /// provable at all: everything the engine asks about time goes through
+    /// `now()`, and a test hands it a `time_point` it advances by hand.
+    ///
+    /// IT IS NOT A CLOCK THE MODULE OWNS. Passing nothing (or `nullptr`) leaves
+    /// `std::steady_clock::now()` in place, which is what every consumer gets
+    /// and what every pre-existing row still runs against — the default path is
+    /// unchanged by construction, not by convention.
+    ///
+    /// THREADING: `now()` is called only from `service_transports()` and from
+    /// command dispatch, both of which a threaded host already serialises under
+    /// its own lock, so this adds no new race. Install it before the engine is
+    /// handed to `ThreadedEsp`.
+    using Clock = std::function<std::chrono::steady_clock::time_point()>;
+    void set_clock(Clock clock) { clock_ = std::move(clock); }
 
 private:
     enum class Mode : std::uint8_t { Command, Payload };
@@ -668,6 +741,18 @@ private:
         /// When `connecting`, the wall-clock instant after which the connect
         /// is abandoned with `ERROR`. Meaningless otherwise.
         std::chrono::steady_clock::time_point connect_deadline{};
+        /// When the CLIENT last sent us something on this connection, which is
+        /// what `AT+CIPSTO` measures silence from (GH #240). Armed at ACCEPT,
+        /// so a client that connects and never speaks is timed out from the
+        /// moment it arrived — which is exactly the measured hardware case.
+        ///
+        /// ONLY PEER -> GUEST BYTES REFRESH IT. Nothing the guest sends does,
+        /// and that asymmetry is the requirement's ("a connection whose client
+        /// has sent nothing"), NOT a claim that real firmware ignores its own
+        /// traffic — v1.5.4 is silent on that and simplification (9a) says so.
+        /// Meaningful on an INBOUND slot only; slot 0 keeps the field updated
+        /// for uniformity and nothing reads it there.
+        std::chrono::steady_clock::time_point last_client_data{};
 
         // ── The two directions, once per protocol ─────────────────────
         //
@@ -731,6 +816,8 @@ private:
     void cmd_cipclose_id(const std::string& args);
     void cmd_cipmux(const std::string& args);
     void cmd_cipserver(const std::string& args);
+    void cmd_cipsto(const std::string& args);
+    void cmd_cipsto_query(const std::string& args);
     void cmd_uart(const std::string& args);
     void cmd_gmr(const std::string& args);
     void cmd_cwjap(const std::string& args);
@@ -794,6 +881,17 @@ private:
     /// A no-op on `SINGLE_CID`, whose transport is borrowed and permanent.
     void release_inbound(std::size_t cid);
 
+    /// Close every inbound connection whose CLIENT has been silent for
+    /// `server_timeout_` seconds (`AT+CIPSTO`; GH #240). A no-op at 0, which
+    /// v1.5.4 defines as "never". Wall-clock work, so it belongs to the LOCKED
+    /// half alongside the rest of `service_transports()`.
+    void enforce_server_timeout();
+
+    /// The engine's `now`, through the injectable clock — see `set_clock`.
+    std::chrono::steady_clock::time_point now() const {
+        return clock_ ? clock_() : std::chrono::steady_clock::now();
+    }
+
     /// True while a `+IPD` may be framed: nothing already queued for the
     /// guest, no command line in flight, not mid-payload and no connect in
     /// flight. This is what makes simplification (1) hold.
@@ -849,6 +947,17 @@ private:
 
     std::uint32_t             requested_baud_  = 0;
     std::chrono::milliseconds connect_timeout_{DEFAULT_CONNECT_TIMEOUT_MS};
+
+    /// `AT+CIPSTO`, in seconds (GH #240). Power-on 180 and back to 180 on
+    /// `AT+RST`, because the command does not write to flash — simplification
+    /// (9c). Read LIVE on every pass, so a guest that raises it while a client
+    /// is already connected extends that client's life rather than the next
+    /// one's.
+    std::uint32_t             server_timeout_ = DEFAULT_SERVER_TIMEOUT_S;
+
+    /// Empty unless a host installed one, in which case `now()` asks it instead
+    /// of `steady_clock`. See `set_clock` for why the seam exists.
+    Clock                     clock_;
 
     /// Guest TX arriving while a connect is in flight. Every evidenced client
     /// busy-waits for the reply so this stays empty in practice, but a guest
