@@ -61,6 +61,9 @@ static void print_usage(const char* prog) {
         "  --log-level SPEC     Log levels: a bare level sets all subsystems (e.g. warn),\n"
         "                       name=level sets one (e.g. cpu=trace); mix them, applied\n"
         "                       left to right (e.g. warn,emulator=debug)\n"
+        "  --log-file FILE      Write the log to FILE instead of the console. Truncated on\n"
+        "                       every run; jnext exits non-zero if FILE cannot be opened.\n"
+        "                       Set NO_COLOR to a non-empty value for uncoloured console logs.\n"
         "  --inject FILE        Load raw binary FILE into RAM (see --inject-org, --inject-pc)\n"
         "  --inject-org ADDR    Load address for --inject (hex, default 8000)\n"
         "  --inject-pc ADDR     Entry point for --inject (hex, default = --inject-org value)\n"
@@ -211,6 +214,27 @@ int main(int argc, char* argv[]) {
     signal(SIGABRT, crash_handler);
     signal(SIGFPE,  crash_handler);
 
+    // Where the log goes, and whether it is coloured (GH #235, GH #227).
+    //
+    // This runs BEFORE Log::init() and before the banner below, and that is the
+    // whole point: loggers are built lazily on first use and bound to whatever
+    // sink is current at that moment, so a --log-file established after the
+    // parse loop would silently drop every line jnext emits while parsing —
+    // starting with the version banner. Hence the arity-aware pre-scan of argv
+    // rather than a case in the loop; the loop's case below only consumes the
+    // value. Applies to every frontend (GUI, SDL, headless): the destination of
+    // the log is a logging concern, not a frontend one.
+    {
+        const auto policy = log_sink_policy::decide(
+            cli::prescan_value(argc, argv, cli::OptId::LogFile), std::getenv("NO_COLOR"));
+        const Log::SinkResult r = Log::apply_sink_policy(policy);
+        if (!r.ok) {
+            // Not a log line: the log is precisely what could not be opened.
+            std::fprintf(stderr, "jnext: %s\n", r.error.c_str());
+            return 1;
+        }
+    }
+
     // Initialize all loggers at default level (info).
     Log::init();
     Log::emulator()->info("jnext {}", JNEXT_VERSION_STRING);
@@ -330,6 +354,12 @@ int main(int argc, char* argv[]) {
             switch (opt->id) {
             case cli::OptId::LogLevel:
                 Log::parse_levels(v[0]);
+                break;
+            case cli::OptId::LogFile:
+                // Already applied by the pre-scan above — it had to be, to
+                // catch the lines emitted before this loop started. The case
+                // exists so the value is consumed rather than reported as an
+                // unknown argument (-Wswitch requires it too).
                 break;
             case cli::OptId::Inject:
                 inject_file = v[0];

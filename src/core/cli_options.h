@@ -36,6 +36,7 @@ namespace cli {
 // pure aliases share the canonical id.
 enum class OptId {
     LogLevel,
+    LogFile,
     Inject,
     InjectOrg,
     InjectPc,
@@ -262,6 +263,10 @@ inline constexpr Option OPTIONS[] = {
 
     // Misc
     { "--log-level",                 1, Doc::Documented, OptId::LogLevel },
+    // GH #235. Read by prescan_value() BEFORE the parse loop below runs, because
+    // jnext logs its startup banner before it parses anything; the row exists so
+    // the loop consumes the value instead of rejecting the flag as unknown.
+    { "--log-file",                  1, Doc::Documented, OptId::LogFile },
     { "--help",                      0, Doc::Documented, OptId::Help },
     { "-h",                          0, Doc::ShortAlias, OptId::Help },
     { "--version",                   0, Doc::Documented, OptId::Version },
@@ -277,6 +282,33 @@ inline const Option* find(const char* name) {
         if (std::strcmp(o.name, name) == 0) return &o;
     }
     return nullptr;
+}
+
+// Find the value of `id` without running the real parse loop (GH #235).
+//
+// Needed for exactly one reason: `--log-file` decides where the FIRST log line
+// goes, and jnext emits its startup banner — and an ffmpeg warning — before the
+// parse loop in main() has run a single iteration. So the flag has to be read
+// ahead of everything, and then be consumed by the loop like any other option.
+//
+// It walks with the table's arity rather than searching argv for a string, so
+// an option VALUE that happens to spell a flag (`--nex-args "--log-file x"`,
+// `--rtc --log-file`) is skipped as the value it is instead of being mistaken
+// for a flag. The last occurrence wins, matching the parse loop, where a
+// repeated option simply overwrites the earlier one.
+//
+// Returns nullptr when the option is absent. An unknown argument stops nothing:
+// the walk just advances by one, exactly as the parse loop does before it
+// reports the argument as unrecognised.
+inline const char* prescan_value(int argc, const char* const argv[], OptId id) {
+    const char* found = nullptr;
+    for (int i = 1; i < argc; ++i) {
+        const Option* opt = find(argv[i]);
+        if (!opt || i + opt->arity >= argc) continue;
+        if (opt->id == id && opt->arity >= 1) found = argv[i + 1];
+        i += opt->arity;
+    }
+    return found;
 }
 
 // The one option that also accepts an inline value (`--log-level=warn`). It
