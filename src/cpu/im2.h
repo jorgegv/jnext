@@ -154,6 +154,11 @@ public:
     // ── Pulse mode ─────────────────────────────────────────────────────────
     bool pulse_int_n() const;                  // vhdl:2020-2031
     void set_machine_timing_48_or_p3(bool v);  // pulse duration gate, vhdl:2033
+    /// Test-observability getter for the pulse-duration gate, mirroring
+    /// Z80Cpu::machine_timing_48_or_p3(). The two consumers of VHDL :2033
+    /// must stay in lock-step; without a getter on this side only half of
+    /// that fan-out can be asserted (GH #232).
+    bool machine_timing_48_or_p3() const { return machine_48_or_p3_; }
 
     // ── Debug accessors (for tests) ────────────────────────────────────────
     DevState state(DevIdx d) const;

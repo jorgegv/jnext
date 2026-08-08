@@ -409,7 +409,27 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (NR 0x03 b2) is not currently wired into ContentionModel — see
     // contention.cpp::is_contended_access() comment for the rationale.
     //
-    contention_.build(cfg.type);
+    // GH #232 — the machine type is NextREG state, not a CLI constant.
+    // There is no `machine_type` input pin in the VHDL: `nr_03_machine_type`
+    // is a plain FF with an initial value only (zxnext.vhd:1103,
+    // `:= "011"`), it appears NOWHERE in the master reset block
+    // (:4926-5111), and the single reset wire covers hard AND soft alike
+    // (`reset <= i_RESET` :1730, `reset_hard or reset_soft`
+    // zxnext_top_issue2.vhd:840). So it survives a reset and only firmware
+    // writing NR 0x03 under config_mode (:5137-5145) changes it. jnext
+    // already models exactly that: mmu_.set_machine_type() below is
+    // hard-reset-only, and the NR 0x03 commit path
+    // (`contention_.rebuild_for_type(new_mt)`) and load_state()
+    // (`contention_.rebuild_for_type(mmu_.machine_type())`) both take the
+    // Mmu's value as canonical. Rebuilding from cfg.type on a soft reset
+    // was the one path that disagreed — it unwound a supervisor-committed
+    // type in the ContentionModel while leaving it committed in the Mmu,
+    // with config_mode correctly cleared so the guest could not re-commit
+    // NR 0x03 to reconcile them. Take the same authority the other two
+    // paths take.
+    const MachineType init_machine_type =
+        preserve_memory ? mmu_.machine_type() : cfg.type;
+    contention_.build(init_machine_type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
     // Verify9-memory class-(c) → class-(a) fix: seed
     // ContentionModel's port_7ffd_io_en gate from NR 0x82 bit 1
@@ -547,7 +567,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // AND Z80Cpu (which uses the same width to expire a pending /INT that
     // was never acknowledged, e.g. inside an ISR with iff1=0). Same VHDL
     // line, two consumers — must stay in lock-step.
-    const bool is_48_or_p3_at_reset = (cfg.type == MachineType::ZX48K || cfg.type == MachineType::ZX_PLUS3);
+    //
+    // GH #232 — derive it from `init_tim_mode` (the tim_sel axis) rather
+    // than from the CLI MachineType. VHDL :2033 reads `machine_timing_48 or
+    // machine_timing_p3`, and those one-hot signals come combinationally
+    // from `eff_nr_03_machine_timing` (:5761-5776) — the tim_sel axis, never
+    // from `machine_type_*`. Keying on cfg.type was wrong on both counts:
+    // wrong axis, and wrong source on a soft reset (where NR 0x03 is
+    // preserved). It also disagreed with the two paths that already read
+    // NR 0x03 for this same gate — the NR 0x03 write handler and
+    // load_state() — so on the Next, whose NR 0x03 tim_sel powers on at
+    // "011" (+3, zxnext.vhd:1099), a guest writing NR 0x03 back with the
+    // value already in the register flipped the pulse width from 36 to 32
+    // cycles. Reading the register the VHDL reads removes that seam.
+    const bool is_48_or_p3_at_reset =
+        (init_tim_mode == MachineTimingMode::Timing48 ||
+         init_tim_mode == MachineTimingMode::TimingPlus3);
     im2_.set_machine_timing_48_or_p3(is_48_or_p3_at_reset);
     cpu_.set_machine_timing_48_or_p3(is_48_or_p3_at_reset);
 

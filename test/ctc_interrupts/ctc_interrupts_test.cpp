@@ -2224,11 +2224,32 @@ static void test_pulse_width_speed_invariance() {
         MachineType type;
         int         terminal;
     };
+    // GH #232 — the terminal is `pulse_count(5) and (machine_timing_48 or
+    // machine_timing_p3 or pulse_count(2))` (zxnext.vhd:2033): 32 when the
+    // TIMING axis is 48K or +3, 36 otherwise. That axis is
+    // eff_nr_03_machine_timing (:5761-5776), NOT the machine personality —
+    // there is no "Next timing" in the VHDL at all. A Next that no firmware
+    // has written NR 0x03 on sits at the FF's initial value "011" = +3
+    // (zxnext.vhd:1099/:1377), which jnext seeds identically in
+    // Emulator::init(). So the Next's cold-boot terminal is 32, not 36.
+    //
+    // The 36 these rows used to expect came from keying the gate on the CLI
+    // MachineType, which conflated typ_sel with tim_sel: it made a guest
+    // writing NR 0x03 back with the value already in the register flip the
+    // width from 36 to 32. `terminal` is now what the cited VHDL line
+    // computes from the register the machine actually boots with.
     const Case cases[] = {
         {"PW-48K-35",  "PW-48K-28",  "PW-48K-INV",
          MachineType::ZX48K,      32},
         {"PW-NEXT-35", "PW-NEXT-28", "PW-NEXT-INV",
-         MachineType::ZXN_ISSUE2, 36},
+         MachineType::ZXN_ISSUE2, 32},
+        // GH #232 — with the Next now correctly on the 32-cycle branch,
+        // nothing else pinned the OTHER side of zxnext.vhd:2033. 128K
+        // (tim_sel "010" → machine_timing_128) is the machine that takes it:
+        // neither machine_timing_48 nor machine_timing_p3 is set, so the
+        // terminal needs pulse_count(2) as well and the width is 36.
+        {"PW-128K-35", "PW-128K-28", "PW-128K-INV",
+         MachineType::ZX128K,     36},
     };
 
     for (const auto& c : cases) {
