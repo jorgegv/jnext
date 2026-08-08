@@ -26,6 +26,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -3076,6 +3077,107 @@ void group23_sram_read_wait28() {
     }
 }
 
+// ══ Group 24 — GH #230: write_io lifetime across Emulator::init() ═════
+//
+// NO VHDL ORACLE, deliberately: a C++ object-lifetime invariant, not a
+// hardware behaviour. Dma::execute_burst is the OUTERMOST frame of the one
+// route by which a guest can destroy a live callable through NR 0x02 bit 0:
+// a burst with an I/O destination of port 0x253B calls write_io, which
+// reaches PortDispatch::write and then the NR 0x02 write handler, which
+// calls Emulator::soft_reset() -> Emulator::init(); init() reassigns
+// dma_.write_io (src/core/emulator.cpp) while this call is still on the
+// stack. (The CPU's own OUT cannot: Emulator queues NextREG writes for the
+// whole of cpu_.execute().)
+//
+// Same two observables as the GH230 groups in nextreg_test and port_test:
+// the executing callable is still referenced when it is reassigned (counted
+// from OUTSIDE the closure), and it can still read its own capture
+// afterwards, with the allocator churned in between. Under
+// -fsanitize=address the second is a direct heap-use-after-free report.
+
+Dma*                 g230_dma              = nullptr;
+std::shared_ptr<int> g230_token;
+long                 g230_use_count_seen   = 0;
+uint8_t              g230_own_capture_seen = 0;
+int                  g230_calls            = 0;
+
+std::vector<std::unique_ptr<uint8_t[]>> g230_churn() {
+    std::vector<std::unique_ptr<uint8_t[]>> held;
+    for (std::size_t sz = 8; sz <= 256; sz += 8) {
+        for (int rep = 0; rep < 4; ++rep) {
+            auto p = std::make_unique<uint8_t[]>(sz);
+            std::memset(p.get(), 0x5A, sz);
+            held.push_back(std::move(p));
+        }
+    }
+    return held;
+}
+
+void group24_gh230_write_io_lifetime() {
+    set_group("G24 GH230 write_io lifetime");
+
+    Dma dma;
+    fresh(dma);
+    g230_dma              = &dma;
+    g230_token            = std::make_shared<int>(0);
+    g230_use_count_seen   = 0;
+    g230_own_capture_seen = 0;
+    g230_calls            = 0;
+
+    struct Payload { uint8_t b[64]; };
+    Payload mine{};
+    std::memset(mine.b, 0xA5, sizeof(mine.b));
+
+    dma.write_io = [tok = g230_token, mine](uint16_t p, uint8_t v) {
+        ++g230_calls;
+        g_io[p] = v;
+        // What Emulator::init() does to dma_.write_io from inside this call.
+        g230_dma->write_io = [](uint16_t pp, uint8_t vv) { g_io[pp] = vv; };
+
+        g230_use_count_seen = g230_token.use_count();
+
+        const auto held = g230_churn();
+
+        g230_own_capture_seen =
+            *static_cast<const volatile uint8_t*>(&mine.b[0]);
+        (void)tok;
+        (void)held;
+    };
+
+    // Mem(A, inc) -> IO(B, fixed), one byte — same programming sequence as
+    // row 10.3 above (VHDL dma.vhd:186-190, 290-296).
+    g_mem[0x8000] = 0xAB;
+    zxn(dma, 0x7D);
+    zxn(dma, 0x00); zxn(dma, 0x80);
+    zxn(dma, 0x01); zxn(dma, 0x00);
+    zxn(dma, 0x14);                  // R1 portA mem, inc
+    zxn(dma, 0x28);                  // R2 portB IO, fixed
+    zxn(dma, 0xAD);
+    zxn(dma, 0x3B); zxn(dma, 0x25);  // portB = 0x253B (NextREG data port)
+    zxn(dma, 0xCF); zxn(dma, 0x87);
+    run_to_idle(dma);
+
+    check("GH230-08",
+          "write_io still alive when Emulator::init() would reassign it "
+          "mid-burst",
+          g230_calls == 1 && g230_use_count_seen == 2,
+          fmt("calls=%d use_count=%ld (want 1 / 2)",
+              g230_calls, g230_use_count_seen));
+
+    check("GH230-09",
+          "executing write_io reads its own capture after the reassignment",
+          g230_own_capture_seen == 0xA5,
+          fmt("capture=0x%02X (want 0xA5)", g230_own_capture_seen));
+
+    check("GH230-10",
+          "the burst still delivered the byte to the I/O destination",
+          g_io[0x253B] == 0xAB,
+          fmt("io[0x253B]=0x%02X (want 0xAB)", g_io[0x253B]));
+
+    g230_dma = nullptr;
+    g230_token.reset();
+}
+
 }  // namespace
 
 // ══════════════════════════════════════════════════════════════════════
@@ -3107,6 +3209,8 @@ int main() {
     group21_timing_bytes();        std::printf("  G21 Timing Bytes         done\n");
     group22_edge();                std::printf("  G22 Edge Cases           done\n");
     group23_sram_read_wait28();    std::printf("  G23 SW28 DMA Wait        done\n");
+    group24_gh230_write_io_lifetime();
+                                   std::printf("  G24 GH230 write_io life  done\n");
 
     std::printf("\n================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

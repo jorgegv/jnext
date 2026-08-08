@@ -34,6 +34,7 @@
 #include <cstdio>
 #include <cstdint>
 #include <cstring>
+#include <memory>
 #include <string>
 #include <vector>
 #include <functional>
@@ -2374,6 +2375,111 @@ static void test_group_gh109_undecoded_default() {
     }
 }
 
+// ── Group K — GH #230 handler lifetime across clear_handlers() ────────
+//
+// NO VHDL ORACLE, deliberately: a C++ object-lifetime invariant of the
+// dispatcher, not a hardware behaviour. It is asserted here because the
+// invariant, and the fix, live in src/port/port_dispatch.cpp.
+//
+// The defect: PortDispatch::write invoked the handler through the vector
+// element (`best->write(port, val)`). A port write that reaches NR 0x02 bit 0
+// re-enters Emulator::init() via soft_reset(), and init() calls
+// clear_handlers() — destroying `handlers_`, and with it the std::function
+// still on the stack. The CPU's own `OUT ($253B),A` cannot get here
+// synchronously (Emulator holds defer_cpu_nr_writes_ for the whole of
+// cpu_.execute(), so the handler only queues the write); the live route is a
+// DMA burst with an I/O destination of port 0x253B, which runs outside that
+// window.
+//
+// Same two observables as nextreg_test's GH230 group: the executing callable
+// is still referenced when its container is cleared (counted from OUTSIDE the
+// closure), and it can still read its own capture afterwards with the
+// allocator churned in between. Under -fsanitize=address the second is a
+// direct heap-use-after-free report.
+
+namespace {
+
+PortDispatch*        g230_pd               = nullptr;
+std::shared_ptr<int> g230_token;
+long                 g230_use_count_seen   = 0;
+uint8_t              g230_own_capture_seen = 0;
+int                  g230_calls            = 0;
+uint8_t              g230_second_gen_value = 0;
+
+std::vector<std::unique_ptr<uint8_t[]>> g230_churn() {
+    std::vector<std::unique_ptr<uint8_t[]>> held;
+    for (std::size_t sz = 8; sz <= 256; sz += 8) {
+        for (int rep = 0; rep < 4; ++rep) {
+            auto p = std::make_unique<uint8_t[]>(sz);
+            std::memset(p.get(), 0x5A, sz);
+            held.push_back(std::move(p));
+        }
+    }
+    return held;
+}
+
+} // namespace
+
+static void test_group_gh230_handler_lifetime() {
+    set_group("Group K — GH #230 handler lifetime");
+
+    PortDispatch pd;
+    g230_pd               = &pd;
+    g230_token            = std::make_shared<int>(0);
+    g230_use_count_seen   = 0;
+    g230_own_capture_seen = 0;
+    g230_calls            = 0;
+    g230_second_gen_value = 0;
+
+    struct Payload { uint8_t b[64]; };
+    Payload mine{};
+    std::memset(mine.b, 0xA5, sizeof(mine.b));
+
+    pd.register_handler(0xFFFF, 0x253B, nullptr,
+        [tok = g230_token, mine](uint16_t, uint8_t) {
+            ++g230_calls;
+            // What Emulator::init() does to the handler vector from inside
+            // this very call, followed by the re-registration.
+            g230_pd->clear_handlers();
+            g230_pd->register_handler(0xFFFF, 0x253B, nullptr,
+                [](uint16_t, uint8_t v) { g230_second_gen_value = v; });
+
+            g230_use_count_seen = g230_token.use_count();
+
+            const auto held = g230_churn();
+
+            g230_own_capture_seen =
+                *static_cast<const volatile uint8_t*>(&mine.b[0]);
+            (void)tok;
+            (void)held;
+        });
+
+    pd.write(0x253B, 0x01);
+
+    check("GH230-05",
+          "port write handler still alive when clear_handlers() runs inside it",
+          g230_calls == 1 && g230_use_count_seen == 2,
+          DETAIL("calls=%d use_count=%ld (want 1 / 2)",
+                 g230_calls, g230_use_count_seen));
+
+    check("GH230-06",
+          "executing port write handler reads its own capture after the clear",
+          g230_own_capture_seen == 0xA5,
+          DETAIL("capture=0x%02X (want 0xA5)", g230_own_capture_seen));
+
+    // Dispatch must now reach the handler registered from inside the call,
+    // and the destroyed generation must not be invoked again.
+    pd.write(0x253B, 0x77);
+    check("GH230-07",
+          "handler registered mid-call receives the next dispatch",
+          g230_second_gen_value == 0x77 && g230_calls == 1,
+          DETAIL("second_gen=0x%02X calls=%d (want 0x77 / 1)",
+                 g230_second_gen_value, g230_calls));
+
+    g230_pd = nullptr;
+    g230_token.reset();
+}
+
 // ── Main driver ───────────────────────────────────────────────────────
 
 static void print_summary() {
@@ -2410,6 +2516,7 @@ int main(int, char**) {
     test_group_wired_or();
     test_group_d3f_nits();
     test_group_gh109_undecoded_default();
+    test_group_gh230_handler_lifetime();
 
     print_summary();
     return g_fail ? 1 : 0;
