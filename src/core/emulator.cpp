@@ -647,6 +647,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // pinned to cfg.type. It must follow z80_set_contention_runtime() above,
     // which (re)derives the CPU frame geometry from cfg.type.
     //
+    // That ordering does more than avoid a clash, and the reach is worth
+    // stating plainly. Before this change `z80_set_frame_geometry()` had
+    // exactly ONE call site in the whole file — inside
+    // repush_video_timing_from_machine_timing(), which never runs at boot
+    // (begin_new_frame() only calls it when the effective tim_sel CHANGES,
+    // and at boot it does not). So FUSE's frame geometry was seeded solely
+    // by z80_set_contention_runtime()'s `machine_timing(cfg.type)`, i.e. by
+    // the CLI machine type. Routing init() through apply_video_timing() is
+    // therefore the first code to make the CPU-side frame geometry follow
+    // the NR 0x03 tim_sel axis at boot, exactly as zxula_timing does
+    // (zxnext.vhd:6721). It is a no-op for every hard reset — tim_sel is
+    // seeded from cfg.type there and the two agree — and it is what keeps a
+    // soft-reset-preserved Pentagon or 48K tim_sel from leaving the CPU
+    // counting a different frame from the raster. Rows VT-GH237-05/07
+    // assert the `emu.timing()` side of it.
+    //
     // Task 50 — apply_video_timing() also hands the CPU side the two ULA
     // counter origins. The contention gate is written against the ULA's own
     // display-relative counters (VHDL i_hc/i_vc, reset at the start of the
