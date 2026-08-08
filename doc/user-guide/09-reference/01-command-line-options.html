@@ -3147,6 +3147,12 @@ histogram is written to <strong>--profile-output</strong>.</dd>
 <dt><strong>--log-level</strong> <em>SPEC</em></dt>
 <dd>Set per-subsystem log levels; see <a href="https://github.com/jorgegv/jnext/blob/main/USAGE.md#logging">the LOGGING section of the man
 page</a>.</dd>
+<dt><strong>--log-file</strong> <em>FILE</em></dt>
+<dd>Write the log to <em>FILE</em> instead of the console. <em>FILE</em> is truncated
+at the start of every run, and jnext exits non-zero if it cannot be
+opened rather than quietly logging to the console instead. See <a href="https://github.com/jorgegv/jnext/blob/main/USAGE.md#logging">the
+LOGGING section of the man
+page</a>.</dd>
 </dl>
 <h2 id="misc">Misc<a class="headerlink" href="#misc" title="Permanent link">&para;</a></h2>
 <dl>

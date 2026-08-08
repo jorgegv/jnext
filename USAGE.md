@@ -39,6 +39,8 @@ the two can never disagree. For building jnext from source, see
   - [Nothing about your host leaks into the
     program](#nothing-about-your-host-leaks-into-the-program)
 - [LOGGING](#logging)
+  - [Sending the log to a file](#sending-the-log-to-a-file)
+- [ENVIRONMENT](#environment)
 - [PROFILING](#profiling)
 - [THE GUI](#the-gui)
 - [KEYBOARD MAPPING](#keyboard-mapping)
@@ -414,6 +416,11 @@ Output path for **--profile** (default `profile.dat`).
 **--log-level** *SPEC*  
 Set per-subsystem log levels; see **LOGGING**.
 
+**--log-file** *FILE*  
+Write the log to *FILE* instead of the console. *FILE* is truncated at
+the start of every run, and jnext exits non-zero if it cannot be opened
+rather than quietly logging to the console instead. See **LOGGING**.
+
 ### Misc
 
 **--help**, **-h**  
@@ -722,6 +729,40 @@ on the user’s part and not something jnext undoes.
 including calls jnext does not service. It does not need
 **--esxdos-stub** — the interesting case is a NextZXOS-expecting program
 running without the stub, where those calls are otherwise invisible.
+
+### Sending the log to a file
+
+**--log-file** *FILE* writes the log to *FILE* instead of the console:
+
+    jnext game.nex --log-level nextreg=debug --log-file trace.log
+
+It replaces the console rather than adding to it, so the trace is in one
+place and nothing is doubled. *FILE* is truncated at the start of every
+run - a run’s log describes that run, and nothing in it belongs to a
+previous one. If it cannot be opened, jnext says so and exits non-zero;
+it does not fall back to the console, because a log you asked to be
+redirected and silently was not is a trace you lose without noticing. A
+missing containing directory is created for you, so
+`--log-file logs/run.log` works in a fresh checkout.
+
+This exists so that capturing a log does not require getting shell
+redirection right. jnext logs to standard error, so `> file` captures
+nothing and `2> file` is needed - and PowerShell re-encodes redirected
+output from a native program. **--log-file** sidesteps both: the program
+writes where it was told to write.
+
+A log file carries no colour, whatever `NO_COLOR` says.
+
+## ENVIRONMENT
+
+`NO_COLOR`  
+When set to any non-empty value, jnext emits no ANSI colour escapes on
+its log output, whether or not the console is a terminal - the
+convention described at <https://no-color.org/>. An empty value counts
+as unset, which is how a script re-enables colour for one child process.
+The value itself is never interpreted: `NO_COLOR=0` suppresses colour
+just as `NO_COLOR=1` does, because both are non-empty. It has no effect
+on **--log-file** output, which is never coloured in the first place.
 
 ## PROFILING
 
