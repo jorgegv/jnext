@@ -799,6 +799,90 @@ static void test_section5_timex() {
                   line_off[Ula::DISP_X], cyan, line_on[Ula::DISP_X], red));
     }
 
+    // SHA-RST-01 / SHA-RST-02 — reset must clear BOTH halves of the single
+    // hardware shadow-screen wire (GH #226).
+    //
+    // In VHDL there is exactly ONE producer. Port 0x7FFD bit 3 lives in
+    // `port_7ffd_reg`, whose reset clause is unconditional
+    // (zxnext.vhd:3646-3648: `if reset = '1' then port_7ffd_reg <= (others =>
+    // '0')`). It is exposed as `port_7ffd_shadow <= port_7ffd_dat(3)`
+    // (:3768) and enters the ULA as the single port `i_ula_shadow_en`
+    // (:4453). That ONE signal drives BOTH consumers:
+    //   * the standard-screen-mode force  (zxula.vhd:191), and
+    //   * the bank-5/bank-7 fetch source  (zxula.vhd:210,267 latch ->
+    //     zxnext.vhd:6651-6654 `ula_bank_do <= vram_bank7_do`).
+    // A reset therefore cannot leave one asserted and the other clear.
+    //
+    // jnext splits that wire into two mirrors (`shadow_screen_en_` and
+    // `vram_use_bank7_`) which only `set_shadow_screen_en()` reconciles.
+    // `Ula::reset()` used to assign the first directly and never touch the
+    // second, so a soft reset out of a shadow-screen program left the ULA
+    // fetching the now-dead bank-7 buffer while the rebooted OS painted
+    // bank 5 — the frozen last frame reported as GH #226.
+    //
+    // TWO rows on purpose: they have different kill sets. SHA-RST-01 is
+    // state-only and still passes under a fix that clears the flag but leaves
+    // the attribute mux (src/video/ula.cpp:140) selecting `attr_mux7()`;
+    // SHA-RST-02 is observable-only and still passes under a fix that
+    // special-cases vram_read() without clearing the flag.
+    {
+        // SHA-RST-01 — state. Assert shadow, confirm BOTH mirrors moved,
+        // reset, confirm BOTH mirrors cleared.
+        UlaBed bed;
+        bed.ula.set_shadow_screen_en(true);
+        const bool on_both = bed.ula.get_shadow_screen_en() && bed.ula.vram_bank7();
+        bed.ula.reset();
+        const bool off_both = !bed.ula.get_shadow_screen_en() && !bed.ula.vram_bank7();
+        check("SHA-RST-01",
+              "zxnext.vhd:3646-3648 clears port_7ffd_reg on reset; :3768 + :4453 "
+              "make bit 3 the SOLE i_ula_shadow_en, which drives both the "
+              "zxula.vhd:191 mode force and the bank-7 fetch select — so "
+              "Ula::reset() must clear shadow_screen_en_ AND vram_use_bank7_",
+              on_both && off_both,
+              fmt("after set: en=%d bank7=%d ; after reset: en=%d bank7=%d",
+                  static_cast<int>(bed.ula.get_shadow_screen_en()),
+                  static_cast<int>(bed.ula.vram_bank7()),
+                  static_cast<int>(bed.ula.get_shadow_screen_en()),
+                  static_cast<int>(bed.ula.vram_bank7())));
+    }
+    {
+        // SHA-RST-02 — observable. Same stimulus shape as S5.09 (distinct ink
+        // per bank), but the transition under test is reset() rather than a
+        // deassert: render with shadow ON (must show bank 7's red), reset,
+        // render again (must show bank 5's cyan).
+        UlaBed bed;
+        const uint16_t poff = emu_pixel_addr_offset(0, 0);
+        const uint32_t bank5_pix = 10u * 8192u + poff;
+        const uint32_t bank5_att = 10u * 8192u + 0x1800u;
+        const uint32_t bank7_pix = 14u * 8192u + poff;
+        const uint32_t bank7_att = 14u * 8192u + 0x1800u;
+        bed.ram.write(bank5_pix, 0xFF);
+        bed.ram.write(bank5_att, 0x05);   // pattern A: paper black, ink cyan
+        bed.ram.write(bank7_pix, 0xFF);
+        bed.ram.write(bank7_att, 0x02);   // pattern B: paper black, ink red
+
+        std::array<uint32_t, Ula::FB_WIDTH> line_shadow{}, line_after_reset{};
+        bed.ula.set_shadow_screen_en(true);
+        bed.ula.render_scanline(line_shadow.data(), 32, bed.mmu);
+        bed.ula.reset();
+        bed.ula.init_border_per_line();
+        bed.ula.render_scanline(line_after_reset.data(), 32, bed.mmu);
+
+        const uint32_t cyan = bed_ink_argb(bed.palette, 5);
+        const uint32_t red  = bed_ink_argb(bed.palette, 2);
+        check("SHA-RST-02",
+              "zxnext.vhd:6651-6654 selects vram_bank7_do only while "
+              "ula_vram_shadow is set, and that latch (zxula.vhd:210,267) "
+              "follows i_ula_shadow_en, which reset clears at "
+              "zxnext.vhd:3646-3648 — so the first display pixel must revert "
+              "from the bank-7 content to the bank-5 content across reset()",
+              line_shadow[Ula::DISP_X] == red
+                  && line_after_reset[Ula::DISP_X] == cyan,
+              fmt("shadow=0x%08X (exp red 0x%08X)  after reset=0x%08X (exp cyan 0x%08X)",
+                  line_shadow[Ula::DISP_X], red,
+                  line_after_reset[Ula::DISP_X], cyan));
+    }
+
     // S5.10 — G104: HI_RES mode renders at native 512 horizontal pixels via
     // VHDL byte-interleave (zxula.vhd:131-138, 271-306, 384-406).
     // shift_reg_32 = pbyte_hi & abyte_hi & pbyte_lo & abyte_lo, emitted

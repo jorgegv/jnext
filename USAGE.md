@@ -754,10 +754,12 @@ Quit (Alt+Q).
 Power Reset (Alt+R - power off/on cold boot, full boot chain), Soft
 Reset (F4 - the front-panel reset button: back to NextZXOS without
 re-running the boot chain; does nothing while the firmware still holds
-config mode, or after a direct **--load** where the firmware never ran),
-Machine Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 / 14 / 28
-MHz - the Next’s own clock), Emulator Speed (0.5x / 1x / 2x / 4x /
-custom % - the host-side throttle).
+config mode. After a direct **--load** it resets into 48K BASIC and
+discards the loaded program, because that boot never ran the firmware
+and so has no NextZXOS to return to - use Power Reset there), Machine
+Type (48K / 128K / +3 / Next), CPU Speed (3.5 / 7 / 14 / 28 MHz - the
+Next’s own clock), Emulator Speed (0.5x / 1x / 2x / 4x / custom % - the
+host-side throttle).
 
 **Input**  
 Joy 1 Source (port 0x1F) and Joy 2 Source (port 0x37), each selecting

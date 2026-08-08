@@ -68,8 +68,9 @@ menu and on the toolbar: **Power Reset** (Alt+R, same as F1) is a power
 off/on cold boot that re-runs the whole boot chain; **Soft Reset** (same as
 F4) is the front-panel reset button — it returns to NextZXOS without
 re-running the boot chain. Soft Reset does nothing while the firmware is
-still booting, or after a direct `--load` (the firmware never ran there, so
-there is no NextZXOS to return to — use Power Reset).
+still booting. After a direct `--load` it resets into 48K BASIC and discards
+the program you loaded: that boot never ran the firmware, so there is no
+NextZXOS to come back to — use Power Reset there.
 
 ## Joysticks and gamepads
 

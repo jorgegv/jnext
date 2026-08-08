@@ -2168,6 +2168,16 @@ static void test_group_d3f_nits() {
         // running through rebuild_for_type at the same time as the
         // tim_sel commit). Then write NR 0x03 = 0xB1: bit7=1 commit gate,
         // tim_sel=3 (+3 timing), typ_sel=1 (48K type).
+        //
+        // GH #226: the typ_sel commit at VHDL:5137-5145 is gated on
+        // nr_03_config_mode='1', so enter config mode first — exactly the
+        // two-step tbblue.fw performs. This row used to inherit config mode
+        // from init()'s FPGA power-on default (VHDL:1102), which a
+        // firmware-less boot now clears as the IPL does. Writing "111" is the
+        // VHDL:5147-5149 entry and disturbs neither axis (machine_type takes
+        // the :5143 `when others => null` arm; the :5124 timing update needs
+        // bit 7 set).
+        emu.nextreg().write(0x03, 0x07);
         emu.nextreg().write(0x03, 0xB1);
         emu.run_frame();  // commit pending → effective machine_timing.
 
@@ -2222,7 +2232,9 @@ static void test_group_d3f_nits() {
         Emulator emu;
         build_next_emulator(emu);  // Next mode
 
-        // tim_sel=+3, typ_sel=48K — same as NIT-01 above.
+        // tim_sel=+3, typ_sel=48K — same as NIT-01 above, including the
+        // GH #226 config-mode entry the typ_sel commit needs (VHDL:5137).
+        emu.nextreg().write(0x03, 0x07);
         emu.nextreg().write(0x03, 0xB1);
         emu.run_frame();
 

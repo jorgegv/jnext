@@ -6203,6 +6203,39 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // asserts both mirrors it establishes.
     if (cfg.type == MachineType::ZXN_ISSUE2 && mmu_.boot_rom_enabled()) {
         mmu_.set_config_mode(nextreg_.nr_03_config_mode());
+    } else if (!mmu_.boot_rom_enabled() && !preserve_memory) {
+        // FIRMWARE-LESS COLD BOOT — do the IPL's own NR 0x03 commit (GH #226).
+        //
+        // `nr_03_config_mode` is '1' only as an FPGA-configuration-time signal
+        // initialiser (VHDL zxnext.vhd:1102). It has no reset clause, and its
+        // ONLY mutator is the NR 0x03 write handler at :5147-5151 — which on
+        // real hardware the IPL reaches within microseconds of power-on. There
+        // is no way for silicon to sit in config_mode with no firmware running.
+        //
+        // jnext can. The boot-ROM overlay above is gated on ZXN_ISSUE2 + an SD
+        // image + an EMPTY --load, so every `--load` session and every
+        // `--machine 48k/128k/plus3` session skips tbblue.fw entirely; nothing
+        // writes NR 0x03, and the power-on '1' stood for the whole session.
+        // Three visible consequences, all from that one bit: host F4 was
+        // swallowed by the VHDL:6370 gate (`nr_02_soft_reset <=
+        // hotkey_soft_reset AND NOT nr_03_config_mode`), F9/F10 were dead
+        // because the same bit force-clears every NMI latch each tick
+        // (NmiSource::set_config_mode), and every config-mode-only register
+        // (NR 0x0A bits 7:5, 0x10, 0x11, 0x06 bit 2) stayed writable for the
+        // whole run.
+        //
+        // Commit exactly what the skipped firmware would have: one NR 0x03
+        // write of this machine's type field. `nr_03_machine_type()` is the
+        // typ_sel just installed for this same cold boot at the top of init()
+        // — read back rather than recomputed so the two cannot drift — and it
+        // is the same bits[2:0] the VHDL state machine at :5147-5151 consumes
+        // (any value except "111"/"000" clears the mode).
+        //
+        // Gated on !preserve_memory: a SOFT reset must keep PRESERVING
+        // config_mode. VHDL has no reset clause for it (see the G62 note in
+        // NextReg::reset()), so re-committing here would clobber a firmware
+        // that had deliberately re-entered config mode.
+        nextreg_.apply_nr_03_config_mode_transition(nextreg_.nr_03_machine_type());
     }
 
     // Sync ROM3-selected into DivMmc (Task 7 Branch B). On hard reset the

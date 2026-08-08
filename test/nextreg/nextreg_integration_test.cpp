@@ -1035,9 +1035,25 @@ static void test_reset_domain_e3_and_8c() {
     // program, not about a mechanism.)
 
     // CMG-01 — the `mmu_.boot_rom_enabled()` clause. A Next start with NO boot
-    // ROM is what a `--load` run gets: no firmware drives NR 0x03, so the NextReg
-    // latch keeps its zxnext.vhd:1102 power-on '1' while the Mmu mirror must
-    // stay at its own power-on false. The mirrors DISAGREEING is correct here.
+    // ROM is what a `--load` run gets: no firmware drives NR 0x03, so the Mmu
+    // mirror must stay at its own power-on false and the ROM window must stay
+    // read-only.
+    //
+    // GH #226 changed the OTHER side of this row. The NextReg latch used to
+    // keep its zxnext.vhd:1102 power-on '1' here — the mirrors DISAGREEING,
+    // which this row asserted as correct. That was wrong about hardware: :1102
+    // is an FPGA-configuration-time initialiser with no reset clause, and the
+    // IPL clears it within microseconds via :5147-5151, so silicon cannot sit
+    // in config mode with no firmware running. Emulator::init() now performs
+    // that commit itself for a firmware-less cold boot, so the latch reads '0'
+    // and the two AGREE. The clause under test is unaffected: it is about
+    // whether the mirror gets ARMED, and the consequence asserted below (a
+    // write into the ROM window is DROPPED, zxnext.vhd:3044-3050) is unchanged.
+    //
+    // The row keeps its teeth against dropping the clause because of ORDER:
+    // the config-mode commit lives in the ELSE arm, so an `if` that fired
+    // without the `boot_rom_enabled()` check would run BEFORE any commit and
+    // arm the mirror from the still-'1' latch — `!mirror` then fails.
     //
     // Precision about the fixture: the boot ROM is loaded only when
     // `cfg.type == ZXN_ISSUE2 && !cfg.sd_card_image.empty() && cfg.load_file.empty()`
@@ -1056,13 +1072,13 @@ static void test_reset_domain_e3_and_8c() {
         const uint8_t readback = emu.mmu().read(0x0000);
         check("CMG-01",
               "a Next start with NO boot ROM leaves the Mmu config_mode mirror "
-              "at its power-on false though the NextReg latch still reads its "
-              "power-on '1' [zxnext.vhd:1102], so a write into the still-ROM "
-              "low slot is DROPPED instead of being rerouted into SRAM "
-              "[zxnext.vhd:3044-3050]",
-              !boot_rom && latch && !mirror && rom_slot && readback != 0x42,
+              "at its power-on false, and the NextReg latch agrees because "
+              "init() makes the IPL's own NR 0x03 commit [zxnext.vhd:1102, "
+              ":5147-5151], so a write into the still-ROM low slot is DROPPED "
+              "instead of being rerouted into SRAM [zxnext.vhd:3044-3050]",
+              !boot_rom && !latch && !mirror && rom_slot && readback != 0x42,
               fmt("boot_rom_enabled=%d latch=%d mirror=%d is_slot_rom(0)=%d "
-                  "read(0x0000)=0x%02X (expected 0,1,0,1,not 0x42)",
+                  "read(0x0000)=0x%02X (expected 0,0,0,1,not 0x42)",
                   boot_rom ? 1 : 0, latch ? 1 : 0, mirror ? 1 : 0,
                   rom_slot ? 1 : 0, readback));
     }
