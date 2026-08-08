@@ -503,7 +503,10 @@ target_include_directories(log_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # LOG-08/09 diff Log::SUBSYSTEMS against the man page's LOGGING list, the same
 # both-ways check cli_options_test applies to the flag set (GH #25 branch 4).
 target_compile_definitions(log_test PRIVATE
-    JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md")
+    JNEXT_MAN_SRC="${CMAKE_SOURCE_DIR}/doc/man/jnext.1.md"
+    # LOG-20 reads main.cpp to prove the sink policy is applied before the
+    # first log line (GH #235). Same trick as cli_options_test.
+    JNEXT_MAIN_SRC="${CMAKE_SOURCE_DIR}/src/main.cpp")
 add_test(NAME log_tests COMMAND log_test)
 
 # Audio-clock pacing test (issue #7 / Task 23). Header-only policy under test
