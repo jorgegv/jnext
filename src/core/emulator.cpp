@@ -158,6 +158,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // V20-IM2-01 — reset pulse-mode edge-detect shadow (init path).
     prev_pulse_int_n_ = true;
     keyboard_.reset();
+    // GH #233 — the phantom typist is host-side input state bound to the
+    // keyboard it drives, so it belongs with keyboard_.reset(): a reset
+    // cancels a pending TAP autostart instead of typing LOAD"" into the
+    // machine that came up after it. Pre-fix the call lived ONLY in
+    // Emulator::reset() (the hard-reset path), so a soft reset — which
+    // routes through init(preserve_memory=true) and never through
+    // reset() — left an armed typist running.
+    //
+    // Unconditional (no preserve_memory guard) and safe against the one
+    // ordering that could disarm a legitimate autostart: `arm()` has a
+    // single caller, Emulator::load_tap(), and every load path runs it
+    // strictly AFTER init(). The frontend cold boot re-inits the machine
+    // first and only then schedules the load
+    // (platform/emulator_boot.h:176-181), the CLI does the same via
+    // set_pending_load(), and load_tap() itself calls no reset/init.
+    phantom_typist_.reset();
     // Input subsystem Phase 1 scaffold (Task 3). See src/input/*.
     joystick_.reset();
     mouse_.reset();
