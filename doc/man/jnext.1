@@ -701,6 +701,13 @@ stays reserved for the program\(cqs own outbound connection, so opening
 a server never costs it the ability to dial out.
 \f[CR]AT+CIPMUX\f[R] cannot be changed while anything is connected.
 .PP
+A connected client that sends nothing for \f[B]180 seconds\f[R] is hung
+up on and the program is told \f[CR]<id>,CLOSED\f[R], which is what a
+real ESP\-01 does and the usual reason an idle debug session dies.
+\f[CR]AT+CIPSTO=<seconds>\f[R] changes the window (0\-7200, and \f[B]0
+means never\f[R]); like the real module, jnext forgets the setting on a
+reset.
+.PP
 Still not emulated: TLS and transparent mode (\c
 .UR https://github.com/jorgegv/jnext/issues/154
 issue #154

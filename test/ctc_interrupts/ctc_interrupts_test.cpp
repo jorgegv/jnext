@@ -2168,9 +2168,15 @@ static bool build_emulator(Emulator& emu, MachineType type) {
 // Emulator::step_one_instruction() path until pulse_int_n() rises again,
 // returning the LOW width in CPU T-states. Negative sentinel on setup
 // failure. `speed` selects the CPU clock.
-static int measure_pulse_width_tstates(MachineType type, CpuSpeed speed) {
+static int measure_pulse_width_tstates(MachineType type, CpuSpeed speed,
+                                       bool soft_reset_first = false) {
     Emulator emu;
     if (!build_emulator(emu, type)) return -1;
+    // GH #237 — optionally take the machine through a real RESET_SOFT
+    // (NR 0x02 bit 0) before measuring. Everything below re-runs after it,
+    // because the reset re-enters Emulator::init() and re-seeds the CPU
+    // speed, RAM and IM2 state this measurement depends on.
+    if (soft_reset_first) nr_write(emu, 0x02, 0x01);
     emu.clock().set_cpu_speed(speed);
 
     // Uncontended NOP field at 0x8000 (RAM on both machines at reset); PC
@@ -2282,6 +2288,37 @@ static void test_pulse_width_speed_invariance() {
               "pulse LOW width is CPU-speed invariant "
               "[zxnext.vhd:2035-2044 i_CLK_CPU domain]",
               w_slow == w_fast && w_slow == c.terminal, d);
+    }
+
+    // PW-GH237-128K-SOFT — the same gate, after a RESET_SOFT.
+    //
+    // Every row above measures a COLD boot, so none of them sees what the
+    // gate does once the machine has been soft-reset. GH #232 rerouted this
+    // gate from cfg.type onto `init_tim_mode`, i.e. onto
+    // nextreg_.nr_03_machine_timing() — correct per zxnext.vhd:2033/:5761-5776,
+    // but NextReg::reset() was still rewriting that field to "011" (+3) on
+    // every reset. A 128K machine therefore came out of RESET_SOFT claiming
+    // +3 timing and took the 32-cycle branch, where :2033 wants 36:
+    // nr_03_machine_timing has no reset clause in the VHDL (:1099 initialiser
+    // only, absent from :4926-5111), so tim_sel is still "010" and
+    // machine_timing_128 is still the one-hot that is set.
+    //
+    // 48K is deliberately not given a companion row: its cold-boot and
+    // clobbered-to-+3 values are both 32, so such a row would assert nothing.
+    {
+        const int cold = measure_pulse_width_tstates(MachineType::ZX128K,
+                                                     CpuSpeed::MHZ_3_5);
+        const int soft = measure_pulse_width_tstates(MachineType::ZX128K,
+                                                     CpuSpeed::MHZ_3_5,
+                                                     /*soft_reset_first=*/true);
+        check("PW-GH237-128K-SOFT",
+              "128K keeps the 36-cycle /INT pulse width across RESET_SOFT — "
+              "tim_sel \"010\" survives the reset, so machine_timing_128 is "
+              "still the one-hot and the terminal still needs pulse_count(2) "
+              "[zxnext.vhd:2033; :1099 + :4926-5111 no reset clause]",
+              cold == 36 && soft == 36,
+              "cold=" + std::to_string(cold) + " after_soft_reset=" +
+                  std::to_string(soft) + " (want 36; 32 = the +3/48K branch)");
     }
 }
 

@@ -1187,6 +1187,14 @@ private:
     /// zxnext.vhd:6694-6703).
     void repush_video_timing_from_machine_timing();
 
+    /// GH #237 — program VideoTiming and everything derived from it (the
+    /// master-cycle frame geometry `timing_`, the CPU-side frame geometry
+    /// and ULA counter origins, and the Copper's vertical wrap) from ONE
+    /// (tim_sel, 50/60 Hz) pair. Shared by Emulator::init() and by
+    /// repush_video_timing_from_machine_timing(), so the boot seed and the
+    /// runtime frame-edge commit cannot program different constants.
+    void apply_video_timing(MachineTimingMode mode, bool refresh_60hz);
+
     /// True between the start of a frame and its completion. The debugger pauses by
     /// returning from inside run_frame()'s loop, so the next call must RESUME that frame,
     /// not restart it.

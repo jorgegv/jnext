@@ -22,12 +22,12 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Input (integration)   |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CTC (integration)     |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CTC (integration)     |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      188 |      188 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 AT command engine |      269 |      269 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 AT command engine |      302 |      302 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -42,7 +42,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ULA Video             |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
-| VideoTiming           |       43 |       43 |      0 |       0 |    100% | 🟢 All tests pass. |
+| VideoTiming           |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -106,6 +106,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7026** | **7026** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7067** | **7067** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

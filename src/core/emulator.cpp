@@ -469,12 +469,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // needed (matches the port_7ffd_io_en_ pattern).
     contention_.set_port_ulap_io_en((nextreg_.cached(0x85) & 0x01) != 0);
 
-    // VideoTiming — production-wired raster counter used by the
-    // contention tick path (Phase-2 wiring 2026-04-26). Mirrors VHDL
-    // zxula_timing per-machine c_max_hc / c_max_vc / c_int_h / c_int_v.
-    // The 60 Hz override flag is not yet plumbed through EmulatorConfig
-    // (jnext defaults to 50 Hz only); pass `false` here.
-    video_timing_.init(cfg.type, /*refresh_60hz=*/false);
+    // GH #237 — the VideoTiming seed used to live HERE, as
+    // `video_timing_.init(cfg.type, false)`. It now runs below, once
+    // `init_tim_mode` (the NR 0x03 tim_sel axis) has been established, via
+    // apply_video_timing(). See the comment at that call site.
 
     // Task 58 — seed the effective (frame-edge-latched) copy of NR 0x05
     // bit 0 from the pending cache. VHDL zxnext.vhd:6702 latches
@@ -616,14 +614,66 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // were retired in lockstep.
     z80_set_contention_runtime(&contention_, &mmu_, cfg.type);
 
-    // Task 50 — the contention gate is written against the ULA's own
+    // GH #237 — seed ALL the raster/interrupt geometry from `init_tim_mode`
+    // (the NR 0x03 tim_sel axis), not from the CLI MachineType.
+    //
+    // The VHDL leaves no room for interpretation here: zxula_timing's
+    // `i_timing` port is driven by `eff_nr_03_machine_timing` and by nothing
+    // else (zxnext.vhd:6721), that latch is loaded from
+    // `nr_03_machine_timing` at every video_frame_sync (:6703), and
+    // `nr_03_machine_timing` is a plain FF with an initial value only
+    // (:1099 `:= "011"`), absent from the master reset block (:4926-5111).
+    // `machine_type_*` (the typ_sel axis, :5741-5757) reaches the raster
+    // generator through NO path at all. So the Next boots at tim_sel "011",
+    // zxula_timing takes the `i_timing(1)='1'` branch and, within it, the
+    // `i_timing(0)='1'` arm: `c_int_h <= 136+2-12` = 126
+    // (zxula_timing.vhd:186-190), NOT the 128 of the `i_timing(0)='0'` arm.
+    //
+    // Pre-fix this ran ~140 lines above as `video_timing_.init(cfg.type,
+    // false)`, whose `default_machine_timing_for()` maps ZXN_ISSUE2 to
+    // Timing128 — contradicting the "011" init() itself seeds into NR 0x03
+    // just above, and firing the Next's ULA interrupt one T-state late.
+    //
+    // Only `c_int_h` differs between the 128K and +3 arms: every other
+    // constant in that branch (c_max_hc 455, c_max_vc 310, c_min_hactive
+    // 136, c_min_vactive 64, c_int_v 1, and the blank/sync/hdmi group) sits
+    // OUTSIDE the `if i_timing(0)` and is shared, at 50 Hz (:182-204) and at
+    // 60 Hz (:216-238) alike.
+    //
+    // apply_video_timing() is the same helper the runtime frame-edge commit
+    // uses, so the master-cycle frame length (`timing_`), the CPU-side frame
+    // geometry and the Copper wrap can never disagree with VideoTiming — a
+    // real hazard now that the mode is register-derived and no longer
+    // pinned to cfg.type. It must follow z80_set_contention_runtime() above,
+    // which (re)derives the CPU frame geometry from cfg.type.
+    //
+    // That ordering does more than avoid a clash, and the reach is worth
+    // stating plainly. Before this change `z80_set_frame_geometry()` had
+    // exactly ONE call site in the whole file — inside
+    // repush_video_timing_from_machine_timing(), which never runs at boot
+    // (begin_new_frame() only calls it when the effective tim_sel CHANGES,
+    // and at boot it does not). So FUSE's frame geometry was seeded solely
+    // by z80_set_contention_runtime()'s `machine_timing(cfg.type)`, i.e. by
+    // the CLI machine type. Routing init() through apply_video_timing() is
+    // therefore the first code to make the CPU-side frame geometry follow
+    // the NR 0x03 tim_sel axis at boot, exactly as zxula_timing does
+    // (zxnext.vhd:6721). It is a no-op for every hard reset — tim_sel is
+    // seeded from cfg.type there and the two agree — and it is what keeps a
+    // soft-reset-preserved Pentagon or 48K tim_sel from leaving the CPU
+    // counting a different frame from the raster. Rows VT-GH237-05/07
+    // assert the `emu.timing()` side of it.
+    //
+    // Task 50 — apply_video_timing() also hands the CPU side the two ULA
+    // counter origins. The contention gate is written against the ULA's own
     // display-relative counters (VHDL i_hc/i_vc, reset at the start of the
     // ACTIVE DISPLAY — zxula_timing.vhd:423,441-452), but the CPU callbacks
     // derive raw frame-relative (hc, vc) from the FUSE T-state counter.
-    // Hand the CPU side the two origins so it can rebase before the gate.
-    // Must follow video_timing_.init() above, which establishes them.
-    z80_set_ula_counter_origins(video_timing_.ula_prefetch_origin_hc(),
-                                video_timing_.display_origin().vc);
+    //
+    // The 60 Hz axis is deliberately NOT taken from NR 0x05 bit 2 here:
+    // init() has always seeded 50 Hz, and begin_new_frame() already
+    // re-pushes 60 Hz on the first frame edge when the pending bit says so
+    // (`pend_60hz != video_timing_.refresh_60hz()`). Out of scope for #237.
+    apply_video_timing(init_tim_mode, /*refresh_60hz=*/false);
 
     // Clear all port dispatch handlers before re-registering them.
     // Without this, reset() → init() would duplicate every handler, causing
@@ -7002,8 +7052,6 @@ void Emulator::stop_rzx_recording()
 
 void Emulator::repush_video_timing_from_machine_timing()
 {
-    const MachineTimingMode mode = contention_.machine_timing();
-
     // VideoTiming constants (VHDL zxula_timing.vhd c_*, keyed on i_timing
     // AND i_50_60).
     //
@@ -7022,7 +7070,17 @@ void Emulator::repush_video_timing_from_machine_timing()
     // only ever initialised to false — a runtime NR 0x05 bit-2 write
     // (or the F3 hotkey, which routes through nextreg_.write(0x05,..))
     // never re-initialised the frame geometry.
-    const bool refresh_60hz = (nextreg_.cached(0x05) & 0x04) != 0;
+    apply_video_timing(contention_.machine_timing(),
+                       (nextreg_.cached(0x05) & 0x04) != 0);
+}
+
+// GH #237 — the body below was the tail of
+// repush_video_timing_from_machine_timing(); it is now shared with
+// Emulator::init(), which seeds the very same constants from the very same
+// tim_sel axis. One helper, so the five things it programs cannot drift
+// apart between the boot path and the runtime frame-edge commit path.
+void Emulator::apply_video_timing(MachineTimingMode mode, bool refresh_60hz)
+{
     video_timing_.init_timing(mode, refresh_60hz);
 
     // Master-cycle frame geometry (`timing_`) + CPU-side line geometry, both
