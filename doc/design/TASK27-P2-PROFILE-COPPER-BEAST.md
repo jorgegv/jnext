@@ -26,6 +26,17 @@ against `objdump -d` of the exact binary. The three candidate divide instruction
 in the disassembly and their sample skid summed by offset range (x86 retirement skid lands the
 sample a few bytes past the slow op — accounted for).
 
+> **Lambda-thunk attribution correction (2026-08-09).** Everywhere below that this report
+> names a `lambda#N` thunk, it named the **wrong callback** and read the number as dispatch
+> cost. `lambda#5` is **`cpu_.on_m1_prefetch`** and `lambda#1` (the `(uint16_t, uint8_t)` one)
+> is **`cpu_.on_m1_cycle`** — verified by disassembly of the v0.99.144 release binary. Neither
+> has anything to do with `VideoTiming::advance` or with contention, and neither number is
+> `std::function` overhead: with `-O2` the callback body is inlined *into* the `_M_invoke`
+> thunk, so the thunk's self-time **is** the callback's work. Full evidence, and the reason
+> this misreading is easy to make, in
+> [TASK27-PROFILE-REPORT.md §4.1 and §1 caveat (d)](TASK27-PROFILE-REPORT.md). The affected
+> rows below are annotated in place; **the measurements are unchanged, only their labels.**
+
 `tick_devices_after_instruction` and `Copper::execute` are the modern (post-Wave-1) symbols;
 P1's `Emulator::run_frame (self)` copper attribution now lives inside these two. The C9 loop
 body (`tick_copper_for_master_cycles`, `emulator.cpp:7821-7859`) is **inlined into**
@@ -55,11 +66,11 @@ disassembly by the loop back-edge `jb …+0x40` at +0x89 and the `call Copper::e
 | 4 | `VideoTiming::advance` | **6.72** | **NEWCOMER** | per-instruction ULA hc/vc advance; **two `idiv` inside** (0x4bb080, 0x4bb130) |
 | — | *(of #1)* **C9 copper div/mod loop body, +0x40..0x89** | **6.22** | **C9** | `divq` +0x61, `idiv` +0x78 per master cycle |
 | 5 | `Emulator::step_one_instruction` | 6.14 | — | |
-| 6 | per-cycle video-timing dispatch `lambda#5` glue | 5.77 | (Track B) | `std::function` thunk into VideoTiming::advance |
+| 6 | ~~per-cycle video-timing dispatch `lambda#5` glue~~ **→ `cpu_.on_m1_prefetch` body** | 5.77 | ~~(Track B)~~ **C-M1** | **Corrected 2026-08-09:** not a thunk into `VideoTiming::advance` (that is a direct member call, never behind a `std::function`) and not dispatch cost — it is the `on_m1_prefetch` callback's own DivMMC-automap / Multiface M1 work, inlined into the thunk |
 | 7 | `sync_regs_from_fuse` | 3.61 | (Track B / C10) | |
 | 8 | `Mixer::accumulate` | 3.52 | — | |
 | 9 | `UartChannel::tick` | 3.02 | (C1, shipped) | |
-| 10 | contention `lambda#1` glue | 2.86 | (Track B) | |
+| 10 | ~~contention `lambda#1` glue~~ **→ `cpu_.on_m1_cycle` body (IM2 RETI/RETN decoder)** | 2.86 | ~~(Track B)~~ **C-IM2** | **Corrected 2026-08-09:** contention is reached through a plain global pointer (`z80_set_contention_runtime`, `z80_cpu.cpp:1336`) — there is **no contention `std::function` thunk in the binary at all** |
 | 11 | **`Renderer::composite_scanline`** | **2.45** | **C8** | per-pixel `switch(layer_priority_)` |
 | 12 | `Ctc::tick` | 2.43 | (C1, shipped) | |
 | — | `Tilemap::render_scanline` | **~0** (< 0.3) | **C7** | **copper-demo has no active tilemap — C7 is inert here** |
@@ -72,7 +83,7 @@ disassembly by the loop back-edge `jb …+0x40` at +0x89 and the `call Copper::e
 | 2 | `Copper::execute` | **12.26** | *(not C9)* | beast's Copper program is heavy — irreducible own work |
 | 3 | `Z80Cpu::execute` | 8.68 | — | |
 | — | *(of #1)* **C9 copper div/mod loop body, +0x40..0x89** | **6.57** | **C9** | |
-| 4 | per-cycle video-timing `lambda#5` glue | 5.70 | (Track B) | |
+| 4 | ~~per-cycle video-timing `lambda#5` glue~~ **→ `cpu_.on_m1_prefetch` body** | 5.70 | ~~(Track B)~~ **C-M1** | corrected 2026-08-09, as §3.1 rank 6 |
 | 5 | **`Tilemap::render_scanline`** | **5.48** | **C7** | per-pixel `%wrap_x`, `/8`, `%8`, 2× `vram_read` (`tilemap.cpp:429-512`) |
 | 6 | **`Renderer::composite_scanline`** | **5.15** | **C8** | |
 | 7 | `Emulator::step_one_instruction` | 4.63 | — | |
@@ -133,7 +144,8 @@ remove all of it — `Copper::execute`'s own 8–12% and the interpreter fabric 
 
 The residual is the same floor P1 named for boot-nextzxos, and it is **larger** on games:
 `Z80Cpu::execute` + `tick_devices` fan-out + `step_one_instruction` + `sync_regs` + the two
-per-cycle dispatch `lambda` thunks + `fuse_z80_*` + `Mmu::read` + `contend_read`, **plus**
+per-instruction M1 callback thunks (`on_m1_prefetch`, `on_m1_cycle` — see the §1 correction;
+they are callback *bodies*, not dispatch) + `fuse_z80_*` + `Mmu::read` + `contend_read`, **plus**
 `Copper::execute`'s own irreducible WAIT/MOVE work (8.35% copper-demo, **12.26% beast**). Nothing
 in C7/C8/C9 restructures that block. **Reaching 400% on copper-demo/beast is not achievable with
 Track A alone** — it would need the deeper fabric work (LTO/IPO, dispatch-glue devirtualisation,
@@ -144,14 +156,19 @@ is **margin**, not clearing the games' 400% bars.
 
 `VideoTiming::advance(int)` (`src/video/timing.cpp:91`) is **6.72% on copper-demo** (larger than
 both C8 and C7) and 2.37% on beast — combined **9.1%**, the biggest un-listed lever on the copper
-workload. It is called **per instruction** through a `std::function` thunk (`lambda#5`, itself
-5.77% / 5.70%) and contains **two `idiv` instructions** — the same divide-per-tick anti-pattern
+workload. It is called **per instruction** ~~through a `std::function` thunk (`lambda#5`, itself
+5.77% / 5.70%)~~ — **corrected 2026-08-09: as a direct member call** (`emulator.cpp`,
+`video_timing_.advance(tstates)` in `step_one_instruction`); it was never behind a
+`std::function`, and `lambda#5` is `on_m1_prefetch`, an unrelated callback. `advance()`
+contains **two `idiv` instructions** — the same divide-per-tick anti-pattern
 as C9 and the shipped C3+C-DIV, but on a *different* code path (the ULA `hc/vc` line-int counter,
 not the contention shim). P1 bucketed it into "video render" and never isolated it.
 
 **It is not a Track-A (copper/beast) item** — it is cross-cutting (fires on every Next workload,
 including boot-nextzxos) and belongs with **Track B / a C-DIV-family follow-up**: strength-reduce
-its `% lines_per_frame` and collapse the per-instruction `std::function` thunk to a direct call.
+its `% lines_per_frame` ~~and collapse the per-instruction `std::function` thunk to a direct
+call~~ *(second half struck 2026-08-09 — there is no thunk to collapse; the call is already
+direct)*.
 Flagging it because on copper-demo it outweighs the entire C7+C8 pair. Recommend a dedicated
 before/after on boot-nextzxos + copper-demo before committing to it.
 
@@ -185,14 +202,23 @@ Re-measured live on the same host (core-0 pinned, machine quiet), current `main`
 
 The modest gain over the Wave-2 report is because `VideoTiming::advance` was since **gated out of the
 free-running loop** (`emulator.cpp` — `if (debug_state_.active()) video_timing_.advance(...)`), removing
-§6's 6.7%-copper-demo newcomer **and** its per-instruction `std::function` thunk (lambda#5, ~5.8%). That
-was the single largest safe lever §5/§6 flagged, and it is now spent.
+§6's 6.7%-copper-demo newcomer ~~**and** its per-instruction `std::function` thunk (lambda#5, ~5.8%)~~.
+That was the single largest safe lever §5/§6 flagged, and it is now spent.
+
+> **Corrected 2026-08-09.** The struck clause is wrong twice over, and the gain it explains is
+> correspondingly smaller. `VideoTiming::advance` never had a `std::function` thunk — it is a
+> direct member call — so the gate removed **only** the 6.7% / 2.4% of `advance` itself, not a
+> further ~5.8%. And **`lambda#5` is `cpu_.on_m1_prefetch`, which is still live and still runs
+> once per M1 fetch** in today's binary (`{lambda(unsigned short)#5}::_M_invoke` at `0x4750b0`,
+> v0.99.144). Its cost was never `advance`'s to give up, and gating `advance` could not and did
+> not remove it. The WONT verdict is unaffected — the re-measured 163.5 / 178.0 fps figures are
+> the *outcome*, measured directly, and do not depend on this explanation.
 
 ### Ways forward evaluated (and why none is taken)
 
 | option | effort | risk | expected gain | reaches 400%? |
 |---|---|---|---|---|
-| Devirtualise the remaining per-cycle **contention** thunk (Track B, lambda#1) | Med | Med (hot loop + FUSE callback boundary) | ~2–3% | No |
+| ~~Devirtualise the remaining per-cycle **contention** thunk (Track B, lambda#1)~~ — **void, see the 2026-08-09 correction**: there is no contention thunk; `lambda#1` is `on_m1_cycle`, and devirtualising it is worth ≈ 0.5% at most, not 2–3% | Med | Med (hot loop + FUSE callback boundary) | **≲0.5%** *(was "~2–3%")* | No |
 | Faster/alternative Z80 core (internal VHDL-derived core, INTERNAL-Z80N-CORE-PLAN) | Weeks | High | **Negative** — cycle-accurate microcode stepping is ~4× *slower* per that plan | No (hurts) |
 | Z80N JIT | 6–12 mo | High | ~10%, fragmented by contention/interrupts | No (already rejected) |
 | Cycle-accurate rewrite | Months | Very high | Negative — more work per cycle | No (counterproductive) |
@@ -206,6 +232,7 @@ cost is irreducible — it is the emulation of what the demo asks the hardware t
 
 **NOT WORTH IT.** User impact is negligible — both demos run flawlessly at 100% real-time; the shortfall is
 confined to *fast-forward on the two heaviest demos*, where they still achieve ~3×, and every other workload
-(boot-nextzxos 284 fps, ordinary games) already exceeds 400%. The only remaining safe lever (~2–3%) does not
+(boot-nextzxos 284 fps, ordinary games) already exceeds 400%. The only remaining safe lever
+(**≲0.5%** after the 2026-08-09 correction — stated as "~2–3%" above; the verdict only hardens) does not
 close the gap, and every gap-closing option is a months-long, high-risk core change with uncertain or
 *negative* payoff. Marked **WONT**; no code change. This closes Task 65.
