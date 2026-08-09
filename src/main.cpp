@@ -54,153 +54,75 @@ static void crash_handler(int sig) {
 // where a diagnostic belongs. Keep it that way: making an error path call this
 // would move the diagnostic to stdout too.
 static void print_usage(const char* prog) {
+    // GENERATED FROM cli::OPTIONS — see the Option::help comment in
+    // cli_options.h for why. Nothing about the flag set is written here: add a
+    // row there and it appears in this output automatically, which is what
+    // stopped being true long enough for GH #246's three flags to be missing.
+    //
+    // Layout: the name column is sized from the widest spelling actually in the
+    // table, so it cannot drift out of alignment when a long flag is added.
     fprintf(stdout,
         "  jnext is a ZX Spectrum Next emulator.\n"
         "\n"
         "  Usage: %s [options] [file]\n"
         "\n"
-        "  [file]               Program to load (NEX, TAP, TZX, SNA, SZX, Z80, WAV, RZX).\n"
-        "                       Equivalent to --load FILE, so 'jnext game.tap' just works.\n"
-        "  --log-level SPEC     Log levels: a bare level sets all subsystems (e.g. warn),\n"
-        "                       name=level sets one (e.g. cpu=trace); mix them, applied\n"
-        "                       left to right (e.g. warn,emulator=debug)\n"
-        "  --log-file FILE      Write the log to FILE instead of the console. Truncated on\n"
-        "                       every run; jnext exits non-zero if FILE cannot be opened.\n"
-        "                       Set NO_COLOR to a non-empty value for uncoloured console logs.\n"
-        "  --inject FILE        Load raw binary FILE into RAM (see --inject-org, --inject-pc)\n"
-        "  --inject-org ADDR    Load address for --inject (hex, default 8000)\n"
-        "  --inject-pc ADDR     Entry point for --inject (hex, default = --inject-org value)\n"
-        "  --inject-delay N     Wait N frames before injecting (default 0; use ~100 if the\n"
-        "                       binary calls ROM routines that need system variable setup)\n"
-        "  --load FILE          Load a program file (auto-detect format by extension)\n"
-        "                       Supported: .nex, .sna, .szx, .z80, .tap, .tzx, .wav, .rzx\n"
-        "                       (.rzx is accepted here and plays back, as --rzx-play)\n"
-        "  --nex-args LINE      Argument line for a NEX V1.3 program: placed in the CLI\n"
-        "                       buffer its header declares, with DE pointing at it.\n"
-        "                       Truncated to that buffer's size. V1.3 files only.\n"
-        "  --experimental-nex-v1.3  Allow loading NEX V1.3 files. V1.3 is an experimental\n"
-        "                       format and is NOT supported in any way; without this flag\n"
-        "                       a NEX above V1.2 is refused. V1.0-V1.2 are unaffected.\n"
-        "  --sdcard FILE        Mount SD card image FILE (.img). If omitted, jnext falls\n"
-        "                       back to ~/.jnext/sdcard/ (offering to download the image).\n"
-        "  --sdcard-download-confirm  Skip the download prompt and proceed automatically\n"
-        "  --sdcard-readonly       Open the SD image read-only; the host file is never written\n"
-        "  --sdcard-download-force    Force re-download + re-patch of the default-location\n"
-        "                       image (~/.jnext/sdcard/) to recover a corrupted one. Ignored\n"
-        "                       when --sdcard is given (an explicit path always wins).\n"
-        "  --machine TYPE       Machine type: 48k, 128k, plus3, next (default)\n"
-        "  --delayed-screenshot FILE   Save a PNG screenshot after a delay\n"
-        "  --delayed-screenshot-time N Delay in seconds (default 10)\n"
-        "  --delayed-screenshot-frames N  Delay in frames (overrides --delayed-screenshot-time)\n"
-        "  --delayed-screenshot-layers LIST  Layers to compose into the screenshot:\n"
-        "                       a comma-separated list of ula, layer2, sprites, tiles, all\n"
-        "                       (default: all). Excluded layers are treated as disabled, so\n"
-        "                       the rest still composite per NR 0x15 priority and the NR 0x4A\n"
-        "                       fallback colour shows through. Excluding 'ula' also removes\n"
-        "                       the border (the ULA draws it). E.g. --delayed-screenshot-layers\n"
-        "                       layer2 captures Layer 2 alone; 'ula,sprites' captures both.\n"
-        "  --delayed-automatic-exit N  Exit the emulator after N seconds\n"
-        "  --delayed-automatic-exit-frames N  Exit after N frames (overrides\n"
-        "                       --delayed-automatic-exit)\n"
-        "  --delayed-snapshot FILE     Headless-only: save a snapshot after a delay (frames);\n"
-        "                       format chosen by FILE's extension (.szx/.nex/other->.sna)\n"
-        "  --delayed-snapshot-frames N Delay in frames for --delayed-snapshot (default 0)\n"
-        "  --headless               Run without display/audio (for automated testing)\n"
-        "  --benchmark N            Headless-only: run exactly N frames uncapped, then\n"
-        "                       print one machine-parseable BENCH line (wall s, fps,\n"
-        "                       T-states/s, T-states/frame, CPU speed, host core, build\n"
-        "                       type) plus a human summary to stdout, and exit\n"
-        "  --benchmark-label NAME   Workload label printed verbatim in the BENCH line\n"
-        "                       (default: loaded file's basename, or boot-<machine>).\n"
-        "                       No whitespace (the BENCH line is space-delimited)\n"
-        "  --silent                 Disable all sound output (beeper, AY/YM x3, DAC/\n"
-        "                       Covox/Specdrum). No audio device is opened, and the\n"
-        "                       emulator skips PSG/mixer sample synthesis entirely —\n"
-        "                       can measurably speed up CPU-bound runs. Tape loading\n"
-        "                       (EAR input) is unaffected.\n"
-        "  --tape-realtime          Use real-time tape loading (simulates actual loading speed)\n"
-        "  --tape-save FILE         Append blocks SAVEd via the 48K ROM SA-BYTES routine\n"
-        "                       to FILE (.tap). Trap-based (G33 Phase 1): fires when the\n"
-        "                       ROM save routine at 0x04C2 runs with ROM paged at slot 0.\n"
-        "                       Without this option no SAVE capture happens.\n"
-        "  --magic-breakpoint       Enable magic breakpoints (ED FF / DD 01 trigger debugger)\n"
-        "  --persistent-breakpoints Keep breakpoints armed while the debugger window is\n"
-        "                          closed; a hit reopens it (GUI debugger builds only)\n"
-        "  --esxdos-stub            Intercept RST $08 calls; provide in-memory config I/O\n"
-        "                           and .RUN sibling-NEX chaining without booting NextZXOS\n"
-        "  --esp                    Enable the emulated ESP-01 WiFi module on UART 0.\n"
-        "                           OFF by default: it gives the guest an outbound TCP\n"
-        "                           pipe out of the emulator. Loopback, link-local and\n"
-        "                           cloud-metadata addresses are always refused; your\n"
-        "                           own LAN (RFC1918) is reachable.\n"
-        "  --no-esp                 Force the ESP off for this run, overriding a saved\n"
-        "                           GUI preference that enables it\n"
-        "  --esp-allow HOST         Only let the guest connect to HOST. ONE host per\n"
-        "                           option, repeat it for more (a comma is rejected, not\n"
-        "                           a separator); matching is exact and case-insensitive,\n"
-        "                           and an IP literal must be listed as itself. Without\n"
-        "                           any --esp-allow the guest may name any host.\n"
-        "  --esp-listen-address ADDR Bind AT+CIPSERVER to ADDR (default 127.0.0.1).\n"
-        "                           A numeric IP, never a name. The default means a\n"
-        "                           guest that opens a server is reachable only from\n"
-        "                           this machine; widening it (e.g. 0.0.0.0) exposes\n"
-        "                           the guest to the network and is deliberate.\n"
-        "  --magic-port PORT        Enable magic debug port at PORT (hex, e.g. 0x00FF)\n"
-        "  --magic-port-mode MODE   Magic port output mode: hex, dec, ascii, line (default: hex)\n"
-        "  --record FILE            Record video/audio to FILE (MP4, requires ffmpeg)\n"
-        "  --wav-record FILE        Record mixed stereo audio to a 44.1 kHz PCM WAV;\n"
-        "                           works headless and does not require ffmpeg\n"
-        "  --dac-trace FILE         Record timestamped physical DAC writes to CSV\n"
-        "  --audio-gain-db DB       Host audio gain in dB (-24..+24, default 0);\n"
-        "                           PCM overflow saturates\n"
-        "  --audio-gain-beeper-db DB  Beeper host gain (-24..+24 dB)\n"
-        "  --audio-gain-ay0-db DB   TurboSound AY #0 host gain (-24..+24 dB)\n"
-        "  --audio-gain-ay1-db DB   TurboSound AY #1 host gain (-24..+24 dB)\n"
-        "  --audio-gain-ay2-db DB   TurboSound AY #2 host gain (-24..+24 dB)\n"
-        "  --audio-gain-dac-db DB   DAC-family host gain (-24..+24 dB)\n"
-        "  --rzx-play FILE         Play back an RZX recording file\n"
-        "  --rzx-record FILE       Record input to an RZX file\n"
-        "  --speed PERCENT         Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)\n"
-        "  --when-slow-prefer WHAT What to sacrifice when the host cannot emulate in\n"
-        "                          real time: 'audio' (default: keep the sound smooth,\n"
-        "                          drop video frames) or 'video' (show every frame, run\n"
-        "                          slower than real time, sound stutters)\n"
-        "  --joy1-source SRC       Host source for Joy 1 (port 0x1F): 'sdl' (autodetected\n"
-        "                          gamepad, default) or 'keys' (host arrow keys + Space=fire)\n"
-        "  --joy2-source SRC       Host source for Joy 2 (port 0x37): 'sdl' (default) or 'keys'\n"
-        "                          (only one connector may use 'keys')\n"
-        "  --rewind-buffer-size N  Number of frame snapshots to store for rewind (default 0=off)\n"
-        "  --trace                 Enable the per-instruction trace log (10K-entry ring;\n"
-        "                          implied by --rewind-buffer-size N with N>0)\n"
-        "  --delayed-keypress SECS KEY  Press KEY after SECS seconds (headless only, repeatable)\n"
-        "  --delayed-keypress-frames N KEY  Press KEY after N emulated frames (frames-unit\n"
-        "                               spelling of --delayed-keypress; both forms queue, not override)\n"
-        "                               KEY (case-insensitive): single char (a-z 0-9 . , ; :),\n"
-        "                               ENTER / RETURN / SPACE / UP / DOWN / LEFT / RIGHT,\n"
-        "                               or a compound sym+<char> / caps+<char> (e.g. sym+m = '.')\n"
-        "  --delayed-nmi SECS BUTTON  Press an NMI BUTTON after SECS seconds (headless only,\n"
-        "                               repeatable). BUTTON (case-insensitive) is the label on\n"
-        "                               the real case: nmi (aliases mf, m1) = the NMI button,\n"
-        "                               driven by the Multiface; drive (alias divmmc) = the DRIVE\n"
-        "                               button, driven by DivMMC. RESET is not an NMI button\n"
-        "  --delayed-nmi-frames N BUTTON  Press BUTTON after N emulated frames (frames-unit\n"
-        "                               spelling of --delayed-nmi; both forms queue, not override)\n"
-        "  --compositor-trace FILE  Dump per-pixel compositor trace (CSV) for one frame to FILE\n"
-        "  --compositor-trace-frame N  Target frame for --compositor-trace (default 250)\n"
-        "  --profile               Enable the CPU T-state profiler (Task 21).\n"
-        "                          Allocates an mmap'd histogram and accumulates one\n"
-        "                          entry per executed instruction. On exit the histogram\n"
-        "                          is written to --profile-output. Use\n"
-        "                          'tools/get-function-heatmap.pl -m FILE.map' to join\n"
-        "                          the output against a z88dk .map file.\n"
-        "  --profile-output FILE   Output path for --profile (default: profile.dat)\n"
-        "  --rtc \"YYYY-MM-DD HH:MM:SS\"  Pin the RTC to a fixed date/time (frozen clock)\n"
-        "                          instead of following the host clock. Makes boot\n"
-        "                          screenshots deterministic (regression tests).\n"
-        "                          ISO form YYYY-MM-DDTHH:MM:SS also accepted.\n"
-        "  --help, -h              Print this help and exit\n"
-        "  --version, -V           Print version and exit\n",
+        "  [file]  Program to load (NEX, TAP, TZX, SNA, SZX, Z80, WAV, RZX).\n"
+        "          Equivalent to --load FILE, so 'jnext game.tap' just works.\n"
+        "\n",
         prog);
+
+    // Widest "name ARGS" among the spellings we actually print, capped so that
+    // one very long flag cannot push every description off the screen.
+    std::size_t width = 0;
+    for (const cli::Option& o : cli::OPTIONS) {
+        if (o.doc == cli::Doc::UndocumentedAlias) continue;
+        if (o.doc == cli::Doc::ShortAlias) continue;   // printed on its long form
+        std::size_t w = std::strlen(o.name);
+        if (o.args[0]) w += 1 + std::strlen(o.args);
+        if (w > width) width = w;
+    }
+    const std::size_t MAX_INLINE = 30;
+    if (width > MAX_INLINE) width = MAX_INLINE;
+
+    for (const cli::Option& o : cli::OPTIONS) {
+        // Hidden by design: an alias that exists only so old scripts keep
+        // working must not be advertised (see its row for the reason).
+        if (o.doc == cli::Doc::UndocumentedAlias) continue;
+        // A short alias is shown ON its long form's line, not as its own entry.
+        if (o.doc == cli::Doc::ShortAlias) continue;
+
+        std::string left = o.name;
+        if (o.args[0]) { left += ' '; left += o.args; }
+        // Append any short alias sharing this id, e.g. "--help, -h".
+        for (const cli::Option& a : cli::OPTIONS) {
+            if (a.doc == cli::Doc::ShortAlias && a.id == o.id) {
+                left += ", ";
+                left += a.name;
+            }
+        }
+
+        // The description, one line at a time, indented under the name column.
+        const std::string indent(2 + width + 2, ' ');
+        std::string       first_gap;
+        if (left.size() <= width) first_gap.assign(width - left.size() + 2, ' ');
+        else                      first_gap = "\n" + indent;   // too long: wrap
+
+        const char* p = o.help;
+        bool        first = true;
+        while (*p) {
+            const char* nl = std::strchr(p, '\n');
+            const std::string line = nl ? std::string(p, nl) : std::string(p);
+            if (first) {
+                fprintf(stdout, "  %s%s%s\n", left.c_str(), first_gap.c_str(), line.c_str());
+                first = false;
+            } else {
+                fprintf(stdout, "%s%s\n", indent.c_str(), line.c_str());
+            }
+            if (!nl) break;
+            p = nl + 1;
+        }
+        if (first) fprintf(stdout, "  %s\n", left.c_str());   // no help text at all
+    }
 }
 
 static uint16_t parse_hex16(const char* s) {
