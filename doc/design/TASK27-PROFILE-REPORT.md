@@ -35,6 +35,36 @@ means some helpers are attributed to their inlining site (e.g. `derive_hc_vc` /
 `to_ula_counters` cost appears inside `contend_read*` / `fuse_z80_readbyte` /
 `ContentionModel` symbols).
 
+> **(d) READ THIS BEFORE INTERPRETING ANY `_M_invoke` SYMBOL IN `doc/perf/`.**
+> *(Added 2026-08-09, after §4.1's misattribution.)*
+> Caveat (c) has a special case that is easy to misread as its own finding.
+> A `std::_Function_handler<...>::_M_invoke` symbol is **not a dispatch wrapper
+> that calls the real work somewhere else** — with `-O2`/LTO the callback body is
+> inlined *into* the thunk, so the thunk **is** the callee. Its perf **self**-time
+> is therefore the cost of the **work the callback does**, and the dispatch
+> mechanism proper (loading the captured object out of `_M_functor`, dereferencing
+> the by-rvalue-reference arguments) is a **two-instruction prologue** of a body
+> that may be hundreds of instructions long.
+>
+> Reading such a symbol as "cost of `std::function`" overstates the removable
+> overhead by **one to two orders of magnitude**. Before quoting one, disassemble
+> it (`objdump -d -C --start-address=<addr>`) and identify what got inlined in.
+> The naming actively invites the error: the symbol carries the *signature* and a
+> `{lambda(...)#N}` ordinal, never the callback's name.
+>
+> `#N` is the N-th lambda **with that exact parameter list** in the enclosing
+> scope, counted in source order — return type does not participate. It is a
+> **positional** name: inserting a lambda earlier in `Emulator::init()` silently
+> renumbers every later one, so an `#N` recorded in an old profile does not
+> necessarily denote the same callback today.
+
+**These artifacts are pre-LTO.** Every `doc/perf/*-flat.txt` here was recorded at
+`732214d1` with plain `-O2`; B1 (LTO/IPO) shipped afterwards. LTO did **not**
+eliminate these thunks — they survive in today's `gui-release` binary as
+`[clone .lto_priv.0]` copies. There is **no post-LTO symbol profile committed in
+the repo**, so any symbol-level share quoted from `doc/perf/` describes the
+pre-LTO binary only.
+
 ---
 
 ## 2. Baseline (median-of-5, `make bench`, this commit)
@@ -190,7 +220,7 @@ symbol-level data in `doc/perf/*-flat.txt`):
 | FUSE core (fuse_z80_execute_one, readbyte/writebyte) | 4.1 | 3.4 | **5.9** | 2.0 | 1.8 | 2.1 | 6.3 |
 | CPU wrapper (Z80Cpu::execute, sync_regs_from_fuse) | 5.5 | 8.5 | **12.1** | 9.2 | 6.5 | 6.0 | 13.7 |
 | M1 callback chain (DivMmc automap, Multiface::on_m1, NmiSource) | 2.2 | 3.0 | **7.7** | 6.6 | 4.7 | 4.6 | 4.4 |
-| std::function dispatch glue | 2.7 | 2.5 | **5.5** | 8.2 | 7.5 | 3.9 | 4.2 |
+| ~~std::function dispatch glue~~ **→ M1 callback bodies** (‡ §4.1) | 2.7 | 2.5 | **5.5** | 8.2 | 7.5 | 3.9 | 4.2 |
 | video render (Renderer, Tilemap, Layer2, VideoTiming) | 13.6 | 13.7 | **5.4** | 3.8 | 12.5 | 13.0 | 5.1 |
 | audio (AY, TurboSound, Mixer) | 11.6 | 12.1 | **3.7** | 3.3 | 3.2 | 9.9 | 2.1 |
 | Dma::tick_burst_wait | 1.1 | 1.0 | **1.8** | 0.8 | 0.7 | 1.1 | 1.2 |
@@ -223,6 +253,113 @@ Structural findings behind the table:
 - `sync_regs_from_fuse` alone is 5.95% of boot-nextzxos — the C10 register-copy item, now
   measured.
 
+### 4.1 ‡ Correction (2026-08-09) — the "std::function dispatch glue" row is **callback body** cost
+
+**The measurements in that row are correct. The name on them was not.** Nothing in §4's
+numbers changes; what changes is what they are evidence *of*, and therefore §5's rank-4
+candidate, which is withdrawn below.
+
+**What the row actually sums.** Exactly two `_M_invoke` symbols, and nothing else — the
+arithmetic reproduces the published figures to the rounding:
+
+| workload | `{lambda(unsigned short, unsigned char)#1}` | `{lambda(unsigned short)#5}` | sum | published |
+|---|---:|---:|---:|---:|
+| boot-nextzxos | 3.20 | 2.26 | 5.46 | **5.5** |
+| copper-demo | 2.54 | 5.62 | 8.16 | **8.2** |
+| beast | 1.72 | 5.82 | 7.54 | **7.5** |
+
+**Which callbacks these are.** The ordinal is **positional** — the N-th lambda with that
+parameter list, in source order — and both sit at the same position in all three relevant
+trees (`732214d1` = this report, `c4ba4de1` = P2, `6b8320b1` = v0.99.144), so the
+identification is stable across every profile the project holds. Confirmed by disassembly of
+the v0.99.144 release binary and independently anchored by `{lambda(unsigned short)#7}`,
+whose `bool(unsigned short)` `std::function` type can only be `on_magic_breakpoint`:
+
+- **`{lambda(unsigned short)#5}` = `cpu_.on_m1_prefetch`** (`emulator.cpp:913`)
+- **`{lambda(unsigned short, unsigned char)#1}` = `cpu_.on_m1_cycle`** (`emulator.cpp:987`)
+
+**Neither is dispatch cost — but the inlining differs between the pre-LTO binary these
+artifacts were recorded on and today's, so both cases are set out separately.**
+
+*Today (v0.99.144, LTO) — total inlining.* `{lambda(unsigned short)#5}::_M_invoke` at
+`0x4750b0` is **604 instructions** with `DivMmc::check_automap` inlined whole (four
+`divmmc_log()` calls and a
+`spdlog::logger::log_<unsigned short&, bool const&, bool&, bool&, bool const&, bool&, bool&, bool&, bool&>`
+instantiation that is that function's own trace call and nothing else's), plus a call to
+`Multiface::clock_edge_(bool ×9)`. `{lambda(unsigned short, unsigned char)#1}::_M_invoke` at
+`0x4741d0` is **320 instructions** carrying the IM2 RETI/RETN decoder FSM verbatim
+(`cmp $0xed`, `$0x4d`, `$0x45`, `$0xcb`, `$0xdd`, and a `jmp *0x5dab80(,%rdx,8)` jump table on
+`dec_state_` — `im2.cpp:985-1008`). The thunk *is* the callee.
+
+*Pre-LTO (these artifacts) — partial inlining, same conclusion.* Here `DivMmc::check_automap`
+(2.98%), `Multiface::on_m1` (2.45%) and `Im2Controller::on_m1_cycle` (0.60%) each kept their
+own symbol and are counted in **other** category rows — so this row is **not** a double-count
+of the C-M1 row above it. What remains inside the thunks is the **lambda bodies' own**
+inlined statements: for `on_m1_prefetch`, the C-M1 fast-path gate plus both
+`mmu_.sram_pre_override_*` computations (neither has a symbol of its own in the profile, so
+both were inlined); for `on_m1_cycle`, the RETI/RETN post-processing (`reti_seen_this_cycle`,
+`on_reti`, `on_retn`, `divmmc_.on_m1_retn_seen`, `multiface_.is_active`). Still callback work.
+Still not `std::function`.
+
+**The decisive check needs no disassembly at all.** The dispatch prologue is **two
+instructions** (below). A two-instruction prologue cannot cost 2.26% of a run when
+`DivMmc::check_automap` — hundreds of instructions, invoked from that very thunk at exactly
+the same rate — costs 2.98% in the same profile. The row was never plausible as dispatch
+overhead; nobody did that arithmetic.
+
+**What the dispatch itself costs.** In both thunks the entire dispatch marshalling is the
+**two-instruction prologue** before the inlined body starts:
+
+```
+4750bd:  48 8b 1f        mov    (%rdi),%rbx     ; load captured `this` out of _M_functor
+4750c0:  0f b7 2e        movzwl (%rsi),%ebp     ; deref the `unsigned short&&` argument
+4750c3:  ...                                    ; <- inlined callback body starts here
+```
+
+The `_M_invoke` signature forces exactly this shape in any build — the functor is reached
+through `_Any_data`, and the arguments arrive as references and must be loaded — so the
+pre-LTO thunks pay the same two instructions.
+
+At the call site (`Z80Cpu::execute`, `z80_cpu.cpp:825`/`:971`) the delta against a plain
+function pointer is only the argument **spill** forced by the by-rvalue-reference signature
+(`mov %bx,0x90(%rsp)` + `lea 0x90(%rsp),%rsi` where a fn-ptr needs one `movzwl`): **+1** for
+`on_m1_prefetch`, **+2** for `on_m1_cycle` (two spilled arguments). Totals per M1 cycle:
+**≈ 7 x86 instructions**, and ≤ 18 on the most generous accounting. The indirect call itself
+is *not* recoverable — a function pointer is equally indirect.
+
+**Measured denominator** (v0.99.144 `gui-release`, boot-nextzxos, this host):
+
+| quantity | method | value |
+|---|---|---:|
+| T-states per emulated Z80 instruction | `--rzx-record`, frames 0–200 (`RzxFrame::instruction_count`; 1 frame saturated at `0xFFFF`, so the true figure is marginally lower) | **14.83** |
+| x86 instructions retired per emulated T-state | `perf stat -e instructions:u`, **differenced** across run lengths so process init cancels | **116** (frames 200–400) rising to **218** (frames 400–3000) |
+| ⇒ x86 instructions retired per emulated Z80 instruction | product | **≈ 1,700** early boot, higher later |
+
+*(The differencing is across separate invocations against a mutating SD image, so treat these
+as ±10%, not as pinned constants. They do not need to be better than that: the conclusion is
+two orders of magnitude away from the number being corrected.)*
+
+**Real figure: a hard ceiling of ≈ 1% of retired instructions** (18 / 1,700) on the cheapest
+phase measured, and **≈ 0.4%** (7 / 1,700) on the instruction count actually counted in the
+disassembly. Both fall by roughly half once the machine is out of early boot. **Take ≤ 1.4%
+as the round upper bound; ~0.5% is the realistic figure.** Not 5.5% — and not the ~0.21 ms of
+§5 rank 4's saving that the "+ glue" half accounts for. The achievable saving from this
+mechanism is on the order of **0.02–0.05 ms/frame**.
+
+**A third per-instruction `std::function` exists and this row does not cover it.**
+`cpu_.stackless_nmi_enabled` (`std::function<bool()>`, `z80_cpu.cpp:765`) is called
+unconditionally at the common instruction boundary. It is **not an omission in this
+profile** — it did not exist at `732214d1` (added later, G88) — but it is absent from
+every committed `doc/perf/*-flat.txt`, being below the `--percent-limit 0.1` cutoff. A gate
+for it is being landed separately on branch `perf-cpu-callbacks`, valued at **0.24–0.60%**.
+That is a genuine dispatch saving of the size this section describes, and it is roughly the
+*whole* of what this class is worth.
+
+**Why it happened, and how not to repeat it:** see caveat (d) in §1. `perf` self-time on an
+`_M_invoke` thunk attributes everything the optimiser inlined *into* the thunk to the thunk.
+The symbol name advertises the dispatch and hides the callee, so the number looks like
+removable overhead and is in fact the payload.
+
 ---
 
 ## 5. What closes the 1.55× gap on boot-nextzxos?
@@ -235,7 +372,7 @@ Frame budget: 7.78 ms now → 5.00 ms target. **2.78 ms must go.** Attribution o
 | 1 | **C-IM2 (NEW)** — per-instruction `step_pulse`+`step_devices` even when no interrupt source is active/pending; needs an "armed sources" early-out | 14.1% | 1.10 | 40–60% (interrupt timing is the risk; VHDL im2_* is the oracle) | 0.45–0.65 |
 | 2 | **C3 + C-DIV (one task)** — hoist the speed/disable gate above `mem_active_page_for` + `derive_hc_vc` + `to_ula_counters` in the 7 shim call sites | 8.2% | 0.64 | ~85% (gate is 2 compares; keep it live per NR 0x07) | 0.54 |
 | 3 | **C1** — CTC+UART accumulator/event-horizon pattern (`md6_connector_x2.cpp:245` model) | 7.0% | 0.55 | ~90% (idle channels skip to next event) | 0.50 |
-| 4 | **C10 + glue** — `sync_regs_from_fuse` (5.95%) + remaining `std::function` dispatch (5.5%) → fn-ptr/template (A2 already did this for trace) | 11.4% | 0.89 | ~50% | 0.44 |
+| 4 | ~~**C10 + glue**~~ → **C10 only** (corrected 2026-08-09, §4.1) — `sync_regs_from_fuse` (5.95%). **The "+ glue" half is WITHDRAWN — do not pick it up:** the 5.5% is M1 callback *body* cost, not `std::function` dispatch; the dispatch is ≈ 7 x86 instructions per M1 cycle against ~1,400 retired, so fn-ptr/template conversion buys ≈ 0.02–0.05 ms, not 0.44. The body cost is already candidate 5 (C-M1). | 5.95% | 0.46 | ~50% | 0.23 |
 | 5 | **C-M1 (NEW)** — consolidate the per-M1 chain (`DivMmc::check_automap` 2.98% + `Multiface::on_m1` 2.45% + retn-delay + NmiSource) behind one cheap "anything armed?" test | 7.7% | 0.60 | ~50% | 0.30 |
 | 6 | **C6** — skip `render_frame` for undisplayed frames (guarding recorder/screenshot per plan) | 5.4% | 0.42 | ~80% at 400% GUI; **0% in headless bench as currently defined** | 0.35* |
 | 7 | **B1 LTO/IPO** — cross-cutting on the un-devirtualisable Mmu/fuse/wrapper block (Mmu::read 7.3% is a virtual call per byte) | (diffuse) | — | 5–10% whole-binary | 0.4–0.8 |
@@ -245,6 +382,13 @@ if the benchmark defines "frame the frontend would display" — otherwise headle
 every frame and the bench number won't move. The acceptance criterion for C6 must say which.
 
 **Sum of mid-range projections: ≈ 3.0 ms** against the 2.78 ms needed.
+
+> **Corrected 2026-08-09 (§4.1):** rank 4 loses its "+ glue" half, so the sum is **≈ 2.7 ms**
+> — marginally *short* of the 2.78 ms needed, not marginally over. The "plausibly reachable,
+> but only just" verdict below was therefore optimistic on this arithmetic. **It did not
+> matter and this is not a reason to re-open rank 4:** the DoD was met and passed by other
+> means (B1 LTO plus the shipped C-IM2/C3/C1/C-M1 work — boot-nextzxos measures ~280–310 fps
+> today against the 200 fps target). The 0.2 ms this correction removes was never available.
 
 **Honest bottom line:** 113.5 M is **plausibly reachable, but only just, and only if the two
 NEW candidates land**. The pre-P1 Phase-C list alone (C1 + C3 + C6 + C10 + B1, mid
@@ -274,7 +418,10 @@ target.
    gate; the 3.5 MHz path keeps identical semantics — Nirvana/BIFROST + FUSE gate it).
 3. **C1** — 7.0% on boot-nextzxos, and 27–32% of every 3.5 MHz-mode frame (48K/128K/+3
    modes at stock speed benefit ~1.3×). Low risk, VHDL-faithful accumulator exists in-repo.
-4. **C10+glue** (register sync + std::function → fn-ptr) — 11.4% combined, mechanical.
+4. **C10** (register sync) — 5.95%, mechanical. *(Corrected 2026-08-09, §4.1: was
+   "C10+glue … 11.4% combined". The `std::function` → fn-ptr half is withdrawn — that 5.5%
+   is M1 callback body cost, already counted as C-M1 at rank 5, and the dispatch proper is
+   ≈ 0.5–1.3%.)*
 
 ### 6.2 Kept (Med / conditional)
 
