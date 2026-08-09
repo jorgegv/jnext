@@ -726,6 +726,33 @@ int main() {
               !emu.esp_associated());
     }
     {
+        // RZX PLAYBACK ADVANCES THE OUTAGE CLOCK, deliberately (review nit,
+        // GH #246). The inert gate freezes the module's SERVICING during
+        // playback (WIRE-13..18); it does not freeze the schedule, because the
+        // clock counts emulated frames and a played-back frame is one. That is
+        // also how the sibling per-frame countdown behaves —
+        // `boot_hold_frames_remaining_` is decremented with no RZX check — and
+        // it costs the guest nothing, since RZX overrides every IN the guest
+        // reads anyway. Asserted so the choice is a row rather than an
+        // accident of where the call sits.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_disassociate_frame = 3;
+        Emulator emu;
+        emu.init(cfg);
+        RzxRecording rec;
+        rec.frames.resize(8);
+        emu.rzx_player().start(std::move(rec));
+        emu.run_frame();  // 0
+        emu.run_frame();  // 1
+        emu.run_frame();  // 2
+        check("SCHED-26", "the outage clock has not fired early under RZX playback",
+              emu.esp_associated() && emu.rzx_player().is_playing());
+        emu.run_frame();  // 3
+        check("SCHED-27", "...and a played-back frame counts, so the edge lands on time",
+              !emu.esp_associated());
+    }
+    {
         // THE REWIND, THROUGH THE REAL MACHINERY — `RewindBuffer` +
         // `rewind_to_cycle()`, never `set_replay_mode()`.
         //

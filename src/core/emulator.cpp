@@ -9867,6 +9867,13 @@ void Emulator::save_state(StateWriter& w) const
     // would answer AT+CIFSR differently on the second pass through the same
     // instant. The ASSOCIATION itself is not saved — it is derived from this
     // number, so there is only one thing to restore.
+    //
+    // Placed HERE, beside the countdown it mirrors, rather than appended after
+    // the trailing eof-guarded additions below: those are guarded because they
+    // were added to a format that had to tolerate older buffers, and this
+    // format has no such reader — `StateWriter`/`StateReader` are an in-memory
+    // pair used only by the in-process `RewindBuffer` (SNA/SZX go through
+    // entirely different savers). Grouping beats a guard that guards nothing.
     w.write_u32(static_cast<uint32_t>(esp_frames_));
     w.write_bool(cpu_parked_);                 // GH #164
     w.write_u64(psg_accum_);

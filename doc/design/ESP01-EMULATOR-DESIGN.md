@@ -1917,7 +1917,11 @@ serialised because a socket cannot be rewound. A frame number can. Nothing else
 here — buffers, connections, pending `+IPD` — gained a snapshot.
 
 The frame count is not reset by a soft reset, for the same reason the module is
-not rebuilt by one (§4.3): the outage is happening out there.
+not rebuilt by one (§4.3): the outage is happening out there. **RZX playback
+advances it**, and that is deliberate too: the inert gate freezes the module's
+*servicing* during playback, not the clock, because the clock counts emulated
+frames and a played-back frame is one. `boot_hold_frames_remaining_`, the
+sibling per-frame countdown, behaves the same way.
 
 ### 16.5 The address itself became configurable (`--esp-ip-address`)
 
