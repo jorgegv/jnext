@@ -19,6 +19,8 @@
 //            preserved across a soft reset, and joined at destruction
 //   SCHED-*  Emulator: the scheduled WiFi outage reaches the ENGINE at the
 //            declared frames, and a replayed frame does not advance it
+//   MOVED-*  Emulator: the station address across the outage — moved, unmoved,
+//            left at its default, and restored correctly by a rewind
 //
 // Run: ./build/test/esp_wiring_test
 
@@ -934,6 +936,34 @@ int main() {
         for (int i = 0; i < 5; ++i) emu.run_frame();
         check("MOVED-04", "...and keeps it — the edge fires once",
               emu.esp_station_ip() == "10.0.0.9");
+    }
+    {
+        // THE DEFAULT ADDRESS, WITH A SCHEDULE RUNNING — a path this feature
+        // put on the hot path and nothing covered (review finding, GH #247).
+        //
+        // Before this change `sync_esp_association` never touched the address;
+        // it now sets it on every re-sync, so the "no --esp-ip-address" branch
+        // of setup_esp()'s fallback is exercised on every outage. Blanking that
+        // fallback left all 98 rows green while the guest's AT+CIFSR reported
+        // an EMPTY address — every other row that checks the address sets one
+        // explicitly, and every row with a schedule checked only the
+        // association.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;   // deliberately NO esp_ip_address
+        cfg.esp_disassociate_frame = 1;
+        cfg.esp_associate_frame    = 3;
+        Emulator emu;
+        emu.init(cfg);
+        check("MOVED-10", "with no --esp-ip-address the module starts on its own default",
+              emu.esp_station_ip() == esp::AtEngine::STA_IP);
+        emu.run_frame();  // 0
+        emu.run_frame();  // 1 — outage
+        check("MOVED-11", "...and the outage does not blank it",
+              !emu.esp_associated() && emu.esp_station_ip() == esp::AtEngine::STA_IP);
+        emu.run_frame();  // 2
+        emu.run_frame();  // 3 — back
+        check("MOVED-12", "...and it is still the default after the re-association",
+              emu.esp_associated() && emu.esp_station_ip() == esp::AtEngine::STA_IP);
     }
     {
         // The default: no post-outage address means the SAME one comes back,

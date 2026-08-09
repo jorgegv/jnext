@@ -193,6 +193,18 @@ if want esp-cli-func; then
         fails+=("an unmoved address was reported as CHANGED")
     fi
 
+    # ...and with NO --esp-ip-address at all, the outage must report the
+    # module's own default rather than an empty address. This is the pairing
+    # the unit rows missed (review finding, GH #247): every other assertion
+    # here sets an address explicitly, so a broken default fallback printed an
+    # empty address into the REGAINED line and nothing noticed.
+    default_addr=$(esp_run --esp --esp-delayed-disassociate-frames 1 \
+                           --esp-delayed-associate-frames 2 \
+                           --delayed-automatic-exit-frames 6)
+    if ! grep -q 'REGAINED at frame 2 .*reports 192.168.1.50 again' <<<"$default_addr"; then
+        fails+=("an outage with no --esp-ip-address did not report the default address")
+    fi
+
     after_refuse() {
         local why=$1; shift
         local out rc=0
@@ -277,7 +289,7 @@ if want esp-cli-func; then
         --esp --esp-delayed-disassociate-frames 10s
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (ESP default-off, --esp, --no-esp, --esp-allow gating and comma refusal, --esp-listen-address default/widened/malformed/name/gate, --esp-ip-address default/override + 5 refusals, --esp-ip-address-after moved/unmoved + 4 refusals, scheduled WiFi outage edges + 4 refusals verified)"
+        pass_row " (ESP default-off, --esp, --no-esp, --esp-allow gating and comma refusal, --esp-listen-address default/widened/malformed/name/gate, --esp-ip-address default/override + 5 refusals, --esp-ip-address-after moved/unmoved/default + 4 refusals, scheduled WiFi outage edges + 4 refusals verified)"
     else
         fail_row " (${fails[*]})"
     fi
