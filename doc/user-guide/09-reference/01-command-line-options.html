@@ -3011,6 +3011,23 @@ means a program that opens a server is reachable only from this
 machine; widening it (<code>0.0.0.0</code>) exposes that program to your
 network, which is why it has to be asked for. Nothing listens until
 the program itself sends <code>AT+CIPSERVER</code>. Requires <strong>--esp</strong>.</dd>
+<dt><strong>--esp-delayed-disassociate-frames</strong> <em>N</em></dt>
+<dd>Take the emulated module off its WiFi network after <em>N</em> emulated
+frames, as if the access point had gone away. From then on
+<code>AT+CIFSR</code> reports <code>+CIFSR:STAIP,"0.0.0.0"</code> instead of the module’s
+address, which is what a real ESP-01 with no association reports and
+what lets a program detect that its address has gone. Nothing else
+changes: connections already open keep running, new ones still open,
+and no unsolicited <code>WIFI DISCONNECT</code> is sent - what a real module
+does to traffic during an outage has not been measured, and jnext
+does not invent it. Requires <strong>--esp</strong>.</dd>
+<dt><strong>--esp-delayed-associate-frames</strong> <em>N</em></dt>
+<dd>Put it back on the network after <em>N</em> emulated frames, so <code>AT+CIFSR</code>
+reports the module’s address again - the same address as before,
+since a short outage does not normally change it. Requires
+<strong>--esp-delayed-disassociate-frames</strong>, and <em>N</em> must be greater than
+its value: an outage that ends before it starts is refused rather
+than run.</dd>
 </dl>
 <h2 id="recording-and-playback">Recording and playback<a class="headerlink" href="#recording-and-playback" title="Permanent link">&para;</a></h2>
 <dl>

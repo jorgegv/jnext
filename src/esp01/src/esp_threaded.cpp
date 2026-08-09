@@ -226,6 +226,16 @@ void ThreadedEsp::tick(std::uint32_t elapsed_ticks, std::uint32_t ticks_per_byte
     wants_tick_.store(core_.wants_tick(), std::memory_order_release);
 }
 
+void ThreadedEsp::set_associated(bool v) {
+    std::lock_guard<std::mutex> lock(core_mutex_);
+    core_.set_associated(v);
+}
+
+bool ThreadedEsp::associated() const {
+    std::lock_guard<std::mutex> lock(core_mutex_);
+    return core_.associated();
+}
+
 bool ThreadedEsp::wait_idle(int timeout_ms) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     if (!running_.load(std::memory_order_acquire)) {

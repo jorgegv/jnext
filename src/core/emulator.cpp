@@ -16,6 +16,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <limits>
 
 // ---------------------------------------------------------------------------
 // Constructor — initializer list for members with non-trivial dependencies.
@@ -7468,6 +7469,47 @@ void Emulator::setup_esp()
         config_.esp_listen_address);
 }
 
+bool Emulator::esp_associated() const
+{
+    return esp_device_ && esp_device_->associated();
+}
+
+void Emulator::apply_esp_association_schedule()
+{
+    // Both edges are tested against the SAME frame number before it is
+    // advanced, so `--esp-delayed-disassociate-frames 0` takes the module off
+    // its network before the guest's first instruction of that frame runs, and
+    // frame N means "after N serviced frames" for both.
+    //
+    // The two are independent options and each fires at most once. Ordering
+    // them here (down, then up) is what makes an equal pair end associated,
+    // but the CLI refuses that pair outright — a schedule with no outage in it
+    // is a user asking for something they did not get.
+    if (config_.esp_disassociate_frame < 0 && config_.esp_associate_frame < 0) return;
+
+    const int frame = esp_frames_;
+    // SATURATES rather than wrapping. Signed overflow is undefined behaviour,
+    // not a large number, and while ~497 days of continuous emulation to reach
+    // it is not a run anyone makes, both edges are long past by then and there
+    // is nothing left to count.
+    if (esp_frames_ < std::numeric_limits<int>::max()) ++esp_frames_;
+
+    if (config_.esp_disassociate_frame >= 0 && frame == config_.esp_disassociate_frame) {
+        esp_device_->set_associated(false);
+        Log::esp01()->info(
+            "ESP-01 association LOST at frame {} (--esp-delayed-disassociate-frames) — "
+            "AT+CIFSR now reports {}",
+            frame, esp::AtEngine::UNASSOCIATED_IP);
+    }
+    if (config_.esp_associate_frame >= 0 && frame == config_.esp_associate_frame) {
+        esp_device_->set_associated(true);
+        Log::esp01()->info(
+            "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) — "
+            "AT+CIFSR reports {} again",
+            frame, esp::AtEngine::STA_IP);
+    }
+}
+
 void Emulator::service_esp_frame()
 {
     if (!esp_adapter_) return;   // ESP disabled: one predicted-not-taken branch
@@ -7482,6 +7524,8 @@ void Emulator::service_esp_frame()
     const bool inert = replay_mode_ || rzx_player_.is_playing();
     esp_adapter_->set_inert(inert);
     if (inert) return;
+
+    apply_esp_association_schedule();
 
     esp_adapter_->poll();
 

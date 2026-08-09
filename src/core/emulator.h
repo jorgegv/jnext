@@ -471,6 +471,12 @@ public:
     const std::vector<std::string>& esp_allowed_hosts() const {
         return config_.esp_allowed_hosts;
     }
+    /// GH #246 — whether the module is currently on its network. True whenever
+    /// the ESP is enabled and no scheduled outage is in force; false only
+    /// between `esp_disassociate_frame` and `esp_associate_frame`. Reports
+    /// false when the ESP is disabled, since there is no module to be
+    /// associated. Reads the ENGINE's own state, not the schedule's intent.
+    bool esp_associated() const;
     DivMmc&       divmmc()    { return divmmc_; }
     Multiface&    multiface() { return multiface_; }
     NmiSource&    nmi_source(){ return nmi_source_; }
@@ -1174,6 +1180,19 @@ private:
     /// the FIRST instruction of a replayed frame, including the nested
     /// run_frame() calls rewind_to_cycle() makes with `replay_mode_` set.
     void service_esp_frame();
+
+    /// GH #246 — apply the scheduled WiFi outage, if this frame is one of its
+    /// two edges. Called from service_esp_frame() once the replay gate has let
+    /// the frame through, so REPLAYED frames do not advance the clock: a rewind
+    /// that re-executes frame 40 must not disassociate a second time.
+    void apply_esp_association_schedule();
+
+    /// Frames the ESP has been serviced on since it was built — the unit
+    /// `--esp-delayed-*-frames` counts in. Not reset by a soft reset, for the
+    /// same reason the module is not rebuilt by one (design doc §4.3): the AP
+    /// outage is happening out there, and the guest resetting the Next has no
+    /// bearing on when it ends.
+    int esp_frames_ = 0;
 
     /// Task 51 — re-derive every timing surface that depends on the EFFECTIVE
     /// machine-timing mode (tim_sel axis, `contention_.machine_timing()`):

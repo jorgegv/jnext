@@ -186,6 +186,23 @@ debugger ones.
     program to your network, which is why it has to be asked for. Nothing
     listens until the program itself sends `AT+CIPSERVER`. Requires **\--esp**.
 
+**\--esp-delayed-disassociate-frames** *N*
+:   Take the emulated module off its WiFi network after *N* emulated frames, as
+    if the access point had gone away. From then on `AT+CIFSR` reports
+    `+CIFSR:STAIP,"0.0.0.0"` instead of the module's address, which is what a
+    real ESP-01 with no association reports and what lets a program detect that
+    its address has gone. Nothing else changes: connections already open keep
+    running, new ones still open, and no unsolicited `WIFI DISCONNECT` is sent -
+    what a real module does to traffic during an outage has not been measured,
+    and jnext does not invent it. Requires **\--esp**.
+
+**\--esp-delayed-associate-frames** *N*
+:   Put it back on the network after *N* emulated frames, so `AT+CIFSR` reports
+    the module's address again - the same address as before, since a short
+    outage does not normally change it. Requires
+    **\--esp-delayed-disassociate-frames**, and *N* must be greater than its
+    value: an outage that ends before it starts is refused rather than run.
+
 ## Recording and playback
 
 **\--record** *FILE*
@@ -619,6 +636,31 @@ on a reset.
 
 Still not emulated: TLS and transparent mode
 ([issue #154](https://github.com/jorgegv/jnext/issues/154)).
+
+## Making the WiFi go away
+
+A program that has to notice the Next dropping off the network cannot be tested
+against a module that is never off it. Two options schedule an outage, in
+frames, so a headless run can execute that code path:
+
+    jnext --headless --esp stub.nex \
+        --esp-delayed-disassociate-frames 300 \
+        --esp-delayed-associate-frames 900
+
+At frame 300 the module loses its association and `AT+CIFSR` starts reporting
+`+CIFSR:STAIP,"0.0.0.0"`; at frame 900 it is back, with the same address it had
+before - a short outage does not normally move it, whether the address is static
+or a DHCP lease that outlived the gap. Both edges are reported in the log.
+
+**The address report is all that changes.** Connections already open keep
+running, new ones still open, `AT+CWJAP?` and `AT+CIPSTA?` still answer as they
+did, and no `WIFI DISCONNECT` or `WIFI CONNECTED` is sent. That is a deliberate
+boundary, not an oversight: what a real module does with traffic and with
+unsolicited messages while its access point is down has not been measured on
+hardware, and a bench built on an invented answer would only be measuring the
+invention. What *is* measured is that a listening program survived a five-minute
+outage on a real Next and never noticed
+([issue #246](https://github.com/jorgegv/jnext/issues/246)).
 
 ## Nothing about your host leaks into the program
 

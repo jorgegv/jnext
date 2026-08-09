@@ -265,6 +265,20 @@ struct EmulatorConfig {
     // depend on DNS is one that could change under the user.
     std::string              esp_listen_address = "127.0.0.1";
 
+    // A SCHEDULED WiFi OUTAGE (GH #246, design doc §16). Frame numbers counted
+    // from the first frame the ESP is serviced on; -1 means "never", which is
+    // both defaults, so a run that asks for nothing gets a module that is
+    // associated from power-on to exit exactly as before.
+    //
+    // They exist because the outage is otherwise UNREACHABLE from a test: the
+    // emulated module is permanently on its network, so no headless run could
+    // produce "the address went away" and no consumer could execute the code
+    // that handles it. What the outage changes is one reply — `AT+CIFSR`
+    // reports 0.0.0.0 — and nothing else; see AtEngine::associated() for why
+    // it stops there.
+    int                      esp_disassociate_frame = -1;
+    int                      esp_associate_frame    = -1;
+
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;
     std::function<void(uint64_t, int, uint8_t)> dac_write_callback;

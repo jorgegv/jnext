@@ -339,6 +339,14 @@ void AtEngine::cmd_reset(const std::string&) {
     // module that had been running for weeks is the evidence for that.
     server_timeout_ = DEFAULT_SERVER_TIMEOUT_S;
 
+    // `associated_` DELIBERATELY SURVIVES (GH #246). Everything reset above is
+    // state the guest itself put there; the association is not — it is the
+    // access point being reachable, which no command from this end restores.
+    // Nor do the two URCs below change while it is false, and that too is a
+    // decision: what a real module says on the wire at each edge of an outage
+    // is unobserved (design doc §16.3), and a guest that waits for
+    // `WIFI GOT IP` after a reset would hang for ever on an invented silence.
+
     // `ready` is on the never-emit list; the two WIFI URCs are what the
     // NextZXOS driver actually looks for after a reset.
     queue("\r\nOK\r\n\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n");
@@ -827,7 +835,14 @@ void AtEngine::cmd_cipsta(const std::string&) {
 
 void AtEngine::cmd_cifsr(const std::string&) {
     // Anchors: `TAIP,"` and `TAMAC,"`.
-    queue(std::string("\r\n+CIFSR:STAIP,\"") + STA_IP + "\"\r\n"
+    //
+    // THE ONE REPLY THE ASSOCIATION STATE CHANGES (GH #246). Off its network
+    // the module has no station address, and the all-zeros one is what it
+    // reports — the line is still there, so a guest that polls this sees the
+    // address go away rather than seeing its parse fail. The MAC is the
+    // radio's own and is unaffected by whether it is joined to anything.
+    queue(std::string("\r\n+CIFSR:STAIP,\"") + (associated_ ? STA_IP : UNASSOCIATED_IP) +
+          "\"\r\n"
           "+CIFSR:STAMAC,\"" + STA_MAC + "\"\r\n\r\nOK\r\n");
 }
 

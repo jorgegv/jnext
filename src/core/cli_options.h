@@ -67,6 +67,8 @@ enum class OptId {
     NoEsp,
     EspAllow,
     EspListenAddress,
+    EspDelayedDisassociateFrames,
+    EspDelayedAssociateFrames,
     MagicBreakpoint,
     PersistentBreakpoints,
     EsxdosStub,
@@ -210,6 +212,13 @@ inline constexpr Option OPTIONS[] = {
     // saved-configuration form: a listening address that could arrive from a
     // config file is one the user cannot audit by reading the command they ran.
     { "--esp-listen-address",        1, Doc::Documented, OptId::EspListenAddress },
+    // GH #246 — a scheduled WiFi outage, so a headless bench can execute the
+    // guest code that handles one. Named to sit in BOTH families at once:
+    // `--esp*` for the module, `--delayed-*-frames` for the scheduling.
+    { "--esp-delayed-disassociate-frames", 1, Doc::Documented,
+      OptId::EspDelayedDisassociateFrames },
+    { "--esp-delayed-associate-frames",    1, Doc::Documented,
+      OptId::EspDelayedAssociateFrames },
 
     // Recording and playback
     { "--record",                    1, Doc::Documented, OptId::Record },

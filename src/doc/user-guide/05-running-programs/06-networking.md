@@ -270,6 +270,36 @@ answer sets one: `AT+CIPSTO=<seconds>`, anywhere from 0 to 7200, where **0 means
 never hang up**. The setting is forgotten on a reset, exactly as it is on
 hardware, so it has to be sent each time.
 
+## Testing what happens when the WiFi goes away
+
+A program that has to cope with the Next dropping off the network — a debug
+stub that advertises an address, say — cannot be tested against a module that is
+never off it. Two options schedule an outage, counted in emulated frames, so an
+automated run can execute that code path:
+
+```bash
+jnext --headless --esp stub.nex \
+    --esp-delayed-disassociate-frames 300 \
+    --esp-delayed-associate-frames 900
+```
+
+At frame 300 the module loses its association and `AT+CIFSR` — the command a
+program asks for its own address — starts answering `+CIFSR:STAIP,"0.0.0.0"`
+instead of `192.168.1.50`. At frame 900 it is back, with the **same** address it
+had before, because a short outage does not normally move it. Both edges are
+reported in the log, so a script can see them without asking the program.
+
+The second option needs the first (the module starts on the network, so there is
+nothing to rejoin), and its frame number has to be the larger of the two.
+
+**The address report is the only thing that changes.** Connections already open
+keep running, new ones still open, and nothing unsolicited is sent to the
+program. That boundary is deliberate: what a real module does to traffic while
+its access point is down has not been measured, and inventing an answer would
+mean a test that only measures the invention. What *has* been measured is a
+program listening for connections on a real Next surviving a five-minute outage
+without noticing.
+
 ## What is not emulated yet
 
 The command set is the one **evidenced** in software that actually runs on a

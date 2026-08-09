@@ -1333,6 +1333,82 @@ int main() {
               "the advertised SSID is the fixed synthetic literal, never a host network",
               std::string(AtEngine::SSID) == "JNextWifiHost"); }
 
+    // ══ Group G2 — losing and regaining the association (GH #246) ═══════
+    //
+    // The module is taken off its network by the HOST, never by the guest, and
+    // exactly one reply changes: `AT+CIFSR`'s station address. These rows own
+    // both halves of that sentence — what changes, and what must not.
+
+    {   Rig r;
+        check("ASSOC-01", "a fresh module is associated", r.eng.associated());
+        r.send("AT+CIFSR\r\n"); r.drain();
+        const std::string s = r.take();
+        check("ASSOC-02", "...so AT+CIFSR reports the station address",
+              s.find(std::string("STAIP,\"") + AtEngine::STA_IP + "\"") != std::string::npos); }
+    {   Rig r;
+        r.eng.set_associated(false);
+        check("ASSOC-03", "set_associated(false) takes it off the network",
+              !r.eng.associated());
+        r.send("AT+CIFSR\r\n"); r.drain();
+        const std::string s = r.take();
+        // The EXACT line, not merely "the old address is absent": a reply that
+        // dropped the STAIP line entirely would pass a negative assertion and
+        // break every guest that parses the reply, which is the failure this
+        // spelling exists to prevent.
+        check("ASSOC-04", "AT+CIFSR reports STAIP 0.0.0.0 while unassociated",
+              s.find("+CIFSR:STAIP,\"0.0.0.0\"\r\n") != std::string::npos);
+        check("ASSOC-05", "...and the real address appears nowhere in the reply",
+              s.find(AtEngine::STA_IP) == std::string::npos);
+        check("ASSOC-06", "...while the STAMAC line is untouched — the MAC is the radio's own",
+              s.find(std::string("STAMAC,\"") + AtEngine::STA_MAC + "\"") != std::string::npos);
+        check("ASSOC-07", "...and the reply still ends in the exact OK framing",
+              s.size() >= 6 && s.compare(s.size() - 6, 6, "\r\nOK\r\n") == 0); }
+    {   Rig r;
+        r.eng.set_associated(false);
+        r.eng.set_associated(true);
+        r.send("AT+CIFSR\r\n"); r.drain();
+        const std::string s = r.take();
+        check("ASSOC-08",
+              "re-associating restores the SAME address — a short outage does not move it",
+              s.find(std::string("STAIP,\"") + AtEngine::STA_IP + "\"") != std::string::npos); }
+    {   // §16.3: the guest is not what took the network away, so nothing the
+        // guest can send brings it back. AT+RST is the one command that resets
+        // every other piece of module state, which makes it the row that
+        // matters.
+        Rig r;
+        r.eng.set_associated(false);
+        r.send("AT+RST\r\n"); r.settle(); r.take();
+        check("ASSOC-09", "AT+RST does NOT restore the association", !r.eng.associated());
+        r.send("AT+CIFSR\r\n"); r.drain();
+        const std::string s = r.take();
+        check("ASSOC-10", "...so AT+CIFSR still reports 0.0.0.0 after a reset",
+              s.find("+CIFSR:STAIP,\"0.0.0.0\"\r\n") != std::string::npos); }
+    {   // The deliberate NON-changes of §16.3, pinned so that a later
+        // "consistency fix" has to argue with a failing row rather than with a
+        // comment. Neither reply is read by any evidenced consumer, and what a
+        // real module answers to them while unassociated has not been measured
+        // on the firmware this emulates.
+        Rig r;
+        r.eng.set_associated(false);
+        r.send("AT+CWJAP?\r\n"); r.drain();
+        const std::string jap = r.take();
+        check("ASSOC-11",
+              "AT+CWJAP? deliberately still reports the joined AP while unassociated",
+              jap.find(std::string("+CWJAP:\"") + AtEngine::SSID + "\"") != std::string::npos);
+        r.send("AT+CIPSTA?\r\n"); r.drain();
+        const std::string sta = r.take();
+        check("ASSOC-12",
+              "AT+CIPSTA? deliberately still reports the configured address too",
+              sta.find(std::string("ip:\"") + AtEngine::STA_IP + "\"") != std::string::npos); }
+    {   // §16.3: traffic is not modelled. A connection opened while the module
+        // is off its network still opens, which is the bound the design states
+        // and not an accident of where the flag is read.
+        Rig r;
+        r.eng.set_associated(false);
+        r.connect();
+        check("ASSOC-13", "a connection still opens while unassociated — traffic is not modelled",
+              r.eng.connected()); }
+
     // ══ Group H — what must NEVER be emitted ════════════════════════════
 
     {   // One full session across every code path that could tempt a real

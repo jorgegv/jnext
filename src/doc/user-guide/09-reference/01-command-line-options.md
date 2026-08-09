@@ -188,6 +188,25 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     network, which is why it has to be asked for. Nothing listens until
     the program itself sends `AT+CIPSERVER`. Requires **--esp**.
 
+**--esp-delayed-disassociate-frames** *N*
+:   Take the emulated module off its WiFi network after *N* emulated
+    frames, as if the access point had gone away. From then on
+    `AT+CIFSR` reports `+CIFSR:STAIP,"0.0.0.0"` instead of the module’s
+    address, which is what a real ESP-01 with no association reports and
+    what lets a program detect that its address has gone. Nothing else
+    changes: connections already open keep running, new ones still open,
+    and no unsolicited `WIFI DISCONNECT` is sent - what a real module
+    does to traffic during an outage has not been measured, and jnext
+    does not invent it. Requires **--esp**.
+
+**--esp-delayed-associate-frames** *N*
+:   Put it back on the network after *N* emulated frames, so `AT+CIFSR`
+    reports the module’s address again - the same address as before,
+    since a short outage does not normally change it. Requires
+    **--esp-delayed-disassociate-frames**, and *N* must be greater than
+    its value: an outage that ends before it starts is refused rather
+    than run.
+
 ## Recording and playback
 
 **--record** *FILE*

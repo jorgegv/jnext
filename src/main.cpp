@@ -13,6 +13,8 @@
 #include "video/renderer.h"
 #include "version.h"
 #include <cctype>
+#include <cerrno>
+#include <climits>
 #include <cmath>
 #include <csignal>
 #include <cstdlib>
@@ -293,6 +295,10 @@ int main(int argc, char* argv[]) {
     // which leaves EmulatorConfig's loopback default in place; the flag is
     // CLI-only, so there is no saved preference to merge against.
     std::string esp_listen_address;
+    // GH #246 — the two edges of a scheduled WiFi outage, in frames. -1 is
+    // "never", which is what a run that asks for neither gets.
+    int         esp_disassociate_frame = -1;
+    int         esp_associate_frame = -1;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -534,6 +540,30 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
                 esp_listen_address = v[0];
+                break;
+            }
+            case cli::OptId::EspDelayedDisassociateFrames:
+            case cli::OptId::EspDelayedAssociateFrames: {
+                // Parsed here rather than stored raw, because a schedule that
+                // silently does nothing is the failure this option exists to
+                // avoid: the whole point is a bench that can execute the
+                // guest's "the address went away" path, and a run that never
+                // reached the edge would report a green pass for a path it
+                // never took. A negative frame is refused for the same reason
+                // (there is no frame before the first one), and so is a value
+                // with trailing junk — `10s` reading as frame 10 would be a
+                // different outage than the one asked for.
+                const bool down = (opt->id == cli::OptId::EspDelayedDisassociateFrames);
+                char* end = nullptr;
+                errno = 0;
+                const long n = std::strtol(v[0], &end, 10);
+                if (errno != 0 || end == v[0] || *end != '\0' || n < 0 || n > INT_MAX) {
+                    fprintf(stderr,
+                            "%s: N must be a non-negative frame number, not \"%s\".\n",
+                            arg.c_str(), v[0]);
+                    return 1;
+                }
+                (down ? esp_disassociate_frame : esp_associate_frame) = static_cast<int>(n);
                 break;
             }
             case cli::OptId::MagicPort:
@@ -910,6 +940,11 @@ int main(int argc, char* argv[]) {
         // GH #210. No merge and no saved form: an unset flag leaves the
         // config's own loopback default, which is the safe value.
         if (!esp_listen_address.empty()) cfg.esp_listen_address = esp_listen_address;
+        // GH #246. CLI-only, like the listen address: an outage that could
+        // arrive from a config file is one the user cannot see in the command
+        // they ran, and every consumer of this is a scripted bench anyway.
+        cfg.esp_disassociate_frame = esp_disassociate_frame;
+        cfg.esp_associate_frame    = esp_associate_frame;
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -969,6 +1004,33 @@ int main(int argc, char* argv[]) {
         // as "I have configured where it listens" when nothing will listen.
         if (!esp_listen_address.empty() && !cfg.esp_enabled) {
             fprintf(stderr, "--esp-listen-address requires the ESP to be enabled (--esp).\n");
+            return 1;
+        }
+        // GH #246, and the same reasoning a third time: a scheduled outage for
+        // a module that is off is a user who believes their bench exercised
+        // the disconnected path when nothing was ever connected.
+        if ((esp_disassociate_frame >= 0 || esp_associate_frame >= 0) && !cfg.esp_enabled) {
+            fprintf(stderr,
+                    "--esp-delayed-disassociate-frames / --esp-delayed-associate-frames "
+                    "require the ESP to be enabled (--esp).\n");
+            return 1;
+        }
+        // The module STARTS associated, so an association with nothing to undo
+        // changes nothing, and a re-association at or before the outage means
+        // there is no outage. Both spell a bench that reports a pass for a
+        // path it never took, which is the one outcome this feature must not
+        // produce — so both are refused rather than run.
+        if (esp_associate_frame >= 0 && esp_disassociate_frame < 0) {
+            fprintf(stderr,
+                    "--esp-delayed-associate-frames needs an outage to end: give "
+                    "--esp-delayed-disassociate-frames too (the module starts associated).\n");
+            return 1;
+        }
+        if (esp_associate_frame >= 0 && esp_associate_frame <= esp_disassociate_frame) {
+            fprintf(stderr,
+                    "--esp-delayed-associate-frames N must be GREATER than "
+                    "--esp-delayed-disassociate-frames M (%d <= %d leaves no outage).\n",
+                    esp_associate_frame, esp_disassociate_frame);
             return 1;
         }
         if (cfg.silent && !wav_record_file.empty()) {
