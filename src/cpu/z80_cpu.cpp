@@ -50,12 +50,16 @@ extern "C" {
 static MemoryInterface* s_mem = nullptr;
 static IoInterface*     s_io  = nullptr;
 
-// Task 27 C10: the former `s_contention_cb` static (a pointer to the
-// Z80Cpu::on_contention std::function) was stored on every execute() but
-// read nowhere — the contention path runs entirely through
-// ContentionModel::contention_tick() via the FUSE read/write overrides
-// below (Phase-2 wiring + G141), and on_contention is left null in
-// Emulator::init(). The dead per-instruction store has been removed.
+// There is no per-instruction contention callback, and that is deliberate:
+// the contention path runs entirely through ContentionModel::contention_tick()
+// via the FUSE read/write overrides below (Phase-2 wiring + G141), which apply
+// it per BUS CYCLE rather than per instruction.
+//
+// Two dead remnants of the older design have been removed in turn. Task 27 C10
+// dropped the `s_contention_cb` static — a pointer to the `Z80Cpu::on_contention`
+// std::function, stored on every execute() and read nowhere. The
+// `on_contention` member itself followed: Emulator::init() only ever assigned
+// it nullptr and nothing called it.
 
 // ── Phase-2 contention runtime (2026-04-26) + G141 (2026-05-01) ────────
 // Per-cycle VHDL-faithful contention via ContentionModel::contention_tick().
@@ -761,19 +765,43 @@ int Z80Cpu::execute() {
     // (zxnext.vhd:1828, :1846-1852, :2050-2085). Refresh the C core at the
     // common instruction boundary so handler writes to C2/C3 are visible to
     // every FUSE dispatch path, including the early non-Z80N ED branch.
-    const bool stackless_enabled =
-        stackless_nmi_enabled && stackless_nmi_enabled();
-    if (!stackless_enabled) {
-        stackless_retn_active_ = false;
+    //
+    // The whole refresh is gated on stackless_retn_active_ because with the
+    // latch CLEAR the block below is algebraically constant: `stackless_enabled`
+    // is only ever consulted ANDed with the latch, so `if (!enabled) latch =
+    // false` is a no-op on an already-false latch, `stackless_return` is 0 by
+    // its own guard, and the configure() argument is `false && ...`. The only
+    // surviving effect is `configure(0, 0)`, which the else branch still makes
+    // — deliberately, and not merely as caution: the FUSE-side latch is ALSO
+    // written by set_stackless_retn_active_for_load() clearing the wrapper's
+    // latch on a state load, which does not touch the C core. Dropping this
+    // call would leave a stale FUSE stackless_retn_active behind such a load
+    // and hijack the next RETN (row PERF-SLNMI-04 pins exactly that).
+    //
+    // What is skipped is the std::function<bool()> indirect call on every
+    // ordinary instruction (7-18 M/s). It is side-effect-free — Emulator
+    // installs `[this]{ return im2_.stackless_nmi(); }` (emulator.cpp:1030)
+    // and Im2Controller::stackless_nmi() (im2.cpp:736) is a const getter —
+    // and VHDL zxnext.vhd:2072-2081 is likewise idempotent when
+    // z80_stackless_retn_en is already '0', so the gate does not diverge from
+    // the hardware model either.
+    if (stackless_retn_active_) {
+        const bool stackless_enabled =
+            stackless_nmi_enabled && stackless_nmi_enabled();
+        if (!stackless_enabled) {
+            stackless_retn_active_ = false;
+        }
+        const uint16_t stackless_return =
+            (stackless_retn_active_ && stackless_nmi_return_address)
+                ? stackless_nmi_return_address()
+                : 0;
+        fuse_z80_configure_stackless_retn(
+            stackless_retn_active_ && stackless_enabled &&
+                static_cast<bool>(stackless_nmi_return_address),
+            stackless_return);
+    } else {
+        fuse_z80_configure_stackless_retn(0, 0);
     }
-    const uint16_t stackless_return =
-        (stackless_retn_active_ && stackless_nmi_return_address)
-            ? stackless_nmi_return_address()
-            : 0;
-    fuse_z80_configure_stackless_retn(
-        stackless_retn_active_ && stackless_enabled &&
-            static_cast<bool>(stackless_nmi_return_address),
-        stackless_return);
 
     // esxdos shim interception. The RST $08 instruction has already
     // pushed the return address (= byte after the RST opcode = address

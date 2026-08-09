@@ -46,7 +46,7 @@ mentions them, so a test can no longer be absent from this document.
 | SD Card                                    |    52 |   49 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    81 |   59 |    0 |    0 |      22 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
-| CPU/Z80N/IM2 regressions                   |    52 |   52 |    0 |    0 |       0 |          0 |
+| CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   190 |  186 |    0 |    4 |       0 |          0 |
 | ESP-01 AT engine                           |   302 |  302 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4337 | 4081 |    0 |    5 |     251 |          0 |
+| **Total**                                  |  4341 | 4085 |    0 |    5 |     251 |          0 |
 
-Rows the sections above carry: **4337**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4150**. Rows the 100 suites declared in `test/unit-tests.conf` run live: **7074**.
+Rows the sections above carry: **4341**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4154**. Rows the 100 suites declared in `test/unit-tests.conf` run live: **7078**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3615,7 +3615,11 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | CPU-SOFTRESET-03 | soft reset preserves IX/IY | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3142 |
 | CPU-SOFTRESET-04 | soft reset sets the t80n reset state: PC=0 SP=FFFF AF=FFFF I=0 IFF/IM=0 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3145 |
 | CPU-HARDRESET-01 | hard reset zeroes the register file (power-on model) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3156 |
-| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175 | v22 im2 01 on reti clears im2 int req latch | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3225 |
+| PERF-SLNMI-01-ENABLE-CB-NOT-POLLED-WHILE-LATCH-CLEAR | stackless-NMI enable callback is not polled per instruction while the RETN latch is clear (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3219 |
+| PERF-SLNMI-02-ENABLE-CB-POLLED-WHILE-LATCH-SET | stackless-NMI enable callback is polled once per instruction while the RETN latch is set (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3263 |
+| PERF-SLNMI-03-CLEARING-ENABLE-MIDHANDLER-ABANDONS-LATCH | clearing NR 0xC0 bit 3 during the handler abandons the RETN latch and the RETN pops the real stack (zxnext.vhd:2074-2075) | zxnext.vhd:2074-2075 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3315 |
+| PERF-SLNMI-04-STATE-LOAD-CLEARING-LATCH-DISARMS-FUSE | a state load that clears the RETN latch also disarms the FUSE-side latch, so the next RETN is an ordinary stack return (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3364 |
+| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175 | v22 im2 01 on reti clears im2 int req latch | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3436 |
 
 ## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`
 
