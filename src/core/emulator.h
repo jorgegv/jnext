@@ -1185,14 +1185,25 @@ private:
     /// run_frame() calls rewind_to_cycle() makes with `replay_mode_` set.
     void service_esp_frame();
 
-    /// GH #246 — apply the scheduled WiFi outage, if this frame is one of its
-    /// two edges. Called from service_esp_frame() once the replay gate has let
-    /// the frame through, so REPLAYED frames do not advance the clock: a rewind
-    /// that re-executes frame 40 must not disassociate a second time.
-    void apply_esp_association_schedule();
+    /// GH #246 — what the scheduled WiFi outage says the association should be
+    /// at frame `frame`. PURE: same answer however often the emulator passes
+    /// through that frame, which is what makes a rewind reproduce it instead of
+    /// carrying a stale flag back through time. See its definition.
+    bool esp_association_at(int frame) const;
 
-    /// Frames the ESP has been serviced on since it was built — the unit
-    /// `--esp-delayed-*-frames` counts in. Not reset by a soft reset, for the
+    /// Apply `esp_association_at(esp_frames_)` to the module, logging a real
+    /// change. `force` skips the edge test — used after a state restore, where
+    /// the clock JUMPED and no edge was crossed.
+    void sync_esp_association(bool force);
+
+    /// One logical frame of the outage clock: sync, then advance. Called from
+    /// begin_new_frame(), which runs exactly once per frame and runs for
+    /// replayed frames too.
+    void advance_esp_schedule_frame();
+
+    /// Logical frames since the ESP was built — the unit `--esp-delayed-*-frames`
+    /// counts in. TRAVELS IN THE SNAPSHOT (save_state/load_state), so a rewind
+    /// puts the outage back where it was. Not reset by a soft reset, for the
     /// same reason the module is not rebuilt by one (design doc §4.3): the AP
     /// outage is happening out there, and the guest resetting the Next has no
     /// bearing on when it ends.

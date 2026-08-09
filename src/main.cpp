@@ -591,7 +591,13 @@ int main(int argc, char* argv[]) {
                 // would make "associated" and "not associated" indis-
                 // tinguishable to the guest, which is the single observation
                 // this whole feature exists to make.
-                if (std::strcmp(v[0], esp::AtEngine::UNASSOCIATED_IP) == 0) {
+                //
+                // Compared NUMERICALLY, not as text: `000.000.000.000` and
+                // `0.0.0.0` are the same address, and a string compare accepts
+                // the first (review finding, GH #246).
+                esp::IpAddress unassociated;
+                esp::parse_ip(esp::AtEngine::UNASSOCIATED_IP, unassociated);
+                if (parsed == unassociated) {
                     fprintf(stderr,
                             "--esp-ip-address: %s is what the module reports while it is "
                             "NOT associated, so it cannot also be its address.\n",

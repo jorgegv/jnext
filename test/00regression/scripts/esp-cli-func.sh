@@ -160,6 +160,10 @@ if want esp-cli-func; then
     # accepting it as the configured address would make the two states
     # indistinguishable to the guest.
     ip_refuse "0.0.0.0 as the reported address" --esp --esp-ip-address 0.0.0.0
+    # ...and the same address spelled longer. The refusal compares the PARSED
+    # address, not the string; a textual compare accepts this one (review
+    # finding, GH #246).
+    ip_refuse "000.000.000.000 as the reported address" --esp --esp-ip-address 000.000.000.000
 
     # ── GH #246: the scheduled WiFi outage ───────────────────────────────
     #
@@ -222,7 +226,7 @@ if want esp-cli-func; then
         --esp --esp-delayed-disassociate-frames 10s
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (ESP default-off, --esp, --no-esp, --esp-allow gating and comma refusal, --esp-listen-address default/widened/malformed/name/gate, --esp-ip-address default/override + 4 refusals, scheduled WiFi outage edges + 4 refusals verified)"
+        pass_row " (ESP default-off, --esp, --no-esp, --esp-allow gating and comma refusal, --esp-listen-address default/widened/malformed/name/gate, --esp-ip-address default/override + 5 refusals, scheduled WiFi outage edges + 4 refusals verified)"
     else
         fail_row " (${fails[*]})"
     fi

@@ -1879,16 +1879,42 @@ does not cover it and a bench built on a guess would only measure the guess:
   `WIFI GOT IP` after a reset would hang for ever on a silence this module
   invented.
 
-### 16.4 Why the schedule lives in the emulator, not in `HeadlessApp`
+### 16.4 Why the schedule lives in the emulator, and why it is DERIVED
 
 The other `--delayed-*` options are `HeadlessApp` countdowns, and this one is
-not: `EmulatorConfig` carries the two frame numbers and `Emulator` applies them
-from `service_esp_frame()`. Two reasons. It is the ESP's own per-frame service
-point, so the edge lands at the same place in the frame as everything else the
-module does; and it is behind the **replay gate**, so a rewind that re-executes
-frame 40 does not disassociate a second time — a `HeadlessApp` countdown would
-have no way to know. It also means the option works in the GUI, which costs
-nothing and is occasionally what a person debugging a guest wants.
+not: `EmulatorConfig` carries the two frame numbers and `Emulator` applies them.
+That is what puts the option in the GUI as well as headless, and what lets it
+interact correctly with the rewind buffer — which a `HeadlessApp` countdown has
+no way to see.
+
+**The association is a pure function of the frame number**
+(`Emulator::esp_association_at`), and `esp_frames_` travels in the rewind
+snapshot. It was not built that way. The first implementation tracked a flag
+that two edges mutated, from a counter advanced in `service_esp_frame()`, and
+review found that shape wrong in two independent ways:
+
+- **A flag nothing serialises is stale after a rewind.** `rewind_to_cycle()`
+  restores a snapshot and replays forward; the association was left at whatever
+  it was when the rewind was *requested*. Rewinding into the outage from after
+  it reported the module as associated — so a guest polling `AT+CIFSR` got a
+  different answer the second time through the same instant, which is exactly
+  the determinism the rewind buffer exists to provide. Reproduced against the
+  real `RewindBuffer`, not inferred.
+- **A counter at the top of `run_frame()` over-counts.** A frame the debugger
+  paused is RESUMED by calling `run_frame()` again, not restarted, so a
+  single-stepped frame was counted twice and the outage arrived early.
+
+Deriving fixes both by construction: the answer at frame N is the same answer
+however many times the emulator passes through N, and there is one number to
+restore instead of a flag to keep in step. The counter is advanced in
+`begin_new_frame()` — the once-per-logical-frame anchor, which also runs for
+replayed frames, so a rewind re-traces the same schedule — and a state restore
+forces one re-sync, because a restore is a jump rather than an edge.
+
+**This is the one part of the ESP that is snapshotted**, and the exception is
+principled rather than convenient: simplification 5 says the module is not
+serialised because a socket cannot be rewound. A frame number can. Nothing else
+here — buffers, connections, pending `+IPD` — gained a snapshot.
 
 The frame count is not reset by a soft reset, for the same reason the module is
 not rebuilt by one (§4.3): the outage is happening out there.
@@ -1922,7 +1948,9 @@ Two refusals, both at the command line where the user can see them: a **name**
 way twice), and **`0.0.0.0`** — that is what §16.3 makes the module report while
 it is off its network, so accepting it as the configured address would make the
 two states indistinguishable to the guest and destroy the single observation
-this whole section exists to create.
+this whole section exists to create. The second is compared **numerically**,
+against the parsed address rather than the string: review found that a textual
+compare accepts `000.000.000.000`, which is the same address spelled longer.
 
 ### 16.6 How it is proved
 
@@ -1934,10 +1962,17 @@ Three seams, three levels, because no single row spans the whole path:
   and `AT+CWJAP?` / `AT+CIPSTA?` deliberately do not change — that last pair
   pins the decision in §16.3 so a later "consistency fix" has to argue with a
   failing row.
-- **`esp_wiring_test`** (`ASSOC-*`): the emulator applies the schedule at the
+- **`esp_wiring_test`** (`SCHED-*`): the emulator applies the schedule at the
   declared frames, reading back the **engine's** state rather than the config's
-  intent; a replayed frame does not advance the clock; and a run with no
-  schedule stays associated for ever.
+  intent; a run with no schedule stays associated for ever; a
+  disassociate-only schedule never comes back; a frame the debugger paused and
+  resumed counts once; and — through the real `RewindBuffer` and
+  `rewind_to_cycle()`, never `set_replay_mode()` — a rewind into the outage
+  restores the outage, a rewind to before it undoes it, and running forward
+  again re-crosses the far edge. The rewind rows exist because the first
+  implementation passed a `set_replay_mode()` version of them while being
+  wrong: a test that flips the flag by hand never restores a snapshot, so it
+  cannot see the staleness that was the defect.
 - **`esp-cli-func`**: the flags reach `EmulatorConfig` at all. This is the seam
   that green unit suites cannot see — deleting the line that copies
   `--esp-listen-address` into the config once left the entire triplet green
@@ -1945,5 +1980,5 @@ Three seams, three levels, because no single row spans the whole path:
   and asserts each refusal (no `--esp`, a lone associate, an associate that
   does not come after the disassociate, a non-numeric frame). `--esp-ip-address`
   is asserted the same way, against the startup line naming the address the
-  module will report, plus its own four refusals (no `--esp`, a name, a
-  malformed value, `0.0.0.0`).
+  module will report, plus its own five refusals (no `--esp`, a name, a
+  malformed value, `0.0.0.0`, and `000.000.000.000`).

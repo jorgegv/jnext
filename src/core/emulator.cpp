@@ -7136,6 +7136,16 @@ void Emulator::begin_new_frame()
         rewind_buffer_->take_snapshot(*this, frame_cycle_, frame_num_++);
     }
 
+    // GH #246 — the ESP's scheduled WiFi outage, anchored HERE and not in
+    // service_esp_frame(), for the two reasons esp_association_at() gives:
+    // this function runs exactly ONCE per logical frame (a frame the debugger
+    // paused is resumed, not restarted, so run_frame() alone over-counts), and
+    // it runs for REPLAYED frames too, so a rewind that re-traces frames 5..9
+    // re-derives exactly the association those frames had the first time.
+    // After the snapshot above, so the snapshot carries the count of the frame
+    // that is beginning rather than the next one.
+    advance_esp_schedule_frame();
+
     // V24-MEM-01 / V25-MEM-01 fix — video-frame-edge commit of the
     // NR 0x03 machine_timing latch per VHDL zxnext.vhd:6694-6703:
     //   if video_frame_sync = '1' then
@@ -7491,40 +7501,69 @@ std::string Emulator::esp_station_ip() const
     return esp_device_ ? esp_device_->station_ip() : std::string{};
 }
 
-void Emulator::apply_esp_association_schedule()
+bool Emulator::esp_association_at(int frame) const
 {
-    // Both edges are tested against the SAME frame number before it is
-    // advanced, so `--esp-delayed-disassociate-frames 0` takes the module off
-    // its network before the guest's first instruction of that frame runs, and
-    // frame N means "after N serviced frames" for both.
+    // A PURE FUNCTION of the frame number, which is the whole point.
     //
-    // The two are independent options and each fires at most once. Ordering
-    // them here (down, then up) is what makes an equal pair end associated,
-    // but the CLI refuses that pair outright — a schedule with no outage in it
-    // is a user asking for something they did not get.
+    // The first version of this tracked the association as a flag that two
+    // edges mutated, and that shape was wrong in two ways at once, both found
+    // in review. A flag nothing serialises is STALE after a rewind: the
+    // snapshot restores the machine to frame 5 and the module keeps the
+    // association it had at frame 19, so a guest polling `AT+CIFSR` gets a
+    // different answer the second time through the same instant — exactly the
+    // determinism the rewind buffer exists to provide. And a flag advanced by
+    // a counter in `service_esp_frame()` over-counts, because the debugger
+    // RESUMES a paused frame by calling `run_frame()` again.
+    //
+    // Derived from the frame number, neither is possible: the answer at frame
+    // N is the same answer however many times the emulator passes through it,
+    // and `esp_frames_` travels in the snapshot with everything else.
+    const int down = config_.esp_disassociate_frame;
+    const int up   = config_.esp_associate_frame;
+    if (down < 0 || frame < down) return true;   // nothing scheduled, or before the outage
+    if (up >= 0 && frame >= up)   return true;   // after it ended
+    return false;
+}
+
+void Emulator::sync_esp_association(bool force)
+{
+    if (!esp_device_) return;
     if (config_.esp_disassociate_frame < 0 && config_.esp_associate_frame < 0) return;
 
-    const int frame = esp_frames_;
+    const bool now = esp_association_at(esp_frames_);
+    if (!force) {
+        // The EDGES, computed rather than remembered: this frame differs from
+        // the one before it. Deliberately not a comparison against the live
+        // engine value, which would take the ESP core lock once per frame to
+        // learn nothing 99.99% of the time. A restore is the one case where
+        // the engine can disagree without an edge, and it passes force=true.
+        const bool prev = (esp_frames_ == 0) ? true : esp_association_at(esp_frames_ - 1);
+        if (now == prev) return;
+    }
+
+    esp_device_->set_associated(now);
+    if (now) {
+        Log::esp01()->info(
+            "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) — "
+            "AT+CIFSR reports {} again",
+            esp_frames_, esp_device_->station_ip());
+    } else {
+        Log::esp01()->info(
+            "ESP-01 association LOST at frame {} (--esp-delayed-disassociate-frames) — "
+            "AT+CIFSR now reports {}",
+            esp_frames_, esp::AtEngine::UNASSOCIATED_IP);
+    }
+}
+
+void Emulator::advance_esp_schedule_frame()
+{
+    if (!esp_device_) return;
+    sync_esp_association(/*force=*/false);
     // SATURATES rather than wrapping. Signed overflow is undefined behaviour,
     // not a large number, and while ~497 days of continuous emulation to reach
     // it is not a run anyone makes, both edges are long past by then and there
     // is nothing left to count.
     if (esp_frames_ < std::numeric_limits<int>::max()) ++esp_frames_;
-
-    if (config_.esp_disassociate_frame >= 0 && frame == config_.esp_disassociate_frame) {
-        esp_device_->set_associated(false);
-        Log::esp01()->info(
-            "ESP-01 association LOST at frame {} (--esp-delayed-disassociate-frames) — "
-            "AT+CIFSR now reports {}",
-            frame, esp::AtEngine::UNASSOCIATED_IP);
-    }
-    if (config_.esp_associate_frame >= 0 && frame == config_.esp_associate_frame) {
-        esp_device_->set_associated(true);
-        Log::esp01()->info(
-            "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) — "
-            "AT+CIFSR reports {} again",
-            frame, esp_device_->station_ip());
-    }
 }
 
 void Emulator::service_esp_frame()
@@ -7541,8 +7580,6 @@ void Emulator::service_esp_frame()
     const bool inert = replay_mode_ || rzx_player_.is_playing();
     esp_adapter_->set_inert(inert);
     if (inert) return;
-
-    apply_esp_association_schedule();
 
     esp_adapter_->poll();
 
@@ -9824,6 +9861,13 @@ void Emulator::save_state(StateWriter& w) const
     w.write_u64(monotonic_tstates());
     w.write_u32(frame_num_);
     w.write_u32(boot_hold_frames_remaining_);  // G156
+    // GH #246 — the ESP outage clock travels with the snapshot for the same
+    // reason boot_hold_frames_remaining_ does: it is a per-frame countdown the
+    // guest can observe, and a rewind that left it at its pre-rewind value
+    // would answer AT+CIFSR differently on the second pass through the same
+    // instant. The ASSOCIATION itself is not saved — it is derived from this
+    // number, so there is only one thing to restore.
+    w.write_u32(static_cast<uint32_t>(esp_frames_));
     w.write_bool(cpu_parked_);                 // GH #164
     w.write_u64(psg_accum_);
     // Note: this is the Bresenham phase only. The Mixer's in-progress
@@ -10239,6 +10283,9 @@ bool Emulator::load_state(StateReader& r)
     *fuse_z80_tstates_ptr() = 0;
     frame_num_        = r.read_u32();
     boot_hold_frames_remaining_ = r.read_u32();  // G156
+    // GH #246 — see save_state. The forced re-sync is at the end of this
+    // function, once every field is in place.
+    esp_frames_                 = static_cast<int>(r.read_u32());
     cpu_parked_                 = r.read_bool(); // GH #164
     psg_accum_        = r.read_u64();
     sample_accum_     = r.read_u64();
@@ -10431,6 +10478,13 @@ bool Emulator::load_state(StateReader& r)
     if (on_input_state_restored) {
         on_input_state_restored();
     }
+
+    // GH #246 — the one place the ESP's association can disagree with the
+    // schedule WITHOUT an edge having been crossed: the restore just moved the
+    // outage clock, so the module has to be told where it now is. Forced,
+    // because the edge test compares frame N with frame N-1 and a restore is a
+    // jump. Idempotent when nothing moved.
+    sync_esp_association(/*force=*/true);
     return true;
 }
 
