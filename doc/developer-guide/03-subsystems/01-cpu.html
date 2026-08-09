@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.144</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.146</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.144</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.146</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1931,7 +1931,7 @@ section is about how the CPU calls into it.</p>
 <code>fuse_z80_writeport</code> are the <code>extern "C"</code> functions the FUSE macros expand to;
 they dispatch to <code>s_mem</code> / <code>s_io</code> and add the base FUSE timing.</p>
 <p>Contention is the subtle part, and it is not applied where you might expect.
-There is no per-instruction contention hook on <code>Z80Cpu</code> — there used to be a
+There is no per-instruction contention hook on <code>Z80Cpu</code> — there used to be an
 <code>on_contention</code> callback, but <code>Emulator::init()</code> only ever assigned it
 <code>nullptr</code> and it has been removed — and no pre-computed table is ever
 consulted either. Every bus cycle instead calls

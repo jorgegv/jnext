@@ -73,24 +73,41 @@ uint8_t PortDispatch::read(uint16_t port) const {
             }
         }
     }
+    // The should_log() guards below are load-bearing for performance, not
+    // style. spdlog gates the level INSIDE the callee for the
+    // format-string-with-arguments overload — logger::log(source_loc, level,
+    // format_string_t<Args...>, Args&&...) forwards straight to log_(), and
+    // only log_() calls should_log() (third_party/spdlog/include/spdlog/
+    // logger.h:326-327). The gated overloads exist only for the plain
+    // string_view no-args form. So an unguarded trace() here marshals
+    // source_loc + string_view + the argument pack and makes an out-of-line
+    // call on EVERY port access with tracing off. read() peaks at 929k/s.
+    // Same idiom as Multiface::clk (src/peripheral/multiface.cpp:61,191).
+    //
+    // should_log() alone is equivalent to the callee's `should_log(lvl) ||
+    // tracer_.enabled()` because jnext never calls enable_backtrace() — if
+    // that ever changes, these guards must gain the tracer_ term too.
+    const bool trace_on = Log::port()->should_log(spdlog::level::trace);
     if (best) {
         uint8_t val = best->read(port);
-        Log::port()->trace("IN  port={:#06x} → {:#04x}", port, val);
+        if (trace_on) Log::port()->trace("IN  port={:#06x} → {:#04x}", port, val);
         return val;
     }
     if (default_read_) {
         uint8_t val = default_read_(port);
-        Log::port()->trace("IN  port={:#06x} → {:#04x} (default/floating)", port, val);
+        if (trace_on) Log::port()->trace("IN  port={:#06x} → {:#04x} (default/floating)", port, val);
         return val;
     }
-    Log::port()->trace("IN  port={:#06x} → 0xFF (unhandled)", port);
+    if (trace_on) Log::port()->trace("IN  port={:#06x} → 0xFF (unhandled)", port);
     return 0xFF;
 }
 
 void PortDispatch::write(uint16_t port, uint8_t val) {
     check_io_watchpoint_(port, WatchType::IO_WRITE);
 
-    Log::port()->trace("OUT port={:#06x} ← {:#04x}", port, val);
+    // Guarded for the same reason as read() above; write() peaks at 154k/s.
+    if (Log::port()->should_log(spdlog::level::trace))
+        Log::port()->trace("OUT port={:#06x} ← {:#04x}", port, val);
     for (const auto& obs : io_observers_) obs(port, /*is_read=*/false);
     // Most-specific-match-wins, with decline fall-through: a handler whose
     // hardware decode gate (io_en) is off may call decline_write() to have
