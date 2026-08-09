@@ -1931,8 +1931,10 @@ section is about how the CPU calls into it.</p>
 <code>fuse_z80_writeport</code> are the <code>extern "C"</code> functions the FUSE macros expand to;
 they dispatch to <code>s_mem</code> / <code>s_io</code> and add the base FUSE timing.</p>
 <p>Contention is the subtle part, and it is not applied where you might expect.
-<code>Z80Cpu::on_contention</code> exists, but <code>Emulator::init()</code> sets it to <code>nullptr</code> and
-no pre-computed table is ever consulted. Every bus cycle instead calls
+There is no per-instruction contention hook on <code>Z80Cpu</code> — there used to be a
+<code>on_contention</code> callback, but <code>Emulator::init()</code> only ever assigned it
+<code>nullptr</code> and it has been removed — and no pre-computed table is ever
+consulted either. Every bus cycle instead calls
 <code>ContentionModel::contention_tick()</code>, a per-cycle transcription of the VHDL
 gate. There are seven such call sites: the four callbacks above, plus the three
 FUSE <em>in-opcode</em> macros <code>contend_read</code>, <code>contend_read_no_mreq</code> and

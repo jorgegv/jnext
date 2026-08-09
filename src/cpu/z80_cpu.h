@@ -171,10 +171,11 @@ public:
     MemoryInterface& memory() { return mem_; }
     IoInterface& io() { return io_; }
 
-    // Contention callback: called on every memory read/write during instruction
-    // execution. The callback should add delay to the tstates counter if the
-    // address is in contended memory at the current video position.
-    std::function<void(uint16_t addr)> on_contention;
+    // There is deliberately NO contention callback here. Contention is not a
+    // per-instruction hook: it is applied per BUS CYCLE inside z80_cpu.cpp,
+    // where the four FUSE memory/IO callbacks and the three CORETEST in-opcode
+    // overrides all call ContentionModel::contention_tick(). See the comment
+    // block at the top of z80_cpu.cpp.
 
     // Callback fired BEFORE opcode fetch — used for DivMMC automap
     // (must activate memory overlay before the opcode read).

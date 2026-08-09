@@ -50,12 +50,16 @@ extern "C" {
 static MemoryInterface* s_mem = nullptr;
 static IoInterface*     s_io  = nullptr;
 
-// Task 27 C10: the former `s_contention_cb` static (a pointer to the
-// Z80Cpu::on_contention std::function) was stored on every execute() but
-// read nowhere — the contention path runs entirely through
-// ContentionModel::contention_tick() via the FUSE read/write overrides
-// below (Phase-2 wiring + G141), and on_contention is left null in
-// Emulator::init(). The dead per-instruction store has been removed.
+// There is no per-instruction contention callback, and that is deliberate:
+// the contention path runs entirely through ContentionModel::contention_tick()
+// via the FUSE read/write overrides below (Phase-2 wiring + G141), which apply
+// it per BUS CYCLE rather than per instruction.
+//
+// Two dead remnants of the older design have been removed in turn. Task 27 C10
+// dropped the `s_contention_cb` static — a pointer to the `Z80Cpu::on_contention`
+// std::function, stored on every execute() and read nowhere. The
+// `on_contention` member itself followed: Emulator::init() only ever assigned
+// it nullptr and nothing called it.
 
 // ── Phase-2 contention runtime (2026-04-26) + G141 (2026-05-01) ────────
 // Per-cycle VHDL-faithful contention via ContentionModel::contention_tick().

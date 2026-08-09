@@ -895,9 +895,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Memory contention flows through ContentionModel::contention_tick()
     // (Phase-2 wiring 2026-04-26 + G141 in-opcode 2026-05-01) — the FUSE
     // memory/IO callbacks and the contend_read[_no_mreq]/_write_no_mreq
-    // overrides in src/cpu/z80_cpu.cpp call it per cycle. No external
-    // on_contention callback is needed.
-    cpu_.on_contention = nullptr;
+    // overrides in src/cpu/z80_cpu.cpp call it per cycle. Nothing is wired
+    // here: the `cpu_.on_contention = nullptr` that used to sit at this point
+    // was the last reference to a callback nobody called, and both it and the
+    // Z80Cpu member are gone.
 
     // DivMMC auto-map must fire BEFORE the opcode fetch so the memory
     // overlay is active for the same M1 read that triggered it (matching
