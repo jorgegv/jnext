@@ -1,5 +1,29 @@
 # ChangeLog
 
+## v0.99.144 (2026-08-09)
+
+### User Features
+- New `--when-slow-prefer audio|video` chooses what degrades first when the host cannot keep up
+- NEX V1.3 loading is now opt-in via `--experimental-nex-v1.3`, with a warning before a GUI load
+
+### Developer Features
+- New `--log-file FILE` sends the log to a file, and `NO_COLOR` is honoured
+- Emulated ESP-01 gains `AT+CIPSTO`, closing inbound connections whose client has gone silent
+
+### Bug Fixes
+- Audio no longer motorboats on a loaded host: the device never plays silence or a stale buffer
+- Command-line help now hands the prompt back on Windows instead of appearing to print nothing
+- Soft reset with a NEX running no longer freezes the picture or leaves F4/F9/F10 dead
+- Soft reset no longer carries over stale DMA-delay settings, machine timing, or a pending tape autostart
+- The Next frame interrupt now fires at the raster position the hardware uses
+- A 128K machine keeps its 36-cycle interrupt width across a soft reset
+- The saved startup window scale now gives the same window as picking that scale from the menu
+- Leaving fullscreen restores the previous window size instead of collapsing the window
+
+### Internal JNEXT Development
+- A guest-triggered soft reset no longer destroys the handler callable while it is still executing
+- Manual Windows build workflow produces test zips for reporters without cutting a release
+
 ## v0.99.132 (2026-08-07)
 
 ### User Features

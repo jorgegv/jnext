@@ -149,4 +149,6 @@
 | 4/8     | 3h   | ESP-01 server mode: AT+CIPMUX=1, AT+CIPSERVER, multiplexed +IPD, for dezogif_ng. v0.99.118             |
 | 6/8     | 10h  | Debugger wave: HALT single-step, Run steps off its breakpoint, panel refresh                           |
 |         |      | I/O watchpoints, --persistent-breakpoints, observer refactor. v0.99.119->.131                          |
+| 8-9/8   |      | v1.0 milestone emptied: NR 0x02 handler destroyed mid-call, four soft-reset defects                    |
+|         |      | ESP-01 AT+CIPSTO; startup window scale + fullscreen collapse (lordheavy). v0.99.139->.144               |
 | TOTAL:  | 582h |                                                                                                        |
