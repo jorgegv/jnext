@@ -7439,6 +7439,11 @@ void Emulator::setup_esp()
     // at exactly this address).
     esp_device_ = std::make_unique<esp::ThreadedEsp>(*esp_transport_, esp_listener_.get());
     esp_adapter_ = std::make_unique<EspUartAdapter>(*esp_device_);
+    // GH #246 — the reported station address, BEFORE the worker starts, so no
+    // guest command can ever be answered with the default and then a second
+    // one with the override.
+    if (!config_.esp_ip_address.empty())
+        esp_device_->set_station_ip(config_.esp_ip_address);
     esp_device_->start();
 
     uart_.attach_device(0, esp_adapter_.get());   // UART 0 is the ESP (zxnext.vhd:1611)
@@ -7467,11 +7472,23 @@ void Emulator::setup_esp()
         "ESP-01 server mode binds {} when the guest sends AT+CIPSERVER "
         "(nothing listens until it does)",
         config_.esp_listen_address);
+    // GH #246 — and the address the guest will be TOLD it has, which is a
+    // different thing from either of the two above and is worth saying so:
+    // nothing binds it and nothing routes through it.
+    Log::esp01()->info(
+        "ESP-01 reports station address {} to the guest (AT+CIFSR / AT+CIPSTA?) — "
+        "cosmetic; nothing binds or routes through it",
+        esp_device_->station_ip());
 }
 
 bool Emulator::esp_associated() const
 {
     return esp_device_ && esp_device_->associated();
+}
+
+std::string Emulator::esp_station_ip() const
+{
+    return esp_device_ ? esp_device_->station_ip() : std::string{};
 }
 
 void Emulator::apply_esp_association_schedule()
@@ -7506,7 +7523,7 @@ void Emulator::apply_esp_association_schedule()
         Log::esp01()->info(
             "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) — "
             "AT+CIFSR reports {} again",
-            frame, esp::AtEngine::STA_IP);
+            frame, esp_device_->station_ip());
     }
 }
 

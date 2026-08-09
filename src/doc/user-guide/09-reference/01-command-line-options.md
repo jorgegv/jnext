@@ -188,6 +188,17 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     network, which is why it has to be asked for. Nothing listens until
     the program itself sends `AT+CIPSERVER`. Requires **--esp**.
 
+**--esp-ip-address** *ADDR*
+:   Report *ADDR* as the module’s own station address instead of the
+    default `192.168.1.50`, so a program that recognises its own address
+    can be run against the one it expects. It is what `AT+CIFSR` and
+    `AT+CIPSTA?` answer, and nothing more: **nothing binds it, nothing
+    routes through it**, and the emulated Next cannot be reached at it -
+    that is **--esp-listen-address**, which is a real socket. *ADDR* is
+    a numeric IP address, never a name, and `0.0.0.0` is refused because
+    that is what the module reports while it has no network. Requires
+    **--esp**.
+
 **--esp-delayed-disassociate-frames** *N*
 :   Take the emulated module off its WiFi network after *N* emulated
     frames, as if the access point had gone away. From then on

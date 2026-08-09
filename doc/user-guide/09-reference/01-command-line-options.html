@@ -3011,6 +3011,16 @@ means a program that opens a server is reachable only from this
 machine; widening it (<code>0.0.0.0</code>) exposes that program to your
 network, which is why it has to be asked for. Nothing listens until
 the program itself sends <code>AT+CIPSERVER</code>. Requires <strong>--esp</strong>.</dd>
+<dt><strong>--esp-ip-address</strong> <em>ADDR</em></dt>
+<dd>Report <em>ADDR</em> as the module’s own station address instead of the
+default <code>192.168.1.50</code>, so a program that recognises its own address
+can be run against the one it expects. It is what <code>AT+CIFSR</code> and
+<code>AT+CIPSTA?</code> answer, and nothing more: <strong>nothing binds it, nothing
+routes through it</strong>, and the emulated Next cannot be reached at it -
+that is <strong>--esp-listen-address</strong>, which is a real socket. <em>ADDR</em> is
+a numeric IP address, never a name, and <code>0.0.0.0</code> is refused because
+that is what the module reports while it has no network. Requires
+<strong>--esp</strong>.</dd>
 <dt><strong>--esp-delayed-disassociate-frames</strong> <em>N</em></dt>
 <dd>Take the emulated module off its WiFi network after <em>N</em> emulated
 frames, as if the access point had gone away. From then on

@@ -1893,7 +1893,38 @@ nothing and is occasionally what a person debugging a guest wants.
 The frame count is not reset by a soft reset, for the same reason the module is
 not rebuilt by one (§4.3): the outage is happening out there.
 
-### 16.5 How it is proved
+### 16.5 The address itself became configurable (`--esp-ip-address`)
+
+Asked for alongside the outage, and it belongs with it: both are about the one
+reply a guest reads to learn where it is. `STA_IP` stops being the only address
+the module can report and becomes its **default** — `AtEngine::set_station_ip`
+substitutes another, and jnext's `--esp-ip-address` is the one caller.
+
+The reason is the same consumer. A stub that recognises its **own** address —
+comparing what it advertised against what a debugger dialled — can only be
+exercised against the address that software expects, and a single compiled-in
+value cannot be everyone's.
+
+**It does not touch §8.3.** The no-host-leak rule says nothing about the
+module's identity being *fixed*; it says it must never be **read from the host**.
+A value the user typed on the command line is not host information the guest
+extracted, and the default remains the synthetic `192.168.1.50` that a run
+which asks for nothing still gets.
+
+**It grants nothing.** The address is cosmetic in the strict sense: no socket
+binds it, nothing routes through it, and the emulated Next is not reachable at
+it. That distinction is the one thing a reader of this option must not get
+wrong, so both the man page and the guide state it next to
+`--esp-listen-address`, which *is* a kernel-enforced boundary.
+
+Two refusals, both at the command line where the user can see them: a **name**
+(the address a guest is told it has must not depend on DNS resolving the same
+way twice), and **`0.0.0.0`** — that is what §16.3 makes the module report while
+it is off its network, so accepting it as the configured address would make the
+two states indistinguishable to the guest and destroy the single observation
+this whole section exists to create.
+
+### 16.6 How it is proved
 
 Three seams, three levels, because no single row spans the whole path:
 
@@ -1912,4 +1943,7 @@ Three seams, three levels, because no single row spans the whole path:
   `--esp-listen-address` into the config once left the entire triplet green
   (§13.4) — so the row asserts the log lines a real run emits at both edges,
   and asserts each refusal (no `--esp`, a lone associate, an associate that
-  does not come after the disassociate, a non-numeric frame).
+  does not come after the disassociate, a non-numeric frame). `--esp-ip-address`
+  is asserted the same way, against the startup line naming the address the
+  module will report, plus its own four refusals (no `--esp`, a name, a
+  malformed value, `0.0.0.0`).

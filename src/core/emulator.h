@@ -477,6 +477,10 @@ public:
     /// false when the ESP is disabled, since there is no module to be
     /// associated. Reads the ENGINE's own state, not the schedule's intent.
     bool esp_associated() const;
+    /// GH #246 — the station address the module reports to the guest
+    /// (`--esp-ip-address`, else the module's synthetic default). Empty when
+    /// the ESP is disabled. Reads the ENGINE, not the config.
+    std::string esp_station_ip() const;
     DivMmc&       divmmc()    { return divmmc_; }
     Multiface&    multiface() { return multiface_; }
     NmiSource&    nmi_source(){ return nmi_source_; }

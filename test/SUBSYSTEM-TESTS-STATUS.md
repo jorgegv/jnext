@@ -27,9 +27,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | UART + I2C/RTC        |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      188 |      188 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 AT command engine |      315 |      315 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 AT command engine |      324 |      324 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ESP-01 jnext policy + wiring |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ESP-01 jnext policy + wiring |       80 |       80 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -106,6 +106,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7104** | **7104** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7118** | **7118** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

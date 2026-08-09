@@ -5,6 +5,7 @@
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
+#include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
 #include "peripheral/esp_host_policy.h"
 // Issue #35 — audio_pacing::WhenSlowPrefer. Header-only and dependency-free;
 // included unconditionally because the parsed value is declared alongside the
@@ -299,6 +300,9 @@ int main(int argc, char* argv[]) {
     // "never", which is what a run that asks for neither gets.
     int         esp_disassociate_frame = -1;
     int         esp_associate_frame = -1;
+    // GH #246 — the station address the module reports. Empty means the
+    // module's own synthetic default.
+    std::string esp_ip_address;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -564,6 +568,37 @@ int main(int argc, char* argv[]) {
                     return 1;
                 }
                 (down ? esp_disassociate_frame : esp_associate_frame) = static_cast<int>(n);
+                break;
+            }
+            case cli::OptId::EspIpAddress: {
+                // Numeric only, and validated HERE for the same reason
+                // --esp-listen-address is: a typo must be a usage error the
+                // user sees at once, not a malformed string the guest is
+                // handed minutes later inside an otherwise-normal AT reply.
+                // A NAME is refused too — this is what the module CLAIMS its
+                // address is, and a claim that depends on DNS is one that
+                // could differ between two runs of the same command.
+                esp::IpAddress parsed;
+                if (!esp::parse_ip(v[0], parsed)) {
+                    fprintf(stderr,
+                            "--esp-ip-address: ADDR must be a numeric IP address "
+                            "(e.g. 192.168.1.50), not \"%s\".\n",
+                            v[0]);
+                    return 1;
+                }
+                // 0.0.0.0 is the address the module reports while it is OFF
+                // its network (GH #246). Accepting it as the configured one
+                // would make "associated" and "not associated" indis-
+                // tinguishable to the guest, which is the single observation
+                // this whole feature exists to make.
+                if (std::strcmp(v[0], esp::AtEngine::UNASSOCIATED_IP) == 0) {
+                    fprintf(stderr,
+                            "--esp-ip-address: %s is what the module reports while it is "
+                            "NOT associated, so it cannot also be its address.\n",
+                            esp::AtEngine::UNASSOCIATED_IP);
+                    return 1;
+                }
+                esp_ip_address = v[0];
                 break;
             }
             case cli::OptId::MagicPort:
@@ -945,6 +980,7 @@ int main(int argc, char* argv[]) {
         // they ran, and every consumer of this is a scripted bench anyway.
         cfg.esp_disassociate_frame = esp_disassociate_frame;
         cfg.esp_associate_frame    = esp_associate_frame;
+        cfg.esp_ip_address         = esp_ip_address;
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -1009,6 +1045,10 @@ int main(int argc, char* argv[]) {
         // GH #246, and the same reasoning a third time: a scheduled outage for
         // a module that is off is a user who believes their bench exercised
         // the disconnected path when nothing was ever connected.
+        if (!esp_ip_address.empty() && !cfg.esp_enabled) {
+            fprintf(stderr, "--esp-ip-address requires the ESP to be enabled (--esp).\n");
+            return 1;
+        }
         if ((esp_disassociate_frame >= 0 || esp_associate_frame >= 0) && !cfg.esp_enabled) {
             fprintf(stderr,
                     "--esp-delayed-disassociate-frames / --esp-delayed-associate-frames "

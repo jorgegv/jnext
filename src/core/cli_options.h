@@ -69,6 +69,7 @@ enum class OptId {
     EspListenAddress,
     EspDelayedDisassociateFrames,
     EspDelayedAssociateFrames,
+    EspIpAddress,
     MagicBreakpoint,
     PersistentBreakpoints,
     EsxdosStub,
@@ -219,6 +220,11 @@ inline constexpr Option OPTIONS[] = {
       OptId::EspDelayedDisassociateFrames },
     { "--esp-delayed-associate-frames",    1, Doc::Documented,
       OptId::EspDelayedAssociateFrames },
+    // GH #246 — the address the module REPORTS. Deliberately not next to
+    // --esp-listen-address in meaning despite sitting next to it here: that
+    // one is a socket boundary the kernel enforces, this one is a string in a
+    // reply. Nothing binds it.
+    { "--esp-ip-address",            1, Doc::Documented, OptId::EspIpAddress },
 
     // Recording and playback
     { "--record",                    1, Doc::Documented, OptId::Record },

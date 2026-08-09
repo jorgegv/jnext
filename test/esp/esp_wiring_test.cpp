@@ -759,6 +759,41 @@ int main() {
         check("SCHED-13", "a soft reset does not rewind the outage clock",
               !emu.esp_associated());
     }
+    {
+        // GH #246 §16.5 — the configured station address reaches the ENGINE,
+        // which is the only thing that decides what a guest is told. Reading
+        // the config back would pass with the copy in setup_esp() deleted.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled = true;
+        Emulator emu;
+        emu.init(cfg);
+        check("SCHED-14", "with no --esp-ip-address the module keeps its default address",
+              emu.esp_station_ip() == esp::AtEngine::STA_IP);
+    }
+    {
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled    = true;
+        cfg.esp_ip_address = "10.0.0.42";
+        Emulator emu;
+        emu.init(cfg);
+        check("SCHED-15", "a configured address reaches the engine",
+              emu.esp_station_ip() == "10.0.0.42");
+        // A soft reset does not rebuild the module (WIRE-11), so it cannot
+        // lose the address either — and a COLD boot rebuilds it from the same
+        // config, so the address survives that too. Both are asserted because
+        // the two paths are different code.
+        emu.init(cfg, /*preserve_memory=*/true);
+        check("SCHED-16", "...and survives a soft reset", emu.esp_station_ip() == "10.0.0.42");
+        emu.init(cfg);
+        check("SCHED-17", "...and a cold boot", emu.esp_station_ip() == "10.0.0.42");
+    }
+    {
+        check("SCHED-18", "a disabled ESP reports no station address at all", [] {
+            Emulator emu;
+            emu.init(bare_config());
+            return emu.esp_station_ip().empty();
+        }());
+    }
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,

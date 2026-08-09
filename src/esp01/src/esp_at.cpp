@@ -828,7 +828,7 @@ void AtEngine::cmd_cwjap(const std::string&) {
 
 void AtEngine::cmd_cipsta(const std::string&) {
     // Anchors: `gateway:"` and `netmask:"`.
-    queue(std::string("\r\n+CIPSTA:ip:\"") + STA_IP + "\"\r\n"
+    queue(std::string("\r\n+CIPSTA:ip:\"") + sta_ip_ + "\"\r\n"
           "+CIPSTA:gateway:\"" + GATEWAY_IP + "\"\r\n"
           "+CIPSTA:netmask:\"" + NETMASK + "\"\r\n\r\nOK\r\n");
 }
@@ -841,7 +841,7 @@ void AtEngine::cmd_cifsr(const std::string&) {
     // reports — the line is still there, so a guest that polls this sees the
     // address go away rather than seeing its parse fail. The MAC is the
     // radio's own and is unaffected by whether it is joined to anything.
-    queue(std::string("\r\n+CIFSR:STAIP,\"") + (associated_ ? STA_IP : UNASSOCIATED_IP) +
+    queue(std::string("\r\n+CIFSR:STAIP,\"") + (associated_ ? sta_ip_ : UNASSOCIATED_IP) +
           "\"\r\n"
           "+CIFSR:STAMAC,\"" + STA_MAC + "\"\r\n\r\nOK\r\n");
 }

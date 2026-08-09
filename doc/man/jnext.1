@@ -202,6 +202,19 @@ your network, which is why it has to be asked for.
 Nothing listens until the program itself sends \f[CR]AT+CIPSERVER\f[R].
 Requires \f[B]\-\-esp\f[R].
 .TP
+\f[B]\-\-esp\-ip\-address\f[R] \f[I]ADDR\f[R]
+Report \f[I]ADDR\f[R] as the module\(cqs own station address instead of
+the default \f[CR]192.168.1.50\f[R], so a program that recognises its
+own address can be run against the one it expects.
+It is what \f[CR]AT+CIFSR\f[R] and \f[CR]AT+CIPSTA?\f[R] answer, and
+nothing more: \f[B]nothing binds it, nothing routes through it\f[R], and
+the emulated Next cannot be reached at it \- that is
+\f[B]\-\-esp\-listen\-address\f[R], which is a real socket.
+\f[I]ADDR\f[R] is a numeric IP address, never a name, and
+\f[CR]0.0.0.0\f[R] is refused because that is what the module reports
+while it has no network.
+Requires \f[B]\-\-esp\f[R].
+.TP
 \f[B]\-\-esp\-delayed\-disassociate\-frames\f[R] \f[I]N\f[R]
 Take the emulated module off its WiFi network after \f[I]N\f[R] emulated
 frames, as if the access point had gone away.
@@ -774,6 +787,11 @@ The module reports a fixed synthetic identity: SSID
 None of it is read from your machine, so a program cannot learn your
 real SSID, MAC or local addresses by asking.
 The emulated module is not a radio and never scans.
+.PP
+\f[B]\-\-esp\-ip\-address\f[R] changes the station address it claims,
+and does not weaken that: the value is one you typed, never one jnext
+discovered, and it is still only a string in a reply.
+Nothing listens on it and no traffic goes near it.
 .SH LOGGING
 \f[B]\-\-log\-level\f[R] \f[I]SPEC\f[R] sets per\-subsystem log levels.
 A bare level sets every subsystem; a

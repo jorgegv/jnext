@@ -1574,6 +1574,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#changing-the-address-the-module-claims" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changing the address the module claims
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#testing-what-happens-when-the-wifi-goes-away" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3082,6 +3093,8 @@ the files arrive byte-identical.</p>
 <code>02:00:00:…</code> MAC and BSSID, and a <code>192.168.1.50</code> station address. None of it is
 read from your machine, so a program cannot learn your real SSID, MAC or local
 addresses by asking. The emulated module is not a radio and never scans.</p>
+<p><code>--esp-ip-address</code> replaces the station address it claims, and does not weaken
+this: the value is one <strong>you</strong> typed, never one jnext read off your machine.</p>
 <h2 id="when-something-does-not-work">When something does not work<a class="headerlink" href="#when-something-does-not-work" title="Permanent link">&para;</a></h2>
 <p>Turn up the module's own log and watch what the program is actually saying:</p>
 <pre><code>jnext --esp --log-level esp01=debug
@@ -3161,6 +3174,21 @@ dies while you were reading something else. A program that wants a different
 answer sets one: <code>AT+CIPSTO=&lt;seconds&gt;</code>, anywhere from 0 to 7200, where <strong>0 means
 never hang up</strong>. The setting is forgotten on a reset, exactly as it is on
 hardware, so it has to be sent each time.</p>
+<h2 id="changing-the-address-the-module-claims">Changing the address the module claims<a class="headerlink" href="#changing-the-address-the-module-claims" title="Permanent link">&para;</a></h2>
+<p>The emulated module tells the program its address is <code>192.168.1.50</code>. A program
+that recognises its <strong>own</strong> address — a debug stub checking that the address it
+advertised is the one a debugger dialled — has to be run against the address it
+expects, so that value can be replaced:</p>
+<pre><code class="language-bash">jnext --esp --esp-ip-address 10.0.0.42 stub.nex
+</code></pre>
+<p>That is what <code>AT+CIFSR</code> and <code>AT+CIPSTA?</code> then answer. It is <strong>only</strong> what they
+answer: nothing listens on that address, no traffic goes near it, and the
+emulated Next cannot be reached at it. The address something can actually
+connect to is <code>--esp-listen-address</code>, which is a real socket and a real security
+boundary; this one is a string in a reply.</p>
+<p>A name is refused (the address a program is told it has should not depend on
+DNS), and so is <code>0.0.0.0</code>, because that is what the module reports when it has
+no network at all — see the next section.</p>
 <h2 id="testing-what-happens-when-the-wifi-goes-away">Testing what happens when the WiFi goes away<a class="headerlink" href="#testing-what-happens-when-the-wifi-goes-away" title="Permanent link">&para;</a></h2>
 <p>A program that has to cope with the Next dropping off the network — a debug
 stub that advertises an address, say — cannot be tested against a module that is

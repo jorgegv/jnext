@@ -186,6 +186,16 @@ debugger ones.
     program to your network, which is why it has to be asked for. Nothing
     listens until the program itself sends `AT+CIPSERVER`. Requires **\--esp**.
 
+**\--esp-ip-address** *ADDR*
+:   Report *ADDR* as the module's own station address instead of the default
+    `192.168.1.50`, so a program that recognises its own address can be run
+    against the one it expects. It is what `AT+CIFSR` and `AT+CIPSTA?` answer,
+    and nothing more: **nothing binds it, nothing routes through it**, and the
+    emulated Next cannot be reached at it - that is
+    **\--esp-listen-address**, which is a real socket. *ADDR* is a numeric IP
+    address, never a name, and `0.0.0.0` is refused because that is what the
+    module reports while it has no network. Requires **\--esp**.
+
 **\--esp-delayed-disassociate-frames** *N*
 :   Take the emulated module off its WiFi network after *N* emulated frames, as
     if the access point had gone away. From then on `AT+CIFSR` reports
@@ -668,6 +678,10 @@ The module reports a fixed synthetic identity: SSID `JNextWifiHost`, a
 `02:00:00:...` MAC and BSSID, and a `192.168.1.50` station address. None of it
 is read from your machine, so a program cannot learn your real SSID, MAC or
 local addresses by asking. The emulated module is not a radio and never scans.
+
+**\--esp-ip-address** changes the station address it claims, and does not weaken
+that: the value is one you typed, never one jnext discovered, and it is still
+only a string in a reply. Nothing listens on it and no traffic goes near it.
 
 # LOGGING
 

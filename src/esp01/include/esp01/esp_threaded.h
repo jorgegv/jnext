@@ -212,6 +212,12 @@ public:
     void set_associated(bool v);
     bool associated() const;
 
+    /// The station address the module reports (GH #246). Same locking, and the
+    /// same reasoning, as `set_associated` — a host sets it once, before or
+    /// after `start()`, and the engine reads it from command dispatch.
+    void set_station_ip(std::string ip);
+    std::string station_ip() const;
+
     // ── Test support ──────────────────────────────────────────────────────
 
     /// Block until the worker has drained the inbound queue and completed a

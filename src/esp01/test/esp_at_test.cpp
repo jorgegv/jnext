@@ -1409,6 +1409,64 @@ int main() {
         check("ASSOC-13", "a connection still opens while unassociated — traffic is not modelled",
               r.eng.connected()); }
 
+    // ══ Group G3 — the configurable station address (GH #246 §16.5) ═════
+
+    {   Rig r;
+        check("STAIP-01", "the default station address is the synthetic constant",
+              r.eng.station_ip() == AtEngine::STA_IP); }
+    {   Rig r;
+        r.eng.set_station_ip("10.0.0.42");
+        r.send("AT+CIFSR\r\n"); r.drain();
+        const std::string s = r.take();
+        check("STAIP-02", "AT+CIFSR reports the substituted address",
+              s.find("+CIFSR:STAIP,\"10.0.0.42\"\r\n") != std::string::npos);
+        check("STAIP-03", "...and the default appears nowhere in the reply",
+              s.find(AtEngine::STA_IP) == std::string::npos);
+        check("STAIP-04", "...with the STAMAC line and the OK framing untouched",
+              s.find(std::string("STAMAC,\"") + AtEngine::STA_MAC + "\"") != std::string::npos &&
+              s.size() >= 6 && s.compare(s.size() - 6, 6, "\r\nOK\r\n") == 0); }
+    {   // BOTH replies that carry the address move together. A substitution
+        // that reached AT+CIFSR alone would leave the module contradicting
+        // itself about where it is, which is exactly what §16.3 accepts for
+        // the ASSOCIATION and refuses here — the address is one value.
+        Rig r;
+        r.eng.set_station_ip("10.0.0.42");
+        r.send("AT+CIPSTA?\r\n"); r.drain();
+        const std::string s = r.take();
+        check("STAIP-05", "AT+CIPSTA? reports the substituted address too",
+              s.find("+CIPSTA:ip:\"10.0.0.42\"\r\n") != std::string::npos);
+        check("STAIP-06", "...while the gateway and netmask are NOT invented from it",
+              s.find(std::string("gateway:\"") + AtEngine::GATEWAY_IP + "\"") !=
+                  std::string::npos &&
+              s.find(std::string("netmask:\"") + AtEngine::NETMASK + "\"") !=
+                  std::string::npos); }
+    {   // The unassociated report wins over the configured address: a module
+        // with no network has no address, whichever one it was given.
+        Rig r;
+        r.eng.set_station_ip("10.0.0.42");
+        r.eng.set_associated(false);
+        r.send("AT+CIFSR\r\n"); r.drain();
+        const std::string s = r.take();
+        check("STAIP-07", "an unassociated module still reports 0.0.0.0, not the configured one",
+              s.find("+CIFSR:STAIP,\"0.0.0.0\"\r\n") != std::string::npos &&
+              s.find("10.0.0.42") == std::string::npos);
+        r.eng.set_associated(true);
+        r.send("AT+CIFSR\r\n"); r.drain();
+        const std::string back = r.take();
+        check("STAIP-08", "...and re-associating brings back the CONFIGURED address",
+              back.find("+CIFSR:STAIP,\"10.0.0.42\"\r\n") != std::string::npos); }
+    {   // Configuration, not session state — the same rule `associated_`
+        // follows, and for a stronger reason: a real module's station address
+        // is what its network gave it, and AT+RST does not renegotiate it into
+        // something the host never asked for.
+        Rig r;
+        r.eng.set_station_ip("10.0.0.42");
+        r.send("AT+RST\r\n"); r.settle(); r.take();
+        r.send("AT+CIFSR\r\n"); r.drain();
+        const std::string s = r.take();
+        check("STAIP-09", "AT+RST does not restore the default address",
+              s.find("+CIFSR:STAIP,\"10.0.0.42\"\r\n") != std::string::npos); }
+
     // ══ Group H — what must NEVER be emitted ════════════════════════════
 
     {   // One full session across every code path that could tempt a real

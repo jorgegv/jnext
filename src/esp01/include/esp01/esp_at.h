@@ -555,6 +555,13 @@ public:
     /// RSSI and IP addresses reported alongside it. The emulated module is
     /// not a radio and must not leak the user's network environment into the
     /// guest. These values are cosmetic: nothing routes through them.
+    ///
+    /// `STA_IP` is the DEFAULT station address rather than the only one
+    /// (GH #246): a host may substitute its own with `set_station_ip`, which
+    /// is what jnext's `--esp-ip-address` does. The decision above is
+    /// unaffected — the default is still synthetic and nothing is ever read
+    /// from the host — because the substitute is a value the USER typed, not
+    /// one this module discovered.
     static constexpr const char* SSID       = "JNextWifiHost";
     static constexpr const char* AP_BSSID   = "02:00:00:00:00:01";
     static constexpr const char* STA_MAC    = "02:00:00:00:00:02";
@@ -703,6 +710,24 @@ public:
     /// §16.
     bool associated() const { return associated_; }
     void set_associated(bool v) { associated_ = v; }
+
+    /// THE STATION ADDRESS THE MODULE REPORTS (GH #246), `STA_IP` unless a
+    /// host substitutes one. Reported by `AT+CIFSR` and `AT+CIPSTA?`, and by
+    /// neither while unassociated (`AT+CIFSR` answers `UNASSOCIATED_IP`).
+    ///
+    /// COSMETIC, exactly like the address it replaces: nothing routes through
+    /// it, no socket binds it, and the guest cannot be reached at it. It exists
+    /// because guest software that has to recognise its OWN address — a debug
+    /// stub comparing what it advertises against what a debugger dialled — can
+    /// only be exercised against the address that software expects, and one
+    /// compiled-in value cannot be everyone's.
+    ///
+    /// NOT VALIDATED HERE. A host that hands over rubbish gets rubbish in the
+    /// reply, which is the module's usual posture toward its cosmetic strings;
+    /// jnext refuses a non-numeric one at the command line instead, where the
+    /// user can see the refusal.
+    const std::string& station_ip() const { return sta_ip_; }
+    void set_station_ip(std::string ip) { sta_ip_ = std::move(ip); }
 
     /// Override the `AT+CIPSTART` deadline. Configuration, not a test hook:
     /// the CLI/config branch is the natural place to expose it, and the unit
@@ -984,6 +1009,10 @@ private:
     /// GH #246 — see `associated()`. Survives `AT+RST` because the guest is
     /// not what took the network away.
     bool                      associated_ = true;
+
+    /// GH #246 — see `station_ip()`. Survives `AT+RST` for the same reason a
+    /// real module's does: it is configuration, not session state.
+    std::string               sta_ip_ = STA_IP;
 
     /// Empty unless a host installed one, in which case `now()` asks it instead
     /// of `steady_clock`. See `set_clock` for why the seam exists.

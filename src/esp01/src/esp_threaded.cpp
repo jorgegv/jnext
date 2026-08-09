@@ -236,6 +236,16 @@ bool ThreadedEsp::associated() const {
     return core_.associated();
 }
 
+void ThreadedEsp::set_station_ip(std::string ip) {
+    std::lock_guard<std::mutex> lock(core_mutex_);
+    core_.set_station_ip(std::move(ip));
+}
+
+std::string ThreadedEsp::station_ip() const {
+    std::lock_guard<std::mutex> lock(core_mutex_);
+    return core_.station_ip();
+}
+
 bool ThreadedEsp::wait_idle(int timeout_ms) {
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     if (!running_.load(std::memory_order_acquire)) {

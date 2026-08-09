@@ -198,6 +198,9 @@ The module reports a fixed, invented identity: SSID `JNextWifiHost`, a
 read from your machine, so a program cannot learn your real SSID, MAC or local
 addresses by asking. The emulated module is not a radio and never scans.
 
+`--esp-ip-address` replaces the station address it claims, and does not weaken
+this: the value is one **you** typed, never one jnext read off your machine.
+
 ## When something does not work
 
 Turn up the module's own log and watch what the program is actually saying:
@@ -269,6 +272,27 @@ dies while you were reading something else. A program that wants a different
 answer sets one: `AT+CIPSTO=<seconds>`, anywhere from 0 to 7200, where **0 means
 never hang up**. The setting is forgotten on a reset, exactly as it is on
 hardware, so it has to be sent each time.
+
+## Changing the address the module claims
+
+The emulated module tells the program its address is `192.168.1.50`. A program
+that recognises its **own** address — a debug stub checking that the address it
+advertised is the one a debugger dialled — has to be run against the address it
+expects, so that value can be replaced:
+
+```bash
+jnext --esp --esp-ip-address 10.0.0.42 stub.nex
+```
+
+That is what `AT+CIFSR` and `AT+CIPSTA?` then answer. It is **only** what they
+answer: nothing listens on that address, no traffic goes near it, and the
+emulated Next cannot be reached at it. The address something can actually
+connect to is `--esp-listen-address`, which is a real socket and a real security
+boundary; this one is a string in a reply.
+
+A name is refused (the address a program is told it has should not depend on
+DNS), and so is `0.0.0.0`, because that is what the module reports when it has
+no network at all — see the next section.
 
 ## Testing what happens when the WiFi goes away
 

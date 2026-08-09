@@ -128,6 +128,39 @@ if want esp-cli-func; then
         fails+=("--esp-listen-address without --esp was accepted instead of refused")
     fi
 
+    # ── GH #246: the reported station address ────────────────────────────
+    #
+    # Same seam as fact 8 above: the startup line names the address the module
+    # will report, so a default that names 192.168.1.50 and an override that
+    # names the requested value together prove the flag reached the emulator.
+    ip_banner='ESP-01 reports station address'
+
+    if ! esp_run --esp | grep -q "$ip_banner 192.168.1.50 "; then
+        fails+=("the default reported station address is not 192.168.1.50")
+    fi
+    if ! esp_run --esp --esp-ip-address 10.0.0.42 | grep -q "$ip_banner 10.0.0.42 "; then
+        fails+=("--esp-ip-address did not reach the emulator")
+    fi
+
+    ip_refuse() {
+        local why=$1; shift
+        local out rc=0
+        out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless \
+            "${SD_CARD_ARGS[@]}" --delayed-automatic-exit-frames 2 "$@" 2>&1) || rc=$?
+        if [[ $rc -eq 0 ]]; then
+            fails+=("$why was accepted instead of refused")
+        elif ! grep -q 'esp-ip-address' <<<"$out"; then
+            fails+=("$why was refused for the wrong reason")
+        fi
+    }
+    ip_refuse "an address without --esp" --esp-ip-address 10.0.0.42
+    ip_refuse "a host NAME as the reported address" --esp --esp-ip-address localhost
+    ip_refuse "a malformed reported address" --esp --esp-ip-address 999.1.1.1
+    # 0.0.0.0 is what the module reports while it is NOT associated, so
+    # accepting it as the configured address would make the two states
+    # indistinguishable to the guest.
+    ip_refuse "0.0.0.0 as the reported address" --esp --esp-ip-address 0.0.0.0
+
     # ── GH #246: the scheduled WiFi outage ───────────────────────────────
     #
     # Same seam, same reason: the two frame numbers are parsed in main.cpp and
@@ -189,7 +222,7 @@ if want esp-cli-func; then
         --esp --esp-delayed-disassociate-frames 10s
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (ESP default-off, --esp, --no-esp, --esp-allow gating and comma refusal, --esp-listen-address default/widened/malformed/name/gate, scheduled WiFi outage edges + 4 refusals verified)"
+        pass_row " (ESP default-off, --esp, --no-esp, --esp-allow gating and comma refusal, --esp-listen-address default/widened/malformed/name/gate, --esp-ip-address default/override + 4 refusals, scheduled WiFi outage edges + 4 refusals verified)"
     else
         fail_row " (${fails[*]})"
     fi

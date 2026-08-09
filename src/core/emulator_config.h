@@ -279,6 +279,16 @@ struct EmulatorConfig {
     int                      esp_disassociate_frame = -1;
     int                      esp_associate_frame    = -1;
 
+    // The station address the module REPORTS (GH #246). Empty means the
+    // module's own synthetic default (192.168.1.50).
+    //
+    // Cosmetic, exactly as that default is: nothing routes through it and no
+    // socket binds it, so this is not a second listen address and grants
+    // nothing. It exists for guest software that recognises its own
+    // address — a debug stub checking what it advertises — which can only be
+    // exercised against the address that software expects.
+    std::string              esp_ip_address;
+
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;
     std::function<void(uint64_t, int, uint8_t)> dac_write_callback;
