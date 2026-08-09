@@ -12,6 +12,13 @@
 // the source) and only the man page needs parsing — which it always will,
 // being prose.
 //
+// `--help` USED TO BE OUTSIDE ALL OF THIS, and GH #246 is what proved it: the
+// table was diffed against the man page and nothing was diffed against
+// print_usage(), a 149-line hand-written literal. Three new flags reached the
+// table, the man page, USAGE.md and the user guide, and never reached the one
+// surface a user actually types. print_usage() is now GENERATED from the table
+// and CLI-BIN-04 witnesses that end to end.
+//
 //   CLI-TBL-01  No duplicate spellings in the table.
 //   CLI-TBL-02  Every spelling is well-formed: long names "--x", short aliases
 //               exactly "-X", nothing empty or undashed.
@@ -55,6 +62,19 @@
 //   CLI-BIN-03  ...while a usage error stays on stderr and leaves stdout clean.
 //               The complement of CLI-BIN-02: without it, "help goes to stdout"
 //               is satisfiable by sending everything there.
+//   CLI-BIN-04  `--help` lists every flag the table documents. print_usage() is
+//               generated from the table, so this holds by construction — and
+//               that is why it is asserted through the REAL BINARY: a refactor
+//               back to a hand-written literal, or a filter that drops a class
+//               of row, satisfies every table-side check and fails only here.
+//               Reported against GH #246: three flags in the table, the man
+//               page, USAGE.md and the user guide, absent from `--help`, every
+//               gate green.
+//   CLI-TBL-06  Every row carries help text, and its metavar count equals its
+//               arity (a quoted run counts once — --rtc takes one argument
+//               spelled "YYYY-MM-DD HH:MM:SS"). An empty help is a flag the
+//               user is told nothing about; a wrong metavar count is a usage
+//               line that lies about how many arguments to supply.
 //
 // Every row above was mutation-tested: the thing it protects was broken, the
 // suite rebuilt, and the row confirmed to fail. CLI-BIN-01's timeout guard
@@ -251,6 +271,80 @@ int main() {
                                       std::to_string(n) + " documented spellings)");
         }
         check("CLI-TBL-05", "each OptId has exactly one documented spelling",
+              bad.empty(), join(bad));
+    }
+
+    {
+        // The help fields are what `--help` is generated from, so an empty one
+        // is a flag the user is told nothing about, and a metavar count that
+        // disagrees with the arity is a usage line that lies about how many
+        // arguments to supply. Both are cheap to state and neither is visible
+        // to the man-page rows, which read the man page rather than the table.
+        std::vector<std::string> bad;
+        for (const cli::Option& o : cli::OPTIONS) {
+            if (o.help == nullptr || o.help[0] == '\0')
+                bad.push_back(std::string(o.name) + " (no help text)");
+            if (o.args == nullptr) {
+                bad.push_back(std::string(o.name) + " (null args)");
+                continue;
+            }
+            // Count metavars and compare with the arity. A QUOTED run is ONE
+            // metavar however many spaces it contains: --rtc takes a single
+            // argument spelled "YYYY-MM-DD HH:MM:SS", and counting its two
+            // words as two arguments would report a lie as a defect. (Found by
+            // this row on its first run.)
+            int metavars = 0;
+            for (const char* p = o.args; *p;) {
+                while (*p == ' ') ++p;
+                if (!*p) break;
+                ++metavars;
+                if (*p == '"') {
+                    ++p;                                  // opening quote
+                    while (*p && *p != '"') ++p;
+                    if (*p) ++p;                          // closing quote
+                } else {
+                    while (*p && *p != ' ') ++p;
+                }
+            }
+            if (metavars != o.arity)
+                bad.push_back(std::string(o.name) + " (arity " + std::to_string(o.arity) +
+                              " but " + std::to_string(metavars) + " metavars in \"" +
+                              o.args + "\")");
+        }
+        check("CLI-TBL-06", "every row carries help text, and its metavars match its arity",
+              bad.empty(), join(bad));
+    }
+
+    {
+        // NO `%` IN A HELP OR ARGS STRING. Not style — a live bug this caught.
+        //
+        // These texts used to BE the fprintf format string, where a literal
+        // percent has to be written `%%`. They are now passed as `%s`
+        // ARGUMENTS, where `%%` is two characters and prints as two. The
+        // migration copied `--speed`'s text verbatim and shipped
+        // "Emulator speed as %% (50=half...)" to the user; review found it.
+        //
+        // It bans `%%`, NOT `%`. A lone percent is correct and needed —
+        // `--speed`'s description says "Emulator speed as % (50=half...)" and
+        // prints exactly that, because the string is an argument. `%%` is the
+        // leftover format escape, and it is now always a bug: there is no
+        // longer a format string for it to be escaped in.
+        //
+        // The first version of this row banned `%` outright and failed on the
+        // very text it had just been written to protect. Kept as a comment
+        // because the distinction is the whole content of the check.
+        std::vector<std::string> bad;
+        auto has_double_pct = [](const char* s) {
+            return s != nullptr && std::strstr(s, "%%") != nullptr;
+        };
+        for (const cli::Option& o : cli::OPTIONS) {
+            if (has_double_pct(o.help))
+                bad.push_back(std::string(o.name) + " (help contains '%%')");
+            if (has_double_pct(o.args))
+                bad.push_back(std::string(o.name) + " (args contains '%%')");
+        }
+        check("CLI-TBL-07",
+              "no help/args text contains '%%' — they are printf ARGUMENTS, not formats",
               bad.empty(), join(bad));
     }
 
@@ -525,6 +619,57 @@ int main() {
                 errbad.push_back("usage error polluted stdout: " + err_out);
             check("CLI-BIN-03", "a usage error stays on stderr, stdout stays clean",
                   errbad.empty(), join(errbad));
+
+            // --- CLI-BIN-04: `--help` really lists every documented flag -----
+            //
+            // print_usage() is now GENERATED from the table, so in a correct
+            // tree this follows by construction — which is exactly why it is
+            // worth asserting through the REAL BINARY. The row is the witness
+            // that the generation still reaches the user: a future refactor
+            // that reintroduces a hand-written literal, or a filter that
+            // silently drops a class of row, would satisfy every table-side
+            // check and fail here.
+            //
+            // The gap it closes was reported against GH #246: three flags in
+            // the table, the man page, USAGE.md and the user guide, absent from
+            // `--help`, with every gate green. A user at a terminal types
+            // `--help`; nothing makes them read a man page.
+            run_split("--help");
+            const std::string help_text = slurp(out_path);
+            std::vector<std::string> missing_from_help;
+            if (help_text.empty()) {
+                missing_from_help.push_back("--help produced no stdout at all");
+            } else {
+                for (const cli::Option& o : cli::OPTIONS) {
+                    // Unadvertised by design — being absent is its purpose.
+                    if (o.doc == cli::Doc::UndocumentedAlias) continue;
+                    // Whole-word: `--esp` must not be satisfied by the
+                    // `--esp-allow` that contains it, or a dropped flag would
+                    // keep passing behind any longer flag sharing its prefix.
+                    // BOTH boundaries. Checking only the right-hand one, as the
+                    // first version did, is weaker than the word "whole-word"
+                    // claims: a longer flag ENDING in this spelling would
+                    // satisfy it and hide a genuinely missing entry.
+                    bool found = false;
+                    for (std::size_t at = help_text.find(o.name);
+                         at != std::string::npos;
+                         at = help_text.find(o.name, at + 1)) {
+                        const char prev = (at == 0) ? ' ' : help_text[at - 1];
+                        const char next = help_text[at + std::strlen(o.name)];
+                        const bool left_ok  = (prev == ' ' || prev == '\n' || prev == '\t');
+                        const bool right_ok = (next == ' ' || next == '\n' ||
+                                               next == ',' || next == '\t');
+                        if (left_ok && right_ok) {
+                            found = true;
+                            break;
+                        }
+                    }
+                    if (!found) missing_from_help.push_back(o.name);
+                }
+            }
+            check("CLI-BIN-04", "`jnext --help` lists every flag the table documents",
+                  missing_from_help.empty(),
+                  "missing from --help: " + join(missing_from_help));
 
             std::remove(out_path.c_str());
             std::remove(err_path.c_str());
