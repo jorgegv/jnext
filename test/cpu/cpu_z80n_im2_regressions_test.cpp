@@ -3159,6 +3159,217 @@ void test_soft_reset_preserves_register_file(Result& res) {
           hard.IX == 0 && hard.IY == 0);
 }
 
+// ─── PERF-SLNMI-01..04 — stackless-NMI enable poll, gated on the latch ─────
+//
+// VHDL oracle: zxnext.vhd:2072-2081 — the `z80_stackless_retn_en` process.
+// It is a latch, not a combinational term:
+//
+//     if reset = '1' or nr_c0_stackless_nmi = '0' then
+//        z80_stackless_retn_en <= '0';
+//     elsif Z80N_command_s = NMIACK_LSB then
+//        z80_stackless_retn_en <= '1';
+//     elsif Z80N_command_s = RETN_MSB and cpu_rd_n = '1' then
+//        z80_stackless_retn_en <= '0';
+//     end if;
+//
+// So while the latch is already '0', NR 0xC0 bit 3 has NO observable effect:
+// the enable only ever matters ANDed with the latch. jnext::Z80Cpu::execute()
+// mirrors that by skipping the `stackless_nmi_enabled` std::function call on
+// every ordinary instruction whenever `stackless_retn_active_` is false.
+//
+// These four rows pin BOTH halves of that claim — the mechanism (01/02: the
+// callback is polled exactly when the latch is set, and not otherwise) and the
+// behaviour the mechanism must not disturb (03/04). 03 and 04 are equivalence
+// guards: they pass before AND after the gate, and fail for a WRONG gate.
+
+// PERF-SLNMI-01 — with the latch clear, neither stackless callback is invoked,
+// however many instructions run. The enable callback deliberately returns TRUE
+// here: pre-gate the poll happened regardless of its value, so this row's
+// counter reads 64 without the gate and 0 with it.
+void test_perf_slnmi_01_enable_cb_not_polled_while_latch_clear(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    int enable_calls = 0;
+    int address_calls = 0;
+    cpu.stackless_nmi_enabled = [&enable_calls]() {
+        ++enable_calls;
+        return true;
+    };
+    cpu.stackless_nmi_return_address = [&address_calls]() -> uint16_t {
+        ++address_calls;
+        return 0x1234;
+    };
+
+    constexpr int kInstructions = 64;
+    // prep_cpu() zeroed the RAM, so PC=0x8000 already faces a run of NOPs.
+    for (int i = 0; i < kInstructions; ++i) cpu.execute();
+
+    char detail[200];
+    std::snprintf(detail, sizeof(detail),
+                  "%d instructions with the RETN latch clear: enable polls=%d "
+                  "(expect 0; pre-gate %d), address polls=%d (expect 0), "
+                  "latch=%d (expect 0), PC=%04x",
+                  kInstructions, enable_calls, kInstructions, address_calls,
+                  cpu.stackless_retn_active() ? 1 : 0,
+                  cpu.get_registers().PC);
+    check(res, "PERF-SLNMI-01-ENABLE-CB-NOT-POLLED-WHILE-LATCH-CLEAR",
+          "stackless-NMI enable callback is not polled per instruction while "
+          "the RETN latch is clear (zxnext.vhd:2072-2081)",
+          enable_calls == 0 && address_calls == 0 &&
+              !cpu.stackless_retn_active() &&
+              cpu.get_registers().PC == 0x8000 + kInstructions,
+          detail);
+}
+
+// PERF-SLNMI-02 — the other direction. Once NMIACK_LSB has set the latch
+// (zxnext.vhd:2077), the enable must be re-sampled on EVERY following
+// instruction, because clearing NR 0xC0 bit 3 mid-handler has to abandon the
+// latch (the `nr_c0_stackless_nmi = '0'` arm, exercised by PERF-SLNMI-03).
+void test_perf_slnmi_02_enable_cb_polled_while_latch_set(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    int enable_calls = 0;
+    cpu.stackless_nmi_enabled = [&enable_calls]() {
+        ++enable_calls;
+        return true;
+    };
+    cpu.stackless_nmi_return_address = []() -> uint16_t { return 0x1234; };
+
+    cpu.request_nmi();
+    cpu.execute();                       // NMI acknowledge: one poll at entry
+    const int calls_after_ack = enable_calls;
+    const bool latch_set = cpu.stackless_retn_active();
+    const uint16_t handler_pc = cpu.get_registers().PC;
+
+    constexpr int kInstructions = 16;    // NOPs at 0x0066.. (RAM is zeroed)
+    for (int i = 0; i < kInstructions; ++i) cpu.execute();
+    const int polls_in_handler = enable_calls - calls_after_ack;
+
+    char detail[220];
+    std::snprintf(detail, sizeof(detail),
+                  "handler PC=%04x (expect 0066) latch=%d (expect 1); polls at "
+                  "NMI entry=%d (expect 1); polls over %d handler instructions"
+                  "=%d (expect %d)",
+                  handler_pc, latch_set ? 1 : 0, calls_after_ack,
+                  kInstructions, polls_in_handler, kInstructions);
+    check(res, "PERF-SLNMI-02-ENABLE-CB-POLLED-WHILE-LATCH-SET",
+          "stackless-NMI enable callback is polled once per instruction while "
+          "the RETN latch is set (zxnext.vhd:2072-2081)",
+          handler_pc == 0x0066 && latch_set && calls_after_ack == 1 &&
+              polls_in_handler == kInstructions,
+          detail);
+}
+
+// PERF-SLNMI-03 — equivalence guard, behavioural. Clearing NR 0xC0 bit 3 while
+// the handler is running abandons the latch (zxnext.vhd:2074-2075), so the
+// RETN reverts to an ORDINARY stack return: it reads the real return address
+// out of RAM instead of the C3:C2 shadow. Does not discriminate the gate
+// itself (the latch is set, so both versions take the same branch); it fails
+// for a gate that skips the poll while the latch is SET.
+void test_perf_slnmi_03_enable_cleared_midhandler_abandons_latch(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    bool nr_c0_bit3 = true;
+    cpu.stackless_nmi_enabled = [&nr_c0_bit3]() { return nr_c0_bit3; };
+    cpu.stackless_nmi_return_address = []() -> uint16_t { return 0x1234; };
+
+    // The two bytes the stackless acknowledge deliberately did NOT write. A
+    // conventional RETN pops 0xABCD from here; the shadow path would give
+    // 0x1234, so the two outcomes are distinguishable.
+    mem.ram[0xFFFC] = 0xCD;
+    mem.ram[0xFFFD] = 0xAB;
+    mem.ram[0x0066] = 0xED;              // RETN
+    mem.ram[0x0067] = 0x45;
+
+    cpu.request_nmi();
+    cpu.execute();
+    const auto in_handler = cpu.get_registers();
+    const bool latch_in_handler = cpu.stackless_retn_active();
+    const bool stack_untouched =
+        mem.ram[0xFFFC] == 0xCD && mem.ram[0xFFFD] == 0xAB;
+
+    nr_c0_bit3 = false;                  // handler clears NR 0xC0 bit 3
+    cpu.execute();                       // RETN
+    const auto after_retn = cpu.get_registers();
+
+    char detail[240];
+    std::snprintf(detail, sizeof(detail),
+                  "in handler PC=%04x SP=%04x latch=%d stack_untouched=%d; "
+                  "after RETN with bit3 cleared PC=%04x (expect ABCD, NOT the "
+                  "1234 shadow) SP=%04x (expect FFFE) latch=%d (expect 0)",
+                  in_handler.PC, in_handler.SP, latch_in_handler ? 1 : 0,
+                  stack_untouched ? 1 : 0, after_retn.PC, after_retn.SP,
+                  cpu.stackless_retn_active() ? 1 : 0);
+    check(res, "PERF-SLNMI-03-CLEARING-ENABLE-MIDHANDLER-ABANDONS-LATCH",
+          "clearing NR 0xC0 bit 3 during the handler abandons the RETN latch "
+          "and the RETN pops the real stack (zxnext.vhd:2074-2075)",
+          in_handler.PC == 0x0066 && in_handler.SP == 0xFFFC &&
+              latch_in_handler && stack_untouched &&
+              after_retn.PC == 0xABCD && after_retn.SP == 0xFFFE &&
+              !cpu.stackless_retn_active(),
+          detail);
+}
+
+// PERF-SLNMI-04 — equivalence guard for the FUSE-side copy of the latch.
+// set_stackless_retn_active_for_load() (the save-state loader hook) clears the
+// WRAPPER latch without touching the C core's own `stackless_retn_active`, so
+// the unconditional `fuse_z80_configure_stackless_retn(0, 0)` on the
+// latch-clear path is load-bearing, not defensive: drop it and a snapshot
+// loaded over a live stackless handler leaves the C core armed, and the next
+// RETN is hijacked to the stale shadow address instead of returning normally.
+void test_perf_slnmi_04_state_load_clearing_latch_disarms_fuse(Result& res) {
+    detach_contention();
+    RamMemory mem;
+    RecordingIo io;
+    Z80Cpu cpu(mem, io);
+    prep_cpu(cpu, mem);
+
+    cpu.stackless_nmi_enabled = []() { return true; };
+    cpu.stackless_nmi_return_address = []() -> uint16_t { return 0x1234; };
+
+    mem.ram[0xFFFC] = 0xCD;
+    mem.ram[0xFFFD] = 0xAB;
+    mem.ram[0x0066] = 0x00;              // NOP — arms the C-core latch
+    mem.ram[0x0067] = 0xED;              // RETN
+    mem.ram[0x0068] = 0x45;
+
+    cpu.request_nmi();
+    cpu.execute();                       // stackless acknowledge
+    cpu.execute();                       // NOP → configure(1, 0x1234) into FUSE
+    const bool armed = cpu.stackless_retn_active();
+
+    // A state load whose snapshot had the latch clear.
+    cpu.set_stackless_retn_active_for_load(false);
+    cpu.execute();                       // RETN
+    const auto after_retn = cpu.get_registers();
+
+    char detail[220];
+    std::snprintf(detail, sizeof(detail),
+                  "armed before load=%d; after load(false) + RETN PC=%04x "
+                  "(expect ABCD — a stale FUSE latch gives the 1234 shadow) "
+                  "SP=%04x (expect FFFE)",
+                  armed ? 1 : 0, after_retn.PC, after_retn.SP);
+    check(res, "PERF-SLNMI-04-STATE-LOAD-CLEARING-LATCH-DISARMS-FUSE",
+          "a state load that clears the RETN latch also disarms the FUSE-side "
+          "latch, so the next RETN is an ordinary stack return "
+          "(zxnext.vhd:2072-2081)",
+          armed && after_retn.PC == 0xABCD && after_retn.SP == 0xFFFE &&
+              !cpu.stackless_retn_active(),
+          detail);
+}
+
 void test_v22_im2_01_on_reti_clears_im2_int_req_latch(Result& res) {
     detach_contention();
 
@@ -3322,6 +3533,13 @@ int main() {
     // S_0 branch re-transitions to S_REQ → spurious re-trigger.
     test_v22_im2_01_on_reti_clears_im2_int_req_latch(res);
     test_soft_reset_preserves_register_file(res);
+    // PERF-SLNMI-01..04 — the per-instruction stackless-NMI enable poll is
+    // gated on the RETN latch (zxnext.vhd:2072-2081); 01/02 pin the gate,
+    // 03/04 pin the behaviour it must not change.
+    test_perf_slnmi_01_enable_cb_not_polled_while_latch_clear(res);
+    test_perf_slnmi_02_enable_cb_polled_while_latch_set(res);
+    test_perf_slnmi_03_enable_cleared_midhandler_abandons_latch(res);
+    test_perf_slnmi_04_state_load_clearing_latch_disarms_fuse(res);
 
     std::printf("\nCPU/Z80N/IM2 regression test results\n");
     std::printf("=====================================\n");
