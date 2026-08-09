@@ -780,7 +780,7 @@ int Z80Cpu::execute() {
     //
     // What is skipped is the std::function<bool()> indirect call on every
     // ordinary instruction (7-18 M/s). It is side-effect-free — Emulator
-    // installs `[this]{ return im2_.stackless_nmi(); }` (emulator.cpp:1029)
+    // installs `[this]{ return im2_.stackless_nmi(); }` (emulator.cpp:1030)
     // and Im2Controller::stackless_nmi() (im2.cpp:736) is a const getter —
     // and VHDL zxnext.vhd:2072-2081 is likewise idempotent when
     // z80_stackless_retn_en is already '0', so the gate does not diverge from
