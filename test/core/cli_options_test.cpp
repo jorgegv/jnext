@@ -646,22 +646,45 @@ int main() {
                     // Whole-word: `--esp` must not be satisfied by the
                     // `--esp-allow` that contains it, or a dropped flag would
                     // keep passing behind any longer flag sharing its prefix.
-                    // BOTH boundaries. Checking only the right-hand one, as the
-                    // first version did, is weaker than the word "whole-word"
-                    // claims: a longer flag ENDING in this spelling would
-                    // satisfy it and hide a genuinely missing entry.
+                    // MATCHED ON ITS OWN ENTRY LINE, not anywhere in the text.
+                    //
+                    // Searching the whole document is not enough, and the gap
+                    // is not theoretical: eleven flags are named inside a
+                    // SIBLING's description ("Output path for --profile",
+                    // "see --inject-org, --inject-pc", ...), with correct word
+                    // boundaries on both sides. Review proved it by deleting
+                    // `--profile`'s own row from the output while leaving the
+                    // flag valid — precisely the "a filter silently drops a
+                    // class of row" scenario this check claims to catch — and
+                    // the suite stayed green, satisfied by --profile-output's
+                    // description mentioning it.
+                    //
+                    // An entry line is the generator's own shape: exactly two
+                    // spaces of indent, then the spelling, then a space or a
+                    // comma (the short-alias form, "--help, -h"). A
+                    // continuation line is indented far further, so a
+                    // cross-reference can never satisfy this however it is
+                    // worded.
+                    const std::string entry = "\n  " + std::string(o.name);
                     bool found = false;
-                    for (std::size_t at = help_text.find(o.name);
+                    for (std::size_t at = help_text.find(entry);
                          at != std::string::npos;
-                         at = help_text.find(o.name, at + 1)) {
-                        const char prev = (at == 0) ? ' ' : help_text[at - 1];
-                        const char next = help_text[at + std::strlen(o.name)];
-                        const bool left_ok  = (prev == ' ' || prev == '\n' || prev == '\t');
-                        const bool right_ok = (next == ' ' || next == '\n' ||
-                                               next == ',' || next == '\t');
-                        if (left_ok && right_ok) {
+                         at = help_text.find(entry, at + 1)) {
+                        const char next = help_text[at + entry.size()];
+                        if (next == ' ' || next == '\n' || next == ',') {
                             found = true;
                             break;
+                        }
+                    }
+                    // A short alias is folded onto its long form's line
+                    // ("--help, -h"), so it never starts an entry line: accept
+                    // it anywhere on one.
+                    if (!found && o.doc == cli::Doc::ShortAlias) {
+                        const std::string inline_alias = ", " + std::string(o.name);
+                        const std::size_t at = help_text.find(inline_alias);
+                        if (at != std::string::npos) {
+                            const char next = help_text[at + inline_alias.size()];
+                            found = (next == ' ' || next == '\n');
                         }
                     }
                     if (!found) missing_from_help.push_back(o.name);
