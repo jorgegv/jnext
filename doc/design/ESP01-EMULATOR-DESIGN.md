@@ -7,7 +7,7 @@ engine, `6a79f6fd`), 3.5 (modularisation, `779b7103`, v0.99.68), `fix/esp-async-
 (CLI/config/wiring) and 5 (functional test + the pacing measurement) are all **merged**.
 **UDP added by [#198](https://github.com/jorgegv/jnext/issues/198)** — see
 [§5.7](#57-udp-gh-198).
-**Last updated:** 2026-08-06.
+**Last updated:** 2026-08-09.
 **Audience:** jnext maintainers **and anyone reusing this module in another project**. The module
 is deliberately shaped to be liftable; this document is its specification, not a jnext-internal
 note.
@@ -50,6 +50,7 @@ engineering reasons in §1.3.
 - [13. Server mode (GH #210)](#13-server-mode-gh-210)
 - [14. Per-connection close (GH #211)](#14-per-connection-close-gh-211)
 - [15. Server idle timeout (GH #240)](#15-server-idle-timeout-gh-240)
+- [16. Losing and regaining the association (GH #246)](#16-losing-and-regaining-the-association-gh-246)
 
 ---
 
@@ -1799,3 +1800,189 @@ not prove the window a real ESP-01 uses — that took the hardware probe in §15
 and the issue is explicit that the accepted-and-changed arm is verifiable on
 hardware only: re-run the probe with `AT+CIPSTO=7200` and require the connection
 to survive past 300 s where it died at ~182 s.
+
+---
+
+## 16. Losing and regaining the association (GH #246)
+
+Every other command in this surface is something the **guest** asks for. This one
+is not a command at all: it models the access point going away, which is an
+event outside both the guest and the module, so its only writer is the **host**
+and its only guest-visible consequence is what `AT+CIFSR` answers.
+
+### 16.1 The consumer, and why it was blocked rather than untested
+
+`dezogif_ng` [#32](https://github.com/jorgegv/dezogif_ng/issues/32) — a debug
+stub that advertises the Next's address to a PC-side debugger — has to notice
+when the Next drops off the WiFi and stop advertising an address that no longer
+works. That code was **unwritable, not merely unverified**: the emulated module
+was permanently associated, `STA_IP` was a compile-time constant with no option
+behind it, and no headless run could produce "the address went away". The
+consumer's own rule is that it ships no Z80 that no bench can execute, so the
+feature was blocked here.
+
+### 16.2 The measurement
+
+Owner's Next, 2026-08-09: the access point was powered down for five minutes and
+back up, with a listening stub running throughout.
+
+| | measured |
+|---|---|
+| does the `AT+CIPSERVER` listener survive a de-association and re-association? | **yes** — a full `make test-hardware` passed 6/6 with 15/15 conformance afterwards with no reset in between, so the stub was still listening and serving |
+| does the station address survive? | **yes in that run** — the DHCP lease held across five minutes; a longer outage was not tested |
+| does the guest see anything go wrong? | **no** — the stub's screen did not change and it raised no error |
+
+**Tier: reported on hardware** — one machine, one reporter, no re-runnable
+artefact. And the de-association itself is **inferred rather than observed**:
+five minutes without beacons will make an ESP8266 declare the AP lost, but
+nothing read `AT+CWJAP?` or `AT+CIFSR` during the outage. Making exactly that
+observation re-runnable is what this section buys.
+
+So the happy path to model is **"nothing breaks"**.
+
+### 16.3 What was added, and where it stops
+
+| | |
+|---|---|
+| `AtEngine::set_associated(bool)` / `associated()` | Host-owned module state, true at power-on |
+| `AT+CIFSR` while unassociated | `+CIFSR:STAIP,"0.0.0.0"` — the line is still there, so a polling guest sees the address go away rather than seeing its parse fail. STAMAC is unchanged: the MAC is the radio's own |
+| `--esp-delayed-disassociate-frames N` | Lose the association after `N` serviced frames |
+| `--esp-delayed-associate-frames N` | Regain it after `N`. Requires the first, and `N` must be greater — a schedule with no outage in it is refused, not run |
+
+**The address does not change across the outage** (owner decision, 2026-08-09):
+a short outage normally returns the same address, whether it is static or a DHCP
+lease that outlived the gap, so there is no option for a different one. The
+issue's first draft asked for one; the answer was that the Next's address is
+static in the reporter's case and lease-stable otherwise.
+
+**Four things it deliberately does NOT model**, each because the hardware note
+does not cover it and a bench built on a guess would only measure the guess:
+
+- **Traffic.** Established connections keep running and new ones still open
+  while unassociated. §16.2 measured that a listener survived the *whole*
+  outage; it did not measure what a socket does *during* one.
+- **The unsolicited lines.** No `WIFI DISCONNECT` / `WIFI CONNECTED` /
+  `WIFI GOT IP` at either edge, and their order relative to `AT+CIFSR` becoming
+  useful again is unobserved. A guest that watched these instead of polling
+  would depend on bytes nobody has seen.
+- **`AT+CWJAP?` and `AT+CIPSTA?`.** Both still answer exactly as before. The
+  issue is explicit that nothing in the consumer reads them, and the real
+  module's unassociated `AT+CWJAP?` reply (`No AP`, per the v1.5.4 document) is
+  not something this module has confirmed on the hardware it emulates. That
+  leaves the module internally inconsistent for one run — `AT+CIPSTA?` reporting
+  an address `AT+CIFSR` says is gone — and that is the smaller cost: the
+  alternative is inventing a second and a third reply to make a story
+  consistent.
+- **`AT+RST`.** It does not restore the association, and its canned
+  `WIFI CONNECTED` / `WIFI GOT IP` reply is unchanged. The guest resetting the
+  Next has no bearing on whether the AP is back; and a guest that waits for
+  `WIFI GOT IP` after a reset would hang for ever on a silence this module
+  invented.
+
+### 16.4 Why the schedule lives in the emulator, and why it is DERIVED
+
+The other `--delayed-*` options are `HeadlessApp` countdowns, and this one is
+not: `EmulatorConfig` carries the two frame numbers and `Emulator` applies them.
+That is what puts the option in the GUI as well as headless, and what lets it
+interact correctly with the rewind buffer — which a `HeadlessApp` countdown has
+no way to see.
+
+**The association is a pure function of the frame number**
+(`Emulator::esp_association_at`), and `esp_frames_` travels in the rewind
+snapshot. It was not built that way. The first implementation tracked a flag
+that two edges mutated, from a counter advanced in `service_esp_frame()`, and
+review found that shape wrong in two independent ways:
+
+- **A flag nothing serialises is stale after a rewind.** `rewind_to_cycle()`
+  restores a snapshot and replays forward; the association was left at whatever
+  it was when the rewind was *requested*. Rewinding into the outage from after
+  it reported the module as associated — so a guest polling `AT+CIFSR` got a
+  different answer the second time through the same instant, which is exactly
+  the determinism the rewind buffer exists to provide. Reproduced against the
+  real `RewindBuffer`, not inferred.
+- **A counter at the top of `run_frame()` over-counts.** A frame the debugger
+  paused is RESUMED by calling `run_frame()` again, not restarted, so a
+  single-stepped frame was counted twice and the outage arrived early.
+
+Deriving fixes both by construction: the answer at frame N is the same answer
+however many times the emulator passes through N, and there is one number to
+restore instead of a flag to keep in step. The counter is advanced in
+`begin_new_frame()` — the once-per-logical-frame anchor, which also runs for
+replayed frames, so a rewind re-traces the same schedule — and a state restore
+forces one re-sync, because a restore is a jump rather than an edge.
+
+**This is the one part of the ESP that is snapshotted**, and the exception is
+principled rather than convenient: simplification 5 says the module is not
+serialised because a socket cannot be rewound. A frame number can. Nothing else
+here — buffers, connections, pending `+IPD` — gained a snapshot.
+
+The frame count is not reset by a soft reset, for the same reason the module is
+not rebuilt by one (§4.3): the outage is happening out there. **RZX playback
+advances it**, and that is deliberate too: the inert gate freezes the module's
+*servicing* during playback, not the clock, because the clock counts emulated
+frames and a played-back frame is one. `boot_hold_frames_remaining_`, the
+sibling per-frame countdown, behaves the same way.
+
+### 16.5 The address itself became configurable (`--esp-ip-address`)
+
+Asked for alongside the outage, and it belongs with it: both are about the one
+reply a guest reads to learn where it is. `STA_IP` stops being the only address
+the module can report and becomes its **default** — `AtEngine::set_station_ip`
+substitutes another, and jnext's `--esp-ip-address` is the one caller.
+
+The reason is the same consumer. A stub that recognises its **own** address —
+comparing what it advertised against what a debugger dialled — can only be
+exercised against the address that software expects, and a single compiled-in
+value cannot be everyone's.
+
+**It does not touch §8.3.** The no-host-leak rule says nothing about the
+module's identity being *fixed*; it says it must never be **read from the host**.
+A value the user typed on the command line is not host information the guest
+extracted, and the default remains the synthetic `192.168.1.50` that a run
+which asks for nothing still gets.
+
+**It grants nothing.** The address is cosmetic in the strict sense: no socket
+binds it, nothing routes through it, and the emulated Next is not reachable at
+it. That distinction is the one thing a reader of this option must not get
+wrong, so both the man page and the guide state it next to
+`--esp-listen-address`, which *is* a kernel-enforced boundary.
+
+Two refusals, both at the command line where the user can see them: a **name**
+(the address a guest is told it has must not depend on DNS resolving the same
+way twice), and **`0.0.0.0`** — that is what §16.3 makes the module report while
+it is off its network, so accepting it as the configured address would make the
+two states indistinguishable to the guest and destroy the single observation
+this whole section exists to create. The second is compared **numerically**,
+against the parsed address rather than the string: review found that a textual
+compare accepts `000.000.000.000`, which is the same address spelled longer.
+
+### 16.6 How it is proved
+
+Three seams, three levels, because no single row spans the whole path:
+
+- **`esp_at_test`** (`ASSOC-*`): the engine's own reply. Associated reports the
+  address, unassociated reports `0.0.0.0`, the MAC and the `OK` framing are
+  untouched in both, the default is associated, `AT+RST` does not restore it,
+  and `AT+CWJAP?` / `AT+CIPSTA?` deliberately do not change — that last pair
+  pins the decision in §16.3 so a later "consistency fix" has to argue with a
+  failing row.
+- **`esp_wiring_test`** (`SCHED-*`): the emulator applies the schedule at the
+  declared frames, reading back the **engine's** state rather than the config's
+  intent; a run with no schedule stays associated for ever; a
+  disassociate-only schedule never comes back; a frame the debugger paused and
+  resumed counts once; and — through the real `RewindBuffer` and
+  `rewind_to_cycle()`, never `set_replay_mode()` — a rewind into the outage
+  restores the outage, a rewind to before it undoes it, and running forward
+  again re-crosses the far edge. The rewind rows exist because the first
+  implementation passed a `set_replay_mode()` version of them while being
+  wrong: a test that flips the flag by hand never restores a snapshot, so it
+  cannot see the staleness that was the defect.
+- **`esp-cli-func`**: the flags reach `EmulatorConfig` at all. This is the seam
+  that green unit suites cannot see — deleting the line that copies
+  `--esp-listen-address` into the config once left the entire triplet green
+  (§13.4) — so the row asserts the log lines a real run emits at both edges,
+  and asserts each refusal (no `--esp`, a lone associate, an associate that
+  does not come after the disassociate, a non-numeric frame). `--esp-ip-address`
+  is asserted the same way, against the startup line naming the address the
+  module will report, plus its own five refusals (no `--esp`, a name, a
+  malformed value, `0.0.0.0`, and `000.000.000.000`).

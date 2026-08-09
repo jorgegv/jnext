@@ -17,6 +17,8 @@
 //   FAULT-*  a throwing transport is surfaced exactly once
 //   WIRE-*   Emulator: off by default, attached when on, inert under replay,
 //            preserved across a soft reset, and joined at destruction
+//   SCHED-*  Emulator: the scheduled WiFi outage reaches the ENGINE at the
+//            declared frames, and a replayed frame does not advance it
 //
 // Run: ./build/test/esp_wiring_test
 
@@ -646,6 +648,264 @@ int main() {
                             std::chrono::steady_clock::now() - t0).count();
         check("WIRE-12", "destroying the Emulator joins the ESP worker promptly",
               ms < 1000);
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // SCHED — the scheduled WiFi outage (GH #246, design doc §16)
+    //
+    // Every row reads back the ENGINE's own state through
+    // `Emulator::esp_associated()`, never the config it was asked for: the
+    // thing under test is that the frame number reaches
+    // `ThreadedEsp::set_associated` and lands in the engine, and a row that
+    // asserted the config would pass with the whole application step deleted.
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled = true;
+        Emulator emu;
+        emu.init(cfg);
+        check("SCHED-01", "an ESP with no schedule starts associated", emu.esp_associated());
+        for (int i = 0; i < 10; ++i) emu.run_frame();
+        check("SCHED-02", "...and stays associated for ever — the default changes nothing",
+              emu.esp_associated());
+    }
+    {
+        check("SCHED-03", "a disabled ESP reports NOT associated — there is no module",
+              [] {
+                  Emulator emu;
+                  emu.init(bare_config());
+                  return !emu.esp_associated();
+              }());
+    }
+    {
+        // The full outage, edge by edge. Frame 3 down, frame 6 up, asserted on
+        // BOTH sides of each edge so an off-by-one cannot pass: frame 2 must
+        // still be associated and frame 5 must still not be.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_disassociate_frame = 3;
+        cfg.esp_associate_frame    = 6;
+        Emulator emu;
+        emu.init(cfg);
+
+        emu.run_frame();  // frame 0
+        emu.run_frame();  // frame 1
+        emu.run_frame();  // frame 2
+        check("SCHED-04", "the frames before the outage leave the module on its network",
+              emu.esp_associated());
+        emu.run_frame();  // frame 3 — the disassociate edge
+        check("SCHED-05", "the declared frame takes it off its network",
+              !emu.esp_associated());
+        emu.run_frame();  // frame 4
+        emu.run_frame();  // frame 5
+        check("SCHED-06", "...and it stays off until the second edge",
+              !emu.esp_associated());
+        emu.run_frame();  // frame 6 — the associate edge
+        check("SCHED-07", "the declared frame puts it back", emu.esp_associated());
+        for (int i = 0; i < 5; ++i) emu.run_frame();
+        check("SCHED-08", "...and each edge fires once, so it stays back",
+              emu.esp_associated());
+    }
+    {
+        // Frame 0 is a legal edge and means "before the guest's first
+        // instruction". A schedule that silently needed at least one frame of
+        // grace would be a schedule that lies about its own unit.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_disassociate_frame = 0;
+        Emulator emu;
+        emu.init(cfg);
+        emu.run_frame();
+        check("SCHED-09", "frame 0 disassociates on the very first serviced frame",
+              !emu.esp_associated());
+        // Disassociate-only is a legal schedule the CLI does not refuse, and it
+        // means "and never come back". Nothing else asserted that the absent
+        // second edge stays absent.
+        for (int i = 0; i < 20; ++i) emu.run_frame();
+        check("SCHED-24", "...and with no associate frame it never comes back",
+              !emu.esp_associated());
+    }
+    {
+        // RZX PLAYBACK ADVANCES THE OUTAGE CLOCK, deliberately (review nit,
+        // GH #246). The inert gate freezes the module's SERVICING during
+        // playback (WIRE-13..18); it does not freeze the schedule, because the
+        // clock counts emulated frames and a played-back frame is one. That is
+        // also how the sibling per-frame countdown behaves —
+        // `boot_hold_frames_remaining_` is decremented with no RZX check — and
+        // it costs the guest nothing, since RZX overrides every IN the guest
+        // reads anyway. Asserted so the choice is a row rather than an
+        // accident of where the call sits.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_disassociate_frame = 3;
+        Emulator emu;
+        emu.init(cfg);
+        RzxRecording rec;
+        rec.frames.resize(8);
+        emu.rzx_player().start(std::move(rec));
+        emu.run_frame();  // 0
+        emu.run_frame();  // 1
+        emu.run_frame();  // 2
+        check("SCHED-26", "the outage clock has not fired early under RZX playback",
+              emu.esp_associated() && emu.rzx_player().is_playing());
+        emu.run_frame();  // 3
+        check("SCHED-27", "...and a played-back frame counts, so the edge lands on time",
+              !emu.esp_associated());
+    }
+    {
+        // THE REWIND, THROUGH THE REAL MACHINERY — `RewindBuffer` +
+        // `rewind_to_cycle()`, never `set_replay_mode()`.
+        //
+        // This row exists because the first implementation passed a
+        // set_replay_mode() version of it while being WRONG (review finding,
+        // GH #246): the association was a flag nothing serialised, so a rewind
+        // restored the machine to frame 5 and left the module associated as it
+        // was at frame 19. A guest polling AT+CIFSR got a different answer the
+        // second time through the same instant — the exact determinism the
+        // rewind buffer exists to provide. A test that flips the flag by hand
+        // cannot see that, because it never restores a snapshot.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_disassociate_frame = 3;
+        cfg.esp_associate_frame    = 8;
+        cfg.rewind_buffer_frames   = 64;
+        Emulator emu;
+        emu.init(cfg);
+
+        // Run into the outage and remember where frame 5 was, then run out the
+        // far side of it so the live state disagrees with the rewind target.
+        emu.run_frame();  // 0
+        emu.run_frame();  // 1
+        emu.run_frame();  // 2
+        emu.run_frame();  // 3 — outage starts
+        emu.run_frame();  // 4
+        const uint64_t mid_outage_cycle = emu.clock().get();
+        check("SCHED-10", "mid-outage, the module is off its network",
+              !emu.esp_associated());
+        for (int i = 0; i < 15; ++i) emu.run_frame();
+        check("SCHED-11", "...and by frame 19 it is back on it", emu.esp_associated());
+
+        emu.rewind_to_cycle(mid_outage_cycle);
+        check("SCHED-12", "a REWIND into the outage restores the outage, not the live state",
+              !emu.esp_associated());
+        // And forward again from the rewound point: the second pass reproduces
+        // the first, which is the property in full. A rewind leaves the machine
+        // PAUSED and the debugger active (rewind_to_cycle's own contract), so
+        // resuming is part of the scenario, not test scaffolding.
+        emu.debug_state().set_active(false);
+        emu.debug_state().resume();
+        for (int i = 0; i < 4; ++i) emu.run_frame();
+        check("SCHED-19", "...and running forward again re-crosses the far edge",
+              emu.esp_associated());
+    }
+    {
+        // The other direction: rewinding to BEFORE the outage must undo it.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_disassociate_frame = 4;
+        cfg.rewind_buffer_frames   = 64;
+        Emulator emu;
+        emu.init(cfg);
+        emu.run_frame();  // 0
+        const uint64_t before_outage_cycle = emu.clock().get();
+        for (int i = 0; i < 8; ++i) emu.run_frame();
+        check("SCHED-20", "the outage is in force before the rewind", !emu.esp_associated());
+        emu.rewind_to_cycle(before_outage_cycle);
+        check("SCHED-21", "rewinding to before the outage puts the module back on its network",
+              emu.esp_associated());
+    }
+    {
+        // A frame the debugger PAUSED is resumed by calling run_frame() again,
+        // and a resume is not a new frame. The first implementation counted in
+        // service_esp_frame(), at the top of run_frame(), so a paused-and-
+        // resumed frame counted twice and the outage arrived early.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_disassociate_frame = 3;
+        Emulator emu;
+        emu.init(cfg);
+        emu.run_frame();  // 0
+        emu.run_frame();  // 1
+        // Pause inside frame 2, then resume it. TWO run_frame() calls, ONE
+        // frame — the second finds `frame_in_progress_` still set and resumes
+        // rather than restarting, which is why the count belongs in
+        // begin_new_frame() and not at the top of run_frame().
+        emu.debug_state().set_active(true);   // pause() is inert without it
+        emu.debug_state().pause();
+        emu.run_frame();                      // begins frame 2, then stops
+        emu.debug_state().resume();
+        emu.debug_state().set_active(false);
+        emu.run_frame();                      // finishes frame 2
+        check("SCHED-22", "a paused-and-resumed frame counts once, not twice",
+              emu.esp_associated());
+        emu.run_frame();                      // frame 3 — the edge, once
+        check("SCHED-23", "...and the edge still lands on the frame the user asked for",
+              !emu.esp_associated());
+    }
+    {
+        // A soft reset resets the Next, not the access point (§16.4). The
+        // module is not rebuilt by one (WIRE-11) and the outage clock is not
+        // rewound by one either.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_disassociate_frame = 2;
+        Emulator emu;
+        emu.init(cfg);
+        emu.run_frame();  // frame 0
+        emu.init(cfg, /*preserve_memory=*/true);
+        emu.run_frame();  // frame 1
+        emu.run_frame();  // frame 2 — the edge, if the count survived the reset
+        check("SCHED-13", "a soft reset does not rewind the outage clock",
+              !emu.esp_associated());
+    }
+    {
+        // GH #246 §16.5 — the configured station address reaches the ENGINE,
+        // which is the only thing that decides what a guest is told. Reading
+        // the config back would pass with the copy in setup_esp() deleted.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled = true;
+        Emulator emu;
+        emu.init(cfg);
+        check("SCHED-14", "with no --esp-ip-address the module keeps its default address",
+              emu.esp_station_ip() == esp::AtEngine::STA_IP);
+    }
+    {
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled    = true;
+        cfg.esp_ip_address = "10.0.0.42";
+        Emulator emu;
+        emu.init(cfg);
+        check("SCHED-15", "a configured address reaches the engine",
+              emu.esp_station_ip() == "10.0.0.42");
+        // A soft reset does not rebuild the module (WIRE-11), so it cannot
+        // lose the address either. Neither does a re-init WITHOUT
+        // preserve_memory: setup_esp() returns early whenever a module already
+        // exists, so on a live Emulator both spellings of init() reach the same
+        // early return. A genuinely fresh module is the row below, which builds
+        // a new Emulator from the same config — the only path that actually
+        // re-runs the construction.
+        emu.init(cfg, /*preserve_memory=*/true);
+        check("SCHED-16", "...and survives a soft reset", emu.esp_station_ip() == "10.0.0.42");
+        emu.init(cfg);
+        check("SCHED-17", "...and a re-init that finds the module already built",
+              emu.esp_station_ip() == "10.0.0.42");
+    }
+    {
+        // The fresh-construction path, which SCHED-16/17 cannot reach.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled    = true;
+        cfg.esp_ip_address = "10.0.0.42";
+        Emulator fresh;
+        fresh.init(cfg);
+        check("SCHED-25", "a newly built Emulator gets the address from the same config",
+              fresh.esp_station_ip() == "10.0.0.42");
+    }
+    {
+        check("SCHED-18", "a disabled ESP reports no station address at all", [] {
+            Emulator emu;
+            emu.init(bare_config());
+            return emu.esp_station_ip().empty();
+        }());
     }
 
     std::printf("\n======================================================\n");

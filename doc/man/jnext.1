@@ -201,6 +201,40 @@ this machine; widening it (\f[CR]0.0.0.0\f[R]) exposes that program to
 your network, which is why it has to be asked for.
 Nothing listens until the program itself sends \f[CR]AT+CIPSERVER\f[R].
 Requires \f[B]\-\-esp\f[R].
+.TP
+\f[B]\-\-esp\-ip\-address\f[R] \f[I]ADDR\f[R]
+Report \f[I]ADDR\f[R] as the module\(cqs own station address instead of
+the default \f[CR]192.168.1.50\f[R], so a program that recognises its
+own address can be run against the one it expects.
+It is what \f[CR]AT+CIFSR\f[R] and \f[CR]AT+CIPSTA?\f[R] answer, and
+nothing more: \f[B]nothing binds it, nothing routes through it\f[R], and
+the emulated Next cannot be reached at it \- that is
+\f[B]\-\-esp\-listen\-address\f[R], which is a real socket.
+\f[I]ADDR\f[R] is a numeric IP address, never a name, and
+\f[CR]0.0.0.0\f[R] is refused because that is what the module reports
+while it has no network.
+Requires \f[B]\-\-esp\f[R].
+.TP
+\f[B]\-\-esp\-delayed\-disassociate\-frames\f[R] \f[I]N\f[R]
+Take the emulated module off its WiFi network after \f[I]N\f[R] emulated
+frames, as if the access point had gone away.
+From then on \f[CR]AT+CIFSR\f[R] reports
+\f[CR]+CIFSR:STAIP,\(dq0.0.0.0\(dq\f[R] instead of the module\(cqs
+address, which is what a real ESP\-01 with no association reports and
+what lets a program detect that its address has gone.
+Nothing else changes: connections already open keep running, new ones
+still open, and no unsolicited \f[CR]WIFI DISCONNECT\f[R] is sent \-
+what a real module does to traffic during an outage has not been
+measured, and jnext does not invent it.
+Requires \f[B]\-\-esp\f[R].
+.TP
+\f[B]\-\-esp\-delayed\-associate\-frames\f[R] \f[I]N\f[R]
+Put it back on the network after \f[I]N\f[R] emulated frames, so
+\f[CR]AT+CIFSR\f[R] reports the module\(cqs address again \- the same
+address as before, since a short outage does not normally change it.
+Requires \f[B]\-\-esp\-delayed\-disassociate\-frames\f[R], and
+\f[I]N\f[R] must be greater than its value: an outage that ends before
+it starts is refused rather than run.
 .SS Recording and playback
 .TP
 \f[B]\-\-record\f[R] \f[I]FILE\f[R]
@@ -713,6 +747,39 @@ Still not emulated: TLS and transparent mode (\c
 issue #154
 .UE \c
 ).
+.SS Making the WiFi go away
+A program that has to notice the Next dropping off the network cannot be
+tested against a module that is never off it.
+Two options schedule an outage, in frames, so a headless run can execute
+that code path:
+.IP
+.EX
+jnext \-\-headless \-\-esp stub.nex \(rs
+    \-\-esp\-delayed\-disassociate\-frames 300 \(rs
+    \-\-esp\-delayed\-associate\-frames 900
+.EE
+.PP
+At frame 300 the module loses its association and \f[CR]AT+CIFSR\f[R]
+starts reporting \f[CR]+CIFSR:STAIP,\(dq0.0.0.0\(dq\f[R]; at frame 900
+it is back, with the same address it had before \- a short outage does
+not normally move it, whether the address is static or a DHCP lease that
+outlived the gap.
+Both edges are reported in the log.
+.PP
+\f[B]The address report is all that changes.\f[R] Connections already
+open keep running, new ones still open, \f[CR]AT+CWJAP?\f[R] and
+\f[CR]AT+CIPSTA?\f[R] still answer as they did, and no
+\f[CR]WIFI DISCONNECT\f[R] or \f[CR]WIFI CONNECTED\f[R] is sent.
+That is a deliberate boundary, not an oversight: what a real module does
+with traffic and with unsolicited messages while its access point is
+down has not been measured on hardware, and a bench built on an invented
+answer would only be measuring the invention.
+What \f[I]is\f[R] measured is that a listening program survived a
+five\-minute outage on a real Next and never noticed (\c
+.UR https://github.com/jorgegv/jnext/issues/246
+issue #246
+.UE \c
+).
 .SS Nothing about your host leaks into the program
 The module reports a fixed synthetic identity: SSID
 \f[CR]JNextWifiHost\f[R], a \f[CR]02:00:00:...\f[R] MAC and BSSID, and a
@@ -720,6 +787,11 @@ The module reports a fixed synthetic identity: SSID
 None of it is read from your machine, so a program cannot learn your
 real SSID, MAC or local addresses by asking.
 The emulated module is not a radio and never scans.
+.PP
+\f[B]\-\-esp\-ip\-address\f[R] changes the station address it claims,
+and does not weaken that: the value is one you typed, never one jnext
+discovered, and it is still only a string in a reply.
+Nothing listens on it and no traffic goes near it.
 .SH LOGGING
 \f[B]\-\-log\-level\f[R] \f[I]SPEC\f[R] sets per\-subsystem log levels.
 A bare level sets every subsystem; a

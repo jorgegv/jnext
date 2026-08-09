@@ -1574,6 +1574,28 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#changing-the-address-the-module-claims" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Changing the address the module claims
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#testing-what-happens-when-the-wifi-goes-away" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Testing what happens when the WiFi goes away
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-is-not-emulated-yet" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3071,6 +3093,8 @@ the files arrive byte-identical.</p>
 <code>02:00:00:…</code> MAC and BSSID, and a <code>192.168.1.50</code> station address. None of it is
 read from your machine, so a program cannot learn your real SSID, MAC or local
 addresses by asking. The emulated module is not a radio and never scans.</p>
+<p><code>--esp-ip-address</code> replaces the station address it claims, and does not weaken
+this: the value is one <strong>you</strong> typed, never one jnext read off your machine.</p>
 <h2 id="when-something-does-not-work">When something does not work<a class="headerlink" href="#when-something-does-not-work" title="Permanent link">&para;</a></h2>
 <p>Turn up the module's own log and watch what the program is actually saying:</p>
 <pre><code>jnext --esp --log-level esp01=debug
@@ -3150,6 +3174,44 @@ dies while you were reading something else. A program that wants a different
 answer sets one: <code>AT+CIPSTO=&lt;seconds&gt;</code>, anywhere from 0 to 7200, where <strong>0 means
 never hang up</strong>. The setting is forgotten on a reset, exactly as it is on
 hardware, so it has to be sent each time.</p>
+<h2 id="changing-the-address-the-module-claims">Changing the address the module claims<a class="headerlink" href="#changing-the-address-the-module-claims" title="Permanent link">&para;</a></h2>
+<p>The emulated module tells the program its address is <code>192.168.1.50</code>. A program
+that recognises its <strong>own</strong> address — a debug stub checking that the address it
+advertised is the one a debugger dialled — has to be run against the address it
+expects, so that value can be replaced:</p>
+<pre><code class="language-bash">jnext --esp --esp-ip-address 10.0.0.42 stub.nex
+</code></pre>
+<p>That is what <code>AT+CIFSR</code> and <code>AT+CIPSTA?</code> then answer. It is <strong>only</strong> what they
+answer: nothing listens on that address, no traffic goes near it, and the
+emulated Next cannot be reached at it. The address something can actually
+connect to is <code>--esp-listen-address</code>, which is a real socket and a real security
+boundary; this one is a string in a reply.</p>
+<p>A name is refused (the address a program is told it has should not depend on
+DNS), and so is <code>0.0.0.0</code>, because that is what the module reports when it has
+no network at all — see the next section.</p>
+<h2 id="testing-what-happens-when-the-wifi-goes-away">Testing what happens when the WiFi goes away<a class="headerlink" href="#testing-what-happens-when-the-wifi-goes-away" title="Permanent link">&para;</a></h2>
+<p>A program that has to cope with the Next dropping off the network — a debug
+stub that advertises an address, say — cannot be tested against a module that is
+never off it. Two options schedule an outage, counted in emulated frames, so an
+automated run can execute that code path:</p>
+<pre><code class="language-bash">jnext --headless --esp stub.nex \
+    --esp-delayed-disassociate-frames 300 \
+    --esp-delayed-associate-frames 900
+</code></pre>
+<p>At frame 300 the module loses its association and <code>AT+CIFSR</code> — the command a
+program asks for its own address — starts answering <code>+CIFSR:STAIP,"0.0.0.0"</code>
+instead of <code>192.168.1.50</code>. At frame 900 it is back, with the <strong>same</strong> address it
+had before, because a short outage does not normally move it. Both edges are
+reported in the log, so a script can see them without asking the program.</p>
+<p>The second option needs the first (the module starts on the network, so there is
+nothing to rejoin), and its frame number has to be the larger of the two.</p>
+<p><strong>The address report is the only thing that changes.</strong> Connections already open
+keep running, new ones still open, and nothing unsolicited is sent to the
+program. That boundary is deliberate: what a real module does to traffic while
+its access point is down has not been measured, and inventing an answer would
+mean a test that only measures the invention. What <em>has</em> been measured is a
+program listening for connections on a real Next surviving a five-minute outage
+without noticing.</p>
 <h2 id="what-is-not-emulated-yet">What is not emulated yet<a class="headerlink" href="#what-is-not-emulated-yet" title="Permanent link">&para;</a></h2>
 <p>The command set is the one <strong>evidenced</strong> in software that actually runs on a
 Next, so a couple of things a physical ESP-01 can do are not built:</p>

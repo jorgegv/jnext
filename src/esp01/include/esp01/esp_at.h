@@ -555,10 +555,22 @@ public:
     /// RSSI and IP addresses reported alongside it. The emulated module is
     /// not a radio and must not leak the user's network environment into the
     /// guest. These values are cosmetic: nothing routes through them.
+    ///
+    /// `STA_IP` is the DEFAULT station address rather than the only one
+    /// (GH #246): a host may substitute its own with `set_station_ip`, which
+    /// is what jnext's `--esp-ip-address` does. The decision above is
+    /// unaffected — the default is still synthetic and nothing is ever read
+    /// from the host — because the substitute is a value the USER typed, not
+    /// one this module discovered.
     static constexpr const char* SSID       = "JNextWifiHost";
     static constexpr const char* AP_BSSID   = "02:00:00:00:00:01";
     static constexpr const char* STA_MAC    = "02:00:00:00:00:02";
     static constexpr const char* STA_IP     = "192.168.1.50";
+    /// What `AT+CIFSR` reports for STAIP while the module is not associated
+    /// (GH #246). A real ESP-AT answers the all-zeros address rather than
+    /// omitting the line, which is what makes "the address went away"
+    /// something a guest can poll for.
+    static constexpr const char* UNASSOCIATED_IP = "0.0.0.0";
     static constexpr const char* GATEWAY_IP = "192.168.1.1";
     static constexpr const char* NETMASK    = "255.255.255.0";
     static constexpr const char* DNS1       = "192.168.1.1";
@@ -677,6 +689,45 @@ public:
     std::uint32_t requested_baud() const { return requested_baud_; }
     /// `AT+CIPSTO`, in seconds; 0 means "never time out" (GH #240).
     std::uint32_t server_timeout() const { return server_timeout_; }
+
+    /// WHETHER THE MODULE IS ON ITS NETWORK (GH #246). True at power-on.
+    ///
+    /// HOST-OWNED, not guest-owned, and that is the whole shape of it: the
+    /// association is lost when the ACCESS POINT goes away, which is an event
+    /// outside both the guest and the module. So nothing the guest can send
+    /// changes this — `AT+RST` included — and the only writer is the host
+    /// (jnext's `--esp-delayed-disassociate-frames` / `-associate-frames`).
+    ///
+    /// WHAT IT CHANGES IS EXACTLY ONE REPLY: `AT+CIFSR` reports
+    /// `UNASSOCIATED_IP` for STAIP while it is false. Sockets are NOT touched
+    /// — an established connection keeps running and a new one still opens —
+    /// and that bound is deliberate rather than an omission. The hardware note
+    /// this models (GH #246, a real Next with its AP powered down for five
+    /// minutes and back up) measured that a listening stub survived the whole
+    /// outage and that the guest saw nothing go wrong; it did NOT measure what
+    /// happens to traffic while the AP is down, and a module that invented an
+    /// answer there would be a bench measuring the invention. See design doc
+    /// §16.
+    bool associated() const { return associated_; }
+    void set_associated(bool v) { associated_ = v; }
+
+    /// THE STATION ADDRESS THE MODULE REPORTS (GH #246), `STA_IP` unless a
+    /// host substitutes one. Reported by `AT+CIFSR` and `AT+CIPSTA?`, and by
+    /// neither while unassociated (`AT+CIFSR` answers `UNASSOCIATED_IP`).
+    ///
+    /// COSMETIC, exactly like the address it replaces: nothing routes through
+    /// it, no socket binds it, and the guest cannot be reached at it. It exists
+    /// because guest software that has to recognise its OWN address — a debug
+    /// stub comparing what it advertises against what a debugger dialled — can
+    /// only be exercised against the address that software expects, and one
+    /// compiled-in value cannot be everyone's.
+    ///
+    /// NOT VALIDATED HERE. A host that hands over rubbish gets rubbish in the
+    /// reply, which is the module's usual posture toward its cosmetic strings;
+    /// jnext refuses a non-numeric one at the command line instead, where the
+    /// user can see the refusal.
+    const std::string& station_ip() const { return sta_ip_; }
+    void set_station_ip(std::string ip) { sta_ip_ = std::move(ip); }
 
     /// Override the `AT+CIPSTART` deadline. Configuration, not a test hook:
     /// the CLI/config branch is the natural place to expose it, and the unit
@@ -954,6 +1005,14 @@ private:
     /// is already connected extends that client's life rather than the next
     /// one's.
     std::uint32_t             server_timeout_ = DEFAULT_SERVER_TIMEOUT_S;
+
+    /// GH #246 — see `associated()`. Survives `AT+RST` because the guest is
+    /// not what took the network away.
+    bool                      associated_ = true;
+
+    /// GH #246 — see `station_ip()`. Survives `AT+RST` for the same reason a
+    /// real module's does: it is configuration, not session state.
+    std::string               sta_ip_ = STA_IP;
 
     /// Empty unless a host installed one, in which case `now()` asks it instead
     /// of `steady_clock`. See `set_clock` for why the seam exists.

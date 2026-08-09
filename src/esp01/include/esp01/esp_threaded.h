@@ -196,6 +196,28 @@ public:
     /// `false` costs at most one host service interval of delivery latency.
     bool wants_tick() const override { return wants_tick_.load(std::memory_order_acquire); }
 
+    // ── Host-owned module state ───────────────────────────────────────────
+
+    /// Take the module off its network, or put it back (GH #246). Forwards to
+    /// `AtEngine::set_associated` / `associated` under the core lock, which is
+    /// what makes it callable from the host's thread while the worker runs.
+    ///
+    /// It BLOCKS on that lock rather than try-locking as `tick()` does, and the
+    /// difference is the call rate: `tick()` runs once per emulated
+    /// instruction, where a wait is unaffordable and a skipped pass costs
+    /// nothing, while this is called at most twice in a run and a skipped call
+    /// would silently lose the state change. The lock is never held across
+    /// `EspTransport::poll()` (see `core_mutex_`), so the wait is bounded by
+    /// the non-blocking contract the transport already owes.
+    void set_associated(bool v);
+    bool associated() const;
+
+    /// The station address the module reports (GH #246). Same locking, and the
+    /// same reasoning, as `set_associated` — a host sets it once, before or
+    /// after `start()`, and the engine reads it from command dispatch.
+    void set_station_ip(std::string ip);
+    std::string station_ip() const;
+
     // ── Test support ──────────────────────────────────────────────────────
 
     /// Block until the worker has drained the inbound queue and completed a
