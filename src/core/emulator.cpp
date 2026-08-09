@@ -7452,6 +7452,13 @@ void Emulator::setup_esp()
     // GH #246 — the reported station address, BEFORE the worker starts, so no
     // guest command can ever be answered with the default and then a second
     // one with the override.
+    // The PRE-OUTAGE address, resolved once: the flag when given, else the
+    // module's own synthetic default. `esp_station_ip_at()` returns a
+    // reference to this, so the frame-by-frame derivation never has to ask the
+    // engine what its default was (which would mean taking its lock).
+    esp_station_ip_configured_ = config_.esp_ip_address.empty()
+                                     ? std::string(esp::AtEngine::STA_IP)
+                                     : config_.esp_ip_address;
     if (!config_.esp_ip_address.empty())
         esp_device_->set_station_ip(config_.esp_ip_address);
     esp_device_->start();
@@ -7525,28 +7532,69 @@ bool Emulator::esp_association_at(int frame) const
     return false;
 }
 
+const std::string& Emulator::esp_station_ip_at(int frame) const
+{
+    // PURE, for the same reason `esp_association_at` is, and the issue that
+    // asked for this (GH #247) named the hazard itself: a second address held
+    // as a flag that the re-association edge assigns would be stale after a
+    // rewind, reintroducing exactly the defect review caught in GH #246 — a
+    // guest polling `AT+CIFSR` getting a different answer the second time
+    // through the same instant.
+    //
+    // The post-outage address applies from the re-association edge onward, and
+    // only when one was configured. Everywhere else — including DURING the
+    // outage, where the association flag makes `AT+CIFSR` answer 0.0.0.0
+    // whatever this returns — the answer is the pre-outage address.
+    const int up = config_.esp_associate_frame;
+    if (!config_.esp_ip_address_after.empty() && up >= 0 && frame >= up)
+        return config_.esp_ip_address_after;
+    return esp_station_ip_configured_;
+}
+
 void Emulator::sync_esp_association(bool force)
 {
     if (!esp_device_) return;
     if (config_.esp_disassociate_frame < 0 && config_.esp_associate_frame < 0) return;
 
-    const bool now = esp_association_at(esp_frames_);
+    const bool         now = esp_association_at(esp_frames_);
+    const std::string& ip  = esp_station_ip_at(esp_frames_);
     if (!force) {
         // The EDGES, computed rather than remembered: this frame differs from
         // the one before it. Deliberately not a comparison against the live
         // engine value, which would take the ESP core lock once per frame to
         // learn nothing 99.99% of the time. A restore is the one case where
         // the engine can disagree without an edge, and it passes force=true.
-        const bool prev = (esp_frames_ == 0) ? true : esp_association_at(esp_frames_ - 1);
-        if (now == prev) return;
+        //
+        // BOTH derived values are compared (GH #247). The address changes at
+        // the same edge the association does today, so comparing only the
+        // association would still work — and would break silently the moment
+        // the two stop coinciding, which is not a property worth depending on.
+        const bool         prev_assoc =
+            (esp_frames_ == 0) ? true : esp_association_at(esp_frames_ - 1);
+        const std::string& prev_ip =
+            (esp_frames_ == 0) ? esp_station_ip_configured_
+                               : esp_station_ip_at(esp_frames_ - 1);
+        if (now == prev_assoc && ip == prev_ip) return;
     }
 
     esp_device_->set_associated(now);
+    esp_device_->set_station_ip(ip);
     if (now) {
-        Log::esp01()->info(
-            "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) — "
-            "AT+CIFSR reports {} again",
-            esp_frames_, esp_device_->station_ip());
+        // "again" is only true when the address came back UNCHANGED; saying it
+        // of an address that moved would misreport the very thing the run was
+        // set up to observe (GH #247).
+        if (ip == esp_station_ip_configured_) {
+            Log::esp01()->info(
+                "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) — "
+                "AT+CIFSR reports {} again",
+                esp_frames_, ip);
+        } else {
+            Log::esp01()->info(
+                "ESP-01 association REGAINED at frame {} (--esp-delayed-associate-frames) — "
+                "AT+CIFSR now reports {}, CHANGED from {} "
+                "(--esp-ip-address-after)",
+                esp_frames_, ip, esp_station_ip_configured_);
+        }
     } else {
         Log::esp01()->info(
             "ESP-01 association LOST at frame {} (--esp-delayed-disassociate-frames) — "

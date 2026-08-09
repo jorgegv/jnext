@@ -51,6 +51,7 @@ engineering reasons in §1.3.
 - [14. Per-connection close (GH #211)](#14-per-connection-close-gh-211)
 - [15. Server idle timeout (GH #240)](#15-server-idle-timeout-gh-240)
 - [16. Losing and regaining the association (GH #246)](#16-losing-and-regaining-the-association-gh-246)
+- [17. The address may MOVE across the outage (GH #247)](#17-the-address-may-move-across-the-outage-gh-247)
 
 ---
 
@@ -1986,3 +1987,70 @@ Three seams, three levels, because no single row spans the whole path:
   is asserted the same way, against the startup line naming the address the
   module will report, plus its own five refusals (no `--esp`, a name, a
   malformed value, `0.0.0.0`, and `000.000.000.000`).
+
+
+---
+
+## 17. The address may MOVE across the outage (GH #247)
+
+§16 gave a bench an outage. It did not, on its own, give it a bench that can
+FAIL — and that is the whole of this section.
+
+### 17.1 Why the same-address outage cannot discriminate
+
+`dezogif_ng` queries `AT+CIFSR` **once**, at bring-up, and paints
+`Connect at <ip>:11000` on the Next's screen. The defect is a stub still
+advertising an address that has moved. The only sequence §16 can stage is
+
+    A  ->  0.0.0.0  ->  A
+
+and the stub's cached `A` is **correct** on the far side of it. A check
+asserting "the screen still says A" therefore passes whether the stub re-reads
+its address or not: **every wrong answer agrees with the right one**. The
+consumer has been bitten by that shape before and has a name for it.
+
+The address coming back **different** is what makes the check mean something.
+
+### 17.2 What was added
+
+`--esp-ip-address-after ADDR` — the address `AT+CIFSR` reports from the
+re-association edge onward. Defaults to the pre-outage address, so every run
+that does not ask for it is byte-identical to §16's behaviour. It requires
+`--esp-delayed-associate-frames` (with no re-association there is no "after")
+and takes the same values, with the same two refusals, as `--esp-ip-address`.
+
+The `REGAINED` log line distinguishes the two cases: "reports A again" when the
+address is unchanged, "now reports B, CHANGED from A" when it moved. Saying
+"again" of an address that moved would misreport the one thing the run exists
+to observe.
+
+### 17.3 It is DERIVED, and the issue said so first
+
+The issue that asked for this named the hazard itself: whatever holds the
+second address has to be a pure function of the snapshotted frame counter, or
+it reintroduces exactly the defect review caught in §16.4 — a guest polling
+`AT+CIFSR` getting a different answer the second time through the same instant.
+
+So `Emulator::esp_station_ip_at(frame)` sits beside `esp_association_at(frame)`
+and is pure in the same way, and `sync_esp_association` compares BOTH derived
+values against the previous frame's rather than the association alone. The two
+happen to change at the same edge today; depending on that would break silently
+the moment they stopped.
+
+`MOVED-08` in `esp_wiring_test` is the row that pins it — a rewind to before
+the outage must restore the OLD address — and it was mutation-tested against
+the exact shape the issue warned about: a sticky flag assigned at the
+re-association edge, which a rewind cannot undo. That mutant fails MOVED-08 and
+nothing else.
+
+### 17.4 Evidence status — weaker than §15's, and deliberately stated
+
+§16.2 measured a real Next surviving a five-minute AP outage with its listener
+intact and **the same address**; the address CHANGING across an outage has
+**never been observed** — the DHCP lease held.
+
+So the behaviour is inferred from how DHCP works, not from an ESP-01
+measurement. What keeps that a fair model rather than an invention is that it
+is not a claim about *module* behaviour at all: the address is already
+configurable, and whether a DHCP address survives a reconnection is a property
+of networks. This is a **test lever over a value the emulator already owns**.

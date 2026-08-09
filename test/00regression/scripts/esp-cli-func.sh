@@ -165,6 +165,57 @@ if want esp-cli-func; then
     # finding, GH #246).
     ip_refuse "000.000.000.000 as the reported address" --esp --esp-ip-address 000.000.000.000
 
+    # ── GH #247: the address may come back DIFFERENT ─────────────────────
+    #
+    # The point of the option is that A -> 0.0.0.0 -> A cannot discriminate: a
+    # guest that caches its address at bring-up is correct on the far side of
+    # it. So the assertion is that the REGAINED line names the NEW address and
+    # says it changed.
+    moved=$(esp_run --esp --esp-ip-address 10.0.0.5 --esp-ip-address-after 10.0.0.9 \
+                    --esp-delayed-disassociate-frames 1 --esp-delayed-associate-frames 2 \
+                    --delayed-automatic-exit-frames 6)
+    if ! grep -q 'station address 10.0.0.5 to the guest' <<<"$moved"; then
+        fails+=("the pre-outage address did not reach the emulator")
+    fi
+    if ! grep -q 'REGAINED at frame 2 .*10.0.0.9, CHANGED from 10.0.0.5' <<<"$moved"; then
+        fails+=("--esp-ip-address-after did not reach the emulator")
+    fi
+    # ...and without it, the same run must report the address coming back
+    # UNCHANGED. Without this pair the assertion above is satisfiable by a
+    # build that always prints the CHANGED form.
+    same=$(esp_run --esp --esp-ip-address 10.0.0.5 \
+                   --esp-delayed-disassociate-frames 1 --esp-delayed-associate-frames 2 \
+                   --delayed-automatic-exit-frames 6)
+    if ! grep -q 'REGAINED at frame 2 .*reports 10.0.0.5 again' <<<"$same"; then
+        fails+=("without --esp-ip-address-after the address did not come back unchanged")
+    fi
+    if grep -q 'CHANGED from' <<<"$same"; then
+        fails+=("an unmoved address was reported as CHANGED")
+    fi
+
+    after_refuse() {
+        local why=$1; shift
+        local out rc=0
+        out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless \
+            "${SD_CARD_ARGS[@]}" --delayed-automatic-exit-frames 2 "$@" 2>&1) || rc=$?
+        if [[ $rc -eq 0 ]]; then
+            fails+=("$why was accepted instead of refused")
+        elif ! grep -q 'esp-ip-address-after' <<<"$out"; then
+            fails+=("$why was refused for the wrong reason")
+        fi
+    }
+    after_refuse "a post-outage address without --esp" --esp-ip-address-after 10.0.0.9
+    # With no re-association there is no "after" — the silent no-op this whole
+    # family of refusals exists to prevent.
+    after_refuse "a post-outage address with no re-association" \
+        --esp --esp-delayed-disassociate-frames 1 --esp-ip-address-after 10.0.0.9
+    after_refuse "a malformed post-outage address" \
+        --esp --esp-delayed-disassociate-frames 1 --esp-delayed-associate-frames 2 \
+        --esp-ip-address-after 999.1.1.1
+    after_refuse "0.0.0.0 as the post-outage address" \
+        --esp --esp-delayed-disassociate-frames 1 --esp-delayed-associate-frames 2 \
+        --esp-ip-address-after 0.0.0.0
+
     # ── GH #246: the scheduled WiFi outage ───────────────────────────────
     #
     # Same seam, same reason: the two frame numbers are parsed in main.cpp and
@@ -226,7 +277,7 @@ if want esp-cli-func; then
         --esp --esp-delayed-disassociate-frames 10s
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (ESP default-off, --esp, --no-esp, --esp-allow gating and comma refusal, --esp-listen-address default/widened/malformed/name/gate, --esp-ip-address default/override + 5 refusals, scheduled WiFi outage edges + 4 refusals verified)"
+        pass_row " (ESP default-off, --esp, --no-esp, --esp-allow gating and comma refusal, --esp-listen-address default/widened/malformed/name/gate, --esp-ip-address default/override + 5 refusals, --esp-ip-address-after moved/unmoved + 4 refusals, scheduled WiFi outage edges + 4 refusals verified)"
     else
         fail_row " (${fails[*]})"
     fi

@@ -225,6 +225,9 @@ int main(int argc, char* argv[]) {
     // GH #246 — the station address the module reports. Empty means the
     // module's own synthetic default.
     std::string esp_ip_address;
+    // GH #247 — the address reported after the outage ends; empty means "the
+    // same one as before".
+    std::string esp_ip_address_after;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -492,7 +495,13 @@ int main(int argc, char* argv[]) {
                 (down ? esp_disassociate_frame : esp_associate_frame) = static_cast<int>(n);
                 break;
             }
-            case cli::OptId::EspIpAddress: {
+            case cli::OptId::EspIpAddress:
+            case cli::OptId::EspIpAddressAfter: {
+                // ONE arm for both addresses (GH #247): the validation is
+                // identical, and two copies of it are how the pre- and
+                // post-outage flags would come to disagree about what a legal
+                // address is.
+                //
                 // Numeric only, and validated HERE for the same reason
                 // --esp-listen-address is: a typo must be a usage error the
                 // user sees at once, not a malformed string the guest is
@@ -503,9 +512,9 @@ int main(int argc, char* argv[]) {
                 esp::IpAddress parsed;
                 if (!esp::parse_ip(v[0], parsed)) {
                     fprintf(stderr,
-                            "--esp-ip-address: ADDR must be a numeric IP address "
+                            "%s: ADDR must be a numeric IP address "
                             "(e.g. 192.168.1.50), not \"%s\".\n",
-                            v[0]);
+                            arg.c_str(), v[0]);
                     return 1;
                 }
                 // 0.0.0.0 is the address the module reports while it is OFF
@@ -521,12 +530,13 @@ int main(int argc, char* argv[]) {
                 esp::parse_ip(esp::AtEngine::UNASSOCIATED_IP, unassociated);
                 if (parsed == unassociated) {
                     fprintf(stderr,
-                            "--esp-ip-address: %s is what the module reports while it is "
+                            "%s: %s is what the module reports while it is "
                             "NOT associated, so it cannot also be its address.\n",
-                            esp::AtEngine::UNASSOCIATED_IP);
+                            arg.c_str(), esp::AtEngine::UNASSOCIATED_IP);
                     return 1;
                 }
-                esp_ip_address = v[0];
+                if (opt->id == cli::OptId::EspIpAddress) esp_ip_address = v[0];
+                else                                     esp_ip_address_after = v[0];
                 break;
             }
             case cli::OptId::MagicPort:
@@ -909,6 +919,7 @@ int main(int argc, char* argv[]) {
         cfg.esp_disassociate_frame = esp_disassociate_frame;
         cfg.esp_associate_frame    = esp_associate_frame;
         cfg.esp_ip_address         = esp_ip_address;
+        cfg.esp_ip_address_after   = esp_ip_address_after;
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -975,6 +986,20 @@ int main(int argc, char* argv[]) {
         // the disconnected path when nothing was ever connected.
         if (!esp_ip_address.empty() && !cfg.esp_enabled) {
             fprintf(stderr, "--esp-ip-address requires the ESP to be enabled (--esp).\n");
+            return 1;
+        }
+        if (!esp_ip_address_after.empty() && !cfg.esp_enabled) {
+            fprintf(stderr,
+                    "--esp-ip-address-after requires the ESP to be enabled (--esp).\n");
+            return 1;
+        }
+        // GH #247. With no re-association there is no "after", so the option
+        // would run to completion changing nothing — the silent no-op this
+        // whole family of refusals exists to prevent.
+        if (!esp_ip_address_after.empty() && esp_associate_frame < 0) {
+            fprintf(stderr,
+                    "--esp-ip-address-after needs an outage that ENDS: give "
+                    "--esp-delayed-associate-frames too.\n");
             return 1;
         }
         if ((esp_disassociate_frame >= 0 || esp_associate_frame >= 0) && !cfg.esp_enabled) {

@@ -70,6 +70,7 @@ enum class OptId {
     EspDelayedDisassociateFrames,
     EspDelayedAssociateFrames,
     EspIpAddress,
+    EspIpAddressAfter,
     MagicBreakpoint,
     PersistentBreakpoints,
     EsxdosStub,
@@ -342,6 +343,19 @@ inline constexpr Option OPTIONS[] = {
       "(AT+CIFSR / AT+CIPSTA?), default 192.168.1.50. Cosmetic:\n"
       "nothing binds it and nothing routes through it - that is\n"
       "--esp-listen-address. A name and 0.0.0.0 are refused." },
+    // GH #247 — the address AFTER the outage. Separate from the one above
+    // because the whole value of it is that the two can DIFFER: a stub that
+    // caches its address at bring-up is correct across an A -> 0.0.0.0 -> A
+    // outage, so that sequence cannot tell a stub that re-reads from one that
+    // does not.
+    { "--esp-ip-address-after", 1, Doc::Documented, OptId::EspIpAddressAfter,
+      "ADDR",
+      "Address AT+CIFSR reports once the outage ENDS, when it\n"
+      "differs from the one before it (a DHCP lease that expired\n"
+      "during a long outage, or a router that reassigned).\n"
+      "Defaults to the pre-outage address. Requires\n"
+      "--esp-delayed-associate-frames. Same refusals as\n"
+      "--esp-ip-address." },
 
     // Recording and playback
     { "--record", 1, Doc::Documented, OptId::Record,

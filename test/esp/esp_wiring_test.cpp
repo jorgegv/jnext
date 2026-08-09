@@ -900,6 +900,97 @@ int main() {
         check("SCHED-25", "a newly built Emulator gets the address from the same config",
               fresh.esp_station_ip() == "10.0.0.42");
     }
+
+    // ─────────────────────────────────────────────────────────────────────
+    // MOVED — the address DIFFERS after the outage (GH #247)
+    //
+    // Why it exists at all: across an outage that returns the SAME address, a
+    // guest that caches its address at bring-up and one that re-reads it are
+    // indistinguishable, so a bench asserting "the screen still says A" passes
+    // either way. Every wrong answer agrees with the right one. The address
+    // coming back DIFFERENT is what makes the check discriminate.
+    // ─────────────────────────────────────────────────────────────────────
+    {
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_ip_address         = "10.0.0.5";
+        cfg.esp_ip_address_after   = "10.0.0.9";
+        cfg.esp_disassociate_frame = 2;
+        cfg.esp_associate_frame    = 4;
+        Emulator emu;
+        emu.init(cfg);
+
+        emu.run_frame();  // 0
+        emu.run_frame();  // 1
+        check("MOVED-01", "before the outage the module reports the pre-outage address",
+              emu.esp_station_ip() == "10.0.0.5" && emu.esp_associated());
+        emu.run_frame();  // 2 — outage starts
+        check("MOVED-02", "during the outage it is not associated, whatever address is set",
+              !emu.esp_associated());
+        emu.run_frame();  // 3
+        emu.run_frame();  // 4 — re-association
+        check("MOVED-03", "after the outage it reports the NEW address",
+              emu.esp_associated() && emu.esp_station_ip() == "10.0.0.9");
+        for (int i = 0; i < 5; ++i) emu.run_frame();
+        check("MOVED-04", "...and keeps it — the edge fires once",
+              emu.esp_station_ip() == "10.0.0.9");
+    }
+    {
+        // The default: no post-outage address means the SAME one comes back,
+        // which is what a short outage really does and what GH #246 measured.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_ip_address         = "10.0.0.5";
+        cfg.esp_disassociate_frame = 1;
+        cfg.esp_associate_frame    = 3;
+        Emulator emu;
+        emu.init(cfg);
+        for (int i = 0; i < 5; ++i) emu.run_frame();
+        check("MOVED-05", "with no --esp-ip-address-after the address is unchanged",
+              emu.esp_associated() && emu.esp_station_ip() == "10.0.0.5");
+    }
+    {
+        // THE REWIND, and the issue that asked for this named the hazard
+        // itself: a second address held as a flag that the re-association edge
+        // ASSIGNS would be stale after a rewind — the GH #246 defect exactly.
+        // Derived from the same snapshotted frame counter, it cannot be.
+        EmulatorConfig cfg = bare_config();
+        cfg.esp_enabled            = true;
+        cfg.esp_ip_address         = "10.0.0.5";
+        cfg.esp_ip_address_after   = "10.0.0.9";
+        cfg.esp_disassociate_frame = 3;
+        cfg.esp_associate_frame    = 6;
+        cfg.rewind_buffer_frames   = 64;
+        Emulator emu;
+        emu.init(cfg);
+
+        emu.run_frame();  // 0
+        const uint64_t before_outage = emu.clock().get();
+        emu.run_frame();  // 1
+        emu.run_frame();  // 2
+        emu.run_frame();  // 3 — outage
+        emu.run_frame();  // 4
+        const uint64_t mid_outage = emu.clock().get();
+        for (int i = 0; i < 10; ++i) emu.run_frame();   // well past the return
+        check("MOVED-06", "live, after the outage, the address has moved",
+              emu.esp_associated() && emu.esp_station_ip() == "10.0.0.9");
+
+        emu.rewind_to_cycle(mid_outage);
+        check("MOVED-07", "a rewind into the outage restores the outage, not the new address",
+              !emu.esp_associated());
+
+        emu.rewind_to_cycle(before_outage);
+        check("MOVED-08", "a rewind to BEFORE it restores the OLD address",
+              emu.esp_associated() && emu.esp_station_ip() == "10.0.0.5");
+
+        // Forward again through both edges: the second pass reproduces the
+        // first, which is the property in full.
+        emu.debug_state().set_active(false);
+        emu.debug_state().resume();
+        for (int i = 0; i < 6; ++i) emu.run_frame();
+        check("MOVED-09", "...and running forward re-crosses both edges to the new address",
+              emu.esp_associated() && emu.esp_station_ip() == "10.0.0.9");
+    }
     {
         check("SCHED-18", "a disabled ESP reports no station address at all", [] {
             Emulator emu;

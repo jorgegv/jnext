@@ -1191,6 +1191,13 @@ private:
     /// carrying a stale flag back through time. See its definition.
     bool esp_association_at(int frame) const;
 
+    /// GH #247 — the station address the schedule says the module reports at
+    /// `frame`: the pre-outage one, or `esp_ip_address_after` from the
+    /// re-association edge onward. PURE, for the reason its definition gives —
+    /// a second address held as a mutable flag would be stale after a rewind,
+    /// which is the GH #246 defect all over again.
+    const std::string& esp_station_ip_at(int frame) const;
+
     /// Apply `esp_association_at(esp_frames_)` to the module, logging a real
     /// change. `force` skips the edge test — used after a state restore, where
     /// the clock JUMPED and no edge was crossed.
@@ -1208,6 +1215,12 @@ private:
     /// outage is happening out there, and the guest resetting the Next has no
     /// bearing on when it ends.
     int esp_frames_ = 0;
+
+    /// The pre-outage station address: `--esp-ip-address` when given, else the
+    /// module's own default. Resolved once in setup_esp() so that
+    /// esp_station_ip_at() can return a reference and never has to ask the
+    /// engine (which would mean taking its lock once per frame).
+    std::string esp_station_ip_configured_;
 
     /// Task 51 — re-derive every timing surface that depends on the EFFECTIVE
     /// machine-timing mode (tim_sel axis, `contention_.machine_timing()`):
