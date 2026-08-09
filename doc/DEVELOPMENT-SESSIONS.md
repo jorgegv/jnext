@@ -149,6 +149,9 @@
 | 4/8     | 3h   | ESP-01 server mode: AT+CIPMUX=1, AT+CIPSERVER, multiplexed +IPD, for dezogif_ng. v0.99.118             |
 | 6/8     | 10h  | Debugger wave: HALT single-step, Run steps off its breakpoint, panel refresh                           |
 |         |      | I/O watchpoints, --persistent-breakpoints, observer refactor. v0.99.119->.131                          |
-| 8-9/8   |      | v1.0 milestone emptied: NR 0x02 handler destroyed mid-call, four soft-reset defects                    |
-|         |      | ESP-01 AT+CIPSTO; startup window scale + fullscreen collapse (lordheavy). v0.99.139->.144               |
-| TOTAL:  | 582h |                                                                                                        |
+| 7/8     | 16h  | v0.99.132 PUBLIC RELEASE; 13 issues closed (#207, #211-213, #215-223)                                  |
+| 8/8     | 15h  | 7 issues closed (#35 #208 #212 #226-228 #235); knowledge consolidation; v1.0 clearing run              |
+|         |      | begins: NR 0x02 handler destroyed mid-call, four soft-reset defects. v0.99.133->.140                   |
+| 9/8     | 4h   | v1.0 EMPTIED; v0.99.144 PUBLIC RELEASE; window scale + fullscreen (lordheavy); AT+CIPSTO               |
+|         |      | Lambda/closure perf study: 2 void optimisation candidates struck. v0.99.141->.147                      |
+| TOTAL:  | 617h |                                                                                                        |
