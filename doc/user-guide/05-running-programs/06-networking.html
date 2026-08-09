@@ -3205,6 +3205,18 @@ had before, because a short outage does not normally move it. Both edges are
 reported in the log, so a script can see them without asking the program.</p>
 <p>The second option needs the first (the module starts on the network, so there is
 nothing to rejoin), and its frame number has to be the larger of the two.</p>
+<p><strong>The address can come back different.</strong> <code>--esp-ip-address-after ADDR</code> sets what
+<code>AT+CIFSR</code> reports once the outage ends:</p>
+<pre><code class="language-bash">jnext --headless --esp stub.nex \
+    --esp-ip-address 192.168.1.50 --esp-ip-address-after 192.168.1.77 \
+    --esp-delayed-disassociate-frames 300 --esp-delayed-associate-frames 900
+</code></pre>
+<p>That is what makes a program's stale-address handling testable at all. Across an
+outage that returns the <em>same</em> address, a program that reads its address once at
+start-up and one that re-reads it afterwards behave identically — so a test
+cannot tell them apart. Give it a different address on the way back and only the
+program that re-reads gets it right. A short outage normally does return the same
+address, which is why that stays the default.</p>
 <p><strong>The address report is the only thing that changes.</strong> Connections already open
 keep running, new ones still open, and nothing unsolicited is sent to the
 program. That boundary is deliberate: what a real module does to traffic while

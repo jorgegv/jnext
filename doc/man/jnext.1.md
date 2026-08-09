@@ -196,6 +196,17 @@ debugger ones.
     address, never a name, and `0.0.0.0` is refused because that is what the
     module reports while it has no network. Requires **\--esp**.
 
+**\--esp-ip-address-after** *ADDR*
+:   Report *ADDR* instead, once the outage ends. Defaults to the pre-outage
+    address, which is what a short outage really does; give this when the
+    address should come back **different** - a DHCP lease that expired during a
+    long outage, or a router that reassigned. It is what makes a program's
+    stale-address handling testable at all: across an outage that returns the
+    *same* address, a program that caches its address at start-up and one that
+    re-reads it are indistinguishable. Requires
+    **\--esp-delayed-associate-frames**, and takes the same values as
+    **\--esp-ip-address**.
+
 **\--esp-delayed-disassociate-frames** *N*
 :   Take the emulated module off its WiFi network after *N* emulated frames, as
     if the access point had gone away. From then on `AT+CIFSR` reports

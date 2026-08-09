@@ -289,6 +289,21 @@ struct EmulatorConfig {
     // exercised against the address that software expects.
     std::string              esp_ip_address;
 
+    // The address reported AFTER the outage ends (GH #247). Empty means "the
+    // same one as before", which is what a short outage really does and what
+    // every run that does not ask for otherwise gets.
+    //
+    // It exists because the same-address case cannot DISCRIMINATE. A stub that
+    // caches its address at bring-up and never re-reads it is correct on the
+    // far side of an A -> 0.0.0.0 -> A outage, so a bench asserting "the screen
+    // still says A" passes whether the stub handles a moved address or not —
+    // every wrong answer agrees with the right one. A different address on the
+    // way back is what makes the check mean something.
+    //
+    // Requires `esp_associate_frame`: with no re-association there is no
+    // "after".
+    std::string              esp_ip_address_after;
+
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;
     std::function<void(uint64_t, int, uint8_t)> dac_write_callback;

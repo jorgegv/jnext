@@ -215,6 +215,19 @@ the emulated Next cannot be reached at it \- that is
 while it has no network.
 Requires \f[B]\-\-esp\f[R].
 .TP
+\f[B]\-\-esp\-ip\-address\-after\f[R] \f[I]ADDR\f[R]
+Report \f[I]ADDR\f[R] instead, once the outage ends.
+Defaults to the pre\-outage address, which is what a short outage really
+does; give this when the address should come back \f[B]different\f[R] \-
+a DHCP lease that expired during a long outage, or a router that
+reassigned.
+It is what makes a program\(cqs stale\-address handling testable at all:
+across an outage that returns the \f[I]same\f[R] address, a program that
+caches its address at start\-up and one that re\-reads it are
+indistinguishable.
+Requires \f[B]\-\-esp\-delayed\-associate\-frames\f[R], and takes the
+same values as \f[B]\-\-esp\-ip\-address\f[R].
+.TP
 \f[B]\-\-esp\-delayed\-disassociate\-frames\f[R] \f[I]N\f[R]
 Take the emulated module off its WiFi network after \f[I]N\f[R] emulated
 frames, as if the access point had gone away.
