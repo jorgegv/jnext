@@ -441,12 +441,19 @@ uint8_t NextReg::read(uint8_t reg) {
     } else {
         val = regs_[reg];
     }
-    Log::nextreg()->trace("NextREG read  reg={:#04x} val={:#04x}", reg, val);
+    // Guarded: see the should_log() rationale in PortDispatch::read
+    // (src/port/port_dispatch.cpp). spdlog does not gate the level at the call
+    // site for the format-string-with-arguments overload, so an unguarded
+    // trace() costs an out-of-line call on every NextREG access with tracing
+    // off — write() alone peaks at 63k/s.
+    if (Log::nextreg()->should_log(spdlog::level::trace))
+        Log::nextreg()->trace("NextREG read  reg={:#04x} val={:#04x}", reg, val);
     return val;
 }
 
 void NextReg::write(uint8_t reg, uint8_t val) {
-    Log::nextreg()->trace("NextREG write reg={:#04x} val={:#04x}", reg, val);
+    if (Log::nextreg()->should_log(spdlog::level::trace))
+        Log::nextreg()->trace("NextREG write reg={:#04x} val={:#04x}", reg, val);
     // PASS-8 read-only register guard. VHDL zxnext.vhd:5887, 5917, 5920
     // — NR 0x01 (g_version), NR 0x0E (g_sub_version), NR 0x0F
     // (g_board_issue) are RO board-generic constants; their read mux
