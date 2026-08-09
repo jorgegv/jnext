@@ -63,7 +63,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  4363 | 4107 |    0 |    5 |     251 |          0 |
 
-Rows the sections above carry: **4363**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4176**. Rows the 100 suites declared in `test/unit-tests.conf` run live: **7129**.
+Rows the sections above carry: **4363**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4176**. Rows the 100 suites declared in `test/unit-tests.conf` run live: **7130**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -75,7 +75,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 59 suites (3161 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 59 suites (3162 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -105,7 +105,7 @@ These 59 suites (3161 live rows) have no VHDL-derived plan row to map, so they h
 | `host_key_latch_test` | 69 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
 | `log_gate_test` | 10 | jnext log-level gating |
-| `cli_options_test` | 18 | CLI flag table vs the man page (see `make cli-check`) |
+| `cli_options_test` | 19 | CLI flag table vs the man page (see `make cli-check`) |
 | `video_recorder_cmd_test` | 33 | FFmpeg command-line construction (host encoder) |
 | `nex_loader_test` | 108 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 78 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |

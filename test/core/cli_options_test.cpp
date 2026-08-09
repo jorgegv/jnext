@@ -315,6 +315,39 @@ int main() {
               bad.empty(), join(bad));
     }
 
+    {
+        // NO `%` IN A HELP OR ARGS STRING. Not style — a live bug this caught.
+        //
+        // These texts used to BE the fprintf format string, where a literal
+        // percent has to be written `%%`. They are now passed as `%s`
+        // ARGUMENTS, where `%%` is two characters and prints as two. The
+        // migration copied `--speed`'s text verbatim and shipped
+        // "Emulator speed as %% (50=half...)" to the user; review found it.
+        //
+        // It bans `%%`, NOT `%`. A lone percent is correct and needed —
+        // `--speed`'s description says "Emulator speed as % (50=half...)" and
+        // prints exactly that, because the string is an argument. `%%` is the
+        // leftover format escape, and it is now always a bug: there is no
+        // longer a format string for it to be escaped in.
+        //
+        // The first version of this row banned `%` outright and failed on the
+        // very text it had just been written to protect. Kept as a comment
+        // because the distinction is the whole content of the check.
+        std::vector<std::string> bad;
+        auto has_double_pct = [](const char* s) {
+            return s != nullptr && std::strstr(s, "%%") != nullptr;
+        };
+        for (const cli::Option& o : cli::OPTIONS) {
+            if (has_double_pct(o.help))
+                bad.push_back(std::string(o.name) + " (help contains '%%')");
+            if (has_double_pct(o.args))
+                bad.push_back(std::string(o.name) + " (args contains '%%')");
+        }
+        check("CLI-TBL-07",
+              "no help/args text contains '%%' — they are printf ARGUMENTS, not formats",
+              bad.empty(), join(bad));
+    }
+
     // -----------------------------------------------------------------
     // Man page alignment.
     // -----------------------------------------------------------------
@@ -613,12 +646,20 @@ int main() {
                     // Whole-word: `--esp` must not be satisfied by the
                     // `--esp-allow` that contains it, or a dropped flag would
                     // keep passing behind any longer flag sharing its prefix.
+                    // BOTH boundaries. Checking only the right-hand one, as the
+                    // first version did, is weaker than the word "whole-word"
+                    // claims: a longer flag ENDING in this spelling would
+                    // satisfy it and hide a genuinely missing entry.
                     bool found = false;
                     for (std::size_t at = help_text.find(o.name);
                          at != std::string::npos;
                          at = help_text.find(o.name, at + 1)) {
+                        const char prev = (at == 0) ? ' ' : help_text[at - 1];
                         const char next = help_text[at + std::strlen(o.name)];
-                        if (next == ' ' || next == '\n' || next == ',' || next == '\t') {
+                        const bool left_ok  = (prev == ' ' || prev == '\n' || prev == '\t');
+                        const bool right_ok = (next == ' ' || next == '\n' ||
+                                               next == ',' || next == '\t');
+                        if (left_ok && right_ok) {
                             found = true;
                             break;
                         }

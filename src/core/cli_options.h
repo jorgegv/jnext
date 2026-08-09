@@ -227,7 +227,7 @@ inline constexpr Option OPTIONS[] = {
       "Open the SD image read-only; the host file is never written" },
     { "--speed", 1, Doc::Documented, OptId::Speed,
       "PERCENT",
-      "Emulator speed as %% (50=half, 100=normal, 200=2x, 400=4x)" },
+      "Emulator speed as % (50=half, 100=normal, 200=2x, 400=4x)" },
     { "--when-slow-prefer", 1, Doc::Documented, OptId::WhenSlowPrefer,
       "WHAT",
       "What to sacrifice when the host cannot emulate in\n"
@@ -265,7 +265,7 @@ inline constexpr Option OPTIONS[] = {
       "",
       "Disable all sound output (beeper, AY/YM x3, DAC/\n"
       "Covox/Specdrum). No audio device is opened, and the\n"
-      "emulator skips PSG/mixer sample synthesis entirely -\n"
+      "emulator skips PSG/mixer sample synthesis entirely —\n"
       "can measurably speed up CPU-bound runs. Tape loading\n"
       "(EAR input) is unaffected." },
     { "--inject", 1, Doc::Documented, OptId::Inject,
@@ -418,7 +418,8 @@ inline constexpr Option OPTIONS[] = {
       "Excluded layers are treated as disabled, so the rest still\n"
       "composite per NR 0x15 priority and the NR 0x4A fallback\n"
       "colour shows through. Excluding 'ula' also removes the\n"
-      "border (the ULA draws it)." },
+      "border (the ULA draws it). E.g. --delayed-screenshot-layers\n"
+      "layer2 captures Layer 2 alone; 'ula,sprites' captures both." },
     { "--delayed-automatic-exit", 1, Doc::Documented, OptId::DelayedAutomaticExit,
       "N",
       "Exit the emulator after N seconds" },
@@ -442,7 +443,8 @@ inline constexpr Option OPTIONS[] = {
     { "--delayed-keypress-frames", 2, Doc::Documented, OptId::DelayedKeypressFrames,
       "N KEY",
       "Press KEY after N emulated frames (frames-unit spelling\n"
-      "of --delayed-keypress; both forms queue, not override)" },
+      "of --delayed-keypress; both forms queue, not override).\n"
+      "KEY takes the same values as --delayed-keypress." },
     { "--delayed-nmi", 2, Doc::Documented, OptId::DelayedNmi,
       "SECS BUTTON",
       "Press an NMI BUTTON after SECS seconds (headless only,\n"
@@ -488,7 +490,7 @@ inline constexpr Option OPTIONS[] = {
       "mmap'd histogram and accumulates one entry per executed\n"
       "instruction. On exit the histogram is written to\n"
       "--profile-output. Use 'tools/get-function-heatmap.pl\n"
-      "-m FILE.map' to join it against a z88dk .map file." },
+      "-m FILE.map' to join the output against a z88dk .map file." },
     { "--profile-output", 1, Doc::Documented, OptId::ProfileOutput,
       "FILE",
       "Output path for --profile (default: profile.dat)" },
@@ -506,7 +508,7 @@ inline constexpr Option OPTIONS[] = {
       "FILE",
       "Write the log to FILE instead of the console. Truncated on\n"
       "every run; jnext exits non-zero if FILE cannot be opened.\n"
-      "Set NO_COLOR to a non-empty value for uncoloured logs." },
+      "Set NO_COLOR to a non-empty value for uncoloured console logs." },
     { "--help", 0, Doc::Documented, OptId::Help,
       "",
       "Print this help and exit" },
