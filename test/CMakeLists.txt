@@ -647,6 +647,18 @@ target_link_libraries(atic_atac_nmi_test PRIVATE
 target_include_directories(atic_atac_nmi_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME atic_atac_nmi_tests COMMAND atic_atac_nmi_test)
 
+# --inject entry-state test (GH #248). The CPU state an injected program
+# starts from must describe THAT program: a `halted` latch left over from the
+# displaced one (NextZXOS idles in a HALT) makes its first interrupt or NMI
+# return one byte late. Needs a real Emulator to take a real interrupt.
+add_executable(inject_test core/inject_test.cpp)
+target_link_libraries(inject_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(inject_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME inject_tests COMMAND inject_test)
+
 # Audio + NextREG integration test (Phase 2 Wave C, 2026-04-24)
 # Hosts the 25 plan rows re-homed from audio_test.cpp that need a full
 # Emulator + NextReg surface: NR 0x06 bits[1:0]/bit6 (PSG mode + speaker_beep),

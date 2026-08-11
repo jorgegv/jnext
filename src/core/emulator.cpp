@@ -6720,6 +6720,15 @@ bool Emulator::inject_binary(const std::string& path, uint16_t org, uint16_t pc)
     // Disable interrupts — the injected binary can enable them itself.
     regs.IFF1 = 0;
     regs.IFF2 = 0;
+    // GH #248 — the halted latch describes the program we just displaced, not
+    // the one we are entering. NextZXOS idles in a HALT waiting for its 50 Hz
+    // interrupt, so at any plausible --inject-delay the CPU is halted when the
+    // injection lands; leaving the latch set makes the first interrupt or NMI
+    // take FUSE's halted branch (fuse_z80_core.c:140,:177,:192, mirrored at
+    // z80_cpu.cpp:636) and return the injected program one byte past the
+    // instruction it interrupted. sna_loader.cpp:206 and z80_loader.cpp:87
+    // clear it for the same reason.
+    regs.halted = false;
     cpu_.set_registers(regs);
 
     Log::emulator()->info("--inject: loaded {} bytes from '{}' at {:#06x}, PC={:#06x}",
