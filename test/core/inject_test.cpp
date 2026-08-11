@@ -28,6 +28,8 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 
+#include <unistd.h>
+
 #include <cstdio>
 #include <cstdint>
 #include <cstdlib>
@@ -82,7 +84,11 @@ public:
     ScratchBinary(const char* name, const std::vector<uint8_t>& bytes)
     {
         const char* dir = std::getenv("TMPDIR");
-        path_ = std::string(dir ? dir : "/tmp") + "/jnext-inject-test-" + name + ".bin";
+        // PID-qualified: the project's reviewer workflow runs concurrent
+        // worktrees against a shared /tmp, and the destructor unlinks this
+        // path. Same reason as test/core/nex_loader_test.cpp:2035.
+        path_ = std::string(dir ? dir : "/tmp") + "/jnext-inject-test-" + name +
+                "-" + std::to_string(static_cast<long>(::getpid())) + ".bin";
         FILE* f = std::fopen(path_.c_str(), "wb");
         if (f) {
             if (!bytes.empty()) std::fwrite(bytes.data(), 1, bytes.size(), f);
@@ -106,10 +112,14 @@ void build_next_emulator(Emulator& emu)
     cfg.type                 = MachineType::ZXN_ISSUE2;
     cfg.rewind_buffer_frames = 0;
     emu.init(cfg);
-    // Leave config_mode, which force-clears every NMI latch while set
-    // (zxnext.vhd:2102-2105), so the NMI rows below can take an NMI at all.
-    emu.port().out(0x243B, 0x03);
-    emu.port().out(0x253B, 0x01);
+    // No NR 0x03 config_mode dance here, deliberately. The NMI rows below
+    // drive Z80Cpu::request_nmi() directly, which sets the CPU's own
+    // nmi_pending_ and is serviced at the top of execute() (z80_cpu.cpp:621)
+    // without consulting the emulator's NmiSource latches — those are only
+    // stepped from run_frame(), which no row calls. A write of NR 0x03 = 0x01
+    // here would commit nothing and, if config_mode were ever set at this
+    // point, would silently downgrade the fixture to a 48K machine
+    // (emulator.cpp:3222-3230). Reviewer-measured: removing it changes no row.
 }
 
 // Drive the CPU into a REAL halt by executing a `HALT` opcode, rather than
@@ -137,6 +147,17 @@ uint16_t stacked_word(Emulator& emu)
     const uint16_t sp = emu.cpu().get_registers().SP;
     return static_cast<uint16_t>(emu.mmu().read(sp) |
                                  (emu.mmu().read(static_cast<uint16_t>(sp + 1)) << 8));
+}
+
+// Read the NMI return-address shadow latch back the way a guest would:
+// NR 0xC2 = LSB, NR 0xC3 = MSB, via the 0x243B/0x253B port pair.
+uint16_t nmi_return_latch(Emulator& emu)
+{
+    emu.port().out(0x243B, 0xC2);
+    const uint8_t lo = emu.port().in(0x253B);
+    emu.port().out(0x243B, 0xC3);
+    const uint8_t hi = emu.port().in(0x253B);
+    return static_cast<uint16_t>(lo | (hi << 8));
 }
 
 } // namespace
@@ -232,6 +253,14 @@ static void test_inj_halt_rows()
               hex16(emu.cpu().get_registers().PC));
         check("INJ-HALT-03b", "NMI stacks the interrupted PC, not PC+1",
               stacked_word(emu) == kOrg, hex16(stacked_word(emu)));
+
+        // The NR 0xC2/0xC3 shadow latch is computed independently of the
+        // stack push (z80_cpu.cpp:636-637 -> NextReg::set_nmi_return_address)
+        // and fires on every NMI, stackless or not. Issue #248 measured the
+        // +1 here directly, by reading it back from the guest, so it gets its
+        // own row rather than riding on the stacked value above.
+        check("INJ-HALT-03c", "NR 0xC2/0xC3 NMI return latch holds PC, not PC+1",
+              nmi_return_latch(emu) == kOrg, hex16(nmi_return_latch(emu)));
     }
 
     // INJ-HALT-04 — the control, one instruction apart: a CPU that was NOT
@@ -274,6 +303,33 @@ static void test_inj_halt_rows()
         check("INJ-HALT-05b", "a real HALT still returns to PC+1",
               stacked_word(emu) == static_cast<uint16_t>(kOrg + 1),
               hex16(stacked_word(emu)));
+    }
+
+    // INJ-HALT-06 — the second user-visible symptom of the same latch, and
+    // the one that is NOT about a return address. Emulator::debugger_step()
+    // reads `halted_before = cpu_.is_halted()` and, when set, keeps stepping
+    // frame slots until the CPU leaves the halt or a 2-frame budget expires
+    // (emulator.cpp:8850-8864). A stale latch therefore makes the FIRST
+    // debugger Step after an injection run ~2 frames of the injected program
+    // instead of one instruction — the runaway class GH #207's loop exists to
+    // prevent. The raw primitive execute_single_instruction() is unaffected,
+    // so this row must go through debugger_step().
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        halt_cpu_at(emu, 0x8000);
+        emu.inject_binary(bin.path(), kOrg, kOrg);
+
+        const int tstates = emu.debugger_step();
+
+        // One `jr $` is 12 T-states; two frames is ~140 000. The bound is
+        // deliberately loose — what fails the row is the ORDER of magnitude.
+        check("INJ-HALT-06a", "first debugger Step after inject costs one instruction",
+              tstates > 0 && tstates < 1000,
+              std::to_string(tstates) + " T-states");
+        check("INJ-HALT-06b", "and leaves the injected program at its entry point",
+              emu.cpu().get_registers().PC == kOrg,
+              hex16(emu.cpu().get_registers().PC));
     }
 }
 
