@@ -2510,49 +2510,67 @@ int main() {
     // proved the timeout by sleeping would be a row that never runs. What that
     // buys is also what it costs — see the note above STO-11 for what these
     // rows do NOT prove.
+    //
+    // THE SETTING FORM NEEDS A SERVER (GH #249), which is why almost every row
+    // below opens one first via `serve()`. That was measured on the same
+    // module: freshly powered on it answered ERROR to 1800/900/240/180/60 —
+    // including the firmware's own default, so not a range problem — and OK to
+    // the same command once `AT+CIPMUX=1` + `AT+CIPSERVER=1,11000` had brought
+    // a server up. The rows that assert an ERROR for a MALFORMED argument
+    // (STO-05..09) open a server too, deliberately: on a bare module they
+    // would answer ERROR for the wrong reason and prove nothing about parsing.
+    // STO-15..19 are the refusal itself.
+
+    /// Bring a server up the way the hardware session did, and discard the
+    /// three OKs. Leaves the engine with `cipmux_` set and the listener open,
+    /// which is the state `AT+CIPSTO=<time>` requires.
+    auto serve = [](Rig& r) {
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.drain(); r.take();
+    };
 
     {   Rig r;
         r.send("AT+CIPSTO?\r\n"); r.drain();
-        check_eq("STO-01", "AT+CIPSTO? answers the default a real module reports", r.take(),
-                 "\r\n+CIPSTO:180\r\n\r\nOK\r\n"); }
-    {   Rig r;
+        check_eq("STO-01", "AT+CIPSTO? answers the default a real module reports, with no "
+                 "server running", r.take(), "\r\n+CIPSTO:180\r\n\r\nOK\r\n"); }
+    {   Rig r; serve(r);
         r.send("AT+CIPSTO=10\r\n"); r.drain();
         check_eq("STO-02", "an in-range AT+CIPSTO=<time> answers OK", r.take(), "\r\nOK\r\n");
         r.send("AT+CIPSTO?\r\n"); r.drain();
         check_eq("STO-02b", "...and the query reads back what was set", r.take(),
                  "\r\n+CIPSTO:10\r\n\r\nOK\r\n"); }
-    {   Rig r;
+    {   Rig r; serve(r);
         r.send("AT+CIPSTO=0\r\n"); r.drain();
         check_eq("STO-03", "0 — \"it will never timeout\" — is a legal setting, not a "
                  "refusal", r.take(), "\r\nOK\r\n");
         r.send("AT+CIPSTO?\r\n"); r.drain();
         check_eq("STO-03b", "...and reads back as 0", r.take(), "\r\n+CIPSTO:0\r\n\r\nOK\r\n"); }
-    {   Rig r;
+    {   Rig r; serve(r);
         r.send("AT+CIPSTO=7200\r\n"); r.drain();
         check_eq("STO-04", "the top of the documented 0~7200 range is INCLUSIVE", r.take(),
                  "\r\nOK\r\n");
         check("STO-04b", "...and really took", r.eng.server_timeout() == 7200); }
-    {   Rig r;
+    {   Rig r; serve(r);
         r.send("AT+CIPSTO=7201\r\n"); r.drain();
-        check_eq("STO-05", "one past the range is ERROR", r.take(), "\r\nERROR\r\n");
+        check_eq("STO-05", "one past the range is ERROR even with a server up", r.take(),
+                 "\r\nERROR\r\n");
         r.send("AT+CIPSTO?\r\n"); r.drain();
         check_eq("STO-05b", "...and a refused value changes nothing", r.take(),
                  "\r\n+CIPSTO:180\r\n\r\nOK\r\n"); }
-    {   Rig r;
+    {   Rig r; serve(r);
         r.send("AT+CIPSTO=-1\r\n"); r.drain();
         check_eq("STO-06", "a negative time is ERROR", r.take(), "\r\nERROR\r\n");
         check("STO-06b", "...and did not wrap into a huge unsigned window",
               r.eng.server_timeout() == 180); }
-    {   Rig r;
+    {   Rig r; serve(r);
         r.send("AT+CIPSTO=\r\n"); r.drain();
         check_eq("STO-07", "AT+CIPSTO= with no time is ERROR, not a reset to 0", r.take(),
                  "\r\nERROR\r\n");
         check("STO-07b", "...and 0 is emphatically not what it meant",
               r.eng.server_timeout() == 180); }
-    {   Rig r;
+    {   Rig r; serve(r);
         r.send("AT+CIPSTO=abc\r\n"); r.drain();
         check_eq("STO-08", "a non-numeric time is ERROR", r.take(), "\r\nERROR\r\n"); }
-    {   Rig r;
+    {   Rig r; serve(r);
         r.send("AT+CIPSTO=10,20\r\n"); r.drain();
         check_eq("STO-09", "a trailing argument is refused, not ignored", r.take(),
                  "\r\nERROR\r\n");
@@ -2561,7 +2579,12 @@ int main() {
     {   // v1.5.4 lists the commands that write to flash and AT+CIPSTO is NOT
         // among them — which is why a module that had been running for weeks
         // still answered 180. A restart forgets it.
-        Rig r;
+        //
+        // AT+RST also closes the server (see cmd_reset), so this row doubles as
+        // the proof that the refusal is re-armed by a restart: the value is
+        // back at 180 AND another AT+CIPSTO= would now be refused, which
+        // STO-19 states outright.
+        Rig r; serve(r);
         r.send("AT+CIPSTO=7200\r\n"); r.drain(); r.take();
         r.send("AT+RST\r\n"); r.drain(); r.take();
         r.send("AT+CIPSTO?\r\n"); r.drain();
@@ -2576,7 +2599,7 @@ int main() {
         // issue, and is what fixed the default at 180 (STO-01/STO-12).
         Rig r;
         r.freeze_clock();
-        r.send("AT+CIPSTO=30\r\nAT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\nAT+CIPSTO=30\r\n"); r.settle(); r.take();
         int            closes = 0;
         FakeTransport* peer   = add_inbound(r.lsn);
         peer->close_tally     = &closes;  // outlives the transport — see close_tally
@@ -2622,7 +2645,7 @@ int main() {
         // never rather than always.
         Rig r;
         r.freeze_clock();
-        r.send("AT+CIPSTO=0\r\nAT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\nAT+CIPSTO=0\r\n"); r.settle(); r.take();
         int            closes = 0;
         FakeTransport* peer   = add_inbound(r.lsn);
         peer->close_tally     = &closes;
@@ -2641,7 +2664,7 @@ int main() {
         // module deliberately does not model (esp_at.h simplification 9a).
         Rig r;
         r.freeze_clock();
-        r.send("AT+CIPSTO=30\r\nAT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\nAT+CIPSTO=30\r\n"); r.settle(); r.take();
         FakeTransport* peer = add_inbound(r.lsn);
         r.settle(); r.take();
         r.advance(20);
@@ -2662,15 +2685,91 @@ int main() {
         // outbound connection and no server ever accepted into it
         // (simplification 8a), so a silent outbound peer stays connected
         // exactly as it did before this feature existed.
+        //
+        // The server is opened FIRST so the 10 s window genuinely takes
+        // (GH #249). Before that fix this row set nothing — the command was
+        // accepted on a bare module — and passed on the 180 s default instead,
+        // which the 1000 s advance also clears. It proved the right thing for
+        // the wrong reason; `server_timeout()` is asserted below so it cannot
+        // silently do that again.
         Rig r;
         r.freeze_clock();
-        r.connect();
+        serve(r);
         r.send("AT+CIPSTO=10\r\n"); r.settle(); r.take();
+        check("STO-15pre", "fixture: the 10 s window really took", r.eng.server_timeout() == 10);
+        r.connect();
+        r.settle(); r.take();
         r.advance(1000);
         r.settle(); r.settle();
         check_eq("STO-15", "the OUTBOUND connection is not subject to the server timeout",
                  r.take(), "");
         check("STO-15b", "...and is still live", r.eng.connected() && r.tr.close_calls == 0); }
+
+    // ── The refusal itself (GH #249) ──────────────────────────────────────
+    //
+    // Measured on an Ai-Thinker ESP-01 (AT 1.2.0.0 / SDK 1.5.4.1) driven from
+    // NextZXOS's .UART terminal with no emulator in the path. What was NOT
+    // isolated is whether AT+CIPMUX=1 alone suffices — the two commands were
+    // issued together — so STO-18 pins this module's CHOICE of predicate
+    // rather than a hardware observation, and says so.
+
+    {   Rig r;
+        r.send("AT+CIPSTO=1800\r\n"); r.drain();
+        check_eq("STO-16", "an in-range AT+CIPSTO=<time> on a bare module is ERROR, as "
+                 "hardware answers", r.take(), "\r\nERROR\r\n");
+        check("STO-16b", "...and the refused value did not take",
+              r.eng.server_timeout() == 180);
+        r.send("AT+CIPSTO?\r\n"); r.drain();
+        check_eq("STO-16c", "...while the QUERY form still answers, on the same bare module",
+                 r.take(), "\r\n+CIPSTO:180\r\n\r\nOK\r\n"); }
+    {   // 180 is the firmware's OWN default, and hardware refused it too — the
+        // one measurement that rules out a range or parse explanation.
+        Rig r;
+        r.send("AT+CIPSTO=180\r\n"); r.drain();
+        check_eq("STO-17", "even the module's own default value is refused with no server "
+                 "— it is the precondition, not the number", r.take(), "\r\nERROR\r\n"); }
+    {   // NOT A HARDWARE MEASUREMENT — a deliberate choice, recorded as
+        // simplification (9e). The probe issued AT+CIPMUX=1 and AT+CIPSERVER=1
+        // together, so what a real module answers HERE is unknown. Gating on
+        // the listener is the narrower reading: it refuses everything hardware
+        // was seen to refuse and invents nothing. If a later probe isolates
+        // CIPMUX, this is the row that changes.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\n"); r.drain(); r.take();
+        check_eq("STO-18", "AT+CIPMUX=1 alone does NOT unlock it — this module gates on the "
+                 "listener (choice, not measurement)", [&]{
+                     r.send("AT+CIPSTO=1800\r\n"); r.drain(); return r.take(); }(),
+                 "\r\nERROR\r\n");
+        r.send("AT+CIPSERVER=1,4000\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSTO=1800\r\n"); r.drain();
+        check_eq("STO-18b", "...and the server coming up is what unlocks it, in the same "
+                 "session — the hardware sequence exactly", r.take(), "\r\nOK\r\n");
+        check("STO-18c", "...with the value really taken", r.eng.server_timeout() == 1800); }
+    {   // Symmetry: stopping the server puts it back to refusing. Follows from
+        // reading the precondition as "a server is running"; likewise
+        // unobserved on hardware (simplification 9e).
+        Rig r; serve(r);
+        r.send("AT+CIPSTO=1800\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSERVER=0\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSTO=900\r\n"); r.drain();
+        check_eq("STO-19", "after AT+CIPSERVER=0 the setting form is refused again",
+                 r.take(), "\r\nERROR\r\n");
+        check("STO-19b", "...leaving the value the running server had set",
+              r.eng.server_timeout() == 1800);
+        r.send("AT+CIPSTO?\r\n"); r.drain();
+        check_eq("STO-19c", "...and the query still answers with no server", r.take(),
+                 "\r\n+CIPSTO:1800\r\n\r\nOK\r\n"); }
+    {   // The consumer's exact bug (dezogif_ng #24): CIPSTO between CIPMUX and
+        // CIPSERVER. Six builds shipped believing 1800 was in force; the
+        // module hung up at 182 s on the 180 s default it had kept. This row
+        // is the one that would have caught it at the point it was written.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSTO=1800\r\nAT+CIPSERVER=1,4000\r\n"); r.drain();
+        check_eq("STO-20", "the consumer's CIPMUX/CIPSTO/CIPSERVER order: the middle command "
+                 "is refused and the other two succeed", r.take(),
+                 "\r\nOK\r\n\r\nERROR\r\n\r\nOK\r\n");
+        check("STO-20b", "...so the module is left on its 180 s default, which is what "
+                 "hardware did for six builds", r.eng.server_timeout() == 180); }
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,

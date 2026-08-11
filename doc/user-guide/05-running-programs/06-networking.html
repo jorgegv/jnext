@@ -3174,6 +3174,12 @@ dies while you were reading something else. A program that wants a different
 answer sets one: <code>AT+CIPSTO=&lt;seconds&gt;</code>, anywhere from 0 to 7200, where <strong>0 means
 never hang up</strong>. The setting is forgotten on a reset, exactly as it is on
 hardware, so it has to be sent each time.</p>
+<p><strong>Send it after the server is up, not before.</strong> <code>AT+CIPSTO=&lt;seconds&gt;</code> is
+refused with <code>ERROR</code> while no server is listening, which is what a real ESP-01
+does — so it belongs after <code>AT+CIPSERVER=1,&lt;port&gt;</code>, never between that and
+<code>AT+CIPMUX=1</code>. A program that sends it too early and does not check the answer
+keeps the 180-second default without being told. The query form,
+<code>AT+CIPSTO?</code>, answers at any time.</p>
 <h2 id="changing-the-address-the-module-claims">Changing the address the module claims<a class="headerlink" href="#changing-the-address-the-module-claims" title="Permanent link">&para;</a></h2>
 <p>The emulated module tells the program its address is <code>192.168.1.50</code>. A program
 that recognises its <strong>own</strong> address — a debug stub checking that the address it
