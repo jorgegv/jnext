@@ -765,8 +765,9 @@ void AtEngine::cmd_cipsto(const std::string& args) {
     // would have sufficed: the two commands were issued together, so the
     // tested precondition is "a server is running". Gating on the listener is
     // therefore the narrower claim of the two available — it refuses
-    // everything hardware was seen to refuse, and commits to nothing about the
-    // CIPMUX-only state, which nothing has measured. See simplification (9e).
+    // everything hardware was seen to refuse, and what it answers in the
+    // CIPMUX-only state is a decision, not a reading: no probe visited it.
+    // See simplification (9e).
     //
     // Ordered before the range parse, which is unobservable from the wire:
     // both arms answer ERROR and leave `server_timeout_` alone, so no claim is

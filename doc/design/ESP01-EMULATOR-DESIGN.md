@@ -1786,10 +1786,11 @@ and a real Next could still contradict it.
   builds. But the hardware probe issued `AT+CIPMUX=1` and `AT+CIPSERVER=1,11000`
   **together**, so "a server is listening" cannot be separated from "multiple
   connections are enabled". This module gates on the **listener**, the narrower
-  of the two readings: it refuses everything hardware was seen to refuse and
-  claims nothing about the CIPMUX-only state, where a real module's answer is
-  simply unmeasured. `AT+CIPSERVER=0` and `AT+RST` therefore put it back to
-  refusing, which follows from the same reading and is likewise unobserved.
+  of the two readings: it refuses everything hardware was seen to refuse, and
+  what it answers in the CIPMUX-only state — `ERROR` — is a decision rather
+  than a reading, because no probe has visited that state. `AT+CIPSERVER=0` and
+  `AT+RST` therefore put it back to refusing, which follows from the same
+  reading and is likewise unobserved.
   A consequence worth naming: a connection left alive by `AT+CIPSERVER=0` keeps
   being timed out, but its window can no longer be adjusted.
 
