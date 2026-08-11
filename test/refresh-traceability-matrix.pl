@@ -1004,6 +1004,15 @@ my %NO_MATRIX_SECTION = (
     # policy predicate/probe/enforcement rows live in nex_loader_test.
     'nex_v13_dialog_test' => 'experimental NEX V1.3 warning dialog (GUI), no core counterpart',
 
+    # ── --inject entry state ─────────────────────────────────────────
+    # GH #248 — `--inject` has no counterpart on a Next: nothing on real
+    # hardware forces a program and an entry point into a running machine, so
+    # there is no line of the core that says what CPU state the new program
+    # must start from. The oracle is the contract on Emulator::inject_binary.
+    # The Z80 halt semantics the rows lean on ARE core behaviour, but they are
+    # traced by `## Z80N` / the FUSE suite, not re-asserted here.
+    'inject_test' => 'jnext --inject entry state (host debugging aid), no core counterpart',
+
     # ── Host input translation ───────────────────────────────────────
     # Qt/SDL event -> ZX matrix translation on the HOST side. The guest-side
     # membrane matrix these feed is traced by `## Input`; what is asserted

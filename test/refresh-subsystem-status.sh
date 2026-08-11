@@ -151,6 +151,7 @@ BEGIN {
     M["nmi_test"]                      = "NMI Source Pipeline"
     M["nmi_integration_test"]          = "NMI (integration)"
     M["atic_atac_nmi_test"]            = "Atic Atac NMI"
+    M["inject_test"]                   = "Raw binary --inject"
     M["profiler_test"]                 = "Profiler"
     M["resume_guard_test"]             = "Resume Guard"
     M["step_out_test"]                 = "Debugger Step Out"
