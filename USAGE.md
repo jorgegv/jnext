@@ -728,8 +728,10 @@ changed while anything is connected.
 A connected client that sends nothing for **180 seconds** is hung up on
 and the program is told `<id>,CLOSED`, which is what a real ESP-01 does
 and the usual reason an idle debug session dies. `AT+CIPSTO=<seconds>`
-changes the window (0-7200, and **0 means never**); like the real
-module, jnext forgets the setting on a reset.
+changes the window (0-7200, and **0 means never**), and — again like the
+real module — is refused with `ERROR` unless a server is already
+running, so it belongs *after* `AT+CIPSERVER=1,<port>`; the query form
+`AT+CIPSTO?` answers either way. jnext forgets the setting on a reset.
 
 Still not emulated: TLS and transparent mode ([issue
 \#154](https://github.com/jorgegv/jnext/issues/154)).

@@ -362,10 +362,15 @@
 ///         measurement establishes "a server is running" and cannot separate
 ///         it from "multiple connections are enabled". This module gates on
 ///         the LISTENER, which is the narrower of the two: it refuses
-///         everything hardware was seen to refuse and claims nothing about the
-///         CIPMUX-only state, where a real module's answer is simply unknown.
-///         `AT+CIPSERVER=0` puts it back to refusing, which follows from the
-///         same reading and is likewise unobserved.
+///         everything hardware was seen to refuse, and what it answers in the
+///         CIPMUX-only state — ERROR — is a decision rather than a reading,
+///         because no probe has visited that state. The consumer's six builds
+///         are weak support for it: a CIPSTO sent between CIPMUX and CIPSERVER
+///         never took on hardware either. `AT+CIPSERVER=0` and `AT+RST`
+///         likewise put it back to refusing, from the same reading and equally
+///         unobserved. One consequence worth naming: a connection left alive
+///         by `AT+CIPSERVER=0` is still timed out, but its window can no
+///         longer be adjusted (STO-22).
 ///
 /// ---------------------------------------------------------------------------
 /// SHAPED FOR v1.1 (issue #154), AND TWO OF THE THREE HAVE NOW PAID

@@ -48,7 +48,7 @@ mentions them, so a test can no longer be absent from this document.
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   190 |  186 |    0 |    4 |       0 |          0 |
-| ESP-01 AT engine                           |   337 |  337 |    0 |    0 |       0 |          0 |
+| ESP-01 AT engine                           |   344 |  344 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |    65 |   65 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    14 |   14 |    0 |    0 |       0 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    25 |   25 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4376 | 4120 |    0 |    5 |     251 |          0 |
+| **Total**                                  |  4383 | 4127 |    0 |    5 |     251 |          0 |
 
-Rows the sections above carry: **4376**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4189**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7172**.
+Rows the sections above carry: **4383**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4196**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7179**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -4132,36 +4132,43 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | STO-08 | a non-numeric time is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2572 |
 | STO-09 | a trailing argument is refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2575 |
 | STO-09b | ...and nothing was taken from the part that did parse | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2577 |
-| STO-10 | the value does not survive AT+RST — the command does not persist to flash | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2591 |
-| STO-11 | a client one second short of the window is left alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2609 |
-| STO-11b | ...and is still connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2611 |
-| STO-11c | an idle client is dropped at the window, announced as <id>,CLOSED with no OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2619 |
-| STO-11d | ...having really closed the socket | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2621 |
-| STO-11e | ...and returned the slot to the pool | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2622 |
-| STO-12 | the 180 s default really governs, with no AT+CIPSTO sent at all | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2633 |
-| STO-12b | ...and fires at 180 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2637 |
-| STO-13 | AT+CIPSTO=0 does not close the client the moment it arrives | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2653 |
-| STO-13b | ...nor 100 000 seconds later — 0 really is never | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2657 |
-| STO-13c | ...and the socket was left alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2658 |
-| STO-14 | the client speaks at 20 s and is heard | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2673 |
-| STO-14b | ...which restarts the window: 40 s after connecting, but 20 s after speaking, it is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2677 |
-| STO-14c | ...and really still connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2679 |
-| STO-14d | ...and it is the SILENCE that is measured — 31 s after the last byte it goes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2682 |
-| STO-15pre | fixture: the 10 s window really took | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2699 |
-| STO-15 | the OUTBOUND connection is not subject to the server timeout | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2704 |
-| STO-15b | ...and is still live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2706 |
-| STO-16 | an in-range AT+CIPSTO=<time> on a bare module is ERROR, as hardware answers | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2718 |
-| STO-16b | ...and the refused value did not take | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2720 |
-| STO-16c | ...while the QUERY form still answers, on the same bare module | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2723 |
-| STO-17 | even the module's own default value is refused with no server — it is the precondition, not the number | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2729 |
-| STO-18 | AT+CIPMUX=1 alone does NOT unlock it — this module gates on the listener (choice, not measurement) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2739 |
-| STO-18b | ...and the server coming up is what unlocks it, in the same session — the hardware sequence exactly | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2745 |
-| STO-18c | ...with the value really taken | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2747 |
-| STO-19 | after AT+CIPSERVER=0 the setting form is refused again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2755 |
-| STO-19b | ...leaving the value the running server had set | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2757 |
-| STO-19c | ...and the query still answers with no server | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2760 |
-| STO-20 | the consumer's CIPMUX/CIPSTO/CIPSERVER order: the middle command is refused and the other two succeed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2768 |
-| STO-20b | ...so the module is left on its 180 s default, which is what hardware did for six builds | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2771 |
+| STO-10 | the value does not survive AT+RST — the command does not persist to flash | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2593 |
+| STO-10c | ...and the restart re-arms the refusal: the server went with the module | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2596 |
+| STO-10d | ...so nothing was set | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2598 |
+| STO-11 | a client one second short of the window is left alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2615 |
+| STO-11b | ...and is still connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2617 |
+| STO-11c | an idle client is dropped at the window, announced as <id>,CLOSED with no OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2625 |
+| STO-11d | ...having really closed the socket | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2627 |
+| STO-11e | ...and returned the slot to the pool | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2628 |
+| STO-12 | the 180 s default really governs, with no AT+CIPSTO sent at all | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2639 |
+| STO-12b | ...and fires at 180 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2643 |
+| STO-13 | AT+CIPSTO=0 does not close the client the moment it arrives | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2659 |
+| STO-13b | ...nor 100 000 seconds later — 0 really is never | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2663 |
+| STO-13c | ...and the socket was left alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2664 |
+| STO-14 | the client speaks at 20 s and is heard | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2679 |
+| STO-14b | ...which restarts the window: 40 s after connecting, but 20 s after speaking, it is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2683 |
+| STO-14c | ...and really still connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2685 |
+| STO-14d | ...and it is the SILENCE that is measured — 31 s after the last byte it goes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2688 |
+| STO-15pre | fixture: the 10 s window really took | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2707 |
+| STO-15 | the OUTBOUND connection is not subject to the server timeout | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2712 |
+| STO-15b | ...and is still live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2714 |
+| STO-16 | an in-range AT+CIPSTO=<time> on a bare module is ERROR, as hardware answers | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2726 |
+| STO-16b | ...and the refused value did not take | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2728 |
+| STO-16c | ...while the QUERY form still answers, on the same bare module | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2731 |
+| STO-17 | even the module's own default value is refused with no server — it is the precondition, not the number | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2737 |
+| STO-18 | AT+CIPMUX=1 alone does NOT unlock it — this module gates on the listener (choice, not measurement) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2747 |
+| STO-18b | ...and the server coming up is what unlocks it, in the same session — the hardware sequence exactly | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2753 |
+| STO-18c | ...with the value really taken | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2755 |
+| STO-19 | after AT+CIPSERVER=0 the setting form is refused again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2763 |
+| STO-19b | ...leaving the value the running server had set | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2765 |
+| STO-19c | ...and the query still answers with no server | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2768 |
+| STO-21 | an engine built with NO listener answers ERROR to AT+CIPSTO= | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2781 |
+| STO-21b | ...and kept its default | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2783 |
+| STO-22 | the client outlives the listener that accepted it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2796 |
+| STO-22b | ...but its window can no longer be changed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2799 |
+| STO-22c | ...so the window it already had is what still governs it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2803 |
+| STO-20 | the consumer's CIPMUX/CIPSTO/CIPSERVER order: the middle command is refused and the other two succeed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2811 |
+| STO-20b | ...so the module is left on its 180 s default, which is what hardware did for six builds | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2814 |
 
 ## ESP-01 jnext UART adapter — `test/esp/esp_uart_adapter_test.cpp`
 

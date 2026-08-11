@@ -2580,16 +2580,22 @@ int main() {
         // among them — which is why a module that had been running for weeks
         // still answered 180. A restart forgets it.
         //
-        // AT+RST also closes the server (see cmd_reset), so this row doubles as
-        // the proof that the refusal is re-armed by a restart: the value is
-        // back at 180 AND another AT+CIPSTO= would now be refused, which
-        // STO-19 states outright.
+        // AT+RST also closes the server (cmd_reset, esp_at.cpp:324-327), so the
+        // refusal is re-armed by a restart. That is ASSERTED below rather than
+        // asserted-by-reference: SRV-13 proves AT+RST closes the listener and
+        // this row proves the value resets, but neither proves the two compose
+        // — deleting the close from cmd_reset fails SRV-13 and no STO row, so
+        // without STO-10c nothing here would notice.
         Rig r; serve(r);
         r.send("AT+CIPSTO=7200\r\n"); r.drain(); r.take();
         r.send("AT+RST\r\n"); r.drain(); r.take();
         r.send("AT+CIPSTO?\r\n"); r.drain();
         check_eq("STO-10", "the value does not survive AT+RST — the command does not "
-                 "persist to flash", r.take(), "\r\n+CIPSTO:180\r\n\r\nOK\r\n"); }
+                 "persist to flash", r.take(), "\r\n+CIPSTO:180\r\n\r\nOK\r\n");
+        r.send("AT+CIPSTO=900\r\n"); r.drain();
+        check_eq("STO-10c", "...and the restart re-arms the refusal: the server went with "
+                 "the module", r.take(), "\r\nERROR\r\n");
+        check("STO-10d", "...so nothing was set", r.eng.server_timeout() == 180); }
 
     {   // THE ARM THAT MATTERS, and the limit of what it proves. These rows
         // drive the engine's own notion of time, so they prove the ENGINE
@@ -2687,11 +2693,13 @@ int main() {
         // exactly as it did before this feature existed.
         //
         // The server is opened FIRST so the 10 s window genuinely takes
-        // (GH #249). Before that fix this row set nothing — the command was
-        // accepted on a bare module — and passed on the 180 s default instead,
-        // which the 1000 s advance also clears. It proved the right thing for
-        // the wrong reason; `server_timeout()` is asserted below so it cannot
-        // silently do that again.
+        // (GH #249). It USED to take without one — the command was accepted on
+        // a bare module, so this row was sound before the refusal existed. The
+        // refusal is what would have broken it: unchanged, the setting would
+        // now be refused and the row would quietly fall back to the 180 s
+        // default, which its own 1000 s advance also clears — passing while
+        // proving nothing. STO-15pre is the guard against that, and it is a
+        // FUTURE risk this change introduced, not a past defect.
         Rig r;
         r.freeze_clock();
         serve(r);
@@ -2759,7 +2767,42 @@ int main() {
         r.send("AT+CIPSTO?\r\n"); r.drain();
         check_eq("STO-19c", "...and the query still answers with no server", r.take(),
                  "\r\n+CIPSTO:1800\r\n\r\nOK\r\n"); }
-    {   // The consumer's exact bug (dezogif_ng #24): CIPSTO between CIPMUX and
+    {   // An engine built with NO listener at all — the `!listener_` half of
+        // the guard, which `listening()` alone cannot reach. Same construction
+        // as SRV-09. ERROR is the self-consistent answer: no server can ever
+        // run on such an engine, so the precondition can never be met.
+        FakeTransport tr;
+        AtEngine      eng{tr};
+        std::string   guest;
+        eng.set_output([&guest](std::uint8_t b) { guest.push_back(static_cast<char>(b)); });
+        for (unsigned char c : std::string("AT+CIPMUX=1\r\nAT+CIPSTO=1800\r\n"))
+            eng.receive(c);
+        for (int i = 0; i < 200000 && eng.wants_tick(); ++i) eng.tick(1, 1);
+        check_eq("STO-21", "an engine built with NO listener answers ERROR to AT+CIPSTO=",
+                 guest, "\r\nOK\r\n\r\nERROR\r\n");
+        check("STO-21b", "...and kept its default", eng.server_timeout() == 180); }
+    {   // A CONSEQUENCE OF THE CHOSEN PREDICATE, named here so it is not a
+        // surprise (simplification 9e): AT+CIPSERVER=0 leaves established
+        // connections alive and `enforce_server_timeout` keeps timing them out
+        // — but the guest can no longer adjust the window that governs them.
+        // Unobserved on hardware, like the rest of (9e).
+        Rig r;
+        r.freeze_clock();
+        serve(r);
+        r.send("AT+CIPSTO=30\r\n"); r.drain(); r.take();
+        add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPSERVER=0\r\n"); r.drain(); r.take();
+        check("STO-22", "the client outlives the listener that accepted it",
+              r.eng.inbound_connections() == 1);
+        r.send("AT+CIPSTO=600\r\n"); r.drain();
+        check_eq("STO-22b", "...but its window can no longer be changed", r.take(),
+                 "\r\nERROR\r\n");
+        r.advance(30);
+        r.settle();
+        check_eq("STO-22c", "...so the window it already had is what still governs it",
+                 r.take(), "\r\n1,CLOSED\r\n"); }
+    {   // The consumer's exact bug: CIPSTO between CIPMUX and
         // CIPSERVER. Six builds shipped believing 1800 was in force; the
         // module hung up at 182 s on the 180 s default it had kept. This row
         // is the one that would have caught it at the point it was written.
