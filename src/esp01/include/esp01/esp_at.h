@@ -322,7 +322,16 @@
 ///     a live mechanism rather than a documented one. The matching document is
 ///     the ESP8266 AT Instruction Set v1.5.4 §5.17, whose own example is the
 ///     multiplexed server case.
-///     FOUR THINGS ARE DELIBERATELY NOT MODELLED, each for its own reason:
+///     THE SETTING FORM IS REFUSED WITH NO SERVER RUNNING, and that too was
+///     measured (GH #249): on a freshly powered module every one of
+///     `AT+CIPSTO=`1800/900/240/180/60 answered ERROR — the firmware's own 180
+///     among them, so not a range problem — and the same session answered OK
+///     once `AT+CIPMUX=1` + `AT+CIPSERVER=1,11000` had brought a server up.
+///     `AT+CIPSTO?` answers in both states. It cost a consumer six builds: the
+///     value dezogif_ng set between CIPMUX and CIPSERVER was never in force on
+///     hardware, and nothing said so, because a stub that must tolerate
+///     firmware too old for the command accepts ERROR there.
+///     FIVE THINGS ARE DELIBERATELY NOT MODELLED, each for its own reason:
 ///     (a) WHETHER SERVER-INITIATED TRAFFIC RESTARTS THE TIMER. Newer esp-at
 ///         documentation says it does not; v1.5.4 is SILENT, and this module
 ///         does not invent a behaviour it cannot cite for the firmware it
@@ -348,6 +357,20 @@
 ///         modelled as an ordinary peer close — same deferral, same slot
 ///         release — and flagged here as the one part of this feature a real
 ///         Next could still contradict.
+///     (e) WHICH PRECONDITION THE REFUSAL ABOVE KEYS OFF. `AT+CIPMUX=1` and
+///         `AT+CIPSERVER=1,11000` were issued together on hardware, so the
+///         measurement establishes "a server is running" and cannot separate
+///         it from "multiple connections are enabled". This module gates on
+///         the LISTENER, which is the narrower of the two: it refuses
+///         everything hardware was seen to refuse, and what it answers in the
+///         CIPMUX-only state — ERROR — is a decision rather than a reading,
+///         because no probe has visited that state. The consumer's six builds
+///         are weak support for it: a CIPSTO sent between CIPMUX and CIPSERVER
+///         never took on hardware either. `AT+CIPSERVER=0` and `AT+RST`
+///         likewise put it back to refusing, from the same reading and equally
+///         unobserved. One consequence worth naming: a connection left alive
+///         by `AT+CIPSERVER=0` is still timed out, but its window can no
+///         longer be adjusted (STO-22).
 ///
 /// ---------------------------------------------------------------------------
 /// SHAPED FOR v1.1 (issue #154), AND TWO OF THE THREE HAVE NOW PAID

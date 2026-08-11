@@ -177,6 +177,15 @@ it. Only bytes arriving **from the peer** restart the window; whether
 server-initiated traffic does is what the matching firmware document does not
 say, and is deliberately not modelled.
 
+The **setting** form is refused with `ERROR` unless a server is running — also a
+measurement, and one that cost a consumer six builds: a value set between
+`AT+CIPMUX=1` and `AT+CIPSERVER` was never in force on hardware, and a stub that
+tolerates `ERROR` there (because older firmware lacks the command entirely) had
+no way to notice. The query form answers in both states. Which precondition the
+refusal keys off is a *choice*: the hardware probe issued `AT+CIPMUX=1` and
+`AT+CIPSERVER=1` together, so gating on the listener is the narrower of the two
+readings available, and the `AT+CIPMUX`-only state is left claiming nothing.
+
 ### Why it is a separate component, and what that costs
 
 The ESP-01 emulation lives in `src/esp01/`, **outside** `src/peripheral/`, and

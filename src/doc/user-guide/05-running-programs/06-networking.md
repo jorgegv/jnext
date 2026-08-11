@@ -273,6 +273,13 @@ answer sets one: `AT+CIPSTO=<seconds>`, anywhere from 0 to 7200, where **0 means
 never hang up**. The setting is forgotten on a reset, exactly as it is on
 hardware, so it has to be sent each time.
 
+**Send it after the server is up, not before.** `AT+CIPSTO=<seconds>` is
+refused with `ERROR` while no server is listening, which is what a real ESP-01
+does — so it belongs after `AT+CIPSERVER=1,<port>`, never between that and
+`AT+CIPMUX=1`. A program that sends it too early and does not check the answer
+keeps the 180-second default without being told. The query form,
+`AT+CIPSTO?`, answers at any time.
+
 ## Changing the address the module claims
 
 The emulated module tells the program its address is `192.168.1.50`. A program

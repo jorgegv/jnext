@@ -2034,6 +2034,14 @@ injectable clock — a three-minute default is not provable by waiting, so
 it. Only bytes arriving <strong>from the peer</strong> restart the window; whether
 server-initiated traffic does is what the matching firmware document does not
 say, and is deliberately not modelled.</p>
+<p>The <strong>setting</strong> form is refused with <code>ERROR</code> unless a server is running — also a
+measurement, and one that cost a consumer six builds: a value set between
+<code>AT+CIPMUX=1</code> and <code>AT+CIPSERVER</code> was never in force on hardware, and a stub that
+tolerates <code>ERROR</code> there (because older firmware lacks the command entirely) had
+no way to notice. The query form answers in both states. Which precondition the
+refusal keys off is a <em>choice</em>: the hardware probe issued <code>AT+CIPMUX=1</code> and
+<code>AT+CIPSERVER=1</code> together, so gating on the listener is the narrower of the two
+readings available, and the <code>AT+CIPMUX</code>-only state is left claiming nothing.</p>
 <h3 id="why-it-is-a-separate-component-and-what-that-costs">Why it is a separate component, and what that costs<a class="headerlink" href="#why-it-is-a-separate-component-and-what-that-costs" title="Permanent link">&para;</a></h3>
 <p>The ESP-01 emulation lives in <code>src/esp01/</code>, <strong>outside</strong> <code>src/peripheral/</code>, and
 that is not filing. It is a deliberate isolation contract, stated in that

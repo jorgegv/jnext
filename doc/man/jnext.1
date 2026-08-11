@@ -752,8 +752,11 @@ A connected client that sends nothing for \f[B]180 seconds\f[R] is hung
 up on and the program is told \f[CR]<id>,CLOSED\f[R], which is what a
 real ESP\-01 does and the usual reason an idle debug session dies.
 \f[CR]AT+CIPSTO=<seconds>\f[R] changes the window (0\-7200, and \f[B]0
-means never\f[R]); like the real module, jnext forgets the setting on a
-reset.
+means never\f[R]), and \(em again like the real module \(em is refused
+with \f[CR]ERROR\f[R] unless a server is already running, so it belongs
+\f[I]after\f[R] \f[CR]AT+CIPSERVER=1,<port>\f[R]; the query form
+\f[CR]AT+CIPSTO?\f[R] answers either way.
+jnext forgets the setting on a reset.
 .PP
 Still not emulated: TLS and transparent mode (\c
 .UR https://github.com/jorgegv/jnext/issues/154

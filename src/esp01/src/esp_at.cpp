@@ -753,6 +753,32 @@ void AtEngine::cmd_cipserver(const std::string& args) {
 }
 
 void AtEngine::cmd_cipsto(const std::string& args) {
+    // A REAL MODULE REFUSES THE SETTING FORM WITH NO SERVER RUNNING (GH #249),
+    // measured on the same Ai-Thinker ESP-01 that established the 180 s
+    // default: freshly powered on, every one of 1800/900/240/180/60 answered
+    // ERROR — 180 among them, so it is not a range problem — and the same
+    // session answered OK once `AT+CIPMUX=1` + `AT+CIPSERVER=1,11000` had
+    // brought a server up. The query form works in both states and is not
+    // gated here.
+    //
+    // WHAT THE MEASUREMENT DOES NOT ISOLATE is whether `AT+CIPMUX=1` alone
+    // would have sufficed: the two commands were issued together, so the
+    // tested precondition is "a server is running". Gating on the listener is
+    // therefore the narrower claim of the two available — it refuses
+    // everything hardware was seen to refuse, and what it answers in the
+    // CIPMUX-only state is a decision, not a reading: no probe visited it.
+    // See simplification (9e).
+    //
+    // Ordered before the range parse, which is unobservable from the wire:
+    // both arms answer ERROR and leave `server_timeout_` alone, so no claim is
+    // being made about which one a real module checks first.
+    if (!listener_ || !listener_->listening()) {
+        log_debug("AT+CIPSTO=\"{}\" with no server running — answering ERROR",
+                  escape(args));
+        queue_error();
+        return;
+    }
+
     // "<time> TCP server timeout, range 0~7200 seconds" (ESP8266 AT
     // Instruction Set v1.5.4 §5.17). Parsed against the WHOLE argument, so
     // `AT+CIPSTO=`, `AT+CIPSTO=-1`, `AT+CIPSTO=10,20` and `AT+CIPSTO=7201` are

@@ -381,7 +381,7 @@ column *is* the version boundary, and it carries more than a heading could.
 | `AT+CIPMUX=1` | `\r\nOK\r\n` | GH #210, [§13](#13-server-mode-gh-210). Refused until server mode had a consumer. The power-on default is still 0, and a real mode **change** is still refused while a connection is open — or, back to 0, while the server is up |
 | `AT+CIPSERVER=1,<port>` | `\r\nOK\r\n` | GH #210, [§13](#13-server-mode-gh-210). Needs `AT+CIPMUX=1` first, else `ERROR`. Port 0, a second server, an unbindable port and a missing port are all `ERROR` — a bind failure never falls back to another port or a wider address ([§13.4](#134-security-review--the-inbound-surface)) |
 | `AT+CIPSERVER=0` | `\r\nOK\r\n` | Retires the listener and deliberately **leaves established connections alone**. `ERROR` when no server is running — a deliberate divergence from firmware, which says `OK` ([§13.7](#137-what-implementation-decided-that-13-did-not)) — and `ERROR` for ESP-AT's `<close_all>` argument |
-| `AT+CIPSTO=<time>` | `\r\nOK\r\n` | GH #240, [§15](#15-server-idle-timeout-gh-240). Server idle timeout, `0~7200` seconds inclusive; anything else — out of range, negative, empty, non-numeric, a trailing argument — is `ERROR`. `0` means never. Enforced against **inbound** connections only, and **not** written to flash |
+| `AT+CIPSTO=<time>` | `\r\nOK\r\n` | GH #240, [§15](#15-server-idle-timeout-gh-240). Server idle timeout, `0~7200` seconds inclusive; anything else — out of range, negative, empty, non-numeric, a trailing argument — is `ERROR`. `ERROR` too when **no server is running** (GH #249, measured on hardware) — the query form is ungated. `0` means never. Enforced against **inbound** connections only, and **not** written to flash |
 | `AT+CIPSTO?` | `\r\n+CIPSTO:<time>\r\n\r\nOK\r\n` | GH #240. Power-on **180**, which is what a real Ai-Thinker ESP-01 on AT 1.2.0.0 answers, and what `AT+RST` restores |
 | `AT+UART_CUR=<baud>,…` / `AT+UART_DEF=` / `AT+UART=` | `\r\nOK\r\n` | Recorded and traced; pacing follows the channel's **live prescaler**, so nothing else is needed |
 | `AT+GMR` | canned version block | Anchors `T version:` and `DK version:`, each printed to the next `(` |
@@ -1739,8 +1739,9 @@ firmware default, and it is what quietly kills an idle debug session.
 
 | Line from guest | Reply (exact bytes) | Notes |
 |---|---|---|
-| `AT+CIPSTO=<time>` | `\r\nOK\r\n` | `0~7200` seconds, **inclusive** at both ends. Applied live, so raising it extends a client that is already connected |
-| `AT+CIPSTO?` | `\r\n+CIPSTO:<time>\r\n\r\nOK\r\n` | 180 at power-on and after `AT+RST` |
+| `AT+CIPSTO=<time>` | `\r\nOK\r\n` | `0~7200` seconds, **inclusive** at both ends, **and only while a server is running**. Applied live, so raising it extends a client that is already connected |
+| `AT+CIPSTO?` | `\r\n+CIPSTO:<time>\r\n\r\nOK\r\n` | 180 at power-on and after `AT+RST`. Ungated: answers with or without a server |
+| `AT+CIPSTO=<time>` with no server | `\r\nERROR\r\n` | GH #249. Measured: a bare module refuses 1800/900/240/180/60 — its own default among them — and accepts once `AT+CIPMUX=1` + `AT+CIPSERVER=1` are in. `AT+CIPSERVER=0` and `AT+RST` put it back to refusing |
 | `AT+CIPSTO=7201` / `=-1` / `=` / `=abc` / `=10,20` | `\r\nERROR\r\n` | One in-range number, or nothing — the rule `AT+CIPCLOSE=<id>` already follows |
 
 Enforcement lives in `AtEngine::enforce_server_timeout()`, called from
@@ -1761,7 +1762,7 @@ that, and from there being no other spelling a guest could parse. It is recorded
 as an inference in `esp_at.h` simplification (9d) rather than presented as fact,
 and a real Next could still contradict it.
 
-### 15.4 Three things this deliberately does NOT model
+### 15.4 Four things this deliberately does NOT model
 
 - **Whether server-initiated traffic restarts the timer.** Newer esp-at
   documentation says it does not; **v1.5.4 is silent**, and this module does not
@@ -1780,6 +1781,18 @@ and a real Next could still contradict it.
   to 180, exactly as `echo_` and `cipmux_` go back to their power-on defaults —
   and a module that had been running for weeks still answering `+CIPSTO:180` is
   the evidence for that.
+- **Which precondition the refusal keys off** (GH #249). The setting form is
+  refused unless a server is running — measured, and it cost a consumer six
+  builds. But the hardware probe issued `AT+CIPMUX=1` and `AT+CIPSERVER=1,11000`
+  **together**, so "a server is listening" cannot be separated from "multiple
+  connections are enabled". This module gates on the **listener**, the narrower
+  of the two readings: it refuses everything hardware was seen to refuse, and
+  what it answers in the CIPMUX-only state — `ERROR` — is a decision rather
+  than a reading, because no probe has visited that state. `AT+CIPSERVER=0` and
+  `AT+RST` therefore put it back to refusing, which follows from the same
+  reading and is likewise unobserved.
+  A consequence worth naming: a connection left alive by `AT+CIPSERVER=0` keeps
+  being timed out, but its window can no longer be adjusted.
 
 ### 15.5 How it is proved, and what the proof does not cover
 
@@ -1790,11 +1803,12 @@ every consumer and every pre-existing row is unchanged by construction. Both
 wall-clock reads in the engine — the `AT+CIPSTART` deadline and this one — go
 through it, so a caller that supplies time supplies all of it.
 
-The 33 `STO-*` rows in `esp_at_test` drive that clock by hand: the default is
+The 53 `STO-*` rows in `esp_at_test` drive that clock by hand: the default is
 reported *and* enforced, the window is exact at its boundary (29 s leaves the
 client alone, 30 s drops it), `0` survives 100 000 s, client traffic restarts
 the window while the passage of time alone does not, the outbound slot is
-untouched, and `AT+RST` forgets the value.
+untouched, and `AT+RST` forgets the value — and, since GH #249, that the setting
+form is refused with no server while the query form answers regardless.
 
 **What they prove is that the engine honours the window it is given.** They do
 not prove the window a real ESP-01 uses — that took the hardware probe in §15.1,
