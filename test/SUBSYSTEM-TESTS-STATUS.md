@@ -24,7 +24,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CTC + Interrupts      |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC (integration)     |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
-| UART + I2C/RTC        |      100 |      100 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART + I2C/RTC        |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      188 |      188 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 AT command engine |      344 |      344 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -107,6 +107,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7191** | **7191** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7192** | **7192** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
