@@ -19,6 +19,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/debug_state.h"
 #include "debug/rewind_buffer.h"
 #include "peripheral/joy_uart_source.h"
 #include "peripheral/uart_device.h"
@@ -1272,7 +1273,7 @@ static void test_esp_backend() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Section JOY — the joystick-connector UART cable (JOY-01..10), GH #251
+// Section JOY — the joystick-connector UART cable (JOY-01..11), GH #251
 // ══════════════════════════════════════════════════════════════════════
 //
 // Two things that had no coverage at all before GH #251:
@@ -1319,6 +1320,78 @@ public:
 private:
     std::string path_;
 };
+
+// One step of a scheduled cable run: the cursor as it stands at the frame
+// START, then the frame, then every byte the guest actually read out of
+// channel 0 during it. Compared whole, so a replay that merely lands on the
+// right counters while delivering different BYTES is still a failure.
+struct CableFrame {
+    std::size_t          delivered = 0;
+    std::size_t          dropped   = 0;
+    std::vector<uint8_t> got;
+
+    bool operator==(const CableFrame& o) const {
+        return delivered == o.delivered && dropped == o.dropped && got == o.got;
+    }
+};
+
+// Run one step with the mux held at `nr_0b`, draining channel 0 afterwards.
+//
+// The caller indexes its schedule by its OWN step counter, never by
+// `Emulator::frame_num()`: a rewind to step N restores the machine to the top
+// of step N but leaves `frame_num()` reading N+1, because run_frame() bumps the
+// counter before the snapshot is taken. A schedule keyed off it would therefore
+// drift by one frame across the rewind and the replay would no longer be a
+// replay of the same run.
+CableFrame run_cable_frame(Emulator& emu, uint8_t nr_0b) {
+    CableFrame f;
+    if (const JoyUartSource* src = emu.joy_uart_source()) {
+        f.delivered = src->delivered();
+        f.dropped   = src->dropped();
+    }
+    emu.nextreg().write(0x0B, nr_0b);
+    emu.run_frame();
+    emu.port().out(0x153B, 0x00);
+    while (!emu.uart().channel(0).rx_empty())
+        f.got.push_back(emu.port().in(0x143B));
+    return f;
+}
+
+// Rewind to `frame` and leave the machine RUNNABLE.
+//
+// `Emulator::rewind_to_frame` deliberately ends with
+// `debug_state_.set_active(true); debug_state_.pause()` — a rewind in the GUI
+// lands the user in the debugger at the restored instant. `run_frame()` returns
+// immediately while that holds (emulator.cpp:7813-7816), so a programmatic
+// replay that does not clear it silently executes NOTHING and every "the replay
+// matched" assertion becomes a comparison of empty frames against empty frames.
+bool rewind_and_resume(Emulator& emu, uint32_t frame) {
+    if (!emu.rewind_to_frame(frame)) return false;
+    emu.debug_state().resume();
+    emu.debug_state().set_active(false);
+    return true;
+}
+
+// Index of the first step at which two runs disagree, or -1 if they agree over
+// `count` steps starting at `base` in `forward`.
+int first_divergent_step(const std::vector<CableFrame>& forward, int base,
+                         const std::vector<CableFrame>& replay) {
+    for (std::size_t j = 0; j < replay.size(); ++j) {
+        const std::size_t f = static_cast<std::size_t>(base) + j;
+        if (f >= forward.size() || !(replay[j] == forward[f]))
+            return static_cast<int>(base + j);
+    }
+    return -1;
+}
+
+// A stream long enough to outlive the whole run — an exhausted cursor cannot
+// move, and every assertion below would pass trivially against one.
+std::vector<uint8_t> cable_stream() {
+    std::vector<uint8_t> s(8192);
+    for (std::size_t i = 0; i < s.size(); ++i)
+        s[i] = static_cast<uint8_t>((i * 7 + 1) & 0xFF);
+    return s;
+}
 
 // Config for a Next with a joystick serial cable attached.
 EmulatorConfig joy_config(const std::string& file, int connector,
@@ -1680,64 +1753,157 @@ static void test_joy_uart_cable() {
     // reproducing. Measured pre-fix as `delivered()` ending HIGHER after the
     // rewind than it had been at the frame the rewind landed on.
     //
-    // Asserted as an EQUALITY against the value recorded at that frame, not as
-    // "did not increase": the cursor must land where it was, and a cable that
-    // reset to zero or froze mid-way would satisfy an inequality.
+    // Asserted as the WHOLE TRAJECTORY, not as the cursor at the instant of
+    // restore: the replay re-runs to the frame it started from and every step
+    // must deliver the same BYTES in the same frame as the original run. Round 2
+    // measured why the weaker form is not enough — with the mux held at one
+    // value for the whole run, `dropped_` never leaves 0, `pos_ == delivered_`
+    // holds throughout, and swapping that pair in `save_state` survived the
+    // entire suite. So does swapping `frames_`/`timer_`, which nothing observed
+    // past the restore instant at all. Both are covered here and in JOY-11.
     {
-        // ~230 bytes arrive per frame at the 115200 the Next boots with, so
-        // this is a stream that outlives the whole run rather than one that
-        // exhausts (an exhausted cursor cannot move and would pass trivially).
-        std::vector<uint8_t> stream(4096);
-        for (std::size_t i = 0; i < stream.size(); ++i)
-            stream[i] = static_cast<uint8_t>(i & 0xFF);
+        const std::vector<uint8_t> stream = cable_stream();
         TempSourceFile file("rewind", stream);
 
+        // delay_frames = 2, so steps 0-1 are the silent hold and the stream is
+        // live from step 2 — which also makes `frames_` a live field rather than
+        // a constant zero (JOY-11 rewinds INTO the hold to pin it).
         EmulatorConfig cfg = joy_config(file.path(), /*connector=*/1,
-                                        /*delay_frames=*/0);
+                                        /*delay_frames=*/2);
         cfg.rewind_buffer_frames = 16;
         Emulator emu;
         emu.init(cfg);
 
-        // delivered_at[N] = the cable's cursor at the START of frame N, which
-        // is the instant the frame-N snapshot is taken.
-        const JoyUartSource* src = emu.joy_uart_source();
-        std::map<uint32_t, std::size_t> delivered_at;
-        std::map<uint32_t, std::size_t> dropped_at;
-        for (int f = 0; src && f < 10; ++f) {
-            delivered_at[emu.frame_num()] = src->delivered();
-            dropped_at[emu.frame_num()]   = src->dropped();
-            emu.nextreg().write(0x0B, 0xB0);    // mux on, connector 2, channel 0
-            emu.run_frame();
-        }
+        // Every fourth step selects mode "10" — connector joy 1 — with the cable
+        // in joy 2, so that step drops a whole frame's worth. THIS is what
+        // decouples `dropped_` from zero and `pos_` from `delivered_`.
+        auto sched = [](int step) -> uint8_t {
+            return (step % 4 == 3) ? 0xA0 : 0xB0;
+        };
 
-        const std::size_t before_rewind = src ? src->delivered() : 0;
+        constexpr int kSteps  = 12;
+        // Step 5 is the rewind point: the hold covered 0-1, steps 2 and 4
+        // delivered, step 3 dropped — so all three counters are non-zero there
+        // AND mutually distinct, which is what makes a mis-ordered save_state
+        // observable rather than numerically invisible.
+        constexpr int kRewind = 5;
+
+        std::vector<CableFrame> forward;
+        for (int i = 0; i < kSteps; ++i)
+            forward.push_back(run_cable_frame(emu, sched(i)));
 
         auto* rb = emu.rewind_buffer();
-        const bool have_buffer = src && (rb != nullptr) && (rb->depth() > 2);
-        const uint32_t target = have_buffer ? rb->oldest_frame_num() + 1 : 0;
-        const bool rewound = have_buffer && emu.rewind_to_frame(target);
+        const bool in_range = rb
+            && rb->oldest_frame_num() <= static_cast<uint32_t>(kRewind)
+            && rb->newest_frame_num() >= static_cast<uint32_t>(kRewind);
+        const bool rewound = in_range
+            && rewind_and_resume(emu, static_cast<uint32_t>(kRewind));
 
-        const std::size_t after_delivered = src ? src->delivered() : 0;
-        const std::size_t after_dropped   = src ? src->dropped() : 0;
+        const JoyUartSource* src = emu.joy_uart_source();
+        const bool cursor_restored = rewound && src
+            && src->delivered() == forward[kRewind].delivered
+            && src->dropped()   == forward[kRewind].dropped;
 
-        // The run has to have MOVED the cursor between the target frame and the
-        // end, or the equality below holds for a cable that never ran.
-        const bool cursor_moved = before_rewind > delivered_at[target];
+        // The three counters must actually differ from each other AT the rewind
+        // point, or the equality above holds for a save_state that wrote them in
+        // any order.
+        const bool counters_distinct =
+            forward[kRewind].delivered > 0
+            && forward[kRewind].dropped > 0
+            && forward[kRewind].delivered != forward[kRewind].dropped;
+
+        std::vector<CableFrame> replay;
+        for (int i = kRewind; rewound && i < kSteps; ++i)
+            replay.push_back(run_cable_frame(emu, sched(i)));
+
+        const int diverged = rewound
+            ? first_divergent_step(forward, kRewind, replay) : kRewind;
+        const bool full_replay = rewound
+            && replay.size() == static_cast<std::size_t>(kSteps - kRewind);
+
+        // And the replay has to have CARRIED bytes, or an all-empty trajectory
+        // matches an all-empty one.
+        std::size_t replayed_bytes = 0;
+        for (const auto& f : replay) replayed_bytes += f.got.size();
 
         check("JOY-10",
-              "GH #251 — JoyUartSource's cursor is part of the emulator state "
-              "stream, so a rewind puts the cable back where it was at the "
-              "restored frame and the replayed frames deliver the same bytes "
-              "they delivered the first time",
-              rewound && cursor_moved
-                  && after_delivered == delivered_at[target]
-                  && after_dropped == dropped_at[target],
-              fmt("rewound=%d cursor_moved=%d (both want 1); rewound to frame %u; "
-                  "delivered after=%zu (want %zu, was %zu at the newest frame); "
-                  "dropped after=%zu (want %zu)",
-                  rewound ? 1 : 0, cursor_moved ? 1 : 0, target,
-                  after_delivered, delivered_at[target], before_rewind,
-                  after_dropped, dropped_at[target]));
+              "GH #251 — JoyUartSource's cursor rides in the emulator state "
+              "stream, so a rewind puts the cable back where it was and the "
+              "replayed frames deliver byte-for-byte what they delivered the "
+              "first time, across a schedule that both delivers and drops",
+              rewound && cursor_restored && counters_distinct && full_replay
+                  && diverged < 0 && replayed_bytes > 0,
+              fmt("rewound=%d cursor_restored=%d counters_distinct=%d "
+                  "full_replay=%d (all want 1); first divergent step=%d "
+                  "(want -1); at step %d delivered=%zu/%zu dropped=%zu/%zu; "
+                  "replayed %zu byte(s) over %zu step(s)",
+                  rewound ? 1 : 0, cursor_restored ? 1 : 0,
+                  counters_distinct ? 1 : 0, full_replay ? 1 : 0, diverged,
+                  kRewind, src ? src->delivered() : 0,
+                  forward[kRewind].delivered, src ? src->dropped() : 0,
+                  forward[kRewind].dropped, replayed_bytes, replay.size()));
+    }
+
+    // ── JOY-11 — the START DELAY survives a rewind too: rewinding INTO the hold
+    // must resume it with the frames already served still counted, so the stream
+    // is released in the same step as the original run (GH #251 review round 2).
+    //
+    // This is the row that makes `frames_` a tested field. JOY-10 rewinds past
+    // the hold, where `frames_` has saturated at `delay_frames_` and any wrong
+    // value ≥ it behaves identically — round 2 measured a `frames_`/`timer_`
+    // swap in `save_state` surviving the whole suite for exactly that reason.
+    // Rewinding to step 1, with the hold half served, gives the field a value
+    // that is neither 0 nor its saturation point, and a wrong restore moves the
+    // release edge to a different frame.
+    {
+        const std::vector<uint8_t> stream = cable_stream();
+        TempSourceFile file("rewind-hold", stream);
+
+        EmulatorConfig cfg = joy_config(file.path(), /*connector=*/1,
+                                        /*delay_frames=*/4);
+        cfg.rewind_buffer_frames = 16;
+        Emulator emu;
+        emu.init(cfg);
+
+        constexpr int kSteps  = 9;
+        constexpr int kRewind = 1;      // inside the hold: frames_ == 1 there
+
+        std::vector<CableFrame> forward;
+        for (int i = 0; i < kSteps; ++i)
+            forward.push_back(run_cable_frame(emu, 0xB0));
+
+        // The hold has to be where this row says it is, or "the release edge did
+        // not move" is a claim about nothing: silent through step 3, live in
+        // step 4.
+        const bool hold_shape = forward[3].got.empty() && !forward[4].got.empty();
+
+        auto* rb = emu.rewind_buffer();
+        const bool in_range = rb
+            && rb->oldest_frame_num() <= static_cast<uint32_t>(kRewind)
+            && rb->newest_frame_num() >= static_cast<uint32_t>(kRewind);
+        const bool rewound = in_range
+            && rewind_and_resume(emu, static_cast<uint32_t>(kRewind));
+
+        std::vector<CableFrame> replay;
+        for (int i = kRewind; rewound && i < kSteps; ++i)
+            replay.push_back(run_cable_frame(emu, 0xB0));
+
+        const int diverged = rewound
+            ? first_divergent_step(forward, kRewind, replay) : kRewind;
+        const bool full_replay = rewound
+            && replay.size() == static_cast<std::size_t>(kSteps - kRewind);
+
+        check("JOY-11",
+              "GH #251 — a rewind INTO --joy-uart-rx-delay-frames' hold restores "
+              "how much of the hold had been served, so the replay stays silent "
+              "for the rest of it and releases the stream in the same frame as "
+              "the run it reproduces",
+              rewound && hold_shape && full_replay && diverged < 0,
+              fmt("rewound=%d hold_shape=%d full_replay=%d (all want 1); "
+                  "first divergent step=%d (want -1); forward step3=%zu byte(s) "
+                  "(want 0) step4=%zu (want >0)",
+                  rewound ? 1 : 0, hold_shape ? 1 : 0, full_replay ? 1 : 0,
+                  diverged, forward[3].got.size(), forward[4].got.size()));
     }
 }
 
