@@ -19,13 +19,17 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "peripheral/joy_uart_source.h"
 #include "peripheral/uart_device.h"
 
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
 #include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <string>
+#include <system_error>
 #include <vector>
 
 // ── Test infrastructure ───────────────────────────────────────────────
@@ -92,6 +96,16 @@ std::string hex2(uint8_t v) {
 
 std::string detail_eq(uint8_t got, uint8_t expected) {
     return "got=" + hex2(got) + " expected=" + hex2(expected);
+}
+
+// Space-separated hex render of a byte stream, for JOY-* failure details.
+std::string bytes_hex(const std::vector<uint8_t>& bytes) {
+    std::string out;
+    for (uint8_t b : bytes) {
+        if (!out.empty()) out += ' ';
+        out += hex2(b);
+    }
+    return out;
 }
 
 } // namespace
@@ -641,12 +655,20 @@ static void test_dual_05_channel_routing(Emulator& emu) {
 }
 
 // DUAL-06 — joystick IO-mode UART RX multiplex (VHDL zxnext.vhd:3340-3341).
+//
+// GH #251 — the NR 0x0B values here were 0x80 / 0x81, i.e. bit 7 alone, which
+// is what `Emulator::inject_joy_uart_rx` used to gate on. The real enable is
+// `joy_iomode_uart_en <= nr_0b_joy_iomode_en AND nr_0b_joy_iomode(1)`
+// (zxnext.vhd:3537) — bit 7 AND bit 5 — so this row asserted a mux that hardware
+// leaves disconnected, and could not have failed if the gate were wrong. The
+// values are now 0xA0 / 0xA1 (mode "10"), and DUAL-07 below covers the case the
+// old values actually described.
 static void test_dual_06_iomode_rx_mux(Emulator& emu) {
     set_group("DUAL");
     fresh(emu);
 
-    // Step 1: iomode_en=1, iomode_0=0 → joy→UART 0 mux.
-    emu.nextreg().write(0x0B, 0x80);              // iomode_en=1, iomode_0=0
+    // Step 1: mux enabled (bit7+bit5), iomode_0=0 → joy→UART 0.
+    emu.nextreg().write(0x0B, 0xA0);              // en=1, mode="10", iomode_0=0
     emu.inject_joy_uart_rx(0x77);
 
     // Read UART 0 RX FIFO via port 0x143B after selecting channel 0.
@@ -656,8 +678,8 @@ static void test_dual_06_iomode_rx_mux(Emulator& emu) {
 
     const bool step1_ok = (u0_step1 == 0x77) && u1_empty_step1;
 
-    // Step 2: iomode_en=1, iomode_0=1 → joy→UART 1 mux.
-    emu.nextreg().write(0x0B, 0x81);              // iomode_en=1, iomode_0=1
+    // Step 2: mux enabled, iomode_0=1 → joy→UART 1.
+    emu.nextreg().write(0x0B, 0xA1);              // en=1, mode="10", iomode_0=1
     emu.inject_joy_uart_rx(0x55);
 
     emu.port().out(0x153B, 0x40);
@@ -677,14 +699,66 @@ static void test_dual_06_iomode_rx_mux(Emulator& emu) {
 
     check("DUAL-06",
           "zxnext.vhd:3340-3341 — joystick-UART RX routes to UART 0 when "
-          "NR 0x0B bit7=1 & bit0=0, to UART 1 when bit7=1 & bit0=1, and "
-          "is dropped when bit7=0",
+          "NR 0x0B joy_iomode_uart_en=1 & bit0=0, to UART 1 when it is 1 & "
+          "bit0=1, and is dropped when the enable is clear",
           step1_ok && step2_ok && step3_ok,
           fmt("step1 u0=0x%02X (want 0x77) u1_empty=%d; step2 u1=0x%02X (want 0x55) "
               "u0_empty=%d; step3 u0_empty=%d u1_empty=%d",
               u0_step1, u1_empty_step1 ? 1 : 0,
               u1_step2, u0_empty_step2 ? 1 : 0,
               u0_empty_step3 ? 1 : 0, u1_empty_step3 ? 1 : 0));
+}
+
+// DUAL-07 — the joystick-UART enable is bit 7 AND bit 5, not bit 7 alone
+// (GH #251). VHDL zxnext.vhd:3537:
+//   joy_iomode_uart_en <= '1' when nr_0b_joy_iomode_en = '1'
+//                              and nr_0b_joy_iomode(1) = '1' else '0';
+// `nr_0b_joy_iomode(1)` is NR 0x0B bit 5, so the two pin-7 modes that do NOT
+// carry a UART — "00" static and "01" CTC-toggled (zxnext.vhd:3515-3524) — must
+// route nothing, even with the enable bit set. The pre-fix gate read bit 7
+// alone and accepted both.
+static void test_dual_07_uart_en_needs_bit5(Emulator& emu) {
+    set_group("DUAL");
+
+    // Mode "00" (static pin 7): enable set, bit 5 clear → no UART routing.
+    fresh(emu);
+    emu.nextreg().write(0x0B, 0x80);              // en=1, mode="00", bit0=0
+    emu.inject_joy_uart_rx(0x11);
+    const bool mode00_ch0_empty = emu.uart().channel(0).rx_empty();
+    emu.nextreg().write(0x0B, 0x81);              // en=1, mode="00", bit0=1
+    emu.inject_joy_uart_rx(0x22);
+    const bool mode00_ch1_empty = emu.uart().channel(1).rx_empty();
+
+    // Mode "01" (pin 7 toggled by CTC ch3): same — bit 5 is still clear.
+    fresh(emu);
+    emu.nextreg().write(0x0B, 0x90);              // en=1, mode="01", bit0=0
+    emu.inject_joy_uart_rx(0x33);
+    const bool mode01_ch0_empty = emu.uart().channel(0).rx_empty();
+    emu.nextreg().write(0x0B, 0x91);              // en=1, mode="01", bit0=1
+    emu.inject_joy_uart_rx(0x44);
+    const bool mode01_ch1_empty = emu.uart().channel(1).rx_empty();
+
+    // Positive control on the SAME emulator, so the negatives above cannot be
+    // passing merely because injection is broken: flip bit 5 on and the byte
+    // must land. Mode "11" as well as "10", since bit 4 selects the CONNECTOR
+    // (zxnext.vhd:3538) and must not affect the enable.
+    emu.nextreg().write(0x0B, 0xB0);              // en=1, mode="11", bit0=0
+    emu.inject_joy_uart_rx(0x55);
+    emu.port().out(0x153B, 0x00);
+    const uint8_t mode11_ch0 = emu.port().in(0x143B);
+
+    check("DUAL-07",
+          "zxnext.vhd:3537 — joy_iomode_uart_en is NR 0x0B bit 7 AND bit 5, so "
+          "pin-7 modes \"00\" (static) and \"01\" (CTC-toggled) route no UART RX "
+          "even with bit 7 set, while mode \"11\" does (GH #251)",
+          mode00_ch0_empty && mode00_ch1_empty
+              && mode01_ch0_empty && mode01_ch1_empty
+              && mode11_ch0 == 0x55,
+          fmt("mode00 ch0_empty=%d ch1_empty=%d; mode01 ch0_empty=%d ch1_empty=%d "
+              "(all want 1); mode11 ch0=0x%02X (want 0x55)",
+              mode00_ch0_empty ? 1 : 0, mode00_ch1_empty ? 1 : 0,
+              mode01_ch0_empty ? 1 : 0, mode01_ch1_empty ? 1 : 0,
+              mode11_ch0));
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -1195,6 +1269,351 @@ static void test_esp_backend() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section JOY — the joystick-connector UART cable (JOY-01..07), GH #251
+// ══════════════════════════════════════════════════════════════════════
+//
+// Two things that had no coverage at all before GH #251:
+//
+//   * The MUX IS EXCLUSIVE. VHDL zxnext.vhd:3340-3346 — when the joystick
+//     connector owns a channel, that channel's `*_rx` selects `joy_uart_rx`
+//     (so the module's own RX pin is not selected) and its module-facing TX
+//     pin is held at '1'. The ESP path in jnext ignored NR 0x0B entirely, so a
+//     bench built on `--esp` would have passed with the mux wired arbitrarily
+//     wrongly — which is why no bench was built until the routing was
+//     enforceable.
+//
+//   * A HOST SERIAL SOURCE CAN REACH THE PIN. `Emulator::inject_joy_uart_rx`
+//     had exactly two callers, both in this file, so nothing outside the test
+//     tree could put a byte on the joystick UART — the whole of the issue.
+//
+// The rows drive the guest side through the real port path and read the source
+// side through the real `--joy-uart-rx` config field, file and all.
+// ══════════════════════════════════════════════════════════════════════
+
+namespace {
+
+// A `--joy-uart-rx` stream on disk, removed when the row's scope ends. Real
+// file I/O rather than a test-only injection hook, so the row covers
+// read_joy_uart_source_file() and the config seam a command line actually uses.
+class TempSourceFile {
+public:
+    explicit TempSourceFile(const std::string& tag, const std::vector<uint8_t>& bytes) {
+        path_ = (std::filesystem::temp_directory_path()
+                 / ("jnext-joy-uart-" + tag + ".bin")).string();
+        std::ofstream out(path_, std::ios::binary | std::ios::trunc);
+        out.write(reinterpret_cast<const char*>(bytes.data()),
+                  static_cast<std::streamsize>(bytes.size()));
+    }
+    ~TempSourceFile() {
+        std::error_code ec;
+        std::filesystem::remove(path_, ec);
+    }
+    TempSourceFile(const TempSourceFile&)            = delete;
+    TempSourceFile& operator=(const TempSourceFile&) = delete;
+
+    const std::string& path() const { return path_; }
+
+private:
+    std::string path_;
+};
+
+// Config for a Next with a joystick serial cable attached.
+EmulatorConfig joy_config(const std::string& file, int connector,
+                          uint32_t delay_frames) {
+    EmulatorConfig cfg;
+    cfg.type                     = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames     = 0;
+    cfg.joy_uart_rx_file         = file;
+    cfg.joy_uart_connector       = connector;
+    cfg.joy_uart_rx_delay_frames = delay_frames;
+    return cfg;
+}
+
+// Run frames with the guest's NR 0x0B held at `nr_0b`, draining `channel`'s RX
+// FIFO through the real port path after each one. The NR is re-asserted every
+// frame because the boot firmware is running underneath and this row must
+// observe the mux it asked for, not whatever the ROM last left behind.
+std::vector<uint8_t> run_and_drain(Emulator& emu, uint8_t nr_0b, int channel,
+                                   int frames) {
+    std::vector<uint8_t> got;
+    for (int f = 0; f < frames; ++f) {
+        emu.nextreg().write(0x0B, nr_0b);
+        emu.run_frame();
+        emu.port().out(0x153B, static_cast<uint8_t>(channel ? 0x40 : 0x00));
+        while (!emu.uart().channel(channel).rx_empty())
+            got.push_back(emu.port().in(0x143B));
+    }
+    return got;
+}
+
+} // namespace
+
+static void test_joy_uart_cable() {
+    set_group("JOY");
+
+    // ── JOY-01 — the attached backend cannot be HEARD while the mux owns the
+    // channel (zxnext.vhd:3340: `uart0_rx <= joy_uart_rx`, so `i_UART0_RX` is
+    // not selected). Both directions asserted on one emulator, so the negative
+    // half cannot be passing because injection is simply broken.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        StubUartDevice esp;
+        emu.uart().attach_device(0, &esp);
+
+        emu.nextreg().write(0x0B, 0xA0);        // mux on, channel 0
+        esp.send(0x11);
+        const bool muted = emu.uart().channel(0).rx_empty();
+
+        emu.nextreg().write(0x0B, 0x00);        // mux off
+        esp.send(0x22);
+        emu.port().out(0x153B, 0x00);
+        const uint8_t heard = emu.port().in(0x143B);
+
+        emu.uart().detach_device(0);
+
+        check("JOY-01",
+              "zxnext.vhd:3340 — while the joystick UART mux owns UART 0, "
+              "`uart0_rx` selects `joy_uart_rx` and the ESP's own RX pin is not "
+              "selected, so its bytes are lost; with the mux off they arrive",
+              muted && heard == 0x22,
+              fmt("muted=%d (want 1); heard=0x%02X (want 0x22)",
+                  muted ? 1 : 0, heard));
+    }
+
+    // ── JOY-02 — nor SPOKEN TO (zxnext.vhd:3343: `uart0_tx_esp <= '1'`), and —
+    // the half that matters — the byte is NOT looped back into this channel's
+    // own RX FIFO either. Looping it back would corrupt the very stream the
+    // cable is feeding in, so gating only the RX direction would be worse than
+    // gating neither.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        StubUartDevice esp;
+        emu.uart().attach_device(0, &esp);
+
+        emu.nextreg().write(0x0B, 0xA0);        // mux on, channel 0
+        emu.port().out(0x153B, 0x00);
+        emu.port().out(0x133B, 0xAA);           // guest transmits
+        tick_uart_byte(emu);
+        const bool device_silent = esp.rx.empty();
+        const bool no_loopback   = emu.uart().channel(0).rx_empty();
+
+        emu.nextreg().write(0x0B, 0x00);        // mux off — positive control
+        emu.port().out(0x133B, 0xBB);
+        tick_uart_byte(emu);
+        const bool device_heard = (esp.rx.size() == 1) && (esp.rx[0] == 0xBB);
+
+        emu.uart().detach_device(0);
+
+        check("JOY-02",
+              "zxnext.vhd:3343 — while the joystick UART mux owns UART 0 the "
+              "module-facing TX pin is held idle, so a transmitted byte reaches "
+              "neither the ESP nor a loopback into the channel's own RX FIFO; "
+              "with the mux off the ESP receives normally",
+              device_silent && no_loopback && device_heard,
+              fmt("device_silent=%d no_loopback=%d device_heard=%d (all want 1); "
+                  "device rx=%zu", device_silent ? 1 : 0, no_loopback ? 1 : 0,
+                  device_heard ? 1 : 0, esp.rx.size()));
+    }
+
+    // ── JOY-03 — the mux takes ONE channel, chosen by NR 0x0B bit 0
+    // (zxnext.vhd:3340-3341). With the cable routed to UART 1, the ESP on
+    // UART 0 must be untouched in both directions: this is what makes JOY-01/02
+    // a routing assertion rather than a blanket "devices go quiet under
+    // NR 0x0B" one.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        StubUartDevice esp;
+        emu.uart().attach_device(0, &esp);
+
+        emu.nextreg().write(0x0B, 0xA1);        // mux on, channel 1 — not ch 0
+        esp.send(0x33);
+        emu.port().out(0x153B, 0x00);
+        const uint8_t heard = emu.port().in(0x143B);
+        emu.port().out(0x133B, 0xCC);
+        tick_uart_byte(emu);
+        const bool device_heard = (esp.rx.size() == 1) && (esp.rx[0] == 0xCC);
+
+        emu.uart().detach_device(0);
+
+        check("JOY-03",
+              "zxnext.vhd:3340-3341 — NR 0x0B bit 0 selects WHICH channel the "
+              "joystick connector takes, so with bit 0 = 1 the UART 1 pins are "
+              "shadowed and the ESP on UART 0 keeps both directions",
+              heard == 0x33 && device_heard,
+              fmt("ESP→guest=0x%02X (want 0x33); guest→ESP heard=%d rx=%zu (want 1/1)",
+                  heard, device_heard ? 1 : 0, esp.rx.size()));
+    }
+
+    // ── JOY-04 — a `--joy-uart-rx` file reaches the guest, end to end: config
+    // field → JoyUartSource → the connector/enable gates → the channel's RX
+    // FIFO → the port the Z80 reads. This is the capability the issue asked for
+    // and the one nothing outside this test tree could reach before.
+    {
+        const std::vector<uint8_t> stream{0xD5, 0x2A, 0x00, 0x7F};
+        TempSourceFile file("deliver", stream);
+        Emulator emu;
+        emu.init(joy_config(file.path(), /*connector=*/1, /*delay_frames=*/0));
+
+        // Guest selects UART mode on connector 2 (mode "11" → bit 4 = 1) and
+        // channel 0 (bit 0 = 0).
+        const std::vector<uint8_t> got = run_and_drain(emu, 0xB0, 0, 2);
+
+        check("JOY-04",
+              "GH #251 — a serial source attached with --joy-uart-rx arrives on "
+              "the channel NR 0x0B bit 0 selects, through the same "
+              "zxnext.vhd:3340-3341 mux the guest reads at port 0x143B",
+              got == stream,
+              fmt("got %zu byte(s) [%s] (want %zu [0xD5 0x2A 0x00 0x7F]); "
+                  "delivered=%zu dropped=%zu",
+                  got.size(), bytes_hex(got).c_str(), stream.size(),
+                  emu.joy_uart_source() ? emu.joy_uart_source()->delivered() : 0,
+                  emu.joy_uart_source() ? emu.joy_uart_source()->dropped() : 0));
+    }
+
+    // ── JOY-05 — the CONNECTOR field is honoured (zxnext.vhd:3538). The cable
+    // is in joy 2, and the guest selects mode "10" — connector joy 1 — so the
+    // FPGA is reading a pin with nothing on it and every byte is lost. This is
+    // the question the issue says the VHDL cannot answer for real hardware and
+    // that upstream dezogif answers "port 2 only"; without it, bit 4 would be
+    // ignored and jnext would be more permissive than the silicon.
+    {
+        const std::vector<uint8_t> stream{0x61, 0x62, 0x63};
+        TempSourceFile file("connector", stream);
+        Emulator emu;
+        emu.init(joy_config(file.path(), /*connector=*/1, /*delay_frames=*/0));
+
+        // Mode "10" = connector joy 1, and the cable is in joy 2.
+        const std::vector<uint8_t> wrong = run_and_drain(emu, 0xA0, 0, 2);
+        const std::size_t dropped =
+            emu.joy_uart_source() ? emu.joy_uart_source()->dropped() : 0;
+        const std::size_t delivered =
+            emu.joy_uart_source() ? emu.joy_uart_source()->delivered() : 0;
+
+        check("JOY-05",
+              "zxnext.vhd:3538 — `joy_uart_rx` is read from i_JOY_LEFT(5) or "
+              "i_JOY_RIGHT(5) according to NR 0x0B bit 4, so a cable in the "
+              "other socket is a pin the machine is not looking at and its "
+              "bytes are lost rather than delivered",
+              wrong.empty() && delivered == 0 && dropped == stream.size(),
+              fmt("received %zu byte(s) [%s] (want 0); delivered=%zu (want 0) "
+                  "dropped=%zu (want %zu)",
+                  wrong.size(), bytes_hex(wrong).c_str(), delivered,
+                  dropped, stream.size()));
+    }
+
+    // ── JOY-06 — the start delay holds the stream for exactly N whole frames,
+    // which is what makes "a byte lands while the debuggee is already running"
+    // reachable at all: with no delay the stream is spent before a guest has
+    // set NR 0x0B up. Both edges asserted — silent through frame N, arrived by
+    // frame N+1 — because only the pair distinguishes a working delay from a
+    // source that never sends.
+    {
+        const std::vector<uint8_t> stream{0x9E};
+        TempSourceFile file("delay", stream);
+        Emulator emu;
+        emu.init(joy_config(file.path(), /*connector=*/1, /*delay_frames=*/3));
+
+        const std::vector<uint8_t> during_hold = run_and_drain(emu, 0xB0, 0, 3);
+        const std::vector<uint8_t> after_hold  = run_and_drain(emu, 0xB0, 0, 1);
+
+        check("JOY-06",
+              "GH #251 — --joy-uart-rx-delay-frames N holds the stream for N "
+              "COMPLETE frames (counted at the once-per-frame end seam) and "
+              "releases it in the (N+1)th",
+              during_hold.empty() && after_hold == stream,
+              fmt("frames 1-3 got %zu byte(s) (want 0); frame 4 got %zu [%s] "
+                  "(want 1 [0x9E])",
+                  during_hold.size(), after_hold.size(),
+                  bytes_hex(after_hold).c_str()));
+    }
+
+    // ── JOY-07 — delivery is PACED at the receiving channel's baud, not dumped
+    // in one go. It matters for a reason a 4-byte stream hides: the RX FIFO is
+    // 512 bytes with drop-newest overflow (uart_device.h), so an unpaced source
+    // longer than that would silently lose its tail, and a guest that reads one
+    // byte per NMI poll — the dezogif shape — would see a burst that no cable
+    // could produce. Driven on the bare class, where one byte time can be
+    // stepped exactly.
+    {
+        JoyUartSource src({0xA1, 0xA2, 0xA3}, /*connector=*/0, /*delay_frames=*/0);
+        std::vector<uint8_t> got;
+        src.set_byte_sink([&got](uint8_t b) { got.push_back(b); });
+
+        const uint32_t byte_ticks = 2430;   // 115200 8N1 at 28 MHz, as the Next boots
+
+        src.tick(byte_ticks - 1, byte_ticks);
+        const bool none_yet = got.empty();
+        src.tick(1, byte_ticks);            // completes the first byte exactly
+        const bool one_now = (got.size() == 1) && (got[0] == 0xA1);
+
+        // A span covering two further byte times delivers exactly two, and the
+        // remainder is CARRIED: a source that discarded it would drift by one
+        // instruction per byte.
+        src.tick(2 * byte_ticks, byte_ticks);
+        const bool three_now = (got.size() == 3);
+        const bool exhausted = src.exhausted();
+
+        // Nothing more, ever — the stream is finite and does not repeat.
+        src.tick(10 * byte_ticks, byte_ticks);
+        const bool still_three = (got.size() == 3);
+
+        check("JOY-07",
+              "GH #251 — JoyUartSource paces delivery at one byte per "
+              "UartChannel::byte_transfer_ticks() (the same clock the ESP RX "
+              "path uses), and stops when the stream is exhausted",
+              none_yet && one_now && three_now && exhausted && still_three,
+              fmt("none_yet=%d one_now=%d three_now=%d exhausted=%d still_three=%d "
+                  "(all want 1); got %zu [%s]",
+                  none_yet ? 1 : 0, one_now ? 1 : 0, three_now ? 1 : 0,
+                  exhausted ? 1 : 0, still_three ? 1 : 0,
+                  got.size(), bytes_hex(got).c_str()));
+    }
+
+    // ── JOY-08 — an unreadable or EMPTY source file is refused, not accepted as
+    // "a source that sends nothing". An empty stream can only ever produce a run
+    // that looks like a pass for a path no byte took, which is the failure this
+    // whole feature exists to make impossible.
+    {
+        TempSourceFile empty_file("empty", {});
+        std::vector<uint8_t> bytes;
+        std::string          error_empty;
+        const bool empty_refused =
+            !read_joy_uart_source_file(empty_file.path(), bytes, error_empty);
+
+        std::string error_missing;
+        const std::string missing =
+            (std::filesystem::temp_directory_path() / "jnext-joy-uart-nonexistent.bin")
+                .string();
+        std::error_code ec;
+        std::filesystem::remove(missing, ec);
+        const bool missing_refused =
+            !read_joy_uart_source_file(missing, bytes, error_missing);
+
+        // And the positive control, so the two refusals above are not merely a
+        // reader that always fails.
+        TempSourceFile good_file("good", {0x01, 0x02});
+        std::string error_good;
+        const bool good_read =
+            read_joy_uart_source_file(good_file.path(), bytes, error_good)
+            && bytes == std::vector<uint8_t>{0x01, 0x02};
+
+        check("JOY-08",
+              "GH #251 — read_joy_uart_source_file refuses a missing file AND an "
+              "empty one (a source that sends nothing tests nothing), and reads a "
+              "real one whole",
+              empty_refused && missing_refused && good_read,
+              fmt("empty_refused=%d ('%s'); missing_refused=%d ('%s'); good_read=%d "
+                  "(all want 1)",
+                  empty_refused ? 1 : 0, error_empty.c_str(),
+                  missing_refused ? 1 : 0, error_missing.c_str(),
+                  good_read ? 1 : 0));
+    }
+}
+
 static void test_nr_a0_pi_uart_routing(Emulator& emu) {
     set_group("NR_A0-INT");
     // VHDL zxnext.vhd:1241, 2278-2281, 5080, 5560-5561, 6188-6189.
@@ -1314,10 +1733,14 @@ int main() {
 
     test_dual_05_channel_routing(emu);
     test_dual_06_iomode_rx_mux(emu);
+    test_dual_07_uart_en_needs_bit5(emu);
     std::printf("  Group: DUAL — done\n");
 
     test_uart_device_seam(emu);
     std::printf("  Group: DEV — done\n");
+
+    test_joy_uart_cable();
+    std::printf("  Group: JOY — done\n");
 
     test_nr_a0_pi_uart_routing(emu);
     std::printf("  Group: NR_A0-INT — done\n");

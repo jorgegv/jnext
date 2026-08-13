@@ -2949,6 +2949,45 @@ default) or <code>keys</code> (host arrow keys, Space = fire).</dd>
 <dd>Host source for Joy 2 (port 0x37): <code>sdl</code> (default) or <code>keys</code>. Only
 one connector may use <code>keys</code>. Interactive (SDL/Qt) frontends only;
 inert under <strong>--headless</strong>.</dd>
+<dt><strong>--joy-uart-rx</strong> <em>FILE</em></dt>
+<dd>
+<p>Attach <em>FILE</em> as a serial byte source on the joystick-port UART RX
+pin — the “PC” end of a joy-port serial cable, as used by a dezogif
+/ DeZog serial rig.</p>
+<p>The bytes do not reach the guest through either UART header. They
+arrive through the NR 0x0B I/O-mode multiplexer, which the guest
+controls, so the guest hears them ONLY while all three of these
+hold:</p>
+<ul>
+<li>bits 7 and 5 of NR 0x0B are both set (<code>joy_iomode_uart_en</code>),
+  i.e. pin 7 is in one of the two UART modes. Modes <code>00</code> (static)
+  and <code>01</code> (CTC-toggled) carry no UART and receive nothing;</li>
+<li>bit 4 selects the connector this cable is plugged into — see
+  <strong>--joy-uart-connector</strong>;</li>
+<li>bit 0 picks the channel that receives it: 0 = UART 0, 1 = UART 1.
+  While the cable owns a channel, the module on that channel’s
+  header (the ESP-01 on UART 0, the Pi header on UART 1) can neither
+  be heard nor be spoken to, which is what the hardware does.</li>
+</ul>
+<p>Delivery is paced at the receiving channel’s current baud rate, so a
+stream longer than the 512-byte RX FIFO does not overrun a guest
+that is draining it. Bytes sent while the guest is not listening are
+LOST rather than queued, exactly as on the wire — use
+<strong>--joy-uart-rx-delay-frames</strong> to schedule them. If the whole stream
+is lost, jnext says so with a warning rather than finishing quietly.</p>
+<p>An unreadable or empty <em>FILE</em> is refused at startup.</p>
+</dd>
+<dt><strong>--joy-uart-rx-delay-frames</strong> <em>N</em></dt>
+<dd>Hold the <strong>--joy-uart-rx</strong> stream for <em>N</em> complete frames before its
+first byte arrives (default 0, i.e. from the first instruction).
+This is how a byte is made to land while the program is already
+running — the asynchronous-break case — rather than being spent
+before the program has set NR 0x0B up.</dd>
+<dt><strong>--joy-uart-connector</strong> <em>N</em></dt>
+<dd>Which joystick socket the <strong>--joy-uart-rx</strong> cable is in: <code>1</code> or <code>2</code>
+(default <code>2</code>, the connector a real rig uses). NR 0x0B bit 4 selects
+the connector the machine reads, so a guest that selects the other
+one hears nothing at all.</dd>
 <dt><strong>--tape-realtime</strong></dt>
 <dd>Real-time tape loading, at the speed of an actual tape, instead of
 fast load.</dd>

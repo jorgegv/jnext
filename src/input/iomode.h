@@ -101,9 +101,16 @@ public:
     /// line idles HIGH and a press drives it LOW (serial start-bit
     /// polarity). (GH #90 — the pre-fix selector wrongly used bit 0.)
     bool    joy_uart_rx() const {
-        const bool mode_lsb = ((nr_0b_raw_ & 0x10) != 0);  // nr_0b_joy_iomode(0)
-        return mode_lsb ? !joy_right_bit5_ : !joy_left_bit5_;
+        return joy_uart_connector() ? !joy_right_bit5_ : !joy_left_bit5_;
     }
+
+    /// Which joystick CONNECTOR the `joy_uart_rx` / `joy_uart_cts_n` lines
+    /// are read from — `nr_0b_joy_iomode(0)`, i.e. NR 0x0B **bit 4**
+    /// (zxnext.vhd:3538-3539). 0 = joy 1 / `i_JOY_LEFT`, 1 = joy 2 /
+    /// `i_JOY_RIGHT`. Named separately from `iomode_0()` (bit 0, which picks
+    /// the UART CHANNEL) because the two are one bit apart and were already
+    /// confused once — GH #90.
+    int     joy_uart_connector() const { return (nr_0b_raw_ & 0x10) ? 1 : 0; }
 
     /// Inject the raw joystick connector line 5 (button C) — VHDL
     /// i_JOY_LEFT(5) / i_JOY_RIGHT(5), ACTIVE HIGH (true = pressed) per

@@ -125,6 +125,56 @@ Host source for Joy 2 (port 0x37): \f[CR]sdl\f[R] (default) or
 Only one connector may use \f[CR]keys\f[R].
 Interactive (SDL/Qt) frontends only; inert under \f[B]\-\-headless\f[R].
 .TP
+\f[B]\-\-joy\-uart\-rx\f[R] \f[I]FILE\f[R]
+Attach \f[I]FILE\f[R] as a serial byte source on the joystick\-port UART
+RX pin \(em the \(lqPC\(rq end of a joy\-port serial cable, as used by a
+dezogif / DeZog serial rig.
+.RS
+.PP
+The bytes do not reach the guest through either UART header.
+They arrive through the NR 0x0B I/O\-mode multiplexer, which the guest
+controls, so the guest hears them ONLY while all three of these hold:
+.IP \(bu 2
+bits 7 and 5 of NR 0x0B are both set (\f[CR]joy_iomode_uart_en\f[R]),
+i.e.\ pin 7 is in one of the two UART modes.
+Modes \f[CR]00\f[R] (static) and \f[CR]01\f[R] (CTC\-toggled) carry no
+UART and receive nothing;
+.IP \(bu 2
+bit 4 selects the connector this cable is plugged into \(em see
+\f[B]\-\-joy\-uart\-connector\f[R];
+.IP \(bu 2
+bit 0 picks the channel that receives it: 0 = UART 0, 1 = UART 1.
+While the cable owns a channel, the module on that channel\(cqs header
+(the ESP\-01 on UART 0, the Pi header on UART 1) can neither be heard
+nor be spoken to, which is what the hardware does.
+.PP
+Delivery is paced at the receiving channel\(cqs current baud rate, so a
+stream longer than the 512\-byte RX FIFO does not overrun a guest that
+is draining it.
+Bytes sent while the guest is not listening are LOST rather than queued,
+exactly as on the wire \(em use
+\f[B]\-\-joy\-uart\-rx\-delay\-frames\f[R] to schedule them.
+If the whole stream is lost, jnext says so with a warning rather than
+finishing quietly.
+.PP
+An unreadable or empty \f[I]FILE\f[R] is refused at startup.
+.RE
+.TP
+\f[B]\-\-joy\-uart\-rx\-delay\-frames\f[R] \f[I]N\f[R]
+Hold the \f[B]\-\-joy\-uart\-rx\f[R] stream for \f[I]N\f[R] complete
+frames before its first byte arrives (default 0, i.e.\ from the first
+instruction).
+This is how a byte is made to land while the program is already running
+\(em the asynchronous\-break case \(em rather than being spent before
+the program has set NR 0x0B up.
+.TP
+\f[B]\-\-joy\-uart\-connector\f[R] \f[I]N\f[R]
+Which joystick socket the \f[B]\-\-joy\-uart\-rx\f[R] cable is in:
+\f[CR]1\f[R] or \f[CR]2\f[R] (default \f[CR]2\f[R], the connector a real
+rig uses).
+NR 0x0B bit 4 selects the connector the machine reads, so a guest that
+selects the other one hears nothing at all.
+.TP
 \f[B]\-\-tape\-realtime\f[R]
 Real\-time tape loading, at the speed of an actual tape, instead of fast
 load.

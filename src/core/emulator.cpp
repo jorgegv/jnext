@@ -10,6 +10,7 @@
 #include "esp01/esp_threaded.h"
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/esp_uart_adapter.h"
+#include "peripheral/joy_uart_source.h"
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -6111,9 +6112,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // emulator documents this exact bug causing an infinite mount loop).
     spi_.attach_device(0, &sd_card_);  // SD card in socket 0; socket 1 empty
 
+    // GH #251 — teach the UART how to ask whether the joystick-connector serial
+    // mux has taken a channel over (zxnext.vhd:3340-3346, :3537). Installed
+    // here rather than pushed from the tick loop because both consumers are at
+    // byte boundaries, so the pull is free and never one instruction stale —
+    // see UartChannel::set_device_isolated_probe. The lambda captures `this`,
+    // and `uart_` is a member, so it cannot outlive the Emulator; a cold boot
+    // reconstructs both and init() re-installs it.
+    uart_.set_joy_uart_channel_probe([this]() -> int {
+        if (!iomode_.joy_uart_en()) return -1;      // VHDL:3537 — bit 7 AND bit 5
+        return iomode_.iomode_0() ? 1 : 0;          // VHDL:3340-3341 — bit 0
+    });
+
     // GH #25 — the emulated ESP-01 on UART 0, if the user enabled it. Off by
     // default; built once and preserved across a soft reset (setup_esp()).
     setup_esp();
+
+    // GH #251 — the serial cable in a joystick socket, if the user attached one.
+    setup_joy_uart_source();
 
     // Pass-8 verify-audit (2026-05-09): seed the VHDL zxnext.vhd:3319
     // composite Flash-CS gate from the post-power-on / post-init state.
@@ -7155,6 +7171,7 @@ void Emulator::begin_new_frame()
     // that is beginning rather than the next one.
     advance_esp_schedule_frame();
 
+
     // V24-MEM-01 / V25-MEM-01 fix — video-frame-edge commit of the
     // NR 0x03 machine_timing latch per VHDL zxnext.vhd:6694-6703:
     //   if video_frame_sync = '1' then
@@ -7505,6 +7522,83 @@ void Emulator::setup_esp()
         "ESP-01 reports station address {} to the guest (AT+CIFSR / AT+CIPSTA?) — "
         "cosmetic; nothing binds or routes through it",
         esp_device_->station_ip());
+}
+
+void Emulator::setup_joy_uart_source()
+{
+    if (config_.joy_uart_rx_file.empty()) return;   // no cable attached
+    // A SOFT reset must not unplug it, exactly as it must not rebuild the ESP:
+    // NR 0x0B is reset and the guest has to set the mux up again, but the thing
+    // on the other end of the cable never noticed.
+    if (joy_uart_source_) return;
+
+    std::vector<uint8_t> bytes;
+    std::string          error;
+    if (!read_joy_uart_source_file(config_.joy_uart_rx_file, bytes, error)) {
+        // Unreachable from the CLI, which reads and validates the file at
+        // startup and refuses there. Reachable from a caller that builds an
+        // EmulatorConfig by hand, and the answer is NO source rather than a
+        // silently empty one — see the warning at exhaustion below for why.
+        Log::uart()->error("--joy-uart-rx: {} — no joystick serial source attached", error);
+        return;
+    }
+
+    const std::size_t count = bytes.size();
+    joy_uart_source_ = std::make_unique<JoyUartSource>(
+        std::move(bytes), config_.joy_uart_connector, config_.joy_uart_rx_delay_frames);
+
+    joy_uart_source_->set_byte_sink([this](uint8_t byte) {
+        // The CONNECTOR gate, which `inject_joy_uart_rx` deliberately does not
+        // apply: `joy_uart_rx` is the line AFTER the connector mux, and
+        // zxnext.vhd:3538 reads it from `i_JOY_LEFT(5)` or `i_JOY_RIGHT(5)`
+        // according to NR 0x0B bit 4. A cable in the other socket is a pin the
+        // FPGA is not looking at, so the byte is lost on the wire — the same
+        // outcome as the mux being off, and for the same physical reason.
+        const bool routed = iomode_.joy_uart_en()
+                         && iomode_.joy_uart_connector() == joy_uart_source_->connector();
+        if (!routed) {
+            joy_uart_source_->note_dropped();
+            return;
+        }
+        inject_joy_uart_rx(byte);
+        joy_uart_source_->note_delivered();
+    });
+
+    // ONE info line naming the posture, as the ESP does: which socket, how many
+    // bytes, and when they start. The connector and the delay are the two
+    // things that decide whether the guest hears anything at all, so they are
+    // the two things worth being able to read back without a debugger.
+    Log::uart()->info(
+        "joystick serial source attached to joy {} — {} byte(s) from '{}', starting after "
+        "{} frame(s); the guest hears them only while NR 0x0B selects UART mode "
+        "(bits 7+5) on that connector (bit 4)",
+        joy_uart_source_->connector() + 1, count, config_.joy_uart_rx_file,
+        config_.joy_uart_rx_delay_frames);
+}
+
+void Emulator::service_joy_uart_source(uint64_t master_cycles)
+{
+    // Pace off the channel NR 0x0B bit 0 selects (zxnext.vhd:3340-3341). Bit 0
+    // has a value whether or not the mux is enabled, so there is no special
+    // case here: with the mux off the bytes are clocked out at that channel's
+    // baud and dropped by the sink, which is what the cable does.
+    const int ch = iomode_.iomode_0() ? 1 : 0;
+    joy_uart_source_->tick(static_cast<uint32_t>(master_cycles),
+                           uart_.channel(ch).byte_transfer_ticks());
+
+    // The silent no-op guard. A stream that ran to its end without one byte
+    // reaching the guest means the mux was never set the way the bench assumed,
+    // and the run would otherwise report a pass for a path no byte took.
+    if (!joy_uart_silence_reported_ && joy_uart_source_->exhausted()
+        && joy_uart_source_->delivered() == 0) {
+        joy_uart_silence_reported_ = true;
+        Log::uart()->warn(
+            "joystick serial source exhausted with all {} byte(s) LOST: NR 0x0B never "
+            "selected UART mode (bits 7+5) with connector bit 4 = joy {}. Current "
+            "NR 0x0B = {:#04x}",
+            joy_uart_source_->dropped(), joy_uart_source_->connector() + 1,
+            iomode_.nr_0b_raw());
+    }
 }
 
 bool Emulator::esp_associated() const
@@ -7882,6 +7976,17 @@ void Emulator::end_of_frame(uint64_t frame_end)
     if (boot_hold_frames_remaining_ > 0) {
         --boot_hold_frames_remaining_;
     }
+
+    // GH #251 — and one more whole frame has gone by for the joystick serial
+    // source's start delay. Anchored at this seam, not at begin_new_frame(),
+    // for two reasons: it runs exactly ONCE per frame (a frame the debugger
+    // pauses is resumed, not restarted), and counting COMPLETED frames is what
+    // makes `--joy-uart-rx-delay-frames N` mean N whole frames of silence
+    // rather than N-1. Unlike the ESP's schedule this is a countdown, not a
+    // pure function of the frame number, so a REWIND does not rewind it — a
+    // rewound stream would re-send bytes the guest has already consumed, the
+    // same un-re-executable side effect the ESP replay gate exists for.
+    if (joy_uart_source_) joy_uart_source_->end_frame();
 
     // Snapshot the fallback/border/ULA-enable colour for the last visible
     // framebuffer row. G164v2 — these arrays are indexed by fb_row in
@@ -8636,6 +8741,12 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // UART TX feed above.
     iomode_.set_joy_left_bit5(joystick_.joy_left_bit5());
     iomode_.set_joy_right_bit5(joystick_.joy_right_bit5());
+
+    // GH #251 — clock the host-side joystick serial source, if one is attached.
+    // Guarded here (not inside the callee) so an ordinary run pays a single
+    // predicted-not-taken branch, following the `device_attached_` precedent
+    // documented in peripheral/uart.h.
+    if (joy_uart_source_) service_joy_uart_source(master_cycles);
 
     // Tick the NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md
     // Phase 1 + Wave B + Wave C). Placement matches CTC / UART / Md6

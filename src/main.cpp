@@ -7,6 +7,7 @@
 #include "core/video_recorder.h"
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
 #include "peripheral/esp_host_policy.h"
+#include "peripheral/joy_uart_source.h"   // read_joy_uart_source_file (GH #251)
 // Issue #35 — audio_pacing::WhenSlowPrefer. Header-only and dependency-free;
 // included unconditionally because the parsed value is declared alongside the
 // other options, before the frontend type is known.
@@ -228,6 +229,13 @@ int main(int argc, char* argv[]) {
     // GH #247 — the address reported after the outage ends; empty means "the
     // same one as before".
     std::string esp_ip_address_after;
+    // GH #251 — the joystick-connector serial source. Empty path means none;
+    // the connector defaults to joy 2, which is the one a real rig uses.
+    std::string joy_uart_rx_file;
+    long        joy_uart_rx_delay_frames = 0;
+    int         joy_uart_connector = 1;
+    bool        joy_uart_rx_delay_frames_set = false;
+    bool        joy_uart_connector_set = false;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -627,6 +635,39 @@ int main(int argc, char* argv[]) {
                 joy_source_set[idx] = true;
                 break;
             }
+            case cli::OptId::JoyUartRx:
+                joy_uart_rx_file = v[0];
+                break;
+            case cli::OptId::JoyUartRxDelayFrames: {
+                // Parsed here so a typo is a usage error, not a stream that
+                // starts at frame 0 and is spent before the guest is listening
+                // — the exact silent no-op this option exists to prevent.
+                char* end = nullptr;
+                joy_uart_rx_delay_frames = std::strtol(v[0], &end, 10);
+                if (end == v[0] || *end != '\0' || joy_uart_rx_delay_frames < 0) {
+                    std::fprintf(stderr,
+                                 "--joy-uart-rx-delay-frames: N must be a non-negative "
+                                 "whole number of frames, not \"%s\".\n", v[0]);
+                    return 1;
+                }
+                joy_uart_rx_delay_frames_set = true;
+                break;
+            }
+            case cli::OptId::JoyUartConnector: {
+                // 1 or 2 — the user-facing names for the two sockets, matching
+                // --joy1-source / --joy2-source. Stored 0-based, as the VHDL
+                // LEFT/RIGHT pair is.
+                if (std::strcmp(v[0], "1") == 0)      joy_uart_connector = 0;
+                else if (std::strcmp(v[0], "2") == 0) joy_uart_connector = 1;
+                else {
+                    std::fprintf(stderr,
+                                 "--joy-uart-connector: N must be 1 or 2, not \"%s\".\n",
+                                 v[0]);
+                    return 1;
+                }
+                joy_uart_connector_set = true;
+                break;
+            }
             case cli::OptId::DelayedKeypress:
             case cli::OptId::DelayedKeypressFrames: {
                 // SECS form: stored as-is; HeadlessApp converts to frames at
@@ -920,6 +961,12 @@ int main(int argc, char* argv[]) {
         cfg.esp_associate_frame    = esp_associate_frame;
         cfg.esp_ip_address         = esp_ip_address;
         cfg.esp_ip_address_after   = esp_ip_address_after;
+        // GH #251 — CLI-only, and for the same reason: every consumer is a
+        // scripted bench, and a serial source arriving from a config file is one
+        // the user cannot see in the command they ran.
+        cfg.joy_uart_rx_file         = joy_uart_rx_file;
+        cfg.joy_uart_connector       = joy_uart_connector;
+        cfg.joy_uart_rx_delay_frames = static_cast<uint32_t>(joy_uart_rx_delay_frames);
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -1025,6 +1072,29 @@ int main(int argc, char* argv[]) {
                     "--esp-delayed-disassociate-frames M (%d <= %d leaves no outage).\n",
                     esp_associate_frame, esp_disassociate_frame);
             return 1;
+        }
+        // GH #251, and the ESP family's reasoning once more: a schedule or a
+        // socket number given for a cable that was never attached reads as "I
+        // have configured my serial source" when there is no source at all.
+        if ((joy_uart_rx_delay_frames_set || joy_uart_connector_set)
+            && joy_uart_rx_file.empty()) {
+            fprintf(stderr,
+                    "--joy-uart-rx-delay-frames / --joy-uart-connector require a serial "
+                    "source to configure: give --joy-uart-rx FILE too.\n");
+            return 1;
+        }
+        // Read the file HERE, not at Emulator::init(): an unreadable or empty
+        // source is a usage error the user must see before the machine boots,
+        // not a run that completes having transmitted nothing. The bytes are
+        // discarded — init() re-reads them, which is what makes a cold boot
+        // restart the stream — so this is purely the refusal.
+        if (!joy_uart_rx_file.empty()) {
+            std::vector<uint8_t> probe;
+            std::string          error;
+            if (!read_joy_uart_source_file(joy_uart_rx_file, probe, error)) {
+                fprintf(stderr, "--joy-uart-rx: %s\n", error.c_str());
+                return 1;
+            }
         }
         if (cfg.silent && !wav_record_file.empty()) {
             fprintf(stderr,

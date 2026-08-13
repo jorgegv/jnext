@@ -87,6 +87,16 @@ uint32_t UartChannel::byte_transfer_ticks() const {
 }
 
 bool UartChannel::deliver_tx_byte(uint8_t byte) {
+    // GH #251 — while the joystick-connector UART mux owns this channel, the
+    // module-facing TX pin is held idle: `uart0_tx_esp <= '1'` /
+    // `uart1_tx_pi <= '1'` (zxnext.vhd:3343-3344). The byte leaves through
+    // joystick pin 7 instead (zxnext.vhd:3526-3531), so it reaches neither the
+    // backend nor `on_tx_byte`, and — the part that matters — it must NOT fall
+    // through to the caller's loopback either: looping it into this channel's
+    // own RX FIFO would corrupt the very stream the cable is feeding in.
+    // Hence `true`: heard by the connector, not by anything here.
+    if (device_isolated()) return true;
+
     // An attached backend is the physical thing on the wire and wins over
     // `on_tx_byte`, which is an observer hook. Only one of them ever sees a
     // given byte; a test that wants to watch traffic to a device does it
@@ -795,6 +805,19 @@ void Uart::attach_device(int channel, UartDevice* device) {
         // uart_device.h. Captures `this`, so the attacher must detach before
         // this Uart dies (a hard reset reconstructs the whole Emulator).
         device->set_rx_sink([this, channel](uint8_t byte) {
+            // GH #251 — the RX half of the same mux `deliver_tx_byte` honours:
+            // with the joystick cable routed to this channel, `uart0_rx` /
+            // `uart1_rx` select `joy_uart_rx` and the module's own RX pin
+            // (`i_UART0_RX` / `pi_uart_rx`) is NOT selected (zxnext.vhd:3340-3341),
+            // so the backend cannot be heard. Dropped rather than queued: the
+            // module is transmitting into a pin nothing is reading, and the
+            // bytes are gone by the time the mux comes back.
+            if (channels_[channel].device_isolated()) {
+                uart_log()->debug(
+                    "ch{} device RX {:#04x} dropped — joystick-UART mux owns the channel",
+                    channel, byte);
+                return;
+            }
             inject_rx(channel, byte);
         });
     }

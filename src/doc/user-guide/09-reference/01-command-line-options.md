@@ -114,6 +114,49 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     one connector may use `keys`. Interactive (SDL/Qt) frontends only;
     inert under **--headless**.
 
+**--joy-uart-rx** *FILE*
+
+:   Attach *FILE* as a serial byte source on the joystick-port UART RX
+    pin — the “PC” end of a joy-port serial cable, as used by a dezogif
+    / DeZog serial rig.
+
+    The bytes do not reach the guest through either UART header. They
+    arrive through the NR 0x0B I/O-mode multiplexer, which the guest
+    controls, so the guest hears them ONLY while all three of these
+    hold:
+
+    - bits 7 and 5 of NR 0x0B are both set (`joy_iomode_uart_en`),
+      i.e. pin 7 is in one of the two UART modes. Modes `00` (static)
+      and `01` (CTC-toggled) carry no UART and receive nothing;
+    - bit 4 selects the connector this cable is plugged into — see
+      **--joy-uart-connector**;
+    - bit 0 picks the channel that receives it: 0 = UART 0, 1 = UART 1.
+      While the cable owns a channel, the module on that channel’s
+      header (the ESP-01 on UART 0, the Pi header on UART 1) can neither
+      be heard nor be spoken to, which is what the hardware does.
+
+    Delivery is paced at the receiving channel’s current baud rate, so a
+    stream longer than the 512-byte RX FIFO does not overrun a guest
+    that is draining it. Bytes sent while the guest is not listening are
+    LOST rather than queued, exactly as on the wire — use
+    **--joy-uart-rx-delay-frames** to schedule them. If the whole stream
+    is lost, jnext says so with a warning rather than finishing quietly.
+
+    An unreadable or empty *FILE* is refused at startup.
+
+**--joy-uart-rx-delay-frames** *N*
+:   Hold the **--joy-uart-rx** stream for *N* complete frames before its
+    first byte arrives (default 0, i.e. from the first instruction).
+    This is how a byte is made to land while the program is already
+    running — the asynchronous-break case — rather than being spent
+    before the program has set NR 0x0B up.
+
+**--joy-uart-connector** *N*
+:   Which joystick socket the **--joy-uart-rx** cable is in: `1` or `2`
+    (default `2`, the connector a real rig uses). NR 0x0B bit 4 selects
+    the connector the machine reads, so a guest that selects the other
+    one hears nothing at all.
+
 **--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of
     fast load.
