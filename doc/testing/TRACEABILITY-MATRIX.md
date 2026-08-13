@@ -34,7 +34,7 @@ mentions them, so a test can no longer be absent from this document.
 | DivMMC+SPI                                 |   176 |  148 |    0 |    0 |      28 |          0 |
 | Multiface                                  |    55 |   55 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   185 |  170 |    0 |    0 |      15 |          0 |
-| UART+I2C/RTC                               |   120 |  117 |    0 |    0 |       3 |          0 |
+| UART+I2C/RTC                               |   121 |  118 |    0 |    0 |       3 |          0 |
 | NextREG                                    |   119 |   71 |    0 |    0 |      48 |          0 |
 | IO Port Dispatch                           |   130 |  119 |    0 |    0 |      11 |          0 |
 | Input                                      |   354 |  342 |    0 |    0 |      12 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4395 | 4139 |    0 |    5 |     251 |          0 |
+| **Total**                                  |  4396 | 4140 |    0 |    5 |     251 |          0 |
 
-Rows the sections above carry: **4395**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4206**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7191**.
+Rows the sections above carry: **4396**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4207**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7192**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -2287,109 +2287,110 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| UART-SEL-01 | uart.vhd:273-278,355 - hard reset select read = 0x00 | uart.vhd:273-278,355 | pass | test/uart/uart_test.cpp:224 |
-| UART-SEL-02 | uart.vhd:371 - write 0x40, UART 1 select read = 0x08 | uart.vhd:371 | pass | test/uart/uart_test.cpp:237 |
-| UART-SEL-03 | uart.vhd:280,355 - write 0x00, re-select UART 0 read = 0x00 | uart.vhd:280,355 | pass | test/uart/uart_test.cpp:250 |
-| UART-SEL-04 | uart.vhd:281-283,355 - UART 0 msb=5 select read = 0x05 | uart.vhd:281-283,355 | pass | test/uart/uart_test.cpp:262 |
-| SEL-05 | uart.vhd:284-286,371 - UART 1 msb=5 select read = 0x0D | uart.vhd:284-286,371 | pass | test/uart/uart_test.cpp:275 |
-| SEL-06 | uart.vhd:273-278 - hard reset clears both UART prescaler MSBs | uart.vhd:273-278 | pass | test/uart/uart_test.cpp:292 |
-| SEL-07 | uart.vhd:273-278 - soft reset preserves prescaler MSB | uart.vhd:273-278 | pass | test/uart/uart_test.cpp:307 |
-| FRM-01 | uart.vhd:297-299 - hard reset frame = 0x18 (8N1) | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:327 |
-| FRM-02 | uart.vhd:302 - write 0x1B stored verbatim in uart0_framing_r | uart.vhd:302 | pass | test/uart/uart_test.cpp:338 |
-| FRM-03 | uart.vhd:301-305 - frame write targets selected UART only | uart.vhd:301-305 | pass | test/uart/uart_test.cpp:352 |
-| FRM-04 | uart.vhd:360 - frame bit 7 clears rx_avail status | uart.vhd:360 | pass | test/uart/uart_test.cpp:367 |
-| FRM-05 | uart_tx.vhd:234 - o_busy raised by frame(7) reset OR frame(6) break | uart_tx.vhd:234 | pass | test/uart/uart_test.cpp:391 |
-| FRM-06 | uart_tx.vhd:107-114 - frame snapshot at S_IDLE honoured across mid-byte write | uart_tx.vhd:107-114 | pass | test/uart/uart_test.cpp:421 |
-| BAUD-01 | uart.vhd:276-277 - hard reset prescaler MSB = 0 (full = 0x000F3) | uart.vhd:276-277 | pass | test/uart/uart_test.cpp:444 |
+| UART-SEL-01 | uart.vhd:273-278,355 - hard reset select read = 0x00 | uart.vhd:273-278,355 | pass | test/uart/uart_test.cpp:233 |
+| UART-SEL-02 | uart.vhd:371 - write 0x40, UART 1 select read = 0x40 | uart.vhd:371 | pass | test/uart/uart_test.cpp:249 |
+| UART-SEL-03 | uart.vhd:280,355 - write 0x00, re-select UART 0 read = 0x00 | uart.vhd:280,355 | pass | test/uart/uart_test.cpp:262 |
+| UART-SEL-04 | uart.vhd:281-283,355 - UART 0 msb=5 select read = 0x05 | uart.vhd:281-283,355 | pass | test/uart/uart_test.cpp:274 |
+| SEL-05 | uart.vhd:284-286,371 - UART 1 msb=5 select read = 0x45 | uart.vhd:284-286,371 | pass | test/uart/uart_test.cpp:287 |
+| SEL-06 | uart.vhd:273-278 - hard reset clears both UART prescaler MSBs | uart.vhd:273-278 | pass | test/uart/uart_test.cpp:304 |
+| SEL-07 | uart.vhd:273-278 - soft reset preserves prescaler MSB | uart.vhd:273-278 | pass | test/uart/uart_test.cpp:319 |
+| SEL-08 | uart.vhd:280,355,371 - the select read-back is the bit the write path consumes, so read-then-write-back does not change channel | uart.vhd:280,355,371 | pass | test/uart/uart_test.cpp:356 |
+| FRM-01 | uart.vhd:297-299 - hard reset frame = 0x18 (8N1) | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:379 |
+| FRM-02 | uart.vhd:302 - write 0x1B stored verbatim in uart0_framing_r | uart.vhd:302 | pass | test/uart/uart_test.cpp:390 |
+| FRM-03 | uart.vhd:301-305 - frame write targets selected UART only | uart.vhd:301-305 | pass | test/uart/uart_test.cpp:404 |
+| FRM-04 | uart.vhd:360 - frame bit 7 clears rx_avail status | uart.vhd:360 | pass | test/uart/uart_test.cpp:419 |
+| FRM-05 | uart_tx.vhd:234 - o_busy raised by frame(7) reset OR frame(6) break | uart_tx.vhd:234 | pass | test/uart/uart_test.cpp:443 |
+| FRM-06 | uart_tx.vhd:107-114 - frame snapshot at S_IDLE honoured across mid-byte write | uart_tx.vhd:107-114 | pass | test/uart/uart_test.cpp:473 |
+| BAUD-01 | uart.vhd:276-277 - hard reset prescaler MSB = 0 (full = 0x000F3) | uart.vhd:276-277 | pass | test/uart/uart_test.cpp:496 |
 | BAUD-02 | Write 0x33 to port 0x143B (bit7=0): sets LSB bits 6:0 = 0x33 | — | missing | — |
 | BAUD-03 | Write 0x85 to port 0x143B (bit7=1): sets LSB bits 13:7 = 0x05 | — | missing | — |
-| BAUD-04 | uart.vhd:281-286,355 - prescaler MSB write stored and read | uart.vhd:281-286,355 | pass | test/uart/uart_test.cpp:468 |
-| BAUD-05 | uart.vhd:282-286 - UART 0 and UART 1 prescaler MSBs independent | uart.vhd:282-286 | pass | test/uart/uart_test.cpp:486 |
-| BAUD-06 | uart.vhd:276-277 - hard reset clears both prescaler MSBs | uart.vhd:276-277 | pass | test/uart/uart_test.cpp:504 |
-| BAUD-07 | uart_tx.vhd:86,111 - prescaler snapshot at S_IDLE honoured across mid-byte write | uart_tx.vhd:86,111 | pass | test/uart/uart_test.cpp:535 |
-| TX-01 | uart.vhd:360 - write to TX port clears tx_empty | uart.vhd:360 | pass | test/uart/uart_test.cpp:559 |
-| TX-02 | uart.vhd:360,fifop.vhd - 64 TX writes set tx_full | uart.vhd:360, fifop.vhd | pass | test/uart/uart_test.cpp:572 |
-| TX-03 | uart.vhd - write gated by not tx_fifo_full, 65th byte dropped | uart.vhd | pass | test/uart/uart_test.cpp:586 |
-| TX-04 | uart.vhd:360 - tx_empty requires tx_fifo_empty AND not tx_busy | uart.vhd:360 | pass | test/uart/uart_test.cpp:599 |
-| TX-05 | uart.vhd:529 - 4 CPU writes enqueue exactly 4 FIFO entries (edge-triggered) | uart.vhd:529-4 | pass | test/uart/uart_test.cpp:630 |
-| TX-06 | uart.vhd:302,536 - framing bit 7 resets TX FIFO | uart.vhd:302,536 | pass | test/uart/uart_test.cpp:644 |
-| TX-07 | uart_tx.vhd:239 - S_IDLE with frame(6)=1 holds o_Tx low | uart_tx.vhd:239 | pass | test/uart/uart_test.cpp:661 |
-| TX-08 | uart_tx.vhd:236-245 - 8N1 bit pattern for 0x55 LSB-first | uart_tx.vhd:236-245 | pass | test/uart/uart_test.cpp:695 |
-| TX-09 | uart_tx.vhd:152,216-225 - 7E2: 0x7F yields even-parity=1, 2 stop bits high | uart_tx.vhd:152,216-225 | pass | test/uart/uart_test.cpp:724 |
-| TX-10 | uart_tx.vhd - 5O1: 0x0F lower-5 yields odd-parity=1, 1 stop bit | uart_tx.vhd | pass | test/uart/uart_test.cpp:751 |
-| TX-11 | uart_tx.vhd:180-192 - flow_en + CTS#=1 parks engine in S_RTR, line idle | uart_tx.vhd:180-192 | pass | test/uart/uart_test.cpp:772 |
-| TX-12 | uart_tx.vhd:187-192 - CTS# release (0) advances S_RTR -> S_START | uart_tx.vhd:187-192 | pass | test/uart/uart_test.cpp:794 |
-| TX-13 | uart_tx.vhd:153,156 - even parity: 0x0F→0, 0x1F→1 (pre-shift LSB XOR) | uart_tx.vhd:153,156 | pass | test/uart/uart_test.cpp:816 |
-| TX-14 | uart_tx.vhd:153,156 - odd parity: 0x0F→1, 0x1F→0 (pre-shift LSB XOR, init=1) | uart_tx.vhd:153,156 | pass | test/uart/uart_test.cpp:837 |
-| RX-01 | uart.vhd:347-353 - RX port returns head of RX FIFO | uart.vhd:347-353 | pass | test/uart/uart_test.cpp:860 |
-| RX-02 | uart.vhd:351-352 - read of empty RX FIFO returns 0x00 | uart.vhd:351-352 | pass | test/uart/uart_test.cpp:870 |
-| RX-03 | uart.vhd:360,fifop.vhd - 512 RX entries, rx_avail=1 | uart.vhd:360, fifop.vhd | pass | test/uart/uart_test.cpp:882 |
-| RX-04 | uart.vhd:540 - 513th RX byte sets sticky rx_err_overflow | uart.vhd:540-513 | pass | test/uart/uart_test.cpp:896 |
-| RX-05 | fifop.vhd - sequential RX reads return FIFO in insertion order | fifop.vhd | pass | test/uart/uart_test.cpp:912 |
-| RX-06 | fifop.vhd - rx_near_full asserts at stored >= 384 | fifop.vhd | pass | test/uart/uart_test.cpp:925 |
-| RX-07 | uart.vhd:302,536 - framing bit 7 resets RX FIFO (rx_avail=0) | uart.vhd:302,536 | pass | test/uart/uart_test.cpp:940 |
-| RX-08 | uart.vhd:541 - framing error sets sticky status bit 6 (err_framing) | uart.vhd:541 | pass | test/uart/uart_test.cpp:1016 |
-| RX-09 | uart.vhd:541 - parity error sets sticky status bit 6 (err_framing shared) | uart.vhd:541 | pass | test/uart/uart_test.cpp:1036 |
-| RX-10 | uart_rx.vhd:314 - all-zero frame + stop-low → S_ERROR with rx_shift=0x00 → rx_break() | uart_rx.vhd:314 | pass | test/uart/uart_test.cpp:1056 |
-| RX-11 | uart.vhd:359 - status bit 5 follows FIFO head 9th bit (per-byte) not sticky err_framing_ | uart.vhd:359 | pass | test/uart/uart_test.cpp:1080 |
-| RX-12 | uart_rx.vhd:119-131 - short <4-tick Rx pulse filtered by noise rejection; S_IDLE preserved | uart_rx.vhd:119-131 | pass | test/uart/uart_test.cpp:1100 |
-| RX-13 | uart_rx.vhd:231-232 - frame(6)=1 keeps engine in S_PAUSE; no RX byte received | uart_rx.vhd:231-232 | pass | test/uart/uart_test.cpp:1118 |
-| RX-14 | uart_rx.vhd:144-154 - frame-snapshot at S_IDLE insulates in-flight byte from mid-byte framing change | uart_rx.vhd:144-154 | pass | test/uart/uart_test.cpp:1153 |
-| RX-15 | uart.vhd:442-446 - rx_rtr_n = framing(5) AND rx_fifo_almost_full; toggles across drain | uart.vhd:442-446 | pass | test/uart/uart_test.cpp:1175 |
-| STAT-01 | uart.vhd:536-540 - RX-port read leaves sticky overflow asserted | uart.vhd:536-540 | pass | test/uart/uart_test.cpp:1199 |
-| STAT-02 | uart.vhd:265,536 - status-port read falling edge clears sticky errors | uart.vhd:265,536 | pass | test/uart/uart_test.cpp:1213 |
-| STAT-03 | uart.vhd:536 - uartN_fifo_reset clears sticky errors | uart.vhd:536 | pass | test/uart/uart_test.cpp:1226 |
-| STAT-04 | uart.vhd:346-378 - UART 1 status independent of UART 0 RX FIFO | uart.vhd:346-378 | pass | test/uart/uart_test.cpp:1240 |
-| STAT-05 | uart.vhd:360 - idle UART reports tx_empty=1 | uart.vhd:360 | pass | test/uart/uart_test.cpp:1252 |
-| STAT-06 | uart.vhd:360 - rx_avail reflects FIFO occupancy | uart.vhd:360 | pass | test/uart/uart_test.cpp:1265 |
-| DUAL-01 | uart.vhd:387-388,572-573 - UART 0 and UART 1 have independent RX FIFOs | uart.vhd:387-388,572-573 | pass | test/uart/uart_test.cpp:1291 |
-| DUAL-02 | uart.vhd:282-286,355,371 - UART 0 reads 0x03, UART 1 reads 0x0D | uart.vhd:282-286,355,371 | pass | test/uart/uart_test.cpp:1309 |
-| DUAL-03 | uart.vhd:300-305 - per-channel framing: UART 0=0x1B, UART 1=0x18 | uart.vhd:300-305 | pass | test/uart/uart_test.cpp:1324 |
-| DUAL-04 | uart.vhd:346-378 - UART 1 status unaffected by UART 0 RX byte | uart.vhd:346-378 | pass | test/uart/uart_test.cpp:1337 |
+| BAUD-04 | uart.vhd:281-286,355 - prescaler MSB write stored and read | uart.vhd:281-286,355 | pass | test/uart/uart_test.cpp:520 |
+| BAUD-05 | uart.vhd:282-286 - UART 0 and UART 1 prescaler MSBs independent | uart.vhd:282-286 | pass | test/uart/uart_test.cpp:538 |
+| BAUD-06 | uart.vhd:276-277 - hard reset clears both prescaler MSBs | uart.vhd:276-277 | pass | test/uart/uart_test.cpp:556 |
+| BAUD-07 | uart_tx.vhd:86,111 - prescaler snapshot at S_IDLE honoured across mid-byte write | uart_tx.vhd:86,111 | pass | test/uart/uart_test.cpp:587 |
+| TX-01 | uart.vhd:360 - write to TX port clears tx_empty | uart.vhd:360 | pass | test/uart/uart_test.cpp:611 |
+| TX-02 | uart.vhd:360,fifop.vhd - 64 TX writes set tx_full | uart.vhd:360, fifop.vhd | pass | test/uart/uart_test.cpp:624 |
+| TX-03 | uart.vhd - write gated by not tx_fifo_full, 65th byte dropped | uart.vhd | pass | test/uart/uart_test.cpp:638 |
+| TX-04 | uart.vhd:360 - tx_empty requires tx_fifo_empty AND not tx_busy | uart.vhd:360 | pass | test/uart/uart_test.cpp:651 |
+| TX-05 | uart.vhd:529 - 4 CPU writes enqueue exactly 4 FIFO entries (edge-triggered) | uart.vhd:529-4 | pass | test/uart/uart_test.cpp:682 |
+| TX-06 | uart.vhd:302,536 - framing bit 7 resets TX FIFO | uart.vhd:302,536 | pass | test/uart/uart_test.cpp:696 |
+| TX-07 | uart_tx.vhd:239 - S_IDLE with frame(6)=1 holds o_Tx low | uart_tx.vhd:239 | pass | test/uart/uart_test.cpp:713 |
+| TX-08 | uart_tx.vhd:236-245 - 8N1 bit pattern for 0x55 LSB-first | uart_tx.vhd:236-245 | pass | test/uart/uart_test.cpp:747 |
+| TX-09 | uart_tx.vhd:152,216-225 - 7E2: 0x7F yields even-parity=1, 2 stop bits high | uart_tx.vhd:152,216-225 | pass | test/uart/uart_test.cpp:776 |
+| TX-10 | uart_tx.vhd - 5O1: 0x0F lower-5 yields odd-parity=1, 1 stop bit | uart_tx.vhd | pass | test/uart/uart_test.cpp:803 |
+| TX-11 | uart_tx.vhd:180-192 - flow_en + CTS#=1 parks engine in S_RTR, line idle | uart_tx.vhd:180-192 | pass | test/uart/uart_test.cpp:824 |
+| TX-12 | uart_tx.vhd:187-192 - CTS# release (0) advances S_RTR -> S_START | uart_tx.vhd:187-192 | pass | test/uart/uart_test.cpp:846 |
+| TX-13 | uart_tx.vhd:153,156 - even parity: 0x0F→0, 0x1F→1 (pre-shift LSB XOR) | uart_tx.vhd:153,156 | pass | test/uart/uart_test.cpp:868 |
+| TX-14 | uart_tx.vhd:153,156 - odd parity: 0x0F→1, 0x1F→0 (pre-shift LSB XOR, init=1) | uart_tx.vhd:153,156 | pass | test/uart/uart_test.cpp:889 |
+| RX-01 | uart.vhd:347-353 - RX port returns head of RX FIFO | uart.vhd:347-353 | pass | test/uart/uart_test.cpp:912 |
+| RX-02 | uart.vhd:351-352 - read of empty RX FIFO returns 0x00 | uart.vhd:351-352 | pass | test/uart/uart_test.cpp:922 |
+| RX-03 | uart.vhd:360,fifop.vhd - 512 RX entries, rx_avail=1 | uart.vhd:360, fifop.vhd | pass | test/uart/uart_test.cpp:934 |
+| RX-04 | uart.vhd:540 - 513th RX byte sets sticky rx_err_overflow | uart.vhd:540-513 | pass | test/uart/uart_test.cpp:948 |
+| RX-05 | fifop.vhd - sequential RX reads return FIFO in insertion order | fifop.vhd | pass | test/uart/uart_test.cpp:964 |
+| RX-06 | fifop.vhd - rx_near_full asserts at stored >= 384 | fifop.vhd | pass | test/uart/uart_test.cpp:977 |
+| RX-07 | uart.vhd:302,536 - framing bit 7 resets RX FIFO (rx_avail=0) | uart.vhd:302,536 | pass | test/uart/uart_test.cpp:992 |
+| RX-08 | uart.vhd:541 - framing error sets sticky status bit 6 (err_framing) | uart.vhd:541 | pass | test/uart/uart_test.cpp:1068 |
+| RX-09 | uart.vhd:541 - parity error sets sticky status bit 6 (err_framing shared) | uart.vhd:541 | pass | test/uart/uart_test.cpp:1088 |
+| RX-10 | uart_rx.vhd:314 - all-zero frame + stop-low → S_ERROR with rx_shift=0x00 → rx_break() | uart_rx.vhd:314 | pass | test/uart/uart_test.cpp:1108 |
+| RX-11 | uart.vhd:359 - status bit 5 follows FIFO head 9th bit (per-byte) not sticky err_framing_ | uart.vhd:359 | pass | test/uart/uart_test.cpp:1132 |
+| RX-12 | uart_rx.vhd:119-131 - short <4-tick Rx pulse filtered by noise rejection; S_IDLE preserved | uart_rx.vhd:119-131 | pass | test/uart/uart_test.cpp:1152 |
+| RX-13 | uart_rx.vhd:231-232 - frame(6)=1 keeps engine in S_PAUSE; no RX byte received | uart_rx.vhd:231-232 | pass | test/uart/uart_test.cpp:1170 |
+| RX-14 | uart_rx.vhd:144-154 - frame-snapshot at S_IDLE insulates in-flight byte from mid-byte framing change | uart_rx.vhd:144-154 | pass | test/uart/uart_test.cpp:1205 |
+| RX-15 | uart.vhd:442-446 - rx_rtr_n = framing(5) AND rx_fifo_almost_full; toggles across drain | uart.vhd:442-446 | pass | test/uart/uart_test.cpp:1227 |
+| STAT-01 | uart.vhd:536-540 - RX-port read leaves sticky overflow asserted | uart.vhd:536-540 | pass | test/uart/uart_test.cpp:1251 |
+| STAT-02 | uart.vhd:265,536 - status-port read falling edge clears sticky errors | uart.vhd:265,536 | pass | test/uart/uart_test.cpp:1265 |
+| STAT-03 | uart.vhd:536 - uartN_fifo_reset clears sticky errors | uart.vhd:536 | pass | test/uart/uart_test.cpp:1278 |
+| STAT-04 | uart.vhd:346-378 - UART 1 status independent of UART 0 RX FIFO | uart.vhd:346-378 | pass | test/uart/uart_test.cpp:1292 |
+| STAT-05 | uart.vhd:360 - idle UART reports tx_empty=1 | uart.vhd:360 | pass | test/uart/uart_test.cpp:1304 |
+| STAT-06 | uart.vhd:360 - rx_avail reflects FIFO occupancy | uart.vhd:360 | pass | test/uart/uart_test.cpp:1317 |
+| DUAL-01 | uart.vhd:387-388,572-573 - UART 0 and UART 1 have independent RX FIFOs | uart.vhd:387-388,572-573 | pass | test/uart/uart_test.cpp:1343 |
+| DUAL-02 | uart.vhd:282-286,355,371 - UART 0 reads 0x03, UART 1 reads 0x45 | uart.vhd:282-286,355,371 | pass | test/uart/uart_test.cpp:1361 |
+| DUAL-03 | uart.vhd:300-305 - per-channel framing: UART 0=0x1B, UART 1=0x18 | uart.vhd:300-305 | pass | test/uart/uart_test.cpp:1376 |
+| DUAL-04 | uart.vhd:346-378 - UART 1 status unaffected by UART 0 RX byte | uart.vhd:346-378 | pass | test/uart/uart_test.cpp:1389 |
 | DUAL-05 | uart.vhd gates tx_wr on uart_select_r bit 6; zxnext.vhd:3343-3344 routes UART 0 TX → ESP pin, UART 1 TX → Pi pin. Selecting a channel via port 0x153B directs port 0x133B TX writes to that channel ONLY — cross-talk between channels is impossible | zxnext.vhd | pass | test/uart/uart_integration_test.cpp:646 |
 | DUAL-06 | zxnext.vhd:3340-3341 — joystick-UART RX routes to UART 0 when NR 0x0B joy_iomode_uart_en=1 & bit0=0, to UART 1 when it is 1 & bit0=1, and is dropped when the enable is clear | zxnext.vhd:3340-3341 | pass | test/uart/uart_integration_test.cpp:703 |
-| I2C-01 | zxnext.vhd:3235-3247 - reset releases SCL and SDA high | zxnext.vhd:3235-3247 | pass | test/uart/uart_test.cpp:1372 |
-| I2C-02 | zxnext.vhd:3237-3238 - write 0 sets SCL output low | zxnext.vhd:3237-3238 | pass | test/uart/uart_test.cpp:1384 |
-| I2C-03 | zxnext.vhd:3237-3238 - write 1 releases SCL output high | zxnext.vhd:3237-3238 | pass | test/uart/uart_test.cpp:1396 |
-| I2C-04 | zxnext.vhd:3248-3249 - write 0 sets SDA output low | zxnext.vhd:3248-3249 | pass | test/uart/uart_test.cpp:1407 |
-| I2C-05 | zxnext.vhd:3248-3249 - write 1 releases SDA output high | zxnext.vhd:3248-3249 | pass | test/uart/uart_test.cpp:1419 |
-| I2C-06 | zxnext.vhd:3259 - SCL read upper bits = 0xFE | zxnext.vhd:3259 | pass | test/uart/uart_test.cpp:1431 |
-| I2C-07 | zxnext.vhd:3266 - SDA read upper bits = 0xFE | zxnext.vhd:3266 | pass | test/uart/uart_test.cpp:1441 |
-| I2C-08 | zxnext.vhd:3238 - SCL write takes cpu_do(0) only; 0xFE -> 0 | zxnext.vhd:3238 | pass | test/uart/uart_test.cpp:1453 |
-| I2C-09 | zxnext.vhd:3259,3266 - read upper 7 bits stay 1 while lines low | zxnext.vhd:3259,3266 | pass | test/uart/uart_test.cpp:1467 |
+| I2C-01 | zxnext.vhd:3235-3247 - reset releases SCL and SDA high | zxnext.vhd:3235-3247 | pass | test/uart/uart_test.cpp:1424 |
+| I2C-02 | zxnext.vhd:3237-3238 - write 0 sets SCL output low | zxnext.vhd:3237-3238 | pass | test/uart/uart_test.cpp:1436 |
+| I2C-03 | zxnext.vhd:3237-3238 - write 1 releases SCL output high | zxnext.vhd:3237-3238 | pass | test/uart/uart_test.cpp:1448 |
+| I2C-04 | zxnext.vhd:3248-3249 - write 0 sets SDA output low | zxnext.vhd:3248-3249 | pass | test/uart/uart_test.cpp:1459 |
+| I2C-05 | zxnext.vhd:3248-3249 - write 1 releases SDA output high | zxnext.vhd:3248-3249 | pass | test/uart/uart_test.cpp:1471 |
+| I2C-06 | zxnext.vhd:3259 - SCL read upper bits = 0xFE | zxnext.vhd:3259 | pass | test/uart/uart_test.cpp:1483 |
+| I2C-07 | zxnext.vhd:3266 - SDA read upper bits = 0xFE | zxnext.vhd:3266 | pass | test/uart/uart_test.cpp:1493 |
+| I2C-08 | zxnext.vhd:3238 - SCL write takes cpu_do(0) only; 0xFE -> 0 | zxnext.vhd:3238 | pass | test/uart/uart_test.cpp:1505 |
+| I2C-09 | zxnext.vhd:3259,3266 - read upper 7 bits stay 1 while lines low | zxnext.vhd:3259,3266 | pass | test/uart/uart_test.cpp:1519 |
 | I2C-10 | internal_port_enable(10) gates 0x103B/0x113B (same mechanism as GATE-02) [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:587 |
-| I2C-11 | zxnext.vhd:3259 - pi_i2c1_scl AND-gates the SCL read path (with NR 0xA0 bit 3 enabling the Pi bridge per G138) | zxnext.vhd:3259 | pass | test/uart/uart_test.cpp:1496 |
-| I2C-12 | zxnext.vhd:3235-3247 - reset releases both lines high | zxnext.vhd:3235-3247 | pass | test/uart/uart_test.cpp:1511 |
-| I2C-13 | zxnext.vhd:2280, 2317-2318 - NR 0xA0 bit 3 gates pi_i2c1_scl/sda; when off the Pi-low is masked to 1 at the wired-AND boundary | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_test.cpp:1542 |
+| I2C-11 | zxnext.vhd:3259 - pi_i2c1_scl AND-gates the SCL read path (with NR 0xA0 bit 3 enabling the Pi bridge per G138) | zxnext.vhd:3259 | pass | test/uart/uart_test.cpp:1548 |
+| I2C-12 | zxnext.vhd:3235-3247 - reset releases both lines high | zxnext.vhd:3235-3247 | pass | test/uart/uart_test.cpp:1563 |
+| I2C-13 | zxnext.vhd:2280, 2317-2318 - NR 0xA0 bit 3 gates pi_i2c1_scl/sda; when off the Pi-low is masked to 1 at the wired-AND boundary | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_test.cpp:1594 |
 | I2C-14 | EEPROM at 0x50 (write addr 0xA0): device ACKs | — | missing | — |
-| I2C-P01 | zxnext.vhd:3237-3249 - START sequence accepted, SDA still driven low | zxnext.vhd:3237-3249 | pass | test/uart/uart_test.cpp:1586 |
-| I2C-P02 | zxnext.vhd:3237-3249 - STOP sequence accepted, SDA released high | zxnext.vhd:3237-3249 | pass | test/uart/uart_test.cpp:1599 |
-| I2C-P03 | DS1307 / zxnext.vhd - send 0xD0, slave drives ACK=0 | zxnext.vhd | pass | test/uart/uart_test.cpp:1614 |
-| I2C-P04 | I2C protocol - unmatched address leaves SDA high at ACK clock | — | pass | test/uart/uart_test.cpp:1628 |
-| I2C-P05 | Read byte (8 clocks): release SDA, read 8 bits | — | pass | test/uart/uart_test.cpp:1648 |
-| I2C-P06 | i2c.cpp:279 - master ACK auto-loads next reg, NACK terminates | — | pass | test/uart/uart_test.cpp:1678 |
-| RTC-01 | DS1307 datasheet - 7-bit address 0x68 ACK-s write frame 0xD0 | — | pass | test/uart/uart_test.cpp:1717 |
-| RTC-02 | DS1307 datasheet - 7-bit address 0x68 ACK-s read frame 0xD1 | — | pass | test/uart/uart_test.cpp:1729 |
-| RTC-03 | DS1307 datasheet - foreign address 0xA0 NACK-ed | — | pass | test/uart/uart_test.cpp:1741 |
-| RTC-04 | DS1307 - register 0x00 reads BCD seconds | — | pass | test/uart/uart_test.cpp:1752 |
-| RTC-05 | DS1307 - register 0x01 reads BCD minutes | — | pass | test/uart/uart_test.cpp:1762 |
-| RTC-06 | DS1307 - register 0x02 reads 24h-mode BCD hours | — | pass | test/uart/uart_test.cpp:1781 |
-| RTC-07 | DS1307 - register 0x03 reads day-of-week in [1..7] | — | pass | test/uart/uart_test.cpp:1790 |
-| RTC-08 | DS1307 - register 0x04 reads BCD date 01..31 | — | pass | test/uart/uart_test.cpp:1805 |
-| RTC-09 | DS1307 - register 0x05 reads BCD month 01..12 | — | pass | test/uart/uart_test.cpp:1814 |
-| RTC-10 | DS1307 - register 0x06 reads BCD year 00..99 | — | pass | test/uart/uart_test.cpp:1823 |
-| RTC-11 | DS1307 control register (0x07) round-trips written value | — | pass | test/uart/uart_test.cpp:1875 |
-| RTC-12 | DS1307 - write/read single register round-trip | — | pass | test/uart/uart_test.cpp:1891 |
-| RTC-13 | DS1307 12h mode - bit 6 (12h) + bit 5 (PM) + BCD hours round-trip | — | pass | test/uart/uart_test.cpp:1908 |
-| RTC-14 | DS1307 - auto-increment wraps 0x3F → 0x00 | — | pass | test/uart/uart_test.cpp:1930 |
-| RTC-15 | DS1307 - sequential write with pointer auto-increment | — | pass | test/uart/uart_test.cpp:1948 |
-| RTC-16 | DS1307 CH bit halts oscillator; clearing it resumes host-time snapshot | — | pass | test/uart/uart_test.cpp:1976 |
-| RTC-17 | DS1307 NVRAM 0x08-0x3F byte-accurate round-trip | — | pass | test/uart/uart_test.cpp:2008 |
-| RTC-18 | DS1307 12h-mode hours snapshot preserves bit 6 + encodes BCD 1..12 with AM/PM bit (G161 — i2c.cpp::snapshot_time branch on mode_12h_) | — | pass | test/uart/uart_test.cpp:2059 |
-| RTC-19 | Task 28 fixed-time mode — snapshot encodes the pinned datetime as BCD, not the host clock (i2c.cpp::snapshot_time fixed_tm_ branch) | — | pass | test/uart/uart_test.cpp:2088 |
-| RTC-20 | Task 28 fixed-time survives reset() — battery-backed DS1307; NextZXOS mid-boot soft reset must not fall back to host clock | — | pass | test/uart/uart_test.cpp:2118 |
-| RTC-21 | Task 28 fixed-time + 12h mode — pinned 15:00 encodes as 3 PM (0x63: mode bit 6 + PM bit 5 + BCD 03) | — | pass | test/uart/uart_test.cpp:2147 |
-| RTC-22 | Task 28 parse_rtc_datetime — space/'T' forms equivalent; TZ/DST-independent (DST-gap datetime accepted); leap years handled; garbage / trailing chars / out-of-range / invalid dates rejected | — | pass | test/uart/uart_test.cpp:2184 |
+| I2C-P01 | zxnext.vhd:3237-3249 - START sequence accepted, SDA still driven low | zxnext.vhd:3237-3249 | pass | test/uart/uart_test.cpp:1638 |
+| I2C-P02 | zxnext.vhd:3237-3249 - STOP sequence accepted, SDA released high | zxnext.vhd:3237-3249 | pass | test/uart/uart_test.cpp:1651 |
+| I2C-P03 | DS1307 / zxnext.vhd - send 0xD0, slave drives ACK=0 | zxnext.vhd | pass | test/uart/uart_test.cpp:1666 |
+| I2C-P04 | I2C protocol - unmatched address leaves SDA high at ACK clock | — | pass | test/uart/uart_test.cpp:1680 |
+| I2C-P05 | Read byte (8 clocks): release SDA, read 8 bits | — | pass | test/uart/uart_test.cpp:1700 |
+| I2C-P06 | i2c.cpp:279 - master ACK auto-loads next reg, NACK terminates | — | pass | test/uart/uart_test.cpp:1730 |
+| RTC-01 | DS1307 datasheet - 7-bit address 0x68 ACK-s write frame 0xD0 | — | pass | test/uart/uart_test.cpp:1769 |
+| RTC-02 | DS1307 datasheet - 7-bit address 0x68 ACK-s read frame 0xD1 | — | pass | test/uart/uart_test.cpp:1781 |
+| RTC-03 | DS1307 datasheet - foreign address 0xA0 NACK-ed | — | pass | test/uart/uart_test.cpp:1793 |
+| RTC-04 | DS1307 - register 0x00 reads BCD seconds | — | pass | test/uart/uart_test.cpp:1804 |
+| RTC-05 | DS1307 - register 0x01 reads BCD minutes | — | pass | test/uart/uart_test.cpp:1814 |
+| RTC-06 | DS1307 - register 0x02 reads 24h-mode BCD hours | — | pass | test/uart/uart_test.cpp:1833 |
+| RTC-07 | DS1307 - register 0x03 reads day-of-week in [1..7] | — | pass | test/uart/uart_test.cpp:1842 |
+| RTC-08 | DS1307 - register 0x04 reads BCD date 01..31 | — | pass | test/uart/uart_test.cpp:1857 |
+| RTC-09 | DS1307 - register 0x05 reads BCD month 01..12 | — | pass | test/uart/uart_test.cpp:1866 |
+| RTC-10 | DS1307 - register 0x06 reads BCD year 00..99 | — | pass | test/uart/uart_test.cpp:1875 |
+| RTC-11 | DS1307 control register (0x07) round-trips written value | — | pass | test/uart/uart_test.cpp:1927 |
+| RTC-12 | DS1307 - write/read single register round-trip | — | pass | test/uart/uart_test.cpp:1943 |
+| RTC-13 | DS1307 12h mode - bit 6 (12h) + bit 5 (PM) + BCD hours round-trip | — | pass | test/uart/uart_test.cpp:1960 |
+| RTC-14 | DS1307 - auto-increment wraps 0x3F → 0x00 | — | pass | test/uart/uart_test.cpp:1982 |
+| RTC-15 | DS1307 - sequential write with pointer auto-increment | — | pass | test/uart/uart_test.cpp:2000 |
+| RTC-16 | DS1307 CH bit halts oscillator; clearing it resumes host-time snapshot | — | pass | test/uart/uart_test.cpp:2028 |
+| RTC-17 | DS1307 NVRAM 0x08-0x3F byte-accurate round-trip | — | pass | test/uart/uart_test.cpp:2060 |
+| RTC-18 | DS1307 12h-mode hours snapshot preserves bit 6 + encodes BCD 1..12 with AM/PM bit (G161 — i2c.cpp::snapshot_time branch on mode_12h_) | — | pass | test/uart/uart_test.cpp:2111 |
+| RTC-19 | Task 28 fixed-time mode — snapshot encodes the pinned datetime as BCD, not the host clock (i2c.cpp::snapshot_time fixed_tm_ branch) | — | pass | test/uart/uart_test.cpp:2140 |
+| RTC-20 | Task 28 fixed-time survives reset() — battery-backed DS1307; NextZXOS mid-boot soft reset must not fall back to host clock | — | pass | test/uart/uart_test.cpp:2170 |
+| RTC-21 | Task 28 fixed-time + 12h mode — pinned 15:00 encodes as 3 PM (0x63: mode bit 6 + PM bit 5 + BCD 03) | — | pass | test/uart/uart_test.cpp:2199 |
+| RTC-22 | Task 28 parse_rtc_datetime — space/'T' forms equivalent; TZ/DST-independent (DST-gap datetime accepted); leap years handled; garbage / trailing chars / out-of-range / invalid dates rejected | — | pass | test/uart/uart_test.cpp:2236 |
 | INT-01 | UART0 rx_avail fires UART0_RX (vector 1) with NR 0xC6 bit 0 set [zxnext.vhd:1941-1944, :1949-1950; im2.cpp:313-323] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:192 |
 | INT-02 | UART0 rx_near_full fires UART0_RX with NR 0xC6 bit 1 set only (near-full override) [zxnext.vhd:1943, :1950; plan-drift note] | zxnext.vhd:1941-1944, zxnext.vhd:1943,1950 | pass | test/uart/uart_integration_test.cpp:221 |
 | INT-03 | UART1 rx_avail fires UART1_RX (vector 2) with NR 0xC6 bit 4 set [zxnext.vhd:1941-1944, :1949-1950] | zxnext.vhd:1941-1944,1949-1950 | pass | test/uart/uart_integration_test.cpp:239 |
@@ -2403,10 +2404,10 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:1936 |
 | NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1965 |
 | NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1996 |
-| TX-C1-ACC-01 | single tick span across a byte boundary: bytes exactly prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,318-320]; boundaries exact to one cycle; tx_empty at end | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:2371 |
-| TX-C1-ACC-02 | one tick(4*2430) span drains 4 FIFO bytes back-to-back (starts at 0/T/2T/3T); last completion exactly at 4T [uart.vhd:297-299,318-320] | uart.vhd:297-299,318-320 | pass | test/uart/uart_test.cpp:2399 |
-| I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1648 |
-| I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1652 |
+| TX-C1-ACC-01 | single tick span across a byte boundary: bytes exactly prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,318-320]; boundaries exact to one cycle; tx_empty at end | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:2423 |
+| TX-C1-ACC-02 | one tick(4*2430) span drains 4 FIFO bytes back-to-back (starts at 0/T/2T/3T); last completion exactly at 4T [uart.vhd:297-299,318-320] | uart.vhd:297-299,318-320 | pass | test/uart/uart_test.cpp:2451 |
+| I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1700 |
+| I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1704 |
 
 ## NextREG — `test/nextreg/nextreg_test.cpp`
 

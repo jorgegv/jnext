@@ -755,10 +755,23 @@ uint8_t Uart::read(int port_reg) {
             return val;
         }
         case 1: {
-            // 0x153B Select port read — returns channel select + prescaler MSB
-            // VHDL uart.vhd:371: uart0 returns "00000" & msb,
-            // uart1 returns "01000" & msb → bit 3 (0x08), not bit 6.
-            uint8_t val = (select_ ? 0x08 : 0x00) | channels_[select_].read_prescaler_msb();
+            // 0x153B Select port read — returns channel select + prescaler MSB.
+            //
+            // uart.vhd:355  UART 0: o_cpu_d <= "00000" & uart0_prescalar_msb_r;
+            // uart.vhd:371  UART 1: o_cpu_d <= "01000" & uart1_prescalar_msb_r;
+            //
+            // `o_cpu_d` is 8 bits and `*_prescalar_msb_r` is 3, so the literal
+            // covers bits 7 DOWNTO 3 — its leading '0' is bit 7 and the set bit
+            // is bit 6, 0x40. It is NOT bit 3: nothing in either literal sets
+            // bit 3, and ports.txt:370 says the same thing in words ("bit 6 = 0
+            // to select the esp uart, 1 to select the pi uart"), which is also
+            // the bit the write path takes (`val & 0x40` below).
+            //
+            // Read the width before the bit number here. GH #253: 47ee7e2
+            // changed this line from 0x40 to 0x08 having read "01000" as bits
+            // 4..0, and wrote three test rows against the same misreading, so
+            // the suite then certified the defect for four months.
+            uint8_t val = (select_ ? 0x40 : 0x00) | channels_[select_].read_prescaler_msb();
             uart_log()->trace("ch{} select read {:#04x}", select_, val);
             return val;
         }

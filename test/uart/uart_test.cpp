@@ -20,8 +20,17 @@
 //     Unblocked I2C-P03, I2C-P05a/b, RTC-01/02/04/05, and on re-audit
 //     (2026-04-24) also RTC-06/07/08/09/10 and I2C-P06 which had been
 //     mistakenly attributed to a separate BCD / register-pointer fault.
-//   * uart.cpp:299 select-register read bit 6 vs bit 3 — FIXED in commit
-//     47ee7e2 (Task 2 item 22). Unblocked UART-SEL-02, SEL-05, DUAL-02.
+//   * uart.cpp:299 select-register read bit 6 vs bit 3 — 47ee7e2 (Task 2
+//     item 22) was WRONG IN BOTH DIRECTIONS and is reverted by GH #253. The
+//     emulator had it right: uart.vhd:371's "01000" is bits 7 DOWNTO 3 of an
+//     8-bit o_cpu_d, so the marker is bit 6 (0x40), as ports.txt:370 states and
+//     as the write path already used. 47ee7e2 read the literal as bits 4..0,
+//     changed the emulator to 0x08, and rewrote UART-SEL-02, SEL-05 and DUAL-02
+//     to match — so those three rows "unblocked" by agreeing with the defect
+//     they were derived from, and the suite certified it until 2026-08.
+//     Expected values come from the VHDL, never from the C++ (see the ground
+//     rules above); this is what it costs when a row is derived from a
+//     misreading instead.
 //
 // Task 3 UART+I2C SKIP-reduction plan at
 // doc/design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md tracks the remaining
@@ -228,16 +237,19 @@ static void test_group1_select() {
     }
 
     // UART-SEL-02 - uart.vhd:280 writes uart_select_r = d(6); uart.vhd:371
-    //          UART 1 select read = "01000" & msb  ->  bit 3 set, value 0x08
-    //          (KNOWN EMULATOR BUG uart.cpp:299 uses bit 6 -> 0x40)
+    //          UART 1 select read = "01000" & msb. The literal is bits 7 DOWNTO
+    //          3 of an 8-bit o_cpu_d (msb is the low 3), so the set bit is bit 6
+    //          -> 0x40, matching ports.txt:370 and the write side. GH #253: this
+    //          row asserted 0x08 for four months, having read the literal as
+    //          bits 4..0, and made the emulator agree with it.
     {
         uart.hard_reset();
         uart.write(REG_SELECT, 0x40);
         uint8_t sel = uart.read(REG_SELECT);
         check("UART-SEL-02",
-              "uart.vhd:371 - write 0x40, UART 1 select read = 0x08",
-              sel == 0x08,
-              fmt("got=0x%02x (VHDL expects 0x08)", sel));
+              "uart.vhd:371 - write 0x40, UART 1 select read = 0x40",
+              sel == 0x40,
+              fmt("got=0x%02x (VHDL expects 0x40)", sel));
     }
 
     // UART-SEL-03 - uart.vhd:280 write d(6)=0 restores uart_select_r=0;
@@ -266,16 +278,16 @@ static void test_group1_select() {
     }
 
     // SEL-05 - uart.vhd:284-286 d(4)=1 & d(6)=1 -> uart1_prescalar_msb = d(2:0);
-    //          uart.vhd:371 UART 1 read = "01000" & msb = 0x0D when msb=5
-    //          (KNOWN EMULATOR BUG uart.cpp:299)
+    //          uart.vhd:371 UART 1 read = "01000" & msb = 0x45 when msb=5
+    //          (bit 6 marker | msb 5). See UART-SEL-02 on the bit numbering.
     {
         uart.hard_reset();
         uart.write(REG_SELECT, 0x55);
         uint8_t sel = uart.read(REG_SELECT);
         check("SEL-05",
-              "uart.vhd:284-286,371 - UART 1 msb=5 select read = 0x0D",
-              sel == 0x0D,
-              fmt("got=0x%02x (VHDL expects 0x0D)", sel));
+              "uart.vhd:284-286,371 - UART 1 msb=5 select read = 0x45",
+              sel == 0x45,
+              fmt("got=0x%02x (VHDL expects 0x45)", sel));
     }
 
     // SEL-06 - uart.vhd:273-278 i_reset_hard clears uart0/1_prescalar_msb_r;
@@ -308,6 +320,46 @@ static void test_group1_select() {
               "uart.vhd:273-278 - soft reset preserves prescaler MSB",
               msb1 == 0x05,
               fmt("uart1_msb=%u expected=5", msb1));
+    }
+
+    // SEL-08 - the read-back marker and the write-side select are the SAME bit,
+    //          so reading 0x153B and writing the value straight back leaves the
+    //          selected channel alone. uart.vhd:280 latches uart_select_r from
+    //          d(6); uart.vhd:355/371 report it in bit 6 of o_cpu_d.
+    //
+    //          This is the round trip a debug stub performs — read the select to
+    //          see where the debuggee left it, borrow the port, put it back — and
+    //          it is the shape in which GH #253 was actually reported
+    //          (dezogif_ng #42). It is the row the other SEL rows could not be:
+    //          they compare against a constant, so a wrong constant makes them
+    //          agree with a wrong emulator. This one compares the register
+    //          against ITSELF across the round trip and holds whatever the
+    //          marker bit turns out to be — under the 0x08 defect the read
+    //          returns a value whose bit 6 is clear, so writing it back silently
+    //          switches a UART 1 session to UART 0 and the next 0x143B read
+    //          takes bytes from the wrong channel.
+    {
+        uart.hard_reset();
+
+        uart.write(REG_SELECT, 0x40);            // select UART 1
+        const uint8_t sel1_before = uart.read(REG_SELECT);
+        uart.write(REG_SELECT, sel1_before);     // ...and hand it straight back
+        const uint8_t sel1_after  = uart.read(REG_SELECT);
+
+        // Same for UART 0, so the row is not merely "writing anything keeps
+        // channel 1" — the round trip must be a no-op in both directions.
+        uart.write(REG_SELECT, 0x00);
+        const uint8_t sel0_before = uart.read(REG_SELECT);
+        uart.write(REG_SELECT, sel0_before);
+        const uint8_t sel0_after  = uart.read(REG_SELECT);
+
+        check("SEL-08",
+              "uart.vhd:280,355,371 - the select read-back is the bit the write "
+              "path consumes, so read-then-write-back does not change channel",
+              sel1_after == sel1_before && sel0_after == sel0_before,
+              fmt("UART1 before=0x%02x after=0x%02x; UART0 before=0x%02x "
+                  "after=0x%02x (each pair must match)",
+                  sel1_before, sel1_after, sel0_before, sel0_after));
     }
 }
 
@@ -1296,8 +1348,8 @@ static void test_group7_dual() {
 
     // DUAL-02 - uart.vhd:282-286 independent MSB registers; uart.vhd:355/371
     //           read them back in the select register low 3 bits with the
-    //           channel marker at bit 3 for UART 1.
-    //           (KNOWN EMULATOR BUG uart.cpp:299 returns bit 6 marker.)
+    //           channel marker at bit 6 for UART 1. See UART-SEL-02 on the bit
+    //           numbering (GH #253).
     {
         uart.hard_reset();
         uart.write(REG_SELECT, 0x13);     // UART 0 msb = 3
@@ -1307,9 +1359,9 @@ static void test_group7_dual() {
         uart.write(REG_SELECT, 0x40);
         uint8_t sel1 = uart.read(REG_SELECT);
         check("DUAL-02",
-              "uart.vhd:282-286,355,371 - UART 0 reads 0x03, UART 1 reads 0x0D",
-              sel0 == 0x03 && sel1 == 0x0D,
-              fmt("sel0=0x%02x sel1=0x%02x (VHDL expects 0x03, 0x0D)", sel0, sel1));
+              "uart.vhd:282-286,355,371 - UART 0 reads 0x03, UART 1 reads 0x45",
+              sel0 == 0x03 && sel1 == 0x45,
+              fmt("sel0=0x%02x sel1=0x%02x (VHDL expects 0x03, 0x45)", sel0, sel1));
     }
 
     // DUAL-03 - uart.vhd:300-305 independent framing registers per channel.

@@ -69,11 +69,18 @@ plan executed:
   `detect_start_stop()` call from `write_scl` unblocked 9 rows: I2C-P03,
   I2C-P05a, I2C-P05b, RTC-01, RTC-02, RTC-04, RTC-05, plus flow-through for
   RTC-06/07.
-- **`src/peripheral/uart.cpp:299` select-register bit** — FIXED in commit
-  `47ee7e2` (`fix(uart): select-register read returns bit 3 (0x08) not bit
-  6 (0x40)`). VHDL `uart.vhd:371` emits `"01000" & msb` when UART 1 is
-  selected — the emulator now matches. Unblocked 3 rows: UART-SEL-02, SEL-05,
-  DUAL-02.
+- **`src/peripheral/uart.cpp:299` select-register bit** — commit `47ee7e2`
+  (`fix(uart): select-register read returns bit 3 (0x08) not bit 6 (0x40)`)
+  **was itself the defect**, and is reverted by GH #253. `uart.vhd:371` emits
+  `"01000" & uart1_prescalar_msb_r` into an 8-bit `o_cpu_d` with a 3-bit msb, so
+  the literal is bits 7 DOWNTO 3 and the marker is **bit 6 (0x40)** — as
+  `ports.txt:370` states in words and as the write path always used. 47ee7e2
+  read it as bits 4..0, moved the emulator to 0x08, and restated UART-SEL-02,
+  SEL-05 and DUAL-02 to match, so those three "unblocked" by agreeing with the
+  defect they were derived from and certified it for four months. Expected
+  values come from the VHDL, never from the C++ — a row derived from a
+  misreading is worse than no row, because it is evidence pointing the wrong
+  way. SEL-08 now covers the consumer symptom this produced.
 
 ## VHDL Source Files
 
@@ -226,12 +233,13 @@ Write values are latched on the **rising edge** of i_CLK_28.
 | ID | Test | Expected |
 |----|------|----------|
 | UART-SEL-01 | Reset state: read select register | Returns 0x00 (UART 0 selected, prescaler MSB = 0) |
-| UART-SEL-02 | Write 0x40 to select, read back | Returns 0x08 + prescaler MSB (bit 6 reflects UART 1 selected; read shows bit 3 set for UART 1) |
+| UART-SEL-02 | Write 0x40 to select, read back | Returns 0x40 + prescaler MSB (`"01000"` at uart.vhd:371 is bits 7 DOWNTO 3, so the UART 1 marker is bit 6 — same bit the write side takes) |
 | UART-SEL-03 | Write 0x00 to select, read back | Returns 0x00 (UART 0 re-selected) |
 | UART-SEL-04 | Write 0x15 (bit4=1, bits2:0=101), read back with UART 0 | Returns 0x05 (prescaler MSB = 5) |
-| SEL-05 | Write 0x55 (bit6=1, bit4=1, bits2:0=101), read back with UART 1 | Returns 0x0D (bit 3 for UART1, prescaler MSB = 5) |
+| SEL-05 | Write 0x55 (bit6=1, bit4=1, bits2:0=101), read back with UART 1 | Returns 0x45 (bit 6 for UART 1, prescaler MSB = 5) |
 | SEL-06 | Hard reset clears prescaler MSB to 0 | After hard reset, read returns 0x00 |
 | SEL-07 | Soft reset clears uart_select_r to 0 but preserves prescaler MSB | Prescaler MSB retained, select = 0 |
+| SEL-08 | Read 0x153B and write the value straight back (the poll-and-restore a debug stub does) | The selected channel is unchanged — read-back marker and write-side select are the SAME bit, so the round trip is a no-op for both channels (GH #253) |
 
 ### Group 2: Frame Register (port 0x163B)
 
