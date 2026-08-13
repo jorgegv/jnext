@@ -89,6 +89,34 @@ public:
     void note_delivered() { ++delivered_; }
     void note_dropped()   { ++dropped_; }
 
+    /// State serialisation — the CURSOR, not the stream (GH #251 review round 1).
+    ///
+    /// A rewind restores the machine, including the UART RX FIFOs, from a
+    /// snapshot and then RE-EXECUTES the intervening frames. Without this the
+    /// cable kept the position it had reached at the newest frame while the
+    /// machine went back to an older one, so the replay delivered a different
+    /// byte stream than the run it was supposed to be reproducing — measured as
+    /// `delivered()` ending HIGHER after a rewind than it had been at the frame
+    /// the rewind landed before.
+    ///
+    /// THE CABLE IS REWOUND RATHER THAN MADE INERT, which is the opposite of
+    /// what the ESP does (`EspUartAdapter::set_inert`, driven from
+    /// `Emulator::service_esp_frame`), and the difference is the whole reason
+    /// that call exists: a socket cannot be re-executed — a replayed
+    /// `AT+CIPSTART` opens a second real connection — so the ESP has nothing to
+    /// rewind TO and can only be frozen. This stream is a byte vector still
+    /// sitting in memory, so it CAN be rewound, and rewinding it makes the
+    /// replay exact instead of merely harmless. Freezing it here would have left
+    /// the rewound timeline permanently missing every byte delivered in the
+    /// interval it re-ran.
+    ///
+    /// `bytes_` itself is deliberately not written: it is immutable after
+    /// construction, and `Emulator::save_state` is consumed only by
+    /// `RewindBuffer` (`src/debug/rewind_buffer.cpp`), i.e. in memory and within
+    /// one run, so the vector a snapshot would restore is the one already held.
+    void save_state(class StateWriter& w) const;
+    void load_state(class StateReader& r);
+
 private:
     std::vector<uint8_t> bytes_;
     ByteSink             sink_;

@@ -1,5 +1,7 @@
 #include "joy_uart_source.h"
 
+#include "core/saveable.h"
+
 #include <cerrno>
 #include <cstdio>
 #include <cstring>
@@ -35,6 +37,27 @@ void JoyUartSource::tick(uint32_t master_cycles, uint32_t byte_ticks) {
         if (exhausted()) return;
     }
     timer_ -= remaining;
+}
+
+void JoyUartSource::save_state(StateWriter& w) const {
+    w.write_u32(static_cast<uint32_t>(pos_));
+    w.write_u32(static_cast<uint32_t>(delivered_));
+    w.write_u32(static_cast<uint32_t>(dropped_));
+    w.write_u32(frames_);
+    w.write_u32(timer_);
+}
+
+void JoyUartSource::load_state(StateReader& r) {
+    // Clamped to the stream length: a truncated or otherwise inconsistent
+    // snapshot must not leave `pos_` past the end, where `exhausted()` would be
+    // true but `bytes_[pos_]` would still be indexed if anything ever read it
+    // before checking.
+    const uint32_t pos = r.read_u32();
+    pos_       = (pos > bytes_.size()) ? bytes_.size() : static_cast<std::size_t>(pos);
+    delivered_ = r.read_u32();
+    dropped_   = r.read_u32();
+    frames_    = r.read_u32();
+    timer_     = r.read_u32();
 }
 
 bool read_joy_uart_source_file(const std::string& path,

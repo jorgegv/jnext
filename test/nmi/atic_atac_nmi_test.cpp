@@ -165,15 +165,37 @@ void test_stackless_nmi()
     // An older snapshot ends after the input sentinel and has no appended
     // stackless-NMI field. Loading one over a live latch must clear it rather
     // than inherit state from the machine being replaced.
+    //
+    // It is synthesised by truncating EVERY append that follows the input
+    // sentinel, each of which is one bool plus its u32 sentinel. There are two:
+    // the stackless-RETN latch (GH #84) and the joystick-UART cable's cursor
+    // (GH #251) — which contributes only its PRESENT flag here, since this
+    // emulator has no cable attached. A THIRD append makes this row fail rather
+    // than quietly stop testing what it names (which is exactly how the GH #251
+    // one was caught), so add it to the count below when you add it to
+    // Emulator::save_state.
+    constexpr std::size_t kTailBlock   = sizeof(uint8_t) + sizeof(uint32_t);
+    constexpr std::size_t kTailBlocks  = 2;   // stackless_nmi, joy_uart
     Emulator old_snapshot_emu;
     fresh_emulator(old_snapshot_emu);
     old_snapshot_emu.cpu().set_stackless_retn_active_for_load(true);
-    const std::size_t old_snapshot_size =
-        snapshot.size() - (sizeof(uint8_t) + sizeof(uint32_t));
+    const std::size_t old_snapshot_size = snapshot.size() - kTailBlocks * kTailBlock;
     StateReader old_reader(snapshot.data(), old_snapshot_size);
     const bool old_snapshot_ok =
         old_snapshot_emu.load_state(old_reader) &&
         !old_snapshot_emu.cpu().stackless_retn_active();
+
+    // And the BOUNDARY, so the arithmetic above is pinned rather than merely
+    // landing somewhere before the field: chopping one block fewer must leave
+    // the stackless field present and RESTORE the latch. Without this pair a
+    // wrong count still passes the row — it only has to truncate far enough.
+    Emulator boundary_emu;
+    fresh_emulator(boundary_emu);
+    boundary_emu.cpu().set_stackless_retn_active_for_load(false);
+    StateReader boundary_reader(snapshot.data(), snapshot.size() - kTailBlock);
+    const bool boundary_ok =
+        boundary_emu.load_state(boundary_reader) &&
+        boundary_emu.cpu().stackless_retn_active();
 
     // The return bus is live: the handler may replace the captured address.
     write_nr(emu, 0xC2, 0x34);
@@ -189,14 +211,16 @@ void test_stackless_nmi()
               && stack_untouched
               && snapshot_ok
               && old_snapshot_ok
+              && boundary_ok
               && after_retn.PC == 0x1234
               && after_retn.SP == 0xFFFE
               && after_retn.IFF1 == 1
               && !emu.cpu().stackless_retn_active(),
           fmt("entry=%04x/%04x captured=%04x stack=%d snapshot=%d old=%d "
-              "return=%04x/%04x iff1=%u active=%d",
+              "boundary=%d return=%04x/%04x iff1=%u active=%d",
               at_handler.PC, at_handler.SP, captured, stack_untouched,
-              snapshot_ok, old_snapshot_ok, after_retn.PC, after_retn.SP,
+              snapshot_ok, old_snapshot_ok, boundary_ok,
+              after_retn.PC, after_retn.SP,
               after_retn.IFF1,
               emu.cpu().stackless_retn_active()));
 }

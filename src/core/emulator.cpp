@@ -7171,7 +7171,6 @@ void Emulator::begin_new_frame()
     // that is beginning rather than the next one.
     advance_esp_schedule_frame();
 
-
     // V24-MEM-01 / V25-MEM-01 fix — video-frame-edge commit of the
     // NR 0x03 machine_timing latch per VHDL zxnext.vhd:6694-6703:
     //   if video_frame_sync = '1' then
@@ -10199,6 +10198,16 @@ void Emulator::save_state(StateWriter& w) const
     w.write_bool(cpu_.stackless_retn_active());
     put_sentinel();   // "stackless_nmi"
 
+    // GH #251 — the joystick serial cable's CURSOR, so a rewind rewinds the
+    // cable too and the replayed frames deliver exactly the bytes they
+    // delivered the first time. See JoyUartSource::save_state for why this one
+    // is rewound where the ESP is instead frozen. Appended last, and written
+    // only when a cable is attached — the `bool` says which, so a snapshot from
+    // a run without one stays two bytes long here rather than needing a version.
+    w.write_bool(joy_uart_source_ != nullptr);
+    if (joy_uart_source_) joy_uart_source_->save_state(w);
+    put_sentinel();   // "joy_uart"
+
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
     // StateWriter now suppresses the write and latches a sticky flag.
@@ -10618,6 +10627,31 @@ bool Emulator::load_state(StateReader& r)
         if (!check_sentinel("stackless_nmi")) return false;
     } else {
         cpu_.set_stackless_retn_active_for_load(false);
+    }
+
+    // GH #251 — the joystick serial cable's cursor. Same append-only shape as
+    // the field above: a snapshot predating it ends at that sentinel and leaves
+    // the cable wherever it is, which is the pre-fix behaviour and the best
+    // available answer for a stream the snapshot never recorded.
+    //
+    // The PRESENT flag is honoured in both directions on purpose. A snapshot
+    // taken without a cable must not be allowed to consume a cursor that is not
+    // there (the sentinel would then fail), and a snapshot taken WITH one that
+    // is restored into a machine with no cable must still step over its five
+    // words. Neither mismatch can arise from a rewind — same run, same config —
+    // but load_state's contract is to fail loudly rather than desynchronise, and
+    // reading a cursor nobody owns would desynchronise every field after it.
+    if (!r.eof()) {
+        const bool had_source = r.read_bool();
+        if (had_source) {
+            if (joy_uart_source_) {
+                joy_uart_source_->load_state(r);
+            } else {
+                JoyUartSource discard({0}, 0, 0);   // step over the cursor
+                discard.load_state(r);
+            }
+        }
+        if (!check_sentinel("joy_uart")) return false;
     }
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS

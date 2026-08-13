@@ -19,6 +19,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "debug/rewind_buffer.h"
 #include "peripheral/joy_uart_source.h"
 #include "peripheral/uart_device.h"
 
@@ -28,6 +29,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
+#include <map>
 #include <string>
 #include <system_error>
 #include <vector>
@@ -1270,7 +1272,7 @@ static void test_esp_backend() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Section JOY — the joystick-connector UART cable (JOY-01..07), GH #251
+// Section JOY — the joystick-connector UART cable (JOY-01..10), GH #251
 // ══════════════════════════════════════════════════════════════════════
 //
 // Two things that had no coverage at all before GH #251:
@@ -1611,6 +1613,131 @@ static void test_joy_uart_cable() {
                   empty_refused ? 1 : 0, error_empty.c_str(),
                   missing_refused ? 1 : 0, error_missing.c_str(),
                   good_read ? 1 : 0));
+    }
+
+    // ── JOY-09 — the SAME isolation on UART 1 (the Pi header), which
+    // zxnext.vhd:3341/3344 spells out separately from UART 0:
+    //
+    //   uart1_rx    <= joy_uart_rx;   -- pi_uart_rx is NOT selected
+    //   uart1_tx_pi <= '1';           -- the module-facing TX pin idles
+    //
+    // JOY-01/02 pin channel 0 and JOY-03 pins that channel 0 is UNAFFECTED when
+    // the mux takes channel 1 — but nothing asserted that channel 1 is affected
+    // when it does, so `Uart::set_joy_uart_channel_probe` could have compared
+    // the wrong channel number in its second lambda and stayed green. That is a
+    // copy-paste away in a two-line function and it is exactly the routing the
+    // Pi-header half of the mux depends on.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        StubUartDevice pi;
+        emu.uart().attach_device(1, &pi);
+
+        emu.nextreg().write(0x0B, 0xA1);        // mux on, channel 1
+        pi.send(0x44);
+        const bool muted = emu.uart().channel(1).rx_empty();
+
+        emu.port().out(0x153B, 0x40);           // select channel 1
+        emu.port().out(0x133B, 0x55);           // guest transmits
+        tick_uart_byte(emu);
+        const bool device_silent = pi.rx.empty();
+        const bool no_loopback   = emu.uart().channel(1).rx_empty();
+
+        // Positive control on the same emulator and the same device, so the
+        // three negatives cannot be passing because a channel-1 backend is
+        // simply never wired to anything.
+        emu.nextreg().write(0x0B, 0x00);        // mux off
+        pi.send(0x66);
+        emu.port().out(0x153B, 0x40);
+        const uint8_t heard = emu.port().in(0x143B);
+        emu.port().out(0x133B, 0x77);
+        tick_uart_byte(emu);
+        const bool device_heard = (pi.rx.size() == 1) && (pi.rx[0] == 0x77);
+
+        emu.uart().detach_device(1);
+
+        check("JOY-09",
+              "zxnext.vhd:3341,3344 — the joystick UART mux isolates UART 1 "
+              "exactly as it isolates UART 0: with NR 0x0B bit 0 = 1 the Pi "
+              "backend is neither heard nor spoken to and nothing loops back, "
+              "and with the mux off both directions return",
+              muted && device_silent && no_loopback
+                  && heard == 0x66 && device_heard,
+              fmt("muted=%d device_silent=%d no_loopback=%d device_heard=%d "
+                  "(all want 1); heard=0x%02X (want 0x66); device rx=%zu",
+                  muted ? 1 : 0, device_silent ? 1 : 0, no_loopback ? 1 : 0,
+                  device_heard ? 1 : 0, heard, pi.rx.size()));
+    }
+
+    // ── JOY-10 — a REWIND rewinds the cable too (GH #251 review round 1).
+    //
+    // `RewindBuffer` restores the machine from a frame-start snapshot and then
+    // RE-EXECUTES the intervening frames. The cable is not part of the machine
+    // the snapshot captures unless it is written into the state stream, so
+    // without `JoyUartSource::save_state/load_state` the cursor stayed at the
+    // newest frame while everything around it went back — and the replayed
+    // frames then fed the guest a byte stream that is NOT the one they were
+    // reproducing. Measured pre-fix as `delivered()` ending HIGHER after the
+    // rewind than it had been at the frame the rewind landed on.
+    //
+    // Asserted as an EQUALITY against the value recorded at that frame, not as
+    // "did not increase": the cursor must land where it was, and a cable that
+    // reset to zero or froze mid-way would satisfy an inequality.
+    {
+        // ~230 bytes arrive per frame at the 115200 the Next boots with, so
+        // this is a stream that outlives the whole run rather than one that
+        // exhausts (an exhausted cursor cannot move and would pass trivially).
+        std::vector<uint8_t> stream(4096);
+        for (std::size_t i = 0; i < stream.size(); ++i)
+            stream[i] = static_cast<uint8_t>(i & 0xFF);
+        TempSourceFile file("rewind", stream);
+
+        EmulatorConfig cfg = joy_config(file.path(), /*connector=*/1,
+                                        /*delay_frames=*/0);
+        cfg.rewind_buffer_frames = 16;
+        Emulator emu;
+        emu.init(cfg);
+
+        // delivered_at[N] = the cable's cursor at the START of frame N, which
+        // is the instant the frame-N snapshot is taken.
+        const JoyUartSource* src = emu.joy_uart_source();
+        std::map<uint32_t, std::size_t> delivered_at;
+        std::map<uint32_t, std::size_t> dropped_at;
+        for (int f = 0; src && f < 10; ++f) {
+            delivered_at[emu.frame_num()] = src->delivered();
+            dropped_at[emu.frame_num()]   = src->dropped();
+            emu.nextreg().write(0x0B, 0xB0);    // mux on, connector 2, channel 0
+            emu.run_frame();
+        }
+
+        const std::size_t before_rewind = src ? src->delivered() : 0;
+
+        auto* rb = emu.rewind_buffer();
+        const bool have_buffer = src && (rb != nullptr) && (rb->depth() > 2);
+        const uint32_t target = have_buffer ? rb->oldest_frame_num() + 1 : 0;
+        const bool rewound = have_buffer && emu.rewind_to_frame(target);
+
+        const std::size_t after_delivered = src ? src->delivered() : 0;
+        const std::size_t after_dropped   = src ? src->dropped() : 0;
+
+        // The run has to have MOVED the cursor between the target frame and the
+        // end, or the equality below holds for a cable that never ran.
+        const bool cursor_moved = before_rewind > delivered_at[target];
+
+        check("JOY-10",
+              "GH #251 — JoyUartSource's cursor is part of the emulator state "
+              "stream, so a rewind puts the cable back where it was at the "
+              "restored frame and the replayed frames deliver the same bytes "
+              "they delivered the first time",
+              rewound && cursor_moved
+                  && after_delivered == delivered_at[target]
+                  && after_dropped == dropped_at[target],
+              fmt("rewound=%d cursor_moved=%d (both want 1); rewound to frame %u; "
+                  "delivered after=%zu (want %zu, was %zu at the newest frame); "
+                  "dropped after=%zu (want %zu)",
+                  rewound ? 1 : 0, cursor_moved ? 1 : 0, target,
+                  after_delivered, delivered_at[target], before_rewind,
+                  after_dropped, dropped_at[target]));
     }
 }
 
