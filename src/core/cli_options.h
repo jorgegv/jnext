@@ -91,6 +91,9 @@ enum class OptId {
     WhenSlowPrefer,
     Joy1Source,
     Joy2Source,
+    JoyUartRx,
+    JoyUartRxDelayFrames,
+    JoyUartConnector,
     DelayedKeypress,
     DelayedKeypressFrames,
     DelayedNmi,
@@ -243,6 +246,32 @@ inline constexpr Option OPTIONS[] = {
       "SRC",
       "Host source for Joy 2 (port 0x37): 'sdl' (default) or 'keys'\n"
       "(only one connector may use 'keys')" },
+    // GH #251 — a serial cable in a joystick socket, whose bytes reach the guest
+    // through the NR 0x0B I/O-mode mux rather than either UART header. It exists
+    // because nothing on the command line could put a byte on that pin, so a
+    // dezogif / DeZog serial build had no bench at all. The tempting stand-in —
+    // pointing `--esp` at the problem — would have passed even with the mux
+    // completely wrong, since the ESP path ignores NR 0x0B entirely.
+    { "--joy-uart-rx", 1, Doc::Documented, OptId::JoyUartRx,
+      "FILE",
+      "Attach FILE as a serial byte source on the joystick-port\n"
+      "UART RX pin. Bytes arrive paced at the receiving channel's\n"
+      "baud, and only while NR 0x0B selects UART mode (bits 7+5)\n"
+      "on this cable's connector (bit 4); bit 0 picks UART 0 or 1.\n"
+      "Bytes sent while the guest is not listening are LOST, as on\n"
+      "the wire — schedule them with --joy-uart-rx-delay-frames" },
+    { "--joy-uart-rx-delay-frames", 1, Doc::Documented, OptId::JoyUartRxDelayFrames,
+      "N",
+      "Hold the --joy-uart-rx stream for N frames before the first\n"
+      "byte arrives (default 0). This is how a byte is made to land\n"
+      "while the program is already running, rather than being spent\n"
+      "before it has set NR 0x0B up" },
+    { "--joy-uart-connector", 1, Doc::Documented, OptId::JoyUartConnector,
+      "N",
+      "Which joystick socket the --joy-uart-rx cable is in: 1 or 2\n"
+      "(default 2, the connector a real rig uses). NR 0x0B bit 4\n"
+      "selects the connector the machine reads, so a guest that\n"
+      "selects the other one hears nothing" },
     { "--tape-realtime", 0, Doc::Documented, OptId::TapeRealtime,
       "",
       "Use real-time tape loading (simulates actual loading speed)" },

@@ -304,6 +304,35 @@ struct EmulatorConfig {
     // "after".
     std::string              esp_ip_address_after;
 
+    // ── Joystick-connector serial source (GH #251) ─────────────────────────
+    //
+    // A serial cable in a joystick socket, whose bytes reach the guest through
+    // the NR 0x0B I/O-mode multiplexer (zxnext.vhd:3340-3341, :3537-3538) rather
+    // than through either UART header. This is the rig a dezogif / DeZog serial
+    // build runs on, and until GH #251 nothing on the command line could put a
+    // byte on that pin, so none of it could be tested.
+    //
+    // `joy_uart_rx_file` empty means no source, which is the default and the
+    // only state a normal run is in. CLI-only, with no saved-configuration
+    // form: like the ESP schedule flags, every consumer of this is a scripted
+    // bench, and a serial source that could arrive from a config file is one
+    // the user cannot see in the command they ran.
+    std::string              joy_uart_rx_file;
+    // Which socket the cable is in — 0 = joy 1 (`i_JOY_LEFT`), 1 = joy 2
+    // (`i_JOY_RIGHT`). Default 1: upstream dezogif's own source says port 2,
+    // and it is the only connector a real rig is documented to use. It matters
+    // because NR 0x0B bit 4 chooses the connector the FPGA reads
+    // (zxnext.vhd:3538), so a guest selecting the other one hears nothing —
+    // which is a case the bench must be able to construct on purpose.
+    int                      joy_uart_connector = 1;
+    // Hold the stream for this many complete frames before the first byte
+    // starts arriving. Needed because bytes are LOST, not queued, while the mux
+    // is not routing this connector (see joy_uart_source.h): with no delay a
+    // stream is spent long before a guest gets round to setting NR 0x0B, so the
+    // interesting case — a byte landing while the debuggee is already running —
+    // is only reachable by scheduling it.
+    uint32_t                 joy_uart_rx_delay_frames = 0;
+
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;
     std::function<void(uint64_t, int, uint8_t)> dac_write_callback;

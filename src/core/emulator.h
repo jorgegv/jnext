@@ -79,6 +79,7 @@ class ThreadedEsp;
 }  // namespace esp
 class EspUartAdapter;
 class EspConnectionLog;
+class JoyUartSource;   // GH #251 — peripheral/joy_uart_source.h
 
 /// Top-level machine class.
 ///
@@ -902,23 +903,33 @@ public:
     //   uart1_rx <= joy_uart_rx when joy_iomode_uart_en='1'
     //               and nr_0b_joy_iomode_0='1' else pi_uart_rx;
     //
-    // When NR 0x0B bit 7 (iomode_en) = 1, one UART channel's RX line is
-    // driven from the joystick connector's UART RX pin instead of its
-    // normal source. Bit 0 (iomode_0) selects WHICH channel receives the
-    // joystick feed: 0 => UART 0 (ESP path shadowed), 1 => UART 1 (Pi
-    // path shadowed). When iomode_en = 0 the mux is disabled and this
-    // injection path is a no-op (the physical ESP/Pi pins remain the
-    // sole RX drivers, which in jnext are surfaced via `uart().inject_rx`).
+    // The enable is `joy_iomode_uart_en`, which is NR 0x0B bit 7 AND bit 5
+    // (zxnext.vhd:3537) — NOT bit 7 alone. Bit 0 (iomode_0) then selects
+    // WHICH channel receives the joystick feed: 0 => UART 0 (ESP path
+    // shadowed), 1 => UART 1 (Pi path shadowed). With the mux off, the
+    // physical ESP/Pi pins remain the sole RX drivers (surfaced in jnext via
+    // `uart().inject_rx`) and this injection path is a no-op.
     //
-    // This call is intended for integration tests and future joystick-
-    // connector peripherals that model a serial RX pin; production code
-    // still drives the "native" ESP/Pi paths via `uart().inject_rx()`.
+    // GH #251 fixed the enable: it read `iomode_en()` (bit 7 alone), two lines
+    // below the method that already got it right, so mode "00" and "01" — pin 7
+    // static and pin 7 CTC-toggled, neither of which routes a UART anywhere —
+    // both accepted joystick serial bytes.
+    //
+    // `byte` is a byte that has ALREADY arrived on the post-mux `joy_uart_rx`
+    // line, so the CONNECTOR selection (NR 0x0B bit 4, zxnext.vhd:3538) is the
+    // caller's to apply: it is a property of which socket the cable is in, not
+    // of this mux. `JoyUartSource`'s sink in setup_joy_uart_source() does it.
     // ══════════════════════════════════════════════════════════════════════
     void inject_joy_uart_rx(uint8_t byte) {
-        if (!iomode_.iomode_en()) return;            // mux disabled
+        if (!iomode_.joy_uart_en()) return;          // VHDL:3537 — bit 7 AND bit 5
         const int ch = iomode_.iomode_0() ? 1 : 0;   // VHDL:3340-3341
         uart_.inject_rx(ch, byte);
     }
+
+    /// The joystick-connector serial source attached by `--joy-uart-rx`, or
+    /// nullptr. Exposed so a bench can read back how much of the stream
+    /// actually reached the guest.
+    const JoyUartSource* joy_uart_source() const { return joy_uart_source_.get(); }
 
 private:
     // Task 79 — recompute the Keyboard cursor-key target from joy_source_:
@@ -1017,6 +1028,19 @@ private:
     std::unique_ptr<EspUartAdapter>     esp_adapter_;
     /// One-shot latch for esp_note_transport_fault(); see its header comment.
     bool esp_fault_reported_ = false;
+
+    // GH #251 — the joystick-connector serial source (`--joy-uart-rx`). Owned
+    // here for the same reason the ESP is: it holds a sink that captures
+    // `this`, and a cold boot placement-news a new Emulator at the SAME address
+    // (uart_device.h), so anything the frontend owned would silently start
+    // feeding the newly booted machine. Built in setup_joy_uart_source() from
+    // the config, which `init()` runs, so a cold boot rebuilds it — and, like a
+    // real cable being unplugged and plugged back in, restarts the stream.
+    std::unique_ptr<JoyUartSource> joy_uart_source_;
+    /// One-shot latch for the "the whole stream arrived and the guest heard
+    /// none of it" warning. The silent no-op is the failure this feature has to
+    /// make impossible, so exhaustion with `delivered() == 0` is reported.
+    bool joy_uart_silence_reported_ = false;
 
     DivMmc          divmmc_;
     Multiface       multiface_;   // Wave 1 B1 (TASK-8-MULTIFACE-PLAN.md).
@@ -1161,6 +1185,18 @@ private:
     /// on a SOFT reset that finds one already built (real hardware's soft reset
     /// does not touch the module on the far end of the cable — design doc §4.3).
     void setup_esp();
+
+    /// GH #251 — build the joystick-connector serial source from
+    /// `EmulatorConfig::joy_uart_rx_*` and bind its sink. Called from init(),
+    /// so a cold boot restarts the stream (see the member declaration). A
+    /// no-op when no source was configured, and a no-op on a soft reset that
+    /// finds one already built: a soft reset does not unplug the cable.
+    void setup_joy_uart_source();
+
+    /// GH #251 — clock the joystick serial source forward. Called from the
+    /// per-instruction device cluster and ONLY when a source exists; the null
+    /// test stays at the call site so an ordinary run pays one branch.
+    void service_joy_uart_source(uint64_t master_cycles);
 
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.

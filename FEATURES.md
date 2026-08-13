@@ -121,6 +121,7 @@
 - `--when-slow-prefer audio|video` (what to sacrifice when the host cannot emulate in real time; persisted as `[startup] when_slow_prefer`)
 - `--magic-breakpoint`, `--magic-port`, `--magic-port-mode`
 - `--esp` / `--no-esp` and the repeatable `--esp-allow HOST` (emulated ESP-01 Wi-Fi; off by default)
+- `--joy-uart-rx FILE` — attach a serial byte source to the **joystick-port UART**, the rig a dezogif / DeZog serial build runs on. The bytes reach the guest through the NR 0x0B I/O-mode multiplexer, so the guest hears them only while it selects UART mode on this cable's connector, and while the cable owns a channel the module on that channel's header (ESP-01 or Pi) can neither be heard nor be spoken to — as on hardware. Paced at the receiving channel's baud; `--joy-uart-connector 1|2` says which socket the cable is in and `--joy-uart-rx-delay-frames N` makes a byte land while the program is already running. Bytes sent while the guest is not listening are lost, as on the wire, and a stream nothing heard says so rather than finishing quietly
 - `--delayed-screenshot-layers ula,layer2,sprites,tiles,all` — compose only the named layers into the screenshot (default all), for capturing each graphics layer in isolation
 - `--log-level` per subsystem (cpu, video, audio, etc.)
 - `--log-file FILE` (write the log to FILE instead of the console, truncated per run; jnext exits non-zero if FILE cannot be opened rather than quietly logging to the console it was redirected away from)

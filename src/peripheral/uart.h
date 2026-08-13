@@ -250,6 +250,63 @@ public:
     void detach_device()                   { device_ = nullptr; }
     UartDevice* device() const             { return device_; }
 
+    /// Declare how to find out whether this channel's module-facing pin pair is
+    /// disconnected because the joystick-connector UART mux has taken the
+    /// channel over (GH #251).
+    ///
+    /// VHDL zxnext.vhd:3340-3346, for `joy_iomode_uart_en='1'` and the channel
+    /// `nr_0b_joy_iomode_0` selects:
+    ///
+    ///   uart0_rx     <= joy_uart_rx;   -- i_UART0_RX is NOT selected
+    ///   uart0_tx_esp <= '1';           -- the module-facing TX pin idles
+    ///   esp_uart_rtr_n <= '1';         -- and its RTR# is de-asserted
+    ///
+    /// so the attached backend can neither be heard nor be spoken to: the
+    /// channel's serial traffic goes out of joystick pin 7 instead
+    /// (zxnext.vhd:3526-3531). Both halves are enforced — RX in the sink
+    /// `Uart::attach_device` installs, TX in `deliver_tx_byte` — because
+    /// enforcing only one is worse than enforcing neither: a guest transmitting
+    /// over the cable would have its bytes looped back into the very RX FIFO
+    /// the cable is feeding.
+    ///
+    /// A PROBE, PULLED, not a flag pushed from the tick loop. Both consumers run
+    /// at BYTE boundaries (≤230/frame at 115200), not per instruction, so an
+    /// indirect call costs nothing measurable — and the value is then always the
+    /// current NR 0x0B rather than one instruction stale, which a mid-frame
+    /// write would otherwise make it. Not serialised: it is mux topology like
+    /// `device_` itself, and it reads NR 0x0B, which IS serialised (in IoMode).
+    ///
+    /// THE FLOW-CONTROL HALF OF THE SAME MUX IS DELIBERATELY NOT MODELLED.
+    /// zxnext.vhd:3345-3349 muxes two more signal pairs on the identical
+    /// condition:
+    ///
+    ///   uart0_tx_cts_n <= joy_uart_cts_n;   -- i_UART0_CTS_n is not selected
+    ///   esp_uart_rtr_n <= '1';              -- and RTR# is forced de-asserted
+    ///
+    /// Neither has a consumer in jnext, so routing them would assert nothing.
+    /// `cts_n_` is read only inside `tick_one_bit_clock()`'s S_IDLE/S_RTR
+    /// transitions, and BOTH `set_cts_n` and `set_bitlevel_mode` are called
+    /// exclusively from `test/uart/uart_test.cpp` — the bit-level engine is an
+    /// opt-in test scaffold that no production path enters, so in a running
+    /// emulator CTS# is a constant. `rx_rtr_n()` likewise has no caller outside
+    /// its own row in that suite: it is an FPGA output pin toward the ESP/Pi
+    /// header, and jnext's `UartDevice` backends do not model flow control at
+    /// all. Modelling either would be a mux with nothing on the far side of it,
+    /// and a test for it could only observe the mux's own bookkeeping.
+    void set_device_isolated_probe(std::function<bool()> probe) {
+        device_isolated_probe_ = std::move(probe);
+    }
+    bool device_isolated() const {
+        return device_isolated_probe_ && device_isolated_probe_();
+    }
+
+    /// 28 MHz ticks for ONE complete frame at the current framing and
+    /// prescaler. Public because the joystick-connector serial source
+    /// (`JoyUartSource`, GH #251) paces off the RECEIVING channel's baud, and
+    /// it is not a `UartDevice`, so it cannot be served through
+    /// `service_attached_device` below.
+    uint32_t byte_transfer_ticks() const;
+
     /// Emulated-time service for the attached backend (GH #25 branch 3).
     ///
     /// Called from `Uart::tick`, NOT from `UartChannel::tick`, and that
@@ -432,14 +489,16 @@ private:
     // state, and a rewind snapshot must not resurrect a stale pointer.
     UartDevice* device_ = nullptr;
 
+    // NR 0x0B joystick-UART mux probe for this channel — see
+    // set_device_isolated_probe(). Empty means "no mux wired up", which is every
+    // bare-peripheral unit test and keeps them byte-identical.
+    std::function<bool()> device_isolated_probe_;
+
     /// Hand one outbound byte to whoever is listening: an attached
     /// UartDevice first, else `on_tx_byte`. Returns false when neither is
     /// present, leaving the caller to decide what an unheard byte means
     /// (the byte-level engine loops it back; the bit-level one drops it).
     bool deliver_tx_byte(uint8_t byte);
-
-    /// Compute the number of 28 MHz ticks for one complete byte transfer.
-    uint32_t byte_transfer_ticks() const;
 
 
 
@@ -515,6 +574,18 @@ public:
 
     /// The device attached to `channel`, or nullptr.
     UartDevice* device(int channel) const;
+
+    /// GH #251 — wire both channels' joystick-UART mux probes from one source of
+    /// truth. `probe` answers "which channel has the joystick connector taken
+    /// over?" as 0, 1, or -1 for "the mux is off" (the reset state, and the only
+    /// state production reaches unless a guest sets NR 0x0B bits 7 and 5). See
+    /// `UartChannel::set_device_isolated_probe`.
+    void set_joy_uart_channel_probe(std::function<int()> probe) {
+        channels_[0].set_device_isolated_probe(
+            [probe] { return probe && probe() == 0; });
+        channels_[1].set_device_isolated_probe(
+            [probe = std::move(probe)] { return probe && probe() == 1; });
+    }
 
     // ── Interrupt callbacks ───────────────────────────────────
 
