@@ -20,17 +20,25 @@
 //     Unblocked I2C-P03, I2C-P05a/b, RTC-01/02/04/05, and on re-audit
 //     (2026-04-24) also RTC-06/07/08/09/10 and I2C-P06 which had been
 //     mistakenly attributed to a separate BCD / register-pointer fault.
-//   * uart.cpp:299 select-register read bit 6 vs bit 3 — 47ee7e2 (Task 2
-//     item 22) was WRONG IN BOTH DIRECTIONS and is reverted by GH #253. The
-//     emulator had it right: uart.vhd:371's "01000" is bits 7 DOWNTO 3 of an
-//     8-bit o_cpu_d, so the marker is bit 6 (0x40), as ports.txt:370 states and
-//     as the write path already used. 47ee7e2 read the literal as bits 4..0,
-//     changed the emulator to 0x08, and rewrote UART-SEL-02, SEL-05 and DUAL-02
-//     to match — so those three rows "unblocked" by agreeing with the defect
-//     they were derived from, and the suite certified it until 2026-08.
-//     Expected values come from the VHDL, never from the C++ (see the ground
-//     rules above); this is what it costs when a row is derived from a
-//     misreading instead.
+//   * uart.cpp:299 select-register read bit 6 vs bit 3 — NOT an emulator bug
+//     at all. Reverted by GH #253, along with the three rows below that caused
+//     it. uart.vhd:371's "01000" is bits 7 DOWNTO 3 of an 8-bit o_cpu_d whose
+//     low 3 bits are the prescaler msb, so the marker is bit 6 (0x40) — as
+//     ports.txt:370 states in words and as uart.vhd:280 / the C++ write path
+//     both use. The order of events, which is the point:
+//       1. The original suite asserted `(sel & 0x40) == 0x40`, and the emulator
+//          agreed. Both correct.
+//       2. THIS FILE'S REWRITE (c788166e, 2026-04-15 12:06) restated
+//          UART-SEL-02, SEL-05 and DUAL-02 to 0x08, having read the literal as
+//          bits 4..0, and annotated the emulator's correct output as
+//          "(KNOWN EMULATOR BUG uart.cpp:299 uses bit 6 -> 0x40)".
+//       3. 47ee7e2 (17:51 the same day) changed uart.cpp to 0x08 to match the
+//          rows, citing them as "unblocked".
+//     So a row derived from a misreading declared correct code a bug, and the
+//     code was changed to satisfy the row. Expected values come from the VHDL —
+//     never from the C++, and never from an existing test either.
+//     SEL-08 exists because the three constant rows could not have caught it:
+//     see its comment.
 //
 // Task 3 UART+I2C SKIP-reduction plan at
 // doc/design/TASK3-UART-I2C-SKIP-REDUCTION-PLAN.md tracks the remaining

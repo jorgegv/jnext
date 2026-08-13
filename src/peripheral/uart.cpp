@@ -767,10 +767,13 @@ uint8_t Uart::read(int port_reg) {
             // to select the esp uart, 1 to select the pi uart"), which is also
             // the bit the write path takes (`val & 0x40` below).
             //
-            // Read the width before the bit number here. GH #253: 47ee7e2
-            // changed this line from 0x40 to 0x08 having read "01000" as bits
-            // 4..0, and wrote three test rows against the same misreading, so
-            // the suite then certified the defect for four months.
+            // Read the width before the bit number here. GH #253: this line was
+            // 0x40 and correct until 2026-04-15, when the test suite's rewrite
+            // (c788166e) restated UART-SEL-02/SEL-05/DUAL-02 to 0x08 having read
+            // "01000" as bits 4..0 — labelling THIS line's correct output a
+            // "KNOWN EMULATOR BUG" — and 47ee7e2 then changed the code to match
+            // the rows five hours later. The suite certified the defect for four
+            // months. The VHDL is the oracle; a test is not.
             uint8_t val = (select_ ? 0x40 : 0x00) | channels_[select_].read_prescaler_msb();
             uart_log()->trace("ch{} select read {:#04x}", select_, val);
             return val;

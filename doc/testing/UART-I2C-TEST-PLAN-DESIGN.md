@@ -69,18 +69,27 @@ plan executed:
   `detect_start_stop()` call from `write_scl` unblocked 9 rows: I2C-P03,
   I2C-P05a, I2C-P05b, RTC-01, RTC-02, RTC-04, RTC-05, plus flow-through for
   RTC-06/07.
-- **`src/peripheral/uart.cpp:299` select-register bit** — commit `47ee7e2`
-  (`fix(uart): select-register read returns bit 3 (0x08) not bit 6 (0x40)`)
-  **was itself the defect**, and is reverted by GH #253. `uart.vhd:371` emits
-  `"01000" & uart1_prescalar_msb_r` into an 8-bit `o_cpu_d` with a 3-bit msb, so
-  the literal is bits 7 DOWNTO 3 and the marker is **bit 6 (0x40)** — as
-  `ports.txt:370` states in words and as the write path always used. 47ee7e2
-  read it as bits 4..0, moved the emulator to 0x08, and restated UART-SEL-02,
-  SEL-05 and DUAL-02 to match, so those three "unblocked" by agreeing with the
-  defect they were derived from and certified it for four months. Expected
-  values come from the VHDL, never from the C++ — a row derived from a
-  misreading is worse than no row, because it is evidence pointing the wrong
-  way. SEL-08 now covers the consumer symptom this produced.
+- **`src/peripheral/uart.cpp:299` select-register bit** — **never an emulator
+  bug**; reverted by GH #253 together with the three rows that caused it.
+  `uart.vhd:371` emits `"01000" & uart1_prescalar_msb_r` into an 8-bit
+  `o_cpu_d` whose low 3 bits are the msb, so the literal is bits 7 DOWNTO 3 and
+  the marker is **bit 6 (0x40)** — as `ports.txt:370` states in words and as
+  `uart.vhd:280` and the C++ write path both use. The order of events is the
+  lesson:
+  1. The original suite asserted `(sel & 0x40) == 0x40` and the emulator agreed.
+     Both correct.
+  2. The Wave 2 rewrite of `test/uart/uart_test.cpp` (`c788166e`, 2026-04-15
+     12:06) restated UART-SEL-02, SEL-05 and DUAL-02 to `0x08`, having read the
+     literal as bits 4..0, and annotated the emulator's correct output as
+     `(KNOWN EMULATOR BUG uart.cpp:299 uses bit 6 -> 0x40)`.
+  3. `47ee7e2` (17:51 the same day) changed `uart.cpp` to `0x08` to match those
+     rows, citing them as "unblocked".
+
+  A row derived from a misreading declared correct code a bug, and the code was
+  then changed to satisfy the row — the exact inversion of this plan's ground
+  rule. Expected values come from the VHDL: never from the C++, and never from
+  an existing test. SEL-08 is added because the three constant rows structurally
+  could not have caught it.
 
 ## VHDL Source Files
 
