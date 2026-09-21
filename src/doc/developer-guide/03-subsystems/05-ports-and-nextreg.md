@@ -127,8 +127,11 @@ The Z80N `NEXTREG rr,nn` opcode has its **own** write path,
 `PortDispatch::nextreg_opcode_write_cb`, which writes the named register
 directly and leaves the `0x243B` select latch alone, per `zxnext.vhd:4739-4744`.
 Routing it through the port pair instead clobbered the latch and broke raster
-waits in real games. Both paths defer during the per-instruction tick window
-(`Emulator::enqueue_cpu_nr_write`); see
+waits in real games. A port `0xFF3B` write in ULA+ palette mode (port `0xBF3B`
+bits 7:6 = `00`) is the VHDL's third CPU requester (`zxnext.vhd:4741-4745`): it
+writes NR `0xFF` with the ULA+ GGGRRRBB byte reordered to RRRGGGBB, and leaves
+the select latch alone too. All three paths defer during the per-instruction
+tick window (`Emulator::enqueue_cpu_nr_write`); see
 [A frame, end to end](../02-architecture/03-a-frame-end-to-end.md).
 
 ## Registers that are cached only
