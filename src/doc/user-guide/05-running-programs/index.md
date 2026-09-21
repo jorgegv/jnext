@@ -42,4 +42,40 @@ CPU clock, the emulator speed, tape state, and the current machine.
 
 Everything else in this chapter is about shaping that session.
 
+## Programs that need NextZXOS
+
+Loading a file directly (with `--load`, a bare file name, or **File > Load NEX
+File…**) skips NextZXOS: the program starts on a machine with nothing else
+running. That is all most games and demos need. On a real Next, though, every
+NEX program is started by NextZXOS, and some programs also use it while they
+run: to ask which drive they are on, to save a high score, or to read their
+levels, music or settings from files next to them.
+
+For a NEX file loaded directly, JNEXT stands in for the NextZXOS services such
+programs most often ask for:
+
+- the current drive, which is always `C:`;
+- one small file kept in memory, so a high score or a settings file can be
+  saved and read back during the session (it is not written to disk, and it is
+  gone when JNEXT closes);
+- `run` of another NEX file in the same folder, for programs that come in
+  several parts.
+
+Everything else is refused with an error. In practice:
+
+- A program that only checks its drive or saves a high score runs normally.
+- A program that needs data files from disk (levels, music, a configuration
+  file) stops with its own error message, or runs with parts missing. NXtel,
+  for example, says it cannot read `NXTEL.CFG`. JNEXT cannot give a directly
+  loaded program files from your computer.
+
+For those, do what a real Next does: boot NextZXOS from the SD card image and
+start the program from the **Browser**, with its files next to it on the card.
+Many programs, games included, are already on the image JNEXT uses by default.
+To add your own, copy the program and its files into the image with a tool that
+can write to FAT32 disk images, such as `mcopy` from mtools.
+
+(A NEX file whose header asks to keep its own file open can also read that
+file, and read files next to it, when loaded directly. It cannot write them.)
+
 ---

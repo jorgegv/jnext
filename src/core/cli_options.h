@@ -283,9 +283,9 @@ inline constexpr Option OPTIONS[] = {
       "Without this option no SAVE capture happens." },
     { "--esxdos-stub", 0, Doc::Documented, OptId::EsxdosStub,
       "",
-      "Answer RST $08 esxDOS calls without NextZXOS (in-memory\n"
-      "config I/O, .RUN sibling-NEX chaining); automatic for a\n"
-      "directly loaded NEX, this turns it on for anything else" },
+      "Answer a few RST $08 esxDOS calls (version, one in-memory\n"
+      "file, .RUN sibling NEX) for any program; a directly loaded\n"
+      "NEX gets more automatically. Not for use with NextZXOS" },
     { "--rtc", 1, Doc::Documented, OptId::Rtc,
       "\"YYYY-MM-DD HH:MM:SS\"",
       "Pin the RTC to a fixed date/time (frozen clock)\n"

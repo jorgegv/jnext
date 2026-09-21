@@ -168,10 +168,14 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     happens.
 
 **--esxdos-stub**
-:   Answer `RST $08` esxDOS calls without booting NextZXOS: in-memory
-    config I/O, `.RUN` sibling-NEX chaining, and an error for the rest.
-    A NEX file loaded directly gets this automatically; the option turns
-    it on for programs loaded any other way.
+:   Answer a few `RST $08` esxDOS calls for any program, for the whole
+    session: the version query, one in-memory file and `run sibling.nex`
+    chaining. Every other call goes to the code at `$0008`. For programs
+    run without NextZXOS; a directly loaded NEX gets a fuller set
+    automatically (see [Programs that need
+    NextZXOS](../05-running-programs/index.md#programs-that-need-nextzxos)).
+    With NextZXOS booted it answers in front of NextZXOS’s own esxDOS
+    for those calls, and NextZXOS’s file commands stop working.
 
 **--rtc** *“YYYY-MM-DD HH:MM:SS”*
 :   Pin the RTC to a fixed date and time (a frozen clock) instead of
