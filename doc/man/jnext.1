@@ -601,10 +601,13 @@ The GUI\(cqs \f[B]File > Load NEX File\&...\f[R] dialog accepts all of
 the above.
 .PP
 A NEX file loaded directly has no NextZXOS behind it, so jnext answers
-its \f[CR]RST $08\f[R] esxDOS calls itself: the default drive
-(\f[CR]C:\f[R]), one in\-memory file, \f[CR]run sibling.nex\f[R]
-chaining, and, for any other call, the error NextZXOS gives for a call
-it does not implement.
+its \f[CR]RST $08\f[R] esxDOS calls itself.
+It implements only a few: the default drive (always \f[CR]C:\f[R]), one
+in\-memory file, and \f[CR]run sibling.nex\f[R] chaining.
+Every other call in the esxDOS range (\f[CR]$80\f[R]\-\f[CR]$B1\f[R])
+gets an error (carry set, \f[CR]A\f[R]=2), including calls NextZXOS does
+implement, such as reading the current directory or the date; a program
+that depends on one of those may stop with its own error message.
 It is not a filesystem: the program cannot see the files next to it, on
 the host or on the SD card, so a program that needs its data files still
 has to be launched from NextZXOS.

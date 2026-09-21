@@ -1498,7 +1498,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     // A hook code jnext does not implement gets the answer
                     // NextZXOS gives for one IT does not implement: Fc=1,
                     // A=esx_enonsense (esxapi.def:172). Measured on real
-                    // NextZXOS for $80, $8A, $96 and $97. Codes above $B1
+                    // NextZXOS for $80, $8A, $96 and $97. This includes
+                    // calls NextZXOS DOES implement (F_GETCWD, F_CHDIR,
+                    // M_GETDATE, ...): for those it is a refusal, not a
+                    // copy of NextZXOS's reply. Codes above $B1
                     // are not hooks — NextZXOS raises a BASIC error report
                     // for them (measured: $B2, $E0) — so they stay with the
                     // code at $0008.

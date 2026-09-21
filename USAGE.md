@@ -604,13 +604,16 @@ RZX recording uses **--rzx-record** *FILE*. The GUI’s **File \> Load NEX
 File…** dialog accepts all of the above.
 
 A NEX file loaded directly has no NextZXOS behind it, so jnext answers
-its `RST $08` esxDOS calls itself: the default drive (`C:`), one
-in-memory file, `run sibling.nex` chaining, and, for any other call, the
-error NextZXOS gives for a call it does not implement. It is not a
-filesystem: the program cannot see the files next to it, on the host or
-on the SD card, so a program that needs its data files still has to be
-launched from NextZXOS. **--esxdos-stub** gives the same answers to
-programs loaded any other way.
+its `RST $08` esxDOS calls itself. It implements only a few: the default
+drive (always `C:`), one in-memory file, and `run sibling.nex` chaining.
+Every other call in the esxDOS range (`$80`-`$B1`) gets an error (carry
+set, `A`=2), including calls NextZXOS does implement, such as reading
+the current directory or the date; a program that depends on one of
+those may stop with its own error message. It is not a filesystem: the
+program cannot see the files next to it, on the host or on the SD card,
+so a program that needs its data files still has to be launched from
+NextZXOS. **--esxdos-stub** gives the same answers to programs loaded
+any other way.
 
 Raw binaries go straight into RAM with **--inject** *FILE*
 (**--inject-org** load address, **--inject-pc** entry point,
