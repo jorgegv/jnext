@@ -885,6 +885,30 @@ begin_new_frame() turns VT-T56-01..04 red (T56-INT-01 survives B by
 design — its simultaneous tim change fires the re-push; the trigger
 term is discriminated by the VT rows).
 
+## GH #257 append — line interrupt and NR 0x1E/0x1F on the hc_ula line
+
+The line-interrupt pulse fires when `hc_ula == 255` on the line whose `cvc`
+is `int_line_num` (`zxula_timing.vhd:560-583`), and `cvc` — which NR 0x1E/0x1F
+read back (`zxnext.vhd:5982-5986`) — steps on the same registered `ula_max_hc`
+pulse that zeroes `hc_ula` (`:423-436`, `:457-470`), i.e. at raw hc
+`c_min_hactive - 11`. jnext anchored both at raw hc 0 of the line: the pulse
+~380 pixels early, the readback ~125 early. That put a line-interrupt
+handler's writes on the line BEFORE the one they land on in hardware, and was
+the only reason the tilemap's start-of-line latch looked right for GH #16.
+
+| ID | Test | Expected | VHDL file:line |
+|----|------|----------|----------------|
+| VT-GH257-01 | Next: `line_int_master_cycle_offset()`, target 208 | raw line (207+64) mod 311 = 271, raw hc 125+255 = 380: `(271*456+380)*4` = 495824 | zxula_timing.vhd:423-436,566-570,577 |
+| VT-GH257-02 | 48K timing, target 208 | raw (271, 117+255 = 372): `(271*448+372)*4` = 487120 | zxula_timing.vhd:257-270,423-436,577 |
+| VT-GH257-03 | Pentagon timing, target 208 | raw ((207+80) mod 320 = 287, 372): `(287*448+372)*4` = 515792 | zxula_timing.vhd:155-168,423-436,577 |
+| VT-GH257-04 | Next, target 0 (`int_line_num = c_max_vc = 310`) | raw ((310+64) mod 311 = 63, 380): `(63*456+380)*4` = 116432 | zxula_timing.vhd:566-570,577 |
+| VT-GH257-05 | Full `Emulator`: the target-208 line interrupt is raised in the instruction that crosses master cycle 495824, not the one crossing raw hc 0 of line 271 | fire count 0 → 1 in a step `(before, after]` containing 495824 | zxula_timing.vhd:423-436,577; zxnext.vhd:6752-6758 |
+| VT-GH257-06 | Full `Emulator`: NR 0x1E/0x1F on raw line 64, clock advanced to the exact master cycle | 310 at raw hc 0 and at cycle 499 (still raw line 63's cvc), 0 from cycle 500 (raw hc 125) | zxula_timing.vhd:423-436,457-470; zxnext.vhd:5982-5986 |
+
+`RO-06` (nextreg_integration_test) was re-pinned by the same change: at the
+exact frame start (raw vc 0, raw hc 0) `cvc` still holds raw line 310's value,
+`(310-64) mod 311 = 246`, not 247.
+
 ## Planned rows carried over from the traceability matrix (GH #196)
 
 These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a
