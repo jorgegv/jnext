@@ -1097,8 +1097,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         const bool stub_enabled = cfg.esxdos_stub;
         auto handle_esxdos = [this, stub_enabled](uint8_t defb, Z80Registers& r) -> bool {
             const bool host_nex_available = !extended_nex_host_.path().empty();
-            if (!stub_enabled && !host_nex_available)
+            // GH #250 — a NEX loaded directly (load_nex(), armed until the
+            // next reset) gets these answers without --esxdos-stub. On real
+            // hardware a NEX is only ever started by NextZXOS's nexload, so
+            // the esxDOS API is always there for it; with no OS behind a
+            // direct load, an unanswered call ran the 48K ROM's ERROR-1 and
+            // the program died (Warhawk: M_GETSETDRV, then DI + HALT).
+            if (!stub_enabled && !host_nex_available && !direct_nex_esxdos_)
                 return false;   // tracing/direct-load pre-arm only — service nothing
+            // NextZXOS is reached through the DivMMC automap on $0008, which
+            // only engages while ROM, not RAM, is mapped at $0000:
+            // sram_divmmc_automap_rom3_en needs sram_pre_override(0), set
+            // only by the ROM branch of the slot-0 decode (zxnext.vhd:3060-
+            // 3066, :3138). A program with its own RAM at $0000 runs its own
+            // RST $08 code there, so do not answer for it.
+            if (mmu_.get_page(0) != 0xFF)
+                return false;
             auto set_a_and_carry = [&](uint8_t a, bool carry_set) {
                 uint8_t f = static_cast<uint8_t>(r.AF & 0xFF);
                 if (carry_set) f |= 0x01; else f &= 0xFE;
@@ -1372,6 +1386,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     set_a_and_carry(0x00, false);
                     r.AF = static_cast<uint16_t>(r.AF | 0x0040); // Z set
                     return true;
+                case 0x89: { // M_GETSETDRV — a direct load has one drive, C:
+                    // Encoding: bits 7..3 = drive letter (0=A), bits 2..0
+                    // ignored on set and 0 on return (NextZXOS_and_esxDOS_
+                    // APIs.pdf, M_GETSETDRV). Values measured on real
+                    // NextZXOS (distro SD image, `.nexload` of a probe):
+                    // get -> A=$10 Fc=0; set C: ($11) -> A=$10 Fc=0;
+                    // set A: ($01) / D: ($19) -> Fc=1 A=$0B (esx_enodrv,
+                    // esxapi.def:181).
+                    constexpr uint8_t kDriveC = 2 << 3;
+                    const uint8_t a = static_cast<uint8_t>(r.AF >> 8);
+                    if (a == 0 || (a & 0xF8) == kDriveC)
+                        set_a_and_carry(kDriveC, false);
+                    else
+                        set_a_and_carry(0x0B, true);
+                    return true;
+                }
                 case 0x8F: { // M_EXECCMD — support .RUN sibling.nex
                     std::string command = read_zstr(r.IX);
                     while (!command.empty() && command.front() == ' ') command.erase(0, 1);
@@ -1465,6 +1495,17 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     set_a_and_carry(0x05, true);  // A=5 (ENOENT)
                     return true;
                 default:
+                    // A hook code jnext does not implement gets the answer
+                    // NextZXOS gives for one IT does not implement: Fc=1,
+                    // A=esx_enonsense (esxapi.def:172). Measured on real
+                    // NextZXOS for $80, $8A, $96 and $97. Codes above $B1
+                    // are not hooks — NextZXOS raises a BASIC error report
+                    // for them (measured: $B2, $E0) — so they stay with the
+                    // code at $0008.
+                    if (defb <= 0xB1) {
+                        set_a_and_carry(0x02, true);
+                        return true;
+                    }
                     return false;  // not handled — fall through to $0008 code
             }
         };
@@ -1481,9 +1522,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         //
         // Residual limitation, deliberate: with the stub and tracing off at
         // init there is no CPU hook, so merely raising the log level later
-        // still requires a restart. A later GUI extended-NEX load is different:
-        // load_nex() attaches this stored wrapper when it creates the required
-        // host handle. Keeping it dormant otherwise preserves ordinary RST $08
+        // still requires a restart. A later GUI NEX load is different:
+        // load_nex() attaches this stored wrapper for every NEX it loads
+        // (GH #250). Keeping it dormant otherwise preserves ordinary RST $08
         // dispatch, pinned by the existing esxdos-stub suite.
         esxdos_bridge_handler_ =
             [handle_esxdos](uint8_t defb, Z80Registers& r) -> bool {
@@ -6803,13 +6844,6 @@ bool Emulator::load_nex(const std::string& path)
                 active_nex_path_);
             return false;
         }
-        // A GUI File -> Open load can occur after init(), when no command-line
-        // NEX existed and the dormant bridge was deliberately not attached.
-        // Activate it now that a host-backed handle exists. When inactive the
-        // handler returns false, preserving the ROM's ordinary RST $08 path.
-        if (!cpu_.on_esxdos_call && esxdos_bridge_handler_) {
-            cpu_.on_esxdos_call = esxdos_bridge_handler_;
-        }
         sd_card_.set_read_overlay(
             ExtendedNexHost::kSyntheticFirstBlock,
             extended_nex_host_.block_count(),
@@ -6833,6 +6867,18 @@ bool Emulator::load_nex(const std::string& path)
         Log::emulator()->warn(
             "NEX: unsupported file_handle value {:#06x}; file closed",
             loader.header().file_handle);
+    }
+
+    // GH #250 — the program now runs with no NextZXOS behind it, so arm the
+    // esxDOS answers nexload's OS would have provided (see the handler in
+    // init()). Disarmed by reset()/soft_reset(), like the host bridge.
+    // A GUI File -> Open load can occur after init(), when no command-line
+    // NEX existed and the dormant bridge was deliberately not attached, so
+    // attach it here too. When disarmed the handler returns false,
+    // preserving the ROM's ordinary RST $08 path.
+    direct_nex_esxdos_ = true;
+    if (!cpu_.on_esxdos_call && esxdos_bridge_handler_) {
+        cpu_.on_esxdos_call = esxdos_bridge_handler_;
     }
     return true;
 }
@@ -9123,6 +9169,7 @@ void Emulator::reset()
     // port-$EB stream, or synthetic SD sectors intercept that machine.
     extended_nex_host_.clear();
     sd_card_.clear_read_overlay();
+    direct_nex_esxdos_ = false;   // GH #250 — same lifetime as the bridge
 
     // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x84 are reloaded
     // to 0xFF only when reset_type (NR 0x85 bit 7) is 1. When reset_type=0,
@@ -9226,6 +9273,7 @@ void Emulator::soft_reset()
     // configured card/ROM just like a hard reset.
     extended_nex_host_.clear();
     sd_card_.clear_read_overlay();
+    direct_nex_esxdos_ = false;   // GH #250 — same lifetime as the bridge
 
     const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
     const uint8_t save_82 = nextreg_.cached(0x82);

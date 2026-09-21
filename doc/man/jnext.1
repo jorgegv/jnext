@@ -187,8 +187,11 @@ paged at slot 0.
 Without this option no SAVE capture happens.
 .TP
 \f[B]\-\-esxdos\-stub\f[R]
-Intercept \f[CR]RST $08\f[R] calls and provide in\-memory config I/O
-plus \f[CR].RUN\f[R] sibling\-NEX chaining, without booting NextZXOS.
+Answer \f[CR]RST $08\f[R] esxDOS calls without booting NextZXOS:
+in\-memory config I/O, \f[CR].RUN\f[R] sibling\-NEX chaining, and an
+error for the rest.
+A NEX file loaded directly gets this automatically; the option turns it
+on for programs loaded any other way.
 .TP
 \f[B]\-\-rtc\f[R] \f[I]\(lqYYYY\-MM\-DD HH:MM:SS\(rq\f[R]
 Pin the RTC to a fixed date and time (a frozen clock) instead of
@@ -597,9 +600,16 @@ RZX recording uses \f[B]\-\-rzx\-record\f[R] \f[I]FILE\f[R].
 The GUI\(cqs \f[B]File > Load NEX File\&...\f[R] dialog accepts all of
 the above.
 .PP
-\f[B]\-\-esxdos\-stub\f[R] handles the common \f[CR]RST $08\f[R] calls
-used by directly loaded NEX programs.
-It provides one in\-memory file and \f[CR]run sibling.nex\f[R] chaining.
+A NEX file loaded directly has no NextZXOS behind it, so jnext answers
+its \f[CR]RST $08\f[R] esxDOS calls itself: the default drive
+(\f[CR]C:\f[R]), one in\-memory file, \f[CR]run sibling.nex\f[R]
+chaining, and, for any other call, the error NextZXOS gives for a call
+it does not implement.
+It is not a filesystem: the program cannot see the files next to it, on
+the host or on the SD card, so a program that needs its data files still
+has to be launched from NextZXOS.
+\f[B]\-\-esxdos\-stub\f[R] gives the same answers to programs loaded any
+other way.
 .PP
 Raw binaries go straight into RAM with \f[B]\-\-inject\f[R]
 \f[I]FILE\f[R] (\f[B]\-\-inject\-org\f[R] load address,

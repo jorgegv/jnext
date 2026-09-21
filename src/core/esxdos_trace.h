@@ -6,8 +6,9 @@
 /// The Next exposes its filesystem and OS services through `RST $08` followed
 /// by a one-byte function code (the "DEFB" immediately after the RST). jnext
 /// intercepts that at `Z80Cpu::on_esxdos_call` and services a small subset in
-/// the `--esxdos-stub` handler; everything else falls through to whatever is
-/// really at $0008.
+/// the esxDOS stand-in (a directly loaded NEX, or `--esxdos-stub`), which
+/// refuses the rest of the $80..$B1 hook range with esx_enonsense; with the
+/// stand-in off, everything falls through to whatever is really at $0008.
 ///
 /// When a program written for NextZXOS misbehaves under `--load`, the decisive
 /// question is which of these it called and what it got back — especially the

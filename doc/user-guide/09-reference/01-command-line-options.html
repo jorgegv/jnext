@@ -2997,8 +2997,10 @@ fast load.</dd>
 runs with ROM paged at slot 0. Without this option no SAVE capture
 happens.</dd>
 <dt><strong>--esxdos-stub</strong></dt>
-<dd>Intercept <code>RST $08</code> calls and provide in-memory config I/O plus
-<code>.RUN</code> sibling-NEX chaining, without booting NextZXOS.</dd>
+<dd>Answer <code>RST $08</code> esxDOS calls without booting NextZXOS: in-memory
+config I/O, <code>.RUN</code> sibling-NEX chaining, and an error for the rest.
+A NEX file loaded directly gets this automatically; the option turns
+it on for programs loaded any other way.</dd>
 <dt><strong>--rtc</strong> <em>“YYYY-MM-DD HH:MM:SS”</em></dt>
 <dd>Pin the RTC to a fixed date and time (a frozen clock) instead of
 following the host clock, which makes boot screenshots

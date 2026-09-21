@@ -283,8 +283,9 @@ inline constexpr Option OPTIONS[] = {
       "Without this option no SAVE capture happens." },
     { "--esxdos-stub", 0, Doc::Documented, OptId::EsxdosStub,
       "",
-      "Intercept RST $08 calls; provide in-memory config I/O\n"
-      "and .RUN sibling-NEX chaining without booting NextZXOS" },
+      "Answer RST $08 esxDOS calls without NextZXOS (in-memory\n"
+      "config I/O, .RUN sibling-NEX chaining); automatic for a\n"
+      "directly loaded NEX, this turns it on for anything else" },
     { "--rtc", 1, Doc::Documented, OptId::Rtc,
       "\"YYYY-MM-DD HH:MM:SS\"",
       "Pin the RTC to a fixed date/time (frozen clock)\n"

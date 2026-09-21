@@ -170,8 +170,10 @@ debugger ones.
     paged at slot 0. Without this option no SAVE capture happens.
 
 **\--esxdos-stub**
-:   Intercept `RST $08` calls and provide in-memory config I/O plus `.RUN`
-    sibling-NEX chaining, without booting NextZXOS.
+:   Answer `RST $08` esxDOS calls without booting NextZXOS: in-memory config
+    I/O, `.RUN` sibling-NEX chaining, and an error for the rest. A NEX file
+    loaded directly gets this automatically; the option turns it on for
+    programs loaded any other way.
 
 **\--rtc** *"YYYY-MM-DD HH:MM:SS"*
 :   Pin the RTC to a fixed date and time (a frozen clock) instead of following
@@ -530,8 +532,13 @@ format is detected from the extension:
 RZX recording uses **\--rzx-record** *FILE*. The GUI's **File > Load NEX
 File...** dialog accepts all of the above.
 
-**\--esxdos-stub** handles the common `RST $08` calls used by directly loaded
-NEX programs. It provides one in-memory file and `run sibling.nex` chaining.
+A NEX file loaded directly has no NextZXOS behind it, so jnext answers its
+`RST $08` esxDOS calls itself: the default drive (`C:`), one in-memory file,
+`run sibling.nex` chaining, and, for any other call, the error NextZXOS gives
+for a call it does not implement. It is not a filesystem: the program cannot
+see the files next to it, on the host or on the SD card, so a program that
+needs its data files still has to be launched from NextZXOS.
+**\--esxdos-stub** gives the same answers to programs loaded any other way.
 
 Raw binaries go straight into RAM with **\--inject** *FILE*
 (**\--inject-org** load address, **\--inject-pc** entry point,

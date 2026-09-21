@@ -168,8 +168,10 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     happens.
 
 **--esxdos-stub**
-:   Intercept `RST $08` calls and provide in-memory config I/O plus
-    `.RUN` sibling-NEX chaining, without booting NextZXOS.
+:   Answer `RST $08` esxDOS calls without booting NextZXOS: in-memory
+    config I/O, `.RUN` sibling-NEX chaining, and an error for the rest.
+    A NEX file loaded directly gets this automatically; the option turns
+    it on for programs loaded any other way.
 
 **--rtc** *“YYYY-MM-DD HH:MM:SS”*
 :   Pin the RTC to a fixed date and time (a frozen clock) instead of
