@@ -38,7 +38,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD Card Provisioner   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      209 |      209 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor            |      236 |      236 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Compositor (int)      |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Compositor (int)      |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video             |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -73,7 +73,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Extended NEX streaming |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Tilemap raster splits |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Tilemap raster splits |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes                 |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes (integration)   |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI Source Pipeline   |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -93,7 +93,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Host hotkeys on Alt (Ctrl to guest) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Host hotkeys on Alt (Ctrl to guest) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Main-window menu mnemonics |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Shifted symbols reach the guest |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Window scale + fullscreen geometry |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -107,6 +107,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7192** | **7192** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7209** | **7209** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
