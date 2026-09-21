@@ -1929,8 +1929,11 @@ exist:</p>
 <code>PortDispatch::nextreg_opcode_write_cb</code>, which writes the named register
 directly and leaves the <code>0x243B</code> select latch alone, per <code>zxnext.vhd:4739-4744</code>.
 Routing it through the port pair instead clobbered the latch and broke raster
-waits in real games. Both paths defer during the per-instruction tick window
-(<code>Emulator::enqueue_cpu_nr_write</code>); see
+waits in real games. A port <code>0xFF3B</code> write in ULA+ palette mode (port <code>0xBF3B</code>
+bits 7:6 = <code>00</code>) is the VHDL's third CPU requester (<code>zxnext.vhd:4741-4745</code>): it
+writes NR <code>0xFF</code> with the ULA+ GGGRRRBB byte reordered to RRRGGGBB, and leaves
+the select latch alone too. All three paths defer during the per-instruction
+tick window (<code>Emulator::enqueue_cpu_nr_write</code>); see
 <a href="../02-architecture/03-a-frame-end-to-end.html">A frame, end to end</a>.</p>
 <h2 id="registers-that-are-cached-only">Registers that are cached only<a class="headerlink" href="#registers-that-are-cached-only" title="Permanent link">&para;</a></h2>
 <p>A few registers are stored and read back faithfully but drive nothing, because

@@ -23,7 +23,7 @@ mentions them, so a test can no longer be absent from this document.
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
 | Memory/MMU                                 |   261 |  255 |    0 |    0 |       6 |          0 |
-| ULA Video                                  |   128 |  124 |    0 |    0 |       4 |          0 |
+| ULA Video                                  |   130 |  126 |    0 |    0 |       4 |          0 |
 | Layer2                                     |   209 |  201 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   221 |  214 |    0 |    0 |       7 |          0 |
 | Tilemap                                    |    95 |   77 |    0 |    0 |      18 |          0 |
@@ -51,7 +51,7 @@ mentions them, so a test can no longer be absent from this document.
 | ESP-01 AT engine                           |   344 |  344 |    0 |    0 |       0 |          0 |
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |    65 |   65 |    0 |    0 |       0 |          0 |
-| Companion: ula_integration_test            |    14 |   14 |    0 |    0 |       0 |          0 |
+| Companion: ula_integration_test            |    16 |   16 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    20 |   20 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |     7 |    7 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |     7 |    7 |    0 |    0 |       0 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4422 | 4170 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4426 | 4174 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4422**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4218**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7209**.
+Rows the sections above carry: **4426**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4220**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7211**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -437,6 +437,8 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | S5-PSL.03 | zxula.vhd:191/209/419/426-427 — HI_RES (paper=5) on line 32 then STANDARD on line 33: bright cyan ink in HI_RES then non-bright cyan in STANDARD after replay | zxula.vhd:191/209/419/426-427 | pass | test/ula/ula_test.cpp:1484 |
 | S5-PSL.04 | zxnext.vhd:3613-3616 + zxula.vhd:191/209 — port_ff_reg is cleared only by the global hardware reset (never a frame/vsync boundary) and otherwise holds until the next port-0xFF write; Ula::start_frame snapshots live port-0xFF as baseline and clears the log; subsequent rewind_to_baseline restores that baseline | zxnext.vhd:3613-3616, zxula.vhd:191/209 | pass | test/ula/ula_test.cpp:1513 |
 | S5-PSL.05 | zxnext.vhd:3613-3616 + zxula.vhd:191/209 — port_ff_reg is genuine persistent hardware state (cleared only by global reset); Ula::save_state + load_state round-trips the port-0xFF change log: rendering the same scanline through replay produces byte-equal output before and after | zxnext.vhd:3613-3616, zxula.vhd:191/209 | pass | test/ula/ula_test.cpp:1568 |
+| INT-ULAPLUS-06 | port 0xFF3B write in palette mode is an NR 0xFF write of the GGGRRRBB byte reordered to RRRGGGBB, at the latched 0xBF3B index with no auto-increment and the NextREG select latch untouched; each write shows from its own row (zxnext.vhd:4532-4535,4597-4598,4741-4745,4919,6957-6958) | zxnext.vhd:4532-4535,4597-4598,4741-4745,4919,6957-6958 | pass | test/ula/ula_integration_test.cpp:954 |
+| INT-ULAPLUS-07 | port 0xFF3B writes reach the palette only in mode 00 and only while NR 0x85 b0 decodes the port; mode 01 loads the enable, modes 10/11 do nothing; a palette-mode IN reads the written GGGRRRBB byte back (zxnext.vhd:2439,2686,4548-4549,4563,4741-4745) | zxnext.vhd:2439,2686,4548-4549,4563,4741-4745 | pass | test/ula/ula_integration_test.cpp:1027 |
 | S9-PSL.01 | zxnext.vhd:5304/5307,5449 — three setter calls append three log entries | zxnext.vhd:5304/5307,5449 | pass | test/ula/ula_test.cpp:2869 |
 | S9-PSL.02 | zxula.vhd:192,206 — NR 0x27 mid-frame split: line32→row0(white) line33→row2(black) | zxula.vhd:192,206 | pass | test/ula/ula_test.cpp:2917 |
 | S9-PSL.03 | zxula.vhd:199 — NR 0x68 b2 fine_scroll mid-frame flip per line | zxula.vhd:199 | pass | test/ula/ula_test.cpp:2957 |
@@ -4295,20 +4297,22 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| INT-SCROLL-01 | nextreg().write(0x26,8) → 8-pixel shift end-to-end (zxula.vhd:199; zxnext.vhd:5304; emulator.cpp:524-526) | zxula.vhd:199, zxnext.vhd:5304 | pass | test/ula/ula_integration_test.cpp:236 |
-| INT-SCROLL-03 | nextreg().write(0x68, 0x04) → fine X-scroll = 1 → 1-pixel shift (zxula.vhd:199,216; zxnext.vhd:5449; emulator.cpp:762-768) | zxula.vhd:199,216, zxnext.vhd:5449 | pass | test/ula/ula_integration_test.cpp:294 |
-| INT-SCROLL-02 | nextreg().write(0x27,32) → Y-scroll 32 rows end-to-end (zxula.vhd:193-207; zxnext.vhd:5307; emulator.cpp:532-534) | zxula.vhd:193-207, zxnext.vhd:5307 | pass | test/ula/ula_integration_test.cpp:345 |
-| INT-ULAPLUS-01 | OUT 0xBF3B=0x40 + OUT 0xFF3B=0x01 → ulap_mode=01, ulap_en=1; gate holds when mode≠01 (zxnext.vhd:4525-4554; zxula.vhd:531-541; emulator.cpp:1549-1563) | zxnext.vhd:4525-4554, zxula.vhd:531-541 | pass | test/ula/ula_integration_test.cpp:435 |
-| INT-ULAPLUS-02 | NR 0x68 bit 3 ungated ulap_en latch (zxnext.vhd:4550-4551) — ulap_mode=00 so port 0xFF3B path is gated; bit 3 toggles ulap_en directly | zxnext.vhd:4550-4551 | pass | test/ula/ula_integration_test.cpp:493 |
-| INT-ULAPLUS-03 | ULA+ runtime palette: BF3B index latch + NR 0xFF poke + encoder + active_ula_palette routes pixels to ulap_colour; bank-0/bank-1 isolation via NR 0x43 b6 (write) / b1 (read); negative gate (ulap_en=0) restores std-ULA boot defaults (zxnext.vhd:4533-4535,6957-6958,6981; zxula.vhd:531-541; src/video/ula.cpp render_display_line ulap_en branch) | zxnext.vhd:4533-4535,6957-6958,6981, zxula.vhd:531-541 | pass | test/ula/ula_integration_test.cpp:696 |
-| INT-ULAPLUS-04 | port 0xFF3B read in query mode returns "0000000" & ulap_en for every ulap_mode /= 00, and un-decodes to 0xFF when NR 0x85 b0 is clear (zxnext.vhd:4561-4566,2806,2439,2685-2686) | zxnext.vhd:4561-4566,2806,2439,2685-2686 | pass | test/ula/ula_integration_test.cpp:757 |
-| INT-ULAPLUS-05 | port 0xFF3B read in palette mode returns GGGRRRBB of palette_utm['0' & NR0x43b6 & "11" & bf3b_index]; the ULA+ slots alias ULA palette 0xC0..0xFF so NR 0x41 writes and NR 0xFF pokes are mutually visible (zxnext.vhd:4563,4919,6958,6960) | zxnext.vhd:4563,4919,6958,6960 | pass | test/ula/ula_integration_test.cpp:826 |
-| INT-ULANEXT-01 | nextreg().write(0x43,0x01) + write(0x42,0x0F) → ulanext_en=1, format=0x0F, encoder paper = 0x80\|(attr>>4) (zxula.vhd:521; zxnext.vhd:5386,5394,5002; emulator.cpp:322-330,540-545) | zxula.vhd:521, zxnext.vhd:5386,5394,5002 | pass | test/ula/ula_integration_test.cpp:909 |
-| INT-ULANEXT-02 | ULAnext runtime palette: NR 0x43 b0 enable + NR 0x42 format + NR 0x40/0x41 8-bit poke at full nr_palette_idx routes pixels through compute_ulanext_pixel + ula_colour; bank-0/bank-1 isolation via NR 0x43 b1 (active_ula); negative gate (ulanext_en=0) restores std-ULA boot defaults (zxula.vhd:485-528, :520; zxnext.vhd:5394, 6952-6981; src/video/ula.cpp render_display_line ulanext_en branch) | zxula.vhd:485-528,520, zxnext.vhd:5394,6952-6981 | pass | test/ula/ula_integration_test.cpp:1040 |
-| INT-PALSEL-01 | nextreg().write(0x43,…) + write(0x6B,…) end-to-end through Ula palsel change-log; rewind+replay restores per-scanline selectors (zxnext.vhd:5391-5393,:5462,:6825-6828; emulator.cpp NR 0x43 / NR 0x6B handlers; G10) | zxnext.vhd:5391-5393,5462,6825-6828 | pass | test/ula/ula_integration_test.cpp:1207 |
-| INT-SHADOW-01 | OUT 0x7FFD bit 3 → Ula::shadow_screen_en (zxnext.vhd:3640,:4453; emulator.cpp 0x7FFD handler) | zxnext.vhd:3640,4453 | pass | test/ula/ula_integration_test.cpp:1295 |
-| INT-SHADOW-02 | OUT 0x7FFD bit 3 must switch ULA reads to bank 7 — render-side regression for the half-implemented set_shadow_screen_en that tripped beast.nex 2026-04-25 | — | pass | test/ula/ula_integration_test.cpp:1353 |
-| INT-STANDARD-ALT-01 | OUT 0xFF=0x01 → STANDARD_1 alt-file routes ULA to 0x6000 base (zxula.vhd:191,218,235; zxnext.vhd:2397; emulator.cpp:1187-1192) | zxula.vhd:191,218,235, zxnext.vhd:2397 | pass | test/ula/ula_integration_test.cpp:1449 |
+| INT-SCROLL-01 | nextreg().write(0x26,8) → 8-pixel shift end-to-end (zxula.vhd:199; zxnext.vhd:5304; emulator.cpp:524-526) | zxula.vhd:199, zxnext.vhd:5304 | pass | test/ula/ula_integration_test.cpp:237 |
+| INT-SCROLL-03 | nextreg().write(0x68, 0x04) → fine X-scroll = 1 → 1-pixel shift (zxula.vhd:199,216; zxnext.vhd:5449; emulator.cpp:762-768) | zxula.vhd:199,216, zxnext.vhd:5449 | pass | test/ula/ula_integration_test.cpp:295 |
+| INT-SCROLL-02 | nextreg().write(0x27,32) → Y-scroll 32 rows end-to-end (zxula.vhd:193-207; zxnext.vhd:5307; emulator.cpp:532-534) | zxula.vhd:193-207, zxnext.vhd:5307 | pass | test/ula/ula_integration_test.cpp:346 |
+| INT-ULAPLUS-01 | OUT 0xBF3B=0x40 + OUT 0xFF3B=0x01 → ulap_mode=01, ulap_en=1; gate holds when mode≠01 (zxnext.vhd:4525-4554; zxula.vhd:531-541; emulator.cpp:1549-1563) | zxnext.vhd:4525-4554, zxula.vhd:531-541 | pass | test/ula/ula_integration_test.cpp:480 |
+| INT-ULAPLUS-02 | NR 0x68 bit 3 ungated ulap_en latch (zxnext.vhd:4550-4551) — ulap_mode=00 so port 0xFF3B path is gated; bit 3 toggles ulap_en directly | zxnext.vhd:4550-4551 | pass | test/ula/ula_integration_test.cpp:538 |
+| INT-ULAPLUS-03 | ULA+ runtime palette: BF3B index latch + NR 0xFF poke + encoder + active_ula_palette routes pixels to ulap_colour; bank-0/bank-1 isolation via NR 0x43 b6 (write) / b1 (read); negative gate (ulap_en=0) restores std-ULA boot defaults (zxnext.vhd:4533-4535,6957-6958,6981; zxula.vhd:531-541; src/video/ula.cpp render_display_line ulap_en branch) | zxnext.vhd:4533-4535,6957-6958,6981, zxula.vhd:531-541 | pass | test/ula/ula_integration_test.cpp:741 |
+| INT-ULAPLUS-04 | port 0xFF3B read in query mode returns "0000000" & ulap_en for every ulap_mode /= 00, and un-decodes to 0xFF when NR 0x85 b0 is clear (zxnext.vhd:4561-4566,2806,2439,2685-2686) | zxnext.vhd:4561-4566,2806,2439,2685-2686 | pass | test/ula/ula_integration_test.cpp:802 |
+| INT-ULAPLUS-05 | port 0xFF3B read in palette mode returns GGGRRRBB of palette_utm['0' & NR0x43b6 & "11" & bf3b_index]; the ULA+ slots alias ULA palette 0xC0..0xFF so NR 0x41 writes and NR 0xFF pokes are mutually visible (zxnext.vhd:4563,4919,6958,6960) | zxnext.vhd:4563,4919,6958,6960 | pass | test/ula/ula_integration_test.cpp:871 |
+| INT-ULAPLUS-06 | port 0xFF3B write in palette mode is an NR 0xFF write of the GGGRRRBB byte reordered to RRRGGGBB, at the latched 0xBF3B index with no auto-increment and the NextREG select latch untouched; each write shows from its own row (zxnext.vhd:4532-4535,4597-4598,4741-4745,4919,6957-6958) | zxnext.vhd:4532-4535,4597-4598,4741-4745,4919,6957-6958 | pass | test/ula/ula_integration_test.cpp:954 |
+| INT-ULAPLUS-07 | port 0xFF3B writes reach the palette only in mode 00 and only while NR 0x85 b0 decodes the port; mode 01 loads the enable, modes 10/11 do nothing; a palette-mode IN reads the written GGGRRRBB byte back (zxnext.vhd:2439,2686,4548-4549,4563,4741-4745) | zxnext.vhd:2439,2686,4548-4549,4563,4741-4745 | pass | test/ula/ula_integration_test.cpp:1027 |
+| INT-ULANEXT-01 | nextreg().write(0x43,0x01) + write(0x42,0x0F) → ulanext_en=1, format=0x0F, encoder paper = 0x80\|(attr>>4) (zxula.vhd:521; zxnext.vhd:5386,5394,5002; emulator.cpp:322-330,540-545) | zxula.vhd:521, zxnext.vhd:5386,5394,5002 | pass | test/ula/ula_integration_test.cpp:1106 |
+| INT-ULANEXT-02 | ULAnext runtime palette: NR 0x43 b0 enable + NR 0x42 format + NR 0x40/0x41 8-bit poke at full nr_palette_idx routes pixels through compute_ulanext_pixel + ula_colour; bank-0/bank-1 isolation via NR 0x43 b1 (active_ula); negative gate (ulanext_en=0) restores std-ULA boot defaults (zxula.vhd:485-528, :520; zxnext.vhd:5394, 6952-6981; src/video/ula.cpp render_display_line ulanext_en branch) | zxula.vhd:485-528,520, zxnext.vhd:5394,6952-6981 | pass | test/ula/ula_integration_test.cpp:1237 |
+| INT-PALSEL-01 | nextreg().write(0x43,…) + write(0x6B,…) end-to-end through Ula palsel change-log; rewind+replay restores per-scanline selectors (zxnext.vhd:5391-5393,:5462,:6825-6828; emulator.cpp NR 0x43 / NR 0x6B handlers; G10) | zxnext.vhd:5391-5393,5462,6825-6828 | pass | test/ula/ula_integration_test.cpp:1404 |
+| INT-SHADOW-01 | OUT 0x7FFD bit 3 → Ula::shadow_screen_en (zxnext.vhd:3640,:4453; emulator.cpp 0x7FFD handler) | zxnext.vhd:3640,4453 | pass | test/ula/ula_integration_test.cpp:1492 |
+| INT-SHADOW-02 | OUT 0x7FFD bit 3 must switch ULA reads to bank 7 — render-side regression for the half-implemented set_shadow_screen_en that tripped beast.nex 2026-04-25 | — | pass | test/ula/ula_integration_test.cpp:1550 |
+| INT-STANDARD-ALT-01 | OUT 0xFF=0x01 → STANDARD_1 alt-file routes ULA to 0x6000 base (zxula.vhd:191,218,235; zxnext.vhd:2397; emulator.cpp:1187-1192) | zxula.vhd:191,218,235, zxnext.vhd:2397 | pass | test/ula/ula_integration_test.cpp:1646 |
 
 ### Companion integration suite — `test/compositor/compositor_integration_test.cpp`
 
