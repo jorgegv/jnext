@@ -255,7 +255,15 @@ void test_emulator_copper_wiring() {
     const uint32_t* framebuffer = emulator.get_framebuffer();
     const uint32_t expected_before = emulator.palette().tilemap_colour(0x01);
     const uint32_t expected_after = emulator.palette().tilemap_colour(0x02);
-    const int expected_transition = wait_cvc + Renderer::DISP_Y + 1;
+    // GH #257: WAIT(cvc, h=0) completes at hc_ula 12 = whc 32, the start of
+    // the paper of the raw line whose cvc it names (copper.vhd:94;
+    // zxula_timing.vhd:423-436 hc_ula, :457-470 cvc, :474-490 whc), and the
+    // fetcher re-latches the live NR 0x6E at each character's S_IDLE
+    // (tilemap.vhd:309,345-350) — so hardware switches THAT row from x~35,
+    // and jnext's row model applies it to that whole row: cvc + DISP_Y
+    // (vblank_top == DISP_Y == 32 on this timing). It was pinned at +1 while
+    // the tilemap latched at the START of the raw line.
+    const int expected_transition = wait_cvc + Renderer::DISP_Y;
     int first_transition = -1;
     int transition_count = 0;
     int unexpected_row = -1;
@@ -296,7 +304,9 @@ void test_emulator_copper_wiring() {
     // which is the defect the round was about.
     check("TM-SPLIT-04",
           // VHDL tilemap.vhd:264,349 — tm_map_base_q is latched whenever the
-          // fetch FSM re-enters S_IDLE, which :264 forces once per tile COLUMN.
+          // fetch FSM re-enters S_IDLE, which :264 forces once per tile COLUMN;
+          // copper.vhd:94 + zxula_timing.vhd:423-436,474-490 put WAIT(n,0) at
+          // whc 32 of row n+DISP_Y, before that row's later S_IDLEs (GH #257).
           unexpected_row < 0 &&
           transition_count == 1 &&
           first_transition == expected_transition,
@@ -315,7 +325,8 @@ void test_emulator_copper_wiring() {
 // (the fetcher runs "one character ahead", tilemap.vhd:229, and latches the
 // base at S_IDLE, :349). The two land within a tile of each other, so any
 // per-scanline model must switch them on the SAME row. jnext's tilemap row for
-// a write is the one after the write's line (TM-SPLIT-04), so these do too.
+// a write is the row of the raw line it executes in (TM-SPLIT-04, GH #257), so
+// these do too.
 //
 // Before GH #256 both were read at their END-OF-FRAME value: a Copper split
 // of either collapsed to one value for the whole frame.
@@ -331,8 +342,10 @@ constexpr uint32_t SPLIT_RED      = 0xFFFF0000u;
 constexpr uint32_t SPLIT_GREEN    = 0xFF00FF00u;
 constexpr uint32_t SPLIT_FALLBACK = 0xFF0000FFu;
 
-// The row a Copper WAIT(cvc, h=0) + MOVE first shows on (see TM-SPLIT-04).
-constexpr int split_row(int cvc) { return cvc + Renderer::DISP_Y + 1; }
+// The row a Copper WAIT(cvc, h=0) + MOVE first shows on (see TM-SPLIT-04):
+// the row of the raw line where the WAIT completes, at whc 32 (copper.vhd:94,
+// zxula_timing.vhd:423-436,474-490). GH #257 — was cvc + DISP_Y + 1.
+constexpr int split_row(int cvc) { return cvc + Renderer::DISP_Y; }
 
 // Full-Emulator fixture shared by TM-165 and TM-SPLIT-05/06: ULA hidden, tilemap on in
 // 40x32 with attribute bytes, map A (NR 0x6E=0x00) all tile 1 and map B
@@ -431,7 +444,8 @@ void test_transparency_index_split() {
     check("TM-165",
           // VHDL tilemap.vhd:427 — pixel_en_standard_s compares the displayed
           // pixel against transp_colour_i (zxnext.vhd:4395 nr_4c), so the
-          // index is live per pixel, never once per frame (GH #256).
+          // index is live per pixel, never once per frame (GH #256). Row per
+          // split_row(): copper.vhd:94, zxula_timing.vhd:423-436,474-490.
           ok, detail);
 }
 
@@ -458,7 +472,8 @@ void test_map_and_transparency_coherent() {
     check("TM-SPLIT-05",
           // VHDL tilemap.vhd:229,349,427 — the base is latched one tile ahead
           // of the pixel the index is compared against, so both writes reach
-          // the display within one tile of each other: the same row.
+          // the display within one tile of each other: the same row. Row per
+          // split_row(): copper.vhd:94, zxula_timing.vhd:423-436,474-490.
           ok, detail);
 }
 
@@ -493,6 +508,7 @@ void test_clip_window_split() {
           // VHDL tilemap.vhd:412-424 — xsv/xev/ysv/yev re-latch clip_*_i every
           // 7 MHz and gate pixel_en_s against the display counters
           // (zxnext.vhd:4424-4427 nr_1b), so a mid-frame clip applies per line.
+          // Row per split_row(): copper.vhd:94, zxula_timing.vhd:423-436,474-490.
           clipped && kept, both);
 }
 

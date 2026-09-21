@@ -127,12 +127,12 @@ Five details reliably bite newcomers:
   60 Hz. Writes that land before the visible area all coalesce onto row 0;
   writes after it stay out of range and are picked up by the drain, where they
   become the next frame's baseline. A write lands on the row whose raw line it
-  executes in — except for the tilemap's scroll, fetch and output-stage
-  snapshots, which are taken at the *start* of each line and so apply a write
-  from the following row (GH #16, GH #53). The renderer has no representation
-  for "from column X", so both are approximations that are wrong by up to one
-  row; the tilemap's registers share one latch point so that a Copper split
-  changing several of them switches them all on the same row.
+  executes in, for every lane: the snapshots are taken at the end of each raw
+  line, and the tilemap's scroll, fetch and output-stage snapshots share that
+  one point so that a Copper split changing several of them switches them all
+  on the same row (GH #257; they used to be taken at the start of the line,
+  one row late). The renderer has no representation for "from column X", so
+  this is an approximation that can be up to one row early, never late.
 - **Skipping the drain loses vblank writes forever.** `rewind_to_baseline()`
   deliberately undoes the live mutation the writer performed, and the per-row
   replay only covers visible rows — so a setup sequence that completes during

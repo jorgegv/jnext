@@ -1551,17 +1551,26 @@ static void test_readonly_registers(Emulator& emu) {
     // cvc-faithful read. Because getActiveVideoLineWord()/waitForScanline()
     // poll exactly these registers, the 64-line (8 tile-row) origin error
     // shifted David Crespo's videoint scroll write ~24 rows down-screen.
+    //
+    // GH #257 re-pin, 247 -> 246: cvc steps on `ula_max_hc`, the registered
+    // pulse that also zeroes hc_ula (zxula_timing.vhd:423-436, :457-470), so
+    // at the exact frame start (raw vc 0, raw hc 0 < hc_ula's zero at raw hc
+    // 125) it still holds the value it took on raw line 310 (c_max_vc):
+    //     cvc = (310 - 64 + 0) mod 311 = 246 (= 0xF6),
+    // and becomes 247 only at raw hc 125 of raw line 0. The old 247 assumed a
+    // raw-hc-0 line boundary. Still discriminative against the raw-vc bug (0).
     {
         uint8_t got1e = nr_read(emu, 0x1E);
         uint8_t got1f = nr_read(emu, 0x1F);
         uint16_t cvc = static_cast<uint16_t>((got1e << 8) | got1f);
         check("RO-06",
               "NR 0x1E/0x1F return cvc (paper-relative), not raw frame vc: "
-              "frame-start cvc == 247 for 128K timing "
-              "[zxnext.vhd:5982-5986, zxula_timing.vhd:455-472]",
-              cvc == 247,
+              "frame-start cvc == 246 for 128K timing (cvc steps at hc_ula 0, "
+              "raw hc 125, so raw (0,0) still reads raw line 310's value) "
+              "[zxnext.vhd:5982-5986, zxula_timing.vhd:423-436,455-472]",
+              cvc == 246,
               "0x1E=" + hex2(got1e) + " 0x1F=" + hex2(got1f) +
-              " cvc=" + std::to_string(cvc) + " (expected 247)");
+              " cvc=" + std::to_string(cvc) + " (expected 246)");
     }
 }
 

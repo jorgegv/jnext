@@ -165,7 +165,8 @@ public:
     /// compared against the pixel being displayed — tilemap.vhd:412-424
     /// re-latch the clip every 7 MHz, :427 compares the index — so a
     /// mid-frame write must not repaint the rows already on screen. Taken
-    /// at the same point as snapshot_fetch_for_line (start of the row): a
+    /// at the same point as snapshot_fetch_for_line (the end of the row's
+    /// raw line, like every other per-scanline snapshot — GH #257): a
     /// map base and an index written together reach the display within one
     /// tile of each other on hardware (the fetcher runs one character ahead,
     /// tilemap.vhd:229), so they must switch on the same row here.

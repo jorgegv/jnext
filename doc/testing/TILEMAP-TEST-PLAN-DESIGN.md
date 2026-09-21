@@ -152,7 +152,7 @@ bit decode authority: `tilemap.vhd:189-195` + `zxnext.vhd:5461-5462`.
 | TM-162 | Per-scanline NR 0x6B b1 (256→512 tile) flip mid-frame | Lines 0..99 b1=0; Copper writes b1=1 at line 100 | Lines 0..99 use 256-tile addressing (8-bit pat idx); lines 100..255 use 9-bit tile idx (b1 also forces ula_below per VHDL `zxnext.vhd:6863`). skip — `mode_512_` (`tilemap.h:140`) bool snapshot (see G06) |
 | TM-163 | Per-scanline NR 0x6B b0 (`tm_on_top`) flip mid-frame | Lines 0..99 b0=0 (TM-below default); Copper writes b0=1 at line 100 | Lines 0..99 follow per-tile below; lines 100..255 force tilemap above ULA. skip — `ula_on_top_` (`tilemap.h:141`) bool snapshot, no log (see G06) |
 | TM-164 | Per-scanline NR 0x6B b7 (enable) flip mid-frame | Lines 0..99 b7=0 (TM off); Copper writes b7=1 at line 100 | Lines 0..99 render no tilemap; lines 100..255 render tilemap. skip — `enabled_` (`tilemap.h:136`) bool snapshot, no log (see G06) |
-| TM-165 | Per-scanline NR 0x4C (TM transparent nibble) flip mid-frame (G04 cross-bucket) | Full `Emulator` (companion `tilemap_fetch_split_test`): every tile index 1; NR 0x4C = 1 at frame start, Copper `WAIT 60; MOVE 0x4C,0x0F; WAIT 140; MOVE 0x4C,0x01` | Column 0 shows the NR 0x4A fallback on every row except rows `61+DISP_Y .. 140+DISP_Y`, which show index 1's colour — two transitions, so neither the frame-start nor the end-of-frame index can produce the band. Implemented for GH #256 (before it NR 0x4C was read at its end-of-frame value). Re-homed 2026-04-28 from `compositor_test.cpp` (PSCAN-G04-03); NR 0x4C is owned by Tilemap — VHDL `tilemap.vhd:427`, `zxnext.vhd:4395` |
+| TM-165 | Per-scanline NR 0x4C (TM transparent nibble) flip mid-frame (G04 cross-bucket) | Full `Emulator` (companion `tilemap_fetch_split_test`): every tile index 1; NR 0x4C = 1 at frame start, Copper `WAIT 60; MOVE 0x4C,0x0F; WAIT 140; MOVE 0x4C,0x01` | Column 0 shows the NR 0x4A fallback on every row except rows `60+DISP_Y .. 139+DISP_Y` (GH #257; was `61..140`), which show index 1's colour — two transitions, so neither the frame-start nor the end-of-frame index can produce the band. Implemented for GH #256 (before it NR 0x4C was read at its end-of-frame value). Re-homed 2026-04-28 from `compositor_test.cpp` (PSCAN-G04-03); NR 0x4C is owned by Tilemap — VHDL `tilemap.vhd:427`, `zxnext.vhd:4395` |
 
 #### Per-scanline output-stage inputs (GH #256, companion `tilemap_fetch_split_test`)
 
@@ -160,14 +160,17 @@ bit decode authority: `tilemap.vhd:189-195` + `zxnext.vhd:5461-5462`.
 pixel being displayed (`tilemap.vhd:412-427`), while the map base is latched one
 tile ahead at `S_IDLE` (`:229`, `:349`): written together, they reach the
 display within one tile of each other. jnext therefore snapshots all three at
-the same point — the start of the row, from the following row on (GH #53's
-latch) — so a Copper split that changes the map and the index together never
-renders a row that mixes the two.
+the same point — the end of the raw line, like every other per-scanline lane
+(GH #257; it was the start of the line, one row late, until then) — so a
+Copper split that changes the map and the index together never renders a row
+that mixes the two. A Copper `WAIT(n, h=0)` completes at hc_ula 12 = whc 32,
+the start of the paper of the raw line whose cvc is `n` (`copper.vhd:94`,
+`zxula_timing.vhd:423-436,474-490`), so the split row is `n+DISP_Y`.
 
 | ID          | Test | Stimulus | Expected |
 |-------------|------|----------|----------|
-| TM-SPLIT-05 | NR 0x6E and NR 0x4C switched by adjacent Copper MOVEs stay coherent | Map A (index 1) visible while NR 0x4C = 2; Copper `WAIT 100; MOVE 0x6E (map B, index 2); MOVE 0x4C,0x01` | Rows before `101+DISP_Y` show map A's colour, rows from it map B's; no row shows the fallback a mixed (map, index) pair would produce. The GH #256 program shape |
-| TM-SPLIT-06 | NR 0x1B clip written mid-frame via the Copper | Copper `WAIT 100; MOVE 0x1C,0x08; MOVE 0x1B ×4 (x1 = 0x10)` | Column 0 (320-grid x 0, left of the new `xsv` = 32) shows the tile above the split and the fallback from `101+DISP_Y`; column 80 (grid x 40) shows the tile on every row |
+| TM-SPLIT-05 | NR 0x6E and NR 0x4C switched by adjacent Copper MOVEs stay coherent | Map A (index 1) visible while NR 0x4C = 2; Copper `WAIT 100; MOVE 0x6E (map B, index 2); MOVE 0x4C,0x01` | Rows before `100+DISP_Y` show map A's colour, rows from it map B's; no row shows the fallback a mixed (map, index) pair would produce. The GH #256 program shape |
+| TM-SPLIT-06 | NR 0x1B clip written mid-frame via the Copper | Copper `WAIT 100; MOVE 0x1C,0x08; MOVE 0x1B ×4 (x1 = 0x10)` | Column 0 (320-grid x 0, left of the new `xsv` = 32) shows the tile above the split and the fallback from `100+DISP_Y`; column 80 (grid x 40) shows the tile on every row |
 
 ### Group 2: 40-Column Mode (8-bit tiles)
 

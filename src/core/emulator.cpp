@@ -7283,7 +7283,8 @@ void Emulator::begin_new_frame()
     // target=N→N-1 (:566-570). cvc is offset-adjusted from cu_offset
     // (NR 0x64) at ula_min_vactive (:462). VideoTiming::
     // line_int_master_cycle_offset() returns the master-cycle within the
-    // frame at which the firing scanline begins, accounting for all three.
+    // frame at which hc_ula reaches 255 on the firing scanline, accounting
+    // for all three (GH #257 — it used to return that scanline's raw hc 0).
     //
     // Routing: LINE is priority slot 0 in the VHDL IM2 fabric
     // (zxnext.vhd:1937, 1941 — im2_int_req bit 0 = line_int_pulse, the
@@ -8002,12 +8003,20 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // [0, FB_HEIGHT), so the end-of-frame snapshot must use FB_HEIGHT-1
     // (=255), not the raw last VC line.
     //
-    // Tilemap scroll is deliberately NOT re-snapshotted here (GH #16 /
-    // Task 76): with the start-of-scanline latch in on_scanline(), row 255
-    // is already captured by on_scanline(287) with the value in effect as
-    // that row begins. Re-snapshotting FB_HEIGHT-1 at end-of-frame would
-    // overwrite it with the frame's FINAL scroll value — leaking a HUD-zone
-    // re-scroll onto the last visible row.
+    // The tilemap lane takes it only when no on_scanline() event followed
+    // row 255's raw line — i.e. when that line is the frame's last (60 Hz:
+    // vblank_top 8 + 256 = 264 lines). Otherwise on_scanline() has already
+    // captured row 255 at the end of its raw line, and re-snapshotting here
+    // would overwrite it with the frame's FINAL value, leaking a HUD-zone
+    // re-scroll written in the bottom vblank onto the last visible row
+    // (GH #16).
+    if (video_timing_.vblank_top() + Renderer::FB_HEIGHT
+            >= timing_.lines_per_frame) {
+        tilemap_.snapshot_scroll_for_line(Renderer::FB_HEIGHT - 1);
+        tilemap_.snapshot_fetch_for_line(Renderer::FB_HEIGHT - 1);
+        tilemap_.snapshot_output_for_line(Renderer::FB_HEIGHT - 1,
+                                          palette_.tilemap_transparency());
+    }
     renderer_.snapshot_fallback_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_ula_enabled_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_stencil_mode_for_line(Renderer::FB_HEIGHT - 1);
@@ -9830,12 +9839,23 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
 
 int Emulator::current_cvc() const
 {
-    // cvc = (raw_vc - c_min_vactive + cu_offset) mod (c_max_vc + 1)
-    // (zxula_timing.vhd:455-472). raw_vc uses the SAME frame origin the
-    // line-interrupt scheduler assumes (frame int at raw vc==c_int_v), so
-    // this matches begin_new_frame()/line_int_master_cycle_offset() exactly.
+    // cvc = (vc - c_min_vactive + cu_offset) mod (c_max_vc + 1)
+    // (zxula_timing.vhd:455-472), read back by NR 0x1E/0x1F
+    // (zxnext.vhd:5982-5986). cvc steps on `ula_max_hc`, the same registered
+    // pulse that zeroes hc_ula (:423-436, :457-470), so its line boundary is
+    // raw hc == hc_ula_zero_raw_hc() (c_min_hactive - 11), not raw hc 0.
+    // GH #257 — this used to step at raw hc 0, ~125 pixels early, so a
+    // program polling NR 0x1F left its wait loop that much sooner than on
+    // hardware. The raw frame position is shifted back by that origin
+    // before splitting it into lines, exactly as
+    // tick_copper_for_master_cycles() does for the Copper's own cvc (GH #181).
+    // The position is the instruction's START (clock_ advances after it).
+    const uint64_t mcpf = timing_.master_cycles_per_frame;
+    const uint64_t shift_mc =
+        static_cast<uint64_t>(video_timing_.hc_ula_zero_raw_hc()) * 4u;
     const uint64_t elapsed = clock_.get() - frame_cycle_;
-    const int raw_vc = static_cast<int>(elapsed / timing_.master_cycles_per_line);
+    const uint64_t shifted = (elapsed + mcpf - shift_mc) % mcpf;
+    const int raw_vc = static_cast<int>(shifted / timing_.master_cycles_per_line);
     const int lines_per_frame = video_timing_.vc_max() + 1;
     const int min_vactive     = video_timing_.display_origin().vc;
     const int cu_offset       = video_timing_.cu_offset();
@@ -9876,33 +9896,22 @@ void Emulator::on_scanline(int line)
             sprites_.snapshot_control_for_line(prev_fb_row,
                                                palette_.sprite_transparency());
             renderer_.ula().snapshot_control_for_line(prev_fb_row);
-        }
-    }
-
-    // Tilemap X/Y scroll latches at the START of each scanline, not the end
-    // (GH #16 / Task 76). on_scanline(line) fires at the start of raw scanline
-    // `line`, so the live scroll here is the value in effect as the tilemap
-    // begins fetching THIS scanline (fb_row = line - vblank_top). A CPU write
-    // that lands mid-scanline therefore affects the NEXT displayed row, which
-    // is what real hardware / CSpect do.
-    //
-    // The other per-scanline snapshots above deliberately use `prev_fb_row`
-    // (end-of-N-1 = "reflect Copper MOVE writes that landed in vc=N-1"); the
-    // tilemap scroll was sharing that origin and so applied one row too early:
-    // a HUD split reset via a line interrupt appeared at fb_row 239 instead of
-    // 240, and the re-scroll leaked onto the last visible row (255). Latching
-    // at the current row fixes both boundaries. Row 255 is now covered by
-    // on_scanline(287); the redundant end-of-frame snapshot_scroll_for_line()
-    // that used to clobber it with the frame's FINAL scroll value is removed.
-    {
-        const int cur_fb_row = line - video_timing_.vblank_top();
-        if (cur_fb_row >= 0 && cur_fb_row < Renderer::FB_HEIGHT) {
-            tilemap_.snapshot_scroll_for_line(cur_fb_row);
-            tilemap_.snapshot_fetch_for_line(cur_fb_row);
-            // GH #256 — the output-stage inputs (NR 0x1B clip, NR 0x4C
-            // index) at the SAME point: written beside a NR 0x6E split they
-            // must switch on the same row (see Tilemap::snapshot_output_for_line).
-            tilemap_.snapshot_output_for_line(cur_fb_row,
+            // Tilemap scroll (GH #16), fetch bases (GH #53) and output-stage
+            // NR 0x1B clip / NR 0x4C index (GH #256), all at the one point so
+            // a Copper split of several of them switches on one row. GH #257 —
+            // these used to be taken at the START of the raw line (a write in
+            // line N showed from row N+1), which was one row late for a Copper
+            // WAIT(n,0) + MOVE: that completes at hc_ula 12 = whc 32, the
+            // start of the paper (copper.vhd:94, zxula_timing.vhd:423-436,
+            // :474-490), and the tilemap re-reads the live registers at every
+            // character's S_IDLE (tilemap.vhd:309,345-350) and compares NR 0x4C
+            // per pixel (:427), so hardware changes row n from x~35. The start-
+            // of-line latch had been right for GH #16 only because the line
+            // interrupt fired ~380 pixels early (fixed in
+            // VideoTiming::line_int_master_cycle_offset()).
+            tilemap_.snapshot_scroll_for_line(prev_fb_row);
+            tilemap_.snapshot_fetch_for_line(prev_fb_row);
+            tilemap_.snapshot_output_for_line(prev_fb_row,
                                               palette_.tilemap_transparency());
         }
     }

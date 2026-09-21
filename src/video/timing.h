@@ -286,20 +286,23 @@ public:
     ///   - target=N → fires at cvc=N-1 (VHDL :569);
     ///   - cu_offset shift: line-int compares cvc, where cvc is reloaded
     ///     from cu_offset at ula_min_vactive (VHDL :462).
-    /// Pulse fires when `hc_ula = 255` (VHDL :577); hc_ula counts from
-    /// `ula_min_hactive = c_min_hactive - 12` (VHDL :423), so hc_ula=255
-    /// corresponds to raw hc = (c_min_hactive - 12 + 256) mod (c_max_hc+1)
-    /// — strictly `- 11`, since the hc_ula reset is registered (:427-436,
-    /// GH #181/#183); immaterial here, the whole in-line term is discarded
-    /// by the anchoring below.
-    /// We anchor scheduling at hc=0 of the firing scanline; the residual
-    /// in-line offset is at most one scanline and below scheduler
-    /// granularity for IM2/INT-line-pulse semantics.
-    /// Solves cvc(vc) == int_line_num for vc:
-    ///   cvc = ((vc - min_vactive + cu_offset) mod (c_max_vc+1)) for vc
-    ///   in active region; outside the region cvc holds prior value, but
-    ///   for line-int the firing line is always the one where this match
-    ///   first occurs in the frame.
+    /// Pulse fires when `hc_ula = 255` (VHDL :577 — "occurs before the
+    /// line is drawn", :560). `hc_ula` reads 0 at raw hc
+    /// `hc_ula_zero_raw_hc()` = c_min_hactive - 11 (the reset is registered,
+    /// :423-436, GH #181), so the pulse is at raw hc c_min_hactive - 11 + 255:
+    /// 380 on the 128K/Next timing, 372 on 48K and Pentagon — in the right
+    /// border of the raw line whose cvc is `int_line_num`, one line BEFORE
+    /// the target line's display. Like frame_int_master_cycle_offset(), this
+    /// is the compare position; the one-tick delay of the registered
+    /// `int_line` output (:574-583) is not modelled.
+    /// GH #257 — this used to anchor the pulse at raw hc 0 of that line,
+    /// ~380 pixels early, which put a line-interrupt handler's writes on the
+    /// line before the one they land on in hardware.
+    /// Solves cvc(vc) == int_line_num for vc, with cvc stepping at
+    /// hc_ula == 0 (:457-470):
+    ///   cvc = ((vc - min_vactive + cu_offset) mod (c_max_vc+1)) for the
+    ///   part of raw line vc at or after hc_ula == 0 — which contains the
+    ///   hc_ula == 255 point, so the solved vc is the raw line that fires.
     uint64_t line_int_master_cycle_offset() const {
         const uint64_t lines_per_frame  = static_cast<uint64_t>(vc_max_) + 1;
         const uint64_t pixels_per_line  = static_cast<uint64_t>(hc_max_) + 1;
@@ -312,7 +315,14 @@ public:
              + lines_per_frame
              - static_cast<uint64_t>(cu_offset_))
             % lines_per_frame;
-        return vc_fire * pixels_per_line * 4;
+        // Raw hc of hc_ula == 255. It stays inside the raw line on every
+        // timing (380 < 456, 372 < 448); the modulo keeps a wrap into the
+        // next frame's raw line 0 a periodic position rather than an
+        // out-of-frame offset.
+        const uint64_t hc_fire =
+            static_cast<uint64_t>(hc_ula_zero_raw_hc()) + 255;
+        return ((vc_fire * pixels_per_line + hc_fire)
+                % (lines_per_frame * pixels_per_line)) * 4;
     }
 
 private:
