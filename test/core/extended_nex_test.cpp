@@ -11,6 +11,9 @@
 #include "core/extended_nex_host.h"
 #include "core/nex_loader.h"
 #include "peripheral/sd_card.h"
+#include "core/log.h"
+
+#include <spdlog/sinks/ostream_sink.h>
 
 #include <algorithm>
 #include <chrono>
@@ -19,6 +22,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -47,9 +51,10 @@ void put_u16(std::vector<uint8_t>& bytes, std::size_t off, uint16_t value) {
 }
 
 bool write_nex(const std::filesystem::path& path, uint16_t file_handle,
-               const std::vector<uint8_t>& appended) {
+               const std::vector<uint8_t>& appended, uint8_t bank_fill = 0) {
     constexpr std::size_t bank_size = 16384;
     std::vector<uint8_t> bytes(512 + bank_size + appended.size(), 0);
+    std::fill(bytes.begin() + 512, bytes.begin() + 512 + bank_size, bank_fill);
     std::memcpy(bytes.data(), "NextV1.2", 8);
     bytes[8] = 0;       // 768K requirement
     bytes[9] = 1;       // one bank
@@ -98,6 +103,20 @@ uint8_t first_sd_response(SdCardDevice& sd) {
         if (value != 0xFF) return value;
     }
     return 0xFF;
+}
+
+// Lines of a captured "%l %v" log containing every one of `needles`.
+int count_lines(const std::string& log, std::initializer_list<const char*> needles) {
+    std::istringstream in(log);
+    std::string line;
+    int n = 0;
+    while (std::getline(in, line)) {
+        bool all = true;
+        for (const char* needle : needles)
+            all = all && line.find(needle) != std::string::npos;
+        n += all ? 1 : 0;
+    }
+    return n;
 }
 
 } // namespace
@@ -490,8 +509,85 @@ int main() {
           cli_loaded && cli_hook_present && cli_bridge_gone &&
           !cli_emu.sd_card().has_read_overlay());
 
+    // GH #250: a NEX whose header says file_handle=0 but whose file carries
+    // more than 16K after its declared banks (Spectron2084: 293120 bytes).
+    // The real loaders read the declared banks, close the file and run the
+    // program — no size check, nothing reads the rest (nexload2.asm:390-395,
+    // nexload.asm:547-551). jnext loads it the same way, with a warning.
+    std::string trailing;
+    while (trailing.size() < 20000) trailing += "GH250-TRAILING-PAYLOAD ";
+    const std::vector<uint8_t> big_payload(trailing.begin(), trailing.end());
+    const std::vector<uint8_t> padding(16384, 0xEE);
+    const auto closed_ext_path = root / "closed-extended.nex";
+    const auto register_ext_path = root / "register-extended.nex";
+    const auto closed_pad_path = root / "closed-padded.nex";
+    const bool gh250_fixtures =
+        write_nex(closed_ext_path, 0, big_payload, 0x5A) &&
+        write_nex(register_ext_path, 1, big_payload, 0x5A) &&
+        write_nex(closed_pad_path, 0, padding, 0x5A);
+
+    std::ostringstream log_out;
+    auto log_sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log_out);
+    log_sink->set_pattern("%l %v");
+    Log::emulator()->sinks().push_back(log_sink);
+
+    NexLoader closed_ext;
+    const bool closed_ext_ok = gh250_fixtures && closed_ext.load(closed_ext_path.string());
+    const std::string closed_ext_log = log_out.str();
+    check("XNEX-29", "file_handle=0 with a >16K trailing payload loads (GH #250)",
+          closed_ext_ok && !closed_ext.keeps_file_open() &&
+          closed_ext.payload_offset() == 512 + 16384 &&
+          closed_ext.file_size() == 512 + 16384 + big_payload.size());
+    check("XNEX-30", "that load logs one warning that the trailing bytes are ignored",
+          count_lines(closed_ext_log, {"warning ", "extended NEX file", "ignoring the trailing"}) == 1 &&
+          count_lines(closed_ext_log, {"error "}) == 0 &&
+          count_lines(closed_ext_log, {"trailing padding"}) == 0,
+          closed_ext_log);
+
+    Emulator closed_emu;
+    EmulatorConfig closed_cfg = cfg;
+    closed_cfg.load_file = closed_ext_path.string();
+    const bool closed_loaded = closed_emu.init(closed_cfg) &&
+                               closed_emu.load_nex(closed_ext_path.string());
+    bool bank_ok = closed_loaded;
+    for (uint32_t a = 0xC000; a <= 0xFFFF && bank_ok; ++a)
+        bank_ok = closed_emu.mmu().read(static_cast<uint16_t>(a)) == 0x5A;
+    const uint8_t* sram = closed_emu.ram().page_ptr(0);
+    const std::string marker = "GH250-TRAILING";
+    const bool payload_in_ram =
+        sram && std::search(sram, sram + closed_emu.ram().size(),
+                            marker.begin(), marker.end()) != sram + closed_emu.ram().size();
+    regs = {};
+    check("XNEX-31", "only the declared bank is loaded; the payload reaches no guest path",
+          closed_loaded && bank_ok && !payload_in_ram &&
+          !closed_emu.sd_card().has_read_overlay() &&
+          !esx(closed_emu, 0x88, regs));
+
+    log_out.str("");
+    NexLoader register_ext;
+    const bool register_ext_ok =
+        gh250_fixtures && register_ext.load(register_ext_path.string());
+    const std::string register_ext_log = log_out.str();
+    check("XNEX-32", "file_handle=1 with the same payload stays host-backed, no warning",
+          register_ext_ok && register_ext.keeps_file_open() && register_ext.is_extended() &&
+          count_lines(register_ext_log, {"warning "}) == 0 &&
+          count_lines(register_ext_log, {"info ", "keeping them host-backed"}) == 1,
+          register_ext_log);
+
+    log_out.str("");
+    NexLoader closed_pad;
+    const bool closed_pad_ok = gh250_fixtures && closed_pad.load(closed_pad_path.string());
+    const std::string closed_pad_log = log_out.str();
+    check("XNEX-33", "file_handle=0 with <=16K trailing padding loads without a warning",
+          closed_pad_ok && !closed_pad.keeps_file_open() &&
+          count_lines(closed_pad_log, {"warning "}) == 0 &&
+          count_lines(closed_pad_log, {"info ", "trailing padding"}) == 1,
+          closed_pad_log);
+
+    Log::emulator()->sinks().pop_back();
+
     std::filesystem::remove_all(root, ec);
-    std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
+    std::printf("\nTotal:%4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 total, passed, failed, 0);
     return failed == 0 ? 0 : 1;
 }

@@ -42,6 +42,18 @@ The format is detected from the extension: \f[CR].nex\f[R],
 \f[CR].tzx\f[R], \f[CR].wav\f[R], \f[CR].rzx\f[R].
 (\f[CR].rzx\f[R] is accepted here and plays back, as
 \f[B]\-\-rzx\-play\f[R].)
+.RS
+.PP
+A NEX file with bytes after the banks its header declares is an
+\f[I]extended\f[R] NEX.
+If its header asks for the file to be kept open (\f[CR]file_handle\f[R]
+1 or an address of 0x4000 or above), the program gets that handle and
+can read the extra bytes from its own file.
+If the header says \f[CR]file_handle\f[R] 0, jnext does what the
+Next\(cqs own loader does: it loads only the declared banks, ignores the
+trailing bytes and starts the program.
+More than 16 KB of ignored bytes also logs a warning.
+.RE
 .TP
 \f[B]\-\-nex\-args\f[R] \f[I]LINE\f[R]
 Argument line for a NEX \f[B]V1.3\f[R] program.

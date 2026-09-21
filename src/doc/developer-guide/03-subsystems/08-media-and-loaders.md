@@ -114,6 +114,17 @@ A directly loaded NEX can also keep its own file handle open and stream from
 itself. `extended_nex_host.*` presents the host file to the guest as a
 synthetic block-addressed SD extent, so NextZXOS's file APIs work against it.
 
+Whatever follows the header-described banks is never read into host memory:
+`NexLoader::load()` reads only up to `payload_offset()`. What happens to those
+trailing bytes depends on the header's `file_handle`. With 1 or an address of
+0x4000 or above (`keeps_file_open()`), `Emulator::load_nex()` opens the host
+file behind the handle and the program streams them. With 0, both loaders
+read the declared banks and close the file, with no size check at all
+(`nexload2.asm:390-395`, `nexload.asm:547-551`), so the bytes are dead. jnext
+matches that: the program loads and runs, and more than 16 KB of dead bytes
+logs a warning (GH #250, found on Spectron2084). That warning replaces the
+refusal issue #10 added, which had turned such a file away.
+
 ## RZX
 
 RZX records a *session*, and it does so by recording inputs rather than
