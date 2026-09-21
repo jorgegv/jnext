@@ -75,9 +75,11 @@ bool carry(const Z80Registers& regs) {
 // returns past the DEFB — i.e. a program that owns the $0008 vector.
 //
 // `call` picks what it asks for: the Warhawk-shaped sequence (only without
-// own_rst08), a single M_GETSETDRV get, or a single F_READ of 4 bytes from
-// handle `handle` into kBuf with the returned BC stored at kRes+2.
-enum class Call250 { Sequence, GetDrv, FRead };
+// own_rst08), a single M_GETSETDRV get, a single F_READ of 4 bytes from
+// handle `handle` into kBuf, a single M_DOSVERSION, or a single call of hook
+// code `handle` with A=0. F_READ and M_DOSVERSION store the returned BC at
+// kRes+2.
+enum class Call250 { Sequence, GetDrv, FRead, DosVersion, Hook };
 constexpr uint16_t kRes      = 0x9000;
 constexpr uint16_t kBuf      = 0x9010;
 constexpr uint16_t kOwn      = 0x900E;
@@ -114,6 +116,13 @@ Probe250 build_probe_250(bool own_rst08, Call250 call, uint8_t handle = 0) {
     }
     if (call == Call250::GetDrv) {
         b({0xAF, 0xCF, 0x89}); store(kRes);     // XOR A : RST $08 : DEFB $89
+    } else if (call == Call250::DosVersion) {
+        b({0xAF, 0xCF, 0x88,                    // XOR A : RST $08 : DEFB $88
+           0xED, 0x43, lo(static_cast<uint16_t>(kRes + 2)),
+                       hi(static_cast<uint16_t>(kRes + 2))});  // LD (res+2),BC
+        store(kRes);
+    } else if (call == Call250::Hook) {
+        b({0xAF, 0xCF, handle}); store(kRes);   // XOR A : RST $08 : DEFB handle
     } else if (call == Call250::FRead) {
         b({0x3E, handle,                        // LD A,handle
            0xDD, 0x21, lo(kBuf), hi(kBuf),      // LD IX,buf
@@ -787,13 +796,19 @@ int main() {
         EmulatorConfig stub_only = cfg;       // cfg.esxdos_stub == true
         stub_only.load_file.clear();
 
+        // M_DOSVERSION is used here because it is a call bare --esxdos-stub
+        // answers (M_GETSETDRV and the $80-$B1 catch-all are direct-load
+        // only, ESXN-17/18), so the gate is the only thing that can stop it.
+        const Probe250 s_own_probe = build_probe_250(true, Call250::DosVersion);
+        const Probe250 s_ctl_probe = build_probe_250(false, Call250::DosVersion);
+
         auto s_own_ptr = std::make_unique<Emulator>();
         Emulator& s_own = *s_own_ptr;
         const bool s_own_init = s_own.init(stub_only);
-        run_placed(s_own, own);
+        run_placed(s_own, s_own_probe);
         check("ESXN-13",
               "--esxdos-stub with no NEX loaded: with RAM at $0000 (NR $50=$20) the "
-              "program's own RST $08 handler runs, not the stub "
+              "program's own RST $08 handler runs for M_DOSVERSION, not the stub "
               "(zxnext.vhd:3060-3066, :3138)",
               s_own_init && rd(s_own, kOwn) == kOwnMark &&
               rd(s_own, kRes) == kOwnMark && rd(s_own, kDone) == kDoneMark,
@@ -803,13 +818,75 @@ int main() {
         auto s_ctl_ptr = std::make_unique<Emulator>();
         Emulator& s_ctl = *s_ctl_ptr;
         const bool s_ctl_init = s_ctl.init(stub_only);
-        run_placed(s_ctl, probe);
+        run_placed(s_ctl, s_ctl_probe);
         check("ESXN-14",
               "control for ESXN-13: the same harness with ROM at $0000 IS answered "
-              "by the stub (M_GETSETDRV get -> A=$10) and the program finishes",
-              s_ctl_init && rd(s_ctl, kDone) == kDoneMark && rd(s_ctl, kRes) == 0x10 &&
-              (rd(s_ctl, kRes + 1) & 1) == 0,
-              "done=" + hex2s(rd(s_ctl, kDone)) + " A=" + hex2s(rd(s_ctl, kRes)));
+              "by the stub (M_DOSVERSION: Fc=0, BC='NX'=$4E58) and the program finishes",
+              s_ctl_init && rd(s_ctl, kDone) == kDoneMark &&
+              (rd(s_ctl, kRes + 1) & 1) == 0 &&
+              rd(s_ctl, kRes + 2) == 0x58 && rd(s_ctl, kRes + 3) == 0x4E,
+              "done=" + hex2s(rd(s_ctl, kDone)) + " F=" + hex2s(rd(s_ctl, kRes + 1)) +
+              " BC=" + hex2s(rd(s_ctl, kRes + 3)) + hex2s(rd(s_ctl, kRes + 2)));
+
+        // Bare --esxdos-stub must not stand in front of NextZXOS for calls it
+        // did not handle before GH #250. With NextZXOS booted it did exactly
+        // that once M_GETSETDRV and the catch-all applied to it: `.ls` failed
+        // M_P3DOS ($94) and M_GETHANDLE ($8D) and left a blank screen. So
+        // with ROM at $0000 and NO direct NEX, those codes must reach the
+        // code at $0008. The unit machine has no SD image, so a stand-in
+        // "OS" handler is planted in the ROM itself (Next ROM-in-SRAM page
+        // 0, where $0000-$1FFF reads come from): it marks kOwn and returns
+        // past the DEFB, like the program-owned handler above.
+        auto plant_rom_handler = [&](Emulator& e) {
+            const uint8_t handler[] = {
+                0x3E, kOwnMark, 0x32, static_cast<uint8_t>(kOwn),
+                static_cast<uint8_t>(kOwn >> 8),        // LD A,mark : LD (own),A
+                0xE1, 0x23, 0xE5, 0xC9                  // POP HL : INC HL : PUSH HL : RET
+            };
+            uint8_t* rom0 = e.ram().page_ptr(0);
+            for (std::size_t i = 0; i < sizeof(handler); ++i) rom0[0x0008 + i] = handler[i];
+        };
+        auto bare_untouched = [&](Emulator& e, uint8_t code) {
+            Z80Registers r{};
+            r.AF = 0x1234; r.BC = 0x5678; r.DE = 0x9ABC; r.HL = 0xDEF0;
+            const Z80Registers before = r;
+            const bool handled = e.cpu().on_esxdos_call && e.cpu().on_esxdos_call(code, r);
+            return !handled && r.AF == before.AF && r.BC == before.BC &&
+                   r.DE == before.DE && r.HL == before.HL;
+        };
+        {
+            auto e_ptr = std::make_unique<Emulator>();
+            Emulator& e = *e_ptr;
+            const bool ok = e.init(stub_only);
+            plant_rom_handler(e);
+            const bool rom_ok = e.mmu().read(0x0008) == 0x3E && e.mmu().get_page(0) == 0xFF;
+            run_placed(e, build_probe_250(false, Call250::Hook, 0x94));
+            const bool calls_untouched = bare_untouched(e, 0x94) && bare_untouched(e, 0x8D);
+            check("ESXN-17",
+                  "--esxdos-stub with no direct NEX: M_P3DOS ($94) is NOT answered — "
+                  "the handler at $0008 runs — and a direct call of $94 or $8D "
+                  "M_GETHANDLE is declined with no register touched (GH #250 "
+                  "regression: this blanked NextZXOS's `.ls`)",
+                  ok && rom_ok && rd(e, kOwn) == kOwnMark && rd(e, kRes) == kOwnMark &&
+                  rd(e, kDone) == kDoneMark && calls_untouched,
+                  "rom=" + std::to_string(rom_ok) + " own=" + hex2s(rd(e, kOwn)) +
+                  " A=" + hex2s(rd(e, kRes)) + " done=" + hex2s(rd(e, kDone)) +
+                  " untouched=" + std::to_string(calls_untouched));
+        }
+        {
+            auto e_ptr = std::make_unique<Emulator>();
+            Emulator& e = *e_ptr;
+            const bool ok = e.init(stub_only);
+            plant_rom_handler(e);
+            run_placed(e, build_probe_250(false, Call250::GetDrv));
+            check("ESXN-18",
+                  "--esxdos-stub with no direct NEX: M_GETSETDRV ($89) is NOT "
+                  "answered — the handler at $0008 (NextZXOS's own, when booted) runs",
+                  ok && rd(e, kOwn) == kOwnMark && rd(e, kRes) == kOwnMark &&
+                  rd(e, kDone) == kDoneMark && bare_untouched(e, 0x89),
+                  "own=" + hex2s(rd(e, kOwn)) + " A=" + hex2s(rd(e, kRes)) +
+                  " done=" + hex2s(rd(e, kDone)));
+        }
 
         // Extended-NEX host bridge: file_handle=1 and an appended payload, so
         // load_nex() opens the host handle. The program asks for F_READ on

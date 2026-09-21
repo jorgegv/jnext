@@ -1387,6 +1387,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     r.AF = static_cast<uint16_t>(r.AF | 0x0040); // Z set
                     return true;
                 case 0x89: { // M_GETSETDRV — a direct load has one drive, C:
+                    // Only for a directly loaded NEX (see the default case
+                    // for why bare --esxdos-stub must not answer it).
+                    if (!direct_nex_esxdos_) return false;
                     // Encoding: bits 7..3 = drive letter (0=A), bits 2..0
                     // ignored on set and 0 on return (NextZXOS_and_esxDOS_
                     // APIs.pdf, M_GETSETDRV). Values measured on real
@@ -1505,7 +1508,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     // are not hooks — NextZXOS raises a BASIC error report
                     // for them (measured: $B2, $E0) — so they stay with the
                     // code at $0008.
-                    if (defb <= 0xB1) {
+                    //
+                    // Only while a directly loaded NEX is running. Bare
+                    // --esxdos-stub can be used with NextZXOS booted, and
+                    // there this would answer in front of NextZXOS's own
+                    // esxDOS: it failed M_P3DOS/M_GETHANDLE during `.ls` and
+                    // left a blank screen. (The extended-NEX host bridge is
+                    // only ever opened by load_nex(), which also sets
+                    // direct_nex_esxdos_, so this covers it too.)
+                    if (direct_nex_esxdos_ && defb <= 0xB1) {
                         set_a_and_carry(0x02, true);
                         return true;
                     }
