@@ -203,9 +203,12 @@ answered. The names come from `src/core/esxdos_trace.h`, transcribed from
 
 **Tests.** `test/esxdos_stub/esxdos_stub_test.cpp`: `ESX-01..10` cover the
 in-memory file and `.RUN` chaining, `ESXT-01..36` the call-name table, hook
-installation and the `$0008` trigger, and `ESXN-01..18` GH #250. The `ESXN`
+installation and the `$0008` trigger, and `ESXN-01..18` GH #250. Most `ESXN`
 rows load a NEX built at test time through `load_nex()` and run it with
-`run_frame()`. They cover the answers above, the disarm on reset and soft
+`run_frame()`; the bare `--esxdos-stub` rows put the program in RAM directly
+instead, because `load_nex()` would arm the direct-load answers, and the
+`$B1`/`$B2` rows call the handler directly. They cover the answers above, the
+disarm on reset and soft
 reset, the ROM gate for all three sources, the `$B1`/`$B2` boundary, and a bare
 `--esxdos-stub` leaving `$89`, `$8D` and `$94` to the code at `$0008`. The host
 bridge has its own suite, `test/core/extended_nex_test.cpp` (`XNEX-*`), and

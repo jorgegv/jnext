@@ -2124,9 +2124,12 @@ answered. The names come from <code>src/core/esxdos_trace.h</code>, transcribed 
 <code>esxapi.def</code> and z88dk's <code>esxdos.def</code>.</p>
 <p><strong>Tests.</strong> <code>test/esxdos_stub/esxdos_stub_test.cpp</code>: <code>ESX-01..10</code> cover the
 in-memory file and <code>.RUN</code> chaining, <code>ESXT-01..36</code> the call-name table, hook
-installation and the <code>$0008</code> trigger, and <code>ESXN-01..18</code> GH #250. The <code>ESXN</code>
+installation and the <code>$0008</code> trigger, and <code>ESXN-01..18</code> GH #250. Most <code>ESXN</code>
 rows load a NEX built at test time through <code>load_nex()</code> and run it with
-<code>run_frame()</code>. They cover the answers above, the disarm on reset and soft
+<code>run_frame()</code>; the bare <code>--esxdos-stub</code> rows put the program in RAM directly
+instead, because <code>load_nex()</code> would arm the direct-load answers, and the
+<code>$B1</code>/<code>$B2</code> rows call the handler directly. They cover the answers above, the
+disarm on reset and soft
 reset, the ROM gate for all three sources, the <code>$B1</code>/<code>$B2</code> boundary, and a bare
 <code>--esxdos-stub</code> leaving <code>$89</code>, <code>$8D</code> and <code>$94</code> to the code at <code>$0008</code>. The host
 bridge has its own suite, <code>test/core/extended_nex_test.cpp</code> (<code>XNEX-*</code>), and
