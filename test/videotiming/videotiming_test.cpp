@@ -1625,37 +1625,35 @@ static void section13_gh257_line_int_hc() {
     }
 
     // VT-GH257-06 — NR 0x1E/0x1F read cvc, which steps at hc_ula 0 (raw hc
-    // 125), not at raw hc 0. On raw line 64 (c_min_vactive), before raw hc
-    // 125 cvc still holds raw line 63's value (63 - 64) mod 311 = 310, and
-    // from raw hc 125 on it reads 0.
+    // 125 = master cycle 500 into the line), not at raw hc 0. On raw line 64
+    // (c_min_vactive) cvc still holds raw line 63's value (63 - 64) mod 311 =
+    // 310 up to master cycle 499, and reads 0 from 500. The clock is advanced
+    // directly (no instruction), so the boundary is pinned to the exact
+    // 28 MHz cycle: the readback is a pure function of (clock - frame start).
     {
         Emulator emu;
         bool ok = false;
         std::string detail = "build_emulator returned false";
         if (g163::build_emulator(emu)) {
-            g163::install_jr_self_loop(emu);
+            auto cvc_at = [&emu](uint64_t mc) {
+                emu.clock().tick(static_cast<int>(mc - emu.clock().get()));
+                return (g163::nr_read(emu, 0x1E) << 8) | g163::nr_read(emu, 0x1F);
+            };
             constexpr uint64_t line64 = 64ULL * 1824;
-            // Land in raw hc [50, 74): one JR is 96 master cycles = 24 px.
-            g163::step_until_master_cycle(emu, line64 + 50 * 4);
-            const uint64_t at_early = emu.clock().get();
-            const int early = (g163::nr_read(emu, 0x1E) << 8)
-                            | g163::nr_read(emu, 0x1F);
-            // Land in raw hc [125, 149).
-            g163::step_until_master_cycle(emu, line64 + 125 * 4);
-            const uint64_t at_late = emu.clock().get();
-            const int late = (g163::nr_read(emu, 0x1E) << 8)
-                           | g163::nr_read(emu, 0x1F);
-            ok = early == 310 && late == 0
-              && at_early < line64 + 125 * 4 && at_late >= line64 + 125 * 4
-              && at_late < line64 + 456 * 4;
-            detail = "raw hc " + std::to_string((at_early - line64) / 4)
-                   + " -> cvc " + std::to_string(early) + " (want 310), raw hc "
-                   + std::to_string((at_late - line64) / 4) + " -> cvc "
-                   + std::to_string(late) + " (want 0)";
+            const uint64_t start = emu.clock().get();
+            const int at0   = cvc_at(line64);          // raw hc 0
+            const int at499 = cvc_at(line64 + 499);    // raw hc 124.75
+            const int at500 = cvc_at(line64 + 500);    // raw hc 125
+            ok = start == 0 && at0 == 310 && at499 == 310 && at500 == 0;
+            detail = "start=" + std::to_string(start)
+                   + " cvc@hc0=" + std::to_string(at0)
+                   + " cvc@mc499=" + std::to_string(at499)
+                   + " cvc@mc500=" + std::to_string(at500)
+                   + " (want 310, 310, 0)";
         }
         check("VT-GH257-06",
-              "NR 0x1E/0x1F cvc steps at hc_ula 0 (raw hc 125): raw line 64 "
-              "reads 310 before it and 0 after it "
+              "NR 0x1E/0x1F cvc steps at hc_ula 0 (raw hc 125, master cycle "
+              "500): raw line 64 reads 310 up to cycle 499 and 0 from 500 "
               "(zxula_timing.vhd:423-436,457-470; zxnext.vhd:5982-5986)",
               ok, detail);
     }

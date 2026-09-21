@@ -903,7 +903,7 @@ the only reason the tilemap's start-of-line latch looked right for GH #16.
 | VT-GH257-03 | Pentagon timing, target 208 | raw ((207+80) mod 320 = 287, 372): `(287*448+372)*4` = 515792 | zxula_timing.vhd:155-168,423-436,577 |
 | VT-GH257-04 | Next, target 0 (`int_line_num = c_max_vc = 310`) | raw ((310+64) mod 311 = 63, 380): `(63*456+380)*4` = 116432 | zxula_timing.vhd:566-570,577 |
 | VT-GH257-05 | Full `Emulator`: the target-208 line interrupt is raised in the instruction that crosses master cycle 495824, not the one crossing raw hc 0 of line 271 | fire count 0 → 1 in a step `(before, after]` containing 495824 | zxula_timing.vhd:423-436,577; zxnext.vhd:6752-6758 |
-| VT-GH257-06 | Full `Emulator`: NR 0x1E/0x1F on raw line 64 | 310 at raw hc 50-73 (still raw line 63's cvc), 0 at raw hc 125-148 | zxula_timing.vhd:423-436,457-470; zxnext.vhd:5982-5986 |
+| VT-GH257-06 | Full `Emulator`: NR 0x1E/0x1F on raw line 64, clock advanced to the exact master cycle | 310 at raw hc 0 and at cycle 499 (still raw line 63's cvc), 0 from cycle 500 (raw hc 125) | zxula_timing.vhd:423-436,457-470; zxnext.vhd:5982-5986 |
 
 `RO-06` (nextreg_integration_test) was re-pinned by the same change: at the
 exact frame start (raw vc 0, raw hc 0) `cvc` still holds raw line 310's value,

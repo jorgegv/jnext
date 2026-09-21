@@ -26,7 +26,7 @@ mentions them, so a test can no longer be absent from this document.
 | ULA Video                                  |   128 |  124 |    0 |    0 |       4 |          0 |
 | Layer2                                     |   209 |  201 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   221 |  214 |    0 |    0 |       7 |          0 |
-| Tilemap                                    |    95 |   77 |    0 |    0 |      18 |          0 |
+| Tilemap                                    |    99 |   81 |    0 |    0 |      18 |          0 |
 | Copper                                     |    95 |   92 |    0 |    0 |       3 |          0 |
 | Compositor                                 |   234 |  231 |    0 |    0 |       3 |          0 |
 | Audio                                      |   223 |  200 |    0 |    0 |      23 |          0 |
@@ -54,16 +54,16 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: ula_integration_test            |    14 |   14 |    0 |    0 |       0 |          0 |
 | Companion: compositor_integration_test     |    20 |   20 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |     7 |    7 |    0 |    0 |       0 |          0 |
-| Companion: tilemap_fetch_split_test        |     7 |    7 |    0 |    0 |       0 |          0 |
+| Companion: tilemap_fetch_split_test        |    11 |   11 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: ctc_interrupts_test             |    58 |   58 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   312 |  312 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4428 | 4176 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4436 | 4184 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4428**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4224**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7215**.
+Rows the sections above carry: **4436**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4228**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7219**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1023,6 +1023,10 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-165 | Per-scanline NR 0x4C (TM transparent nibble) flip mid-frame (G04 cross-bucket) | tilemap.vhd:427, zxnext.vhd:4395 | pass | test/tilemap/tilemap_fetch_split_test.cpp:444 |
 | TM-SPLIT-05 | NR 0x6E and NR 0x4C switched by adjacent Copper MOVEs stay coherent | tilemap.vhd:229,349,427, copper.vhd:94, zxula_timing.vhd:423-436,474-490 | pass | test/tilemap/tilemap_fetch_split_test.cpp:472 |
 | TM-SPLIT-06 | NR 0x1B clip written mid-frame via the Copper | tilemap.vhd:412-424, zxnext.vhd:4424-4427, copper.vhd:94, zxula_timing.vhd:423-436,474-490 | pass | test/tilemap/tilemap_fetch_split_test.cpp:507 |
+| TM-GH257-01 | NR 0x30 (scroll X) written mid-frame via the Copper — the scroll lane on the end-of-row convention | tilemap.vhd:309,345-347, zxnext.vhd:4419 | pass | test/tilemap/tilemap_fetch_split_test.cpp:549 |
+| TM-GH257-02 | 50 Hz: a write below the displayed surface does not reach the last row | zxula_timing.vhd:195-204 | pass | test/tilemap/tilemap_fetch_split_test.cpp:571 |
+| TM-GH257-03 | 60 Hz: the last row is captured although no scanline event follows it | zxula_timing.vhd:229-238 | pass | test/tilemap/tilemap_fetch_split_test.cpp:600 |
+| TM-GH257-04 | GH #16 shape: an IM2 line-interrupt handler's NR 0x30 write | tilemap.vhd:227-229,264, zxula_timing.vhd:423-436,560-583 | pass | test/tilemap/tilemap_fetch_split_test.cpp:651 |
 | TM-10 | VHDL tilemap.vhd:382-383 standard pixel index = attr(7:4)\|pix | tilemap.vhd:382-383 | pass | test/tilemap/tilemap_test.cpp:382 |
 | TM-11 | VHDL tilemap.vhd:393 — tilemap_0 selects tile 0..255 within a 256-tile bank | tilemap.vhd:393 | pass | test/tilemap/tilemap_test.cpp:400 |
 | TM-12 | VHDL tilemap.vhd:382 — final index = attr(7:4)<<4 \| pixel | tilemap.vhd:382 | pass | test/tilemap/tilemap_test.cpp:416 |
@@ -3134,7 +3138,7 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-GH257-03 | Pentagon timing: line-int target 208 fires at raw (287, hc 372) = (287*448+372)*4 = 515792 (zxula_timing.vhd:155-168,423-436,577) | zxula_timing.vhd:155-168,423-436,577 | pass | test/videotiming/videotiming_test.cpp:1573 |
 | VT-GH257-04 | Next: line-int target 0 (int_line_num = c_max_vc = 310) fires at raw (63, hc 380) = (63*456+380)*4 = 116432 (zxula_timing.vhd:566-570,577) | zxula_timing.vhd:566-570,577 | pass | test/videotiming/videotiming_test.cpp:1587 |
 | VT-GH257-05 | Emulator raises the target-208 line interrupt in the instruction crossing raw (271, hc 380), hc_ula 255 (zxula_timing.vhd:423-436,577; zxnext.vhd:6752-6758) | zxula_timing.vhd:423-436,577, zxnext.vhd:6752-6758 | pass | test/videotiming/videotiming_test.cpp:1620 |
-| VT-GH257-06 | NR 0x1E/0x1F cvc steps at hc_ula 0 (raw hc 125): raw line 64 reads 310 before it and 0 after it (zxula_timing.vhd:423-436,457-470; zxnext.vhd:5982-5986) | zxula_timing.vhd:423-436,457-470, zxnext.vhd:5982-5986 | pass | test/videotiming/videotiming_test.cpp:1656 |
+| VT-GH257-06 | NR 0x1E/0x1F cvc steps at hc_ula 0 (raw hc 125, master cycle 500): raw line 64 reads 310 up to cycle 499 and 0 from 500 (zxula_timing.vhd:423-436,457-470; zxnext.vhd:5982-5986) | zxula_timing.vhd:423-436,457-470, zxnext.vhd:5982-5986 | pass | test/videotiming/videotiming_test.cpp:1654 |
 | VT-03 | Pentagon `hc_max()`/`vc_max()` after `init(PENTAGON)` = 447, 319 (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:160/168 — `c_max_hc<=447`, `c_max_vc<=319`. No `check()` exists under the literal ID `VT-03`: the standalone `MachineType::Pentagon` enum this row's `init(PENTAGON)` API describes was dropped Wave 0.3 (2026-05-04) — but Pentagon TIMING itself is not gone, NR 0x03 tim_sel bit 2 still selects it at runtime. The identical facts are proven LIVE by `VT-T51-01` (Section 10, Task 51) via `init_timing(MachineTimingMode::TimingPentagon)`, same VHDL lines) | zxula_timing.vhd:160/168, zxula_timing.vhd:160,168 | missing | — |
 | VT-05 | Pentagon `display_origin()` = {128, 80} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:159/167 — `c_min_hactive<=128`, `c_min_vactive<=80`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:159/167, zxula_timing.vhd:159,167 | missing | — |
 | VT-12 | Pentagon `int_position()` = {439, 319} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:155/163 — `c_int_h<=448+3-12`=439, `c_int_v<=319`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:155/163, zxula_timing.vhd:155,163 | missing | — |
@@ -4370,6 +4374,10 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-165 | Per-scanline NR 0x4C (TM transparent nibble) flip mid-frame (G04 cross-bucket) | tilemap.vhd:427, zxnext.vhd:4395, copper.vhd:94, zxula_timing.vhd:423-436,474-490 | pass | test/tilemap/tilemap_fetch_split_test.cpp:444 |
 | TM-SPLIT-05 | NR 0x6E and NR 0x4C switched by adjacent Copper MOVEs stay coherent | tilemap.vhd:229,349,427, copper.vhd:94, zxula_timing.vhd:423-436,474-490 | pass | test/tilemap/tilemap_fetch_split_test.cpp:472 |
 | TM-SPLIT-06 | NR 0x1B clip written mid-frame via the Copper | tilemap.vhd:412-424, zxnext.vhd:4424-4427, copper.vhd:94, zxula_timing.vhd:423-436,474-490 | pass | test/tilemap/tilemap_fetch_split_test.cpp:507 |
+| TM-GH257-01 | NR 0x30 (scroll X) written mid-frame via the Copper — the scroll lane on the end-of-row convention | tilemap.vhd:309,345-347, zxnext.vhd:4419, copper.vhd:94, zxula_timing.vhd:423-436,474-490 | pass | test/tilemap/tilemap_fetch_split_test.cpp:549 |
+| TM-GH257-02 | 50 Hz: a write below the displayed surface does not reach the last row | zxula_timing.vhd:195-204 | pass | test/tilemap/tilemap_fetch_split_test.cpp:571 |
+| TM-GH257-03 | 60 Hz: the last row is captured although no scanline event follows it | zxula_timing.vhd:229-238 | pass | test/tilemap/tilemap_fetch_split_test.cpp:600 |
+| TM-GH257-04 | GH #16 shape: an IM2 line-interrupt handler's NR 0x30 write | zxula_timing.vhd:423-436,560-583, tilemap.vhd:309,345-347 | pass | test/tilemap/tilemap_fetch_split_test.cpp:651 |
 
 ### Companion integration suite — `test/lores/lores_integration_test.cpp`
 
