@@ -82,6 +82,16 @@ and the handful of steps that genuinely belong to only one of them are guarded
 with `if constexpr` on the deduced type. `--delayed-snapshot` wiring is
 `HeadlessApp`-only that way, and some GUI plumbing is `QtApp`-only.
 
+Most of the `set_*` calls in that body come *after* `init()`, because they
+only make sense once the machine exists. So a frontend must act on what they
+request in `run()` or in its frame loop, and never read the value back inside
+`init()`: `QtApp` once read `--rzx-play` and `--rzx-record` at the end of
+`init()`, always found them empty, and silently played and recorded nothing.
+The command-line RZX requests are now started by one shared helper,
+`emulator_start_rzx()` in `src/platform/rzx_startup.h`, which all three
+frontends call at the top of `run()`; `rzx-frontends-func` checks every
+spelling of them in every frontend.
+
 - **`QtApp`** (`src/gui/qt_app.h`) owns a `QApplication` and a `MainWindow`
   whose central widget is an `EmulatorWidget`. A `QTimer` drives the machine,
   paced from `Emulator::frame_period_ms()` and the current speed multiplier.

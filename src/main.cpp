@@ -1279,7 +1279,8 @@ int main(int argc, char* argv[]) {
         // Emulator speed (--speed / saved default) was already resolved and
         // applied via MainWindow::apply_startup_config() above (Task 66).
 
-        // Set up RZX playback or recording.
+        // Set up RZX playback or recording. Every frontend starts them at the
+        // top of run(), not in init() — see platform/rzx_startup.h.
         if (!rzx_play_file.empty()) {
             app.set_rzx_play(rzx_play_file);
         }

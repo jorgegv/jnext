@@ -3135,9 +3135,14 @@ dB.</dd>
 <dd>Set host gain for Specdrum, Soundrive and Covox DAC audio from -24
 dB to +24 dB.</dd>
 <dt><strong>--rzx-play</strong> <em>FILE</em></dt>
-<dd>Play back an RZX recording.</dd>
+<dd>Play back an RZX recording from the start of the run. Works the same
+in the GUI, the SDL-only build and under <strong>--headless</strong>. A recording
+that fails to load is logged, and <strong>jnext</strong> then exits non-zero.</dd>
 <dt><strong>--rzx-record</strong> <em>FILE</em></dt>
-<dd>Record input to an RZX file.</dd>
+<dd>Record input to an RZX file from the start of the run. The file is
+written when <strong>jnext</strong> exits (or, in the GUI, at <strong>File &gt; Stop RZX
+Recording</strong>). Works the same in the GUI, the SDL-only build and
+under <strong>--headless</strong>.</dd>
 <dt><strong>--rewind-buffer-size</strong> <em>N</em></dt>
 <dd>Frame-snapshot ring buffer for backwards execution. Opt-in; default
 0 = off.</dd>

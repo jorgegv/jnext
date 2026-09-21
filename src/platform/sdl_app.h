@@ -58,8 +58,10 @@ public:
     int exit_code() const { return exit_code_; }
 
     void set_tape_realtime(bool) {}
-    void set_rzx_play(const std::string&) {}
-    void set_rzx_record(const std::string&) {}
+    /// --rzx-play / --rzx-record. Acted on at the start of run(), so they may
+    /// be called before or after init() (see emulator_start_rzx()).
+    void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
+    void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
 
 private:
     SdlDisplay display_;
@@ -131,6 +133,10 @@ private:
 
     // Last frame-pacing period logged (ms); logs only on a 50/60 Hz change.
     uint32_t    last_frame_ms_ = 0;
+
+    // Pending --rzx-play / --rzx-record, started at the top of run().
+    std::string rzx_play_file_;
+    std::string rzx_record_file_;
 
     // Emulator config (set via set_config() before init())
     EmulatorConfig config_;

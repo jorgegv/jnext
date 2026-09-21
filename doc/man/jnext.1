@@ -359,10 +359,18 @@ Set host gain for Specdrum, Soundrive and Covox DAC audio from \-24 dB
 to +24 dB.
 .TP
 \f[B]\-\-rzx\-play\f[R] \f[I]FILE\f[R]
-Play back an RZX recording.
+Play back an RZX recording from the start of the run.
+Works the same in the GUI, the SDL\-only build and under
+\f[B]\-\-headless\f[R].
+A recording that fails to load is logged, and \f[B]jnext\f[R] then exits
+non\-zero.
 .TP
 \f[B]\-\-rzx\-record\f[R] \f[I]FILE\f[R]
-Record input to an RZX file.
+Record input to an RZX file from the start of the run.
+The file is written when \f[B]jnext\f[R] exits (or, in the GUI, at
+\f[B]File > Stop RZX Recording\f[R]).
+Works the same in the GUI, the SDL\-only build and under
+\f[B]\-\-headless\f[R].
 .TP
 \f[B]\-\-rewind\-buffer\-size\f[R] \f[I]N\f[R]
 Frame\-snapshot ring buffer for backwards execution.
@@ -1528,9 +1536,10 @@ than silently writing nothing, and likewise when a \f[B]\-\-record\f[R]
 recording fails to materialize as a usable output file.
 .PP
 It also exits non\-zero when the program given to \f[B]\-\-load\f[R] (or
-as a bare file name) fails to load, whatever its format; under
-\f[B]\-\-headless\f[R] that includes an RZX recording given to
-\f[B]\-\-load\f[R] or \f[B]\-\-rzx\-play\f[R].
+as a bare file name) fails to load, whatever its format, including an
+RZX recording given to \f[B]\-\-load\f[R] or \f[B]\-\-rzx\-play\f[R].
+This holds in the GUI, the SDL\-only build and under
+\f[B]\-\-headless\f[R] alike.
 The error is logged, the machine keeps running without the program, and
 the non\-zero status is reported when \f[B]jnext\f[R] exits.
 .SH SEE ALSO

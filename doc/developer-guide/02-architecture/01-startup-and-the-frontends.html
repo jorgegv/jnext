@@ -1886,6 +1886,15 @@ interface — <code>set_config</code>, <code>init</code>, <code>run</code>, <cod
 and the handful of steps that genuinely belong to only one of them are guarded
 with <code>if constexpr</code> on the deduced type. <code>--delayed-snapshot</code> wiring is
 <code>HeadlessApp</code>-only that way, and some GUI plumbing is <code>QtApp</code>-only.</p>
+<p>Most of the <code>set_*</code> calls in that body come <em>after</em> <code>init()</code>, because they
+only make sense once the machine exists. So a frontend must act on what they
+request in <code>run()</code> or in its frame loop, and never read the value back inside
+<code>init()</code>: <code>QtApp</code> once read <code>--rzx-play</code> and <code>--rzx-record</code> at the end of
+<code>init()</code>, always found them empty, and silently played and recorded nothing.
+The command-line RZX requests are now started by one shared helper,
+<code>emulator_start_rzx()</code> in <code>src/platform/rzx_startup.h</code>, which all three
+frontends call at the top of <code>run()</code>; <code>rzx-frontends-func</code> checks every
+spelling of them in every frontend.</p>
 <ul>
 <li><strong><code>QtApp</code></strong> (<code>src/gui/qt_app.h</code>) owns a <code>QApplication</code> and a <code>MainWindow</code>
   whose central widget is an <code>EmulatorWidget</code>. A <code>QTimer</code> drives the machine,
