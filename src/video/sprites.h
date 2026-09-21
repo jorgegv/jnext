@@ -394,6 +394,11 @@ public:
     /// Returns 0 if idx >= 128 or byte_idx >= 5.
     uint8_t read_attr_byte(uint8_t sprite_idx, uint8_t byte_idx) const;
 
+    /// Read a raw pattern-RAM byte (14-bit address, wraps). The hardware
+    /// has no read port for pattern RAM; this is a test/debug seam (GH #261
+    /// checks that a rewind restores it).
+    uint8_t read_pattern_byte(uint16_t addr) const { return read_pattern(addr); }
+
     /// Current pattern-RAM auto-increment offset (14-bit). Observability
     /// seam for the port 0x5B write-gate tests (V18-NMP-NIT-01c).
     uint16_t pattern_offset() const { return pattern_offset_; }

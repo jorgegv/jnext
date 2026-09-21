@@ -721,4 +721,11 @@ void Tilemap::load_state(StateReader& r)
     palette_sel_ = r.read_bool();   // NR 0x6B bit 4
     fetch_per_line_active_ = false;
     output_per_line_active_ = false;
+    // GH #261 — the per-scanline scroll snapshot and NR 0x6B log are render
+    // history: rebuild both from the state just loaded, so a render before
+    // the next begin_new_frame() (Emulator::rewind_to_frame) neither shows
+    // the pre-restore frame's scroll nor rewinds the live NR 0x6B bits to
+    // its baseline. See PaletteManager::load_state.
+    init_scroll_per_line();
+    start_frame_nr6b();
 }

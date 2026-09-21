@@ -10700,6 +10700,31 @@ bool Emulator::load_state(StateReader& r)
         return false;
     }
 
+    // GH #261 — cross-subsystem render history. Each video subsystem's own
+    // load_state re-baselines its per-scanline logs and refills its per-line
+    // snapshots from the state it just loaded; these two cannot, because
+    // they need another subsystem's state. Without them the render
+    // rewind_to_frame() does straight after the load (before any
+    // begin_new_frame()) replays the PRE-restore frame's history.
+    //
+    //  * Ula's NR 0x43 b1-3 / NR 0x6B b4 selectors are mirrors of the
+    //    PaletteManager's (both written by the NR 0x43 / 0x6B handlers) and
+    //    are not in the Ula stream at all, so they kept their pre-restore
+    //    value for good. Re-sync from the PaletteManager, then re-baseline
+    //    the selector logs the setters just appended to.
+    //  * The attribute mux baselines from the restored VRAM, with the same
+    //    origin begin_new_frame() gives it (video timing re-pushed above).
+    {
+        Ula& ula = renderer_.ula();
+        ula.set_active_ula_palette(palette_.active_ula_palette());
+        ula.set_active_layer2_palette(palette_.active_layer2_palette());
+        ula.set_active_sprite_palette(palette_.active_sprite_palette());
+        ula.set_active_tilemap_palette(palette_.active_tilemap_palette());
+        ula.palsel_start_frame();
+        mmu_.attr_mux_start_frame(video_timing_.ula_prefetch_origin_hc(),
+                                  video_timing_.vblank_top());
+    }
+
     // Task 60c — the input subsystem (keyboard/joystick/mouse/md6/…) has now
     // been restored to the snapshot's canonical state. The host-side input
     // dispatchers (JoystickDispatcher / MouseDispatcher) keep their OWN shadow

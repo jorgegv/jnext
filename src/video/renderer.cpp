@@ -1066,6 +1066,16 @@ void Renderer::load_state(StateReader& r)
     r.read_bytes(fallback_per_line_.data(), fallback_per_line_.size());
     lores_.load_state(r);
 
+    // GH #261 — these per-line snapshots are not in the stream (unlike
+    // fallback_per_line_ above): refill them from the state just loaded, so
+    // the render Emulator::rewind_to_frame does before the next
+    // begin_new_frame() cannot show the pre-restore frame's rows.
+    init_ula_enabled_per_line();
+    init_transparent_rgb_per_line();
+    init_stencil_mode_per_line();
+    init_blend_mode_per_line();
+    init_ula_clip_per_line();
+
     // NR 0x15 per-scanline log (G02) — no stream bytes: snapshots are taken
     // at frame boundaries where the log is empty, so only the live decoded
     // fields need to round-trip (they just did, above).  Renderer owns only

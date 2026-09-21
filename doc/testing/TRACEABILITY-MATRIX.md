@@ -63,7 +63,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  4426 | 4174 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4426**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4221**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7212**.
+Rows the sections above carry: **4426**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4221**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7225**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 

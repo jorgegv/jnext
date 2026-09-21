@@ -600,4 +600,10 @@ void Layer2::load_state(StateReader& r)
     enabled_ = r.read_bool();
     clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
     clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
+
+    // GH #261 — re-baseline the scroll/clip/bank/enable/NR 0x70 logs from
+    // the state just loaded, so a render before the next begin_new_frame()
+    // (Emulator::rewind_to_frame) cannot rewind the live registers to the
+    // pre-restore frame's baseline. See PaletteManager::load_state.
+    start_frame();
 }
