@@ -25,6 +25,8 @@ the two can never disagree. For building jnext from source, see
 - [MACHINES](#machines)
 - [SD CARD AND ROMS](#sd-card-and-roms)
 - [LOADING PROGRAMS](#loading-programs)
+  - [esxDOS calls from a directly loaded
+    NEX](#esxdos-calls-from-a-directly-loaded-nex)
 - [HEADLESS MODE, SCREENSHOTS AND
   RECORDING](#headless-mode-screenshots-and-recording)
 - [NETWORKING (ESP-01 WiFi)](#networking-esp-01-wifi-1)
@@ -236,8 +238,13 @@ Append blocks SAVEd through the 48K ROM SA-BYTES routine to *FILE*
 with ROM paged at slot 0. Without this option no SAVE capture happens.
 
 **--esxdos-stub**  
-Intercept `RST $08` calls and provide in-memory config I/O plus `.RUN`
-sibling-NEX chaining, without booting NextZXOS.
+Answer a few `RST $08` esxDOS calls for any program, for the whole
+session: the version query, one in-memory file and `run sibling.nex`
+chaining. Every other call goes to the code at `$0008`. For programs run
+without NextZXOS; a directly loaded NEX gets a fuller set automatically
+(see **LOADING PROGRAMS**). With NextZXOS booted it answers in front of
+NextZXOS’s own esxDOS for those calls, and NextZXOS’s file commands stop
+working.
 
 **--rtc** *“YYYY-MM-DD HH:MM:SS”*  
 Pin the RTC to a fixed date and time (a frozen clock) instead of
@@ -601,13 +608,59 @@ Played back as if **--rzx-play** had been given.
 RZX recording uses **--rzx-record** *FILE*. The GUI’s **File \> Load NEX
 File…** dialog accepts all of the above.
 
-**--esxdos-stub** handles the common `RST $08` calls used by directly
-loaded NEX programs. It provides one in-memory file and
-`run sibling.nex` chaining.
-
 Raw binaries go straight into RAM with **--inject** *FILE*
 (**--inject-org** load address, **--inject-pc** entry point,
 **--inject-delay** a frame delay before injecting).
+
+### esxDOS calls from a directly loaded NEX
+
+On a real Next a NEX file is always started by NextZXOS, so the program
+can use NextZXOS’s esxDOS services (an `RST $08` followed by a call
+number). A NEX loaded directly by jnext (**--load**, a bare file name,
+or **File \> Load NEX File…**) has no NextZXOS behind it, so jnext
+answers those calls itself. This starts when the NEX is loaded and stops
+at the next reset or soft reset. It answers:
+
+- the drive query (`M_GETSETDRV`): the only drive is `C:`, and asking
+  for any other drive fails;
+- the version query (`M_DOSVERSION`): NextZXOS 1.94, or 2.02 for a NEX
+  that keeps its own file open (below);
+- one file kept in memory: the program can create it, write it, and read
+  it back under the same name, which is enough for a high-score or
+  settings file. It is never written to disk and is gone when jnext
+  exits;
+- `run NAME.nex` (`M_EXECCMD`), which loads another NEX file from the
+  same directory;
+- for a NEX whose header asks for its file to stay open: reading that
+  file, including data appended after its banks (also through the
+  block-streaming calls), and reading, never writing, other files in the
+  same directory by name. Such a NEX gets the host files instead of the
+  in-memory file (unless **--esxdos-stub** is also given).
+
+Every other call from `$80` to `$B1` returns an error (carry set,
+`A`=2), including calls NextZXOS does implement, such as reading the
+current directory, listing a directory or reading the date. A program
+that needs one of those usually stops with its own error message. Codes
+above `$B1` are not esxDOS calls and go to the code at `$0008`.
+
+This is not a filesystem. Apart from the kept-open case above the
+program cannot see files on the host or on the SD card, so a program
+that needs data files has to be copied to the SD card with them and
+started from NextZXOS. Giving a directly loaded program a host directory
+is not implemented.
+
+jnext answers only while ROM is paged in at `$0000`, as on a real Next,
+where NextZXOS is reached through the DivMMC, which only takes over from
+the ROM. A program that pages its own RAM in at `$0000` keeps its own
+`RST $08` code. That rule also applies to **--esxdos-stub** and to the
+kept-open file.
+
+**--esxdos-stub** answers a smaller set for programs loaded any other
+way (a snapshot, a tape, **--inject**) and for the whole session: the
+version query, the in-memory file and `run NAME.nex`. Every other call
+goes to the code at `$0008` as usual. It is meant for programs run
+without NextZXOS: with NextZXOS booted, it answers those calls in front
+of NextZXOS’s own esxDOS, and NextZXOS’s file commands stop working.
 
 ## HEADLESS MODE, SCREENSHOTS AND RECORDING
 

@@ -114,6 +114,116 @@ A directly loaded NEX can also keep its own file handle open and stream from
 itself. `extended_nex_host.*` presents the host file to the guest as a
 synthetic block-addressed SD extent, so NextZXOS's file APIs work against it.
 
+## The esxDOS stand-in for directly loaded programs
+
+On hardware a NEX is always started by NextZXOS's `nexload`, so the program
+can call the esxDOS / NextZXOS API: `RST $08` followed by a one-byte call
+number, reached through the DivMMC automap (see
+[3.6 Peripherals](06-peripherals.md#divmmc)). A direct load skips NextZXOS, and
+`$0008` then holds the 48K ROM's ERROR-1 restart, so an unanswered call crashes
+the program. Warhawk's first call, `M_GETSETDRV`, ended in a DI + HALT at
+`$1303` that way (GH #250). jnext therefore answers these calls on the host,
+the way CSpect (`esxDOS.dll`) and ZEsarUX (`esxdos_handler`) always do. Neither
+emulator is an oracle for this: both fake every `RST $08`, DivMMC or not.
+
+**Where it lives.** `Z80Cpu::execute()` (`src/cpu/z80_cpu.cpp`) checks every
+arrival at `$0008`. When the byte before the pushed return address is `$CF`
+(`RST $08`) and the call number after it is `$80` or above, it calls
+`Z80Cpu::on_esxdos_call`. If that returns true the CPU resumes after the call
+number, charged a flat 50 T-states; otherwise `$0008` runs as usual. The
+handler is the `handle_esxdos` lambda in `Emulator::init()`
+(`src/core/emulator.cpp`), wrapped in `esxdos_bridge_handler_` for tracing.
+`init()` attaches it for `--esxdos-stub`, for esxdos tracing, and when the
+command line loads a `.nex`. `Emulator::load_nex()` attaches it too, for a NEX
+loaded from the GUI after start-up.
+
+**When it answers.** Three things arm it:
+
+- `direct_nex_esxdos_` — set by `Emulator::load_nex()` for every NEX it loads,
+  cleared by `reset()` and `soft_reset()`. `load_sna()`, `load_szx()` and
+  `load_z80()` reset, and RZX playback goes through `load_sna()`, so a snapshot
+  clears it. `load_tap()`, `load_tzx()` and `load_wav()` deliberately do not:
+  they attach tape media to the running machine, so a NEX still running keeps
+  its stand-in.
+- `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session.
+- The extended-NEX host bridge (`extended_nex_host_`), open when the NEX
+  header's `file_handle` is 1 or `$4000` and above. Only `load_nex()` opens
+  it, so it never exists without `direct_nex_esxdos_`; reset and soft reset
+  close it.
+
+**The ROM gate.** Whatever armed it, the handler answers nothing unless NR
+`$50` reads `$FF`, i.e. ROM is paged in at `$0000`. That is the hardware's own
+precondition: the DivMMC automap that takes `$0008` to NextZXOS needs
+`sram_divmmc_automap_rom3_en` (`zxnext.vhd:3138`), which needs
+`sram_pre_override(0)`, which only the ROM branch of the slot-0 decode sets
+(`zxnext.vhd:3060-3066`). A program with its own RAM at `$0000` keeps its own
+`RST $08` handler.
+
+**What it answers.**
+
+| Call | Directly loaded NEX | `--esxdos-stub` only |
+|---|---|---|
+| `$85`-`$87` `DISK_FILEMAP` / `STRMSTART` / `STRMEND` | with the host bridge, block streaming from the NEX file; without it, the catch-all error below | falls through |
+| `$88` `M_DOSVERSION` | `BC`=`'NX'`; `DE`=`$0194`, or `$0202` with the host bridge | same, `$0194` |
+| `$89` `M_GETSETDRV` | get or set `C:` returns `A`=`$10`; any other drive, carry set, `A`=`$0B` | falls through |
+| `$8F` `M_EXECCMD` | `run NAME.nex` for a plain name in the same directory: chain-loads it through `nex_load_request_` | same |
+| `$9A` `F_OPEN` | host bridge: the NEX's own file or a read-only sibling regular file (no symlinks, no paths) on host handles 2/3, other names refused unless `--esxdos-stub` is also given; otherwise the in-memory file | in-memory file |
+| `$9B` / `$9D` / `$9E` `F_CLOSE` / `F_READ` / `F_WRITE` | host handles, else the in-memory file | in-memory file |
+| `$9F` / `$A0` / `$A1` `F_SEEK` / `F_FGETPOS` / `F_FSTAT` | host handles; otherwise `F_SEEK` fails (`A`=5) and the other two get the catch-all error | `F_SEEK` fails (`A`=5); the other two fall through |
+| any other `$80`-`$B1` | carry set, `A`=`$02` (`esx_enonsense`) | falls through |
+| `$B2` and above | falls through | falls through |
+
+The in-memory file (`esxdos_stub_file_`) is one anonymous buffer: opening for
+write creates it empty under the given name, and opening for read succeeds only
+under that same name. `emulator_cold_boot()` carries it across a power reset,
+and a `.RUN` chain-load is a cold boot, so a chain of NEX files shares it.
+
+**The oracle.** The `M_GETSETDRV` replies, the `esx_enonsense` reply to
+unassigned numbers (`$80`, `$8A`, `$96`, `$97`) and the fact that `$B2` and
+`$E0` never return (NextZXOS raises a BASIC error report) were measured on
+real NextZXOS firmware: the distro SD image booted natively in jnext
+(tbblue.fw, then NextZXOS), a probe NEX started with `.nexload`, and the
+results read back through the magic port. That is the real firmware on
+jnext's emulated hardware, not a physical Next. The error numbers are named
+from `esxapi.def`. The catch-all also refuses calls NextZXOS does implement,
+such as `F_GETCWD` (`$A8`), `F_CHDIR` (`$A9`), `F_OPENDIR` (`$A3`) and
+`M_GETDATE` (`$8E`). For those it is jnext's choice, not NextZXOS's reply.
+
+**Why `--esxdos-stub` answers less.** It can be given with NextZXOS booted,
+and there `M_GETSETDRV` and the catch-all would answer in front of NextZXOS's
+own esxDOS: with them, `.ls` refused `M_P3DOS` and `M_GETHANDLE` and left a
+blank screen. So both apply only to a directly loaded NEX. The calls the stub
+does answer still shadow NextZXOS's (a long-standing limitation): with
+NextZXOS booted and the flag given, `.ls` reports "No such file or dir".
+
+**Tracing.** `--log-level esxdos=trace` logs every call with its arguments on
+the way in and its result on the way out, including calls that were not
+answered. The names come from `src/core/esxdos_trace.h`, transcribed from
+`esxapi.def` and z88dk's `esxdos.def`.
+
+**Tests.** `test/esxdos_stub/esxdos_stub_test.cpp`: `ESX-01..10` cover the
+in-memory file and `.RUN` chaining, `ESXT-01..36` the call-name table, hook
+installation and the `$0008` trigger, and `ESXN-01..18` GH #250. Most `ESXN`
+rows load a NEX built at test time through `load_nex()` and run it with
+`run_frame()`; the bare `--esxdos-stub` rows put the program in RAM directly
+instead, because `load_nex()` would arm the direct-load answers, and the
+`$B1`/`$B2` rows call the handler directly. They cover the answers above, the
+disarm on reset and soft
+reset, the ROM gate for all three sources, the `$B1`/`$B2` boundary, and a bare
+`--esxdos-stub` leaving `$89`, `$8D` and `$94` to the code at `$0008`. The host
+bridge has its own suite, `test/core/extended_nex_test.cpp` (`XNEX-*`), and
+the regression rows `extended-nex-stream-func` and `esxdos-chain-*-func` run
+real programs.
+
+**Known gaps.** A directly loaded program cannot reach host files other than
+the kept-open NEX and its siblings; a host directory for it is
+[#31](https://github.com/jorgegv/jnext/issues/31), not implemented. The
+kept-open handle starts at file position 0 rather than after the last bank, as
+`nexload` leaves it
+([#267](https://github.com/jorgegv/jnext/issues/267)). There is one
+in-memory file, with no `F_SEEK`. `M_DOSVERSION` reports 1.94 without the host
+bridge.
+
 ## RZX
 
 RZX records a *session*, and it does so by recording inputs rather than

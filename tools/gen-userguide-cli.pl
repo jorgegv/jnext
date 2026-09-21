@@ -50,6 +50,9 @@ my %SECTION_LINK = (
         . '(../03-first-run/01-why-jnext-needs-an-sd-card-image.md)',
     'NETWORKING' =>
         '[5.6 Networking](../05-running-programs/06-networking.md)',
+    'LOADING PROGRAMS' =>
+        '[Programs that need NextZXOS]'
+        . '(../05-running-programs/index.md#programs-that-need-nextzxos)',
     # The guide has no logging chapter, so this one points at the man page's
     # own section, rendered in USAGE.md.
     'LOGGING' =>

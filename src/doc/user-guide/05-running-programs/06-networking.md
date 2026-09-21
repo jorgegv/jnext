@@ -75,8 +75,9 @@ NXtel is a Viewdata/teletext client for the Next, and it is the program this has
 been verified against end to end, over the live internet.
 
 It ships on the NextZXOS SD-card image, and it has to be **launched from
-NextZXOS** — loading `NXtel.nex` directly with `--load` gives you a black
-screen, and that is not an ESP problem (it does the same with the ESP off).
+NextZXOS** — loading `NXtel.nex` directly with `--load` stops at an error about
+its `NXTEL.CFG` file, and that is not an ESP problem (it does the same with the
+ESP off).
 
 Start JNEXT with the ESP on, restricted to the BBS:
 
