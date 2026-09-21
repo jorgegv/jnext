@@ -303,6 +303,199 @@ void test_emulator_copper_wiring() {
           detail);
 }
 
+// ---------------------------------------------------------------------------
+// GH #256 — the tilemap's OUTPUT-stage inputs follow the same per-scanline
+// latch as the fetch inputs above.
+//
+// NR 0x4C (transp_colour_i) and NR 0x1B (clip_*_i) are not fetch inputs:
+// tilemap.vhd:427 compares the pixel being displayed against transp_colour_i,
+// and :412-424 re-latch the clip every 7 MHz and compare it against the
+// display counters. On hardware a mid-line write therefore changes the rest of
+// that line, and a NR 0x6E write issued beside it takes effect one tile later
+// (the fetcher runs "one character ahead", tilemap.vhd:229, and latches the
+// base at S_IDLE, :349). The two land within a tile of each other, so any
+// per-scanline model must switch them on the SAME row. jnext's tilemap row for
+// a write is the one after the write's line (TM-SPLIT-04), so these do too.
+//
+// Before GH #256 both were read at their END-OF-FRAME value: a Copper split
+// of either collapsed to one value for the whole frame.
+//
+// Colours are literals computed by hand, so an accessor that ignored its row
+// cannot also move the expectation:
+//   palette RRRGGGBB 0xE0 -> rgb333 (7,0,0) -> ARGB 0xFFFF0000  (index 1)
+//   palette RRRGGGBB 0x1C -> rgb333 (0,7,0) -> ARGB 0xFF00FF00  (index 2)
+//   NR 0x4A 0x03 (fallback, register format) -> ARGB 0xFF0000FF
+// ---------------------------------------------------------------------------
+
+constexpr uint32_t SPLIT_RED      = 0xFFFF0000u;
+constexpr uint32_t SPLIT_GREEN    = 0xFF00FF00u;
+constexpr uint32_t SPLIT_FALLBACK = 0xFF0000FFu;
+
+// The row a Copper WAIT(cvc, h=0) + MOVE first shows on (see TM-SPLIT-04).
+constexpr int split_row(int cvc) { return cvc + Renderer::DISP_Y + 1; }
+
+// Full-Emulator fixture shared by TM-165 and TM-SPLIT-05/06: ULA hidden, tilemap on in
+// 40x32 with attribute bytes, map A (NR 0x6E=0x00) all tile 1 and map B
+// (NR 0x6E=0x20) all tile 2, tile 1 = index 1 and tile 2 = index 2, fallback
+// blue. The Copper program is loaded but not started.
+bool split_fixture(Emulator& emulator, const char* id,
+                   const uint16_t* copper, int copper_words) {
+    EmulatorConfig config;
+    config.type = MachineType::ZXN_ISSUE2;
+    config.rewind_buffer_frames = 0;
+    if (!emulator.init(config)) {
+        check(id, false, "failed to initialize full Emulator fixture");
+        return false;
+    }
+    park_cpu(emulator);
+
+    uint8_t* bank5 = emulator.mmu().bank5_vram();
+    for (int entry = 0; entry < 40 * 32; ++entry) {
+        bank5[0x0000 + entry * 2]     = 1;
+        bank5[0x0000 + entry * 2 + 1] = 0;
+        bank5[0x2000 + entry * 2]     = 2;
+        bank5[0x2000 + entry * 2 + 1] = 0;
+    }
+    std::memset(bank5 + 0x1000 + 1 * 32, 0x11, 32);
+    std::memset(bank5 + 0x1000 + 2 * 32, 0x22, 32);
+
+    paint_palette(emulator.palette(), 0x01, 0xE0);
+    paint_palette(emulator.palette(), 0x02, 0x1C);
+
+    nr_write(emulator, 0x4A, 0x03);  // fallback blue
+    nr_write(emulator, 0x68, 0x80);  // hide ULA
+    nr_write(emulator, 0x6B, 0x80);  // tilemap on, 40 columns, attributes
+    nr_write(emulator, 0x6E, 0x00);  // map A at frame start
+    nr_write(emulator, 0x6F, 0x10);  // shared definitions
+
+    nr_write(emulator, 0x61, 0x00);
+    nr_write(emulator, 0x62, 0x00);
+    for (int i = 0; i < copper_words; ++i)
+        copper_word(emulator, copper[i]);
+    return true;
+}
+
+constexpr uint16_t cu_wait(int cvc) { return static_cast<uint16_t>(0x8000u | cvc); }
+constexpr uint16_t cu_move(uint8_t reg, uint8_t val) {
+    return static_cast<uint16_t>((reg << 8) | val);
+}
+constexpr uint16_t CU_HALT = static_cast<uint16_t>(0x8000u | 511u);
+
+// Compare column `x` of every framebuffer row against `expected(row)`; report
+// the first mismatch and how many rows differed.
+template <typename Expected>
+bool rows_match(const uint32_t* fb, int x, Expected expected,
+                char* detail, size_t detail_size, const char* what) {
+    int first_bad = -1, bad = 0;
+    uint32_t got = 0, want = 0;
+    for (int row = 0; row < Renderer::FB_HEIGHT; ++row) {
+        const uint32_t pixel = fb[row * Renderer::FB_WIDTH + x];
+        if (pixel != expected(row)) {
+            if (first_bad < 0) {
+                first_bad = row;
+                got = pixel;
+                want = expected(row);
+            }
+            ++bad;
+        }
+    }
+    std::snprintf(detail, detail_size,
+                  "%s: %d rows wrong, first row %d got %08X want %08X",
+                  what, bad, first_bad, got, want);
+    return bad == 0;
+}
+
+void test_transparency_index_split() {
+    // Index 1 starts transparent, turns opaque at cvc 60 and transparent
+    // again at cvc 140: two transitions, so neither the frame-start nor the
+    // end-of-frame value alone can produce the band in the middle.
+    const uint16_t copper[] = {
+        cu_wait(60),  cu_move(0x4C, 0x0F),
+        cu_wait(140), cu_move(0x4C, 0x01),
+        CU_HALT,
+    };
+    Emulator emulator;
+    if (!split_fixture(emulator, "TM-165", copper, 5))
+        return;
+    nr_write(emulator, 0x4C, 0x01);  // index 1 transparent at frame start
+    nr_write(emulator, 0x62, 0xC0);  // reset each frame + run
+    emulator.run_frame();
+
+    char detail[256];
+    const bool ok = rows_match(emulator.get_framebuffer(), 0,
+        [](int row) {
+            return (row >= split_row(60) && row < split_row(140))
+                ? SPLIT_RED : SPLIT_FALLBACK;
+        },
+        detail, sizeof(detail), "NR 0x4C Copper split");
+    check("TM-165",
+          // VHDL tilemap.vhd:427 — pixel_en_standard_s compares the displayed
+          // pixel against transp_colour_i (zxnext.vhd:4395 nr_4c), so the
+          // index is live per pixel, never once per frame (GH #256).
+          ok, detail);
+}
+
+void test_map_and_transparency_coherent() {
+    // The GH #256 program shape: MOVE NR 0x6E and MOVE NR 0x4C back to back.
+    // Map A shows index 1 (visible while NR 0x4C = 2), map B shows index 2
+    // (visible once NR 0x4C = 1). A row rendered from the new map with the
+    // old index, or the reverse, is transparent and shows the fallback.
+    const uint16_t copper[] = {
+        cu_wait(100), cu_move(0x6E, 0x20), cu_move(0x4C, 0x01),
+        CU_HALT,
+    };
+    Emulator emulator;
+    if (!split_fixture(emulator, "TM-SPLIT-05", copper, 4))
+        return;
+    nr_write(emulator, 0x4C, 0x02);
+    nr_write(emulator, 0x62, 0xC0);
+    emulator.run_frame();
+
+    char detail[256];
+    const bool ok = rows_match(emulator.get_framebuffer(), 0,
+        [](int row) { return row < split_row(100) ? SPLIT_RED : SPLIT_GREEN; },
+        detail, sizeof(detail), "NR 0x6E + NR 0x4C switch together");
+    check("TM-SPLIT-05",
+          // VHDL tilemap.vhd:229,349,427 — the base is latched one tile ahead
+          // of the pixel the index is compared against, so both writes reach
+          // the display within one tile of each other: the same row.
+          ok, detail);
+}
+
+void test_clip_window_split() {
+    // NR 0x1C b3 resets the tilemap clip index, then x1 = 0x10 moves the left
+    // edge to 320-grid x = 32 (xsv = x1 & '0'): column 0 is clipped from the
+    // split on, column 80 (grid x = 40) stays inside the window.
+    const uint16_t copper[] = {
+        cu_wait(100),
+        cu_move(0x1C, 0x08),
+        cu_move(0x1B, 0x10), cu_move(0x1B, 0x9F),
+        cu_move(0x1B, 0x00), cu_move(0x1B, 0xFF),
+        CU_HALT,
+    };
+    Emulator emulator;
+    if (!split_fixture(emulator, "TM-SPLIT-06", copper, 7))
+        return;
+    nr_write(emulator, 0x62, 0xC0);
+    emulator.run_frame();
+
+    const uint32_t* fb = emulator.get_framebuffer();
+    char detail[256], inside[256];
+    const bool clipped = rows_match(fb, 0,
+        [](int row) { return row < split_row(100) ? SPLIT_RED : SPLIT_FALLBACK; },
+        detail, sizeof(detail), "column 0 (clipped from the split)");
+    const bool kept = rows_match(fb, 80,
+        [](int) { return SPLIT_RED; },
+        inside, sizeof(inside), "column 80 (inside the window)");
+    char both[512];
+    std::snprintf(both, sizeof(both), "%s; %s", detail, inside);
+    check("TM-SPLIT-06",
+          // VHDL tilemap.vhd:412-424 — xsv/xev/ysv/yev re-latch clip_*_i every
+          // 7 MHz and gate pixel_en_s against the display counters
+          // (zxnext.vhd:4424-4427 nr_1b), so a mid-frame clip applies per line.
+          clipped && kept, both);
+}
+
 } // namespace
 
 int main() {
@@ -311,6 +504,9 @@ int main() {
     test_definition_base_split();
     test_default_attribute_split();
     test_emulator_copper_wiring();
+    test_transparency_index_split();
+    test_map_and_transparency_coherent();
+    test_clip_window_split();
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;

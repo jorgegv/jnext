@@ -7363,6 +7363,9 @@ void Emulator::begin_new_frame()
     // switch NR 0x6E/0x6F at raster boundaries to draw a fixed HUD and a
     // separately-scrolling playfield in one frame.
     tilemap_.init_fetch_per_line();
+    // GH #256 — and the output-stage inputs (NR 0x1B clip, NR 0x4C index)
+    // likewise, so a Copper MOVE to either applies from its row onwards.
+    tilemap_.init_output_per_line(palette_.tilemap_transparency());
 
     // Per-scanline tilemap NR 0x6B change log (G06) — baseline snapshot
     // and reset of the per-frame log so Copper / interrupt-handler writes
@@ -9879,6 +9882,11 @@ void Emulator::on_scanline(int line)
         if (cur_fb_row >= 0 && cur_fb_row < Renderer::FB_HEIGHT) {
             tilemap_.snapshot_scroll_for_line(cur_fb_row);
             tilemap_.snapshot_fetch_for_line(cur_fb_row);
+            // GH #256 — the output-stage inputs (NR 0x1B clip, NR 0x4C
+            // index) at the SAME point: written beside a NR 0x6E split they
+            // must switch on the same row (see Tilemap::snapshot_output_for_line).
+            tilemap_.snapshot_output_for_line(cur_fb_row,
+                                              palette_.tilemap_transparency());
         }
     }
     // G164v2 — convert raw VC scanline to framebuffer-row before tagging

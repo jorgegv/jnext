@@ -19,7 +19,8 @@
 - Hardware sprites: 128 sprites, 16×16 pixels, 8-bit/4-bit colour, scaling ×1/×2/×4/×8
 - Composite sprites (anchor + relative for larger objects)
 - Tilemap: 40×32 and 80×32 modes, 4bpp/1bpp patterns, hardware scroll,
-  and per-scanline map/tile-definition/default-attribute switching
+  and per-scanline map/tile-definition/default-attribute, transparency-index
+  and clip-window switching
 - LoRes 128×96: 8-bit colour and Radastan 4-bit modes, X/Y hardware scroll, palette offset
 - Copper co-processor: WAIT/MOVE instructions, per-scanline register writes
 - 6-mode layer compositor (SLU/LSU/SUL/LUS/USL/ULS priority)
