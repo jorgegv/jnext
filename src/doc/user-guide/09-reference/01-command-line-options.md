@@ -328,10 +328,15 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     dB to +24 dB.
 
 **--rzx-play** *FILE*
-:   Play back an RZX recording.
+:   Play back an RZX recording from the start of the run. Works the same
+    in the GUI, the SDL-only build and under **--headless**. A recording
+    that fails to load is logged, and **jnext** then exits non-zero.
 
 **--rzx-record** *FILE*
-:   Record input to an RZX file.
+:   Record input to an RZX file from the start of the run. The file is
+    written when **jnext** exits (or, in the GUI, at **File \> Stop RZX
+    Recording**). Works the same in the GUI, the SDL-only build and
+    under **--headless**.
 
 **--rewind-buffer-size** *N*
 :   Frame-snapshot ring buffer for backwards execution. Opt-in; default

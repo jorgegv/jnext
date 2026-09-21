@@ -43,8 +43,15 @@ of the machine. Replaying it reproduces the session exactly, keystroke for
 keystroke — a walkthrough, a bug report, or a speedrun that stays honest.
 
 - **File > Record RZX…**, or `--rzx-record FILE`; **Stop RZX** to finish.
+  From the command line the recording starts with the machine, and the file is
+  written when JNEXT exits.
 - **File > Play RZX Recording…**, or `--rzx-play FILE`. Loading a `.rzx` with
-  `--load` plays it too.
+  `--load`, or naming it as the file to run (`jnext session.rzx`), plays it too.
+
+The command-line options work the same whichever way you run JNEXT: the normal
+window, the SDL-only build, or `--headless`. A recording that fails to load is
+reported, and JNEXT then exits with a non-zero status, exactly as it does for a
+program that fails to load.
 
 Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine
