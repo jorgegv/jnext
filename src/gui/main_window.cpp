@@ -478,7 +478,7 @@ void MainWindow::create_menus() {
     // menubar mnemonics ('&' in addMenu). A letter used twice is an AMBIGUOUS
     // Qt shortcut — QAction::event() only prints a warning and does nothing, so
     // BOTH bindings break. host_hotkey_test pins the two sets disjoint.
-    // Reserved today: Alt+Q/O/S/R/T/D (shortcuts) and Alt+F/M/I/A/B/V/N/H
+    // Reserved today: Alt+Q/O/S/R/T/D/P (shortcuts) and Alt+F/M/I/A/B/V/N/H
     // (mnemonics). Alt+E/G/C/` stay free because the GUEST uses them
     // (keyboard.cpp:163,172-174).
     //
@@ -936,8 +936,14 @@ void MainWindow::create_menus() {
     // Alt+E/G/C (keyboard.cpp:163,172-174) — which leaves N.
     QMenu* settings_menu = menuBar()->addMenu(tr("Setti&ngs"));
 
+    // GH #259: an explicit Alt+P, not QKeySequence::Preferences. That standard
+    // key is whatever the Qt platform table says, and on Linux it said the
+    // Key_Settings multimedia key up to Qt 6.11.1 and NOTHING from Qt 6.11.2 —
+    // so the action silently lost its only shortcut. Alt is the host
+    // namespace (#115), and P is free in all of it: no menubar mnemonic, no
+    // other shortcut, not one of the guest's Alt+E/G/C.
     QAction* preferences = settings_menu->addAction(tr("&Preferences..."));
-    preferences->setShortcut(QKeySequence::Preferences);
+    preferences->setShortcut(QKeySequence(Qt::ALT | Qt::Key_P));
     connect(preferences, &QAction::triggered, this, &MainWindow::on_open_preferences);
 
     // --- Help menu ---

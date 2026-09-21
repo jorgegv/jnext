@@ -1,6 +1,6 @@
 # Preferences
 
-**Settings > Preferences…** opens a dialog with five tabs.
+**Settings > Preferences…** (Alt+P) opens a dialog with five tabs.
 
 ![The Preferences dialog, Startup tab](../img/preferences-startup.png)
 

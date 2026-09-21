@@ -24,6 +24,9 @@
 //      move to Alt+Shift+S: the Ctrl+Shift+<letter> class is empty, the action
 //      carries the new chord, CS+SS+S reaches the matrix, and the new chord
 //      fires Save Snapshot without disturbing Alt+S.
+//   3c. Issue #259 — Settings > Preferences carried QKeySequence::Preferences,
+//      which Qt 6.11.2 resolves to nothing on Linux. Rows H115-34/35 pin its
+//      literal Alt+P and that the chord fires it.
 //   4. The Alt namespace has no ambiguous binding — H115-26/27. This one is
 //      load-bearing: Alt+<letter> is ONE namespace shared by QAction shortcuts
 //      and QMenuBar '&' mnemonics, and a letter claimed twice makes an
@@ -156,6 +159,9 @@ void disarm_actions(MainWindow& w) {
     // Issue #130's Save Snapshot needs the same treatment: on_save_snapshot()
     // opens a modal QFileDialog.
     if (QAction* a = find_action(w, "Save S&napshot..."))
+        QObject::disconnect(a, nullptr, nullptr, nullptr);
+    // Issue #259's Preferences too: on_open_preferences() opens a modal dialog.
+    if (QAction* a = find_action(w, "&Preferences..."))
         QObject::disconnect(a, nullptr, nullptr, nullptr);
 }
 
@@ -437,6 +443,64 @@ void test_snapshot_chord(MainWindow& w) {
 }
 
 // ---------------------------------------------------------------------------
+// Group 3c — issue #259: Settings > Preferences lost its shortcut on Qt 6.11.2
+// ---------------------------------------------------------------------------
+//
+// The action carried QKeySequence::Preferences, whose meaning is Qt's platform
+// table, not jnext's. On Linux that table said the Key_Settings multimedia key
+// up to Qt 6.11.1 and NOTHING from Qt 6.11.2 (measured: keyBindings() is empty
+// under the default, kde and gtk3 themes), so the action silently had no
+// shortcut at all. It now carries a literal Alt+P.
+//
+// Its handler opens the modal Preferences dialog, so it is disarmed with the
+// others (disarm_actions).
+
+const char* const PREFERENCES_TEXT = "&Preferences...";
+
+void test_preferences_chord(MainWindow& w) {
+    // H115-34 — Preferences carries exactly Alt+P, on every platform and Qt
+    // version, because nothing about it is resolved at run time any more. Put
+    // QKeySequence::Preferences back and this fails on Qt 6.11.2 with got=''.
+    {
+        QAction* a = find_action(w, PREFERENCES_TEXT);
+        check("H115-34", "action \"&Preferences...\" is bound to Alt+P",
+              a != nullptr && seq_of(a) == QStringLiteral("Alt+P"),
+              a ? ("got='" + seq_of(a) + "'").toStdString() : "action not found");
+    }
+
+    // H115-35 — Alt+P really fires Preferences through the live shortcut map
+    // and types no P into the guest. Same shape and scoping as H115-33: the
+    // shortcut map is consulted for KeyPress only, so the check is on the P
+    // PRESS. An ambiguous Alt+P (a menu titled "&P...", say) fires neither
+    // binding, so it would show up here as fired=0.
+    {
+        QAction* prefs = find_action(w, PREFERENCES_TEXT);
+        bool fired = false;
+        if (prefs) QObject::connect(prefs, &QAction::triggered, [&fired]() { fired = true; });
+
+        bool p_pressed_in_guest = false;
+        w.set_key_callback([&p_pressed_in_guest](SDL_Scancode sc, bool pressed) {
+            if (sc == SDL_SCANCODE_P && pressed) p_pressed_in_guest = true;
+        });
+
+        send(w, Qt::Key_Alt, Qt::NoModifier,  true);
+        send(w, Qt::Key_P,   Qt::AltModifier, true);
+        QApplication::processEvents();
+        send(w, Qt::Key_P,   Qt::AltModifier, false);
+        send(w, Qt::Key_Alt, Qt::NoModifier,  false);
+
+        check("H115-35",
+              "Alt+P activates Preferences and types no P into the guest",
+              prefs != nullptr && fired && !p_pressed_in_guest,
+              std::string("fired=") + (fired ? "1" : "0") +
+              " p_pressed_in_guest=" + (p_pressed_in_guest ? "1" : "0"));
+
+        if (prefs) QObject::disconnect(prefs, nullptr, nullptr, nullptr);
+        w.set_key_callback(nullptr);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Group 4 — the Alt namespace has no ambiguous binding
 // ---------------------------------------------------------------------------
 
@@ -594,6 +658,7 @@ int main(int argc, char** argv) {
     test_bindings(w);
     test_alt_activation(w);
     test_snapshot_chord(w);
+    test_preferences_chord(w);
     test_alt_namespace(w);
 
     // Group 5 needs a SECOND window, with an emulator attached: the bug-button
