@@ -199,8 +199,14 @@ paged at slot 0.
 Without this option no SAVE capture happens.
 .TP
 \f[B]\-\-esxdos\-stub\f[R]
-Intercept \f[CR]RST $08\f[R] calls and provide in\-memory config I/O
-plus \f[CR].RUN\f[R] sibling\-NEX chaining, without booting NextZXOS.
+Answer a few \f[CR]RST $08\f[R] esxDOS calls for any program, for the
+whole session: the version query, one in\-memory file and
+\f[CR]run sibling.nex\f[R] chaining.
+Every other call goes to the code at \f[CR]$0008\f[R].
+For programs run without NextZXOS; a directly loaded NEX gets a fuller
+set automatically (see \f[B]LOADING PROGRAMS\f[R]).
+With NextZXOS booted it answers in front of NextZXOS\(cqs own esxDOS for
+those calls, and NextZXOS\(cqs file commands stop working.
 .TP
 \f[B]\-\-rtc\f[R] \f[I]\(lqYYYY\-MM\-DD HH:MM:SS\(rq\f[R]
 Pin the RTC to a fixed date and time (a frozen clock) instead of
@@ -609,14 +615,73 @@ RZX recording uses \f[B]\-\-rzx\-record\f[R] \f[I]FILE\f[R].
 The GUI\(cqs \f[B]File > Load NEX File\&...\f[R] dialog accepts all of
 the above.
 .PP
-\f[B]\-\-esxdos\-stub\f[R] handles the common \f[CR]RST $08\f[R] calls
-used by directly loaded NEX programs.
-It provides one in\-memory file and \f[CR]run sibling.nex\f[R] chaining.
-.PP
 Raw binaries go straight into RAM with \f[B]\-\-inject\f[R]
 \f[I]FILE\f[R] (\f[B]\-\-inject\-org\f[R] load address,
 \f[B]\-\-inject\-pc\f[R] entry point, \f[B]\-\-inject\-delay\f[R] a
 frame delay before injecting).
+.SS esxDOS calls from a directly loaded NEX
+On a real Next a NEX file is always started by NextZXOS, so the program
+can use NextZXOS\(cqs esxDOS services (an \f[CR]RST $08\f[R] followed by
+a call number).
+A NEX loaded directly by jnext (\f[B]\-\-load\f[R], a bare file name, or
+\f[B]File > Load NEX File\&...\f[R]) has no NextZXOS behind it, so jnext
+answers those calls itself.
+This starts when the NEX is loaded and stops at the next reset or soft
+reset.
+It answers:
+.IP \(bu 2
+the drive query (\f[CR]M_GETSETDRV\f[R]): the only drive is
+\f[CR]C:\f[R], and asking for any other drive fails;
+.IP \(bu 2
+the version query (\f[CR]M_DOSVERSION\f[R]): NextZXOS 1.94, or 2.02 for
+a NEX that keeps its own file open (below);
+.IP \(bu 2
+one file kept in memory: the program can create it, write it, and read
+it back under the same name, which is enough for a high\-score or
+settings file.
+It is never written to disk and is gone when jnext exits;
+.IP \(bu 2
+\f[CR]run NAME.nex\f[R] (\f[CR]M_EXECCMD\f[R]), which loads another NEX
+file from the same directory;
+.IP \(bu 2
+for a NEX whose header asks for its file to stay open: reading that
+file, including data appended after its banks (also through the
+block\-streaming calls), and reading, never writing, other files in the
+same directory by name.
+Such a NEX gets the host files instead of the in\-memory file (unless
+\f[B]\-\-esxdos\-stub\f[R] is also given).
+.PP
+Every other call from \f[CR]$80\f[R] to \f[CR]$B1\f[R] returns an error
+(carry set, \f[CR]A\f[R]=2), including calls NextZXOS does implement,
+such as reading the current directory, listing a directory or reading
+the date.
+A program that needs one of those usually stops with its own error
+message.
+Codes above \f[CR]$B1\f[R] are not esxDOS calls and go to the code at
+\f[CR]$0008\f[R].
+.PP
+This is not a filesystem.
+Apart from the kept\-open case above the program cannot see files on the
+host or on the SD card, so a program that needs data files has to be
+copied to the SD card with them and started from NextZXOS.
+Giving a directly loaded program a host directory is not implemented.
+.PP
+jnext answers only while ROM is paged in at \f[CR]$0000\f[R], as on a
+real Next, where NextZXOS is reached through the DivMMC, which only
+takes over from the ROM.
+A program that pages its own RAM in at \f[CR]$0000\f[R] keeps its own
+\f[CR]RST $08\f[R] code.
+That rule also applies to \f[B]\-\-esxdos\-stub\f[R] and to the
+kept\-open file.
+.PP
+\f[B]\-\-esxdos\-stub\f[R] answers a smaller set for programs loaded any
+other way (a snapshot, a tape, \f[B]\-\-inject\f[R]) and for the whole
+session: the version query, the in\-memory file and
+\f[CR]run NAME.nex\f[R].
+Every other call goes to the code at \f[CR]$0008\f[R] as usual.
+It is meant for programs run without NextZXOS: with NextZXOS booted, it
+answers those calls in front of NextZXOS\(cqs own esxDOS, and
+NextZXOS\(cqs file commands stop working.
 .SH HEADLESS MODE, SCREENSHOTS AND RECORDING
 \f[B]\-\-headless\f[R] runs the emulator with no window and no audio
 device, as fast as the host allows: the mode built for scripting and CI.

@@ -22,6 +22,8 @@ The taxonomy was formalised after Task 14's [test-strategy analysis](../issues/n
 
 **Stack:** NEX loader → DivMMC → esxDOS (or the `--esxdos-stub` shim) → SD-SPI → in-game runtime → game-specific subsystems (Layer 2, sprites, tilemap, Kempston mouse, AY/Specdrum, NR registers).
 
+Since GH #250 the shim is armed automatically for every directly loaded NEX (until the next reset), so `--esxdos-stub` on the rows below is redundant but harmless. The unit rows `ESXN-01..18` in `test/esxdos_stub/esxdos_stub_test.cpp` pin that, with replies measured on real NextZXOS (`.nexload` of a probe on the distro SD image), and pin the ROM-at-$0000 gate for `--esxdos-stub` and the extended-NEX host bridge too.
+
 **What it catches:** runtime FS/driver bugs, video-mode regressions, mouse/keyboard input routing, end-to-end NR-register handling under realistic game traffic. Bypasses the supervisor entirely so it's independent of Layer 1's blockers.
 
 **Status:** active. All four game-smoke rows below pass with `--esxdos-stub`. Reference images regenerate cleanly; cross-run determinism verified at 0 pixel diff.

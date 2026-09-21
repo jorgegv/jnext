@@ -72,6 +72,9 @@ and maps itself in when the CPU fetches from one of a set of trigger addresses �
 the RST vectors and the ROM's tape routines — then unmaps again when execution
 leaves through a designated window. Software that calls `RST 8` finds the DivMMC
 firmware answering, and never knew it was there.
+A program loaded directly, without NextZXOS, has no such firmware behind
+`$0008`; jnext answers its `RST 8` calls on the host instead. See
+[the esxDOS stand-in](08-media-and-loaders.md#the-esxdos-stand-in-for-directly-loaded-programs).
 
 `divmmc.{h,cpp}` models `device/divmmc.vhd`: an 8 KB ROM plus 16 × 8 KB RAM
 pages overlaid on slots 0 and 1, controlled both by port `0xE3` (`conmem` bit 7,

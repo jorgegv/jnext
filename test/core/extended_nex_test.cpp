@@ -557,11 +557,21 @@ int main() {
     const bool payload_in_ram =
         sram && std::search(sram, sram + closed_emu.ram().size(),
                             marker.begin(), marker.end()) != sram + closed_emu.ram().size();
+    // No host bridge either: the direct-load esxDOS stand-in (GH #250)
+    // answers, but reports 1.94 (2.02 only with the bridge) and cannot open
+    // the NEX's own file, which only the bridge serves.
     regs = {};
+    const bool dos_answered = esx(closed_emu, 0x88, regs) && !carry(regs);
+    const uint16_t dos_version = regs.DE;
+    write_zstr(closed_emu, 0x9300, closed_ext_path.filename().string());
+    regs = {};
+    regs.IX = 0x9300;
+    regs.BC = 0x0100;  // read-only
+    const bool own_open_refused = esx(closed_emu, 0x9A, regs) && carry(regs);
     check("XNEX-31", "only the declared bank is loaded; the payload reaches no guest path",
           closed_loaded && bank_ok && !payload_in_ram &&
           !closed_emu.sd_card().has_read_overlay() &&
-          !esx(closed_emu, 0x88, regs));
+          dos_answered && dos_version == 0x0194 && own_open_refused);
 
     log_out.str("");
     NexLoader register_ext;

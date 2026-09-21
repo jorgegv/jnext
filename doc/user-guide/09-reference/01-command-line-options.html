@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.160</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.161</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.160</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.161</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -3007,8 +3007,14 @@ fast load.</dd>
 runs with ROM paged at slot 0. Without this option no SAVE capture
 happens.</dd>
 <dt><strong>--esxdos-stub</strong></dt>
-<dd>Intercept <code>RST $08</code> calls and provide in-memory config I/O plus
-<code>.RUN</code> sibling-NEX chaining, without booting NextZXOS.</dd>
+<dd>Answer a few <code>RST $08</code> esxDOS calls for any program, for the whole
+session: the version query, one in-memory file and <code>run sibling.nex</code>
+chaining. Every other call goes to the code at <code>$0008</code>. For programs
+run without NextZXOS; a directly loaded NEX gets a fuller set
+automatically (see <a href="../05-running-programs/index.html#programs-that-need-nextzxos">Programs that need
+NextZXOS</a>).
+With NextZXOS booted it answers in front of NextZXOS’s own esxDOS
+for those calls, and NextZXOS’s file commands stop working.</dd>
 <dt><strong>--rtc</strong> <em>“YYYY-MM-DD HH:MM:SS”</em></dt>
 <dd>Pin the RTC to a fixed date and time (a frozen clock) instead of
 following the host clock, which makes boot screenshots

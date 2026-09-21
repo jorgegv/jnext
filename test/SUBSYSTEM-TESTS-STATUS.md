@@ -42,7 +42,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ULA Video             |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
-| VideoTiming           |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
+| VideoTiming           |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -73,7 +73,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Extended NEX streaming |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       74 |       74 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Tilemap raster splits |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Tilemap raster splits |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes                 |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes (integration)   |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI Source Pipeline   |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -107,6 +107,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7227** | **7227** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7237** | **7237** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

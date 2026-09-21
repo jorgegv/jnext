@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.160</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.161</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.160</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.161</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1948,7 +1948,10 @@ guest to page the DivMMC in explicitly, the hardware watches instruction fetches
 and maps itself in when the CPU fetches from one of a set of trigger addresses —
 the RST vectors and the ROM's tape routines — then unmaps again when execution
 leaves through a designated window. Software that calls <code>RST 8</code> finds the DivMMC
-firmware answering, and never knew it was there.</p>
+firmware answering, and never knew it was there.
+A program loaded directly, without NextZXOS, has no such firmware behind
+<code>$0008</code>; jnext answers its <code>RST 8</code> calls on the host instead. See
+<a href="08-media-and-loaders.html#the-esxdos-stand-in-for-directly-loaded-programs">the esxDOS stand-in</a>.</p>
 <p><code>divmmc.{h,cpp}</code> models <code>device/divmmc.vhd</code>: an 8 KB ROM plus 16 × 8 KB RAM
 pages overlaid on slots 0 and 1, controlled both by port <code>0xE3</code> (<code>conmem</code> bit 7,
 <code>mapram</code> bit 6, bank in bits 3:0) and by the automap path.</p>

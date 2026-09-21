@@ -211,10 +211,11 @@ public:
     //
     // Use case: jnext loads NEX files without booting NextZXOS, so the
     // real esxdos firmware (DivMMC AUTOMAP RST $08 handler) is not in
-    // memory. z88dk-built NEX games that call esxdos_f_open etc. would
-    // otherwise jump into 48K BASIC's ERROR handler and stall. With this
-    // shim enabled (via --esxdos-stub), every esxdos call returns a
-    // benign error so games' "no esxdos" fallback path is taken.
+    // memory. A program that calls esxdos_f_open etc. would otherwise jump
+    // into 48K BASIC's ERROR handler and stall. Emulator::init() installs
+    // the esxDOS stand-in here: armed for a directly loaded NEX, for
+    // --esxdos-stub, and for the extended-NEX host bridge (see the
+    // developer guide, 3.8 Media and loaders).
     std::function<bool(uint8_t defb_code, Z80Registers& regs)> on_esxdos_call;
 
     // Callback fired when an NMI is being serviced by the CPU. Receives the

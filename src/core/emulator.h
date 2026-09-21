@@ -954,6 +954,12 @@ private:
     bool esxdos_stub_file_open_ = false;
     bool esxdos_stub_file_write_ = false;
     std::function<bool(uint8_t, Z80Registers&)> esxdos_bridge_handler_;
+    // GH #250 — a directly loaded NEX is running: answer its RST $08 esxDOS
+    // calls even without --esxdos-stub. Set by load_nex(), cleared by
+    // reset()/soft_reset(). load_tap()/load_tzx()/load_wav() deliberately
+    // leave it alone: they attach tape media to the running machine without
+    // resetting it, so a NEX still running keeps its stand-in.
+    bool direct_nex_esxdos_ = false;
     ExtendedNexHost extended_nex_host_;
     MachineTiming  timing_;          // per-machine timing from VHDL
     Clock          clock_;

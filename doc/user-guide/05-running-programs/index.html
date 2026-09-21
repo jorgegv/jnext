@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.160</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.161</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.160</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.161</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2776,6 +2776,38 @@ entry, <strong>Tape &gt; Open Tape File…</strong> (Alt+T), covered in
 <p>The status bar along the bottom tracks the session: frame rate, the emulated
 CPU clock, the emulator speed, tape state, and the current machine.</p>
 <p>Everything else in this chapter is about shaping that session.</p>
+<h2 id="programs-that-need-nextzxos">Programs that need NextZXOS<a class="headerlink" href="#programs-that-need-nextzxos" title="Permanent link">&para;</a></h2>
+<p>Loading a file directly (with <code>--load</code>, a bare file name, or <strong>File &gt; Load NEX
+File…</strong>) skips NextZXOS: the program starts on a machine with nothing else
+running. That is all most games and demos need. On a real Next, though, every
+NEX program is started by NextZXOS, and some programs also use it while they
+run: to ask which drive they are on, to save a high score, or to read their
+levels, music or settings from files next to them.</p>
+<p>For a NEX file loaded directly, JNEXT stands in for the NextZXOS services such
+programs most often ask for:</p>
+<ul>
+<li>the current drive, which is always <code>C:</code>;</li>
+<li>one small file kept in memory, so a high score or a settings file can be
+  saved and read back during the session (it is not written to disk, and it is
+  gone when JNEXT closes);</li>
+<li><code>run</code> of another NEX file in the same folder, for programs that come in
+  several parts.</li>
+</ul>
+<p>Everything else is refused with an error. In practice:</p>
+<ul>
+<li>A program that only checks its drive or saves a high score runs normally.</li>
+<li>A program that needs data files from disk (levels, music, a configuration
+  file) stops with its own error message, or runs with parts missing. NXtel,
+  for example, says it cannot read <code>NXTEL.CFG</code>. JNEXT cannot give a directly
+  loaded program files from your computer.</li>
+</ul>
+<p>For those, do what a real Next does: boot NextZXOS from the SD card image and
+start the program from the <strong>Browser</strong>, with its files next to it on the card.
+Many programs, games included, are already on the image JNEXT uses by default.
+To add your own, copy the program and its files into the image with a tool that
+can write to FAT32 disk images, such as <code>mcopy</code> from mtools.</p>
+<p>(A NEX file whose header asks to keep its own file open can also read that
+file, and read files next to it, when loaded directly. It cannot write them.)</p>
 <hr />
 
 
