@@ -480,6 +480,17 @@ target_link_libraries(extended_nex_test PRIVATE
 target_include_directories(extended_nex_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME extended_nex_tests COMMAND extended_nex_test)
 
+# TAP container validation. Runtime-generated fixtures drive the real
+# TapLoader::load() and Emulator::load_tap(); what counts as malformed is
+# libspectrum's TAP reader (the one FUSE uses).
+add_executable(tap_loader_test core/tap_loader_test.cpp)
+target_link_libraries(tap_loader_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(tap_loader_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tap_loader_tests COMMAND tap_loader_test)
+
 # CLI option table / man page alignment (issue #43). Header-only table under
 # test (src/core/cli_options.h) — no emulator core needed. The three paths are
 # baked in at configure time so the suite works from any working directory

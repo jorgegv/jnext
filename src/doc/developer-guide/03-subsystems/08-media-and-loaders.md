@@ -81,6 +81,15 @@ ROM's input loop is running — see [3.7 Input](07-input.md) for how it decides
 that. It is armed by `load_tap()` only; `.tzx` and `.wav` still fall back to a
 fixed 100-frame delay.
 
+`TapLoader::parse_blocks()` refuses a `.tap` whose blocks do not tile the
+file exactly — a block whose declared length runs past the end, or one stray
+byte where a length field should start — the two cases FUSE's libspectrum TAP
+reader rejects. A bad checksum or flag byte inside a complete block is not a
+container error: the tape loads, and the ROM reports "R Tape loading error"
+when it reads that block. `.tzx` gets no such check:
+ZOT's `tzx_load()` accepts any file of two bytes or more, taking one without
+the TZX signature as TAP data.
+
 ## NEX
 
 `.nex` is the Next's native program container, and the most involved loader

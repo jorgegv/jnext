@@ -1973,6 +1973,14 @@ in <code>src/input/phantom_typist.h</code> types <code>LOAD ""</code> for you on
 ROM's input loop is running — see <a href="07-input.html">3.7 Input</a> for how it decides
 that. It is armed by <code>load_tap()</code> only; <code>.tzx</code> and <code>.wav</code> still fall back to a
 fixed 100-frame delay.</p>
+<p><code>TapLoader::parse_blocks()</code> refuses a <code>.tap</code> whose blocks do not tile the
+file exactly — a block whose declared length runs past the end, or one stray
+byte where a length field should start — the two cases FUSE's libspectrum TAP
+reader rejects. A bad checksum or flag byte inside a complete block is not a
+container error: the tape loads, and the ROM reports "R Tape loading error"
+when it reads that block. <code>.tzx</code> gets no such check:
+ZOT's <code>tzx_load()</code> accepts any file of two bytes or more, taking one without
+the TZX signature as TAP data.</p>
 <h2 id="nex">NEX<a class="headerlink" href="#nex" title="Permanent link">&para;</a></h2>
 <p><code>.nex</code> is the Next's native program container, and the most involved loader
 here: four header versions, optional Layer 2 / LoRes / tilemode loading
