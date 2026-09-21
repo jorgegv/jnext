@@ -118,12 +118,13 @@ Load a program. The format is detected from the extension: `.nex`,
 accepted here and plays back, as **--rzx-play**.)
 
 A NEX file with bytes after the banks its header declares is an
-*extended* NEX. If its header asks for the file to be kept open
-(`file_handle` 1 or an address of 0x4000 or above), the program gets
-that handle and can read the extra bytes from its own file. If the
-header says `file_handle` 0, jnext does what the Next’s own loader does:
-it loads only the declared banks, ignores the trailing bytes and starts
-the program. More than 16 KB of ignored bytes also logs a warning.
+*extended* NEX. If its header asks for the file to be kept open (any
+non-zero `file_handle`: 1 to 0x3FFF hands the program the handle in
+`BC`, 0x4000 and above writes it at that address), the program can read
+the extra bytes from its own file. If the header says `file_handle` 0,
+jnext does what the Next’s own loader does: it loads only the declared
+banks, ignores the trailing bytes and starts the program. More than 16
+KB of ignored bytes also logs a warning.
 
 **--nex-args** *LINE*  
 Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim and

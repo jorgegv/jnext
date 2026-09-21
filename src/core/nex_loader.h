@@ -40,7 +40,7 @@ struct NexHeader {
     uint8_t  core_version[3];    // major, minor, subminor
     uint8_t  hires_colour;       // HiRes colour or L2 palette offset
     uint8_t  entry_bank;         // 16K bank mapped to 0xC000 at entry
-    uint16_t file_handle;        // 0=close, 1=handle in BC, >=0x4000=store handle there
+    uint16_t file_handle;        // 0=close, 1..0x3FFF=handle in BC, >=0x4000=store handle there
     uint8_t  version_bcd;        // `version` packed as nexload.asm does: "V1.2" -> 0x12
 
     // ---- V1.3 additions (all zero / absent in V1.0-V1.2 files) ----------
@@ -244,9 +244,21 @@ public:
     /// True when bytes follow the header-described region.
     bool is_extended() const { return file_size_ > payload_offset_; }
 
-    /// Whether the NEX header asks the loader to keep its file open.
-    bool keeps_file_open() const {
-        return header_.file_handle == 1 || header_.file_handle >= 0x4000;
+    /// Whether the NEX header asks the loader to keep its file open: ANY
+    /// non-zero file_handle does. Both loaders close only on 0 (nexload2.asm:
+    /// 390-395, nexload.asm:547-551); the value then picks WHERE the handle
+    /// goes — see delivers_handle_in_bc().
+    bool keeps_file_open() const { return header_.file_handle != 0; }
+
+    /// For a kept-open file: true when the handle is delivered in BC
+    /// (file_handle 1..0x3FFF), false when it is written to memory at the
+    /// file_handle address (0x4000 and above). nexload2.asm:397-407 (`cp $40`,
+    /// then the handle byte into the low byte of `ld bc,255` or to (HL));
+    /// nexload.asm:560-570 (compare with $4000, else `ld (hl),a`), :582-585
+    /// and :606-609 (`.setRegHandle` patches `ld bc,$00nn`). Either way
+    /// B=0, C=handle.
+    bool delivers_handle_in_bc() const {
+        return keeps_file_open() && header_.file_handle < 0x4000;
     }
 
     /// True when the header's version string is exactly "V1.3".

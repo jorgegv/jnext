@@ -46,8 +46,9 @@ The format is detected from the extension: \f[CR].nex\f[R],
 .PP
 A NEX file with bytes after the banks its header declares is an
 \f[I]extended\f[R] NEX.
-If its header asks for the file to be kept open (\f[CR]file_handle\f[R]
-1 or an address of 0x4000 or above), the program gets that handle and
+If its header asks for the file to be kept open (any non\-zero
+\f[CR]file_handle\f[R]: 1 to 0x3FFF hands the program the handle in
+\f[CR]BC\f[R], 0x4000 and above writes it at that address), the program
 can read the extra bytes from its own file.
 If the header says \f[CR]file_handle\f[R] 0, jnext does what the
 Next\(cqs own loader does: it loads only the declared banks, ignores the

@@ -6882,8 +6882,11 @@ bool Emulator::load_nex(const std::string& path)
                 return extended_nex_host_.read_block(sector, dst);
             });
 
+        // file_handle 1..0x3FFF: handle in BC (B=0, C=handle); 0x4000 and
+        // above: the handle byte is written at that address. See
+        // NexLoader::delivers_handle_in_bc() for the loader citations.
         const uint8_t handle = ExtendedNexHost::kHandle;
-        if (loader.header().file_handle == 1) {
+        if (loader.delivers_handle_in_bc()) {
             auto regs = cpu_.get_registers();
             regs.BC = handle;
             cpu_.set_registers(regs);
@@ -6894,10 +6897,6 @@ bool Emulator::load_nex(const std::string& path)
                 "NEX: delivered open file handle {} at {:#06x}",
                 handle, loader.header().file_handle);
         }
-    } else if (loader.header().file_handle != 0) {
-        Log::emulator()->warn(
-            "NEX: unsupported file_handle value {:#06x}; file closed",
-            loader.header().file_handle);
     }
 
     // GH #250 — the program now runs with no NextZXOS behind it, so arm the
