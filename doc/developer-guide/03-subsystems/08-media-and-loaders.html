@@ -2016,6 +2016,10 @@ found on Spectron2084). That warning replaces the refusal issue #10 added,
 which had turned such a file away. No host bridge is opened for such a file,
 so the stand-in cannot reach the bytes either: its <code>F_OPEN</code> then knows only
 the in-memory file.</p>
+<p>When no handle goes in <code>BC</code> (<code>file_handle</code> 0, or <code>$4000</code> and above), the two
+loaders disagree on what <code>BC</code> holds at entry, and <code>load_nex()</code> follows the one
+that really runs the file: <code>$00FF</code> ("no handle") for V1.3 (<code>nexload2.asm:407</code>),
+<code>$0000</code> for V1.0–V1.2 (<code>nexload.asm:582-585</code>).</p>
 <h2 id="the-esxdos-stand-in-for-directly-loaded-programs">The esxDOS stand-in for directly loaded programs<a class="headerlink" href="#the-esxdos-stand-in-for-directly-loaded-programs" title="Permanent link">&para;</a></h2>
 <p>On hardware a NEX is always started by NextZXOS's <code>nexload</code>, so the program
 can call the esxDOS / NextZXOS API: <code>RST $08</code> followed by a one-byte call

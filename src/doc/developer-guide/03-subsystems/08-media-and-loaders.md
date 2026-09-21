@@ -131,6 +131,11 @@ which had turned such a file away. No host bridge is opened for such a file,
 so the stand-in cannot reach the bytes either: its `F_OPEN` then knows only
 the in-memory file.
 
+When no handle goes in `BC` (`file_handle` 0, or `$4000` and above), the two
+loaders disagree on what `BC` holds at entry, and `load_nex()` follows the one
+that really runs the file: `$00FF` ("no handle") for V1.3 (`nexload2.asm:407`),
+`$0000` for V1.0–V1.2 (`nexload.asm:582-585`).
+
 ## The esxDOS stand-in for directly loaded programs
 
 On hardware a NEX is always started by NextZXOS's `nexload`, so the program
