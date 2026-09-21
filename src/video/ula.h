@@ -77,7 +77,6 @@ public:
         ulanext_en_          = false; // nr_43_ulanext_en reset '0'
         select_bgnd_argb_    = 0xFFFF00FFu; // NR $4A reset X"E3" expanded (zxnext.vhd:5014)
         ulap_en_             = false; // port_ff3b_ulap_en reset '0' (zxnext.vhd:4547)
-        ulap_en_per_line_.fill(false);  // gap G11 — mirror reset default
         ulap_mode_           = 0;     // port_bf3b_ulap_mode reset "00" (zxnext.vhd:4529)
         ulap_index_          = 0;     // port_bf3b_ulap_index reset "000000" (zxnext.vhd:4530)
         alt_file_            = false; // port 0xFF bit 0 (screen bank) default 0
@@ -129,6 +128,9 @@ public:
         palsel6b_overflow_warned_  = false;
         baseline_active_tm_pal_    = false;
         palsel_current_line_       = 0;
+        // Per-scanline control snapshot (GH #256): inactive until the next
+        // frame initializes it, so the live reset defaults above apply.
+        control_per_line_active_ = false;
     }
 
     /// Set the palette manager reference (must be called before rendering).
@@ -412,21 +414,47 @@ public:
     void set_ulap_en(bool b) { ulap_en_ = b; }
     bool get_ulap_en() const { return ulap_en_; }
 
-    /// Per-scanline ULA+ enable snapshot (NR 0x68 b3 / port 0xFF3B path) —
-    /// gap G11 closure. VHDL zxnext.vhd:5445 captures the bit at stage 0
-    /// of every line; mid-frame Copper writes take effect on the next
-    /// line. Mirrors the snapshot/init/getter idiom used by Renderer's
-    /// fallback_per_line_ and ula_enabled_per_line_.
+    /// Per-scanline ULA control snapshot (GH #256): ULA+ enable (NR 0x68 b3
+    /// / port 0xFF3B), ULAnext enable (NR 0x43 b0) and format (NR 0x42), and
+    /// the shadow-screen display bank (port 0x7FFD b3 / NR 0x69 b6). The
+    /// hardware samples the first three once per pixel (stage-0 latch,
+    /// zxnext.vhd:6804-6815, consumed at zxula.vhd:485-541) and the bank
+    /// once per character fetch (zxula.vhd:194-214 -> zxnext.vhd:6647-6658),
+    /// so a Copper MOVE to any of them changes the display from that point
+    /// on; read at render time they held the frame's LAST value. Captured at
+    /// the END of each row (Emulator::on_scanline, prev_fb_row group, beside
+    /// the border snapshot) — the row the ULA's port-0xFF / scroll / palette
+    /// change-logs tag a write with. render_scanline swaps the row's values
+    /// in for the call; Renderer::apply_lores reads them through the
+    /// *_for_line getters. Transient render history like the tilemap's
+    /// fetch snapshots: not serialized, and inactive — so every reader falls
+    /// back to the live registers — after reset/load until the next frame
+    /// initializes it.
+    void snapshot_control_for_line(int line) {
+        if (line >= 0 && line < kControlLines)
+            control_per_line_[line] = live_control();
+    }
+    void init_control_per_line() {
+        control_per_line_.fill(live_control());
+        control_per_line_active_ = true;
+    }
+    bool ulanext_en_for_line(int line) const {
+        return control_for_line(line).ulanext_en;
+    }
+
+    /// ULA+ enable lane of the control snapshot above — gap G11 closure
+    /// (the helpers predate the snapshot, which is what finally wired them
+    /// into production). VHDL zxnext.vhd:5445 captures the bit at stage 0
+    /// of every line; mid-frame Copper writes take effect on the next line.
     void snapshot_ulap_en_for_line(int line) {
-        if (line >= 0 && line < 320)
-            ulap_en_per_line_[line] = ulap_en_;
+        if (line >= 0 && line < kControlLines)
+            control_per_line_[line].ulap_en = ulap_en_;
     }
     void init_ulap_en_per_line() {
-        ulap_en_per_line_.fill(ulap_en_);
+        init_control_per_line();
     }
     bool ulap_en_for_line(int line) const {
-        return (line >= 0 && line < 320) ? ulap_en_per_line_[line]
-                                         : ulap_en_;
+        return control_for_line(line).ulap_en;
     }
 
     // Port 0xBF3B — ULA+ mode/index register (write-only latch).
@@ -710,6 +738,15 @@ public:
     void render_scanline_bank(uint32_t* dst, int row, Mmu& mmu, bool use_bank7,
                               uint32_t select_bgnd_argb);
 
+private:
+    /// Body shared by render_scanline (the row's snapshotted bank) and
+    /// render_scanline_bank (the debugger's forced bank): paints one row
+    /// from `use_bank7` with the row's ULA+/ULAnext state swapped in.
+    void render_scanline_in_bank(uint32_t* dst, int row, Mmu& mmu,
+                                 bool* border_dst, bool use_bank7);
+
+public:
+
     /// Shadow-screen (bank 7) convenience wrapper for render_scanline_bank.
     void render_scanline_screen1(uint32_t* dst, int row, Mmu& mmu,
                                  uint32_t select_bgnd_argb) {
@@ -753,8 +790,24 @@ private:
     /// value X"E3" (zxnext.vhd:5014); refreshed per row by render_row.
     uint32_t select_bgnd_argb_   = 0xFFFF00FFu;
     bool    ulap_en_             = false; ///< Port 0xFF3B enable (zxnext.vhd:4547)
-    /// Per-scanline ULA+ enable snapshot — gap G11 closure.
-    std::array<bool, 320> ulap_en_per_line_{};
+    /// Per-scanline ULA control snapshot (GH #256, see
+    /// snapshot_control_for_line). Rows are framebuffer rows.
+    struct LineControl {
+        bool    ulap_en;
+        bool    ulanext_en;
+        uint8_t ulanext_format;
+        bool    vram_bank7;
+    };
+    LineControl live_control() const {
+        return {ulap_en_, ulanext_en_, ulanext_format_, vram_use_bank7_};
+    }
+    static constexpr int kControlLines = 320;
+    std::array<LineControl, kControlLines> control_per_line_{};
+    bool control_per_line_active_ = false;
+    LineControl control_for_line(int line) const {
+        return (control_per_line_active_ && line >= 0 && line < kControlLines)
+            ? control_per_line_[line] : live_control();
+    }
     uint8_t ulap_mode_           = 0;     ///< Port 0xBF3B top-2 bits (zxnext.vhd:4529/4532)
     uint8_t ulap_index_          = 0;     ///< Port 0xBF3B low 6 bits (zxnext.vhd:4530/4534)
     bool    alt_file_            = false; ///< Port 0xFF bit 0 (zxula.vhd:218)

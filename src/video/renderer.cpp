@@ -559,9 +559,9 @@ void Renderer::apply_lores(uint32_t* line, int row, Ram& ram,
     p.dfile = port_ff_b0 != ((ls.nr6a & 0x10) != 0);
 
     // zxnext.vhd:4246 — ulap_en_i => ulap_en_0 and not ulanext_en_0.
-    // Sourced from the same live Ula getters the ULA's own render path uses,
-    // so the two can never disagree within a row.
-    p.ulap_en = ula_.get_ulap_en() && !ula_.get_ulanext_en();
+    // Sourced from the row's snapshot the ULA's own render path swaps in
+    // (GH #256), so the two can never disagree within a row.
+    p.ulap_en = ula_.ulap_en_for_line(row) && !ula_.ulanext_en_for_line(row);
 
     // zxnext.vhd:4258-4261 — LoRes is wired to the ULA clip registers; it has
     // no window of its own (NR $1D is undecoded, zxnext.vhd:1167-1171,
@@ -760,10 +760,11 @@ void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, in
     // live stencil_mode_ member: VHDL zxnext.vhd:5445/6810/6897-6898/7064
     // pipelines NR 0x68 bit 0 through the same stage0/1a/1/2 register
     // chain as ula_en, so a Copper MOVE that flips the bit mid-frame must
-    // not affect the row it lands on (Task 43).
+    // not affect the row it lands on (Task 43). tm_en_2 likewise comes from
+    // the row's NR 0x6B b7 snapshot, the same chain (GH #256).
     const bool stencil_active =
-        stencil_mode_for_line(row) && tm_enabled_ && !mask_tiles && !mask_ula &&
-        ula_enabled_per_line_[row];
+        stencil_mode_for_line(row) && tm_enabled_for_line(row) &&
+        !mask_tiles && !mask_ula && ula_enabled_per_line_[row];
 
     for (int x = 0; x < FB_WIDTH; ++x) {
         const uint32_t ula_px  = ula_line_[x];
@@ -1060,6 +1061,7 @@ void Renderer::load_state(StateReader& r)
     sprite_en_    = r.read_u8() != 0;
     stencil_mode_ = r.read_u8() != 0;
     tm_enabled_   = r.read_u8() != 0;
+    tm_enabled_per_line_active_ = false;  // GH #256 — live until next frame
     blend_mode_   = r.read_u8() & 0x03;
     r.read_bytes(fallback_per_line_.data(), fallback_per_line_.size());
     lores_.load_state(r);

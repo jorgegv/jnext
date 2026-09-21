@@ -122,6 +122,8 @@ public:
         transparent_rgb_per_line_.fill(0xE3);
         stencil_mode_per_line_.fill(false);
         blend_mode_per_line_.fill(0);
+        tm_enabled_per_line_.fill(false);
+        tm_enabled_per_line_active_ = false;
         ula_.reset();
         // Per-scanline NR 0x1A snapshot mirrors the Ula reset clip window
         // (0, 255, 0, 191) — must run after ula_.reset().
@@ -399,6 +401,26 @@ public:
                                          : blend_mode_;
     }
 
+    /// Per-scanline NR 0x6B bit 7 (tm_en) snapshot for the stencil gate
+    /// (GH #256). VHDL zxnext.vhd:6820 latches it into the same
+    /// stage0/1a/1/2 chain as ula_en and the stencil bit (:6909-6910, :7069),
+    /// consumed at :7130; read live it held the frame's LAST value.
+    /// Unlike its siblings above it falls back to the live bit until a
+    /// frame initializes it (reset/load clear the flag), so a caller that
+    /// composites a row directly keeps compositing the value it just set.
+    void snapshot_tm_enabled_for_line(int line) {
+        if (line >= 0 && line < 320)
+            tm_enabled_per_line_[line] = tm_enabled_;
+    }
+    void init_tm_enabled_per_line() {
+        tm_enabled_per_line_.fill(tm_enabled_);
+        tm_enabled_per_line_active_ = true;
+    }
+    bool tm_enabled_for_line(int line) const {
+        return (tm_enabled_per_line_active_ && line >= 0 && line < 320)
+            ? tm_enabled_per_line_[line] : tm_enabled_;
+    }
+
     /// Per-scanline ULA clip window (NR 0x1A) snapshot.
     ///
     /// VHDL zxnext.vhd:988-991 — the ULA clip comparators consume the live
@@ -568,6 +590,10 @@ private:
 
     /// Per-scanline NR 0x68 b6:5 blend-mode snapshot — gap G11 closure.
     std::array<uint8_t, 320>  blend_mode_per_line_{};
+
+    /// Per-scanline NR 0x6B b7 tm_en snapshot for the stencil gate (GH #256).
+    std::array<bool, 320>     tm_enabled_per_line_{};
+    bool                      tm_enabled_per_line_active_ = false;
 
     /// Per-scanline NR 0x1A ULA clip window snapshot (see UlaClipWindow).
     /// Like its stencil/blend/NR-0x14 siblings this is re-populated every

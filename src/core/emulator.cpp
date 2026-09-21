@@ -7328,6 +7328,8 @@ void Emulator::begin_new_frame()
     // mid-frame must take effect on the next scanline, not the current one.
     renderer_.init_stencil_mode_per_line();
     renderer_.init_blend_mode_per_line();
+    // GH #256 — NR 0x6B b7 as the stencil gate sees it, same chain.
+    renderer_.init_tm_enabled_per_line();
 
     // Initialize per-line NR 0x14 (global transparent RGB) snapshot.
     // VHDL zxnext.vhd:1137,5226,6822,6912-6913,7078 pipeline
@@ -7354,6 +7356,8 @@ void Emulator::begin_new_frame()
     // Initialize per-line border colour to current value.
     // Port 0xFE writes will update individual lines during execution.
     renderer_.ula().init_border_per_line();
+    // GH #256 — and the ULA+ / ULAnext / shadow-bank state beside it.
+    renderer_.ula().init_control_per_line();
 
     // Initialize per-line tilemap scroll to current values.
     // Interrupt handlers may change scroll mid-frame for split-screen effects.
@@ -7392,6 +7396,9 @@ void Emulator::begin_new_frame()
     // per-scanline replay all 96 sprites collapse to the very last
     // upload's Y positions). VHDL sprites.vhd:327-470.
     sprites_.start_frame();
+    // GH #256 — and its per-line render controls (NR 0x19 clip, NR 0x15
+    // b6/b5/b1, NR 0x4B index), refreshed by on_scanline.
+    sprites_.init_control_per_line(palette_.sprite_transparency());
 
     // Per-scanline port-0xFF Timex screen-mode snapshot (G07).
     renderer_.ula().start_frame();
@@ -8005,10 +8012,14 @@ void Emulator::end_of_frame(uint64_t frame_end)
     renderer_.snapshot_ula_enabled_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_stencil_mode_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_blend_mode_for_line(Renderer::FB_HEIGHT - 1);
+    renderer_.snapshot_tm_enabled_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_transparent_rgb_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.snapshot_ula_clip_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.lores().snapshot_for_line(Renderer::FB_HEIGHT - 1);
     renderer_.ula().snapshot_border_for_line(Renderer::FB_HEIGHT - 1);
+    sprites_.snapshot_control_for_line(Renderer::FB_HEIGHT - 1,
+                                       palette_.sprite_transparency());
+    renderer_.ula().snapshot_control_for_line(Renderer::FB_HEIGHT - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
@@ -9855,10 +9866,16 @@ void Emulator::on_scanline(int line)
             renderer_.snapshot_ula_enabled_for_line(prev_fb_row);
             renderer_.snapshot_stencil_mode_for_line(prev_fb_row);
             renderer_.snapshot_blend_mode_for_line(prev_fb_row);
+            renderer_.snapshot_tm_enabled_for_line(prev_fb_row);
             renderer_.snapshot_transparent_rgb_for_line(prev_fb_row);
             renderer_.snapshot_ula_clip_for_line(prev_fb_row);
             renderer_.lores().snapshot_for_line(prev_fb_row);
             renderer_.ula().snapshot_border_for_line(prev_fb_row);
+            // GH #256 — sprite clip / NR 0x15 b6,b5,b1 / NR 0x4B index, and
+            // the ULA's ULA+ / ULAnext / shadow-bank state.
+            sprites_.snapshot_control_for_line(prev_fb_row,
+                                               palette_.sprite_transparency());
+            renderer_.ula().snapshot_control_for_line(prev_fb_row);
         }
     }
 
