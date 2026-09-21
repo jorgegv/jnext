@@ -404,6 +404,9 @@ bit 8 selects palette 0/1, bits 7:0 are the pixel value.
 | TM-114 | Clip index cycling | `nr_1b_tm_clip_idx` increments mod 4 | Successive writes to 0x1B cycle x1,x2,y1,y2 |
 | TM-115 | Clip index reset | Write 0x1C bit 3 | Resets clip index to 0 without changing clip values |
 | TM-116 | Clip readback | Read 0x1B returns current indexed value | Reads cycle through x1,x2,y1,y2 |
+| TM-117 | Reset restores the clip registers (GH #260) | zxnext.vhd:4977-4980 | Window narrowed to x1=0x10 x2=0x20 y1=0x40 y2=0x80, then reset: x1=0x00, x2=0x9F, y1=0x00, y2=0xFF |
+| TM-118 | Reset restores the rendered clip (GH #260) | zxnext.vhd:4977-4980, tilemap.vhd:424 | Same narrowing, reset, tilemap re-enabled: rows 0, 0x60 and 0xFF opaque in all 640 cells (the narrowed window would blank all of rows 0 and 0xFF, and cells 0 and 639 of row 0x60) |
+| TM-119 | Soft (NR 0x02 b0) and hard reset restore window and index through the machine (GH #260, companion `tilemap_fetch_split_test`) | zxnext.vhd:4977-4981 | Window narrowed and write index left at 1 via NR 0x1B, then reset: NR 0x1C b7:6 = 00, NR 0x1B reads x1 = 0x00, clip = 0x00/0x9F/0x00/0xFF, and a full tilemap frame covers every framebuffer pixel. The core's `reset` is one wire driven by both hard and soft reset, so both must do it |
 
 VHDL clip enable (line 424):
 ```

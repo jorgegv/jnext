@@ -36,6 +36,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -356,6 +357,50 @@ static void test_scroll_integration(Emulator& emu) {
 // VHDL: zxnext.vhd:4523-4554 (port decoders), zxula.vhd:531-541 (encoder)
 // jnext: src/core/emulator.cpp:1549-1563 (port handlers)
 // ══════════════════════════════════════════════════════════════════════
+
+// GH #258 harness: a FRESH machine per row (the shared `emu` carries every
+// earlier row's state), all pixels paper, every attribute `attr`, and a Z80
+// program at 0x8000 run with interrupts off by ONE production run_frame.
+// The ULA+ port writes are therefore the CPU's own OUTs, dispatched inside
+// the per-instruction tick like guest code, and the result is read from the
+// rendered framebuffer — not from a subsystem poke or a one-line render.
+static std::unique_ptr<Emulator> run_ulaplus_program(uint8_t attr,
+                                                     const uint8_t* prog,
+                                                     size_t len) {
+    auto e = std::make_unique<Emulator>();
+    build_next_emulator(*e);
+    fill_pixels(*e, 0x00);
+    fill_attrs(*e, attr);
+    for (size_t i = 0; i < len; ++i)
+        e->mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+    auto regs = e->cpu().get_registers();
+    regs.PC = 0x8000; regs.SP = 0xFFFD; regs.IFF1 = 0; regs.IFF2 = 0;
+    e->cpu().set_registers(regs);
+    e->run_frame();
+    return e;
+}
+
+// Compare framebuffer column `col`, display rows [DISP_Y, DISP_Y+DISP_H),
+// with expected(row).
+template <typename Expected>
+static bool fb_column_ok(Emulator& emu, int col, Expected expected,
+                         std::string& detail) {
+    const int pitch = emu.get_framebuffer_width();
+    const uint32_t* fb = emu.get_framebuffer();
+    int bad = 0, first = -1;
+    uint32_t got = 0, want = 0;
+    const int lo = Renderer::DISP_Y, hi = Renderer::DISP_Y + Renderer::DISP_H;
+    for (int row = lo; row < hi; ++row) {
+        const uint32_t px = fb[row * pitch + col];
+        if (px != expected(row)) {
+            if (first < 0) { first = row; got = px; want = expected(row); }
+            ++bad;
+        }
+    }
+    detail = fmt("col %d rows %d..%d: %d wrong, first row %d got 0x%08X "
+                 "want 0x%08X", col, lo, hi - 1, bad, first, got, want);
+    return bad == 0;
+}
 
 static void test_ulaplus_integration(Emulator& emu) {
     set_group("INT-ULAPLUS");
@@ -835,6 +880,158 @@ static void test_ulaplus_integration(Emulator& emu) {
                   "other_idx=0x%02X (must differ) back=0x%02X (exp 0x1C)",
                   rd_poke, rd_bank1, rd_bank0, rd_via_nr41,
                   rd_other_idx, rd_back));
+    }
+
+    // ── INT-ULAPLUS-06 — port 0xFF3B palette-mode WRITE (GH #258) ─────
+    //
+    // VHDL: a 0xFF3B write while port_bf3b_ulap_mode = "00" is the third
+    // CPU requester of the NextREG write bus (zxnext.vhd:4741,4743): the
+    // register is hardwired X"FF" (:4744) and the byte is reordered from
+    // the ULA+ GGGRRRBB format to the palette's RRRGGGBB (:4745:
+    // cpu_do(4:2) & cpu_do(7:5) & cpu_do(1:0)). It then IS an NR 0xFF
+    // write: B0 = B1 or B0 (:4919), stored at ULA palette
+    // '0' & NR 0x43 b6 & "11" & port_bf3b_ulap_index (:6957-6958).
+    // The index latch moves only on a 0xBF3B write (:4532-4535) — there
+    // is no auto-increment — and the requester never touches nr_register,
+    // which only a 0x243B write loads (:4597-4598).
+    //
+    // attr 0x07 paper under ULA+ = ula_pixel 0xC8 = port 0xBF3B index 8.
+    // The program enables ULA+, selects index 8, writes GGGRRRBB 0xE0 at
+    // frame start, polls NR 0x1F to cvc 100, writes 0x03 then 0x1F with
+    // no re-select, keeps polling NR 0x1F (the select latch) to cvc 150
+    // and writes 0x1C. Expected colours, by hand from the VHDL:
+    //   0xE0 -> RRRGGGBB 0x1C -> R0 G7 B0 -> 0xFF00FF00 (green)
+    //   0x1F -> RRRGGGBB 0xE3 -> R7 G0 B7 -> 0xFFFF00FF (magenta)
+    //   0x1C -> RRRGGGBB 0xE0 -> R7 G0 B0 -> 0xFFFF0000 (red)
+    // Each write shows from the row of its own raw line (cvc N -> row
+    // N + DISP_Y), the convention PLRS-PAL-01 pins for NR 0xFF.
+    {
+        static const uint8_t prog[] = {
+            0xF3,               // 8000 DI
+            0x01, 0x3B, 0xBF,   // 8001 LD BC,0xBF3B
+            0x3E, 0x40,         // 8004 LD A,0x40      mode group 01
+            0xED, 0x79,         // 8006 OUT (C),A
+            0x06, 0xFF,         // 8008 LD B,0xFF      BC = 0xFF3B
+            0x3E, 0x01,         // 800A LD A,0x01      ULA+ on
+            0xED, 0x79,         // 800C OUT (C),A
+            0x06, 0xBF,         // 800E LD B,0xBF
+            0x3E, 0x08,         // 8010 LD A,0x08      palette group, index 8
+            0xED, 0x79,         // 8012 OUT (C),A
+            0x06, 0xFF,         // 8014 LD B,0xFF
+            0x3E, 0xE0,         // 8016 LD A,0xE0      green
+            0xED, 0x79,         // 8018 OUT (C),A
+            0x06, 0x24,         // 801A LD B,0x24      BC = 0x243B
+            0x3E, 0x1F,         // 801C LD A,0x1F
+            0xED, 0x79,         // 801E OUT (C),A      select NR 0x1F
+            0x06, 0x25,         // 8020 LD B,0x25      BC = 0x253B
+            0xED, 0x78,         // 8022 loop1: IN A,(C)
+            0xFE, 100,          // 8024 CP 100
+            0x20, 0xFA,         // 8026 JR NZ,loop1
+            0x06, 0xFF,         // 8028 LD B,0xFF
+            0x3E, 0x03,         // 802A LD A,0x03      blue ...
+            0xED, 0x79,         // 802C OUT (C),A
+            0x3E, 0x1F,         // 802E LD A,0x1F      ... overwritten: magenta
+            0xED, 0x79,         // 8030 OUT (C),A
+            0x06, 0x25,         // 8032 LD B,0x25      BC = 0x253B
+            0xED, 0x78,         // 8034 loop2: IN A,(C)
+            0xFE, 150,          // 8036 CP 150
+            0x20, 0xFA,         // 8038 JR NZ,loop2
+            0x06, 0xFF,         // 803A LD B,0xFF
+            0x3E, 0x1C,         // 803C LD A,0x1C      red
+            0xED, 0x79,         // 803E OUT (C),A
+            0x76,               // 8040 HALT
+        };
+        auto e = run_ulaplus_program(0x07, prog, sizeof(prog));
+        const int r100 = 100 + Renderer::DISP_Y;
+        const int r150 = 150 + Renderer::DISP_Y;
+        std::string d;
+        const bool ok = fb_column_ok(*e, Renderer::DISP_X + 20,
+            [&](int r) -> uint32_t {
+                if (r < r100) return 0xFF00FF00u;
+                if (r < r150) return 0xFFFF00FFu;
+                return 0xFFFF0000u;
+            }, d);
+        check("INT-ULAPLUS-06",
+              "port 0xFF3B write in palette mode is an NR 0xFF write of the "
+              "GGGRRRBB byte reordered to RRRGGGBB, at the latched 0xBF3B "
+              "index with no auto-increment and the NextREG select latch "
+              "untouched; each write shows from its own row "
+              "(zxnext.vhd:4532-4535,4597-4598,4741-4745,4919,6957-6958)",
+              ok, d);
+    }
+
+    // ── INT-ULAPLUS-07 — the palette write is mode-00 only (GH #258) ──
+    //
+    // VHDL: cpu_requester_2 fires only for port_bf3b_ulap_mode = "00"
+    // (zxnext.vhd:4741); mode "01" loads the enable instead (:4548-4549)
+    // and modes "10" / "11" do nothing at all. port_ff3b itself decodes
+    // only with port_ulap_io_en = NR 0x85 b0 (:2686, :2439), so a gated
+    // write never reaches the requester. A palette-mode read returns the
+    // entry as GGGRRRBB (:4563), i.e. exactly the byte written (B0 is
+    // regenerated from B1|B0 on the way in and dropped on the way out).
+    //
+    // Only the first palette write (GGGRRRBB 0xE0, green) is allowed to
+    // land in slot 8; every later write carries red-ish data and must be
+    // dropped. The program then reads the slot back with IN and stores it
+    // at 0x9000.
+    {
+        static const uint8_t prog[] = {
+            0xF3,                     // 8000 DI
+            0x01, 0x3B, 0xBF,         // 8001 LD BC,0xBF3B
+            0x3E, 0x40,               // 8004 LD A,0x40      mode 01
+            0xED, 0x79,               // 8006 OUT (C),A
+            0x06, 0xFF,               // 8008 LD B,0xFF
+            0x3E, 0x01,               // 800A LD A,0x01      ULA+ on
+            0xED, 0x79,               // 800C OUT (C),A
+            0x06, 0xBF,               // 800E LD B,0xBF
+            0x3E, 0x08,               // 8010 LD A,0x08      mode 00, index 8
+            0xED, 0x79,               // 8012 OUT (C),A
+            0x06, 0xFF,               // 8014 LD B,0xFF
+            0x3E, 0xE0,               // 8016 LD A,0xE0      green: lands
+            0xED, 0x79,               // 8018 OUT (C),A
+            0x06, 0xBF,               // 801A LD B,0xBF
+            0x3E, 0x48,               // 801C LD A,0x48      mode 01
+            0xED, 0x79,               // 801E OUT (C),A
+            0x06, 0xFF,               // 8020 LD B,0xFF
+            0x3E, 0x1D,               // 8022 LD A,0x1D      enable only (b0=1)
+            0xED, 0x79,               // 8024 OUT (C),A
+            0x06, 0xBF,               // 8026 LD B,0xBF
+            0x3E, 0x88,               // 8028 LD A,0x88      mode 10
+            0xED, 0x79,               // 802A OUT (C),A
+            0x06, 0xFF,               // 802C LD B,0xFF
+            0x3E, 0x1C,               // 802E LD A,0x1C      no effect
+            0xED, 0x79,               // 8030 OUT (C),A
+            0x06, 0xBF,               // 8032 LD B,0xBF
+            0x3E, 0xC8,               // 8034 LD A,0xC8      mode 11
+            0xED, 0x79,               // 8036 OUT (C),A
+            0x06, 0xFF,               // 8038 LD B,0xFF
+            0x3E, 0x1C,               // 803A LD A,0x1C      no effect
+            0xED, 0x79,               // 803C OUT (C),A
+            0x06, 0xBF,               // 803E LD B,0xBF
+            0x3E, 0x08,               // 8040 LD A,0x08      mode 00, index 8
+            0xED, 0x79,               // 8042 OUT (C),A
+            0xED, 0x91, 0x85, 0xFE,   // 8044 NEXTREG 0x85,0xFE  port_ulap_io_en=0
+            0x06, 0xFF,               // 8048 LD B,0xFF
+            0x3E, 0x1C,               // 804A LD A,0x1C      port undecoded
+            0xED, 0x79,               // 804C OUT (C),A
+            0xED, 0x91, 0x85, 0xFF,   // 804E NEXTREG 0x85,0xFF
+            0xED, 0x78,               // 8052 IN A,(C)       read slot 8
+            0x32, 0x00, 0x90,         // 8054 LD (0x9000),A
+            0x76,                     // 8057 HALT
+        };
+        auto e = run_ulaplus_program(0x07, prog, sizeof(prog));
+        std::string d;
+        const bool col_ok = fb_column_ok(*e, Renderer::DISP_X + 20,
+            [](int) -> uint32_t { return 0xFF00FF00u; }, d);
+        const uint8_t rd = e->mmu().read(0x9000);
+        check("INT-ULAPLUS-07",
+              "port 0xFF3B writes reach the palette only in mode 00 and only "
+              "while NR 0x85 b0 decodes the port; mode 01 loads the enable, "
+              "modes 10/11 do nothing; a palette-mode IN reads the written "
+              "GGGRRRBB byte back "
+              "(zxnext.vhd:2439,2686,4548-4549,4563,4741-4745)",
+              col_ok && rd == 0xE0,
+              d + fmt("; IN (0xFF3B)=0x%02X (exp 0xE0)", rd));
     }
 }
 

@@ -598,7 +598,8 @@ private:
     /// Per-scanline NR 0x1A ULA clip window snapshot (see UlaClipWindow).
     /// Like its stencil/blend/NR-0x14 siblings this is re-populated every
     /// frame (init at frame start + snapshot per scanline), so it is
-    /// deliberately absent from save_state()/load_state().
+    /// deliberately absent from the save_state() stream; load_state()
+    /// refills it from the loaded clip registers (GH #261).
     std::array<UlaClipWindow, 320> ula_clip_per_line_{};
 
     /// The four EFFECTIVE ULA clip values currently live on the Ula

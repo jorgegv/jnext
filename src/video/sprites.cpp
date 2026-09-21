@@ -1143,4 +1143,12 @@ void SpriteEngine::load_state(StateReader& r)
     max_sprites_ = r.read_bool();
     border_clip_en_ = r.read_bool();
     control_per_line_active_ = false;
+
+    // GH #261 — re-baseline the attribute and pattern logs from the state
+    // just loaded (see PaletteManager::load_state). The pattern log is
+    // emptied FIRST: start_frame()'s catch-up would otherwise write the
+    // pre-restore frame's unreplayed pattern bytes over the restored RAM.
+    pattern_change_count_  = 0;
+    pattern_render_cursor_ = 0;
+    start_frame();
 }

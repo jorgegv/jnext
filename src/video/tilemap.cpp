@@ -27,6 +27,15 @@ void Tilemap::reset()
     def_base_addr_ = decode_base_addr(0x0C);
     scroll_x_      = 0;
     scroll_y_      = 0;
+    // NR 0x1B clip window — VHDL zxnext.vhd:4977-4980 reset block
+    // (x1=0x00, x2=0x9F, y1=0x00, y2=0xFF), on hard and soft reset alike
+    // (`reset <= i_RESET`, :1730; reset_hard or reset_soft,
+    // zxnext_top_issue2.vhd:840). The write index (:4981) lives in
+    // Emulator::clip_tm_idx_ and is cleared by Emulator::init(). GH #260.
+    clip_x1_       = 0x00;
+    clip_x2_       = 0x9F;
+    clip_y1_       = 0x00;
+    clip_y2_       = 0xFF;
     fetch_per_line_active_ = false;
     output_per_line_active_ = false;
 
@@ -712,4 +721,11 @@ void Tilemap::load_state(StateReader& r)
     palette_sel_ = r.read_bool();   // NR 0x6B bit 4
     fetch_per_line_active_ = false;
     output_per_line_active_ = false;
+    // GH #261 — the per-scanline scroll snapshot and NR 0x6B log are render
+    // history: rebuild both from the state just loaded, so a render before
+    // the next begin_new_frame() (Emulator::rewind_to_frame) neither shows
+    // the pre-restore frame's scroll nor rewinds the live NR 0x6B bits to
+    // its baseline. See PaletteManager::load_state.
+    init_scroll_per_line();
+    start_frame_nr6b();
 }
