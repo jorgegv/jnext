@@ -2090,8 +2090,13 @@ precondition: the DivMMC automap that takes <code>$0008</code> to NextZXOS needs
 <td>in-memory file</td>
 </tr>
 <tr>
-<td><code>$9B</code> / <code>$9D</code> / <code>$9E</code> <code>F_CLOSE</code> / <code>F_READ</code> / <code>F_WRITE</code></td>
-<td>host handles, else the in-memory file</td>
+<td><code>$9B</code> / <code>$9D</code> <code>F_CLOSE</code> / <code>F_READ</code></td>
+<td>host handles 2/3, else the in-memory file</td>
+<td>in-memory file</td>
+</tr>
+<tr>
+<td><code>$9E</code> <code>F_WRITE</code></td>
+<td>the in-memory file only; there is no host-handle branch, so a write to host handle 2 or 3 fails (carry set, <code>A</code>=5)</td>
 <td>in-memory file</td>
 </tr>
 <tr>
