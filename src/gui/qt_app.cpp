@@ -2,6 +2,7 @@
 #include "gui/main_window.h"
 #include "gui/emulator_widget.h"
 #include "platform/emulator_boot.h"
+#include "platform/rzx_startup.h"
 #include "platform/render_policy.h"
 #include "platform/speed_report.h"
 #include "platform/sdl_audio.h"
@@ -349,19 +350,17 @@ bool QtApp::init(int argc, char* argv[]) {
         std::chrono::steady_clock::now().time_since_epoch()).count();
     status_timer_->start(1000);
 
-    // Apply RZX play/record if requested via CLI.
-    if (!rzx_play_file_.empty()) {
-        emulator_.load_rzx(rzx_play_file_);
-    }
-    if (!rzx_record_file_.empty()) {
-        emulator_.start_rzx_recording(rzx_record_file_);
-    }
-
     return true;
 }
 
 int QtApp::run() {
     if (!qapp_) return 1;
+    // Command-line RZX play/record. Deliberately here and not in init():
+    // main.cpp sets them after init(), which is why reading them there made
+    // --rzx-play and --rzx-record silent no-ops — see emulator_start_rzx().
+    // No frame has run yet: the frame timer only fires inside exec().
+    if (!emulator_start_rzx(emulator_, rzx_play_file_, rzx_record_file_))
+        exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
     return qapp_->exec();
 }
 
@@ -384,9 +383,7 @@ void QtApp::shutdown() {
     }
 
     // Stop RZX recording if active (writes the file).
-    if (emulator_.rzx_recorder().is_recording()) {
-        emulator_.stop_rzx_recording();
-    }
+    emulator_finish_rzx(emulator_);
 
     if (frame_timer_) {
         frame_timer_->stop();

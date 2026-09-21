@@ -1,5 +1,6 @@
 #include "headless_app.h"
 #include "platform/emulator_boot.h"
+#include "platform/rzx_startup.h"
 #include "core/log.h"
 #include "core/sna_saver.h"
 #include "core/szx_saver.h"
@@ -375,16 +376,10 @@ void HeadlessApp::run() {
         pending_seconds_nmis_.clear();
     }
 
-    // Apply RZX play/record at startup.
-    if (!rzx_play_file_.empty()) {
-        if (!emulator_.load_rzx(rzx_play_file_)) {
-            Log::platform()->error("RZX: failed to load '{}'", rzx_play_file_);
-            exit_code_ = 1;   // same contract as a failed --load
-        }
-    }
-    if (!rzx_record_file_.empty()) {
-        emulator_.start_rzx_recording(rzx_record_file_);
-    }
+    // Command-line RZX play/record — shared with QtApp/SdlApp, and applied
+    // here in run() for the reason given at emulator_start_rzx().
+    if (!emulator_start_rzx(emulator_, rzx_play_file_, rzx_record_file_))
+        exit_code_ = 1;   // same contract as a failed --load
 
     // --benchmark timing (Task 27 T1): the clock brackets exactly the
     // benchmark_frames_ run_frame() iterations below — headless already runs
@@ -818,8 +813,6 @@ void HeadlessApp::shutdown() {
     }
 
     // Stop RZX recording if active (writes the file).
-    if (emulator_.rzx_recorder().is_recording()) {
-        emulator_.stop_rzx_recording();
-    }
+    emulator_finish_rzx(emulator_);
     Log::platform()->info("Headless mode shutdown");
 }

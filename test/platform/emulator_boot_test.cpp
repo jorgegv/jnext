@@ -24,15 +24,23 @@
 // Every row below derives from that contract, never from reading the
 // implementation back.
 //
+// EB-20..EB-24 cover the other startup step all three frontends share: the
+// command-line RZX requests, emulator_start_rzx() / emulator_finish_rzx()
+// (src/platform/rzx_startup.h).
+//
 // Run: ./build/test/emulator_boot_test
 
 #include "platform/emulator_boot.h"
+#include "platform/rzx_startup.h"
 #include "core/saveable.h"
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/uart.h"
 
+#include <chrono>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 
@@ -473,6 +481,96 @@ int main()
         check("EB-19", "a cold boot with no --esp leaves UART 0 empty",
               !emu.esp_enabled() && emu.uart().device(0) == nullptr &&
                   emu.esp_events() == nullptr);
+    }
+
+    // --- EB-20..EB-24: the command-line RZX requests ------------------------
+    // emulator_start_rzx() / emulator_finish_rzx() are what every frontend's
+    // run() / shutdown() call for --rzx-play (and `--load x.rzx`, and a bare
+    // x.rzx argument) and --rzx-record. Their contract, from the doc comment:
+    // start playback and/or recording; return false exactly when the playback
+    // file failed to load (the caller exits non-zero, and the machine keeps
+    // running); finishing a recording is what writes the file. Which frontend
+    // calls them, and when, is rzx-frontends-func's business, not these rows'.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp       = std::filesystem::temp_directory_path();
+        const std::string rec = (tmp / ("jnext-eb-rzx-" + stamp + ".rzx")).string();
+        const std::string rec2 = (tmp / ("jnext-eb-rzx2-" + stamp + ".rzx")).string();
+        const std::string bad = (tmp / ("jnext-eb-bad-" + stamp + ".rzx")).string();
+        { std::ofstream f(bad, std::ios::binary); f << "NOTRZX NOTRZX NOTRZX"; }
+        auto magic = [](const std::string& path) {
+            std::ifstream f(path, std::ios::binary);
+            char m[4] = {0, 0, 0, 0};
+            f.read(m, 4);
+            return f.gcount() == 4 ? std::string(m, 4) : std::string();
+        };
+
+        // EB-20: nothing asked for, nothing started, and that is a success.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emulator_start_rzx(emu, "", "");
+            check("EB-20", "no RZX request: returns true, starts neither playback nor recording",
+                  ok && !emu.rzx_player().is_playing() && !emu.rzx_recorder().is_recording());
+        }
+
+        // EB-21: --rzx-record starts a recording; finishing it writes the file.
+        std::size_t recorded_frames = 0;
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emulator_start_rzx(emu, "", rec);
+            check("EB-21a", "--rzx-record: returns true and the recorder is running",
+                  ok && emu.rzx_recorder().is_recording());
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+            emulator_finish_rzx(emu);
+            recorded_frames = emu.rzx_recorder().recording().frames.size();
+            check("EB-21b", "finishing stops the recorder and writes an RZX! file",
+                  !emu.rzx_recorder().is_recording() && magic(rec) == "RZX!" &&
+                      recorded_frames > 0,
+                  "magic='" + magic(rec) + "' frames=" + std::to_string(recorded_frames));
+        }
+
+        // EB-22: --rzx-play starts playback of every recorded frame.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emulator_start_rzx(emu, rec, "");
+            check("EB-22a", "--rzx-play of a valid file: returns true and playback runs",
+                  ok && emu.rzx_player().is_playing());
+            check("EB-22b", "...with exactly the frames that were recorded",
+                  emu.rzx_player().recording().frames.size() == recorded_frames,
+                  "playing " + std::to_string(emu.rzx_player().recording().frames.size()) +
+                      ", recorded " + std::to_string(recorded_frames));
+        }
+
+        // EB-23: a playback file that does not load is reported, so the
+        // frontend can exit non-zero — and nothing pretends to play.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emulator_start_rzx(emu, bad, "");
+            check("EB-23", "--rzx-play of a garbage file: returns false, no playback",
+                  !ok && !emu.rzx_player().is_playing());
+        }
+
+        // EB-24: the two requests are independent — a failed playback does not
+        // cancel a recording that was also asked for (the machine keeps running,
+        // so the session it runs is still recorded).
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emulator_start_rzx(emu, bad, rec2);
+            emu.run_frame();
+            emulator_finish_rzx(emu);
+            check("EB-24", "failed playback + --rzx-record: returns false, still records",
+                  !ok && magic(rec2) == "RZX!", "magic='" + magic(rec2) + "'");
+        }
+
+        std::remove(rec.c_str());
+        std::remove(rec2.c_str());
+        std::remove(bad.c_str());
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
