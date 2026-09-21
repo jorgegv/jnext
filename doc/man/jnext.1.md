@@ -850,9 +850,9 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
     (Alt+D).
 
 **Settings**
-:   Preferences... (Alt+P), which opens the settings dialog (Startup, Input, Audio and Paths
-    tabs). Its values are saved to the configuration file; command-line options
-    always take precedence over them.
+:   Preferences... (Alt+P), which opens the settings dialog (Startup, Input,
+    Audio, Network and Paths tabs). Its values are saved to the configuration
+    file; command-line options always take precedence over them.
 
 **Help**
 :   About.

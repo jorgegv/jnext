@@ -940,8 +940,9 @@ Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
 
 **Settings**  
 Preferences… (Alt+P), which opens the settings dialog (Startup, Input,
-Audio and Paths tabs). Its values are saved to the configuration file;
-command-line options always take precedence over them.
+Audio, Network and Paths tabs). Its values are saved to the
+configuration file; command-line options always take precedence over
+them.
 
 **Help**  
 About.
