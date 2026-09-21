@@ -553,22 +553,27 @@ bool NexLoader::load(const std::string& path)
 
     // Large trailing regions are self-streamed payloads. They are useful only
     // when the NEX header asks nexload to keep the file open and deliver its
-    // handle. Preserve issue #10's explicit rejection for unusable extended
-    // files (file_handle=0), while valid self-streamers are loaded without
-    // slurping their potentially-huge payload into host RAM.
-    const bool keep_open =
-        header_.file_handle == 1 || header_.file_handle >= 0x4000;
-    if (file_size > expected_size + 16384 && !keep_open) {
-        Log::emulator()->error(
+    // handle (any non-zero file_handle); valid self-streamers are loaded
+    // without slurping their potentially-huge payload into host RAM. With
+    // file_handle=0 the real loaders read the declared banks, close the file
+    // and run the program, with no file-size check and nothing ever reading
+    // the trailing bytes (nexload2.asm:390-395 `call fclose`,
+    // nexload.asm:547-551). jnext does the same, with a warning (GH #250 —
+    // Spectron2084 carries 293120 such bytes and runs; this replaces issue
+    // #10's refusal).
+    const bool keep_open = keeps_file_open();   // any non-zero file_handle
+    const bool ignored_payload = file_size > expected_size + 16384 && !keep_open;
+    if (ignored_payload) {
+        Log::emulator()->warn(
             "NEX: '{}' is an extended NEX file — {} bytes follow the {} bank(s) its header "
-            "describes (file {} bytes, expected {}), but file_handle=0 asks the loader to "
-            "close the file. The appended payload would be unreachable.",
+            "describes (file {} bytes, expected {}), but its file_handle is 0, so the file is "
+            "closed after loading. Loading only the declared banks and ignoring the trailing "
+            "bytes, as nexload does.",
             path, file_size - expected_size, declared_banks, file_size, expected_size);
-        return false;
     }
 
     // Read only the region apply() consumes. Any appended payload stays in the
-    // host file and is served lazily by Emulator's extended-NEX bridge.
+    // host file; when keep_open, Emulator's extended-NEX bridge serves it lazily.
     const size_t data_size = static_cast<size_t>(expected_size - 512);
     file_data_.resize(data_size);
     f.seekg(512);
@@ -583,7 +588,7 @@ bool NexLoader::load(const std::string& path)
         Log::emulator()->info(
             "NEX: '{}' carries {} appended payload bytes; keeping them host-backed",
             path, file_size - expected_size);
-    } else if (file_size > expected_size) {
+    } else if (file_size > expected_size && !ignored_payload) {
         Log::emulator()->info(
             "NEX: '{}' carries {} trailing padding bytes; ignoring them",
             path, file_size - expected_size);

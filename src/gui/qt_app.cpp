@@ -502,6 +502,7 @@ bool QtApp::TickEffects::pre_frames() {
         // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
         if (!emulator_apply_load(a.emulator_, a.load_file_, a.tape_realtime_)) {
             Log::platform()->error("load: failed to load '{}'", a.load_file_);
+            a.exit_code_ = 1;   // a failed load exits non-zero (as headless)
         }
         a.load_countdown_ = -1;
     } else if (a.load_countdown_ > 0) {

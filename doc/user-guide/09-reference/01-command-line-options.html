@@ -2884,9 +2884,19 @@ right — please <a href="https://github.com/jorgegv/jnext/issues">report it</a>
 <dt><strong>--machine</strong> <em>TYPE</em></dt>
 <dd>Machine type: <code>48k</code>, <code>128k</code>, <code>plus3</code>, <code>next</code> (default).</dd>
 <dt><strong>--load</strong> <em>FILE</em></dt>
-<dd>Load a program. The format is detected from the extension: <code>.nex</code>,
+<dd>
+<p>Load a program. The format is detected from the extension: <code>.nex</code>,
 <code>.sna</code>, <code>.szx</code>, <code>.z80</code>, <code>.tap</code>, <code>.tzx</code>, <code>.wav</code>, <code>.rzx</code>. (<code>.rzx</code> is
-accepted here and plays back, as <strong>--rzx-play</strong>.)</dd>
+accepted here and plays back, as <strong>--rzx-play</strong>.)</p>
+<p>A NEX file with bytes after the banks its header declares is an
+<em>extended</em> NEX. If its header asks for the file to be kept open (any
+non-zero <code>file_handle</code>: 1 to 0x3FFF hands the program the handle in
+<code>BC</code>, 0x4000 and above writes it at that address), the program can
+read the extra bytes from its own file. If the header says
+<code>file_handle</code> 0, jnext does what the Next’s own loader does: it
+loads only the declared banks, ignores the trailing bytes and starts
+the program. More than 16 KB of ignored bytes also logs a warning.</p>
+</dd>
 <dt><strong>--nex-args</strong> <em>LINE</em></dt>
 <dd>Argument line for a NEX <strong>V1.3</strong> program. <em>LINE</em> is placed, verbatim
 and zero-terminated, in the CLI buffer the file’s header declares

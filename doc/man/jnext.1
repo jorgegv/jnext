@@ -42,6 +42,19 @@ The format is detected from the extension: \f[CR].nex\f[R],
 \f[CR].tzx\f[R], \f[CR].wav\f[R], \f[CR].rzx\f[R].
 (\f[CR].rzx\f[R] is accepted here and plays back, as
 \f[B]\-\-rzx\-play\f[R].)
+.RS
+.PP
+A NEX file with bytes after the banks its header declares is an
+\f[I]extended\f[R] NEX.
+If its header asks for the file to be kept open (any non\-zero
+\f[CR]file_handle\f[R]: 1 to 0x3FFF hands the program the handle in
+\f[CR]BC\f[R], 0x4000 and above writes it at that address), the program
+can read the extra bytes from its own file.
+If the header says \f[CR]file_handle\f[R] 0, jnext does what the
+Next\(cqs own loader does: it loads only the declared banks, ignores the
+trailing bytes and starts the program.
+More than 16 KB of ignored bytes also logs a warning.
+.RE
 .TP
 \f[B]\-\-nex\-args\f[R] \f[I]LINE\f[R]
 Argument line for a NEX \f[B]V1.3\f[R] program.
@@ -1513,6 +1526,13 @@ In particular it exits non\-zero when a
 \f[B]\-\-delayed\-screenshot\f[R] was requested but never taken, rather
 than silently writing nothing, and likewise when a \f[B]\-\-record\f[R]
 recording fails to materialize as a usable output file.
+.PP
+It also exits non\-zero when the program given to \f[B]\-\-load\f[R] (or
+as a bare file name) fails to load, whatever its format; under
+\f[B]\-\-headless\f[R] that includes an RZX recording given to
+\f[B]\-\-load\f[R] or \f[B]\-\-rzx\-play\f[R].
+The error is logged, the machine keeps running without the program, and
+the non\-zero status is reported when \f[B]jnext\f[R] exits.
 .SH SEE ALSO
 \f[B]ffmpeg\f[R](1)
 .PP

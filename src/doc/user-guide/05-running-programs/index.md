@@ -30,6 +30,12 @@ way. Loading a V1.3 file needs an explicit opt-in: on the command line, add
 the window, JNEXT shows a warning dialog and only proceeds if you confirm.
 V1.0–V1.2 files load normally, no opt-in involved.
 
+Some NEX files are larger than the program their header describes. When the
+header asks for the file to stay open, the program can read the extra data
+from its own file, and JNEXT lets it. When it does not, JNEXT does what the
+Next's own loader does: it loads the declared part, ignores the rest and runs
+the program. More than 16 KB of ignored data is reported with a warning.
+
 In the window, **File > Load NEX File…** (Alt+O) opens the same loader and
 accepts every one of those formats despite its name. Tapes have their own
 entry, **Tape > Open Tape File…** (Alt+T), covered in

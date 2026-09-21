@@ -114,6 +114,23 @@ A directly loaded NEX can also keep its own file handle open and stream from
 itself. `extended_nex_host.*` presents the host file to the guest as a
 synthetic block-addressed SD extent, so NextZXOS's file APIs work against it.
 
+Whatever follows the header-described banks is never read into host memory:
+`NexLoader::load()` reads only up to `payload_offset()`. What happens to those
+trailing bytes depends on the header's `file_handle`. Any non-zero value
+(`keeps_file_open()`) keeps the file open; the value only picks where the
+handle goes: 1 to `$3FFF` in `BC` (`B`=0, `C`=handle), `$4000` and above
+written to that address (`delivers_handle_in_bc()`; `nexload2.asm:397-407`,
+`nexload.asm:560-570` and `:606-609`). `Emulator::load_nex()` then opens the
+host file behind the handle — the extended-NEX host bridge in the stand-in
+below — and the program streams them. With 0, both loaders read the declared
+banks and close the file, with no size check at all (`nexload2.asm:390-395`,
+`nexload.asm:547-551`), so the bytes are dead. jnext matches that: the program
+loads and runs, and more than 16 KB of dead bytes logs a warning (GH #250,
+found on Spectron2084). That warning replaces the refusal issue #10 added,
+which had turned such a file away. No host bridge is opened for such a file,
+so the stand-in cannot reach the bytes either: its `F_OPEN` then knows only
+the in-memory file.
+
 ## The esxDOS stand-in for directly loaded programs
 
 On hardware a NEX is always started by NextZXOS's `nexload`, so the program
@@ -147,9 +164,8 @@ loaded from the GUI after start-up.
   its stand-in.
 - `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session.
 - The extended-NEX host bridge (`extended_nex_host_`), open when the NEX
-  header's `file_handle` is 1 or `$4000` and above. Only `load_nex()` opens
-  it, so it never exists without `direct_nex_esxdos_`; reset and soft reset
-  close it.
+  header's `file_handle` is non-zero. Only `load_nex()` opens it, so it never
+  exists without `direct_nex_esxdos_`; reset and soft reset close it.
 
 **The ROM gate.** Whatever armed it, the handler answers nothing unless NR
 `$50` reads `$FF`, i.e. ROM is paged in at `$0000`. That is the hardware's own
@@ -168,7 +184,8 @@ precondition: the DivMMC automap that takes `$0008` to NextZXOS needs
 | `$89` `M_GETSETDRV` | get or set `C:` returns `A`=`$10`; any other drive, carry set, `A`=`$0B` | falls through |
 | `$8F` `M_EXECCMD` | `run NAME.nex` for a plain name in the same directory: chain-loads it through `nex_load_request_` | same |
 | `$9A` `F_OPEN` | host bridge: the NEX's own file or a read-only sibling regular file (no symlinks, no paths) on host handles 2/3, other names refused unless `--esxdos-stub` is also given; otherwise the in-memory file | in-memory file |
-| `$9B` / `$9D` / `$9E` `F_CLOSE` / `F_READ` / `F_WRITE` | host handles, else the in-memory file | in-memory file |
+| `$9B` / `$9D` `F_CLOSE` / `F_READ` | host handles 2/3, else the in-memory file | in-memory file |
+| `$9E` `F_WRITE` | the in-memory file only; there is no host-handle branch, so a write to host handle 2 or 3 fails (carry set, `A`=5) | in-memory file |
 | `$9F` / `$A0` / `$A1` `F_SEEK` / `F_FGETPOS` / `F_FSTAT` | host handles; otherwise `F_SEEK` fails (`A`=5) and the other two get the catch-all error | `F_SEEK` fails (`A`=5); the other two fall through |
 | any other `$80`-`$B1` | carry set, `A`=`$02` (`esx_enonsense`) | falls through |
 | `$B2` and above | falls through | falls through |

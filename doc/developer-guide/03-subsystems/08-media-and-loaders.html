@@ -2000,6 +2000,22 @@ is not one.</p>
 <p>A directly loaded NEX can also keep its own file handle open and stream from
 itself. <code>extended_nex_host.*</code> presents the host file to the guest as a
 synthetic block-addressed SD extent, so NextZXOS's file APIs work against it.</p>
+<p>Whatever follows the header-described banks is never read into host memory:
+<code>NexLoader::load()</code> reads only up to <code>payload_offset()</code>. What happens to those
+trailing bytes depends on the header's <code>file_handle</code>. Any non-zero value
+(<code>keeps_file_open()</code>) keeps the file open; the value only picks where the
+handle goes: 1 to <code>$3FFF</code> in <code>BC</code> (<code>B</code>=0, <code>C</code>=handle), <code>$4000</code> and above
+written to that address (<code>delivers_handle_in_bc()</code>; <code>nexload2.asm:397-407</code>,
+<code>nexload.asm:560-570</code> and <code>:606-609</code>). <code>Emulator::load_nex()</code> then opens the
+host file behind the handle — the extended-NEX host bridge in the stand-in
+below — and the program streams them. With 0, both loaders read the declared
+banks and close the file, with no size check at all (<code>nexload2.asm:390-395</code>,
+<code>nexload.asm:547-551</code>), so the bytes are dead. jnext matches that: the program
+loads and runs, and more than 16 KB of dead bytes logs a warning (GH #250,
+found on Spectron2084). That warning replaces the refusal issue #10 added,
+which had turned such a file away. No host bridge is opened for such a file,
+so the stand-in cannot reach the bytes either: its <code>F_OPEN</code> then knows only
+the in-memory file.</p>
 <h2 id="the-esxdos-stand-in-for-directly-loaded-programs">The esxDOS stand-in for directly loaded programs<a class="headerlink" href="#the-esxdos-stand-in-for-directly-loaded-programs" title="Permanent link">&para;</a></h2>
 <p>On hardware a NEX is always started by NextZXOS's <code>nexload</code>, so the program
 can call the esxDOS / NextZXOS API: <code>RST $08</code> followed by a one-byte call
@@ -2030,9 +2046,8 @@ loaded from the GUI after start-up.</p>
   its stand-in.</li>
 <li><code>EmulatorConfig::esxdos_stub</code> (<code>--esxdos-stub</code>), for the whole session.</li>
 <li>The extended-NEX host bridge (<code>extended_nex_host_</code>), open when the NEX
-  header's <code>file_handle</code> is 1 or <code>$4000</code> and above. Only <code>load_nex()</code> opens
-  it, so it never exists without <code>direct_nex_esxdos_</code>; reset and soft reset
-  close it.</li>
+  header's <code>file_handle</code> is non-zero. Only <code>load_nex()</code> opens it, so it never
+  exists without <code>direct_nex_esxdos_</code>; reset and soft reset close it.</li>
 </ul>
 <p><strong>The ROM gate.</strong> Whatever armed it, the handler answers nothing unless NR
 <code>$50</code> reads <code>$FF</code>, i.e. ROM is paged in at <code>$0000</code>. That is the hardware's own
@@ -2077,8 +2092,13 @@ precondition: the DivMMC automap that takes <code>$0008</code> to NextZXOS needs
 <td>in-memory file</td>
 </tr>
 <tr>
-<td><code>$9B</code> / <code>$9D</code> / <code>$9E</code> <code>F_CLOSE</code> / <code>F_READ</code> / <code>F_WRITE</code></td>
-<td>host handles, else the in-memory file</td>
+<td><code>$9B</code> / <code>$9D</code> <code>F_CLOSE</code> / <code>F_READ</code></td>
+<td>host handles 2/3, else the in-memory file</td>
+<td>in-memory file</td>
+</tr>
+<tr>
+<td><code>$9E</code> <code>F_WRITE</code></td>
+<td>the in-memory file only; there is no host-handle branch, so a write to host handle 2 or 3 fails (carry set, <code>A</code>=5)</td>
 <td>in-memory file</td>
 </tr>
 <tr>

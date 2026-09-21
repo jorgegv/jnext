@@ -11,6 +11,9 @@
 #include "core/extended_nex_host.h"
 #include "core/nex_loader.h"
 #include "peripheral/sd_card.h"
+#include "core/log.h"
+
+#include <spdlog/sinks/ostream_sink.h>
 
 #include <algorithm>
 #include <chrono>
@@ -19,6 +22,8 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
+#include <sstream>
 #include <string>
 #include <vector>
 
@@ -47,9 +52,10 @@ void put_u16(std::vector<uint8_t>& bytes, std::size_t off, uint16_t value) {
 }
 
 bool write_nex(const std::filesystem::path& path, uint16_t file_handle,
-               const std::vector<uint8_t>& appended) {
+               const std::vector<uint8_t>& appended, uint8_t bank_fill = 0) {
     constexpr std::size_t bank_size = 16384;
     std::vector<uint8_t> bytes(512 + bank_size + appended.size(), 0);
+    std::fill(bytes.begin() + 512, bytes.begin() + 512 + bank_size, bank_fill);
     std::memcpy(bytes.data(), "NextV1.2", 8);
     bytes[8] = 0;       // 768K requirement
     bytes[9] = 1;       // one bank
@@ -98,6 +104,20 @@ uint8_t first_sd_response(SdCardDevice& sd) {
         if (value != 0xFF) return value;
     }
     return 0xFF;
+}
+
+// Lines of a captured "%l %v" log containing every one of `needles`.
+int count_lines(const std::string& log, std::initializer_list<const char*> needles) {
+    std::istringstream in(log);
+    std::string line;
+    int n = 0;
+    while (std::getline(in, line)) {
+        bool all = true;
+        for (const char* needle : needles)
+            all = all && line.find(needle) != std::string::npos;
+        n += all ? 1 : 0;
+    }
+    return n;
 }
 
 } // namespace
@@ -490,8 +510,168 @@ int main() {
           cli_loaded && cli_hook_present && cli_bridge_gone &&
           !cli_emu.sd_card().has_read_overlay());
 
+    // GH #250: a NEX whose header says file_handle=0 but whose file carries
+    // more than 16K after its declared banks (Spectron2084: 293120 bytes).
+    // The real loaders read the declared banks, close the file and run the
+    // program — no size check, nothing reads the rest (nexload2.asm:390-395,
+    // nexload.asm:547-551). jnext loads it the same way, with a warning.
+    std::string trailing;
+    while (trailing.size() < 20000) trailing += "GH250-TRAILING-PAYLOAD ";
+    const std::vector<uint8_t> big_payload(trailing.begin(), trailing.end());
+    const std::vector<uint8_t> padding(16384, 0xEE);
+    const auto closed_ext_path = root / "closed-extended.nex";
+    const auto register_ext_path = root / "register-extended.nex";
+    const auto closed_pad_path = root / "closed-padded.nex";
+    const bool gh250_fixtures =
+        write_nex(closed_ext_path, 0, big_payload, 0x5A) &&
+        write_nex(register_ext_path, 1, big_payload, 0x5A) &&
+        write_nex(closed_pad_path, 0, padding, 0x5A);
+
+    std::ostringstream log_out;
+    auto log_sink = std::make_shared<spdlog::sinks::ostream_sink_mt>(log_out);
+    log_sink->set_pattern("%l %v");
+    Log::emulator()->sinks().push_back(log_sink);
+
+    NexLoader closed_ext;
+    const bool closed_ext_ok = gh250_fixtures && closed_ext.load(closed_ext_path.string());
+    const std::string closed_ext_log = log_out.str();
+    check("XNEX-29", "file_handle=0 with a >16K trailing payload loads (GH #250)",
+          closed_ext_ok && !closed_ext.keeps_file_open() &&
+          closed_ext.payload_offset() == 512 + 16384 &&
+          closed_ext.file_size() == 512 + 16384 + big_payload.size());
+    check("XNEX-30", "that load logs one warning that the trailing bytes are ignored",
+          count_lines(closed_ext_log, {"warning ", "extended NEX file", "ignoring the trailing"}) == 1 &&
+          count_lines(closed_ext_log, {"error "}) == 0 &&
+          count_lines(closed_ext_log, {"trailing padding"}) == 0,
+          closed_ext_log);
+
+    // Heap-allocated: main() already holds several Emulators on the stack.
+    auto closed_emu_ptr = std::make_unique<Emulator>();
+    Emulator& closed_emu = *closed_emu_ptr;
+    EmulatorConfig closed_cfg = cfg;
+    closed_cfg.load_file = closed_ext_path.string();
+    const bool closed_loaded = closed_emu.init(closed_cfg) &&
+                               closed_emu.load_nex(closed_ext_path.string());
+    bool bank_ok = closed_loaded;
+    for (uint32_t a = 0xC000; a <= 0xFFFF && bank_ok; ++a)
+        bank_ok = closed_emu.mmu().read(static_cast<uint16_t>(a)) == 0x5A;
+    const uint8_t* sram = closed_emu.ram().page_ptr(0);
+    const std::string marker = "GH250-TRAILING";
+    const bool payload_in_ram =
+        sram && std::search(sram, sram + closed_emu.ram().size(),
+                            marker.begin(), marker.end()) != sram + closed_emu.ram().size();
+    // No host bridge either: the direct-load esxDOS stand-in (GH #250)
+    // answers, but reports 1.94 (2.02 only with the bridge) and cannot open
+    // the NEX's own file, which only the bridge serves.
+    regs = {};
+    const bool dos_answered = esx(closed_emu, 0x88, regs) && !carry(regs);
+    const uint16_t dos_version = regs.DE;
+    write_zstr(closed_emu, 0x9300, closed_ext_path.filename().string());
+    regs = {};
+    regs.IX = 0x9300;
+    regs.BC = 0x0100;  // read-only
+    const bool own_open_refused = esx(closed_emu, 0x9A, regs) && carry(regs);
+    check("XNEX-31", "only the declared bank is loaded; the payload reaches no guest path",
+          closed_loaded && bank_ok && !payload_in_ram &&
+          !closed_emu.sd_card().has_read_overlay() &&
+          dos_answered && dos_version == 0x0194 && own_open_refused);
+
+    log_out.str("");
+    NexLoader register_ext;
+    const bool register_ext_ok =
+        gh250_fixtures && register_ext.load(register_ext_path.string());
+    const std::string register_ext_log = log_out.str();
+    check("XNEX-32", "file_handle=1 with the same payload stays host-backed, no warning",
+          register_ext_ok && register_ext.keeps_file_open() && register_ext.is_extended() &&
+          count_lines(register_ext_log, {"warning "}) == 0 &&
+          count_lines(register_ext_log, {"info ", "keeping them host-backed"}) == 1,
+          register_ext_log);
+
+    log_out.str("");
+    NexLoader closed_pad;
+    const bool closed_pad_ok = gh250_fixtures && closed_pad.load(closed_pad_path.string());
+    const std::string closed_pad_log = log_out.str();
+    check("XNEX-33", "file_handle=0 with <=16K trailing padding loads without a warning",
+          closed_pad_ok && !closed_pad.keeps_file_open() &&
+          count_lines(closed_pad_log, {"warning "}) == 0 &&
+          count_lines(closed_pad_log, {"info ", "trailing padding"}) == 1,
+          closed_pad_log);
+
+    // Both loaders keep the file open for ANY non-zero file_handle; the value
+    // only picks where the handle goes: 1..0x3FFF in BC (B=0, C=handle),
+    // 0x4000 and above written to that address (nexload2.asm:390-407,
+    // nexload.asm:547-570, :606-609). XNEX-05 pins 1, XNEX-17 0xBFFE.
+    const auto bc2_path = root / "handle-bc-2.nex";
+    const auto bc3fff_path = root / "handle-bc-3fff.nex";
+    const auto mem4000_path = root / "handle-mem-4000.nex";
+    const bool handle_fixtures =
+        write_nex(bc2_path, 0x0002, big_payload) &&
+        write_nex(bc3fff_path, 0x3FFF, payload) &&
+        write_nex(mem4000_path, 0x4000, payload);
+
+    log_out.str("");
+    auto bc2_emu_ptr = std::make_unique<Emulator>();
+    Emulator& bc2_emu = *bc2_emu_ptr;
+    EmulatorConfig bc2_cfg = cfg;
+    bc2_cfg.load_file = bc2_path.string();
+    NexLoader bc2_loader;
+    const bool bc2_parsed = handle_fixtures && bc2_loader.load(bc2_path.string());
+    const bool bc2_loaded = bc2_parsed && bc2_emu.init(bc2_cfg) &&
+                            bc2_emu.load_nex(bc2_path.string());
+    const std::string bc2_log = log_out.str();
+    regs = {};
+    regs.AF = static_cast<uint16_t>(ExtendedNexHost::kHandle << 8);
+    regs.DE = static_cast<uint16_t>(512 + 16384);
+    regs.IX = 0; // IXL=ESX_SEEK_SET
+    const bool bc2_seek = bc2_loaded && esx(bc2_emu, 0x9F, regs) && !carry(regs);
+    regs.AF = static_cast<uint16_t>(ExtendedNexHost::kHandle << 8);
+    regs.IX = 0x9000;
+    regs.BC = 5;
+    const bool bc2_read = bc2_seek && esx(bc2_emu, 0x9D, regs) && !carry(regs) &&
+                          regs.BC == 5;
+    std::string bc2_bytes;
+    for (uint16_t i = 0; i < 5; ++i)
+        bc2_bytes.push_back(static_cast<char>(bc2_emu.mmu().read(0x9000 + i)));
+    check("XNEX-34", "file_handle=2 keeps the file open, handle in BC, payload streams",
+          bc2_loaded && bc2_loader.keeps_file_open() &&
+          bc2_loader.delivers_handle_in_bc() &&
+          bc2_emu.cpu().get_registers().BC == ExtendedNexHost::kHandle &&
+          bc2_read && bc2_bytes == "GH250" &&
+          count_lines(bc2_log, {"warning "}) == 0,
+          bc2_log);
+
+    auto bc3fff_emu_ptr = std::make_unique<Emulator>();
+    Emulator& bc3fff_emu = *bc3fff_emu_ptr;
+    EmulatorConfig bc3fff_cfg = cfg;
+    bc3fff_cfg.load_file = bc3fff_path.string();
+    NexLoader bc3fff_loader;
+    const bool bc3fff_loaded =
+        handle_fixtures && bc3fff_loader.load(bc3fff_path.string()) &&
+        bc3fff_emu.init(bc3fff_cfg) && bc3fff_emu.load_nex(bc3fff_path.string());
+    check("XNEX-35", "file_handle=0x3FFF (last BC value) delivers the handle in BC",
+          bc3fff_loaded && bc3fff_loader.keeps_file_open() &&
+          bc3fff_loader.delivers_handle_in_bc() &&
+          bc3fff_emu.cpu().get_registers().BC == ExtendedNexHost::kHandle &&
+          bc3fff_emu.sd_card().has_read_overlay());
+
+    auto mem4000_emu_ptr = std::make_unique<Emulator>();
+    Emulator& mem4000_emu = *mem4000_emu_ptr;
+    EmulatorConfig mem4000_cfg = cfg;
+    mem4000_cfg.load_file = mem4000_path.string();
+    NexLoader mem4000_loader;
+    const bool mem4000_loaded =
+        handle_fixtures && mem4000_loader.load(mem4000_path.string()) &&
+        mem4000_emu.init(mem4000_cfg) && mem4000_emu.load_nex(mem4000_path.string());
+    check("XNEX-36", "file_handle=0x4000 (first address) writes the handle there, not BC",
+          mem4000_loaded && mem4000_loader.keeps_file_open() &&
+          !mem4000_loader.delivers_handle_in_bc() &&
+          mem4000_emu.mmu().read(0x4000) == ExtendedNexHost::kHandle &&
+          mem4000_emu.cpu().get_registers().BC != ExtendedNexHost::kHandle);
+
+    Log::emulator()->sinks().pop_back();
+
     std::filesystem::remove_all(root, ec);
-    std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
+    std::printf("\nTotal:%4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 total, passed, failed, 0);
     return failed == 0 ? 0 : 1;
 }

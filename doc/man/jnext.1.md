@@ -54,6 +54,15 @@ debugger ones.
     `.szx`, `.z80`, `.tap`, `.tzx`, `.wav`, `.rzx`. (`.rzx` is accepted here
     and plays back, as **\--rzx-play**.)
 
+    A NEX file with bytes after the banks its header declares is an *extended*
+    NEX. If its header asks for the file to be kept open (any non-zero
+    `file_handle`: 1 to 0x3FFF hands the program the handle in `BC`, 0x4000 and
+    above writes it at that address), the program can read the extra bytes from
+    its own file. If the header says `file_handle` 0, jnext
+    does what the Next's own loader does: it loads only the declared banks,
+    ignores the trailing bytes and starts the program. More than 16 KB of
+    ignored bytes also logs a warning.
+
 **\--nex-args** *LINE*
 :   Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim and
     zero-terminated, in the CLI buffer the file's header declares (its address
@@ -1143,6 +1152,12 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 non-zero when a **\--delayed-screenshot** was requested but never taken,
 rather than silently writing nothing, and likewise when a **\--record**
 recording fails to materialize as a usable output file.
+
+It also exits non-zero when the program given to **\--load** (or as a bare
+file name) fails to load, whatever its format; under **\--headless** that
+includes an RZX recording given to **\--load** or **\--rzx-play**. The error
+is logged, the machine keeps running without the program, and the non-zero
+status is reported when **jnext** exits.
 
 # SEE ALSO
 
