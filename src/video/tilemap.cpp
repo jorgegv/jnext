@@ -28,6 +28,7 @@ void Tilemap::reset()
     scroll_x_      = 0;
     scroll_y_      = 0;
     fetch_per_line_active_ = false;
+    output_per_line_active_ = false;
 
     // Per-scanline NR 0x6B change log cleared. Baseline reset to current
     // (zero) state; start_frame_nr6b() will re-snapshot from the live
@@ -332,8 +333,16 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // G104: output is now 640 cells wide regardless of col-mode.
     const int clip_out_width = 640;
 
+    // The row's output-stage inputs — clip window and NR 0x4C index — as
+    // captured by Emulator::on_scanline, NOT the live registers, which hold
+    // the frame's LAST value by the time the frame is rendered (GH #256).
+    const OutputLineState out =
+        (output_per_line_active_ && y < kSnapshotLines)
+            ? output_per_line_[y]
+            : live_output(palette.tilemap_transparency());
+
     // Y-clip short-circuit — entire scanline outside clip rectangle.
-    if (y < clip_y1_ || y > clip_y2_) {
+    if (y < out.clip_y1 || y > out.clip_y2) {
         for (int i = 0; i < clip_out_width; ++i)
             dst[i] = 0u;  // transparent (ARGB8888 zero-alpha)
         return;
@@ -341,8 +350,8 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
 
     // X-clip bounds in the VHDL hcounter (320-grid) domain — int so the
     // upper bound 0x13F = 319 is safe (no 8-bit wrap).
-    const int clip_xlo_320 = static_cast<int>(clip_x1_) * 2;
-    const int clip_xhi_320 = static_cast<int>(clip_x2_) * 2 + 1;
+    const int clip_xlo_320 = static_cast<int>(out.clip_x1) * 2;
+    const int clip_xhi_320 = static_cast<int>(out.clip_x2) * 2 + 1;
 
     // Shift mapping screen_x (0..639) into the index that is compared
     // against the 320-grid clip range [clip_x1*2, clip_x2*2+1].  Per
@@ -364,7 +373,7 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     // xev=clip_x2*2+1 contiguous, cells [2*clip_x1*2 .. 2*(clip_x2*2+1)+1].
     const int clip_x_shift = 1;
 
-    const uint8_t transp_idx = palette.tilemap_transparency();
+    const uint8_t transp_idx = out.transp_idx;
 
     // Use per-scanline scroll values (captured during the frame loop).
     const uint16_t line_scroll_x = (y >= 0 && y < kSnapshotLines) ? scroll_x_per_line_[y] : scroll_x_;
@@ -702,4 +711,5 @@ void Tilemap::load_state(StateReader& r)
     clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
     palette_sel_ = r.read_bool();   // NR 0x6B bit 4
     fetch_per_line_active_ = false;
+    output_per_line_active_ = false;
 }

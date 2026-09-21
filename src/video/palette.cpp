@@ -220,17 +220,27 @@ void PaletteManager::reset()
 void PaletteManager::nr_ff_poke(bool bank_second, uint8_t bf3b_index,
                                 uint8_t byte)
 {
-    const uint16_t rgb333 = rrrgggbb_to_rgb333(byte);
-    const int      bank   = bank_second ? 1 : 0;
-    const int      idx    = ULAP_BASE | (bf3b_index & 0x3F);
-    ula_rgb333_[bank][idx] = rgb333;
-    ula_argb_[bank][idx]   = rgb333_to_argb(rgb333);
     // Priority is "00" per VHDL zxnext.vhd:4920 — NR 0x44 is the only
     // path that captures priority bits, so the dpram word's bits 15:14
     // are written as zero here.  This must be explicit now that the poke
     // shares storage with NR 0x44 writes: a prior NR 0x44 write to the
     // same index would otherwise leave a stale priority behind.
-    ula_priority_[bank][idx] = 0;
+    //
+    // GH #256 — logged like every other palette write.  Written straight
+    // into the live arrays, Renderer::render_frame's rewind_to_baseline()
+    // restored the frame-start palette over the poke and nothing replayed
+    // it, so the next frame's baseline lost it too: the poke never reached
+    // the screen at all.  No index advance — nr_palette_idx only moves on
+    // NR 0x41 / NR 0x44 writes (zxnext.vhd:5380, :5401).
+    const PaletteChange c{
+        current_line_,
+        bank_second ? PaletteId::ULA_SECOND : PaletteId::ULA_FIRST,
+        static_cast<uint8_t>(ULAP_BASE | (bf3b_index & 0x3F)),
+        rrrgggbb_to_rgb333(byte),
+        0,
+    };
+    log_change(c);
+    apply_change(c);
 }
 
 // ---------------------------------------------------------------------------
@@ -408,6 +418,21 @@ void PaletteManager::write_9bit(uint8_t val)
 // Internal: write a colour entry to the currently targeted palette
 // ---------------------------------------------------------------------------
 
+void PaletteManager::log_change(const PaletteChange& c)
+{
+    if (change_log_.size() < MAX_CHANGES_PER_FRAME) {
+        change_log_.push_back(c);
+    } else if (!overflow_warned_) {
+        Log::video()->warn(
+            "PaletteManager: change-log sanity bound hit at line {} ({} "
+            "writes in one frame — runaway-write bug?); further palette "
+            "writes this frame will not be per-scanline. GH #110 / "
+            "TASK-PER-SCANLINE-PALETTE-PLAN.md §Q1.",
+            current_line_, MAX_CHANGES_PER_FRAME);
+        overflow_warned_ = true;
+    }
+}
+
 void PaletteManager::write_entry(uint16_t rgb333, uint8_t priority)
 {
     // Per-scanline log: record BEFORE applying so that apply_change can
@@ -418,27 +443,10 @@ void PaletteManager::write_entry(uint16_t rgb333, uint8_t priority)
     // zxnext.vhd:6952, 6957 (8-bit nr_palette_idx drives the dpram
     // address with no folding; the single 256-entry × 2-bank ULA
     // store covers the full encoder output range 0x00..0xFF).
-    if (change_log_.size() < MAX_CHANGES_PER_FRAME) {
-        change_log_.push_back(PaletteChange{
-            current_line_,
-            target_palette_,
-            index_,
-            rgb333,
-            priority,
-        });
-    } else if (!overflow_warned_) {
-        Log::video()->warn(
-            "PaletteManager: change-log sanity bound hit at line {} ({} "
-            "writes in one frame — runaway-write bug?); further palette "
-            "writes this frame will not be per-scanline. GH #110 / "
-            "TASK-PER-SCANLINE-PALETTE-PLAN.md §Q1.",
-            current_line_, MAX_CHANGES_PER_FRAME);
-        overflow_warned_ = true;
-    }
-
-    apply_change(PaletteChange{current_line_, target_palette_,
-                               static_cast<uint8_t>(index_), rgb333,
-                               priority});
+    const PaletteChange c{current_line_, target_palette_,
+                          static_cast<uint8_t>(index_), rgb333, priority};
+    log_change(c);
+    apply_change(c);
 
     advance_index();
 }

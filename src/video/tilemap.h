@@ -159,6 +159,28 @@ public:
         fetch_per_line_active_ = true;
     }
 
+    /// GH #256 — snapshot the tilemap's OUTPUT-stage inputs for a row: the
+    /// NR 0x1B clip window (own state) and the NR 0x4C transparency index
+    /// (held by PaletteManager, so the caller passes it in). Both are
+    /// compared against the pixel being displayed — tilemap.vhd:412-424
+    /// re-latch the clip every 7 MHz, :427 compares the index — so a
+    /// mid-frame write must not repaint the rows already on screen. Taken
+    /// at the same point as snapshot_fetch_for_line (start of the row): a
+    /// map base and an index written together reach the display within one
+    /// tile of each other on hardware (the fetcher runs one character ahead,
+    /// tilemap.vhd:229), so they must switch on the same row here.
+    void snapshot_output_for_line(int line, uint8_t transp_idx) {
+        if (line >= 0 && line < kSnapshotLines)
+            output_per_line_[line] = live_output(transp_idx);
+    }
+
+    /// Initialize the per-line output-stage state from the frame-start
+    /// registers (called at frame start, beside init_fetch_per_line).
+    void init_output_per_line(uint8_t transp_idx) {
+        output_per_line_.fill(live_output(transp_idx));
+        output_per_line_active_ = true;
+    }
+
     /// Test/debug accessor: per-line snapshotted X scroll for a scanline.
     /// Returns 0 if the line index is out of range.
     uint16_t scroll_x_for_line(int line) const {
@@ -357,6 +379,21 @@ private:
     std::array<uint32_t, kSnapshotLines> def_base_addr_per_line_{};
     std::array<uint8_t,  kSnapshotLines> default_attr_per_line_{};
     bool fetch_per_line_active_ = false;
+
+    // Per-scanline output-stage inputs (GH #256): NR 0x1B clip window and
+    // NR 0x4C transparency index, as in effect for each row. Transient
+    // render history like the fetch snapshots above: not serialized, and
+    // inactive after reset/load until the next frame initializes it.
+    struct OutputLineState {
+        uint8_t clip_x1, clip_x2, clip_y1, clip_y2;
+        uint8_t transp_idx;
+    };
+    OutputLineState live_output(uint8_t transp_idx) const {
+        return {clip_x1_, clip_x2_, clip_y1_, clip_y2_,
+                static_cast<uint8_t>(transp_idx & 0x0F)};
+    }
+    std::array<OutputLineState, kSnapshotLines> output_per_line_{};
+    bool output_per_line_active_ = false;
 
     // Clip window — VHDL reset defaults from zxnext.vhd:4977-4980
     // (0x00 / 0x9F / 0x00 / 0xFF cover the full 320x256 visible area;

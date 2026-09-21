@@ -25,10 +25,10 @@ mentions them, so a test can no longer be absent from this document.
 | Memory/MMU                                 |   261 |  255 |    0 |    0 |       6 |          0 |
 | ULA Video                                  |   128 |  124 |    0 |    0 |       4 |          0 |
 | Layer2                                     |   209 |  201 |    0 |    0 |       8 |          0 |
-| Sprites                                    |   222 |  214 |    0 |    0 |       8 |          0 |
-| Tilemap                                    |    93 |   74 |    0 |    0 |      19 |          0 |
+| Sprites                                    |   221 |  214 |    0 |    0 |       7 |          0 |
+| Tilemap                                    |    95 |   77 |    0 |    0 |      18 |          0 |
 | Copper                                     |    95 |   92 |    0 |    0 |       3 |          0 |
-| Compositor                                 |   224 |  219 |    0 |    0 |       5 |          0 |
+| Compositor                                 |   234 |  231 |    0 |    0 |       3 |          0 |
 | Audio                                      |   223 |  200 |    0 |    0 |      23 |          0 |
 | DMA                                        |   168 |  160 |    0 |    0 |       8 |          0 |
 | DivMMC+SPI                                 |   176 |  148 |    0 |    0 |      28 |          0 |
@@ -52,18 +52,18 @@ mentions them, so a test can no longer be absent from this document.
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |    65 |   65 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    14 |   14 |    0 |    0 |       0 |          0 |
-| Companion: compositor_integration_test     |     8 |    8 |    0 |    0 |       0 |          0 |
+| Companion: compositor_integration_test     |    20 |   20 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |     7 |    7 |    0 |    0 |       0 |          0 |
-| Companion: tilemap_fetch_split_test        |     4 |    4 |    0 |    0 |       0 |          0 |
+| Companion: tilemap_fetch_split_test        |     7 |    7 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: ctc_interrupts_test             |    58 |   58 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   312 |  312 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4396 | 4140 |    0 |    5 |     251 |          0 |
+| **Total**                                  |  4422 | 4170 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4396**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4207**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7192**.
+Rows the sections above carry: **4422**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4218**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7207**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -923,7 +923,6 @@ Notes and rationale: [SPRITES-TEST-PLAN-DESIGN.md](SPRITES-TEST-PLAN-DESIGN.md).
 | G16.OVF-02 | Overflow warn fires exactly once per frame and resets at next `start_frame | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3565 |
 | G16.OVF-03 | Z80N-DMA streaming 32 byte-rewrites/scanline × 256 lines = 8192 writes — boundary case, every write must replay | sprites.vhd:327-470 | pass | test/sprites/sprites_test.cpp:3648 |
 | G06.NR70-01 | NR 0x70 b5:4 L2 resolution flip mid-frame must reroute L2 width | zxnext.vhd:7400-7470, layer2.vhd:128 | pass | test/sprites/sprites_test.cpp:4251 |
-| G04.PSL-NR4B-01 | NR 0x4B (sprite transparent index) write logged + replayed per scanline | zxnext.vhd:5016,1190, sprites.vhd | missing | — |
 | G17.PSL-PAT-08 | Full pattern-RAM re-stream (>16384 bytes/frame) overflows cap; in-cap writes still apply | sprites.vhd:561-572, sprites.vhd:728-744 | pass | test/sprites/sprites_test.cpp:4171 |
 | G1.AT-18 | NR 0x34 must not move the port-0x57 cursor with sprite_tie clear (sprites.vhd:653 gate) | sprites.vhd:653 | pass | test/sprites/sprites_test.cpp:591 |
 | G1.AT-19 | NR 0x34 re-bases the port-0x57 cursor to slot<<3 under sprite_tie (sprites.vhd:653-654) | sprites.vhd:653-654 | pass | test/sprites/sprites_test.cpp:617 |
@@ -1021,7 +1020,9 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-162 | VHDL tilemap.vhd:194 + zxnext.vhd:5461-5462 — NR 0x6B b1 (256->512 tile) mid-frame flip per scanline | tilemap.vhd:194, zxnext.vhd:5461-5462 | pass | test/tilemap/tilemap_test.cpp:314 |
 | TM-163 | VHDL tilemap.vhd:195 + zxnext.vhd:5461-5462 — NR 0x6B b0 (tm_on_top) mid-frame flip per scanline | tilemap.vhd:195, zxnext.vhd:5461-5462 | pass | test/tilemap/tilemap_test.cpp:337 |
 | TM-164 | VHDL zxnext.vhd:5461 + :6820 — NR 0x6B b7 (enable) mid-frame flip per scanline | zxnext.vhd:5461,6820 | pass | test/tilemap/tilemap_test.cpp:360 |
-| TM-165 | Per-scanline NR 0x4C (TM transparent nibble) flip mid-frame (G04 cross-bucket) | zxnext.vhd:5018,4395, tilemap.vhd:425-429 | missing | — |
+| TM-165 | Per-scanline NR 0x4C (TM transparent nibble) flip mid-frame (G04 cross-bucket) | tilemap.vhd:427, zxnext.vhd:4395 | pass | test/tilemap/tilemap_fetch_split_test.cpp:431 |
+| TM-SPLIT-05 | NR 0x6E and NR 0x4C switched by adjacent Copper MOVEs stay coherent | tilemap.vhd:229,349,427 | pass | test/tilemap/tilemap_fetch_split_test.cpp:458 |
+| TM-SPLIT-06 | NR 0x1B clip written mid-frame via the Copper | tilemap.vhd:412-424, zxnext.vhd:4424-4427 | pass | test/tilemap/tilemap_fetch_split_test.cpp:492 |
 | TM-10 | VHDL tilemap.vhd:382-383 standard pixel index = attr(7:4)\|pix | tilemap.vhd:382-383 | pass | test/tilemap/tilemap_test.cpp:382 |
 | TM-11 | VHDL tilemap.vhd:393 — tilemap_0 selects tile 0..255 within a 256-tile bank | tilemap.vhd:393 | pass | test/tilemap/tilemap_test.cpp:400 |
 | TM-12 | VHDL tilemap.vhd:382 — final index = attr(7:4)<<4 \| pixel | tilemap.vhd:382 | pass | test/tilemap/tilemap_test.cpp:416 |
@@ -1282,9 +1283,9 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | L2P-17 | mode 110 + L2 priority bit => blend output shown (VHDL zxnext.vhd:7300) | zxnext.vhd:7300 | pass | test/compositor/compositor_test.cpp:1248 |
 | L2P-18 | mode 111 + L2 priority bit => subtracted blend shown (VHDL zxnext.vhd:7342) | zxnext.vhd:7342 | pass | test/compositor/compositor_test.cpp:1263 |
 | L2P-19 | Native 640: layer2_priority_[] honours both even and odd columns; L2 promotion fires at every native pixel (VHDL 7039-7050; renderer.cpp:194-201) | zxnext.vhd:7039-7050 | pass | test/compositor/compositor_test.cpp:1320 |
-| PFF-G108-01 | NR 0x69 b5:0 fans into port_ff_reg(5:0); bits 7:6 unchanged (zxnext.vhd:3617-3618) | zxnext.vhd:3617-3618 | pass | test/compositor/compositor_integration_test.cpp:536 |
-| PFF-G108-02 | NR 0x22 b2 fans into port_ff_reg(6) (zxnext.vhd:3619-3620) | zxnext.vhd:3619-3620 | pass | test/compositor/compositor_integration_test.cpp:555 |
-| PFF-G108-03 | NR 0xC4 b0 fans into port_ff_reg(6) with inverted polarity (zxnext.vhd:3621-3622) | zxnext.vhd:3621-3622 | pass | test/compositor/compositor_integration_test.cpp:593 |
+| PFF-G108-01 | NR 0x69 b5:0 fans into port_ff_reg(5:0); bits 7:6 unchanged (zxnext.vhd:3617-3618) | zxnext.vhd:3617-3618 | pass | test/compositor/compositor_integration_test.cpp:537 |
+| PFF-G108-02 | NR 0x22 b2 fans into port_ff_reg(6) (zxnext.vhd:3619-3620) | zxnext.vhd:3619-3620 | pass | test/compositor/compositor_integration_test.cpp:556 |
+| PFF-G108-03 | NR 0xC4 b0 fans into port_ff_reg(6) with inverted polarity (zxnext.vhd:3621-3622) | zxnext.vhd:3621-3622 | pass | test/compositor/compositor_integration_test.cpp:594 |
 | BL-10 | mode 110 add no clamp: (3,2,1)+(3,2,1)=(6,4,2) (VHDL zxnext.vhd:7201-7203,7286) | zxnext.vhd:7201-7203,7286 | pass | test/compositor/compositor_test.cpp:1378 |
 | BL-11 | mode 110 add clamp to 7 (VHDL zxnext.vhd:7288-7298) | zxnext.vhd:7288-7298 | pass | test/compositor/compositor_test.cpp:1391 |
 | BL-12 | mode 110 add 0+0=0 (VHDL zxnext.vhd:7201-7203) | zxnext.vhd:7201-7203 | pass | test/compositor/compositor_test.cpp:1404 |
@@ -1323,8 +1324,8 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | STEN-17 | stencil bit=0 => non-stencil path: TM replaces ULA (VHDL 7130) | — | pass | test/compositor/compositor_test.cpp:2217 |
 | STEN-20 | NR 0x68 b0 write mid-frame does not retroactively affect a row whose per-line snapshot already ran — row still shows the pre-write non-stencil merge (VHDL 5445,6810,6897-6898,7064) | — | pass | test/compositor/compositor_test.cpp:2332 |
 | STEN-21 | After the deferred snapshot lands, the SAME row selects the stencil AND-branch (VHDL 7112-7113,7130) | — | pass | test/compositor/compositor_test.cpp:2348 |
-| UDIS-01 | NR 0x68 bit 7 toggles ULA transparency → display pixel switches between ULA ink and NR 0x4A fallback (zxnext.vhd:7103; emulator.cpp:816-825; renderer.cpp:83-85) | zxnext.vhd:5445 | pass | test/compositor/compositor_integration_test.cpp:274 |
-| UDIS-02 | Copper mid-frame MOVE NR 0x68,0x80 flips ULA-enable at line 100 → pre-rows show ULA, post-rows show NR 0x4A fallback (zxnext.vhd:7103,6809; copper.cpp:75-154; emulator.cpp:2609-2616) | zxnext.vhd:5445 | pass | test/compositor/compositor_integration_test.cpp:393 |
+| UDIS-01 | NR 0x68 bit 7 toggles ULA transparency → display pixel switches between ULA ink and NR 0x4A fallback (zxnext.vhd:7103; emulator.cpp:816-825; renderer.cpp:83-85) | zxnext.vhd:5445 | pass | test/compositor/compositor_integration_test.cpp:275 |
+| UDIS-02 | Copper mid-frame MOVE NR 0x68,0x80 flips ULA-enable at line 100 → pre-rows show ULA, post-rows show NR 0x4A fallback (zxnext.vhd:7103,6809; copper.cpp:75-154; emulator.cpp:2609-2616) | zxnext.vhd:5445 | pass | test/compositor/compositor_integration_test.cpp:394 |
 | UDIS-03 | NR 0x68 bits 6:5 decode → Renderer::blend_mode (VHDL 7141-7178, emulator.cpp:816-825) | zxnext.vhd:7141-7178 | pass | test/compositor/compositor_test.cpp:2400 |
 | SOB-10 | Opaque sprite beats border-ULA in mode 000 (VHDL 7118,7222) | sprites.vhd | pass | test/compositor/compositor_test.cpp:2426 |
 | LINE-10 | NR0x15 mid-line write -> current line keeps old mode (VHDL 6799) | zxnext.vhd:6799 | pass | test/compositor/compositor_test.cpp:2457 |
@@ -1333,8 +1334,7 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | LINE-13 | Copper write at hblank: next line has new mode (VHDL 6799) | — | pass | test/compositor/compositor_test.cpp:2501 |
 | LINE-14 | Two mid-line writes: only last visible next line (VHDL 6799) | — | pass | test/compositor/compositor_test.cpp:2511 |
 | PSCAN-G04-01 | NR 0x14 transparent RGB per-scanline snapshot/replay captures distinct mid-frame writes (G04) | zxnext.vhd:1137,5226 | pass | test/compositor/compositor_test.cpp:3320 |
-| PSCAN-G04-02 | NR 0x4B (sprite transparent index) write logged + replayed per scanline | zxnext.vhd:5016,1190 | missing | — |
-| PSCAN-G04-03 | NR 0x4C (TM transparent nibble) write logged + replayed per scanline | zxnext.vhd:5018,4395 | missing | — |
+| PSCAN-G04-02 | Copper MOVE NR 0x4B mid-frame: the sprite appears from the split row, not the whole frame (sprites.vhd:971-972; zxnext.vhd:4339) | sprites.vhd:971-972, zxnext.vhd:4339 | pass | test/compositor/compositor_integration_test.cpp:759 |
 | PSCAN-G11-01 | NR 0x68 b0 (stencil_mode) per-scanline snapshot captures mid-frame flip (G11) | zxnext.vhd:5445,7142-7176 | pass | test/compositor/compositor_test.cpp:3383 |
 | PSCAN-G11-02 | NR 0x68 b6:5 (blend_mode) per-scanline snapshot captures mid-frame mode flip (G11) | zxnext.vhd:5445,7142-7176 | pass | test/compositor/compositor_test.cpp:3411 |
 | PSCAN-G11-03 | NR 0x68 b3 (ulap_en) per-scanline snapshot on Ula captures mid-frame enable flip (G11) | zxnext.vhd:5445 | pass | test/compositor/compositor_test.cpp:3444 |
@@ -1348,6 +1348,17 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | PSCAN-G10-03 | mid-frame NR 0x43 b2 flip also moves the Layer 2 palette PRIORITY bit lookup to the new bank: sprite wins above the flip line, promoted Layer 2 wins below it (VHDL 5392, 6827, 7050, 7220) | — | pass | test/compositor/compositor_test.cpp:4108 |
 | PSCAN-G10-04 | mid-frame NR 0x43 b3 flip (line 98) switches the SPRITE palette bank from that row on; rows above keep bank 0 (VHDL 5391, 6828) | — | pass | test/compositor/compositor_test.cpp:4180 |
 | PSCAN-G10-05 | mid-frame NR 0x6B b4 flip (line 100) switches the TILEMAP palette bank from that row on; rows above keep bank 0 (VHDL 5462, 6826, 6981) | zxnext.vhd:5462, zxnext.vhd:6826, zxnext.vhd:6921-6922, zxnext.vhd:6981 | pass | test/compositor/compositor_test.cpp:4295 |
+| PLRS-SPR-01 | Copper re-clip via NR 0x19 mid-frame clips the sprite from the split row only (sprites.vhd:1037-1067; zxnext.vhd:4366-4369) | sprites.vhd:1037-1067, zxnext.vhd:4366-4369 | pass | test/compositor/compositor_integration_test.cpp:776 |
+| PLRS-SPR-02 | Copper clears NR 0x15 b1 mid-frame: the border sprite is clipped from the split row only (sprites.vhd:1043-1067; zxnext.vhd:4336) | sprites.vhd:1043-1067, zxnext.vhd:4336 | pass | test/compositor/compositor_integration_test.cpp:792 |
+| PLRS-SPR-03 | Copper sets NR 0x15 b5 mid-frame: the clip window applies from the split row only (sprites.vhd:1043-1050; zxnext.vhd:4335) | sprites.vhd:1043-1050, zxnext.vhd:4335 | pass | test/compositor/compositor_integration_test.cpp:813 |
+| PLRS-SPR-04 | Copper sets NR 0x15 b6 mid-frame: sprite 0 goes on top from the split row only (sprites.vhd:972; zxnext.vhd:4334) | sprites.vhd:972, zxnext.vhd:4334 | pass | test/compositor/compositor_integration_test.cpp:832 |
+| PLRS-ULA-01 | Copper sets NR 0x43 b0 mid-frame: ULAnext colours apply from the split row only (zxnext.vhd:6804-6815; zxula.vhd:485-529) | zxnext.vhd:6804-6815, zxula.vhd:485-529 | pass | test/compositor/compositor_integration_test.cpp:850 |
+| PLRS-ULA-02 | Copper changes NR 0x42 mid-frame: the new ULAnext format applies from the split row only (zxnext.vhd:6814; zxula.vhd:506-529) | zxnext.vhd:6814, zxula.vhd:506-529 | pass | test/compositor/compositor_integration_test.cpp:869 |
+| PLRS-ULA-03 | Copper sets NR 0x68 b3 mid-frame: ULA+ colours apply from the split row only (zxnext.vhd:4550-4551,6815; zxula.vhd:531-541) | zxnext.vhd:4550-4551,6815, zxula.vhd:531-541 | pass | test/compositor/compositor_integration_test.cpp:888 |
+| PLRS-ULA-04 | Copper sets NR 0x69 b6 mid-frame: the ULA shows bank 7 from the split row only (zxnext.vhd:3660,3768,6647-6658; zxula.vhd:191) | zxnext.vhd:3660,3768,6647-6658, zxula.vhd:191 | pass | test/compositor/compositor_integration_test.cpp:910 |
+| PLRS-ULA-05 | LoRes Radastan follows the row's ULA+ and ULAnext enables, not the frame's last (zxnext.vhd:4246; lores.vhd:107) | zxnext.vhd:4246, lores.vhd:107 | pass | test/compositor/compositor_integration_test.cpp:940 |
+| PLRS-CMP-01 | Copper clears NR 0x6B b7 mid-frame: the stencil AND holds until the split row (zxnext.vhd:6820,6909-6910,7069,7130) | zxnext.vhd:6820,6909-6910,7069,7130 | pass | test/compositor/compositor_integration_test.cpp:970 |
+| PLRS-PAL-01 | NR 0xFF palette pokes made during a frame reach the screen, each from its own row (zxnext.vhd:4906,4919,6957-6958) | zxnext.vhd:4906,4919,6957-6958 | pass | test/compositor/compositor_integration_test.cpp:1013 |
 | UCLIP-01 | mid-frame NR 0x1A write does not retroactively re-mask a row whose per-line snapshot already ran — col 200 survives under the stale window A (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4369 |
 | UCLIP-02 | …and the left border is clipped per the SNAPSHOTTED window A (x1=128>0) — proves the snapshot is captured, not the reset default (renderer.cpp left_clipped; VHDL 6779-6783) | — | pass | test/compositor/compositor_test.cpp:4380 |
 | UCLIP-03 | after the deferred snapshot lands, the SAME row selects window B: col 200 clipped, left border kept, right border clipped (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4399 |
@@ -4305,14 +4316,26 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| UDIS-01 | NR 0x68 bit 7 toggles ULA transparency → display pixel switches between ULA ink and NR 0x4A fallback (zxnext.vhd:7103; emulator.cpp:816-825; renderer.cpp:83-85) | zxnext.vhd:7103 | pass | test/compositor/compositor_integration_test.cpp:274 |
-| UDIS-02 | Copper mid-frame MOVE NR 0x68,0x80 flips ULA-enable at line 100 → pre-rows show ULA, post-rows show NR 0x4A fallback (zxnext.vhd:7103,6809; copper.cpp:75-154; emulator.cpp:2609-2616) | zxnext.vhd:7103,6809 | pass | test/compositor/compositor_integration_test.cpp:393 |
-| PSCAN-VBLANK-COALESCE-01 | Copper MOVE NR 0x68,0x80 at WAIT vpos=258 (raw vc=10, pre-display vblank) → first display row already shows NR 0x4A fallback (G164v2 vblank coalesce-to-0 + snapshot indexing fixes). | — | pass | test/compositor/compositor_integration_test.cpp:495 |
-| PFF-G108-01 | NR 0x69 b5:0 fans into port_ff_reg(5:0); bits 7:6 unchanged (zxnext.vhd:3617-3618) | zxnext.vhd:3617-3618 | pass | test/compositor/compositor_integration_test.cpp:536 |
-| PFF-G108-02 | NR 0x22 b2 fans into port_ff_reg(6) (zxnext.vhd:3619-3620) | zxnext.vhd:3619-3620 | pass | test/compositor/compositor_integration_test.cpp:555 |
-| PFF-G108-02b | NR 0x22 b2=0 clears port_ff_reg(6) (zxnext.vhd:3620) | zxnext.vhd:3620 | pass | test/compositor/compositor_integration_test.cpp:564 |
-| PFF-G108-03 | NR 0xC4 b0 fans into port_ff_reg(6) with inverted polarity (zxnext.vhd:3621-3622) | zxnext.vhd:3621-3622 | pass | test/compositor/compositor_integration_test.cpp:593 |
-| PFF-G108-04 | Port 0xFF write latches the entire byte, beating any subsequent NR-side fan-out (zxnext.vhd:3615-3616) | zxnext.vhd:3615-3616 | pass | test/compositor/compositor_integration_test.cpp:619 |
+| UDIS-01 | NR 0x68 bit 7 toggles ULA transparency → display pixel switches between ULA ink and NR 0x4A fallback (zxnext.vhd:7103; emulator.cpp:816-825; renderer.cpp:83-85) | zxnext.vhd:7103 | pass | test/compositor/compositor_integration_test.cpp:275 |
+| UDIS-02 | Copper mid-frame MOVE NR 0x68,0x80 flips ULA-enable at line 100 → pre-rows show ULA, post-rows show NR 0x4A fallback (zxnext.vhd:7103,6809; copper.cpp:75-154; emulator.cpp:2609-2616) | zxnext.vhd:7103,6809 | pass | test/compositor/compositor_integration_test.cpp:394 |
+| PSCAN-VBLANK-COALESCE-01 | Copper MOVE NR 0x68,0x80 at WAIT vpos=258 (raw vc=10, pre-display vblank) → first display row already shows NR 0x4A fallback (G164v2 vblank coalesce-to-0 + snapshot indexing fixes). | — | pass | test/compositor/compositor_integration_test.cpp:496 |
+| PFF-G108-01 | NR 0x69 b5:0 fans into port_ff_reg(5:0); bits 7:6 unchanged (zxnext.vhd:3617-3618) | zxnext.vhd:3617-3618 | pass | test/compositor/compositor_integration_test.cpp:537 |
+| PFF-G108-02 | NR 0x22 b2 fans into port_ff_reg(6) (zxnext.vhd:3619-3620) | zxnext.vhd:3619-3620 | pass | test/compositor/compositor_integration_test.cpp:556 |
+| PFF-G108-02b | NR 0x22 b2=0 clears port_ff_reg(6) (zxnext.vhd:3620) | zxnext.vhd:3620 | pass | test/compositor/compositor_integration_test.cpp:565 |
+| PFF-G108-03 | NR 0xC4 b0 fans into port_ff_reg(6) with inverted polarity (zxnext.vhd:3621-3622) | zxnext.vhd:3621-3622 | pass | test/compositor/compositor_integration_test.cpp:594 |
+| PFF-G108-04 | Port 0xFF write latches the entire byte, beating any subsequent NR-side fan-out (zxnext.vhd:3615-3616) | zxnext.vhd:3615-3616 | pass | test/compositor/compositor_integration_test.cpp:620 |
+| PSCAN-G04-02 | Copper MOVE NR 0x4B mid-frame: the sprite appears from the split row, not the whole frame (sprites.vhd:971-972; zxnext.vhd:4339) | sprites.vhd:971-972, zxnext.vhd:4339 | pass | test/compositor/compositor_integration_test.cpp:759 |
+| PLRS-SPR-01 | Copper re-clip via NR 0x19 mid-frame clips the sprite from the split row only (sprites.vhd:1037-1067; zxnext.vhd:4366-4369) | sprites.vhd:1037-1067, zxnext.vhd:4366-4369 | pass | test/compositor/compositor_integration_test.cpp:776 |
+| PLRS-SPR-02 | Copper clears NR 0x15 b1 mid-frame: the border sprite is clipped from the split row only (sprites.vhd:1043-1067; zxnext.vhd:4336) | sprites.vhd:1043-1067, zxnext.vhd:4336 | pass | test/compositor/compositor_integration_test.cpp:792 |
+| PLRS-SPR-03 | Copper sets NR 0x15 b5 mid-frame: the clip window applies from the split row only (sprites.vhd:1043-1050; zxnext.vhd:4335) | sprites.vhd:1043-1050, zxnext.vhd:4335 | pass | test/compositor/compositor_integration_test.cpp:813 |
+| PLRS-SPR-04 | Copper sets NR 0x15 b6 mid-frame: sprite 0 goes on top from the split row only (sprites.vhd:972; zxnext.vhd:4334) | sprites.vhd:972, zxnext.vhd:4334 | pass | test/compositor/compositor_integration_test.cpp:832 |
+| PLRS-ULA-01 | Copper sets NR 0x43 b0 mid-frame: ULAnext colours apply from the split row only (zxnext.vhd:6804-6815; zxula.vhd:485-529) | zxnext.vhd:6804-6815, zxula.vhd:485-529 | pass | test/compositor/compositor_integration_test.cpp:850 |
+| PLRS-ULA-02 | Copper changes NR 0x42 mid-frame: the new ULAnext format applies from the split row only (zxnext.vhd:6814; zxula.vhd:506-529) | zxnext.vhd:6814, zxula.vhd:506-529 | pass | test/compositor/compositor_integration_test.cpp:869 |
+| PLRS-ULA-03 | Copper sets NR 0x68 b3 mid-frame: ULA+ colours apply from the split row only (zxnext.vhd:4550-4551,6815; zxula.vhd:531-541) | zxnext.vhd:4550-4551,6815, zxula.vhd:531-541 | pass | test/compositor/compositor_integration_test.cpp:888 |
+| PLRS-ULA-04 | Copper sets NR 0x69 b6 mid-frame: the ULA shows bank 7 from the split row only (zxnext.vhd:3660,3768,6647-6658; zxula.vhd:191) | zxnext.vhd:3660,3768,6647-6658, zxula.vhd:191 | pass | test/compositor/compositor_integration_test.cpp:910 |
+| PLRS-ULA-05 | LoRes Radastan follows the row's ULA+ and ULAnext enables, not the frame's last (zxnext.vhd:4246; lores.vhd:107) | zxnext.vhd:4246, lores.vhd:107 | pass | test/compositor/compositor_integration_test.cpp:940 |
+| PLRS-CMP-01 | Copper clears NR 0x6B b7 mid-frame: the stencil AND holds until the split row (zxnext.vhd:6820,6909-6910,7069,7130) | zxnext.vhd:6820,6909-6910,7069,7130 | pass | test/compositor/compositor_integration_test.cpp:970 |
+| PLRS-PAL-01 | NR 0xFF palette pokes made during a frame reach the screen, each from its own row (zxnext.vhd:4906,4919,6957-6958) | zxnext.vhd:4906,4919,6957-6958 | pass | test/compositor/compositor_integration_test.cpp:1013 |
 
 ### Companion integration suite — `test/copper/copper_integration_test.cpp`
 
@@ -4338,6 +4361,9 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-SPLIT-02 | NR 0x6F tile-definition base is latched at fetch time, so a change never repaints already-fetched cells [tilemap.vhd:264,350 - S_IDLE is forced per tile COLUMN, so hardware granularity is finer than jnext's per-scanline model; zxnext.vhd:4408] | tilemap.vhd:264,350, zxnext.vhd:4408 | pass | test/tilemap/tilemap_fetch_split_test.cpp:170 |
 | TM-SPLIT-03 | NR 0x6C default attribute is consumed at fetch time, so a change never repaints already-fetched cells [tilemap.vhd:264,366 - S_READ_TILE_1 recurs per tile COLUMN, so hardware granularity is finer than jnext's per-scanline model; zxnext.vhd:4394] | tilemap.vhd:264,366, zxnext.vhd:4394 | pass | test/tilemap/tilemap_fetch_split_test.cpp:199 |
 | TM-SPLIT-04 | failed to initialize full Emulator fixture | tilemap.vhd:264,349 | pass | test/tilemap/tilemap_fetch_split_test.cpp:297 |
+| TM-165 | Per-scanline NR 0x4C (TM transparent nibble) flip mid-frame (G04 cross-bucket) | tilemap.vhd:427, zxnext.vhd:4395 | pass | test/tilemap/tilemap_fetch_split_test.cpp:431 |
+| TM-SPLIT-05 | NR 0x6E and NR 0x4C switched by adjacent Copper MOVEs stay coherent | tilemap.vhd:229,349,427 | pass | test/tilemap/tilemap_fetch_split_test.cpp:458 |
+| TM-SPLIT-06 | NR 0x1B clip written mid-frame via the Copper | tilemap.vhd:412-424, zxnext.vhd:4424-4427 | pass | test/tilemap/tilemap_fetch_split_test.cpp:492 |
 
 ### Companion integration suite — `test/lores/lores_integration_test.cpp`
 

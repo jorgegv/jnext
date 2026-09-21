@@ -558,4 +558,8 @@ private:
     /// Apply a single change to the live palette state (no logging).
     /// Used by both the replay path and the rewind-then-replay loop.
     void apply_change(const PaletteChange& c);
+
+    /// Append `c` to the per-scanline change log (warns once per frame at
+    /// the cap). Every live palette writer logs through this.
+    void log_change(const PaletteChange& c);
 };

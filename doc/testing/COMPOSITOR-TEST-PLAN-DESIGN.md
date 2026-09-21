@@ -741,22 +741,22 @@ writes after stage 0 are not.
 
 ### Group PSCAN — Per-scanline transparency-key replay (NR 0x14 / 0x4B / 0x4C, G04) and NR 0x68 bits (G11)
 
-Three transparent-key NextREGs are read once per frame today; mid-
-frame Copper writes (sky-vs-foreground swap) collapse to last-write.
-This sub-group adds the log-pattern clone for each of the three keys —
-**so far only NR 0x14 (PSCAN-G04-01) has it; NR 0x4B/0x4C
-(PSCAN-G04-02/03) remain a real, unimplemented gap** (corrected
-2026-08-01, GH #196 phase-1.1 review — see the rows below; a prior pass
-had wrongly marked them re-homed to the Sprites/Tilemap suites, which
-never picked up the tracking). Three more cover NR 0x68 bit 0
+Three transparent-key NextREGs used to be read once per frame; mid-
+frame Copper writes (sky-vs-foreground swap) collapsed to last-write.
+NR 0x14 got its per-line snapshot first (PSCAN-G04-01). **NR 0x4B/0x4C
+stayed a real gap until GH #256** (the 2026-08-01 GH #196 phase-1.1
+review had already found the earlier re-homing to the Sprites/Tilemap
+suites false): NR 0x4B is now `PSCAN-G04-02`, implemented end to end in
+the companion suite; NR 0x4C is `TM-165` in the TILEMAP plan, whose
+companion `tilemap_fetch_split_test` implements it, so its duplicate
+here (PSCAN-G04-03) is gone. Three more rows cover NR 0x68 bit 0
 (stencil), bits 6:5 (blend mode), and bit 3 (ULA+ enable) per-scanline
 replay.
 
 | ID            | Title                                                                          | Stimulus                                                                                          | Expected                                                                                          | VHDL                       |
 |---------------|--------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------|----------------------------|
 | PSCAN-G04-01  | NR 0x14 write logged with current scanline (RGB332 global transparent)         | start_frame; line=50 NR 0x14 ← 0xC3; line=100 NR 0x14 ← 0xE3                                      | nr_14 change-log holds (50, 0xC3) and (100, 0xE3); apply_changes_for_line replays them            | zxnext.vhd:1137,5226       |
-| PSCAN-G04-02  | NR 0x4B (sprite transparent index) write logged + replayed per scanline        | start_frame; line=50 NR 0x4B ← 0x07; line=100 NR 0x4B ← 0x0F, mirroring the PSCAN-G04-01 idiom | nr_4b change-log would hold (50, 0x07) and (100, 0x0F), replayed per scanline. **Status: `missing`** — no `check()`/`skip()` row exists anywhere. A 2026-04-28 comment claimed this was RE-HOMED to `SPRITES-TEST-PLAN-DESIGN.md` Group 16; reviewed 2026-08-01 (GH #196 phase-1.1) and found FALSE — that doc's `G04.PSL-NR4B-01` and `test/sprites/sprites_test.cpp`'s `sprite_transparent_index_` are zero matches (stub prose only), and `src/core/emulator.cpp:1655-1659`'s NR 0x4B write handler still routes to a plain scalar setter (`PaletteManager::set_sprite_transparency`). Real, currently untracked gap — not a duplicate | zxnext.vhd:5016,1190       |
-| PSCAN-G04-03  | NR 0x4C (TM transparent nibble) write logged + replayed per scanline           | start_frame; line=50 NR 0x4C ← 0x07; line=100 NR 0x4C ← 0x0A, mirroring the PSCAN-G04-01 idiom | nr_4c change-log would hold (50, 0x07) and (100, 0x0A), replayed per scanline. **Status: `missing`** — no `check()`/`skip()` row exists anywhere. A 2026-04-28 comment claimed this was RE-HOMED to `TILEMAP-TEST-PLAN-DESIGN.md` Group 1; reviewed 2026-08-01 (GH #196 phase-1.1) and found FALSE — that doc's `TM-165` and `test/tilemap/tilemap_test.cpp`'s `transp_colour_` are zero matches (stub prose only), and `src/core/emulator.cpp:1669-1672`'s NR 0x4C write handler still routes to a plain scalar setter (`PaletteManager::set_tilemap_transparency`). Real, currently untracked gap — not a duplicate | zxnext.vhd:5018,4395       |
+| PSCAN-G04-02  | NR 0x4B (sprite transparent index) written mid-frame applies per scanline      | Full `Emulator` (companion suite): a sprite of index 0xE0 spanning rows 40..167; NR 0x4B = 0xE0 at frame start, Copper `WAIT 60; MOVE 0x4B,0xE3` | The sprite's column shows the NR 0x4A fallback above row `60+DISP_Y` and the sprite from it to its last row. Implemented for GH #256; before it NR 0x4B was read at its end-of-frame value | sprites.vhd:971-972; zxnext.vhd:4339 |
 | PSCAN-G11-01  | NR 0x68 bit 0 (stencil) per-scanline replay                                    | start_frame; line=50 NR 0x68 ← 0x01 (stencil_mode=1)                                              | rows 0..49 see stencil_mode=0; rows 50..end see stencil_mode=1                                    | zxnext.vhd:5445, 7142-7176 |
 | PSCAN-G11-02  | NR 0x68 bits 6:5 (blend mode) per-scanline replay                              | start_frame; line=100 NR 0x68 ← 0x40 (blend mode 10 / mix_rgb=ula_final)                          | rows 0..99 use blend mode 00; rows 100..end use 10 (mix_rgb routing changes)                      | zxnext.vhd:5445, 7142-7176 |
 | PSCAN-G11-03  | NR 0x68 bit 3 (ULA+ gate) per-scanline replay                                  | start_frame; line=80 NR 0x68 ← 0x08 (ulap_en=1)                                                   | rows 0..79 use ULA path; rows 80..end use ULA+ palette path                                       | zxnext.vhd:5445, ulap_en   |
@@ -776,6 +776,10 @@ difference before vs. after the snapshot is refreshed for the SAME row:
 - **TR-50 / TR-51** (Group TR below) — NR 0x14, `composite_scanline`'s own transparency check.
 - **STEN-20 / STEN-21** (Group STEN below) — NR 0x68 bit 0 (stencil).
 - **UTB-50 / UTB-51** (Group UTB below) — NR 0x68 bits 6:5 (blend mode).
+- **PLRS-ULA-03** (Group PLRS below) — NR 0x68 bit 3 (ULA+), end to end
+  through a Copper MOVE. PSCAN-G11-03's array had NO production caller at
+  all until GH #256: it was filled by nothing and read by nothing, so the
+  bookkeeping row passed while the renderer used the live bit.
 - **TR-52 / TR-53** (Group TR below) — NR 0x14, `Layer2::render_scanline`'s
   gate one stage EARLIER than `composite_scanline` (Task 46). This pair is
   the odd one out structurally: it calls `Renderer::render_row` (which
@@ -888,6 +892,32 @@ from the caller. Mutation evidence (2026-07-30, restored to green):
 → G10-05 red (and DVP-PALSEL-TM red); `render_row` dropping the bank
 argument → exactly G10-05 red; the debugger panel dropping it → exactly
 DVP-PALSEL-TM red, G10-05 green.
+
+### Group PLRS — Per-line render state, end to end (GH #256)
+
+Companion suite `test/compositor/compositor_integration_test.cpp`. Every row
+drives one real mid-frame Copper MOVE (the CPU for NR 0xFF, which a MOVE's
+7-bit register field cannot address) through `run_frame` → `on_scanline` →
+`render_frame`, and checks one column of every relevant row against
+hand-computed literal colours. A write in the raw line of cvc N first shows on
+row `N + DISP_Y`, the row the change-logs tag it with. Before GH #256 each of
+these registers was read at render time, so the split collapsed to the frame's
+last value — and the NR 0xFF poke never reached the screen at all, because
+`rewind_to_baseline()` erased the unlogged write.
+
+| ID          | Title | Stimulus | Expected | VHDL |
+|-------------|-------|----------|----------|------|
+| PLRS-SPR-01 | NR 0x19 sprite clip written mid-frame | Sprite at 320-grid x 64..79, rows 40..167; Copper `WAIT 60; MOVE 0x1C,0x02; MOVE 0x19 ×4 (x1 = 0x40 → x_s 96)` | Sprite visible above row 92, clipped from it | sprites.vhd:1037-1067; zxnext.vhd:4366-4369 |
+| PLRS-SPR-02 | NR 0x15 b1 (over border) cleared mid-frame | Sprite in the left border (x 8..23), NR 0x15 = 0x03; Copper `MOVE 0x15,0x01` at cvc 60 | Border sprite visible above row 92, clipped from it | sprites.vhd:1043-1067; zxnext.vhd:4336 |
+| PLRS-SPR-03 | NR 0x15 b5 (border clip enable) set mid-frame | Clip x1 = 0x40, NR 0x15 = 0x03 (window ignored); Copper `MOVE 0x15,0x23` at cvc 60 | Sprite visible above row 92, clipped (x_s = 128) from it | sprites.vhd:1043-1050; zxnext.vhd:4335 |
+| PLRS-SPR-04 | NR 0x15 b6 (zero on top) set mid-frame | Sprites 0 (red) and 1 (green) overlapping; Copper `MOVE 0x15,0x41` at cvc 60 | Green (sprite 1 on top) above row 92, red (sprite 0) from it | sprites.vhd:972; zxnext.vhd:4334 |
+| PLRS-ULA-01 | NR 0x43 b0 (ULAnext enable) set mid-frame | attr 0x38 paper; palette[0x17] red, [0x87] green; Copper `MOVE 0x43,0x01` at cvc 60 | Red above row 92, green (ULAnext paper index 0x87) from it | zxnext.vhd:6804-6815; zxula.vhd:485-529 |
+| PLRS-ULA-02 | NR 0x42 (ULAnext format) changed mid-frame | ULAnext on, format 0x07 → 0x0F by Copper at cvc 60 | Paper index 0x87 (green) above row 92, 0x83 (blue) from it | zxnext.vhd:6814; zxula.vhd:506-529 |
+| PLRS-ULA-03 | NR 0x68 b3 (ULA+ enable) set mid-frame | attr 0x38; palette[0x17] red, [0xCF] green; Copper `MOVE 0x68,0x08` at cvc 60 | Red above row 92, green (ULA+ index 0xCF) from it | zxnext.vhd:4550-4551,6815; zxula.vhd:531-541 |
+| PLRS-ULA-04 | NR 0x69 b6 (shadow screen) set mid-frame | Bank 5 attr 0x38, bank 7 attr 0x20; Copper `MOVE 0x69,0x40` at cvc 60 | Bank 5's paper above row 92, bank 7's from it | zxnext.vhd:3660,3768,6647-6658; zxula.vhd:191 |
+| PLRS-ULA-05 | LoRes follows the row's ULA+ and ULAnext enables | Radastan LoRes, offset 5, nibbles 3; Copper turns ULA+ on at cvc 60, ULAnext on at cvc 140 | Index 0x53 (red) above row 92, 0xD3 (green) rows 92..171, 0x53 again from 172 | zxnext.vhd:4246; lores.vhd:107 |
+| PLRS-CMP-01 | NR 0x6B b7 (tm_en) in the stencil gate | Stencil on, ULA paper yellow, tile cyan; Copper `MOVE 0x6B,0x00` at cvc 60 | Stencil AND (green) above row 92, ULA yellow from it | zxnext.vhd:6820,6909-6910,7069,7130 |
+| PLRS-PAL-01 | NR 0xFF ULA+ palette pokes made during a frame | ULA+ on, attr 0x07 paper (index 0xC8); CPU pokes red at frame start, polls NR 0x1F to cvc 100, pokes green | Red above row 132, green from it — before GH #256 the default (black) everywhere | zxnext.vhd:4906,4919,6957-6958 |
 
 ### Group UCLIP — NR 0x1A ULA clip window per-line deferral
 
@@ -1123,4 +1153,4 @@ as the fallback colour) and pass once it is present. Screenshot-level twin:
 The matrix is a generated artifact now and carries no prose of its own; it
 links here instead. These notes were written alongside the rows they explain.
 
-Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that require a full `Emulator` fixture (NR 0x68 bit 7 ULA-disable observed at the framebuffer level, including Copper mid-frame MOVE NR 0x68,0x80). Runtime: `Total:    8  Passed:    8  Failed:    0  Skipped:    0`. Each row is a live pass. Only the 2 UDIS rows are listed below. Of the other 6 live rows, `PFF-G108-01/02/03` are recorded in the parent `## Compositor` table — they are Compositor plan rows re-homed here 2026-04-28, not new rows; `PFF-G108-02b` is recorded only by sub-letter aliasing under `PFF-G108-02` (the script's `ALIASED` report); and `PFF-G108-04` + `PSCAN-VBLANK-COALESCE-01` are recorded nowhere (its `UNRECORDED` report). Both reports print on every run.
+Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that require a full `Emulator` fixture (NR 0x68 bit 7 ULA-disable observed at the framebuffer level, including Copper mid-frame MOVE NR 0x68,0x80). GH #256 added `PSCAN-G04-02` and Group PLRS (12 rows, all recorded in their groups above). Runtime: `Total:   20  Passed:   20  Failed:    0  Skipped:    0`. Each row is a live pass. Only the 2 UDIS rows are listed below. Of the other 6 live rows, `PFF-G108-01/02/03` are recorded in the parent `## Compositor` table — they are Compositor plan rows re-homed here 2026-04-28, not new rows; `PFF-G108-02b` is recorded only by sub-letter aliasing under `PFF-G108-02` (the script's `ALIASED` report); and `PFF-G108-04` + `PSCAN-VBLANK-COALESCE-01` are recorded nowhere (its `UNRECORDED` report). Both reports print on every run.

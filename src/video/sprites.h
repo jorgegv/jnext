@@ -238,6 +238,39 @@ public:
     void set_zero_on_top(bool val) { zero_on_top_ = val; }
 
     // -----------------------------------------------------------------
+    // Per-scanline render controls (GH #256)
+    // -----------------------------------------------------------------
+    //
+    // The NR 0x19 clip window, NR 0x15 b6/b5/b1 (zero-on-top, border clip,
+    // over border) and the NR 0x4B transparency index are live inputs of
+    // sprites.vhd (zxnext.vhd:4334-4369). Read at render time they held the
+    // frame's LAST value, so a Copper MOVE to any of them repainted the
+    // whole frame. The hardware consumes them at two points: the clip,
+    // b5 and b1 gate the line buffer as it is scanned out (sprites.vhd:
+    // 1037-1067, same row), while the index and b6 filter the pixels the
+    // FSM writes into the NEXT row's buffer (sprites.vhd:971-972, built
+    // during the previous row, :518-553) — exactly like the attributes.
+    //
+    // Captured at the END of each row (Emulator::on_scanline, prev_fb_row
+    // group), which is the row the attribute change-log above tags a write
+    // with — so a multiplexer that moves sprites and re-clips them together
+    // switches both on the same row. That applies the index and b6 one row
+    // earlier than the hardware — as the attribute log already does for the
+    // attributes they filter — keeping the lane coherent rather than exact.
+    // The transparency index lives in
+    // PaletteManager, so the caller passes it in. Transient render history:
+    // not serialized, and inactive after reset/load until the next frame
+    // initializes it.
+    void snapshot_control_for_line(int line, uint8_t transparency) {
+        if (line >= 0 && line < kControlLines)
+            control_per_line_[line] = live_control(transparency);
+    }
+    void init_control_per_line(uint8_t transparency) {
+        control_per_line_.fill(live_control(transparency));
+        control_per_line_active_ = true;
+    }
+
+    // -----------------------------------------------------------------
     // Per-scanline attribute and pattern change log
     // -----------------------------------------------------------------
     //
@@ -521,11 +554,28 @@ private:
     // Compute effective SpriteAttr for a relative sprite
     static SpriteAttr resolve_relative(const SpriteAttr& rel, const AnchorState& anchor);
 
+    // Per-scanline render controls (GH #256) — see snapshot_control_for_line.
+    struct LineControl {
+        uint8_t clip_x1, clip_x2, clip_y1, clip_y2;  // NR 0x19
+        bool    over_border;                         // NR 0x15 b1
+        bool    border_clip_en;                      // NR 0x15 b5
+        bool    zero_on_top;                         // NR 0x15 b6
+        uint8_t transparency;                        // NR 0x4B
+    };
+    LineControl live_control(uint8_t transparency) const {
+        return {clip_x1_, clip_x2_, clip_y1_, clip_y2_,
+                over_border_, border_clip_en_, zero_on_top_, transparency};
+    }
+    static constexpr int kControlLines = 256;  // framebuffer rows
+    std::array<LineControl, kControlLines> control_per_line_{};
+    bool control_per_line_active_ = false;
+
     // Helpers
     void render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr, int y,
                                 const PaletteManager& palette,
                                 bool* line_occupied,
-                                bool palette_bank_second) const;
+                                bool palette_bank_second,
+                                const LineControl& ctl) const;
 
     uint8_t read_pattern(uint16_t addr) const {
         return pattern_ram_[addr & (PATTERN_RAM_SZ - 1)];

@@ -47,6 +47,7 @@ void SpriteEngine::reset()
     clip_x2_          = 255;
     clip_y1_          = 0;
     clip_y2_          = 0xBF;  // VHDL default: 191
+    control_per_line_active_ = false;
 
     collision_        = false;
     max_sprites_      = false;
@@ -825,15 +826,23 @@ void SpriteEngine::render_scanline(uint32_t* dst, int y,
     // versus the pre-Phase-5 320-cell array (sprites.vhd 7-MHz domain).
     bool line_occupied[DISPLAY_WIDTH] = {};
 
-    if (zero_on_top_) {
+    // The row's NR 0x19 / NR 0x15 / NR 0x4B controls as captured by
+    // Emulator::on_scanline, not the live registers, which hold the frame's
+    // LAST value by the time the frame is rendered (GH #256).
+    const LineControl ctl =
+        (control_per_line_active_ && y >= 0 && y < kControlLines)
+            ? control_per_line_[y]
+            : live_control(palette.sprite_transparency());
+
+    if (ctl.zero_on_top) {
         for (int i = NUM_SPRITES - 1; i >= 0; --i) {
             render_sprite_scanline(dst, effective[i], y, palette, line_occupied,
-                                   palette_bank_second);
+                                   palette_bank_second, ctl);
         }
     } else {
         for (int i = 0; i < NUM_SPRITES; ++i) {
             render_sprite_scanline(dst, effective[i], y, palette, line_occupied,
-                                   palette_bank_second);
+                                   palette_bank_second, ctl);
         }
     }
 }
@@ -845,7 +854,8 @@ void SpriteEngine::render_scanline(uint32_t* dst, int y,
 void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
                                           int y, const PaletteManager& palette,
                                           bool* line_occupied,
-                                          bool palette_bank_second) const
+                                          bool palette_bank_second,
+                                          const LineControl& ctl) const
 {
     if (!spr.visible())
         return;
@@ -892,7 +902,7 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
 
     bool is_4bit = spr.is_4bit();
     uint8_t pal_offset = spr.palette_offset();
-    uint8_t transp = palette.sprite_transparency();
+    uint8_t transp = ctl.transparency;
 
     // Determine clip window bounds.
     //
@@ -922,31 +932,31 @@ void SpriteEngine::render_sprite_scanline(uint32_t* dst, const SpriteAttr& spr,
 
     int clip_xs, clip_xe, clip_ys, clip_ye;
 
-    if (over_border_) {
-        if (!border_clip_en_) {
+    if (ctl.over_border) {
+        if (!ctl.border_clip_en) {
             // Full 320x256 area — clip window ignored.
             clip_xs = 0;   clip_xe = 319;
             clip_ys = 0;   clip_ye = 255;
         } else {
-            clip_xs = clip_x1_ * 2;
-            clip_xe = clip_x2_ * 2 + 1;
-            clip_ys = clip_y1_;
-            clip_ye = clip_y2_;
+            clip_xs = ctl.clip_x1 * 2;
+            clip_xe = ctl.clip_x2 * 2 + 1;
+            clip_ys = ctl.clip_y1;
+            clip_ye = ctl.clip_y2;
         }
     } else {
         // Non-over-border: clip window shifted into buffer space (+32).
         // From VHDL: (('0' & val(7:5)) + 1) & val(4:0)
-        clip_xs = ((((clip_x1_ >> 5) & 0x07) + 1) << 5) | (clip_x1_ & 0x1F);
-        clip_xe = ((((clip_x2_ >> 5) & 0x07) + 1) << 5) | (clip_x2_ & 0x1F);
-        clip_ys = ((((clip_y1_ >> 5) & 0x07) + 1) << 5) | (clip_y1_ & 0x1F);
-        clip_ye = ((((clip_y2_ >> 5) & 0x07) + 1) << 5) | (clip_y2_ & 0x1F);
+        clip_xs = ((((ctl.clip_x1 >> 5) & 0x07) + 1) << 5) | (ctl.clip_x1 & 0x1F);
+        clip_xe = ((((ctl.clip_x2 >> 5) & 0x07) + 1) << 5) | (ctl.clip_x2 & 0x1F);
+        clip_ys = ((((ctl.clip_y1 >> 5) & 0x07) + 1) << 5) | (ctl.clip_y1 & 0x1F);
+        clip_ye = ((((ctl.clip_y2 >> 5) & 0x07) + 1) << 5) | (ctl.clip_y2 & 0x1F);
     }
 
     // Check Y clip.
     // VHDL: non-over-border mode also hardcodes vcounter_i < 224 (display bottom).
     if (y < clip_ys || y > clip_ye)
         return;
-    if (!over_border_ && y >= 224)
+    if (!ctl.over_border && y >= 224)
         return;
 
     // Iterate over scaled width of the sprite.
@@ -1132,4 +1142,5 @@ void SpriteEngine::load_state(StateReader& r)
     collision_ = r.read_bool();
     max_sprites_ = r.read_bool();
     border_clip_en_ = r.read_bool();
+    control_per_line_active_ = false;
 }

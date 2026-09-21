@@ -32,8 +32,19 @@ part-way through a line still colours the whole of that line. Hardware
 does not: the video pipeline re-reads the NR latches every pixel cycle
 (`zxnext.vhd:6825-6828` → `:6981` for the four palette selects), so only
 the pixels after the write change. The residual error is **at most one
-row and always early, never late**, for **every** consumer of the
-pattern — this is a property of the pattern itself, not of any one lane.
+row**. It is **early** (a write colours the whole of the row whose raw line
+it executes in) for every consumer of the pattern **except** the tilemap's
+start-of-row snapshots — scroll (GH #16), fetch bases (GH #53) and, since
+GH #256, the NR 0x1B / NR 0x4C output-stage inputs — which apply a write
+from the **following** row, i.e. **late**. Each convention is right for a
+different write position. A Copper `WAIT(line, h=0)` + MOVE completes at
+x = 32 of the 320-wide area, the start of the 256-wide display
+(`zxula_timing.vhd:423`, `copper.vhd:94`), and the GH #256 reporter's MAME
+capture shows the change from x ≈ 35 of that row — so the tilemap lane lands
+such a split one row late, and likewise the reporter's recommended "WAIT at
+the end of the previous line" technique (verified: jnext shows the change one
+row after hardware would). A CPU write polled off NR 0x1F lands later in the
+line, where the late convention is the right one (GH #16, hardware-verified).
 
 Decision (2026-07-30): **documented, not fixed.** A per-scanline
 renderer has no representation for "from column X of row N"; closing it
@@ -70,6 +81,11 @@ need to be accurate for high-fidelity demos like Nirvana.
 | NR 0x15 b4:2 layer priority + b0 sprite enable | `write_nr15` change-log + replay (1024 cap) — wired 2026-07-23 (GH #73; rows PSCAN-G02-01..05) | Renderer | beast.nex (0x80↔0x01 toggle) |
 | NR 0x43 b1/b2/b3 active ULA / Layer 2 / sprite palette select | `Ula` palsel change-log + replay (1024 cap). Log built with the ULA lane; the **Layer 2 and sprite lanes were only CONSUMED on 2026-07-30** (GH #163) — before that nothing read them back and both rasterizers resolved colour through the live end-of-frame bank. `PaletteManager::{layer2_colour,layer2_rgb8,layer2_priority_high,sprite_colour}` now take the bank, and `Renderer::render_row` / the debugger video panel pass `Ula::get_active_{layer2,sprite}_palette()`. Rows PSCAN-G10-01..04, DVP-PALSEL-*. | Ula (log) + Renderer (consumption) | show512.nex (512-colour split field) |
 | NR 0x6B b4 active tilemap palette select | `Ula` palsel6b change-log + replay (separate 1-bit log — `nr_6b_tm_control(4)` is a different latch from NR 0x43's 3-bit field). **CONSUMED on 2026-07-30** (GH #168, the third lane of GH #163): `Ula::get_active_tilemap_palette()` had eight test references and zero production callers, so `tilemap_colour(idx)` read the live end-of-frame `active_tm_second_`. `PaletteManager::tilemap_colour` now takes the bank, `Tilemap::render_scanline` / `render_scanline_debug` thread it, and `Renderer::render_row` / the debugger video panel pass the per-row replayed selector. Rows PSCAN-G10-05, DVP-PALSEL-TM*. | Ula (log) + Renderer (consumption) | none yet (found by inspection while fixing #163) |
+| NR 0x4C tilemap transparency index + NR 0x1B tilemap clip | `Tilemap::snapshot_output_for_line`, taken at the START of each row beside the fetch snapshot, so a map/index split never mixes the two. Before GH #256 both were read at their end-of-frame value | Tilemap | GH #256 repro (Copper NR 0x6E + NR 0x4C split); rows TM-165, TM-SPLIT-05/06 |
+| NR 0x19 sprite clip, NR 0x15 b6/b5/b1, NR 0x4B sprite transparency index | `SpriteEngine::snapshot_control_for_line`, end of each row (the row the attribute log tags a write with) | SpriteEngine | GH #256 audit; rows PSCAN-G04-02, PLRS-SPR-01..04 |
+| ULA+ enable (NR 0x68 b3 / port 0xFF3B), ULAnext enable (NR 0x43 b0) and format (NR 0x42), shadow-screen bank (port 0x7FFD b3 / NR 0x69 b6) | `Ula::snapshot_control_for_line`, end of each row; `render_scanline` swaps the row's values in, `apply_lores` reads them per row. The G11 ULA+ array had existed with **no production caller** | Ula | GH #256 audit; rows PLRS-ULA-01..05 |
+| NR 0x6B b7 as the compositor's stencil gate (`tm_en_2`) | `Renderer::snapshot_tm_enabled_for_line`, end of each row | Renderer | GH #256 audit; row PLRS-CMP-01 |
+| NR 0xFF ULA+ palette poke | Palette change-log, like every other palette write. It used to write the live arrays unlogged, so `rewind_to_baseline()` **erased** it and the poke never reached the screen | PaletteManager | GH #256 audit; row PLRS-PAL-01 |
 
 ## Categories of missing coverage
 
@@ -81,17 +97,17 @@ Pure log-pattern clones of the palette work. Each is a small task
 | Register | Consumer | Why it matters | Driver candidate | Cost |
 |---|---|---|---|---|
 | ~~**NR 0x16 / 0x17 / 0x71** Layer 2 X/Y scroll~~ | ~~`Layer2::set_scroll_*`~~ | **DONE 2026-04-26** — Beast.nex bottom-band parallax (5-strip Copper writes at scanlines 163/165/169/173/179, progressively higher speeds via `Beast/scroll.asm`). Pattern: `Layer2::start_frame/set_current_line/rewind_to_baseline/apply_changes_for_line` mirrors the palette path. Test: `layer2_test` G10 (10 rows). | beast.nex (live) | DONE |
-| **NR 0x68** other bits | [emulator.cpp:823](src/core/emulator.cpp#L823) | bit 7 done; bit 0 (ULA fine-X), bits 6:5 (blend mode UDIS-03), bit 3 (ULA+ en gate) all renderer-relevant | UDIS variants, ULA+ split-screen demos | S |
+| ~~**NR 0x68** other bits~~ | ~~NR 0x68 handler~~ | **DONE** — b0 stencil and b6:5 blend (G11 snapshots), b2 fine-X (G08 scroll log), b3 ULA+ enable (consumed per row since GH #256). | — | DONE |
 | ~~**NR 0x15** sprite/LoRes/priority bits~~ | ~~NR 0x15 dispatcher~~ | **DONE 2026-07-23 (GH #73)** — b4:2 layer priority + b0 sprite enable via `Renderer::write_nr15` change-log (the class existed dormant since G02; wiring + vblank flush + per-line sprite render gate landed together). b7 was already per-line via the LoRes snapshot (GH #63); b6/b5/b1 remain frame-granularity SpriteEngine state. Rows PSCAN-G02-01..05. | beast.nex (0x80↔0x01 toggle) | DONE |
-| **NR 0x14** global transparency | [emulator.cpp:322](src/core/emulator.cpp#L322) | Mid-frame transparency change → sky-vs-foreground colour-key effects | unknown | S |
-| **NR 0x4B / 0x4C** sprite / tilemap transparency index | [emulator.cpp:360,365](src/core/emulator.cpp#L360-L365) | Mid-frame transparency-index swap for layer-mask effects | unknown | S |
-| **NR 0x18 / 0x19 / 0x1A / 0x1B** clip windows | [emulator.cpp:445+](src/core/emulator.cpp) (rotating 4-write) | Split-screen / picture-in-picture by re-clipping a layer mid-frame | TBD | M (rotating index complicates the log) |
-| **NR 0x6B** tilemap control (mode bits) | tilemap handler | Mid-frame tilemap mode flip (40↔80, tm-on-top toggle) | TBD | S |
-| **NR 0x70** Layer 2 mode (256 / 320 / 640) | layer2 handler | Per-line L2 mode change → mixed-resolution screens | TBD | M (changes width path) |
-| **NR 0x12 / 0x13** Layer 2 active bank | layer2 handler | Page-flipping per-line for double-buffered scroll. Parallax does this per-frame; per-line is exotic. | TBD | S |
+| ~~**NR 0x14** global transparency~~ | ~~NR 0x14 handler~~ | **DONE** (G04, Task 45) — `transparent_rgb_per_line_`. | — | DONE |
+| ~~**NR 0x4B / 0x4C** sprite / tilemap transparency index~~ | ~~NR 0x4B / 0x4C handlers~~ | **DONE 2026-09-21 (GH #256)** — the reporter's Copper split of NR 0x4C collapsed to the frame's last index. | GH #256 repro | DONE |
+| ~~**NR 0x18 / 0x19 / 0x1A / 0x1B** clip windows~~ | ~~clip handlers~~ | **DONE** — NR 0x18 (Layer 2 clip log), NR 0x1A (ULA clip snapshot), NR 0x19 / NR 0x1B (GH #256). Snapshotting the four effective values sidesteps the rotating index. | — | DONE |
+| ~~**NR 0x6B** tilemap control (mode bits)~~ | ~~tilemap handler~~ | **DONE** (G06 change-log); the compositor's stencil-gate copy of b7 since GH #256. | — | DONE |
+| ~~**NR 0x70** Layer 2 mode (256 / 320 / 640)~~ | ~~layer2 handler~~ | **DONE** — `Layer2` NR 0x70 change-log (resolution + palette offset). | — | DONE |
+| ~~**NR 0x12 / 0x13** Layer 2 active bank~~ | ~~layer2 handler~~ | **DONE** (G09) — `Layer2` bank change-log. | — | DONE |
 | ~~**NR 0x43 bits 1-3** + **NR 0x6B bit 4** active palette select~~ | ~~`Tilemap::render_scanline` → `PaletteManager::tilemap_colour`~~ | **DONE** — NR 0x43 b1 with the original G10 log, b2/b3 on 2026-07-30 (GH #163), NR 0x6B b4 on 2026-07-30 (GH #168). All four lanes are now consumed per scanline; see the two covered-table rows above. | — | DONE |
-| **port 0xFF** Timex screen mode | Ula | Mid-frame mode switch (STANDARD / HI_COLOUR / HI_RES) | TBD | M (mode change reroutes the render path) |
-| **NR 0x26 / 0x27** ULA scroll | Ula | Mid-frame ULA scroll for non-square-tile effects | TBD | S |
+| ~~**port 0xFF** Timex screen mode~~ | ~~Ula~~ | **DONE** (G07) — `Ula` port-0xFF change-log. | — | DONE |
+| ~~**NR 0x26 / 0x27** ULA scroll~~ | ~~Ula~~ | **DONE** (G08) — `Ula` scroll change-log. | — | DONE |
 
 Cost legend: **S** ≈ 1-2 h log-pattern clone. **M** ≈ half-day, touches
 the renderer's per-mode dispatch.
@@ -191,4 +207,10 @@ When picking up an item from this list:
 
 ## Status
 
-PENDING — no item picked up. This document opens the queue.
+Category A is closed as far as the GH #256 audit reaches: it walked every
+member each layer's `render_scanline`, `apply_lores` and the compositor read
+at render time, and each NextREG / port value among them is now replayed or
+snapshotted per row. Categories B (mid-frame
+RAM writes — the ULA attribute plane excepted, G12) and C remain open, and the
+row a write lands on still follows the two conventions described under the
+GH #170 heading above.

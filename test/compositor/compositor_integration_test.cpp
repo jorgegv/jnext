@@ -40,6 +40,7 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
@@ -624,6 +625,398 @@ static void test_pff_integration(Emulator& emu) {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Group PLRS-INT — per-line render state (GH #256)
+//
+// Every register below is consumed by the hardware as the beam paints (VHDL
+// citations per row), but jnext used to read it at render time — after the
+// whole frame had run — so a Copper MOVE to it repainted every row with the
+// frame's LAST value. Each row drives one real mid-frame Copper MOVE (or,
+// for NR 0xFF, which the Copper cannot address, a CPU NEXTREG) through the
+// production run_frame -> on_scanline -> render path and checks one column
+// of every row. A write in the raw line of cvc N first shows on framebuffer
+// row N + DISP_Y (the row the palette / Layer 2 / sprite change-logs tag it
+// with). Expected colours are literals computed by hand:
+//   palette RRRGGGBB 0xE0 -> 0xFFFF0000   0x1C -> 0xFF00FF00
+//                    0x03 -> 0xFF0000FF   0xFC -> 0xFFFFFF00
+//   NR 0x4A 0x03 (register format) -> 0xFF0000FF
+// ══════════════════════════════════════════════════════════════════════
+
+namespace {
+
+constexpr uint32_t P_RED    = 0xFFFF0000u;
+constexpr uint32_t P_GREEN  = 0xFF00FF00u;
+constexpr uint32_t P_BLUE   = 0xFF0000FFu;
+constexpr uint32_t P_YELLOW = 0xFFFFFF00u;
+constexpr uint32_t FALLBACK = 0xFF0000FFu;   // NR 0x4A = 0x03
+
+constexpr int kSplitCvc = 60;
+constexpr int kSplitRow = kSplitCvc + Renderer::DISP_Y;   // 92
+
+constexpr uint16_t cu_wait(int cvc) { return static_cast<uint16_t>(0x8000u | cvc); }
+constexpr uint16_t cu_move(uint8_t reg, uint8_t v) {
+    return static_cast<uint16_t>((reg << 8) | v);
+}
+constexpr uint16_t CU_HALT = static_cast<uint16_t>(0x8000u | 511u);
+
+} // namespace
+
+// Load a Copper program at address 0 and start it in mode 11 (restart
+// every frame), exactly as UDIS-02 does by hand.
+static void copper_run(Emulator& emu, std::initializer_list<uint16_t> words) {
+    nr_write_port(emu, 0x61, 0x00);
+    nr_write_port(emu, 0x62, 0x00);
+    for (uint16_t w : words) {
+        nr_write_port(emu, 0x60, static_cast<uint8_t>(w >> 8));
+        nr_write_port(emu, 0x60, static_cast<uint8_t>(w & 0xFF));
+    }
+    nr_write_port(emu, 0x62, 0xC0);
+}
+
+// One 8-bit palette entry through NR 0x43 (write target) / 0x40 / 0x41.
+static void pal8(Emulator& emu, uint8_t nr43, uint8_t idx, uint8_t rgb8) {
+    nr_write_port(emu, 0x43, nr43);
+    nr_write_port(emu, 0x40, idx);
+    nr_write_port(emu, 0x41, rgb8);
+}
+
+// Compare column `col` of framebuffer rows [lo, hi) with expected(row).
+template <typename Expected>
+static bool column_ok(Emulator& emu, int col, int lo, int hi,
+                      Expected expected, std::string& detail) {
+    int bad = 0, first = -1;
+    uint32_t got = 0, want = 0;
+    for (int row = lo; row < hi; ++row) {
+        const uint32_t px = fb_pixel(emu, row, col);
+        if (px != expected(row)) {
+            if (first < 0) { first = row; got = px; want = expected(row); }
+            ++bad;
+        }
+    }
+    detail = fmt("col %d rows %d..%d: %d wrong, first row %d got 0x%08X "
+                 "want 0x%08X", col, lo, hi - 1, bad, first, got, want);
+    return bad == 0;
+}
+
+// Sprite pattern `slot` (8-bit) filled with palette index `idx`.
+static void sprite_pattern(Emulator& emu, uint8_t slot, uint8_t idx) {
+    emu.port().out(0x303B, slot);
+    for (int i = 0; i < 256; ++i) emu.port().out(0x5B, idx);
+}
+
+// Sprite `n` at 320-grid (x, y) showing 8-bit pattern `pat`, Y-scaled x8
+// so it spans 128 rows (y .. y+127) across the split.
+static void sprite_place(Emulator& emu, uint8_t n, int x, int y, uint8_t pat) {
+    emu.port().out(0x303B, n);
+    emu.port().out(0x57, static_cast<uint8_t>(x & 0xFF));
+    emu.port().out(0x57, static_cast<uint8_t>(y & 0xFF));
+    emu.port().out(0x57, static_cast<uint8_t>((x >> 8) & 0x01));
+    emu.port().out(0x57, static_cast<uint8_t>(0xC0 | (pat & 0x3F)));
+    emu.port().out(0x57, static_cast<uint8_t>((3 << 1) | ((y >> 8) & 0x01)));
+}
+
+// ULA hidden, fallback blue, sprite palette 0xE0 red / 0x1C green, pattern
+// 0 = index 0xE0 and pattern 1 = index 0x1C, sprites on (NR 0x15 = 0x01).
+static void sprite_fixture(Emulator& emu) {
+    fresh(emu);
+    park_cpu_at_halt(emu);
+    nr_write_port(emu, 0x68, 0x80);
+    nr_write_port(emu, 0x4A, 0x03);
+    pal8(emu, 0x20, 0xE0, 0xE0);
+    pal8(emu, 0x20, 0x1C, 0x1C);
+    nr_write_port(emu, 0x43, 0x00);
+    sprite_pattern(emu, 0, 0xE0);
+    sprite_pattern(emu, 1, 0x1C);
+    nr_write_port(emu, 0x15, 0x01);
+}
+
+// ULA on, all-paper pixels, every attribute `attr`.
+static void ula_fixture(Emulator& emu, uint8_t attr) {
+    fresh(emu);
+    park_cpu_at_halt(emu);
+    fill_pixels(emu, 0x00);
+    fill_attrs(emu, attr);
+}
+
+static void test_plrs_integration(Emulator& emu) {
+    set_group("PLRS-INT");
+    // Sprite column 140 = 320-grid x 70, inside a sprite at x 64..79.
+    const int SC = 140;
+    const int ULA_COL = Renderer::DISP_X + 20;
+    const int D0 = Renderer::DISP_Y, D1 = Renderer::DISP_Y + Renderer::DISP_H;
+
+    // PSCAN-G04-02 — NR 0x4B sprite transparency index (the COMPOSITOR
+    // plan's long-missing G04 row, closed end to end).
+    {
+        sprite_fixture(emu);
+        sprite_place(emu, 0, 64, 40, 0);
+        nr_write_port(emu, 0x4B, 0xE0);   // the sprite's index is transparent
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x4B, 0xE3), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, SC, 0, Renderer::FB_HEIGHT,
+            [&](int r) { return (r >= kSplitRow && r < 40 + 128) ? P_RED : FALLBACK; }, d);
+        check("PSCAN-G04-02",
+              "Copper MOVE NR 0x4B mid-frame: the sprite appears from the split "
+              "row, not the whole frame (sprites.vhd:971-972; zxnext.vhd:4339)",
+              ok, d);
+    }
+
+    // PLRS-SPR-01 — NR 0x19 sprite clip window (x1 = 0x40 -> x_s = 96).
+    {
+        sprite_fixture(emu);
+        sprite_place(emu, 0, 64, 40, 0);
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x1C, 0x02),
+                         cu_move(0x19, 0x40), cu_move(0x19, 0xFF),
+                         cu_move(0x19, 0x00), cu_move(0x19, 0xBF), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, SC, 0, Renderer::FB_HEIGHT,
+            [&](int r) { return (r >= 40 && r < kSplitRow) ? P_RED : FALLBACK; }, d);
+        check("PLRS-SPR-01",
+              "Copper re-clip via NR 0x19 mid-frame clips the sprite from the "
+              "split row only (sprites.vhd:1037-1067; zxnext.vhd:4366-4369)",
+              ok, d);
+    }
+
+    // PLRS-SPR-02 — NR 0x15 b1 over-border: a sprite in the left border.
+    {
+        sprite_fixture(emu);
+        sprite_place(emu, 0, 8, 40, 0);   // 320-grid x 8..23 = border
+        nr_write_port(emu, 0x15, 0x03);   // sprites on, over border
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x15, 0x01), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, 20, 0, Renderer::FB_HEIGHT,
+            [&](int r) { return (r >= 40 && r < kSplitRow) ? P_RED : FALLBACK; }, d);
+        check("PLRS-SPR-02",
+              "Copper clears NR 0x15 b1 mid-frame: the border sprite is clipped "
+              "from the split row only (sprites.vhd:1043-1067; zxnext.vhd:4336)",
+              ok, d);
+    }
+
+    // PLRS-SPR-03 — NR 0x15 b5 border-clip enable (clip x1 = 0x40 -> 128).
+    {
+        sprite_fixture(emu);
+        sprite_place(emu, 0, 64, 40, 0);
+        nr_write_port(emu, 0x1C, 0x02);
+        nr_write_port(emu, 0x19, 0x40);
+        nr_write_port(emu, 0x19, 0xFF);
+        nr_write_port(emu, 0x19, 0x00);
+        nr_write_port(emu, 0x19, 0xFF);
+        nr_write_port(emu, 0x15, 0x03);   // over border, window ignored
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x15, 0x23), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, SC, 0, Renderer::FB_HEIGHT,
+            [&](int r) { return (r >= 40 && r < kSplitRow) ? P_RED : FALLBACK; }, d);
+        check("PLRS-SPR-03",
+              "Copper sets NR 0x15 b5 mid-frame: the clip window applies from "
+              "the split row only (sprites.vhd:1043-1050; zxnext.vhd:4335)",
+              ok, d);
+    }
+
+    // PLRS-SPR-04 — NR 0x15 b6 zero-on-top: two overlapping sprites.
+    {
+        sprite_fixture(emu);
+        sprite_place(emu, 0, 64, 40, 0);  // red
+        sprite_place(emu, 1, 64, 40, 1);  // green, on top while b6 = 0
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x15, 0x41), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, SC, 0, Renderer::FB_HEIGHT,
+            [&](int r) {
+                if (r < 40 || r >= 40 + 128) return FALLBACK;
+                return r < kSplitRow ? P_GREEN : P_RED;
+            }, d);
+        check("PLRS-SPR-04",
+              "Copper sets NR 0x15 b6 mid-frame: sprite 0 goes on top from the "
+              "split row only (sprites.vhd:972; zxnext.vhd:4334)",
+              ok, d);
+    }
+
+    // PLRS-ULA-01 — NR 0x43 b0 ULAnext enable. attr 0x38 paper: standard
+    // index 0x17, ULAnext (format 0x07) index 0x80 | attr>>3 = 0x87.
+    {
+        ula_fixture(emu, 0x38);
+        pal8(emu, 0x00, 0x17, 0xE0);
+        pal8(emu, 0x00, 0x87, 0x1C);
+        nr_write_port(emu, 0x43, 0x00);
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x43, 0x01), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, ULA_COL, D0, D1,
+            [&](int r) { return r < kSplitRow ? P_RED : P_GREEN; }, d);
+        check("PLRS-ULA-01",
+              "Copper sets NR 0x43 b0 mid-frame: ULAnext colours apply from the "
+              "split row only (zxnext.vhd:6804-6815; zxula.vhd:485-529)",
+              ok, d);
+    }
+
+    // PLRS-ULA-02 — NR 0x42 ULAnext format 0x07 -> 0x0F: paper index
+    // 0x87 -> 0x80 | attr>>4 = 0x83.
+    {
+        ula_fixture(emu, 0x38);
+        pal8(emu, 0x00, 0x87, 0x1C);
+        pal8(emu, 0x00, 0x83, 0x03);
+        nr_write_port(emu, 0x43, 0x01);
+        nr_write_port(emu, 0x42, 0x07);
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x42, 0x0F), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, ULA_COL, D0, D1,
+            [&](int r) { return r < kSplitRow ? P_GREEN : P_BLUE; }, d);
+        check("PLRS-ULA-02",
+              "Copper changes NR 0x42 mid-frame: the new ULAnext format applies "
+              "from the split row only (zxnext.vhd:6814; zxula.vhd:506-529)",
+              ok, d);
+    }
+
+    // PLRS-ULA-03 — ULA+ enable via NR 0x68 b3. attr 0x38 paper: ULA+
+    // index "11" & 00 & 1 & 111 = 0xCF.
+    {
+        ula_fixture(emu, 0x38);
+        pal8(emu, 0x00, 0x17, 0xE0);
+        pal8(emu, 0x00, 0xCF, 0x1C);
+        nr_write_port(emu, 0x43, 0x00);
+        nr_write_port(emu, 0x68, 0x00);
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x68, 0x08), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, ULA_COL, D0, D1,
+            [&](int r) { return r < kSplitRow ? P_RED : P_GREEN; }, d);
+        check("PLRS-ULA-03",
+              "Copper sets NR 0x68 b3 mid-frame: ULA+ colours apply from the "
+              "split row only (zxnext.vhd:4550-4551,6815; zxula.vhd:531-541)",
+              ok, d);
+    }
+
+    // PLRS-ULA-04 — shadow screen via NR 0x69 b6. Bank 5 attr 0x38 paper
+    // (index 0x17), bank 7 attr 0x20 paper (index 0x14).
+    {
+        ula_fixture(emu, 0x38);
+        uint8_t* bank7 = emu.mmu().bank7_bram();
+        for (int off = 0; off < 0x1800; ++off) bank7[off] = 0x00;
+        for (int off = 0x1800; off < 0x1B00; ++off) bank7[off] = 0x20;
+        pal8(emu, 0x00, 0x17, 0xE0);
+        pal8(emu, 0x00, 0x14, 0x1C);
+        nr_write_port(emu, 0x43, 0x00);
+        nr_write_port(emu, 0x69, 0x00);
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x69, 0x40), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, ULA_COL, D0, D1,
+            [&](int r) { return r < kSplitRow ? P_RED : P_GREEN; }, d);
+        check("PLRS-ULA-04",
+              "Copper sets NR 0x69 b6 mid-frame: the ULA shows bank 7 from the "
+              "split row only (zxnext.vhd:3660,3768,6647-6658; zxula.vhd:191)",
+              ok, d);
+    }
+
+    // PLRS-ULA-05 — LoRes reads the row's ULA+ / ULAnext enables too
+    // (zxnext.vhd:4246 ulap_en_i => ulap_en_0 and not ulanext_en_0). Radastan
+    // LoRes, palette offset 5, every nibble 3: index 0x53 while ULA+ is off,
+    // "11" & offset(1:0) & nibble = 0xD3 once the Copper turns ULA+ on at
+    // cvc 60, back to 0x53 once it turns ULAnext on at cvc 140.
+    {
+        ula_fixture(emu, 0x38);
+        uint8_t* bank5 = emu.mmu().bank5_vram();
+        for (int off = 0; off < 0x4000; ++off) bank5[off] = 0x33;
+        pal8(emu, 0x00, 0x53, 0xE0);
+        pal8(emu, 0x00, 0xD3, 0x1C);
+        nr_write_port(emu, 0x43, 0x00);
+        nr_write_port(emu, 0x68, 0x00);   // ULA on, ULA+ off
+        nr_write_port(emu, 0x6A, 0x25);   // Radastan, palette offset 5
+        nr_write_port(emu, 0x15, 0x80);   // LoRes on
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x68, 0x08),
+                         cu_wait(140), cu_move(0x43, 0x01), CU_HALT});
+        emu.run_frame();
+        const int split2 = 140 + Renderer::DISP_Y;
+        std::string d;
+        const bool ok = column_ok(emu, ULA_COL, D0, D1,
+            [&](int r) {
+                return (r >= kSplitRow && r < split2) ? P_GREEN : P_RED;
+            }, d);
+        check("PLRS-ULA-05",
+              "LoRes Radastan follows the row's ULA+ and ULAnext enables, not "
+              "the frame's last (zxnext.vhd:4246; lores.vhd:107)",
+              ok, d);
+    }
+
+    // PLRS-CMP-01 — NR 0x6B b7 in the stencil gate. Stencil on; ULA paper
+    // yellow AND tile cyan = green while the tilemap is on, ULA yellow once
+    // the Copper switches it off. Map at bank 5 0x2000, tiles at 0x3000,
+    // clear of the ULA screen.
+    {
+        ula_fixture(emu, 0x38);
+        uint8_t* bank5 = emu.mmu().bank5_vram();
+        for (int e = 0; e < 40 * 32; ++e) {
+            bank5[0x2000 + e * 2]     = 1;
+            bank5[0x2000 + e * 2 + 1] = 0;
+        }
+        for (int i = 0; i < 32; ++i) bank5[0x3000 + 32 + i] = 0x11;
+        pal8(emu, 0x00, 0x17, 0xFC);
+        pal8(emu, 0x30, 0x01, 0x1F);
+        nr_write_port(emu, 0x43, 0x00);
+        nr_write_port(emu, 0x6E, 0x20);
+        nr_write_port(emu, 0x6F, 0x30);
+        nr_write_port(emu, 0x6B, 0x80);
+        nr_write_port(emu, 0x68, 0x01);   // ULA on, stencil on
+        copper_run(emu, {cu_wait(kSplitCvc), cu_move(0x6B, 0x00), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, ULA_COL, D0, D1,
+            [&](int r) { return r < kSplitRow ? P_GREEN : P_YELLOW; }, d);
+        check("PLRS-CMP-01",
+              "Copper clears NR 0x6B b7 mid-frame: the stencil AND holds until "
+              "the split row (zxnext.vhd:6820,6909-6910,7069,7130)",
+              ok, d);
+    }
+
+    // PLRS-PAL-01 — NR 0xFF ULA+ palette poke from the CPU. The Copper
+    // cannot address NR 0xFF (MOVE carries a 7-bit register), so the CPU
+    // pokes red at frame start, polls NR 0x1F until cvc = 100, pokes green.
+    // attr 0x07 paper under ULA+ = index 0xC8 = port 0xBF3B index 0x08.
+    {
+        ula_fixture(emu, 0x07);
+        emu.port().out(0xBF3B, 0x40);     // ULA+ mode group
+        emu.port().out(0xFF3B, 0x01);     // enable
+        emu.port().out(0xBF3B, 0x08);     // palette mode, index 8
+        nr_write_port(emu, 0x43, 0x00);   // write bank 0, display bank 0
+        static const uint8_t prog[] = {
+            0xF3,                   // DI
+            0x3E, 0xE0,             // LD A,0xE0
+            0xED, 0x92, 0xFF,       // NEXTREG 0xFF,A
+            0x01, 0x3B, 0x24,       // LD BC,0x243B
+            0x3E, 0x1F,             // LD A,0x1F
+            0xED, 0x79,             // OUT (C),A
+            0x06, 0x25,             // LD B,0x25
+            0xED, 0x78,             // loop: IN A,(C)
+            0xFE, 100,              // CP 100
+            0x20, 0xFA,             // JR NZ,loop
+            0x3E, 0x1C,             // LD A,0x1C
+            0xED, 0x92, 0xFF,       // NEXTREG 0xFF,A
+            0x76,                   // HALT
+        };
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0x8000; regs.SP = 0xFFFD; regs.IFF1 = 0; regs.IFF2 = 0;
+        emu.cpu().set_registers(regs);
+        emu.run_frame();
+        // The CPU's poll exits inside cvc 100's raw line, so the poke is
+        // tagged row 100 + DISP_Y; the window only absorbs its loop phase.
+        const int T = 100 + Renderer::DISP_Y;
+        std::string d;
+        const bool ok = column_ok(emu, ULA_COL, D0, D1,
+            [&](int r) { return r < T ? P_RED : P_GREEN; }, d);
+        check("PLRS-PAL-01",
+              "NR 0xFF palette pokes made during a frame reach the screen, each "
+              "from its own row (zxnext.vhd:4906,4919,6957-6958)",
+              ok, d);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -642,6 +1035,9 @@ int main() {
 
     test_pff_integration(emu);
     std::printf("  Group: PFF-INT — done\n");
+
+    test_plrs_integration(emu);
+    std::printf("  Group: PLRS-INT — done\n");
 
     std::printf("\n=======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

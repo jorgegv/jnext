@@ -497,6 +497,14 @@ void Ula::render_frame(uint32_t* framebuffer, Mmu& mmu)
 
 void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu, bool* border_dst)
 {
+    // The row's shadow-screen bank, not the live selector (GH #256).
+    render_scanline_in_bank(dst, row, mmu, border_dst,
+                            control_for_line(row).vram_bank7);
+}
+
+void Ula::render_scanline_in_bank(uint32_t* dst, int row, Mmu& mmu,
+                                  bool* border_dst, bool use_bank7)
+{
     // Temporarily use the per-line border colour for rendering, but restore
     // the live border_colour_ afterwards so init_border_per_line() at the
     // next frame start uses the value last set by port 0xFE, not the
@@ -504,6 +512,16 @@ void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu, bool* border_dst)
     const uint8_t saved_border = border_colour_;
     if (row >= 0 && row < FB_HEIGHT)
         border_colour_ = border_per_line_[row];
+
+    // Same for the row's ULA+ / ULAnext state and the bank to fetch from
+    // (GH #256): every render path below reads the members, so swap the
+    // row's values in for the call and put the live ones back after it.
+    const LineControl saved_ctl = live_control();
+    const LineControl row_ctl   = control_for_line(row);
+    ulap_en_        = row_ctl.ulap_en;
+    ulanext_en_     = row_ctl.ulanext_en;
+    ulanext_format_ = row_ctl.ulanext_format;
+    vram_use_bank7_ = use_bank7;
 
     const int screen_row = row - DISP_Y;
 
@@ -537,7 +555,11 @@ void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu, bool* border_dst)
         render_border_line(dst, border_dst);
     }
 
-    border_colour_ = saved_border;
+    border_colour_  = saved_border;
+    ulap_en_        = saved_ctl.ulap_en;
+    ulanext_en_     = saved_ctl.ulanext_en;
+    ulanext_format_ = saved_ctl.ulanext_format;
+    vram_use_bank7_ = saved_ctl.vram_bank7;
 }
 
 // ---------------------------------------------------------------------------
@@ -570,12 +592,9 @@ void Ula::render_scanline(uint32_t* dst, int row, Mmu& mmu, bool* border_dst)
 void Ula::render_scanline_bank(uint32_t* dst, int row, Mmu& mmu, bool use_bank7,
                                uint32_t select_bgnd_argb)
 {
-    const bool     saved_bank7 = vram_use_bank7_;
     const uint32_t saved_bgnd  = select_bgnd_argb_;
-    vram_use_bank7_   = use_bank7;
     select_bgnd_argb_ = select_bgnd_argb;
-    render_scanline(dst, row, mmu, /*border_dst=*/nullptr);
-    vram_use_bank7_   = saved_bank7;
+    render_scanline_in_bank(dst, row, mmu, /*border_dst=*/nullptr, use_bank7);
     select_bgnd_argb_ = saved_bgnd;
 }
 
@@ -1492,6 +1511,7 @@ void Ula::load_state(StateReader& r)
     shadow_screen_en_    = r.read_bool();
     border_clr_tmx_src_  = r.read_bool();
     ulap_mode_           = r.read_u8();
+    control_per_line_active_ = false;  // GH #256 — live until the next frame
 
     // Per-scanline port-0xFF change-log (G07) — paired with save_state.
     baseline_port_ff_      = r.read_u8();

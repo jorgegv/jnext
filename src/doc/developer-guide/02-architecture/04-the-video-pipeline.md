@@ -75,7 +75,16 @@ array of 256 entries is filled as the frame runs: `Emulator::on_scanline()`
 calls `renderer_.snapshot_fallback_for_line(row)` and its siblings, and
 `render_row()` later reads `fallback_per_line_[row]`. This covers NR 0x4A, the
 ULA enable, the NR 0x68 stencil and blend bits, NR 0x14, the NR 0x1A clip, the
-LoRes registers, the ULA border, and the tilemap scroll and fetch bases.
+LoRes registers, the ULA border, the tilemap scroll and fetch bases, and — since
+GH #256 — the tilemap's output-stage inputs (the NR 0x1B clip and the NR 0x4C
+transparency index), the sprite engine's render controls (the NR 0x19 clip,
+NR 0x15 bits 6, 5 and 1, and the NR 0x4B transparency index), the ULA's ULA+ and
+ULAnext enables, the NR 0x42 ULAnext format and the shadow-screen bank, and the
+NR 0x6B bit 7 copy the compositor's stencil gate reads. The newer snapshots
+carry an "active" flag that `init_*_per_line()` sets at frame start and
+`reset()` / `load_state()` clear, so until the first frame of a run they fall
+back to the live registers — which is also what a unit test that renders one
+row directly sees.
 
 **Change logs with rewind and replay** handle state whose whole *object* has to
 be time-travelled — an entire palette, the sprite attribute table, the
@@ -97,14 +106,33 @@ The classes that carry one are `PaletteManager`, `Layer2` (scroll and bank),
 select), `Tilemap` (NR 0x6B), `Mmu`'s `AttributeMux` (Nirvana-class mid-frame
 attribute writes), and `Renderer` itself (NR 0x15 priority and sprite enable).
 
-Three details reliably bite newcomers:
+Five details reliably bite newcomers:
+
+- **A register in neither mechanism is read at its end-of-frame value.** Nothing
+  enforces coverage: GH #256 found the tilemap and sprite transparency indices,
+  both remaining clip windows, three NR 0x15 sprite bits, the ULA+ / ULAnext
+  state and the shadow-screen bank all read live, so a Copper split of any of
+  them repainted the whole frame with its last value. A snapshot only helps if
+  *every* render-time reader uses it — the ULA+ enable had a snapshot array for
+  months that production never filled or read.
+- **A writer that bypasses the log is worse than no log.** `rewind_to_baseline()`
+  overwrites whatever a writer put straight into live state, so an unlogged
+  write is not merely late — it is erased, and the next frame's baseline loses
+  it too. The NR 0xFF ULA+ palette poke did exactly that until GH #256: it never
+  reached the screen at all.
 
 - **The tag is a framebuffer row, not a raw scanline.** `on_scanline` converts
   between them by subtracting `video_timing_.vblank_top()`, and that value is
   per-machine: 32 for the Next family at 50 Hz, 48 for Pentagon timing, 8 at
   60 Hz. Writes that land before the visible area all coalesce onto row 0;
   writes after it stay out of range and are picked up by the drain, where they
-  become the next frame's baseline.
+  become the next frame's baseline. A write lands on the row whose raw line it
+  executes in — except for the tilemap's scroll, fetch and output-stage
+  snapshots, which are taken at the *start* of each line and so apply a write
+  from the following row (GH #16, GH #53). The renderer has no representation
+  for "from column X", so both are approximations that are wrong by up to one
+  row; the tilemap's registers share one latch point so that a Copper split
+  changing several of them switches them all on the same row.
 - **Skipping the drain loses vblank writes forever.** `rewind_to_baseline()`
   deliberately undoes the live mutation the writer performed, and the per-row
   replay only covers visible rows — so a setup sequence that completes during
