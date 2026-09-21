@@ -6911,6 +6911,9 @@ bool Emulator::load_nex(const std::string& path)
     //     db 0` + `db 0`, i.e. `ld bc,$0000` -> BC=$0000. nexload2 would give
     //     $00FF here too, but the distro's .nexload is the loader NextZXOS
     //     ships for these versions (it refuses V1.3, nexload.asm:291,:749).
+    //     BC is ALREADY $0000 at this point — reset() above is a hard reset,
+    //     which zeroes BC — so this half of the write changes nothing; it only
+    //     makes the distro loader's value explicit next to nexload2's.
     if (!loader.delivers_handle_in_bc()) {
         auto regs = cpu_.get_registers();
         regs.BC = loader.is_v13() ? 0x00FF : 0x0000;

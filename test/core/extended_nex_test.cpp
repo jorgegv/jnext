@@ -675,6 +675,13 @@ int main() {
     // default immediates differ, and jnext follows the loader that really
     // runs each version: V1.3 -> nexload2.asm:407 `ld bc,255`; V1.0-V1.2 ->
     // the distro nexload.asm:582-585 `db 01 / db 0 / db 0` (`ld bc,$0000`).
+    //
+    // XNEX-37/38 are the regression rows for the load_nex() BC write: without
+    // it, V1.3 enters with BC=$0000. XNEX-39 guards the handle-in-BC case
+    // against that write. XNEX-40/41 are NOT regression rows for it — BC is
+    // already $0000 after load_nex()'s hard reset, so they pass with the
+    // write removed. They pin V1.0-V1.2 to the distro loader's $0000 against
+    // a "use nexload2's 255 for every version" change, which they do catch.
     struct BcLoad { bool ok = false; uint16_t bc = 0; uint8_t at_4000 = 0; };
     auto load_bc = [&](const char* name, const char* version, uint16_t file_handle) {
         BcLoad r;
@@ -709,11 +716,13 @@ int main() {
           v13_bc.ok && v13_bc.bc == ExtendedNexHost::kHandle, bc_detail(v13_bc));
 
     const BcLoad v12_closed = load_bc("bc-v12-closed.nex", "V1.2", 0x0000);
-    check("XNEX-40", "V1.2, file_handle=0: BC=$0000 at entry (nexload.asm:582-585 ld bc,$0000)",
+    check("XNEX-40", "V1.2, file_handle=0: BC=$0000, the distro loader's value, not nexload2's "
+          "255 (nexload.asm:582-585 ld bc,$0000; version pin, not a regression row)",
           v12_closed.ok && v12_closed.bc == 0x0000, bc_detail(v12_closed));
 
     const BcLoad v12_mem = load_bc("bc-v12-mem.nex", "V1.2", 0x4000);
-    check("XNEX-41", "V1.2, file_handle=0x4000: handle in memory, BC=$0000 (nexload.asm:560-585)",
+    check("XNEX-41", "V1.2, file_handle=0x4000: handle in memory, BC=$0000, not nexload2's 255 "
+          "(nexload.asm:560-585; version pin, not a regression row)",
           v12_mem.ok && v12_mem.at_4000 == ExtendedNexHost::kHandle &&
           v12_mem.bc == 0x0000, bc_detail(v12_mem));
 
