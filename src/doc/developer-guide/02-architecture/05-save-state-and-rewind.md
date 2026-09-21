@@ -110,13 +110,27 @@ Three entry points use the ring, and all of them funnel through `load_state()`:
 |---|---|
 | `rewind_to_cycle(target)` | Restore the nearest snapshot at or before `target`, then fast-forward to the exact cycle in **replay mode**. |
 | `step_back(n)` | Use the `TraceLog` to find the start cycle of the instruction *n* back, then `rewind_to_cycle` it. Fails loudly if the trace is off — which is why enabling rewind also enables the trace. |
-| `rewind_to_frame(num)` | Restore a specific frame's snapshot. |
+| `rewind_to_frame(num)` | Restore a specific frame's snapshot, and render it straight away. |
 
 `replay_mode_` suppresses audio mixing and rendering throughout the
 fast-forward, so rewinding several seconds neither screeches through the
 speakers nor flickers through hundreds of frames; the picture is rendered once,
 at the end. And if the restore fails verification, the rewind is aborted and
 the machine is left *paused* rather than reported as a success.
+
+The video subsystems' per-scanline render history — the change logs with
+their frame-start baselines, and the per-line snapshot arrays (see
+[2.4 The video pipeline](04-the-video-pipeline.md)) — is not in the stream,
+bar the NR 0x4A fallback, the border and the port 0xFF log. `begin_new_frame()`
+would rebuild it, but `rewind_to_frame()` renders before any
+`begin_new_frame()` runs. So every `load_state()` rebuilds it from the
+registers it has just loaded, and `Emulator::load_state()` re-syncs the two
+pieces that need another subsystem: the `Ula`'s copies of the palette-bank
+selectors, from `PaletteManager`, and the attribute mux, from the restored
+VRAM. Until GH #261 it did not, and that render's `rewind_to_baseline()` wrote
+the pre-rewind frame's palette, Layer 2 registers, sprite attributes and
+patterns, NR 0x6B and ULA scroll back into the live registers: the rewound
+machine carried them on.
 
 One category of state needs special handling: host-side state that shadows
 emulated state. The joystick and mouse dispatchers live in the platform layer

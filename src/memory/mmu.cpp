@@ -986,9 +986,10 @@ void Mmu::save_state(StateWriter& w) const
     // scanline-tag cursor needs to survive a rewind snapshot; the
     // per-frame log/baseline is rebuilt fresh from live RAM every frame
     // regardless (Mmu::attr_mux_start_frame(), called at the top of
-    // every Emulator::run_frame before any CPU execution), including the
-    // frame right after a rewind/load. A prior version DID persist
-    // AttributeMux's variable-length log_ array here; that was the
+    // every Emulator::run_frame before any CPU execution, and by
+    // Emulator::load_state itself so the render rewind_to_frame does right
+    // after a load sees the restored VRAM — GH #261). A prior version DID
+    // persist AttributeMux's variable-length log_ array here; that was the
     // actual root cause of a "free(): invalid size" heap-corruption
     // crash in RewindBuffer::Slot's destructor — RewindBuffer slots are
     // fixed-size, but the serialised byte count varied with log_size_
@@ -1094,9 +1095,9 @@ void Mmu::load_state(StateReader& r)
     // streams (pre-round-3 "armed" schema) fall through with
     // attr_mux_current_line_=0 (constructor default); attr_mux5_/
     // attr_mux7_ are NOT restored here (no save_state/load_state on
-    // AttributeMux — see the comment in save_state above): the next
-    // Mmu::attr_mux_start_frame() call (top of every Emulator::run_frame)
-    // rebuilds them from the now-restored live RAM content.
+    // AttributeMux — see the comment in save_state above):
+    // Emulator::load_state rebuilds them from the now-restored live RAM
+    // content once the video timing is restored (GH #261).
     if (!r.eof()) {
         attr_mux_current_line_ = r.read_u16();
     }

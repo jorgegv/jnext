@@ -14,6 +14,16 @@
 #include "core/emulator_config.h"
 #include "core/saveable.h"
 #include "debug/rewind_buffer.h"
+#include "debug/debug_state.h"
+#include "memory/attribute_mux.h"
+#include "memory/mmu.h"
+#include "video/layer2.h"
+#include "video/lores.h"
+#include "video/palette.h"
+#include "video/renderer.h"
+#include "video/sprites.h"
+#include "video/tilemap.h"
+#include "video/ula.h"
 
 #include <cstring>
 #include <cstdio>
@@ -990,6 +1000,399 @@ static int test_rewind_chain_corrupted_slot()
     return 0;
 }
 
+// ── Test 13: a rewind restores the render state too (GH #261) ─────────────
+//
+// Every video subsystem keeps per-scanline render HISTORY beside its live
+// registers: change logs with a frame-start baseline (palette, Layer 2,
+// sprites, tilemap NR 0x6B, ULA scroll and palette selectors, attribute
+// mux, NR 0x15) and per-line snapshot arrays (stencil/blend/NR 0x14/ULA
+// enable/ULA clip, tilemap scroll, LoRes). begin_new_frame() rebuilds all of
+// it; a snapshot is taken just BEFORE that, and none of it (bar the NR 0x4A
+// fallback, the border and the port-0xFF log) is in the stream.
+//
+// rewind_to_frame() renders straight after the load. Pre-fix that render's
+// rewind_to_baseline() copied the PRE-rewind frame's baselines into the LIVE
+// registers and replayed its logs, so the rewound machine carried the later
+// frame's palette, Layer 2 scroll, sprites, NR 0x6B... for good, not just on
+// screen; the Ula palette-selector mirrors were never restored by any rewind.
+//
+// Fixture: three register sets. S0 is live when the target snapshot is
+// taken (frame 1 start); S1 is written between frames 1 and 2; S2 is written
+// by the Copper at cvc 100 of frame 3, so the logs being rewound over are
+// non-empty and the per-line arrays hold an S1/S2 split. Every value below
+// differs from its reset default, so "restored" is not confused with
+// "reset". No VHDL oracle: the property is jnext's own — a restore must
+// reproduce the snapshot — so expectations are what the snapshot held,
+// read back at the moment it was taken.
+
+static void rw_nr(Emulator& emu, uint8_t reg, uint8_t val)
+{
+    emu.port().out(0x243B, reg);
+    emu.port().out(0x253B, val);
+}
+
+static void rw_park(Emulator& emu, uint16_t pc)
+{
+    auto regs = emu.cpu().get_registers();
+    regs.PC = pc;
+    regs.SP = 0xFFFD;
+    regs.IFF1 = 0; regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+}
+
+static void rw_sprite0(Emulator& emu, uint8_t x, uint8_t y, uint8_t pattern_fill)
+{
+    rw_nr(emu, 0x34, 0x00);
+    rw_nr(emu, 0x35, x);
+    rw_nr(emu, 0x36, y);
+    rw_nr(emu, 0x37, 0x00);
+    rw_nr(emu, 0x38, 0x80);          // visible, pattern 0, 4-byte form
+    emu.port().out(0x303B, 0x00);    // pattern slot 0
+    for (int i = 0; i < 256; ++i)
+        emu.port().out(0x005B, pattern_fill);
+}
+
+// ZXN, CPU parked on a HALT at 0x8000, S0 programmed, frame 0 run. On return
+// the machine is exactly where the frame-1 snapshot is taken.
+static void rw_build_s0(Emulator& emu, int rewind_frames)
+{
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = rewind_frames;
+    emu.init(cfg);
+    emu.trace_log().set_enabled(true);
+    emu.mmu().write(0x8000, 0x76);   // HALT
+    rw_park(emu, 0x8000);
+
+    // Layer 2 shows entry 0x30 (index 0, NR 0x70 offset 3 on the high
+    // nibble); make the two banks differ there, so a render with a stale L2
+    // selector shows.
+    rw_nr(emu, 0x43, 0x50);          // write L2 palette 1
+    rw_nr(emu, 0x40, 0x30);
+    rw_nr(emu, 0x41, 0x49);
+    rw_nr(emu, 0x43, 0x10);          // write L2 palette 0; all selectors 0
+    rw_nr(emu, 0x40, 0x05);
+    rw_nr(emu, 0x41, 0x1C);          // L2[5] = 0x1C
+    rw_nr(emu, 0x16, 0x10); rw_nr(emu, 0x17, 0x08);
+    rw_nr(emu, 0x1C, 0x0F);          // all clip indices to x1
+    // Layer 2 clip starts right of the ULA clip's left edge, so ULA pixels
+    // stay visible and a stale ULA enable (NR 0x68 b7) shows.
+    for (uint8_t v : {0x40, 0xF0, 0x04, 0xB0}) rw_nr(emu, 0x18, v);
+    for (uint8_t v : {0x10, 0xEF, 0x08, 0xB7}) rw_nr(emu, 0x1A, v);
+    rw_nr(emu, 0x12, 0x09);
+    rw_nr(emu, 0x69, 0x80);          // Layer 2 on
+    rw_nr(emu, 0x70, 0x03);          // 256x192, palette offset 3
+    rw_sprite0(emu, 0x20, 0x30, 0x11);
+    rw_nr(emu, 0x26, 0x03); rw_nr(emu, 0x27, 0x04);
+    rw_nr(emu, 0x68, 0x20);          // ULA on, blend 01, no stencil
+    rw_nr(emu, 0x14, 0x12);
+    rw_nr(emu, 0x30, 0x05); rw_nr(emu, 0x31, 0x06);
+    rw_nr(emu, 0x15, 0x01);          // sprites on, LoRes off, SLU
+    rw_nr(emu, 0x32, 0x07); rw_nr(emu, 0x33, 0x09); rw_nr(emu, 0x6A, 0x02);
+    emu.mmu().write(0x5800, 0x38);   // attribute byte 0
+    emu.run_frame();                 // frame 0
+}
+
+static void rw_write_s1(Emulator& emu)
+{
+    rw_nr(emu, 0x43, 0x1E);          // ULA/L2/sprite selectors -> second
+    rw_nr(emu, 0x40, 0x05);
+    rw_nr(emu, 0x41, 0xE0);
+    rw_nr(emu, 0x6B, 0x90);          // tilemap on, TM palette select 1
+    rw_nr(emu, 0x16, 0x40); rw_nr(emu, 0x17, 0x20);
+    rw_nr(emu, 0x1C, 0x0F);
+    for (uint8_t v : {0x20, 0xE0, 0x10, 0xA0}) rw_nr(emu, 0x18, v);
+    for (uint8_t v : {0x30, 0xC0, 0x20, 0x90}) rw_nr(emu, 0x1A, v);
+    rw_nr(emu, 0x12, 0x0C);
+    rw_nr(emu, 0x69, 0x00);          // Layer 2 off
+    rw_nr(emu, 0x70, 0x15);          // 320x256, palette offset 5
+    rw_sprite0(emu, 0x55, 0x60, 0x22);
+    rw_nr(emu, 0x26, 0x11); rw_nr(emu, 0x27, 0x22);
+    rw_nr(emu, 0x68, 0xE5);          // ULA off, blend 11, fine scroll, stencil
+    rw_nr(emu, 0x14, 0x34);
+    rw_nr(emu, 0x30, 0x22); rw_nr(emu, 0x31, 0x33);
+    rw_nr(emu, 0x15, 0x81);          // LoRes on
+    rw_nr(emu, 0x32, 0x17); rw_nr(emu, 0x33, 0x19); rw_nr(emu, 0x6A, 0x12);
+    emu.mmu().write(0x5800, 0x47);
+}
+
+static void rw_load_copper_s2(Emulator& emu)
+{
+    auto word = [&emu](uint16_t w) {
+        rw_nr(emu, 0x60, static_cast<uint8_t>(w >> 8));
+        rw_nr(emu, 0x60, static_cast<uint8_t>(w));
+    };
+    auto move = [&word](uint8_t reg, uint8_t val) {
+        word(static_cast<uint16_t>((reg << 8) | val));
+    };
+    rw_nr(emu, 0x61, 0x00);
+    rw_nr(emu, 0x62, 0x00);
+    word(0x8000u | 100u);            // WAIT cvc 100
+    move(0x40, 0x05); move(0x41, 0xFC);
+    move(0x6B, 0xC1);
+    move(0x16, 0x70);
+    move(0x34, 0x00); move(0x35, 0x66);
+    move(0x26, 0x33);
+    move(0x68, 0x41);
+    move(0x14, 0x56);
+    move(0x30, 0x44);
+    move(0x32, 0x27);
+    word(0x8000u | 511u);            // HALT
+    rw_nr(emu, 0x62, 0xC0);          // reset each frame + run
+}
+
+// What the render history must reproduce, read at the snapshot instant.
+struct RwState {
+    uint32_t l2_pal5;
+    uint16_t l2_sx; uint8_t l2_sy, l2_cx1, l2_cx2, l2_cy1, l2_cy2, l2_bank;
+    bool l2_en; uint8_t l2_res, l2_poff;
+    uint8_t spr0[5], pat[256];
+    uint8_t tm_ctl; bool tm_en;
+    uint8_t ula_sx, ula_sy; bool ula_fine;
+    bool sel_ula, sel_l2, sel_spr, sel_tm;
+    uint8_t mux0, vram_attr0;
+    bool stencil; uint8_t blend, nr14;
+    Renderer::UlaClipWindow clip;
+    uint16_t tm_scroll_x; uint8_t tm_scroll_y;
+    Lores::LineState lores;
+};
+
+static RwState rw_capture(Emulator& emu)
+{
+    RwState s{};
+    Layer2& l2 = emu.layer2();
+    s.l2_pal5 = emu.palette().layer2_colour(false, 5);
+    s.l2_sx = l2.scroll_x(); s.l2_sy = l2.scroll_y();
+    s.l2_cx1 = l2.clip_x1(); s.l2_cx2 = l2.clip_x2();
+    s.l2_cy1 = l2.clip_y1(); s.l2_cy2 = l2.clip_y2();
+    s.l2_bank = l2.active_bank(); s.l2_en = l2.enabled();
+    s.l2_res = l2.resolution(); s.l2_poff = l2.palette_offset();
+    for (uint8_t b = 0; b < 5; ++b) s.spr0[b] = emu.sprites().read_attr_byte(0, b);
+    for (int i = 0; i < 256; ++i)
+        s.pat[i] = emu.sprites().read_pattern_byte(static_cast<uint16_t>(i));
+    s.tm_ctl = emu.tilemap().get_control(); s.tm_en = emu.tilemap().enabled();
+    Ula& ula = emu.ula();
+    s.ula_sx = ula.get_ula_scroll_x_coarse(); s.ula_sy = ula.get_ula_scroll_y();
+    s.ula_fine = ula.get_ula_fine_scroll_x();
+    s.sel_ula = ula.get_active_ula_palette();
+    s.sel_l2  = ula.get_active_layer2_palette();
+    s.sel_spr = ula.get_active_sprite_palette();
+    s.sel_tm  = ula.get_active_tilemap_palette();
+    s.mux0 = emu.mmu().attr_mux5().current(0);
+    s.vram_attr0 = emu.mmu().read(0x5800);
+    // Out-of-range rows return the live register (renderer.h accessors).
+    const Renderer& r = emu.renderer();
+    s.stencil = r.stencil_mode_for_line(-1);
+    s.blend   = r.blend_mode_for_line(-1);
+    s.nr14    = r.transparent_rgb_for_line(-1);
+    s.clip    = r.ula_clip_for_line(-1);
+    // Frame 0 ran with S0 constant, so row 0 of the tilemap snapshot is S0.
+    s.tm_scroll_x = emu.tilemap().scroll_x_for_line(0);
+    s.tm_scroll_y = emu.tilemap().scroll_y_for_line(0);
+    s.lores = r.lores().state_for_line(-1);
+    return s;
+}
+
+static int test_rewind_restores_render_state()
+{
+    printf("\n--- Test 13: rewind restores render state (GH #261) ---\n");
+
+    Emulator emu;
+    rw_build_s0(emu, 10);
+    const RwState s0 = rw_capture(emu);
+    REQUIRE(s0.l2_sx == 0x10 && s0.tm_scroll_x == 0x05 && s0.lores.scroll_x == 0x07,
+            "RWR fixture: S0 is live when the frame-1 snapshot is taken");
+    emu.run_frame();                 // frame 1 — the target snapshot
+    rw_write_s1(emu);
+    emu.run_frame();                 // frame 2
+    rw_load_copper_s2(emu);
+    emu.run_frame();                 // frame 3: S1 above cvc 100, S2 below
+    // The history being rewound over must really be stale, or every row
+    // below passes vacuously: the Copper ran (S2 live) and the per-line
+    // arrays hold the S1/S2 split.
+    REQUIRE(emu.layer2().scroll_x() == 0x70 &&
+            emu.renderer().blend_mode_for_line(0) == 0x03 &&
+            emu.renderer().blend_mode_for_line(Renderer::FB_HEIGHT - 1) == 0x02 &&
+            emu.tilemap().scroll_x_for_line(0) == 0x22,
+            "RWR fixture: frame 3 left S1/S2 render history behind");
+
+    REQUIRE(emu.rewind_to_frame(1), "RWR fixture: rewind_to_frame(1) succeeds");
+    const RwState a = rw_capture(emu);
+
+    char msg[256];
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-01 palette entry restored (L2[5] %08X, snapshot %08X)",
+                  a.l2_pal5, s0.l2_pal5);
+    CHECK(a.l2_pal5 == s0.l2_pal5, msg);
+
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-02 Layer 2 scroll/clip/bank/enable/NR 0x70 restored "
+                  "(sx %03X sy %02X clip %02X/%02X/%02X/%02X bank %02X en %d "
+                  "res %u poff %u)",
+                  a.l2_sx, a.l2_sy, a.l2_cx1, a.l2_cx2, a.l2_cy1, a.l2_cy2,
+                  a.l2_bank, a.l2_en, a.l2_res, a.l2_poff);
+    CHECK(a.l2_sx == s0.l2_sx && a.l2_sy == s0.l2_sy &&
+          a.l2_cx1 == s0.l2_cx1 && a.l2_cx2 == s0.l2_cx2 &&
+          a.l2_cy1 == s0.l2_cy1 && a.l2_cy2 == s0.l2_cy2 &&
+          a.l2_bank == s0.l2_bank && a.l2_en == s0.l2_en &&
+          a.l2_res == s0.l2_res && a.l2_poff == s0.l2_poff, msg);
+
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-03 sprite attributes and pattern RAM restored "
+                  "(spr0 X %02X, pattern[0] %02X)", a.spr0[0], a.pat[0]);
+    CHECK(std::memcmp(a.spr0, s0.spr0, sizeof(a.spr0)) == 0 &&
+          std::memcmp(a.pat, s0.pat, sizeof(a.pat)) == 0, msg);
+
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-04 tilemap NR 0x6B restored (%02X, enabled %d)",
+                  a.tm_ctl, a.tm_en);
+    CHECK(a.tm_ctl == s0.tm_ctl && a.tm_en == s0.tm_en, msg);
+
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-05 ULA scroll NR 0x26/0x27/0x68 b2 restored "
+                  "(%02X/%02X/%d)", a.ula_sx, a.ula_sy, a.ula_fine);
+    CHECK(a.ula_sx == s0.ula_sx && a.ula_sy == s0.ula_sy &&
+          a.ula_fine == s0.ula_fine, msg);
+
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-06 Ula NR 0x43 b1-3 / NR 0x6B b4 selector mirrors "
+                  "restored (%d%d%d%d)",
+                  a.sel_ula, a.sel_l2, a.sel_spr, a.sel_tm);
+    CHECK(a.sel_ula == s0.sel_ula && a.sel_l2 == s0.sel_l2 &&
+          a.sel_spr == s0.sel_spr && a.sel_tm == s0.sel_tm, msg);
+
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-07 attribute mux shows the restored VRAM "
+                  "(mux %02X, VRAM %02X, snapshot %02X)",
+                  a.mux0, a.vram_attr0, s0.vram_attr0);
+    CHECK(a.mux0 == s0.vram_attr0 && a.vram_attr0 == s0.vram_attr0, msg);
+
+    // The per-line snapshots the rewind's render read, row by row.
+    const Renderer& r = emu.renderer();
+    int bad_r = 0, bad_tm = 0, bad_lr = 0;
+    for (int row = 0; row < Renderer::FB_HEIGHT; ++row) {
+        const Renderer::UlaClipWindow c = r.ula_clip_for_line(row);
+        if (r.stencil_mode_for_line(row) != s0.stencil ||
+            r.blend_mode_for_line(row) != s0.blend ||
+            r.transparent_rgb_for_line(row) != s0.nr14 ||
+            c.x1 != s0.clip.x1 || c.x2 != s0.clip.x2 ||
+            c.y1 != s0.clip.y1 || c.y2 != s0.clip.y2)
+            ++bad_r;
+        if (emu.tilemap().scroll_x_for_line(row) != s0.tm_scroll_x ||
+            emu.tilemap().scroll_y_for_line(row) != s0.tm_scroll_y)
+            ++bad_tm;
+        const Lores::LineState l = r.lores().state_for_line(row);
+        if (l.enabled != s0.lores.enabled || l.scroll_x != s0.lores.scroll_x ||
+            l.scroll_y != s0.lores.scroll_y || l.nr6a != s0.lores.nr6a)
+            ++bad_lr;
+    }
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-08 stencil/blend/NR 0x14/ULA-clip rows read the "
+                  "restored registers (%d stale rows)", bad_r);
+    CHECK(bad_r == 0, msg);
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-09 tilemap scroll rows read the restored registers "
+                  "(%d stale rows)", bad_tm);
+    CHECK(bad_tm == 0, msg);
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-10 LoRes rows read the restored registers "
+                  "(%d stale rows)", bad_lr);
+    CHECK(bad_lr == 0, msg);
+
+    // The frame the rewind rendered must be the frame a machine that never
+    // ran past the snapshot renders at that instant.
+    Emulator twin;
+    rw_build_s0(twin, 10);
+    twin.renderer().render_frame(twin.get_framebuffer(), twin.mmu(), twin.ram(),
+                                 twin.palette(), twin.layer2(), &twin.sprites(),
+                                 &twin.tilemap());
+    const size_t px = static_cast<size_t>(emu.get_framebuffer_width()) *
+                      static_cast<size_t>(emu.get_framebuffer_height());
+    size_t diff = 0;
+    for (size_t i = 0; i < px; ++i)
+        if (emu.get_framebuffer()[i] != twin.get_framebuffer()[i])
+            ++diff;
+    std::snprintf(msg, sizeof(msg),
+                  "RWR-11 frame rendered by rewind_to_frame equals a fresh "
+                  "render of the snapshot instant (%zu pixels differ)", diff);
+    CHECK(diff == 0, msg);
+
+    return 0;
+}
+
+// ── Test 14: the other rewind callers (GH #261) ────────────────────────────
+//
+// rewind_to_cycle() (and step_back() through it) replays from the snapshot,
+// so begin_new_frame() re-baselines before anything renders. Two pieces of
+// render history still leaked through that path pre-fix:
+//  * the Ula palette-selector mirrors are not in the stream, so they kept
+//    their pre-rewind value — replayed frames used the wrong palette bank;
+//  * SpriteEngine::start_frame() first applies the previous frame's
+//    unreplayed pattern-log entries (its vblank catch-up). After a break in
+//    mid-frame those entries are the pre-rewind frame's writes, applied over
+//    the restored pattern RAM: step_back past a port 0x5B write left the
+//    byte written.
+
+static int test_rewind_callers_render_state()
+{
+    printf("\n--- Test 14: rewind_to_cycle / step_back render state (GH #261) ---\n");
+
+    {
+        Emulator emu;
+        rw_build_s0(emu, 10);        // selectors all 0 here
+        emu.run_frame();             // frame 1 — the target snapshot
+        rw_nr(emu, 0x43, 0x1E);
+        rw_nr(emu, 0x6B, 0x10);
+        emu.run_frame();
+        emu.run_frame();
+        const uint64_t cyc = emu.rewind_buffer()->frame_cycle_for(1);
+        REQUIRE(emu.rewind_to_cycle(cyc) != UINT64_MAX,
+                "RWR fixture: rewind_to_cycle to the frame-1 snapshot");
+        const Ula& u = emu.ula();
+        char msg[160];
+        std::snprintf(msg, sizeof(msg),
+                      "RWR-12 rewind_to_cycle restores the Ula selector mirrors "
+                      "(%d%d%d%d, PaletteManager %d%d%d%d)",
+                      u.get_active_ula_palette(), u.get_active_layer2_palette(),
+                      u.get_active_sprite_palette(), u.get_active_tilemap_palette(),
+                      emu.palette().active_ula_palette(),
+                      emu.palette().active_layer2_palette(),
+                      emu.palette().active_sprite_palette(),
+                      emu.palette().active_tilemap_palette());
+        CHECK(!u.get_active_ula_palette() && !u.get_active_layer2_palette() &&
+              !u.get_active_sprite_palette() && !u.get_active_tilemap_palette(),
+              msg);
+    }
+    {
+        Emulator emu;
+        rw_build_s0(emu, 10);        // pattern 0 filled with 0x11
+        // 0x8100: LD BC,0x303B; XOR A; OUT (C),A; LD BC,0x005B; LD A,0x77;
+        //         OUT (C),A; HALT — writes pattern byte 0 = 0x77.
+        const uint8_t prog[] = { 0x01, 0x3B, 0x30, 0xAF, 0xED, 0x79,
+                                 0x01, 0x5B, 0x00, 0x3E, 0x77, 0xED, 0x79,
+                                 0x76 };
+        for (size_t i = 0; i < sizeof(prog); ++i)
+            emu.mmu().write(static_cast<uint16_t>(0x8100 + i), prog[i]);
+        rw_park(emu, 0x8100);        // the frame-1 snapshot starts here
+        emu.debug_state().set_active(true);
+        emu.debug_state().breakpoints().add_pc(0x810D);  // the HALT
+        emu.run_frame();             // breaks mid-frame after the OUT
+        const uint8_t written = emu.sprites().read_pattern_byte(0);
+        emu.debug_state().breakpoints().clear_all_pc();
+        REQUIRE(written == 0x77 && emu.step_back(1),
+                "RWR fixture: OUT to port 0x5B ran, step_back(1) succeeds");
+        char msg[160];
+        std::snprintf(msg, sizeof(msg),
+                      "RWR-13 step_back over a port 0x5B write restores the "
+                      "pattern byte (PC %04X, pattern[0] %02X, want 11)",
+                      emu.cpu().get_registers().PC,
+                      emu.sprites().read_pattern_byte(0));
+        CHECK(emu.cpu().get_registers().PC == 0x810B &&
+              emu.sprites().read_pattern_byte(0) == 0x11, msg);
+    }
+    return 0;
+}
+
 // SS-VER-01..07 (G66) removed 2026-07-15 — reclassified as a Phase 11
 // future enhancement (see comment above test_monotonic_tape_clock_roundtrip).
 // RB-FRAME-01..03 (G67) became real rows in Test 11 (Task 60b).
@@ -1015,6 +1418,8 @@ int main()
     test_rb_frame_guard();
     test_snapshot_size_invariance();
     test_rewind_chain_corrupted_slot();
+    test_rewind_restores_render_state();
+    test_rewind_callers_render_state();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),

@@ -84,7 +84,9 @@ NR 0x6B bit 7 copy the compositor's stencil gate reads. The newer snapshots
 carry an "active" flag that `init_*_per_line()` sets at frame start and
 `reset()` / `load_state()` clear, so until the first frame of a run they fall
 back to the live registers — which is also what a unit test that renders one
-row directly sees.
+row directly sees. The older arrays have no flag; `load_state()` refills them
+from the registers it has just loaded instead (GH #261). The NR 0x4A fallback
+and the border arrays are the exceptions: they travel in the snapshot.
 
 **Change logs with rewind and replay** handle state whose whole *object* has to
 be time-travelled — an entire palette, the sprite attribute table, the
@@ -94,7 +96,7 @@ that implements it:
 
 | Phase | Call | When |
 |---|---|---|
-| Baseline | `start_frame()` | `Emulator::begin_new_frame()` |
+| Baseline | `start_frame()` | `Emulator::begin_new_frame()`, and every `load_state()` |
 | Tag | `set_current_line(fb_row)` | `Emulator::on_scanline()` |
 | Record | the class's own NextREG/port write handler appends to the log *and* mutates live state | during emulation |
 | Rewind | `rewind_to_baseline()` | top of `Renderer::render_frame()` |

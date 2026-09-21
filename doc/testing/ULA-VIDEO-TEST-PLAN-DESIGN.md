@@ -29,6 +29,8 @@ Update (2026-07-25, GH #103): `ula_test.cpp` is **119 pass / 0 fail / 0 skip**. 
 
 Update (2026-07-25, GH #104): `ula_test.cpp` is **122 pass / 0 fail / 0 skip**. §7 gained 3 rows — S7.07-S7.09 pin the STANDARD/HI_COLOUR border (in-row strips AND full rows) routing through the ULA+ encoder (`zxula.vhd:535-540` with `border_active_d=1` → slot low6 = 0x08 | border), closing residual (b) of the GH #96 review note. Both GH #96 residuals are now closed.
 
+Update (2026-09-21, GH #258): `ula_integration_test.cpp` gains INT-ULAPLUS-06/07 (16 rows) — port 0xFF3B palette-mode writes, end to end through a CPU program and `run_frame`; see §7.
+
 See `doc/testing/audits/task3-ula-phase4.md` for full per-wave critic verdicts and backlog items.
 
 ## Scope
@@ -495,6 +497,23 @@ Integration coverage: **INT-ULAPLUS-01** in `ula_integration_test.cpp` — enabl
 > `test/ula/ula_integration_test.cpp` registered as
 > `skip("INT-ULAPLUS-03", "F-G103-RUNTIME …")` until the index latch is
 > wired and the palette store widens (shared with G102/G105).
+
+### Integration rows — port 0xFF3B palette writes (GH #258)
+
+With port 0xBF3B in the palette group (bits 7:6 = "00"), a port 0xFF3B write
+is the third CPU requester of the NextREG write bus (`zxnext.vhd:4741-4745`):
+register X"FF", byte reordered from the ULA+ GGGRRRBB format to the palette's
+RRRGGGBB (`cpu_do(4:2) & cpu_do(7:5) & cpu_do(1:0)`). It then behaves exactly
+as an NR 0xFF write. jnext dropped it until GH #258 — the handler implemented
+only the mode "01" enable — so ULA+ software using the standard port protocol
+showed the default palette. Both rows run a Z80 program in a fresh machine for
+one production `run_frame` and check one display column of the rendered frame
+(attr 0x07 paper = ULA+ slot 8).
+
+| ID | Title | Stimulus | Expected | VHDL |
+|----|-------|----------|----------|------|
+| INT-ULAPLUS-06 | Port 0xFF3B palette-mode write reaches the screen | CPU enables ULA+, selects index 8, OUTs 0xE0 at frame start; polls NR 0x1F to cvc 100, OUTs 0x03 then 0x1F without re-selecting; polls NR 0x1F to cvc 150, OUTs 0x1C | Green rows 32..131, magenta 132..181, red 182..223 — the reorder, no index auto-increment, the 0x243B select latch untouched, each write from its own row | zxnext.vhd:4532-4535,4597-4598,4741-4745,4919,6957-6958 |
+| INT-ULAPLUS-07 | Port 0xFF3B writes the palette only in mode 00 with the port decoded | Slot 8 = 0xE0 in mode 00; then 0xFF3B writes of red-ish bytes in modes 01, 10, 11 and in mode 00 with NR 0x85 b0 = 0; finally IN (0xFF3B) in mode 00 | Green in every display row (ULA+ stays on); IN returns 0xE0 | zxnext.vhd:2439,2686,4548-4549,4563,4741-4745 |
 
 ## Section 8: Clip Windows
 

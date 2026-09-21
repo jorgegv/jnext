@@ -74,11 +74,12 @@ public:
     void write_control(uint8_t val);
     uint8_t read_control() const { return control_; }
 
-    /// Live NR 0x43 b2 / b3 active-palette selects. These are the
+    /// Live NR 0x43 b1 / b2 / b3 active-palette selects. These are the
     /// END-of-frame values at render time — a rasterizer must use the
     /// per-scanline-replayed `Ula::get_active_{layer2,sprite}_palette()`
     /// instead (GH #163). Exposed for tests and debug readouts, mirroring
     /// `active_tilemap_palette()`.
+    bool active_ula_palette() const { return active_ula_second_; }
     bool active_layer2_palette() const { return active_l2_second_; }
     bool active_sprite_palette() const { return active_spr_second_; }
 

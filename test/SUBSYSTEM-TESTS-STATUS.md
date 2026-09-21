@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |       92 |       92 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      251 |      251 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -40,7 +40,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Compositor            |      236 |      236 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video             |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ULA Video (int)       |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ULA Video (int)       |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Floating Bus          |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -72,8 +72,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NEX loader (V1.3)     |       78 |       78 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Tilemap               |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Tilemap raster splits |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Tilemap               |       74 |       74 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Tilemap raster splits |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes                 |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes (integration)   |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI Source Pipeline   |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -107,6 +107,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7209** | **7209** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7227** | **7227** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

@@ -5893,16 +5893,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //     port_bf3b_ulap_index <= cpu_do(5:0) -- zxnext.vhd:4533-4535
     //
     // The top 2 bits (`ulap_mode`) are Ula-side state because the 0xFF3B
-    // enable latch is gated on them. The low 6 bits (`ulap_index`) are
-    // Compositor/PaletteManager state (palette-entry select for palette
-    // writes via NR stream) and are still a stub here.
+    // enable latch is gated on them. The low 6 bits (`ulap_index`) select
+    // the ULA+ palette entry that NR 0xFF writes and palette-mode 0xFF3B
+    // reads address (zxnext.vhd:6958).
     //
     // Wave C — 2026-04-23 — now gates 0xFF3B write on ulap_mode = "01" per
     // zxnext.vhd:4548: `port_ff3b_ulap_en <= cpu_do(0)` ONLY when
-    // port_bf3b_ulap_mode = "01"; any other mode-group is a palette read
-    // (mode "00") or a no-op for the enable latch. The Phase-1 scaffold
-    // previously wrote the enable unconditionally, which the Phase 1 critic
-    // flagged as VHDL-faithless.
+    // port_bf3b_ulap_mode = "01"; mode "00" is a palette write carried as
+    // an NR 0xFF write (GH #258, below), and modes "10" / "11" do nothing.
+    // The Phase-1 scaffold previously wrote the enable unconditionally,
+    // which the Phase 1 critic flagged as VHDL-faithless.
     //
     // 0xFF3B read — VHDL zxnext.vhd:4556-4569.  `port_ff3b_rd` is one of
     // the OR-terms of `port_internal_rd_response` (zxnext.vhd:2806), so the
@@ -5976,6 +5976,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // Gate on ulap_mode = "01" per VHDL zxnext.vhd:4548.
             if (renderer_.ula().get_ulap_mode() == 0x01) {
                 renderer_.ula().set_ulap_en((v & 0x01) != 0);
+            }
+            // GH #258 — mode "00" is a palette write, and the VHDL carries it
+            // on the NextREG write bus: the third CPU requester
+            // (zxnext.vhd:4741,4743) writes register X"FF" (:4744) with the
+            // ULA+ GGGRRRBB byte reordered to RRRGGGBB (:4745:
+            // cpu_do(4:2) & cpu_do(7:5) & cpu_do(1:0)). The NR 0xFF handler
+            // then stores it at the latched 0xBF3B index. It supplies its own
+            // register number, so the 0x243B select latch is left alone, and
+            // it is deferred exactly like the other two CPU requesters (G65).
+            if (renderer_.ula().get_ulap_mode() == 0x00) {
+                const uint8_t rrrgggbb = static_cast<uint8_t>(
+                    ((v & 0x1C) << 3) | ((v & 0xE0) >> 3) | (v & 0x03));
+                if (defer_cpu_nr_writes_) {
+                    enqueue_cpu_nr_write(0xFF, rrrgggbb);
+                } else {
+                    nextreg_.write(0xFF, rrrgggbb);
+                }
             }
         });
 
@@ -10749,6 +10766,31 @@ bool Emulator::load_state(StateReader& r)
             "load_state: read past end of snapshot buffer ({} bytes) — "
             "restore aborted", r.capacity());
         return false;
+    }
+
+    // GH #261 — cross-subsystem render history. Each video subsystem's own
+    // load_state re-baselines its per-scanline logs and refills its per-line
+    // snapshots from the state it just loaded; these two cannot, because
+    // they need another subsystem's state. Without them the render
+    // rewind_to_frame() does straight after the load (before any
+    // begin_new_frame()) replays the PRE-restore frame's history.
+    //
+    //  * Ula's NR 0x43 b1-3 / NR 0x6B b4 selectors are mirrors of the
+    //    PaletteManager's (both written by the NR 0x43 / 0x6B handlers) and
+    //    are not in the Ula stream at all, so they kept their pre-restore
+    //    value for good. Re-sync from the PaletteManager, then re-baseline
+    //    the selector logs the setters just appended to.
+    //  * The attribute mux baselines from the restored VRAM, with the same
+    //    origin begin_new_frame() gives it (video timing re-pushed above).
+    {
+        Ula& ula = renderer_.ula();
+        ula.set_active_ula_palette(palette_.active_ula_palette());
+        ula.set_active_layer2_palette(palette_.active_layer2_palette());
+        ula.set_active_sprite_palette(palette_.active_sprite_palette());
+        ula.set_active_tilemap_palette(palette_.active_tilemap_palette());
+        ula.palsel_start_frame();
+        mmu_.attr_mux_start_frame(video_timing_.ula_prefetch_origin_hc(),
+                                  video_timing_.vblank_top());
     }
 
     // Task 60c — the input subsystem (keyboard/joystick/mouse/md6/…) has now

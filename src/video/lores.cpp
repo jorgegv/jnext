@@ -33,7 +33,8 @@ uint8_t Lores::read_bank5(uint16_t addr, Ram& ram) const
 // Only the live register cell is machine state.  `per_line_` is rebuilt every
 // frame (init_per_line at frame start + snapshot_for_line per scanline),
 // exactly like Renderer's stencil/blend/NR-0x14 snapshots, so it is
-// deliberately absent — same rationale as those.
+// deliberately absent from the stream — load_state refills it from the
+// loaded register cell instead (GH #261), same as those.
 
 void Lores::save_state(StateWriter& w) const
 {
@@ -49,4 +50,8 @@ void Lores::load_state(StateReader& r)
     live_.scroll_x = r.read_u8();
     live_.scroll_y = r.read_u8();
     live_.nr6a     = static_cast<uint8_t>(r.read_u8() & 0x3F);
+    // GH #261 — refill from the state just loaded: a render before the next
+    // init_per_line() (Emulator::rewind_to_frame) must not use the
+    // pre-restore frame's rows.
+    init_per_line();
 }

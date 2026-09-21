@@ -334,21 +334,11 @@ constexpr uint32_t SPLIT_FALLBACK = 0xFF0000FFu;
 // The row a Copper WAIT(cvc, h=0) + MOVE first shows on (see TM-SPLIT-04).
 constexpr int split_row(int cvc) { return cvc + Renderer::DISP_Y + 1; }
 
-// Full-Emulator fixture shared by TM-165 and TM-SPLIT-05/06: ULA hidden, tilemap on in
-// 40x32 with attribute bytes, map A (NR 0x6E=0x00) all tile 1 and map B
-// (NR 0x6E=0x20) all tile 2, tile 1 = index 1 and tile 2 = index 2, fallback
-// blue. The Copper program is loaded but not started.
-bool split_fixture(Emulator& emulator, const char* id,
-                   const uint16_t* copper, int copper_words) {
-    EmulatorConfig config;
-    config.type = MachineType::ZXN_ISSUE2;
-    config.rewind_buffer_frames = 0;
-    if (!emulator.init(config)) {
-        check(id, false, "failed to initialize full Emulator fixture");
-        return false;
-    }
-    park_cpu(emulator);
-
+// Screen half of the fixture below (and of TM-119, which must redo it after
+// a reset has wiped it): ULA hidden, tilemap on in 40x32 with attribute
+// bytes, map A (NR 0x6E=0x00) all tile 1 and map B (NR 0x6E=0x20) all tile
+// 2, tile 1 = index 1 and tile 2 = index 2, fallback blue.
+void split_screen_setup(Emulator& emulator) {
     uint8_t* bank5 = emulator.mmu().bank5_vram();
     for (int entry = 0; entry < 40 * 32; ++entry) {
         bank5[0x0000 + entry * 2]     = 1;
@@ -367,6 +357,21 @@ bool split_fixture(Emulator& emulator, const char* id,
     nr_write(emulator, 0x6B, 0x80);  // tilemap on, 40 columns, attributes
     nr_write(emulator, 0x6E, 0x00);  // map A at frame start
     nr_write(emulator, 0x6F, 0x10);  // shared definitions
+}
+
+// Full-Emulator fixture shared by TM-165 and TM-SPLIT-05/06: the screen
+// above, with the Copper program loaded but not started.
+bool split_fixture(Emulator& emulator, const char* id,
+                   const uint16_t* copper, int copper_words) {
+    EmulatorConfig config;
+    config.type = MachineType::ZXN_ISSUE2;
+    config.rewind_buffer_frames = 0;
+    if (!emulator.init(config)) {
+        check(id, false, "failed to initialize full Emulator fixture");
+        return false;
+    }
+    park_cpu(emulator);
+    split_screen_setup(emulator);
 
     nr_write(emulator, 0x61, 0x00);
     nr_write(emulator, 0x62, 0x00);
@@ -496,6 +501,70 @@ void test_clip_window_split() {
           clipped && kept, both);
 }
 
+// GH #260 — the NR 0x1B reset block (zxnext.vhd:4977-4981: x1=0x00, x2=0x9F,
+// y1=0x00, y2=0xFF, write index "00") runs on BOTH resets, because the core's
+// `reset` is one wire (:1730, reset_hard or reset_soft,
+// zxnext_top_issue2.vhd:840). Drive each through the machine: narrow the
+// window and leave the write index at 1, reset, then read the registers back
+// and rebuild the red all-tile-1 screen. With the narrowed window
+// (x1=0x10 x2=0x20 y1=0x40 y2=0x80) the fallback would show in column 0,
+// column 639, row 0 and row 255; with the reset window every pixel is red.
+bool clip_back_to_reset_block(Emulator& emulator, const char* which,
+                              char* detail, size_t detail_size) {
+    emulator.port().out(0x243B, 0x1C);
+    const uint8_t nr1c = emulator.port().in(0x253B);  // b7:6 = tm index
+    emulator.port().out(0x243B, 0x1B);
+    const uint8_t nr1b = emulator.port().in(0x253B);  // x1 at index 0
+    const Tilemap& tm = emulator.tilemap();
+    park_cpu(emulator);
+    split_screen_setup(emulator);
+    emulator.run_frame();
+    const uint32_t* fb = emulator.get_framebuffer();
+    int wrong = 0;
+    for (int i = 0; i < Renderer::FB_WIDTH * Renderer::FB_HEIGHT; ++i)
+        if (fb[i] != SPLIT_RED)
+            ++wrong;
+    std::snprintf(detail, detail_size,
+                  "%s: NR1C=%02X NR1B=%02X clip=%02X/%02X/%02X/%02X, "
+                  "%d non-tile pixels",
+                  which, nr1c, nr1b, tm.clip_x1(), tm.clip_x2(),
+                  tm.clip_y1(), tm.clip_y2(), wrong);
+    return (nr1c & 0xC0) == 0x00 && nr1b == 0x00 &&
+           tm.clip_x1() == 0x00 && tm.clip_x2() == 0x9F &&
+           tm.clip_y1() == 0x00 && tm.clip_y2() == 0xFF && wrong == 0;
+}
+
+void narrow_tilemap_clip(Emulator& emulator) {
+    nr_write(emulator, 0x1C, 0x08);
+    for (uint8_t v : {0x10, 0x20, 0x40, 0x80, 0x10})  // 5th write: index = 1
+        nr_write(emulator, 0x1B, v);
+}
+
+void test_reset_restores_clip() {
+    const uint16_t copper[] = { CU_HALT };
+    Emulator emulator;
+    if (!split_fixture(emulator, "TM-119", copper, 1))
+        return;
+
+    char soft[256], hard[256];
+    narrow_tilemap_clip(emulator);
+    nr_write(emulator, 0x02, 0x01);  // soft reset (NR 0x02 b0)
+    const bool soft_ok = clip_back_to_reset_block(emulator, "soft", soft,
+                                                  sizeof(soft));
+
+    narrow_tilemap_clip(emulator);
+    emulator.reset();                 // hard reset
+    const bool hard_ok = clip_back_to_reset_block(emulator, "hard", hard,
+                                                  sizeof(hard));
+
+    char both[520];
+    std::snprintf(both, sizeof(both), "%s; %s", soft, hard);
+    check("TM-119",
+          // VHDL zxnext.vhd:4977-4981 — the reset block restores the NR 0x1B
+          // window and its write index on soft and hard reset alike.
+          soft_ok && hard_ok, both);
+}
+
 } // namespace
 
 int main() {
@@ -507,6 +576,7 @@ int main() {
     test_transparency_index_split();
     test_map_and_transparency_coherent();
     test_clip_window_split();
+    test_reset_restores_clip();
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;
