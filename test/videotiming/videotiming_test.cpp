@@ -628,9 +628,9 @@ static bool step_until_master_cycle(Emulator& emu,
     return emu.clock().get() >= target_master_cycle;
 }
 
-// Helper: master-cycle offset at which a line-int with `target`
-// (NR 0x23, MSB=0) fires within the frame. Matches
-// VideoTiming::line_int_master_cycle_offset() but standalone so the
+// Helper: master-cycle offset of raw hc 0 of the line a `target` (NR 0x23,
+// MSB=0) line-int fires on. Since GH #257 it fires at hc 380 of that line
+// (VT-GH257-01), inside the rows' +1824 slack. Standalone so the
 // test row can compute reference values without re-driving the
 // emulator. ZXN_ISSUE2 (128K timing): min_vactive=64, lines_per_frame
 // =311, master_cycles_per_line=1824, cu_offset=0 default.
