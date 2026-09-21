@@ -255,7 +255,15 @@ void test_emulator_copper_wiring() {
     const uint32_t* framebuffer = emulator.get_framebuffer();
     const uint32_t expected_before = emulator.palette().tilemap_colour(0x01);
     const uint32_t expected_after = emulator.palette().tilemap_colour(0x02);
-    const int expected_transition = wait_cvc + Renderer::DISP_Y + 1;
+    // GH #257: WAIT(cvc, h=0) completes at hc_ula 12 = whc 32, the start of
+    // the paper of the raw line whose cvc it names (copper.vhd:94;
+    // zxula_timing.vhd:423-436 hc_ula, :457-470 cvc, :474-490 whc), and the
+    // fetcher re-latches the live NR 0x6E at each character's S_IDLE
+    // (tilemap.vhd:309,345-350) — so hardware switches THAT row from x~35,
+    // and jnext's row model applies it to that whole row: cvc + DISP_Y
+    // (vblank_top == DISP_Y == 32 on this timing). It was pinned at +1 while
+    // the tilemap latched at the START of the raw line.
+    const int expected_transition = wait_cvc + Renderer::DISP_Y;
     int first_transition = -1;
     int transition_count = 0;
     int unexpected_row = -1;
@@ -296,7 +304,9 @@ void test_emulator_copper_wiring() {
     // which is the defect the round was about.
     check("TM-SPLIT-04",
           // VHDL tilemap.vhd:264,349 — tm_map_base_q is latched whenever the
-          // fetch FSM re-enters S_IDLE, which :264 forces once per tile COLUMN.
+          // fetch FSM re-enters S_IDLE, which :264 forces once per tile COLUMN;
+          // copper.vhd:94 + zxula_timing.vhd:423-436,474-490 put WAIT(n,0) at
+          // whc 32 of row n+DISP_Y, before that row's later S_IDLEs (GH #257).
           unexpected_row < 0 &&
           transition_count == 1 &&
           first_transition == expected_transition,
@@ -315,7 +325,8 @@ void test_emulator_copper_wiring() {
 // (the fetcher runs "one character ahead", tilemap.vhd:229, and latches the
 // base at S_IDLE, :349). The two land within a tile of each other, so any
 // per-scanline model must switch them on the SAME row. jnext's tilemap row for
-// a write is the one after the write's line (TM-SPLIT-04), so these do too.
+// a write is the row of the raw line it executes in (TM-SPLIT-04, GH #257), so
+// these do too.
 //
 // Before GH #256 both were read at their END-OF-FRAME value: a Copper split
 // of either collapsed to one value for the whole frame.
@@ -331,8 +342,10 @@ constexpr uint32_t SPLIT_RED      = 0xFFFF0000u;
 constexpr uint32_t SPLIT_GREEN    = 0xFF00FF00u;
 constexpr uint32_t SPLIT_FALLBACK = 0xFF0000FFu;
 
-// The row a Copper WAIT(cvc, h=0) + MOVE first shows on (see TM-SPLIT-04).
-constexpr int split_row(int cvc) { return cvc + Renderer::DISP_Y + 1; }
+// The row a Copper WAIT(cvc, h=0) + MOVE first shows on (see TM-SPLIT-04):
+// the row of the raw line where the WAIT completes, at whc 32 (copper.vhd:94,
+// zxula_timing.vhd:423-436,474-490). GH #257 — was cvc + DISP_Y + 1.
+constexpr int split_row(int cvc) { return cvc + Renderer::DISP_Y; }
 
 // Screen half of the fixture below (and of TM-119, which must redo it after
 // a reset has wiped it): ULA hidden, tilemap on in 40x32 with attribute
@@ -359,7 +372,8 @@ void split_screen_setup(Emulator& emulator) {
     nr_write(emulator, 0x6F, 0x10);  // shared definitions
 }
 
-// Full-Emulator fixture shared by TM-165 and TM-SPLIT-05/06: the screen
+// Full-Emulator fixture shared by TM-165, TM-SPLIT-05/06, TM-119 and
+// TM-GH257-01..04: the screen
 // above, with the Copper program loaded but not started.
 bool split_fixture(Emulator& emulator, const char* id,
                    const uint16_t* copper, int copper_words) {
@@ -436,7 +450,8 @@ void test_transparency_index_split() {
     check("TM-165",
           // VHDL tilemap.vhd:427 — pixel_en_standard_s compares the displayed
           // pixel against transp_colour_i (zxnext.vhd:4395 nr_4c), so the
-          // index is live per pixel, never once per frame (GH #256).
+          // index is live per pixel, never once per frame (GH #256). Row per
+          // split_row(): copper.vhd:94, zxula_timing.vhd:423-436,474-490.
           ok, detail);
 }
 
@@ -463,7 +478,8 @@ void test_map_and_transparency_coherent() {
     check("TM-SPLIT-05",
           // VHDL tilemap.vhd:229,349,427 — the base is latched one tile ahead
           // of the pixel the index is compared against, so both writes reach
-          // the display within one tile of each other: the same row.
+          // the display within one tile of each other: the same row. Row per
+          // split_row(): copper.vhd:94, zxula_timing.vhd:423-436,474-490.
           ok, detail);
 }
 
@@ -498,7 +514,152 @@ void test_clip_window_split() {
           // VHDL tilemap.vhd:412-424 — xsv/xev/ysv/yev re-latch clip_*_i every
           // 7 MHz and gate pixel_en_s against the display counters
           // (zxnext.vhd:4424-4427 nr_1b), so a mid-frame clip applies per line.
+          // Row per split_row(): copper.vhd:94, zxula_timing.vhd:423-436,474-490.
           clipped && kept, both);
+}
+
+// ---------------------------------------------------------------------------
+// GH #257 — the tilemap lane on the end-of-row convention.
+//
+// Every per-scanline lane now takes a write in raw line L onto framebuffer
+// row L - vblank_top (the scroll, fetch and output snapshots used to be taken
+// at the START of the raw line, one row later). These rows pin the scroll
+// lane, the last row at both refresh rates, and the GH #16 shape: a line-
+// interrupt handler's write, which the line interrupt's VHDL position
+// (hc_ula 255, zxula_timing.vhd:577) puts at the start of the target line.
+// ---------------------------------------------------------------------------
+
+// Map A column 1 -> tile 2 (green) on every tile row, so a tilemap X scroll of
+// 8 shows green at framebuffer column 0 where scroll 0 shows red.
+void map_a_column1_green(Emulator& emulator) {
+    uint8_t* bank5 = emulator.mmu().bank5_vram();
+    for (int row = 0; row < 32; ++row)
+        bank5[0x0000 + row * 80 + 1 * 2] = 2;
+}
+
+void test_scroll_split() {
+    const uint16_t copper[] = { cu_wait(100), cu_move(0x30, 0x08), CU_HALT };
+    Emulator emulator;
+    if (!split_fixture(emulator, "TM-GH257-01", copper, 3))
+        return;
+    map_a_column1_green(emulator);
+    nr_write(emulator, 0x2F, 0x00);
+    nr_write(emulator, 0x30, 0x00);
+    nr_write(emulator, 0x62, 0xC0);
+    emulator.run_frame();
+
+    char detail[256];
+    const bool ok = rows_match(emulator.get_framebuffer(), 0,
+        [](int row) { return row < split_row(100) ? SPLIT_RED : SPLIT_GREEN; },
+        detail, sizeof(detail), "NR 0x30 Copper split");
+    check("TM-GH257-01",
+          // VHDL tilemap.vhd:309,345-347 — the fetcher adds the LIVE
+          // tm_scroll_x_i (zxnext.vhd:4419) at every character's S_IDLE, so a
+          // scroll written at WAIT(100,0) (whc 32, copper.vhd:94,
+          // zxula_timing.vhd:423-436,474-490) scrolls that row from x~40.
+          ok, detail);
+}
+
+void test_bottom_vblank_write_not_on_last_row() {
+    // cvc 230 is raw line 64 + 230 = 294, after the last displayed raw line
+    // (287) at 50 Hz: the map switch must not reach row 255.
+    const uint16_t copper[] = { cu_wait(230), cu_move(0x6E, 0x20), CU_HALT };
+    Emulator emulator;
+    if (!split_fixture(emulator, "TM-GH257-02", copper, 3))
+        return;
+    nr_write(emulator, 0x62, 0xC0);
+    emulator.run_frame();
+
+    char detail[256];
+    const bool ok = rows_match(emulator.get_framebuffer(), 0,
+        [](int) { return SPLIT_RED; },
+        detail, sizeof(detail), "50 Hz, NR 0x6E at raw line 294");
+    check("TM-GH257-02",
+          // VHDL zxula_timing.vhd:195-204 — 128K/Next 50 Hz: c_min_vactive 64,
+          // c_max_vc 310, so raw line 294 is below the 256-row surface
+          // (:474-505 wvc); nothing written there reaches the displayed rows.
+          ok, detail);
+}
+
+void test_60hz_last_row() {
+    // At 60 Hz the last displayed raw line (vblank_top 8 + 255 = 263) is the
+    // frame's last line, so no scanline event follows it: row 255 must still
+    // carry the value in effect at the end of that line.
+    const uint16_t copper[] = { cu_wait(100), cu_move(0x6E, 0x20), CU_HALT };
+    Emulator emulator;
+    if (!split_fixture(emulator, "TM-GH257-03", copper, 3))
+        return;
+    nr_write(emulator, 0x05, 0x04);   // 60 Hz, committed at the frame edge
+    emulator.run_frame();
+    const bool is_60 = emulator.timing().lines_per_frame == 264;
+    nr_write(emulator, 0x6E, 0x00);   // map A again at the 60 Hz frame start
+    nr_write(emulator, 0x62, 0xC0);
+    emulator.run_frame();
+
+    char detail[256];
+    const bool ok = rows_match(emulator.get_framebuffer(), 0,
+        [](int row) { return row < split_row(100) ? SPLIT_RED : SPLIT_GREEN; },
+        detail, sizeof(detail), "60 Hz NR 0x6E split");
+    char both[320];
+    std::snprintf(both, sizeof(both), "lines_per_frame %d; %s",
+                  emulator.timing().lines_per_frame, detail);
+    check("TM-GH257-03",
+          // VHDL zxula_timing.vhd:229-238 — 128K 60 Hz: c_min_vactive 40,
+          // c_max_vc 263, so cvc 100 is raw line 140 = row 132 and the
+          // switch holds down to the last displayed line, raw 263 = row 255.
+          is_60 && ok, both);
+}
+
+void test_line_interrupt_handler_write() {
+    // GH #16 shape: an IM2 line-interrupt handler writes NR 0x30. Target 100
+    // fires at cvc 99, hc_ula 255 = raw (163, hc 380) (zxula_timing.vhd:577).
+    // At 3.5 MHz the acknowledge (19 T), five NOPs (20 T) and the NEXTREG
+    // (20 T) put the write at raw line 164, hc ~50 — the start of the target
+    // line, before its first visible tile fetch (whc -8 = raw hc 97,
+    // tilemap.vhd:227-229,264), so hardware scrolls ALL of row 132.
+    const uint16_t copper[] = { CU_HALT };
+    Emulator emulator;
+    if (!split_fixture(emulator, "TM-GH257-04", copper, 1))
+        return;
+    map_a_column1_green(emulator);
+    nr_write(emulator, 0x2F, 0x00);
+    nr_write(emulator, 0x30, 0x00);
+
+    // Handler at 0x9000: NOP x5; NEXTREG 0x30,0x08; EI; RETI.
+    const uint8_t handler[] = { 0x00, 0x00, 0x00, 0x00, 0x00,
+                                0xED, 0x91, 0x30, 0x08, 0xFB, 0xED, 0x4D };
+    for (size_t i = 0; i < sizeof(handler); ++i)
+        emulator.mmu().write(static_cast<uint16_t>(0x9000 + i), handler[i]);
+    // IM2 vector (I = 0x80, bus 0xFF in pulse mode) -> 0x80FF -> 0x9000.
+    emulator.mmu().write(0x80FF, 0x00);
+    emulator.mmu().write(0x8100, 0x90);
+    // Main loop at 0xA000: EI; HALT; JR -3.
+    const uint8_t main_loop[] = { 0xFB, 0x76, 0x18, 0xFD };
+    for (size_t i = 0; i < sizeof(main_loop); ++i)
+        emulator.mmu().write(static_cast<uint16_t>(0xA000 + i), main_loop[i]);
+    auto regs = emulator.cpu().get_registers();
+    regs.PC = 0xA000;
+    regs.SP = 0xFFF0;
+    regs.I = 0x80;
+    regs.IM = 2;
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    emulator.cpu().set_registers(regs);
+
+    nr_write(emulator, 0x23, 100);    // line-interrupt target
+    nr_write(emulator, 0x22, 0x06);   // ULA interrupt off, line interrupt on
+    emulator.run_frame();
+
+    char detail[256];
+    const bool ok = rows_match(emulator.get_framebuffer(), 0,
+        [](int row) { return row < split_row(100) ? SPLIT_RED : SPLIT_GREEN; },
+        detail, sizeof(detail), "line-interrupt handler NR 0x30 write");
+    check("TM-GH257-04",
+          // VHDL zxula_timing.vhd:423-436,560-583 — the line interrupt pulses
+          // at hc_ula 255 of cvc = target-1, "before the line is drawn"; the
+          // handler's scroll write reaches the fetcher's next S_IDLE
+          // (tilemap.vhd:309,345-347), all of the target row.
+          ok, detail);
 }
 
 // GH #260 — the NR 0x1B reset block (zxnext.vhd:4977-4981: x1=0x00, x2=0x9F,
@@ -577,6 +738,10 @@ int main() {
     test_map_and_transparency_coherent();
     test_clip_window_split();
     test_reset_restores_clip();
+    test_scroll_split();
+    test_bottom_vblank_write_not_on_last_row();
+    test_60hz_last_row();
+    test_line_interrupt_handler_write();
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
     return g_fail == 0 ? 0 : 1;

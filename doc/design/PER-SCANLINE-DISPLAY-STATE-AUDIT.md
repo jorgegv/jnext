@@ -32,19 +32,25 @@ part-way through a line still colours the whole of that line. Hardware
 does not: the video pipeline re-reads the NR latches every pixel cycle
 (`zxnext.vhd:6825-6828` → `:6981` for the four palette selects), so only
 the pixels after the write change. The residual error is **at most one
-row**. It is **early** (a write colours the whole of the row whose raw line
-it executes in) for every consumer of the pattern **except** the tilemap's
-start-of-row snapshots — scroll (GH #16), fetch bases (GH #53) and, since
-GH #256, the NR 0x1B / NR 0x4C output-stage inputs — which apply a write
-from the **following** row, i.e. **late**. Each convention is right for a
-different write position. A Copper `WAIT(line, h=0)` + MOVE completes at
-x = 32 of the 320-wide area, the start of the 256-wide display
-(`zxula_timing.vhd:423`, `copper.vhd:94`), and the GH #256 reporter's MAME
-capture shows the change from x ≈ 35 of that row — so the tilemap lane lands
-such a split one row late, and likewise the reporter's recommended "WAIT at
-the end of the previous line" technique (verified: jnext shows the change one
-row after hardware would). A CPU write polled off NR 0x1F lands later in the
-line, where the late convention is the right one (GH #16, hardware-verified).
+row**, and it is **early**: a write colours the whole of the row whose raw
+line it executes in, for every consumer of the pattern. A Copper
+`WAIT(line, h=0)` + MOVE completes at x = 32 of the 320-wide area, the start
+of the 256-wide display (`zxula_timing.vhd:423-436,474-490`, `copper.vhd:94`),
+and the GH #256 reporter's MAME capture shows the change from x ≈ 35 of that
+row, so jnext colours that row's first ~35 pixels early.
+
+Until GH #257 the tilemap lane — scroll (GH #16), fetch bases (GH #53) and
+the NR 0x1B / NR 0x4C output-stage inputs (GH #256) — was snapshotted at the
+START of each raw line instead, so it landed every Copper split one row
+**late**, including the "WAIT at the end of the previous line" technique.
+That convention had been adopted for GH #16, and was only right there
+because the line interrupt fired at raw hc 0 of its line instead of at
+hc_ula 255 (raw hc 380 on the Next timing, `zxula_timing.vhd:577`), ~380
+pixels early, and NR 0x1E/0x1F's `cvc` stepped at raw hc 0 instead of at
+hc_ula 0 (raw hc 125, `:457-470`). GH #257 fixed both and moved the tilemap
+lane to the end-of-row point every other lane uses: GH #16's handler write
+now lands at raw hc ~15-37 of the line it colours, before the tilemap's
+first visible fetch.
 
 Decision (2026-07-30): **documented, not fixed.** A per-scanline
 renderer has no representation for "from column X of row N"; closing it
@@ -81,7 +87,7 @@ need to be accurate for high-fidelity demos like Nirvana.
 | NR 0x15 b4:2 layer priority + b0 sprite enable | `write_nr15` change-log + replay (1024 cap) — wired 2026-07-23 (GH #73; rows PSCAN-G02-01..05) | Renderer | beast.nex (0x80↔0x01 toggle) |
 | NR 0x43 b1/b2/b3 active ULA / Layer 2 / sprite palette select | `Ula` palsel change-log + replay (1024 cap). Log built with the ULA lane; the **Layer 2 and sprite lanes were only CONSUMED on 2026-07-30** (GH #163) — before that nothing read them back and both rasterizers resolved colour through the live end-of-frame bank. `PaletteManager::{layer2_colour,layer2_rgb8,layer2_priority_high,sprite_colour}` now take the bank, and `Renderer::render_row` / the debugger video panel pass `Ula::get_active_{layer2,sprite}_palette()`. Rows PSCAN-G10-01..04, DVP-PALSEL-*. | Ula (log) + Renderer (consumption) | show512.nex (512-colour split field) |
 | NR 0x6B b4 active tilemap palette select | `Ula` palsel6b change-log + replay (separate 1-bit log — `nr_6b_tm_control(4)` is a different latch from NR 0x43's 3-bit field). **CONSUMED on 2026-07-30** (GH #168, the third lane of GH #163): `Ula::get_active_tilemap_palette()` had eight test references and zero production callers, so `tilemap_colour(idx)` read the live end-of-frame `active_tm_second_`. `PaletteManager::tilemap_colour` now takes the bank, `Tilemap::render_scanline` / `render_scanline_debug` thread it, and `Renderer::render_row` / the debugger video panel pass the per-row replayed selector. Rows PSCAN-G10-05, DVP-PALSEL-TM*. | Ula (log) + Renderer (consumption) | none yet (found by inspection while fixing #163) |
-| NR 0x4C tilemap transparency index + NR 0x1B tilemap clip | `Tilemap::snapshot_output_for_line`, taken at the START of each row beside the fetch snapshot, so a map/index split never mixes the two. Before GH #256 both were read at their end-of-frame value | Tilemap | GH #256 repro (Copper NR 0x6E + NR 0x4C split); rows TM-165, TM-SPLIT-05/06 |
+| NR 0x4C tilemap transparency index + NR 0x1B tilemap clip | `Tilemap::snapshot_output_for_line`, taken beside the fetch snapshot (end of each row since GH #257; start of the row before), so a map/index split never mixes the two. Before GH #256 both were read at their end-of-frame value | Tilemap | GH #256 repro (Copper NR 0x6E + NR 0x4C split); rows TM-165, TM-SPLIT-05/06 |
 | NR 0x19 sprite clip, NR 0x15 b6/b5/b1, NR 0x4B sprite transparency index | `SpriteEngine::snapshot_control_for_line`, end of each row (the row the attribute log tags a write with) | SpriteEngine | GH #256 audit; rows PSCAN-G04-02, PLRS-SPR-01..04 |
 | ULA+ enable (NR 0x68 b3 / port 0xFF3B), ULAnext enable (NR 0x43 b0) and format (NR 0x42), shadow-screen bank (port 0x7FFD b3 / NR 0x69 b6) | `Ula::snapshot_control_for_line`, end of each row; `render_scanline` swaps the row's values in, `apply_lores` reads them per row. The G11 ULA+ array had existed with **no production caller** | Ula | GH #256 audit; rows PLRS-ULA-01..05 |
 | NR 0x6B b7 as the compositor's stencil gate (`tm_en_2`) | `Renderer::snapshot_tm_enabled_for_line`, end of each row | Renderer | GH #256 audit; row PLRS-CMP-01 |
@@ -211,6 +217,6 @@ Category A is closed as far as the GH #256 audit reaches: it walked every
 member each layer's `render_scanline`, `apply_lores` and the compositor read
 at render time, and each NextREG / port value among them is now replayed or
 snapshotted per row. Categories B (mid-frame
-RAM writes — the ULA attribute plane excepted, G12) and C remain open, and the
-row a write lands on still follows the two conventions described under the
+RAM writes — the ULA attribute plane excepted, G12) and C remain open. Since
+GH #257 every lane follows the one end-of-row convention described under the
 GH #170 heading above.

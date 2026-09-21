@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.159</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.160</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.159</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.160</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1971,12 +1971,12 @@ attribute writes), and <code>Renderer</code> itself (NR 0x15 priority and sprite
   60 Hz. Writes that land before the visible area all coalesce onto row 0;
   writes after it stay out of range and are picked up by the drain, where they
   become the next frame's baseline. A write lands on the row whose raw line it
-  executes in — except for the tilemap's scroll, fetch and output-stage
-  snapshots, which are taken at the <em>start</em> of each line and so apply a write
-  from the following row (GH #16, GH #53). The renderer has no representation
-  for "from column X", so both are approximations that are wrong by up to one
-  row; the tilemap's registers share one latch point so that a Copper split
-  changing several of them switches them all on the same row.</p>
+  executes in, for every lane: the snapshots are taken at the end of each raw
+  line, and the tilemap's scroll, fetch and output-stage snapshots share that
+  one point so that a Copper split changing several of them switches them all
+  on the same row (GH #257; they used to be taken at the start of the line,
+  one row late). The renderer has no representation for "from column X", so
+  this is an approximation that can be up to one row early, never late.</p>
 </li>
 <li><strong>Skipping the drain loses vblank writes forever.</strong> <code>rewind_to_baseline()</code>
   deliberately undoes the live mutation the writer performed, and the per-row

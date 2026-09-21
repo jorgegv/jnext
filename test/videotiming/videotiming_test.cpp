@@ -628,9 +628,9 @@ static bool step_until_master_cycle(Emulator& emu,
     return emu.clock().get() >= target_master_cycle;
 }
 
-// Helper: master-cycle offset at which a line-int with `target`
-// (NR 0x23, MSB=0) fires within the frame. Matches
-// VideoTiming::line_int_master_cycle_offset() but standalone so the
+// Helper: master-cycle offset of raw hc 0 of the line a `target` (NR 0x23,
+// MSB=0) line-int fires on. Since GH #257 it fires at hc 380 of that line
+// (VT-GH257-01), inside the rows' +1824 slack. Standalone so the
 // test row can compute reference values without re-driving the
 // emulator. ZXN_ISSUE2 (128K timing): min_vactive=64, lines_per_frame
 // =311, master_cycles_per_line=1824, cu_offset=0 default.
@@ -1516,6 +1516,149 @@ static void section12_gh237_init_from_nr03() {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 13 — GH #257: the line interrupt and NR 0x1E/0x1F cvc readback
+// on the hc_ula/cvc line, not the raw hc 0 line.
+//
+// VHDL: zxula_timing.vhd:423-436 (hc_ula reset REGISTERED on hc ==
+//       c_min_hactive - 12, so hc_ula == 0 at raw hc c_min_hactive - 11);
+//       :457-470 (cvc steps on the same ula_max_hc pulse);
+//       :560-583 (line-int pulse when hc_ula == 255 and cvc == int_line_num,
+//       "occurs before the line is drawn");
+//       zxnext.vhd:5982-5986 (NR 0x1E/0x1F read cvc).
+// jnext used to anchor the line-int at raw hc 0 of the firing line (~380
+// pixels early) and to step the NR 0x1F cvc at raw hc 0 (~125 early).
+// ══════════════════════════════════════════════════════════════════════
+
+static void section13_gh257_line_int_hc() {
+    set_group("VT-S13-GH257-LINE-INT-HC");
+
+    // VT-GH257-01 — Next (128K-class slot, 456 x 311): target 208 →
+    // int_line_num 207 → raw line (207 + 64) mod 311 = 271; hc_ula 255 at raw
+    // hc 125 + 255 = 380. Offset = (271*456 + 380) * 4 = 495824.
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZXN_ISSUE2);
+        vt.set_line_interrupt_target(208);
+        const uint64_t got = vt.line_int_master_cycle_offset();
+        check("VT-GH257-01",
+              "Next: line-int target 208 fires at raw (271, hc 380) = "
+              "(271*456+380)*4 = 495824 master cycles, hc_ula 255 not raw hc 0 "
+              "(zxula_timing.vhd:423-436,566-570,577)",
+              got == 495824ULL, "got " + std::to_string(got));
+    }
+
+    // VT-GH257-02 — 48K timing (448 x 312, c_min_hactive 128): hc_ula 255 at
+    // raw hc 117 + 255 = 372; raw line (207 + 64) mod 312 = 271.
+    // Offset = (271*448 + 372) * 4 = 487120.
+    {
+        VideoTiming vt;
+        vt.init_timing(MachineTimingMode::Timing48);
+        vt.set_line_interrupt_target(208);
+        const uint64_t got = vt.line_int_master_cycle_offset();
+        check("VT-GH257-02",
+              "48K timing: line-int target 208 fires at raw (271, hc 372) = "
+              "(271*448+372)*4 = 487120 (zxula_timing.vhd:257-270,423-436,577)",
+              got == 487120ULL, "got " + std::to_string(got));
+    }
+
+    // VT-GH257-03 — Pentagon (448 x 320, c_min_hactive 128, c_min_vactive 80):
+    // raw line (207 + 80) mod 320 = 287, hc 372.
+    // Offset = (287*448 + 372) * 4 = 515792.
+    {
+        VideoTiming vt;
+        vt.init_timing(MachineTimingMode::TimingPentagon);
+        vt.set_line_interrupt_target(208);
+        const uint64_t got = vt.line_int_master_cycle_offset();
+        check("VT-GH257-03",
+              "Pentagon timing: line-int target 208 fires at raw (287, hc 372) "
+              "= (287*448+372)*4 = 515792 (zxula_timing.vhd:155-168,423-436,577)",
+              got == 515792ULL, "got " + std::to_string(got));
+    }
+
+    // VT-GH257-04 — target 0 → int_line_num = c_max_vc = 310 (Next):
+    // raw line (310 + 64) mod 311 = 63, hc 380.
+    // Offset = (63*456 + 380) * 4 = 116432.
+    {
+        VideoTiming vt;
+        vt.init(MachineType::ZXN_ISSUE2);
+        vt.set_line_interrupt_target(0);
+        const uint64_t got = vt.line_int_master_cycle_offset();
+        check("VT-GH257-04",
+              "Next: line-int target 0 (int_line_num = c_max_vc = 310) fires at "
+              "raw (63, hc 380) = (63*456+380)*4 = 116432 "
+              "(zxula_timing.vhd:566-570,577)",
+              got == 116432ULL, "got " + std::to_string(got));
+    }
+
+    // VT-GH257-05 — production wiring: the running emulator raises the
+    // line interrupt in the instruction that crosses master cycle 495824
+    // (VT-GH257-01), not in the one crossing raw hc 0 of line 271
+    // (271*1824 = 494304, 1520 master cycles = 15 JR loops earlier).
+    {
+        Emulator emu;
+        bool ok = false;
+        std::string detail = "build_emulator returned false";
+        if (g163::build_emulator(emu)) {
+            g163::install_jr_self_loop(emu);
+            emu.reset_line_int_fire_count();
+            g163::nr_write(emu, 0x23, 208);
+            g163::nr_write(emu, 0x22, 0x02);
+            uint64_t before = 0, after = 0;
+            for (int i = 0; i < 20000 && emu.line_int_fire_count() == 0; ++i) {
+                before = emu.clock().get();
+                emu.execute_single_instruction();
+                after = emu.clock().get();
+            }
+            constexpr uint64_t fire = 495824ULL;
+            ok = emu.line_int_fire_count() == 1 && before < fire && fire <= after;
+            detail = "fired in step (" + std::to_string(before) + ", "
+                   + std::to_string(after) + "], expected to contain "
+                   + std::to_string(fire) + ", count="
+                   + std::to_string(emu.line_int_fire_count());
+        }
+        check("VT-GH257-05",
+              "Emulator raises the target-208 line interrupt in the instruction "
+              "crossing raw (271, hc 380), hc_ula 255 "
+              "(zxula_timing.vhd:423-436,577; zxnext.vhd:6752-6758)",
+              ok, detail);
+    }
+
+    // VT-GH257-06 — NR 0x1E/0x1F read cvc, which steps at hc_ula 0 (raw hc
+    // 125 = master cycle 500 into the line), not at raw hc 0. On raw line 64
+    // (c_min_vactive) cvc still holds raw line 63's value (63 - 64) mod 311 =
+    // 310 up to master cycle 499, and reads 0 from 500. The clock is advanced
+    // directly (no instruction), so the boundary is pinned to the exact
+    // 28 MHz cycle: the readback is a pure function of (clock - frame start).
+    {
+        Emulator emu;
+        bool ok = false;
+        std::string detail = "build_emulator returned false";
+        if (g163::build_emulator(emu)) {
+            auto cvc_at = [&emu](uint64_t mc) {
+                emu.clock().tick(static_cast<int>(mc - emu.clock().get()));
+                return (g163::nr_read(emu, 0x1E) << 8) | g163::nr_read(emu, 0x1F);
+            };
+            constexpr uint64_t line64 = 64ULL * 1824;
+            const uint64_t start = emu.clock().get();
+            const int at0   = cvc_at(line64);          // raw hc 0
+            const int at499 = cvc_at(line64 + 499);    // raw hc 124.75
+            const int at500 = cvc_at(line64 + 500);    // raw hc 125
+            ok = start == 0 && at0 == 310 && at499 == 310 && at500 == 0;
+            detail = "start=" + std::to_string(start)
+                   + " cvc@hc0=" + std::to_string(at0)
+                   + " cvc@mc499=" + std::to_string(at499)
+                   + " cvc@mc500=" + std::to_string(at500)
+                   + " (want 310, 310, 0)";
+        }
+        check("VT-GH257-06",
+              "NR 0x1E/0x1F cvc steps at hc_ula 0 (raw hc 125, master cycle "
+              "500): raw line 64 reads 310 up to cycle 499 and 0 from 500 "
+              "(zxula_timing.vhd:423-436,457-470; zxnext.vhd:5982-5986)",
+              ok, detail);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1564,6 +1707,9 @@ int main() {
 
     section12_gh237_init_from_nr03();
     std::printf("  Section 12: VT-S12-GH237-INIT-FROM-NR03 — done (7 live)\n");
+
+    section13_gh257_line_int_hc();
+    std::printf("  Section 13: VT-S13-GH257-LINE-INT-HC — done (6 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
