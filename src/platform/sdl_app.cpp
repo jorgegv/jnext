@@ -1,5 +1,6 @@
 #include "sdl_app.h"
 #include "platform/emulator_boot.h"
+#include "platform/rzx_startup.h"
 #include "platform/render_policy.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
@@ -248,6 +249,11 @@ void SdlApp::set_delayed_exit(int delay_frames) {
 }
 
 void SdlApp::run() {
+    // Command-line RZX play/record — shared with the other two frontends, and
+    // applied here in run() for the reason given at emulator_start_rzx().
+    if (!emulator_start_rzx(emulator_, rzx_play_file_, rzx_record_file_))
+        exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
+
     while (running_) {
         uint32_t frame_start = SDL_GetTicks();
 
@@ -454,6 +460,9 @@ void SdlApp::shutdown() {
             screenshot_file_, Renderer::layer_mask_to_string(screenshot_layers_));
         exit_code_ = 1;
     }
+
+    // Stop RZX recording if active (writes the file).
+    emulator_finish_rzx(emulator_);
 
     // Close any open game-controllers (G42): GamepadHost owns their lifecycle
     // now (Task 79), so destroying it here (before SDL_Quit) closes them.

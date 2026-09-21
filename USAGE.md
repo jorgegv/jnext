@@ -387,10 +387,15 @@ Set host gain for Specdrum, Soundrive and Covox DAC audio from -24 dB to
 +24 dB.
 
 **--rzx-play** *FILE*  
-Play back an RZX recording.
+Play back an RZX recording from the start of the run. Works the same in
+the GUI, the SDL-only build and under **--headless**. A recording that
+fails to load is logged, and **jnext** then exits non-zero.
 
 **--rzx-record** *FILE*  
-Record input to an RZX file.
+Record input to an RZX file from the start of the run. The file is
+written when **jnext** exits (or, in the GUI, at **File \> Stop RZX
+Recording**). Works the same in the GUI, the SDL-only build and under
+**--headless**.
 
 **--rewind-buffer-size** *N*  
 Frame-snapshot ring buffer for backwards execution. Opt-in; default 0 =
@@ -1257,10 +1262,11 @@ taken, rather than silently writing nothing, and likewise when a
 **--record** recording fails to materialize as a usable output file.
 
 It also exits non-zero when the program given to **--load** (or as a
-bare file name) fails to load, whatever its format; under **--headless**
-that includes an RZX recording given to **--load** or **--rzx-play**.
-The error is logged, the machine keeps running without the program, and
-the non-zero status is reported when **jnext** exits.
+bare file name) fails to load, whatever its format, including an RZX
+recording given to **--load** or **--rzx-play**. This holds in the GUI,
+the SDL-only build and under **--headless** alike. The error is logged,
+the machine keeps running without the program, and the non-zero status
+is reported when **jnext** exits.
 
 ## SEE ALSO
 

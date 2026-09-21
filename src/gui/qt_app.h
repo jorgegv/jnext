@@ -42,6 +42,8 @@ public:
     void set_pending_load(const std::string& file, int delay_frames);
 
     void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
+    /// --rzx-play / --rzx-record. Acted on at the start of run(), so they may
+    /// be called before or after init() (see emulator_start_rzx()).
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
     void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
 

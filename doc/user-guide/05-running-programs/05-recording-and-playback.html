@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.162</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.162</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2852,10 +2852,16 @@ finalise it.</p>
 of the machine. Replaying it reproduces the session exactly, keystroke for
 keystroke — a walkthrough, a bug report, or a speedrun that stays honest.</p>
 <ul>
-<li><strong>File &gt; Record RZX…</strong>, or <code>--rzx-record FILE</code>; <strong>Stop RZX</strong> to finish.</li>
+<li><strong>File &gt; Record RZX…</strong>, or <code>--rzx-record FILE</code>; <strong>Stop RZX</strong> to finish.
+  From the command line the recording starts with the machine, and the file is
+  written when JNEXT exits.</li>
 <li><strong>File &gt; Play RZX Recording…</strong>, or <code>--rzx-play FILE</code>. Loading a <code>.rzx</code> with
-  <code>--load</code> plays it too.</li>
+  <code>--load</code>, or naming it as the file to run (<code>jnext session.rzx</code>), plays it too.</li>
 </ul>
+<p>The command-line options work the same whichever way you run JNEXT: the normal
+window, the SDL-only build, or <code>--headless</code>. A recording that fails to load is
+reported, and JNEXT then exits with a non-zero status, exactly as it does for a
+program that fails to load.</p>
 <p>Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine
 the same way.</p>

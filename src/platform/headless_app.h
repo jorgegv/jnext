@@ -54,6 +54,8 @@ public:
     /// --delayed-screenshot was never written (auto-exit fired first).
     int exit_code() const { return exit_code_; }
     void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
+    /// --rzx-play / --rzx-record. Acted on at the start of run(), so they may
+    /// be called before or after init() (see emulator_start_rzx()).
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
     void set_rzx_record(const std::string& file) { rzx_record_file_ = file; }
 
