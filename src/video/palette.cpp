@@ -676,4 +676,12 @@ void PaletteManager::load_state(StateReader& r)
     for (int p = 0; p < 2; ++p)
         for (int i = 0; i < FULL_SIZE; ++i)
             layer2_priority_[p][i] = r.read_u8();
+
+    // GH #261 — the per-scanline log is render history, not machine state:
+    // re-baseline it from the palette just loaded. Otherwise the next
+    // render_frame()'s rewind_to_baseline() copies the PRE-restore frame's
+    // baseline back over the restored palette and replays its log —
+    // Emulator::rewind_to_frame renders straight after the load, before
+    // begin_new_frame() would re-baseline. Same fix as Renderer's NR 0x15 log.
+    start_frame();
 }

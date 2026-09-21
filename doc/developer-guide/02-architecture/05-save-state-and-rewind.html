@@ -1911,7 +1911,7 @@ fixed-width.</p>
 </tr>
 <tr>
 <td><code>rewind_to_frame(num)</code></td>
-<td>Restore a specific frame's snapshot.</td>
+<td>Restore a specific frame's snapshot, and render it straight away.</td>
 </tr>
 </tbody>
 </table>
@@ -1920,6 +1920,19 @@ fast-forward, so rewinding several seconds neither screeches through the
 speakers nor flickers through hundreds of frames; the picture is rendered once,
 at the end. And if the restore fails verification, the rewind is aborted and
 the machine is left <em>paused</em> rather than reported as a success.</p>
+<p>The video subsystems' per-scanline render history — the change logs with
+their frame-start baselines, and the per-line snapshot arrays (see
+<a href="04-the-video-pipeline.html">2.4 The video pipeline</a>) — is not in the stream,
+bar the NR 0x4A fallback, the border and the port 0xFF log. <code>begin_new_frame()</code>
+would rebuild it, but <code>rewind_to_frame()</code> renders before any
+<code>begin_new_frame()</code> runs. So every <code>load_state()</code> rebuilds it from the
+registers it has just loaded, and <code>Emulator::load_state()</code> re-syncs the two
+pieces that need another subsystem: the <code>Ula</code>'s copies of the palette-bank
+selectors, from <code>PaletteManager</code>, and the attribute mux, from the restored
+VRAM. Until GH #261 it did not, and that render's <code>rewind_to_baseline()</code> wrote
+the pre-rewind frame's palette, Layer 2 registers, sprite attributes and
+patterns, NR 0x6B and ULA scroll back into the live registers: the rewound
+machine carried them on.</p>
 <p>One category of state needs special handling: host-side state that shadows
 emulated state. The joystick and mouse dispatchers live in the platform layer
 and are not <code>Emulator</code> members, so a restore cannot reach them directly.

@@ -1895,7 +1895,9 @@ NR 0x6B bit 7 copy the compositor's stencil gate reads. The newer snapshots
 carry an "active" flag that <code>init_*_per_line()</code> sets at frame start and
 <code>reset()</code> / <code>load_state()</code> clear, so until the first frame of a run they fall
 back to the live registers — which is also what a unit test that renders one
-row directly sees.</p>
+row directly sees. The older arrays have no flag; <code>load_state()</code> refills them
+from the registers it has just loaded instead (GH #261). The NR 0x4A fallback
+and the border arrays are the exceptions: they travel in the snapshot.</p>
 <p><strong>Change logs with rewind and replay</strong> handle state whose whole <em>object</em> has to
 be time-travelled — an entire palette, the sprite attribute table, the
 attribute plane. Each owning class keeps a baseline plus an ordered log of
@@ -1913,7 +1915,7 @@ that implements it:</p>
 <tr>
 <td>Baseline</td>
 <td><code>start_frame()</code></td>
-<td><code>Emulator::begin_new_frame()</code></td>
+<td><code>Emulator::begin_new_frame()</code>, and every <code>load_state()</code></td>
 </tr>
 <tr>
 <td>Tag</td>

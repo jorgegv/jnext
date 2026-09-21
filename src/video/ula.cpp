@@ -1527,6 +1527,14 @@ void Ula::load_state(StateReader& r)
         port_ff_log_[i].line  = r.read_u16();
         port_ff_log_[i].value = r.read_u8();
     }
+
+    // GH #261 — unlike the port-0xFF log above, the scroll log (G08) is not
+    // in the stream: re-baseline it from the scroll just loaded, so a render
+    // before the next begin_new_frame() (Emulator::rewind_to_frame) cannot
+    // rewind NR 0x26/0x27/0x68 b2 to the pre-restore frame's baseline. The
+    // selector logs (G10) are re-baselined by Emulator::load_state, which
+    // must first re-sync their mirrors from the PaletteManager.
+    start_frame_scroll();
 }
 
 // ---------------------------------------------------------------------------
