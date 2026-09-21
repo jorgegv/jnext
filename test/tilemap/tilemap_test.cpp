@@ -1705,6 +1705,46 @@ void group12_clip() {
                   tm.clip_y1() == 0x33 && tm.clip_y2() == 0x44;
         check_pred("TM-116", ok, "clip getters return programmed values");
     }
+
+    // TM-117 / TM-118 (GH #260): reset puts the NR 0x1B clip window back to
+    // the VHDL reset block — x1=0x00, x2=0x9F, y1=0x00, y2=0xFF
+    // (zxnext.vhd:4977-4980; `reset` is hard OR soft, :1730). The window is
+    // narrowed first on every edge, so a reset that leaves any one of the
+    // four registers alone is visible: the narrowed x1 (0x10) blanks cell 0,
+    // x2 (0x20) blanks cell 639, y1 (0x40) blanks row 0, y2 (0x80) row 255.
+    {
+        fresh(tm, pal, ram);
+        tm.set_clip_x1(0x10); tm.set_clip_x2(0x20);
+        tm.set_clip_y1(0x40); tm.set_clip_y2(0x80);
+        tm.reset();
+        bool ok = tm.clip_x1() == 0x00 && tm.clip_x2() == 0x9F &&
+                  tm.clip_y1() == 0x00 && tm.clip_y2() == 0xFF;
+        check_pred("TM-117", ok,
+                   "VHDL zxnext.vhd:4977-4980 — reset restores the NR 0x1B "
+                   "clip window to x1=0x00 x2=0x9F y1=0x00 y2=0xFF");
+    }
+    {
+        fresh(tm, pal, ram);
+        paint_tm_palette_entry(pal, 0x03, 0xE0);
+        fill_tile_pattern(ram, DEF_DEF_BASE, 1, 3);
+        for (int row = 0; row < 32; ++row)
+            for (int col = 0; col < 40; ++col)
+                write_map2(ram, DEF_MAP_BASE, col, row, 40, 1, 0x00);
+        tm.set_clip_x1(0x10); tm.set_clip_x2(0x20);
+        tm.set_clip_y1(0x40); tm.set_clip_y2(0x80);
+        tm.reset();              // also disables the tilemap (TM-01)
+        tm.set_enabled(true);    // map/def bases are back at 0x2C/0x0C
+        bool all_opaque = true;
+        for (int y : {0x00, 0x60, 0xFF}) {
+            auto s = render_line(tm, y, ram, pal);
+            for (int i = 0; i < 640; ++i)
+                if (s.pixels[i] == 0u) { all_opaque = false; break; }
+        }
+        check_pred("TM-118", all_opaque,
+                   "VHDL zxnext.vhd:4977-4980, tilemap.vhd:424 — after reset "
+                   "rows 0, 0x60 and 0xFF are opaque in all 640 cells: the "
+                   "narrowed window (x1=0x10 x2=0x20 y1=0x40 y2=0x80) is gone");
+    }
 }
 
 // ── Group 13: Layer priority (below flag) ───────────────────────────────
