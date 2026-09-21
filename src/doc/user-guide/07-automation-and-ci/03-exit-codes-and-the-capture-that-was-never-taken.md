@@ -29,3 +29,11 @@ your test logic ever has to be clever about it.
 
 Give the exit bound headroom over the capture point (the example above uses
 `frames + 50`) so a slightly slower boot does not trip this.
+
+**A program that fails to load is an error too.** If the file given to
+`--load` (or as a bare file name) cannot be loaded — truncated, too small, not
+the format its extension says — JNEXT logs the error, keeps running the bare
+machine until it exits, and then exits non-zero, whatever the format. Under
+`--headless` the same holds for an RZX recording given to `--load` or
+`--rzx-play`. A script never mistakes "the program never loaded" for a clean
+run.

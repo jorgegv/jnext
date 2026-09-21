@@ -267,6 +267,7 @@ void SdlApp::run() {
             // SDL has no --tape-realtime toggle; fast tape load (false).
             if (!emulator_apply_load(emulator_, load_file_, /*tape_realtime=*/false)) {
                 Log::platform()->error("load: failed to load '{}'", load_file_);
+                exit_code_ = 1;   // a failed load exits non-zero (as headless)
             }
             load_countdown_ = -1;  // done
         } else if (load_countdown_ > 0) {

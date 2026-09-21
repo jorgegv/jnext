@@ -1153,6 +1153,12 @@ non-zero when a **\--delayed-screenshot** was requested but never taken,
 rather than silently writing nothing, and likewise when a **\--record**
 recording fails to materialize as a usable output file.
 
+It also exits non-zero when the program given to **\--load** (or as a bare
+file name) fails to load, whatever its format; under **\--headless** that
+includes an RZX recording given to **\--load** or **\--rzx-play**. The error
+is logged, the machine keeps running without the program, and the non-zero
+status is reported when **jnext** exits.
+
 # SEE ALSO
 
 **ffmpeg**(1)

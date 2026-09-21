@@ -1526,6 +1526,13 @@ In particular it exits non\-zero when a
 \f[B]\-\-delayed\-screenshot\f[R] was requested but never taken, rather
 than silently writing nothing, and likewise when a \f[B]\-\-record\f[R]
 recording fails to materialize as a usable output file.
+.PP
+It also exits non\-zero when the program given to \f[B]\-\-load\f[R] (or
+as a bare file name) fails to load, whatever its format; under
+\f[B]\-\-headless\f[R] that includes an RZX recording given to
+\f[B]\-\-load\f[R] or \f[B]\-\-rzx\-play\f[R].
+The error is logged, the machine keeps running without the program, and
+the non\-zero status is reported when \f[B]jnext\f[R] exits.
 .SH SEE ALSO
 \f[B]ffmpeg\f[R](1)
 .PP

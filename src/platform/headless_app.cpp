@@ -379,6 +379,7 @@ void HeadlessApp::run() {
     if (!rzx_play_file_.empty()) {
         if (!emulator_.load_rzx(rzx_play_file_)) {
             Log::platform()->error("RZX: failed to load '{}'", rzx_play_file_);
+            exit_code_ = 1;   // same contract as a failed --load
         }
     }
     if (!rzx_record_file_.empty()) {
@@ -536,18 +537,12 @@ void HeadlessApp::run() {
         if (load_countdown_ == 0) {
             const bool ok = emulator_apply_load(emulator_, load_file_, tape_realtime_);
             if (!ok) {
+                // A failed load exits non-zero, whatever the format, so a
+                // script can tell "loaded fine" from "failed to load, ran
+                // anyway" (load-exit-status-func; snapshot-save-func relies
+                // on it for a corrupt .szx reload).
                 Log::platform()->error("--load: failed to load '{}'", load_file_);
-                // Task 13b review round 2: a corrupt/rejected .szx reload must
-                // set a non-zero exit so a script can tell "loaded fine" from
-                // "failed to load, ran anyway" (snapshot-save-func depends on
-                // this). Scope the exit to .szx to preserve the prior contract.
-                std::string ext;
-                auto dot = load_file_.rfind('.');
-                if (dot != std::string::npos) {
-                    ext = load_file_.substr(dot);
-                    for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-                }
-                if (ext == ".szx") exit_code_ = 1;
+                exit_code_ = 1;
             }
             load_countdown_ = -1;
         } else if (load_countdown_ > 0) {
