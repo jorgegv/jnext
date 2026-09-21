@@ -176,12 +176,12 @@ static void test_accelerators(MainWindow& w)
     const std::vector<Accel> key_accels = accel::harvest_shortcuts(&w);
 
     // MA-03 — clean today; it is the check being absent, not a collision being
-    // present, that this suite exists to fix. One member of this namespace is
-    // platform-resolved rather than literal: Settings > Preferences... carries
-    // QKeySequence::Preferences, which Qt renders "Settings" (the XF86Settings
-    // key) on this platform and "Ctrl+," on macOS. It is counted either way; a
-    // platform that resolved it to nothing at all would drop it, since the
-    // harvest skips empty sequences — MA-05's number is what would say so.
+    // present, that this suite exists to fix. Every member of this namespace is
+    // literal. Settings > Preferences... used to carry QKeySequence::Preferences,
+    // resolved from Qt's platform table — "Settings" (the XF86Settings key) on
+    // Linux up to Qt 6.11.1, nothing at all from 6.11.2 — and the harvest skips
+    // empty sequences, so it dropped out and MA-05 failed (issue #259). It is
+    // Alt+P now; host_hotkey_test H115-34/35 pin that binding.
     {
         const std::string dups = accel::collisions(key_accels);
         check("MA-03", "no two actions share a key-sequence shortcut",
