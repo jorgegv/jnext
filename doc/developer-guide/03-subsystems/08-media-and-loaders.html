@@ -1104,6 +1104,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-warm-start-applying-a-nex-to-a-machine-the-firmware-made" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The warm start: applying a NEX to a machine the firmware made
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-esxdos-stand-in-for-directly-loaded-programs" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2072,6 +2083,71 @@ starts at 14 MHz, not at the speed it found; and both loaders act on the
 expansion-bus byte at header offset 142 whatever the file's version. What
 NextZXOS itself leaves in registers no loader writes (its config, its NMI
 setup) jnext does not reproduce; the list is in <code>apply()</code>.</p>
+<h2 id="the-warm-start-applying-a-nex-to-a-machine-the-firmware-made">The warm start: applying a NEX to a machine the firmware made<a class="headerlink" href="#the-warm-start-applying-a-nex-to-a-machine-the-firmware-made" title="Permanent link">&para;</a></h2>
+<p><code>--warm-start</code> (GH #234, the structural fix for GH #72) replaces the synthetic
+machine at the top of <code>Emulator::load_nex()</code> with a recording of a real boot.
+It is opt-in, Next-only, and <code>.nex</code>-only.</p>
+<p><strong>Why it exists.</strong> <code>Emulator::init()</code> skips the boot-ROM overlay whenever a
+load file is present — the overlay at <code>$0000-$1FFF</code> would clobber the
+program's own reset vector — so <code>nextboot.rom</code>, <code>TBBLUE.FW</code> and NextZXOS never
+run, and every <code>reset()</code> default in every subsystem becomes directly
+observable to the loaded program. Some of those defaults are states hardware
+cannot reach: GH #226's dead F4/F9/F10 came from <code>nr_03_config_mode</code> sitting
+at its power-on <code>'1'</code> for a whole session because nothing wrote NR <code>$03</code>.
+Fixing such defaults one at a time is a treadmill, because the reference —
+what the firmware leaves behind — exists only as a running machine.</p>
+<p><strong>The mechanism.</strong> <code>Emulator::ensure_warm_start_state()</code> looks for a cached
+recording and, on a miss, calls <code>record_warm_start_state()</code>, which</p>
+<ol>
+<li>constructs a <strong>separate <code>Emulator</code></strong>,</li>
+<li><code>init()</code>s it with <code>load_file</code> cleared (which arms the boot-ROM overlay),</li>
+<li>runs <code>kWarmStartBootFrames</code> (500) frames,</li>
+<li>checks <code>nextzxos_resident()</code>, and</li>
+<li>serialises it with <code>save_state()</code> — the same <code>Saveable</code> stream the rewind
+   buffer uses.</li>
+</ol>
+<p><code>init_for_load_from_file()</code> then <code>init()</code>s the live machine normally and
+<code>load_state()</code>s the recording on top, because the stream carries the emulated
+machine but not the host wiring <code>init()</code> installs (the port-dispatch lambdas,
+the contention LUT, the ROM buffer, the SD card, the mixer's gains) — exactly
+as a rewind lands on a running machine.</p>
+<p><strong>A recording must be a cold boot, and re-<code>init()</code>ing is not one.</strong> The first
+implementation re-<code>init()</code>ed the live emulator and produced a machine that ran
+500 frames and drew nothing. <code>nr_03_config_mode</code> has no reset clause in the
+VHDL (<code>zxnext.vhd:1102</code>) and <code>NextReg::reset()</code> faithfully preserves it, so
+the firmware-less commit the <em>first</em> <code>init()</code> had already made left config mode
+clear — and with it clear, <code>TBBLUE.FW</code>'s ROM streaming through the NR <code>$04</code>
+window (<code>zxnext.vhd:3044-3050</code>) never reaches the ROM area. Measured: four RAM
+pages changed in 500 frames, none of them the screen. Hence the separate
+<code>Emulator</code>, which is at power-on state by construction, the same way
+<code>emulator_cold_boot()</code> is for F1.</p>
+<p><strong>The capture criterion</strong> is <code>Emulator::nextzxos_resident()</code>, deliberately not
+a pinned PC (a NextZXOS update would then break capture silently). It asks
+three questions: the boot-ROM overlay is off, <code>nr_03_config_mode</code> is clear,
+and a NextZXOS marker string is present in SRAM ROM pages 0-7. The third is
+load-bearing — a firmware-less machine answers the first two exactly as a
+booted one does.</p>
+<p><strong>The cache</strong> is <code>src/core/warm_start_cache.{h,cpp}</code>: one file per machine
+type under <code>&lt;config-dir&gt;/warm-start</code>, with a 96-byte header carrying the
+identity that invalidates it — the SD image's SHA-256, the machine type, a
+state-format version, and the exact stream length. Any mismatch discards the
+file and re-boots. The length is not a convenience: <code>Ram::load_state</code> reads a
+count-prefixed blob straight into the live RAM buffer, so refusing a stream
+whose length is not exactly what this build writes is what keeps a foreign
+recording from writing past it. It is <strong>generated locally and never vendored</strong>
+— a post-NextZXOS snapshot holds NextZXOS and DivMMC ROM content in RAM.</p>
+<p><strong>What it surfaced.</strong> <code>NexLoader::apply()</code> did not model MMU0-5 at all; it
+relied on <code>init()</code>'s reset defaults happening to hold bank 5 at <code>$4000</code> and
+bank 2 at <code>$8000</code>. Both reference loaders set them explicitly
+(<code>nexload.asm:280-284</code> unconditionally, <code>:406-407</code> gated;
+<code>nexload2.asm:913-918</code> in its gated reset table), and on a NextZXOS-resident
+machine the defaults do not hold — a measured MMU3 = page 17 sent every write
+to <code>$6000-$7FFF</code> into Layer 2's bank 8. <code>apply()</code> now writes them, which is a
+no-op on the synthetic path and pinned by <code>NEXMMU-01..07</code>.</p>
+<p><strong>Tests.</strong> <code>test/warm_start/warm_start_test.cpp</code> (<code>WSC-*</code> for the cache file
+and its four invalidation keys, <code>WSR-*</code> for the residency criterion) plus the
+<code>warm-start-func</code> regression row for the end-to-end record → cache → restore
+round trip, which needs a real SD image and so cannot be a unit test.</p>
 <h2 id="the-esxdos-stand-in-for-directly-loaded-programs">The esxDOS stand-in for directly loaded programs<a class="headerlink" href="#the-esxdos-stand-in-for-directly-loaded-programs" title="Permanent link">&para;</a></h2>
 <p>On hardware a NEX is always started by NextZXOS's <code>nexload</code>, so the program
 can call the esxDOS / NextZXOS API: <code>RST $08</code> followed by a one-byte call

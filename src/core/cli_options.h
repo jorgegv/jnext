@@ -48,6 +48,8 @@ enum class OptId {
     SdcardDownloadConfirm,
     SdcardDownloadForce,
     SdcardReadonly,
+    WarmStart,
+    WarmStartRegenerate,
     DelayedScreenshot,
     DelayedScreenshotTime,
     DelayedScreenshotFrames,
@@ -229,6 +231,16 @@ inline constexpr Option OPTIONS[] = {
     { "--sdcard-readonly", 0, Doc::Documented, OptId::SdcardReadonly,
       "",
       "Open the SD image read-only; the host file is never written" },
+    { "--warm-start", 0, Doc::Documented, OptId::WarmStart,
+      "",
+      "Run a --load program on a recording of a real firmware boot\n"
+      "(nextboot.rom -> TBBLUE.FW -> NextZXOS) instead of the machine\n"
+      "jnext assembles. Next only. The recording is made once per SD\n"
+      "image and cached in ~/.jnext/warm-start/." },
+    { "--warm-start-regenerate", 0, Doc::Documented, OptId::WarmStartRegenerate,
+      "",
+      "Discard the cached warm-start recording and take a fresh one.\n"
+      "Implies --warm-start." },
     { "--speed", 1, Doc::Documented, OptId::Speed,
       "PERCENT",
       "Emulator speed as % (50=half, 100=normal, 200=2x, 400=4x)" },

@@ -193,6 +193,80 @@ expansion-bus byte at header offset 142 whatever the file's version. What
 NextZXOS itself leaves in registers no loader writes (its config, its NMI
 setup) jnext does not reproduce; the list is in `apply()`.
 
+## The warm start: applying a NEX to a machine the firmware made
+
+`--warm-start` (GH #234, the structural fix for GH #72) replaces the synthetic
+machine at the top of `Emulator::load_nex()` with a recording of a real boot.
+It is opt-in, Next-only, and `.nex`-only.
+
+**Why it exists.** `Emulator::init()` skips the boot-ROM overlay whenever a
+load file is present — the overlay at `$0000-$1FFF` would clobber the
+program's own reset vector — so `nextboot.rom`, `TBBLUE.FW` and NextZXOS never
+run, and every `reset()` default in every subsystem becomes directly
+observable to the loaded program. Some of those defaults are states hardware
+cannot reach: GH #226's dead F4/F9/F10 came from `nr_03_config_mode` sitting
+at its power-on `'1'` for a whole session because nothing wrote NR `$03`.
+Fixing such defaults one at a time is a treadmill, because the reference —
+what the firmware leaves behind — exists only as a running machine.
+
+**The mechanism.** `Emulator::ensure_warm_start_state()` looks for a cached
+recording and, on a miss, calls `record_warm_start_state()`, which
+
+1. constructs a **separate `Emulator`**,
+2. `init()`s it with `load_file` cleared (which arms the boot-ROM overlay),
+3. runs `kWarmStartBootFrames` (500) frames,
+4. checks `nextzxos_resident()`, and
+5. serialises it with `save_state()` — the same `Saveable` stream the rewind
+   buffer uses.
+
+`init_for_load_from_file()` then `init()`s the live machine normally and
+`load_state()`s the recording on top, because the stream carries the emulated
+machine but not the host wiring `init()` installs (the port-dispatch lambdas,
+the contention LUT, the ROM buffer, the SD card, the mixer's gains) — exactly
+as a rewind lands on a running machine.
+
+**A recording must be a cold boot, and re-`init()`ing is not one.** The first
+implementation re-`init()`ed the live emulator and produced a machine that ran
+500 frames and drew nothing. `nr_03_config_mode` has no reset clause in the
+VHDL (`zxnext.vhd:1102`) and `NextReg::reset()` faithfully preserves it, so
+the firmware-less commit the *first* `init()` had already made left config mode
+clear — and with it clear, `TBBLUE.FW`'s ROM streaming through the NR `$04`
+window (`zxnext.vhd:3044-3050`) never reaches the ROM area. Measured: four RAM
+pages changed in 500 frames, none of them the screen. Hence the separate
+`Emulator`, which is at power-on state by construction, the same way
+`emulator_cold_boot()` is for F1.
+
+**The capture criterion** is `Emulator::nextzxos_resident()`, deliberately not
+a pinned PC (a NextZXOS update would then break capture silently). It asks
+three questions: the boot-ROM overlay is off, `nr_03_config_mode` is clear,
+and a NextZXOS marker string is present in SRAM ROM pages 0-7. The third is
+load-bearing — a firmware-less machine answers the first two exactly as a
+booted one does.
+
+**The cache** is `src/core/warm_start_cache.{h,cpp}`: one file per machine
+type under `<config-dir>/warm-start`, with a 96-byte header carrying the
+identity that invalidates it — the SD image's SHA-256, the machine type, a
+state-format version, and the exact stream length. Any mismatch discards the
+file and re-boots. The length is not a convenience: `Ram::load_state` reads a
+count-prefixed blob straight into the live RAM buffer, so refusing a stream
+whose length is not exactly what this build writes is what keeps a foreign
+recording from writing past it. It is **generated locally and never vendored**
+— a post-NextZXOS snapshot holds NextZXOS and DivMMC ROM content in RAM.
+
+**What it surfaced.** `NexLoader::apply()` did not model MMU0-5 at all; it
+relied on `init()`'s reset defaults happening to hold bank 5 at `$4000` and
+bank 2 at `$8000`. Both reference loaders set them explicitly
+(`nexload.asm:280-284` unconditionally, `:406-407` gated;
+`nexload2.asm:913-918` in its gated reset table), and on a NextZXOS-resident
+machine the defaults do not hold — a measured MMU3 = page 17 sent every write
+to `$6000-$7FFF` into Layer 2's bank 8. `apply()` now writes them, which is a
+no-op on the synthetic path and pinned by `NEXMMU-01..07`.
+
+**Tests.** `test/warm_start/warm_start_test.cpp` (`WSC-*` for the cache file
+and its four invalidation keys, `WSR-*` for the residency criterion) plus the
+`warm-start-func` regression row for the end-to-end record → cache → restore
+round trip, which needs a real SD image and so cannot be a unit test.
+
 ## The esxDOS stand-in for directly loaded programs
 
 On hardware a NEX is always started by NextZXOS's `nexload`, so the program

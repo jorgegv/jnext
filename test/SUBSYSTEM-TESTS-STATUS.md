@@ -36,6 +36,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Warm start (GH #234)  |       29 |       29 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      209 |      209 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor            |      236 |      236 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -69,7 +70,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NEX loader (screen ingest) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NEX loader (screen ingest) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       79 |       79 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Extended NEX streaming |       44 |       44 |      0 |       0 |    100% | 🟢 All tests pass. |
 | TAP loader (container) |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -115,6 +116,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7814** | **7814** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7850** | **7850** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

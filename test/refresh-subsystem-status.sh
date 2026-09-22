@@ -101,6 +101,7 @@ BEGIN {
     M["sd_rom_extractor_test"]         = "SD ROM Extractor"
     M["fat32_image_test"]              = "FAT32 Image"
     M["sdcard_provisioner_test"]       = "SD Card Provisioner"
+    M["warm_start_test"]               = "Warm start (GH #234)"
     M["sprites_test"]                  = "Sprites"
     M["compositor_test"]               = "Compositor"
     M["compositor_integration_test"]   = "Compositor (int)"

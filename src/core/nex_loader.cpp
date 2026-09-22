@@ -699,6 +699,61 @@ bool NexLoader::apply(Emulator& emu) const
     // A V1.3 file is nexload2's, and nexload2 has no prologue (GH #171).
     const bool nexload_prologue = !is_v13();
 
+    // ---------------------------------------------------------------
+    // MMU — the Spectrum-compatible memory map the entry code runs in.
+    //
+    // BOTH loaders establish it explicitly, and jnext did not model it at all:
+    // it relied on `Emulator::init()`'s reset defaults happening to hold
+    // bank 5 at $4000 and bank 2 at $8000. They do — on a machine init()
+    // assembled. They do NOT on a machine NextZXOS has been running in
+    // (GH #234): a warm-started load measured MMU3 = page 17 (Layer 2's
+    // bank 8, which NextZXOS's welcome screen had paged in), so every write
+    // a program made to $6000-$7FFF landed in the wrong bank. Symptom:
+    // tilemap-demo, stencil-demo and odemo rendered a BLACK frame, and
+    // lores-demo lost the bottom half of its picture — the half that lives
+    // in bank 5's second 8 KB.
+    //
+    // The oracles, and they disagree about the GATE exactly as they do for
+    // NR 0x07/0x15/0x42/0x43 (GH #166/#171):
+    //
+    //   nexload.asm:280-284 — UNCONDITIONAL prologue, above the
+    //     DONTRESETNEXTREGS gate at :323:
+    //       ld a,5*2 : NEXTREG_A MMU_REGISTER_2
+    //       inc a    : NEXTREG_A MMU_REGISTER_3
+    //       ld a,2*2 : NEXTREG_A MMU_REGISTER_4
+    //       inc a    : NEXTREG_A MMU_REGISTER_5
+    //     with its own comment saying why it is defensive: "warning if this
+    //     16K bank isn't 5 on loading this then it will crash on testing but
+    //     5 is default so should be ok".
+    //   nexload.asm:406-407 — MMU0/1 := 255 (ROM), INSIDE the gated block.
+    //   nexload2.asm:913-918 — the `nextRegResetData` table, inside its own
+    //     PRESERVENEXTREG gate, sets all eight at once:
+    //       db MMU0_NR50, 8
+    //       db $FF, $FF, 10, 11, 4, 5, 0, 1
+    //
+    // So MMU2-5 follow `nexload_prologue || reset_nextregs` (always for
+    // <= V1.2, gated for V1.3) and MMU0/1 follow `reset_nextregs` (gated in
+    // both loaders).
+    //
+    // MMU6/7 are DELIBERATELY NOT modelled although both tables set them to
+    // 0,1. Step 6 below overwrites them with the entry bank on every path,
+    // and the only path that ever reads the pre-entry value back is the
+    // load-only one (header PC = 0), which restores what it found — on
+    // hardware `.returnToBasicTidy` restores BANKM ($5B5C), i.e. the OS's own
+    // $C000 bank, which under a warm start is exactly what was found. Writing
+    // 0,1 here would replace that with the loader's scratch value and make
+    // the load-only path LESS faithful, not more.
+    if (nexload_prologue || reset_nextregs) {
+        nr.write(0x52, 5 * 2);        // $4000-$5FFF = bank 5 low
+        nr.write(0x53, 5 * 2 + 1);    // $6000-$7FFF = bank 5 high
+        nr.write(0x54, 2 * 2);        // $8000-$9FFF = bank 2 low
+        nr.write(0x55, 2 * 2 + 1);    // $A000-$BFFF = bank 2 high
+    }
+    if (reset_nextregs) {
+        nr.write(0x50, 0xFF);         // $0000-$1FFF = ROM
+        nr.write(0x51, 0xFF);         // $2000-$3FFF = ROM
+    }
+
     if (reset_nextregs) {
         // tbblue nexload.asm bundle (Task 3) — six NR writes the official
         // nexload.asm performs that we previously omitted. Source:

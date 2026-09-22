@@ -5,6 +5,8 @@
 #include "core/esxdos_trace.h"
 #include "core/nex_loader.h"
 #include "core/sd_rom_extractor.h"
+#include "core/sdcard_provisioner.h"
+#include "core/warm_start_cache.h"
 #include "core/sna_saver.h"
 #include "core/szx_saver.h"
 #include "core/saveable.h"
@@ -19,6 +21,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <memory>
 
 // ---------------------------------------------------------------------------
 // Constructor — initializer list for members with non-trivial dependencies.
@@ -6975,6 +6978,325 @@ bool Emulator::inject_binary(const std::string& path, uint16_t org, uint16_t pc)
     return true;
 }
 
+// ---------------------------------------------------------------------------
+// Warm start (GH #234) — run a loaded program on a machine the firmware made
+// ---------------------------------------------------------------------------
+//
+// See the block comment on the declarations in emulator.h for what this is
+// and why it is not `--bypass-tbblue-fw` (removed 2026-07-11): that modelled
+// what the firmware does, this records what the firmware did.
+
+bool Emulator::nextzxos_resident(std::string& why) const
+{
+    if (config_.type != MachineType::ZXN_ISSUE2) {
+        why = "not a Next machine";
+        return false;
+    }
+
+    // 1. The IPL ran. `nextboot.rom` masks 0x0000-0x1FFF until it writes
+    //    NR 0x03, which is also what turns its own overlay off
+    //    (VHDL zxnext.vhd:5147-5151 / the bootrom_en gate at :3052). An
+    //    overlay still active means the boot never got past the first ROM.
+    if (mmu_.boot_rom_enabled()) {
+        why = "the FPGA boot-ROM overlay is still active — the IPL did not run to "
+              "its NR 0x03 write";
+        return false;
+    }
+
+    // 2. The machine-type commit happened. `nr_03_config_mode` powers on at
+    //    '1' (VHDL zxnext.vhd:1102, no reset clause) and its ONLY mutator is
+    //    the NR 0x03 write handler at :5147-5151. Still set means no firmware
+    //    drove it — which is exactly the GH #226 state this mechanism exists
+    //    to stop shipping to loaded programs.
+    if (nextreg_.nr_03_config_mode()) {
+        why = "NextREG 0x03 config mode is still set — no firmware committed a "
+              "machine type";
+        return false;
+    }
+
+    // 3. NextZXOS specifically, not merely "some ROM". tbblue.fw's
+    //    `load_roms()` streams the selected machine's 64 KB ROM set into SRAM
+    //    pages 0-7 through the config-mode NR 0x04 window; for the Next that
+    //    set is `/MACHINES/NEXT/enNextZX.rom`, and NextZXOS's autoexec path
+    //    literal rides in it. Searched across the whole ROM window rather
+    //    than read at a fixed offset, because the offset is a property of one
+    //    NextZXOS build and the string is a property of NextZXOS.
+    //
+    //    Checks 1 and 2 alone would pass on a machine that booted the IPL and
+    //    then failed to find firmware, which is the case with a real symptom
+    //    and no error: a recording of an empty machine, cached, and served to
+    //    every later load.
+    static const char  kMarker[]  = "nextzxos/autoexec";
+    constexpr size_t   kMarkerLen = sizeof(kMarker) - 1;
+    constexpr uint16_t kRomPages  = 8;          // 8 x 8 KB = the 64 KB ROM set
+    constexpr size_t   kPageBytes = 0x2000;
+    for (uint16_t p = 0; p < kRomPages; ++p) {
+        const uint8_t* page = ram_.page_ptr(p);
+        if (!page) continue;
+        // Spans are searched page by page. A marker straddling a page
+        // boundary would be missed, so the pages are also searched as one
+        // contiguous run below — pages 0-7 ARE contiguous in Ram::data_
+        // (8 KB apart by construction), which the adjacency assert covers.
+        for (size_t i = 0; i + kMarkerLen <= kPageBytes; ++i) {
+            if (std::memcmp(page + i, kMarker, kMarkerLen) == 0) {
+                why.clear();
+                return true;
+            }
+        }
+    }
+    // Straddle sweep: only the 8 boundary windows the per-page loop cannot
+    // see. Cheap, and it removes a "works until the ROM is rebuilt and the
+    // string moves 4 bytes" failure.
+    for (uint16_t p = 0; p + 1 < kRomPages; ++p) {
+        const uint8_t* a = ram_.page_ptr(p);
+        const uint8_t* b = ram_.page_ptr(static_cast<uint16_t>(p + 1));
+        if (!a || !b) continue;
+        uint8_t window[2 * (sizeof(kMarker) - 1)];
+        std::memcpy(window, a + kPageBytes - (kMarkerLen - 1), kMarkerLen - 1);
+        std::memcpy(window + kMarkerLen - 1, b, kMarkerLen - 1);
+        const size_t wlen = 2 * (kMarkerLen - 1);
+        for (size_t i = 0; i + kMarkerLen <= wlen; ++i) {
+            if (std::memcmp(window + i, kMarker, kMarkerLen) == 0) {
+                why.clear();
+                return true;
+            }
+        }
+    }
+
+    why = "no NextZXOS ROM found in SRAM pages 0-7 (searched for \"";
+    why += kMarker;
+    why += "\") — the firmware booted but left no NextZXOS resident";
+    return false;
+}
+
+bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
+{
+    // A RECORDING IS A COLD BOOT, and it must be one on a machine that has
+    // never been anything else.
+    //
+    // Re-init()ing THIS emulator is not a cold boot and cannot be made into
+    // one from inside a member function (see the init() declaration, GH #239).
+    // The first attempt did exactly that and produced a machine that ran for
+    // 500 frames and drew nothing: `nr_03_config_mode` has no reset clause in
+    // the VHDL (zxnext.vhd:1102) and NextReg::reset() faithfully preserves it,
+    // so the firmware-less commit the FIRST init() had already made left config
+    // mode CLEAR — and with it clear, tbblue.fw's ROM streaming through the
+    // NR 0x04 window (the mmu.h config-mode routing at VHDL :3044-3050) never
+    // reaches the ROM area at all. Measured: 4 RAM pages changed in 500 frames,
+    // none of them the screen.
+    //
+    // So the recording runs on its OWN, freshly constructed Emulator, which is
+    // at power-on state by construction — the same thing
+    // platform/emulator_boot.h::emulator_cold_boot() does for F1. It also means
+    // a failed recording cannot leave the live machine half-booted.
+    auto rec = std::make_unique<Emulator>();
+
+    // The recording boot is the ORDINARY boot with exactly the things that are
+    // about THIS LOAD, or about the HOST, taken out:
+    //
+    //   load_file      the gate that disarms the boot-ROM overlay in init().
+    //                  Clearing it is the whole point: this run must boot.
+    //   inject_file    a raw binary would be written over the firmware's RAM.
+    //   rewind/trace   500 frames x ~2.3 MB of snapshots nobody will rewind to.
+    //   esp            a second module would open a second socket, and no part
+    //                  of a NextZXOS boot sends an AT command.
+    //   profile        the recorder is not the run the user is measuring.
+    //   capture cbs    audio and DAC callbacks belong to the host's output
+    //                  path; the boot is not something the host is playing.
+    //
+    // Everything else — the SD image, --rtc, the machine type, audio gains,
+    // CPU speed — is left alone on purpose. A boot recorded under a different
+    // configuration is a recording of a different machine, and the divergences
+    // that would introduce are precisely the class this mechanism removes.
+    EmulatorConfig boot_cfg       = config_;
+    boot_cfg.load_file            = "";
+    boot_cfg.inject_file          = "";
+    boot_cfg.rewind_buffer_frames = 0;
+    boot_cfg.trace                = false;
+    boot_cfg.esp_enabled          = false;
+    boot_cfg.profile              = false;
+    boot_cfg.audio_capture_callback = nullptr;
+    boot_cfg.dac_write_callback     = nullptr;
+
+    Log::emulator()->info(
+        "warm start: no usable cached state — cold-booting the firmware "
+        "(nextboot.rom -> TBBLUE.FW -> NextZXOS) for {} frames to record one. "
+        "This happens once per SD image.",
+        kWarmStartBootFrames);
+
+    if (!rec->init(boot_cfg)) {
+        Log::emulator()->error("warm start: the recording boot could not initialise");
+        return false;
+    }
+
+    for (uint32_t f = 0; f < kWarmStartBootFrames; ++f) rec->run_frame();
+
+    std::string why;
+    if (!rec->nextzxos_resident(why)) {
+        Log::emulator()->error(
+            "warm start: after {} frames of boot, {}. Not recording; this load "
+            "falls back to the synthetic machine.",
+            kWarmStartBootFrames, why);
+        return false;
+    }
+
+    StateWriter measure;
+    rec->save_state(measure);
+    const size_t bytes = measure.position();
+
+    out.assign(bytes, 0);
+    StateWriter w(out.data(), bytes);
+    rec->save_state(w);
+    if (w.overflow() || w.position() != bytes) {
+        Log::emulator()->error(
+            "warm start: state serialisation wrote {} bytes against a measured {} "
+            "(overflow={}) — not recording",
+            w.position(), bytes, w.overflow());
+        out.clear();
+        return false;
+    }
+
+    Log::emulator()->info("warm start: recorded a NextZXOS-resident machine ({} KB)",
+                          (bytes + 512) / 1024);
+    return true;
+}
+
+bool Emulator::ensure_warm_start_state()
+{
+    if (!warm_start_state_.empty()) return true;
+    if (!config_.sd_card_image.empty() &&
+        warm_start_failed_image_ == config_.sd_card_image) return false;
+
+    if (config_.type != MachineType::ZXN_ISSUE2) {
+        // Not a failure, and not silence either: a user who asked for a warm
+        // start on a 48K has asked for something that does not exist, and
+        // should be told so rather than left wondering.
+        Log::emulator()->warn(
+            "warm start: ignored on the {} — only the Next boots firmware, so there "
+            "is nothing to record",
+            machine_type_str(config_.type));
+        return false;
+    }
+    if (config_.sd_card_image.empty()) {
+        Log::emulator()->warn("warm start: ignored — no SD image is mounted, so there "
+                              "is no firmware to boot");
+        return false;
+    }
+
+    warm_start::Identity id;
+    id.machine_type   = static_cast<uint8_t>(config_.type);
+    id.format_version = warm_start::kFormatVersion;
+    {
+        StateWriter measure;
+        save_state(measure);
+        id.state_bytes = measure.position();
+    }
+    id.sd_image_sha256 = sdcard::sha256_file(config_.sd_card_image);
+    if (id.sd_image_sha256.empty()) {
+        Log::emulator()->warn("warm start: cannot digest SD image '{}' — falling back "
+                              "to the synthetic machine",
+                              config_.sd_card_image);
+        warm_start_failed_image_ = config_.sd_card_image;
+        return false;
+    }
+
+    if (config_.warm_start_regenerate) {
+        Log::emulator()->info("warm start: --warm-start-regenerate — ignoring any "
+                              "cached state");
+    } else {
+        std::string why;
+        if (warm_start::load(id, warm_start_state_, why)) {
+            Log::emulator()->info("warm start: restored a recorded NextZXOS machine "
+                                  "from {} ({} KB)",
+                                  warm_start::cache_path(id.machine_type),
+                                  (warm_start_state_.size() + 512) / 1024);
+            return true;
+        }
+        Log::emulator()->info("warm start: {}", why);
+    }
+
+    if (!record_warm_start_state(warm_start_state_)) {
+        warm_start_state_.clear();
+        warm_start_failed_image_ = config_.sd_card_image;
+        return false;
+    }
+
+    // The recording came off a DIFFERENT Emulator, so the length it produced
+    // is asserted here rather than assumed. It cannot differ today — every
+    // Emulator constructs the same fixed-size Ram — but the length is the
+    // guard that stops a foreign stream writing past that buffer
+    // (Ram::load_state reads a count-prefixed blob straight into it), and a
+    // guard derived from an assumption is not one.
+    if (warm_start_state_.size() != id.state_bytes) {
+        Log::emulator()->error(
+            "warm start: the recording is {} bytes but this machine's state stream is "
+            "{} — discarding it",
+            warm_start_state_.size(), id.state_bytes);
+        warm_start_state_.clear();
+        warm_start_failed_image_ = config_.sd_card_image;
+        return false;
+    }
+
+    std::string why;
+    if (!warm_start::store(id, warm_start_state_, why)) {
+        // A state that cannot be written is still a state that can be USED:
+        // this run gets its warm machine, the next one pays another boot.
+        Log::emulator()->warn("warm start: recorded but not cached ({}); the next run "
+                              "will boot again", why);
+    } else {
+        Log::emulator()->info("warm start: cached at {}",
+                              warm_start::cache_path(id.machine_type));
+    }
+    return true;
+}
+
+bool Emulator::init_for_load_from_file()
+{
+    if (!config_.warm_start) return init(config_);
+
+    if (!ensure_warm_start_state()) return init(config_);
+
+    // init() FIRST, then restore on top. The state stream carries the emulated
+    // machine (RAM, MMU, NextREG, CPU, every peripheral's flip-flops); it does
+    // not carry the host wiring init() installs — the port-dispatch lambdas,
+    // the contention LUT, the ROM buffer, the SD card, the mixer's gains. So
+    // the restore must land on a freshly wired machine, exactly as a rewind
+    // does on a running one.
+    if (!init(config_)) return false;
+
+    StateReader r(warm_start_state_.data(), warm_start_state_.size());
+    if (!load_state(r)) {
+        // load_state() names the subsystem whose sentinel failed. A state that
+        // deserialises wrong leaves the machine half-restored, so the only
+        // safe answer is to build a clean synthetic one and say what happened.
+        Log::emulator()->error(
+            "warm start: the recorded state failed to deserialise ({}) — discarding "
+            "it and falling back to the synthetic machine",
+            last_state_error().empty() ? std::string("unknown") : last_state_error());
+        warm_start_state_.clear();
+        warm_start_failed_image_ = config_.sd_card_image;
+        return init(config_);
+    }
+
+    // Verify the RESTORE, not just the recording. A state that passed
+    // nextzxos_resident() when it was taken must still pass it once it has
+    // been through a file and back; anything else means the round trip lost
+    // the very thing the recording was for.
+    std::string why;
+    if (!nextzxos_resident(why)) {
+        Log::emulator()->error(
+            "warm start: the restored machine is not NextZXOS-resident ({}) — "
+            "discarding it and falling back to the synthetic machine", why);
+        warm_start_state_.clear();
+        warm_start_failed_image_ = config_.sd_card_image;
+        return init(config_);
+    }
+
+    Log::emulator()->info("warm start: NextZXOS is resident; the program is applied on "
+                          "top of it, as nexload does on hardware");
+    return true;
+}
+
 bool Emulator::load_nex(const std::string& path)
 {
     NexLoader loader;
@@ -7008,7 +7330,13 @@ bool Emulator::load_nex(const std::string& path)
     // subsystem state (palette, video layers, NextREG, etc.) regardless of
     // whether the emulator was already running or freshly started. In place,
     // not a cold boot — see the init() declaration (GH #239).
-    init(config_);
+    //
+    // GH #234: with --warm-start this is the RECORDED post-firmware machine
+    // instead of the synthetic one, so what follows applies the NEX on top of
+    // a resident NextZXOS — which is what nexload does on hardware. Falls back
+    // to plain init() whenever a recording is not available; see
+    // init_for_load_from_file().
+    init_for_load_from_file();
 
     if (!loader.apply(*this)) return false;
     active_nex_path_ = std::filesystem::absolute(path).lexically_normal().string();
