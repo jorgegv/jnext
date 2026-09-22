@@ -69,8 +69,13 @@ public:
         border_colour_ = 7;
         if (hard)
             border_per_line_.fill(7);
-        flash_counter_ = 0;
-        flash_phase_ = false;
+        // The flash counter has no reset: zxula.vhd:474-480 only ever
+        // increments flash_cnt, once a frame, and the zxula entity has no
+        // reset input at all. A soft reset leaves the flash phase running.
+        if (hard) {
+            flash_counter_ = 0;
+            flash_phase_ = false;
+        }
         screen_mode_reg_ = 0;
         mode_ = TimexScreenMode::STANDARD;
 
