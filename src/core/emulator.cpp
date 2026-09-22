@@ -6986,6 +6986,11 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     Log::emulator()->info("TAP: tape attached — {} blocks, mode: {}",
                            tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
 
+    // A new tape replaces whatever tape was in, whatever its format: a TZX
+    // or WAV left behind would keep the status bar, Rewind and Eject on it.
+    if (tzx_tape_.is_loaded()) tzx_tape_.eject();
+    if (wav_tape_.is_loaded()) wav_tape_.eject();
+
     // Task 19 (instant TAP load): instead of immediately queuing the
     // LOAD"" keypress sequence (which fights a 100-frame ROM-boot
     // delay in main.cpp / *_app.cpp), arm the FUSE-style phantom
@@ -7037,8 +7042,9 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
     Log::emulator()->info("TZX: tape attached, mode: {}",
                            tzx_tape_.fast_load() ? "fast" : "realtime");
 
-    // Eject any TAP tape to avoid conflicts.
+    // A new tape replaces whatever tape was in, whatever its format.
     if (tape_.is_loaded()) tape_.eject();
+    if (wav_tape_.is_loaded()) wav_tape_.eject();
 
     // Auto-type LOAD "" to start tape loading.
     std::vector<Keyboard::AutoKey> keys = {

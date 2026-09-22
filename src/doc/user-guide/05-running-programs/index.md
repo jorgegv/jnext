@@ -41,7 +41,10 @@ the program. More than 16 KB of ignored data is reported with a warning.
 In the window, **File > Load NEX File…** (Alt+O) opens the same loader and
 accepts every one of those formats despite its name. Tapes have their own
 entry, **Tape > Open Tape File…** (Alt+T), covered in
-[5.5](05-recording-and-playback.md).
+[5.5](05-recording-and-playback.md). A file that cannot be loaded — missing,
+truncated, or not the format its extension says — gets a warning dialog naming
+it, from either menu and from **File > Play RZX Recording…**; the log says
+what was wrong with it.
 
 ![JNEXT running, with NextZXOS booted](../img/gui-main-window.png)
 

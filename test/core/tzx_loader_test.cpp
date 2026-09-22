@@ -386,6 +386,31 @@ int main(int argc, char** argv) {
               !l.ok && !l.is_loaded, detail(l));
     }
 
+    // TZXC-68 — a new TZX replaces a WAV that was in (it already replaced a
+    // TAP): a WAV left attached kept feeding the tape signal and the Tape
+    // menu's Eject.
+    {
+        Bytes wav = {'R', 'I', 'F', 'F', 100, 0, 0, 0, 'W', 'A', 'V', 'E',
+                     'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+                     0x44, 0xAC, 0, 0, 0x44, 0xAC, 0, 0, 1, 0, 8, 0,
+                     'd', 'a', 't', 'a', 64, 0, 0, 0};
+        wav.resize(wav.size() + 64, 0x80);
+        auto emu = std::make_unique<Emulator>();
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        const bool init_ok = emu->init(cfg);
+        const bool wav_ok = init_ok && emu->load_wav(write_file("replace.wav", wav));
+        const bool tzx_ok = emu->load_tzx(write_file("replace.tzx", valid));
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "init=%d wav=%d tzx=%d wav_loaded_after=%d",
+                      init_ok ? 1 : 0, wav_ok ? 1 : 0, tzx_ok ? 1 : 0,
+                      emu->wav_tape().is_loaded() ? 1 : 0);
+        check("TZXC-68", "Emulator::load_tzx after a WAV ejects the WAV",
+              wav_ok && tzx_ok && !emu->wav_tape().is_loaded() && emu->tzx_tape().is_loaded(),
+              buf);
+    }
+
     Log::emulator()->sinks().pop_back();
     if (!keep) std::filesystem::remove_all(g_root, ec);
 

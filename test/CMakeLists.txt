@@ -868,6 +868,16 @@ if(ENABLE_QT_UI)
     target_include_directories(esp_status_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esp_status_tests COMMAND esp_status_test)
 
+    # GUI load paths report a failed load (Tape > Open, File > Open via the
+    # frontend's load_finished(), File > Play RZX), Tape > Open follows the
+    # Fast Load toggle, and a WAV tape reaches the status bar and Eject.
+    # Drives the REAL post-picker halves and QMessageBox, offscreen.
+    add_executable(load_error_test gui/load_error_test.cpp)
+    set_target_properties(load_error_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(load_error_test PRIVATE jnext_gui)
+    target_include_directories(load_error_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME load_error_tests COMMAND load_error_test)
+
     # GH #228 — the experimental-NEX-V1.3 warning dialog's wiring: Proceed
     # loads with the opt-in, Cancel/Escape abort, Cancel is the default, a
     # V1.2 file shows no dialog. Drives the REAL QMessageBox through

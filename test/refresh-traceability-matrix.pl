@@ -1005,6 +1005,7 @@ my %NO_MATRIX_SECTION = (
     # core has no loader and no dialog, so there is nothing to cite. The
     # policy predicate/probe/enforcement rows live in nex_loader_test.
     'nex_v13_dialog_test' => 'experimental NEX V1.3 warning dialog (GUI), no core counterpart',
+    'load_error_test' => 'GUI load-failure reporting and Tape menu (GUI), no core counterpart',
 
     # ── --inject entry state ─────────────────────────────────────────
     # GH #248 — `--inject` has no counterpart on a Next: nothing on real
