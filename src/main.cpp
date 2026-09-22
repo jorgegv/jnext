@@ -188,6 +188,8 @@ int main(int argc, char* argv[]) {
     std::string sd_card_image;
     bool        sdcard_download_confirm = false;
     bool        sdcard_readonly = false;
+    bool        warm_start = false;
+    bool        warm_start_regenerate = false;
     bool        sdcard_download_force   = false;
     std::string screenshot_file;
     int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
@@ -356,6 +358,16 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::SdcardReadonly:
                 sdcard_readonly = true;
+                break;
+            case cli::OptId::WarmStart:
+                warm_start = true;
+                break;
+            case cli::OptId::WarmStartRegenerate:
+                // Regenerating without warm-starting would record a state and
+                // then not use it, so the flag implies the feature rather than
+                // silently doing half of it.
+                warm_start = true;
+                warm_start_regenerate = true;
                 break;
             case cli::OptId::DelayedScreenshot:
                 screenshot_file = v[0];
@@ -1022,6 +1034,8 @@ int main(int argc, char* argv[]) {
         cfg.type = machine_type;
         cfg.sd_card_image = sd_card_image;
         cfg.sd_card_readonly = sdcard_readonly;
+        cfg.warm_start = warm_start;
+        cfg.warm_start_regenerate = warm_start_regenerate;
         // Propagate --load path to EmulatorConfig so the boot-ROM auto-load
         // gate (Emulator::init) can distinguish "firmware boot" from
         // "direct NEX/TAP launch": when a --load is present, the embedded

@@ -184,6 +184,56 @@ public:
     /// Load a NEX file into the emulator.  Returns true on success.
     bool load_nex(const std::string& path);
 
+    // ── Warm start (GH #234, the structural fix for GH #72) ───────────────
+    //
+    // `--load` arms neither the boot ROM nor anything downstream of it, so a
+    // loaded program meets a machine init() assembled instead of one the
+    // firmware produced, and every reset() default in every subsystem becomes
+    // directly observable to it. The warm start replaces that machine with a
+    // RECORDING of a real boot: boot natively once, serialise the whole state
+    // through the same `Saveable` stream the rewind buffer uses, cache it
+    // beside the SD image, restore it on later loads.
+    //
+    // Opt-in (`--warm-start`) and Next-only. `--machine 48k/128k/plus3` never
+    // run tbblue.fw either, but they have no firmware to record, so there is
+    // nothing for this mechanism to do there — it says so and declines rather
+    // than quietly doing nothing.
+
+    /// Obtain the warm-start state for this machine — from the cache when the
+    /// identity matches, otherwise by BOOTING the firmware here and now (a
+    /// few seconds of emulated time) and caching the result.
+    ///
+    /// Returns true when `warm_start_state()` holds a state that can be
+    /// restored. A false return is never fatal: the caller falls back to the
+    /// synthetic init(), which is what `--load` has always done.
+    ///
+    /// Destructive by construction — recording re-init()s this emulator and
+    /// runs frames on it — so it is only ever called from a load path that
+    /// was going to re-initialise anyway.
+    bool ensure_warm_start_state();
+
+    /// The recorded state, empty until ensure_warm_start_state() succeeds.
+    const std::vector<uint8_t>& warm_start_state() const { return warm_start_state_; }
+
+    /// Is NextZXOS resident RIGHT NOW? The capture criterion, checked after
+    /// the recording boot and again after the restore.
+    ///
+    /// Deliberately NOT a pinned PC. The design doc's §7.3 warns that a
+    /// criterion tied too tightly to one NextZXOS build breaks capture
+    /// silently when the build moves; this asks three questions whose answers
+    /// a NextZXOS release cannot change without ceasing to be NextZXOS, and
+    /// fills `why` with the first one that fails so a refusal is diagnosable.
+    bool nextzxos_resident(std::string& why) const;
+
+    /// Frames of emulated boot a recording runs before it captures.
+    ///
+    /// The `boot-nextzxos-welcome` regression row pins the NextZXOS welcome
+    /// screen as fully rendered by frame 400 on the distro image; this adds
+    /// 100 frames of slack on top. It is a budget, not a deadline: what
+    /// decides whether the capture is taken is nextzxos_resident(), which
+    /// runs afterwards and refuses loudly.
+    static constexpr uint32_t kWarmStartBootFrames = 500;
+
     /// G156 — NEX `loading_delay`/`start_delay` (tbblue nexload.asm:541,
     /// 575-577). NexLoader::apply() computes the total frame count via
     /// NexLoader::boot_hold_frames() and calls this. run_frame() then
@@ -1377,6 +1427,28 @@ private:
     /// Boot ROM (8K FPGA bootloader, embedded into the jnext binary at
     /// link time — see core/embedded_nextboot_rom.h).
     std::vector<uint8_t> boot_rom_;
+
+    // ── Warm start (GH #234) ─────────────────────────────────────────────
+
+    /// The recorded post-boot state, empty until a recording or a cache hit.
+    /// Kept for the whole session so a second `--load` (GUI File > Open, an
+    /// esxDOS chain-load) costs neither a boot nor a re-read.
+    std::vector<uint8_t> warm_start_state_;
+
+    /// Sticky: a recording that FAILED is not retried. Without it a machine
+    /// whose SD image cannot produce a NextZXOS — no firmware on the card, a
+    /// non-NextZXOS distro — would pay a 500-frame boot on every single load
+    /// and report the same failure each time.
+    bool warm_start_unavailable_ = false;
+
+    /// Boot the firmware in place and serialise the result. Returns false,
+    /// having logged why, when the boot does not land on a NextZXOS.
+    bool record_warm_start_state(std::vector<uint8_t>& out);
+
+    /// The re-initialisation at the top of a NEX load: the warm-start
+    /// restore when it is enabled, available and this is a Next, and plain
+    /// init(config_) otherwise. Returns false only when init() itself fails.
+    bool init_for_load_from_file();
 
     /// ARGB8888 framebuffer (canonical 640 × 256 pixels post-G104).
     std::vector<uint32_t> framebuffer_;
