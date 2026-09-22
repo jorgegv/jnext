@@ -158,8 +158,8 @@ loaded from the GUI after start-up.
 
 - `direct_nex_esxdos_` — set by `Emulator::load_nex()` for every NEX it loads,
   cleared by `reset()` and `soft_reset()`. `load_sna()`, `load_szx()` and
-  `load_z80()` reset, and RZX playback goes through `load_sna()`, so a snapshot
-  clears it. `load_tap()`, `load_tzx()` and `load_wav()` deliberately do not:
+  `load_z80()` reset, and RZX playback loads its embedded snapshot through the
+  same loaders (`load_snapshot_from_memory()`), so a snapshot clears it. `load_tap()`, `load_tzx()` and `load_wav()` deliberately do not:
   they attach tape media to the running machine, so a NEX still running keeps
   its stand-in.
 - `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session.
@@ -256,7 +256,12 @@ the same order both times.
 
 `rzx.h` holds the format, `rzx_player.*` and `rzx_recorder.*` the two
 directions. jnext embeds a 48K SNA, which is the reason `SnaSaver` exists at
-all.
+all. On playback the embedded snapshot — SNA, SZX or Z80 — is parsed straight
+from the file's bytes by `Emulator::load_snapshot_from_memory()`, using the
+`load_from_buffer()` entry each of those loaders has beside its file-path
+`load()`; nothing is written to a temporary file. Any other snapshot type fails
+the load: input replayed against a machine it was not recorded on reproduces
+nothing.
 
 ## Media out
 

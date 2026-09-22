@@ -33,6 +33,8 @@
 #include "platform/emulator_boot.h"
 #include "platform/rzx_startup.h"
 #include "core/saveable.h"
+#include "core/sna_saver.h"
+#include "core/rzx.h"
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/uart.h"
 
@@ -43,6 +45,13 @@
 #include <fstream>
 #include <string>
 #include <vector>
+
+#ifndef _WIN32
+#include <csignal>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -126,6 +135,42 @@ void dirty(Emulator& emu)
     for (int i = 0; i < 3; ++i) emu.run_frame();
     for (uint16_t a = 0x8000; a < 0x8100; ++a)
         emu.mmu().write(a, static_cast<uint8_t>(0xA5 ^ a));
+}
+
+/// Write `bytes` to `path`; false if any part of that fails.
+bool write_bytes(const std::string& path, const std::vector<uint8_t>& bytes)
+{
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
+    return static_cast<bool>(f);
+}
+
+/// A version-1, uncompressed 48K `.z80` image (canonical .z80 layout: 30-byte
+/// header, PC at offset 6 non-zero => v1, byte 12 bit 5 clear => uncompressed,
+/// then 0x4000-0xFFFF verbatim) with `marker` at `marker_addr`.
+std::vector<uint8_t> z80_v1_image(uint16_t pc, uint16_t marker_addr, uint8_t marker)
+{
+    std::vector<uint8_t> img(30 + 49152, 0);
+    img[6] = static_cast<uint8_t>(pc);
+    img[7] = static_cast<uint8_t>(pc >> 8);
+    img[8] = 0x00; img[9] = 0xFF;          // SP = 0xFF00
+    img[12] = 0x02;                        // border 1, uncompressed
+    img[29] = 0x01;                        // IM 1
+    img[30 + (marker_addr - 0x4000)] = marker;
+    return img;
+}
+
+/// An RZX file holding `snapshot` (typed `ext`) and two empty input frames.
+bool write_rzx(const std::string& path, std::vector<uint8_t> snapshot, const std::string& ext)
+{
+    RzxRecording rec;
+    rec.creator       = "EBTEST";
+    rec.snapshot_data = std::move(snapshot);
+    rec.snapshot_ext  = ext;
+    rec.frames.resize(2);
+    for (auto& fr : rec.frames) fr.instruction_count = 1;
+    return rzx::write(path, rec);
 }
 
 }  // namespace
@@ -571,6 +616,104 @@ int main()
         std::remove(rec.c_str());
         std::remove(rec2.c_str());
         std::remove(bad.c_str());
+    }
+
+    // --- EB-25..EB-27: an RZX file's embedded snapshot ----------------------
+    // Contract (Emulator::load_rzx / load_snapshot_from_memory): the snapshot
+    // an RZX file carries is loaded from MEMORY — nothing is written to disk,
+    // so two instances cannot race on a shared temporary file and the load
+    // works where /tmp does not exist (Windows); every type jnext can load as
+    // a file (sna, szx, z80) is accepted; a type it cannot load is a FAILURE,
+    // because playing the input against a machine it was not recorded on
+    // reproduces nothing.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string sna_rzx = (tmp / ("jnext-eb-snap-sna-" + stamp + ".rzx")).string();
+        const std::string z80_rzx = (tmp / ("jnext-eb-snap-z80-" + stamp + ".rzx")).string();
+        const std::string odd_rzx = (tmp / ("jnext-eb-snap-odd-" + stamp + ".rzx")).string();
+        constexpr uint16_t MARK_AT = 0x8000;
+        constexpr uint8_t  MARK    = 0x5A;
+
+        // A 48K SNA of a machine carrying the marker (the saver the recorder
+        // itself embeds).
+        std::vector<uint8_t> sna;
+        {
+            Emulator src;
+            src.init(base_config());
+            src.mmu().write(MARK_AT, MARK);
+            sna = SnaSaver::save(src);
+        }
+        const bool fixtures_ok =
+            !sna.empty() && write_rzx(sna_rzx, sna, "sna") &&
+            write_rzx(z80_rzx, z80_v1_image(0x1234, MARK_AT, MARK), "z80") &&
+            write_rzx(odd_rzx, z80_v1_image(0x1234, MARK_AT, MARK), "tzx");
+
+        // EB-25: loads with the process UNABLE to create or grow any file
+        // (RLIMIT_FSIZE 0, in a child so the limit dies with it). A snapshot
+        // routed through a temporary file cannot load there.
+        bool eb25 = false;
+        std::string eb25_detail = fixtures_ok ? "" : "fixtures not written";
+        if (fixtures_ok) {
+#ifndef _WIN32
+            std::fflush(stdout);
+            std::fflush(stderr);
+            const pid_t pid = fork();
+            if (pid == 0) {
+                // stdout/stderr may be redirected to a regular file, which the
+                // limit would also stop: send them to a character device.
+                std::freopen("/dev/null", "w", stdout);
+                std::freopen("/dev/null", "w", stderr);
+                Emulator emu;
+                emu.init(base_config());
+                const bool clean = emu.mmu().read(MARK_AT) != MARK;
+                std::signal(SIGXFSZ, SIG_IGN);
+                struct rlimit none{0, 0};
+                setrlimit(RLIMIT_FSIZE, &none);
+                const bool ok = clean && emu.load_rzx(sna_rzx) &&
+                                emu.rzx_player().is_playing() &&
+                                emu.mmu().read(MARK_AT) == MARK;
+                std::_Exit(ok ? 0 : 1);
+            }
+            int status = 0;
+            eb25 = pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) &&
+                   WEXITSTATUS(status) == 0;
+            eb25_detail = "child status=" + std::to_string(status);
+#else
+            Emulator emu;
+            emu.init(base_config());
+            eb25 = emu.load_rzx(sna_rzx) && emu.rzx_player().is_playing() &&
+                   emu.mmu().read(MARK_AT) == MARK;
+#endif
+        }
+        check("EB-25", "an embedded SNA loads from memory, even when no file can be written",
+              eb25, eb25_detail);
+
+        // EB-26: an embedded .z80 snapshot is applied (registers AND memory),
+        // not skipped with playback running against the current machine.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = fixtures_ok && emu.load_rzx(z80_rzx);
+            check("EB-26", "an embedded .z80 snapshot is loaded: its PC and memory",
+                  ok && emu.rzx_player().is_playing() && emu.cpu().pc() == 0x1234 &&
+                      emu.mmu().read(MARK_AT) == MARK,
+                  "ok=" + std::to_string(ok) + " pc=" + std::to_string(emu.cpu().pc()));
+        }
+
+        // EB-27: a snapshot type jnext cannot load fails the load outright.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emu.load_rzx(odd_rzx);
+            check("EB-27", "an unsupported embedded snapshot type fails, and nothing plays",
+                  fixtures_ok && !ok && !emu.rzx_player().is_playing());
+        }
+
+        std::remove(sna_rzx.c_str());
+        std::remove(z80_rzx.c_str());
+        std::remove(odd_rzx.c_str());
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

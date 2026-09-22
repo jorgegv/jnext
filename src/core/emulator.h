@@ -287,6 +287,13 @@ public:
     /// Load an RZX file and start playback.  Returns true on success.
     bool load_rzx(const std::string& path);
 
+    /// Load a snapshot held in memory — `ext` is "sna", "szx" or "z80" (an RZX
+    /// file's embedded snapshot). Nothing touches the filesystem. `name`
+    /// identifies the data in log messages. Returns false, leaving the machine
+    /// untouched, when the data does not parse or the type is unsupported.
+    bool load_snapshot_from_memory(const std::vector<uint8_t>& data,
+                                   const std::string& ext, const std::string& name);
+
     /// Start recording RZX input to the given file path.
     bool start_rzx_recording(const std::string& path);
 

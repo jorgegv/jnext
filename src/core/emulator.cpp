@@ -7084,6 +7084,41 @@ bool Emulator::load_wav(const std::string& path)
     return true;
 }
 
+bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
+                                         const std::string& ext,
+                                         const std::string& name)
+{
+    // Same parse -> reset() -> apply() order as load_sna/szx/z80 above: a
+    // snapshot that does not parse leaves the running machine untouched.
+    if (ext == "sna") {
+        SnaLoader loader;
+        if (!loader.load_from_buffer(data, name)) return false;
+        reset();
+        return loader.apply(*this);
+    }
+    if (ext == "szx") {
+        SzxLoader loader;
+        if (!loader.load_from_buffer(data, name)) return false;
+        reset();
+        return loader.apply(*this);
+    }
+    if (ext == "z80") {
+        Z80Loader loader;
+        if (!loader.load_from_buffer(data)) {
+            Log::emulator()->error("Z80: failed to parse {}", name);
+            return false;
+        }
+        reset();
+        return loader.apply(*this);
+    }
+    // Refused rather than skipped: playing a recording's input against a
+    // machine it was not recorded on reproduces nothing, so "skip the
+    // snapshot and play anyway" is a silent failure, not a fallback.
+    Log::emulator()->error("{}: unsupported snapshot type '{}' (supported: sna, szx, z80)",
+                           name, ext);
+    return false;
+}
+
 bool Emulator::load_rzx(const std::string& path)
 {
     RzxRecording rec;
@@ -7096,22 +7131,17 @@ bool Emulator::load_rzx(const std::string& path)
                           path, rec.creator, rec.frames.size(),
                           rec.snapshot_data.empty() ? "none" : rec.snapshot_ext);
 
-    // Load embedded snapshot if present.
-    if (!rec.snapshot_data.empty()) {
-        // Write snapshot to a temporary file and load it.
-        std::string tmp_path = "/tmp/jnext_rzx_snap." + rec.snapshot_ext;
-        {
-            std::ofstream tmp(tmp_path, std::ios::binary);
-            tmp.write(reinterpret_cast<const char*>(rec.snapshot_data.data()),
-                      static_cast<std::streamsize>(rec.snapshot_data.size()));
-        }
-        if (rec.snapshot_ext == "sna") {
-            if (!load_sna(tmp_path)) return false;
-        } else if (rec.snapshot_ext == "szx") {
-            if (!load_szx(tmp_path)) return false;
-        } else {
-            Log::emulator()->warn("RZX: unsupported snapshot type '{}', skipping", rec.snapshot_ext);
-        }
+    // Load the embedded snapshot, if present, straight from memory. It used to
+    // be written to a fixed /tmp/jnext_rzx_snap.<ext> and loaded back from
+    // there, unchecked: two jnext instances raced on that one file, and on
+    // Windows the path does not exist at all, so the write failed silently
+    // and the load then read nothing (or another instance's snapshot).
+    if (!rec.snapshot_data.empty() &&
+        !load_snapshot_from_memory(rec.snapshot_data, rec.snapshot_ext,
+                                   "RZX '" + path + "' embedded snapshot")) {
+        Log::emulator()->error("RZX: cannot load the embedded '{}' snapshot of '{}'",
+                               rec.snapshot_ext, path);
+        return false;
     }
 
     // GH #164 — see resume_from_park(). With an embedded snapshot the
