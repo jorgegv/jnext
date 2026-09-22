@@ -639,7 +639,7 @@ GH265-ISC, GH265-CTC) and `test/ctc/ctc_test.cpp` (CTC-CH-GH265-01/02):
 | CTC-RD-GH265-02 | channel programmed outside, IN A,(C) with load edge on a count edge (817) / one before (816) | 0x4D / 0x4E (pre-fix 0x5B) |
 | CTC-WR-GH265-01 | OUT of TC=8 at start 5000: commit 5073, ZC/TO 5202, status set 5203; NR 0xC9 read loading at 5204 / 5203 | bit 0 set / clear |
 | CTC-CH-GH265-01 | ch0 timer TC=1 fires on edge 17; ch1 counter with a rising-edge trigger (D4=1) | ch1 counts on 18 (falling edge: 19, CTC-CH-01) |
-| CTC-CH-GH265-02 | ch0 timer TC=1 fires on edge 17 and is soft-reset straight after; ch1 counter, falling-edge trigger (`zc_to_d` is cleared only by `reset_hard`, `ctc_chan.vhd:173-182`) | ch1 still counts on 19 (0x03 on 18, 0x02 on 19) |
+| CTC-CH-GH265-02 | ch0 timer TC=1 fires on edge 17 and is soft-reset straight after; ch1 counter, falling-edge trigger (`zc_to_d` is cleared only by `reset_hard`, and the receiver's `clk_trg_d` takes it: `ctc_chan.vhd:115-127,173-182`) | ch1 still counts on 19 (0x03 on 18, 0x02 on 19) |
 
 Existing rows re-derived to the same edges (the old expectations were the
 per-cycle model's, not the VHDL's): `CTC-SM-04`, `CTC-SM-06`, `CTC-TM-01`..
