@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.167</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.167</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2832,9 +2832,12 @@ several minutes, loading stripes, screeching and all. Use it for authenticity,
 or for the occasional program with a custom loader that fast-load cannot
 follow. Turn it on with <strong>Tape &gt; Fast Load</strong> (uncheck it) or <code>--tape-realtime</code>.</p>
 <p><code>.wav</code> files are always real time; there is no ROM routine to short-circuit.</p>
-<p><strong>Tape &gt; Open Tape File…</strong> (Alt+T) loads a tape, and <strong>Eject</strong> and <strong>Rewind</strong>
-do what they say. The status bar shows the tape name and, while loading, the
-block position.</p>
+<p><strong>Tape &gt; Open Tape File…</strong> (Alt+T) loads a tape, fast or in real time as
+<strong>Tape &gt; Fast Load</strong> shows, and <strong>Eject</strong> and <strong>Rewind</strong> do what they say (a
+<code>.wav</code> rewinds by starting again). The status bar shows the tape name and, while
+loading, the block position. A new tape replaces the one that was in, whatever
+its format; a file that is not a valid tape is refused with a warning, and the
+tape that was in stays in.</p>
 <h2 id="video">Video<a class="headerlink" href="#video" title="Permanent link">&para;</a></h2>
 <p><strong>File &gt; Record MPEG4 Video…</strong> (Ctrl+F5) starts recording video with audio to
 an MP4; <strong>Stop</strong> (Ctrl+F6) ends it. From the command line, <code>--record FILE</code>.</p>

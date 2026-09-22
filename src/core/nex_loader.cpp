@@ -707,17 +707,28 @@ bool NexLoader::apply(Emulator& emu) const
         // Stop copper before reset:
         nr.write(0x62, 0x00);   // copper-control HI byte: stop
         nr.write(0x61, 0x00);   // copper-control LO byte: stop
-        // Peripheral 2 — read-modify-write in tbblue (preserves bits 7+5
-        // F8/F3-enable, clears bit 4 DivMMC autopage, sets bit 3 Multiface).
-        // Reset baseline of NR 0x06 is 0xA0 (zxnext.vhd:1107-1108), so the
-        // post-modify constant is 0xA0 & ~0x10 | 0x08 = 0xA8.
-        nr.write(0x06, 0xA8);
-        // Peripheral 3 — read-modify-write in tbblue (sets bit 7 disable
-        // locked paging, bit 6 disable contention, clears bit 5 stereo→ABC,
-        // sets bits 3/2/1 specdrum/timex/turbosound, clears bit 0).
-        // Reset baseline of NR 0x08 is 0x00, so the post-modify constant is
-        // 0xCE.
-        nr.write(0x08, 0xCE);
+        // Peripherals 2 and 3 are read-modify-write in both loaders, with
+        // different masks, so each follows its own loader (measured under
+        // NextZXOS for both: the result is the formula applied to the value
+        // found, and after load_nex()'s init() that is NR 0x06=$A0, NR 0x08=$90
+        // — bit 7 "not locked", bit 4 the internal speaker's hard-reset 1).
+        const uint8_t nr06 = nr.read(0x06);
+        const uint8_t nr08 = nr.read(0x08);
+        if (is_v13()) {
+            // nexload2.asm:793-794 `or %00001001 : and %10101101`.
+            nr.write(0x06, static_cast<uint8_t>((nr06 | 0x09) & 0xAD));
+            // nexload2.asm:798-799 `or %11011110 : and %11111110` — keeps only
+            // bit 5 (ABC/ACB stereo) and forces the internal speaker on.
+            nr.write(0x08, static_cast<uint8_t>((nr08 | 0xDE) & 0xFE));
+        } else {
+            // nexload.asm:333-347 — res 4 (DivMMC NMI), set 3 (Multiface NMI);
+            // the AY-hold write in between (:345) is restored at :347.
+            nr.write(0x06, static_cast<uint8_t>((nr06 & ~0x10) | 0x08));
+            // nexload.asm:351-361 — set 7,6,3,2,1, res 5,0; bit 4, the internal
+            // speaker, is "a user preference setting, not a game setting"
+            // (its v17 changelog) and is kept.
+            nr.write(0x08, static_cast<uint8_t>((nr08 & 0x10) | 0xCE));
+        }
     }
 
     // Turbo 28 MHz (matches tbblue nexload — assumes loader-issued
@@ -727,16 +738,16 @@ bool NexLoader::apply(Emulator& emu) const
     //
     // THE TWO LOADERS DISAGREE ON THIS ONE REGISTER, so it follows the
     // loader that would really handle the file (GH #166):
-    //   - <= V1.2 is loaded by nexload.asm, whose NR 0x07 write is at
-    //     :365, INSIDE the gated block → gated.
+    //   - <= V1.2 is loaded by nexload.asm, which sets 14 MHz first thing,
+    //     unconditionally (`Set14mhz`, :260), and 28 MHz at :365, INSIDE the
+    //     gated block → 28 MHz, or 14 MHz with DONTRESETNEXTREGS set
+    //     (measured: NR 0x07 reads $22 at entry with the flag set).
     //   - V1.3 can only be loaded by nexload2.asm (the distro loader
     //     cannot parse it), and there the write is at :777, ABOVE the
     //     PRESERVENEXTREG early-return at :781-783, whose own comment
     //     says it: "next regs should be preserved, only 28MHz is set,
     //     keep others" → unconditional.
-    if (reset_nextregs || is_v13()) {
-        nr.write(0x07, 0x03);
-    }
+    nr.write(0x07, (reset_nextregs || is_v13()) ? 0x03 : 0x02);
 
     // ULANext format: 0x0F (allow flashing). Overrides Emulator init's
     // 0x07 — nexload.asm:266 writes this ABOVE the DONTRESETNEXTREGS gate
@@ -769,12 +780,17 @@ bool NexLoader::apply(Emulator& emu) const
         // Reset all clip window indices
         nr.write(0x1C, 0x0F);
 
-        // Layer 2 clip: 0, 255, 0, 255 (full)
+        // Layer 2 clip: 0, 255, 0, 191 — both loaders (nexload.asm:373-376,
+        // :389 `NEXTREG_nn 24,191`; nexload2.asm nextRegResetData's Y2 row
+        // `191, 191, 191, 255`), the VHDL reset value too. Measured under
+        // NextZXOS: Layer 2 and sprite Y2 read 191 at entry. (jnext used to
+        // write 255 here, which a 320x256 program got away with; on hardware
+        // it is clipped below row 191 unless it sets NR 0x18 itself.)
         nr.write(0x18, 0x00); nr.write(0x18, 0xFF);
-        nr.write(0x18, 0x00); nr.write(0x18, 0xFF);
-        // Sprite clip: 0, 255, 0, 255
+        nr.write(0x18, 0x00); nr.write(0x18, 0xBF);
+        // Sprite clip: 0, 255, 0, 191 (nexload.asm:377-380, :390; same row)
         nr.write(0x19, 0x00); nr.write(0x19, 0xFF);
-        nr.write(0x19, 0x00); nr.write(0x19, 0xFF);
+        nr.write(0x19, 0x00); nr.write(0x19, 0xBF);
         // ULA clip: 0, 255, 0, 191
         nr.write(0x1A, 0x00); nr.write(0x1A, 0xFF);
         nr.write(0x1A, 0x00); nr.write(0x1A, 0xBF);
@@ -847,7 +863,38 @@ bool NexLoader::apply(Emulator& emu) const
         // block leaves the index where :269-:270 put it on the <= V1.2
         // path, and untouched on the V1.3 one — as on hardware for each.
         nr.write(0x40, 0x00);
+
+        if (nexload_prologue) {
+            // nexload.asm's reset block selects each palette in turn to sweep
+            // it and leaves the LAST one selected: `NEXTREG_nn 67,32`, the
+            // sprite first palette (:402). A palette block, if the file has
+            // one, sets NR 0x43 again in step 2. (nexload2 ends at 0, :847.)
+            // Measured: NR 0x43 reads $20 at entry.
+            nr.write(0x43, 0x20);
+        } else {
+            // nexload2.asm:924-925 (nextRegResetData) zeroes the tilemap
+            // base and pattern addresses, whose reset values are $2C/$0C
+            // (measured: both read 0 at entry). Every other register that
+            // table sets already holds its value after load_nex()'s init()
+            // (measured: no other NextREG differs), so only these two are
+            // written. A tilemode loading screen sets them again in step 2.
+            nr.write(0x6E, 0x00);
+            nr.write(0x6F, 0x00);
+        }
     }
+
+    // What NextZXOS leaves that jnext does not reproduce. A probe NEX that
+    // reads all 256 NextREGs at entry, under NextZXOS and under `--load`,
+    // differs after this step only in registers neither loader writes:
+    // firmware / config.ini settings (NR 0x02, 0x05, 0x0A, 0x11, 0x28, 0xB8,
+    // 0xB9, 0xBB, 0xD8), NextZXOS's stackless-NMI enable (NR 0xC0 bit 3, for
+    // its own NMI handler, absent here), its 48K-ROM paging (NR 0x8E: ROM 3;
+    // under `--load` the Next machine's only ROM is that same 48K ROM, in
+    // slot 0), the user settings both loaders keep in NR 0x08 (bit 5 here;
+    // bit 4 too for nexload.asm), and — with DONTRESETNEXTREGS set — whatever
+    // NextZXOS had in the registers the flag keeps. jnext has no NextZXOS
+    // behind a directly loaded program, so it leaves all of these at its own
+    // reset values.
 
     Log::emulator()->debug("NEX: machine state initialized (nexload.asm compatible, "
                            "NextREG reset {})",
@@ -1209,14 +1256,18 @@ bool NexLoader::apply(Emulator& emu) const
                                COPPER_BLOCK_SIZE);
     }
 
-    // V1.3 expansion bus (header offset 142): 0 = disable it by clearing the
-    // top four bits of NR 0x80, 1 = leave it alone (nexload2.asm:778-780).
-    // Gated on V1.3 because in a V1.0-V1.2 file offset 142 is reserved space
-    // that is zero — which would read as "disable" for every older file.
-    if (v13 && header_.expansion_bus == 0) {
+    // Expansion bus (header offset 142): 0 = disable it by clearing the top
+    // four bits of NR 0x80, 1 = leave it alone. Both loaders do it, whatever
+    // the file's version and whatever DONTRESETNEXTREGS says: nexload2.asm:
+    // 778-780 (then :936-948), and the distro nexload.asm:294-298, which
+    // since its v14 reads offset 142 of every file it loads — so the zero a
+    // V1.0-V1.2 file carries there DOES disable the bus (measured: NR 0x80
+    // $F5 -> $05 for a V1.2 file with 0 there, left at $F5 with 1). Both skip
+    // it on a core older than 3.00.05; jnext reports 3.02.03.
+    if (header_.expansion_bus == 0) {
         const uint8_t nr80 = nr.read(0x80);
         nr.write(0x80, static_cast<uint8_t>(nr80 & 0x0F));
-        Log::emulator()->debug("NEX: V1.3 expansion bus disabled (NR80 {:#04x} -> {:#04x})",
+        Log::emulator()->debug("NEX: expansion bus disabled (NR80 {:#04x} -> {:#04x})",
                                nr80, nr80 & 0x0F);
     }
 
@@ -1340,28 +1391,127 @@ bool NexLoader::apply(Emulator& emu) const
     // is in step 8, because that is where the oracle does it: both loaders
     // reach the launch decision only AFTER the entry bank is paged in and
     // the CLI buffer copied. Only the register write belongs here.
+    //
+    // THE ENTRY STATE. Both loaders end the same way: HL = PC, then `rst $20`
+    // with SP already at the header SP (nexload.asm:580-590 `ld hl,(PCReg) :
+    // ld sp,(SPReg) ... ld hl,(PCReg) : rst $20`; nexload2.asm:407-414). RST
+    // $20 is the NextZXOS DivMMC ROM's (enNxtmmc.rom, the one on the SD
+    // image): `inc sp : inc sp` drops the return address, then after a call
+    // into NextZXOS `push hl : xor a : ld ($32FF),a : jp $1FF9`, whose `ret`
+    // at $1FF9 pages the DivMMC ROM out and jumps to HL ($0020-$0025,
+    // $0071-$0076). What reaches the program:
+    //
+    //   PC, HL   header PC           both loaders' `ld hl,(PC)`, then `ret`
+    //   MEMPTR   header PC           set by that `ret`
+    //   SP       header SP           the handler's `push hl` leaves PC in
+    //                                the 2 bytes below SP: written by
+    //                                Emulator::load_nex(), after the handle
+    //   AF       $0044               the handler's `xor a` (A=0, Z and P/V):
+    //                                it replaces the loaders' `ld a,h : or l`
+    //   IFF1/2   0                   both loaders `di`, nothing re-enables
+    //   BC       per loader          Emulator::load_nex(), after the file
+    //                                handle is placed
+    //   DE, IX   per loader          below: what each loader's own last
+    //                                instructions leave (no F_READ / F_CLOSE
+    //                                call changes them)
+    //   IY, I, IM, AF' BC' DE' HL'   the environment: neither loader touches
+    //                                them, so they are NextZXOS's at the
+    //                                command line. Measured, see below.
+    //
+    // Measured by booting the distro SD image's NextZXOS in jnext and running
+    // a probe NEX whose first instruction saves every register: IY=$5C3A,
+    // I=$09, IM 1, AF'=$0149 BC'=$0B00 DE'=$369B HL'=$339B, identical for
+    // `.nexload` and `.nexload2`, from the command line and from the Browser,
+    // after PRINT, CLS or a prior `.nexload`, and for every header variant
+    // tried. They are that NextZXOS release's values, not the format's: jnext
+    // uses them because `--load` stands in for exactly that NextZXOS, and
+    // IY=$5C3A is what the ROM's own IM 1 handler needs. R is left as it is.
+    //
+    // None of this depends on DONTRESETNEXTREGS (offset 134): that flag gates
+    // NextREG writes only, and neither loader has a Z80-register-preserving
+    // mode (measured: identical registers with the flag set).
     // ---------------------------------------------------------------
 
     if (header_.pc == 0) {
         Log::emulator()->debug(
             "NEX: PC=0 (load-only) — entry register state not established");
-    } else if (header_.preserve_regs == 0) {
-        // Reset all registers before setting PC/SP
-        Z80Registers regs{};
-        regs.AF  = 0xFFFF;
-        regs.SP  = header_.sp;
-        regs.PC  = header_.pc;
-        regs.IM  = 1;
-        regs.IFF1 = 0;
-        regs.IFF2 = 0;
-        cpu.set_registers(regs);
-        Log::emulator()->debug("NEX: registers reset, PC={:#06x} SP={:#06x}", header_.pc, header_.sp);
     } else {
         auto regs = cpu.get_registers();
-        regs.PC = header_.pc;
-        regs.SP = header_.sp;
+        regs.PC     = header_.pc;
+        regs.HL     = header_.pc;
+        regs.MEMPTR = header_.pc;
+        regs.SP     = header_.sp;
+        regs.AF     = 0x0044;
+        regs.IFF1   = 0;
+        regs.IFF2   = 0;
+        regs.IY     = 0x5C3A;
+        regs.I      = 0x09;
+        regs.IM     = 1;
+        regs.AF2    = 0x0149;
+        regs.BC2    = 0x0B00;
+        regs.DE2    = 0x369B;
+        regs.HL2    = 0x339B;
+        regs.halted = false;
+
+        if (v13) {
+            // nexload2.asm:379-388 — `ld de,(CLIBUFFER)`, and only when both
+            // the address and the size are non-zero `ld hl,innerBuffer :
+            // ldir`, which leaves DE one past the copied block: DE = address
+            // + size, NOT the address its header comment (:126) promises.
+            // Measured: address $A000, size 16 enters with DE=$A010.
+            const uint16_t addr = header_.cli_buffer_addr;
+            const uint16_t size = header_.cli_buffer_size;
+            regs.DE = (addr != 0 && size != 0) ? static_cast<uint16_t>(addr + size) : addr;
+            // IX = HL of the last ESXDOS macro call (`push hl : pop ix`,
+            // nexload2.asm:227): with file_handle 0 that is the F_CLOSE of
+            // the `call fclose` at :395 (:1074), with HL = FILEHANDLERET = 0
+            // (:391); otherwise the last bank's F_READ (every bank is read at
+            // $C000, :1002-1004); with no bank, the V1.3 position check's
+            // F_SEEK (:337-341, HL=1).
+            bool any_bank = false;
+            for (int b = 0; b < 112; ++b) any_bank = any_bank || header_.banks[b];
+            regs.IX = header_.file_handle == 0 ? 0x0000 : (any_bank ? 0xC000 : 0x0001);
+        } else {
+            // nexload.asm:537-545 — the bank loop pushes AF with A = slot
+            // index and F = the flags of `cp 112`, and pops it into DE: the
+            // last pass leaves D=111 ($6F), E=$A3 (S,5,N,C of 111-112).
+            // progress (:616-621) replaces E with the loading-bar colour when
+            // the bar is on, and the start delay's rasterWait (:575-577,
+            // :623-631) counts E down to 0.
+            const uint8_t e = header_.start_delay != 0 ? 0x00
+                            : header_.loading_bar     ? header_.loading_bar_colour
+                                                      : 0xA3;
+            regs.DE = static_cast<uint16_t>(0x6F00 | e);
+            // IX = the target of the last fread (:647-651 `push ix : pop hl`
+            // leaves IX alone): the header at $C000 (:288), then — in load
+            // order — the palette at $C200 (:426-428: any screen but one with
+            // the ULA/HiRes/HiColour bits or NOPAL), Layer 2 at $C000 (:441),
+            // ULA at $4000 (:457), LoRes/HiRes/HiColour ending at $6000
+            // (:474, :490, :507), then the banks: 5 at $4000, 2 at $8000,
+            // every other at $C000 (:520-539; loaded 5, 2, 0, 1, 3, 4, 6, 7,
+            // 8...).
+            const uint8_t sf = header_.screen_flags;
+            uint16_t ix = 0xC000;
+            if (sf != 0) {
+                if ((sf & 0x80) == 0 && (sf & 0x1A) == 0) ix = 0xC200;
+                if (sf & 0x01) ix = 0xC000;
+                if (sf & 0x02) ix = 0x4000;
+                if (sf & 0x1C) ix = 0x6000;   // LoRes, HiRes, HiColour
+            }
+            for (int d = 0; d < kTotalBankSlots; ++d) {
+                const int bank = kBankOrder[d];
+                if (bank < 112 && header_.banks[bank])
+                    ix = bank == 5 ? 0x4000 : bank == 2 ? 0x8000 : 0xC000;
+            }
+            regs.IX = ix;
+        }
+
         cpu.set_registers(regs);
-        Log::emulator()->debug("NEX: registers preserved, PC={:#06x} SP={:#06x}", header_.pc, header_.sp);
+        // The IM latch NR 0xC0 bits 2:1 read is fed by the IM instructions
+        // the CPU executes, and none executed here.
+        emu.im2().set_im_mode(1);
+        Log::emulator()->debug("NEX: entry state PC=HL={:#06x} SP={:#06x} DE={:#06x} IX={:#06x}",
+                               header_.pc, header_.sp, regs.DE, regs.IX);
     }
 
     // ---------------------------------------------------------------
@@ -1393,7 +1543,8 @@ bool NexLoader::apply(Emulator& emu) const
     // "when address and size are provided, the original argument line passed
     // to NEX loader will be copied to defined buffer ... and register DE is
     // set to the buffer address". nexload2.asm:376-389 does this AFTER the
-    // entry bank is paged in, which is why it lives here at the end.
+    // entry bank is paged in, which is why it lives here at the end. (What it
+    // really leaves in DE is address + size — see step 4, which sets DE.)
     //
     // The line jnext delivers comes from --nex-args (GH #172); with no such
     // option it is the empty line, which is what every V1.3 file got before.
@@ -1456,17 +1607,13 @@ bool NexLoader::apply(Emulator& emu) const
             mmu.write(static_cast<uint16_t>(header_.cli_buffer_addr + copied), 0x00);
         }
 
-        auto regs = cpu.get_registers();
-        regs.DE = header_.cli_buffer_addr;
-        cpu.set_registers(regs);
-
         if (truncated) {
             Log::emulator()->warn("NEX: --nex-args is {} bytes but the V1.3 CLI buffer at {:#06x} "
                                   "holds {}; truncated to {} bytes with no terminator, as the "
                                   "reference loader does",
                                   cli_args.size(), header_.cli_buffer_addr, size, copied);
         }
-        Log::emulator()->info("NEX: V1.3 CLI buffer at {:#06x} ({} bytes), DE set; {} bytes of "
+        Log::emulator()->info("NEX: V1.3 CLI buffer at {:#06x} ({} bytes); {} bytes of "
                               "argument line written{}",
                               header_.cli_buffer_addr, size, copied,
                               truncated ? "" : " + zero terminator");
@@ -1509,11 +1656,9 @@ bool NexLoader::apply(Emulator& emu) const
     // a BANKM, so what the loader found is what the reset left, captured
     // above as pre_entry_slot6/7.
     //
-    // (One deviation, deliberate and unobservable: step 7 leaves DE at the
-    // CLI buffer address. The oracle writes DE before the branch too, then
-    // clobbers it incidentally in `fclose` inside the tidy routine — an
-    // indeterminate value jnext cannot meaningfully reproduce, and no
-    // program runs to read it.)
+    // (Step 4 establishes no register on this path, so DE keeps the value the
+    // load found; the oracle's DE here is whatever its tidy routine leaves,
+    // and no program runs to read it.)
     //
     // Finally park the CPU. jnext's `--load` has no OS to return to: it
     // resets and applies the NEX before a single instruction runs, so the

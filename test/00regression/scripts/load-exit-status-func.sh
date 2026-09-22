@@ -9,8 +9,9 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # load-exit-status-func: a program that fails to load exits non-zero, in every
 # format, so a script can tell "loaded fine" from "failed to load, ran anyway".
 # Headless: a truncated .nex, a too-small .sna, a garbage .rzx given to
-# --rzx-play and a .tap whose last block runs past the end of the file must
-# each log the failure and exit non-zero; a valid .nex must
+# --rzx-play, a .tap whose last block runs past the end of the file and a
+# .tzx with no TZX signature (random bytes) must each log the failure and
+# exit non-zero; a valid .nex must
 # exit 0 (the positive control that keeps the failures from passing merely
 # because the emulator never ran). The SDL-only and Qt frontends enforce the
 # same rule in their own code, so each gets one failing and one valid .nex.
@@ -21,7 +22,8 @@ if want load-exit-status-func; then
     small_sna="$TMP_DIR/les-small.sna"
     bad_rzx="$TMP_DIR/les-bad.rzx"
     bad_tap="$TMP_DIR/les-truncated.tap"
-    python3 - "$good_nex" "$trunc_nex" "$small_sna" "$bad_rzx" "$bad_tap" <<'PY'
+    bad_tzx="$TMP_DIR/les-garbage.tzx"
+    python3 - "$good_nex" "$trunc_nex" "$small_sna" "$bad_rzx" "$bad_tap" "$bad_tzx" <<'PY'
 import sys, struct
 h = bytearray(512)
 h[0:4] = b"Next"; h[4:8] = b"V1.2"; h[9] = 1
@@ -41,6 +43,12 @@ for b in hdr: cs ^= b
 hdr += bytes([cs])
 open(sys.argv[5], "wb").write(struct.pack("<H", 19) + hdr +
                               struct.pack("<H", 7) + bytes([0xFF, 1, 2, 3]))
+# 300 pseudo-random bytes: no "ZXTape!" signature, which libspectrum's TZX
+# reader rejects (the old ZOT path played any such file as TAP data).
+x = 12345; g = bytearray()
+for _ in range(300):
+    x = (x * 1103515245 + 12345) & 0xFFFFFFFF; g.append((x >> 16) & 0xFF)
+open(sys.argv[6], "wb").write(bytes(g))
 PY
     # run_rc <out-var-name> <cmd...>: capture combined output and the exit
     # status without tripping set -e.
@@ -57,17 +65,25 @@ PY
     rc_sna=0;  run_rc o_sna  "${hl[@]}" --machine 48k  --load "$small_sna" || rc_sna=$?
     rc_rzx=0;  run_rc o_rzx  "${hl[@]}" --machine 48k  --rzx-play "$bad_rzx" || rc_rzx=$?
     rc_tap=0;  run_rc o_tap  "${hl[@]}" --machine 48k  --load "$bad_tap" || rc_tap=$?
+    # A .tzx load is scheduled 100 frames in (emulator_load_delay_frames), so
+    # this run must outlive that.
+    hl_tzx=(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless
+            "${SD_CARD_ARGS[@]}" --delayed-automatic-exit-frames 120)
+    rc_tzx=0;  run_rc o_tzx  "${hl_tzx[@]}" --machine 48k --load "$bad_tzx" || rc_tzx=$?
     rc_good=0; run_rc o_good "${hl[@]}" --machine next --load "$good_nex" || rc_good=$?
     e_nex=$(echo "$o_nex" | grep -cF "failed to load" || true)
     e_sna=$(echo "$o_sna" | grep -cF "failed to load" || true)
     e_rzx=$(echo "$o_rzx" | grep -cF "RZX: failed to load" || true)
     e_tap=$(echo "$o_tap" | grep -F "failed to load" | grep -cF "les-truncated.tap" || true)
     e_tapwhy=$(echo "$o_tap" | grep -cF "is not a valid TAP file" || true)
+    e_tzx=$(echo "$o_tzx" | grep -F "failed to load" | grep -cF "les-garbage.tzx" || true)
+    e_tzxwhy=$(echo "$o_tzx" | grep -cF "is not a valid TZX file" || true)
     e_good=$(echo "$o_good" | grep -cF "failed to load" || true)
     headless_ok=0
     if [[ "$rc_nex" -ne 0 && "$e_nex" -ge 1 && "$rc_sna" -ne 0 && "$e_sna" -ge 1 \
           && "$rc_rzx" -ne 0 && "$e_rzx" -ge 1 && "$rc_tap" -ne 0 && "$e_tap" -ge 1 \
-          && "$e_tapwhy" -ge 1 && "$rc_good" -eq 0 && "$e_good" -eq 0 ]]; then
+          && "$e_tapwhy" -ge 1 && "$rc_tzx" -ne 0 && "$e_tzx" -ge 1 && "$e_tzxwhy" -ge 1 \
+          && "$rc_good" -eq 0 && "$e_good" -eq 0 ]]; then
         headless_ok=1
     fi
 
@@ -102,9 +118,9 @@ PY
     fi
 
     if [[ "$headless_ok" -eq 1 && "$sdl_ok" -eq 1 && "$qt_ok" -eq 1 ]]; then
-        pass_row " (failed .nex/.sna/.tap/--rzx-play exit!=0, valid .nex exits 0; SDL + Qt same)"
+        pass_row " (failed .nex/.sna/.tap/.tzx/--rzx-play exit!=0, valid .nex exits 0; SDL + Qt same)"
     else
-        fail_row " (headless nex rc=$rc_nex err=$e_nex, sna rc=$rc_sna err=$e_sna, rzx rc=$rc_rzx err=$e_rzx, tap rc=$rc_tap err=$e_tap why=$e_tapwhy, good rc=$rc_good err=$e_good; $sdl_note; qt bad rc=$rc_qt_bad err=$e_qt_bad, good rc=$rc_qt_good)"
+        fail_row " (headless nex rc=$rc_nex err=$e_nex, sna rc=$rc_sna err=$e_sna, rzx rc=$rc_rzx err=$e_rzx, tap rc=$rc_tap err=$e_tap why=$e_tapwhy, tzx rc=$rc_tzx err=$e_tzx why=$e_tzxwhy, good rc=$rc_good err=$e_good; $sdl_note; qt bad rc=$rc_qt_bad err=$e_qt_bad, good rc=$rc_qt_good)"
     fi
 fi
 
