@@ -780,12 +780,17 @@ bool NexLoader::apply(Emulator& emu) const
         // Reset all clip window indices
         nr.write(0x1C, 0x0F);
 
-        // Layer 2 clip: 0, 255, 0, 255 (full)
+        // Layer 2 clip: 0, 255, 0, 191 — both loaders (nexload.asm:373-376,
+        // :389 `NEXTREG_nn 24,191`; nexload2.asm nextRegResetData's Y2 row
+        // `191, 191, 191, 255`), the VHDL reset value too. Measured under
+        // NextZXOS: Layer 2 and sprite Y2 read 191 at entry. (jnext used to
+        // write 255 here, which a 320x256 program got away with; on hardware
+        // it is clipped below row 191 unless it sets NR 0x18 itself.)
         nr.write(0x18, 0x00); nr.write(0x18, 0xFF);
-        nr.write(0x18, 0x00); nr.write(0x18, 0xFF);
-        // Sprite clip: 0, 255, 0, 255
+        nr.write(0x18, 0x00); nr.write(0x18, 0xBF);
+        // Sprite clip: 0, 255, 0, 191 (nexload.asm:377-380, :390; same row)
         nr.write(0x19, 0x00); nr.write(0x19, 0xFF);
-        nr.write(0x19, 0x00); nr.write(0x19, 0xFF);
+        nr.write(0x19, 0x00); nr.write(0x19, 0xBF);
         // ULA clip: 0, 255, 0, 191
         nr.write(0x1A, 0x00); nr.write(0x1A, 0xFF);
         nr.write(0x1A, 0x00); nr.write(0x1A, 0xBF);

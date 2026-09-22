@@ -79,6 +79,7 @@
 #include "video/layer2.h"
 #include "video/palette.h"
 #include "video/renderer.h"
+#include "video/sprites.h"
 #include "video/ula.h"
 
 #include <cstdarg>
@@ -1065,6 +1066,39 @@ void test_loader_nextregs() {
               f.nr(0x6E) == 0x2D && f.nr(0x6F) == 0x2B,
               fmt("ok=%d NR06=%02X NR08=%02X NR6E=%02X NR6F=%02X", f.ok ? 1 : 0,
                   f.nr(0x06), f.nr(0x08), f.nr(0x6E), f.nr(0x6F)));
+    }
+    // NEXNR-10/11 — the Layer 2 and sprite clip windows. Both loaders leave
+    // them at 0,255,0,191 (nexload.asm:372-390; nexload2.asm nextRegResetData,
+    // Y2 row 191,191,191,255); measured under NextZXOS: Y2 = 191 for both at
+    // entry. Seeded with Y2 = $55 first, so a loader that wrote nothing fails.
+    for (const char* version : {"V1.2", "V1.3"}) {
+        const bool v13 = std::strcmp(version, "V1.3") == 0;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        auto emu = std::make_unique<Emulator>();
+        emu->init(cfg);
+        emu->layer2().set_clip_y2(0x55);
+        emu->sprites().set_clip_y2(0x55);
+        const std::string path = fixture_path(v13 ? "clip_v13" : "clip_v12");
+        NexLoader loader;
+        const bool ok = write_preserve_nex(path, 0, version) && loader.load(path) &&
+                        loader.apply(*emu);
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+        const Layer2& l2 = emu->layer2();
+        const SpriteEngine& sp = emu->sprites();
+        check(v13 ? "NEXNR-11" : "NEXNR-10",
+              v13 ? "V1.3: Layer 2 and sprite clip windows are 0,255,0,191 at entry "
+                    "(nexload2.asm nextRegResetData)"
+                  : "<= V1.2: Layer 2 and sprite clip windows are 0,255,0,191 at entry "
+                    "(nexload.asm:372-390)",
+              ok && l2.clip_x1() == 0 && l2.clip_x2() == 255 && l2.clip_y1() == 0 &&
+              l2.clip_y2() == 191 && sp.clip_x1() == 0 && sp.clip_x2() == 255 &&
+              sp.clip_y1() == 0 && sp.clip_y2() == 191,
+              fmt("ok=%d L2=%u,%u,%u,%u SPR=%u,%u,%u,%u", ok ? 1 : 0, l2.clip_x1(),
+                  l2.clip_x2(), l2.clip_y1(), l2.clip_y2(), sp.clip_x1(), sp.clip_x2(),
+                  sp.clip_y1(), sp.clip_y2()));
     }
     {
         SeededNrFixture f("V1.2", 0, 0xF3, 0x30, "v12_tm");
