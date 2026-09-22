@@ -41,7 +41,7 @@ mentions them, so a test can no longer be absent from this document.
 | Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
 | Floating Bus                               |    40 |   40 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |    65 |   62 |    0 |    0 |       3 |          0 |
-| Contention                                 |   131 |  129 |    0 |    0 |       2 |          0 |
+| Contention                                 |   136 |  134 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    52 |   49 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    81 |   59 |    0 |    0 |      22 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4462 | 4210 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4467 | 4215 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4462**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4251**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7288**.
+Rows the sections above carry: **4467**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4256**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7293**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3213,137 +3213,142 @@ Notes and rationale: [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIG
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| CT-GATE-01 | ZX48K, mem_active_page=0x0A → is_contended_access()==true [zxnext.vhd:4481,4490] | zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:118 |
-| CT-GATE-02 | ZX48K, page=0x0A, set_contention_disable(true) → false [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:131 |
-| CT-GATE-03 | ZX48K, page=0x0A, set_cpu_speed(1) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:144 |
-| CT-GATE-04 | ZX48K, page=0x0A, set_cpu_speed(2) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:156 |
-| CT-GATE-05 | ZX48K, page=0x0A, set_cpu_speed(3) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:168 |
-| CT-GATE-07 | ZX48K, all gates off, page=0x0A → true [zxnext.vhd:4481,4490] | zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:189 |
-| CT-GATE-08 | Default-constructed model (no build()) honours VHDL :1099/:1377 power-on TimingPlus3 default — page=0x02 (bit3=0) → false; page=0x0A (bit3=1) → true [V24-MEM-01 fix; zxnext.vhd:4492,5761-5777] | zxnext.vhd:4492,5761-5777 | pass | test/contention/contention_test.cpp:215 |
-| CT-M48-01 | 48K, page=0x0A (bank 5, bits(3:1)=101) → contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:240 |
-| CT-M48-03 | 48K, page=0x00 (bank 0, bits(3:1)=000) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:251 |
-| CT-M48-05 | 48K, page=0x0E (bank 7, bits(3:1)=111) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:262 |
-| CT-M48-06 | 48K, page=0x10 (high nibble != 0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:274 |
-| CT-M48-08 | 48K, page=0xFF (floating-bus sentinel) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:286 |
-| CT-M128-01 | 128K, page=0x02 (bank 1, bit(1)=1) → contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:306 |
-| CT-M128-03 | 128K, page=0x04 (bank 2, bit(1)=0) → not contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:317 |
-| CT-M128-08 | 128K, page=0x10 (high nibble != 0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:328 |
-| CT-MP3-01 | +3, page=0x08 (bank 4, bit(3)=1) → contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:348 |
-| CT-MP3-05 | +3, page=0x00 (bank 0, bit(3)=0) → not contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:359 |
-| CT-MP3-08 | +3, ROM access (page >= 0xF0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:371 |
-| CT-IO-01 | 48K, cpu_a=0xFE (even port, ULA) → port_contend=1 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:397 |
-| CT-IO-02 | 48K, cpu_a=0xFF (odd port, non-ULA) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:405 |
-| CT-IO-03 | 48K, cpu_a=0x00 (even, lowest) → port_contend=1 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:413 |
-| CT-IO-04 | 48K, cpu_a=0x01 (odd, lowest) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:421 |
-| CT-IO-05 | 128K, cpu_a=0x7FFD bare-class port_contend → false today; Branch-A wires port_7ffd_active term [zxnext.vhd:4496,2594; contention.h:73-83 bare-class limitation] | zxnext.vhd:4496,2594 | pass | test/contention/contention_test.cpp:447 |
-| CT-IO-06 | 48K, cpu_a=0x7FFD (port_7ffd_active always 0 on 48K) → port_contend=0 [zxnext.vhd:4496,2594] | zxnext.vhd:4496,2594 | pass | test/contention/contention_test.cpp:459 |
-| CT-IO-07 | Any timing, cpu_a=0xBF3B (ULA+ index, port_bf3b OR-term) → 1 [zxnext.vhd:4496,2685] | zxnext.vhd:4496,2685 | pass | test/contention/contention_test.cpp:470 |
-| CT-IO-08 | Any timing, cpu_a=0xFF3B (ULA+ data, port_ff3b OR-term) → 1 [zxnext.vhd:4496,2686] | zxnext.vhd:4496,2686 | pass | test/contention/contention_test.cpp:478 |
-| CT-IO-09 | Any timing, cpu_a=0xBF3B, port_ulap_io_en=0 → port_contend=0 [zxnext.vhd:4496,2685] | zxnext.vhd:4496,2685 | pass | test/contention/contention_test.cpp:486 |
-| CT-WIN-01 | 48K, hc=0, vc=0 (hc_adj(3:2)=00 AND vc<64 border) → delay=0 [zxula.vhd:582-583; src/memory/contention.cpp:37-46] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:514 |
-| CT-WIN-02 | 48K, hc=3, vc=100 (hc_adj=4, (3:2)=01, first held tick) → delay=6 [zxula.vhd:582-583; Task 54 hc(3:0) table] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:530 |
-| CT-WIN-03 | 48K, hc=15, vc=100 (hc_adj=0 after 4-bit wrap) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:542 |
-| CT-WIN-04 | 48K, hc=255, vc=100 (last display col, hc_adj=0 wrap) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:554 |
-| CT-WIN-05 | 48K, hc=256, vc=100 (hc(8)=1 window gate off) → delay=0 [zxula.vhd:583; build()-loop bounds hc<=255] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:565 |
-| CT-WIN-06 | 48K, hc=100, vc=192 (border_active_v=1) → delay=0 [zxula.vhd:414,583] | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:580 |
-| CT-WIN-07 | 48K, hc=0..255 sweep at vc=100: per-phase LUT == inline VHDL-derived hc(3:0) table {0,0,0,6,6,5,5,4,4,3,3,2,2,1,1,0} (period 16 ticks = 8 T-states) [zxula.vhd:582-583; Task 54] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:617 |
-| CT-WIN-08 | +3 vs 48K, hc=15, vc=100: +3 clause-2 wait_s=1 → delay=1; 48K clause-2 absent → delay=0 [zxula.vhd:582-583; Task 54 hc(3:0) tables] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:642 |
-| CT-WIN-09 | 48K, hc=16, vc=100 (hc&0xF=0, hc_adj=1, (3:2)=00) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:658 |
-| CT-WIN-10 | 48K, hc=7, vc=100 (hc_adj=8 ⇒ wait_s=1, held 7..14) → delay=4 [zxula.vhd:582-583; Task 54 hc(3:0) table] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:674 |
-| CT-S48-01 | 48K bank-5 (page 0x0A) display+stretched (hc=4,vc=100) → gate=1 AND delay=6 [zxula.vhd:582-595; Task 54 table] | zxula.vhd:582-595 | pass | test/contention/contention_test.cpp:709 |
-| CT-S48-02 | 48K bank-5 display+NON-stretched (hc=0,vc=100) → gate=1 BUT delay=0 (hc_adj(3:2)=00) [zxula.vhd:582-595] | zxula.vhd:582-595 | pass | test/contention/contention_test.cpp:725 |
-| CT-S48-03 | 48K bank-0 (page 0x00, bits(3:1)=000) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:739 |
-| CT-S48-04 | 128K bank-1 (page 0x02) display+stretched (hc=4,vc=100) → gate=1 AND delay=6 (Task 54 hc(3:0) table, {3,4}->6) [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:752 |
-| CT-S48-05 | 128K bank-4 (page 0x08, bit(1)=0) → not contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:767 |
-| CT-S48-06 | 48K port=0xFE, hc=4, vc=100 → port_contend=1 AND delay=6 (port stretched; Task 54 hc(3:0) table) [zxula.vhd:587-595; zxnext.vhd:4496] | zxula.vhd:587-595, zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:782 |
-| CT-S48-07 | 48K port=0xFF (odd, no ULA+, no 7FFD) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:797 |
-| CT-S48-08 | 48K bank-5 outside display window (vc=300) → gate=1 BUT delay=0 (border_active_v=1) [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:811 |
-| CT-SP3-01 | +3 bank-4 (page 0x08) display+stretched (hc=4,vc=100) → gate=1 AND delay=7 (+3 window covers 15,0; Task 54 table) [zxula.vhd:600; zxnext.vhd:4492] | zxula.vhd:600, zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:841 |
-| CT-SP3-02 | +3 bank-7 (page 0x0E) display+stretched (hc=4,vc=100) → gate=1 AND delay=7 (+3 window covers 15,0; Task 54 table) [zxula.vhd:600; zxnext.vhd:4492] | zxula.vhd:600, zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:859 |
-| CT-SP3-03 | +3 bank-0 (page 0x00, bit(3)=0) → not contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:873 |
-| CT-SP3-04 | +3 bank-4 outside display window (vc=300) → gate=1 BUT delay=0 (border) [zxula.vhd:583,600] | zxula.vhd:583,600 | pass | test/contention/contention_test.cpp:887 |
-| CT-SP3-05 | +3 bank-4 with contention_disable=1 → not contended (enable gate off) [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:901 |
-| CT-SP3-06 | +3 port=0xFE bare port_contend=1; +3 WAIT_n is memory-only so Branch-A tick does NOT stall on I/O [zxula.vhd:599-600 commented OR-with-iorq clause] | zxula.vhd:599-600 | pass | test/contention/contention_test.cpp:921 |
-| CT-SP3-07 | +3 port=0xFE with contended MMU bank → port_contend=1 (memory-bank state does NOT enter port_contend decode) [zxula.vhd:599-600; zxnext.vhd:4496] | zxula.vhd:599-600, zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:938 |
-| CT-SP3-08 | +3 hc=15 hc_adj=0 (3:1)=000 clause-2 wait_s=1 with bank 4: delay=1 (+3 wrap phase); 48K same hc=15 delay=0 (clause-1 fails) [zxula.vhd:582-583,600; Task 54 tables] | zxula.vhd:582-583,600 | pass | test/contention/contention_test.cpp:961 |
-| CT-TURBO-01 | 48K, cpu_speed=1 (7 MHz), page=0x0A → not contended (gate off) [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:1000 |
-| CT-TURBO-04 | Emulator::init failed (likely missing 48K ROM) — row would otherwise verify NR 0x07=0x01 → cpu_speed=7 MHz → contention gate off [zxnext.vhd:5787-5790,5817] | zxnext.vhd:5787-5790,5817 | pass | test/contention/contention_test.cpp:1024 |
-| CT-TURBO-05 | Emulator::init failed — would verify NR 0x08 bit 6 → contention_disable [zxnext.vhd:4481,5823] | zxnext.vhd:4481,5823 | pass | test/contention/contention_test.cpp:1074 |
-| CT-TURBO-06 | NR 0x08 bit 6 shadow latches on hc(8) rising edge: shadow alone does not affect gate; hc<256 does not commit; hc>=256 commits [zxnext.vhd:5822-5823] | zxnext.vhd:5822-5823 | pass | test/contention/contention_test.cpp:1139 |
-| CT-TURBO-07 | NR 0x07 cpu_speed shadow → effective commits only on bus-idle (mreq_n & iorq_n & m1_n & not dma_holds_bus): shadow alone does not affect gate; bus_idle=0 does not commit; dma_holds_bus=1 does not commit; bus_idle=1 AND dma_holds_bus=0 commits [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:1206 |
-| CT-TURBO-09 | NR 0x07=0/1/2/3 → Clock divisor 8/4/2/1 and the CPU is granted exactly master_cycles_per_frame/divisor T-states in one run_frame() (overshoot <= one instruction). Pins the 28 MHz-master ÷ NR 0x07 CPU clock end-to-end, not just the divisor value [zxnext.vhd:5787-5790,5809,5817; GH #165] | zxnext.vhd:5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2268 |
-| CT-TURBO-10 | Uncontended self-looping LDIR: iterations retired in one frame == (master_cycles_per_frame/divisor - setup)/21 at NR 0x07=0/1/2, and 14 MHz retires exactly 4x the 3.5 MHz count. Pins per-instruction T-state charging against the frame budget — the composition GH #165 claimed was 590x wrong [zxnext.vhd:4481,5787-5790,5809,5817; GH #165] | zxnext.vhd:4481,5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2323 |
-| CT-TURBO-11 | Emulator::init failed (likely missing 48K ROM) — row would otherwise verify NR 0x07=0x02 disables the runtime contention path [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2359 |
-| CT-FB-01 | Emulator::init failed (likely missing +3 ROMs) — would verify p3_floating_bus_dat captures bank-4 read [zxnext.vhd:4498-4505] | zxnext.vhd:4498-4505 | pass | test/contention/contention_test.cpp:1250 |
-| CT-FB-02 | Emulator::init failed — would verify mem write capture [zxnext.vhd:4498-4508] | zxnext.vhd:4498-4508 | pass | test/contention/contention_test.cpp:1280 |
-| CT-FB-03 | Emulator::init failed — would verify latch hold on non-contended access [zxnext.vhd:4498-4501] | zxnext.vhd:4498-4501 | pass | test/contention/contention_test.cpp:1306 |
-| CT-FB-04 | Emulator::init failed — would verify I/O bypasses latch [zxnext.vhd:4501] | zxnext.vhd:4501 | pass | test/contention/contention_test.cpp:1335 |
-| CT-INT-01 | Emulator::init failed — would verify 48K contention-ON adds non-zero T-states [zxula.vhd:582-595; zxula_timing.vhd] | zxula.vhd:582-595, zxula_timing.vhd | pass | test/contention/contention_test.cpp:1381 |
-| CT-INT-02 | Emulator::init failed — would verify 48K contention-OFF matches baseline [zxnext.vhd:4481,5823] | zxnext.vhd:4481,5823 | pass | test/contention/contention_test.cpp:1415 |
-| CT-INT-03 | Regression suite plumbing: floating-bus reference PNG exists AND regression_tests.conf includes a `floating-bus` entry — contention regressions land via test/00regression/regression.sh [test/00regression/img/floating-bus-reference.png; test/00regression/regression_tests.conf] | — | pass | test/contention/contention_test.cpp:1494 |
-| CT-FUSE-01 | Emulator::init failed — would verify M1 fetch contention [zxula.vhd:583; zxnext.vhd:4481,4490] | zxula.vhd:583, zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:1874 |
-| CT-FUSE-02 | Emulator::init failed — would verify LDIR no-MREQ tail contention [zxula.vhd:583,595; z80_ed.c:418-433] | zxula.vhd:583,595 | pass | test/contention/contention_test.cpp:1952 |
+| CT-GATE-01 | ZX48K, mem_active_page=0x0A → is_contended_access()==true [zxnext.vhd:4481,4490] | zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:121 |
+| CT-GATE-02 | ZX48K, page=0x0A, set_contention_disable(true) → false [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:134 |
+| CT-GATE-03 | ZX48K, page=0x0A, set_cpu_speed(1) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:147 |
+| CT-GATE-04 | ZX48K, page=0x0A, set_cpu_speed(2) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:159 |
+| CT-GATE-05 | ZX48K, page=0x0A, set_cpu_speed(3) → false [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:171 |
+| CT-GATE-07 | ZX48K, all gates off, page=0x0A → true [zxnext.vhd:4481,4490] | zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:192 |
+| CT-GATE-08 | Default-constructed model (no build()) honours VHDL :1099/:1377 power-on TimingPlus3 default — page=0x02 (bit3=0) → false; page=0x0A (bit3=1) → true [V24-MEM-01 fix; zxnext.vhd:4492,5761-5777] | zxnext.vhd:4492,5761-5777 | pass | test/contention/contention_test.cpp:218 |
+| CT-M48-01 | 48K, page=0x0A (bank 5, bits(3:1)=101) → contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:243 |
+| CT-M48-03 | 48K, page=0x00 (bank 0, bits(3:1)=000) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:254 |
+| CT-M48-05 | 48K, page=0x0E (bank 7, bits(3:1)=111) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:265 |
+| CT-M48-06 | 48K, page=0x10 (high nibble != 0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:277 |
+| CT-M48-08 | 48K, page=0xFF (floating-bus sentinel) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:289 |
+| CT-M128-01 | 128K, page=0x02 (bank 1, bit(1)=1) → contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:309 |
+| CT-M128-03 | 128K, page=0x04 (bank 2, bit(1)=0) → not contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:320 |
+| CT-M128-08 | 128K, page=0x10 (high nibble != 0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:331 |
+| CT-MP3-01 | +3, page=0x08 (bank 4, bit(3)=1) → contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:351 |
+| CT-MP3-05 | +3, page=0x00 (bank 0, bit(3)=0) → not contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:362 |
+| CT-MP3-08 | +3, ROM access (page >= 0xF0) → not contended [zxnext.vhd:4489] | zxnext.vhd:4489 | pass | test/contention/contention_test.cpp:374 |
+| CT-IO-01 | 48K, cpu_a=0xFE (even port, ULA) → port_contend=1 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:400 |
+| CT-IO-02 | 48K, cpu_a=0xFF (odd port, non-ULA) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:408 |
+| CT-IO-03 | 48K, cpu_a=0x00 (even, lowest) → port_contend=1 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:416 |
+| CT-IO-04 | 48K, cpu_a=0x01 (odd, lowest) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:424 |
+| CT-IO-05 | 128K, cpu_a=0x7FFD bare-class port_contend → false today; Branch-A wires port_7ffd_active term [zxnext.vhd:4496,2594; contention.h:73-83 bare-class limitation] | zxnext.vhd:4496,2594 | pass | test/contention/contention_test.cpp:450 |
+| CT-IO-06 | 48K, cpu_a=0x7FFD (port_7ffd_active always 0 on 48K) → port_contend=0 [zxnext.vhd:4496,2594] | zxnext.vhd:4496,2594 | pass | test/contention/contention_test.cpp:462 |
+| CT-IO-07 | Any timing, cpu_a=0xBF3B (ULA+ index, port_bf3b OR-term) → 1 [zxnext.vhd:4496,2685] | zxnext.vhd:4496,2685 | pass | test/contention/contention_test.cpp:473 |
+| CT-IO-08 | Any timing, cpu_a=0xFF3B (ULA+ data, port_ff3b OR-term) → 1 [zxnext.vhd:4496,2686] | zxnext.vhd:4496,2686 | pass | test/contention/contention_test.cpp:481 |
+| CT-IO-09 | Any timing, cpu_a=0xBF3B, port_ulap_io_en=0 → port_contend=0 [zxnext.vhd:4496,2685] | zxnext.vhd:4496,2685 | pass | test/contention/contention_test.cpp:489 |
+| CT-WIN-01 | 48K, hc=0, vc=0 (hc_adj(3:2)=00 AND vc<64 border) → delay=0 [zxula.vhd:582-583; src/memory/contention.cpp:37-46] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:517 |
+| CT-WIN-02 | 48K, hc=3, vc=100 (hc_adj=4, (3:2)=01, first held tick) → delay=6 [zxula.vhd:582-583; Task 54 hc(3:0) table] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:533 |
+| CT-WIN-03 | 48K, hc=15, vc=100 (hc_adj=0 after 4-bit wrap) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:545 |
+| CT-WIN-04 | 48K, hc=255, vc=100 (last display col, hc_adj=0 wrap) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:557 |
+| CT-WIN-05 | 48K, hc=256, vc=100 (hc(8)=1 window gate off) → delay=0 [zxula.vhd:583; build()-loop bounds hc<=255] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:568 |
+| CT-WIN-06 | 48K, hc=100, vc=192 (border_active_v=1) → delay=0 [zxula.vhd:414,583] | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:583 |
+| CT-WIN-07 | 48K, hc=0..255 sweep at vc=100: per-phase LUT == inline VHDL-derived hc(3:0) table {0,0,0,6,6,5,5,4,4,3,3,2,2,1,1,0} (period 16 ticks = 8 T-states) [zxula.vhd:582-583; Task 54] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:620 |
+| CT-WIN-08 | +3 vs 48K, hc=15, vc=100: +3 clause-2 wait_s=1 → delay=1; 48K clause-2 absent → delay=0 [zxula.vhd:582-583; Task 54 hc(3:0) tables] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:645 |
+| CT-WIN-09 | 48K, hc=16, vc=100 (hc&0xF=0, hc_adj=1, (3:2)=00) → delay=0 [zxula.vhd:178,582-583] | zxula.vhd:178,582-583 | pass | test/contention/contention_test.cpp:661 |
+| CT-WIN-10 | 48K, hc=7, vc=100 (hc_adj=8 ⇒ wait_s=1, held 7..14) → delay=4 [zxula.vhd:582-583; Task 54 hc(3:0) table] | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:677 |
+| CT-S48-01 | 48K bank-5 (page 0x0A) display+stretched (hc=4,vc=100) → gate=1 AND delay=6 [zxula.vhd:582-595; Task 54 table] | zxula.vhd:582-595 | pass | test/contention/contention_test.cpp:712 |
+| CT-S48-02 | 48K bank-5 display+NON-stretched (hc=0,vc=100) → gate=1 BUT delay=0 (hc_adj(3:2)=00) [zxula.vhd:582-595] | zxula.vhd:582-595 | pass | test/contention/contention_test.cpp:728 |
+| CT-S48-03 | 48K bank-0 (page 0x00, bits(3:1)=000) → not contended [zxnext.vhd:4490] | zxnext.vhd:4490 | pass | test/contention/contention_test.cpp:742 |
+| CT-S48-04 | 128K bank-1 (page 0x02) display+stretched (hc=4,vc=100) → gate=1 AND delay=6 (Task 54 hc(3:0) table, {3,4}->6) [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:755 |
+| CT-S48-05 | 128K bank-4 (page 0x08, bit(1)=0) → not contended [zxnext.vhd:4491] | zxnext.vhd:4491 | pass | test/contention/contention_test.cpp:770 |
+| CT-S48-06 | 48K port=0xFE, hc=4, vc=100 → port_contend=1 AND delay=6 (port stretched; Task 54 hc(3:0) table) [zxula.vhd:587-595; zxnext.vhd:4496] | zxula.vhd:587-595, zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:785 |
+| CT-S48-07 | 48K port=0xFF (odd, no ULA+, no 7FFD) → port_contend=0 [zxnext.vhd:4496] | zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:800 |
+| CT-S48-08 | 48K bank-5 outside display window (vc=300) → gate=1 BUT delay=0 (border_active_v=1) [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:814 |
+| CT-SP3-01 | +3 bank-4 (page 0x08) display+stretched (hc=4,vc=100) → gate=1 AND delay=7 (+3 window covers 15,0; Task 54 table) [zxula.vhd:600; zxnext.vhd:4492] | zxula.vhd:600, zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:844 |
+| CT-SP3-02 | +3 bank-7 (page 0x0E) display+stretched (hc=4,vc=100) → gate=1 AND delay=7 (+3 window covers 15,0; Task 54 table) [zxula.vhd:600; zxnext.vhd:4492] | zxula.vhd:600, zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:862 |
+| CT-SP3-03 | +3 bank-0 (page 0x00, bit(3)=0) → not contended [zxnext.vhd:4492] | zxnext.vhd:4492 | pass | test/contention/contention_test.cpp:876 |
+| CT-SP3-04 | +3 bank-4 outside display window (vc=300) → gate=1 BUT delay=0 (border) [zxula.vhd:583,600] | zxula.vhd:583,600 | pass | test/contention/contention_test.cpp:890 |
+| CT-SP3-05 | +3 bank-4 with contention_disable=1 → not contended (enable gate off) [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:904 |
+| CT-SP3-06 | +3 port=0xFE bare port_contend=1; +3 WAIT_n is memory-only so Branch-A tick does NOT stall on I/O [zxula.vhd:599-600 commented OR-with-iorq clause] | zxula.vhd:599-600 | pass | test/contention/contention_test.cpp:924 |
+| CT-SP3-07 | +3 port=0xFE with contended MMU bank → port_contend=1 (memory-bank state does NOT enter port_contend decode) [zxula.vhd:599-600; zxnext.vhd:4496] | zxula.vhd:599-600, zxnext.vhd:4496 | pass | test/contention/contention_test.cpp:941 |
+| CT-SP3-08 | +3 hc=15 hc_adj=0 (3:1)=000 clause-2 wait_s=1 with bank 4: delay=1 (+3 wrap phase); 48K same hc=15 delay=0 (clause-1 fails) [zxula.vhd:582-583,600; Task 54 tables] | zxula.vhd:582-583,600 | pass | test/contention/contention_test.cpp:964 |
+| CT-TURBO-01 | 48K, cpu_speed=1 (7 MHz), page=0x0A → not contended (gate off) [zxnext.vhd:4481,5817] | zxnext.vhd:4481,5817 | pass | test/contention/contention_test.cpp:1003 |
+| CT-TURBO-04 | Emulator::init failed (likely missing 48K ROM) — row would otherwise verify NR 0x07=0x01 → cpu_speed=7 MHz → contention gate off [zxnext.vhd:5787-5790,5817] | zxnext.vhd:5787-5790,5817 | pass | test/contention/contention_test.cpp:1027 |
+| CT-TURBO-05 | Emulator::init failed — would verify NR 0x08 bit 6 → contention_disable [zxnext.vhd:4481,5823] | zxnext.vhd:4481,5823 | pass | test/contention/contention_test.cpp:1077 |
+| CT-TURBO-06 | NR 0x08 bit 6 shadow latches on hc(8) rising edge: shadow alone does not affect gate; hc<256 does not commit; hc>=256 commits [zxnext.vhd:5822-5823] | zxnext.vhd:5822-5823 | pass | test/contention/contention_test.cpp:1142 |
+| CT-TURBO-07 | NR 0x07 cpu_speed shadow → effective commits only on bus-idle (mreq_n & iorq_n & m1_n & not dma_holds_bus): shadow alone does not affect gate; bus_idle=0 does not commit; dma_holds_bus=1 does not commit; bus_idle=1 AND dma_holds_bus=0 commits [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:1209 |
+| CT-TURBO-09 | NR 0x07=0/1/2/3 → Clock divisor 8/4/2/1 and the CPU is granted exactly master_cycles_per_frame/divisor T-states in one run_frame() (overshoot <= one instruction). Pins the 28 MHz-master ÷ NR 0x07 CPU clock end-to-end, not just the divisor value [zxnext.vhd:5787-5790,5809,5817; GH #165] | zxnext.vhd:5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2271 |
+| CT-TURBO-10 | Uncontended self-looping LDIR: iterations retired in one frame == (master_cycles_per_frame/divisor - setup)/21 at NR 0x07=0/1/2, and 14 MHz retires exactly 4x the 3.5 MHz count. Pins per-instruction T-state charging against the frame budget — the composition GH #165 claimed was 590x wrong [zxnext.vhd:4481,5787-5790,5809,5817; GH #165] | zxnext.vhd:4481,5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2326 |
+| CT-TURBO-11 | Emulator::init failed (likely missing 48K ROM) — row would otherwise verify NR 0x07=0x02 disables the runtime contention path [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2362 |
+| CT-FB-01 | Emulator::init failed (likely missing +3 ROMs) — would verify p3_floating_bus_dat captures bank-4 read [zxnext.vhd:4498-4505] | zxnext.vhd:4498-4505 | pass | test/contention/contention_test.cpp:1253 |
+| CT-FB-02 | Emulator::init failed — would verify mem write capture [zxnext.vhd:4498-4508] | zxnext.vhd:4498-4508 | pass | test/contention/contention_test.cpp:1283 |
+| CT-FB-03 | Emulator::init failed — would verify latch hold on non-contended access [zxnext.vhd:4498-4501] | zxnext.vhd:4498-4501 | pass | test/contention/contention_test.cpp:1309 |
+| CT-FB-04 | Emulator::init failed — would verify I/O bypasses latch [zxnext.vhd:4501] | zxnext.vhd:4501 | pass | test/contention/contention_test.cpp:1338 |
+| CT-INT-01 | Emulator::init failed — would verify 48K contention-ON adds non-zero T-states [zxula.vhd:582-595; zxula_timing.vhd] | zxula.vhd:582-595, zxula_timing.vhd | pass | test/contention/contention_test.cpp:1384 |
+| CT-INT-02 | Emulator::init failed — would verify 48K contention-OFF matches baseline [zxnext.vhd:4481,5823] | zxnext.vhd:4481,5823 | pass | test/contention/contention_test.cpp:1418 |
+| CT-INT-03 | Regression suite plumbing: floating-bus reference PNG exists AND regression_tests.conf includes a `floating-bus` entry — contention regressions land via test/00regression/regression.sh [test/00regression/img/floating-bus-reference.png; test/00regression/regression_tests.conf] | — | pass | test/contention/contention_test.cpp:1497 |
+| CT-FUSE-01 | Emulator::init failed — would verify M1 fetch contention [zxula.vhd:583; zxnext.vhd:4481,4490] | zxula.vhd:583, zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:1877 |
+| CT-FUSE-02 | Emulator::init failed — would verify LDIR no-MREQ tail contention [zxula.vhd:583,595; z80_ed.c:418-433] | zxula.vhd:583,595 | pass | test/contention/contention_test.cpp:1955 |
 | CT-FUSE-03 | C | zxula.vhd:595, zxnext.vhd:4496 | missing | — |
 | CT-FUSE-04 | C | zxula.vhd:595, zxnext.vhd:4496 | missing | — |
-| T51-INT-01 | Emulator::init(ZX128K) failed — Task 51 video-timing re-push probe | zxula_timing.vhd:147-280, zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:3132 |
-| T56-INT-01 | Emulator::init(ZX128K) failed — Task 56 50/60 Hz frame-edge commit probe | zxnext.vhd:6697-6703, zxula_timing.vhd:282-298 | pass | test/contention/contention_test.cpp:3209 |
-| CT-SW28-01 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3696 |
-| CT-SW28-02 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3697 |
-| CT-SW28-03 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3698 |
-| CT-SW28-04 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3171-3181 | pass | test/contention/contention_test.cpp:3699 |
-| CT-SW28-05 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3733 |
-| CT-SW28-06 | Emulator::init failed (Next machine) | zxnext.vhd:3171-3181 | pass | test/contention/contention_test.cpp:3737 |
-| CT-SW28-07 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3175 | pass | test/contention/contention_test.cpp:3740 |
-| CT-SW28-08 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3744 |
-| CT-SW28-09 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3748 |
-| CT-SW28-10 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3755 |
-| CT-SW28-11 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3761 |
-| CT-SW28-12 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3765 |
-| CT-SW28-13 | Emulator::init failed (Next machine) | zxnext.vhd:6592,3175 | pass | test/contention/contention_test.cpp:3798 |
-| CT-SW28-14 | Emulator::init failed (Next machine) | zxnext.vhd:6670-6685 | pass | test/contention/contention_test.cpp:3825 |
-| CT-SW28-15 | Emulator::init failed (Next machine) | zxnext.vhd:2964,3061 | pass | test/contention/contention_test.cpp:3851 |
-| CT-SW28-16 | Emulator::init failed (Next machine) | zxnext.vhd:1857,3199-3204 | pass | test/contention/contention_test.cpp:3885 |
-| CT-SW28-17 | Emulator::init failed (Next machine) | zxnext.vhd:3052-3053 | pass | test/contention/contention_test.cpp:3895 |
-| CT-SW28-18 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3920 |
-| CT-SW28-19 | Emulator::init failed (Next machine) | zxnext.vhd:3084-3099 | pass | test/contention/contention_test.cpp:3953 |
-| CT-SW28-20 | Emulator::init failed (Next machine) | zxnext.vhd:3028-3035 | pass | test/contention/contention_test.cpp:3992 |
-| CT-SW28-21 | Emulator::init failed (Next machine) | zxnext.vhd:3077 | pass | test/contention/contention_test.cpp:4028 |
-| CT-GH183-01 | 48K: `contention_tick()` identical at both ticks of every T-state pair `{hc-1, hc}` over the contended span | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4187 |
-| CT-GH183-02 | 128K: same pair invariance | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4187 |
-| CT-GH183-03 | 48K: swapping jnext's independent (hc-12, vc) rebase for the VHDL-exact linear counter pair (hc-11) changes the contention delay at ZERO T-states of a full frame — the -12 in ula_prefetch_origin_hc() is unobservable here [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4210 |
-| CT-GH183-04 | 128K: same whole-frame VHDL-exact rebase comparison — zero differing T-states, identical per-frame contention total [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4222 |
-| CT-GH183-05 | +3: the hc_adj(3:1)=000 wait_s extension puts index pair {15,0} astride the i_hc(8) window edge, so the -12 vs -11 rebase relocates exactly 2 T-states per display line (384/frame) with an IDENTICAL per-frame contention total — a sub-T-state blip, not a delay change [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:4245 |
-| CT-GH183-06 | Emulator::init failed — would verify end-to-end origin invariance [zxula_timing.vhd:423-436] | zxula_timing.vhd:423-436 | pass | test/contention/contention_test.cpp:4268 |
-| CT-GH265-01 | 48K port-contended IN A,(C): the port handler runs after the I/O cycle's stretch, 3 T before the end (zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222) | zxnext.vhd:4496, zxula.vhd:587-595, t80na.vhd:214-222 | pass | test/contention/contention_test.cpp:4365 |
-| CT-GH265-02 | 48K IN A,(C) in the top border: no stretch, 12 T, handler at 9 T (zxula.vhd:414,583) | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:4381 |
-| CT-DELAY-01 | Emulator::init failed for one or more machines — would verify per-frame contention drift bound across 48K/128K/+3 [zxula.vhd:582-595; zxnext.vhd:4481] | zxula.vhd:582-595, zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:1599 |
-| CT-FUSE-05 | Emulator::init failed — would verify single-contention-path invariant [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2057 |
-| CT-TURBO-08 | Combined mid-line NR 0x07 + NR 0x08 b6 writes: each shadow commits on its OWN edge (NR 0x07 on bus-idle CLK_CPU; NR 0x08 b6 on bus-idle CLK_CPU AND hc(8)='1'); independent — one edge satisfied does not commit the other [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:2181 |
-| FIX-CONTEND-NR03-01 | ContentionModel::rebuild_for_type updates type/LUT and preserves ALL 5 dynamic gate fields (mem_active_page, cpu_speed, pending_cpu_speed, contention_disable/_shadow, port_7ffd_io_en) — VHDL :5137-5145 + :4489-4493; commit f5ec6d8 | — | pass | test/contention/contention_test.cpp:2494 |
-| FIX-CONTEND-NR03-INT-01 | Emulator::init(ZX48K) failed — would verify NR 0x03 dispatcher drives both axes | — | pass | test/contention/contention_test.cpp:2529 |
-| FIX-CONTEND-7FFD-01 | 128K + port 0x7FFD: port_contend gated on port_7ffd_io_en (NR 0x82 b1) — VHDL :4496/:2594/:2593; commit f5ec6d8 | zxnext.vhd:4496,2594,2593 | pass | test/contention/contention_test.cpp:2583 |
-| FIX-CONTEND-7FFD-02 | 48K + port 0x7FFD + io_en=1: port_contend=0 (s128/p3 timing gates off) — VHDL zxnext.vhd:2594; commit f5ec6d8 | zxnext.vhd:2594 | pass | test/contention/contention_test.cpp:2601 |
-| FIX-CONTEND-7FFD-03 | +3 + port 0x7FFD + io_en=1: port_contend=1 — VHDL zxnext.vhd:2593-2594; commit f5ec6d8 | zxnext.vhd:2593-2594 | pass | test/contention/contention_test.cpp:2619 |
-| FIX-MEMACTIVE-PAGE-01 | Emulator::init failed — would verify Mmu::get_page returns 0xFF sentinel for ROM slots 0/1 on 128K [zxnext.vhd:2949-2956,4489] | zxnext.vhd:2949-2956,4489 | pass | test/contention/contention_test.cpp:2653 |
-| FIX-MEMACTIVE-PAGE-INT-01 | Emulator::init failed — would verify CPU mem_active_page_for calls Mmu::get_page (NOT get_effective_page) | — | pass | test/contention/contention_test.cpp:2699 |
-| V15-CPU-NIT-03-01 | ZX128K, NR 0x85 b0=1, IORQ@$BF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2685,4496; reviewer-promoted V15-CPU-NIT-03) | zxnext.vhd:2439,2685,4496 | pass | test/contention/contention_test.cpp:2804 |
-| V15-CPU-NIT-03-02 | ZX128K, NR 0x85 b0=1, IORQ@$FF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:2822 |
-| V15-CPU-NIT-03-03 | ZX128K, NR 0x85 b0=0, IORQ@$BF3B → contention_tick stretch == 0 (gate disabled; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:2843 |
-| V15-CPU-NIT-03-04 | set_port_ulap_io_en(true) → port_ulap_io_en()==true; set_port_ulap_io_en(false) → port_ulap_io_en()==false (round-trip; mirrors port_7ffd_io_en pattern) | — | pass | test/contention/contention_test.cpp:2859 |
-| V15-CPU-NIT-03-05 | port_contend(0xBF3B, port_ulap_io_en=true) returns true regardless of shadow state (parameter override; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:2880 |
-| D3-CONTENTION-01 | tim_sel=128 / typ_sel=48 / page=0x02 — pre-fix follows typ_sel (48: bank-5 only → false); post-fix follows tim_sel (128: odd banks → true) per VHDL zxnext.vhd:4491,5761-5777 | zxnext.vhd:4491,5761-5777 | pass | test/contention/contention_test.cpp:2935 |
-| D3-CONTENTION-02 | tim_sel=+3 / typ_sel=128 / page=0x08 — pre-fix follows typ_sel (128: odd banks → false); post-fix follows tim_sel (+3: banks>=4 → true) per VHDL zxnext.vhd:4492,5761-5777 | zxnext.vhd:4492,5761-5777 | pass | test/contention/contention_test.cpp:2956 |
-| D3-CONTENTION-03 | video-frame deferred-commit latch — set_pending defers the new tim_sel until commit_pending_machine_timing() at the frame edge; pre-commit retains old effective value (VHDL zxnext.vhd:6694-6703) | zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:2993 |
-| D3-CONTENTION-04 | Emulator::init(ZX128K) failed | zxnext.vhd:4490-4492 | pass | test/contention/contention_test.cpp:3066 |
-| D3-CONTENTION-05 | Emulator::init(ZX128K) failed — Mmu::machine_timing_ axis storage + commit probe | — | pass | test/contention/contention_test.cpp:3236 |
-| D3-CONTENTION-06 | tim_sel=Pentagon disables contention regardless of typ_sel (VHDL zxnext.vhd:4481 — i_contention_en gates on NOT machine_timing_pentagon) | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:3294 |
-| D3-CONTENTION-NIT-01 | Emulator::init(ZX48K) failed — would verify load_state preserves machine_timing pair from Mmu schema | — | pass | test/contention/contention_test.cpp:3336 |
-| T50-01 | 48K, read $4000 at raw vc=10 (TOP BORDER, above c_min_vactive=64) on an hc phase that DOES contend in raw coordinates → NO contention (zxula.vhd:414 border_active_v is keyed on the ULA display-relative i_vc, reset at c_min_vactive per zxula_timing.vhd:441-452) | zxula.vhd:414, zxula_timing.vhd:441-452 | pass | test/contention/contention_test.cpp:3535 |
-| T50-02 | 48K, read $4000 at raw vc=64 (FIRST display line) → contends (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3546 |
-| T50-03 | 48K, read $4000 at raw vc=200 (BOTTOM display third, still within 64..255) → contends; pre-fix the raw vc tripped border_active_v and silently stopped contending (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3558 |
-| T50-04 | 48K, read $4000: raw vc=255 (LAST display line) contends, raw vc=256 (BOTTOM BORDER) does not — the window closes at exactly 192 ULA lines (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3569 |
-| T50-05 | 48K, read $4000 on a display line but at hc=4 (LEFT BORDER, before ula_min_hactive=c_min_hactive-12=116) → NO contention (zxula.vhd:416 border_active_ula = i_hc(8) or border_active_v; zxula_timing.vhd:423) | zxula.vhd:416, zxula_timing.vhd:423 | pass | test/contention/contention_test.cpp:3583 |
-| T50-06 | 128K (c_min_hactive=136, 228 T/line): top border does not contend and a display line does — proves the ULA counter origins are taken per-machine from VideoTiming, not hardcoded to the 48K values (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/contention/contention_test.cpp:3611 |
+| T51-INT-01 | Emulator::init(ZX128K) failed — Task 51 video-timing re-push probe | zxula_timing.vhd:147-280, zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:3135 |
+| T56-INT-01 | Emulator::init(ZX128K) failed — Task 56 50/60 Hz frame-edge commit probe | zxnext.vhd:6697-6703, zxula_timing.vhd:282-298 | pass | test/contention/contention_test.cpp:3212 |
+| CT-SW28-01 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3699 |
+| CT-SW28-02 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3700 |
+| CT-SW28-03 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3701 |
+| CT-SW28-04 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3171-3181 | pass | test/contention/contention_test.cpp:3702 |
+| CT-SW28-05 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3736 |
+| CT-SW28-06 | Emulator::init failed (Next machine) | zxnext.vhd:3171-3181 | pass | test/contention/contention_test.cpp:3740 |
+| CT-SW28-07 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3175 | pass | test/contention/contention_test.cpp:3743 |
+| CT-SW28-08 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3747 |
+| CT-SW28-09 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3751 |
+| CT-SW28-10 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3758 |
+| CT-SW28-11 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3764 |
+| CT-SW28-12 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3768 |
+| CT-SW28-13 | Emulator::init failed (Next machine) | zxnext.vhd:6592,3175 | pass | test/contention/contention_test.cpp:3801 |
+| CT-SW28-14 | Emulator::init failed (Next machine) | zxnext.vhd:6670-6685 | pass | test/contention/contention_test.cpp:3828 |
+| CT-SW28-15 | Emulator::init failed (Next machine) | zxnext.vhd:2964,3061 | pass | test/contention/contention_test.cpp:3854 |
+| CT-SW28-16 | Emulator::init failed (Next machine) | zxnext.vhd:1857,3199-3204 | pass | test/contention/contention_test.cpp:3888 |
+| CT-SW28-17 | Emulator::init failed (Next machine) | zxnext.vhd:3052-3053 | pass | test/contention/contention_test.cpp:3898 |
+| CT-SW28-18 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3923 |
+| CT-SW28-19 | Emulator::init failed (Next machine) | zxnext.vhd:3084-3099 | pass | test/contention/contention_test.cpp:3956 |
+| CT-SW28-20 | Emulator::init failed (Next machine) | zxnext.vhd:3028-3035 | pass | test/contention/contention_test.cpp:3995 |
+| CT-SW28-21 | Emulator::init failed (Next machine) | zxnext.vhd:3077 | pass | test/contention/contention_test.cpp:4031 |
+| CT-GH183-01 | 48K: `contention_tick()` identical at both ticks of every T-state pair `{hc-1, hc}` over the contended span | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4190 |
+| CT-GH183-02 | 128K: same pair invariance | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4190 |
+| CT-GH183-03 | 48K: swapping jnext's independent (hc-12, vc) rebase for the VHDL-exact linear counter pair (hc-11) changes the contention delay at ZERO T-states of a full frame — the -12 in ula_prefetch_origin_hc() is unobservable here [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4213 |
+| CT-GH183-04 | 128K: same whole-frame VHDL-exact rebase comparison — zero differing T-states, identical per-frame contention total [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4225 |
+| CT-GH183-05 | +3: the hc_adj(3:1)=000 wait_s extension puts index pair {15,0} astride the i_hc(8) window edge, so the -12 vs -11 rebase relocates exactly 2 T-states per display line (384/frame) with an IDENTICAL per-frame contention total — a sub-T-state blip, not a delay change [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:4248 |
+| CT-GH183-06 | Emulator::init failed — would verify end-to-end origin invariance [zxula_timing.vhd:423-436] | zxula_timing.vhd:423-436 | pass | test/contention/contention_test.cpp:4271 |
+| CT-GH265-01 | 48K port-contended IN A,(C): the port handler runs after the I/O cycle's stretch, 3 T before the end (zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222) | zxnext.vhd:4496, zxula.vhd:587-595, t80na.vhd:214-222 | pass | test/contention/contention_test.cpp:4368 |
+| CT-GH265-02 | 48K IN A,(C) in the top border: no stretch, 12 T, handler at 9 T (zxula.vhd:414,583) | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:4384 |
+| CT-OVS-01 | Every IN of a 31-T loop over 4 frames finds the contention counter at clock - frame start: the frame start carries the overshoot (zxula.vhd:582-583 via derive_hc_vc) | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:4452 |
+| CT-OVS-02 | A DMA step moves the contention counter with the clock (dma_holds_bus: no CPU cycle, zxnext.vhd:1828-1844) | zxnext.vhd:1828-1844 | pass | test/contention/contention_test.cpp:4479 |
+| CT-OVS-03 | A parked frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:4501 |
+| CT-OVS-04 | After a 7 MHz -> 3.5 MHz switch mid-frame every IN finds the contention counter at clock - frame start (zxnext.vhd:5796-5828 commit) | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:4529 |
+| CT-OVS-05 | A tape-trap frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:4567 |
+| CT-DELAY-01 | Emulator::init failed for one or more machines — would verify per-frame contention drift bound across 48K/128K/+3 [zxula.vhd:582-595; zxnext.vhd:4481] | zxula.vhd:582-595, zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:1602 |
+| CT-FUSE-05 | Emulator::init failed — would verify single-contention-path invariant [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2060 |
+| CT-TURBO-08 | Combined mid-line NR 0x07 + NR 0x08 b6 writes: each shadow commits on its OWN edge (NR 0x07 on bus-idle CLK_CPU; NR 0x08 b6 on bus-idle CLK_CPU AND hc(8)='1'); independent — one edge satisfied does not commit the other [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:2184 |
+| FIX-CONTEND-NR03-01 | ContentionModel::rebuild_for_type updates type/LUT and preserves ALL 5 dynamic gate fields (mem_active_page, cpu_speed, pending_cpu_speed, contention_disable/_shadow, port_7ffd_io_en) — VHDL :5137-5145 + :4489-4493; commit f5ec6d8 | — | pass | test/contention/contention_test.cpp:2497 |
+| FIX-CONTEND-NR03-INT-01 | Emulator::init(ZX48K) failed — would verify NR 0x03 dispatcher drives both axes | — | pass | test/contention/contention_test.cpp:2532 |
+| FIX-CONTEND-7FFD-01 | 128K + port 0x7FFD: port_contend gated on port_7ffd_io_en (NR 0x82 b1) — VHDL :4496/:2594/:2593; commit f5ec6d8 | zxnext.vhd:4496,2594,2593 | pass | test/contention/contention_test.cpp:2586 |
+| FIX-CONTEND-7FFD-02 | 48K + port 0x7FFD + io_en=1: port_contend=0 (s128/p3 timing gates off) — VHDL zxnext.vhd:2594; commit f5ec6d8 | zxnext.vhd:2594 | pass | test/contention/contention_test.cpp:2604 |
+| FIX-CONTEND-7FFD-03 | +3 + port 0x7FFD + io_en=1: port_contend=1 — VHDL zxnext.vhd:2593-2594; commit f5ec6d8 | zxnext.vhd:2593-2594 | pass | test/contention/contention_test.cpp:2622 |
+| FIX-MEMACTIVE-PAGE-01 | Emulator::init failed — would verify Mmu::get_page returns 0xFF sentinel for ROM slots 0/1 on 128K [zxnext.vhd:2949-2956,4489] | zxnext.vhd:2949-2956,4489 | pass | test/contention/contention_test.cpp:2656 |
+| FIX-MEMACTIVE-PAGE-INT-01 | Emulator::init failed — would verify CPU mem_active_page_for calls Mmu::get_page (NOT get_effective_page) | — | pass | test/contention/contention_test.cpp:2702 |
+| V15-CPU-NIT-03-01 | ZX128K, NR 0x85 b0=1, IORQ@$BF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2685,4496; reviewer-promoted V15-CPU-NIT-03) | zxnext.vhd:2439,2685,4496 | pass | test/contention/contention_test.cpp:2807 |
+| V15-CPU-NIT-03-02 | ZX128K, NR 0x85 b0=1, IORQ@$FF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:2825 |
+| V15-CPU-NIT-03-03 | ZX128K, NR 0x85 b0=0, IORQ@$BF3B → contention_tick stretch == 0 (gate disabled; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:2846 |
+| V15-CPU-NIT-03-04 | set_port_ulap_io_en(true) → port_ulap_io_en()==true; set_port_ulap_io_en(false) → port_ulap_io_en()==false (round-trip; mirrors port_7ffd_io_en pattern) | — | pass | test/contention/contention_test.cpp:2862 |
+| V15-CPU-NIT-03-05 | port_contend(0xBF3B, port_ulap_io_en=true) returns true regardless of shadow state (parameter override; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:2883 |
+| D3-CONTENTION-01 | tim_sel=128 / typ_sel=48 / page=0x02 — pre-fix follows typ_sel (48: bank-5 only → false); post-fix follows tim_sel (128: odd banks → true) per VHDL zxnext.vhd:4491,5761-5777 | zxnext.vhd:4491,5761-5777 | pass | test/contention/contention_test.cpp:2938 |
+| D3-CONTENTION-02 | tim_sel=+3 / typ_sel=128 / page=0x08 — pre-fix follows typ_sel (128: odd banks → false); post-fix follows tim_sel (+3: banks>=4 → true) per VHDL zxnext.vhd:4492,5761-5777 | zxnext.vhd:4492,5761-5777 | pass | test/contention/contention_test.cpp:2959 |
+| D3-CONTENTION-03 | video-frame deferred-commit latch — set_pending defers the new tim_sel until commit_pending_machine_timing() at the frame edge; pre-commit retains old effective value (VHDL zxnext.vhd:6694-6703) | zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:2996 |
+| D3-CONTENTION-04 | Emulator::init(ZX128K) failed | zxnext.vhd:4490-4492 | pass | test/contention/contention_test.cpp:3069 |
+| D3-CONTENTION-05 | Emulator::init(ZX128K) failed — Mmu::machine_timing_ axis storage + commit probe | — | pass | test/contention/contention_test.cpp:3239 |
+| D3-CONTENTION-06 | tim_sel=Pentagon disables contention regardless of typ_sel (VHDL zxnext.vhd:4481 — i_contention_en gates on NOT machine_timing_pentagon) | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:3297 |
+| D3-CONTENTION-NIT-01 | Emulator::init(ZX48K) failed — would verify load_state preserves machine_timing pair from Mmu schema | — | pass | test/contention/contention_test.cpp:3339 |
+| T50-01 | 48K, read $4000 at raw vc=10 (TOP BORDER, above c_min_vactive=64) on an hc phase that DOES contend in raw coordinates → NO contention (zxula.vhd:414 border_active_v is keyed on the ULA display-relative i_vc, reset at c_min_vactive per zxula_timing.vhd:441-452) | zxula.vhd:414, zxula_timing.vhd:441-452 | pass | test/contention/contention_test.cpp:3538 |
+| T50-02 | 48K, read $4000 at raw vc=64 (FIRST display line) → contends (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3549 |
+| T50-03 | 48K, read $4000 at raw vc=200 (BOTTOM display third, still within 64..255) → contends; pre-fix the raw vc tripped border_active_v and silently stopped contending (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3561 |
+| T50-04 | 48K, read $4000: raw vc=255 (LAST display line) contends, raw vc=256 (BOTTOM BORDER) does not — the window closes at exactly 192 ULA lines (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3572 |
+| T50-05 | 48K, read $4000 on a display line but at hc=4 (LEFT BORDER, before ula_min_hactive=c_min_hactive-12=116) → NO contention (zxula.vhd:416 border_active_ula = i_hc(8) or border_active_v; zxula_timing.vhd:423) | zxula.vhd:416, zxula_timing.vhd:423 | pass | test/contention/contention_test.cpp:3586 |
+| T50-06 | 128K (c_min_hactive=136, 228 T/line): top border does not contend and a display line does — proves the ULA counter origins are taken per-machine from VideoTiming, not hardcoded to the 48K values (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/contention/contention_test.cpp:3614 |
 
 ## LoRes — `test/lores/lores_test.cpp`
 

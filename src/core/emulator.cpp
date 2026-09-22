@@ -7009,6 +7009,35 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     return true;
 }
 
+void Emulator::rebase_fuse_tstates_()
+{
+    // See the declaration. (clock_ - frame_cycle_) is the position in the
+    // current frame; at the frame start it is the previous frame's overshoot.
+    uint32_t& live = *fuse_z80_tstates_ptr();
+    const uint32_t want = static_cast<uint32_t>(
+        (clock_.get() - frame_cycle_) / static_cast<uint64_t>(clock_.cpu_divisor()));
+    tstates_frame_base_ += live;
+    tstates_frame_base_ -= want;
+    live = want;
+}
+
+void Emulator::advance_fuse_tstates_(uint64_t master_cycles)
+{
+    // See the declaration. Callers advance the clock in whole T-states.
+    *fuse_z80_tstates_ptr() += static_cast<uint32_t>(
+        master_cycles / static_cast<uint64_t>(clock_.cpu_divisor()));
+}
+
+void Emulator::skip_trap_cycles_(uint64_t master_cycles)
+{
+    // A tape ROM trap replaced a ROM routine: charge its nominal time to the
+    // clock AND to the FUSE counter (GH #265 follow-up, finding 4), then let
+    // the scheduler catch up.
+    clock_.tick(master_cycles);
+    advance_fuse_tstates_(master_cycles);
+    scheduler_.run_until(clock_.get());
+}
+
 uint64_t Emulator::monotonic_tstates() const
 {
     // Frame base (all completed frames) + live FUSE counter (advances
@@ -7313,20 +7342,25 @@ void Emulator::begin_new_frame()
         eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
     }
 
-    // Reset FUSE tstates counter to 0 at frame start.  derive_hc_vc() in
+    // Rebase the FUSE tstates counter onto the new frame. derive_hc_vc() in
     // z80_cpu.cpp computes (hc, vc) directly from `tstates % tstates_per_frame`,
     // so the FUSE counter must be frame-relative for ContentionModel::
     // contention_tick() to gate on the right raster window.
+    //
+    // GH #265 follow-up (verifier finding 4): the counter is seeded with the
+    // last instruction's OVERSHOOT past frame_end, (clock_ - frame_cycle_) /
+    // divisor, not 0. Zeroing it made every contention decision of the frame
+    // lag the clock — and with it the floating bus, NR 0x1E/0x1F, the
+    // interrupt and the display — by that overshoot, a different 0..~20 T
+    // every frame. FUSE keeps it too (it subtracts the frame length).
     //
     // VideoTiming reset alongside: derive_hc_vc() in z80_cpu.cpp computes
     // (hc, vc) directly from `tstates`, so VideoTiming is the test-side
     // observable. Reset its hc/vc at frame start so test queries
     // mid-frame match the (hc, vc) the contention path is using.
-    // G36/G37: fold the outgoing frame's T-states (including overshoot)
-    // into the monotonic base BEFORE zeroing, so monotonic_tstates()
-    // stays continuous across the frame-relative reset below.
-    tstates_frame_base_ += static_cast<uint64_t>(*fuse_z80_tstates_ptr());
-    *fuse_z80_tstates_ptr() = 0;
+    // G36/G37: rebase_fuse_tstates_() folds the outgoing frame's T-states
+    // into the monotonic base, so monotonic_tstates() stays continuous.
+    rebase_fuse_tstates_();
     frame_ts_start_ = 0;
     video_timing_.reset();
 
@@ -7962,9 +7996,7 @@ void Emulator::run_frame()
             if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end() &&
                 pc == TapLoader::LD_BYTES_ADDR) {
                 tape_.handle_ld_bytes_trap(*this);
-                uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
-                clock_.tick(fake_cycles);
-                scheduler_.run_until(clock_.get());
+                skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
 
@@ -7972,9 +8004,7 @@ void Emulator::run_frame()
             if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end() &&
                 pc == TzxLoader::LD_BYTES_ADDR) {
                 tzx_tape_.handle_ld_bytes_trap(*this);
-                uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
-                clock_.tick(fake_cycles);
-                scheduler_.run_until(clock_.get());
+                skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
 
@@ -7989,9 +8019,7 @@ void Emulator::run_frame()
             if (tap_saver_.active() && pc == TapSaver::SA_BYTES_ADDR &&
                 TapSaver::sa_bytes_rom_present(mmu_)) {
                 tap_saver_.handle_sa_bytes_trap(*this);
-                uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
-                clock_.tick(fake_cycles);
-                scheduler_.run_until(clock_.get());
+                skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
 
@@ -8272,6 +8300,7 @@ uint64_t Emulator::step_one_instruction()
     // the trace record), silently dropping interrupts while stepping.
     uint64_t master_cycles;
     bool dma_stalled_cpu_this_step = false;
+    bool cpu_executed = false;   // GH #265 follow-up (finding 4) — see below
 
     // GH #102 session 4 — resample the LIVE im2_.dma_delay() latch every
     // instruction, not once per video frame. VHDL zxnext.vhd:2001-2010
@@ -8504,6 +8533,7 @@ uint64_t Emulator::step_one_instruction()
         const uint16_t pc_pre_exec = cpu_.pc();
         multiface_retn_pending_ = false;
         int tstates = cpu_.execute();
+        cpu_executed = true;
 
         // GH #203 — Step Out decision. It sits HERE, between execute() and the
         // RETN overlay clear below, and the order of the two halves matters as
@@ -8762,6 +8792,10 @@ uint64_t Emulator::step_one_instruction()
         }
     }
     clock_.tick(master_cycles);
+    // GH #265 follow-up (finding 4): execute() advanced the FUSE counter
+    // itself; the DMA / parked / boot-hold steps advance only the clock, so
+    // move the counter with it or contention would lag the raster.
+    if (!cpu_executed) advance_fuse_tstates_(master_cycles);
 
     // Tick DMA burst prescaler (counts down between burst-mode transfers).
     dma_.tick_burst_wait(master_cycles);
@@ -8819,8 +8853,12 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // edges, not in lockstep.
     const bool bus_idle = true;
     const bool dma_holds_bus = false;
+    const int divisor_before = clock_.cpu_divisor();
     clock_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
     contention_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
+    // GH #265 follow-up (finding 4): the FUSE counter counts CPU T-states,
+    // so its unit changes with the divisor; re-derive it from the clock.
+    if (clock_.cpu_divisor() != divisor_before) rebase_fuse_tstates_();
 
     // Tick CTC and UART at 28 MHz rate.
     ctc_.tick(static_cast<uint32_t>(master_cycles));

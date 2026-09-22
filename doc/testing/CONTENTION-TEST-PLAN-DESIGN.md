@@ -1055,6 +1055,35 @@ its handler runs.
 Mutation-verified: restoring the read-before-stretch order fails CT-GH265-01
 with `total = 17, into = 9`.
 
+## GH #265 follow-up (2026-09-22) — the contention counter carries the overshoot (verifier finding 4)
+
+Found by the independent verification of GH #265 (finding 4): the
+contention counter was zeroed at every frame start.
+`derive_hc_vc()` turns the FUSE T-state counter into the raster position
+every contention decision uses; the floating bus, NR 0x1E/0x1F, the
+interrupt and the renderer read the raster from the clock.
+`begin_new_frame()` set the counter to 0 although the CPU had already run
+past the frame end by the last instruction's tail, so contention lagged
+the clock by that overshoot all frame — a different 0..~20 T every frame
+(measured: 0, 1, 5, 3, 1, 1, 0, 5, 9, 1, 3, 11, 0, 6, …). FUSE keeps it (it
+subtracts the frame length). The counter also stood still while the clock
+advanced with no CPU instruction (DMA holding the bus, a parked CPU, a NEX
+boot hold, a tape trap's synthetic cycles) and kept its old unit across a
+CPU-speed switch. Now: `rebase_fuse_tstates_()` re-seeds it from
+`(clock_ − frame_cycle_) / divisor` at the frame start and on an effective
+speed change (keeping `monotonic_tstates()` continuous), and
+`advance_fuse_tstates_()` moves it with the clock on every non-CPU step.
+Invariant, at every instruction boundary: counter × divisor = clock − frame
+start.
+
+| ID | Assertion | Oracle |
+|----|-----------|--------|
+| CT-OVS-01 | A 31-T loop (69888 mod 31 = 14, so the overshoot changes every frame) over 4 frames: every IN finds counter × divisor = clock − frame start | invariant; FUSE (frame length subtracted) |
+| CT-OVS-02 | A DMA step (no CPU instruction) moves the counter with the clock | invariant; zxnext.vhd:1828-1844 |
+| CT-OVS-03 | A parked CPU frame moves it with the clock | invariant |
+| CT-OVS-04 | 7 MHz → 3.5 MHz switch mid-frame: every later IN satisfies the invariant | invariant; zxnext.vhd:5796-5828 |
+| CT-OVS-05 | A tape ROM trap's synthetic cycles move the counter with the clock | invariant |
+
 ## Coverage notes (moved from the traceability matrix, GH #196)
 
 The matrix is a generated artifact now and carries no prose of its own; it

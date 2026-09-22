@@ -1334,9 +1334,25 @@ private:
     /// Accumulated FUSE tstates of all completed frames (G36/G37).
     /// begin_new_frame() folds the outgoing frame's final counter value
     /// (including any end-of-frame overshoot) into this base before
-    /// zeroing the FUSE counter, so `monotonic_tstates()` never goes
-    /// backwards across the per-frame reset.
+    /// re-seeding the FUSE counter, so `monotonic_tstates()` never goes
+    /// backwards across the per-frame rebase.
     uint64_t tstates_frame_base_ = 0;
+
+    /// GH #265 follow-up (verifier finding 4) — the FUSE T-state counter is
+    /// the contention path's raster position: derive_hc_vc() (z80_cpu.cpp)
+    /// turns it into (hc, vc). It must therefore equal
+    /// (clock_ - frame_cycle_) / cpu_divisor at every instruction boundary,
+    /// the same position the floating bus, NR 0x1E/0x1F and the renderer
+    /// read from clock_. rebase_fuse_tstates_() re-establishes that at the
+    /// two points where the counter's origin or unit changes — the frame
+    /// start and an effective CPU-speed change — keeping monotonic_tstates()
+    /// continuous. advance_fuse_tstates_() moves it with the clock when the
+    /// clock advances with no CPU instruction (DMA holding the bus, a parked
+    /// CPU, a NEX boot hold, a tape trap's synthetic cycles).
+    void rebase_fuse_tstates_();
+    void advance_fuse_tstates_(uint64_t master_cycles);
+    /// A tape ROM trap's synthetic cycles: clock, FUSE counter, scheduler.
+    void skip_trap_cycles_(uint64_t master_cycles);
 
     /// Audio timing: fractional accumulators for PSG ticking and sample generation.
     /// PSG clock = 28 MHz / 16 = 1.75 MHz.

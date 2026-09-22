@@ -40,10 +40,13 @@
 #include "memory/contention.h"
 #include "memory/mmu.h"
 #include "core/clock.h"
+#include "peripheral/dma.h"
 
 #include "contention_helpers.h"
 
 #include <cstdarg>
+#include <cstdlib>
+#include <unistd.h>
 #include <cstdio>
 #include <cstdint>
 #include <initializer_list>
@@ -4387,6 +4390,185 @@ static void test_gh265_port_read_after_stretch(void) {
     }
 }
 
+// ── CT-OVS — the contention counter follows the clock (verifier finding 4) ─
+//
+// derive_hc_vc() turns the FUSE T-state counter into the raster position
+// contention uses; the floating bus, NR 0x1E/0x1F and the renderer read the
+// raster from the clock. The counter was ZEROED at every frame start while
+// the CPU had already run past the frame end by the last instruction's tail,
+// so contention lagged the clock by that overshoot — a different 0..~20 T
+// every frame. It also stood still while the clock ran with no CPU
+// instruction (DMA holding the bus, a parked CPU, a tape trap) and changed
+// unit on a CPU-speed switch. Invariant pinned here, at every instruction
+// boundary: counter * divisor == clock - frame start.
+
+namespace ovs {
+struct Sample { uint64_t ctr_mc; uint64_t clk_mc; };
+// Install a read handler on port 0x0011 (LSB 0x11: no other read decode
+// there) that records, for the IN executing it, the FUSE counter at the
+// instruction's start (in master cycles) and the clock position.
+static void record_on_0011(Emulator& emu, std::vector<Sample>& out) {
+    emu.port().register_handler(0xFFFF, 0x0011,
+        [&emu, &out](uint16_t) -> uint8_t {
+            const uint64_t start_ctr = *fuse_z80_tstates_ptr()
+                                       - emu.cpu().tstates_into_instruction();
+            out.push_back({start_ctr * static_cast<uint64_t>(emu.clock().cpu_divisor()),
+                           emu.clock().get() - emu.current_frame_cycle()});
+            return 0xFF;
+        },
+        nullptr);
+}
+static bool all_equal(const std::vector<Sample>& v, std::string& det) {
+    size_t bad = 0; det.clear();
+    for (const auto& s : v)
+        if (s.ctr_mc != s.clk_mc) {
+            if (++bad <= 3) det += " ctr=" + std::to_string(s.ctr_mc) + " clk=" + std::to_string(s.clk_mc);
+        }
+    det = "samples=" + std::to_string(v.size()) + " mismatched=" + std::to_string(bad) + det;
+    return !v.empty() && bad == 0;
+}
+} // namespace ovs
+
+static void test_overshoot_counter(void) {
+    set_group("CT-OVS");
+
+    // CT-OVS-01 — the frame start seeds the counter with the overshoot. A
+    // 31-T loop (IN A,(C) of 0x0011; LD A,0; JR back) over 4 frames of 69888
+    // T: 69888 mod 31 = 14, so the overshoot changes frame to frame.
+    {
+        Emulator emu;
+        std::vector<ovs::Sample> v;
+        std::string det;
+        const bool ok = make_emu(emu, MachineType::ZX48K);
+        if (ok) {
+            ovs::record_on_0011(emu, v);
+            const uint8_t prog[] = {0xED, 0x78, 0x3E, 0x00, 0x18, 0xFA};
+            for (int i = 0; i < 6; ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.BC = 0x0011; r.IFF1 = r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            for (int f = 0; f < 4; ++f) emu.run_frame();
+        }
+        check("CT-OVS-01", "Every IN of a 31-T loop over 4 frames finds the "
+              "contention counter at clock - frame start: the frame start "
+              "carries the overshoot (zxula.vhd:582-583 via derive_hc_vc)",
+              ok && ovs::all_equal(v, det), det);
+    }
+
+    // CT-OVS-02 — a DMA step (the DMA holds the bus; no CPU instruction)
+    // advances the counter with the clock. mem->mem burst of 8 bytes
+    // programmed through the production Dma register protocol.
+    {
+        Emulator emu;
+        bool ok = make_emu(emu, MachineType::ZXN_ISSUE2);
+        std::string det;
+        if (ok) {
+            Dma& dm = emu.dma();
+            auto w = [&](uint8_t x) { dm.write(x, false); };
+            w(0x7D); w(0x00); w(0x80); w(0x08); w(0x00);   // A = 0x8000, len 8
+            w(0x14); w(0x10); w(0xAD); w(0x00); w(0x90);   // B = 0x9000, continuous
+            w(0xCF); w(0x87);                              // LOAD, ENABLE
+            const uint64_t before = emu.clock().get();
+            emu.execute_single_instruction();              // the DMA step
+            const uint64_t ctr = *fuse_z80_tstates_ptr()
+                                 * static_cast<uint64_t>(emu.clock().cpu_divisor());
+            const uint64_t clk = emu.clock().get() - emu.current_frame_cycle();
+            ok = emu.clock().get() > before && ctr == clk;
+            det = "ctr_mc=" + std::to_string(ctr) + " clk_mc=" + std::to_string(clk);
+        }
+        check("CT-OVS-02", "A DMA step moves the contention counter with the "
+              "clock (dma_holds_bus: no CPU cycle, zxnext.vhd:1828-1844)",
+              ok, det);
+    }
+
+    // CT-OVS-03 — a parked CPU (NOP-sized clock steps, no instruction) keeps
+    // the counter moving: after a whole parked frame it equals the clock's
+    // distance from that frame's start.
+    {
+        Emulator emu;
+        bool ok = make_emu(emu, MachineType::ZX48K);
+        std::string det;
+        if (ok) {
+            emu.set_cpu_parked(true);
+            emu.run_frame();
+            const uint64_t mcpf = emu.timing().master_cycles_per_frame;
+            const uint64_t ctr = *fuse_z80_tstates_ptr()
+                                 * static_cast<uint64_t>(emu.clock().cpu_divisor());
+            const uint64_t clk = emu.clock().get() - (emu.current_frame_cycle() - mcpf);
+            ok = ctr == clk;
+            det = "ctr_mc=" + std::to_string(ctr) + " clk_mc=" + std::to_string(clk);
+        }
+        check("CT-OVS-03", "A parked frame advances the contention counter with "
+              "the clock", ok, det);
+    }
+
+    // CT-OVS-04 — a CPU-speed switch changes the counter's unit; the counter
+    // is re-derived from the clock. NEXTREG 0x07,1 (7 MHz); 8 NOPs; NEXTREG
+    // 0x07,0; then the recording loop at 3.5 MHz for the rest of the frame.
+    {
+        Emulator emu;
+        std::vector<ovs::Sample> v;
+        std::string det;
+        const bool ok = make_emu(emu, MachineType::ZX48K);
+        if (ok) {
+            ovs::record_on_0011(emu, v);
+            std::vector<uint8_t> prog = {0xED, 0x91, 0x07, 0x01};      // NEXTREG 7,1
+            for (int i = 0; i < 8; ++i) prog.push_back(0x00);
+            for (uint8_t b : {0xED, 0x91, 0x07, 0x00}) prog.push_back(b); // NEXTREG 7,0
+            for (int i = 0; i < 4; ++i) prog.push_back(0x00);
+            const size_t loop = prog.size();
+            for (uint8_t b : {0xED, 0x78, 0x3E, 0x00, 0x18, 0xFA}) prog.push_back(b);
+            (void)loop;
+            for (size_t i = 0; i < prog.size(); ++i)
+                emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.BC = 0x0011; r.IFF1 = r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            emu.run_frame();
+        }
+        check("CT-OVS-04", "After a 7 MHz -> 3.5 MHz switch mid-frame every IN "
+              "finds the contention counter at clock - frame start "
+              "(zxnext.vhd:5796-5828 commit)", ok && ovs::all_equal(v, det), det);
+    }
+
+    // CT-OVS-05 — a tape ROM trap's synthetic cycles move the counter with
+    // the clock. A 1-block TAP attached for fast load; PC at LD-BYTES
+    // (0x0556) with ROM paged; the trap returns to a JR $ at 0x8000. After
+    // the frame the counter equals the clock's distance from its start.
+    {
+        Emulator emu;
+        bool ok = make_emu(emu, MachineType::ZX48K);
+        std::string det;
+        if (ok) {
+            const uint8_t tap[] = {0x03, 0x00, 0xFF, 0xAA, 0x55};
+            char path[] = "/tmp/jnext_ovs_tapXXXXXX";
+            const int fd = mkstemp(path);
+            ok = fd >= 0 && write(fd, tap, sizeof(tap)) == static_cast<ssize_t>(sizeof(tap));
+            if (fd >= 0) close(fd);
+            ok = ok && emu.load_tap(path, /*fast_load=*/true);
+            unlink(path);
+            if (ok) {
+                emu.mmu().write(0x8000, 0x18); emu.mmu().write(0x8001, 0xFE);  // JR $
+                emu.mmu().write(0x9000, 0x00); emu.mmu().write(0x9001, 0x80);  // return 0x8000
+                auto r = emu.cpu().get_registers();
+                r.PC = 0x0556; r.SP = 0x9000; r.AF = 0xFF01; r.IX = 0xA000; r.DE = 1;
+                r.IFF1 = r.IFF2 = 0;
+                emu.cpu().set_registers(r);
+                emu.run_frame();
+                const uint64_t mcpf = emu.timing().master_cycles_per_frame;
+                const uint64_t ctr = *fuse_z80_tstates_ptr()
+                                     * static_cast<uint64_t>(emu.clock().cpu_divisor());
+                const uint64_t clk = emu.clock().get() - (emu.current_frame_cycle() - mcpf);
+                ok = ctr == clk && emu.cpu().pc() == 0x8000;
+                det = "ctr_mc=" + std::to_string(ctr) + " clk_mc=" + std::to_string(clk)
+                    + " pc=" + std::to_string(emu.cpu().pc());
+            }
+        }
+        check("CT-OVS-05", "A tape-trap frame advances the contention counter "
+              "with the clock", ok, det);
+    }
+}
+
 int main() {
     std::printf("Contention Model Compliance Tests\n");
     std::printf("=================================\n\n");
@@ -4471,6 +4653,10 @@ int main() {
     // GH #265 — port reads sample the bus after the I/O-cycle stretch.
     test_gh265_port_read_after_stretch();
     std::printf("  Group: CT-GH265       — done\n");
+
+    // GH #265 follow-up — verifier finding 4.
+    test_overshoot_counter();
+    std::printf("  Group: CT-OVS         — done\n");
 
     std::printf("\n=================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
