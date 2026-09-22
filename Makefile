@@ -21,6 +21,24 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 CC                := /usr/bin/gcc
 CXX               := /usr/bin/g++
 
+# Guard for unit-test-build's build/ dir: does $(1)/CMakeCache.txt hold cache
+# key $(2) with value $(3), regardless of the cache's TYPE tag? A bare
+# `-f CMakeCache.txt` existence test is NOT enough on its own — it would
+# silently keep build/ configured with the wrong options forever (#141).
+# Matching VALUE only, not "$(2):TYPE=$(3)", is deliberate: CMake can rewrite
+# a cache entry's TYPE tag (observed for CMAKE_C_COMPILER/CMAKE_CXX_COMPILER,
+# ":STRING=" -> ":UNINITIALIZED=", same value) independently of gui-release/
+# sdl-release's own compiler-mismatch handling in test/cmake-configure-guard.sh
+# — a TYPE-anchored assertion would silently stop matching forever. `^$(2):`
+# anchors on the key name up to its colon so a longer key sharing the same
+# prefix (ENABLE_TESTS vs ENABLE_TESTS_EXTRA) can't false-match.
+#
+# unit-test-build never reconfigures build/ in place on a mismatch (it
+# refuses and tells the user to `make clean`), so it does not need
+# cmake-configure-guard.sh's wipe-on-compiler-change handling — only
+# gui-release/sdl-release do, since only they self-heal via reconfigure.
+CMAKE_CACHE_HAS = ( line=$$(grep "^$(2):" "$(1)/CMakeCache.txt" 2>/dev/null | head -1); test "x$${line\#*=}" = "x$(3)" )
+
 # Pin windres to the SAME absolute path fedora's mingw toolchain file uses.
 # Without the pin, CMake's own RC detection resolves windres through PATH —
 # /usr/sbin/... under a sbin-first PATH (GitHub job containers) — while later
@@ -123,7 +141,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
 .PHONY: default sdl-debug sdl-release clean sdl-debug-clean sdl-release-clean sdl-debug-run sdl-release-run \
        gui-debug gui-release gui-debug-clean gui-release-clean gui-debug-run gui-release-run gui-clean \
        unit-test-clean unit-test-build \
-       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench \
+       kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
        bump bump-patch bump-minor bump-major version publish-release \
@@ -159,12 +177,28 @@ sdl-debug-clean:
 
 # Configure and build the SDL-only frontend in Release mode (optimized)
 sdl-release:
-	$(CMAKE) -B $(BUILD_DIR_SDL_RELEASE) \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_C_COMPILER=$(CC) \
-		-DCMAKE_CXX_COMPILER=$(CXX) \
-		-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
-		-DENABLE_TESTS=OFF
+	@# Skip the reconfigure (~6s, pure cmake, no compilation) when this dir is
+	@# already configured with exactly these flags (#141). ENABLE_QT_UI is
+	@# passed explicitly below (it never was before, when the recipe called
+	@# `cmake -B` unconditionally) so a mismatch is actually repairable.
+	@# Delegates to test/cmake-configure-guard.sh — see gui-release above and
+	@# that script's header for why a bare "cmake -B, guarded by a flag
+	@# check" is not enough: a CMAKE_C_COMPILER/CMAKE_CXX_COMPILER mismatch
+	@# needs the dir wiped first, never an in-place reconfigure.
+	@bash test/cmake-configure-guard.sh $(BUILD_DIR_SDL_RELEASE) \
+		"CMAKE_BUILD_TYPE=Release" \
+		"CMAKE_C_COMPILER=$(CC)" \
+		"CMAKE_CXX_COMPILER=$(CXX)" \
+		"CMAKE_CXX_FLAGS=-O2 -DNDEBUG" \
+		"ENABLE_QT_UI=OFF" \
+		"ENABLE_TESTS=OFF" \
+		-- \
+		"-DCMAKE_BUILD_TYPE=Release" \
+		"-DCMAKE_C_COMPILER=$(CC)" \
+		"-DCMAKE_CXX_COMPILER=$(CXX)" \
+		"-DCMAKE_CXX_FLAGS=-O2 -DNDEBUG" \
+		"-DENABLE_QT_UI=OFF" \
+		"-DENABLE_TESTS=OFF"
 	$(CMAKE) --build $(BUILD_DIR_SDL_RELEASE) -j$(JOBS)
 
 # Run the emulator (SDL-only release build)
@@ -196,13 +230,28 @@ gui-debug-clean:
 
 # Configure and build Qt GUI in Release mode
 gui-release:
-	$(CMAKE) -B $(BUILD_DIR_GUI_RELEASE) \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_C_COMPILER=$(CC) \
-		-DCMAKE_CXX_COMPILER=$(CXX) \
-		-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
-		-DENABLE_QT_UI=ON \
-		-DENABLE_TESTS=OFF
+	@# Skip the reconfigure (~7.5s, pure cmake, no compilation) when this dir
+	@# is already configured with exactly these flags (#141). Delegates to
+	@# test/cmake-configure-guard.sh rather than a bare `cmake -B` guarded by
+	@# an inline flag check: a CMAKE_C_COMPILER/CMAKE_CXX_COMPILER mismatch
+	@# can NOT be trusted to reconfigure correctly in place (see that
+	@# script's header) and needs the dir wiped first, which is exactly what
+	@# the script's self-test (cmake-configure-guard-selftest.sh, run by
+	@# `make unit-test`) proves against real cmake/gcc/g++.
+	@bash test/cmake-configure-guard.sh $(BUILD_DIR_GUI_RELEASE) \
+		"CMAKE_BUILD_TYPE=Release" \
+		"CMAKE_C_COMPILER=$(CC)" \
+		"CMAKE_CXX_COMPILER=$(CXX)" \
+		"CMAKE_CXX_FLAGS=-O2 -DNDEBUG" \
+		"ENABLE_QT_UI=ON" \
+		"ENABLE_TESTS=OFF" \
+		-- \
+		"-DCMAKE_BUILD_TYPE=Release" \
+		"-DCMAKE_C_COMPILER=$(CC)" \
+		"-DCMAKE_CXX_COMPILER=$(CXX)" \
+		"-DCMAKE_CXX_FLAGS=-O2 -DNDEBUG" \
+		"-DENABLE_QT_UI=ON" \
+		"-DENABLE_TESTS=OFF"
 	$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS)
 
 # Cross-compile ONLY the Windows jnext.exe (Fedora MinGW; no packaging)
@@ -449,7 +498,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest traceability-dup-check unit-test-build traceability-check docs-check package-contract-test
+unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check package-contract-test
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -572,6 +621,27 @@ traceability-selftest:
 	@# of its own, and shipped skipping every `?`-prefixed suite.
 	@perl test/traceability-citations-selftest.pl
 
+# Self-test the gui-release/sdl-release cmake reconfigure guard (#141)
+cmake-guard-selftest:
+	@# WIRED IN as a prerequisite of `unit-test` below, same reasoning as
+	@# traceability-selftest just above: this is the self-test of the
+	@# mechanism gui-release/sdl-release trust to decide whether re-running
+	@# `cmake -B` is safe to skip, and the #141 review found a real,
+	@# SILENT, PERMANENT defect in the first version of that mechanism
+	@# (a CMAKE_C_COMPILER/CMAKE_CXX_COMPILER change was reconfigured in
+	@# place, which CMake does not support — it silently dropped every
+	@# other -D on the same invocation and left the compiler cache entries
+	@# in a state no later invocation, even a fully-correct one, could
+	@# recover from). Leaving that fix unverified by anything but "tested
+	@# by hand once" is exactly the gap that let it happen in the first
+	@# version.
+	@#
+	@# ~5 s, no jnext build needed: runs real cmake/gcc/g++ against a
+	@# throwaway 3-line CMakeLists.txt project (test/cmake-configure-guard-
+	@# selftest.sh), because the defect is real CMake behaviour, not one a
+	@# stub could faithfully reproduce.
+	@bash test/cmake-configure-guard-selftest.sh
+
 # Benchmark the 5 canonical workloads on the fastest core (needs 'make gui-release' first)
 bench:
 	@bash test/bench/bench.sh
@@ -598,7 +668,7 @@ unit-test-build:
 			-DENABLE_DEBUGGER=ON; \
 	else \
 		for flag in ENABLE_QT_UI ENABLE_DEBUGGER; do \
-			if ! grep -q "^$$flag:BOOL=ON$$" build/CMakeCache.txt; then \
+			if ! $(call CMAKE_CACHE_HAS,build,$$flag,ON); then \
 				printf "$(BADGE_FAIL) ERROR $(RESET) build/ is configured with $(BOLD)$$flag=OFF$(RESET).\n"; \
 				printf "  ./build/jnext would not be the Qt binary this project mandates.\n"; \
 				printf "  Run '$(BOLD)make clean$(RESET)' first, then retry.\n"; \
