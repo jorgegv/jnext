@@ -4191,6 +4191,43 @@ void test_boot_format_loaders() {
                   static_cast<int>(canary_intact)));
     }
 
+    // BOOT-Z80-06 — hardware mode 3 means 128k in a v2 file and 48k + M.G.T.
+    // in a v3 one (the .z80 format's version table; libspectrum
+    // Z80_MACHINE_128_V2 = 3, Z80_MACHINE_48_MGT = 3). A v2 file of mode 3
+    // carries 128K page numbers: its page 5 is bank 2, which the 128K MMU maps
+    // at 0x8000. Read as 48K it landed at 0xC000 instead.
+    {
+        auto make = [](uint16_t add_len) {
+            std::vector<uint8_t> buf(30, 0);     // buf[6..7] left 0 -> v2/v3 sentinel
+            buf.push_back(static_cast<uint8_t>(add_len & 0xFF));
+            buf.push_back(static_cast<uint8_t>(add_len >> 8));   // offset 30-31
+            buf.push_back(0x00); buf.push_back(0x80);             // offset 32-33: PC
+            buf.push_back(0x03);                                  // offset 34: hardware_mode = 3
+            buf.push_back(0x00);                                  // offset 35: port_7ffd
+            buf.resize(32 + add_len, 0);
+            for (uint8_t page : {uint8_t(5), uint8_t(8)}) {
+                buf.push_back(0xFF); buf.push_back(0xFF);         // 16384 bytes uncompressed
+                buf.push_back(page);
+                buf.insert(buf.end(), 16384, page == 5 ? 0xB6 : 0xC7);
+            }
+            return buf;
+        };
+        Fixture f;
+        f.fresh();
+        Z80Loader v2, v3;
+        const bool v2_ok  = v2.load_from_buffer(make(23)) && v2.apply_ram_to_mmu(f.mmu);
+        const bool v3_ok  = v3.load_from_buffer(make(54));
+        const bool mem_ok = f.mmu.read(0x8000) == 0xB6 && f.mmu.read(0xBFFF) == 0xB6;
+        check("BOOT-Z80-06",
+              "hardware mode 3 is 128K in a v2 .z80 (its page 5, bank 2, lands at "
+              "0x8000) and 48K in a v3 one",
+              v2_ok && v2.header().is_128k && mem_ok && v3_ok && !v3.header().is_128k,
+              fmt("v2_ok=%d v2_128k=%d mem_ok=%d v3_ok=%d v3_128k=%d",
+                  static_cast<int>(v2_ok), static_cast<int>(v2.header().is_128k),
+                  static_cast<int>(mem_ok), static_cast<int>(v3_ok),
+                  static_cast<int>(v3.header().is_128k)));
+    }
+
     // Cat 24 — Snapshot save (G35).
     //
     // CLOSED 2026-05-04 BOOT-SNAPSAVE-01: sna_saver IS now reachable from

@@ -1150,6 +1150,188 @@ int main()
         std::remove(ts_cfg.tape_save_file.c_str());
     }
 
+    // --- EB-46..EB-51: an RZX plays on the machine it was recorded on -------
+    // Contract (rzx::recorded_machine(), emulator_boot_machine()): a recording
+    // jnext makes names its machine in the creator block's custom data; any
+    // other recording is judged by its embedded snapshot (SNA size, SZX
+    // machine ID, .z80 version + hardware mode); a jnext recording from before
+    // that marker with an SNA names none (jnext embedded a 48K SNA on the 48K
+    // and the Next alike); naming none, a recording boots the configured
+    // machine. Every cold boot applies it (emulator_cold_boot()).
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const auto path_for = [&](const char* tag) {
+            return (tmp / ("jnext-eb-mach-" + std::string(tag) + "-" + stamp + ".rzx")).string();
+        };
+        const MachineType all[] = {MachineType::ZX48K, MachineType::ZX128K,
+                                   MachineType::ZX_PLUS3, MachineType::ZXN_ISSUE2};
+
+        // EB-46: each machine's own recording boots that machine, whatever is
+        // configured — the Next's too, although its snapshot is a 48K SNA.
+        {
+            bool ok = true;
+            std::string why;
+            for (MachineType m : all) {
+                const std::string path = path_for(rzx::machine_marker_name(m));
+                EmulatorConfig cfg = base_config();
+                cfg.type = m;
+                Emulator emu;
+                emu.init(cfg);
+                const bool made = emu.start_rzx_recording(path);
+                emu.run_frame();
+                const bool written = made && emu.stop_rzx_recording();
+                for (MachineType configured : all) {
+                    if (written && emulator_boot_machine(path, configured) == m) continue;
+                    ok = false;
+                    why += std::string(" ") + rzx::machine_marker_name(m) + "/" +
+                           rzx::machine_marker_name(configured);
+                }
+                std::remove(path.c_str());
+            }
+            check("EB-46", "a jnext recording boots the machine it was made on (all four, "
+                           "from each configured machine)", ok, "wrong for:" + why);
+        }
+
+        // EB-47: a foreign recording is judged by its embedded snapshot.
+        {
+            auto snap_rec = [](std::vector<uint8_t> snap, const char* ext) {
+                RzxRecording rec;
+                rec.creator       = "Fuse";
+                rec.snapshot_data = std::move(snap);
+                rec.snapshot_ext  = ext;
+                return rec;
+            };
+            auto szx = [](uint8_t id) {
+                std::vector<uint8_t> v = {'Z', 'X', 'S', 'T', 1, 4, id, 0};
+                return v;
+            };
+            auto z80 = [](uint16_t add_len, uint8_t hw) {
+                std::vector<uint8_t> v(32 + add_len, 0);   // PC (6-7) 0 -> v2/v3
+                v[30] = static_cast<uint8_t>(add_len);
+                v[34] = hw;
+                return v;
+            };
+            std::vector<uint8_t> z80v1(30 + 49152, 0);
+            z80v1[6] = 0x00; z80v1[7] = 0x80;              // PC != 0 -> v1
+            struct Case { const char* name; RzxRecording rec; bool known; MachineType m; };
+            const Case cases[] = {
+                {"sna48",  snap_rec(std::vector<uint8_t>(49179, 0), "sna"),  true,  MachineType::ZX48K},
+                {"sna128", snap_rec(std::vector<uint8_t>(131103, 0), "sna"), true,  MachineType::ZX128K},
+                {"szx48",  snap_rec(szx(1), "szx"),       true,  MachineType::ZX48K},
+                {"szx128", snap_rec(szx(2), "szx"),       true,  MachineType::ZX128K},
+                {"szx+3",  snap_rec(szx(5), "szx"),       true,  MachineType::ZX_PLUS3},
+                {"szxpent",snap_rec(szx(7), "szx"),       false, MachineType::ZX48K},
+                {"z80v1",  snap_rec(z80v1, "z80"),        true,  MachineType::ZX48K},
+                {"z80v2-3",snap_rec(z80(23, 3), "z80"),   true,  MachineType::ZX128K},
+                {"z80v3-3",snap_rec(z80(54, 3), "z80"),   true,  MachineType::ZX48K},
+                {"z80v3-4",snap_rec(z80(54, 4), "z80"),   true,  MachineType::ZX128K},
+                {"z80v3-7",snap_rec(z80(54, 7), "z80"),   true,  MachineType::ZX_PLUS3},
+                {"z80v3-9",snap_rec(z80(54, 9), "z80"),   false, MachineType::ZX48K},
+                {"none",   snap_rec({}, ""),              false, MachineType::ZX48K},
+            };
+            std::string why;
+            for (const Case& c : cases) {
+                MachineType got = MachineType::ZXN_ISSUE2;
+                const bool known = rzx::recorded_machine(c.rec, got);
+                if (known != c.known || (known && got != c.m)) why += std::string(" ") + c.name;
+            }
+            check("EB-47", "a foreign recording's machine comes from its snapshot "
+                           "(SNA size, SZX ID, .z80 version+mode); Pentagon/none name none",
+                  why.empty(), "wrong for:" + why);
+        }
+
+        // EB-48: a jnext recording from before the marker: its 48K SNA names no
+        // machine (it plays on the configured one, as it always did), its SZX
+        // does.
+        {
+            const std::string sna = path_for("old-sna");
+            const std::string szx = path_for("old-szx");
+            RzxRecording rec;
+            rec.creator       = "JNEXT";
+            rec.snapshot_data = std::vector<uint8_t>(49179, 0);
+            rec.snapshot_ext  = "sna";
+            rec.frames.resize(1);
+            const bool w1 = rzx::write(sna, rec);
+            rec.snapshot_data = {'Z', 'X', 'S', 'T', 1, 4, 2, 0};
+            rec.snapshot_ext  = "szx";
+            const bool w2 = rzx::write(szx, rec);
+            check("EB-48", "a pre-marker jnext recording: an SNA boots the configured "
+                           "machine, an SZX the machine it names",
+                  w1 && w2 &&
+                  emulator_boot_machine(sna, MachineType::ZXN_ISSUE2) == MachineType::ZXN_ISSUE2 &&
+                  emulator_boot_machine(sna, MachineType::ZX48K) == MachineType::ZX48K &&
+                  emulator_boot_machine(szx, MachineType::ZXN_ISSUE2) == MachineType::ZX128K);
+            std::remove(sna.c_str());
+            std::remove(szx.c_str());
+        }
+
+        // EB-49: only an RZX chooses: any other load, a missing or unreadable
+        // .rzx, and no load at all boot the configured machine.
+        {
+            const std::string bad = path_for("bad");
+            { std::ofstream f(bad, std::ios::binary); f << "NOTRZX NOTRZX NOTRZX"; }
+            check("EB-49", "a non-RZX, unreadable or missing load boots the configured machine",
+                  emulator_boot_machine("", MachineType::ZX128K) == MachineType::ZX128K &&
+                  emulator_boot_machine("game.sna", MachineType::ZX128K) == MachineType::ZX128K &&
+                  emulator_boot_machine(bad, MachineType::ZX128K) == MachineType::ZX128K &&
+                  emulator_boot_machine(path_for("missing"), MachineType::ZX128K) ==
+                      MachineType::ZX128K);
+            std::remove(bad.c_str());
+        }
+
+        // EB-50: the cold boot (the GUI's File > Play RZX / Load route) of a
+        // 48K recording on a machine configured as the Next builds the 48K.
+        {
+            const std::string path = path_for("cold");
+            bool made = false;
+            {
+                Emulator src;
+                src.init(base_config());   // 48K
+                made = src.start_rzx_recording(path);
+                src.run_frame();
+                made = made && src.stop_rzx_recording();
+            }
+            EmulatorConfig cfg = base_config();
+            cfg.type      = MachineType::ZXN_ISSUE2;
+            cfg.load_file = path;
+            Emulator emu;
+            emu.init(base_config());
+            emulator_cold_boot(emu, cfg);
+            check("EB-50", "a cold boot that loads a 48K recording builds the 48K, "
+                           "not the configured Next",
+                  made && emu.config().type == MachineType::ZX48K);
+
+            // EB-51: the frontend's own cold-boot sequence, as QtApp/SdlApp
+            // run it (their keep_machine hook stores the type in the config
+            // every later boot starts from). File > Play RZX of the 48K
+            // recording on a Next, then F1 / Machine > Power Reset (a boot
+            // with no load): still the 48K. Then Machine > Machine Type >
+            // Next (the frontend's config changed, then a boot): the Next —
+            // the recording's machine is kept, not pinned.
+            EmulatorConfig frontend = base_config();
+            frontend.type = MachineType::ZXN_ISSUE2;
+            ColdBootHooks hooks;
+            hooks.keep_machine = [&frontend](MachineType t) { frontend.type = t; };
+            Emulator fe;
+            fe.init(frontend);
+            emulator_frontend_cold_boot(fe, frontend, path, hooks);    // Play RZX
+            const bool played_48k = fe.config().type == MachineType::ZX48K;
+            emulator_frontend_cold_boot(fe, frontend, "", hooks);      // F1
+            const bool reset_48k = fe.config().type == MachineType::ZX48K;
+            frontend.type = MachineType::ZXN_ISSUE2;                   // Machine Type
+            emulator_frontend_cold_boot(fe, frontend, "", hooks);
+            const bool chose_next = fe.config().type == MachineType::ZXN_ISSUE2;
+            check("EB-51", "the frontend cold boot keeps a recording's machine: a later "
+                           "hard reset still builds it; a Machine Type change still wins",
+                  made && played_48k && reset_48k && chose_next,
+                  "played_48k=" + std::to_string(played_48k) + " reset_48k=" +
+                      std::to_string(reset_48k) + " chose_next=" + std::to_string(chose_next));
+            std::remove(path.c_str());
+        }
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;

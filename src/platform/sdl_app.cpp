@@ -1,5 +1,6 @@
 #include "sdl_app.h"
 #include "platform/emulator_boot.h"
+#include "platform/auto_exit.h"
 #include "platform/rzx_startup.h"
 #include "platform/frame_sequencer.h"   // RENDER_INTERVAL_MS, shared with QtApp
 #include "platform/render_policy.h"
@@ -229,6 +230,9 @@ void SdlApp::cold_boot(const std::string& load_file) {
     hooks.schedule_load = [this](const std::string& file, int delay_frames) {
         set_pending_load(file, delay_frames);
     };
+    // A recording boots the machine it was made on, which stays selected for
+    // later boots (emulator_cold_boot()).
+    hooks.keep_machine = [this](MachineType type) { config_.type = type; };
     emulator_frontend_cold_boot(emulator_, config_set_ ? config_ : EmulatorConfig{},
                                 load_file, hooks);
 }
@@ -449,9 +453,17 @@ void SdlApp::run() {
             --screenshot_countdown_;
         }
 
-        // Delayed automatic exit.
+        // Delayed automatic exit. Deferred command-line work it cuts off
+        // fails the run (platform/auto_exit.h).
         if (exit_countdown_ == 0) {
             Log::platform()->info("automatic exit triggered");
+            if (!auto_exit_finds_no_deferred_work(emulator_, {
+                    {"--load", load_file_, load_countdown_ >= 0},
+                    {"--inject", inject_file_, inject_countdown_ >= 0},
+                    {"--rzx-record", rzx_record_file_,
+                     !rzx_record_file_.empty() && !rzx_record_started_},
+                }))
+                exit_code_ = 1;
             running_ = false;
         } else if (exit_countdown_ > 0) {
             --exit_countdown_;

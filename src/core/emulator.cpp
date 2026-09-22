@@ -7420,6 +7420,19 @@ bool Emulator::load_rzx(const std::string& path)
 
     if (rzx_refused_by_tape_save("play")) return false;
 
+    // The frontends build the machine the recording was made on before they
+    // get here (emulator_boot_machine()); only an explicit --machine can make
+    // it differ, and then the input is played against the wrong machine.
+    MachineType recorded = config_.type;
+    if (!rzx::recorded_machine(rec, recorded)) {
+        Log::emulator()->info("RZX: '{}' does not say which machine it was recorded on; "
+                              "playing it on the {}", path, machine_type_str(config_.type));
+    } else if (recorded != config_.type) {
+        Log::emulator()->warn("RZX: '{}' was recorded on the {} but plays on the {} "
+                              "(--machine); it will probably go out of step",
+                              path, machine_type_str(recorded), machine_type_str(config_.type));
+    }
+
     // Playback replaces the machine and answers every IN from the file, so a
     // recording still running would record nothing from here on: write it and
     // end it first (as FUSE does on opening a file), rather than leave it
@@ -7493,6 +7506,9 @@ bool Emulator::start_rzx_recording(const std::string& path)
         snap_ext = "sna";
     }
     if (!snap.empty()) rzx_recorder_.set_snapshot(std::move(snap), snap_ext);
+    // The snapshot cannot say which machine it is for (on the Next it is a 48K
+    // SNA), so the file names it: playback builds that machine.
+    rzx_recorder_.set_machine(config_.type);
     rzx_recorder_.set_initial_tstates(*fuse_z80_tstates_ptr());
 
     // Wire up port recording hook.

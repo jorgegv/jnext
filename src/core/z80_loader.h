@@ -312,15 +312,12 @@ inline bool Z80Loader::load_from_buffer(const std::vector<uint8_t>& buf)
     header_.PC             = read_u16(raw + 32);
     header_.hardware_mode  = raw[34];
     header_.port_7ffd      = raw[35];
-    // Hardware-mode >= 4 is unambiguously 128K-class (128k / 128k+IF1 /
-    // 128k+MGT / +3 / Pentagon 128 / Scorpion / ...) in both v2 and v3.
-    // Value 3 is the one documented case where sources disagree between
-    // v2 ("48k + M.G.T.") and v3 (some references call it SamRam) — jnext
-    // implements neither MGT nor SamRam, so both interpretations reduce to
-    // "plain 48K RAM layout" here; we deliberately treat hardware_mode==3
-    // as 48K-class in both versions. See z80-loader task report for the
-    // explicit ambiguity flag.
-    header_.is_128k = header_.hardware_mode >= 4;
+    // Hardware-mode >= 4 is 128K-class (128k / 128k+IF1 / 128k+MGT / +3 /
+    // Pentagon 128 / Scorpion / ...) in both v2 and v3. Value 3 is the one
+    // that differs between the versions: 128k in v2, 48k + M.G.T. in v3
+    // (libspectrum's Z80_MACHINE_128_V2 / Z80_MACHINE_48_MGT). Read as 48K
+    // in v2 too, a v2 128K snapshot had its banks 1/2 loaded at 8000/C000.
+    header_.is_128k = header_.hardware_mode >= (header_.version == 2 ? 3 : 4);
 
     const size_t body_offset = 32 + add_len;
     if (!parse_pages(raw + body_offset, buf.size() - body_offset))

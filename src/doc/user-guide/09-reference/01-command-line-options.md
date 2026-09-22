@@ -343,10 +343,19 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     and **File \> Play RZX Recording** in the GUI. The recording brings
     its own snapshot of the machine, so it cannot be combined with
     **--rzx-record**, with **--load** or **--inject** of another
-    program, or with a second RZX file. It does not choose the machine
-    type, though: play it on the machine it was recorded on
-    (**--machine**, or **Machine \> Machine Type** in the GUI), or it
-    goes out of step.
+    program, or with a second RZX file. It plays on the machine it was
+    recorded on, whatever machine is configured: a recording **jnext**
+    makes names its machine, and one from another emulator is judged by
+    its embedded snapshot (an SNA’s size, an SZX’s machine ID, a
+    `.z80`’s hardware mode). A recording that names none — one **jnext**
+    1.0.0 or earlier made with an SNA snapshot, or one whose snapshot is
+    of a machine **jnext** does not emulate — plays on the configured
+    machine. An explicit **--machine** given with the recording wins,
+    and **jnext** warns when it disagrees with the recording, which then
+    goes out of step; a recording played from the GUI’s menus always
+    gets its own machine. The recording’s machine stays selected
+    afterwards, in the GUI’s **Machine \> Machine Type** too, as if
+    chosen there.
 
 **--rzx-record** *FILE*
 :   Record input to an RZX file from the start of the run — or, with
@@ -359,14 +368,15 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     loader, which a recording cannot replay. The snapshot is an SZX on
     the 128K and +3 and a 48K SNA otherwise, which cannot hold the
     Next’s own video and memory state, so a program that uses Layer 2,
-    the tilemap, sprites or its palettes may not replay correctly. A
-    *FILE* that cannot be written is refused before the machine starts,
-    and a recording that cannot be saved when it is written is logged;
-    either way **jnext** exits non-zero. A reset ends the recording: a
-    hard reset (the Reset button, F1, or the program’s own), loading
-    another program from the GUI, changing the machine type, or F4
-    writes the file there, and nothing after it is recorded — a
-    recording cannot replay a reset.
+    the tilemap, sprites or its palettes may not replay correctly. The
+    file names the machine it was recorded on, which **--rzx-play** then
+    uses. A *FILE* that cannot be written is refused before the machine
+    starts, and a recording that cannot be saved when it is written is
+    logged; either way **jnext** exits non-zero. A reset ends the
+    recording: a hard reset (the Reset button, F1, or the program’s
+    own), loading another program from the GUI, changing the machine
+    type, or F4 writes the file there, and nothing after it is recorded
+    — a recording cannot replay a reset.
 
 **--rewind-buffer-size** *N*
 :   Frame-snapshot ring buffer for backwards execution. Opt-in; default
@@ -410,10 +420,21 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     **--delayed-screenshot**.
 
 **--delayed-automatic-exit** *N*
-:   Exit the emulator after *N* seconds.
+:   Exit the emulator after *N* seconds. The exit always fires, but work
+    the command line deferred to a later frame and that has not happened
+    by then is an error, and **jnext** exits non-zero: a **--load**
+    still waiting out its boot delay (100 frames for `.tzx` and `.wav`),
+    an **--inject** with **--inject-delay**, an **--rzx-record** waiting
+    for that load, a **--delayed-keypress**, **--delayed-nmi** or
+    **--delayed-screenshot** still to come, a **--joy-uart-rx** stream
+    still held by **--joy-uart-rx-delay-frames**, and an edge of the
+    **--esp-delayed-disassociate-frames** /
+    **--esp-delayed-associate-frames** outage not yet reached. Give the
+    exit headroom over the last of them.
 
 **--delayed-automatic-exit-frames** *N*
-:   Exit after *N* frames. Overrides **--delayed-automatic-exit**.
+:   Exit after *N* frames. Overrides **--delayed-automatic-exit**, and
+    keeps its rule on work still to come.
 
 **--delayed-snapshot** *FILE*
 :   Headless only: requires **--headless**. Save a snapshot after a

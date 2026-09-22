@@ -22,7 +22,7 @@ mentions them, so a test can no longer be absent from this document.
 <!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
-| Memory/MMU                                 |   261 |  255 |    0 |    0 |       6 |          0 |
+| Memory/MMU                                 |   262 |  256 |    0 |    0 |       6 |          0 |
 | ULA Video                                  |   132 |  128 |    0 |    0 |       4 |          0 |
 | Layer2                                     |   209 |  201 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   221 |  214 |    0 |    0 |       7 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    40 |   40 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4642 | 4390 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4643 | 4391 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4642**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4374**. Rows the 106 suites declared in `test/unit-tests.conf` run live: **7626**.
+Rows the sections above carry: **4643**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4375**. Rows the 106 suites declared in `test/unit-tests.conf` run live: **7634**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -75,7 +75,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 65 suites (3440 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 65 suites (3447 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -94,7 +94,7 @@ These 65 suites (3440 live rows) have no VHDL-derived plan row to map, so they h
 | `subsystem_gain_test` | 26 | host per-subsystem gain control (a user setting) |
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
-| `emulator_boot_test` | 61 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
+| `emulator_boot_test` | 67 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
 | `pointer_capture_test` | 12 | host mouse-capture policy (window-manager behaviour) |
@@ -127,7 +127,7 @@ These 65 suites (3440 live rows) have no VHDL-derived plan row to map, so they h
 | `present_count_test` | 17 | host present accounting (wall-clock, not core timing) |
 | `esp_status_test` | 15 | host status-bar ESP indicator (GUI), no core counterpart |
 | `nex_v13_dialog_test` | 4 | experimental NEX V1.3 warning dialog (GUI), no core counterpart |
-| `rzx_menu_test` | 14 | RZX File-menu error dialogs (GUI), no core counterpart |
+| `rzx_menu_test` | 15 | RZX File-menu error dialogs (GUI), no core counterpart |
 | `load_error_test` | 11 | GUI load-failure reporting and Tape menu (GUI), no core counterpart |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
 | `host_hotkey_test` | 35 | host hotkey bindings (Alt vs the guest Symbol Shift) |
@@ -344,24 +344,25 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BOOT-Z80-03 | v3 (extended-header, 128K) .z80 — Ram banks 0-7 populated per the page3..10 -> bank0..7 table; port_7ffd_ from header byte 0x23 | — | pass | test/mmu/mmu_test.cpp:4098 |
 | BOOT-Z80-04 | Unsupported / corrupt .z80 file rejected — truncated RLE run with no end marker; loader returns error and Mmu is left untouched | — | pass | test/mmu/mmu_test.cpp:4135 |
 | BOOT-Z80-05 | Structurally-valid .z80 with only foreign page numbers is rejected by apply_ram_to_mmu() (zero pages applied), not silently reported as a successful load with no RAM written | — | pass | test/mmu/mmu_test.cpp:4184 |
-| BOOT-SNAPSAVE-02 | SzxSaver::build() produces a spec-conformant .szx for +3 (machine_id=5): 8-byte header, ZXSTZ80REGS(37B)/ZXSTSPECREGS(8B)/ZXSTRAMPAGE chunks at their exact published offsets, all 8 physical RAM banks (0-7) with chPageNo == physical bank number and full content — spectaculator.com/docs/zx-state/{header,z80regs,specregs,rampage}.shtml + libspectrum szx.c:3337-3342 (128-memory-capability page set) (G35) | — | pass | test/mmu/mmu_test.cpp:4329 |
-| BOOT-SNAPSAVE-03 | NexSaver::build() produces a spec-conformant .nex V1.2: 512-byte header fields at their exact NexLoader-parsed offsets (magic/version/ram_required/num_banks/border/sp/pc/banks[]/preserve_regs/entry_bank), full bank payloads in NexLoader's kBankOrder — https://wiki.specnext.dev/NEX_file_format (G35) | — | pass | test/mmu/mmu_test.cpp:4552 |
-| BOOT-DECI-01 | TZX 0x15 Direct Recording: EAR(t) = sample[(t-t0)/77] MSB-first with used_bits=5 in the last byte; level 0 and stopped after the final sample (TZX spec v1.20 block 0x15) | — | pass | test/mmu/mmu_test.cpp:4667 |
-| BOOT-DECI-02 | TZX pause holds the block's final level ~1 ms (3500 T) before dropping low, preserving the terminating edge of pulse blocks and the un-inverted final sample of 0x15 blocks (empirical heuristic; measured 48K-ROM LD-BYTES terminating-edge requirement, Task 57) | — | pass | test/mmu/mmu_test.cpp:4760 |
-| BOOT-DECI-03 | WAV real-time EAR: 8-bit PCM 44.1 kHz frames mapped from the 3.5 MHz T-state clock, threshold at the 128 centre; 0 before start and past end (G37) | — | pass | test/mmu/mmu_test.cpp:4815 |
-| BOOT-DECI-04 | WAV EAR transitions at the linearly-interpolated 128 crossing (sub-sample precision), not quantised to the 79.4 T sample grid — frame 10.75 of a 96→160 crossing reads 1 (G37 fix discriminator) | — | pass | test/mmu/mmu_test.cpp:4871 |
+| BOOT-Z80-06 | hardware mode 3 is 128K in a v2 .z80 (its page 5, bank 2, lands at 0x8000) and 48K in a v3 one | — | pass | test/mmu/mmu_test.cpp:4221 |
+| BOOT-SNAPSAVE-02 | SzxSaver::build() produces a spec-conformant .szx for +3 (machine_id=5): 8-byte header, ZXSTZ80REGS(37B)/ZXSTSPECREGS(8B)/ZXSTRAMPAGE chunks at their exact published offsets, all 8 physical RAM banks (0-7) with chPageNo == physical bank number and full content — spectaculator.com/docs/zx-state/{header,z80regs,specregs,rampage}.shtml + libspectrum szx.c:3337-3342 (128-memory-capability page set) (G35) | — | pass | test/mmu/mmu_test.cpp:4366 |
+| BOOT-SNAPSAVE-03 | NexSaver::build() produces a spec-conformant .nex V1.2: 512-byte header fields at their exact NexLoader-parsed offsets (magic/version/ram_required/num_banks/border/sp/pc/banks[]/preserve_regs/entry_bank), full bank payloads in NexLoader's kBankOrder — https://wiki.specnext.dev/NEX_file_format (G35) | — | pass | test/mmu/mmu_test.cpp:4589 |
+| BOOT-DECI-01 | TZX 0x15 Direct Recording: EAR(t) = sample[(t-t0)/77] MSB-first with used_bits=5 in the last byte; level 0 and stopped after the final sample (TZX spec v1.20 block 0x15) | — | pass | test/mmu/mmu_test.cpp:4704 |
+| BOOT-DECI-02 | TZX pause holds the block's final level ~1 ms (3500 T) before dropping low, preserving the terminating edge of pulse blocks and the un-inverted final sample of 0x15 blocks (empirical heuristic; measured 48K-ROM LD-BYTES terminating-edge requirement, Task 57) | — | pass | test/mmu/mmu_test.cpp:4797 |
+| BOOT-DECI-03 | WAV real-time EAR: 8-bit PCM 44.1 kHz frames mapped from the 3.5 MHz T-state clock, threshold at the 128 centre; 0 before start and past end (G37) | — | pass | test/mmu/mmu_test.cpp:4852 |
+| BOOT-DECI-04 | WAV EAR transitions at the linearly-interpolated 128 crossing (sub-sample precision), not quantised to the 79.4 T sample grid — frame 10.75 of a 96→160 crossing reads 1 (G37 fix discriminator) | — | pass | test/mmu/mmu_test.cpp:4908 |
 | BOOT-FDC-01 | .dsk` (CPCEMU/EDSK) image mounted on +3 drive | — | missing | — |
 | BOOT-FDC-02 | uPD765 motor-on / read-id behaviour | — | missing | — |
 | BOOT-FDC-03 | NR 0x81 b3 (`fdc` clken) gates motor-on | — | missing | — |
-| BANK7-01 | MMU page 0x0E lands in the dedicated BRAM buffer, not in any SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:5957 |
-| BANK7-02 | alt-ROM write to phys page 0x0E does not corrupt MMU-page-0x0E workspace (the $DA35 saved-SP NextZXOS boot killer) | — | pass | test/mmu/mmu_test.cpp:5981 |
-| BANK7-03 | MMU page 0x0A lands in the dedicated bank-5 VRAM, not in any SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:6004 |
-| BANK7-04 | config-mode NR $04=$17 window writes SRAM page 0x2E without touching the bank-7 BRAM — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6031 |
-| BANK7-05 | standalone-machine (rom_in_sram=false) bank-7 writes land in flat RAM pages 0x0E/0x0F, NOT the Next-only BRAM buffer | — | pass | test/mmu/mmu_test.cpp:6057 |
-| BANK5-01 | pages 0x0A/0x0B are the lower/upper 8K halves of the single 16K bank-5 VRAM — VHDL zxnext.vhd:6558 (addr_width 14) | zxnext.vhd:6558 | pass | test/mmu/mmu_test.cpp:6090 |
-| BANK5-02 | config-mode NR $04=$05 window writes SRAM page 0x0A without touching the bank-5 VRAM (the NextZXOS mid-boot-garbage killer) — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6115 |
-| BANK5-03 | standalone-machine (rom_in_sram=false) bank-5 writes land in flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer | — | pass | test/mmu/mmu_test.cpp:6135 |
-| BANK5-04 | CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional layer2_A21_A13 formula), not page 0x0A and not the VRAM — VHDL zxnext.vhd:2966-2971 + 3100-3107 | zxnext.vhd:2966-2971 | pass | test/mmu/mmu_test.cpp:6160 |
+| BANK7-01 | MMU page 0x0E lands in the dedicated BRAM buffer, not in any SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:5994 |
+| BANK7-02 | alt-ROM write to phys page 0x0E does not corrupt MMU-page-0x0E workspace (the $DA35 saved-SP NextZXOS boot killer) | — | pass | test/mmu/mmu_test.cpp:6018 |
+| BANK7-03 | MMU page 0x0A lands in the dedicated bank-5 VRAM, not in any SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:6041 |
+| BANK7-04 | config-mode NR $04=$17 window writes SRAM page 0x2E without touching the bank-7 BRAM — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6068 |
+| BANK7-05 | standalone-machine (rom_in_sram=false) bank-7 writes land in flat RAM pages 0x0E/0x0F, NOT the Next-only BRAM buffer | — | pass | test/mmu/mmu_test.cpp:6094 |
+| BANK5-01 | pages 0x0A/0x0B are the lower/upper 8K halves of the single 16K bank-5 VRAM — VHDL zxnext.vhd:6558 (addr_width 14) | zxnext.vhd:6558 | pass | test/mmu/mmu_test.cpp:6127 |
+| BANK5-02 | config-mode NR $04=$05 window writes SRAM page 0x0A without touching the bank-5 VRAM (the NextZXOS mid-boot-garbage killer) — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6152 |
+| BANK5-03 | standalone-machine (rom_in_sram=false) bank-5 writes land in flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer | — | pass | test/mmu/mmu_test.cpp:6172 |
+| BANK5-04 | CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional layer2_A21_A13 formula), not page 0x0A and not the VRAM — VHDL zxnext.vhd:2966-2971 + 3100-3107 | zxnext.vhd:2966-2971 | pass | test/mmu/mmu_test.cpp:6197 |
 | N8E-05a | NR 0x8E read-back {dffd(0),7FFD(2:0),1,1FFD(0),1FFD(2),bit0} — VHDL zxnext.vhd:6158-6159 | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1238 |
 | N8E-05b | NR 0x8E read-back bit 0 flips with 1FFD(0) selector — VHDL zxnext.vhd:6159 | zxnext.vhd:6159 | pass | test/mmu/mmu_test.cpp:1255 |
 | MTC-01 | machine_type change leaves slot 0 NR-mapped to RAM (VHDL zxnext.vhd:3813 — no port_memory_change_dly pulse) | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:1922 |
@@ -387,49 +388,49 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | CFG-09 | rom_in_sram=true routes ROM-slot reads through ram_ pages 0..7 — VHDL zxnext.vhd:3052 | zxnext.vhd:3052 | pass | test/mmu/mmu_test.cpp:2864 |
 | CFG-10 | rom_in_sram + config_mode=0: writes to ROM slot still drop — VHDL zxnext.vhd:3056 sram_pre_rdonly | zxnext.vhd:3056 | pass | test/mmu/mmu_test.cpp:2883 |
 | CFG-11 | set_rom_in_sram(true)→(false) restores ROM-slot reads to rom_ buffer — VHDL zxnext.vhd:3052 | zxnext.vhd:3052 | pass | test/mmu/mmu_test.cpp:2903 |
-| BOOT-SNAPSAVE-02B | SzxSaver::build() IFF1/IFF2/halted encode independently (discriminative pair for BOOT-SNAPSAVE-02) — spectaculator.com/docs/zx-state/z80regs.shtml | — | pass | test/mmu/mmu_test.cpp:4364 |
-| BOOT-SNAPSAVE-02C | SzxSaver::build() emits exactly banks {0, 2, 5} for a 48K save (machine_id=1) — the SZX page-numbering convention (spectaculator.com/docs/zx-state/rampage.shtml + libspectrum szx.c:3330-3334), NOT the first 3 banks {0,1,2} | — | pass | test/mmu/mmu_test.cpp:4416 |
-| BOOT-SNAPSAVE-02D | SzxSaver::build()/ram_page_set() refuse (empty return, error message set) for any chMachineId outside {1,2,4,5} — 48K/128K/+2A/+3 are the only machines .szx can represent | — | pass | test/mmu/mmu_test.cpp:4459 |
-| BOOT-SNAPSAVE-03B | NexSaver::build() clamps to the format's 112-bank ceiling on >1792 KB installs and reports the clamp rather than overflowing banks[112] or writing an unrepresentable ram_required — nex_loader.h banks[112]/kBankOrder (G155) | — | pass | test/mmu/mmu_test.cpp:4588 |
-| BOOT-SNAPSAVE-03C | NexSaver::build() detects a non-contiguous slot 6/7 bank pair and flags contiguous_entry_bank=false rather than silently mis-saving (NexSaver class doc-comment) | — | pass | test/mmu/mmu_test.cpp:4613 |
-| MMU-PR-01 | slot_in_rom_area at reset (NR 0x50/51 = 0xFF): true for slots 0/1 (VHDL :2964 mmu_A21_A13(8)=1 when effective page >= 0xE0) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4911 |
-| MMU-PR-02 | slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5) — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4925 |
-| MMU-PR-03 | slot_in_rom_area true at boundary NR 0x50 = 0xE0 (VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4936 |
-| MMU-PR-04 | slot_in_rom_area false at NR 0x50 = 0xDF (just below VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4948 |
-| MMU-PR-05 | pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00) — VHDL zxnext.vhd:3029,3065 | zxnext.vhd:3029,3065 | pass | test/mmu/mmu_test.cpp:4958 |
-| PR-06 | pre_override(2)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 — MF wins, override='000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:4968 |
-| PR-07 | pre_override(2)=1 for PC<0x4000 with mf_active=0 — VHDL zxnext.vhd:3043,3050,3057 | zxnext.vhd:3043,3050,3057 | pass | test/mmu/mmu_test.cpp:4978 |
-| PR-08 | pre_override(0)=1 in normal ROM mode (VHDL zxnext.vhd:3057 → '111') | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:4992 |
-| PR-09 | pre_override(0)=0 when config_mode=1 (VHDL zxnext.vhd:3044,3050) | zxnext.vhd:3044,3050 | pass | test/mmu/mmu_test.cpp:5003 |
-| PR-10 | pre_override(0)=0 for slot 0 RAM-mapped (VHDL zxnext.vhd:3037,3043) | zxnext.vhd:3037,3043 | pass | test/mmu/mmu_test.cpp:5015 |
-| PR-11 | pre_override(0)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 → '000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5025 |
-| PR-12 | pre_override(0)=0 for PC>=0x4000 — VHDL zxnext.vhd:3065 | zxnext.vhd:3065 | pass | test/mmu/mmu_test.cpp:5035 |
-| PR-13 | pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF — VHDL zxnext.vhd:3057 | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5047 |
-| PR-14 | pre_override(0) tracks per-slot ROM/RAM mode (VHDL zxnext.vhd:2952 mem_active_page selects MMU0..MMU7 by cpu_a(15:13)) | zxnext.vhd:2952 | pass | test/mmu/mmu_test.cpp:5066 |
-| FIX-NR5xFF-01 | NR $51=$FF (engage_legacy_rom_paging_slot(1)) preserves slot 0 RAM mapping — VHDL zxnext.vhd:4686-4696 nr_mmu_we per-slot | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5111 |
-| FIX-NR5xFF-02 | NR $52=$FF → slot 2 inactive: read returns 0xFF, write dropped (VHDL zxnext.vhd:3061 sram_pre_active=0 when mmu_A21_A13(8)=1) | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5136 |
-| FIX-NR5xFF-03 | NR $56=$FF → slot 6 inactive (NOT legacy RAM auto-paged) — VHDL zxnext.vhd:3061 sram_pre_active=0 | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5156 |
-| FIX-PLUS3-01 | +3 special-mode 1→0 transition reverts slots 2-5 to bank 5 / bank 2 — VHDL zxnext.vhd:4655-4670 | zxnext.vhd:4655-4670 | pass | test/mmu/mmu_test.cpp:5193 |
-| FIX-PLUS3-02 | +3 special: port_7FFD write does NOT clobber special table — VHDL zxnext.vhd:4623 (arbiter rewrites 0..7) | zxnext.vhd:4623 | pass | test/mmu/mmu_test.cpp:5223 |
-| FIX-PLUS3-03 | port_1ffd_special_old persisted across save/load — exit after load fires slot 2-5 revert (VHDL :3716,3729; commit 45d8b30) | zxnext.vhd:3716/3729 | pass | test/mmu/mmu_test.cpp:5257 |
-| FIX-NR8C-CACHE-01 | NR 0x8C lock_rom1 flip refreshes slot-0 cached read pointer (pre→0x00, post→0x40) — VHDL zxnext.vhd:2981-3008,3052; commit 3dd4e73 | zxnext.vhd:2981-3008,3052 | pass | test/mmu/mmu_test.cpp:5308 |
-| FIX-NR8C-CACHE-02 | NR 0x8C write with no lock change preserves slot 0 RAM mapping AND cached read pointer — VHDL zxnext.vhd:3813 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5360 |
-| FIX-SLOT01-HIPAGE-01 | NR $50=0xE5 routes slot 0 to legacy ROM (sram_rom-derived) — VHDL zxnext.vhd:2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5407 |
-| FIX-UNLOCK-01 | unlock_paging() clears bit 5 of port_7ffd_ AND paging_locked_ — VHDL zxnext.vhd:3654-3656; commit 31d1786 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:5436 |
-| FIX-NR8C-PRESERVE-01 | NR 0x8C write preserves slot 0 explicit RAM mapping — VHDL zxnext.vhd:3813 no port_memory_change_dly; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5464 |
-| FIX-NR8C-PRESERVE-02 | NR 0x8C with sram_rom-changing lock preserves slot 1 RAM mapping — VHDL zxnext.vhd:3813; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5483 |
-| FIX-EFF7-FF-01 | NR $50=$FF under EFF7(3)=1: nr_mmu_[0]=0xFF verbatim, slot 0 → legacy ROM (not RAM) — VHDL :4686-4696 nr_mmu_we; commits 31d1786 + 560cb18 | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5516 |
-| FIX-NRMMU-SAVE-01 | nr_mmu_[0]=0xE5 verbatim round-trips through save/load — VHDL zxnext.vhd:4686-4696 + :6059-6081 NR readback; commit 560cb18 | zxnext.vhd:4686-4696,6059-6081 | pass | test/mmu/mmu_test.cpp:5556 |
-| FIX-NR12-PROP-01 | Mmu::set_l2_active_bank propagates to CPU L2 read path — VHDL zxnext.vhd:2968 + :2969 layer2_active_page; commit 560cb18 | zxnext.vhd:2968,2969 | pass | test/mmu/mmu_test.cpp:5590 |
-| FIX-RESET-CFG-01-A | reset with config_mode=0 leaves boot_rom_en cleared — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5621 |
-| FIX-RESET-CFG-01-B | reset with config_mode=1 re-arms boot_rom_en — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5639 |
-| FIX-MTC-SPECIAL-01 | set_machine_type during +3 special preserves special-mapping slots 0/1 — VHDL zxnext.vhd:4623-4632 (table independent of sram_rom); commit 165835d | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:5672 |
-| FIX-CURRSRAMROM-128K-01 | 128K with lock_rom1=1: sram_rom = lock_rom1 = 1 (NOT 7ffd(4)=0) — VHDL zxnext.vhd:2997-3007 shared else branch; commit b6b42dd | zxnext.vhd:2997-3007 | pass | test/mmu/mmu_test.cpp:5702 |
-| FIX-L2-OVERLAY-LOWHALF-01 | L2 write-over with seg=01 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043 sram_pre_override(1)=1; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:5735 |
-| FIX-L2-OVERLAY-LOWHALF-02 | L2 write-over with seg=10 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:5755 |
-| FIX-L2-ROM-AREA-01 | L2 read with bank=0x70 → sram_active=0 → 0xFF (NOT ROM-area wrap) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:5785 |
-| FIX-L2-ROM-AREA-02 | L2 write with bank=0x70 → sram_active=0 → write dropped (NOT corrupting ROM area) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:5814 |
-| V11-MEM-01-A | NR $50=0xE5 + save_state + load_state: rebuild_ptr serves legacy ROM (sram_rom*2+slot=0) via consistent slots_[] — VHDL zxnext.vhd:3037-3057 :3052; verify11-memory | zxnext.vhd:3037-3057 | pass | test/mmu/mmu_test.cpp:5906 |
+| BOOT-SNAPSAVE-02B | SzxSaver::build() IFF1/IFF2/halted encode independently (discriminative pair for BOOT-SNAPSAVE-02) — spectaculator.com/docs/zx-state/z80regs.shtml | — | pass | test/mmu/mmu_test.cpp:4401 |
+| BOOT-SNAPSAVE-02C | SzxSaver::build() emits exactly banks {0, 2, 5} for a 48K save (machine_id=1) — the SZX page-numbering convention (spectaculator.com/docs/zx-state/rampage.shtml + libspectrum szx.c:3330-3334), NOT the first 3 banks {0,1,2} | — | pass | test/mmu/mmu_test.cpp:4453 |
+| BOOT-SNAPSAVE-02D | SzxSaver::build()/ram_page_set() refuse (empty return, error message set) for any chMachineId outside {1,2,4,5} — 48K/128K/+2A/+3 are the only machines .szx can represent | — | pass | test/mmu/mmu_test.cpp:4496 |
+| BOOT-SNAPSAVE-03B | NexSaver::build() clamps to the format's 112-bank ceiling on >1792 KB installs and reports the clamp rather than overflowing banks[112] or writing an unrepresentable ram_required — nex_loader.h banks[112]/kBankOrder (G155) | — | pass | test/mmu/mmu_test.cpp:4625 |
+| BOOT-SNAPSAVE-03C | NexSaver::build() detects a non-contiguous slot 6/7 bank pair and flags contiguous_entry_bank=false rather than silently mis-saving (NexSaver class doc-comment) | — | pass | test/mmu/mmu_test.cpp:4650 |
+| MMU-PR-01 | slot_in_rom_area at reset (NR 0x50/51 = 0xFF): true for slots 0/1 (VHDL :2964 mmu_A21_A13(8)=1 when effective page >= 0xE0) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4948 |
+| MMU-PR-02 | slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5) — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4962 |
+| MMU-PR-03 | slot_in_rom_area true at boundary NR 0x50 = 0xE0 (VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4973 |
+| MMU-PR-04 | slot_in_rom_area false at NR 0x50 = 0xDF (just below VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4985 |
+| MMU-PR-05 | pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00) — VHDL zxnext.vhd:3029,3065 | zxnext.vhd:3029,3065 | pass | test/mmu/mmu_test.cpp:4995 |
+| PR-06 | pre_override(2)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 — MF wins, override='000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5005 |
+| PR-07 | pre_override(2)=1 for PC<0x4000 with mf_active=0 — VHDL zxnext.vhd:3043,3050,3057 | zxnext.vhd:3043,3050,3057 | pass | test/mmu/mmu_test.cpp:5015 |
+| PR-08 | pre_override(0)=1 in normal ROM mode (VHDL zxnext.vhd:3057 → '111') | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5029 |
+| PR-09 | pre_override(0)=0 when config_mode=1 (VHDL zxnext.vhd:3044,3050) | zxnext.vhd:3044,3050 | pass | test/mmu/mmu_test.cpp:5040 |
+| PR-10 | pre_override(0)=0 for slot 0 RAM-mapped (VHDL zxnext.vhd:3037,3043) | zxnext.vhd:3037,3043 | pass | test/mmu/mmu_test.cpp:5052 |
+| PR-11 | pre_override(0)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 → '000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5062 |
+| PR-12 | pre_override(0)=0 for PC>=0x4000 — VHDL zxnext.vhd:3065 | zxnext.vhd:3065 | pass | test/mmu/mmu_test.cpp:5072 |
+| PR-13 | pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF — VHDL zxnext.vhd:3057 | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5084 |
+| PR-14 | pre_override(0) tracks per-slot ROM/RAM mode (VHDL zxnext.vhd:2952 mem_active_page selects MMU0..MMU7 by cpu_a(15:13)) | zxnext.vhd:2952 | pass | test/mmu/mmu_test.cpp:5103 |
+| FIX-NR5xFF-01 | NR $51=$FF (engage_legacy_rom_paging_slot(1)) preserves slot 0 RAM mapping — VHDL zxnext.vhd:4686-4696 nr_mmu_we per-slot | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5148 |
+| FIX-NR5xFF-02 | NR $52=$FF → slot 2 inactive: read returns 0xFF, write dropped (VHDL zxnext.vhd:3061 sram_pre_active=0 when mmu_A21_A13(8)=1) | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5173 |
+| FIX-NR5xFF-03 | NR $56=$FF → slot 6 inactive (NOT legacy RAM auto-paged) — VHDL zxnext.vhd:3061 sram_pre_active=0 | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5193 |
+| FIX-PLUS3-01 | +3 special-mode 1→0 transition reverts slots 2-5 to bank 5 / bank 2 — VHDL zxnext.vhd:4655-4670 | zxnext.vhd:4655-4670 | pass | test/mmu/mmu_test.cpp:5230 |
+| FIX-PLUS3-02 | +3 special: port_7FFD write does NOT clobber special table — VHDL zxnext.vhd:4623 (arbiter rewrites 0..7) | zxnext.vhd:4623 | pass | test/mmu/mmu_test.cpp:5260 |
+| FIX-PLUS3-03 | port_1ffd_special_old persisted across save/load — exit after load fires slot 2-5 revert (VHDL :3716,3729; commit 45d8b30) | zxnext.vhd:3716/3729 | pass | test/mmu/mmu_test.cpp:5294 |
+| FIX-NR8C-CACHE-01 | NR 0x8C lock_rom1 flip refreshes slot-0 cached read pointer (pre→0x00, post→0x40) — VHDL zxnext.vhd:2981-3008,3052; commit 3dd4e73 | zxnext.vhd:2981-3008,3052 | pass | test/mmu/mmu_test.cpp:5345 |
+| FIX-NR8C-CACHE-02 | NR 0x8C write with no lock change preserves slot 0 RAM mapping AND cached read pointer — VHDL zxnext.vhd:3813 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5397 |
+| FIX-SLOT01-HIPAGE-01 | NR $50=0xE5 routes slot 0 to legacy ROM (sram_rom-derived) — VHDL zxnext.vhd:2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5444 |
+| FIX-UNLOCK-01 | unlock_paging() clears bit 5 of port_7ffd_ AND paging_locked_ — VHDL zxnext.vhd:3654-3656; commit 31d1786 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:5473 |
+| FIX-NR8C-PRESERVE-01 | NR 0x8C write preserves slot 0 explicit RAM mapping — VHDL zxnext.vhd:3813 no port_memory_change_dly; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5501 |
+| FIX-NR8C-PRESERVE-02 | NR 0x8C with sram_rom-changing lock preserves slot 1 RAM mapping — VHDL zxnext.vhd:3813; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5520 |
+| FIX-EFF7-FF-01 | NR $50=$FF under EFF7(3)=1: nr_mmu_[0]=0xFF verbatim, slot 0 → legacy ROM (not RAM) — VHDL :4686-4696 nr_mmu_we; commits 31d1786 + 560cb18 | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5553 |
+| FIX-NRMMU-SAVE-01 | nr_mmu_[0]=0xE5 verbatim round-trips through save/load — VHDL zxnext.vhd:4686-4696 + :6059-6081 NR readback; commit 560cb18 | zxnext.vhd:4686-4696,6059-6081 | pass | test/mmu/mmu_test.cpp:5593 |
+| FIX-NR12-PROP-01 | Mmu::set_l2_active_bank propagates to CPU L2 read path — VHDL zxnext.vhd:2968 + :2969 layer2_active_page; commit 560cb18 | zxnext.vhd:2968,2969 | pass | test/mmu/mmu_test.cpp:5627 |
+| FIX-RESET-CFG-01-A | reset with config_mode=0 leaves boot_rom_en cleared — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5658 |
+| FIX-RESET-CFG-01-B | reset with config_mode=1 re-arms boot_rom_en — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5676 |
+| FIX-MTC-SPECIAL-01 | set_machine_type during +3 special preserves special-mapping slots 0/1 — VHDL zxnext.vhd:4623-4632 (table independent of sram_rom); commit 165835d | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:5709 |
+| FIX-CURRSRAMROM-128K-01 | 128K with lock_rom1=1: sram_rom = lock_rom1 = 1 (NOT 7ffd(4)=0) — VHDL zxnext.vhd:2997-3007 shared else branch; commit b6b42dd | zxnext.vhd:2997-3007 | pass | test/mmu/mmu_test.cpp:5739 |
+| FIX-L2-OVERLAY-LOWHALF-01 | L2 write-over with seg=01 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043 sram_pre_override(1)=1; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:5772 |
+| FIX-L2-OVERLAY-LOWHALF-02 | L2 write-over with seg=10 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:5792 |
+| FIX-L2-ROM-AREA-01 | L2 read with bank=0x70 → sram_active=0 → 0xFF (NOT ROM-area wrap) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:5822 |
+| FIX-L2-ROM-AREA-02 | L2 write with bank=0x70 → sram_active=0 → write dropped (NOT corrupting ROM area) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:5851 |
+| V11-MEM-01-A | NR $50=0xE5 + save_state + load_state: rebuild_ptr serves legacy ROM (sram_rom*2+slot=0) via consistent slots_[] — VHDL zxnext.vhd:3037-3057 :3052; verify11-memory | zxnext.vhd:3037-3057 | pass | test/mmu/mmu_test.cpp:5943 |
 
 ## ULA Video — `test/ula/ula_test.cpp`
 

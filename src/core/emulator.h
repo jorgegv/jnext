@@ -538,6 +538,10 @@ public:
     /// (`--esp-ip-address`, else the module's synthetic default). Empty when
     /// the ESP is disabled. Reads the ENGINE, not the config.
     std::string esp_station_ip() const;
+    /// The frame count the scheduled ESP outage (`esp_disassociate_frame`,
+    /// `esp_associate_frame`) is measured against, so a frontend can tell
+    /// whether an edge of it is still to come.
+    int esp_frames() const { return esp_frames_; }
     DivMmc&       divmmc()    { return divmmc_; }
     Multiface&    multiface() { return multiface_; }
     NmiSource&    nmi_source(){ return nmi_source_; }

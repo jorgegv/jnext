@@ -1043,6 +1043,7 @@ carries COVERED-AT comments.
 | BOOT-Z80-03 | v3 (extended-header, 128K) .z80                       | in-test byte-array v3 header, 54-byte extension, 8 × 16 KB uncompressed pages (3..10)                         | `Ram` banks 0-7 populated; `port_7ffd_` from header byte 0x23.                                  |
 | BOOT-Z80-04 | Unsupported / corrupt .z80 file rejected              | in-test byte-array truncated v1-compressed body (no end marker)                                               | Loader returns error; `Mmu` stays untouched (canary byte survives).                             |
 | BOOT-Z80-05 | Structurally-valid .z80 whose pages are all foreign page numbers is rejected | in-test byte-array v3/128K header, single page with page_num=255 (outside 3..10) | `load_from_buffer()` succeeds (parsing is structurally fine) but `apply_ram_to_mmu()` returns false — zero pages applied is a load failure, not a silent no-op success. Independent-review finding (post-Task-13b): without this guard the loader reported success with zero RAM written. Canary byte in `Mmu` survives untouched. |
+| BOOT-Z80-06 | Hardware mode 3 is 128K in v2, 48K in v3              | in-test byte-array v2 and v3 headers with hardware_mode=3; pages 5 and 8 uncompressed                          | v2 reads as 128K and its page 5 (bank 2) lands at 0x8000; v3 reads as 48K (the .z80 version table: v2 3 = 128k, v3 3 = 48k + M.G.T.). |
 
 ### Category 24: Snapshot Save Pipeline (parked here as `BOOT-SNAPSAVE-*`)
 

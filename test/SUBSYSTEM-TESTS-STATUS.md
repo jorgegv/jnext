@@ -13,7 +13,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Rewind                |       96 |       96 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU            |      251 |      251 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU            |      252 |      252 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU (int)      |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (integration) |      324 |      324 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -55,7 +55,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (subsystem gains) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Render-skip policy    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Emulator Boot         |       61 |       61 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Emulator Boot         |       67 |       67 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -95,7 +95,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Present count (widget) |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 status cell (GUI) |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX V1.3 GUI warning dialog |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
-| rzx_menu_test         |       14 |       14 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "rzx_menu_test" to the label map in refresh-subsystem-status.sh. |
+| rzx_menu_test         |       15 |       15 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "rzx_menu_test" to the label map in refresh-subsystem-status.sh. |
 | GUI load-failure dialogs |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Esc/BREAK + fullscreen routing |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host hotkeys on Alt (Ctrl to guest) |       35 |       35 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -112,6 +112,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7626** | **7626** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7634** | **7634** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

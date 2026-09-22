@@ -2251,6 +2251,20 @@ because that field changes the machine <code>init()</code> builds (on the Next i
 the boot-ROM overlay), and so how the recording replays. Any other snapshot type fails
 the load: input replayed against a machine it was not recorded on reproduces
 nothing.</p>
+<p>For the same reason a playback builds the machine the recording was made on.
+The recorder names it in the RZX creator block's custom data
+(<code>rzx::set_recorded_machine()</code>, <code>machine=48k</code> — a <code>--machine</code> value), because
+the snapshot cannot: a Next recording embeds a 48K SNA. <code>rzx::recorded_machine()</code>
+reads that marker first and otherwise judges a recording by its snapshot
+(<code>rzx::snapshot_machine()</code>: SNA size, SZX machine ID, <code>.z80</code> version and
+hardware mode); a pre-marker jnext recording with an SNA names no machine.
+<code>emulator_boot_machine()</code> turns that into the machine a boot builds, and every
+boot that plays a recording asks it: <code>main.cpp</code> for the command line (unless
+<code>--machine</code> was given explicitly — <code>load_rzx()</code> then warns on a mismatch) and
+<code>emulator_cold_boot()</code> for every cold boot, which is the GUI's route. The
+shared cold-boot driver hands the booted type back to the frontend
+(<code>ColdBootHooks::keep_machine</code>), so the recording's machine stays selected for
+later boots, a hard reset included, and <code>MainWindow::set_emulator()</code> shows it.</p>
 <p>A recording cannot replay a reset the host performs, so none is ever carried
 across one. The power-on cold boot, the host's F4 soft reset and starting a
 playback all go through <code>Emulator::end_rzx_at_reset()</code>, which <strong>writes</strong> the

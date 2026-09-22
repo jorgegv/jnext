@@ -30,6 +30,24 @@ your test logic ever has to be clever about it.
 Give the exit bound headroom over the capture point (the example above uses
 `frames + 50`) so a slightly slower boot does not trip this.
 
+**Nothing else the command line deferred may be cut off either.** The same
+error and non-zero exit follow when the automatic exit fires before any other
+deferred work has happened: a `--load` still waiting out its boot delay (a
+`.tzx` or `.wav` waits 100 frames for BASIC), an `--inject` with
+`--inject-delay`, an `--rzx-record` waiting for that load, a
+`--delayed-keypress` or `--delayed-nmi` still to come, a `--joy-uart-rx`
+stream still in its start delay, or an edge of a scheduled ESP outage. The log
+names each one:
+
+```console
+$ jnext --headless --machine 48k --load game.tzx --delayed-automatic-exit-frames 5
+...
+[platform] [error] --load: 'game.tzx' never happened — --delayed-automatic-exit
+  fired first. Exiting non-zero.
+$ echo $?
+1
+```
+
 **A program that fails to load is an error too.** If the file given to
 `--load` (or as a bare file name) cannot be loaded — truncated, too small, not
 the format its extension says — JNEXT logs the error, keeps running the bare

@@ -42,6 +42,10 @@ public:
     /// Set the embedded snapshot data (SNA format).
     void set_snapshot(std::vector<uint8_t> data, const std::string& ext);
 
+    /// Name the machine the recording is made on (rzx::set_recorded_machine()),
+    /// which playback then runs on.
+    void set_machine(MachineType t) { rzx::set_recorded_machine(rec_, t); }
+
     /// Set initial tstates.
     void set_initial_tstates(uint32_t ts) { rec_.initial_tstates = ts; }
 

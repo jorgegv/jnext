@@ -291,12 +291,27 @@ void MainWindow::set_emulator(Emulator* emu) {
     } else {
         mouse_dispatcher_.reset();
     }
+    sync_machine_type_display();
 #ifdef ENABLE_DEBUGGER
     if (!debugger_mgr_ && emu) {
         debugger_mgr_ = new DebuggerManager(this, emu, this);
         // Debugger starts disabled — main window stays fixed-size.
     }
 #endif
+}
+
+void MainWindow::sync_machine_type_display() {
+    if (!emulator_) return;
+    const MachineType type = emulator_->config().type;
+    if (machine_label_) machine_label_->setText(tr(machine_type_str(type)));
+    if (machine_type_group_) {
+        for (QAction* a : machine_type_group_->actions()) {
+            if (a->data().toInt() == static_cast<int>(type)) {
+                a->setChecked(true);
+                break;
+            }
+        }
+    }
 }
 
 void MainWindow::resync_input_dispatchers() {

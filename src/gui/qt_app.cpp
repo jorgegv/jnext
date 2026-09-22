@@ -2,6 +2,7 @@
 #include "gui/main_window.h"
 #include "gui/emulator_widget.h"
 #include "platform/emulator_boot.h"
+#include "platform/auto_exit.h"
 #include "platform/rzx_startup.h"
 #include "platform/render_policy.h"
 #include "platform/speed_report.h"
@@ -450,6 +451,10 @@ void QtApp::cold_boot(const std::string& load_file, bool allow_experimental_nex_
     // tell the user, who otherwise believes it is still running.
     const bool        rzx_was_recording = emulator_.rzx_recorder().is_recording();
     const std::string rzx_path          = emulator_.rzx_recorder().output_path();
+    // A recording boots the machine it was made on, which stays selected for
+    // later boots, as Machine > Machine Type would (emulator_cold_boot()); the
+    // window shows it (MainWindow::set_emulator()).
+    hooks.keep_machine = [this](MachineType type) { config_.type = type; };
     emulator_frontend_cold_boot(emulator_, std::move(boot_cfg), load_file, hooks);
     if (rzx_was_recording && main_window_) {
         main_window_->rzx_recording_ended_by_reset(
@@ -630,6 +635,15 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // Delayed automatic exit.
     if (a.exit_countdown_ == 0) {
         Log::platform()->info("automatic exit triggered");
+        // Deferred command-line work it cuts off fails the run
+        // (platform/auto_exit.h).
+        if (!auto_exit_finds_no_deferred_work(a.emulator_, {
+                {"--load", a.load_file_, a.load_countdown_ >= 0},
+                {"--inject", a.inject_file_, a.inject_countdown_ >= 0},
+                {"--rzx-record", a.rzx_record_file_,
+                 !a.rzx_record_file_.empty() && !a.rzx_record_started_},
+            }))
+            a.exit_code_ = 1;
         // Finish an RZX recording HERE, before quit(): quit() closes the main
         // window, and MainWindow::closeEvent() reports a recording it has to
         // stop in a modal dialog — right for a user closing the window, but an

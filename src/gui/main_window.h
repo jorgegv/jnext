@@ -43,7 +43,14 @@ public:
 
     /// Set the emulator pointer for direct callbacks.
     /// When ENABLE_DEBUGGER is defined, also creates the DebuggerManager.
+    /// Also shows the emulator's machine type (sync_machine_type_display()).
     void set_emulator(Emulator* emu);
+
+    /// Show the running machine in the status bar and the Machine > Machine
+    /// Type checkmark. set_emulator() calls it, at startup and after every cold
+    /// boot, which is what makes a --machine given on the command line and the
+    /// machine an RZX playback switches to (emulator_boot_machine()) visible.
+    void sync_machine_type_display();
 
     /// Task 60c/79 — re-seed this window's host input dispatchers (Kempston
     /// mouse) from the restored emulator state after a rewind / save-load.
