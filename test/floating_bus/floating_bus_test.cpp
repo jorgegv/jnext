@@ -1665,25 +1665,64 @@ static void test_section10_ula_counters(void) {
     // the attribute from '1' & addr_p — offset 0x2000 + the pixel layout,
     // which bank 7's 8K BRAM folds onto the PIXEL byte; with the shadow
     // screen the standard attribute of bank 7 is read. Direct read,
-    // attribute capture of column 4.
+    // attribute capture of column 4, with the two ports written in BOTH
+    // orders: the mask does not depend on which came first.
+    {
+        std::string bad;
+        for (int order = 0; order < 2; ++order) {
+            Emulator emu;
+            fresh_emulator(emu, MachineType::ZX128K);
+            emu.port().out(0x7FFD, 0x17);              // bank 7 at 0xC000
+            emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x8000), 0x91);
+            emu.mmu().write(static_cast<uint16_t>(scr_attr(36, 4) + 0x8000), 0x93);
+            if (order == 0) {
+                emu.port().out(0x7FFD, 0x18);          // shadow screen on,
+                emu.port().out(0x00FF, 0x02);          // then Timex hi-colour
+            } else {
+                emu.port().out(0x00FF, 0x02);          // Timex hi-colour,
+                emu.port().out(0x7FFD, 0x18);          // then shadow screen on
+            }
+            set_fb_capture(emu, 36, 4, 1);
+            const uint8_t v = read_port_default(emu, 0x00FF);
+            if (v != 0x93) bad += fmt(" order=%d v=0x%02X", order, v);
+        }
+        check("FB-SHD-02",
+              "Shadow screen forces the standard layout in either port order: "
+              "with port 0xFF in hi-colour the attribute capture reads bank "
+              "7's attribute of (36,4), 0x93, not the hi-colour address (bank "
+              "7 pixel 0x91) (zxula.vhd:191,246-252; zxnext.vhd:6649-6656)",
+              bad.empty(), bad);
+    }
+
+    // FB-SHD-03 — the shadow screen MASKS the Timex mode, it does not clear
+    // it: port_ff_reg is written only by reset, port 0xFF, NR 0x69, NR 0x22
+    // and NR 0xC4 (zxnext.vhd:3610-3624). Port 0xFF = 0x02 (hi-colour), THEN
+    // the shadow screen on — the order that used to lose the mode:
+    //   * the Timex read-back arm (NR 0x08 b2) still returns 0x02 —
+    //     port_ff_dat_tmx <= port_ff_reg (zxnext.vhd:2813,3630);
+    //   * with the shadow screen off again the hi-colour fetch is back: the
+    //     attribute capture of (36,4) reads bank 5 at 0x2000 + the pixel
+    //     layout (0x95), not the standard attribute (0x96).
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX128K);
-        emu.port().out(0x7FFD, 0x17);                  // bank 7 at 0xC000
-        emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x8000), 0x91);
-        emu.mmu().write(static_cast<uint16_t>(scr_attr(36, 4) + 0x8000), 0x93);
-        // Shadow screen FIRST, then port 0xFF: Ula::set_shadow_screen_en()
-        // also clears the stored mode bits, which would hide the gate.
-        emu.port().out(0x7FFD, 0x18);                  // shadow screen on
+        emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x2000), 0x95);
+        emu.mmu().write(scr_attr(36, 4), 0x96);
         emu.port().out(0x00FF, 0x02);                  // Timex hi-colour
+        emu.port().out(0x7FFD, 0x08);                  // shadow screen on
+        emu.nextreg().write(0x08, 0x04);               // Timex read-back arm
+        const uint8_t tmx = read_port_default(emu, 0x00FF);
+        emu.nextreg().write(0x08, 0x00);
+        emu.port().out(0x7FFD, 0x00);                  // shadow screen off
         set_fb_capture(emu, 36, 4, 1);
         const uint8_t v = read_port_default(emu, 0x00FF);
-        check("FB-SHD-02",
-              "Shadow screen forces the standard layout: with port 0xFF in "
-              "hi-colour the attribute capture reads bank 7's attribute of "
-              "(36,4), 0x93, not the hi-colour address (bank 7 pixel 0x91) "
-              "(zxula.vhd:191,246-252; zxnext.vhd:6649-6656)",
-              v == 0x93, fmt("v=0x%02X (want 0x93)", v));
+        check("FB-SHD-03",
+              "Port 0xFF = hi-colour, then shadow on, then off: port_ff_reg "
+              "kept (Timex read-back 0x02 while shadowed) and the hi-colour "
+              "attribute fetch returns (0x95) (zxula.vhd:191; "
+              "zxnext.vhd:2813,3610-3624,3630)",
+              tmx == 0x02 && v == 0x95,
+              fmt("readback=0x%02X (want 0x02) v=0x%02X (want 0x95)", tmx, v));
     }
 
     // FB-TMX-01..03 — Timex modes pick the fetch address (zxula.vhd:236-252):
@@ -1892,7 +1931,7 @@ int main() {
     std::printf("  Section 9 (GH #265 I/O cycle)  — %2d rows\n", 3);
 
     test_section10_ula_counters();
-    std::printf("  Section 10 (ULA counters)      — %2d rows\n", 18);
+    std::printf("  Section 10 (ULA counters)      — %2d rows\n", 19);
 
     test_harness_smoke();
     std::printf("  Harness smoke (FB-HARNESS-NN)  — %2d rows\n", 5);

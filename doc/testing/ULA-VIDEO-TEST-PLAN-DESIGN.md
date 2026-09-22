@@ -301,6 +301,7 @@ VRAM bank 1 (`vram_a(13) = '1'`), giving per-pixel-row colour attributes.
 | 5 | Hi-res mode (100) | mode(2)=1 | 512 pixels wide, interleaved bytes |
 | 6 | Hi-res uses timex border colour | mode(2)=1 | border_clr_tmx instead of border_clr |
 | 7 | Shadow screen forces mode "000" | shadow_en=1 | Timex modes disabled |
+| 7a (S5.07a) | Shadow screen MASKS, does not clear, the mode | port 0xFF = hi-res, shadow on then off | Hi-res mode back (`port_ff_reg` untouched, zxnext.vhd:3610-3624) |
 | 8 | Hi-res attr_reg uses border_clr_tmx | mode(2)=1 | attr_reg loaded with border_clr_tmx |
 | 9 (S5.10) | Hi-res renders at 512 px wide (mode=100) | render_scanline emits 512 distinct pixel slots (one per `shift_reg_32` bit). skip — F-G104-RENDER (see G104) |
 | 10 (S5.11) | Hi-res border uses 6-bit `border_clr_tmx` field (mode=100) | `border_clr_tmx == "01" & (not port_ff(5:3)) & port_ff(5:3)` — 6 bits, NOT (port_ff>>3)&0x07. skip — F-G105-PALGRP (see G105) |
@@ -870,7 +871,7 @@ When shadow is enabled:
 |---|------|--------|----------|
 | 1 | Normal screen (shadow=0) | 0 | Reads from bank 5 |
 | 2 | Shadow screen (shadow=1) | 1 | Reads from bank 7 |
-| 3 | Shadow disables Timex modes | 1 | screen_mode forced to "000" |
+| 3 | Shadow disables Timex modes | 1 | screen_mode forced to "000" — a mask on the ULA's input (zxula.vhd:191); `port_ff_reg` keeps its value (zxnext.vhd:3610-3624), so the mode returns with the shadow screen off (S5.07 / S5.07a, GH #265 follow-up: jnext used to clear the stored mode bits) |
 | 4 | Shadow bit toggles display | toggle | Correct screen content shown |
 
 ## Section 16: NR 0xFF palette write side-channel (G150)

@@ -665,7 +665,8 @@ sample.
 | FB-FUSE-128-EDGES | 128K | Same with base 14354, 228 T/line | As listed | FUSE 1.6 |
 | FB-FUSE-128-CONT | 128K | `IN A,(0xFF)` with A = 0x40 (port 0x40FF, bank-5 page → C:1 ×4), start column x = 32..38 and 47 of line 36 | (T, byte) = (23..17, FF) for x = 32..38 — the stretches push the latch into the idle half — and (23, 0x4F) for x = 47 | FUSE 1.6; `zxula.vhd:573,587-595`; `t80na.vhd:214-222` |
 | FB-SHD-01 | 128K | 0x7FFD = 0x18 (shadow screen); bank 7 filled with a distinct pattern; `IN A,(0xFF)` at 14354+228·36+16+k, k = 0..3 | 0x84 0xC4 0x85 0xC5 (bank 7), not bank 5's 0x04 0x44 0x05 0x45 | FUSE 1.6; `zxnext.vhd:6649-6656` |
-| FB-SHD-02 | 128K | Shadow screen on, THEN port 0xFF = 0x02 (Timex hi-colour — in that order, because `Ula::set_shadow_screen_en()` also clears the stored mode bits); direct attribute read (36, col 4); bank 7 pixel 0x91, attribute 0x93 | 0x93 — bank 7's standard attribute; the shadow screen forces `screen_mode_s = "000"` ("bank 7 only has 8k bram": the hi-colour address `0x2000 + pixel layout` would fold onto the pixel byte 0x91) | `zxula.vhd:191,246-252`; `zxnext.vhd:6649-6656` |
+| FB-SHD-02 | 128K | Shadow screen on and port 0xFF = 0x02 (Timex hi-colour), written in BOTH orders; direct attribute read (36, col 4); bank 7 pixel 0x91, attribute 0x93 | 0x93 in both orders — bank 7's standard attribute; the shadow screen forces `screen_mode_s = "000"` ("bank 7 only has 8k bram": the hi-colour address `0x2000 + pixel layout` would fold onto the pixel byte 0x91) | `zxula.vhd:191,246-252`; `zxnext.vhd:6649-6656` |
+| FB-SHD-03 | 128K | Port 0xFF = 0x02, THEN shadow on (the order that used to lose the mode); NR 0x08 b2 read-back; shadow off; attribute read (36, col 4) with bank 5 hi-colour byte 0x95, standard attribute 0x96 | Read-back 0x02 while shadowed; 0x95 after — the shadow screen MASKS the mode, `port_ff_reg` is only written by reset / port 0xFF / NR 0x69 / 0x22 / 0xC4 | `zxula.vhd:191`; `zxnext.vhd:2813,3610-3624,3630` |
 | FB-TMX-01 | 48K | Port 0xFF = 0x01; pixel read (36, 4) | 0x22 from the 0x6000 screen | `zxula.vhd:191,236-240` |
 | FB-TMX-02 | 48K | Port 0xFF = 0x02 (hi-colour); attribute read (36, 4) | 0x44 from 0x6000 + pixel layout, not 0x5800 | `zxula.vhd:246-252` |
 | FB-TMX-03 | 48K | Port 0xFF = 0x06 (hi-res); pixel then attribute read (36, 4) | 0x55 (screen 0 pixel), 0x66 (screen 1 pixel) | `zxula.vhd:236-252` |
@@ -710,11 +711,11 @@ capture after reset).
 | 6 | NR 0x08 override + gate               | 3  |
 | 8 | GH #109 LSB-0xFF scope                | 2  |
 | 9 | GH #265 I/O-cycle sampling            | 3  |
-| 10 | GH #265 follow-up: ULA counters, Timex, scroll, shadow | 18 |
-| | **Total** | **50** |
+| 10 | GH #265 follow-up: ULA counters, Timex, scroll, shadow | 19 |
+| | **Total** | **51** |
 
 Nominal, i.e. as enumerated by this plan. Two of them (FB-3E, FB-4B)
-are retired with no `check()` row, so 48 plan rows are live. The suite
+are retired with no `check()` row, so 49 plan rows are live. The suite
 also carries the FB-3X port-conflict neighbour, 3 Section-7
 D3F-followup rows and 5 FB-HARNESS-NN smoke rows — see
 `test/unit-tests.conf` for the pinned total the harness enforces.

@@ -39,9 +39,9 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Sprites               |      209 |      209 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor            |      236 |      236 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
-| ULA Video             |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
+| ULA Video             |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Floating Bus          |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Floating Bus          |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
 | VideoTiming           |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      158 |      158 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -108,6 +108,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7382** | **7382** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7384** | **7384** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

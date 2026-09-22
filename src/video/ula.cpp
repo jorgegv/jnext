@@ -527,6 +527,16 @@ void Ula::render_scanline_in_bank(uint32_t* dst, int row, Mmu& mmu,
     ulanext_en_     = row_ctl.ulanext_en;
     ulanext_format_ = row_ctl.ulanext_format;
     vram_use_bank7_ = use_bank7;
+    // The shadow screen masks the Timex mode: screen_mode_s <=
+    // i_port_ff_reg(2:0) when i_ula_shadow_en = '0' else "000"
+    // (zxula.vhd:191), latched per character cell (:209). port 0xFF keeps
+    // its value (zxnext.vhd:3610-3624), so the mode returns with shadow off.
+    const TimexScreenMode saved_mode = mode_;
+    const bool            saved_alt  = alt_file_;
+    if (use_bank7) {
+        mode_     = TimexScreenMode::STANDARD;
+        alt_file_ = false;
+    }
 
     const int screen_row = row - DISP_Y;
 
@@ -565,6 +575,8 @@ void Ula::render_scanline_in_bank(uint32_t* dst, int row, Mmu& mmu,
     ulanext_en_     = saved_ctl.ulanext_en;
     ulanext_format_ = saved_ctl.ulanext_format;
     vram_use_bank7_ = saved_ctl.vram_bank7;
+    mode_           = saved_mode;
+    alt_file_       = saved_alt;
 }
 
 // ---------------------------------------------------------------------------
