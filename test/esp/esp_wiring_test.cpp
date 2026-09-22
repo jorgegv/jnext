@@ -364,10 +364,10 @@ int main() {
         EspConnectionLog log;
         EspGatedTransport gated{std::move(raw), policy, log};
 
-        check("GATE-13", "the allowlist refuses a UDP connect exactly as it refuses TCP",
+        check("GATE-16", "the allowlist refuses a UDP connect exactly as it refuses TCP",
               !gated.begin_connect("evil.test", 123, Protocol::Udp, 0) &&
                   tr->begin_calls == 0 && gated.refusals() == 1);
-        check("GATE-14", "an allowed UDP host reaches the transport with protocol and "
+        check("GATE-17", "an allowed UDP host reaches the transport with protocol and "
                          "local port unchanged",
               gated.begin_connect("time.test", 123, Protocol::Udp, 4567) &&
                   tr->last_protocol == Protocol::Udp && tr->last_port == 123 &&

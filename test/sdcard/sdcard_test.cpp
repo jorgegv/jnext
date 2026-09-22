@@ -16,6 +16,9 @@
 //                         new command ends the stream. NextZXOS's esxDOS
 //                         driver relies on this across driver calls —
 //                         the 2026-07-10 NextZXOS-boot fix).
+//   CMD18-06            — CMD18 started two sectors before end-of-image
+//                         streams both and terminates cleanly (was a second
+//                         CMD18-05 until the GH #243 audit split them).
 //   SD-NAC-01..05       — ≥1 idle (0xFF) Nac gap byte between R1 and the
 //                         0xFE data token on CMD17/CMD18 first block (SD
 //                         Physical Layer Simplified Spec § 7.5.2). GH #84:
@@ -271,7 +274,7 @@ static void test_cmd18_stream(SdCardDevice& sd) {
 }
 
 static void test_cmd18_end_of_image(SdCardDevice& sd) {
-    // CMD18-05: Starting CMD18 two sectors before end-of-image
+    // CMD18-06: Starting CMD18 two sectors before end-of-image
     // (image is 16 sectors; start at sector 14) must cleanly stream
     // sectors 14 and 15 and then terminate — no garbage, no infinite
     // 0xFE-emission, and the card must go back to IDLE so a follow-up
@@ -302,7 +305,7 @@ static void test_cmd18_end_of_image(SdCardDevice& sd) {
     uint8_t after[512] = {}; if (tok_after) read_block(sd, after);
     sd.deselect();
 
-    check("CMD18-05",
+    check("CMD18-06",
           "CMD18 that hits end-of-image (sectors 14..15) terminates "
           "cleanly; no spurious token; follow-up CMD17 works",
           (r1 == 0x00)
