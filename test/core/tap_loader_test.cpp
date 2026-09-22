@@ -244,6 +244,52 @@ int main() {
               emu->tape().block_count() == 2, buf);
     }
 
+    // TAPC-10/11 — a new tape replaces the tape that was in, whatever its
+    // format: a TZX or WAV left attached kept the status bar, Rewind and
+    // Eject on the old tape (the GUI shows TZX first).
+    {
+        // A TZX: header, then a $10 block — its ID, a 2-byte pause, and then
+        // exactly a TAP block (2-byte length + body).
+        const Bytes tzx_fixed = concat({{'Z', 'X', 'T', 'a', 'p', 'e', '!', 0x1A, 0x01, 0x14,
+                                         0x10, 0xE8, 0x03}, data_block()});
+        auto emu = std::make_unique<Emulator>();
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        const bool init_ok = emu->init(cfg);
+        const bool tzx_ok = init_ok && emu->load_tzx(write_file("replace.tzx", tzx_fixed));
+        const bool tap_ok = emu->load_tap(write_file("replace.tap",
+                                                     concat({header_block(), data_block()})));
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "init=%d tzx=%d tap=%d tzx_loaded_after=%d",
+                      init_ok ? 1 : 0, tzx_ok ? 1 : 0, tap_ok ? 1 : 0,
+                      emu->tzx_tape().is_loaded() ? 1 : 0);
+        check("TAPC-10", "Emulator::load_tap after a TZX ejects the TZX",
+              tzx_ok && tap_ok && !emu->tzx_tape().is_loaded() && emu->tape().is_loaded(), buf);
+    }
+    {
+        // A minimal 8-bit mono PCM WAV (44-byte header + 64 samples).
+        Bytes wav = {'R', 'I', 'F', 'F', 100, 0, 0, 0, 'W', 'A', 'V', 'E',
+                     'f', 'm', 't', ' ', 16, 0, 0, 0, 1, 0, 1, 0,
+                     0x44, 0xAC, 0, 0, 0x44, 0xAC, 0, 0, 1, 0, 8, 0,
+                     'd', 'a', 't', 'a', 64, 0, 0, 0};
+        wav.resize(wav.size() + 64, 0x80);
+        auto emu = std::make_unique<Emulator>();
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        const bool init_ok = emu->init(cfg);
+        const bool wav_ok = init_ok && emu->load_wav(write_file("replace.wav", wav));
+        const bool tap_ok = emu->load_tap(write_file("replace2.tap",
+                                                     concat({header_block(), data_block()})));
+        char buf[96];
+        std::snprintf(buf, sizeof(buf), "init=%d wav=%d tap=%d wav_loaded_after=%d",
+                      init_ok ? 1 : 0, wav_ok ? 1 : 0, tap_ok ? 1 : 0,
+                      emu->wav_tape().is_loaded() ? 1 : 0);
+        check("TAPC-11", "Emulator::load_tap after a WAV ejects the WAV",
+              wav_ok && tap_ok && !emu->wav_tape().is_loaded() && emu->tape().is_loaded(), buf);
+    }
+
     Log::emulator()->sinks().pop_back();
     std::filesystem::remove_all(g_root, ec);
 

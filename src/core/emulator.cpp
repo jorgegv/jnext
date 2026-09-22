@@ -6907,6 +6907,14 @@ bool Emulator::load_nex(const std::string& path)
                 active_nex_path_);
             return false;
         }
+        // GH #267 — the handle is the loader's own, passed on where its bank
+        // loading left it: just after the last bank (nexload2.asm:390-407
+        // `.passHandleToApp` and nexload.asm:547-570 hand it over without a
+        // seek), so a bare F_READ reads the appended payload. That is
+        // payload_offset(), the end of the header-described banks.
+        // Measured under NextZXOS: a bare 4-byte F_READ returns the first
+        // payload bytes and F_FGETPOS then reports payload + 4.
+        extended_nex_host_.seek(0, static_cast<uint32_t>(loader.payload_offset()));
         sd_card_.set_read_overlay(
             ExtendedNexHost::kSyntheticFirstBlock,
             extended_nex_host_.block_count(),
@@ -6943,13 +6951,28 @@ bool Emulator::load_nex(const std::string& path)
     //     db 0` + `db 0`, i.e. `ld bc,$0000` -> BC=$0000. nexload2 would give
     //     $00FF here too, but the distro's .nexload is the loader NextZXOS
     //     ships for these versions (it refuses V1.3, nexload.asm:291,:749).
-    //     BC is ALREADY $0000 at this point — reset() above is a hard reset,
-    //     which zeroes BC — so this half of the write changes nothing; it only
-    //     makes the distro loader's value explicit next to nexload2's.
+    //     BC is ALREADY $0000 at this point — the init(config_) above
+    //     re-initialises the CPU, which zeroes BC — so this half of the write
+    //     changes nothing; it only makes the distro loader's value explicit
+    //     next to nexload2's.
     if (!loader.delivers_handle_in_bc()) {
         auto regs = cpu_.get_registers();
         regs.BC = loader.is_v13() ? 0x00FF : 0x0000;
         cpu_.set_registers(regs);
+    }
+
+    // The last thing either loader does is `rst $20` with SP already at the
+    // header SP, and the NextZXOS DivMMC ROM's handler reaches the program
+    // through `push hl : ... : ret` ($0071 then $1FF9), with HL = PC: so the
+    // word just below the entry SP holds the entry PC, and no other byte
+    // there is touched. Measured under NextZXOS with a probe NEX whose stack
+    // area was filled with $A5: SP-2..SP-1 = PC, SP-8..SP-3 still $A5. After
+    // the handle write above, as in both loaders. A load-only file (PC 0)
+    // never gets there.
+    if (loader.header().pc != 0) {
+        const uint16_t sp = loader.header().sp;
+        mmu_.write(static_cast<uint16_t>(sp - 2), static_cast<uint8_t>(loader.header().pc));
+        mmu_.write(static_cast<uint16_t>(sp - 1), static_cast<uint8_t>(loader.header().pc >> 8));
     }
 
     // GH #250 — the program now runs with no NextZXOS behind it, so arm the
@@ -6993,7 +7016,12 @@ bool Emulator::load_sna(const std::string& path)
     SnaLoader loader;
     if (!loader.load(path)) return false;
     init(config_);   // re-initialise in place first (see init(), GH #239)
-    return loader.apply(*this);
+    if (!loader.apply(*this)) return false;
+    // A snapshot puts the CPU in its interrupt mode without executing an IM
+    // instruction, which is what the IM latch behind NR 0xC0 bits 2:1 (and
+    // the hardware-IM2 gates) is fed by; seed it from the restored CPU.
+    im2_.set_im_mode(cpu_.get_registers().IM);
+    return true;
 }
 
 void Emulator::resume_from_park(const char* reason)
@@ -7033,6 +7061,11 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     tape_ = std::move(loader);
     Log::emulator()->info("TAP: tape attached — {} blocks, mode: {}",
                            tape_.block_count(), tape_.fast_load() ? "fast" : "realtime");
+
+    // A new tape replaces whatever tape was in, whatever its format: a TZX
+    // or WAV left behind would keep the status bar, Rewind and Eject on it.
+    if (tzx_tape_.is_loaded()) tzx_tape_.eject();
+    if (wav_tape_.is_loaded()) wav_tape_.eject();
 
     // Task 19 (instant TAP load): instead of immediately queuing the
     // LOAD"" keypress sequence (which fights a 100-frame ROM-boot
@@ -7085,8 +7118,9 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
     Log::emulator()->info("TZX: tape attached, mode: {}",
                            tzx_tape_.fast_load() ? "fast" : "realtime");
 
-    // Eject any TAP tape to avoid conflicts.
+    // A new tape replaces whatever tape was in, whatever its format.
     if (tape_.is_loaded()) tape_.eject();
+    if (wav_tape_.is_loaded()) wav_tape_.eject();
 
     // Auto-type LOAD "" to start tape loading.
     std::vector<Keyboard::AutoKey> keys = {
@@ -7112,7 +7146,9 @@ bool Emulator::load_szx(const std::string& path)
     SzxLoader loader;
     if (!loader.load(path)) return false;
     init(config_);   // re-initialise in place first (see init(), GH #239)
-    return loader.apply(*this);
+    if (!loader.apply(*this)) return false;
+    im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
+    return true;
 }
 
 bool Emulator::load_z80(const std::string& path)
@@ -7120,7 +7156,9 @@ bool Emulator::load_z80(const std::string& path)
     Z80Loader loader;
     if (!loader.load(path)) return false;
     init(config_);   // re-initialise in place first (see init(), GH #239)
-    return loader.apply(*this);
+    if (!loader.apply(*this)) return false;
+    im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
+    return true;
 }
 
 bool Emulator::load_wav(const std::string& path)

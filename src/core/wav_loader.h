@@ -46,7 +46,11 @@ public:
     /// Eject the tape, freeing all data.
     void eject();
 
+    /// The tape's file name, without its directory (for UI display).
+    const std::string& filename() const { return filename_; }
+
 private:
+    std::string filename_;
     bool loaded_ = false;
     bool playing_ = false;
     uint64_t start_tstates_ = 0;

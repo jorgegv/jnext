@@ -960,6 +960,8 @@ my %NO_MATRIX_SECTION = (
     'nex_loader_test'         => 'NEX file-format spec (host loader), no core counterpart',
     'nex_v13_test'            => 'NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart',
     'tap_loader_test'         => 'TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart',
+    'tzx_loader_test'         => 'TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart',
+    'snapshot_im_test'        => 'snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0)',
     'sd_rom_extractor_test'   => 'FAT32 + TBBlue SD path layout (host ROM extraction)',
     'fat32_image_test'        => 'FAT32 on-disk format (host image reader)',
     'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',
@@ -1011,6 +1013,7 @@ my %NO_MATRIX_SECTION = (
     # core has no loader and no dialog, so there is nothing to cite. The
     # policy predicate/probe/enforcement rows live in nex_loader_test.
     'nex_v13_dialog_test' => 'experimental NEX V1.3 warning dialog (GUI), no core counterpart',
+    'load_error_test' => 'GUI load-failure reporting and Tape menu (GUI), no core counterpart',
 
     # ── --inject entry state ─────────────────────────────────────────
     # GH #248 — `--inject` has no counterpart on a Next: nothing on real

@@ -934,6 +934,10 @@ void Im2Controller::on_m1_cycle(uint16_t /*pc*/, uint8_t opcode) {
 
 uint8_t Im2Controller::im_mode() const { return im_mode_; }
 
+void Im2Controller::set_im_mode(uint8_t mode) {
+    if (mode <= 2) im_mode_ = mode;
+}
+
 // -----------------------------------------------------------------------------
 // Pulse mode — Phase 1 stubs.
 // -----------------------------------------------------------------------------
