@@ -1863,7 +1863,13 @@ hand-maintain a priority list.</p>
 <ul>
 <li><strong>Reads fall through on a missing read side.</strong> If the most specific match has
   no read callback, the scan continues to the next match that does. This models
-  write-only ports, whose reads land on an overlapping decode instead.</li>
+  write-only ports, whose reads land on an overlapping decode instead. A port
+  gets a read callback only if its read strobe is one of the OR-terms of
+  <code>port_internal_rd_response</code> (<code>zxnext.vhd:2803-2806</code>); <code>0xBF3B</code>, for one, has
+  none. A read handler whose gate is off must answer what the VHDL answers with
+  that decode gone — <code>0xFF</code>, or an overlapping decode: the Kempston mouse ports
+  with the mouse disabled are read by the <code>0xDF</code> joystick alias
+  (<code>Emulator::port_df_read</code>).</li>
 <li><strong>Writes can decline.</strong> A handler may call <code>PortDispatch::decline_write()</code> as
   its last action, and dispatch then retries with the next-most-specific match.
   The reason is that VHDL port decodes run in <em>parallel</em>: a decode ANDed with a

@@ -565,6 +565,41 @@ The Next-mode/Timex-arm side of GH #109 lives in the port-dispatch
 plan (rows GH109-01/02 in
 `IO-PORT-DISPATCH-TEST-PLAN-DESIGN.md`).
 
+## Section 9: GH #265 — the CPU samples the bus at its I/O cycle
+
+### VHDL reference
+
+`floating_bus_r` reaches the CPU through combinational logic only:
+`o_ula_floating_bus` (`zxula.vhd:573`) → `port_ff_dat_ula` /
+`port_p3_floating_bus_dat` (`zxnext.vhd:4513, 4517`) → `port_rd_dat`
+(`:2813-2814, 2837`) → `cpu_di` (`:1872-1873`). The T80 latches `cpu_di`
+into `DI_Reg` on the falling edge of the I/O cycle's T3
+(`t80na.vhd:214-222`); with `IOWait = 1` the I/O cycle is four clocks
+(`t80n.vhd:1781-1782`), so the byte is the one on the bus 3.5 T-states into
+it. jnext evaluated the raster at `clock_`, the START of the instruction —
+10.5 T-states early for `IN A,(n)` (M1 + operand read = 7 T before the I/O
+cycle), 11.5 for `IN A,(C)` (two M1s). `Emulator::io_read_sample_cycle()`
+now supplies the latch instant. Only the sampling instant changed: the
+capture-phase model it is fed into is still the `T%8` model of Section 2
+(Open question 2).
+
+FB-5A's stimulus was re-derived by the same change: it started the IN at
+T 20, chosen empirically against start-of-instruction sampling (T%8 = 4);
+at the latch that is T 30 (T%8 = 6, the 0xFF arm). It now starts at T 16,
+latching at T 26 (T%8 = 2).
+
+### Test rows
+
+Line 100, instruction started at T 16; char column 3 (T 24..31) seeded with
+pixel 0x16/0x17 and attribute 0x86/0x87. Code at 0x8000 (bank 2) is
+uncontended.
+
+| Row ID | Machine | Stimulus | Expected | VHDL cite |
+|--------|---------|----------|----------|-----------|
+| FB-GH265-01 | 48K | `IN A,(0xFF)` started at T 16 | 0x16 — sampled at T 26, T%8 = 2 (pixel); pre-fix 0xFF (T 16, T%8 = 0) | `zxula.vhd:573`; `zxnext.vhd:4513`; `t80na.vhd:214-222` |
+| FB-GH265-02 | 48K | `IN A,(C)`, BC = 0x00FF, started at T 16 | 0x86 — sampled at T 27, T%8 = 3 (attribute); pre-fix 0xFF | `zxula.vhd:573`; `zxnext.vhd:4513`; `t80na.vhd:214-222` |
+| FB-GH265-03 | +3 | `IN A,(C)`, BC = 0x0FFD, started at T 16; contended latch seeded 0xA4 | 0x87 — T 27 attribute with bit 0 forced; pre-fix 0xA4 (border arm, raw latch) | `zxula.vhd:573`; `zxnext.vhd:4517`; `t80na.vhd:214-222` |
+
 ## Reset defaults (VHDL-verified)
 
 | Signal | Default | Cite | Kind |
@@ -598,10 +633,11 @@ capture after reset).
 | 5 | Port 0xFF read wiring                 | 2  |
 | 6 | NR 0x08 override + gate               | 3  |
 | 8 | GH #109 LSB-0xFF scope                | 2  |
-| | **Total** | **29** |
+| 9 | GH #265 I/O-cycle sampling            | 3  |
+| | **Total** | **32** |
 
 Nominal, i.e. as enumerated by this plan. Two of them (FB-3E, FB-4B)
-are retired with no `check()` row, so 27 plan rows are live. The suite
+are retired with no `check()` row, so 30 plan rows are live. The suite
 also carries the FB-3X port-conflict neighbour, 3 Section-7
 D3F-followup rows and 5 FB-HARNESS-NN smoke rows — see
 `test/unit-tests.conf` for the pinned total the harness enforces.

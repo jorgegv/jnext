@@ -1028,6 +1028,33 @@ dropping the `+1` from `hc_adj` kills all six; disabling the +3
 probe origin by a full T-state (+2) instead of +1 makes it fail, proving it
 is not vacuous.
 
+## GH #265 append (2026-09-22) — a port read samples the bus after the I/O stretch
+
+The ULA stretches the CPU clock inside the I/O cycle (`o_cpu_contend`,
+`zxula.vhd:587-595`; the port term needs `i_cpu_iorq_n = '0'` with the
+registered `ioreqtw3_n` still `'1'` — the first clock of IORQ) and the T80
+latches the data bus only on the falling edge of T3 (`t80na.vhd:214-222`),
+after it. `fuse_z80_readport()` called the port handler before charging the
+stretch, so a time-dependent read (floating bus, NR 0x1E/0x1F, the tape EAR
+bit) was sampled up to the stretch early, and the stretch was invisible to
+`Z80Cpu::tstates_into_instruction()`, the offset GH #265's I/O-cycle sampling
+is built on. The handler now runs after the stretch. Port WRITES keep their
+order: a write strobe acts as soon as IORQ and WR go low, at the start of the
+stretch.
+
+The observable is a test read handler on port 0x0012 (even, so
+`port_contend` holds, `zxnext.vhd:4496`; A1:0 = `10`, so no `port_fd`
+decode) that records `tstates_into_instruction()`. `IN A,(C)` ends 3 T after
+its handler runs.
+
+| ID | Assertion | VHDL |
+|----|-----------|------|
+| CT-GH265-01 | 48K, `IN A,(C)` of 0x0012 started 2 T after the ULA counter origin of the first display line: the IN takes more than 12 T and the handler sees `total - 3` (pre-fix `9`, before the stretch) | zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222 |
+| CT-GH265-02 | Control: the same IN in the top border takes 12 T and the handler sees 9 | zxula.vhd:414,583 |
+
+Mutation-verified: restoring the read-before-stretch order fails CT-GH265-01
+with `total = 17, into = 9`.
+
 ## Coverage notes (moved from the traceability matrix, GH #196)
 
 The matrix is a generated artifact now and carries no prose of its own; it

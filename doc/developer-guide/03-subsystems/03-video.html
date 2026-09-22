@@ -1903,6 +1903,15 @@ that pair before stepping it. Passing the raw master-cycle offset through
 instead — wrong by a factor of four in scale <em>and</em> wrong in origin — made every
 non-trivial <code>WAIT</code> fire early. That was a real defect here, not a hypothetical
 one.</p>
+<p>NR 0x1E/0x1F read <code>cvc</code> back, and <em>when</em> they read it matters as much as the
+origin. The master clock only advances once an instruction completes, so inside
+an <code>IN</code> <code>clock_</code> is still the instruction's start.
+<code>Emulator::io_read_sample_cycle()</code> adds the T-states the CPU has already spent
+in the instruction — <code>Z80Cpu::tstates_into_instruction()</code>, counted on the FUSE
+counter the bus cycles advance — and places the read where the VHDL latches it:
+for port 0x253B, the CLK_CPU falling edge 2.5 T-states into the I/O cycle
+(GH #265). A read made outside an instruction (a test, the debugger) samples at
+<code>clock_</code> itself. The floating bus below uses the same helper.</p>
 <p>The other conversion that matters everywhere is
 <code>framebuffer_row = vc - VideoTiming::vblank_top()</code>. <code>vblank_top</code> is
 <code>min_vactive - 32</code> and it is <strong>per-machine</strong> — 32 for the Next family, 48 for
@@ -1932,8 +1941,9 @@ themselves instead. The <strong>floating bus</strong> is the other:
 <code>Emulator::floating_bus_read</code> is the port-0xFF read mux, with its NR 0x08 b2
 Timex arm, its NR 0x82 b0 gate, and the per-machine gate that delivers ULA
 content only under 48K/128K timing. <code>ula_floating_bus_active_arm</code> derives the
-byte from the current raster position, and the +3's separate latch lives on the
-<code>Mmu</code>.</p>
+byte from the raster position at the instant the CPU latches it, 3.5 T-states
+into the <code>IN</code>'s I/O cycle (<code>io_read_sample_cycle</code>, GH #265), and the +3's
+separate latch lives on the <code>Mmu</code>.</p>
 <h2 id="lores-is-not-a-layer">LoRes is not a layer<a class="headerlink" href="#lores-is-not-a-layer" title="Permanent link">&para;</a></h2>
 <p>LoRes trades resolution for colour freedom: 128×96 chunky pixels, each carrying
 its own palette index, which is exactly what the ULA's attribute cells prevent.
