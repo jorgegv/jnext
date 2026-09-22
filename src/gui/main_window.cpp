@@ -11,6 +11,7 @@
 #include "core/nex_saver.h"
 #include "core/nex_loader.h"          // GH #228 — probe_version + policy
 #include "platform/emulator_boot.h"   // GH #228 — emulator_load_routes_to_nex
+#include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
 #include "core/log.h"
 #include "platform/screenshot.h"
 #include "peripheral/esp_host_policy.h"
@@ -40,8 +41,8 @@
 #include <QApplication>
 #include <QInputDialog>
 #include <QStyle>
-#include <QFileInfo>
 #include <QTimer>
+#include <QFileInfo>
 
 // ---------------------------------------------------------------------------
 // Qt::Key -> SDL_Scancode mapping
@@ -556,27 +557,13 @@ void MainWindow::create_menus() {
     file_menu->addSeparator();
 
     QAction* rzx_play = file_menu->addAction(tr("Play &RZX Recording..."));
-    connect(rzx_play, &QAction::triggered, this, [this]() {
-        QString path = QFileDialog::getOpenFileName(
-            this, tr("Play RZX File"), QString(),
-            tr("RZX Files (*.rzx);;All Files (*)"));
-        if (!path.isEmpty()) handle_rzx_play_path(path);
-    });
+    connect(rzx_play, &QAction::triggered, this, &MainWindow::on_rzx_play);
 
     QAction* rzx_record = file_menu->addAction(tr("Record R&ZX..."));
-    connect(rzx_record, &QAction::triggered, this, [this]() {
-        QString path = QFileDialog::getSaveFileName(
-            this, tr("Record RZX File"), QString(),
-            tr("RZX Files (*.rzx);;All Files (*)"));
-        if (!path.isEmpty() && emulator_) {
-            emulator_->start_rzx_recording(path.toStdString());
-        }
-    });
+    connect(rzx_record, &QAction::triggered, this, &MainWindow::on_rzx_record);
 
     QAction* rzx_stop = file_menu->addAction(tr("Stop RZX Recordin&g"));
-    connect(rzx_stop, &QAction::triggered, this, [this]() {
-        if (emulator_) emulator_->stop_rzx_recording();
-    });
+    connect(rzx_stop, &QAction::triggered, this, &MainWindow::handle_rzx_stop);
 
     file_menu->addSeparator();
 
@@ -1139,6 +1126,23 @@ void MainWindow::handle_load_path(const QString& path) {
     // dialog cannot load V1.3 silently, because Emulator::load_nex()
     // enforces the same policy and fails the load.
     const std::string file = path.toStdString();
+
+    // An .rzx is checked BEFORE the cold boot below, so a file that cannot
+    // play is refused with the running machine untouched — the same check
+    // for File > Open and File > Play RZX Recording, which both come here.
+    if (emulator_load_routes_to_rzx(file)) {
+        if (emulator_ && emulator_->tap_saver().active()) {
+            QMessageBox::warning(this, tr("Play RZX Recording"), rzx_tape_save_refusal());
+            return;
+        }
+        std::string why;
+        if (!rzx::playable(file, why)) {
+            QMessageBox::warning(this, tr("Play RZX Recording"),
+                tr("Cannot play %1: %2.").arg(path, QString::fromStdString(why)));
+            return;
+        }
+    }
+
     bool allow_experimental_nex_v13 = false;
     if (emulator_load_routes_to_nex(file)) {
         uint8_t ver_bcd = 0;
@@ -1228,8 +1232,15 @@ void MainWindow::on_soft_reset() {
     // firmware holds config mode, zxnext.vhd:6370). Also a no-op after a
     // direct --load / File > Load: the firmware never ran there, so config
     // mode is still held — matching hardware, where that state cannot exist.
-    if (emulator_) {
-        emulator_->on_hotkey_f4_soft_reset();
+    if (!emulator_) return;
+    // The host soft reset ends an RZX recording (Emulator::end_rzx_at_reset
+    // writes it first): tell the user, who otherwise believes it still runs.
+    const bool        was_recording = emulator_->rzx_recorder().is_recording();
+    const std::string rzx_path      = emulator_->rzx_recorder().output_path();
+    emulator_->on_hotkey_f4_soft_reset();
+    if (was_recording && !emulator_->rzx_recorder().is_recording()) {
+        rzx_recording_ended_by_reset(QString::fromStdString(rzx_path),
+                                     !emulator_->rzx_output_failed(rzx_path));
     }
 }
 
@@ -1326,11 +1337,6 @@ void MainWindow::handle_tape_path(const QString& path) {
     // one aside and only swap it in on success).
     update_tape_status();
     if (!ok) report_load_failure(path);
-}
-
-void MainWindow::handle_rzx_play_path(const QString& path) {
-    if (!emulator_) return;
-    if (!emulator_->load_rzx(path.toStdString())) report_load_failure(path);
 }
 
 void MainWindow::on_tape_eject() {
@@ -1548,6 +1554,131 @@ void MainWindow::on_record_stop() {
             tr("FFmpeg encoding failed. Check console output for details."));
         statusBar()->clearMessage();
     }
+}
+
+void MainWindow::on_rzx_record() {
+    if (!emulator_) return;
+    // Refuse before the picker: asking for a file name only to refuse it
+    // afterwards wastes the user's time.
+    if (const QString why = rzx_record_refusal(); !why.isEmpty()) {
+        QMessageBox::warning(this, tr("RZX Recording"), why);
+        return;
+    }
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Record RZX File"), QString(),
+        tr("RZX Files (*.rzx);;All Files (*)"));
+    if (path.isEmpty()) return;
+    handle_rzx_record_path(path);
+}
+
+QString MainWindow::rzx_record_refusal() const {
+    if (!emulator_) return QString();
+    if (emulator_->rzx_recorder().is_recording()) {
+        return tr("An RZX recording to %1 is already running.\n\n"
+                  "Stop it first (File > Stop RZX Recording).")
+            .arg(QString::fromStdString(emulator_->rzx_recorder().output_path()));
+    }
+    if (emulator_->rzx_player().is_playing()) {
+        return tr("An RZX recording is playing. Input cannot be recorded during "
+                  "playback, so wait for it to finish.");
+    }
+    if (emulator_->tap_saver().active()) return rzx_tape_save_refusal();
+    return QString();
+}
+
+QString MainWindow::rzx_tape_save_refusal() const {
+    return tr("JNEXT was started with --tape-save, which cannot be combined with RZX "
+              "recording or playback: its SAVE trap skips the ROM routine, which a "
+              "recording cannot replay.\n\nRestart without --tape-save to use RZX.");
+}
+
+void MainWindow::handle_rzx_record_path(const QString& path) {
+    if (!emulator_) return;
+    if (const QString why = rzx_record_refusal(); !why.isEmpty()) {
+        QMessageBox::warning(this, tr("RZX Recording"), why);
+        return;
+    }
+    std::string reason;
+    if (!RzxRecorder::can_write(path.toStdString(), reason) ||
+        !emulator_->start_rzx_recording(path.toStdString())) {
+        QMessageBox::warning(this, tr("RZX Recording"),
+            tr("Cannot record to %1:\n%2")
+                .arg(path, reason.empty() ? tr("see the log for details")
+                                          : QString::fromStdString(reason)));
+        return;
+    }
+    statusBar()->showMessage(tr("Recording RZX to %1").arg(path), 3000);
+}
+
+void MainWindow::handle_rzx_stop() {
+    if (!emulator_) return;
+    if (!emulator_->rzx_recorder().is_recording()) {
+        statusBar()->showMessage(tr("No RZX recording is running"), 3000);
+        return;
+    }
+    const QString path = QString::fromStdString(emulator_->rzx_recorder().output_path());
+    if (emulator_->stop_rzx_recording()) {
+        statusBar()->showMessage(tr("RZX recording saved to %1").arg(path), 3000);
+    } else {
+        QMessageBox::warning(this, tr("RZX Recording"),
+            tr("The RZX recording could not be written to %1, and is lost.\n\n"
+               "See the log for details.").arg(path));
+    }
+}
+
+void MainWindow::rzx_recording_ended_by_reset(const QString& path, bool written) {
+    if (written) {
+        statusBar()->showMessage(
+            tr("The reset ended the RZX recording; it was saved to %1").arg(path), 5000);
+        return;
+    }
+    statusBar()->showMessage(
+        tr("The reset ended the RZX recording, and it could not be written to %1").arg(path),
+        5000);
+    if (unattended_) {
+        Log::platform()->error(
+            "RZX: the reset ended the recording to '{}', which could not be written; "
+            "unattended run, so no dialog (the exit status reports it)", path.toStdString());
+        return;
+    }
+    Log::platform()->error(
+        "RZX: the reset ended the recording to '{}', which could not be written; "
+        "reporting it in a dialog", path.toStdString());
+    QTimer::singleShot(0, this, [this, path]() {
+        QMessageBox::warning(this, tr("RZX Recording"),
+            tr("The reset ended the RZX recording, and it could not be written to "
+               "%1, so it is lost.\n\nSee the log for details.").arg(path));
+    });
+}
+
+void MainWindow::on_rzx_play() {
+    if (!emulator_) return;
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Play RZX File"), QString(),
+        tr("RZX Files (*.rzx);;All Files (*)"));
+    if (path.isEmpty()) return;
+    handle_rzx_play_path(path);
+}
+
+void MainWindow::handle_rzx_play_path(const QString& path) {
+    if (!emulator_) return;
+    // The SAME route as File > Open of an .rzx — handle_load_path(): the
+    // file is checked, then the frontend cold-boots the machine as if it had
+    // been given with --load, and plays it. Playing it in place instead
+    // replayed the recording on whatever state the running machine carried
+    // that its snapshot does not (on the Next, a boot ROM overlay among it),
+    // so the same file could replay differently depending on which menu item
+    // opened it. The cold boot also ends a running recording by writing it
+    // (QtApp::cold_boot() tells the user).
+    //
+    // The cold boot chooses the loader by extension, so a file without .rzx
+    // would be taken for a NEX: refused here instead.
+    if (!emulator_load_routes_to_rzx(path.toStdString())) {
+        QMessageBox::warning(this, tr("Play RZX Recording"),
+            tr("Cannot play %1: an RZX recording must have the .rzx extension.").arg(path));
+        return;
+    }
+    handle_load_path(path);
 }
 
 // G35: wires SnaSaver/SzxSaver/NexSaver to File > Save Snapshot... —
@@ -1881,7 +2012,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         case Qt::Key_F4:
             if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
                           && !modifiers.testFlag(Qt::ControlModifier)) {
-                emulator_->on_hotkey_f4_soft_reset();
+                on_soft_reset();   // the same dispatcher as Machine > Soft Reset
                 event->accept();
                 return;
             }
@@ -2232,6 +2363,10 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     if (emulator_ && emulator_->video_recorder().is_recording()) {
         emulator_->stop_recording();
     }
+    // Same for an RZX recording (latched by Emulator::rzx_output_failed(),
+    // read by QtApp::shutdown()), and the user is TOLD here, while the window
+    // still exists: a recording lost at exit is otherwise one log line.
+    if (emulator_ && emulator_->rzx_recorder().is_recording()) handle_rzx_stop();
 
 #ifdef ENABLE_DEBUGGER
     if (debugger_mgr_) {

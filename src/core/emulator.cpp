@@ -6,6 +6,7 @@
 #include "core/nex_loader.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sna_saver.h"
+#include "core/szx_saver.h"
 #include "core/saveable.h"
 #include "esp01/esp_threaded.h"
 #include "peripheral/esp_host_policy.h"
@@ -7053,6 +7054,12 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     TapLoader loader;
     if (!loader.load(path)) return false;
 
+    // A fast (trapped) load cannot be recorded — see the trap block in run_frame.
+    if (fast_load && rzx_recorder_.is_recording()) {
+        Log::emulator()->info("TAP: loading in real time: an RZX recording is running");
+        fast_load = false;
+    }
+
     // GH #164 — see resume_from_park(). Neither the ROM LD-BYTES trap nor
     // the phantom typist can fire while the CPU is parked.
     resume_from_park("a TAP tape was attached");
@@ -7109,6 +7116,12 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
 {
     TzxLoader loader;
     if (!loader.load(path)) return false;
+
+    // A fast (trapped) load cannot be recorded — see the trap block in run_frame.
+    if (fast_load && rzx_recorder_.is_recording()) {
+        Log::emulator()->info("TZX: loading in real time: an RZX recording is running");
+        fast_load = false;
+    }
 
     // GH #164 — see resume_from_park().
     resume_from_park("a TZX tape was attached");
@@ -7191,6 +7204,44 @@ bool Emulator::load_wav(const std::string& path)
     return true;
 }
 
+bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
+                                         const std::string& ext,
+                                         const std::string& name)
+{
+    // Parse, then re-initialise in place with init(config_) — as load_sna/
+    // szx/z80 do (GH #239) — then apply: a snapshot that does not parse leaves
+    // the running machine untouched. Every playback the frontends start
+    // reaches here on a freshly initialised machine anyway (see
+    // emulator_start_rzx() and MainWindow::handle_rzx_play_path()).
+    if (ext == "sna") {
+        SnaLoader loader;
+        if (!loader.load_from_buffer(data, name)) return false;
+        init(config_);
+        return loader.apply(*this);
+    }
+    if (ext == "szx") {
+        SzxLoader loader;
+        if (!loader.load_from_buffer(data, name)) return false;
+        init(config_);
+        return loader.apply(*this);
+    }
+    if (ext == "z80") {
+        Z80Loader loader;
+        if (!loader.load_from_buffer(data)) {
+            Log::emulator()->error("Z80: failed to parse {}", name);
+            return false;
+        }
+        init(config_);
+        return loader.apply(*this);
+    }
+    // Refused rather than skipped: playing a recording's input against a
+    // machine it was not recorded on reproduces nothing, so "skip the
+    // snapshot and play anyway" is a silent failure, not a fallback.
+    Log::emulator()->error("{}: unsupported snapshot type '{}' (supported: sna, szx, z80)",
+                           name, ext);
+    return false;
+}
+
 bool Emulator::load_rzx(const std::string& path)
 {
     RzxRecording rec;
@@ -7202,23 +7253,32 @@ bool Emulator::load_rzx(const std::string& path)
     Log::emulator()->info("RZX: loaded '{}' — creator='{}' frames={} snapshot={}",
                           path, rec.creator, rec.frames.size(),
                           rec.snapshot_data.empty() ? "none" : rec.snapshot_ext);
+    if (rec.later_snapshots > 0) {
+        Log::emulator()->warn(
+            "RZX: '{}' continues from {} more snapshot(s); jnext plays only the part "
+            "before the second one ({} frames)",
+            path, rec.later_snapshots, rec.frames.size());
+    }
 
-    // Load embedded snapshot if present.
-    if (!rec.snapshot_data.empty()) {
-        // Write snapshot to a temporary file and load it.
-        std::string tmp_path = "/tmp/jnext_rzx_snap." + rec.snapshot_ext;
-        {
-            std::ofstream tmp(tmp_path, std::ios::binary);
-            tmp.write(reinterpret_cast<const char*>(rec.snapshot_data.data()),
-                      static_cast<std::streamsize>(rec.snapshot_data.size()));
-        }
-        if (rec.snapshot_ext == "sna") {
-            if (!load_sna(tmp_path)) return false;
-        } else if (rec.snapshot_ext == "szx") {
-            if (!load_szx(tmp_path)) return false;
-        } else {
-            Log::emulator()->warn("RZX: unsupported snapshot type '{}', skipping", rec.snapshot_ext);
-        }
+    if (rzx_refused_by_tape_save("play")) return false;
+
+    // Playback replaces the machine and answers every IN from the file, so a
+    // recording still running would record nothing from here on: write it and
+    // end it first (as FUSE does on opening a file), rather than leave it
+    // running on empty.
+    end_rzx_at_reset("playing an RZX recording");
+
+    // Load the embedded snapshot, if present, straight from memory. It used to
+    // be written to a fixed /tmp/jnext_rzx_snap.<ext> and loaded back from
+    // there, unchecked: two jnext instances raced on that one file, and on
+    // Windows the path does not exist at all, so the write failed silently
+    // and the load then read nothing (or another instance's snapshot).
+    if (!rec.snapshot_data.empty() &&
+        !load_snapshot_from_memory(rec.snapshot_data, rec.snapshot_ext,
+                                   "RZX '" + path + "' embedded snapshot")) {
+        Log::emulator()->error("RZX: cannot load the embedded '{}' snapshot of '{}'",
+                               rec.snapshot_ext, path);
+        return false;
     }
 
     // GH #164 — see resume_from_park(). With an embedded snapshot the
@@ -7237,13 +7297,44 @@ bool Emulator::load_rzx(const std::string& path)
 
 bool Emulator::start_rzx_recording(const std::string& path)
 {
-    // Save current state as SNA snapshot for embedding.
-    auto sna_data = SnaSaver::save(*this);
-
-    rzx_recorder_.start(path);
-    if (!sna_data.empty()) {
-        rzx_recorder_.set_snapshot(std::move(sna_data), "sna");
+    // Refused, never silently replaced: starting over the top of a running
+    // recording used to throw that recording away unwritten.
+    if (rzx_recorder_.is_recording()) {
+        Log::emulator()->error("RZX: already recording to '{}'; stop that recording first",
+                               rzx_recorder_.output_path());
+        return false;
     }
+    // During playback every IN is answered from the file being played and
+    // never reaches the recorder, so the "recording" would hold no input.
+    if (rzx_player_.is_playing()) {
+        Log::emulator()->error("RZX: cannot record while an RZX recording is playing");
+        return false;
+    }
+    if (rzx_refused_by_tape_save("record")) return false;
+
+    if (!rzx_recorder_.start(path)) return false;
+    rzx_suspend_tape_traps();
+
+    // Embed the machine the recording starts from. A 48K SNA holds 48K of RAM
+    // and no paging, so on the 128K and +3 — where a program's 7FFD/1FFD
+    // paging and its other five banks are part of that machine — an SZX is
+    // embedded instead; a 48K SNA of a paged 128K program replayed against the
+    // wrong banks. SzxSaver refuses what .szx cannot represent (the Next), and
+    // the 48K SNA remains the fallback there.
+    std::vector<uint8_t> snap;
+    std::string          snap_ext;
+    if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3) {
+        SzxSaver::SaveResult szx = SzxSaver::save(*this);
+        if (szx.ok) {
+            snap     = std::move(szx.data);
+            snap_ext = "szx";
+        }
+    }
+    if (snap.empty()) {
+        snap     = SnaSaver::save(*this);
+        snap_ext = "sna";
+    }
+    if (!snap.empty()) rzx_recorder_.set_snapshot(std::move(snap), snap_ext);
     rzx_recorder_.set_initial_tstates(*fuse_z80_tstates_ptr());
 
     // Wire up port recording hook.
@@ -7254,10 +7345,75 @@ bool Emulator::start_rzx_recording(const std::string& path)
     return true;
 }
 
-void Emulator::stop_rzx_recording()
+bool Emulator::stop_rzx_recording()
 {
     port_.rzx_in_record = nullptr;
-    rzx_recorder_.stop();
+    if (!rzx_recorder_.is_recording()) return true;   // nothing to write
+    const std::string path = rzx_recorder_.output_path();
+    const bool ok = rzx_recorder_.stop();
+    if (!ok) rzx_failed_outputs_.push_back(path);
+    return ok;
+}
+
+void Emulator::rzx_suspend_tape_traps()
+{
+    // The tape traps stand down while a recording runs (see the trap block in
+    // run_frame). A fast-load tape would then never load — nothing drives its
+    // EAR edges — so it is switched to real-time loading from where it is.
+    if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end()) {
+        tape_.set_fast_load(false);
+        tape_.start_realtime_playback();
+        Log::emulator()->info("TAP: switched to real-time loading: an RZX recording "
+                              "cannot capture a fast (trapped) load");
+    }
+    if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end()) {
+        tzx_tape_.set_fast_load(false);
+        tzx_tape_.start_playback(monotonic_tstates());
+        Log::emulator()->info("TZX: switched to real-time loading: an RZX recording "
+                              "cannot capture a fast (trapped) load");
+    }
+}
+
+bool Emulator::rzx_refused_by_tape_save(const char* verb) const
+{
+    // --tape-save captures SAVEs through a trap that skips the ROM's SA-BYTES,
+    // which no recording can replay, and the traps stand down during RZX
+    // anyway — so the two cannot be combined, from any route: the command
+    // line refuses it at parse time, the GUI in a dialog, and this is the
+    // backstop that makes both true.
+    if (!tap_saver_.active()) return false;
+    Log::emulator()->error("RZX: cannot {} while --tape-save is armed: its SAVE trap cannot "
+                           "be replayed from a recording", verb);
+    return true;
+}
+
+bool Emulator::end_rzx_at_reset(const char* what)
+{
+    bool ok = true;
+    if (rzx_recorder_.is_recording()) {
+        // Finalised, not continued: a reset the host performs cannot be
+        // replayed from recorded input, so a recording carried across it
+        // would replay a machine that never reset. FUSE, the reference RZX
+        // implementation, stops recording on a menu reset for the same reason.
+        Log::emulator()->warn(
+            "RZX: {} ends the recording to '{}' after {} frames; nothing after "
+            "it is recorded (a recording cannot replay a reset)",
+            what, rzx_recorder_.output_path(), rzx_recorder_.recording().frames.size());
+        ok = stop_rzx_recording();
+    }
+    if (rzx_player_.is_playing()) {
+        Log::emulator()->warn("RZX: {} ends the playback", what);
+        rzx_player_.stop();
+        port_.rzx_in_override = nullptr;
+    }
+    return ok;
+}
+
+bool Emulator::rzx_output_failed(const std::string& path) const
+{
+    for (const auto& p : rzx_failed_outputs_)
+        if (p == path) return true;
+    return false;
 }
 
 void Emulator::repush_video_timing_from_machine_timing()
@@ -8047,8 +8203,15 @@ void Emulator::run_frame()
             }
         }
 
-        // Tape ROM traps — only when ROM is paged in at slot 0.
-        if (mmu_.is_slot_rom(0)) {
+        // Tape ROM traps — only when ROM is paged in at slot 0, and never
+        // while RZX records or plays: a trap does the ROM routine's work
+        // without executing it, so no recording can replay it (the file holds
+        // the INs the routine did not make), and a playback would skip the INs
+        // the recording holds. FUSE disables its tape traps for RZX for the
+        // same reason; a tape attached then loads in real time, and its
+        // edges are recorded like any other input (see rzx_suspend_tape_traps()).
+        if (mmu_.is_slot_rom(0) && !rzx_recorder_.is_recording() &&
+            !rzx_player_.is_playing()) {
             uint16_t pc = cpu_.pc();
 
             // Fast-load: intercept LD-BYTES when tape is loaded and in fast mode.
@@ -9469,6 +9632,10 @@ void Emulator::on_hotkey_f4_soft_reset()
     }
     nmi_source_.strobe_soft_reset();
     Log::emulator()->info("Soft reset triggered via host F4 (hotkey_soft_reset)");
+    // The host pressed F4: nothing in a recording can make that reset happen
+    // again on playback. (A soft reset the PROGRAM asks for, by writing NR
+    // 0x02, replays by itself, so it does not end a recording.)
+    end_rzx_at_reset("the F4 soft reset");
     soft_reset();
 }
 
@@ -10923,8 +11090,22 @@ void Emulator::resize_rewind_buffer(int frames)
 }
 
 
+bool Emulator::rzx_blocks_rewind(const char* what) const
+{
+    // An RZX recording replays the input of ONE continuous run; a rewind
+    // makes the machine's history non-continuous, so recording on across it
+    // gives a file that no longer replays, and a playback's position does not
+    // rewind with the machine. Refused, and said — the debugger greys the
+    // actions out too (DebuggerWindow::update_actions()).
+    if (!rzx_recorder_.is_recording() && !rzx_player_.is_playing()) return false;
+    Log::emulator()->error("{}: not while an RZX recording {} (stop it first)", what,
+                           rzx_recorder_.is_recording() ? "is being made" : "is playing");
+    return true;
+}
+
 uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 {
+    if (rzx_blocks_rewind("rewind_to_cycle")) return UINT64_MAX;
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("rewind_to_cycle: rewind buffer is empty or disabled");
         return UINT64_MAX;
@@ -10986,6 +11167,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 bool Emulator::step_back(int n)
 {
     if (n <= 0) n = 1;
+    if (rzx_blocks_rewind("step_back")) return false;
 
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("step_back: rewind buffer is empty or disabled");
@@ -11044,6 +11226,7 @@ bool Emulator::step_back(int n)
 
 bool Emulator::rewind_to_frame(uint32_t target_frame_num)
 {
+    if (rzx_blocks_rewind("rewind_to_frame")) return false;
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("rewind_to_frame: rewind buffer is empty or disabled");
         return false;

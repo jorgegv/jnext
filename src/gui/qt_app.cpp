@@ -147,6 +147,10 @@ void QtApp::set_when_slow_prefer(audio_pacing::WhenSlowPrefer prefer) {
 
 void QtApp::set_delayed_exit(int delay_frames) {
     exit_countdown_ = delay_frames;
+    // A run that ends by itself is unattended: the window must not stop it on
+    // a question nobody is there to answer (see MainWindow::set_unattended()).
+    // init() applies it too, for a call made before the window exists.
+    if (main_window_) main_window_->set_unattended(true);
     Log::platform()->info("--delayed-automatic-exit: will exit after {} frame(s)",
                            delay_frames);
 }
@@ -254,6 +258,7 @@ bool QtApp::init(int argc, char* argv[]) {
 
     // Wire emulator pointer so menus can call into it.
     main_window_->set_emulator(&emulator_);
+    main_window_->set_unattended(exit_countdown_ >= 0);   // see set_delayed_exit()
 
     // Route keyboard events from the Qt window to the emulator keyboard matrix,
     // through the issue-#120 minimum-hold latch: a press is applied at once,
@@ -359,7 +364,9 @@ int QtApp::run() {
     // main.cpp sets them after init(), which is why reading them there made
     // --rzx-play and --rzx-record silent no-ops — see emulator_start_rzx().
     // No frame has run yet: the frame timer only fires inside exec().
-    if (!emulator_start_rzx(emulator_, rzx_play_file_, rzx_record_file_))
+    // The recording starts later, once the command-line load is in: see
+    // emulator_start_rzx_record_when_loaded() in TickEffects::pre_frames().
+    if (!emulator_start_rzx(emulator_, rzx_play_file_, ""))
         exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
     return qapp_->exec();
 }
@@ -382,8 +389,9 @@ void QtApp::shutdown() {
         exit_code_ = 1;
     }
 
-    // Stop RZX recording if active (writes the file).
-    emulator_finish_rzx(emulator_);
+    // Stop RZX recording if active (writes the file). A command-line recording
+    // that did not reach the disk exits non-zero.
+    if (!emulator_finish_rzx(emulator_, rzx_record_file_)) exit_code_ = 1;
 
     if (frame_timer_) {
         frame_timer_->stop();
@@ -438,7 +446,15 @@ void QtApp::cold_boot(const std::string& load_file, bool allow_experimental_nex_
     // boot (hard reset, another menu load) starts from the startup policy.
     EmulatorConfig boot_cfg = config_set_ ? config_ : EmulatorConfig{};
     if (allow_experimental_nex_v13) boot_cfg.allow_experimental_nex_v13 = true;
+    // The boot ends an RZX recording (emulator_cold_boot writes it first):
+    // tell the user, who otherwise believes it is still running.
+    const bool        rzx_was_recording = emulator_.rzx_recorder().is_recording();
+    const std::string rzx_path          = emulator_.rzx_recorder().output_path();
     emulator_frontend_cold_boot(emulator_, std::move(boot_cfg), load_file, hooks);
+    if (rzx_was_recording && main_window_) {
+        main_window_->rzx_recording_ended_by_reset(
+            QString::fromStdString(rzx_path), !emulator_.rzx_output_failed(rzx_path));
+    }
 }
 
 int64_t QtApp::TickEffects::now_us() const { return steady_now_us(); }
@@ -509,6 +525,12 @@ bool QtApp::TickEffects::pre_frames() {
     } else if (a.load_countdown_ > 0) {
         --a.load_countdown_;
     }
+
+    // --rzx-record, once the load/inject above is in the machine.
+    if (!emulator_start_rzx_record_when_loaded(
+            a.emulator_, a.rzx_record_file_, a.rzx_record_started_,
+            a.load_countdown_ >= 0 || a.inject_countdown_ >= 0))
+        a.exit_code_ = 1;
 
     // --delayed-screenshot-layers: arm the compositor layer mask for the frames
     // rendered in this tick — the last of them is the one the screenshot below
@@ -608,6 +630,11 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // Delayed automatic exit.
     if (a.exit_countdown_ == 0) {
         Log::platform()->info("automatic exit triggered");
+        // Finish an RZX recording HERE, before quit(): quit() closes the main
+        // window, and MainWindow::closeEvent() reports a recording it has to
+        // stop in a modal dialog — right for a user closing the window, but an
+        // unattended exit would then wait forever on a dialog nobody answers.
+        if (!emulator_finish_rzx(a.emulator_, a.rzx_record_file_)) a.exit_code_ = 1;
         a.qapp_->quit();
         a.exit_countdown_ = -1;  // done
     } else if (a.exit_countdown_ > 0) {

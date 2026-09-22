@@ -58,16 +58,29 @@ bool SnaLoader::load(const std::string& path)
     }
 
     auto file_size = static_cast<size_t>(f.tellg());
+    std::vector<uint8_t> buf(file_size);
+    f.seekg(0);
+    f.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(file_size));
+    if (!f) {
+        Log::emulator()->error("SNA: cannot read '{}'", path);
+        return false;
+    }
+    return load_from_buffer(buf, path);
+}
+
+bool SnaLoader::load_from_buffer(const std::vector<uint8_t>& buf, const std::string& name)
+{
+    loaded_ = false;
+
+    const size_t file_size = buf.size();
     if (file_size < SNA_48K_SIZE) {
         Log::emulator()->error("SNA: file '{}' too small ({} bytes, need >= {})",
-                               path, file_size, SNA_48K_SIZE);
+                               name, file_size, SNA_48K_SIZE);
         return false;
     }
 
-    // Read the 27-byte header
-    uint8_t raw[SNA_HEADER_SIZE];
-    f.seekg(0);
-    f.read(reinterpret_cast<char*>(raw), SNA_HEADER_SIZE);
+    // The 27-byte header
+    const uint8_t* raw = buf.data();
 
     header_.I    = raw[0];
     header_.HL2  = read_u16(raw + 1);
@@ -86,39 +99,35 @@ bool SnaLoader::load(const std::string& path)
     header_.IM   = raw[25];
     header_.border = raw[26];
 
-    // Read 48K RAM dump
-    ram48_.resize(SNA_RAM48_SIZE);
-    f.read(reinterpret_cast<char*>(ram48_.data()), SNA_RAM48_SIZE);
+    // The 48K RAM dump
+    ram48_.assign(raw + SNA_HEADER_SIZE, raw + SNA_48K_SIZE);
+    extra_banks_.clear();
 
     // Check for 128K extended format
     is_128k_ = (file_size > SNA_48K_SIZE);
     if (is_128k_) {
         if (file_size < SNA_48K_SIZE + SNA_EXT_HEADER_SIZE) {
-            Log::emulator()->error("SNA: 128K file '{}' truncated extended header", path);
+            Log::emulator()->error("SNA: 128K file '{}' truncated extended header", name);
             return false;
         }
 
-        uint8_t ext[SNA_EXT_HEADER_SIZE];
-        f.read(reinterpret_cast<char*>(ext), SNA_EXT_HEADER_SIZE);
+        const uint8_t* ext = raw + SNA_48K_SIZE;
         ext_header_.PC        = read_u16(ext);
         ext_header_.port_7ffd = ext[2];
         ext_header_.trdos     = ext[3];
 
-        // Read remaining banks
-        size_t extra_size = file_size - SNA_48K_SIZE - SNA_EXT_HEADER_SIZE;
-        if (extra_size > 0) {
-            extra_banks_.resize(extra_size);
-            f.read(reinterpret_cast<char*>(extra_banks_.data()),
-                   static_cast<std::streamsize>(extra_size));
-        }
+        // The remaining banks
+        const size_t extra_start = SNA_48K_SIZE + SNA_EXT_HEADER_SIZE;
+        const size_t extra_size = file_size - extra_start;
+        extra_banks_.assign(raw + extra_start, raw + file_size);
 
         Log::emulator()->info("SNA: loaded 128K '{}' — PC={:#06x} port_7ffd={:#04x} "
                               "extra_banks={} KB",
-                              path, ext_header_.PC, ext_header_.port_7ffd,
+                              name, ext_header_.PC, ext_header_.port_7ffd,
                               extra_size / 1024);
     } else {
         Log::emulator()->info("SNA: loaded 48K '{}' — SP={:#06x} IM={} border={}",
-                              path, header_.SP, header_.IM, header_.border);
+                              name, header_.SP, header_.IM, header_.border);
     }
 
     loaded_ = true;

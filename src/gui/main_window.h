@@ -113,13 +113,37 @@ public:
     // every suite green).
     void handle_load_path(const QString& path);
 
+    // The File menu's RZX actions — everything each does AFTER its file picker
+    // returns. Public and separate from the pickers for the reason given at
+    // handle_load_path(): rzx_menu_test drives the REAL dialogs, and the
+    // dialogs are the point. A recording that cannot be written, one that
+    // would replace a running recording, and a file that cannot be played are
+    // each SAID to the user; before, the first two were a log line nobody
+    // sees and the last was nothing at all.
+    void handle_rzx_record_path(const QString& path);
+    void handle_rzx_stop();
+    void handle_rzx_play_path(const QString& path);
+
+    /// A reset ended the RZX recording to `path` (Emulator::end_rzx_at_reset()):
+    /// say so on the status bar and, when the file could not be written,
+    /// in a dialog — posted to the event loop, because the frontend calls
+    /// this from inside a frame tick, where a modal loop would re-enter it.
+    /// No dialog in an unattended run (set_unattended()): nobody would answer
+    /// it, and its exit status carries the failure instead.
+    void rzx_recording_ended_by_reset(const QString& path, bool written);
+
+    /// The run ends by itself (--delayed-automatic-exit*), so nobody is at the
+    /// window: failures are logged and fail the exit status rather than asked
+    /// about in a dialog. Set by QtApp. Whether a recording was named on the
+    /// command line says nothing about this — an interactive session can be
+    /// started with --rzx-record.
+    void set_unattended(bool unattended) { unattended_ = unattended; }
+    bool unattended() const { return unattended_; }
+
     // The post-picker half of Tape > Open Tape File, split out for the same
     // reason (load_error_test drives it): attaches the tape in the mode the
     // Fast Load toggle shows, and reports a file the loader refuses.
     void handle_tape_path(const QString& path);
-
-    // The post-picker half of File > Play RZX Recording.
-    void handle_rzx_play_path(const QString& path);
 
     // A load that failed: one warning dialog naming the file (the loader's
     // log line says why). Shown now — callers inside the frame tick use
@@ -270,6 +294,15 @@ private:
     // Recording slots
     void on_record_start();
     void on_record_stop();
+
+    // RZX slots: the file pickers in front of the handle_rzx_* seams above.
+    void on_rzx_record();
+    void on_rzx_play();
+    /// Why a new RZX recording cannot start right now, or empty if it can.
+    QString rzx_record_refusal() const;
+    /// Why RZX cannot be used at all while --tape-save is armed.
+    QString rzx_tape_save_refusal() const;
+    bool unattended_ = false;   // see set_unattended()
 
     // Snapshot save slot (G35: wires SnaSaver to File menu).
     void on_save_snapshot();

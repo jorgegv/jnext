@@ -208,6 +208,7 @@ private:
     bool           tape_realtime_ = false;
     std::string    rzx_play_file_;
     std::string    rzx_record_file_;
+    bool           rzx_record_started_ = false;
 
     // FPS tracking — EMULATED frames (run_frame() calls) per status window.
     int frame_count_ = 0;
