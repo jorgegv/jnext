@@ -285,15 +285,16 @@ static void test_rzx_menu() {
 }
 
 static void test_rzx_reset_notice() {
-    // RZXGUI-08 — a reset that ended an interactive recording which then could
-    // not be written: a dialog, posted to the event loop (the frontend calls
+    // RZXGUI-08 — a reset that ended a recording which then could not be
+    // written, in an INTERACTIVE session (the default — including one started
+    // with --rzx-record: naming the file on the command line does not make
+    // anyone absent): a dialog, posted to the event loop (the frontend calls
     // this from inside a frame tick).
     {
         Fixture f;
         DialogWatcher w;
         if (f.ok) {
-            f.win.rzx_recording_ended_by_reset("/dev/full", /*written=*/false,
-                                               /*unattended=*/false);
+            f.win.rzx_recording_ended_by_reset("/dev/full", /*written=*/false);
             for (int i = 0; i < 20 && w.count == 0; ++i) QApplication::processEvents();
         }
         w.stop();
@@ -400,20 +401,54 @@ static void test_rzx_reset_notice() {
                   f.emu.rzx_recorder().is_recording() ? 1 : 0, w.count));
     }
 
-    // RZXGUI-09 — control: a written recording, or an unwritten COMMAND-LINE
-    // one (a scripted run must never stop on a question), gets no dialog.
+    // RZXGUI-09 — control: no dialog for a written recording, nor in an
+    // UNATTENDED run (it ends by itself: nobody would answer; the exit status
+    // carries the failure).
     {
         Fixture f;
         DialogWatcher w;
+        bool unattended_seen = false;
         if (f.ok) {
-            f.win.rzx_recording_ended_by_reset("/tmp/written.rzx", true, false);
-            f.win.rzx_recording_ended_by_reset("/dev/full", false, /*unattended=*/true);
+            f.win.rzx_recording_ended_by_reset("/tmp/written.rzx", true);
+            f.win.set_unattended(true);
+            unattended_seen = f.win.unattended();
+            f.win.rzx_recording_ended_by_reset("/dev/full", false);
             for (int i = 0; i < 20; ++i) QApplication::processEvents();
         }
         w.stop();
         check("RZXGUI-09",
-              "control: no dialog for a saved recording, nor for an unattended one",
-              f.ok && w.count == 0, fmt("dialogs=%d (expect 0)", w.count));
+              "control: no dialog for a saved recording, nor for one lost in an unattended run",
+              f.ok && unattended_seen && w.count == 0, fmt("dialogs=%d (expect 0)", w.count));
+    }
+
+    // RZXGUI-14 — with --tape-save armed, RZX is refused from every GUI route,
+    // in a dialog, and nothing records or boots: Record RZX, Play RZX, and
+    // File > Open of an .rzx. (The command line refuses the combination too.)
+    {
+        Fixture f;
+        const std::string tap = tmp_path("tapesave", ".tap");
+        const std::string src = tmp_path("tapesave-src", ".rzx");
+        const std::string out = tmp_path("tapesave-out", ".rzx");
+        bool ready = f.ok && f.emu.start_rzx_recording(src);   // a real RZX to play
+        if (ready) f.emu.run_frame();
+        ready = ready && f.emu.stop_rzx_recording() && f.emu.tap_saver().set_output(tap);
+        DialogWatcher w;
+        if (ready) {
+            f.win.handle_rzx_record_path(QString::fromStdString(out));
+            f.win.handle_rzx_play_path(QString::fromStdString(src));
+            f.win.handle_load_path(QString::fromStdString(src));
+        }
+        w.stop();
+        check("RZXGUI-14",
+              "--tape-save armed: Record RZX, Play RZX and Open .rzx each refused in a dialog",
+              ready && w.count == 3 && w.text.contains("--tape-save") &&
+                  !f.emu.rzx_recorder().is_recording() && f.boots.empty(),
+              fmt("ready=%d dialogs=%d recording=%d boots=%zu (expect 1,3,0,0)", ready ? 1 : 0,
+                  w.count, f.emu.rzx_recorder().is_recording() ? 1 : 0, f.boots.size()));
+        std::error_code ec;
+        std::filesystem::remove(tap, ec);
+        std::filesystem::remove(src, ec);
+        std::filesystem::remove(out, ec);
     }
 }
 

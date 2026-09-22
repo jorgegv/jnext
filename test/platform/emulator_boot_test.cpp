@@ -1084,6 +1084,40 @@ int main()
         std::remove(rw_path.c_str());
     }
 
+    // --- EB-45: no RZX while --tape-save is armed -----------------------------
+    // Contract (Emulator::rzx_refused_by_tape_save): the SAVE trap skips the
+    // ROM routine a recording would have to replay, so start_rzx_recording()
+    // and load_rzx() both refuse while --tape-save is armed — the backstop
+    // under the command line's and the GUI's own refusals.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string ok_rzx = (tmp / ("jnext-eb-ts-ok-" + stamp + ".rzx")).string();
+        const std::string out    = (tmp / ("jnext-eb-ts-out-" + stamp + ".rzx")).string();
+        EmulatorConfig ts_cfg = base_config();
+        ts_cfg.tape_save_file = (tmp / ("jnext-eb-ts-" + stamp + ".tap")).string();
+        bool made = false;
+        {
+            Emulator src;
+            src.init(base_config());
+            made = src.start_rzx_recording(ok_rzx);
+            src.run_frame();
+            made = made && src.stop_rzx_recording();
+        }
+        Emulator emu;
+        emu.init(ts_cfg);
+        const bool armed = emu.tap_saver().active();
+        const bool rec   = emu.start_rzx_recording(out);
+        const bool play  = emu.load_rzx(ok_rzx);
+        check("EB-45", "--tape-save armed: start_rzx_recording and load_rzx both refuse",
+              made && armed && !rec && !play && !emu.rzx_recorder().is_recording() &&
+                  !emu.rzx_player().is_playing());
+        std::remove(ok_rzx.c_str());
+        std::remove(out.c_str());
+        std::remove(ts_cfg.tape_save_file.c_str());
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;

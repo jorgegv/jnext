@@ -147,6 +147,10 @@ void QtApp::set_when_slow_prefer(audio_pacing::WhenSlowPrefer prefer) {
 
 void QtApp::set_delayed_exit(int delay_frames) {
     exit_countdown_ = delay_frames;
+    // A run that ends by itself is unattended: the window must not stop it on
+    // a question nobody is there to answer (see MainWindow::set_unattended()).
+    // init() applies it too, for a call made before the window exists.
+    if (main_window_) main_window_->set_unattended(true);
     Log::platform()->info("--delayed-automatic-exit: will exit after {} frame(s)",
                            delay_frames);
 }
@@ -254,6 +258,7 @@ bool QtApp::init(int argc, char* argv[]) {
 
     // Wire emulator pointer so menus can call into it.
     main_window_->set_emulator(&emulator_);
+    main_window_->set_unattended(exit_countdown_ >= 0);   // see set_delayed_exit()
 
     // Route keyboard events from the Qt window to the emulator keyboard matrix,
     // through the issue-#120 minimum-hold latch: a press is applied at once,
@@ -448,8 +453,7 @@ void QtApp::cold_boot(const std::string& load_file, bool allow_experimental_nex_
     emulator_frontend_cold_boot(emulator_, std::move(boot_cfg), load_file, hooks);
     if (rzx_was_recording && main_window_) {
         main_window_->rzx_recording_ended_by_reset(
-            QString::fromStdString(rzx_path), !emulator_.rzx_output_failed(rzx_path),
-            /*unattended=*/rzx_path == rzx_record_file_);
+            QString::fromStdString(rzx_path), !emulator_.rzx_output_failed(rzx_path));
     }
 }
 

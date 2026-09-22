@@ -71,6 +71,10 @@ play an RZX saves the recording at that point and stops it, with a note on the
 status bar: a recording replays your input, and a reset is not input, so it
 could not be replayed. Start a new recording afterwards if you want the rest.
 
+RZX and `--tape-save` do not mix: started with `--tape-save`, JNEXT refuses to
+record or play an RZX — from the command line and from the File menu alike —
+because the SAVE capture skips the ROM routine a recording would have to replay.
+
 While a recording runs, tapes load in real time, at their true speed: a fast
 load skips the ROM's own loader, and a recording can only replay what the
 machine actually did.

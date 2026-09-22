@@ -1130,6 +1130,10 @@ void MainWindow::handle_load_path(const QString& path) {
     // play is refused with the running machine untouched — the same check
     // for File > Open and File > Play RZX Recording, which both come here.
     if (emulator_load_routes_to_rzx(file)) {
+        if (emulator_ && emulator_->tap_saver().active()) {
+            QMessageBox::warning(this, tr("Play RZX Recording"), rzx_tape_save_refusal());
+            return;
+        }
         std::string why;
         if (!rzx::playable(file, why)) {
             QMessageBox::warning(this, tr("Play RZX Recording"),
@@ -1219,8 +1223,7 @@ void MainWindow::on_soft_reset() {
     emulator_->on_hotkey_f4_soft_reset();
     if (was_recording && !emulator_->rzx_recorder().is_recording()) {
         rzx_recording_ended_by_reset(QString::fromStdString(rzx_path),
-                                     !emulator_->rzx_output_failed(rzx_path),
-                                     /*unattended=*/false);
+                                     !emulator_->rzx_output_failed(rzx_path));
     }
 }
 
@@ -1543,7 +1546,14 @@ QString MainWindow::rzx_record_refusal() const {
         return tr("An RZX recording is playing. Input cannot be recorded during "
                   "playback, so wait for it to finish.");
     }
+    if (emulator_->tap_saver().active()) return rzx_tape_save_refusal();
     return QString();
+}
+
+QString MainWindow::rzx_tape_save_refusal() const {
+    return tr("JNEXT was started with --tape-save, which cannot be combined with RZX "
+              "recording or playback: its SAVE trap skips the ROM routine, which a "
+              "recording cannot replay.\n\nRestart without --tape-save to use RZX.");
 }
 
 void MainWindow::handle_rzx_record_path(const QString& path) {
@@ -1580,8 +1590,7 @@ void MainWindow::handle_rzx_stop() {
     }
 }
 
-void MainWindow::rzx_recording_ended_by_reset(const QString& path, bool written,
-                                              bool unattended) {
+void MainWindow::rzx_recording_ended_by_reset(const QString& path, bool written) {
     if (written) {
         statusBar()->showMessage(
             tr("The reset ended the RZX recording; it was saved to %1").arg(path), 5000);
@@ -1590,7 +1599,15 @@ void MainWindow::rzx_recording_ended_by_reset(const QString& path, bool written,
     statusBar()->showMessage(
         tr("The reset ended the RZX recording, and it could not be written to %1").arg(path),
         5000);
-    if (unattended) return;
+    if (unattended_) {
+        Log::platform()->error(
+            "RZX: the reset ended the recording to '{}', which could not be written; "
+            "unattended run, so no dialog (the exit status reports it)", path.toStdString());
+        return;
+    }
+    Log::platform()->error(
+        "RZX: the reset ended the recording to '{}', which could not be written; "
+        "reporting it in a dialog", path.toStdString());
     QTimer::singleShot(0, this, [this, path]() {
         QMessageBox::warning(this, tr("RZX Recording"),
             tr("The reset ended the RZX recording, and it could not be written to "

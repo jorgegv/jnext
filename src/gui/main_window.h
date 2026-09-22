@@ -128,10 +128,17 @@ public:
     /// say so on the status bar and, when the file could not be written,
     /// in a dialog — posted to the event loop, because the frontend calls
     /// this from inside a frame tick, where a modal loop would re-enter it.
-    /// `unattended` suppresses the dialog for a command-line recording: a
-    /// scripted run must never stop on a question (its exit status carries
-    /// the failure instead).
-    void rzx_recording_ended_by_reset(const QString& path, bool written, bool unattended);
+    /// No dialog in an unattended run (set_unattended()): nobody would answer
+    /// it, and its exit status carries the failure instead.
+    void rzx_recording_ended_by_reset(const QString& path, bool written);
+
+    /// The run ends by itself (--delayed-automatic-exit*), so nobody is at the
+    /// window: failures are logged and fail the exit status rather than asked
+    /// about in a dialog. Set by QtApp. Whether a recording was named on the
+    /// command line says nothing about this — an interactive session can be
+    /// started with --rzx-record.
+    void set_unattended(bool unattended) { unattended_ = unattended; }
+    bool unattended() const { return unattended_; }
 
     // Issue #40 — a machine-type change is a power cycle, and it must take the
     // ONE canonical cold-boot path (platform/emulator_boot.h) like every other
@@ -276,6 +283,9 @@ private:
     void on_rzx_play();
     /// Why a new RZX recording cannot start right now, or empty if it can.
     QString rzx_record_refusal() const;
+    /// Why RZX cannot be used at all while --tape-save is armed.
+    QString rzx_tape_save_refusal() const;
+    bool unattended_ = false;   // see set_unattended()
 
     // Snapshot save slot (G35: wires SnaSaver to File menu).
     void on_save_snapshot();

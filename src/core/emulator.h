@@ -319,10 +319,16 @@ public:
     bool end_rzx_at_reset(const char* what);
 
     /// Called as a recording starts: the tape ROM traps stand down while RZX
-    /// records or plays (a trapped load or save cannot be replayed), so a
-    /// fast-load tape already attached is switched to real-time loading, whose
-    /// EAR edges ARE recorded; --tape-save is warned that it captures nothing.
+    /// records or plays (a trapped load cannot be replayed), so a fast-load
+    /// tape already attached is switched to real-time loading, whose EAR edges
+    /// ARE recorded.
     void rzx_suspend_tape_traps();
+
+    /// True — with the refusal logged — while --tape-save is armed: an RZX
+    /// cannot be recorded or played then (`verb` is "record" or "play"),
+    /// because the SAVE trap skips the ROM routine a recording would need.
+    /// start_rzx_recording() and load_rzx() refuse on it.
+    bool rzx_refused_by_tape_save(const char* verb) const;
 
     /// The rzx_output_failed() latch, carried across the power-on cold boot by
     /// emulator_cold_boot() like the host debugger's breakpoints.

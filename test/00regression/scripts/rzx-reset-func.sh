@@ -20,6 +20,10 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   the log says the reset ended the recording after N frames, and that N
 #   frames were saved; the run exits 0 (it was written); the file has the RZX!
 #   signature; and headless plays it back with the same N frames.
+#   lost: the same, recording to /dev/full (it opens; the write fails): the
+#   run exits 1 and logs "RZX: failed to write". In Qt the run is unattended
+#   (--delayed-automatic-exit-frames), so the window must log that it asks
+#   nothing — not post a dialog nobody would answer.
 if want rzx-reset-func; then
     begin_func rzx-reset-func
 
@@ -73,12 +77,24 @@ if want rzx-reset-func; then
             rc=$(rr_run headless "$log" --rzx-play "$out" --delayed-automatic-exit-frames 20)
             [[ "$rc" == 0 ]] && grep -qF "RZX: playback started — $saved frames" "$log" \
                 || rr_faults+=("$fe: its $saved-frame file does not play back (rc=$rc)")
+
+            # lost: the write fails at the reset.
+            log="$rr_dir/$fe-lost.log"
+            rc=$(rr_run "$fe" "$log" --inject "$rr_prog" --inject-delay 100 \
+                    --rzx-record /dev/full --delayed-automatic-exit-frames 300)
+            if [[ "$rc" != 1 ]] || ! grep -qF "RZX: failed to write '/dev/full'" "$log"; then
+                rr_faults+=("$fe lost: rc=$rc (want 1 + 'RZX: failed to write')")
+            elif [[ "$fe" == qt ]] \
+                 && { ! grep -qF "unattended run, so no dialog" "$log" \
+                      || grep -qF "reporting it in a dialog" "$log"; }; then
+                rr_faults+=("qt lost: the unattended run was treated as interactive (dialog)")
+            fi
         done
 
         if [[ ${#rr_faults[@]} -gt 0 ]]; then
             fail_row " ($(IFS=';'; echo "${rr_faults[*]}"))"
         else
-            pass_row " (headless/Qt/SDL: a hard reset writes the running --rzx-record, ends it, exits 0, and the file plays back)"
+            pass_row " (headless/Qt/SDL: a hard reset writes the running --rzx-record, ends it, exits 0, and the file plays back; a write lost there exits 1, with no dialog in an unattended Qt run)"
         fi
     fi
 fi

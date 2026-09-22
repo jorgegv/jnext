@@ -7154,6 +7154,8 @@ bool Emulator::load_rzx(const std::string& path)
             path, rec.later_snapshots, rec.frames.size());
     }
 
+    if (rzx_refused_by_tape_save("play")) return false;
+
     // Playback replaces the machine and answers every IN from the file, so a
     // recording still running would record nothing from here on: write it and
     // end it first (as FUSE does on opening a file), rather than leave it
@@ -7202,6 +7204,7 @@ bool Emulator::start_rzx_recording(const std::string& path)
         Log::emulator()->error("RZX: cannot record while an RZX recording is playing");
         return false;
     }
+    if (rzx_refused_by_tape_save("record")) return false;
 
     if (!rzx_recorder_.start(path)) return false;
     rzx_suspend_tape_traps();
@@ -7263,10 +7266,19 @@ void Emulator::rzx_suspend_tape_traps()
         Log::emulator()->info("TZX: switched to real-time loading: an RZX recording "
                               "cannot capture a fast (trapped) load");
     }
-    if (tap_saver_.active()) {
-        Log::emulator()->warn("--tape-save: SAVEs are not captured while an RZX recording "
-                              "runs (the SAVE trap cannot be replayed)");
-    }
+}
+
+bool Emulator::rzx_refused_by_tape_save(const char* verb) const
+{
+    // --tape-save captures SAVEs through a trap that skips the ROM's SA-BYTES,
+    // which no recording can replay, and the traps stand down during RZX
+    // anyway — so the two cannot be combined, from any route: the command
+    // line refuses it at parse time, the GUI in a dialog, and this is the
+    // backstop that makes both true.
+    if (!tap_saver_.active()) return false;
+    Log::emulator()->error("RZX: cannot {} while --tape-save is armed: its SAVE trap cannot "
+                           "be replayed from a recording", verb);
+    return true;
 }
 
 bool Emulator::end_rzx_at_reset(const char* what)
