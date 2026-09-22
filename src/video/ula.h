@@ -58,13 +58,26 @@ public:
     static constexpr int DISP_H     = 192;
 
     /// Reset ULA state to power-on defaults (preserves palette/RAM pointers).
-    void reset() {
+    /// `hard` also clears the per-scanline change logs and per-line
+    /// snapshots. A soft reset (`hard` = false, NR 0x02 bit 0 / F4) can land
+    /// mid-frame, so it keeps them and records the port 0xFF, scroll and
+    /// palette-selector resets in the logs at the current line — rows drawn
+    /// before it keep what they showed (GH #263).
+    void reset(bool hard = true) {
         ula_enabled_ = true;
         clip_x1_ = 0; clip_x2_ = 255; clip_y1_ = 0; clip_y2_ = 191;
-        border_colour_ = 7;
-        border_per_line_.fill(7);
-        flash_counter_ = 0;
-        flash_phase_ = false;
+        // Border = port_fe_reg(2:0), which every reset clears
+        // (zxnext.vhd:3587-3593, 3601-3605): black, on hard and soft reset.
+        border_colour_ = 0;
+        if (hard)
+            border_per_line_.fill(0);
+        // The flash counter has no reset: zxula.vhd:474-480 only ever
+        // increments flash_cnt, once a frame, and the zxula entity has no
+        // reset input at all. A soft reset leaves the flash phase running.
+        if (hard) {
+            flash_counter_ = 0;
+            flash_phase_ = false;
+        }
         screen_mode_reg_ = 0;
         mode_ = TimexScreenMode::STANDARD;
 
@@ -92,11 +105,28 @@ public:
         // — a bare `shadow_screen_en_ = false` here left vram_use_bank7_ stuck,
         // so a soft reset out of a shadow-screen program kept fetching the dead
         // bank-7 buffer while the rebooted OS painted bank 5 (GH #226).
-        // Identical to the old assignment for b == false: the `if (b)`
-        // screen-mode force does not run, and the surrounding assignments are
-        // order-independent of both members.
+        // Identical to the old assignment for b == false: the surrounding
+        // assignments are order-independent of both members.
         set_shadow_screen_en(false);
         border_clr_tmx_src_  = false; // hi-res/tmx border route selector (Wave D)
+
+        // Active-palette selectors (NR 0x43 b1-3, NR 0x6B b4 — zxnext.vhd:
+        // 5004-5009, 5036-5037), mirrored from the PaletteManager.
+        active_ula_palette_  = false;
+        active_l2_palette_   = false;
+        active_spr_palette_  = false;
+        active_tm_palette_   = false;
+
+        // GH #263 — a soft reset records port 0xFF (zxnext.vhd:3613-3614),
+        // the scroll (:4987-4989, :5029) and the selectors in their logs at
+        // the current line, and keeps every log and per-line snapshot.
+        if (!hard) {
+            log_port_ff_change();
+            log_scroll_change();
+            log_palsel43_change();
+            log_palsel6b_change();
+            return;
+        }
 
         // Per-scanline port-0xFF change-log (G07).
         port_ff_count_           = 0;
@@ -113,10 +143,6 @@ public:
         baseline_scroll_y_         = 0;
         baseline_fine_scroll_x_    = 0;
         // Per-scanline active-palette selectors (G10).
-        active_ula_palette_  = false;
-        active_l2_palette_   = false;
-        active_spr_palette_  = false;
-        active_tm_palette_   = false;
         palsel43_change_count_     = 0;
         palsel43_render_cursor_    = 0;
         palsel43_overflow_warned_  = false;
@@ -509,10 +535,16 @@ public:
     bool get_alt_file() const { return alt_file_; }
 
     // Port 0x7FFD bit 3 — shadow-screen enable (bank 7 instead of bank 5).
-    // VHDL zxula.vhd:191: when '1', the ULA is limited to the standard mode
-    // (screen_mode forced to "000") because bank 7 is only 8 KB BRAM.
-    // When the flag deasserts we do NOT restore any previous screen_mode:
-    // VHDL is a combinational OR-gate; restoration is the caller's job.
+    // VHDL zxula.vhd:191: while it is '1' the ULA works in the standard
+    // mode — `screen_mode_s <= i_port_ff_reg(2 downto 0) when
+    // i_ula_shadow_en = '0' else "000"` — because bank 7 is only 8 KB BRAM.
+    // That is a MASK on the ULA's input: port_ff_reg itself is written only
+    // by reset, port 0xFF, NR 0x69, NR 0x22 and NR 0xC4 (zxnext.vhd:3610-3624),
+    // so the Timex mode is back as soon as the shadow screen is turned off.
+    // The mask is applied where the mode is consumed — the row render
+    // (render_scanline_in_bank) and the floating-bus fetch — never by
+    // rewriting screen_mode_reg_ (which used to lose the mode, GH #265
+    // follow-up).
     void set_shadow_screen_en(bool b) {
         shadow_screen_en_ = b;
         // VHDL ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1':
@@ -522,23 +554,6 @@ public:
         // shadow_screen_en_ is asserted, and ULA reads game data instead of
         // the shadow screen contents. Beast.nex 2026-04-25.
         vram_use_bank7_ = b;
-        if (b) {
-            // Force screen_mode_reg_ bits 2:0 (the VHDL mode field per
-            // zxula.vhd:191) to "000" (STANDARD, alt_file=0).  Use the
-            // existing setter so side-effects propagate consistently —
-            // in particular, Wave-D's set_screen_mode update re-derives
-            // `alt_file_` from mode_bits(0), which is cleared by this
-            // mask.  That matches VHDL exactly: when `i_ula_shadow_en='1'`,
-            // screen_mode_s collapses to "000" for the entire 3-bit mode
-            // field (including the alt-file bit).  Bits 5:3 of port 0xFF
-            // (HI_RES paper colour, zxula.vhd:419) and bits 7:6 are
-            // preserved — the VHDL gate at :191 only touches the 3-bit
-            // mode field.  G179 — mask flipped from 0x07 to 0xF8 when the
-            // mode field migrated from bits 5:3 (jnext drift) to VHDL
-            // bits 2:0.
-            const uint8_t masked = static_cast<uint8_t>(screen_mode_reg_ & 0xF8);
-            set_screen_mode(masked);
-        }
     }
     bool get_shadow_screen_en() const { return shadow_screen_en_; }
 
@@ -547,6 +562,13 @@ public:
     /// setter above.  Exposed so tests can assert that the debugger's
     /// render_scanline_bank() override is properly restored.
     bool vram_bank7() const { return vram_use_bank7_; }
+
+    /// GH #265 follow-up — the byte the ULA's own fetch reads at VRAM address
+    /// @p vram_a (zxula.vhd `vram_a`; only its 14-bit bank offset is used):
+    /// bank 5, or bank 7 while the 128K shadow screen is selected
+    /// (zxnext.vhd:6649-6656). The floating bus latches exactly these bytes.
+    /// 0xFF if no RAM is wired (bare-Ula unit tests).
+    uint8_t fetch_vram(uint16_t vram_a) const;
 
     // Wave-D hook: select `border_clr_tmx` (VHDL zxula.vhd:419) route for
     // border rendering instead of the standard `border_clr`. Default false

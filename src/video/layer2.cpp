@@ -8,7 +8,7 @@
 // Reset
 // ---------------------------------------------------------------------------
 
-void Layer2::reset()
+void Layer2::reset(bool hard)
 {
     active_bank_    = 8;
     shadow_bank_    = 11;
@@ -23,6 +23,17 @@ void Layer2::reset()
     clip_x2_        = 0xFF;
     clip_y1_        = 0x00;
     clip_y2_        = 0xBF;
+
+    // GH #263 — a soft reset records itself in every log at the current line
+    // instead of wiping them (see the header).
+    if (!hard) {
+        log_scroll_change();
+        log_clip_change();
+        log_bank_change();
+        log_enable_change();
+        log_nr70_change();
+        return;
+    }
 
     // Per-scanline change log cleared. Baseline reset to current (zero)
     // state; start_frame() will re-snapshot from the live values at the

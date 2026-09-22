@@ -90,14 +90,26 @@ request in `run()` or in its frame loop, and never read the value back inside
 The command-line RZX requests are now started by one shared helper,
 `emulator_start_rzx()` in `src/platform/rzx_startup.h`, which all three
 frontends call at the top of `run()`; `rzx-frontends-func` checks every
-spelling of them in every frontend.
+spelling of them in every frontend. Its twin `emulator_finish_rzx()`, called
+from every `shutdown()`, writes a recording still running and reports whether
+the command-line one reached the disk — at exit or at any earlier point, since
+`Emulator::stop_rzx_recording()` latches a failed path
+(`Emulator::rzx_output_failed()`), as `VideoRecorder::output_failed()` does for
+`--record` — so a lost recording exits non-zero (`rzx-record-status-func`).
+`QtApp` calls it before an automatic exit's `quit()` too: `quit()` closes the
+main window, and `MainWindow::closeEvent()` reports a recording it has to stop
+in a modal dialog that an unattended run would wait on forever.
 
 - **`QtApp`** (`src/gui/qt_app.h`) owns a `QApplication` and a `MainWindow`
   whose central widget is an `EmulatorWidget`. A `QTimer` drives the machine,
   paced from `Emulator::frame_period_ms()` and the current speed multiplier.
   SDL is still linked into this build, but only to get audio out.
 - **`SdlApp`** (`src/platform/sdl_app.h`) owns an `SdlDisplay`, an `SdlInput`
-  and an `SdlAudio`, and runs its own event and pacing loop.
+  and an `SdlAudio`, and runs its own event and pacing loop. Its speed
+  multiplier (`--speed`, `SdlApp::set_speed_percent()`) scales the whole-ms
+  sleep, switches off audio pacing away from 1x and, above it, presents at most
+  every `frame_sequencer::RENDER_INTERVAL_MS` — the same three things
+  `QtApp` does, done inline because this loop does not use the sequencer.
 - **`HeadlessApp`** (`src/platform/headless_app.h`) owns nothing but the
   `Emulator`. Its `run()` is a bare `run_frame()` loop with no sleep in it.
 
@@ -130,7 +142,11 @@ Headless is also where JNEXT's deterministic automation lives. The
 `--delayed-screenshot`, `--delayed-snapshot`, `--delayed-keypress` and
 `--delayed-automatic-exit` family lets a script boot the machine, wait a
 defined amount of emulated time, press keys and capture the screen without any
-human present — which is how the project's own screenshot regression suite
+human present (`--delayed-snapshot`, `--delayed-keypress` and `--delayed-nmi`
+are headless-only: only `HeadlessApp` reads them, so `main.cpp` refuses them
+without `--headless` rather than let a windowed frontend ignore them — the same
+up-front refusal it gives an option that only qualifies one that is absent,
+such as `--inject-pc` without `--inject`) — which is how the project's own screenshot regression suite
 drives the emulator. The delays are counted in emulated frames rather than
 wall-clock seconds precisely so that a loaded machine produces the same bytes
 as an idle one. And a capture that was requested but never taken makes the

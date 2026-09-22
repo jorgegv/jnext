@@ -137,9 +137,9 @@ are (GH #265):
 `Ctc::tick()` is an event-horizon loop over those edges, and `set_time()` gives
 it the absolute edge so each ZC/TO it reports is stamped for the IM2 fabric.
 Port reads and writes bring the CTC up to their own bus timing first — a read
-takes `port_ctc_dat` as reloaded 2.5 T-states into the `IN`'s I/O cycle
-(`zxnext.vhd:4095-4100`), a write is taken on the CLK_28 edge after IORQ and
-WR assert — and the rest of the instruction is ticked after the port access.
+takes `port_ctc_dat` as reloaded in the third clock of the `IN`'s I/O cycle,
+after its contention stretches (`zxnext.vhd:4095-4100`), a write is taken on
+the CLK_28 edge after IORQ and WR assert — and the rest of the instruction is ticked after the port access.
 
 The aliased range `0x1C3B`-`0x1F3B` (A10 = 1) gets its **own** handler, which
 reads `0x00` and drops writes. That is not defensive padding: with the CTC I/O

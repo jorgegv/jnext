@@ -146,7 +146,10 @@ The live path is `contention_tick()`, called per bus cycle from
 (NR 0x08 bit 6, NR 0x07 speed, Pentagon timing), the window gate on `hc_adj`,
 the `mem_contend` page decode selected by timing mode, the `port_contend`
 decode, and finally the stretch magnitude from `kPat48[hc & 0xF]` or
-`kPatP3[hc & 0xF]`.
+`kPatP3[hc & 0xF]`. An I/O cycle goes through `io_clock_tick()`, which combines
+the two decodes per clock of the cycle: the port still sits on the address bus,
+so a port in a contended *page* is contended even when the port itself is not
+(`zxula.vhd:587-595`).
 
 Those patterns have **sixteen** entries because they are indexed by a 7 MHz
 pixel tick, not by a T-state. Indexing FUSE's eight-entry per-T-state pattern

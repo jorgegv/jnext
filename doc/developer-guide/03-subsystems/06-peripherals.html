@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.171</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.171</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2004,9 +2004,9 @@ are (GH #265):</p>
 <p><code>Ctc::tick()</code> is an event-horizon loop over those edges, and <code>set_time()</code> gives
 it the absolute edge so each ZC/TO it reports is stamped for the IM2 fabric.
 Port reads and writes bring the CTC up to their own bus timing first — a read
-takes <code>port_ctc_dat</code> as reloaded 2.5 T-states into the <code>IN</code>'s I/O cycle
-(<code>zxnext.vhd:4095-4100</code>), a write is taken on the CLK_28 edge after IORQ and
-WR assert — and the rest of the instruction is ticked after the port access.</p>
+takes <code>port_ctc_dat</code> as reloaded in the third clock of the <code>IN</code>'s I/O cycle,
+after its contention stretches (<code>zxnext.vhd:4095-4100</code>), a write is taken on
+the CLK_28 edge after IORQ and WR assert — and the rest of the instruction is ticked after the port access.</p>
 <p>The aliased range <code>0x1C3B</code>-<code>0x1F3B</code> (A10 = 1) gets its <strong>own</strong> handler, which
 reads <code>0x00</code> and drops writes. That is not defensive padding: with the CTC I/O
 enable set, the VHDL asserts a read response and OR-folds zeros, so real

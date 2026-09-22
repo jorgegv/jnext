@@ -6,6 +6,7 @@
 #include "core/nex_loader.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sna_saver.h"
+#include "core/szx_saver.h"
 #include "core/saveable.h"
 #include "esp01/esp_threaded.h"
 #include "peripheral/esp_host_policy.h"
@@ -92,6 +93,11 @@ Emulator::~Emulator()
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    // The effective NR 0x03 machine timing (eff_nr_03_machine_timing) is a
+    // latch loaded only at video_frame_sync, with no reset clause
+    // (zxnext.vhd:6696-6703): a soft reset must hand it back unchanged.
+    // Captured before the subsystem resets below rebuild ContentionModel.
+    const MachineTimingMode soft_eff_tim = contention_.machine_timing();
     timing_ = machine_timing(cfg.type);
     Log::emulator()->info("Initializing emulator: machine_type={}[{}] cpu_speed={}[{}] "
                           "lines={} tstates/line={}{}",
@@ -115,8 +121,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     clock_.set_cpu_speed(cfg.cpu_speed);
 
-    // Allocate the framebuffer and fill with black (ARGB: 0xFF000000).
-    framebuffer_.assign(FRAMEBUFFER_PIXELS, 0xFF000000u);
+    // Allocate the framebuffer and fill with black (ARGB: 0xFF000000) — but
+    // not on a soft reset, which does not interrupt the video output: the
+    // frame on screen stays there until the next one is drawn (GH #263
+    // follow-up; with the debugger paused, F4 used to show black).
+    if (!preserve_memory || framebuffer_.size() != FRAMEBUFFER_PIXELS)
+        framebuffer_.assign(FRAMEBUFFER_PIXELS, 0xFF000000u);
 
     // Clear any stale scheduler events. Preserved across soft reset so
     // events scheduled before the reset (e.g. the current frame's ULA
@@ -128,9 +138,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         irq_scheduler_.reset();
         frame_cycle_ = 0;
         frame_num_   = 0;
+        // No frame is in flight after a hard reset. A soft reset keeps the
+        // clock, the scheduler and frame_cycle_, so the frame it lands in
+        // goes on to its end: clearing the flag made the next run_frame()
+        // after a mid-frame debugger pause run begin_new_frame() in the
+        // middle of it, wiping the render history rows already drawn had
+        // left and re-scheduling the frame's events (GH #263).
+        frame_in_progress_ = false;
+        // Host-side, like the flag above: a guest soft reset that a rewind
+        // re-executes must not end the replay, or the rest of it renders,
+        // mixes audio, re-sends ESP traffic and pushes rewind snapshots.
+        replay_mode_ = false;
     }
-    frame_in_progress_ = false;   // no frame is in flight after a reset
-    replay_mode_ = false;
     boot_hold_frames_remaining_ = 0;  // G156
     cpu_parked_ = false;              // GH #164
 
@@ -172,10 +191,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // 3646-3648.
     mmu_.reset(/*hard=*/!preserve_memory);
     nextreg_.reset();
-    palette_.reset();
-    layer2_.reset();
-    sprites_.reset();
-    tilemap_.reset();
+    // GH #263 — the video owners take the same hard/soft split. A soft reset
+    // keeps the BRAMs (palette RAM, sprite attribute and pattern RAM — no
+    // reset port, like the bank-5/7 BRAMs above) and, because it can land
+    // mid-frame, keeps each owner's per-scanline render history and records
+    // the register reset in it at the current line. A hard reset happens only
+    // between frames, and the next begin_new_frame() rebuilds that history.
+    palette_.reset(/*hard=*/!preserve_memory);
+    layer2_.reset(/*hard=*/!preserve_memory);
+    sprites_.reset(/*hard=*/!preserve_memory);
+    tilemap_.reset(/*hard=*/!preserve_memory);
     copper_.reset();
     cpu_.reset(/*hard=*/!preserve_memory);
     im2_.reset();
@@ -300,7 +325,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         sd_card_.reset();
     }
 
-    renderer_.reset();
+    renderer_.reset(/*hard=*/!preserve_memory);   // GH #263, see palette_ above
 
     psg_accum_ = 0;
     sample_accum_ = 0;
@@ -576,10 +601,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // :5137-5145 for typ_sel). A user that writes NR 0x03 with
     // bits 6:4 != bits 2:0 will see them diverge at the next
     // video-frame edge — observably faithful to VHDL.
-    const MachineTimingMode init_tim_mode =
+    //
+    // A soft reset keeps the effective timing it found and leaves the pending
+    // NR 0x03 value pending: eff_nr_03_machine_timing loads only at
+    // video_frame_sync and has no reset clause (zxnext.vhd:6696-6703), so a
+    // guest that writes NR 0x03 and soft-resets in the same frame gets the
+    // new timing at the next frame edge, like any other NR 0x03 write
+    // (GH #263 follow-up — it used to be applied at the reset).
+    const MachineTimingMode pend_tim_mode =
         decode_nr_03_machine_timing(nextreg_.nr_03_machine_timing());
+    const MachineTimingMode init_tim_mode =
+        preserve_memory ? soft_eff_tim : pend_tim_mode;
     contention_.set_machine_timing(init_tim_mode);
     mmu_.set_machine_timing(init_tim_mode);
+    contention_.set_pending_machine_timing(pend_tim_mode);
+    mmu_.set_pending_machine_timing(pend_tim_mode);
 
     // Pulse-mode INT width gate per VHDL zxnext.vhd:2033 — 48K/+3 use 32 CPU
     // cycles (bit 5 only); 128K/Pentagon/Next use 36 (bit 5 AND bit 2).
@@ -679,7 +715,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // init() has always seeded 50 Hz, and begin_new_frame() already
     // re-pushes 60 Hz on the first frame edge when the pending bit says so
     // (`pend_60hz != video_timing_.refresh_60hz()`). Out of scope for #237.
-    apply_video_timing(init_tim_mode, /*refresh_60hz=*/false);
+    //
+    // GH #263 — except on a soft reset, which keeps the effective 50/60 Hz
+    // selection it found: `eff_nr_05_5060` has no reset clause and is only
+    // loaded at video_frame_sync (zxnext.vhd:6696-6703), and zxula_timing
+    // has no reset at all, so a reset mid-frame does not change the frame
+    // being drawn. Seeding 50 Hz there switched a 60 Hz frame's geometry
+    // (vblank_top 8 -> 32) under its remaining scanline events, misplacing
+    // every row from the reset to the frame's end.
+    apply_video_timing(init_tim_mode,
+                       preserve_memory ? video_timing_.refresh_60hz() : false);
 
     // Clear all port dispatch handlers before re-registering them.
     // Without this, a second init() (a soft reset, a re-initialising load)
@@ -2790,16 +2835,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (t80na.vhd:214-222), and with IOWait = 1 (t80na.vhd:184) that cycle is
     // T1, TW, T2, T3 (t80n.vhd:1781-1782 holds TState at 1 for one clock), so
     // DI_Reg takes the port_253b_dat_0 loaded on the PREVIOUS falling edge:
-    // 2.5 T-states into the I/O cycle. jnext used clock_, the START of the
-    // instruction — 10.5 T-states early for IN A,(C), 9.5 for IN A,(n) — so a
-    // loop polling for a line left it up to one iteration late.
-    static constexpr unsigned kPort253bReloadHalfT = 5;   // 2.5 T-states
+    // 2.5 T-states into the I/O cycle — the falling edge of its third clock
+    // (index 2), after any contention stretch of the cycle so far. jnext used
+    // clock_, the START of the instruction — 10.5 T-states early for
+    // IN A,(C), 9.5 for IN A,(n) — so a loop polling for a line left it up
+    // to one iteration late.
+    static constexpr unsigned kPort253bReloadClock = 2;
     nextreg_.set_read_handler(0x1E, [this]() -> uint8_t {
-        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadHalfT));
+        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadClock));
         return static_cast<uint8_t>((cvc >> 8) & 0x01);
     });
     nextreg_.set_read_handler(0x1F, [this]() -> uint8_t {
-        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadHalfT));
+        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadClock));
         return static_cast<uint8_t>(cvc & 0xFF);
     });
 
@@ -2886,7 +2933,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     nextreg_.set_read_handler(0x22, [this]() -> uint8_t {
         bool pulse_low;
         if (cpu_.executing()) {
-            const uint64_t k = io_read_sample_cycle(kPort253bReloadHalfT);
+            const uint64_t k = io_read_sample_cycle(kPort253bReloadClock);
             sync_io_devices_to(k, k);
             pulse_low = im2_.pulse_low_before(k);
         } else {
@@ -3259,19 +3306,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
 
             // G121: VHDL zxnext.vhd:2033 — pulse_count_end gates on
-            // `machine_timing_48 OR machine_timing_p3`, both decoded from
-            // nr_03_machine_timing. When NR 0x03 changes the timing post-boot,
-            // the pulse-mode INT width must follow (32 cycles for 48K/+3, 36
-            // for 128K/Pentagon). Without this fan-out the Im2Controller's
-            // machine_48_or_p3_ flag stays stuck at the value set at
-            // reset_machine() and the pulse width is wrong after any runtime
-            // timing change.
-            const bool is_48_or_p3 = (new_timing == 0x01) || (new_timing == 0x03);
-            im2_.set_machine_timing_48_or_p3(is_48_or_p3);
-            // Mirror to Z80Cpu's /INT pulse-window gate (zxnext.vhd:2033).
-            // Same logic as im2_, distinct consumer: cpu_ uses the width to
-            // discard a pending interrupt the CPU never acknowledged.
-            cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
+            // `machine_timing_48 OR machine_timing_p3`, so the pulse-mode INT
+            // width follows a runtime NR 0x03 timing change (32 cycles for
+            // 48K/+3, 36 for 128K/Pentagon). Those two are decoded from
+            // eff_nr_03_machine_timing (:5761-5776), the copy latched at
+            // video_frame_sync (:6696-6703) — not from this write — so the
+            // Im2Controller / Z80Cpu gates follow at the frame edge, in
+            // begin_new_frame(), with contention and the raster. Setting
+            // them here applied the new width up to a frame early.
 
             // V24-MEM-01 / V25-MEM-01 fix — push the decoded
             // MachineTimingMode (tim_sel axis) into the SHADOW field of
@@ -3284,14 +3326,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // shadow) + commit_pending_machine_timing() (frame-edge
             // promotion, called from run_frame()).
             //
-            // Note: this is the SOLE consumer of the new
-            // MachineTimingMode axis at the NR 0x03 write seam — IM2 /
-            // CPU pulse-width above (the is_48_or_p3 fan-out) is the
-            // VHDL `pulse_count_end` term at :2033, which keys on
-            // `eff_nr_03_machine_timing` directly (no video-frame
-            // latch), so it commits combinationally. Our `is_48_or_p3`
-            // therefore stays immediate; the new contention/MMU axis
-            // is deferred.
+            // The IM2 / CPU pulse-width gate (VHDL `pulse_count_end`,
+            // :2033) reads the same effective latch, so it is deferred
+            // with this axis (see G121 above).
             const MachineTimingMode tim_mode = decode_nr_03_machine_timing(new_timing);
             contention_.set_pending_machine_timing(tim_mode);
             mmu_.set_pending_machine_timing(tim_mode);
@@ -6780,8 +6817,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     renderer_.lores().set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
     tilemap_.set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
 
-    // Default border: white (ZX colour index 7).
-    renderer_.ula().set_border(7);
+    // The border resets to black with port_fe_reg (zxnext.vhd:3587-3593),
+    // in Ula::reset() above. It used to be forced to white here, a phase-1
+    // placeholder with no hardware basis: the frames before a ROM or OS
+    // first writes port 0xFE showed a white border the machine never has.
 
     // Compositor per-pixel trace (debug; configured via
     // --compositor-trace / --compositor-trace-frame). Empty path disables.
@@ -6790,7 +6829,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Initialise rewind buffer.
     // Measure snapshot size by doing a dry-run in measure mode (buf=nullptr).
-    if (cfg.rewind_buffer_frames > 0) {
+    //
+    // Hard reset only. The rewind history, its size (the debugger resizes it
+    // live) and on/off state are the host's; a soft reset (NR 0x02 bit 0,
+    // F4) is an event IN that history, not the start of a new one. Rebuilding
+    // it here discarded every snapshot at each soft reset (a NextZXOS boot
+    // performs one) and put back the command-line size (GH #263 audit).
+    if (preserve_memory) {
+        // keep rewind_buffer_ / rewind_enabled_ as they are
+    } else if (cfg.rewind_buffer_frames > 0) {
         StateWriter measure;
         save_state(measure);
         size_t snap_bytes = measure.position();
@@ -7124,6 +7171,12 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     TapLoader loader;
     if (!loader.load(path)) return false;
 
+    // A fast (trapped) load cannot be recorded — see the trap block in run_frame.
+    if (fast_load && rzx_recorder_.is_recording()) {
+        Log::emulator()->info("TAP: loading in real time: an RZX recording is running");
+        fast_load = false;
+    }
+
     // GH #164 — see resume_from_park(). Neither the ROM LD-BYTES trap nor
     // the phantom typist can fire while the CPU is parked.
     resume_from_park("a TAP tape was attached");
@@ -7168,6 +7221,47 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     return true;
 }
 
+void Emulator::rebase_fuse_tstates_()
+{
+    // See the declaration. (clock_ - frame_cycle_) is the position in the
+    // current frame; at the frame start it is the previous frame's overshoot.
+    uint32_t& live = *fuse_z80_tstates_ptr();
+    const uint32_t old = live;
+    const uint32_t want = static_cast<uint32_t>(
+        (clock_.get() - frame_cycle_) / static_cast<uint64_t>(clock_.cpu_divisor()));
+    tstates_frame_base_ += live;
+    tstates_frame_base_ -= want;
+    live = want;
+    // GH #265 — a pending /INT window and FUSE's EI-just-executed stamp are
+    // positions on this counter: move them with it. Without this an
+    // interrupt still pending when a frame ends (a pulse straddling the frame
+    // edge: Pentagon's frame interrupt, a CTC or UART request) was dropped as
+    // expired at the first boundary of the new frame, and an EI in a frame's
+    // last instruction lost its grace. At a CPU-speed change the window keeps
+    // its distance in CPU T-states, as the pulse counts CPU clock edges
+    // (zxnext.vhd:2035-2044); the IM2 fabric re-places its own pulse edges
+    // (Im2Controller::set_cpu_divisor()).
+    cpu_.rebase_interrupt_window(static_cast<int64_t>(old) - static_cast<int64_t>(want));
+}
+
+void Emulator::advance_fuse_tstates_(uint64_t master_cycles)
+{
+    // See the declaration. Callers advance the clock in whole T-states.
+    *fuse_z80_tstates_ptr() += static_cast<uint32_t>(
+        master_cycles / static_cast<uint64_t>(clock_.cpu_divisor()));
+}
+
+void Emulator::skip_trap_cycles_(uint64_t master_cycles)
+{
+    // A tape ROM trap replaced a ROM routine: charge its nominal time to the
+    // clock AND to the FUSE counter (GH #265 follow-up, finding 4), then let
+    // both event queues catch up (the frame and line interrupt requests live
+    // in the second one, GH #265).
+    clock_.tick(master_cycles);
+    advance_fuse_tstates_(master_cycles);
+    run_scheduled_until(clock_.get());
+}
+
 uint64_t Emulator::monotonic_tstates() const
 {
     // Frame base (all completed frames) + live FUSE counter (advances
@@ -7180,6 +7274,12 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
 {
     TzxLoader loader;
     if (!loader.load(path)) return false;
+
+    // A fast (trapped) load cannot be recorded — see the trap block in run_frame.
+    if (fast_load && rzx_recorder_.is_recording()) {
+        Log::emulator()->info("TZX: loading in real time: an RZX recording is running");
+        fast_load = false;
+    }
 
     // GH #164 — see resume_from_park().
     resume_from_park("a TZX tape was attached");
@@ -7262,6 +7362,44 @@ bool Emulator::load_wav(const std::string& path)
     return true;
 }
 
+bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
+                                         const std::string& ext,
+                                         const std::string& name)
+{
+    // Parse, then re-initialise in place with init(config_) — as load_sna/
+    // szx/z80 do (GH #239) — then apply: a snapshot that does not parse leaves
+    // the running machine untouched. Every playback the frontends start
+    // reaches here on a freshly initialised machine anyway (see
+    // emulator_start_rzx() and MainWindow::handle_rzx_play_path()).
+    if (ext == "sna") {
+        SnaLoader loader;
+        if (!loader.load_from_buffer(data, name)) return false;
+        init(config_);
+        return loader.apply(*this);
+    }
+    if (ext == "szx") {
+        SzxLoader loader;
+        if (!loader.load_from_buffer(data, name)) return false;
+        init(config_);
+        return loader.apply(*this);
+    }
+    if (ext == "z80") {
+        Z80Loader loader;
+        if (!loader.load_from_buffer(data)) {
+            Log::emulator()->error("Z80: failed to parse {}", name);
+            return false;
+        }
+        init(config_);
+        return loader.apply(*this);
+    }
+    // Refused rather than skipped: playing a recording's input against a
+    // machine it was not recorded on reproduces nothing, so "skip the
+    // snapshot and play anyway" is a silent failure, not a fallback.
+    Log::emulator()->error("{}: unsupported snapshot type '{}' (supported: sna, szx, z80)",
+                           name, ext);
+    return false;
+}
+
 bool Emulator::load_rzx(const std::string& path)
 {
     RzxRecording rec;
@@ -7273,23 +7411,32 @@ bool Emulator::load_rzx(const std::string& path)
     Log::emulator()->info("RZX: loaded '{}' — creator='{}' frames={} snapshot={}",
                           path, rec.creator, rec.frames.size(),
                           rec.snapshot_data.empty() ? "none" : rec.snapshot_ext);
+    if (rec.later_snapshots > 0) {
+        Log::emulator()->warn(
+            "RZX: '{}' continues from {} more snapshot(s); jnext plays only the part "
+            "before the second one ({} frames)",
+            path, rec.later_snapshots, rec.frames.size());
+    }
 
-    // Load embedded snapshot if present.
-    if (!rec.snapshot_data.empty()) {
-        // Write snapshot to a temporary file and load it.
-        std::string tmp_path = "/tmp/jnext_rzx_snap." + rec.snapshot_ext;
-        {
-            std::ofstream tmp(tmp_path, std::ios::binary);
-            tmp.write(reinterpret_cast<const char*>(rec.snapshot_data.data()),
-                      static_cast<std::streamsize>(rec.snapshot_data.size()));
-        }
-        if (rec.snapshot_ext == "sna") {
-            if (!load_sna(tmp_path)) return false;
-        } else if (rec.snapshot_ext == "szx") {
-            if (!load_szx(tmp_path)) return false;
-        } else {
-            Log::emulator()->warn("RZX: unsupported snapshot type '{}', skipping", rec.snapshot_ext);
-        }
+    if (rzx_refused_by_tape_save("play")) return false;
+
+    // Playback replaces the machine and answers every IN from the file, so a
+    // recording still running would record nothing from here on: write it and
+    // end it first (as FUSE does on opening a file), rather than leave it
+    // running on empty.
+    end_rzx_at_reset("playing an RZX recording");
+
+    // Load the embedded snapshot, if present, straight from memory. It used to
+    // be written to a fixed /tmp/jnext_rzx_snap.<ext> and loaded back from
+    // there, unchecked: two jnext instances raced on that one file, and on
+    // Windows the path does not exist at all, so the write failed silently
+    // and the load then read nothing (or another instance's snapshot).
+    if (!rec.snapshot_data.empty() &&
+        !load_snapshot_from_memory(rec.snapshot_data, rec.snapshot_ext,
+                                   "RZX '" + path + "' embedded snapshot")) {
+        Log::emulator()->error("RZX: cannot load the embedded '{}' snapshot of '{}'",
+                               rec.snapshot_ext, path);
+        return false;
     }
 
     // GH #164 — see resume_from_park(). With an embedded snapshot the
@@ -7308,13 +7455,44 @@ bool Emulator::load_rzx(const std::string& path)
 
 bool Emulator::start_rzx_recording(const std::string& path)
 {
-    // Save current state as SNA snapshot for embedding.
-    auto sna_data = SnaSaver::save(*this);
-
-    rzx_recorder_.start(path);
-    if (!sna_data.empty()) {
-        rzx_recorder_.set_snapshot(std::move(sna_data), "sna");
+    // Refused, never silently replaced: starting over the top of a running
+    // recording used to throw that recording away unwritten.
+    if (rzx_recorder_.is_recording()) {
+        Log::emulator()->error("RZX: already recording to '{}'; stop that recording first",
+                               rzx_recorder_.output_path());
+        return false;
     }
+    // During playback every IN is answered from the file being played and
+    // never reaches the recorder, so the "recording" would hold no input.
+    if (rzx_player_.is_playing()) {
+        Log::emulator()->error("RZX: cannot record while an RZX recording is playing");
+        return false;
+    }
+    if (rzx_refused_by_tape_save("record")) return false;
+
+    if (!rzx_recorder_.start(path)) return false;
+    rzx_suspend_tape_traps();
+
+    // Embed the machine the recording starts from. A 48K SNA holds 48K of RAM
+    // and no paging, so on the 128K and +3 — where a program's 7FFD/1FFD
+    // paging and its other five banks are part of that machine — an SZX is
+    // embedded instead; a 48K SNA of a paged 128K program replayed against the
+    // wrong banks. SzxSaver refuses what .szx cannot represent (the Next), and
+    // the 48K SNA remains the fallback there.
+    std::vector<uint8_t> snap;
+    std::string          snap_ext;
+    if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3) {
+        SzxSaver::SaveResult szx = SzxSaver::save(*this);
+        if (szx.ok) {
+            snap     = std::move(szx.data);
+            snap_ext = "szx";
+        }
+    }
+    if (snap.empty()) {
+        snap     = SnaSaver::save(*this);
+        snap_ext = "sna";
+    }
+    if (!snap.empty()) rzx_recorder_.set_snapshot(std::move(snap), snap_ext);
     rzx_recorder_.set_initial_tstates(*fuse_z80_tstates_ptr());
 
     // Wire up port recording hook.
@@ -7325,10 +7503,75 @@ bool Emulator::start_rzx_recording(const std::string& path)
     return true;
 }
 
-void Emulator::stop_rzx_recording()
+bool Emulator::stop_rzx_recording()
 {
     port_.rzx_in_record = nullptr;
-    rzx_recorder_.stop();
+    if (!rzx_recorder_.is_recording()) return true;   // nothing to write
+    const std::string path = rzx_recorder_.output_path();
+    const bool ok = rzx_recorder_.stop();
+    if (!ok) rzx_failed_outputs_.push_back(path);
+    return ok;
+}
+
+void Emulator::rzx_suspend_tape_traps()
+{
+    // The tape traps stand down while a recording runs (see the trap block in
+    // run_frame). A fast-load tape would then never load — nothing drives its
+    // EAR edges — so it is switched to real-time loading from where it is.
+    if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end()) {
+        tape_.set_fast_load(false);
+        tape_.start_realtime_playback();
+        Log::emulator()->info("TAP: switched to real-time loading: an RZX recording "
+                              "cannot capture a fast (trapped) load");
+    }
+    if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end()) {
+        tzx_tape_.set_fast_load(false);
+        tzx_tape_.start_playback(monotonic_tstates());
+        Log::emulator()->info("TZX: switched to real-time loading: an RZX recording "
+                              "cannot capture a fast (trapped) load");
+    }
+}
+
+bool Emulator::rzx_refused_by_tape_save(const char* verb) const
+{
+    // --tape-save captures SAVEs through a trap that skips the ROM's SA-BYTES,
+    // which no recording can replay, and the traps stand down during RZX
+    // anyway — so the two cannot be combined, from any route: the command
+    // line refuses it at parse time, the GUI in a dialog, and this is the
+    // backstop that makes both true.
+    if (!tap_saver_.active()) return false;
+    Log::emulator()->error("RZX: cannot {} while --tape-save is armed: its SAVE trap cannot "
+                           "be replayed from a recording", verb);
+    return true;
+}
+
+bool Emulator::end_rzx_at_reset(const char* what)
+{
+    bool ok = true;
+    if (rzx_recorder_.is_recording()) {
+        // Finalised, not continued: a reset the host performs cannot be
+        // replayed from recorded input, so a recording carried across it
+        // would replay a machine that never reset. FUSE, the reference RZX
+        // implementation, stops recording on a menu reset for the same reason.
+        Log::emulator()->warn(
+            "RZX: {} ends the recording to '{}' after {} frames; nothing after "
+            "it is recorded (a recording cannot replay a reset)",
+            what, rzx_recorder_.output_path(), rzx_recorder_.recording().frames.size());
+        ok = stop_rzx_recording();
+    }
+    if (rzx_player_.is_playing()) {
+        Log::emulator()->warn("RZX: {} ends the playback", what);
+        rzx_player_.stop();
+        port_.rzx_in_override = nullptr;
+    }
+    return ok;
+}
+
+bool Emulator::rzx_output_failed(const std::string& path) const
+{
+    for (const auto& p : rzx_failed_outputs_)
+        if (p == path) return true;
+    return false;
 }
 
 void Emulator::repush_video_timing_from_machine_timing()
@@ -7461,6 +7704,15 @@ void Emulator::begin_new_frame()
         const MachineTimingMode tim_before = contention_.machine_timing();
         contention_.commit_pending_machine_timing();
         mmu_.commit_pending_machine_timing();
+        // G121 — the pulse-mode /INT width gate (zxnext.vhd:2033) decodes
+        // the same effective latch (:5761-5776), so it moves here too.
+        if (contention_.machine_timing() != tim_before) {
+            const bool is_48_or_p3 =
+                contention_.machine_timing() == MachineTimingMode::Timing48 ||
+                contention_.machine_timing() == MachineTimingMode::TimingPlus3;
+            im2_.set_machine_timing_48_or_p3(is_48_or_p3);
+            cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
+        }
         const bool pend_60hz = (nextreg_.cached(0x05) & 0x04) != 0;
         if (contention_.machine_timing() != tim_before ||
             pend_60hz != video_timing_.refresh_60hz()) {
@@ -7477,34 +7729,27 @@ void Emulator::begin_new_frame()
         eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
     }
 
-    // Reset FUSE tstates counter to 0 at frame start.  derive_hc_vc() in
+    // Rebase the FUSE tstates counter onto the new frame. derive_hc_vc() in
     // z80_cpu.cpp computes (hc, vc) directly from `tstates % tstates_per_frame`,
     // so the FUSE counter must be frame-relative for ContentionModel::
     // contention_tick() to gate on the right raster window.
+    //
+    // GH #265 follow-up (verifier finding 4): the counter is seeded with the
+    // last instruction's OVERSHOOT past frame_end, (clock_ - frame_cycle_) /
+    // divisor, not 0. Zeroing it made every contention decision of the frame
+    // lag the clock — and with it the floating bus, NR 0x1E/0x1F, the
+    // interrupt and the display — by that overshoot, a different 0..~20 T
+    // every frame. FUSE keeps it too (it subtracts the frame length).
     //
     // VideoTiming reset alongside: derive_hc_vc() in z80_cpu.cpp computes
     // (hc, vc) directly from `tstates`, so VideoTiming is the test-side
     // observable. Reset its hc/vc at frame start so test queries
     // mid-frame match the (hc, vc) the contention path is using.
-    // G36/G37: fold the outgoing frame's T-states (including overshoot)
-    // into the monotonic base BEFORE zeroing, so monotonic_tstates()
-    // stays continuous across the frame-relative reset below.
-    tstates_frame_base_ += static_cast<uint64_t>(*fuse_z80_tstates_ptr());
-    const int64_t ts_before_rebase = static_cast<int64_t>(*fuse_z80_tstates_ptr());
-    *fuse_z80_tstates_ptr() = 0;
-    // GH #265 — a pending /INT window, and the EI-just-executed stamp FUSE
-    // compares with the counter, are on the counter just moved: move them
-    // with it. Without this an interrupt still pending when a frame ends —
-    // one whose pulse straddles the frame edge: Pentagon's frame interrupt
-    // (c_int_v = the last line), a CTC or UART request — was dropped at the
-    // first boundary of the new frame as "expired" (the counter, back at 0,
-    // compared unsigned against a stamp from the old frame), and an EI in a
-    // frame's last instruction lost its one-instruction grace.
-    {
-        const int64_t delta =
-            ts_before_rebase - static_cast<int64_t>(*fuse_z80_tstates_ptr());
-        cpu_.rebase_interrupt_window(delta);
-    }
+    // G36/G37: rebase_fuse_tstates_() folds the outgoing frame's T-states
+    // into the monotonic base, so monotonic_tstates() stays continuous. It
+    // also moves the pending /INT window and FUSE's EI stamp with the counter
+    // (GH #265).
+    rebase_fuse_tstates_();
     frame_ts_start_ = 0;
     video_timing_.reset();
 
@@ -8139,17 +8384,22 @@ void Emulator::run_frame()
             }
         }
 
-        // Tape ROM traps — only when ROM is paged in at slot 0.
-        if (mmu_.is_slot_rom(0)) {
+        // Tape ROM traps — only when ROM is paged in at slot 0, and never
+        // while RZX records or plays: a trap does the ROM routine's work
+        // without executing it, so no recording can replay it (the file holds
+        // the INs the routine did not make), and a playback would skip the INs
+        // the recording holds. FUSE disables its tape traps for RZX for the
+        // same reason; a tape attached then loads in real time, and its
+        // edges are recorded like any other input (see rzx_suspend_tape_traps()).
+        if (mmu_.is_slot_rom(0) && !rzx_recorder_.is_recording() &&
+            !rzx_player_.is_playing()) {
             uint16_t pc = cpu_.pc();
 
             // Fast-load: intercept LD-BYTES when tape is loaded and in fast mode.
             if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end() &&
                 pc == TapLoader::LD_BYTES_ADDR) {
                 tape_.handle_ld_bytes_trap(*this);
-                uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
-                clock_.tick(fake_cycles);
-                run_scheduled_until(clock_.get());
+                skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
 
@@ -8157,9 +8407,7 @@ void Emulator::run_frame()
             if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end() &&
                 pc == TzxLoader::LD_BYTES_ADDR) {
                 tzx_tape_.handle_ld_bytes_trap(*this);
-                uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
-                clock_.tick(fake_cycles);
-                run_scheduled_until(clock_.get());
+                skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
 
@@ -8174,9 +8422,7 @@ void Emulator::run_frame()
             if (tap_saver_.active() && pc == TapSaver::SA_BYTES_ADDR &&
                 TapSaver::sa_bytes_rom_present(mmu_)) {
                 tap_saver_.handle_sa_bytes_trap(*this);
-                uint64_t fake_cycles = 100ULL * clock_.cpu_divisor();
-                clock_.tick(fake_cycles);
-                run_scheduled_until(clock_.get());
+                skip_trap_cycles_(100ULL * clock_.cpu_divisor());
                 continue;
             }
 
@@ -8277,37 +8523,19 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // same un-re-executable side effect the ESP replay gate exists for.
     if (joy_uart_source_) joy_uart_source_->end_frame();
 
-    // Snapshot the fallback/border/ULA-enable colour for the last visible
-    // framebuffer row. G164v2 — these arrays are indexed by fb_row in
-    // [0, FB_HEIGHT), so the end-of-frame snapshot must use FB_HEIGHT-1
-    // (=255), not the raw last VC line.
-    //
-    // The tilemap lane takes it only when no on_scanline() event followed
-    // row 255's raw line — i.e. when that line is the frame's last (60 Hz:
-    // vblank_top 8 + 256 = 264 lines). Otherwise on_scanline() has already
-    // captured row 255 at the end of its raw line, and re-snapshotting here
-    // would overwrite it with the frame's FINAL value, leaking a HUD-zone
-    // re-scroll written in the bottom vblank onto the last visible row
-    // (GH #16).
+    // Snapshot the last visible framebuffer row (FB_HEIGHT-1 = 255 — G164v2:
+    // these arrays are indexed by fb_row, not by raw VC) — but ONLY when no
+    // on_scanline() event followed row 255's raw line, i.e. when that line is
+    // the frame's last (60 Hz: vblank_top 8 + 256 = 264 lines). Otherwise
+    // on_scanline() has already captured row 255 at the end of its raw line,
+    // and re-snapshotting here would overwrite it with the frame's FINAL
+    // value: at 50 Hz a write in the undisplayed raw lines 288-310
+    // (zxula_timing.vhd:195-204, c_max_vc 310) would repaint row 255. The
+    // tilemap lane was guarded for GH #16/#257; every lane is now (GH #264).
     if (video_timing_.vblank_top() + Renderer::FB_HEIGHT
             >= timing_.lines_per_frame) {
-        tilemap_.snapshot_scroll_for_line(Renderer::FB_HEIGHT - 1);
-        tilemap_.snapshot_fetch_for_line(Renderer::FB_HEIGHT - 1);
-        tilemap_.snapshot_output_for_line(Renderer::FB_HEIGHT - 1,
-                                          palette_.tilemap_transparency());
+        snapshot_row_render_state(Renderer::FB_HEIGHT - 1);
     }
-    renderer_.snapshot_fallback_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_ula_enabled_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_stencil_mode_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_blend_mode_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_tm_enabled_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_transparent_rgb_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_ula_clip_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.lores().snapshot_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.ula().snapshot_border_for_line(Renderer::FB_HEIGHT - 1);
-    sprites_.snapshot_control_for_line(Renderer::FB_HEIGHT - 1,
-                                       palette_.sprite_transparency());
-    renderer_.ula().snapshot_control_for_line(Renderer::FB_HEIGHT - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
@@ -8461,6 +8689,7 @@ uint64_t Emulator::step_one_instruction()
     // the trace record), silently dropping interrupts while stepping.
     uint64_t master_cycles;
     bool dma_stalled_cpu_this_step = false;
+    bool cpu_executed = false;   // GH #265 follow-up (finding 4) — see below
     // GH #265 — per-slot state of the in-instruction device sync and the
     // end-of-slot IM2 tick; only the instruction branch below sets them.
     io_sync_valid_        = false;
@@ -8699,6 +8928,7 @@ uint64_t Emulator::step_one_instruction()
         const uint16_t pc_pre_exec = cpu_.pc();
         multiface_retn_pending_ = false;
         int tstates = cpu_.execute();
+        cpu_executed = true;
 
         // GH #203 — Step Out decision. It sits HERE, between execute() and the
         // RETN overlay clear below, and the order of the two halves matters as
@@ -8837,6 +9067,10 @@ uint64_t Emulator::step_one_instruction()
         }
     }
     clock_.tick(master_cycles);
+    // GH #265 follow-up (finding 4): execute() advanced the FUSE counter
+    // itself; the DMA / parked / boot-hold steps advance only the clock, so
+    // move the counter with it or contention would lag the raster.
+    if (!cpu_executed) advance_fuse_tstates_(master_cycles);
 
     // Tick DMA burst prescaler (counts down between burst-mode transfers).
     dma_.tick_burst_wait(master_cycles);
@@ -8884,6 +9118,10 @@ void Emulator::finish_slot_interrupts()
     const uint64_t now = clock_.get();
     im2_.set_nmi_activated(slot_nmi_activated_);
     im2_.tick(slot_tstates_, slot_start_, now, d, slot_m1_count_);
+    // A CPU-speed change committed at this boundary: a pulse this tick
+    // started is on the old divisor's edges (Im2Controller::set_cpu_divisor()).
+    const uint32_t dn = static_cast<uint32_t>(clock_.cpu_divisor());
+    im2_.set_cpu_divisor(now, dn);
 
     // /INT windows on the FUSE T-state counter, which stands at `now`. The
     // T80 samples INT_n into INT_s on every CPU rising edge and decides at
@@ -8891,10 +9129,13 @@ void Emulator::finish_slot_interrupts()
     // before, at the start of the instruction's last T-state (t80n.vhd:
     // 1664, 1742-1772): a line first sampled low on CPU edge E is
     // taken at a boundary B >= E + d.
+    // From here on the CPU edges are those of the divisor now in force, dn:
+    // a CPU-speed change committed at this boundary has already re-based the
+    // counter (rebase_fuse_tstates_()).
     const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
     auto ts_at = [&](uint64_t edge) -> int64_t {
         return now_ts + (static_cast<int64_t>(edge) - static_cast<int64_t>(now))
-                        / static_cast<int64_t>(d);
+                        / static_cast<int64_t>(dn);
     };
 
     // V19-IM2-04: the IM2 fabric's line. VHDL zxnext.vhd:1840 —
@@ -8911,7 +9152,7 @@ void Emulator::finish_slot_interrupts()
     if (im2_.is_im2_mode() && im2_.int_line_asserted()) {
         const uint64_t since = im2_.int_line_low_since();
         const int64_t first = (since == Im2Controller::kNoTime)
-            ? now_ts : ts_at(since + 2ull * d);
+            ? now_ts : ts_at(since + 2ull * dn);
         cpu_.request_interrupt(0xFE, first, INT64_MAX);
     } else if (cpu_.int_pending() && cpu_.int_window_last_ts() == INT64_MAX) {
         cpu_.cancel_interrupt();
@@ -8932,8 +9173,8 @@ void Emulator::finish_slot_interrupts()
     const bool cur_pulse_int_n = im2_.pulse_int_n();
     if (started || (!cur_pulse_int_n && prev_pulse_int_n_)) {
         cpu_.request_interrupt(0xFF,
-                               ts_at(im2_.pulse_first_edge() + d),
-                               ts_at(im2_.pulse_last_edge() + d));
+                               ts_at(im2_.pulse_first_edge() + dn),
+                               ts_at(im2_.pulse_last_edge() + dn));
     }
     prev_pulse_int_n_ = cur_pulse_int_n;
 }
@@ -8988,8 +9229,15 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // edges, not in lockstep.
     const bool bus_idle = true;
     const bool dma_holds_bus = false;
+    const int divisor_before = clock_.cpu_divisor();
     clock_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
     contention_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
+    // GH #265 follow-up (finding 4): the FUSE counter counts CPU T-states,
+    // so its unit changes with the divisor; re-derive it from the clock.
+    if (clock_.cpu_divisor() != divisor_before) {
+        rebase_fuse_tstates_();
+        im2_.set_cpu_divisor(clock_.get(), static_cast<uint32_t>(clock_.cpu_divisor()));
+    }
 
     // Tick CTC and UART at 28 MHz rate — GH #265: only the part of the
     // instruction a read or write inside it has not already ticked them
@@ -9450,8 +9698,11 @@ void Emulator::soft_reset()
 
     Log::emulator()->debug("Soft reset (NR 0x02 bit 0): preserving SRAM");
 
-    // Clear framebuffer to black (not part of emulated state).
-    std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);
+    // The framebuffer is NOT cleared: the soft reset does not touch the
+    // video timing (zxula_timing.vhd has no reset input) or its output, so
+    // what is on screen stays until the next frame is drawn. It used to be
+    // blanked here (copied from reset()), which showed black while the
+    // debugger held the machine after a reset (GH #263 follow-up).
 
     // Re-run init with preserve_memory=true: skip RAM/ROM reinit and the
     // SRAM-from-rom seed so the ROM window keeps whatever tbblue.fw just
@@ -9563,6 +9814,10 @@ void Emulator::on_hotkey_f4_soft_reset()
     }
     nmi_source_.strobe_soft_reset();
     Log::emulator()->info("Soft reset triggered via host F4 (hotkey_soft_reset)");
+    // The host pressed F4: nothing in a recording can make that reset happen
+    // again on playback. (A soft reset the PROGRAM asks for, by writing NR
+    // 0x02, replays by itself, so it does not end a recording.)
+    end_rzx_at_reset("the F4 soft reset");
     soft_reset();
 }
 
@@ -9794,78 +10049,106 @@ uint8_t Emulator::floating_bus_read() const
 
 bool Emulator::ula_floating_bus_active_arm(uint8_t& out_byte) const
 {
-    // VHDL zxula.vhd:573 — the "active arm" of `o_ula_floating_bus` fires
-    // when `border_active_ula='0' AND floating_bus_en='1'`. Inside the
-    // active display the ULA is reading pixel + attribute bytes from
-    // bank 5 (legacy 128K bank 5 / Next page 0x0A-0x0B = SRAM 0x14000+).
-    // This helper returns true and writes the byte the ULA would have
-    // latched at the current T-state position; otherwise returns false
-    // (caller selects the appropriate fallback — i_p3_floating_bus on
-    // +3, X"FF" elsewhere).
+    // VHDL zxula.vhd:573 — the "active arm" of `o_ula_floating_bus`:
+    //     floating_bus_r  when border_active_ula = '0' and floating_bus_en = '1'
+    // Returns true and writes floating_bus_r into @p out_byte when the arm
+    // fires; false otherwise (caller picks the fallback — i_p3_floating_bus
+    // on +3, X"FF" elsewhere).
     //
-    // Compute current position within the frame. Master clock is 28 MHz;
-    // T-states at 3.5 MHz = master_cycles / 8.
+    // GH #265 follow-up (verifier finding 1). Evaluated in the ULA's OWN
+    // counters, the same hc_ula / vc_ula frame the contention path and NR
+    // 0x1E/0x1F use (hc_ula == 0 at raw hc c_min_hactive - 11,
+    // zxula_timing.vhd:423-436; vc_ula == 0 on raw line c_min_vactive,
+    // :441-451). The model this replaces read "raw line 64..255, raw T 0..127"
+    // of jnext's frame, 58 T (48K) / 62 T (128K) before the ULA's fetch
+    // window, and ignored the Timex modes, the ULA scroll and the shadow
+    // screen.
     //
-    // GH #265 — the position is where the CPU latches the byte, not where
-    // its instruction started: floating_bus_r reaches cpu_di through
-    // combinational logic only (zxula.vhd:573; zxnext.vhd:4513,4517,2813-2814,
-    // 2837, 1872-1873), and the T80 latches cpu_di into DI_Reg on the falling
-    // edge of the I/O cycle's T3 (t80na.vhd:214-222), 3.5 T-states into its
-    // four clocks (t80n.vhd:1781-1782). clock_ is the instruction's start —
-    // 10.5 T-states earlier for IN A,(n), 11.5 for IN A,(C).
-    static constexpr unsigned kDiRegLatchHalfT = 7;       // 3.5 T-states
-    uint64_t master_elapsed = io_read_sample_cycle(kDiRegLatchHalfT) - frame_cycle_;
-    int tstates_in_frame = static_cast<int>(master_elapsed / cpu_speed_divisor(config_.cpu_speed));
+    // WHEN: floating_bus_r reaches cpu_di through combinational logic only
+    // (zxula.vhd:573; zxnext.vhd:4513,4517,2813-2814,2837,1872-1873), and the
+    // T80 latches cpu_di into DI_Reg on the falling edge of the I/O cycle's
+    // T3 (t80na.vhd:214-222) — after every contention stretch of the cycle.
+    static constexpr unsigned kDiRegLatchClock = 3;       // T3's falling edge
+    const uint64_t m    = io_read_sample_cycle(kDiRegLatchClock);
+    const uint64_t mcpf = timing_.master_cycles_per_frame;
+    const uint64_t mcpl = timing_.master_cycles_per_line;
+    const uint64_t origin_mc =
+        static_cast<uint64_t>(video_timing_.hc_ula_zero_raw_hc()) * 4u;
+    const uint64_t shifted = ((m - frame_cycle_) % mcpf + mcpf - origin_mc) % mcpf;
+    const int  lpf    = video_timing_.vc_max() + 1;
+    const int  uline  = static_cast<int>(shifted / mcpl);
+    const int  mc_in  = static_cast<int>(shifted % mcpl);  // master cycles since hc_ula 0
+    const int  vc_ula = (uline - video_timing_.display_origin().vc + lpf) % lpf;
 
-    // Scanline timing:
-    //   228 T-states per line (48K/128K).
-    //   First 128 T-states: ULA fetches pixel/attribute data.
-    //   Last 100 T-states: border (bus idle = 0xFF).
-    //   Active display: lines 64-255 (192 pixel lines).
-    int line = tstates_in_frame / timing_.tstates_per_line;
-    int tstate_in_line = tstates_in_frame % timing_.tstates_per_line;
+    // border_active_ula <= i_hc(8) or border_active_v, border_active_v <=
+    // i_vc(8) or (i_vc(7) and i_vc(6)) (zxula.vhd:414-416) — in the output
+    // gate at :573 with the CURRENT counters.
+    const int hc_now = mc_in / 4;
+    if ((hc_now & 0x100) != 0 || vc_ula >= 192) return false;
 
-    // Outside active display area: border, bus is idle
-    if (line < 64 || line >= 256 || tstate_in_line >= 128)
-        return false;
-
-    // Within active display: ULA fetches in 8-T-state cycles.
-    // Each 8T cycle: T+0=bitmap, T+1=attr, T+2=bitmap+1, T+3=attr+1, T+4..7=idle
-    // (Actually the FUSE/ZesarUX model uses: T%8: 2=pixel, 3=attr, 4=pixel+1, 5=attr+1)
-    int pixel_line = line - 64;
-    int char_col = tstate_in_line / 8;  // character column (0-15)
-
-    // Compute the VRAM address the ULA would be reading.
-    // Pixel address: standard ZX Spectrum display file layout
-    //   addr = 0x4000 | (line[7:6] << 11) | (line[2:0] << 8) | (line[5:3] << 5) | col
-    int y = pixel_line;
-    uint16_t pixel_addr = 0x4000
-        | ((y & 0xC0) << 5)   // bits 7:6 → bits 12:11
-        | ((y & 0x07) << 8)   // bits 2:0 → bits 10:8
-        | ((y & 0x38) << 2)   // bits 5:3 → bits 7:5
-        | (char_col * 2);     // 2 bytes per 8T cycle
-
-    // Attribute address: 0x5800 + (line/8)*32 + col
-    uint16_t attr_addr = 0x5800 + (y / 8) * 32 + char_col * 2;
-
-    // Task 25: the floating bus exposes the byte the ULA fetched — on the
-    // Next that comes from the dedicated bank-5 VRAM (bank5_ram dpram2,
-    // zxnext.vhd:6558), the same source Ula::vram_read uses; standalone
-    // machines keep the flat physical-page-10 read. Same machine gate as
-    // the ULA/tilemap wiring in init().
-    const uint8_t* b5 = (config_.type == MachineType::ZXN_ISSUE2)
-                            ? mmu_.bank5_vram() : nullptr;
-    auto bank5_byte = [&](uint16_t cpu_addr) -> uint8_t {
-        const uint16_t off = static_cast<uint16_t>(cpu_addr - 0x4000);
-        return b5 ? b5[off & 0x3FFF] : ram_.read(off + 10 * 0x2000);
-    };
-    switch (tstate_in_line % 8) {
-        case 2: out_byte = bank5_byte(pixel_addr);     return true;
-        case 3: out_byte = bank5_byte(attr_addr);      return true;
-        case 4: out_byte = bank5_byte(pixel_addr + 1); return true;
-        case 5: out_byte = bank5_byte(attr_addr + 1);  return true;
-        default: return false;  // idle T-states within the 8T cycle
+    // floating_bus_r is reloaded on the FALLING edge of CLK_7, half-way
+    // through each hc_ula count (zxula.vhd:308-340); a latch sees the value
+    // of the last edge before it. `mc_in` is a master cycle, and hc_ula's
+    // falling edge sits 2 master cycles into its 4.
+    if (mc_in < 2) return false;               // last edge: previous line's border
+    const int hc_e = (mc_in - 2) / 4;          // i_hc at the last falling edge
+    const int q    = hc_e & 0x0F;
+    // Reload schedule (zxula.vhd:319-340): hc(3:0) = 1 -> X"FF" (en <= 0);
+    // 9 -> VRAM byte (en <= 1); B, D, F -> VRAM byte; others hold. The byte
+    // on i_ula_vram_d at 9/B/D/F is the fetch set up two counts earlier
+    // (vram_a on the rising edges ending hc 7/9/B/D, zxula.vhd:224-258):
+    // pixel(px), attribute(px), pixel(px'), attribute(px'), where px is
+    // latched at hc(3:0) = 3 and px' at hc(3:0) = B (zxula.vhd:193-209).
+    int block = hc_e >> 4;
+    int half, kind;                            // half: px(0)/px'(1); kind: pixel(0)/attr(1)
+    switch (q) {
+        case 9: case 10:  half = 0; kind = 0; break;
+        case 11: case 12: half = 0; kind = 1; break;
+        case 13: case 14: half = 1; kind = 0; break;
+        case 15:          half = 1; kind = 1; break;
+        case 0:
+            // Still attribute(px') of the PREVIOUS block, reloaded at its F.
+            // At hc_ula 0 that edge was the previous line's border: X"FF".
+            if (hc_e == 0) return false;
+            block -= 1; half = 1; kind = 1; break;
+        default: return false;                 // 1..8: reset to X"FF", en = 0
     }
+
+    // px(7:3) <= i_hc(7:3) + i_ula_scroll_x(7:3) at hc(3:0) = 3 / B
+    // (zxula.vhd:199): i_hc(7:3) is 2*block / 2*block+1 there.
+    const auto& ula = renderer_.ula();
+    const int col = ((2 * block + half) + (ula.get_ula_scroll_x_coarse() >> 3)) & 0x1F;
+    // py <= i_vc + i_ula_scroll_y, folded into 0..191 (zxula.vhd:192,201-207).
+    const int py_s = vc_ula + ula.get_ula_scroll_y();
+    int py;
+    if ((py_s & 0x180) == 0x180) {
+        py = py_s & 0x7F;                                   // (not py_s(7)) & py_s(6:0)
+    } else if ((py_s & 0x100) != 0 || (py_s & 0xC0) == 0xC0) {
+        py = ((((py_s >> 6) + 1) & 0x03) << 6) | (py_s & 0x3F);  // (py_s(7:6)+1) & py_s(5:0)
+    } else {
+        py = py_s & 0xFF;
+    }
+    // screen_mode_s <= i_port_ff_reg(2:0) when i_ula_shadow_en = '0' else
+    // "000" (zxula.vhd:191); the shadow screen is bank 7 (zxnext.vhd:6649-6656,
+    // Ula::fetch_vram).
+    const int mode = ula.get_shadow_screen_en() ? 0 : (ula.get_screen_mode_reg() & 0x07);
+    // addr_p_spc_12_5 <= py(7:6) & py(2:0) & py(5:3); addr_a_spc_12_5 <=
+    // "110" & py(7:3) (zxula.vhd:220-221); vram_a (zxula.vhd:236-252):
+    //   pixel:     screen_mode(0) & addr_p & px(7:3)
+    //   attribute: '1' & addr_p & px(7:3)             when screen_mode(1) = '1'
+    //              screen_mode(0) & addr_a & px(7:3)  otherwise
+    const int addr_p = (py & 0xC0) | ((py & 0x07) << 3) | ((py & 0x38) >> 3);
+    const int addr_a = 0xC0 | (py >> 3);
+    int vram_a;
+    if (kind == 0) {
+        vram_a = ((mode & 1) << 13) | (addr_p << 5) | col;
+    } else if ((mode & 0x02) != 0) {
+        vram_a = (1 << 13) | (addr_p << 5) | col;
+    } else {
+        vram_a = ((mode & 1) << 13) | (addr_a << 5) | col;
+    }
+    out_byte = ula.fetch_vram(static_cast<uint16_t>(vram_a));
+    return true;
 }
 
 void Emulator::enqueue_cpu_nr_write(uint8_t reg, uint8_t val)
@@ -9949,10 +10232,11 @@ void Emulator::run_scheduled_until(uint64_t cycle)
 uint32_t Emulator::tape_sample_offset() const
 {
     // T-states from the instruction's start to the port_fe_dat_0 load: the
-    // CLK_CPU falling edge 2.5 T-states into the I/O cycle takes the level
-    // of the T-state it falls in.
-    static constexpr unsigned kCpuFallingReloadHalfT = 5;
-    const uint64_t k = io_read_sample_cycle(kCpuFallingReloadHalfT);
+    // CLK_CPU falling edge in the I/O cycle's third clock (2.5 T-states in,
+    // after the cycle's contention stretches) takes the level of the T-state
+    // it falls in.
+    static constexpr unsigned kCpuFallingReloadClock = 2;
+    const uint64_t k = io_read_sample_cycle(kCpuFallingReloadClock);
     return static_cast<uint32_t>((k - clock_.get()) / clock_.cpu_divisor());
 }
 
@@ -9983,11 +10267,12 @@ void Emulator::sync_for_port_read()
 {
     // A port whose data register is reloaded on every CLK_CPU falling edge
     // (port_ctc_dat, port_uart_dat, port_fe_dat_0): the IN latches the one
-    // loaded 2.5 T-states into its I/O cycle, so the device state it holds
-    // is the one after the CLK_28 edge before that reload.
+    // loaded in its I/O cycle's third clock (2.5 T-states in, after the
+    // cycle's contention stretches), so the device state it holds is the one
+    // after the CLK_28 edge before that reload.
     if (!cpu_.executing()) return;
-    static constexpr unsigned kCpuFallingReloadHalfT = 5;
-    const uint64_t k = io_read_sample_cycle(kCpuFallingReloadHalfT);
+    static constexpr unsigned kCpuFallingReloadClock = 2;
+    const uint64_t k = io_read_sample_cycle(kCpuFallingReloadClock);
     sync_io_devices_to(k, k);
 }
 
@@ -10006,10 +10291,10 @@ void Emulator::sync_for_port_write()
 uint64_t Emulator::im2_status_read_edge()
 {
     if (!cpu_.executing()) return Im2Controller::kNoTime;
-    // The port_253b_dat_0 reload edge, 2.5 T-states into the IN's I/O cycle
-    // (zxnext.vhd:5871-5876) — the same edge NR 0x1E/0x1F sample at.
-    static constexpr unsigned kPort253bReloadHalfT = 5;
-    const uint64_t k = io_read_sample_cycle(kPort253bReloadHalfT);
+    // The port_253b_dat_0 reload edge, in the third clock of the IN's I/O
+    // cycle (zxnext.vhd:5871-5876) — the same edge NR 0x1E/0x1F sample at.
+    static constexpr unsigned kPort253bReloadClock = 2;
+    const uint64_t k = io_read_sample_cycle(kPort253bReloadClock);
     sync_io_devices_to(k, k);
     return k;
 }
@@ -10190,24 +10475,22 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
     }
 }
 
-uint64_t Emulator::io_read_sample_cycle(unsigned edge_half_t) const
+uint64_t Emulator::io_read_sample_cycle(unsigned io_clock) const
 {
     // GH #265. clock_ holds the START of the instruction now executing (it is
-    // ticked once execute() returns), and the FUSE counter says how far into
-    // it the bus has got. fuse_z80_readport() charges the I/O cycle's T1
-    // before it calls the port handler, so the I/O cycle began
-    // (into - 1) T-states after the instruction did — contention and wait
-    // states already charged included.
-    const uint64_t now  = clock_.get();
-    const uint32_t into = cpu_.tstates_into_instruction();
-    if (into == 0) return now;   // not inside an instruction's bus cycle
+    // ticked once execute() returns); the CPU says where, in T-states into
+    // the instruction, clock `io_clock` of the current I/O cycle began once
+    // its stretch (and every earlier one) had been charged.
+    const uint64_t now = clock_.get();
+    if (cpu_.tstates_into_instruction() == 0) return now;   // not inside an instruction
     const uint64_t d = clock_.cpu_divisor();
-    const uint64_t io_start = now + static_cast<uint64_t>(into - 1) * d;
-    // The edge is at io_start + edge_half_t * d / 2. The latch takes the
+    const uint64_t clk_start =
+        now + static_cast<uint64_t>(cpu_.io_clock_into_instruction(io_clock)) * d;
+    // The falling edge is half a T-state into the clock. The latch takes the
     // value of the master cycle just before it: ceil(edge) - 1. At 3.5 MHz
     // the CPU's falling edges land on master-cycle boundaries (d = 8); at
     // 28 MHz (d = 1) a falling edge is mid-cycle and that cycle is the one.
-    return io_start + (static_cast<uint64_t>(edge_half_t) * d + 1) / 2 - 1;
+    return clk_start + (d + 1) / 2 - 1;
 }
 
 int Emulator::cvc_at(uint64_t master_cycle) const
@@ -10256,37 +10539,7 @@ void Emulator::on_scanline(int line)
     {
         const int prev_fb_row = (line - 1) - video_timing_.vblank_top();
         if (prev_fb_row >= 0 && prev_fb_row < Renderer::FB_HEIGHT) {
-            renderer_.snapshot_fallback_for_line(prev_fb_row);
-            renderer_.snapshot_ula_enabled_for_line(prev_fb_row);
-            renderer_.snapshot_stencil_mode_for_line(prev_fb_row);
-            renderer_.snapshot_blend_mode_for_line(prev_fb_row);
-            renderer_.snapshot_tm_enabled_for_line(prev_fb_row);
-            renderer_.snapshot_transparent_rgb_for_line(prev_fb_row);
-            renderer_.snapshot_ula_clip_for_line(prev_fb_row);
-            renderer_.lores().snapshot_for_line(prev_fb_row);
-            renderer_.ula().snapshot_border_for_line(prev_fb_row);
-            // GH #256 — sprite clip / NR 0x15 b6,b5,b1 / NR 0x4B index, and
-            // the ULA's ULA+ / ULAnext / shadow-bank state.
-            sprites_.snapshot_control_for_line(prev_fb_row,
-                                               palette_.sprite_transparency());
-            renderer_.ula().snapshot_control_for_line(prev_fb_row);
-            // Tilemap scroll (GH #16), fetch bases (GH #53) and output-stage
-            // NR 0x1B clip / NR 0x4C index (GH #256), all at the one point so
-            // a Copper split of several of them switches on one row. GH #257 —
-            // these used to be taken at the START of the raw line (a write in
-            // line N showed from row N+1), which was one row late for a Copper
-            // WAIT(n,0) + MOVE: that completes at hc_ula 12 = whc 32, the
-            // start of the paper (copper.vhd:94, zxula_timing.vhd:423-436,
-            // :474-490), and the tilemap re-reads the live registers at every
-            // character's S_IDLE (tilemap.vhd:309,345-350) and compares NR 0x4C
-            // per pixel (:427), so hardware changes row n from x~35. The start-
-            // of-line latch had been right for GH #16 only because the line
-            // interrupt fired ~380 pixels early (fixed in
-            // VideoTiming::line_int_master_cycle_offset()).
-            tilemap_.snapshot_scroll_for_line(prev_fb_row);
-            tilemap_.snapshot_fetch_for_line(prev_fb_row);
-            tilemap_.snapshot_output_for_line(prev_fb_row,
-                                              palette_.tilemap_transparency());
+            snapshot_row_render_state(prev_fb_row);
         }
     }
     // G164v2 — convert raw VC scanline to framebuffer-row before tagging
@@ -10333,6 +10586,38 @@ void Emulator::on_scanline(int line)
     mmu_.attr_mux_set_current_line(tag);
     // G02 — tag subsequent NR 0x15 writes (layer priority / sprite enable).
     renderer_.set_current_line_nr15(tag);
+}
+
+void Emulator::snapshot_row_render_state(int fb_row)
+{
+    renderer_.snapshot_fallback_for_line(fb_row);
+    renderer_.snapshot_ula_enabled_for_line(fb_row);
+    renderer_.snapshot_stencil_mode_for_line(fb_row);
+    renderer_.snapshot_blend_mode_for_line(fb_row);
+    renderer_.snapshot_tm_enabled_for_line(fb_row);
+    renderer_.snapshot_transparent_rgb_for_line(fb_row);
+    renderer_.snapshot_ula_clip_for_line(fb_row);
+    renderer_.lores().snapshot_for_line(fb_row);
+    renderer_.ula().snapshot_border_for_line(fb_row);
+    // GH #256 — sprite clip / NR 0x15 b6,b5,b1 / NR 0x4B index, and the
+    // ULA's ULA+ / ULAnext / shadow-bank state.
+    sprites_.snapshot_control_for_line(fb_row, palette_.sprite_transparency());
+    renderer_.ula().snapshot_control_for_line(fb_row);
+    // Tilemap scroll (GH #16), fetch bases (GH #53) and output-stage NR 0x1B
+    // clip / NR 0x4C index (GH #256), all at the one point so a Copper split
+    // of several of them switches on one row. GH #257 — these used to be
+    // taken at the START of the raw line (a write in line N showed from row
+    // N+1), which was one row late for a Copper WAIT(n,0) + MOVE: that
+    // completes at hc_ula 12 = whc 32, the start of the paper (copper.vhd:94,
+    // zxula_timing.vhd:423-436, :474-490), and the tilemap re-reads the live
+    // registers at every character's S_IDLE (tilemap.vhd:309,345-350) and
+    // compares NR 0x4C per pixel (:427), so hardware changes row n from x~35.
+    // The start-of-line latch had been right for GH #16 only because the
+    // line interrupt fired ~380 pixels early (fixed in
+    // VideoTiming::line_int_master_cycle_offset()).
+    tilemap_.snapshot_scroll_for_line(fb_row);
+    tilemap_.snapshot_fetch_for_line(fb_row);
+    tilemap_.snapshot_output_for_line(fb_row, palette_.tilemap_transparency());
 }
 
 void Emulator::on_vsync()
@@ -10620,9 +10905,16 @@ void Emulator::save_state(StateWriter& w) const
     // block above carries only its first boundary, in the u32 the one-stamp
     // window used), the IM2 fabric's request / pulse timeline and the CTC's
     // chained triggers in flight. Appended last; an older snapshot ends
-    // before it and keeps the one-stamp window and untimed defaults.
-    w.write_u64(static_cast<uint64_t>(cpu_.int_window_first_ts()));
-    w.write_u64(static_cast<uint64_t>(cpu_.int_window_last_ts()));
+    // before it and keeps the one-stamp window and untimed defaults. The
+    // window is written relative to the FUSE counter, which load_state()
+    // does not restore (it re-seeds it at the next frame start); an
+    // open-ended window's INT64_MAX end is written as is.
+    {
+        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t last   = cpu_.int_window_last_ts();
+        w.write_u64(static_cast<uint64_t>(cpu_.int_window_first_ts() - now_ts));
+        w.write_u64(static_cast<uint64_t>(last == INT64_MAX ? last : last - now_ts));
+    }
     im2_.save_timing(w);
     ctc_.save_timing(w);
     put_sentinel();   // "int_timing"
@@ -10692,17 +10984,9 @@ bool Emulator::load_state(StateReader& r)
     eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
     cpu_.load_state(r);
     if (!check_sentinel("cpu")) return false;
-    // Re-fan-out NR 0x03 machine_timing into Z80Cpu's /INT pulse window
-    // (zxnext.vhd:2033). The flag is intentionally not serialised in
-    // Z80Cpu::save_state (would shift all later subsystem blocks and
-    // break older saves); we re-derive it here from the just-loaded
-    // NextReg state. Im2Controller::load_state restores its own copy
-    // from the snapshot, so we don't touch im2_ here.
-    {
-        const uint8_t loaded_timing = nextreg_.nr_03_machine_timing();
-        const bool    is_48_or_p3   = (loaded_timing == 0x01) || (loaded_timing == 0x03);
-        cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
-    }
+    // Z80Cpu's /INT pulse window (zxnext.vhd:2033) is re-derived below,
+    // once the effective machine timing has been restored (GH #263
+    // follow-up); Im2Controller::load_state restores its own copy.
     im2_.load_state(r);
     if (!check_sentinel("im2")) return false;
 
@@ -10863,6 +11147,14 @@ bool Emulator::load_state(StateReader& r)
         // taken at the frame edge (begin_new_frame), where pending ==
         // effective per VHDL zxnext.vhd:6697-6700.
         repush_video_timing_from_machine_timing();
+        // Z80Cpu's /INT pulse window (zxnext.vhd:2033) decodes the
+        // EFFECTIVE timing (:5761-5776), which a snapshot can hold apart
+        // from NR 0x03's pending value (it is taken before the frame edge's
+        // commit). The flag is not serialised in Z80Cpu::save_state (it
+        // would shift every later block), so re-derive it here.
+        cpu_.set_machine_timing_48_or_p3(
+            contention_.machine_timing() == MachineTimingMode::Timing48 ||
+            contention_.machine_timing() == MachineTimingMode::TimingPlus3);
     }
 
     // Audio subsystems.
@@ -10879,9 +11171,12 @@ bool Emulator::load_state(StateReader& r)
     // The saved value is the folded monotonic instant; re-establish it as
     // the base and zero the live FUSE counter so monotonic_tstates() is
     // exactly the saved value. Safe: restores only happen between frames
-    // (frame_in_progress_ = false above), and the next run_frame() begins
-    // with begin_new_frame(), which would zero the live counter anyway —
-    // with the counter already 0, its base fold is a no-op.
+    // (frame_in_progress_ = false above), so the next run_frame() or
+    // step_frame_slot() calls begin_new_frame() before any
+    // instruction consults the counter, and its rebase_fuse_tstates_()
+    // re-seeds it from (clock_ - frame_cycle_) / divisor while moving the
+    // same amount out of the base — monotonic_tstates() stays the saved
+    // value, and contention sees the restored raster position.
     tstates_frame_base_ = r.read_u64();
     *fuse_z80_tstates_ptr() = 0;
     frame_num_        = r.read_u32();
@@ -11073,10 +11368,14 @@ bool Emulator::load_state(StateReader& r)
         if (!check_sentinel("joy_uart")) return false;
     }
 
-    // GH #265 — exact interrupt timing (see save_state).
+    // GH #265 — exact interrupt timing (see save_state). The window comes
+    // relative to the FUSE counter; put it on the counter as re-seeded
+    // above, so the next frame start's rebase moves it with the counter.
     if (!r.eof()) {
-        const int64_t first = static_cast<int64_t>(r.read_u64());
-        const int64_t last  = static_cast<int64_t>(r.read_u64());
+        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t first  = static_cast<int64_t>(r.read_u64()) + now_ts;
+        int64_t last         = static_cast<int64_t>(r.read_u64());
+        if (last != INT64_MAX) last += now_ts;
         cpu_.set_int_window_for_load(first, last);
         im2_.load_timing(r);
         ctc_.load_timing(r);
@@ -11176,8 +11475,22 @@ void Emulator::resize_rewind_buffer(int frames)
 }
 
 
+bool Emulator::rzx_blocks_rewind(const char* what) const
+{
+    // An RZX recording replays the input of ONE continuous run; a rewind
+    // makes the machine's history non-continuous, so recording on across it
+    // gives a file that no longer replays, and a playback's position does not
+    // rewind with the machine. Refused, and said — the debugger greys the
+    // actions out too (DebuggerWindow::update_actions()).
+    if (!rzx_recorder_.is_recording() && !rzx_player_.is_playing()) return false;
+    Log::emulator()->error("{}: not while an RZX recording {} (stop it first)", what,
+                           rzx_recorder_.is_recording() ? "is being made" : "is playing");
+    return true;
+}
+
 uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 {
+    if (rzx_blocks_rewind("rewind_to_cycle")) return UINT64_MAX;
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("rewind_to_cycle: rewind buffer is empty or disabled");
         return UINT64_MAX;
@@ -11239,6 +11552,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 bool Emulator::step_back(int n)
 {
     if (n <= 0) n = 1;
+    if (rzx_blocks_rewind("step_back")) return false;
 
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("step_back: rewind buffer is empty or disabled");
@@ -11297,6 +11611,7 @@ bool Emulator::step_back(int n)
 
 bool Emulator::rewind_to_frame(uint32_t target_frame_num)
 {
+    if (rzx_blocks_rewind("rewind_to_frame")) return false;
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("rewind_to_frame: rewind buffer is empty or disabled");
         return false;

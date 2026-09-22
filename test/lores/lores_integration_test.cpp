@@ -169,10 +169,17 @@ static void test_lr164() {
 
     // Sample port 0xFF across a whole frame's worth of instructions, from
     // two identically-initialised machines that differ ONLY in NR $15 b7.
+    //
+    // The loop runs from UNCONTENDED bank 2 (GH #265 follow-up). Run from
+    // bank 5 it is contention-locked: every iteration leaves its stretch at
+    // the same point of the ULA's 8-T fetch cycle, which on the VHDL reload
+    // schedule (zxula.vhd:319-340) is the idle half — every sample read
+    // 0xFF and the non-vacuity guard below failed. From bank 2 the sample
+    // points drift through every phase.
     std::vector<uint8_t> fb[2];
     for (int on = 0; on < 2; ++on) {
         auto e = make_128k();
-        install_program(*e, 0x4000);
+        install_program(*e, 0x8000);
         // Distinguishable screen content, so the floating bus returns
         // something other than a constant.
         for (uint16_t a = 0x4000; a < 0x5B00; ++a)

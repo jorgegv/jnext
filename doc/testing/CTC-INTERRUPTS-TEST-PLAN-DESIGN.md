@@ -624,6 +624,8 @@ GH265-ISC, GH265-CTC) and `test/ctc/ctc_test.cpp` (CTC-CH-GH265-01/02):
 | INT-GH265-04 | 48K window end: EI; NOP puts the first enabled boundary at 91 T / 92 T | taken at 91 (entry 110), not at 92 (pre-fix both) |
 | INT-GH265-05 | 128K window end (36 CPU edges): boundary 329 T / 330 T | taken at 329 (entry 348), not at 330 |
 | INT-GH265-06 | CTC0 pulse raised 20 T before the frame end with interrupts off, enabled after the frame edge | taken after the edge (pre-fix dropped) |
+| INT-GH265-10 | the INT-GH265-06 pulse saved at the frame edge and loaded into another 48K machine, interrupts enabled after the load | taken at its first boundary (window written absolute: a frame late) |
+| INT-GH265-11 | Next, CTC0 pulse raised at 3.5 MHz with interrupts off; NR 0x07 = 3 committed 8 CPU edges into the pulse (28 remain, last boundary 29 T on); interrupts enabled after k NOPs at 28 MHz | k = 2: taken, pulse still low; k = 10: not taken, pulse_int_n high (`zxnext.vhd:2035-2044` counts CPU edges) |
 | INT-GH265-07 | EI ending on the frame edge with a pulse pending | the next instruction runs (EI grace), the one after is the IntAck |
 | INT-GH265-08 | hardware IM2 mode, CPU in IM 1, ULA request (EXCEPTION pulse) | CPU restarts at 0x0038 (pre-fix never) |
 | INT-GH265-09 | OUT (C),A of NR 0x20 = 0x40 (unqualified ULA request) | taken at the boundary after the OUT (pre-fix one instruction later) |
@@ -758,8 +760,8 @@ bash test/regression.sh
 | 15. DMA Interrupt | 6 | DMA delay, NMI interaction |
 | 16. Unqualified Int | 5 | Bypass enable, NextREG 0x20 |
 | 17. Joystick IO Mode | 2 | CTC ch3 ZC/TO toggle |
-| GH #265 timing | 22 | INT sampling, status/pulse reads, ordered writes, CTC port and chain edges |
-| **Total** | **~185** | |
+| GH #265 timing | 24 | INT sampling, status/pulse reads, ordered writes, CTC port and chain edges |
+| **Total** | **~187** | |
 
 ## Planned rows carried over from the traceability matrix (GH #196)
 

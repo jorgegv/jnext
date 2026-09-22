@@ -41,7 +41,15 @@ public:
 
     SpriteEngine() { reset(); }
 
-    void reset();
+    /// Reset to power-on state (`hard`), or apply the soft reset (NR 0x02
+    /// bit 0 / F4, `hard` = false). A soft reset returns only the flip-flops
+    /// to their reset values (sprites.vhd:598-740, 982-985; zxnext.vhd:
+    /// 4948-4953, 4965-4969): the attribute RAMs (sdpram_128_8,
+    /// sprites.vhd:327-449) and the pattern RAM (sprites.vhd:561-572) have no
+    /// reset port, so their contents survive, and the per-scanline change logs
+    /// and per-line control snapshot are render history the reset must not
+    /// wipe mid-frame — rows drawn before it keep what they showed (GH #263).
+    void reset(bool hard = true);
 
     // -----------------------------------------------------------------
     // Port handlers

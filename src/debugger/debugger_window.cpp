@@ -617,12 +617,14 @@ void DebuggerWindow::update_actions(bool is_paused) {
     if (step_out_action_)  step_out_action_->setEnabled(is_paused);
 
     // Rewinding (frame jump) is only available when paused, the rewind
-    // buffer has snapshots, and RZX playback is not active.
+    // buffer has snapshots, and no RZX recording is playing or being made
+    // (Emulator::rzx_blocks_rewind()).
     bool can_rewind = is_paused
         && emulator_
         && emulator_->rewind_buffer()
         && !emulator_->rewind_buffer()->empty()
-        && !emulator_->rzx_player().is_playing();
+        && !emulator_->rzx_player().is_playing()
+        && !emulator_->rzx_recorder().is_recording();
     // Step Back additionally needs the instruction trace to locate the
     // target instruction's cycle — Emulator::step_back() fails loudly
     // without it (Task 27 A2), so grey the action out instead.

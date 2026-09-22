@@ -746,3 +746,12 @@ and a floating bus rather than the bare `LoRes` class. Both follow from one
 hardware fact: the LoRes fetch uses bank 5's dual-port BRAM **port A**
 (`zxnext.vhd:6603-6631`) while ULA contention and the floating bus are
 functions of the ULA's own **port B** fetch.
+
+**LR-164 sampling (GH #265 follow-up, 2026-09-22).** LR-164's loop runs from
+uncontended bank 2, not bank 5. Once the floating bus was moved onto the
+VHDL reload schedule (`zxula.vhd:319-340`, in the same `hc_ula`/`vc_ula`
+frame as contention), a bank-5 loop is contention-locked: every iteration
+ends at the same point of the ULA's 8-T fetch cycle, which is the idle
+half, so all 500 samples read `0xFF` (measured) and the row's
+non-vacuity guard failed. From bank 2 the sample points drift through
+every phase and the samples vary. The assertion is unchanged.

@@ -158,10 +158,13 @@ public:
     void request_interrupt(uint8_t vector, int64_t first_ts, int64_t last_ts);
     /// Shift everything the interrupt decision compares with the FUSE
     /// counter by @p delta T-states, because the counter itself was moved
-    /// back by @p delta (Emulator::begin_new_frame() rebases it at every
-    /// frame): a pending request's window, and the EI-just-executed stamp
-    /// (z80.interrupts_enabled_at) that blocks acceptance at the boundary
-    /// straight after an EI (t80n.vhd:1768 `SetEI = '0'`).
+    /// back by @p delta (Emulator::rebase_fuse_tstates_(): every frame start,
+    /// and a CPU-speed change): a pending request's window, and the
+    /// EI-just-executed stamp (z80.interrupts_enabled_at) that blocks
+    /// acceptance at the boundary straight after an EI (t80n.vhd:1768
+    /// `SetEI = '0'`). A shift, even when the unit changes: the counter
+    /// counts CPU T-states, and so does the pulse the window stands for
+    /// (zxnext.vhd:2035-2044 counts CPU clock edges).
     void rebase_interrupt_window(int64_t delta);
     int64_t int_window_first_ts() const { return int_first_ts_; }
     int64_t int_window_last_ts() const  { return int_last_ts_; }
@@ -299,6 +302,14 @@ public:
     /// still running. Transient; deliberately not serialised.
     uint64_t execute_serial() const { return execute_serial_; }
     bool executing() const { return executing_; }
+
+    /// GH #265 follow-up — where clock @p io_clock (0..3: T1, the automatic
+    /// wait, T2, T3) of the CURRENT I/O machine cycle begins, in T-states
+    /// into the instruction, after the contention stretch charged at the
+    /// start of that clock and of every clock before it (a stretch holds
+    /// the CPU clock high, delaying that clock's falling edge). Only
+    /// meaningful inside a port handler during execute(); 0 otherwise.
+    uint32_t io_clock_into_instruction(unsigned io_clock) const;
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);

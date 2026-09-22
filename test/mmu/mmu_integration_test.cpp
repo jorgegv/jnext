@@ -800,7 +800,13 @@ static void test_gh232_soft_reset_uses_nextreg_state() {
     // gate. VHDL :2033 reads machine_timing_48 / machine_timing_p3, which
     // come from eff_nr_03_machine_timing (:5761-5776) — never from
     // machine_type_*. Boot 128K (tim_sel "010" → 36 cycles), have the guest
-    // select +3 timing (→ 32), soft-reset.
+    // select +3 timing (→ 32), soft-reset, then let a frame edge pass.
+    //
+    // GH #263 follow-up — eff_nr_03_machine_timing is loaded only at
+    // video_frame_sync (:6696-6703) and has no reset clause, so the gate
+    // moves at the next frame edge: NOT at the NR 0x03 write, NOT at the
+    // soft reset. These rows used to assert both of those (the code's
+    // behaviour, against their own :5761-5776 citation).
     {
         Emulator emu;
         EmulatorConfig cfg;
@@ -817,27 +823,36 @@ static void test_gh232_soft_reset_uses_nextreg_state() {
 
         nr_write(emu, 0x02, 0x01);        // RESET_SOFT
         const uint8_t tim = nextreg_tim_sel(emu);
+        const bool after_reset = emu.cpu().machine_timing_48_or_p3();
+        const bool im2_after_reset = emu.im2().machine_timing_48_or_p3();
+
+        emu.run_frame();                  // the next video_frame_sync
+        const bool after_edge = emu.cpu().machine_timing_48_or_p3();
 
         check("GH232-04",
-              "the pulse-mode /INT width gate follows NR 0x03 tim_sel across "
-              "a soft reset, not the CLI machine type "
-              "[zxnext.vhd:2033 pulse_count_end; :5761-5776 machine_timing_*]",
-              boot_gate == false && after_write == true && tim == 0x03 &&
-                  emu.cpu().machine_timing_48_or_p3() == true,
-              fmt("boot=%d after_write=%d tim_sel=0x%02X post_reset=%d",
+              "the pulse-mode /INT width gate follows the NR 0x03 tim_sel "
+              "written before a soft reset at the next frame edge — not at "
+              "the write, not at the reset, and not the CLI machine type "
+              "[zxnext.vhd:2033 pulse_count_end; :5761-5776 machine_timing_*; "
+              ":6696-6703 eff_nr_03_machine_timing]",
+              boot_gate == false && after_write == false && tim == 0x03 &&
+                  after_reset == false && after_edge == true,
+              fmt("boot=%d after_write=%d tim_sel=0x%02X post_reset=%d "
+                  "post_edge=%d (want 0 0 03 0 1)",
                   boot_gate ? 1 : 0, after_write ? 1 : 0, tim,
-                  emu.cpu().machine_timing_48_or_p3() ? 1 : 0));
+                  after_reset ? 1 : 0, after_edge ? 1 : 0));
 
         check("GH232-05",
               "Im2Controller's copy of that same gate stays in lock-step "
-              "with Z80Cpu's across the soft reset [zxnext.vhd:2033 — one "
-              "VHDL signal, two jnext consumers]",
-              emu.im2().machine_timing_48_or_p3() ==
-                  emu.cpu().machine_timing_48_or_p3() &&
-                  emu.im2().machine_timing_48_or_p3() == true,
-              fmt("im2=%d cpu=%d",
+              "with Z80Cpu's across the soft reset and the frame edge "
+              "[zxnext.vhd:2033 — one VHDL signal, two jnext consumers]",
+              im2_after_reset == after_reset &&
+                  emu.im2().machine_timing_48_or_p3() == after_edge &&
+                  after_edge == true,
+              fmt("post_reset im2=%d cpu=%d; post_edge im2=%d cpu=%d",
+                  im2_after_reset ? 1 : 0, after_reset ? 1 : 0,
                   emu.im2().machine_timing_48_or_p3() ? 1 : 0,
-                  emu.cpu().machine_timing_48_or_p3() ? 1 : 0));
+                  after_edge ? 1 : 0));
     }
 
     // GH232-06 — the same seam at cold boot. The Next's NR 0x03 tim_sel

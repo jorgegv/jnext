@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.171</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.171</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1907,10 +1907,10 @@ one.</p>
 origin. The master clock only advances once an instruction completes, so inside
 an <code>IN</code> <code>clock_</code> is still the instruction's start.
 <code>Emulator::io_read_sample_cycle()</code> adds the T-states the CPU has already spent
-in the instruction — <code>Z80Cpu::tstates_into_instruction()</code>, counted on the FUSE
-counter the bus cycles advance — and places the read where the VHDL latches it:
-for port 0x253B, the CLK_CPU falling edge 2.5 T-states into the I/O cycle
-(GH #265). A read made outside an instruction (a test, the debugger) samples at
+in the instruction — <code>Z80Cpu::io_clock_into_instruction()</code>, counted on the FUSE
+counter the bus cycles advance, contention stretches included — and places the
+read where the VHDL latches it: for port 0x253B, the CLK_CPU falling edge of the
+I/O cycle's third clock (GH #265). A read made outside an instruction (a test, the debugger) samples at
 <code>clock_</code> itself. The floating bus below uses the same helper.</p>
 <p>The other conversion that matters everywhere is
 <code>framebuffer_row = vc - VideoTiming::vblank_top()</code>. <code>vblank_top</code> is
@@ -1940,10 +1940,13 @@ feeds a compositor-stage signal — Layer 2, tilemap and sprites each clip
 themselves instead. The <strong>floating bus</strong> is the other:
 <code>Emulator::floating_bus_read</code> is the port-0xFF read mux, with its NR 0x08 b2
 Timex arm, its NR 0x82 b0 gate, and the per-machine gate that delivers ULA
-content only under 48K/128K timing. <code>ula_floating_bus_active_arm</code> derives the
-byte from the raster position at the instant the CPU latches it, 3.5 T-states
-into the <code>IN</code>'s I/O cycle (<code>io_read_sample_cycle</code>, GH #265), and the +3's
-separate latch lives on the <code>Mmu</code>.</p>
+content only under 48K/128K timing. <code>ula_floating_bus_active_arm</code> evaluates
+the ULA's reload schedule (<code>zxula.vhd:319-340</code>) in <code>hc_ula</code>/<code>vc_ula</code> — the same
+counters contention uses — at the instant the CPU latches the byte, T3's falling
+edge after every stretch (<code>io_read_sample_cycle</code>, GH #265), and reads the byte
+the ULA fetched there, through <code>Ula::fetch_vram()</code>: Timex mode, ULA scroll and
+the 128K shadow screen all move it. The +3's separate latch lives on the
+<code>Mmu</code>.</p>
 <h2 id="lores-is-not-a-layer">LoRes is not a layer<a class="headerlink" href="#lores-is-not-a-layer" title="Permanent link">&para;</a></h2>
 <p>LoRes trades resolution for colour freedom: 128×96 chunky pixels, each carrying
 its own palette index, which is exactly what the ULA's attribute cells prevent.

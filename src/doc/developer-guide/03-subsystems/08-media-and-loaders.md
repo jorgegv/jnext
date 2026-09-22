@@ -80,8 +80,9 @@ NextZXOS boot.
 the EAR bit per T-state and the ROM's own loading routine decodes it, so the
 border stripes and the timing are produced by the same code that produces them
 on hardware. All three tape formats support it. An `IN` from port 0xFE sees the
-tape level of the T-state its `port_fe_dat_0` reload falls in — 2.5 T-states into
-the I/O cycle (`zxnext.vhd:3455-3464`), so T-state 9 of `IN A,(n)` — not the
+tape level of the T-state its `port_fe_dat_0` reload falls in — in the I/O
+cycle's third clock, 2.5 T-states in after its contention stretches
+(`zxnext.vhd:3455-3464`), so T-state 9 of an uncontended `IN A,(n)` — not the
 level at the instruction's start (GH #265). The EAR signal is also routed
 into the audio mixer, which is why you hear the loader as well as see it.
 
@@ -220,10 +221,11 @@ loaded from the GUI after start-up.
 - `direct_nex_esxdos_` — set by `Emulator::load_nex()` for every NEX it loads,
   cleared by `init()`, so by a soft reset, and gone after a hard reset, which
   reconstructs the emulator. `load_sna()`, `load_szx()` and `load_z80()`
-  re-run `init()` before applying the file, and RZX playback goes through
-  `load_sna()`, so a snapshot clears it. `load_tap()`, `load_tzx()` and
-  `load_wav()` deliberately do not: they attach tape media to the running
-  machine, so a NEX still running keeps its stand-in.
+  re-run `init()` before applying the file, and RZX playback does the same for
+  its embedded snapshot (`load_snapshot_from_memory()`), so a snapshot clears
+  it. `load_tap()`, `load_tzx()` and `load_wav()` deliberately do not: they
+  attach tape media to the running machine, so a NEX still running keeps its
+  stand-in.
 - `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session.
 - The extended-NEX host bridge (`extended_nex_host_`), open when the NEX
   header's `file_handle` is non-zero. Only `load_nex()` opens it, so it never
@@ -315,8 +317,39 @@ and why it only works at all if the emulator executes the same instructions in
 the same order both times.
 
 `rzx.h` holds the format, `rzx_player.*` and `rzx_recorder.*` the two
-directions. jnext embeds a 48K SNA, which is the reason `SnaSaver` exists at
-all.
+directions. The snapshot a recording embeds is an SZX on the 128K and +3
+(`SzxSaver` — all eight banks and the paging ports) and a 48K SNA otherwise
+(`SnaSaver`, which exists for this): neither `.szx` nor `.sna` can hold the
+Next's own state, so a Next program replays only as far as its 48K part does.
+A command-line recording starts once the `--load`/`--inject` is in the
+machine (`emulator_start_rzx_record_when_loaded()`), so that snapshot is the
+loaded program. The tape ROM traps stand down while RZX records or plays —
+see the trap block in `run_frame()` — and a fast-load tape already attached is
+switched to real-time loading (`Emulator::rzx_suspend_tape_traps()`). On playback the embedded snapshot — SNA, SZX or Z80 — is parsed straight
+from the file's bytes by `Emulator::load_snapshot_from_memory()`, using the
+`load_from_buffer()` entry each of those loaders has beside its file-path
+`load()`; nothing is written to a temporary file. Every way of starting a
+playback reaches `load_rzx()` on a freshly initialised machine whose
+`EmulatorConfig::load_file` is the recording — `--rzx-play` sets it as
+`--load` does, and the GUI's Play RZX item goes through
+`MainWindow::handle_load_path()` and the frontend cold boot like File > Open —
+because that field changes the machine `init()` builds (on the Next it decides
+the boot-ROM overlay), and so how the recording replays. Any other snapshot type fails
+the load: input replayed against a machine it was not recorded on reproduces
+nothing.
+
+A recording cannot replay a reset the host performs, so none is ever carried
+across one. The power-on cold boot, the host's F4 soft reset and starting a
+playback all go through `Emulator::end_rzx_at_reset()`, which **writes** the
+running recording and ends it there, with a warning — the choice FUSE makes
+on a menu reset or on opening a file. (A reset the program asks for itself,
+through NR 0x02, replays like any other instruction and ends nothing.) jnext's
+reader and writer handle one snapshot and one input sequence per file, so
+continuing across the reset with a second snapshot block — which the RZX format
+allows — is not an option they offer. A file from elsewhere that does continue
+from a second snapshot (FUSE writes one for an inserted snapshot) is played up
+to it: `rzx::parse()` stops there and counts the rest in
+`RzxRecording::later_snapshots`, and `load_rzx()` warns.
 
 ## Media out
 

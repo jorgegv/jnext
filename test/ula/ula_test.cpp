@@ -726,33 +726,70 @@ static void test_section5_timex() {
                   line[0], exp_argb));
     }
 
-    // S5.07 — shadow screen forces screen_mode to "000" per VHDL zxula.vhd:191:
+    // S5.07 / S5.07a — the shadow screen MASKS the Timex mode, per VHDL
+    // zxula.vhd:191:
     //   screen_mode_s <= i_port_ff_reg(2 downto 0) when i_ula_shadow_en = '0'
     //                    else "000";
-    // Phase 1 (commit 8cd3488) implemented `Ula::set_shadow_screen_en(bool)`
-    // which, when asserted, masks the port 0xFF value via
-    // `set_screen_mode(screen_mode_reg_ & 0xF8)` — this clears bits 2:0 (the
-    // VHDL mode field), which with the Wave-D set_screen_mode update also
-    // clears alt_file_.  Here we verify: after writing a HI_RES port 0xFF
-    // (0x36 = paper=6 in bits 5:3 + mode=110 in bits 2:0), asserting
-    // shadow_en clamps the effective screen_mode (bits 2:0) to 000 while
-    // preserving the paper colour (bits 5:3).
+    // port_ff_reg itself is written only by reset, port 0xFF, NR 0x69,
+    // NR 0x22 and NR 0xC4 (zxnext.vhd:3610-3624). Until the GH #265
+    // follow-up set_shadow_screen_en(true) CLEARED bits 2:0 of the stored
+    // register, so a program that set a Timex mode and then toggled the
+    // shadow screen on and off lost the mode. Bank 5 and bank 7 carry
+    // distinct screen-0 / screen-1 bytes so a hi-res row and a standard row
+    // cannot render alike.
     {
-        UlaBed bed;
-        bed.ula.set_screen_mode(0x36);    // HI_RES + paper=6 prior to shadow enable
-        bed.ula.set_shadow_screen_en(true);
-        // The "existing getter" is get_screen_mode_reg(); bits 2:0 of the
-        // retained raw byte must now read 000 (the VHDL mode field).
-        const uint8_t mode_bits = static_cast<uint8_t>(
-            bed.ula.get_screen_mode_reg() & 0x07);
+        auto seed = [](UlaBed& b) {
+            for (int col = 0; col < 32; ++col) {
+                const uint16_t po = emu_pixel_addr_offset(0, col);
+                b.poke(static_cast<uint16_t>(0x4000 + po), static_cast<uint8_t>(0xF0 ^ col));
+                b.poke(static_cast<uint16_t>(0x6000 + po), static_cast<uint8_t>(0x0F ^ col));
+                b.poke(static_cast<uint16_t>(0x5800 + col), 0x38);
+                b.ram.write(14u * 8192u + po, static_cast<uint8_t>(0xCC ^ col));
+                b.ram.write(15u * 8192u + po, static_cast<uint8_t>(0x33 ^ col));
+                b.ram.write(14u * 8192u + 0x1800u + col, 0x07);
+            }
+        };
+        auto row_of = [](UlaBed& b) {
+            std::array<uint32_t, Ula::FB_WIDTH> line{};
+            b.ula.render_scanline(line.data(), Ula::DISP_Y, b.mmu);
+            return line;
+        };
+
+        // S5.07 — port 0xFF = 0x36 (hi-res, paper 6), shadow on: the row is
+        // the standard-mode row of bank 7 (identical to port 0xFF = 0x30),
+        // and the stored register still reads 0x36.
+        UlaBed hr, st;
+        seed(hr); seed(st);
+        hr.ula.set_screen_mode(0x36);
+        hr.ula.set_shadow_screen_en(true);
+        st.ula.set_screen_mode(0x30);
+        st.ula.set_shadow_screen_en(true);
+        const auto a = row_of(hr), b = row_of(st);
         check("S5.07",
-              "zxula.vhd:191 — i_ula_shadow_en='1' forces screen_mode to 000; "
-              "set_shadow_screen_en(true) after port 0xFF=0x36 must zero the "
-              "mode field (bits 2:0 of the stored register)",
-              bed.ula.get_shadow_screen_en() == true && mode_bits == 0,
-              fmt("shadow_en=%d mode_bits=%u reg=0x%02X",
-                  static_cast<int>(bed.ula.get_shadow_screen_en()),
-                  mode_bits, bed.ula.get_screen_mode_reg()));
+              "zxula.vhd:191 — i_ula_shadow_en='1' forces the ULA's "
+              "screen_mode to 000 (the row renders as standard mode from bank "
+              "7) while port_ff_reg keeps its value (0x36, zxnext.vhd:3610-3624)",
+              a == b && hr.ula.get_screen_mode_reg() == 0x36,
+              fmt("rows %s reg=0x%02X",
+                  a == b ? "equal" : "DIFFER", hr.ula.get_screen_mode_reg()));
+
+        // S5.07a — port 0xFF = 0x36, shadow on, shadow off: the hi-res mode
+        // is back — the row equals one rendered with port 0xFF = 0x36 and
+        // the shadow screen never touched.
+        UlaBed tg, ref;
+        seed(tg); seed(ref);
+        tg.ula.set_screen_mode(0x36);
+        tg.ula.set_shadow_screen_en(true);
+        tg.ula.set_shadow_screen_en(false);
+        ref.ula.set_screen_mode(0x36);
+        const auto c = row_of(tg), d = row_of(ref);
+        check("S5.07a",
+              "zxula.vhd:191; zxnext.vhd:3610-3624 — port 0xFF = hi-res, "
+              "shadow screen on then off: the hi-res mode returns (row equals "
+              "the never-shadowed hi-res row), not standard mode",
+              c == d && tg.ula.get_screen_mode_reg() == 0x36,
+              fmt("rows %s reg=0x%02X",
+                  c == d ? "equal" : "DIFFER", tg.ula.get_screen_mode_reg()));
     }
 
     // S5.08 — hi-res attr_reg loaded with border_clr_tmx.

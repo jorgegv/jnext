@@ -2771,6 +2771,99 @@ static void test_gh265_int_timing() {
               ok && taken_at > static_cast<long>(frame / 8), d);
     }
 
+    // INT-GH265-10 — the same straddling pulse through a snapshot taken at
+    // the frame edge. The pulse is a timeline, not a counter
+    // (zxnext.vhd:2017-2044): restored into another machine it must still be
+    // taken at the first enabled boundary after the edge. The window lives
+    // on jnext's per-frame T-state counter, which a load does not restore
+    // (it is re-seeded at the next frame start); written absolute, a
+    // restored window sat a whole frame ahead of the new counter.
+    {
+        Emulator emu;
+        bool ok = build(emu, MachineType::ZX48K);
+        install_im2_table(emu, false);
+        for (int a = 0x8000; a < 0x9000; ++a) emu.mmu().write(static_cast<uint16_t>(a), 0x00);
+        set_pc_im2(emu, 0x8000, false);
+        nr_write(emu, 0xC5, 0x01);
+        const uint64_t frame = 69888ULL * 8;
+        long taken_at = -1;
+        if (ok) {
+            while (emu.clock().get() < frame - 20 * 8) emu.debugger_step();
+            emu.im2().raise_req(Im2Controller::DevIdx::CTC0, emu.clock().get());
+            while (emu.clock().get() < frame) emu.debugger_step();
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> buf(measure.position(), 0);
+            StateWriter w(buf.data(), buf.size());
+            emu.save_state(w);
+            Emulator emu2;
+            ok = build(emu2, MachineType::ZX48K);
+            StateReader r(buf.data(), buf.size());
+            ok = ok && emu2.load_state(r);
+            auto regs = emu2.cpu().get_registers();
+            regs.IFF1 = regs.IFF2 = 1;
+            emu2.cpu().set_registers(regs);
+            emu2.debugger_step();
+            if (emu2.cpu().pc() == 0xFDFD)
+                taken_at = static_cast<long>(emu2.clock().get() / 8);
+        }
+        char d[120];
+        std::snprintf(d, sizeof d, "restored machine entered the ISR at %ld T (want > %llu)",
+                      taken_at, static_cast<unsigned long long>(frame / 8));
+        check("INT-GH265-10",
+              "a pulse straddling the frame edge survives a snapshot taken there "
+              "(zxnext.vhd:2017-2044)",
+              ok && taken_at > static_cast<long>(frame / 8), d);
+    }
+
+    // INT-GH265-11 — a pulse pending across a CPU-speed change. The pulse
+    // counts CPU clock edges (zxnext.vhd:2035-2044): whatever the speed, it
+    // is low for 36 of them (Next timing), so the edges still to come after
+    // a change arrive at the new rate. jnext's /INT window is on its T-state
+    // counter, which NR 0x07 (committed at the next bus-idle boundary)
+    // re-bases in the new unit, and the fabric's pulse edges are CLK_28
+    // edges. A CTC0 pulse is raised with interrupts off at 3.5 MHz (first
+    // CPU edge 8 cycles on); NR 0x07 = 3 (28 MHz) is committed at the end of
+    // the next instruction, 8 edges into the pulse, so 28 remain and the last
+    // boundary that takes it is 29 T-states on. Interrupts are enabled
+    // after k more NOPs (4 T each at 28 MHz): taken for k = 2 (8 T), not
+    // for k = 10 (40 T), when the pulse is over — pulse_int_n high again.
+    {
+        auto run = [&](int k, bool& taken, bool& pulse_high, int& divisor) {
+            Emulator emu;
+            if (!build(emu, MachineType::ZXN_ISSUE2)) return false;
+            install_im2_table(emu, false);
+            for (int a = 0x8000; a < 0x9000; ++a) emu.mmu().write(static_cast<uint16_t>(a), 0x00);
+            set_pc_im2(emu, 0x8000, false);
+            nr_write(emu, 0xC5, 0x01);
+            while (emu.clock().get() < 20000ULL * 8) emu.debugger_step();
+            emu.im2().raise_req(Im2Controller::DevIdx::CTC0, emu.clock().get());
+            emu.debugger_step();                 // the pulse starts, its window is set
+            nr_write(emu, 0x07, 0x03);           // 28 MHz from the next boundary
+            emu.debugger_step();
+            divisor = static_cast<int>(emu.clock().cpu_divisor());
+            for (int n = 0; n < k; ++n) emu.debugger_step();
+            pulse_high = emu.im2().pulse_int_n();
+            auto r = emu.cpu().get_registers();
+            r.IFF1 = r.IFF2 = 1;
+            emu.cpu().set_registers(r);
+            emu.debugger_step();
+            taken = emu.cpu().pc() == 0xFDFD;
+            return true;
+        };
+        bool t2 = false, h2 = true, t10 = true, h10 = false;
+        int d2 = -1, d10 = -1;
+        const bool ok = run(2, t2, h2, d2) && run(10, t10, h10, d10);
+        char d[160];
+        std::snprintf(d, sizeof d, "k=2: divisor %d taken %d pulse_int_n %d; "
+                      "k=10: taken %d pulse_int_n %d (want 1 1 0; 0 1)",
+                      d2, t2 ? 1 : 0, h2 ? 1 : 0, t10 ? 1 : 0, h10 ? 1 : 0);
+        check("INT-GH265-11",
+              "a pulse pending across a CPU-speed change lasts its remaining "
+              "CPU edges at the new speed (zxnext.vhd:2035-2044)",
+              ok && d2 == 1 && t2 && !h2 && !t10 && h10, d);
+    }
+
     // INT-GH265-07 — EI as the last instruction of a frame keeps its grace:
     // t80n.vhd:1768 takes no interrupt at the boundary straight after EI
     // (SetEI = '1'), even though that boundary is the first of a new frame.

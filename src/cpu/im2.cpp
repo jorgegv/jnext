@@ -324,6 +324,7 @@ void Im2Controller::latch_edges_until(uint64_t edge, uint64_t grid, uint32_t d) 
             pulse_te_      = pulse_te;
             pulse_e1_      = first_cpu_edge_after(pulse_te, grid, d);
             pulse_en_      = pulse_e1_ + (width - 1) * d;
+            pulse_d_       = d;
             pulse_started_ = true;
         }
 
@@ -359,6 +360,7 @@ void Im2Controller::tick(uint32_t tstates_for_pulse, uint64_t slot_start,
         pulse_e1_    = slot_start >= counted * d ? slot_start - counted * d : 0;
         pulse_te_    = pulse_e1_ ? pulse_e1_ - 1 : 0;
         pulse_en_    = pulse_e1_ + (width - 1) * d;
+        pulse_d_     = d;
         pulse_timed_ = true;
     }
     latch_edges_until(slot_end, slot_start, d);
@@ -408,6 +410,19 @@ uint64_t Im2Controller::sreq_edge_after(uint64_t edge) const {
     }
 }
 
+void Im2Controller::set_cpu_divisor(uint64_t now, uint32_t d) {
+    if (pulse_int_n_ || !pulse_timed_ || d == 0 || pulse_d_ == 0 || pulse_d_ == d)
+        return;
+    // Every edge still to come stays the same number of CPU edges away.
+    auto re_place = [&](uint64_t e) {
+        if (e <= now) return e;
+        return now + ((e - now + pulse_d_ - 1) / pulse_d_) * d;
+    };
+    pulse_e1_ = re_place(pulse_e1_);
+    pulse_en_ = re_place(pulse_en_);
+    pulse_d_  = d;
+}
+
 bool Im2Controller::pulse_low_before(uint64_t edge) const {
     if (!pulse_timed_) return !pulse_int_n_;
     // Low on (pulse_te_ + 0.5, pulse_en_ + 0.5): a register clocked on
@@ -439,6 +454,7 @@ void Im2Controller::reset_timing() {
     pulse_te_      = 0;
     pulse_e1_      = 0;
     pulse_en_      = 0;
+    pulse_d_       = 0;
     pulse_started_ = false;
 }
 
@@ -455,6 +471,7 @@ void Im2Controller::save_timing(StateWriter& w) const {
     w.write_u64(pulse_te_);
     w.write_u64(pulse_e1_);
     w.write_u64(pulse_en_);
+    w.write_u32(pulse_d_);
 }
 
 void Im2Controller::load_timing(StateReader& r) {
@@ -470,6 +487,7 @@ void Im2Controller::load_timing(StateReader& r) {
     pulse_te_    = r.read_u64();
     pulse_e1_    = r.read_u64();
     pulse_en_    = r.read_u64();
+    pulse_d_     = r.read_u32();
     quiescent_   = false;
 }
 

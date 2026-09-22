@@ -151,11 +151,18 @@ public:
     /// kNoTime when the line is not asserted.
     uint64_t int_line_low_since() const;
 
+    /// A CPU-speed change at CLK_28 edge @p now (an instruction boundary):
+    /// the pulse counts CPU clock edges (zxnext.vhd:2035-2044), so the edges
+    /// of a timed pulse still to come are re-placed at the new divisor @p d.
+    /// Idempotent — the pulse remembers the divisor its edges are on.
+    void set_cpu_divisor(uint64_t now, uint32_t d);
+
     /// The timing fields above, for the Emulator's appended snapshot block:
-    /// five u64 per device, then the pulse's flag and three u64.
+    /// five u64 per device, then the pulse's flag, three u64 and its u32
+    /// divisor.
     static constexpr std::size_t kTimingStateBytes =
         static_cast<std::size_t>(DevIdx::COUNT) * 5 * sizeof(uint64_t)
-        + sizeof(uint8_t) + 3 * sizeof(uint64_t);
+        + sizeof(uint8_t) + 3 * sizeof(uint64_t) + sizeof(uint32_t);
     void save_timing(StateWriter& w) const;
     void load_timing(StateReader& r);
     void reset_timing();
@@ -329,6 +336,7 @@ private:
     uint64_t pulse_te_      = 0;
     uint64_t pulse_e1_      = 0;
     uint64_t pulse_en_      = 0;
+    uint32_t pulse_d_       = 0;       // divisor pulse_e1_/pulse_en_ are on (0: unknown)
     bool     pulse_started_ = false;   // transient, see take_pulse_started()
     // Set for the duration of a timed tick, read by step_pulse() (skipped)
     // and the S_0 -> S_REQ transition (stamps sreq_at).

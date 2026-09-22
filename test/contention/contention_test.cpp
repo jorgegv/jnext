@@ -40,10 +40,13 @@
 #include "memory/contention.h"
 #include "memory/mmu.h"
 #include "core/clock.h"
+#include "peripheral/dma.h"
 
 #include "contention_helpers.h"
 
 #include <cstdarg>
+#include <cstdlib>
+#include <unistd.h>
 #include <cstdio>
 #include <cstdint>
 #include <initializer_list>
@@ -4310,20 +4313,20 @@ static void test_gh183_hc_origin_phase(void) {
 //
 // The ULA stretches the CPU clock inside the I/O cycle (o_cpu_contend,
 // zxula.vhd:587-595) and the T80 latches the data bus only on the falling
-// edge of T3 (t80na.vhd:214-222), after the stretch. fuse_z80_readport()
-// used to call the port handler BEFORE charging the stretch, so a
+// edge of T3 (t80na.vhd:214-222), after every stretch. fuse_z80_readport()
+// used to call the port handler before charging the stretch, so a
 // time-dependent read (floating bus, NR 0x1E/0x1F, the tape EAR bit) was
 // sampled up to the stretch early, and the stretch was invisible to
-// Z80Cpu::tstates_into_instruction() — the offset GH #265's I/O-cycle
+// Z80Cpu::tstates_into_instruction(), the offset GH #265's I/O-cycle
 // sampling is built on.
 //
-// Observable: a test read handler on port 0x0012 — even, so `port_contend`
-// holds (not cpu_a(0), zxnext.vhd:4496) and the I/O cycle is contended in the
-// display on 48K; A1:0 = 10, so no port_fd decode — records
-// tstates_into_instruction(). IN A,(C) ends 3 T after its handler runs, so a
-// handler that runs after the stretch sees `total - 3`; before it,
-// `total - 3 - stretch`. (The test handler, mask 0xFFFF, out-ranks the ULA's
-// any-even-port read decode for this one address.)
+// Observable: a test read handler on port 0x0012 (even, so `port_contend`
+// holds, zxnext.vhd:4496; A1:0 = 10, so no port_fd decode) records
+// tstates_into_instruction(). Since the verifier-finding-2 follow-up the
+// cycle is modelled clock by clock and the handler runs in its LAST clock,
+// after all four clocks' stretches — so it sees `total - 1` for IN A,(C).
+// (The test handler, mask 0xFFFF, out-ranks the ULA's any-even-port read
+// decode for this one address.)
 
 static int gh265_in_a_c_handler_into(Emulator& emu, uint32_t start_ts,
                                      int& total) {
@@ -4351,8 +4354,9 @@ static void test_gh265_port_read_after_stretch(void) {
     set_group("CT-GH265");
 
     // CT-GH265-01 — started 2 T after the ULA counter origin of the first
-    // display line: the I/O cycle's T1 ends in a contended phase, the IN
-    // takes more than its 12 T, and the handler runs after the stretch.
+    // display line: a clock of the I/O cycle falls in a contended phase,
+    // the IN takes more than its 12 T, and the handler runs after the
+    // stretch, in the cycle's last clock.
     {
         Emulator emu;
         int total = 0, into = -1;
@@ -4364,15 +4368,15 @@ static void test_gh265_port_read_after_stretch(void) {
         }
         check("CT-GH265-01",
               "48K port-contended IN A,(C): the port handler runs after the "
-              "I/O cycle's stretch, 3 T before the end (zxnext.vhd:4496; "
+              "I/O cycle's stretch, in its last clock (zxnext.vhd:4496; "
               "zxula.vhd:587-595; t80na.vhd:214-222)",
-              ok && total > 12 && into == total - 3,
+              ok && total > 12 && into == total - 1,
               "total=" + std::to_string(total) + " into="
-              + std::to_string(into) + " (want total>12, into=total-3)");
+              + std::to_string(into) + " (want total>12, into=total-1)");
     }
 
     // CT-GH265-02 — control: the same IN in the top border (no stretch)
-    // takes exactly 12 T and its handler sees 9 (two M1s + T1).
+    // takes exactly 12 T and its handler sees 11 (two M1s + three clocks).
     {
         Emulator emu;
         int total = 0, into = -1;
@@ -4380,10 +4384,403 @@ static void test_gh265_port_read_after_stretch(void) {
         if (ok) into = gh265_in_a_c_handler_into(emu, 0, total);
         check("CT-GH265-02",
               "48K IN A,(C) in the top border: no stretch, 12 T, handler at "
-              "9 T (zxula.vhd:414,583)",
-              ok && total == 12 && into == 9,
+              "11 T (zxula.vhd:414,583)",
+              ok && total == 12 && into == 11,
               "total=" + std::to_string(total) + " into="
-              + std::to_string(into) + " (want 12, 9)");
+              + std::to_string(into) + " (want 12, 11)");
+    }
+}
+
+// ── CT-IOC — I/O cycles clock by clock (verifier finding 2) ────────────
+//
+// VHDL zxula.vhd:587-595: o_cpu_contend = ((mem_contend and mreq23_n='1'
+// and ioreqtw3_n='1') or (port_contend and iorq_n='0' and ioreqtw3_n='1'))
+// and wait_s. An I/O cycle carries the port on the address bus, so
+// mem_contend (zxnext.vhd:4489-4493, the MMU page of cpu_a) contends it,
+// and MREQ stays high (mreq23_n='1'). Clock by clock (T1, wait, T2, T3):
+// page | page-or-port | page-and-not-port | page-and-not-port. jnext used to
+// charge ONE port_contend stretch and never the page term.
+//
+// Oracle: FUSE 1.6 (48K .sna / 128K .z80), every start phase of the 8-T
+// contention cycle, IN A,(C) / OUT (C),A with the code in bank 2: the
+// T-states each takes, by start phase p = (start - 14328) mod 8 (48K) /
+// (start - 14354) mod 8 (128K), measured at columns 32..39 of display line
+// 20 (interior of the window). FUSE T maps to jnext's raw frame by +61
+// (48K) / +295 (128K) — the offset under which jnext's memory contention
+// (LD A,(0x4000)) matches FUSE on every T of a frame. The VHDL decides
+// where FUSE and the VHDL differ: 0x7FFD on 128K (port_7ffd_active,
+// zxnext.vhd:4496; FUSE treats it as a plain odd port), the ULA+ ports
+// (port_bf3b / port_ff3b, zxnext.vhd:2685-2686,4496), MMU-remapped pages
+// (mem_active_page, zxnext.vhd:2952) and +3 timing (memory-only WAIT,
+// zxula.vhd:599-600).
+
+namespace ioc {
+constexpr int kPhaseN00FE[8] = {16, 15, 14, 13, 12, 12, 18, 17};   // N:1,C:3
+constexpr int kPhaseC40FE[8] = {17, 16, 15, 14, 13, 12, 18, 18};   // C:1,C:3
+constexpr int kPhaseC40FF[8] = {23, 22, 21, 20, 19, 18, 24, 24};   // C:1 x4
+constexpr int kPhaseN00FF[8] = {12, 12, 12, 12, 12, 12, 12, 12};   // N:4
+constexpr int kPhaseInnC[8]  = {23, 22, 21, 20, 19, 18, 17, 23};   // IN A,(n), C:1 x4
+constexpr int kPhaseInnN[8]  = {11, 11, 11, 11, 11, 11, 11, 11};
+
+struct Case {
+    MachineType mt;
+    uint8_t     op2;        // ED 78 (IN A,(C)), ED 79 (OUT (C),A), or 0 = DB n
+    uint16_t    bc;         // port for (C) forms
+    uint8_t     a;          // A (IN A,(n): high byte of the port; OUT: data)
+    uint8_t     n;          // IN A,(n) operand
+    int         fuse_top;   // FUSE INT-relative phase origin
+    int         line_t;     // T-states per line
+    int         to_raw;     // FUSE T -> raw T
+};
+
+// T-states the instruction takes at each of the 8 start phases. `setup`
+// runs after init (paging, NextREGs).
+template <typename F>
+static std::vector<int> phases(const Case& c, F setup) {
+    std::vector<int> out;
+    Emulator emu;
+    if (!make_emu(emu, c.mt)) return out;
+    setup(emu);
+    if (c.op2 != 0) {
+        emu.mmu().write(0x8000, 0xED);
+        emu.mmu().write(0x8001, c.op2);
+    } else {
+        emu.mmu().write(0x8000, 0xDB);
+        emu.mmu().write(0x8001, c.n);
+    }
+    for (int p = 0; p < 8; ++p) {
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0x8000;
+        regs.BC = c.bc;
+        regs.AF = static_cast<uint16_t>((c.a << 8) | (regs.AF & 0x00FF));
+        regs.IFF1 = regs.IFF2 = 0;
+        emu.cpu().set_registers(regs);
+        *fuse_z80_tstates_ptr() =
+            static_cast<uint32_t>(c.fuse_top + c.line_t * 20 + 32 + p + c.to_raw);
+        out.push_back(emu.cpu().execute());
+    }
+    return out;
+}
+static std::vector<int> phases(const Case& c) {
+    return phases(c, [](Emulator&) {});
+}
+static bool same(const std::vector<int>& got, const int* want, std::string& detail) {
+    bool ok = got.size() == 8;
+    detail = "got";
+    for (size_t i = 0; i < got.size(); ++i) {
+        detail += " " + std::to_string(got[i]);
+        if (i < 8 && got[i] != want[i]) ok = false;
+    }
+    detail += " want";
+    for (int i = 0; i < 8; ++i) detail += " " + std::to_string(want[i]);
+    return ok;
+}
+} // namespace ioc
+
+static void test_io_clock_contention(void) {
+    set_group("CT-IOC");
+    using ioc::Case;
+    const Case in48  {MachineType::ZX48K,  0x78, 0, 0x00, 0, 14328, 224, 61};
+    const Case out48 {MachineType::ZX48K,  0x79, 0, 0x00, 0, 14328, 224, 61};
+    const Case in128 {MachineType::ZX128K, 0x78, 0, 0x00, 0, 14354, 228, 295};
+    const Case out128{MachineType::ZX128K, 0x79, 0, 0x00, 0, 14354, 228, 295};
+    auto with_port = [](Case c, uint16_t bc, uint8_t a = 0) { c.bc = bc; c.a = a; return c; };
+    auto page_c000_bank1 = [](Emulator& e) { e.port().out(0x7FFD, 0x11); };
+    std::string d;
+
+    // ── FUSE-derived rows ──
+    check("CT-IOC-01", "48K IN A,(C) of 0x00FE (even port, uncontended page, "
+          "N:1,C:3) matches FUSE 1.6 in all 8 phases (zxula.vhd:587-595)",
+          ioc::same(ioc::phases(with_port(in48, 0x00FE)), ioc::kPhaseN00FE, d), d);
+    check("CT-IOC-02", "48K IN A,(C) of 0x40FE (even port, contended page, "
+          "C:1,C:3) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4496)",
+          ioc::same(ioc::phases(with_port(in48, 0x40FE)), ioc::kPhaseC40FE, d), d);
+    check("CT-IOC-03", "48K IN A,(C) of 0x40FF (odd port, contended page, "
+          "C:1 x4) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4493)",
+          ioc::same(ioc::phases(with_port(in48, 0x40FF)), ioc::kPhaseC40FF, d), d);
+    check("CT-IOC-04", "48K IN A,(C) of 0x00FF (odd port, uncontended page, "
+          "N:4) takes 12 T in every phase, as FUSE 1.6 (zxula.vhd:587-595)",
+          ioc::same(ioc::phases(with_port(in48, 0x00FF)), ioc::kPhaseN00FF, d), d);
+    check("CT-IOC-05", "48K IN A,(C) of 0x7FFD: no port_7ffd_active on 48K "
+          "timing, so an odd port in bank 5's page (C:1 x4), as FUSE 1.6 "
+          "(zxnext.vhd:2594,4489-4496)",
+          ioc::same(ioc::phases(with_port(in48, 0x7FFD)), ioc::kPhaseC40FF, d), d);
+    check("CT-IOC-06", "48K OUT (C),A to 0x00FE matches FUSE 1.6 (N:1,C:3) "
+          "(zxula.vhd:587-595)",
+          ioc::same(ioc::phases(with_port(out48, 0x00FE)), ioc::kPhaseN00FE, d), d);
+    check("CT-IOC-07", "48K OUT (C),A to 0x40FE matches FUSE 1.6 (C:1,C:3) "
+          "(zxula.vhd:587-595; zxnext.vhd:4489-4496)",
+          ioc::same(ioc::phases(with_port(out48, 0x40FE)), ioc::kPhaseC40FE, d), d);
+    check("CT-IOC-08", "48K OUT (C),A to 0x40FF matches FUSE 1.6 (C:1 x4) "
+          "(zxula.vhd:587-595; zxnext.vhd:4489-4493)",
+          ioc::same(ioc::phases(with_port(out48, 0x40FF)), ioc::kPhaseC40FF, d), d);
+    check("CT-IOC-09", "48K OUT (C),A to 0x00FF takes 12 T in every phase "
+          "(N:4), as FUSE 1.6 (zxula.vhd:587-595)",
+          ioc::same(ioc::phases(with_port(out48, 0x00FF)), ioc::kPhaseN00FF, d), d);
+    {
+        Case c{MachineType::ZX48K, 0, 0, 0x40, 0xFF, 14328, 224, 61};
+        check("CT-IOC-10", "48K IN A,(0xFF) with A=0x40 (port 0x40FF, "
+              "contended page) matches FUSE 1.6 (zxula.vhd:587-595)",
+              ioc::same(ioc::phases(c), ioc::kPhaseInnC, d), d);
+        c.a = 0x80;
+        check("CT-IOC-11", "48K IN A,(0xFF) with A=0x80 (port 0x80FF, bank 2 "
+              "page) is never stretched, 11 T, as FUSE 1.6 (zxula.vhd:587-595)",
+              ioc::same(ioc::phases(c), ioc::kPhaseInnN, d), d);
+    }
+    check("CT-IOC-12", "128K IN A,(C) of 0xC0FF with bank 1 at 0xC000 (odd "
+          "page, contended) matches FUSE 1.6 (C:1 x4; zxnext.vhd:4489-4493)",
+          ioc::same(ioc::phases(with_port(in128, 0xC0FF), page_c000_bank1),
+                    ioc::kPhaseC40FF, d), d);
+    check("CT-IOC-13", "128K IN A,(C) of 0xC0FE with bank 1 at 0xC000 matches "
+          "FUSE 1.6 (C:1,C:3; zxula.vhd:587-595)",
+          ioc::same(ioc::phases(with_port(in128, 0xC0FE), page_c000_bank1),
+                    ioc::kPhaseC40FE, d), d);
+    check("CT-IOC-14", "128K OUT (C),A to 0xC0FF with bank 1 at 0xC000 "
+          "matches FUSE 1.6 (C:1 x4)",
+          ioc::same(ioc::phases(with_port(out128, 0xC0FF), page_c000_bank1),
+                    ioc::kPhaseC40FF, d), d);
+    check("CT-IOC-15", "128K IN A,(C) of 0x40FF (bank 5) matches FUSE 1.6 "
+          "(C:1 x4)",
+          ioc::same(ioc::phases(with_port(in128, 0x40FF)), ioc::kPhaseC40FF, d), d);
+    check("CT-IOC-16", "128K IN A,(C) of 0x80FF (bank 2) takes 12 T in every "
+          "phase, as FUSE 1.6 (N:4)",
+          ioc::same(ioc::phases(with_port(in128, 0x80FF)), ioc::kPhaseN00FF, d), d);
+    check("CT-IOC-17", "128K IN A,(C) of 0x7FFE (keyboard half-row, even, "
+          "bank 5) matches FUSE 1.6 (C:1,C:3)",
+          ioc::same(ioc::phases(with_port(in128, 0x7FFE)), ioc::kPhaseC40FE, d), d);
+
+    // ── VHDL-derived rows ──
+    // 0x7FFD on 128K: port_7ffd_active puts it in port_contend
+    // (zxnext.vhd:2594,4496), so the cycle is page-and-port: C:1,C:3 like an
+    // even port in a contended page. FUSE 1.6 treats it as a plain odd port
+    // (C:1 x4: 23 22 21 20 19 18 24 24) — the VHDL is the oracle here.
+    check("CT-IOC-18", "128K OUT (C),A to 0x7FFD: port_7ffd_active makes it a "
+          "contended port in a contended page, C:1,C:3 (VHDL; FUSE differs) "
+          "(zxnext.vhd:2594,4496; zxula.vhd:587-595)",
+          ioc::same(ioc::phases(with_port(out128, 0x7FFD, 0x10)), ioc::kPhaseC40FE, d), d);
+    // ULA+ ports: port_bf3b / port_ff3b are port_contend terms while NR 0x85
+    // b0 (port_ulap_io_en) is set (zxnext.vhd:2685-2686,4496).
+    check("CT-IOC-19", "128K OUT (C),A to 0xBF3B (ULA+ on, bank 2 page): a "
+          "contended port in an uncontended page, N:1,C:3 "
+          "(zxnext.vhd:2685,4496; zxula.vhd:587-595)",
+          ioc::same(ioc::phases(with_port(out128, 0xBF3B, 0x40)), ioc::kPhaseN00FE, d), d);
+    check("CT-IOC-20", "128K OUT (C),A to 0xFF3B (ULA+ on) with bank 1 at "
+          "0xC000: contended port and page, C:1,C:3 "
+          "(zxnext.vhd:2686,4489-4496; zxula.vhd:587-595)",
+          ioc::same(ioc::phases(with_port(out128, 0xFF3B), page_c000_bank1),
+                    ioc::kPhaseC40FE, d), d);
+    check("CT-IOC-21", "128K OUT (C),A to 0xFF3B with ULA+ off (NR 0x85 b0=0), "
+          "bank 1 at 0xC000: just an odd port in a contended page, C:1 x4 "
+          "(zxnext.vhd:2439,2686,4496)",
+          ioc::same(ioc::phases(with_port(out128, 0xFF3B), [](Emulator& e) {
+                        e.port().out(0x7FFD, 0x11);
+                        e.nextreg().write(0x85, static_cast<uint8_t>(e.nextreg().cached(0x85) & 0xFE));
+                    }),
+                    ioc::kPhaseC40FF, d), d);
+    // MMU remap: mem_contend reads mem_active_page — the MMU register of
+    // cpu_a's slot (zxnext.vhd:2952,4489-4493), not a fixed map.
+    check("CT-IOC-22", "48K timing, MMU7 = page 10 (bank 5): IN A,(C) of "
+          "0xE0FF is in a contended page, C:1 x4 (zxnext.vhd:2952,4489-4493)",
+          ioc::same(ioc::phases(with_port(in48, 0xE0FF),
+                                [](Emulator& e) { e.nextreg().write(0x57, 10); }),
+                    ioc::kPhaseC40FF, d), d);
+    check("CT-IOC-23", "48K timing, MMU2 = page 4 (bank 2): IN A,(C) of "
+          "0x40FF is NOT in a contended page, N:4 (zxnext.vhd:2952,4489-4493)",
+          ioc::same(ioc::phases(with_port(in48, 0x40FF),
+                                [](Emulator& e) { e.nextreg().write(0x52, 4); }),
+                    ioc::kPhaseN00FF, d), d);
+    // +3: o_cpu_wait_n is memory-only (the I/O term is commented out,
+    // zxula.vhd:599-600), so no I/O cycle is ever stretched.
+    {
+        Case c{MachineType::ZX_PLUS3, 0x78, 0x40FE, 0, 0, 14354, 228, 295};
+        const auto a = ioc::phases(c);
+        c.bc = 0x40FF;
+        const auto b = ioc::phases(c);
+        bool ok = true; std::string det = "0x40FE:";
+        for (int v : a) { det += " " + std::to_string(v); ok = ok && v == 12; }
+        det += " 0x40FF:";
+        for (int v : b) { det += " " + std::to_string(v); ok = ok && v == 12; }
+        check("CT-IOC-24", "+3 timing: IN A,(C) of 0x40FE and 0x40FF are never "
+              "stretched, 12 T in every phase (zxula.vhd:599-600)", ok, det);
+    }
+}
+
+// ── CT-OVS — the contention counter follows the clock (verifier finding 4) ─
+//
+// derive_hc_vc() turns the FUSE T-state counter into the raster position
+// contention uses; the floating bus, NR 0x1E/0x1F and the renderer read the
+// raster from the clock. The counter was ZEROED at every frame start while
+// the CPU had already run past the frame end by the last instruction's tail,
+// so contention lagged the clock by that overshoot — a different 0..~20 T
+// every frame. It also stood still while the clock ran with no CPU
+// instruction (DMA holding the bus, a parked CPU, a tape trap) and changed
+// unit on a CPU-speed switch. Invariant pinned here, at every instruction
+// boundary: counter * divisor == clock - frame start.
+
+namespace ovs {
+struct Sample { uint64_t ctr_mc; uint64_t clk_mc; };
+// Install a read handler on port 0x0011 (LSB 0x11: no other read decode
+// there) that records, for the IN executing it, the FUSE counter at the
+// instruction's start (in master cycles) and the clock position.
+static void record_on_0011(Emulator& emu, std::vector<Sample>& out) {
+    emu.port().register_handler(0xFFFF, 0x0011,
+        [&emu, &out](uint16_t) -> uint8_t {
+            const uint64_t start_ctr = *fuse_z80_tstates_ptr()
+                                       - emu.cpu().tstates_into_instruction();
+            out.push_back({start_ctr * static_cast<uint64_t>(emu.clock().cpu_divisor()),
+                           emu.clock().get() - emu.current_frame_cycle()});
+            return 0xFF;
+        },
+        nullptr);
+}
+static bool all_equal(const std::vector<Sample>& v, std::string& det) {
+    size_t bad = 0; det.clear();
+    for (const auto& s : v)
+        if (s.ctr_mc != s.clk_mc) {
+            if (++bad <= 3) det += " ctr=" + std::to_string(s.ctr_mc) + " clk=" + std::to_string(s.clk_mc);
+        }
+    det = "samples=" + std::to_string(v.size()) + " mismatched=" + std::to_string(bad) + det;
+    return !v.empty() && bad == 0;
+}
+} // namespace ovs
+
+static void test_overshoot_counter(void) {
+    set_group("CT-OVS");
+
+    // CT-OVS-01 — the frame start seeds the counter with the overshoot. A
+    // 31-T loop (IN A,(C) of 0x0011; LD A,0; JR back) over 4 frames of 69888
+    // T: 69888 mod 31 = 14, so the overshoot changes frame to frame.
+    {
+        Emulator emu;
+        std::vector<ovs::Sample> v;
+        std::string det;
+        const bool ok = make_emu(emu, MachineType::ZX48K);
+        if (ok) {
+            ovs::record_on_0011(emu, v);
+            const uint8_t prog[] = {0xED, 0x78, 0x3E, 0x00, 0x18, 0xFA};
+            for (int i = 0; i < 6; ++i) emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.BC = 0x0011; r.IFF1 = r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            for (int f = 0; f < 4; ++f) emu.run_frame();
+        }
+        check("CT-OVS-01", "Every IN of a 31-T loop over 4 frames finds the "
+              "contention counter at clock - frame start: the frame start "
+              "carries the overshoot (zxula.vhd:582-583 via derive_hc_vc)",
+              ok && ovs::all_equal(v, det), det);
+    }
+
+    // CT-OVS-02 — a DMA step (the DMA holds the bus; no CPU instruction)
+    // advances the counter with the clock. mem->mem burst of 8 bytes
+    // programmed through the production Dma register protocol.
+    {
+        Emulator emu;
+        bool ok = make_emu(emu, MachineType::ZXN_ISSUE2);
+        std::string det;
+        if (ok) {
+            Dma& dm = emu.dma();
+            auto w = [&](uint8_t x) { dm.write(x, false); };
+            w(0x7D); w(0x00); w(0x80); w(0x08); w(0x00);   // A = 0x8000, len 8
+            w(0x14); w(0x10); w(0xAD); w(0x00); w(0x90);   // B = 0x9000, continuous
+            w(0xCF); w(0x87);                              // LOAD, ENABLE
+            const uint64_t before = emu.clock().get();
+            emu.execute_single_instruction();              // the DMA step
+            const uint64_t ctr = *fuse_z80_tstates_ptr()
+                                 * static_cast<uint64_t>(emu.clock().cpu_divisor());
+            const uint64_t clk = emu.clock().get() - emu.current_frame_cycle();
+            ok = emu.clock().get() > before && ctr == clk;
+            det = "ctr_mc=" + std::to_string(ctr) + " clk_mc=" + std::to_string(clk);
+        }
+        check("CT-OVS-02", "A DMA step moves the contention counter with the "
+              "clock (dma_holds_bus: no CPU cycle, zxnext.vhd:1828-1844)",
+              ok, det);
+    }
+
+    // CT-OVS-03 — a parked CPU (NOP-sized clock steps, no instruction) keeps
+    // the counter moving: after a whole parked frame it equals the clock's
+    // distance from that frame's start.
+    {
+        Emulator emu;
+        bool ok = make_emu(emu, MachineType::ZX48K);
+        std::string det;
+        if (ok) {
+            emu.set_cpu_parked(true);
+            emu.run_frame();
+            const uint64_t mcpf = emu.timing().master_cycles_per_frame;
+            const uint64_t ctr = *fuse_z80_tstates_ptr()
+                                 * static_cast<uint64_t>(emu.clock().cpu_divisor());
+            const uint64_t clk = emu.clock().get() - (emu.current_frame_cycle() - mcpf);
+            ok = ctr == clk;
+            det = "ctr_mc=" + std::to_string(ctr) + " clk_mc=" + std::to_string(clk);
+        }
+        check("CT-OVS-03", "A parked frame advances the contention counter with "
+              "the clock", ok, det);
+    }
+
+    // CT-OVS-04 — a CPU-speed switch changes the counter's unit; the counter
+    // is re-derived from the clock. NEXTREG 0x07,1 (7 MHz); 8 NOPs; NEXTREG
+    // 0x07,0; then the recording loop at 3.5 MHz for the rest of the frame.
+    {
+        Emulator emu;
+        std::vector<ovs::Sample> v;
+        std::string det;
+        const bool ok = make_emu(emu, MachineType::ZX48K);
+        if (ok) {
+            ovs::record_on_0011(emu, v);
+            std::vector<uint8_t> prog = {0xED, 0x91, 0x07, 0x01};      // NEXTREG 7,1
+            for (int i = 0; i < 8; ++i) prog.push_back(0x00);
+            for (uint8_t b : {0xED, 0x91, 0x07, 0x00}) prog.push_back(b); // NEXTREG 7,0
+            for (int i = 0; i < 4; ++i) prog.push_back(0x00);
+            const size_t loop = prog.size();
+            for (uint8_t b : {0xED, 0x78, 0x3E, 0x00, 0x18, 0xFA}) prog.push_back(b);
+            (void)loop;
+            for (size_t i = 0; i < prog.size(); ++i)
+                emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.BC = 0x0011; r.IFF1 = r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            emu.run_frame();
+        }
+        check("CT-OVS-04", "After a 7 MHz -> 3.5 MHz switch mid-frame every IN "
+              "finds the contention counter at clock - frame start "
+              "(zxnext.vhd:5796-5828 commit)", ok && ovs::all_equal(v, det), det);
+    }
+
+    // CT-OVS-05 — a tape ROM trap's synthetic cycles move the counter with
+    // the clock. A 1-block TAP attached for fast load; PC at LD-BYTES
+    // (0x0556) with ROM paged; the trap returns to a JR $ at 0x8000. After
+    // the frame the counter equals the clock's distance from its start.
+    {
+        Emulator emu;
+        bool ok = make_emu(emu, MachineType::ZX48K);
+        std::string det;
+        if (ok) {
+            const uint8_t tap[] = {0x03, 0x00, 0xFF, 0xAA, 0x55};
+            char path[] = "/tmp/jnext_ovs_tapXXXXXX";
+            const int fd = mkstemp(path);
+            ok = fd >= 0 && write(fd, tap, sizeof(tap)) == static_cast<ssize_t>(sizeof(tap));
+            if (fd >= 0) close(fd);
+            ok = ok && emu.load_tap(path, /*fast_load=*/true);
+            unlink(path);
+            if (ok) {
+                emu.mmu().write(0x8000, 0x18); emu.mmu().write(0x8001, 0xFE);  // JR $
+                emu.mmu().write(0x9000, 0x00); emu.mmu().write(0x9001, 0x80);  // return 0x8000
+                auto r = emu.cpu().get_registers();
+                r.PC = 0x0556; r.SP = 0x9000; r.AF = 0xFF01; r.IX = 0xA000; r.DE = 1;
+                r.IFF1 = r.IFF2 = 0;
+                emu.cpu().set_registers(r);
+                emu.run_frame();
+                const uint64_t mcpf = emu.timing().master_cycles_per_frame;
+                const uint64_t ctr = *fuse_z80_tstates_ptr()
+                                     * static_cast<uint64_t>(emu.clock().cpu_divisor());
+                const uint64_t clk = emu.clock().get() - (emu.current_frame_cycle() - mcpf);
+                ok = ctr == clk && emu.cpu().pc() == 0x8000;
+                det = "ctr_mc=" + std::to_string(ctr) + " clk_mc=" + std::to_string(clk)
+                    + " pc=" + std::to_string(emu.cpu().pc());
+            }
+        }
+        check("CT-OVS-05", "A tape-trap frame advances the contention counter "
+              "with the clock", ok, det);
     }
 }
 
@@ -4471,6 +4868,12 @@ int main() {
     // GH #265 — port reads sample the bus after the I/O-cycle stretch.
     test_gh265_port_read_after_stretch();
     std::printf("  Group: CT-GH265       — done\n");
+
+    // GH #265 follow-up — verifier findings 2 and 4.
+    test_io_clock_contention();
+    std::printf("  Group: CT-IOC         — done\n");
+    test_overshoot_counter();
+    std::printf("  Group: CT-OVS         — done\n");
 
     std::printf("\n=================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

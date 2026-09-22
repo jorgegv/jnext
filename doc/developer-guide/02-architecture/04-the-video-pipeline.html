@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.171</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.171</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1892,8 +1892,8 @@ transparency index), the sprite engine's render controls (the NR 0x19 clip,
 NR 0x15 bits 6, 5 and 1, and the NR 0x4B transparency index), the ULA's ULA+ and
 ULAnext enables, the NR 0x42 ULAnext format and the shadow-screen bank, and the
 NR 0x6B bit 7 copy the compositor's stencil gate reads. The newer snapshots
-carry an "active" flag that <code>init_*_per_line()</code> sets at frame start and
-<code>reset()</code> / <code>load_state()</code> clear, so until the first frame of a run they fall
+carry an "active" flag that <code>init_*_per_line()</code> sets at frame start and a
+hard <code>reset()</code> / <code>load_state()</code> clear, so until the first frame of a run they fall
 back to the live registers — which is also what a unit test that renders one
 row directly sees. The older arrays have no flag; <code>load_state()</code> refills them
 from the registers it has just loaded instead (GH #261). The NR 0x4A fallback
@@ -1942,12 +1942,33 @@ that implements it:</p>
 <td><code>flush_remaining_changes()</code></td>
 <td>end of <code>render_frame()</code></td>
 </tr>
+<tr>
+<td>Reset</td>
+<td>a soft <code>reset(false)</code> records the register reset in the log at the current tag; a hard <code>reset()</code> may clear it</td>
+<td><code>Emulator::init()</code></td>
+</tr>
 </tbody>
 </table>
 <p>The classes that carry one are <code>PaletteManager</code>, <code>Layer2</code> (scroll and bank),
 <code>SpriteEngine</code> (attributes), <code>Ula</code> (Timex screen mode, scroll, active-palette
 select), <code>Tilemap</code> (NR 0x6B), <code>Mmu</code>'s <code>AttributeMux</code> (Nirvana-class mid-frame
 attribute writes), and <code>Renderer</code> itself (NR 0x15 priority and sprite enable).</p>
+<p>A soft reset (NR 0x02 bit 0, F4) can land in the middle of a frame, and the
+hardware draws the rows above it with the old registers and the rows below with
+the reset ones. So each class's <code>reset(bool hard)</code> treats the two differently:
+a hard reset only ever happens between frames and may wipe the history, which
+the next <code>begin_new_frame()</code> rebuilds anyway, while a soft one leaves every
+log, baseline, tag and per-line array alone and appends the reset as ordinary
+log entries —
+the per-line snapshots pick the reset values up on their own from the reset
+row down. Memory with no reset port (palette RAM, sprite attribute and
+pattern RAM) is not touched by a soft reset at all, and <code>Z80Cpu</code> keeps its
+frame-relative T-state count, which is the beam position the attribute mux
+tags each VRAM write with. Until GH #263 the two
+mechanisms failed in opposite directions: <code>PaletteManager::reset()</code> changed
+the live RAM without the log, so the render replayed the old palette over it,
+while the other classes wiped their history and repainted the rows above the
+reset with reset values.</p>
 <p>Five details reliably bite newcomers:</p>
 <ul>
 <li><strong>A register in neither mechanism is read at its end-of-frame value.</strong> Nothing

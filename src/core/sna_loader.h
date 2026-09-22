@@ -43,6 +43,11 @@ public:
     /// Returns true on success.
     bool load(const std::string& path);
 
+    /// Parse and validate SNA bytes already in memory (an RZX file's embedded
+    /// snapshot). `name` identifies the data in log messages only.
+    /// Returns true on success.
+    bool load_from_buffer(const std::vector<uint8_t>& buf, const std::string& name);
+
     /// Access the parsed header (valid after successful load()).
     const SnaHeader& header() const { return header_; }
 

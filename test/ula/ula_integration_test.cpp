@@ -26,6 +26,8 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "platform/emulator_boot.h"
+#include "cpu/z80_cpu.h"
 #include "memory/ram.h"
 #include "memory/mmu.h"
 #include "video/ula.h"
@@ -1656,6 +1658,71 @@ static void test_altfile_integration(Emulator& emu) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
+// ══════════════════════════════════════════════════════════════════════
+// Group INT-BORDER-RST — the border after a power-on or hard reset
+// VHDL: zxnext.vhd:3587-3593 (port_fe_reg <= 0 on reset), :3601-3605
+//       (port_fe_border <= port_fe_reg(2:0)); zxula.vhd:543-553 (the border
+//       is the std-ULA paper pixel 0x10 | colour)
+// ══════════════════════════════════════════════════════════════════════
+
+// DI; HALT at 0x8000 and the CPU parked on it, so no ROM writes port 0xFE.
+static void park_on_halt(Emulator& emu) {
+    emu.mmu().write(0x8000, 0xF3);
+    emu.mmu().write(0x8001, 0x76);
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000; regs.SP = 0xFFFD; regs.IFF1 = 0; regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+}
+
+static void test_border_reset_integration(Emulator& emu) {
+    set_group("INT-BORDER-RST");
+
+    // INT-BORDER-RST-01 — a machine that nothing has written port 0xFE on
+    // shows a black border, after power-on and again after a hard reset
+    // (the cold boot the reset button, F1 and NR 0x02 bit 1 perform). The
+    // port 0xFE write in between proves the column is the border.
+    int bad_boot = 0, bad_hard = 0;
+    uint32_t mid = 0, boot_px = 0, hard_px = 0;
+    uint8_t boot_reg = 0xFF, hard_reg = 0xFF;
+    const bool built = build_next_emulator(emu);
+    if (built) {
+        const uint32_t black = emu_paper_argb(emu, 0);
+        park_on_halt(emu);
+        emu.run_frame();
+        boot_reg = emu.ula().get_border();
+        boot_px = emu.get_framebuffer()[0];
+        for (int r = 0; r < Renderer::FB_HEIGHT; ++r)
+            if (emu.get_framebuffer()[r * emu.get_framebuffer_width()] != black)
+                ++bad_boot;
+        emu.port().out(0x00FE, 0x05);
+        emu.run_frame();
+        mid = emu.get_framebuffer()[0];
+        EmulatorConfig cfg = emu.config();
+        emulator_cold_boot(emu, cfg);     // the hard reset (GH #239)
+        park_on_halt(emu);
+        emu.run_frame();
+        hard_reg = emu.ula().get_border();
+        hard_px = emu.get_framebuffer()[0];
+        for (int r = 0; r < Renderer::FB_HEIGHT; ++r)
+            if (emu.get_framebuffer()[r * emu.get_framebuffer_width()] != black)
+                ++bad_hard;
+        check("INT-BORDER-RST-01",
+              "Power-on and a hard reset leave the border black, port_fe_reg's "
+              "reset value (zxnext.vhd:3587-3593,3601-3605; zxula.vhd:543-553)",
+              boot_reg == 0 && hard_reg == 0 && bad_boot == 0 &&
+                  bad_hard == 0 && mid == emu_paper_argb(emu, 5),
+              fmt("power-on border %u px 0x%08X (%d rows not black); after "
+                  "OUT 5: 0x%08X; hard reset border %u px 0x%08X (%d rows)",
+                  boot_reg, boot_px, bad_boot, mid, hard_reg, hard_px,
+                  bad_hard));
+    } else {
+        check("INT-BORDER-RST-01",
+              "Power-on and a hard reset leave the border black, port_fe_reg's "
+              "reset value (zxnext.vhd:3587-3593,3601-3605; zxula.vhd:543-553)",
+              false, "init failed");
+    }
+}
+
 int main() {
     std::printf("ULA Video Subsystem Integration Tests\n");
     std::printf("=====================================\n\n");
@@ -1684,6 +1751,9 @@ int main() {
 
     test_altfile_integration(emu);
     std::printf("  Group: INT-STANDARD-ALT — done\n");
+
+    test_border_reset_integration(emu);
+    std::printf("  Group: INT-BORDER-RST — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

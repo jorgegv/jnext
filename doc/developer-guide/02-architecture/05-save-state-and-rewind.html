@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.171</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.171</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1882,6 +1882,11 @@ size_t snap_bytes = measure.position();
 <p>Snapshots are taken from <code>Emulator::begin_new_frame()</code>, which is to say at a
 frame boundary — and that is precisely why the scheduler queue never has to be
 serialised, because it is empty at that instant.</p>
+<p>The ring is host state, so only a hard reset rebuilds it. A soft reset
+(NR 0x02 bit 0, F4) re-runs <code>init()</code> too, but leaves the ring, its size and
+<code>replay_mode_</code> alone: the reset is one more event in the history, and a rewind
+that re-executes it stays a replay. Until the GH #263 audit every soft reset
+discarded all snapshots and put back the command-line size.</p>
 <p><strong>This is also why every serialised field must be constant-width.</strong>
 <code>take_snapshot()</code> refuses to publish a slot whose <code>save_state</code> did not write
 exactly <code>snapshot_bytes</code>. That refusal is the correct behaviour, but it was

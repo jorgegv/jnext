@@ -27,7 +27,8 @@ emulator window redrawn to match. The status bar reports the buffer's size in
 frames and megabytes, and when you are rewound it shows which frame you are on.
 Press **F5** to carry on from there.
 
-Step Back is greyed out when the trace log is off, when the buffer is empty, or
-during RZX playback. If a snapshot ever fails to restore cleanly, JNEXT says so
+Step Back is greyed out when the trace log is off, when the buffer is empty,
+and while an RZX recording plays or is being made: a recording replays one
+continuous run, so it cannot follow the machine back in time. If a snapshot ever fails to restore cleanly, JNEXT says so
 loudly and pauses rather than continuing on a half-restored machine; reset the
 machine (**Machine ▸ Power Reset**) to recover.
