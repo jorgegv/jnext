@@ -5527,9 +5527,9 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
     //   wiping the user-set ExpBus NMI-debounce-disable bit (bit 5)
     //   on every NR 0x02 ← 0x01 soft reset.  Fix: preserve across soft
     //   reset (preserve_memory=true); hard reset still restores 0x00
-    //   (matches the cold-boot power-on path; the only practical
-    //   "init" path that re-runs without preserve_memory is fixture
-    //   construction).
+    //   (the cold boot reconstructs the Emulator; the one in-place
+    //   init() without preserve_memory is a snapshot/NEX loader's
+    //   re-initialisation, which clears it too — GH #239).
     //
     //   Read mask: 0x80 | (nr_81_ & 0x78); bit 7 is a constant hw input,
     //   bit 2 reads back as 0, bits 1:0 are the hardwired-"00" expbus
