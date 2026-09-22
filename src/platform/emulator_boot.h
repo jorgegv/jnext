@@ -77,12 +77,23 @@ inline int emulator_load_delay_frames(const std::string& file) {
 /// `&emu` stable, so host holders bound to the address / its sub-objects stay
 /// valid) and re-run init(cfg) — the proven startup path.
 ///
+/// An RZX recording is finalised first (written, and ended — see
+/// Emulator::end_rzx_at_reset()), and the per-path record of failed RZX writes
+/// is carried across, so a recording lost here still fails the exit status.
+///
 /// The host debugger's breakpoints and its active flag are PRESERVED across the
 /// reset: they belong to the host debugger, and (like a real hardware debugger)
 /// a target reset must not silently discard them. The transient run/step state
 /// (paused, step mode, trace log) is intentionally not restored — the machine
 /// starts fresh and running.
 inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
+    // An RZX recording running now is WRITTEN before the machine is destroyed
+    // (it used to be destroyed with it, unwritten and unannounced), and ends
+    // here: see Emulator::end_rzx_at_reset(). Whether that write worked is
+    // carried across, so the exit status still reports it.
+    emu.end_rzx_at_reset("the power-on reset");
+    auto saved_rzx_failed      = emu.rzx_failed_outputs();
+
     BreakpointSet saved_bps    = emu.debug_state().breakpoints();
     const bool    saved_active = emu.debug_state().active();
     auto saved_esxdos_state    = emu.esxdos_stub_state();
@@ -94,6 +105,7 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     emu.debug_state().breakpoints() = std::move(saved_bps);
     emu.debug_state().set_active(saved_active);
     emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));
+    emu.restore_rzx_failed_outputs(std::move(saved_rzx_failed));
 }
 
 // ---------------------------------------------------------------------------

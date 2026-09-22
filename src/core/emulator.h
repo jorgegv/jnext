@@ -310,6 +310,21 @@ public:
     /// makes the run exit non-zero. Mirrors VideoRecorder::output_failed().
     bool rzx_output_failed(const std::string& path) const;
 
+    /// A reset the host performs — the power-on cold boot (emulator_cold_boot)
+    /// or the F4 soft reset — ends RZX recording and playback: the recording
+    /// is WRITTEN (never discarded) with a warning naming `what`, and ends
+    /// there, because recorded input cannot replay a reset. load_rzx() does
+    /// the same before it replaces the machine. Returns false when that write
+    /// failed (latched, see rzx_output_failed()).
+    bool end_rzx_at_reset(const char* what);
+
+    /// The rzx_output_failed() latch, carried across the power-on cold boot by
+    /// emulator_cold_boot() like the host debugger's breakpoints.
+    const std::vector<std::string>& rzx_failed_outputs() const { return rzx_failed_outputs_; }
+    void restore_rzx_failed_outputs(std::vector<std::string> failed) {
+        rzx_failed_outputs_ = std::move(failed);
+    }
+
     /// Access the RZX player/recorder.
     RzxPlayer& rzx_player() { return rzx_player_; }
     RzxRecorder& rzx_recorder() { return rzx_recorder_; }

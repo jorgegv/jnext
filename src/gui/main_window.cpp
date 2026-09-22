@@ -40,6 +40,7 @@
 #include <QApplication>
 #include <QInputDialog>
 #include <QStyle>
+#include <QTimer>
 #include <QFileInfo>
 
 // ---------------------------------------------------------------------------
@@ -1196,8 +1197,16 @@ void MainWindow::on_soft_reset() {
     // firmware holds config mode, zxnext.vhd:6370). Also a no-op after a
     // direct --load / File > Load: the firmware never ran there, so config
     // mode is still held — matching hardware, where that state cannot exist.
-    if (emulator_) {
-        emulator_->on_hotkey_f4_soft_reset();
+    if (!emulator_) return;
+    // The host soft reset ends an RZX recording (Emulator::end_rzx_at_reset
+    // writes it first): tell the user, who otherwise believes it still runs.
+    const bool        was_recording = emulator_->rzx_recorder().is_recording();
+    const std::string rzx_path      = emulator_->rzx_recorder().output_path();
+    emulator_->on_hotkey_f4_soft_reset();
+    if (was_recording && !emulator_->rzx_recorder().is_recording()) {
+        rzx_recording_ended_by_reset(QString::fromStdString(rzx_path),
+                                     !emulator_->rzx_output_failed(rzx_path),
+                                     /*unattended=*/false);
     }
 }
 
@@ -1557,6 +1566,24 @@ void MainWindow::handle_rzx_stop() {
     }
 }
 
+void MainWindow::rzx_recording_ended_by_reset(const QString& path, bool written,
+                                              bool unattended) {
+    if (written) {
+        statusBar()->showMessage(
+            tr("The reset ended the RZX recording; it was saved to %1").arg(path), 5000);
+        return;
+    }
+    statusBar()->showMessage(
+        tr("The reset ended the RZX recording, and it could not be written to %1").arg(path),
+        5000);
+    if (unattended) return;
+    QTimer::singleShot(0, this, [this, path]() {
+        QMessageBox::warning(this, tr("RZX Recording"),
+            tr("The reset ended the RZX recording, and it could not be written to "
+               "%1, so it is lost.\n\nSee the log for details.").arg(path));
+    });
+}
+
 void MainWindow::on_rzx_play() {
     if (!emulator_) return;
     const QString path = QFileDialog::getOpenFileName(
@@ -1568,9 +1595,23 @@ void MainWindow::on_rzx_play() {
 
 void MainWindow::handle_rzx_play_path(const QString& path) {
     if (!emulator_) return;
+    // Playing ends a running recording (Emulator::load_rzx writes it first).
+    const bool        was_recording = emulator_->rzx_recorder().is_recording();
+    const std::string rec_path      = emulator_->rzx_recorder().output_path();
     if (!emulator_->load_rzx(path.toStdString())) {
         QMessageBox::warning(this, tr("Play RZX Recording"),
             tr("Cannot play %1.\n\nSee the log for details.").arg(path));
+        return;
+    }
+    if (was_recording && emulator_->rzx_output_failed(rec_path)) {
+        QMessageBox::warning(this, tr("RZX Recording"),
+            tr("Playing %1 ended the RZX recording, and it could not be written to "
+               "%2, so it is lost.\n\nSee the log for details.")
+                .arg(path, QString::fromStdString(rec_path)));
+    } else if (was_recording) {
+        statusBar()->showMessage(
+            tr("Playing %1; the RZX recording was saved to %2")
+                .arg(path, QString::fromStdString(rec_path)), 5000);
         return;
     }
     statusBar()->showMessage(tr("Playing RZX recording %1").arg(path), 3000);
@@ -1907,7 +1948,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         case Qt::Key_F4:
             if (emulator_ && !modifiers.testFlag(Qt::ShiftModifier)
                           && !modifiers.testFlag(Qt::ControlModifier)) {
-                emulator_->on_hotkey_f4_soft_reset();
+                on_soft_reset();   // the same dispatcher as Machine > Soft Reset
                 event->accept();
                 return;
             }

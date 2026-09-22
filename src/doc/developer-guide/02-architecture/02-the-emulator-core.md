@@ -108,7 +108,11 @@ make.
 
 Reconstructing in place, at a stable address, is the point of the third row:
 host code that is holding `&emu`, or a reference to something inside it, stays
-valid across a cold boot. The same trick is why a live worker thread inside the
+valid across a cold boot. What lives *inside* the object does not survive it,
+so `emulator_cold_boot()` carries across what belongs to the host — the
+debugger's breakpoints, the esxDOS stub's file, the record of RZX files that
+failed to write — and first ends an RZX recording by writing it
+(`Emulator::end_rzx_at_reset()`), which would otherwise be destroyed unwritten. The same trick is why a live worker thread inside the
 object would be a silent-corruption hazard rather than an obvious crash, and it
 is why the emulated ESP is owned here rather than by a frontend.
 

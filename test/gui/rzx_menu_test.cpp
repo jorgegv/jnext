@@ -25,6 +25,7 @@
 #include "core/emulator_config.h"
 #include "gui/main_window.h"
 
+#include <QAction>
 #include <QApplication>
 #include <QMessageBox>
 #include <QString>
@@ -270,6 +271,89 @@ static void test_rzx_menu() {
     }
 }
 
+static void test_rzx_reset_notice() {
+    // RZXGUI-08 — a reset that ended an interactive recording which then could
+    // not be written: a dialog, posted to the event loop (the frontend calls
+    // this from inside a frame tick).
+    {
+        Fixture f;
+        DialogWatcher w;
+        if (f.ok) {
+            f.win.rzx_recording_ended_by_reset("/dev/full", /*written=*/false,
+                                               /*unattended=*/false);
+            for (int i = 0; i < 20 && w.count == 0; ++i) QApplication::processEvents();
+        }
+        w.stop();
+        check("RZXGUI-08",
+              "a reset ends an interactive recording that could not be written: a dialog",
+              f.ok && w.count == 1 && w.text.contains("/dev/full"),
+              fmt("dialogs=%d (expect 1)", w.count));
+    }
+
+    // RZXGUI-10 — Play RZX while recording: the recording is written and ended
+    // first; when that write fails, the user is told the recording is lost —
+    // and the playback still runs.
+    {
+        Fixture f;
+        const std::string src = tmp_path("psrc", ".rzx");
+        bool ready = f.ok && f.emu.start_rzx_recording(src);
+        if (ready) f.emu.run_frame();
+        ready = ready && f.emu.stop_rzx_recording() && f.emu.start_rzx_recording("/dev/full");
+        if (ready) f.emu.run_frame();
+        DialogWatcher w;
+        if (ready) f.win.handle_rzx_play_path(QString::fromStdString(src));
+        w.stop();
+        check("RZXGUI-10",
+              "Play RZX while recording to an unwritable file: a dialog about the lost "
+              "recording, and the playback runs",
+              ready && w.count == 1 && w.text.contains("/dev/full") &&
+                  !f.emu.rzx_recorder().is_recording() && f.emu.rzx_player().is_playing(),
+              fmt("ready=%d dialogs=%d playing=%d (expect 1,1,1)", ready ? 1 : 0, w.count,
+                  f.emu.rzx_player().is_playing() ? 1 : 0));
+        std::error_code ec;
+        std::filesystem::remove(src, ec);
+    }
+
+    // RZXGUI-11 — Machine > Soft Reset (F4) during a recording that cannot be
+    // written: the reset ends it, and the user is told it is lost.
+    {
+        Fixture f;
+        QAction* soft = nullptr;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == QStringLiteral("&Soft Reset")) soft = a;
+        const bool started = f.ok && soft && f.emu.start_rzx_recording("/dev/full");
+        if (started) f.emu.run_frame();
+        DialogWatcher w;
+        if (started) {
+            soft->trigger();
+            for (int i = 0; i < 20 && w.count == 0; ++i) QApplication::processEvents();
+        }
+        w.stop();
+        check("RZXGUI-11",
+              "Soft Reset during an unwritable recording: it ends, and a dialog says it is lost",
+              started && !f.emu.rzx_recorder().is_recording() && w.count == 1 &&
+                  w.text.contains("/dev/full"),
+              fmt("started=%d recording=%d dialogs=%d (expect 1,0,1)", started ? 1 : 0,
+                  f.emu.rzx_recorder().is_recording() ? 1 : 0, w.count));
+    }
+
+    // RZXGUI-09 — control: a written recording, or an unwritten COMMAND-LINE
+    // one (a scripted run must never stop on a question), gets no dialog.
+    {
+        Fixture f;
+        DialogWatcher w;
+        if (f.ok) {
+            f.win.rzx_recording_ended_by_reset("/tmp/written.rzx", true, false);
+            f.win.rzx_recording_ended_by_reset("/dev/full", false, /*unattended=*/true);
+            for (int i = 0; i < 20; ++i) QApplication::processEvents();
+        }
+        w.stop();
+        check("RZXGUI-09",
+              "control: no dialog for a saved recording, nor for an unattended one",
+              f.ok && w.count == 0, fmt("dialogs=%d (expect 0)", w.count));
+    }
+}
+
 int main(int argc, char** argv) {
     // MainWindow is a real QWidget, so a QApplication is required — but not a
     // display: force the offscreen QPA platform (quit_gate_test idiom).
@@ -279,6 +363,7 @@ int main(int argc, char** argv) {
     std::printf("RZX File-menu dialog tests\n\n");
 
     test_rzx_menu();
+    test_rzx_reset_notice();
 
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);

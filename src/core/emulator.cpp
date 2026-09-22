@@ -7131,6 +7131,12 @@ bool Emulator::load_rzx(const std::string& path)
                           path, rec.creator, rec.frames.size(),
                           rec.snapshot_data.empty() ? "none" : rec.snapshot_ext);
 
+    // Playback replaces the machine and answers every IN from the file, so a
+    // recording still running would record nothing from here on: write it and
+    // end it first (as FUSE does on opening a file), rather than leave it
+    // running on empty.
+    end_rzx_at_reset("playing an RZX recording");
+
     // Load the embedded snapshot, if present, straight from memory. It used to
     // be written to a fixed /tmp/jnext_rzx_snap.<ext> and loaded back from
     // there, unchecked: two jnext instances raced on that one file, and on
@@ -7198,6 +7204,28 @@ bool Emulator::stop_rzx_recording()
     const std::string path = rzx_recorder_.output_path();
     const bool ok = rzx_recorder_.stop();
     if (!ok) rzx_failed_outputs_.push_back(path);
+    return ok;
+}
+
+bool Emulator::end_rzx_at_reset(const char* what)
+{
+    bool ok = true;
+    if (rzx_recorder_.is_recording()) {
+        // Finalised, not continued: a reset the host performs cannot be
+        // replayed from recorded input, so a recording carried across it
+        // would replay a machine that never reset. FUSE, the reference RZX
+        // implementation, stops recording on a menu reset for the same reason.
+        Log::emulator()->warn(
+            "RZX: {} ends the recording to '{}' after {} frames; nothing after "
+            "it is recorded (a recording cannot replay a reset)",
+            what, rzx_recorder_.output_path(), rzx_recorder_.recording().frames.size());
+        ok = stop_rzx_recording();
+    }
+    if (rzx_player_.is_playing()) {
+        Log::emulator()->warn("RZX: {} ends the playback", what);
+        rzx_player_.stop();
+        port_.rzx_in_override = nullptr;
+    }
     return ok;
 }
 
@@ -9512,6 +9540,10 @@ void Emulator::on_hotkey_f4_soft_reset()
     }
     nmi_source_.strobe_soft_reset();
     Log::emulator()->info("Soft reset triggered via host F4 (hotkey_soft_reset)");
+    // The host pressed F4: nothing in a recording can make that reset happen
+    // again on playback. (A soft reset the PROGRAM asks for, by writing NR
+    // 0x02, replays by itself, so it does not end a recording.)
+    end_rzx_at_reset("the F4 soft reset");
     soft_reset();
 }
 

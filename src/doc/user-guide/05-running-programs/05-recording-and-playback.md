@@ -60,6 +60,12 @@ started or saved, and a file that cannot be played, each put up a message.
 Only one recording runs at a time — **Record RZX…** while one is running tells
 you to stop it first — and nothing is recorded while a recording plays back.
 
+A reset ends a recording. A hard reset (the Reset button, F1, or the program's
+own), loading another program, changing the machine type, F4, or starting to
+play an RZX saves the recording at that point and stops it, with a note on the
+status bar: a recording replays your input, and a reset is not input, so it
+could not be replayed. Start a new recording afterwards if you want the rest.
+
 Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine
 the same way.

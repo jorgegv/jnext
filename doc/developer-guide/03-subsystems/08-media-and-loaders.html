@@ -2182,6 +2182,15 @@ from the file's bytes by <code>Emulator::load_snapshot_from_memory()</code>, usi
 <code>load()</code>; nothing is written to a temporary file. Any other snapshot type fails
 the load: input replayed against a machine it was not recorded on reproduces
 nothing.</p>
+<p>A recording cannot replay a reset the host performs, so none is ever carried
+across one. The power-on cold boot, the host's F4 soft reset and starting a
+playback all go through <code>Emulator::end_rzx_at_reset()</code>, which <strong>writes</strong> the
+running recording and ends it there, with a warning — the choice FUSE makes
+on a menu reset or on opening a file. (A reset the program asks for itself,
+through NR 0x02, replays like any other instruction and ends nothing.) jnext's
+reader and writer handle one snapshot and one input sequence per file, so
+continuing across the reset with a second snapshot block — which the RZX format
+allows — is not an option they offer.</p>
 <h2 id="media-out">Media out<a class="headerlink" href="#media-out" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

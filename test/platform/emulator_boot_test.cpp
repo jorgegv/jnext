@@ -820,6 +820,112 @@ int main()
         std::remove(ok2_path.c_str());
     }
 
+    // --- EB-34..EB-37: a reset the host performs ends a recording ------------
+    // Contract (emulator_cold_boot, Emulator::end_rzx_at_reset): the power-on
+    // cold boot and the host's F4 soft reset WRITE a running recording and end
+    // it there — recorded input cannot replay a reset — instead of destroying
+    // it unwritten; a failed write stays latched across the boot. A soft
+    // reset the program itself asks for replays by itself and ends nothing.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string cb_path = (tmp / ("jnext-eb-cb-" + stamp + ".rzx")).string();
+        const std::string f4_path = (tmp / ("jnext-eb-f4-" + stamp + ".rzx")).string();
+        const std::string sr_path = (tmp / ("jnext-eb-sr-" + stamp + ".rzx")).string();
+        auto magic = [](const std::string& path) {
+            std::ifstream f(path, std::ios::binary);
+            char m[4] = {0, 0, 0, 0};
+            f.read(m, 4);
+            return f.gcount() == 4 ? std::string(m, 4) : std::string();
+        };
+
+        // EB-34: the cold boot writes the recording — every frame of it — and
+        // the file plays back.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording(cb_path);
+            for (int i = 0; i < 4; ++i) emu.run_frame();
+            emulator_cold_boot(emu, base_config());
+            Emulator player;
+            player.init(base_config());
+            const bool plays = player.load_rzx(cb_path);
+            const std::size_t n = player.rzx_player().recording().frames.size();
+            check("EB-34", "a cold boot writes the running recording (all 4 frames), ends it, "
+                  "and the file plays back",
+                  started && !emu.rzx_recorder().is_recording() && magic(cb_path) == "RZX!" &&
+                      plays && n == 4 && !emu.rzx_output_failed(cb_path),
+                  "frames=" + std::to_string(n));
+        }
+
+        // EB-35: a write that fails at the cold boot stays latched across it,
+        // so the exit-time helper still reports it.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording("/dev/full");
+            emu.run_frame();
+            emulator_cold_boot(emu, base_config());
+            check("EB-35", "a write failed at the cold boot is still latched after it",
+                  started && emu.rzx_output_failed("/dev/full") &&
+                      !emulator_finish_rzx(emu, "/dev/full"));
+        }
+
+        // EB-36: the host's F4 soft reset writes and ends the recording too.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording(f4_path);
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+            emu.on_hotkey_f4_soft_reset();
+            check("EB-36", "the F4 soft reset writes the running recording and ends it",
+                  started && !emu.rzx_recorder().is_recording() && magic(f4_path) == "RZX!");
+        }
+
+        // EB-37: control — a soft reset the program performs (NR 0x02 bit 0
+        // reaches Emulator::soft_reset()) is replayable, and ends nothing.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording(sr_path);
+            emu.run_frame();
+            emu.soft_reset();
+            emu.run_frame();
+            const bool still = emu.rzx_recorder().is_recording();
+            const std::size_t frames = emu.rzx_recorder().recording().frames.size();
+            emulator_finish_rzx(emu, sr_path);
+            check("EB-37", "control: a program's own soft reset leaves the recording running",
+                  started && still && frames == 2, "frames=" + std::to_string(frames));
+        }
+
+        // EB-38: starting a playback ends a running recording by writing it
+        // (it would otherwise run on, recording nothing: every IN now comes
+        // from the file being played).
+        {
+            Emulator emu;
+            emu.init(base_config());
+            bool ready = emu.start_rzx_recording(f4_path);   // any finished RZX to play
+            emu.run_frame();
+            ready = ready && emu.stop_rzx_recording();
+            const bool started = ready && emu.start_rzx_recording(sr_path);
+            emu.run_frame();
+            emu.run_frame();
+            const bool plays = started && emu.load_rzx(f4_path);
+            Emulator check_emu;
+            check_emu.init(base_config());
+            const bool saved = check_emu.load_rzx(sr_path) &&
+                               check_emu.rzx_player().recording().frames.size() == 2;
+            check("EB-38", "playing an RZX writes and ends the running recording",
+                  plays && !emu.rzx_recorder().is_recording() && emu.rzx_player().is_playing() &&
+                      saved);
+        }
+
+        std::remove(cb_path.c_str());
+        std::remove(f4_path.c_str());
+        std::remove(sr_path.c_str());
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;

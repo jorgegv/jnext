@@ -124,6 +124,15 @@ public:
     void handle_rzx_stop();
     void handle_rzx_play_path(const QString& path);
 
+    /// A reset ended the RZX recording to `path` (Emulator::end_rzx_at_reset()):
+    /// say so on the status bar and, when the file could not be written,
+    /// in a dialog — posted to the event loop, because the frontend calls
+    /// this from inside a frame tick, where a modal loop would re-enter it.
+    /// `unattended` suppresses the dialog for a command-line recording: a
+    /// scripted run must never stop on a question (its exit status carries
+    /// the failure instead).
+    void rzx_recording_ended_by_reset(const QString& path, bool written, bool unattended);
+
     // Issue #40 — a machine-type change is a power cycle, and it must take the
     // ONE canonical cold-boot path (platform/emulator_boot.h) like every other
     // reboot. MainWindow therefore requests it from the frontend instead of

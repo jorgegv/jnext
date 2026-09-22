@@ -397,7 +397,11 @@ written when **jnext** exits (or, in the GUI, at **File \> Stop RZX
 Recording**). Works the same in the GUI, the SDL-only build and under
 **--headless**. A *FILE* that cannot be written is refused before the
 machine starts, and a recording that cannot be saved when it is written
-is logged; either way **jnext** exits non-zero.
+is logged; either way **jnext** exits non-zero. A reset ends the
+recording: a hard reset (the Reset button, F1, or the program’s own),
+loading another program from the GUI, changing the machine type, or F4
+writes the file there, and nothing after it is recorded — a recording
+cannot replay a reset.
 
 **--rewind-buffer-size** *N*  
 Frame-snapshot ring buffer for backwards execution. Opt-in; default 0 =
