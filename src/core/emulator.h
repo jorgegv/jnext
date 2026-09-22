@@ -1409,9 +1409,25 @@ private:
     /// Accumulated FUSE tstates of all completed frames (G36/G37).
     /// begin_new_frame() folds the outgoing frame's final counter value
     /// (including any end-of-frame overshoot) into this base before
-    /// zeroing the FUSE counter, so `monotonic_tstates()` never goes
-    /// backwards across the per-frame reset.
+    /// re-seeding the FUSE counter, so `monotonic_tstates()` never goes
+    /// backwards across the per-frame rebase.
     uint64_t tstates_frame_base_ = 0;
+
+    /// GH #265 follow-up (verifier finding 4) — the FUSE T-state counter is
+    /// the contention path's raster position: derive_hc_vc() (z80_cpu.cpp)
+    /// turns it into (hc, vc). It must therefore equal
+    /// (clock_ - frame_cycle_) / cpu_divisor at every instruction boundary,
+    /// the same position the floating bus, NR 0x1E/0x1F and the renderer
+    /// read from clock_. rebase_fuse_tstates_() re-establishes that at the
+    /// two points where the counter's origin or unit changes — the frame
+    /// start and an effective CPU-speed change — keeping monotonic_tstates()
+    /// continuous. advance_fuse_tstates_() moves it with the clock when the
+    /// clock advances with no CPU instruction (DMA holding the bus, a parked
+    /// CPU, a NEX boot hold, a tape trap's synthetic cycles).
+    void rebase_fuse_tstates_();
+    void advance_fuse_tstates_(uint64_t master_cycles);
+    /// A tape ROM trap's synthetic cycles: clock, FUSE counter, scheduler.
+    void skip_trap_cycles_(uint64_t master_cycles);
 
     /// Audio timing: fractional accumulators for PSG ticking and sample generation.
     /// PSG clock = 28 MHz / 16 = 1.75 MHz.
@@ -1682,14 +1698,16 @@ private:
     int cvc_at(uint64_t master_cycle) const;
 
     /// GH #265 — the master cycle whose value a port read sees, when the
-    /// VHDL latches that value on the CLK_CPU falling edge @p edge_half_t
-    /// half-T-states after the start of the I/O machine cycle of the IN
-    /// now executing: the last master cycle before that edge, since a
-    /// latch takes the value its input held just before it. clock_ only
-    /// advances when an instruction completes, so without this every read
-    /// would see the position at the instruction's START. Outside an
-    /// instruction (test harness, debugger, DMA) it is clock_.get().
-    uint64_t io_read_sample_cycle(unsigned edge_half_t) const;
+    /// VHDL latches that value on the CLK_CPU falling edge inside clock
+    /// @p io_clock (0..3: T1, the automatic wait, T2, T3) of the I/O machine
+    /// cycle of the IN now executing: the last master cycle before that
+    /// edge, since a latch takes the value its input held just before it.
+    /// The edge follows every contention stretch charged up to and including
+    /// that clock (Z80Cpu::io_clock_into_instruction()). clock_ only advances
+    /// when an instruction completes, so without this every read would see
+    /// the position at the instruction's START. Outside an instruction (test
+    /// harness, debugger, DMA) it is clock_.get().
+    uint64_t io_read_sample_cycle(unsigned io_clock) const;
 
     /// GH #262 — an IN from a port with LSB 0xDF that the mouse decode does
     /// not claim. VHDL zxnext.vhd:2674 decodes it as `port_1f` (Kempston 1)

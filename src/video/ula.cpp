@@ -67,30 +67,35 @@ inline uint32_t Ula::lookup_colour(uint8_t ula_pixel) const
 
 uint8_t Ula::vram_read(uint16_t addr, Mmu& mmu) const
 {
-    if (ram_) {
-        // Direct physical access, bypassing the MMU — as on real hardware.
-        // addr is in CPU space; we only care about the 14-bit bank offset.
-        // Normal screen  : bank 5, starting at physical page 10.
-        // Shadow screen  : bank 7 — a dedicated 8K BRAM on real hardware
-        //   (VHDL: ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1';
-        //   bank7_ram dpram2 at zxnext.vhd:6670). Served from the Mmu's
-        //   dedicated buffer when wired (Emulator::init); the legacy
-        //   page-14 fallback keeps standalone unit tests working.
-        const uint16_t offset = addr & 0x3FFF;
-        if (vram_use_bank7_) {
-            if (bank7_bram_) return bank7_bram_[offset & 0x1FFF];
-            return ram_->read(14u * 8192u + offset);
-        }
-        // Normal screen: bank 5 — a dedicated 16K dual-port VRAM on real
-        // hardware (VHDL bank5_ram dpram2 zxnext.vhd:6558-6578; ULA
-        // port-B fetch :6633-6661). Served from the Mmu's buffer when
-        // wired (Next machines); the legacy page-10 fallback keeps
-        // standalone machines and unit tests working. Task 25.
-        if (bank5_vram_) return bank5_vram_[offset];
-        return ram_->read(10u * 8192u + offset);
-    }
+    if (ram_) return fetch_vram(addr);
     // Fallback: read through MMU (used when RAM not wired, e.g. early tests).
     return mmu.read(addr);
+}
+
+uint8_t Ula::fetch_vram(uint16_t vram_a) const
+{
+    // Direct physical access, bypassing the MMU — as on real hardware.
+    // Only the 14-bit bank offset matters (a CPU-space 0x4000-0x7FFF address
+    // and a raw zxula.vhd `vram_a` give the same offset).
+    // Normal screen  : bank 5, starting at physical page 10.
+    // Shadow screen  : bank 7 — a dedicated 8K BRAM on real hardware
+    //   (VHDL: ula_bank_do <= vram_bank7_do when port_7ffd_shadow='1';
+    //   bank7_ram dpram2 at zxnext.vhd:6670). Served from the Mmu's
+    //   dedicated buffer when wired (Emulator::init); the legacy
+    //   page-14 fallback keeps standalone unit tests working.
+    const uint16_t offset = vram_a & 0x3FFF;
+    if (!ram_) return 0xFF;
+    if (vram_use_bank7_) {
+        if (bank7_bram_) return bank7_bram_[offset & 0x1FFF];
+        return ram_->read(14u * 8192u + offset);
+    }
+    // Normal screen: bank 5 — a dedicated 16K dual-port VRAM on real
+    // hardware (VHDL bank5_ram dpram2 zxnext.vhd:6558-6578; ULA
+    // port-B fetch :6633-6661). Served from the Mmu's buffer when
+    // wired (Next machines); the legacy page-10 fallback keeps
+    // standalone machines and unit tests working. Task 25.
+    if (bank5_vram_) return bank5_vram_[offset];
+    return ram_->read(10u * 8192u + offset);
 }
 
 // ---------------------------------------------------------------------------
@@ -522,6 +527,16 @@ void Ula::render_scanline_in_bank(uint32_t* dst, int row, Mmu& mmu,
     ulanext_en_     = row_ctl.ulanext_en;
     ulanext_format_ = row_ctl.ulanext_format;
     vram_use_bank7_ = use_bank7;
+    // The shadow screen masks the Timex mode: screen_mode_s <=
+    // i_port_ff_reg(2:0) when i_ula_shadow_en = '0' else "000"
+    // (zxula.vhd:191), latched per character cell (:209). port 0xFF keeps
+    // its value (zxnext.vhd:3610-3624), so the mode returns with shadow off.
+    const TimexScreenMode saved_mode = mode_;
+    const bool            saved_alt  = alt_file_;
+    if (use_bank7) {
+        mode_     = TimexScreenMode::STANDARD;
+        alt_file_ = false;
+    }
 
     const int screen_row = row - DISP_Y;
 
@@ -560,6 +575,8 @@ void Ula::render_scanline_in_bank(uint32_t* dst, int row, Mmu& mmu,
     ulanext_en_     = saved_ctl.ulanext_en;
     ulanext_format_ = saved_ctl.ulanext_format;
     vram_use_bank7_ = saved_ctl.vram_bank7;
+    mode_           = saved_mode;
+    alt_file_       = saved_alt;
 }
 
 // ---------------------------------------------------------------------------

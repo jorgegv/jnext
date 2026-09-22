@@ -1951,13 +1951,25 @@ against <code>i_hc</code>/<code>i_vc</code>, which reset at the start of the act
 than at the start of the frame, so feeding it raw coordinates would contend the
 top border while missing the bottom 64 display lines. The runtime is installed
 by <code>z80_set_contention_runtime()</code>; with it null, all seven sites are inert.</p>
-<p><code>fuse_z80_readport</code> charges the I/O cycle's stretch <em>before</em> it calls the port
-handler, because the T80 latches the data bus only on the falling edge of T3,
-after the stretch; <code>fuse_z80_writeport</code> calls the handler first, because a
-write strobe acts as soon as IORQ and WR go low. The order matters to any read
-whose value depends on time — the floating bus, NR 0x1E/0x1F, the tape EAR bit
-— and to <code>Z80Cpu::tstates_into_instruction()</code>, which those reads use to find
-where in the instruction the bus is (GH #265).</p>
+<p>The two port callbacks charge the I/O cycle clock by clock — T1, the automatic
+wait, T2, T3 — each clock's stretch from <code>ContentionModel::io_clock_tick()</code>
+(<code>zxula.vhd:587-595</code>): the port's <em>page</em> can stretch any clock, the <em>port</em>
+decode only the second, and a port-contended cycle stops stretching after it.
+<code>fuse_z80_readport</code> calls the port handler in the last clock, after every
+stretch, because the T80 latches the data bus only on the falling edge of T3;
+<code>fuse_z80_writeport</code> calls it at the start of the second clock, because a write
+strobe acts as soon as IORQ and WR go low. The order matters to any read whose
+value depends on time — the floating bus, NR 0x1E/0x1F, the tape EAR bit — and
+<code>Z80Cpu::io_clock_into_instruction()</code> tells those reads where each clock of the
+cycle began, stretches included (GH #265).</p>
+<p><code>derive_hc_vc()</code> only gives the right answer if the FUSE counter and the master
+clock agree: counter × CPU divisor = clock − frame start, at every instruction
+boundary. <code>Emulator::rebase_fuse_tstates_()</code> re-establishes that where the
+counter's origin or unit changes — the frame start, which seeds it with the
+last instruction's overshoot past the frame end, and an effective CPU-speed
+change — and <code>advance_fuse_tstates_()</code> moves it with the clock when the clock
+advances with no CPU instruction (DMA holding the bus, a parked CPU, a tape
+trap's synthetic cycles).</p>
 <p>A separate stretch is the 28 MHz SRAM read wait (<code>zxnext.vhd:3171-3181</code>): at CPU
 speed 3, every memory <em>read</em> cycle that reaches external SRAM costs one extra
 T-state, qualified per target by <code>Mmu::sram_read_wait28()</code>.</p>

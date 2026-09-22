@@ -182,15 +182,13 @@ filed as S10.01.
 | Row ID | Machine | Position | Stimulus | Expected | VHDL cite |
 |--------|---------|----------|----------|----------|-----------|
 | FB-01  | 48K     | Line in V-border (`line < 64` or `line >= 256`) | port 0xFF read | 0xFF | `zxula.vhd:312-316,414,573` |
-| FB-02  | 48K     | V-active line (`line ∈ [64, 256)`), H-blank (`tstate_in_line = 150`, after the 128-T pixel fetch window) | port 0xFF read | 0xFF | `zxula.vhd:316,416,573` + host `src/core/emulator.cpp:2671` |
+| FB-02  | 48K     | Display line 36, read after the reload of `hc_ula` 267 (`267 & 15 = 0xB`, an attribute reload were it inside the display); the attribute byte it would fetch is seeded | port 0xFF read | 0xFF | `zxula.vhd:316,414-416,573` |
 
 FB-01 is the S10.01 re-home. FB-02 is a VHDL-justified neighbour:
 `border_active_ula` ORs `i_hc(8)` with the V-border, so horizontal
-blanking inside the vertical active window must also read 0xFF. The
-emulator models this via `tstate_in_line` (0..227 on 48K, one host
-sample per T-state; one VHDL `hc` step ≈ 0.5 T-state); the H-blank
-condition (`tstate_in_line >= 128`) is enforced at
-`src/core/emulator.cpp:2671`.
+blanking inside the vertical active window must also read 0xFF,
+whatever the reload schedule of Section 2 says for that `hc(3:0)`.
+Positions are in the ULA's own counters (Section 10).
 
 ## Section 2: Active-display capture phases
 
@@ -223,35 +221,42 @@ the register (bus keeps its last captured byte). Line 573 gates the
 output on `floating_bus_en = '1'` (first arm); while disabled the
 final `else X"FF"` applies on 48K/128K timing.
 
-`Emulator::floating_bus_read` models this at 8T granularity
-(T-state % 8). A phase-0x1 (reset) is represented by the
-"default: return 0xFF" arm on `tstate_in_line % 8 in {0,1,6,7}`; the
-VRAM-return arms cover `% 8 in {2,3,4,5}`.
+The reload happens on the **falling** edge of `CLK_7`, half-way
+through the `hc_ula` count, and the byte on `i_ula_vram_d` at counts
+9/B/D/F is the fetch set up two counts earlier (`vram_a` on the rising
+edges ending counts 7/9/B/D, `zxula.vhd:224-258`): pixel(2k),
+attribute(2k), pixel(2k+1), attribute(2k+1) of the 16-count block k.
+A read at the start of count `h` therefore sees the reload of count
+`h-1`, and count 0 of a block still holds the previous block's
+attribute(2k+1).
+
+`Emulator::ula_floating_bus_active_arm` evaluates this in `hc_ula` /
+`vc_ula` (GH #265 follow-up, see Section 10): one `hc_ula` count is 4
+master cycles, half a CPU T-state at 3.5 MHz. The test helper
+`set_fb_capture(dline, col, kind)` places a direct read at the start of
+the count after the reload of `col`'s pixel or attribute.
 
 ### Test rows
 
 | Row ID | Machine | Position | Stimulus | Expected | VHDL cite |
 |--------|---------|----------|----------|----------|-----------|
-| FB-2A  | 48K | Active display, T-phase 0x9 equivalent (`tstate_in_line % 8 = 2`) | Fill VRAM bank 5 at the expected pixel address; port 0xFF read | VRAM byte at `pixel_addr` | `zxula.vhd:325-327` |
-| FB-2B  | 48K | Active display, T-phase 0xB equivalent (`% 8 = 3`) | Fill VRAM attr bank; port 0xFF read | VRAM byte at `attr_addr` | `zxula.vhd:329-330` |
-| FB-2C  | 48K | Active display, T-phase 0xD equivalent (`% 8 = 4`) | Fill VRAM; port 0xFF read | VRAM byte at `pixel_addr + 1` (next pixel column) | `zxula.vhd:332-333` |
-| FB-2D  | 48K | Active display, T-phase 0xF equivalent (`% 8 = 5`) | Fill VRAM; port 0xFF read | VRAM byte at `attr_addr + 1` (next attribute column) | `zxula.vhd:335-336` |
-| FB-2E  | 48K | Active display, reset/idle phase (host `% 8 = 0`, candidate mapping for VHDL `hc(3:0) = 0x1`) | port 0xFF read; VRAM irrelevant | 0xFF (reset/idle phase) | `zxula.vhd:321-323,573` |
-| FB-2F  | 48K | Scanline < 64 (vc < min_vactive) | port 0xFF read | 0xFF (above active display window) | `zxula.vhd:414-416,573` |
+| FB-2A  | 48K | Display line 36, after the `hc(3:0) = 9` reload of block 2 | Seed pixel (36, col 4); port 0xFF read | Pixel byte of column 4 | `zxula.vhd:325-327` |
+| FB-2B  | 48K | Same line, after the `hc(3:0) = B` reload | Seed attribute (36, col 4); port 0xFF read | Attribute byte of column 4 | `zxula.vhd:329-330` |
+| FB-2C  | 48K | Same line, after the `hc(3:0) = D` reload | Seed pixel (36, col 5); port 0xFF read | Pixel byte of column 5 | `zxula.vhd:332-333` |
+| FB-2D  | 48K | Same line, after the `hc(3:0) = F` reload | Seed attribute (36, col 5); port 0xFF read | Attribute byte of column 5 | `zxula.vhd:335-336` |
+| FB-2E  | 48K | Same line, count 16·2+5 (after the `hc(3:0) = 1` reset, before the next 9); all four bytes of the block seeded | port 0xFF read | 0xFF (reset/idle half) | `zxula.vhd:321-323,573` |
+| FB-2F  | 48K | Raw line 50 (< `c_min_vactive` 64, vertical border), at the count where a displayed line would show a pixel | port 0xFF read | 0xFF (above active display window) | `zxula.vhd:414-416,573` |
 
 FB-2A..FB-2F expand the 3 rows (S10.02/03/04) that were G-commented
 out of the ULA plan as "internal, end-to-end by §1/§2". At the Ula
 abstraction they were unobservable; at the Emulator-level floating-bus
 surface they are direct public-API checks.
 
-Caveat tracked in §Open questions: the VHDL's phase schedule is
-`hc(3:0) ∈ {0x9, 0xB, 0xD, 0xF}` (a 16-cycle window), while the C++
-model uses an 8T cycle. The Phase-0 audit must verify whether
-`tstate_in_line % 8` correctly witnesses the 4 VRAM-returning phases,
-or whether the VHDL phase count needs an `hc(3:0) / 2` translation.
-Until that is resolved these rows may expose a real emulator bug
-rather than a plan bug; that is the honest outcome per
-UNIT-TEST-PLAN-EXECUTION.md §2.
+The `hc(3:0)`-vs-8T question this section used to carry as a caveat
+is resolved: see Section 10 and Open question 2. These rows were
+re-derived from the VHDL schedule in GH #265's follow-up; the old
+stimulus (`tstate_in_line % 8` of the RAW line, `{2,3,4,5}` = VRAM)
+sat 58 T (48K) / 62 T (128K) before the ULA's fetch window.
 
 ## Section 3: +3 floating-bus paths — port 0xFF vs port 0x0FFD
 
@@ -474,7 +479,7 @@ which are outside the Ula's concern.
 | Row ID | Machine | Stimulus | Expected | VHDL cite |
 |--------|---------|----------|----------|-----------|
 | FB-06  | 48K | CPU executes `IN A,(0xFF)` at border; NR 0x08 bit 2 = 0 (reset default) | 0xFF (via `Emulator::floating_bus_read`, through `port_ff_dat_ula`) | `zxnext.vhd:2713, 2813` + host `emulator.cpp:173` |
-| FB-5A  | 48K | CPU executes `IN A,(0xFF)` in active-display capture phase; NR 0x08 bit 2 = 0 (reset default) | Matching VRAM byte | `zxnext.vhd:2713, 2813` + host `emulator.cpp:2651-2700` |
+| FB-5A  | 48K | CPU executes `IN A,(0xFF)` (A = 0) starting at FUSE T 14328+224·36+16; NR 0x08 bit 2 = 0 (reset default) | Pixel byte of line 36 column 4 (FUSE 1.6 sweep) | `zxnext.vhd:2713, 2813`; `zxula.vhd:319-340,573` |
 
 FB-06 is the S10.07 re-home. FB-5A confirms the wiring exercises the
 active-display branch. Both rows go through the full port-dispatch
@@ -556,7 +561,7 @@ dispatch default return 0xFF.
 
 | Row ID | Machine | Stimulus | Expected | VHDL cite |
 |--------|---------|----------|----------|-----------|
-| FB-109-01 | 48K | Active capture phase (T%8=2), VRAM seeded 0x5A; read undecoded port 0x40A7 | 0xFF (undecoded default; floating bus must NOT leak) | `zxnext.vhd:1877, 2583, 2803-2806` |
+| FB-109-01 | 48K | Pixel capture of (36, col 4), VRAM seeded 0x5A; read undecoded port 0x40A7 | 0xFF (undecoded default; floating bus must NOT leak) | `zxnext.vhd:1877, 2583, 2803-2806` |
 | FB-109-02 | 48K | Same geometry; read port 0x40FF (LSB 0xFF, high byte ≠ 0) | 0x5A (VRAM byte — LSB-only port_ff decode keeps ALL 0x??FF ports on the mux) | `zxnext.vhd:2571+2583, 2813, 4513`; `zxula.vhd:319-340, 573` |
 
 FB-109-01 is the discriminator (fails pre-fix). FB-109-02 pins that
@@ -576,29 +581,101 @@ plan (rows GH109-01/02 in
 into `DI_Reg` on the falling edge of the I/O cycle's T3
 (`t80na.vhd:214-222`); with `IOWait = 1` the I/O cycle is four clocks
 (`t80n.vhd:1781-1782`), so the byte is the one on the bus 3.5 T-states into
-it. jnext evaluated the raster at `clock_`, the START of the instruction —
-10.5 T-states early for `IN A,(n)` (M1 + operand read = 7 T before the I/O
-cycle), 11.5 for `IN A,(C)` (two M1s). `Emulator::io_read_sample_cycle()`
-now supplies the latch instant. Only the sampling instant changed: the
-capture-phase model it is fed into is still the `T%8` model of Section 2
-(Open question 2).
+it — after every contention stretch of the cycle (GH #265 follow-up: the
+cycle is now charged clock by clock, see CONTENTION-TEST-PLAN-DESIGN.md
+CT-IOC). jnext used to evaluate the raster at `clock_`, the START of the
+instruction — 10.5 T-states early for `IN A,(n)` (M1 + operand read = 7 T
+before the I/O cycle), 11.5 for `IN A,(C)` (two M1s).
+`Emulator::io_read_sample_cycle()` supplies the latch instant.
 
-FB-5A's stimulus was re-derived by the same change: it started the IN at
-T 20, chosen empirically against start-of-instruction sampling (T%8 = 4);
-at the latch that is T 30 (T%8 = 6, the 0xFF arm). It now starts at T 16,
-latching at T 26 (T%8 = 2).
+The first version of these rows (GH #265) placed the IN on the old `T%8`
+model of Section 2. The follow-up re-derived them from FUSE 1.6 (48K) and
+from the VHDL (+3 port 0x0FFD, which FUSE does not model). FUSE, 48K,
+`IN A,(0xFF)` with A = 0: an IN STARTING at INT-relative
+`14328 + 224·L + 8·g + k` returns pixel(2g), attribute(2g), pixel(2g+1),
+attribute(2g+1) of display line L for k = 0..3 and 0xFF for k = 4..7
+(every T of the frame swept, no inconsistent sample). `IN A,(C)` reaches
+its I/O cycle one T later, so it returns the k+1 byte.
 
 ### Test rows
 
-Line 100, instruction started at T 16; char column 3 (T 24..31) seeded with
-pixel 0x16/0x17 and attribute 0x86/0x87. Code at 0x8000 (bank 2) is
-uncontended.
+Display line 36, block g = 2 (columns 4/5), FUSE's screen fill (pixel
+`c | (y&1)<<5`, attribute `0x40 | c | (row&1)<<5`). Code at 0x8000
+(bank 2) is uncontended.
 
-| Row ID | Machine | Stimulus | Expected | VHDL cite |
-|--------|---------|----------|----------|-----------|
-| FB-GH265-01 | 48K | `IN A,(0xFF)` started at T 16 | 0x16 — sampled at T 26, T%8 = 2 (pixel); pre-fix 0xFF (T 16, T%8 = 0) | `zxula.vhd:573`; `zxnext.vhd:4513`; `t80na.vhd:214-222` |
-| FB-GH265-02 | 48K | `IN A,(C)`, BC = 0x00FF, started at T 16 | 0x86 — sampled at T 27, T%8 = 3 (attribute); pre-fix 0xFF | `zxula.vhd:573`; `zxnext.vhd:4513`; `t80na.vhd:214-222` |
-| FB-GH265-03 | +3 | `IN A,(C)`, BC = 0x0FFD, started at T 16; contended latch seeded 0xA4 | 0x87 — T 27 attribute with bit 0 forced; pre-fix 0xA4 (border arm, raw latch) | `zxula.vhd:573`; `zxnext.vhd:4517`; `t80na.vhd:214-222` |
+| Row ID | Machine | Stimulus | Expected | Oracle / VHDL cite |
+|--------|---------|----------|----------|--------------------|
+| FB-GH265-01 | 48K | `IN A,(0xFF)` started at FUSE T 14328+224·36+17 (k = 1) | 0x44, attribute of column 4 (start-of-instruction sampling: 0xFF) | FUSE 1.6; `zxula.vhd:573`; `t80na.vhd:214-222` |
+| FB-GH265-02 | 48K | `IN A,(C)`, BC = 0x00FF, started at k = 0 | 0x44 — one T later into its I/O cycle than `IN A,(n)`, so the attribute, not the pixel | FUSE 1.6; `zxula.vhd:573`; `t80na.vhd:214-222` |
+| FB-GH265-03 | +3 | `IN A,(C)`, BC = 0x0FFD, started at raw (line 100, T 72); contended latch seeded 0xA4 | 0x43 — latch at master cycle 667 of the line = `hc_ula` count 41, `hc(3:0) = 9`, pixel of column 4 with bit 0 forced; start-of-instruction sampling: count 18, idle half, border arm → 0xA4 | `zxula.vhd:319-340,573`; `zxnext.vhd:4517`; `t80na.vhd:214-222` |
+
+## Section 10: GH #265 follow-up — the ULA's own counters, Timex, scroll, shadow
+
+### VHDL reference
+
+The floating bus is a function of the ULA's `hc_ula` / `vc_ula`
+counters — the same counters contention and NR 0x1E/0x1F use:
+`hc_ula = 0` at raw hc `c_min_hactive - 11` (117 on 48K, 125 on
+128K/+3), `vc_ula = 0` on raw line `c_min_vactive` (64)
+(`zxula_timing.vhd:423-451`). The reload schedule is Section 2's. The
+byte loaded is the one the ULA fetched (`zxula.vhd:191-258`):
+
+- `screen_mode_s <= i_port_ff_reg(2:0)` unless the 128K shadow screen is
+  on, then `"000"` (`:191`); the shadow screen fetches from bank 7
+  (`zxnext.vhd:6649-6656`).
+- `px(7:3) <= i_hc(7:3) + scroll_x(7:3)` (NR 0x26), `py <= vc + scroll_y`
+  (NR 0x27) folded into 0..191 (`:192-209`).
+- `addr_p = py(7:6) & py(2:0) & py(5:3)`, `addr_a = "110" & py(7:3)`
+  (`:220-221`); pixel `screen_mode(0) & addr_p & px`; attribute
+  `'1' & addr_p & px` in hi-colour/hi-res, else
+  `screen_mode(0) & addr_a & px` (`:236-252`).
+
+The model this replaces read "raw line 64..255 × raw T 0..127,
+`T%8 ∈ {2,3,4,5}`" of jnext's frame — 58 T (48K) / 62 T (128K) before
+the ULA's fetch — always from bank 5's standard layout, and divided the
+frame position by the CONFIGURED 3.5 MHz divisor instead of working in
+master cycles.
+
+**FUSE ↔ jnext mapping.** FUSE's T counter is INT-relative, jnext's
+counts from the raw frame top. jnext's memory contention, verified
+against FUSE on every T of a frame, puts FUSE's first contended T
+(14335 / 14361) on raw T 14396 / 14656 (the first `kPat48` stretch at
+`hc_ula(3:1) = 010`, `zxula.vhd:582-583`), so FUSE T = raw T − 61 (48K)
+/ − 295 (128K). The FUSE-derived rows place the instruction with that
+mapping (`at_fuse_T()`), moving the clock and the contention counter
+together as a running frame does.
+
+**FUSE vs VHDL, where they differ.** (a) FUSE floats every odd 48K port;
+the VHDL only the LSB-0xFF decode (`zxnext.vhd:2583`, Section 8) — jnext
+follows the VHDL. (b) Three FUSE samples at T 69887 (the last T of the
+frame) straddle FUSE's frame wrap and are not comparable. Everything
+else in the FUSE sweeps (48K and 128K, `IN A,(0xFF)` / `IN A,(C)`,
+contended and uncontended, shadow screen) matches jnext sample for
+sample.
+
+### Test rows
+
+| Row ID | Machine | Stimulus | Expected | Oracle / VHDL cite |
+|--------|---------|----------|----------|--------------------|
+| FB-HC-48 | 48K | Direct reads after the reload of each `hc_ula` count 0..31, display line 36 | FF for `hc(3:0)` 1..8; pixel(2k) 9-10; attr(2k) 11-12; pixel(2k+1) 13-14; attr(2k+1) 15 and the next block's 0; FF at count 0 of the line | `zxula.vhd:319-340,573`; `zxula_timing.vhd:423-436` |
+| FB-HC-128 | 128K | Same, `hc_ula` 0 at raw hc 125 | Same schedule | same |
+| FB-FUSE-48-PHASE | 48K | `IN A,(0xFF)` at FUSE T 14328+224·36+16+k, k = 0..7 | P4 A4 P5 A5 FF FF FF FF | FUSE 1.6; `zxula.vhd:573` |
+| FB-FUSE-128-PHASE | 128K | `IN A,(0xFF)` at FUSE T 14354+228·36+16+k | Same | FUSE 1.6 |
+| FB-FUSE-48-EDGES | 48K | Window corners: first byte T 14328 (0x00) and T 14327 (FF); last byte T 14328+224·191+123 (0x7F) and the next group (FF); lines −1 and 192 (FF) | As listed | FUSE 1.6; `zxula.vhd:414-416,573` |
+| FB-FUSE-128-EDGES | 128K | Same with base 14354, 228 T/line | As listed | FUSE 1.6 |
+| FB-FUSE-128-CONT | 128K | `IN A,(0xFF)` with A = 0x40 (port 0x40FF, bank-5 page → C:1 ×4), start column x = 32..38 and 47 of line 36 | (T, byte) = (23..17, FF) for x = 32..38 — the stretches push the latch into the idle half — and (23, 0x4F) for x = 47 | FUSE 1.6; `zxula.vhd:573,587-595`; `t80na.vhd:214-222` |
+| FB-SHD-01 | 128K | 0x7FFD = 0x18 (shadow screen); bank 7 filled with a distinct pattern; `IN A,(0xFF)` at 14354+228·36+16+k, k = 0..3 | 0x84 0xC4 0x85 0xC5 (bank 7), not bank 5's 0x04 0x44 0x05 0x45 | FUSE 1.6; `zxnext.vhd:6649-6656` |
+| FB-SHD-02 | 128K | Shadow screen on and port 0xFF = 0x02 (Timex hi-colour), written in BOTH orders; direct attribute read (36, col 4); bank 7 pixel 0x91, attribute 0x93 | 0x93 in both orders — bank 7's standard attribute; the shadow screen forces `screen_mode_s = "000"` ("bank 7 only has 8k bram": the hi-colour address `0x2000 + pixel layout` would fold onto the pixel byte 0x91) | `zxula.vhd:191,246-252`; `zxnext.vhd:6649-6656` |
+| FB-SHD-03 | 128K | Port 0xFF = 0x02, THEN shadow on (the order that used to lose the mode); NR 0x08 b2 read-back; shadow off; attribute read (36, col 4) with bank 5 hi-colour byte 0x95, standard attribute 0x96 | Read-back 0x02 while shadowed; 0x95 after — the shadow screen MASKS the mode, `port_ff_reg` is only written by reset / port 0xFF / NR 0x69 / 0x22 / 0xC4 | `zxula.vhd:191`; `zxnext.vhd:2813,3610-3624,3630` |
+| FB-TMX-01 | 48K | Port 0xFF = 0x01; pixel read (36, 4) | 0x22 from the 0x6000 screen | `zxula.vhd:191,236-240` |
+| FB-TMX-02 | 48K | Port 0xFF = 0x02 (hi-colour); attribute read (36, 4) | 0x44 from 0x6000 + pixel layout, not 0x5800 | `zxula.vhd:246-252` |
+| FB-TMX-03 | 48K | Port 0xFF = 0x06 (hi-res); pixel then attribute read (36, 4) | 0x55 (screen 0 pixel), 0x66 (screen 1 pixel) | `zxula.vhd:236-252` |
+| FB-SCR-01 | 48K | NR 0x26 = 0x10; pixel read (36, 4) | Column 6's byte 0x7A | `zxula.vhd:199` |
+| FB-SCR-02 | 48K | NR 0x27 = 8; pixel read (36, 4) | Pixel line 44's byte 0x7B | `zxula.vhd:192,201-209` |
+| FB-SCR-03 | 48K | NR 0x27 = 20; pixel read (180, 4): `py_s = 200` folds to 8 | Pixel line 8's byte 0x7C | `zxula.vhd:201-209` |
+| FB-SCR-04 | 48K | NR 0x27 = 250; pixel read (150, 4): `py_s = 400`, `py_s(8:7) = "11"` folds to 16 | Pixel line 16's byte 0x7D | `zxula.vhd:201-203` |
+| FB-SPD-01 | 48K | NR 0x07 = 3 (28 MHz); `IN A,(0xFF)` started 500 master cycles into raw line 100 (13 cycles with the two SRAM read waits, `zxnext.vhd:3171-3181`; latch in cycle 512 = count 10) | Pixel of column 0 on display line 36, 0x5E (the old model divided by the configured 3.5 MHz divisor) | `zxnext.vhd:4513`; `zxula.vhd:319-340,573`; `t80na.vhd:214-222` |
+| FB-SPD-02 | 48K | 28 MHz; the same IN started at raw-line master cycle 493 (latch in 505 = 4·9+1 of the ULA line) and at 494 (latch in 506 = 4·9+2) | 0xFF, then 0x5E — the reload lands on CLK_7's falling edge, 2 master cycles into the count, and T3's falling edge at 28 MHz is half a cycle into its master cycle (assumes CLK_7 rising edges on master cycles ≡ 0 mod 4, as CT-GH183 / VT-GH265) | `zxula.vhd:308-340`; `t80na.vhd:214-222` |
 
 ## Reset defaults (VHDL-verified)
 
@@ -634,10 +711,11 @@ capture after reset).
 | 6 | NR 0x08 override + gate               | 3  |
 | 8 | GH #109 LSB-0xFF scope                | 2  |
 | 9 | GH #265 I/O-cycle sampling            | 3  |
-| | **Total** | **32** |
+| 10 | GH #265 follow-up: ULA counters, Timex, scroll, shadow | 19 |
+| | **Total** | **51** |
 
 Nominal, i.e. as enumerated by this plan. Two of them (FB-3E, FB-4B)
-are retired with no `check()` row, so 30 plan rows are live. The suite
+are retired with no `check()` row, so 49 plan rows are live. The suite
 also carries the FB-3X port-conflict neighbour, 3 Section-7
 D3F-followup rows and 5 FB-HARNESS-NN smoke rows — see
 `test/unit-tests.conf` for the pinned total the harness enforces.
@@ -685,27 +763,14 @@ expected value (`X"FF"` per `zxnext.vhd:4513`).
    suite is preferred instead; the two approaches are mechanically
    identical.
 
-2. **hc-phase vs. 8T-model fidelity.** The VHDL `hc` counter runs on
-   `i_CLK_7` (7 MHz) inside `zxula.vhd:308`, cycling through 16 `hc`
-   values per 8-T-state character window — i.e. one `hc` step is
-   roughly 0.5 T-state wide. The floating-bus capture schedule is
-   `hc(3:0) ∈ {0x1, 0x9, 0xB, 0xD, 0xF}`, with `0x1` being the
-   reset/idle phase and `0x9..0xF` the four VRAM-capture phases. In
-   the 16-hc window these capture phases land in the **second half**
-   of the character window (values 9/11/13/15 of 16). The emulator
-   models this at 8T granularity via `tstate_in_line % 8` and
-   currently asserts VRAM on `% 8 ∈ {2,3,4,5}` — i.e. the **first
-   half** of each 8T window (T-states 2/3/4/5 of 8). Whether that
-   mapping is VHDL-faithful is not obvious: if the 16-hc schedule
-   translates 1:2 to T-states (one hc = 0.5T, so hc 9/11/13/15 map
-   to half-T offsets 4.5/5.5/6.5/7.5), the capture-returning phases
-   should fall in `% 8 ∈ {4,5,6,7}` (the second half), not
-   `{2,3,4,5}`. Phase 0 must walk one full 16-hc window through
-   `zxula.vhd:319-340` + `zxula_timing.vhd` + the emulator's
-   `floating_bus_read` (`src/core/emulator.cpp:2651-2700`) to
-   resolve this and adjust either the plan expected values or the
-   host mapping. FB-2A..FB-2E will flush any mismatch out as real
-   fails rather than plan bugs.
+2. **hc-phase vs. 8T-model fidelity — RESOLVED (GH #265 follow-up,
+   2026-09-22).** The emulator now evaluates the floating bus in the
+   ULA's own `hc_ula` / `vc_ula` counters, one count = 4 master cycles
+   (half a T-state at 3.5 MHz), with the reload on the falling edge of
+   each count per `zxula.vhd:319-340`. The old `tstate_in_line % 8 ∈
+   {2,3,4,5}` window of the raw line was 58 T (48K) / 62 T (128K) early.
+   FB-HC-48 / FB-HC-128 pin the schedule count by count and the FB-FUSE
+   rows pin it against FUSE 1.6 (Section 10).
 
 3. **+3 `p3_floating_bus_dat` stimulus.** FB-04a needs a prior
    contended memory access to seed `p3_floating_bus_dat`

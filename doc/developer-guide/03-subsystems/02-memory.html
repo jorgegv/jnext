@@ -1949,7 +1949,10 @@ The only callers of <code>delay()</code> are in <code>test/contention/contention
 (NR 0x08 bit 6, NR 0x07 speed, Pentagon timing), the window gate on <code>hc_adj</code>,
 the <code>mem_contend</code> page decode selected by timing mode, the <code>port_contend</code>
 decode, and finally the stretch magnitude from <code>kPat48[hc &amp; 0xF]</code> or
-<code>kPatP3[hc &amp; 0xF]</code>.</p>
+<code>kPatP3[hc &amp; 0xF]</code>. An I/O cycle goes through <code>io_clock_tick()</code>, which combines
+the two decodes per clock of the cycle: the port still sits on the address bus,
+so a port in a contended <em>page</em> is contended even when the port itself is not
+(<code>zxula.vhd:587-595</code>).</p>
 <p>Those patterns have <strong>sixteen</strong> entries because they are indexed by a 7 MHz
 pixel tick, not by a T-state. Indexing FUSE's eight-entry per-T-state pattern
 with a pixel counter under-charged five of the six contended phases and

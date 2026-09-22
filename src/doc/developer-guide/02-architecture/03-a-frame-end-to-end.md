@@ -52,9 +52,11 @@ logs the compositor replays. The visible symptom is a frame that renders flat.
    only place an NR 0x03 timing write takes effect: not the write itself,
    and not a soft reset, which hands the effective timing back unchanged
    (`eff_nr_03_machine_timing`, zxnext.vhd:6696-6703).
-3. Reset the frame-relative FUSE T-state counter, from which contention derives
-   its `(hc, vc)` position, after folding the outgoing frame into the monotonic
-   base that real-time tape playback runs off.
+3. Rebase the frame-relative FUSE T-state counter, from which contention derives
+   its `(hc, vc)` position, onto the new frame — seeded with the last
+   instruction's overshoot past the frame end, not zero, so it keeps agreeing
+   with the clock — after folding the outgoing frame into the monotonic base
+   that real-time tape playback runs off.
 4. Schedule the **ULA frame interrupt** at
    `VideoTiming::frame_int_master_cycle_offset()`, and the **line interrupt**
    via `reschedule_line_interrupt()`.
