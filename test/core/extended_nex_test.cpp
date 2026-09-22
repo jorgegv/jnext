@@ -726,6 +726,77 @@ int main() {
           v12_mem.ok && v12_mem.at_4000 == ExtendedNexHost::kHandle &&
           v12_mem.bc == 0x0000, bc_detail(v12_mem));
 
+    // GH #267 — the kept-open handle starts where the loader's bank loading
+    // left it, just after the last bank: nexload2.asm:390-407
+    // (.passHandleToApp) and nexload.asm:547-570 pass it on without a seek,
+    // so the first bare F_READ returns the appended payload. Measured under
+    // NextZXOS: a probe NEX doing a bare 4-byte F_READ on its handle gets the
+    // payload's first bytes, and F_FGETPOS then says payload + 4. The rows
+    // before these all seek first, so none looked at what a bare read gets.
+    struct BareRead { bool ok = false; std::string bytes; uint32_t pos = 0; };
+    auto bare_read = [&](const std::filesystem::path& path, uint16_t file_handle) {
+        BareRead r;
+        auto emu_ptr = std::make_unique<Emulator>();
+        EmulatorConfig bare_cfg = cfg;
+        bare_cfg.load_file = path.string();
+        const bool loaded = write_nex(path, file_handle, payload) &&
+                            emu_ptr->init(bare_cfg) && emu_ptr->load_nex(path.string());
+        Z80Registers rr{};
+        rr.AF = static_cast<uint16_t>(ExtendedNexHost::kHandle << 8);
+        rr.IX = 0x9000;
+        rr.BC = 4;
+        const bool read_ok = loaded && esx(*emu_ptr, 0x9D, rr) && !carry(rr) && rr.BC == 4;
+        for (uint16_t i = 0; i < 4; ++i)
+            r.bytes.push_back(static_cast<char>(emu_ptr->mmu().read(0x9000 + i)));
+        rr = {};
+        rr.AF = static_cast<uint16_t>(ExtendedNexHost::kHandle << 8);
+        const bool pos_ok = read_ok && esx(*emu_ptr, 0xA0, rr) && !carry(rr);
+        r.pos = (static_cast<uint32_t>(rr.BC) << 16) | rr.DE;
+        r.ok = pos_ok;
+        return r;
+    };
+    const BareRead bare_bc = bare_read(root / "bare-bc.nex", 0x0001);
+    check("XNEX-42",
+          "file_handle=1: a bare F_READ (no seek) returns the first payload bytes, and "
+          "F_FGETPOS then reports payload offset + 4 (GH #267)",
+          bare_bc.ok && bare_bc.bytes == "PAY!" && bare_bc.pos == 512 + 16384 + 4,
+          "bytes=" + bare_bc.bytes + " pos=" + std::to_string(bare_bc.pos));
+    const BareRead bare_mem = bare_read(root / "bare-mem.nex", 0xBFFE);
+    check("XNEX-43",
+          "file_handle=$BFFE (handle written to memory): a bare F_READ also starts at the "
+          "payload (GH #267)",
+          bare_mem.ok && bare_mem.bytes == "PAY!" && bare_mem.pos == 512 + 16384 + 4,
+          "bytes=" + bare_mem.bytes + " pos=" + std::to_string(bare_mem.pos));
+    {
+        // Control: the program's OWN F_OPEN of its file is a fresh open, at 0.
+        auto emu_ptr = std::make_unique<Emulator>();
+        const auto path = root / "reopen.nex";
+        EmulatorConfig reopen_cfg = cfg;
+        reopen_cfg.load_file = path.string();
+        const bool loaded = write_nex(path, 0x0001, payload) &&
+                            emu_ptr->init(reopen_cfg) && emu_ptr->load_nex(path.string());
+        Z80Registers rr{};
+        if (loaded) write_zstr(*emu_ptr, 0x9100, "reopen.nex");
+        rr.AF = static_cast<uint16_t>('*' << 8);
+        rr.BC = 0x0100;   // B = FA_READ
+        rr.IX = 0x9100;
+        const bool open_ok = loaded && esx(*emu_ptr, 0x9A, rr) && !carry(rr);
+        const uint8_t h = reg_a(rr);
+        rr = {};
+        rr.AF = static_cast<uint16_t>(h << 8);
+        rr.IX = 0x9000;
+        rr.BC = 4;
+        const bool read_ok = open_ok && esx(*emu_ptr, 0x9D, rr) && !carry(rr);
+        std::string bytes;
+        for (uint16_t i = 0; i < 4; ++i)
+            bytes.push_back(static_cast<char>(emu_ptr->mmu().read(0x9000 + i)));
+        check("XNEX-44",
+              "control: the program's own F_OPEN of its file starts at 0 — a bare F_READ "
+              "then returns the header's \"Next\"",
+              read_ok && h == ExtendedNexHost::kHandle && bytes == "Next",
+              "handle=" + std::to_string(h) + " bytes=" + bytes);
+    }
+
     Log::emulator()->sinks().pop_back();
 
     std::filesystem::remove_all(root, ec);

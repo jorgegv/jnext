@@ -6875,6 +6875,14 @@ bool Emulator::load_nex(const std::string& path)
                 active_nex_path_);
             return false;
         }
+        // GH #267 — the handle is the loader's own, passed on where its bank
+        // loading left it: just after the last bank (nexload2.asm:390-407
+        // `.passHandleToApp` and nexload.asm:547-570 hand it over without a
+        // seek), so a bare F_READ reads the appended payload. That is
+        // payload_offset(), the end of the header-described banks.
+        // Measured under NextZXOS: a bare 4-byte F_READ returns the first
+        // payload bytes and F_FGETPOS then reports payload + 4.
+        extended_nex_host_.seek(0, static_cast<uint32_t>(loader.payload_offset()));
         sd_card_.set_read_overlay(
             ExtendedNexHost::kSyntheticFirstBlock,
             extended_nex_host_.block_count(),

@@ -136,7 +136,8 @@ handle goes: 1 to `$3FFF` in `BC` (`B`=0, `C`=handle), `$4000` and above
 written to that address (`delivers_handle_in_bc()`; `nexload2.asm:397-407`,
 `nexload.asm:560-570` and `:606-609`). `Emulator::load_nex()` then opens the
 host file behind the handle — the extended-NEX host bridge in the stand-in
-below — and the program streams them. With 0, both loaders read the declared
+below — at `payload_offset()`, just after the last bank, where both loaders
+hand their own handle over (GH #267), and the program streams them. With 0, both loaders read the declared
 banks and close the file, with no size check at all (`nexload2.asm:390-395`,
 `nexload.asm:547-551`), so the bytes are dead. jnext matches that: the program
 loads and runs, and more than 16 KB of dead bytes logs a warning (GH #250,
@@ -274,11 +275,8 @@ real programs.
 
 **Known gaps.** A directly loaded program cannot reach host files other than
 the kept-open NEX and its siblings; a host directory for it is
-[#31](https://github.com/jorgegv/jnext/issues/31), not implemented. The
-kept-open handle starts at file position 0 rather than after the last bank, as
-`nexload` leaves it
-([#267](https://github.com/jorgegv/jnext/issues/267)). There is one
-in-memory file, with no `F_SEEK`. `M_DOSVERSION` reports 1.94 without the host
+[#31](https://github.com/jorgegv/jnext/issues/31), not implemented. There is
+one in-memory file, with no `F_SEEK`. `M_DOSVERSION` reports 1.94 without the host
 bridge.
 
 ## RZX
