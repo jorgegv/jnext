@@ -22,6 +22,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #endif
+#include <ctime>
 
 #include <QKeyEvent>
 #include <QCloseEvent>
@@ -586,28 +587,42 @@ void MainWindow::create_menus() {
     screenshot_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_S));
     connect(screenshot_action_, &QAction::triggered, this, [this]() {
         if (!emulator_) return;
+        // GH #18 — two formats, chosen by the extension, exactly as
+        // --delayed-screenshot chooses. The filter is the discoverable half
+        // of that: a user who never reads the man page still sees .scr here.
+        const QString png_filter = tr("PNG Images (*.png)");
+        const QString scr_filter = tr("ZX Screen Dumps (*.scr)");
+        QString selected = png_filter;
         QString path = QFileDialog::getSaveFileName(
             this, tr("Save Screenshot"), app_config_.data().screenshot_dir,
-            tr("PNG Images (*.png);;All Files (*)"));
+            png_filter + QStringLiteral(";;") + scr_filter
+                + QStringLiteral(";;") + tr("All Files (*)"),
+            &selected);
         if (path.isEmpty()) return;
-        if (!path.endsWith(".png", Qt::CaseInsensitive))
-            path += ".png";
+        // Only supply an extension when the user typed none: a name that
+        // already ends .png or .scr must keep the format it names, whichever
+        // filter row happened to be selected.
+        if (!path.endsWith(".png", Qt::CaseInsensitive)
+            && !path.endsWith(".scr", Qt::CaseInsensitive)) {
+            path += (selected == scr_filter) ? QStringLiteral(".scr")
+                                             : QStringLiteral(".png");
+        }
         // Task 66 — remember the containing directory for the next dialog.
         app_config_.data().screenshot_dir = QFileInfo(path).absolutePath();
         app_config_.save();
-        // The framebuffer is canonical 640×256 in-memory; save_screenshot_png
-        // vertically doubles to a 640×512 PNG with square pixels (G104).
-        bool ok = save_screenshot_png(path.toStdString(),
-                                       emulator_->get_framebuffer(),
-                                       emulator_->get_framebuffer_width(),
-                                       emulator_->get_framebuffer_height());
-        if (ok) {
-            statusBar()->showMessage(tr("Screenshot saved: %1").arg(path), 3000);
-        } else {
-            QMessageBox::warning(this, tr("Screenshot Error"),
-                tr("Failed to save screenshot to:\n%1").arg(path));
-        }
+        write_screenshot(path);
     });
+
+    // GH #19 — the same capture with no dialog at all. Alt+K: Alt+S is this
+    // dialog and Alt+Shift+S is Save Snapshot, Alt+Q/O/R/T/D/P are taken, the
+    // menu bar holds Alt+F/M/I/A/B/V/N/H and the GUEST owns Alt+E/G/C
+    // (keyboard.cpp:163,172-174). K is free in every one of those namespaces
+    // and is the label's own mnemonic, so the menu entry and the shortcut are
+    // the same letter rather than two unrelated choices.
+    quick_screenshot_action_ = file_menu->addAction(tr("Quic&k Screenshot"));
+    quick_screenshot_action_->setShortcut(QKeySequence(Qt::ALT | Qt::Key_K));
+    connect(quick_screenshot_action_, &QAction::triggered,
+            this, &MainWindow::on_quick_screenshot);
 
     // Save Snapshot... — wires SnaSaver to the GUI (G35: closes
     // BOOT-SNAPSAVE-01 + BOOT-SNAPSAVE-04). Shift+S keeps the standard
@@ -1694,6 +1709,52 @@ void MainWindow::handle_rzx_play_path(const QString& path) {
         return;
     }
     handle_load_path(path);
+}
+
+// ---------------------------------------------------------------------------
+// Screenshots (GH #18 .SCR format, GH #19 quick capture)
+// ---------------------------------------------------------------------------
+
+bool MainWindow::write_screenshot(const QString& path) {
+    if (!emulator_) return false;
+    // The framebuffer is canonical 640×256 in-memory; the PNG route
+    // vertically doubles it to 640×512 with square pixels (G104). The .SCR
+    // route ignores the framebuffer entirely and dumps the ULA screen
+    // memory instead (GH #18).
+    const bool ok = save_screenshot(path.toStdString(),
+                                    emulator_->get_framebuffer(),
+                                    emulator_->get_framebuffer_width(),
+                                    emulator_->get_framebuffer_height(),
+                                    emulator_->ula());
+    if (ok) {
+        statusBar()->showMessage(tr("Screenshot saved: %1").arg(path), 3000);
+    } else {
+        QMessageBox::warning(this, tr("Screenshot Error"),
+            tr("Failed to save screenshot to:\n%1").arg(path));
+    }
+    return ok;
+}
+
+void MainWindow::on_quick_screenshot() {
+    if (!emulator_) return;
+    const AppConfigData& cfg = app_config_.data();
+    // An empty setting means the built-in default rather than the current
+    // working directory: a capture with no dialog must still land somewhere
+    // the user can find, and "wherever jnext was started from" is not that.
+    const QString dir = cfg.quick_screenshot_dir.isEmpty()
+        ? QString::fromStdString(default_quick_screenshot_dir())
+        : cfg.quick_screenshot_dir;
+
+    const std::string path = auto_screenshot_path(
+        dir.toStdString(), cfg.quick_screenshot_format, std::time(nullptr));
+    if (path.empty()) {
+        // auto_screenshot_path() has already logged the reason (a directory
+        // it could not create, or 99 names taken inside one second).
+        QMessageBox::warning(this, tr("Screenshot Error"),
+            tr("Could not create a screenshot file in:\n%1").arg(dir));
+        return;
+    }
+    write_screenshot(QString::fromStdString(path));
 }
 
 // G35: wires SnaSaver/SzxSaver/NexSaver to File > Save Snapshot... —

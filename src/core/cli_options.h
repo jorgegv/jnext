@@ -448,7 +448,10 @@ inline constexpr Option OPTIONS[] = {
       "No whitespace (the BENCH line is space-delimited)" },
     { "--delayed-screenshot", 1, Doc::Documented, OptId::DelayedScreenshot,
       "FILE",
-      "Save a PNG screenshot after a delay" },
+      "Save a screenshot after a delay. The format comes from\n"
+      "FILE's extension: .scr writes the raw ULA screen memory\n"
+      "(6912 bytes, or 12288 in a Timex hi-colour/hi-res mode),\n"
+      "anything else writes a PNG of the composited picture" },
     { "--delayed-screenshot-time", 1, Doc::Documented, OptId::DelayedScreenshotTime,
       "N",
       "Delay in seconds (default 10)" },
@@ -463,7 +466,8 @@ inline constexpr Option OPTIONS[] = {
       "composite per NR 0x15 priority and the NR 0x4A fallback\n"
       "colour shows through. Excluding 'ula' also removes the\n"
       "border (the ULA draws it). E.g. --delayed-screenshot-layers\n"
-      "layer2 captures Layer 2 alone; 'ula,sprites' captures both." },
+      "layer2 captures Layer 2 alone; 'ula,sprites' captures both.\n"
+      "Rejected with a .scr screenshot, which has no layers." },
     { "--delayed-automatic-exit", 1, Doc::Documented, OptId::DelayedAutomaticExit,
       "N",
       "Exit the emulator after N seconds" },

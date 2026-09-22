@@ -596,13 +596,15 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
         if (frames_rendered > 0) {
             // The framebuffer holds a frame composited with the mask armed
             // above — capture it. If the write fails (missing directory, no
-            // permission, disk full) the PNG the user asked for does not
+            // permission, disk full) the file the user asked for does not
             // exist, which is the same failure as never taking it at all:
             // error + non-zero exit, per QtApp::shutdown()'s contract.
-            // save_screenshot_png() has already logged WHY.
-            if (!save_screenshot_png(a.screenshot_file_, a.emulator_.get_framebuffer(),
-                                     a.emulator_.get_framebuffer_width(),
-                                     a.emulator_.get_framebuffer_height())) {
+            // save_screenshot() has already logged WHY, and picks PNG or .SCR
+            // from the extension (GH #18).
+            if (!save_screenshot(a.screenshot_file_, a.emulator_.get_framebuffer(),
+                                 a.emulator_.get_framebuffer_width(),
+                                 a.emulator_.get_framebuffer_height(),
+                                 a.emulator_.ula())) {
                 Log::platform()->error(
                     "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
                     "see the error above. Exiting non-zero.",

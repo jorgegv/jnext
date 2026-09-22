@@ -388,7 +388,9 @@ debugger ones.
     line is space-delimited. Requires **\--benchmark**.
 
 **\--delayed-screenshot** *FILE*
-:   Save a PNG screenshot after a delay.
+:   Save a screenshot after a delay. The format is taken from *FILE*'s
+    extension: `.scr` writes the raw ULA screen memory, anything else writes a
+    PNG of the composited picture. See **SCREENSHOT FORMATS** below.
 
 **\--delayed-screenshot-time** *N*
 :   Delay in seconds (default 10). Requires **\--delayed-screenshot**.
@@ -400,7 +402,8 @@ debugger ones.
 **\--delayed-screenshot-layers** *LIST*
 :   Layers to compose into the screenshot: a comma-separated list of `ula`,
     `layer2`, `sprites`, `tiles`, `all` (default `all`). Requires
-    **\--delayed-screenshot**.
+    **\--delayed-screenshot**, and is rejected when that screenshot is a
+    `.scr`, which has no layers to choose from.
 
 **\--delayed-automatic-exit** *N*
 :   Exit the emulator after *N* seconds. The exit always fires, but work the
@@ -684,6 +687,7 @@ Notes worth knowing:
   still follow the NR 0x15 priority order and the NR 0x4A fallback colour shows
   through where everything is transparent. Excluding `ula` also removes the
   border: the ULA is what draws it.
+
 - Video recording (**\--record** *FILE*, or **File > Record MPEG4 Video**)
   pipes video and audio to ffmpeg, which must be installed.
 - WAV recording (**\--wav-record** *FILE*) captures the mixed audio before the
@@ -700,6 +704,50 @@ Notes worth knowing:
   independently before the master gain. They change playback and recording
   volume without changing guest-visible audio state and survive cold boots.
   Each explicit CLI value overrides its corresponding saved preference.
+
+## SCREENSHOT FORMATS
+
+The output format is never a separate option: it is whatever the filename's
+extension asks for, in **\--delayed-screenshot**, in **File > Save
+Screenshot...** and in **File > Quick Screenshot**.
+
+`.png`
+:   The composited picture — every enabled layer, the border, the palette, the
+    ULA scroll — exactly as the window shows it. The in-memory frame is
+    640x256; the file is 640x512, each row written twice, so the pixels are
+    square and the image is 4:3 without post-processing.
+
+`.scr`
+:   The raw ULA screen memory, the format Spectrum graphics tools read and
+    write. No composition, no palette, no scroll: it is a copy of the bytes the
+    ULA is fetching, from whichever screen bank is currently being displayed
+    (bank 5, or bank 7 while the 128K shadow screen is selected by port 0x7FFD
+    bit 3).
+
+    **A `.SCR` can only describe the classic ULA layer.** Layer 2, the tilemap,
+    the sprites, the LoRes modes and the Next palettes have no representation in
+    it at all, and are not in the file — a Layer 2 game captured to `.scr`
+    yields whatever happens to be sitting in the ULA screen memory, which is
+    often blank. Capture those as `.png`.
+
+    Size depends on the Timex screen mode in port 0xFF bits 2:0:
+
+    | Mode | Size | Contents |
+    |------|------|----------|
+    | Standard | 6912 | 6144 pixel bytes, then 768 attribute bytes |
+    | Standard, alt file (mode 1) | 6912 | the same, from the alternate screen at 0x6000/0x7800 |
+    | Timex hi-colour (modes 2, 3) | 12288 | pixel plane, then the per-cell attribute plane |
+    | Timex hi-res (modes 6, 7) | 12288 | the even pixel plane, then the odd one |
+
+    The 12288-byte form is the de-facto Timex `.SCR` layout, and is exactly the
+    two 6144-byte planes the ULA fetches. It does not record which of the two
+    Timex modes produced it, nor the hi-res ink/paper colour held in port 0xFF
+    bits 5:3, because the format has nowhere to put either. Writing 6912 bytes
+    in those modes was rejected as worse: the final 768 bytes would be pixel
+    data presented as attributes.
+
+    While the shadow screen is selected the ULA is forced back to the standard
+    mode by the hardware, so a shadow-screen capture is always 6912 bytes.
 
 # NETWORKING (ESP-01 WiFi)
 
@@ -948,7 +996,18 @@ Shift, so a Ctrl shortcut would eat a key the guest needs (see
 **File**
 :   Load a program (Alt+O - NEX/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Mount SD Card Image,
     Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record RZX / Stop
-    RZX, Save Screenshot (Alt+S), Save Snapshot (Alt+Shift+S), Quit (Alt+Q).
+    RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save Snapshot
+    (Alt+Shift+S), Quit (Alt+Q).
+
+    **Save Screenshot...** asks for a name; the extension chooses the format
+    (**SCREENSHOT FORMATS** above). **Quick Screenshot** asks nothing: it
+    writes `jnext-YYYYMMDD-HHMMSS.png` (or `.scr`) into the quick-screenshot
+    directory immediately and names the file it wrote in the status bar, so a
+    sequence of captures costs one keypress each. The directory and the format
+    are set under **Settings > Preferences > Paths**; the directory defaults to
+    `~/.jnext/screenshots` and is created on first use. A name already in use
+    gains a `-02`, `-03` suffix, so two captures in the same second cannot
+    overwrite each other.
 
 **Machine**
 :   Power Reset (Alt+R - power off/on cold boot, full boot chain), Soft Reset
@@ -1050,7 +1109,7 @@ takes are Ctrl+F5 and Ctrl+F6 (start and stop video recording), and function
 keys have no Spectrum meaning to lose.
 
 Alt is the opposite: it is a host modifier, never a Spectrum key. jnext claims
-Alt + Q/O/S/R/T/D/P and Alt+Shift+S (menu shortcuts) plus Alt + F/M/I/A/B/V/N/H
+Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts) plus Alt + F/M/I/A/B/V/N/H
 (menu bar), which leaves the guest only Alt + E/G/C (EDIT, GRAPH, CAPS LOCK)
 and Alt + the key left of `1` (INV VIDEO). Real Next hardware instead maps Left
 Alt to EXTEND MODE and Right Alt to GRAPH; jnext deliberately does not,
@@ -1213,8 +1272,16 @@ Capture Layer 2 on its own, then the ULA and sprites together:
     bar carries the ESP cell **NETWORKING** describes, so neither a config file
     nor that page can put the guest on the network without saying so.
     **\--no-esp** overrides it for one run.
+    The quick screenshot is stored under `[screenshot]` as `quick_dir` (empty
+    means `~/.jnext/screenshots`) and `quick_format` (`png` or `scr`), edited
+    under **Settings > Preferences > Paths**; an unrecognised format keeps the
+    default.
     CLI options always take precedence over saved values, and headless runs
     never read it.
+
+`~/.jnext/screenshots/`
+:   Where **File > Quick Screenshot** writes, unless `[screenshot] quick_dir`
+    says otherwise. Created on the first capture.
 
 `~/.jnext/sdcard/cspect-next-1gb-fixed.img`
 :   The default SD-card image, used when **\--sdcard** is not given.

@@ -405,7 +405,10 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     the `BENCH` line is space-delimited. Requires **--benchmark**.
 
 **--delayed-screenshot** *FILE*
-:   Save a PNG screenshot after a delay.
+:   Save a screenshot after a delay. The format is taken from *FILE*’s
+    extension: `.scr` writes the raw ULA screen memory, anything else
+    writes a PNG of the composited picture. See **SCREENSHOT FORMATS**
+    below.
 
 **--delayed-screenshot-time** *N*
 :   Delay in seconds (default 10). Requires **--delayed-screenshot**.
@@ -417,7 +420,8 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 **--delayed-screenshot-layers** *LIST*
 :   Layers to compose into the screenshot: a comma-separated list of
     `ula`, `layer2`, `sprites`, `tiles`, `all` (default `all`). Requires
-    **--delayed-screenshot**.
+    **--delayed-screenshot**, and is rejected when that screenshot is a
+    `.scr`, which has no layers to choose from.
 
 **--delayed-automatic-exit** *N*
 :   Exit the emulator after *N* seconds. The exit always fires, but work

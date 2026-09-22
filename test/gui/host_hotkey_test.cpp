@@ -163,6 +163,12 @@ void disarm_actions(MainWindow& w) {
     // Issue #259's Preferences too: on_open_preferences() opens a modal dialog.
     if (QAction* a = find_action(w, "&Preferences..."))
         QObject::disconnect(a, nullptr, nullptr, nullptr);
+    // GH #19's Quick Screenshot: it is inert on this emulator-less window
+    // (on_quick_screenshot() returns at once), but disarmed with the rest so
+    // the row below rewires a recorder exactly as every other activation row
+    // does, rather than depending on that guard staying in place.
+    if (QAction* a = find_action(w, "Quic&k Screenshot"))
+        QObject::disconnect(a, nullptr, nullptr, nullptr);
 }
 
 // Every top-level menubar mnemonic, as "Alt+X" portable strings.
@@ -501,6 +507,60 @@ void test_preferences_chord(MainWindow& w) {
 }
 
 // ---------------------------------------------------------------------------
+// Group 3d — GH #19: File > Quick Screenshot is a host chord too
+// ---------------------------------------------------------------------------
+//
+// A no-dialog capture is only worth having as ONE keypress, so it needs a
+// chord of its own — and every chord in this window has to come out of the Alt
+// namespace, because Ctrl is Symbol Shift. Alt+K is what was free: Alt+S is
+// Save Screenshot and Alt+Shift+S is Save Snapshot, Alt+Q/O/R/T/D/P are taken,
+// the menu bar holds Alt+F/M/I/A/B/V/N/H, and the guest owns Alt+E/G/C
+// (keyboard.cpp:163,172-174). H115-26 keeps the namespace itself unambiguous;
+// these two rows pin that THIS action carries the chord and that the chord
+// reaches it rather than the guest.
+
+const char* const QUICK_SHOT_TEXT = "Quic&k Screenshot";
+
+void test_quick_screenshot_chord(MainWindow& w) {
+    // H115-36 — the action exists and carries exactly Alt+K.
+    {
+        QAction* a = find_action(w, QUICK_SHOT_TEXT);
+        check("H115-36", "action \"Quic&k Screenshot\" is bound to Alt+K",
+              a != nullptr && seq_of(a) == QStringLiteral("Alt+K"),
+              a ? ("got='" + seq_of(a) + "'").toStdString() : "action not found");
+    }
+
+    // H115-37 — Alt+K fires it through the live shortcut map and types no K
+    // into the guest. Same shape and scoping as H115-33/35: Qt consults the
+    // shortcut map on KeyPress only, so the guest check is on the K PRESS.
+    {
+        QAction* quick = find_action(w, QUICK_SHOT_TEXT);
+        bool fired = false;
+        if (quick) QObject::connect(quick, &QAction::triggered, [&fired]() { fired = true; });
+
+        bool k_pressed_in_guest = false;
+        w.set_key_callback([&k_pressed_in_guest](SDL_Scancode sc, bool pressed) {
+            if (sc == SDL_SCANCODE_K && pressed) k_pressed_in_guest = true;
+        });
+
+        send(w, Qt::Key_Alt, Qt::NoModifier,  true);
+        send(w, Qt::Key_K,   Qt::AltModifier, true);
+        QApplication::processEvents();
+        send(w, Qt::Key_K,   Qt::AltModifier, false);
+        send(w, Qt::Key_Alt, Qt::NoModifier,  false);
+
+        check("H115-37",
+              "Alt+K activates Quick Screenshot and types no K into the guest",
+              quick != nullptr && fired && !k_pressed_in_guest,
+              std::string("fired=") + (fired ? "1" : "0") +
+              " k_pressed_in_guest=" + (k_pressed_in_guest ? "1" : "0"));
+
+        if (quick) QObject::disconnect(quick, nullptr, nullptr, nullptr);
+        w.set_key_callback(nullptr);
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Group 4 — the Alt namespace has no ambiguous binding
 // ---------------------------------------------------------------------------
 
@@ -659,6 +719,7 @@ int main(int argc, char** argv) {
     test_alt_activation(w);
     test_snapshot_chord(w);
     test_preferences_chord(w);
+    test_quick_screenshot_chord(w);
     test_alt_namespace(w);
 
     // Group 5 needs a SECOND window, with an emulator attached: the bug-button

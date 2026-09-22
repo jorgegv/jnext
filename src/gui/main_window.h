@@ -314,6 +314,16 @@ private:
     // Snapshot save slot (G35: wires SnaSaver to File menu).
     void on_save_snapshot();
 
+    /// GH #18/#19 — the single write path behind both screenshot menu
+    /// entries. Picks PNG or .SCR from `path`'s extension, reports the file
+    /// it wrote in the status bar, and raises a dialog when it could not.
+    /// Returns true on success.
+    bool write_screenshot(const QString& path);
+
+    /// GH #19 — File > Quick Screenshot (Alt+K): no dialog, auto-generated
+    /// name, into the configured quick-screenshot directory.
+    void on_quick_screenshot();
+
     // Preferences dialog (Task 66).
     void on_open_preferences();
     /// The real modal confirmation, used when no ConfirmRestartCallback is
@@ -428,8 +438,9 @@ private:
     // Live-apply + persist a per-connector source change from the Input menu.
     void on_joy_source_selected(int connector, JoySource src);
 
-    // Screenshot action
+    // Screenshot actions
     QAction* screenshot_action_ = nullptr;
+    QAction* quick_screenshot_action_ = nullptr;   // GH #19
 
     // Task 66 — persisted GUI preferences (~/.jnext/jnext.conf).
     // Loaded in the constructor; saved whenever the Preferences dialog is

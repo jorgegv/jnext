@@ -990,6 +990,14 @@ my %NO_MATRIX_SECTION = (
     'present_cadence_test' => 'host present cadence policy (wall-clock, not core timing)',
     'present_count_test'   => 'host present accounting (wall-clock, not core timing)',
     'render_policy_test'   => 'host render/skip policy (wall-clock, not core timing)',
+
+    # ── Screenshot output files ──────────────────────────────────────
+    # GH #18/#19. Which extension means which format, what an
+    # auto-generated name looks like, and whether a failed write is
+    # reported: host file behaviour, and the core writes no files. The
+    # HARDWARE half of `.SCR` — which bank and which address window the
+    # dump comes from — is `## ULA-VIDEO`'s S18 group, cited there.
+    'screenshot_test' => 'host screenshot file formats and auto-naming, no core counterpart',
     'frame_deadline_test'  => 'host frame-deadline scheduling (wall-clock)',
     'frame_sequencer_test' => 'host frame sequencer (wall-clock run/present ordering)',
     'tick_stats_test'      => 'host tick accounting for the status bar',

@@ -559,6 +559,17 @@ add_executable(present_cadence_test platform/present_cadence_test.cpp)
 target_include_directories(present_cadence_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME present_cadence_tests COMMAND present_cadence_test)
 
+# Screenshot output formats, auto-naming and write failures (GH #18, #19).
+# Host-side file behaviour only: which extension means which format, what an
+# auto-generated name looks like, and that a write that did not happen is
+# reported. Needs jnext_platform (the writers) and jnext_video (a real Ula for
+# the .SCR dispatch row); no Qt, no SDL frontend.
+add_executable(screenshot_test platform/screenshot_test.cpp)
+target_link_libraries(screenshot_test PRIVATE
+    jnext_platform jnext_video jnext_memory)
+target_include_directories(screenshot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME screenshot_tests COMMAND screenshot_test)
+
 # Superseded-composite render-skip policy test (issue #9 / Task 63). Header-only
 # decision helper under test (src/platform/render_policy.h) — no Qt, no SDL,
 # no emulator core.

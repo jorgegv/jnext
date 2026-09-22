@@ -941,6 +941,39 @@ renderer. The PaletteManager change-log already exists for palette
 | S17.03 | NR 0x43 b1-3 selector and NR 0x6B b4 are independent — flipping one does not perturb the other         | Two change-log streams; cross-write does not race                                                   | skip (F-G10-PALSEL, see G10) |
 | S17.04 | `PaletteManager::start_frame()` rewinds the selector change-log; line-0 baseline reflects last-frame   | First-line render of frame N uses last-write-of-frame-(N-1) selector                               | skip (F-G10-PALSEL, see G10) |
 
+## Section 18: `.SCR` screen dump (GH #18)
+
+### VHDL reference
+
+`Ula::screen_dump()` copies the ULA's own storage for a `.SCR` screenshot, so
+the only thing it can get wrong is WHICH bank and WHICH address window — and
+both are hardware decisions with an oracle.
+
+`zxnext.vhd:6649-6656` — `ula_bank_do <= vram_bank5_do1 when ula_vram_shadow =
+'0' else vram_bank7_do`: bank choice is the port 0x7FFD bit-3 shadow bit alone,
+independent of the Timex screen mode. `zxula.vhd:191` — `screen_mode_s <=
+i_port_ff_reg(2 downto 0) when i_ula_shadow_en = '0' else "000"`: shadow masks
+the mode, so a shadow dump is always the classic layout. `zxula.vhd:218` — the
+mode field's bit 0 is the alt-file select (pixels 0x6000 / attrs 0x7800).
+`zxula.vhd:235/245` fetch both 6144-byte planes in the Timex modes and
+`zxula.vhd:389` interleaves them in hi-res, which is why those modes dump
+12288 bytes rather than 6912: the second plane is a whole plane, and 768
+attribute bytes cannot stand in for it.
+
+The FILE side — which extension selects which format, the auto-generated name,
+and reporting a write that did not happen — has no VHDL counterpart and lives
+in `screenshot_test` (`test/platform/screenshot_test.cpp`), tombstoned in the
+matrix accordingly.
+
+| ID     | Test                                                                                        | Expected                                                                 | Status |
+|--------|---------------------------------------------------------------------------------------------|--------------------------------------------------------------------------|--------|
+| S18.01 | STANDARD mode, markers at bank-5 +0x0000 / +0x17FF / +0x1800 / +0x1AFF                       | 6912 bytes: 6144 pixels from +0x0000, then 768 attributes from +0x1800   | pass |
+| S18.02 | Port 0xFF mode bits = 001 (Timex alt file), markers at +0x2000 / +0x37FF / +0x3800 / +0x3AFF | 6912 bytes from +0x2000 / +0x3800; the primary screen does not appear    | pass |
+| S18.03 | Port 0xFF mode bits = 010 (hi-colour), markers at both plane boundaries                      | 12288 bytes: plane 0 from +0x0000, then plane 1 from +0x2000             | pass |
+| S18.04 | Port 0xFF mode bits = 110 (hi-res), markers at both plane bases                              | 12288 bytes, same two planes — decoded by a separate arm from S18.03     | pass |
+| S18.05 | Shadow-screen enabled, distinct markers in bank 5 and bank 7                                 | The dump is bank 7's; no bank-5 byte appears                             | pass |
+| S18.06 | Hi-colour selected in port 0xFF AND shadow enabled                                           | 6912 bytes (mode masked to "000"), port 0xFF still reads 0x02            | pass |
+
 ## Total Test Count
 
 | Section | Area | Tests |

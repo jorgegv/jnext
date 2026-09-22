@@ -44,7 +44,11 @@ carries an ESP cell, so it can never be on invisibly.
 
 **Paths** remembers three directories so the file dialogs open somewhere
 useful: the last directory you loaded a program from, a default SD-card image,
-and where screenshots go.
+and where screenshots go. It also holds the two settings **File > Quick
+Screenshot** needs, since that capture never asks: the directory it writes to
+(blank means `~/.jnext/screenshots`) and whether it writes PNG or SCR. Those
+two are a deliberate choice rather than a memory of the last dialog, so the
+quick capture always lands in the same place.
 
 ## Apply, OK and Cancel
 

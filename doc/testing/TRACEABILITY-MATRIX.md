@@ -23,7 +23,7 @@ mentions them, so a test can no longer be absent from this document.
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
 | Memory/MMU                                 |   262 |  256 |    0 |    0 |       6 |          0 |
-| ULA Video                                  |   132 |  128 |    0 |    0 |       4 |          0 |
+| ULA Video                                  |   138 |  134 |    0 |    0 |       4 |          0 |
 | Layer2                                     |   209 |  201 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   221 |  214 |    0 |    0 |       7 |          0 |
 | Tilemap                                    |   102 |   84 |    0 |    0 |      18 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    40 |   40 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4643 | 4391 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4649 | 4397 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4643**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4375**. Rows the 106 suites declared in `test/unit-tests.conf` run live: **7634**.
+Rows the sections above carry: **4649**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4381**. Rows the 107 suites declared in `test/unit-tests.conf` run live: **7679**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -75,7 +75,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 65 suites (3447 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 66 suites (3486 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -94,6 +94,7 @@ These 65 suites (3447 live rows) have no VHDL-derived plan row to map, so they h
 | `subsystem_gain_test` | 26 | host per-subsystem gain control (a user setting) |
 | `present_cadence_test` | 34 | host present cadence policy (wall-clock, not core timing) |
 | `render_policy_test` | 10 | host render/skip policy (wall-clock, not core timing) |
+| `screenshot_test` | 24 | host screenshot file formats and auto-naming, no core counterpart |
 | `emulator_boot_test` | 67 | host cold-boot choreography (GH #40 contract, no VHDL oracle) |
 | `preferences_apply_policy_test` | 20 | Preferences apply/revert policy (host GUI) |
 | `window_attach_test` | 32 | host window-attach geometry (GH #39 contract, no VHDL oracle) |
@@ -121,7 +122,7 @@ These 65 suites (3447 live rows) have no VHDL-derived plan row to map, so they h
 | `persistent_bp_test` | 18 | debugger breakpoint arming policy (GH #219, jnext-internal); the T80N core has no debugger |
 | `io_watchpoint_test` | 25 | debugger I/O watchpoints (GH #222, jnext-internal); the T80N core has no debugger |
 | `resume_step_off_test` | 19 | debugger resume/step-off execution control (GH #221, jnext-internal); the T80N core has no debugger |
-| `app_config_test` | 60 | jnext.conf schema/precedence (host settings file) |
+| `app_config_test` | 66 | jnext.conf schema/precedence (host settings file) |
 | `audio_gain_config_test` | 22 | gain settings persistence (host settings file) |
 | `audio_gain_preferences_test` | 10 | gain controls in the Preferences dialog (host GUI) |
 | `present_count_test` | 17 | host present accounting (wall-clock, not core timing) |
@@ -130,12 +131,12 @@ These 65 suites (3447 live rows) have no VHDL-derived plan row to map, so they h
 | `rzx_menu_test` | 15 | RZX File-menu error dialogs (GUI), no core counterpart |
 | `load_error_test` | 11 | GUI load-failure reporting and Tape menu (GUI), no core counterpart |
 | `esc_break_test` | 6 | host ESC->BREAK binding; guest matrix is `## Input` |
-| `host_hotkey_test` | 35 | host hotkey bindings (Alt vs the guest Symbol Shift) |
+| `host_hotkey_test` | 37 | host hotkey bindings (Alt vs the guest Symbol Shift) |
 | `main_window_accel_test` | 5 | main-window menu mnemonics (host GUI) |
 | `shifted_keys_test` | 22 | host shifted-scancode translation; guest matrix is `## Input` |
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
 | `quit_cleanup_test` | 7 | host shutdown ordering (GUI lifecycle) |
-| `preferences_apply_test` | 46 | Preferences dialog wiring (host GUI) |
+| `preferences_apply_test` | 53 | Preferences dialog wiring (host GUI) |
 | `debugger_video_panel_test` | 92 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 15 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 5 | debugger quit gating (host GUI lifecycle) |
@@ -450,10 +451,16 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | S9-PSL.02 | zxula.vhd:192,206 — NR 0x27 mid-frame split: line32→row0(white) line33→row2(black) | zxula.vhd:192,206 | pass | test/ula/ula_test.cpp:2954 |
 | S9-PSL.03 | zxula.vhd:199 — NR 0x68 b2 fine_scroll mid-frame flip per line | zxula.vhd:199 | pass | test/ula/ula_test.cpp:2994 |
 | S9-PSL.04 | zxula.vhd:193-207 — start_frame_scroll clears log and snapshots baseline | zxula.vhd:193-207 | pass | test/ula/ula_test.cpp:3025 |
-| S17.01 | zxnext.vhd:5391-5393 — NR 0x43 b1-3 selector change-log captures per-line snapshots | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3382 |
-| S17.02 | zxnext.vhd:5462 + :6826 — NR 0x6B b4 mid-frame flip lands on the correct scanline | zxnext.vhd:5462,6826 | pass | test/ula/ula_test.cpp:3412 |
-| S17.03 | zxnext.vhd:5391-5393 vs :5462 — NR 0x43 / NR 0x6B b4 are independent change-streams | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3454 |
-| S17.04 | zxnext.vhd:5391-5393 + :5462 — palsel_start_frame clears logs and snapshots baseline from live state | zxnext.vhd:5391-5393,5462 | pass | test/ula/ula_test.cpp:3494 |
+| S17.01 | zxnext.vhd:5391-5393 — NR 0x43 b1-3 selector change-log captures per-line snapshots | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3538 |
+| S17.02 | zxnext.vhd:5462 + :6826 — NR 0x6B b4 mid-frame flip lands on the correct scanline | zxnext.vhd:5462,6826 | pass | test/ula/ula_test.cpp:3568 |
+| S17.03 | zxnext.vhd:5391-5393 vs :5462 — NR 0x43 / NR 0x6B b4 are independent change-streams | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3610 |
+| S17.04 | zxnext.vhd:5391-5393 + :5462 — palsel_start_frame clears logs and snapshots baseline from live state | zxnext.vhd:5391-5393,5462 | pass | test/ula/ula_test.cpp:3650 |
+| S18.01 | zxula.vhd:191 — STANDARD dump is 6912 bytes: 6144 pixels @ +0x0000 then 768 attrs @ +0x1800 | zxula.vhd:191 | pass | test/ula/ula_test.cpp:3238 |
+| S18.02 | zxula.vhd:218 — port 0xFF mode 001 dumps the alt file: 6912 bytes from +0x2000 / +0x3800 | zxula.vhd:218 | pass | test/ula/ula_test.cpp:3261 |
+| S18.03 | zxula.vhd:235/245 — hi-colour dumps both fetched planes: 12288 bytes, +0x0000 then +0x2000 | zxula.vhd:235/245 | pass | test/ula/ula_test.cpp:3284 |
+| S18.04 | zxula.vhd:389 — hi-res dumps the even and odd pixel planes: 12288 bytes, +0x0000 then +0x2000 | zxula.vhd:389 | pass | test/ula/ula_test.cpp:3305 |
+| S18.05 | zxnext.vhd:6649-6656 — the 0x7FFD b3 shadow bit alone moves the dump to bank 7 | zxnext.vhd:6649-6656 | pass | test/ula/ula_test.cpp:3326 |
+| S18.06 | zxula.vhd:191 — i_ula_shadow_en forces screen_mode to "000", so a shadow dump is 6912 bytes even in hi-colour | zxula.vhd:191 | pass | test/ula/ula_test.cpp:3350 |
 | S13.03 | Pentagon frame length | — | missing | — |
 | S14.04 | Interrupt disabled | — | missing | — |
 | S14.05 | Line interrupt fires | — | missing | — |
@@ -567,9 +574,9 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | S13.02 | zxula_timing.vhd — 128K c_max_hc=455, c_max_vc=310 → 456*311/2 = 70908 T-states | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3121 |
 | S13.04 | zxula_timing.vhd — 48K min_hactive=128, min_vactive=64 → display origin (128,64) 256x192 | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3132 |
 | S13.14 | zxula_timing.vhd — frame_done flips exactly at 69888 T-states (48K) | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3161 |
-| S15.01 | zxnext.vhd:4453 — primary render reads bank 5 (page 10) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3217 |
-| S15.02 | zxnext.vhd:4453 — i_ula_shadow_en selects bank 7 (page 14) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3236 |
-| S16.01 | zxnext.vhd:6957-6958/4919 — NR 0xFF poke at (bank=NR0x43b6, idx=bf3b[5:0]) commits RRRGGGBBB(B0=B1\|B0) | zxnext.vhd:6957-6958/4919 | pass | test/ula/ula_test.cpp:3323 |
+| S15.01 | zxnext.vhd:4453 — primary render reads bank 5 (page 10) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3373 |
+| S15.02 | zxnext.vhd:4453 — i_ula_shadow_en selects bank 7 (page 14) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3392 |
+| S16.01 | zxnext.vhd:6957-6958/4919 — NR 0xFF poke at (bank=NR0x43b6, idx=bf3b[5:0]) commits RRRGGGBBB(B0=B1\|B0) | zxnext.vhd:6957-6958/4919 | pass | test/ula/ula_test.cpp:3479 |
 
 ## Layer2 — `test/layer2/layer2_test.cpp`
 

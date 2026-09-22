@@ -3203,6 +3203,162 @@ static void test_section14_frame_int() {
 // Section 15: Shadow Screen (zxnext.vhd:4453) — 4 rows
 // =========================================================================
 
+// ── Section 18 — `.SCR` screen dump (GH #18) ─────────────────────────
+//
+// The dump is a copy of the ULA's own storage, so the ONLY thing to assert is
+// that the right bank and the right address window are copied, and that is
+// hardware behaviour with a VHDL oracle:
+//   zxnext.vhd:6649-6656  the shadow bit alone picks bank 5 vs bank 7
+//   zxula.vhd:191         shadow forces the screen mode back to "000"
+//   zxula.vhd:218         the mode's bit 0 is the alt-file select
+//   zxula.vhd:235/245     hi-colour/hi-res fetch both 6144-byte planes
+//
+// Each row writes a distinct marker at every boundary the layout claims, so a
+// wrong base or a wrong length shows up as a named byte rather than a length
+// mismatch alone. The file writer is not involved: that is screenshot_test.
+
+static void test_section18_scr_dump() {
+    set_group("S18-ScrDump");
+
+    // Bank-5 offsets of the four windows a dump can start from, written
+    // directly rather than through poke() so a bank-7 row can use the same
+    // offsets against page 14.
+    constexpr uint32_t kBank5 = 10u * 8192u;
+    constexpr uint32_t kBank7 = 14u * 8192u;
+
+    // S18.01 — STANDARD: 6912 bytes, pixels from +0x0000, attrs from +0x1800.
+    {
+        UlaBed bed;
+        bed.ram.write(kBank5 + 0x0000, 0xA1);   // first pixel byte
+        bed.ram.write(kBank5 + 0x17FF, 0xA2);   // last pixel byte
+        bed.ram.write(kBank5 + 0x1800, 0xA3);   // first attribute byte
+        bed.ram.write(kBank5 + 0x1AFF, 0xA4);   // last attribute byte
+        bed.ram.write(kBank5 + 0x2000, 0xEE);   // alt file — must NOT appear
+        const std::vector<uint8_t> d = bed.ula.screen_dump();
+        check("S18.01",
+              "zxula.vhd:191 — STANDARD dump is 6912 bytes: 6144 pixels @ +0x0000 "
+              "then 768 attrs @ +0x1800",
+              d.size() == 6912 && d[0] == 0xA1 && d[6143] == 0xA2
+                  && d[6144] == 0xA3 && d[6911] == 0xA4,
+              fmt("size=%zu [0]=%02X [6143]=%02X [6144]=%02X [6911]=%02X",
+                  d.size(), d.empty() ? 0 : d[0],
+                  d.size() > 6143 ? d[6143] : 0,
+                  d.size() > 6144 ? d[6144] : 0,
+                  d.size() > 6911 ? d[6911] : 0));
+    }
+
+    // S18.02 — STANDARD_1 (port 0xFF mode bits = 001): the Timex alt file,
+    // bank offsets 0x2000 / 0x3800 (CPU 0x6000 / 0x7800).
+    {
+        UlaBed bed;
+        bed.ram.write(kBank5 + 0x0000, 0xEE);   // primary — must NOT appear
+        bed.ram.write(kBank5 + 0x2000, 0xB1);
+        bed.ram.write(kBank5 + 0x37FF, 0xB2);
+        bed.ram.write(kBank5 + 0x3800, 0xB3);
+        bed.ram.write(kBank5 + 0x3AFF, 0xB4);
+        bed.ula.set_screen_mode(0x01);
+        const std::vector<uint8_t> d = bed.ula.screen_dump();
+        check("S18.02",
+              "zxula.vhd:218 — port 0xFF mode 001 dumps the alt file: 6912 bytes "
+              "from +0x2000 / +0x3800",
+              d.size() == 6912 && d[0] == 0xB1 && d[6143] == 0xB2
+                  && d[6144] == 0xB3 && d[6911] == 0xB4,
+              fmt("size=%zu [0]=%02X [6143]=%02X [6144]=%02X [6911]=%02X",
+                  d.size(), d.empty() ? 0 : d[0],
+                  d.size() > 6143 ? d[6143] : 0,
+                  d.size() > 6144 ? d[6144] : 0,
+                  d.size() > 6911 ? d[6911] : 0));
+    }
+
+    // S18.03 — HI_COLOUR (mode 010): two 6144-byte planes, +0x0000 then
+    // +0x2000. 12288 bytes, because the second plane is the per-cell
+    // attribute plane and 768 bytes cannot hold it.
+    {
+        UlaBed bed;
+        bed.ram.write(kBank5 + 0x0000, 0xC1);
+        bed.ram.write(kBank5 + 0x17FF, 0xC2);
+        bed.ram.write(kBank5 + 0x2000, 0xC3);
+        bed.ram.write(kBank5 + 0x37FF, 0xC4);
+        bed.ula.set_screen_mode(0x02);
+        const std::vector<uint8_t> d = bed.ula.screen_dump();
+        check("S18.03",
+              "zxula.vhd:235/245 — hi-colour dumps both fetched planes: 12288 bytes, "
+              "+0x0000 then +0x2000",
+              d.size() == 12288 && d[0] == 0xC1 && d[6143] == 0xC2
+                  && d[6144] == 0xC3 && d[12287] == 0xC4,
+              fmt("size=%zu [0]=%02X [6143]=%02X [6144]=%02X [12287]=%02X",
+                  d.size(), d.empty() ? 0 : d[0],
+                  d.size() > 6143 ? d[6143] : 0,
+                  d.size() > 6144 ? d[6144] : 0,
+                  d.size() > 12287 ? d[12287] : 0));
+    }
+
+    // S18.04 — HI_RES (mode 110): the same two planes. Distinct row from
+    // S18.03 because the modes decode separately (set_screen_mode's case 6/7
+    // arm) and a dump that handled only one of them would still pass the other.
+    {
+        UlaBed bed;
+        bed.ram.write(kBank5 + 0x0000, 0xD1);
+        bed.ram.write(kBank5 + 0x2000, 0xD2);
+        bed.ula.set_screen_mode(0x06);
+        const std::vector<uint8_t> d = bed.ula.screen_dump();
+        check("S18.04",
+              "zxula.vhd:389 — hi-res dumps the even and odd pixel planes: "
+              "12288 bytes, +0x0000 then +0x2000",
+              d.size() == 12288 && d[0] == 0xD1 && d[6144] == 0xD2,
+              fmt("size=%zu [0]=%02X [6144]=%02X",
+                  d.size(), d.empty() ? 0 : d[0],
+                  d.size() > 6144 ? d[6144] : 0));
+    }
+
+    // S18.05 — the shadow screen moves the dump to bank 7 and nothing else
+    // does: bank choice is the 7FFD bit alone.
+    {
+        UlaBed bed;
+        bed.ram.write(kBank5 + 0x0000, 0xEE);   // bank 5 — must NOT appear
+        bed.ram.write(kBank5 + 0x1800, 0xEF);
+        bed.ram.write(kBank7 + 0x0000, 0x51);
+        bed.ram.write(kBank7 + 0x17FF, 0x52);
+        bed.ram.write(kBank7 + 0x1800, 0x53);
+        bed.ram.write(kBank7 + 0x1AFF, 0x54);
+        bed.ula.set_shadow_screen_en(true);
+        const std::vector<uint8_t> d = bed.ula.screen_dump();
+        check("S18.05",
+              "zxnext.vhd:6649-6656 — the 0x7FFD b3 shadow bit alone moves the dump "
+              "to bank 7",
+              d.size() == 6912 && d[0] == 0x51 && d[6143] == 0x52
+                  && d[6144] == 0x53 && d[6911] == 0x54,
+              fmt("size=%zu [0]=%02X [6143]=%02X [6144]=%02X [6911]=%02X",
+                  d.size(), d.empty() ? 0 : d[0],
+                  d.size() > 6143 ? d[6143] : 0,
+                  d.size() > 6144 ? d[6144] : 0,
+                  d.size() > 6911 ? d[6911] : 0));
+    }
+
+    // S18.06 — shadow masks the Timex mode, so a shadow dump is ALWAYS the
+    // 6912-byte classic layout even with hi-colour selected in port 0xFF.
+    // This is the row that distinguishes "mask applied" from "mode ignored":
+    // the port 0xFF value stays set and the primary bank still holds the
+    // hi-colour markers.
+    {
+        UlaBed bed;
+        bed.ram.write(kBank7 + 0x0000, 0x61);
+        bed.ram.write(kBank7 + 0x1800, 0x62);
+        bed.ula.set_screen_mode(0x02);          // hi-colour requested...
+        bed.ula.set_shadow_screen_en(true);     // ...but shadow forces "000"
+        const std::vector<uint8_t> d = bed.ula.screen_dump();
+        check("S18.06",
+              "zxula.vhd:191 — i_ula_shadow_en forces screen_mode to \"000\", so a "
+              "shadow dump is 6912 bytes even in hi-colour",
+              d.size() == 6912 && d[0] == 0x61 && d[6144] == 0x62
+                  && bed.ula.get_screen_mode_reg() == 0x02,
+              fmt("size=%zu [0]=%02X [6144]=%02X port_ff=%02X",
+                  d.size(), d.empty() ? 0 : d[0],
+                  d.size() > 6144 ? d[6144] : 0,
+                  bed.ula.get_screen_mode_reg()));
+    }
+}
+
 static void test_section15_shadow() {
     set_group("S15-Shadow");
 
@@ -3526,6 +3682,7 @@ int main() {
     test_section15_shadow();
     test_section16_nrff_palette();
     test_section17_palette_select();
+    test_section18_scr_dump();
 
     std::printf("\n=== Results by group ===\n");
     std::string last_group;

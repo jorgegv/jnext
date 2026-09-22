@@ -19,7 +19,8 @@ class QPlainTextEdit;
 /// per-connector Joy 1 / Joy 2 host source: SDL gamepad vs cursor keys),
 /// **Audio** (host output gain), **Network** (GH #25 — the emulated ESP-01
 /// and its hostname allowlist), and **Paths** (last load directory, default
-/// SD card image, screenshot directory).
+/// SD card image, screenshot directory, and the GH #19 quick-screenshot
+/// directory and format).
 ///
 /// The dialog only edits an in-memory copy; OK/Apply emit apply_requested()
 /// with the edited data so the caller (MainWindow) decides how to persist it
@@ -73,4 +74,7 @@ private:
     QLineEdit* last_load_dir_edit_  = nullptr;
     QLineEdit* sd_card_path_edit_   = nullptr;
     QLineEdit* screenshot_dir_edit_ = nullptr;
+
+    QLineEdit* quick_screenshot_dir_edit_  = nullptr;   // GH #19
+    QComboBox* quick_screenshot_fmt_combo_ = nullptr;
 };

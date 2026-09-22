@@ -48,7 +48,7 @@ profiler — surround the emulation rather than being part of it.
 | `port/` | `PortDispatch` (mask/value I/O decode) and `NextReg`, the NextREG register file. |
 | `peripheral/` | Copper, CTC, DMA, DivMMC, Multiface, the NMI source pipeline, SPI, the SD card device, I²C with its DS1307 RTC, the UART, and the adapters that bind the emulated ESP-01 to UART 0. |
 | `input/` | The ZX keyboard matrix, joysticks, Kempston mouse, MD6 connector, membrane stick, NR 0x0B I/O mode, the F-key state machine, the phantom typist that types `LOAD ""` for you, and the host-side joystick/mouse dispatchers. |
-| `platform/` | The SDL frontend (`sdl_app`, `sdl_display`, `sdl_audio`, `sdl_input`), the headless frontend (`headless_app`), PNG screenshots, the cold-boot helper, and the small header-only policies for frame pacing and render skipping. |
+| `platform/` | The SDL frontend (`sdl_app`, `sdl_display`, `sdl_audio`, `sdl_input`), the headless frontend (`headless_app`), screenshot output (PNG and `.SCR`), the cold-boot helper, and the small header-only policies for frame pacing and render skipping. |
 | `gui/` | The Qt 6 frontend: `QtApp`, `MainWindow`, `EmulatorWidget`, the preferences dialog and the saved-configuration store. |
 | `debugger/` | The Qt 6 debugger window and its panels — CPU, disassembly, memory, MMU, stack, call stack, watches, breakpoints, video, sprites, copper, NextREG, audio. Compiled only when `ENABLE_DEBUGGER=ON`. |
 | `debug/` | The debugger *backend*, pure C++ with no GUI dependency: disassembler, breakpoint set, `DebugState`, trace log, call stack, symbol table, and the rewind ring buffer. |

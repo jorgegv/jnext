@@ -2775,8 +2775,44 @@ and you want to know which layer is responsible:</p>
 are treated as switched off, so what remains still composites normally.
 Leaving out <code>ula</code> also removes the border, since that is the ULA's job.</p>
 <p><strong>Screenshots.</strong> <strong>File &gt; Save Screenshot…</strong> (Alt+S) or the toolbar camera
-button writes a PNG. JNEXT remembers the directory. For scripted, repeatable
-captures, see <a href="../07-automation-and-ci/index.html">chapter 7</a>.</p>
+button asks for a name and writes the file. JNEXT remembers the directory. For
+scripted, repeatable captures, see
+<a href="../07-automation-and-ci/index.html">chapter 7</a>.</p>
+<p><strong>Quick screenshots.</strong> When you want a <em>sequence</em> of captures, the dialog is
+the slow part. <strong>File &gt; Quick Screenshot</strong> (<strong>Alt+K</strong>) writes immediately, with
+no dialog at all: the file is named after the date and time
+(<code>jnext-20260718-103412.png</code>) and lands in the quick-screenshot directory,
+which the status bar names each time so a capture is never lost. Two captures
+in the same second get <code>-02</code>, <code>-03</code> and so on rather than overwriting each
+other. The directory (by default <code>~/.jnext/screenshots</code>, created on first use)
+and the format are set under <strong>Settings &gt; Preferences &gt; Paths</strong>.</p>
+<p><strong>Two formats, chosen by the extension.</strong> There is no format option anywhere;
+the name you give decides.</p>
+<ul>
+<li><strong><code>.png</code></strong> is the picture — every layer, the border, the palette, exactly as
+  the window shows it. A 640x256 frame is written as a 640x512 file so the
+  pixels are square.</li>
+<li><strong><code>.scr</code></strong> is the classic ZX screen dump that Spectrum graphics tools read
+  and write: a copy of the ULA screen memory as it stands, taken from whichever
+  screen bank is on display. Nothing is converted, so the bytes are exactly
+  what the program put there.</li>
+</ul>
+<p><code>.scr</code> has a real limit, and it is worth knowing before you rely on it: <strong>the
+format can only describe the classic ULA screen.</strong> Layer 2, the tilemap, the
+sprites, the LoRes modes and the Next palettes have no place in it and are
+simply not in the file — capture a Layer 2 game as <code>.scr</code> and you get whatever
+happens to be left in the ULA screen memory, which is often nothing. Use <code>.png</code>
+for those.</p>
+<p>In the Timex hi-colour and hi-res modes the file is 12288 bytes instead of the
+usual 6912: those modes use two screen planes and both are written, which is
+what Timex-aware tools expect. The file does not record <em>which</em> of the two
+modes produced it, because the format has nowhere to say so.</p>
+<p>The same choice applies on the command line:</p>
+<pre><code>jnext --headless demo.nex --delayed-screenshot shot.scr \
+    --delayed-screenshot-frames 200 --delayed-automatic-exit-frames 250
+</code></pre>
+<p><code>--delayed-screenshot-layers</code> is refused with a <code>.scr</code>, since a screen dump has
+no layers to choose between.</p>
 <hr />
 
 

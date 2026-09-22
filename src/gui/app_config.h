@@ -8,6 +8,7 @@
 
 #include "core/emulator_config.h"
 #include "platform/audio_pacing.h"
+#include "platform/screenshot.h"
 
 /// Persisted GUI preferences (Task 66 — Configurability).
 ///
@@ -71,6 +72,26 @@ struct AppConfigData {
     QString last_load_dir;    // seeds "Load Program..." / "Open Tape File..."
     QString sd_card_path;     // default --sdcard when the CLI gives none
     QString screenshot_dir;   // seeds "Save Screenshot..."
+
+    // GH #19 — File > Quick Screenshot, the no-dialog capture.
+    //
+    // Deliberately NOT the same field as `screenshot_dir` above. That one is
+    // a MEMORY of wherever the Save Screenshot dialog was last pointed, and it
+    // moves every time the user saves one somewhere else; a quick capture
+    // whose destination wanders is exactly the "where did it go" failure the
+    // status-bar message exists to prevent. This one is a CHOICE, changed only
+    // in Preferences.
+    //
+    // Empty means the built-in default (~/.jnext/screenshots, from
+    // default_quick_screenshot_dir()), rather than baking an absolute path
+    // into the struct: a saved config must not pin a home directory that may
+    // not be the one jnext is running under.
+    QString quick_screenshot_dir;
+
+    // Which format Quick Screenshot writes — the point at which GH #18 and
+    // GH #19 meet, since a no-dialog capture has no filename for an extension
+    // to be read from. Persisted as "png"/"scr".
+    ScreenshotFormat quick_screenshot_format = ScreenshotFormat::Png;
 };
 
 /// Task 66 — CLI-vs-saved-preference precedence, one definition shared by

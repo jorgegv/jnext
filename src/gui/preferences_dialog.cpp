@@ -69,6 +69,10 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     last_load_dir_edit_->setText(current.last_load_dir);
     sd_card_path_edit_->setText(current.sd_card_path);
     screenshot_dir_edit_->setText(current.screenshot_dir);
+    quick_screenshot_dir_edit_->setText(current.quick_screenshot_dir);
+    quick_screenshot_fmt_combo_->setCurrentIndex(
+        quick_screenshot_fmt_combo_->findData(
+            static_cast<int>(current.quick_screenshot_format)));
 
     auto* buttons = new QDialogButtonBox(
         QDialogButtonBox::Ok | QDialogButtonBox::Cancel | QDialogButtonBox::Apply, this);
@@ -316,6 +320,30 @@ QWidget* PreferencesDialog::build_paths_tab() {
     add_path_row(tr("Screenshot directory:"), screenshot_dir_edit_,
                  &PreferencesDialog::browse_directory);
 
+    // GH #19 — File > Quick Screenshot. Its own directory, not the one above:
+    // that one FOLLOWS the Save Screenshot dialog around, this one is chosen.
+    add_path_row(tr("Quick screenshot directory:"), quick_screenshot_dir_edit_,
+                 &PreferencesDialog::browse_directory);
+    quick_screenshot_dir_edit_->setObjectName(QStringLiteral("quickScreenshotDirEdit"));
+    quick_screenshot_dir_edit_->setPlaceholderText(
+        QString::fromStdString(default_quick_screenshot_dir()));
+
+    quick_screenshot_fmt_combo_ = new QComboBox(tab);
+    quick_screenshot_fmt_combo_->setObjectName(QStringLiteral("quickScreenshotFormatCombo"));
+    quick_screenshot_fmt_combo_->addItem(tr("PNG (composited picture)"),
+                                         static_cast<int>(ScreenshotFormat::Png));
+    quick_screenshot_fmt_combo_->addItem(tr("SCR (ULA screen memory)"),
+                                         static_cast<int>(ScreenshotFormat::Scr));
+    form->addRow(tr("Quick screenshot format:"), quick_screenshot_fmt_combo_);
+
+    auto* quick_note = new QLabel(
+        tr("Quick Screenshot (Alt+K) writes jnext-<date>-<time> into that "
+           "directory with no dialog, and names the file in the status bar. "
+           "A .SCR records only the classic ULA screen memory - Layer 2, the "
+           "tilemap and the sprites are not in it."), tab);
+    quick_note->setWordWrap(true);
+    form->addRow(QString(), quick_note);
+
     return tab;
 }
 
@@ -375,5 +403,8 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.last_load_dir  = last_load_dir_edit_->text();
     cfg.sd_card_path   = sd_card_path_edit_->text();
     cfg.screenshot_dir = screenshot_dir_edit_->text();
+    cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();
+    cfg.quick_screenshot_format = static_cast<ScreenshotFormat>(
+        quick_screenshot_fmt_combo_->currentData().toInt());
     return cfg;
 }

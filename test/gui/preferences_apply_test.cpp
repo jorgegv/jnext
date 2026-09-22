@@ -51,6 +51,12 @@
 #include <QCheckBox>
 #include <QComboBox>
 #include <QDialogButtonBox>
+#include <QLineEdit>
+#include <QDir>
+#include <QFileInfo>
+#include <QRegularExpression>
+#include <QSettings>
+#include <QTemporaryDir>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QSlider>
@@ -597,6 +603,161 @@ void test_when_slow_prefer_control()
               passthrough.when_slow_prefer == audio_pacing::WhenSlowPrefer::Video);
 }
 
+/// PA-17 — GH #19: the quick-screenshot directory and format have controls,
+/// both round-trip, and an untouched dialog does not wipe either.
+///
+/// Same reasoning as PA-12e and PA-15d, and the same failure mode: collect()
+/// builds a FRESH AppConfigData, so a `[screenshot]` section hand-edited into
+/// ~/.jnext/jnext.conf would be thrown away by any later visit to Preferences
+/// if these two fields had no control here. PA-17e is the row that fails if
+/// that regresses, and it touches no control at all.
+void test_quick_screenshot_controls()
+{
+    AppConfigData initial;
+    initial.quick_screenshot_dir    = QStringLiteral("/tmp/jnext-shots");
+    initial.quick_screenshot_format = ScreenshotFormat::Scr;
+
+    PreferencesDialog dlg(initial);
+    auto* dir_edit = dlg.findChild<QLineEdit*>(QStringLiteral("quickScreenshotDirEdit"));
+    auto* fmt_combo = dlg.findChild<QComboBox*>(QStringLiteral("quickScreenshotFormatCombo"));
+    check("PA-17a", "Preferences exposes the quick-screenshot directory and format controls",
+          dir_edit != nullptr && fmt_combo != nullptr);
+    if (!dir_edit || !fmt_combo) return;
+
+    check("PA-17b", "both controls start from the persisted values",
+          dir_edit->text() == QStringLiteral("/tmp/jnext-shots")
+              && fmt_combo->currentData().toInt() == static_cast<int>(ScreenshotFormat::Scr),
+          (dir_edit->text() + "/" + QString::number(fmt_combo->currentData().toInt()))
+              .toStdString());
+
+    AppConfigData collected;
+    bool emitted = false;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) { emitted = true; collected = cfg; });
+    dir_edit->setText(QStringLiteral("/tmp/other-shots"));
+    fmt_combo->setCurrentIndex(fmt_combo->findData(static_cast<int>(ScreenshotFormat::Png)));
+    auto* buttons = dlg.findChild<QDialogButtonBox*>();
+    if (buttons && buttons->button(QDialogButtonBox::Apply))
+        buttons->button(QDialogButtonBox::Apply)->click();
+    check("PA-17c", "Apply returns the edited directory",
+          emitted && collected.quick_screenshot_dir == QStringLiteral("/tmp/other-shots"),
+          collected.quick_screenshot_dir.toStdString());
+    check("PA-17d", "Apply returns the edited format",
+          emitted && collected.quick_screenshot_format == ScreenshotFormat::Png,
+          std::to_string(static_cast<int>(collected.quick_screenshot_format)));
+
+    PreferencesDialog untouched(initial);
+    AppConfigData passthrough;
+    bool passthrough_emitted = false;
+    QObject::connect(&untouched, &PreferencesDialog::apply_requested,
+                     [&](const AppConfigData& cfg) {
+                         passthrough_emitted = true;
+                         passthrough = cfg;
+                     });
+    auto* untouched_buttons = untouched.findChild<QDialogButtonBox*>();
+    if (untouched_buttons && untouched_buttons->button(QDialogButtonBox::Apply))
+        untouched_buttons->button(QDialogButtonBox::Apply)->click();
+    check("PA-17e", "an untouched dialog does NOT wipe the persisted quick-screenshot settings",
+          passthrough_emitted
+              && passthrough.quick_screenshot_dir == QStringLiteral("/tmp/jnext-shots")
+              && passthrough.quick_screenshot_format == ScreenshotFormat::Scr,
+          (passthrough.quick_screenshot_dir + "/"
+           + QString::number(static_cast<int>(passthrough.quick_screenshot_format)))
+              .toStdString());
+}
+
+/// PA-18 — GH #19: File > Quick Screenshot really writes a file, with the
+/// configured directory and the configured format.
+///
+/// The pieces are covered elsewhere (auto_screenshot_path and both writers in
+/// `screenshot_test`, the settings in `app_config_test`, the chord in
+/// `host_hotkey_test`). What NOTHING else covers is the WIRING in
+/// MainWindow::on_quick_screenshot — resolve the directory, build the name,
+/// write it — and a capture that silently goes nowhere is exactly the failure
+/// the issue is written against. So this drives the real QAction on a real
+/// MainWindow with a real machine attached, and looks on disk.
+///
+/// JNEXT_CONFIG_DIR is set FIRST, before the Fixture exists: MainWindow builds
+/// its AppConfig in its constructor, so the redirection has to be in place by
+/// then — and it must be, or this suite would write captures into the
+/// developer's own ~/.jnext/screenshots.
+void test_quick_screenshot_writes_a_file()
+{
+    // (a) No configuration at all: the default directory is
+    // <JNEXT_CONFIG_DIR>/screenshots, created on demand, and the format is PNG.
+    {
+        QTemporaryDir home;
+        qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+
+        Fixture f;
+        QAction* quick = nullptr;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == QStringLiteral("Quic&k Screenshot")) quick = a;
+        if (quick) {
+            quick->trigger();
+            QApplication::processEvents();
+        } else {
+            check("PA-18a", "File > Quick Screenshot writes a PNG into the default directory",
+                  false, "action not found");
+        }
+
+        const QDir shots(home.path() + QStringLiteral("/screenshots"));
+        const QStringList made = shots.entryList(QDir::Files);
+        // jnext-YYYYMMDD-HHMMSS.png — the name shape, not just "a file".
+        static const QRegularExpression shape(
+            QStringLiteral("^jnext-\\d{8}-\\d{6}(-\\d{2})?\\.png$"));
+        const bool named = made.size() == 1 && shape.match(made.first()).hasMatch();
+        const qint64 size = named
+            ? QFileInfo(shots.filePath(made.first())).size() : 0;
+        if (quick) {
+            check("PA-18a",
+                  "File > Quick Screenshot writes one timestamped PNG into the default directory",
+                  named && size > 0,
+                  (QStringLiteral("files=") + made.join(QLatin1Char(','))
+                   + QStringLiteral(" size=") + QString::number(size)).toStdString());
+        }
+    }
+
+    // (b) A configuration file that asks for .SCR in a directory of its own:
+    // both must be honoured, and the file must be a 6912-byte screen dump —
+    // not a PNG with a .scr name.
+    {
+        QTemporaryDir home;
+        const QString shots = home.path() + QStringLiteral("/my shots");
+        {
+            QSettings raw(home.path() + QStringLiteral("/jnext.conf"), QSettings::IniFormat);
+            raw.beginGroup("screenshot");
+            raw.setValue("quick_dir", shots);
+            raw.setValue("quick_format", "scr");
+            raw.endGroup();
+            raw.sync();
+        }
+        qputenv("JNEXT_CONFIG_DIR", home.path().toUtf8());
+
+        Fixture f;
+        QAction* quick = nullptr;
+        for (QAction* a : f.win.findChildren<QAction*>())
+            if (a->text() == QStringLiteral("Quic&k Screenshot")) quick = a;
+        if (quick) { quick->trigger(); QApplication::processEvents(); }
+
+        const QStringList made = QDir(shots).entryList(QDir::Files);
+        const bool one_scr = made.size() == 1 && made.first().endsWith(QStringLiteral(".scr"));
+        const qint64 size = one_scr ? QFileInfo(QDir(shots).filePath(made.first())).size() : 0;
+        check("PA-18b",
+              "the configured directory and .SCR format are both honoured, 6912 bytes",
+              one_scr && size == 6912,
+              (QStringLiteral("files=") + made.join(QLatin1Char(','))
+               + QStringLiteral(" size=") + QString::number(size)).toStdString());
+    }
+
+    // UNCONDITIONAL, and that is the point: this function is the last call in
+    // main() today, so leaking JNEXT_CONFIG_DIR is harmless RIGHT NOW and would
+    // silently redirect the config of whatever test is added after it. The
+    // early `return` that used to skip this line is gone for the same reason —
+    // a missing action now records its row and falls through.
+    qunsetenv("JNEXT_CONFIG_DIR");
+}
+
 /// PA-16 — issue #35: the policy lives in the frontend's frame sequencer, not
 /// in the emulator, so Apply must forward it. It applies live in every
 /// outcome, including the one where the user declined a machine-type restart.
@@ -652,6 +813,8 @@ int main(int argc, char** argv)
     test_esp_forward_precedes_the_reboot();
     test_when_slow_prefer_control();
     test_when_slow_prefer_reaches_the_frontend();
+    test_quick_screenshot_controls();
+    test_quick_screenshot_writes_a_file();
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_total, g_pass, g_fail, 0);
