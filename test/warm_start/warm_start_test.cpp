@@ -9,13 +9,20 @@
 //          produces LOOKS booted. Every one of the four keys therefore gets a
 //          row in the refusing direction, not just the accepting one.
 //
-//   WSR-*  the residency criterion. NOT the recording itself: taking one
-//          needs an SD image with firmware on it, so the end-to-end
-//          record -> cache -> restore round trip is the `warm-start-func`
-//          regression row. What is unit-testable here is the criterion that
-//          decides whether a boot MAY be recorded, and in particular that it
-//          refuses a machine that never booted — which is exactly the state
-//          `--load` has always produced (GH #226).
+//   WSR-*  the residency criterion and the three ways the entry point can
+//          decline. A SUCCESSFUL recording needs an SD image with firmware on
+//          it, so record -> cache -> restore end to end is the
+//          `warm-start-func` regression row; every FAILING path is reachable
+//          here, including the one that really boots (WSR-RES-07, against a
+//          card with no firmware on it).
+//
+//          `ensure_warm_start_state()` returns a bare bool and gives the same
+//          `false` from all three guards, so the rows read the LOG to say
+//          which one spoke — a ringbuffer sink on the emulator logger, the
+//          same mechanism log_gate_test and log_test already use. Without it
+//          the three rows pass for whichever guard happens to catch the
+//          fixture, which is the illusory-discrimination bug WSR-RES-01 and
+//          WSC-INV-02 each had.
 //
 // Row index:
 //   WSC-PATH-01   cache_dir() is <config-dir>/warm-start, from $JNEXT_CONFIG_DIR
@@ -42,15 +49,22 @@
 //   WSR-RES-01    a non-Next machine is refused, naming the machine
 //   WSR-RES-02    a Next that never booted is refused although the two
 //                 FIRMWARE-LESS checks pass — the case with no symptom
-//   WSR-RES-03    ensure_warm_start_state() declines on a non-Next
-//   WSR-RES-04    ensure_warm_start_state() declines with no SD image
-//   WSR-RES-05    a machine with no SD image declines every time
+//   WSR-RES-03    ensure_warm_start_state() declines on a non-Next BY THE
+//                 MACHINE-TYPE GUARD (log-tapped; the bool cannot say)
+//   WSR-RES-04    …declines with no SD image BY THE NO-SD GUARD
+//   WSR-RES-05    …and through that SAME guard on every call
 //   WSR-RES-06    checks 1 and 2 DID pass on that machine — asserted
 //                 directly, not inferred from the refusal message
+//   WSR-RES-07    a firmware-less CARD declines after a real boot,
+//                 named as such, and caches nothing
+//   WSR-RES-08    that verdict is latched per image — no second boot
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "core/log.h"
 #include "core/warm_start_cache.h"
+
+#include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <algorithm>
 #include <cstdarg>
@@ -82,7 +96,41 @@ void check(const char* id, const char* desc, bool cond,
     }
 }
 
-std::string fmt(const char* f, ...) {
+/// A ring sink hung off one logger for the life of a scope, with the logger's
+/// level restored on the way out. Same mechanism as log_gate_test / log_test,
+/// which is the point: it is what lets the WSR-RES-03/04/05 rows name WHICH
+/// guard declined, where the bare `bool` that `ensure_warm_start_state()`
+/// returns cannot. Each guard already logs a distinct line before returning.
+struct LogTap {
+    std::shared_ptr<spdlog::logger>                    log;
+    std::shared_ptr<spdlog::sinks::ringbuffer_sink_mt> ring;
+    spdlog::level::level_enum                          saved;
+
+    explicit LogTap(std::shared_ptr<spdlog::logger> l)
+        : log(std::move(l)),
+          ring(std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(256)),
+          saved(log->level()) { log->sinks().push_back(ring); }
+    ~LogTap() { log->set_level(saved); log->sinks().pop_back(); }
+
+    int count(const char* needle) const {
+        int n = 0;
+        for (const auto& line : ring->last_formatted())
+            if (line.find(needle) != std::string::npos) ++n;
+        return n;
+    }
+};
+
+// The line each decline emits, one per guard. They must stay DISTINCT — that
+// is what the rows below lean on, and WSR-RES-08 asserts it rather than
+// trusting it.
+constexpr const char* kWhyMachineType = "only the Next boots firmware";
+constexpr const char* kWhyNoSdImage   = "no SD image is mounted";
+constexpr const char* kWhyNotRecorded = "Not recording";
+
+/// Formatted failure detail. NOT called `fmt`: including a spdlog sink
+/// brings the `fmt` namespace into scope and a local `fmt()` is then
+/// ambiguous — the collision log_gate_test's own header comment records.
+std::string det(const char* f, ...) {
     char buf[256];
     va_list ap;
     va_start(ap, f);
@@ -182,7 +230,7 @@ int main()
         const auto on_disk = std::filesystem::file_size(warm_start::cache_path(0), sz_ec);
         check("WSC-HDR-01", "file length is kHeaderBytes + state_bytes",
               !sz_ec && on_disk == warm_start::kHeaderBytes + state.size(),
-              sz_ec ? sz_ec.message() : fmt("%ju bytes", (uintmax_t)on_disk));
+              sz_ec ? sz_ec.message() : det("%ju bytes", (uintmax_t)on_disk));
 
         const auto raw = read_file(warm_start::cache_path(0));
         check("WSC-HDR-02", "the SD digest is ASCII hex in the header",
@@ -210,7 +258,7 @@ int main()
             if (e.path().extension() == ".jwss") ++jwss;
         check("WSC-RT-04", "a second store() replaces in place — one file per machine",
               loaded2 && back2 == state2 && old_gone && jwss == 1,
-              fmt("%zu .jwss files", jwss));
+              det("%zu .jwss files", jwss));
 
         // Put the first recording back for the invalidation rows.
         warm_start::store(id, state, why);
@@ -336,7 +384,7 @@ int main()
                   "all eight refusal branches state a reason, and no two state "
                   "the same one",
                   reasons.size() == 8 && all_set && all_distinct,
-                  fmt("%zu refusals", reasons.size()));
+                  det("%zu refusals", reasons.size()));
         }
     }
 
@@ -382,17 +430,28 @@ int main()
               "a non-Next machine is refused BY THE MACHINE-TYPE CHECK, not by a "
               "later one that happens to mention Next",
               !emu48.nextzxos_resident(why) && why == "not a Next machine", why);
-        // NOTE ON WHAT THIS ROW CAN AND CANNOT PROVE. It asserts the
-        // user-facing entry point's OUTCOME, not which guard produced it:
-        // ensure_warm_start_state() returns the same `false` from the
-        // machine-type guard, the no-SD guard and a failed recording, and a
-        // caller cannot tell them apart. Deleting the machine-type guard
-        // would leave this row green (the no-SD guard catches the same
-        // fixture), so the branch discrimination lives in WSR-RES-01 above,
-        // which can see the reason. Kept because the outcome is the thing
-        // users depend on, and it is worth pinning on its own.
-        check("WSR-RES-03", "ensure_warm_start_state() declines on a non-Next",
-              !emu48.ensure_warm_start_state());
+        // `ensure_warm_start_state()` returns a bare bool and gives the same
+        // `false` from the machine-type guard, the no-SD guard and a failed
+        // recording — so the RETURN VALUE alone cannot say which one spoke,
+        // and this fixture (a 48K with no SD image) trips two of them. The
+        // guards do differ in what they LOG, so read that: same
+        // ringbuffer-sink mechanism as log_gate_test / log_test.
+        //
+        // Asserted in BOTH directions. The positive alone would still pass
+        // with the machine-type guard deleted if some later line happened to
+        // contain the needle; requiring the no-SD line to be ABSENT is what
+        // pins "declined here, and did not fall through".
+        {
+            LogTap tap(Log::emulator());
+            const bool declined = !emu48.ensure_warm_start_state();
+            check("WSR-RES-03",
+                  "ensure_warm_start_state() declines on a non-Next BY THE "
+                  "MACHINE-TYPE GUARD, not by the no-SD guard behind it",
+                  declined && tap.count(kWhyMachineType) == 1 &&
+                      tap.count(kWhyNoSdImage) == 0,
+                  det("machine-type=%d no-sd=%d", tap.count(kWhyMachineType),
+                      tap.count(kWhyNoSdImage)));
+        }
 
         // A Next that never booted. Its boot-ROM overlay is off and its
         // config mode is clear — the two questions a firmware-less machine
@@ -425,12 +484,82 @@ int main()
               "like a booted one (GH #226)",
               !emun.mmu().boot_rom_enabled() && !emun.nextreg().nr_03_config_mode());
 
-        // Same limit as WSR-RES-03: these pin the entry point's outcome, not
-        // which guard produced it.
-        check("WSR-RES-04", "ensure_warm_start_state() declines with no SD image",
-              !emun.ensure_warm_start_state());
-        check("WSR-RES-05", "a machine with no SD image declines every time",
-              !emun.ensure_warm_start_state());
+        // The mirror image of WSR-RES-03: a Next (so the machine-type guard
+        // cannot speak) with no SD image.
+        {
+            LogTap tap(Log::emulator());
+            const bool declined = !emun.ensure_warm_start_state();
+            check("WSR-RES-04",
+                  "ensure_warm_start_state() declines with no SD image BY THE "
+                  "NO-SD GUARD, and the machine-type guard stays silent",
+                  declined && tap.count(kWhyNoSdImage) == 1 &&
+                      tap.count(kWhyMachineType) == 0,
+                  det("no-sd=%d machine-type=%d", tap.count(kWhyNoSdImage),
+                      tap.count(kWhyMachineType)));
+
+            // "Every time" is a claim about the SECOND call, so count it.
+            // A bare `!declined` twice would also pass if the second call
+            // short-circuited somewhere else entirely — which is exactly what
+            // the per-image failure latch does for the recording path, and
+            // must NOT do here (no SD image is not a verdict about a card).
+            const bool again = !emun.ensure_warm_start_state();
+            check("WSR-RES-05",
+                  "a machine with no SD image declines through the SAME guard "
+                  "every time, not via a latched verdict",
+                  again && tap.count(kWhyNoSdImage) == 2,
+                  det("no-sd=%d over two calls", tap.count(kWhyNoSdImage)));
+        }
+    }
+
+    // ── The third decline: a recording that was attempted and FAILED ──
+    //
+    // The one path of the three that actually boots. A readable file that is
+    // not a NextZXOS card gets past the machine-type and no-SD guards and past
+    // the digest, so `record_warm_start_state()` really runs: a fresh Emulator,
+    // 500 frames of firmware that finds nothing, and `nextzxos_resident()`
+    // refusing. That is the case GH #234 must never cache — a machine that
+    // looks booted and is not — so it is worth the ~seconds it costs here.
+    {
+        const std::string fake_sd = g_dir + "/not-a-nextzxos-card.img";
+        {   // 1 MiB of zeroes: big enough that sector reads stay in range,
+            // empty enough that no ROM can be extracted from it.
+            std::vector<uint8_t> zeroes(1024 * 1024, 0);
+            std::ofstream f(fake_sd, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(zeroes.data()),
+                    static_cast<std::streamsize>(zeroes.size()));
+        }
+        std::filesystem::remove_all(warm_start::cache_dir(), ec);
+
+        Emulator emuf;
+        EmulatorConfig cf;
+        cf.type = MachineType::ZXN_ISSUE2;
+        cf.rewind_buffer_frames = 0;
+        cf.sd_card_image = fake_sd;
+        emuf.init(cf);
+
+        LogTap tap(Log::emulator());
+        const bool declined = !emuf.ensure_warm_start_state();
+        const bool cached = std::filesystem::exists(warm_start::cache_path(0));
+        check("WSR-RES-07",
+              "a card with no firmware on it declines AFTER A REAL BOOT — named "
+              "as such, past the machine-type and no-SD guards — and caches nothing",
+              declined && tap.count(kWhyNotRecorded) == 1 &&
+                  tap.count(kWhyMachineType) == 0 && tap.count(kWhyNoSdImage) == 0 &&
+                  !cached,
+              det("not-recorded=%d machine-type=%d no-sd=%d cached=%d",
+                  tap.count(kWhyNotRecorded), tap.count(kWhyMachineType),
+                  tap.count(kWhyNoSdImage), cached ? 1 : 0));
+
+        // The per-IMAGE failure latch, which is the opposite of WSR-RES-05's
+        // claim and deliberately so: "no SD image" is not a verdict about a
+        // card and must be re-asked, but "this card cannot produce a NextZXOS"
+        // is, and re-asking it costs another 500-frame boot on every load.
+        const bool again = !emuf.ensure_warm_start_state();
+        check("WSR-RES-08",
+              "and the verdict is latched for that image — a second call declines "
+              "without booting again",
+              again && tap.count(kWhyNotRecorded) == 1,
+              det("not-recorded=%d over two calls", tap.count(kWhyNotRecorded)));
     }
 
     std::filesystem::remove_all(g_dir, ec);
