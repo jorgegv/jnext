@@ -71,7 +71,8 @@
 - TAP saving: BASIC `SAVE` through the 48K ROM SA-BYTES routine (trap at 0x04C2, gated on the 48K ROM identity) appends blocks to a `.tap` file (`--tape-save FILE`; FUSE-verified output; custom MIC-bit-banging savers not captured yet)
 - TZX: full block support via ZOT library, fast-load + real-time playback (incl. Direct Recording 0x15 / DeciLoad 12k8 turbo loaders)
 - WAV: RIFF/PCM EAR bit playback (8-bit/16-bit, mono/stereo) with sub-sample edge interpolation (DeciLoad-class turbo loaders work)
-- RZX: playback and recording (IN replay, embedded SNA snapshot, zlib compressed)
+- RZX: playback and recording in every frontend (IN replay, zlib compressed; 48K embeds an SNA, 128K/+3 an SZX)
+- RZX playback runs on the machine the recording was made on (jnext records it; other emulators' files are read from their snapshot); an explicit `--machine` wins
 
 ## GUI (Qt 6)
 - Native Qt 6 main window with menu bar, toolbar, and status bar
