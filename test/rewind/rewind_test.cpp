@@ -1064,6 +1064,43 @@ static void rw_build_s0(Emulator& emu, int rewind_frames)
     emu.mmu().write(0x8000, 0x76);   // HALT
     rw_park(emu, 0x8000);
 
+    // GH #266 — the tilemap is ON in S0, so RWR-11's pixel comparison covers
+    // it: map at bank 5 0x2000 (NR 0x6E 0x20), tiles at 0x3000 (NR 0x6F
+    // 0x30), clear of the ULA screen. Tile t, row r, pixel x holds index
+    // 1 + (3t + x + r) % 14 (never 0x0F, the NR 0x4C transparency index), the
+    // map cell (x, y) holds tile (x + 2y) % 4, and the two tilemap palettes
+    // differ at every one of those indices — so a stale scroll, NR 0x6B mode
+    // or NR 0x6B b4 palette select in the rewound render moves pixels. S0
+    // selects tilemap palette 1 because the history rewound over ends on
+    // palette 0 (S2's NR 0x6B = 0xC1): a stale selector cannot match S0.
+    {
+        uint8_t* bank5 = emu.mmu().bank5_vram();
+        for (int y = 0; y < 32; ++y)
+            for (int x = 0; x < 40; ++x) {
+                bank5[0x2000 + (y * 40 + x) * 2]     =
+                    static_cast<uint8_t>((x + 2 * y) % 4);
+                bank5[0x2000 + (y * 40 + x) * 2 + 1] = 0x00;
+            }
+        for (int t = 0; t < 4; ++t)
+            for (int r = 0; r < 8; ++r)
+                for (int b = 0; b < 4; ++b) {
+                    const int hi = 1 + (3 * t + 2 * b + r) % 14;
+                    const int lo = 1 + (3 * t + 2 * b + 1 + r) % 14;
+                    bank5[0x3000 + t * 32 + r * 4 + b] =
+                        static_cast<uint8_t>((hi << 4) | lo);
+                }
+        for (int i = 1; i <= 14; ++i) {
+            rw_nr(emu, 0x43, 0x30);      // write tilemap palette 0
+            rw_nr(emu, 0x40, static_cast<uint8_t>(i));
+            rw_nr(emu, 0x41, static_cast<uint8_t>(i * 17));
+            rw_nr(emu, 0x43, 0x70);      // write tilemap palette 1
+            rw_nr(emu, 0x40, static_cast<uint8_t>(i));
+            rw_nr(emu, 0x41, static_cast<uint8_t>(0xFF - i * 17));
+        }
+        rw_nr(emu, 0x6E, 0x20);
+        rw_nr(emu, 0x6F, 0x30);
+        rw_nr(emu, 0x6B, 0x90);          // tilemap on, 40x32, attributes, palette 1
+    }
     // Layer 2 shows entry 0x30 (index 0, NR 0x70 offset 3 on the high
     // nibble); make the two banks differ there, so a render with a stale L2
     // selector shows.
@@ -1306,6 +1343,12 @@ static int test_rewind_restores_render_state()
     twin.renderer().render_frame(twin.get_framebuffer(), twin.mmu(), twin.ram(),
                                  twin.palette(), twin.layer2(), &twin.sprites(),
                                  &twin.tilemap());
+    // GH #266 — the compared frame must show the tilemap, or RWR-11 is blind
+    // to it. Top-left pixel, in the border (no Layer 2, no sprite): scroll
+    // (5, 6) puts it on map cell (0, 0) = tile 0, row 6, pixel 5 = index
+    // 1 + (5 + 6) % 14 = 12, tilemap palette 1.
+    REQUIRE(twin.get_framebuffer()[0] == twin.palette().tilemap_colour(true, 12),
+            "RWR fixture: the snapshot-instant frame shows the S0 tilemap");
     const size_t px = static_cast<size_t>(emu.get_framebuffer_width()) *
                       static_cast<size_t>(emu.get_framebuffer_height());
     size_t diff = 0;
@@ -1339,7 +1382,8 @@ static int test_rewind_callers_render_state()
 
     {
         Emulator emu;
-        rw_build_s0(emu, 10);        // selectors all 0 here
+        rw_build_s0(emu, 10);
+        rw_nr(emu, 0x6B, 0x80);      // S0 selects TM palette 1 (GH #266): all selectors 0 here
         emu.run_frame();             // frame 1 — the target snapshot
         rw_nr(emu, 0x43, 0x1E);
         rw_nr(emu, 0x6B, 0x10);
