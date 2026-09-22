@@ -1671,6 +1671,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Disassembly
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="03-disassembly.html" class="md-nav__link md-nav__link--active">
         
   
@@ -1687,6 +1705,47 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#copying-the-listing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Copying the listing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#the-right-click-menu" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The right-click menu
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2758,16 +2817,55 @@
 <p>Z80 plus all 26 Z80N instructions, disassembled live from memory as the CPU
 sees it. Columns are the breakpoint gutter, the address, the raw opcode bytes
 and the mnemonic. The line at <code>PC</code> is highlighted in yellow and set in bold;
-the line you select is highlighted in blue.</p>
+the lines you select are highlighted in blue — over the top of the yellow, so
+the <code>PC</code> line stays recognisable inside a selection, and clear of the gutter,
+so breakpoint dots stay visible.</p>
 <ul>
 <li><strong>Click the gutter</strong> on any line to set or clear an execute breakpoint (shown
   as a red dot).</li>
+<li><strong>Click and drag</strong> over the listing to select a range of lines, or click one
+  line to select just that one. <strong>Shift+click</strong> extends the selection from
+  where it started, and <strong>Shift + ↑ ↓ Page Up/Down Home End</strong> do the same from
+  the keyboard. <strong>Ctrl+A</strong> selects everything in the view.</li>
 <li><strong>Address</strong> box — type a hex address and press Enter to centre the view there.</li>
 <li><strong>Go to PC</strong> re-centres on the current instruction.</li>
 <li>The scrollbar spans the whole <code>$0000</code>–<code>$FFFF</code> address space. <strong>↑ ↓</strong>,
   <strong>Page Up/Down</strong>, <strong>Home</strong> and <strong>End</strong> navigate; <strong>Enter</strong> runs to the
   selected line.</li>
 </ul>
+<h2 id="copying-the-listing">Copying the listing<a class="headerlink" href="#copying-the-listing" title="Permanent link">&para;</a></h2>
+<p><strong>Ctrl+C</strong>, or <strong>Copy</strong> in the right-click menu, puts the selected lines on the
+clipboard as <strong>assembly only</strong> — mnemonics and operands, one instruction per
+line, indented four spaces. The address column, the opcode bytes and the
+breakpoint gutter are all stripped, and symbols from a loaded
+<a href="../functions/05-symbols-from-z88dk-map-files.html">MAP file</a> are kept, so what
+you paste is what you would have written by hand:</p>
+<pre><code>    LD HL,screen_buf
+    NOP
+    CALL entry
+</code></pre>
+<p><strong>Copy with Addresses</strong> is the same selection with the address and opcode
+columns kept, for a bug report or an annotated trace:</p>
+<pre><code>$8000  21 34 12     LD HL,screen_buf
+$8003  00           NOP
+$8004  CD 00 80     CALL entry
+</code></pre>
+<p>Right-clicking inside the selection keeps it; right-clicking outside collapses
+it onto the line you clicked, so <strong>Copy</strong> on a line you have not selected
+copies that one line. Both chords only apply while the disassembly panel has
+focus — click in it first if you have been typing somewhere else.</p>
+<p>A few things worth knowing:</p>
+<ul>
+<li>The selection is a range of <strong>addresses</strong>, not of screen rows. Scrolling the
+  view, stepping the CPU and <strong>Go to PC</strong> all leave it alone, and a copy still
+  produces the whole range even when none of it is on screen any more.</li>
+<li>The text is disassembled from memory <strong>at the moment you copy</strong>, not from
+  what is painted. That is what makes the point above work, and it also means
+  copying while the machine runs freely — when the panel has deliberately
+  stopped redrawing — gives you the code that is in memory now.</li>
+<li>Copying with nothing selected does nothing; it never clears the clipboard.</li>
+</ul>
+<h2 id="the-right-click-menu">The right-click menu<a class="headerlink" href="#the-right-click-menu" title="Permanent link">&para;</a></h2>
 <p>The right-click menu is where most of the day-to-day work happens:</p>
 <table>
 <thead>
@@ -2777,6 +2875,18 @@ the line you select is highlighted in blue.</p>
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>Copy</td>
+<td>The selected lines as assembly only</td>
+</tr>
+<tr>
+<td>Copy with Addresses</td>
+<td>The selected lines with the address and opcode columns</td>
+</tr>
+<tr>
+<td>Select All</td>
+<td>Select every line in the view</td>
+</tr>
 <tr>
 <td>Toggle Breakpoint</td>
 <td>Execute breakpoint on this line</td>

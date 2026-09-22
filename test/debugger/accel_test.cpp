@@ -299,9 +299,14 @@ static void test_accelerators(Fixture& fx)
     // DACC-05 — the denominator. Every row above passes trivially against an
     // empty harvest, so the shape of the walk is pinned: five menus, eight
     // popups (Debug + its Trace and Rewind submenus, Map + Load MAP File,
-    // Breakpoints, Watches, Window), thirty-one mnemonics, nine shortcuts.
-    // (Thirty until GH #215 added "Add &Execute Breakpoint...", whose E is
-    // free in the Breakpoints popup — DACC-02 is what proves that.) Adding
+    // Breakpoints, Watches, Window), thirty-one mnemonics, eleven shortcuts.
+    // (Thirty mnemonics until GH #215 added "Add &Execute Breakpoint...",
+    // whose E is free in the Breakpoints popup — DACC-02 is what proves
+    // that. Nine shortcuts until GH #21 gave the disassembly panel Ctrl+C
+    // and Ctrl+A: those two are Qt::WidgetShortcut actions on the panel
+    // rather than menu-bar entries, and harvest_shortcuts() does not filter
+    // by context — deliberately, since a window-wide action that later took
+    // Ctrl+C would then collide with them and DACC-03 would say so.) Adding
     // or removing a menu entry means updating these numbers, and that edit is
     // the point — it is the claim about how much of the menu tree is checked.
     // It counts the SAME vector DACC-03 checks, not a second walk that could
@@ -314,7 +319,7 @@ static void test_accelerators(Fixture& fx)
         const bool as_expected = top == 5
                               && popup_scopes.size() == 8
                               && menu_accels.size() == 31
-                              && shortcuts == 9;
+                              && shortcuts == 11;
         // Described as what it is — a comparison against pinned sizes — not as
         // "the walk covers the whole tree", which would claim a completeness
         // four size checks cannot establish (add one menu and delete another
@@ -322,7 +327,7 @@ static void test_accelerators(Fixture& fx)
         check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
               fmt("menus=%zu (want 5), popups=%zu (want 8), mnemonics=%zu (want 31), "
-                  "shortcuts=%zu (want 9)",
+                  "shortcuts=%zu (want 11)",
                   top, popup_scopes.size(), menu_accels.size(), shortcuts));
     }
 }

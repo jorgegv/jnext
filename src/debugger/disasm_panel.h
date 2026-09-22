@@ -8,7 +8,9 @@
 #include <vector>
 #include "debug/breakpoints.h"
 #include "debug/disasm.h"
+#include "debug/disasm_text.h"
 
+class QAction;
 class Emulator;
 class SymbolTable;
 class WatchPanel;
@@ -43,12 +45,50 @@ public:
     /// Set watch panel for "Add Watch" context menu actions.
     void set_watch_panel(WatchPanel* wp) { watch_panel_ = wp; }
 
+    // --- GH #21: selecting and copying the listing -----------------------
+    //
+    // The selection is an ADDRESS RANGE, not a pair of line indices.
+    // entries_ is rebuilt from scratch by every scroll, every refresh() and
+    // every activate_follow_pc(), so an index into it survives none of those
+    // while an address survives all of them. That single choice is what makes
+    // the selection hold still while the view moves under it.
+
+    /// The exact text `copy_selection(fmt)` would put on the clipboard.
+    /// Empty when nothing is selected.
+    ///
+    /// Re-disassembles the selected range from LIVE memory rather than reusing
+    /// the painted lines, so a selection whose lines have since scrolled out of
+    /// the view still copies in full. The flip side, stated rather than hidden:
+    /// the text is memory as it is NOW, so copying while the machine runs
+    /// freely can catch self-modifying code mid-write.
+    QString selection_text(disasm_text::CopyFormat fmt) const;
+
+    /// Put the current selection on the clipboard. A copy with nothing
+    /// selected is a no-op — it never clears what is already there.
+    void copy_selection(disasm_text::CopyFormat fmt);
+
+    /// Select every line currently in the view. This panel has no buffer
+    /// behind the view — entries_ IS the view — so "select all" is the
+    /// visible window, which is what Ctrl+A does.
+    void select_all_visible();
+
+    /// True when something is selected; then `low`/`high` are the inclusive
+    /// address bounds, normalised so low <= high whichever way the drag went.
+    bool selection_range(uint16_t& low, uint16_t& high) const;
+
+    bool has_selection() const { return has_selection_; }
+
+    /// Drop the selection (nothing is highlighted, a copy is a no-op).
+    void clear_selection();
+
 signals:
     void run_to_requested(uint16_t addr);
 
 protected:
     void paintEvent(QPaintEvent* event) override;
     void mousePressEvent(QMouseEvent* event) override;
+    void mouseMoveEvent(QMouseEvent* event) override;
+    void mouseReleaseEvent(QMouseEvent* event) override;
     void wheelEvent(QWheelEvent* event) override;
     void keyPressEvent(QKeyEvent* event) override;
     void contextMenuEvent(QContextMenuEvent* event) override;
@@ -59,6 +99,15 @@ private:
     void disassemble_from(uint16_t addr, int count);
     uint16_t clamp_view_addr(uint16_t addr) const;
     int line_at_y(int y) const;
+    /// line_at_y(), but a y above the first line or below the last clamps to
+    /// that end instead of returning -1 — what a drag off the top or bottom
+    /// edge of the panel should mean.
+    int line_at_y_clamped(int y) const;
+    /// Move the selection cursor to `addr`. `extend` keeps the anchor
+    /// (Shift-click, Shift-arrow, and every drag step); otherwise the
+    /// selection collapses to that one line.
+    void set_selection(uint16_t addr, bool extend);
+    bool line_selected(uint16_t addr) const;
     void navigate_to_address(const QString& text);
     static uint16_t extract_immediate16(const char* mnemonic);
 
@@ -78,6 +127,20 @@ private:
     };
     std::vector<DisasmEntry> entries_;
     int selected_line_ = -1;
+
+    // GH #21 — the clipboard commands, as real QActions on this widget.
+    // They carry the Ctrl+C / Ctrl+A bindings and are what the context menu
+    // shows; see the constructor for why they are actions and not keys
+    // handled in keyPressEvent.
+    QAction* copy_action_           = nullptr;
+    QAction* copy_addresses_action_ = nullptr;
+    QAction* select_all_action_     = nullptr;
+
+    // GH #21 selection — addresses, see the public block above.
+    bool     has_selection_ = false;
+    bool     dragging_      = false;
+    uint16_t sel_anchor_    = 0;   // where the drag started
+    uint16_t sel_cursor_    = 0;   // where it is now
     uint16_t view_addr_ = 0; // top address in view
 
     // Vertical offset for the painting area (below the top bar)

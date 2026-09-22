@@ -197,7 +197,7 @@ introspects:
 |---|---|
 | CPU Registers | the Z80 register file, flags, IFF/IM, halt state, active ULA screen |
 | MMU | the 8 slot→page map with RAM/ROM type, plus the 128K bank view |
-| Disassembly | `src/debug/disasm.*` over `Mmu::read`, with symbol substitution and a breakpoint gutter |
+| Disassembly | `src/debug/disasm.*` over `Mmu::read`, with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly |
 | Memory | raw bytes, either through the CPU's address space or a chosen MMU slot |
 | Stack | words at and above `SP` |
 | Call Stack | `src/debug/call_stack.*`, a shadow stack built from SP deltas |
@@ -239,6 +239,28 @@ readers: `load_z88dk_map()` for z88dk linker output, and `load_simple_map()`
 for a plain `SYMBOL = $ADDR` list. `DebuggerManager` owns the table, and the
 disassembly, breakpoint and watch panels all consume it — which is why a
 breakpoint set on a symbol keeps its name in the breakpoint list.
+
+## Copying out of a custom-painted panel
+
+The disassembly panel paints itself, so there is no Qt text widget to inherit a
+selection from — it has to be built against the panel's own line model. Two
+choices in `src/debugger/disasm_panel.*` are worth knowing before touching it.
+
+The selection is an **address range**, an anchor and a cursor, not a pair of
+line indices. `entries_` is rebuilt from scratch by every scroll, every
+`refresh()` and every `activate_follow_pc()`, so an index into it survives none
+of those while an address survives all of them. That one choice is why the
+selection holds still while the view moves under it.
+
+The text is produced by **`src/debug/disasm_text.*`** — pure C++, no Qt — which
+re-disassembles the selected range from live memory rather than reusing the
+painted lines. That is what lets a selection copy in full after its lines have
+scrolled out of the view, and what makes copying work while the panel has
+stopped updating. The same file holds `apply_symbols()`, and the painter calls
+it too: the issue required the copied text to carry the MAP-file symbolic form,
+and one shared rule is what stops the two from drifting. Being Qt-free, all of
+it is assertable without a display — `debugger_disasm_copy_test` drives the
+real panel with real events and reads the real clipboard.
 
 ## Rewind
 
