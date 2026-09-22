@@ -21,6 +21,19 @@ JOBS              := $(shell nproc 2>/dev/null || sysctl -n hw.logicalcpu 2>/dev
 CC                := /usr/bin/gcc
 CXX               := /usr/bin/g++
 
+# Shared guard for the single-purpose build/*-release dirs (sdl-release,
+# gui-release): is $(1)/CMakeCache.txt already configured with the exact
+# "NAME:TYPE=VALUE" line $(2)? A bare `-f CMakeCache.txt` existence test is
+# NOT enough on its own — it would silently keep a build dir configured with
+# stale/wrong options forever, which is exactly why unit-test-build has
+# always re-checked its flags too (Makefile, unit-test-build target). This is
+# the SAME mechanism (grep the literal cache line), factored into one
+# implementation so gui-release/sdl-release/unit-test-build all use it rather
+# than each growing its own copy (#141). -x = whole-line match, -F = fixed
+# string (CMAKE_CXX_FLAGS values contain "-", not a grep metachar, but no
+# point trusting that not to change).
+CMAKE_CACHE_HAS = grep -qxF "$(2)" "$(1)/CMakeCache.txt" 2>/dev/null
+
 # Pin windres to the SAME absolute path fedora's mingw toolchain file uses.
 # Without the pin, CMake's own RC detection resolves windres through PATH —
 # /usr/sbin/... under a sbin-first PATH (GitHub job containers) — while later
@@ -159,12 +172,29 @@ sdl-debug-clean:
 
 # Configure and build the SDL-only frontend in Release mode (optimized)
 sdl-release:
-	$(CMAKE) -B $(BUILD_DIR_SDL_RELEASE) \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_C_COMPILER=$(CC) \
-		-DCMAKE_CXX_COMPILER=$(CXX) \
-		-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
-		-DENABLE_TESTS=OFF
+	@# Skip the reconfigure (~6s, pure cmake, no compilation) when this dir is
+	@# already configured with exactly these flags (#141). ENABLE_QT_UI is
+	@# passed explicitly below (it never was before) so that a re-check MISS
+	@# actually self-heals: cmake -B keeps any cache entry it isn't told to
+	@# overwrite, so a stale ENABLE_QT_UI=ON left by a hand-run configure in
+	@# this dir would otherwise survive an unconditional reconfigure too.
+	@if [ -f $(BUILD_DIR_SDL_RELEASE)/CMakeCache.txt ] \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_SDL_RELEASE),CMAKE_BUILD_TYPE:STRING=Release) \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_SDL_RELEASE),CMAKE_C_COMPILER:STRING=$(CC)) \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_SDL_RELEASE),CMAKE_CXX_COMPILER:STRING=$(CXX)) \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_SDL_RELEASE),CMAKE_CXX_FLAGS:STRING=-O2 -DNDEBUG) \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_SDL_RELEASE),ENABLE_QT_UI:BOOL=OFF) \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_SDL_RELEASE),ENABLE_TESTS:BOOL=OFF); then \
+		:; \
+	else \
+		$(CMAKE) -B $(BUILD_DIR_SDL_RELEASE) \
+			-DCMAKE_BUILD_TYPE=Release \
+			-DCMAKE_C_COMPILER=$(CC) \
+			-DCMAKE_CXX_COMPILER=$(CXX) \
+			-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
+			-DENABLE_QT_UI=OFF \
+			-DENABLE_TESTS=OFF; \
+	fi
 	$(CMAKE) --build $(BUILD_DIR_SDL_RELEASE) -j$(JOBS)
 
 # Run the emulator (SDL-only release build)
@@ -196,13 +226,25 @@ gui-debug-clean:
 
 # Configure and build Qt GUI in Release mode
 gui-release:
-	$(CMAKE) -B $(BUILD_DIR_GUI_RELEASE) \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_C_COMPILER=$(CC) \
-		-DCMAKE_CXX_COMPILER=$(CXX) \
-		-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
-		-DENABLE_QT_UI=ON \
-		-DENABLE_TESTS=OFF
+	@# Skip the reconfigure (~7.5s, pure cmake, no compilation) when this dir
+	@# is already configured with exactly these flags (#141).
+	@if [ -f $(BUILD_DIR_GUI_RELEASE)/CMakeCache.txt ] \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_GUI_RELEASE),CMAKE_BUILD_TYPE:STRING=Release) \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_GUI_RELEASE),CMAKE_C_COMPILER:STRING=$(CC)) \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_GUI_RELEASE),CMAKE_CXX_COMPILER:STRING=$(CXX)) \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_GUI_RELEASE),CMAKE_CXX_FLAGS:STRING=-O2 -DNDEBUG) \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_GUI_RELEASE),ENABLE_QT_UI:BOOL=ON) \
+		&& $(call CMAKE_CACHE_HAS,$(BUILD_DIR_GUI_RELEASE),ENABLE_TESTS:BOOL=OFF); then \
+		:; \
+	else \
+		$(CMAKE) -B $(BUILD_DIR_GUI_RELEASE) \
+			-DCMAKE_BUILD_TYPE=Release \
+			-DCMAKE_C_COMPILER=$(CC) \
+			-DCMAKE_CXX_COMPILER=$(CXX) \
+			-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
+			-DENABLE_QT_UI=ON \
+			-DENABLE_TESTS=OFF; \
+	fi
 	$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS)
 
 # Cross-compile ONLY the Windows jnext.exe (Fedora MinGW; no packaging)
@@ -598,7 +640,7 @@ unit-test-build:
 			-DENABLE_DEBUGGER=ON; \
 	else \
 		for flag in ENABLE_QT_UI ENABLE_DEBUGGER; do \
-			if ! grep -q "^$$flag:BOOL=ON$$" build/CMakeCache.txt; then \
+			if ! $(call CMAKE_CACHE_HAS,build,$$flag:BOOL=ON); then \
 				printf "$(BADGE_FAIL) ERROR $(RESET) build/ is configured with $(BOLD)$$flag=OFF$(RESET).\n"; \
 				printf "  ./build/jnext would not be the Qt binary this project mandates.\n"; \
 				printf "  Run '$(BOLD)make clean$(RESET)' first, then retry.\n"; \
