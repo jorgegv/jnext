@@ -51,6 +51,16 @@ instead — wrong by a factor of four in scale *and* wrong in origin — made ev
 non-trivial `WAIT` fire early. That was a real defect here, not a hypothetical
 one.
 
+NR 0x1E/0x1F read `cvc` back, and *when* they read it matters as much as the
+origin. The master clock only advances once an instruction completes, so inside
+an `IN` `clock_` is still the instruction's start.
+`Emulator::io_read_sample_cycle()` adds the T-states the CPU has already spent
+in the instruction — `Z80Cpu::tstates_into_instruction()`, counted on the FUSE
+counter the bus cycles advance — and places the read where the VHDL latches it:
+for port 0x253B, the CLK_CPU falling edge 2.5 T-states into the I/O cycle
+(GH #265). A read made outside an instruction (a test, the debugger) samples at
+`clock_` itself.
+
 The other conversion that matters everywhere is
 `framebuffer_row = vc - VideoTiming::vblank_top()`. `vblank_top` is
 `min_vactive - 32` and it is **per-machine** — 32 for the Next family, 48 for

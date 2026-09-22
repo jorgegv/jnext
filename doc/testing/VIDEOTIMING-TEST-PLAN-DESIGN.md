@@ -909,6 +909,38 @@ the only reason the tilemap's start-of-line latch looked right for GH #16.
 exact frame start (raw vc 0, raw hc 0) `cvc` still holds raw line 310's value,
 `(310-64) mod 311 = 246`, not 247.
 
+## GH #265 append — NR 0x1E/0x1F sampled at the IN's I/O cycle
+
+An IN from port 0x253B returns `port_253b_dat_0` (`zxnext.vhd:2819`), which is
+reloaded from `port_253b_dat` on every CLK_CPU falling edge (`:5871-5876`);
+`port_253b_dat` follows `cvc` on CLK_28 (`:5878-5882,5982-5986`). The T80 latches the
+data bus into `DI_Reg` on the falling edge of the I/O cycle's T3
+(`t80na.vhd:214-222`), and with `IOWait = 1` that cycle is four clocks
+(`t80n.vhd:1781-1782`, `TStates = 3` at `t80n_mcode.vhd:235`, `T_Res` at
+`t80n.vhd:412`), so `DI_Reg` takes the value reloaded on the PREVIOUS falling
+edge — 2.5 T-states into the I/O cycle — which is `cvc` as it stood just before
+that edge. jnext read `cvc` at `clock_`, the start of the instruction, because
+the master clock only advances when an instruction completes: 9.5 T-states
+early for `IN A,(C)`, 7.5 for `IN A,(n)`. A loop polling for a line therefore
+left it one turn LATE (the value lags), not early as the issue text had it.
+
+Fixture: Next timing, 1824 master cycles a line, 8 a T-state; `cvc` steps
+310 → 0 at master cycle `64*1824 + 500 = 117236` (VT-GH257-06). Code at 0x8000
+and port 0x253B are uncontended. `IN A,(C)`'s reload edge is 84 master cycles
+after the instruction starts (two M1s, then 2.5 T), `IN A,(n)`'s 76 (M1 +
+operand read). The clock-phase assumption — CPU T-states begin on master
+cycles that are multiples of 8, so a 3.5 MHz falling edge lands on raw hc 125
+exactly — is the one the contention model already makes (CT-GH183-01..05).
+
+| ID | Test | Expected | VHDL file:line |
+|----|------|----------|----------------|
+| VT-GH265-01 | `IN A,(C)` of NR 0x1F starting at step − 36 | 0x00 (edge 48 past the step); start-of-instruction sampling reads 310 & 0xFF = 0x36 | zxnext.vhd:2819,5871-5876,5985-5986; t80na.vhd:214-222 |
+| VT-GH265-02 | Same instruction, NR 0x1E | 0x00 (cvc bit 8 of 0); pre-fix 0x01 (bit 8 of 310) | zxnext.vhd:2819,5871-5876,5982-5983 |
+| VT-GH265-03 | `IN A,(C)` of NR 0x1F starting at step − 84, and at step − 76 | 0x36 (edge ON the step: the latch sees the old line), then 0x00 | zxnext.vhd:5871-5876; t80na.vhd:214-222; t80n.vhd:1781-1782 |
+| VT-GH265-04 | `IN A,(n)` of NR 0x1F starting at step − 76, and at step − 68 | 0x36, then 0x00 (its I/O cycle is one T-state earlier than `IN A,(C)`'s) | zxnext.vhd:5871-5876; t80na.vhd:214-222 |
+| VT-GH265-05 | `IN A,(C) / OR A / JR NZ` loop waiting for NR 0x1F = 0, started at step − 708, run through `execute_single_instruction()` | leaves after 4 INs: 12 instructions, clock = start + 3·224 + 23·8; pre-fix 15 | zxnext.vhd:5871-5876,5985-5986; t80na.vhd:214-222 |
+| VT-GH265-06 | An IN executes, then the clock is moved to step − 8 and NR 0x1F is read through the port with no instruction running | 0x36 — a read outside an instruction samples at the clock, with no leftover offset | zxnext.vhd:5985-5986; zxula_timing.vhd:457-470 |
+
 ## Planned rows carried over from the traceability matrix (GH #196)
 
 These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a

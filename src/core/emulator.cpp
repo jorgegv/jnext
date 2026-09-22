@@ -2773,11 +2773,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // test: 24 fixed + 6 scrolling + 2 fixed instead of 30 scrolling + 2).
     // See the line-interrupt firing math in line_int_master_cycle_offset()
     // and begin_new_frame(), which already use this exact cvc origin.
+    //
+    // GH #265 — WHEN the read samples cvc. An IN from 0x253B returns
+    // port_253b_dat_0 (zxnext.vhd:2819), a register reloaded from
+    // port_253b_dat on EVERY CLK_CPU falling edge (:5871-5876), while
+    // port_253b_dat follows cvc on CLK_28 (:5878-5882,5982-5986). The T80 latches the
+    // data bus into DI_Reg on the falling edge of the I/O cycle's T3
+    // (t80na.vhd:214-222), and with IOWait = 1 (t80na.vhd:184) that cycle is
+    // T1, TW, T2, T3 (t80n.vhd:1781-1782 holds TState at 1 for one clock), so
+    // DI_Reg takes the port_253b_dat_0 loaded on the PREVIOUS falling edge:
+    // 2.5 T-states into the I/O cycle. jnext used clock_, the START of the
+    // instruction — 9.5 T-states early for IN A,(C), 7.5 for IN A,(n) — so a
+    // loop polling for a line left it up to one iteration late.
+    static constexpr unsigned kPort253bReloadHalfT = 5;   // 2.5 T-states
     nextreg_.set_read_handler(0x1E, [this]() -> uint8_t {
-        return static_cast<uint8_t>((current_cvc() >> 8) & 0x01);
+        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadHalfT));
+        return static_cast<uint8_t>((cvc >> 8) & 0x01);
     });
     nextreg_.set_read_handler(0x1F, [this]() -> uint8_t {
-        return static_cast<uint8_t>(current_cvc() & 0xFF);
+        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadHalfT));
+        return static_cast<uint8_t>(cvc & 0xFF);
     });
 
     // Register 0x22: Line interrupt control
@@ -9936,7 +9951,27 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
     }
 }
 
-int Emulator::current_cvc() const
+uint64_t Emulator::io_read_sample_cycle(unsigned edge_half_t) const
+{
+    // GH #265. clock_ holds the START of the instruction now executing (it is
+    // ticked once execute() returns), and the FUSE counter says how far into
+    // it the bus has got. fuse_z80_readport() charges the I/O cycle's T1
+    // before it calls the port handler, so the I/O cycle began
+    // (into - 1) T-states after the instruction did — contention and wait
+    // states already charged included.
+    const uint64_t now  = clock_.get();
+    const uint32_t into = cpu_.tstates_into_instruction();
+    if (into == 0) return now;   // not inside an instruction's bus cycle
+    const uint64_t d = clock_.cpu_divisor();
+    const uint64_t io_start = now + static_cast<uint64_t>(into - 1) * d;
+    // The edge is at io_start + edge_half_t * d / 2. The latch takes the
+    // value of the master cycle just before it: ceil(edge) - 1. At 3.5 MHz
+    // the CPU's falling edges land on master-cycle boundaries (d = 8); at
+    // 28 MHz (d = 1) a falling edge is mid-cycle and that cycle is the one.
+    return io_start + (static_cast<uint64_t>(edge_half_t) * d + 1) / 2 - 1;
+}
+
+int Emulator::cvc_at(uint64_t master_cycle) const
 {
     // cvc = (vc - c_min_vactive + cu_offset) mod (c_max_vc + 1)
     // (zxula_timing.vhd:455-472), read back by NR 0x1E/0x1F
@@ -9948,11 +9983,12 @@ int Emulator::current_cvc() const
     // hardware. The raw frame position is shifted back by that origin
     // before splitting it into lines, exactly as
     // tick_copper_for_master_cycles() does for the Copper's own cvc (GH #181).
-    // The position is the instruction's START (clock_ advances after it).
+    // The `% mcpf` also folds a position past the frame end (an IN whose
+    // sampling point lies beyond frame_end, GH #265) into the next frame.
     const uint64_t mcpf = timing_.master_cycles_per_frame;
     const uint64_t shift_mc =
         static_cast<uint64_t>(video_timing_.hc_ula_zero_raw_hc()) * 4u;
-    const uint64_t elapsed = clock_.get() - frame_cycle_;
+    const uint64_t elapsed = master_cycle - frame_cycle_;
     const uint64_t shifted = (elapsed + mcpf - shift_mc) % mcpf;
     const int raw_vc = static_cast<int>(shifted / timing_.master_cycles_per_line);
     const int lines_per_frame = video_timing_.vc_max() + 1;

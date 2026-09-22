@@ -1599,11 +1599,22 @@ private:
     /// Schedule a full frame's worth of SCANLINE events into the scheduler.
     void schedule_frame_events();
 
-    /// Current VHDL `cvc` counter (o_vc_cu) at the present master cycle:
-    /// the copper-offset raster line, origin = first paper line, wrapping at
-    /// c_max_vc, shifted by NR 0x64 cu_offset (zxula_timing.vhd:455-472).
-    /// Read back by NR 0x1E/0x1F and used by the line-interrupt comparator.
-    int current_cvc() const;
+    /// The VHDL `cvc` counter (o_vc_cu) during master cycle @p master_cycle
+    /// (clock_'s timeline, same frame as frame_cycle_): the copper-offset
+    /// raster line, origin = first paper line, wrapping at c_max_vc, shifted
+    /// by NR 0x64 cu_offset (zxula_timing.vhd:455-472). Read back by NR
+    /// 0x1E/0x1F at io_read_sample_cycle() (GH #265).
+    int cvc_at(uint64_t master_cycle) const;
+
+    /// GH #265 — the master cycle whose value a port read sees, when the
+    /// VHDL latches that value on the CLK_CPU falling edge @p edge_half_t
+    /// half-T-states after the start of the I/O machine cycle of the IN
+    /// now executing: the last master cycle before that edge, since a
+    /// latch takes the value its input held just before it. clock_ only
+    /// advances when an instruction completes, so without this every read
+    /// would see the position at the instruction's START. Outside an
+    /// instruction (test harness, debugger, DMA) it is clock_.get().
+    uint64_t io_read_sample_cycle(unsigned edge_half_t) const;
 
     /// GH #262 — an IN from a port with LSB 0xDF that the mouse decode does
     /// not claim. VHDL zxnext.vhd:2674 decodes it as `port_1f` (Kempston 1)

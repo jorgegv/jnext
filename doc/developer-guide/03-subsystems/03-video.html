@@ -1903,6 +1903,15 @@ that pair before stepping it. Passing the raw master-cycle offset through
 instead — wrong by a factor of four in scale <em>and</em> wrong in origin — made every
 non-trivial <code>WAIT</code> fire early. That was a real defect here, not a hypothetical
 one.</p>
+<p>NR 0x1E/0x1F read <code>cvc</code> back, and <em>when</em> they read it matters as much as the
+origin. The master clock only advances once an instruction completes, so inside
+an <code>IN</code> <code>clock_</code> is still the instruction's start.
+<code>Emulator::io_read_sample_cycle()</code> adds the T-states the CPU has already spent
+in the instruction — <code>Z80Cpu::tstates_into_instruction()</code>, counted on the FUSE
+counter the bus cycles advance — and places the read where the VHDL latches it:
+for port 0x253B, the CLK_CPU falling edge 2.5 T-states into the I/O cycle
+(GH #265). A read made outside an instruction (a test, the debugger) samples at
+<code>clock_</code> itself.</p>
 <p>The other conversion that matters everywhere is
 <code>framebuffer_row = vc - VideoTiming::vblank_top()</code>. <code>vblank_top</code> is
 <code>min_vactive - 32</code> and it is <strong>per-machine</strong> — 32 for the Next family, 48 for

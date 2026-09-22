@@ -605,9 +605,22 @@ void Z80Cpu::reset(bool hard) {
     regs_.IncDecZ = 0;
 }
 
+uint32_t Z80Cpu::tstates_into_instruction() const {
+    return executing_ ? static_cast<uint32_t>(tstates - exec_start_tstates_) : 0u;
+}
+
 int Z80Cpu::execute() {
     s_mem = &mem_;
     s_io  = &io_;
+
+    // GH #265 — mark the call in progress for tstates_into_instruction().
+    // Cleared on every return path by the guard's destructor.
+    struct ExecutingGuard {
+        bool& flag;
+        ~ExecutingGuard() { flag = false; }
+    } executing_guard{executing_};
+    exec_start_tstates_ = static_cast<uint32_t>(tstates);
+    executing_ = true;
 
     // Cleared here and set only at the real opcode fetch below, so a caller
     // can tell a completed instruction from an NMI/INT acknowledge or an
