@@ -56,9 +56,10 @@
 ///      this even `debug` is unusable. (This is what made NR 0x07 CPU-speed
 ///      writes flood the console at info — the original Task 24 complaint.)
 ///
-///   3. A trace/debug call WITH ARGUMENTS on a per-access path (per instruction,
-///      per port/NextREG access, per data byte, per Copper cycle, per timer
-///      event) is wrapped in `if (logger->should_log(level))`. spdlog tests the
+///   3. A trace() WITH ARGUMENTS on a guest-driven path, and a debug() with
+///      arguments that fires per data byte or per timer event rather than per
+///      state change, is wrapped in `if (logger->should_log(level))` — these
+///      run per instruction, port access, byte or Copper cycle. spdlog tests the
 ///      level at the call site only for the plain-string form; with arguments
 ///      it marshals them and makes an out-of-line call first: 22-50 retired
 ///      instructions per call measured with the level off (v0.99.146, GH #244;
