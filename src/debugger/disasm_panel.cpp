@@ -366,6 +366,12 @@ void DisasmPanel::select_all_visible()
     sel_anchor_    = entries_.front().line.addr;
     sel_cursor_    = entries_.back().line.addr;
     has_selection_ = true;
+    // The caret moves with the cursor, exactly as it does for a drag or a
+    // Shift-arrow. Leaving it behind would make selected_address() report a
+    // line that is no longer where the selection ends — a desync with no
+    // symptom today, because nothing in the product calls that method, and a
+    // trap for whoever wires it to something.
+    selected_line_ = static_cast<int>(entries_.size()) - 1;
     update();
 }
 

@@ -30,7 +30,15 @@ public:
     /// Re-disassemble around current PC and repaint.
     void refresh();
 
-    /// Get the address of the currently selected line (for Run to Cursor).
+    /// The address of the CARET line — the line last clicked, right-clicked or
+    /// moved to with the arrow keys — or the CPU's PC when there is none.
+    ///
+    /// This is the caret, not the selection: after a drag or a Shift-click the
+    /// caret sits at the end the cursor moved to, and the selection spans back
+    /// to its anchor (`selection_range()`). Nothing in the product calls this
+    /// today — Enter and the context menu's "Run to Here" both read the line
+    /// they act on directly — so read it as "where the caret is", not as a
+    /// promise about what Run to Cursor is wired to.
     uint16_t selected_address() const;
 
     /// Activate "Follow PC" mode (called when Break or Step is used).

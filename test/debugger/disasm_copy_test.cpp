@@ -70,6 +70,7 @@
 #include <QtTest/QtTest>
 #include <QDir>
 #include <QFile>
+#include <QFontDatabase>
 #include <QImage>
 #include <QPainter>
 
@@ -666,6 +667,48 @@ QRgb gutter_dot(const QImage& img, int line) {
     return img.pixel(GUTTER_W / 2, PAINT_Y + line * LINE_H + LINE_H / 2);
 }
 
+/// A gutter pixel on line `line`, at the same place the dot would be.
+/// Sampled on a line that has NO breakpoint, this is the only honest way to
+/// ask "does the selection fill reach into the gutter?" — see GH21-27.
+QRgb gutter_bg(const QImage& img, int line) {
+    return img.pixel(GUTTER_W / 2, PAINT_Y + line * LINE_H + LINE_H / 2);
+}
+
+/// Left edge of the mnemonic column: GUTTER_WIDTH + 4 + ADDR_WIDTH(48) +
+/// BYTES_WIDTH(100). The panel's own layout constants, restated because they
+/// are private — a change to either side must move both.
+constexpr int MNEMONIC_X = GUTTER_W + 4 + 48 + 100;
+constexpr int MNEMONIC_W = 260;
+
+/// The painted mnemonic column of line `line`, as an image.
+QImage mnemonic_cell(const QImage& img, int line) {
+    return img.copy(MNEMONIC_X, PAINT_Y + line * LINE_H, MNEMONIC_W, LINE_H);
+}
+
+/// `text` drawn the way DisasmPanel::paintEvent draws a mnemonic: the same
+/// system fixed font at the same point size, the same black pen, the same
+/// baseline offset within the row, on the same white row background — into an
+/// image the same shape as mnemonic_cell() returns.
+///
+/// This exists so a row can assert WHAT THE PANEL PAINTED, character for
+/// character, rather than only that it painted something different when the
+/// symbol table changed. It restates the panel's private font and layout; if
+/// either moves, this moves with it, and that coupling is deliberate.
+QImage reference_cell(const QString& text) {
+    QFont font = QFontDatabase::systemFont(QFontDatabase::FixedFont);
+    font.setPointSize(10);
+    const QFontMetrics fm(font);
+
+    QImage img(MNEMONIC_W, LINE_H, QImage::Format_ARGB32);
+    img.fill(QColor(255, 255, 255));
+    QPainter painter(&img);
+    painter.setFont(font);
+    painter.setPen(QColor(0, 0, 0));
+    painter.drawText(0, fm.ascent() + (LINE_H - fm.height()) / 2, text);
+    painter.end();
+    return img;
+}
+
 void test_selection_painting() {
     set_group("PAINT");
     Fixture fx;
@@ -705,18 +748,220 @@ void test_selection_painting() {
               row_bg(after, 3), row_bg(after, 4), row_bg(after, 5)));
 
     // The PC row is line 2. Selected, it must still differ from a selected
-    // non-PC row (line 0) — the yellow shows through — and the breakpoint dot
-    // on selected line 1 must still be pure red, which it can only be if the
-    // selection fill starts at the gutter's right edge and never covers it.
-    check("GH21-27", "the PC row and the breakpoint dot survive the selection tint",
+    // non-PC row (line 0) — the yellow shows through.
+    //
+    // And the GUTTER must be untouched by the fill. The dot on line 1 is NOT
+    // the way to ask that: paintEvent draws the selection tint first and the
+    // opaque dot afterwards in the same per-line block, so that pixel reads
+    // pure red however wide the fill is — an earlier version of this row said
+    // otherwise in its comment and could not fail on the claim. The falsifiable
+    // form is line 0: selected, no breakpoint, so its gutter pixel is bare
+    // background and must be EXACTLY what it was before the selection existed.
+    // The dot check stays as well, for what it does prove — that a marker
+    // painted over a tinted row is still fully saturated.
+    check("GH21-27", "the PC row survives the tint and the gutter is untouched by it",
           row_bg(after, 2) != row_bg(after, 0) &&
               row_bg(before, 2) != white &&
+              gutter_bg(after, 0) == gutter_bg(before, 0) &&
               gutter_dot(after, 1) == red,
-          fmt("pc=%08x plain=%08x pc_unsel=%08x dot=%08x",
+          fmt("pc=%08x plain=%08x pc_unsel=%08x gutter=%08x/%08x dot=%08x",
               row_bg(after, 2), row_bg(after, 0), row_bg(before, 2),
-              gutter_dot(after, 1)));
+              gutter_bg(after, 0), gutter_bg(before, 0), gutter_dot(after, 1)));
 
     fx.emu.debug_state().breakpoints().remove_pc(0x8003);
+}
+
+// ── Group SYM — the painter and the clipboard are ONE implementation ──
+//
+// GH #21 factored the MAP substitution rule out of paintEvent into
+// disasm_text::apply_symbols() so the two paths could not drift apart. The
+// TXT group proves the clipboard side of that. These two rows are the
+// PAINTER side, which nothing else in this suite looks at: GH21-26/27 sample
+// background colour only, so a painter that quietly stopped substituting
+// would leave all of those green while regressing the exact property this
+// change exists to guarantee.
+//
+// Both rows read PIXELS, because "did paintEvent paint this string" is not
+// answerable any other way — an accessor the painter happens to call proves
+// only that the accessor is correct, not that the painter used it.
+
+void test_painter_symbols() {
+    set_group("SYM");
+    Fixture fx;
+    if (!fx.ok) {
+        check("GH21-28", "fixture came up", false, "emulator or memory setup failed");
+        return;
+    }
+    fx.panel->refresh();
+    QApplication::processEvents();
+
+    // Line 0 is `LD HL,$1234`, which the fixture's MAP renames to screen_buf.
+    const QImage with_symbols = mnemonic_cell(render_panel(fx.panel), 0);
+
+    fx.panel->set_symbol_table(nullptr);
+    fx.panel->refresh();
+    QApplication::processEvents();
+    const QImage without_symbols = mnemonic_cell(render_panel(fx.panel), 0);
+
+    check("GH21-28", "the painter substitutes MAP symbols at all",
+          with_symbols != without_symbols,
+          with_symbols == without_symbols
+              ? "the mnemonic column is identical with and without the MAP table"
+              : "");
+
+    fx.panel->set_symbol_table(&fx.symbols);
+    fx.panel->refresh();
+    QApplication::processEvents();
+
+    // The strong form: the painted column must be, pixel for pixel, the text
+    // the CLIPBOARD produces for the same line. A painter with a second,
+    // divergent substitution rule passes GH21-28 and fails here.
+    press_line(fx.panel, 0);
+    release_mouse(fx.panel, 0);
+    const QString copied =
+        fx.panel->selection_text(disasm_text::CopyFormat::AsmOnly).trimmed();
+    const QImage painted  = mnemonic_cell(render_panel(fx.panel), 0);
+    const QImage expected = reference_cell(copied);
+
+    // press_line() selected the row, so the cell now carries the selection
+    // tint; compare against the same text on the same tinted background by
+    // clearing the selection first.
+    fx.panel->clear_selection();
+    QApplication::processEvents();
+    const QImage painted_plain = mnemonic_cell(render_panel(fx.panel), 0);
+
+    check("GH21-29", "the painted mnemonic is exactly the text the clipboard gives",
+          painted_plain == expected,
+          fmt("copied=%s painted%s match reference",
+              shown(copied).c_str(),
+              painted_plain == expected ? "es" : " does NOT"));
+    (void)painted;
+}
+
+// ── Group EDGE — the branches nothing else reaches ───────────────────
+
+void test_edge_cases() {
+    set_group("EDGE");
+
+    // GH21-30 — apply_symbols()'s $0000 disambiguation, both ways.
+    //
+    // extract_immediate16() returns 0 both for "this mnemonic has no 16-bit
+    // immediate" and for a real `$0000`, so the rule looks for the literal
+    // text to tell them apart. Neither direction had a fixture; the branch is
+    // load-bearing now that the painter and the clipboard share it.
+    {
+        SymbolTable syms;
+        const QString path = QDir::temp().filePath(
+            QStringLiteral("jnext-gh21-zero-%1.map")
+                .arg(QCoreApplication::applicationPid()));
+        {
+            QFile f(path);
+            f.open(QIODevice::WriteOnly | QIODevice::Text);
+            f.write("reset_vector = $0000\n");
+        }
+        syms.load_simple_map(path.toStdString());
+        QFile::remove(path);
+
+        //  $0000: 21 00 00   LD HL,$0000   -> the real $0000, substituted
+        //  $0003: 00         NOP           -> no immediate, left alone
+        const uint8_t mem[] = { 0x21, 0x00, 0x00, 0x00 };
+        auto read_fn = [&mem](uint16_t a) -> uint8_t {
+            return (a < sizeof(mem)) ? mem[a] : 0x00;
+        };
+
+        const auto lines = disasm_text::collect_range(0x0000, 0x0003, read_fn, &syms);
+        const std::string text =
+            disasm_text::format_lines(lines, disasm_text::CopyFormat::AsmOnly);
+
+        check("GH21-30", "a literal $0000 immediate is substituted and a bare NOP is not",
+              text == "    LD HL,reset_vector\n    NOP\n",
+              shown(QString::fromStdString(text)));
+    }
+
+    // GH21-31 — the top of the address space. collect_range() stops when the
+    // walk steps past $FFFF instead of wrapping into $0000 and disassembling
+    // the bottom of memory into the middle of a copy. Nothing else in this
+    // suite selects anywhere near there.
+    {
+        // Three single-byte instructions at $FFFD..$FFFF, and a recognisable
+        // one at $0000 that must NOT appear: if the walk wrapped, it would.
+        auto read_fn = [](uint16_t a) -> uint8_t {
+            if (a >= 0xFFFD) return 0x00;   // NOP
+            if (a == 0x0000) return 0x76;   // HALT — the canary
+            return 0x00;
+        };
+
+        const auto lines = disasm_text::collect_range(0xFFFD, 0xFFFF, read_fn, nullptr);
+        const std::string text =
+            disasm_text::format_lines(lines, disasm_text::CopyFormat::WithAddresses);
+
+        const bool three = (lines.size() == 3);
+        const bool ends_at_top = three && lines.back().addr == 0xFFFF;
+        const bool no_wrap = text.find("HALT") == std::string::npos;
+
+        check("GH21-31", "a selection reaching $FFFF stops there instead of wrapping to $0000",
+              three && ends_at_top && no_wrap,
+              fmt("%d lines, text=%s", static_cast<int>(lines.size()),
+                  shown(QString::fromStdString(text)).c_str()));
+    }
+}
+
+// ── Group DRAG — the clamp, and the caret ────────────────────────────
+
+void test_drag_and_caret() {
+    set_group("DRAG");
+    Fixture fx;
+    if (!fx.ok) {
+        check("GH21-32", "fixture came up", false, "emulator or memory setup failed");
+        return;
+    }
+
+    // GH21-32 — dragging past the top and bottom edges of the panel clamps to
+    // that end instead of stopping dead. Every other drag row stays inside the
+    // visible window, so line_at_y_clamped()'s whole reason for existing —
+    // it returns 0 or the last line where line_at_y() returns -1 — was
+    // unexercised: reverting it to line_at_y() left the suite green.
+    {
+        // Start on line 3, drag to a y ABOVE the first line.
+        press_line(fx.panel, 3);
+        const QPointF above(TEXT_X, PAINT_Y - 40);
+        QMouseEvent up(QEvent::MouseMove, above, fx.panel->mapToGlobal(above.toPoint()),
+                       Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(fx.panel, &up);
+        Range top = range_of(fx.panel);
+        release_mouse(fx.panel, 0);
+
+        // Start on line 1, drag to a y BELOW the last line.
+        press_line(fx.panel, 1);
+        const QPointF below(TEXT_X, PAINT_Y + (VIS_LINES + 20) * LINE_H);
+        QMouseEvent down(QEvent::MouseMove, below, fx.panel->mapToGlobal(below.toPoint()),
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        QApplication::sendEvent(fx.panel, &down);
+        Range bottom = range_of(fx.panel);
+        release_mouse(fx.panel, 0);
+
+        // Above line 0 clamps to $8000; below the last line clamps to $8018
+        // (the 5-instruction program then single-byte NOPs — see GH21-05).
+        check("GH21-32", "dragging off the top and bottom edges clamps to the first and last line",
+              top.is(0x8000, 0x8007) && bottom.is(0x8003, 0x8018),
+              "top " + top.shown() + ", bottom " + bottom.shown() +
+                  " (expected $8000..$8007 and $8003..$8018)");
+    }
+
+    // GH21-33 — Ctrl+A moves the CARET to the end of what it selected.
+    // selected_address() reports the caret, and select_all_visible() used to
+    // leave it wherever the last click put it, so a click on line 0 followed
+    // by Ctrl+A reported $8000 while the selection ran to $8018.
+    {
+        press_line(fx.panel, 0);
+        release_mouse(fx.panel, 0);
+        send_chord(fx.panel, Qt::Key_A, Qt::ControlModifier);
+        Range r = range_of(fx.panel);
+        const uint16_t caret = fx.panel->selected_address();
+        check("GH21-33", "Ctrl+A leaves the caret on the last line it selected",
+              r.is(0x8000, 0x8018) && caret == r.high,
+              fmt("caret=$%04X, ", caret) + r.shown());
+    }
 }
 
 } // namespace
@@ -756,6 +1001,12 @@ int main(int argc, char** argv)
     std::printf("  Group: VIEW           — done\n");
     test_selection_painting();
     std::printf("  Group: PAINT          — done\n");
+    test_painter_symbols();
+    std::printf("  Group: SYM            — done\n");
+    test_edge_cases();
+    std::printf("  Group: EDGE           — done\n");
+    test_drag_and_caret();
+    std::printf("  Group: DRAG           — done\n");
 
     QFile::remove(map_path);
 
