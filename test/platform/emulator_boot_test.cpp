@@ -1150,7 +1150,7 @@ int main()
         std::remove(ts_cfg.tape_save_file.c_str());
     }
 
-    // --- EB-46..EB-50: an RZX plays on the machine it was recorded on -------
+    // --- EB-46..EB-51: an RZX plays on the machine it was recorded on -------
     // Contract (rzx::recorded_machine(), emulator_boot_machine()): a recording
     // jnext makes names its machine in the creator block's custom data; any
     // other recording is judged by its embedded snapshot (SNA size, SZX
@@ -1302,6 +1302,32 @@ int main()
             check("EB-50", "a cold boot that loads a 48K recording builds the 48K, "
                            "not the configured Next",
                   made && emu.config().type == MachineType::ZX48K);
+
+            // EB-51: the frontend's own cold-boot sequence, as QtApp/SdlApp
+            // run it (their keep_machine hook stores the type in the config
+            // every later boot starts from). File > Play RZX of the 48K
+            // recording on a Next, then F1 / Machine > Power Reset (a boot
+            // with no load): still the 48K. Then Machine > Machine Type >
+            // Next (the frontend's config changed, then a boot): the Next —
+            // the recording's machine is kept, not pinned.
+            EmulatorConfig frontend = base_config();
+            frontend.type = MachineType::ZXN_ISSUE2;
+            ColdBootHooks hooks;
+            hooks.keep_machine = [&frontend](MachineType t) { frontend.type = t; };
+            Emulator fe;
+            fe.init(frontend);
+            emulator_frontend_cold_boot(fe, frontend, path, hooks);    // Play RZX
+            const bool played_48k = fe.config().type == MachineType::ZX48K;
+            emulator_frontend_cold_boot(fe, frontend, "", hooks);      // F1
+            const bool reset_48k = fe.config().type == MachineType::ZX48K;
+            frontend.type = MachineType::ZXN_ISSUE2;                   // Machine Type
+            emulator_frontend_cold_boot(fe, frontend, "", hooks);
+            const bool chose_next = fe.config().type == MachineType::ZXN_ISSUE2;
+            check("EB-51", "the frontend cold boot keeps a recording's machine: a later "
+                           "hard reset still builds it; a Machine Type change still wins",
+                  made && played_48k && reset_48k && chose_next,
+                  "played_48k=" + std::to_string(played_48k) + " reset_48k=" +
+                      std::to_string(reset_48k) + " chose_next=" + std::to_string(chose_next));
             std::remove(path.c_str());
         }
     }

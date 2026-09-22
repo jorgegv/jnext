@@ -349,9 +349,9 @@ hardware mode); a pre-marker jnext recording with an SNA names no machine.
 boot that plays a recording asks it: `main.cpp` for the command line (unless
 `--machine` was given explicitly — `load_rzx()` then warns on a mismatch) and
 `emulator_cold_boot()` for every cold boot, which is the GUI's route. The
-frontends read the booted type back into their own config, so the recording's
-machine stays selected for later boots, and `MainWindow::set_emulator()` shows
-it.
+shared cold-boot driver hands the booted type back to the frontend
+(`ColdBootHooks::keep_machine`), so the recording's machine stays selected for
+later boots, a hard reset included, and `MainWindow::set_emulator()` shows it.
 
 A recording cannot replay a reset the host performs, so none is ever carried
 across one. The power-on cold boot, the host's F4 soft reset and starting a

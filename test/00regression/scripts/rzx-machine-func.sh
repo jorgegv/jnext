@@ -27,6 +27,11 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   128k  recorded on 128K from power-on (150 frames into its ROM); replayed
 #         with no --machine equals the truth; --machine next differs (the
 #         snapshot runs on under another ROM).
+#   reset a 48K recording whose program hard-resets the machine (NR 0x02)
+#         after the recorded frames: played by --rzx-play in Qt and SDL, and by
+#         a cold-boot load into a Next boot (headless), the hard reset that
+#         follows — the frontend's own reset path — boots the 48K again, not
+#         the Next (the machine stays selected, ColdBootHooks::keep_machine).
 #   next  recorded on the Next (test05print.nex); replayed with no --machine,
 #         and by a cold-boot load into a 48K boot, equals the truth. This
 #         program's picture happens to be the same on a 48K, so the case guards
@@ -79,6 +84,16 @@ if want rzx-machine-func; then
             || rm_faults+=("$2: no warning that --machine disagrees with the recording")
     }
 
+    # rm_reset_48k <tag>: the run logged a hard-reset cold boot (no load), and
+    # the machine that boot built is the 48K.
+    rm_reset_48k() {
+        local log="$rm_dir/$1.log" after
+        after=$(sed -n "/Cold boot (reconstruct + init), load_file='(none)'/,\$p" "$log" \
+                    | grep -m1 "Initializing emulator: machine_type=" || true)
+        [[ "$2" == 0 && "$after" == *"machine_type=1[48K]"* ]] \
+            || rm_faults+=("$1: after the hard reset: '${after:-no hard-reset cold boot}' (rc=$2)")
+    }
+
     if [[ ! -x "$rm_sdl" ]]; then
         fail_row " (SDL-only binary not built: $rm_sdl; run 'make sdl-release')"
     elif ! $HAS_COMPARE; then
@@ -90,13 +105,23 @@ if want rzx-machine-func; then
             --delayed-snapshot "$rm_dir/bifrost.sna" --delayed-snapshot-frames 300 \
             --delayed-automatic-exit-frames 301 >"$rm_dir/mk-sna.log" 2>&1 || true
 
+        # A 48K program that busy-waits ~50 frames, then NEXTREG 2,2 (hard
+        # reset): DI; LD B,2; LD DE,FFFF; DEC DE; LD A,D; OR E; JR NZ;
+        # DJNZ; NEXTREG 2,2; JR $. Recorded for its first 10 frames.
+        printf '\xf3\x06\x02\x11\xff\xff\x1b\x7a\xb3\x20\xfb\x10\xf6\xed\x91\x02\x02\x18\xfe' \
+            > "$rm_dir/reset.bin"
+        timeout --foreground --kill-after=5s 120s "$JNEXT" --headless "${SD_CARD_ARGS[@]}" \
+            --machine 48k --inject "$rm_dir/reset.bin" --inject-delay 100 \
+            --rzx-record "$rm_dir/rreset.rzx" --delayed-automatic-exit-frames 110 \
+            >"$rm_dir/mk-reset.log" 2>&1 || true
+
         r48="$rm_dir/r48.rzx"; r128="$rm_dir/r128.rzx"; rnext="$rm_dir/rnext.rzx"
         rc48=$(rm_run headless t48 100 --machine 48k --load "$rm_dir/bifrost.sna" --rzx-record "$r48")
         rc128=$(rm_run headless t128 150 --machine 128k --rzx-record "$r128")
         rcn=$(rm_run headless tnext 100 --machine next \
                 --load "$PROJECT_DIR/test/00regression/nex/test05print.nex" --rzx-record "$rnext")
         if [[ "$rc48" != 0 || "$rc128" != 0 || "$rcn" != 0 ||
-              ! -s "$r48" || ! -s "$r128" || ! -s "$rnext" ]]; then
+              ! -s "$r48" || ! -s "$r128" || ! -s "$rnext" || ! -s "$rm_dir/rreset.rzx" ]]; then
             fail_row " (could not record the ground truths: rc48=$rc48 rc128=$rc128 rcnext=$rcn)"
         else
             for fe in headless qt sdl; do
@@ -111,6 +136,12 @@ if want rzx-machine-func; then
             rm_same t128 128-play "$(rm_run headless 128-play 150 --rzx-play "$r128")"
             rm_differs t128 128-on-next "$(rm_run headless 128-on-next 150 --machine next --rzx-play "$r128")"
 
+            for fe in qt sdl; do
+                rm_reset_48k "reset-$fe" "$(rm_run "$fe" "reset-$fe" 200 --rzx-play "$rm_dir/rreset.rzx")"
+            done
+            rm_reset_48k reset-cold "$(JNEXT_DELAYED_RESET_FRAMES=5 \
+                JNEXT_DELAYED_RESET_TYPE="loadnex:$rm_dir/rreset.rzx" rm_run headless reset-cold 200 --machine next)"
+
             rm_same tnext next-play "$(rm_run headless next-play 100 --rzx-play "$rnext")"
             rm_same tnext next-cold "$(JNEXT_DELAYED_RESET_FRAMES=5 \
                 JNEXT_DELAYED_RESET_TYPE="loadnex:$rnext" rm_run headless next-cold 105 --machine 48k)"
@@ -118,7 +149,7 @@ if want rzx-machine-func; then
             if [[ ${#rm_faults[@]} -gt 0 ]]; then
                 fail_row " ($(IFS=';'; echo "${rm_faults[*]}"))"
             else
-                pass_row " (48K, 128K and Next recordings replay on their own machine without --machine, in every route and frontend; --machine wins, with a warning)"
+                pass_row " (48K, 128K and Next recordings replay on their own machine without --machine, in every route and frontend, and a later hard reset keeps it; --machine wins, with a warning)"
             fi
         fi
     fi

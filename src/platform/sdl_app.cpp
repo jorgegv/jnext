@@ -230,11 +230,11 @@ void SdlApp::cold_boot(const std::string& load_file) {
     hooks.schedule_load = [this](const std::string& file, int delay_frames) {
         set_pending_load(file, delay_frames);
     };
-    emulator_frontend_cold_boot(emulator_, config_set_ ? config_ : EmulatorConfig{},
-                                load_file, hooks);
     // A recording boots the machine it was made on, which stays selected for
     // later boots (emulator_cold_boot()).
-    config_.type = emulator_.config().type;
+    hooks.keep_machine = [this](MachineType type) { config_.type = type; };
+    emulator_frontend_cold_boot(emulator_, config_set_ ? config_ : EmulatorConfig{},
+                                load_file, hooks);
 }
 
 void SdlApp::set_delayed_screenshot(const std::string& file, int delay_frames,

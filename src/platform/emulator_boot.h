@@ -106,7 +106,7 @@ inline int emulator_load_delay_frames(const std::string& file) {
 /// valid) and re-run init(cfg) — the proven startup path. A `cfg.load_file`
 /// that is an RZX recording boots the machine it was made on
 /// (emulator_boot_machine()); the frontend keeps that machine for its later
-/// boots by reading `emu.config().type` back.
+/// boots (ColdBootHooks::keep_machine).
 ///
 /// An RZX recording is finalised first (written, and ended — see
 /// Emulator::end_rzx_at_reset()), and the per-path record of failed RZX writes
@@ -195,6 +195,13 @@ struct ColdBootHooks {
     /// Frontend tail, after the machine is up (QtApp re-anchors the frame
     /// pacer here: a cold boot is a restart, so the schedule rebases).
     std::function<void()> on_booted;
+
+    /// Store the machine this boot built as the frontend's own, so every later
+    /// boot (a hard reset, F1, Machine > Power Reset) builds it too. It differs
+    /// from the frontend's only when the boot played an RZX recording made on
+    /// another machine (emulator_cold_boot()): that machine stays selected, as
+    /// Machine > Machine Type would leave it.
+    std::function<void(MachineType)> keep_machine;
 };
 
 /// Perform a full frontend cold boot. `base_cfg` is the frontend's startup
@@ -209,7 +216,7 @@ struct ColdBootHooks {
 ///      the Debug menu must survive the boot (carrying `base_cfg`'s startup
 ///      values instead would silently revert them under a menu that still
 ///      shows them);
-///   3. the machine is reconstructed;
+///   3. the machine is reconstructed, and the frontend keeps its type;
 ///   4. the frontend re-binds and re-wires its host adapters;
 ///   5. stale pending work is dropped BEFORE new work is scheduled;
 ///   6. the load is re-scheduled;
@@ -230,6 +237,7 @@ inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
 
     emulator_cold_boot(emu, cfg);
 
+    if (hooks.keep_machine)        hooks.keep_machine(emu.config().type);
     if (hooks.rewire_host)         hooks.rewire_host(cfg);
     if (hooks.cancel_pending_work) hooks.cancel_pending_work();
     if (!load_file.empty() && hooks.schedule_load)
