@@ -141,7 +141,7 @@ if want joy-uart-link-func; then
         --joy-uart-fifo "$TMP_DIR/c1" --joy-uart-pty
     link_refuse "a live cable alongside a recorded stream" 'a recorded stream' \
         --joy-uart-fifo "$TMP_DIR/c2" --joy-uart-rx "$rx_src"
-    link_refuse "a start delay given to a live cable" 'requires' \
+    link_refuse "a start delay given to a live cable" 'schedules a recorded stream' \
         --joy-uart-fifo "$TMP_DIR/c3" --joy-uart-rx-delay-frames 5
     link_refuse "a --joy-uart-fifo path that is not a FIFO" 'not a FIFO' \
         --joy-uart-fifo "$plain"

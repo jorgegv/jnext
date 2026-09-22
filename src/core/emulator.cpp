@@ -8181,8 +8181,8 @@ void Emulator::setup_joy_uart_link()
         return;
     }
 
-    joy_uart_link_ = std::unique_ptr<JoyUartLink>(
-        new JoyUartLink(std::move(endpoint), config_.joy_uart_connector));
+    joy_uart_link_ = std::make_unique<JoyUartLink>(std::move(endpoint),
+                                                   config_.joy_uart_connector);
 
     joy_uart_link_->set_byte_sink([this](uint8_t byte) {
         // The CONNECTOR gate, which `inject_joy_uart_rx` deliberately does not

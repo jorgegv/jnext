@@ -1220,8 +1220,9 @@ int main(int argc, char* argv[]) {
         const bool joy_uart_live = !joy_uart_fifo.empty() || joy_uart_pty;
         if (joy_uart_connector_set && joy_uart_rx_file.empty() && !joy_uart_live) {
             fprintf(stderr,
-                    "--joy-uart-connector requires a serial cable to configure: give "
-                    "--joy-uart-rx FILE, --joy-uart-fifo PATH or --joy-uart-pty too.\n");
+                    "--joy-uart-connector and --joy-uart-rx-delay-frames require a serial "
+                    "source to configure: give --joy-uart-rx FILE, --joy-uart-fifo PATH or "
+                    "--joy-uart-pty too.\n");
             return 1;
         }
         // The delay belongs to the RECORDING only. A live cable has no stream to
@@ -1230,9 +1231,10 @@ int main(int argc, char* argv[]) {
         // no-op every refusal in this block exists to prevent.
         if (joy_uart_rx_delay_frames_set && joy_uart_rx_file.empty()) {
             fprintf(stderr,
-                    "--joy-uart-rx-delay-frames schedules a recorded stream and requires "
-                    "--joy-uart-rx FILE; a live cable (--joy-uart-fifo / --joy-uart-pty) "
-                    "delivers bytes when the host sends them.\n");
+                    "--joy-uart-rx-delay-frames schedules a recorded stream: delays require "
+                    "a serial source given with --joy-uart-rx FILE. A live cable "
+                    "(--joy-uart-fifo / --joy-uart-pty) delivers bytes when the host sends "
+                    "them.\n");
             return 1;
         }
         // GH #252 — one cable, one socket. Two sources feeding the same pin would

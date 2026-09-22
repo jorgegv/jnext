@@ -91,7 +91,7 @@ in turn, so a cable in the socket bit 4 does *not* select can still hear the
 machine even though the machine cannot hear it. That is the hardware's
 asymmetry, not JNEXT's.
 
-## Two things to know before you rely on it
+## Three things to know before you rely on it
 
 **Rewinding breaks a live session.** The debugger's rewind, and RZX playback,
 re-execute instructions the program has already run. JNEXT holds the cable
@@ -99,6 +99,16 @@ completely still while that happens — it will not send a byte to your debugger
 twice, and it will not swallow one you sent — but it cannot rewind the program
 at the *other* end of the cable, which still believes everything it was told.
 Expect to restart the session on the host side after a rewind.
+
+**A hard reset re-plugs the cable.** **Machine > Power Reset** (F1) rebuilds the
+whole machine, and the cable with it — which is right, because a power reset is
+what a cable being pulled out and pushed back in looks like. Either way your own
+end breaks and has to be reopened: with `--joy-uart-fifo` the pipes keep their
+names but the descriptors you were holding stop working, and with
+`--joy-uart-pty` the pseudo-terminal is a *new* device, so read the new path
+from the startup line that the reset prints. A soft reset (the machine's own
+NextREG 0x02 reset) does not touch the cable at all, which is also what the
+hardware does.
 
 **It is POSIX-only.** Neither form exists on Windows; JNEXT says so and stops
 rather than starting a run with a cable that is not there.

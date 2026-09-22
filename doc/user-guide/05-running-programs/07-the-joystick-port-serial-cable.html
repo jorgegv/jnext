@@ -1538,10 +1538,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#two-things-to-know-before-you-rely-on-it" class="md-nav__link">
+  <a href="#three-things-to-know-before-you-rely-on-it" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Two things to know before you rely on it
+        Three things to know before you rely on it
       
     </span>
   </a>
@@ -2944,13 +2944,22 @@ Transmitting is not connector-selected: the Next presents pin 7 to both sockets
 in turn, so a cable in the socket bit 4 does <em>not</em> select can still hear the
 machine even though the machine cannot hear it. That is the hardware's
 asymmetry, not JNEXT's.</p>
-<h2 id="two-things-to-know-before-you-rely-on-it">Two things to know before you rely on it<a class="headerlink" href="#two-things-to-know-before-you-rely-on-it" title="Permanent link">&para;</a></h2>
+<h2 id="three-things-to-know-before-you-rely-on-it">Three things to know before you rely on it<a class="headerlink" href="#three-things-to-know-before-you-rely-on-it" title="Permanent link">&para;</a></h2>
 <p><strong>Rewinding breaks a live session.</strong> The debugger's rewind, and RZX playback,
 re-execute instructions the program has already run. JNEXT holds the cable
 completely still while that happens — it will not send a byte to your debugger
 twice, and it will not swallow one you sent — but it cannot rewind the program
 at the <em>other</em> end of the cable, which still believes everything it was told.
 Expect to restart the session on the host side after a rewind.</p>
+<p><strong>A hard reset re-plugs the cable.</strong> <strong>Machine &gt; Power Reset</strong> (F1) rebuilds the
+whole machine, and the cable with it — which is right, because a power reset is
+what a cable being pulled out and pushed back in looks like. Either way your own
+end breaks and has to be reopened: with <code>--joy-uart-fifo</code> the pipes keep their
+names but the descriptors you were holding stop working, and with
+<code>--joy-uart-pty</code> the pseudo-terminal is a <em>new</em> device, so read the new path
+from the startup line that the reset prints. A soft reset (the machine's own
+NextREG 0x02 reset) does not touch the cable at all, which is also what the
+hardware does.</p>
 <p><strong>It is POSIX-only.</strong> Neither form exists on Windows; JNEXT says so and stops
 rather than starting a run with a cable that is not there.</p>
 

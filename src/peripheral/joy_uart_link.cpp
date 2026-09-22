@@ -50,16 +50,6 @@ JoyUartEndpoint::~JoyUartEndpoint() {
 #endif
 }
 
-std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::adopt_fds(int rx_fd, int tx_fd,
-                                                            std::string description) {
-    std::unique_ptr<JoyUartEndpoint> ep(new JoyUartEndpoint());
-    ep->rx_fd_       = rx_fd;
-    ep->tx_fd_       = tx_fd;
-    ep->shared_fd_   = (rx_fd == tx_fd);
-    ep->description_ = std::move(description);
-    return ep;
-}
-
 #ifdef _WIN32
 
 std::unique_ptr<JoyUartEndpoint> JoyUartEndpoint::open_fifo(const std::string& base,

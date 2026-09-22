@@ -176,7 +176,6 @@ public:
     /// them once). See the class comment for why this is a gate rather than a
     /// teardown.
     void set_inert(bool inert) { inert_ = inert; }
-    bool inert() const { return inert_; }
 
 private:
     std::unique_ptr<JoyUartEndpoint> endpoint_;
@@ -215,8 +214,7 @@ private:
     void flush_tx();
 };
 
-/// The host-side descriptors behind a `JoyUartLink`: a FIFO pair, a pty, or (in
-/// tests) a pair of descriptors handed in directly.
+/// The host-side descriptors behind a `JoyUartLink`: a FIFO pair, or a pty.
 ///
 /// NON-BLOCKING IS THE WHOLE CONTRACT. The emulator's frame loop calls into
 /// this from `JoyUartLink::poll()`, so every operation here must return
@@ -276,13 +274,6 @@ public:
     /// is returned in `describe()` so the caller can print it. Raw mode is set
     /// on the master so no line discipline mangles the byte stream.
     static std::unique_ptr<JoyUartEndpoint> open_pty(std::string& error);
-
-    /// TEST SEAM: adopt two already-open, already-non-blocking descriptors
-    /// (e.g. the two ends of a `socketpair`). Takes ownership of both; pass the
-    /// same value twice for a single bidirectional descriptor. No lazy reopen,
-    /// because there is no path to reopen from.
-    static std::unique_ptr<JoyUartEndpoint> adopt_fds(int rx_fd, int tx_fd,
-                                                      std::string description);
 
     /// Non-blocking read of at most `cap` bytes. Returns how many landed in
     /// `buf`; 0 means "nothing right now", which covers no-writer, no-data and
