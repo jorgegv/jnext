@@ -7,6 +7,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 
 # --- Tautological-assertion lint (fast fail on new offenders) ---
 echo -e "${BOLD}[lint-assertions] Scanning test/ for tautological assertions...${RESET}"
+CURRENT_ROW=lint-assertions
 if bash "$PROJECT_DIR/test/lint-assertions.sh"; then
     printf "  "; pass_row ": no new tautological assertions"
 else
@@ -23,6 +24,7 @@ echo ""
 # A static grep costs well under a second and stops the naive and accidental
 # case; it is NOT airtight (the lint header enumerates what it cannot decide).
 echo -e "${BOLD}[lint-traps] Scanning regression row scripts for stray traps...${RESET}"
+CURRENT_ROW=lint-traps
 if bash "$SCRIPT_DIR/lint-traps.sh"; then
     printf "  "; pass_row ": no row script installs its own trap"
 else
@@ -39,6 +41,7 @@ echo ""
 # the only gate that can see it from here. It would have caught 29 lines across
 # 26 files on the pre-fix tree.
 echo -e "${BOLD}[lint-paths] Scanning tracked code/config for owner-absolute paths...${RESET}"
+CURRENT_ROW=lint-paths
 if bash "$PROJECT_DIR/test/lint-hardcoded-paths.sh"; then
     printf "  "; pass_row ": no owner-absolute paths in tracked code/config"
 else

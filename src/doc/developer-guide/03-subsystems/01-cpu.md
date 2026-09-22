@@ -124,6 +124,14 @@ than at the start of the frame, so feeding it raw coordinates would contend the
 top border while missing the bottom 64 display lines. The runtime is installed
 by `z80_set_contention_runtime()`; with it null, all seven sites are inert.
 
+`fuse_z80_readport` charges the I/O cycle's stretch *before* it calls the port
+handler, because the T80 latches the data bus only on the falling edge of T3,
+after the stretch; `fuse_z80_writeport` calls the handler first, because a
+write strobe acts as soon as IORQ and WR go low. The order matters to any read
+whose value depends on time — the floating bus, NR 0x1E/0x1F, the tape EAR bit
+— and to `Z80Cpu::tstates_into_instruction()`, which those reads use to find
+where in the instruction the bus is (GH #265).
+
 A separate stretch is the 28 MHz SRAM read wait (`zxnext.vhd:3171-3181`): at CPU
 speed 3, every memory *read* cycle that reaches external SRAM costs one extra
 T-state, qualified per target by `Mmu::sram_read_wait28()`.

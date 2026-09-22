@@ -133,6 +133,27 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     boot_hold_frames_remaining_ = 0;  // G156
     cpu_parked_ = false;              // GH #164
 
+    // NR 0x07 returns to its power-on value (3.5 MHz) on every reset, soft
+    // included (zxnext.vhd:1300 `nr_07_cpu_speed` reset "00"), so the log
+    // change-gate must return with it — otherwise the guest's first write
+    // back to the pre-reset speed would be swallowed as "unchanged" and never
+    // logged. It lived only in the since-removed in-place Emulator::reset()
+    // (GH #239), so a soft reset left the gate stale.
+    last_logged_cpu_speed_ = 0;
+
+    // Task 60e: any (re)initialisation re-establishes a clean machine, so a
+    // pending "corrupt after failed rewind" flag (Task 60b) is cleared — the
+    // recovery path the GUI tells the user to take.
+    last_state_error_.clear();
+
+    // GH #29/#84: direct-NEX host state is execution context, not machine
+    // state. Every (re)initialisation — soft reset, and the loaders that
+    // re-initialise before applying a file — returns file and SD traffic to
+    // the configured card/ROM. load_nex() re-arms both afterwards.
+    extended_nex_host_.clear();
+    sd_card_.clear_read_overlay();
+    direct_nex_esxdos_ = false;   // GH #250 — same lifetime as the bridge
+
     // Subsystem resets. RAM and the separate Rom buffer are skipped on
     // soft reset so tbblue-loaded content in SRAM (including the ROM-in-SRAM
     // window pages 0..7 for Next) survives RESET_SOFT, matching VHDL: SRAM
@@ -163,10 +184,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // GH #233 — the phantom typist is host-side input state bound to the
     // keyboard it drives, so it belongs with keyboard_.reset(): a reset
     // cancels a pending TAP autostart instead of typing LOAD"" into the
-    // machine that came up after it. Pre-fix the call lived ONLY in
-    // Emulator::reset() (the hard-reset path), so a soft reset — which
-    // routes through init(preserve_memory=true) and never through
-    // reset() — left an armed typist running.
+    // machine that came up after it. Pre-fix the call lived ONLY in the
+    // in-place Emulator::reset() (since removed, GH #239), so a soft reset —
+    // which routes through init(preserve_memory=true) and never went
+    // through that method — left an armed typist running.
     //
     // Unconditional (no preserve_memory guard) and safe against the one
     // ordering that could disarm a legitimate autostart: `arm()` has a
@@ -449,27 +470,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         preserve_memory ? mmu_.machine_type() : cfg.type;
     contention_.build(init_machine_type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
-    // Verify9-memory class-(c) → class-(a) fix: seed
-    // ContentionModel's port_7ffd_io_en gate from NR 0x82 bit 1
-    // (VHDL zxnext.vhd:2399). Power-on default is 0xFF (all bits set,
-    // see nextreg.cpp:40 + VHDL :1226), so port_7ffd_io_en starts
-    // enabled. The NR 0x82 write handler at install_port_handlers()
-    // refreshes this on every subsequent write. ContentionModel::build()
-    // resets the gate to false; we re-seed it here to match the VHDL
-    // power-on default after build().
-    contention_.set_port_7ffd_io_en((nextreg_.cached(0x82) & 0x02) != 0);
-    // V15-CPU-NIT-03 (reviewer-promoted): seed
-    // ContentionModel's port_ulap_io_en gate from NR 0x85 bit 0
-    // (VHDL zxnext.vhd:2439 — port_ulap_io_en <= internal_port_enable(24);
-    // bit 24 = first bit of nr_85). Power-on default is 0x0F (low 4 bits
-    // set per VHDL :1229 — `nr_85_internal_port_enable` resets to all-1
-    // and the register is 4 bits wide, so reset value = 0x0F). The
-    // NR 0x85 write handler installed at install_port_handlers()
-    // refreshes the shadow on every subsequent write. The CPU-side
-    // bus callbacks (fuse_z80_readport / fuse_z80_writeport) consult
-    // the shadow internally via contention_tick() — no parameter
-    // needed (matches the port_7ffd_io_en_ pattern).
-    contention_.set_port_ulap_io_en((nextreg_.cached(0x85) & 0x01) != 0);
+    // ContentionModel's port_7ffd_io_en / port_ulap_io_en gates (build()
+    // clears the first) are seeded near the END of init(), with the DivMMC
+    // and Multiface enables, once expbus_eff_en is known — see there.
 
     // GH #237 — the VideoTiming seed used to live HERE, as
     // `video_timing_.init(cfg.type, false)`. It now runs below, once
@@ -678,8 +681,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     apply_video_timing(init_tim_mode, /*refresh_60hz=*/false);
 
     // Clear all port dispatch handlers before re-registering them.
-    // Without this, reset() → init() would duplicate every handler, causing
-    // double-fired writes (breaking auto-increment ports like sprites/palette).
+    // Without this, a second init() (a soft reset, a re-initialising load)
+    // would duplicate every handler, causing double-fired writes (breaking
+    // auto-increment ports like sprites/palette).
     port_.clear_handlers();
     port_.clear_io_observers();
 
@@ -1055,14 +1059,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     debug_state_.set_persistent_breakpoints(cfg.persistent_breakpoints);
 
     // Magic breakpoint: ED FF (ZEsarUX) / DD 01 (CSpect) trigger debugger pause.
-    if (cfg.magic_breakpoint) {
-        cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
-            Log::emulator()->info("Magic breakpoint hit at PC={:#06x}", pc);
-            debug_state_.set_active(true);
-            debug_state_.pause();
-            return true;
-        };
-    }
+    set_magic_breakpoint(cfg.magic_breakpoint);
 
     // Host-side compatibility for directly loaded NEX programs.
     //
@@ -1542,16 +1539,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // dispatch, pinned by the existing esxdos-stub suite.
         esxdos_bridge_handler_ =
             [handle_esxdos](uint8_t defb, Z80Registers& r) -> bool {
+                // Guarded for the should_log() reason given in
+                // PortDispatch::read (src/port/port_dispatch.cpp): since
+                // GH #250 this wrapper runs on EVERY RST $08 call of a
+                // directly loaded NEX, not only when tracing, so an unguarded
+                // trace() with arguments was an out-of-line call per call with
+                // tracing off (GH #244).
+                const bool trace_on = Log::esxdos()->should_log(spdlog::level::trace);
                 const char* name = esxdos_call_name(defb);
                 // Logged BEFORE handle_esxdos runs: the stub mutates r in place, so
                 // capturing the arguments afterwards would report the results as if
                 // they had been the inputs. Pinned by ESXT-28.
-                Log::esxdos()->trace(
-                    "-> ${:02X} {:<12} AF={:04X} BC={:04X} DE={:04X} HL={:04X} IX={:04X}",
-                    defb, name ? name : "(unknown)", r.AF, r.BC, r.DE, r.HL, r.IX);
+                if (trace_on)
+                    Log::esxdos()->trace(
+                        "-> ${:02X} {:<12} AF={:04X} BC={:04X} DE={:04X} HL={:04X} IX={:04X}",
+                        defb, name ? name : "(unknown)", r.AF, r.BC, r.DE, r.HL, r.IX);
 
                 const bool handled = handle_esxdos(defb, r);
 
+                if (!trace_on) return handled;
                 if (handled) {
                     // esxdos convention: carry CLEAR = success, SET = error
                     // with the code in A.
@@ -2773,11 +2779,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // test: 24 fixed + 6 scrolling + 2 fixed instead of 30 scrolling + 2).
     // See the line-interrupt firing math in line_int_master_cycle_offset()
     // and begin_new_frame(), which already use this exact cvc origin.
+    //
+    // GH #265 — WHEN the read samples cvc. An IN from 0x253B returns
+    // port_253b_dat_0 (zxnext.vhd:2819), a register reloaded from
+    // port_253b_dat on EVERY CLK_CPU falling edge (:5871-5876), while
+    // port_253b_dat follows cvc on CLK_28 (:5878-5882,5982-5986). The T80 latches the
+    // data bus into DI_Reg on the falling edge of the I/O cycle's T3
+    // (t80na.vhd:214-222), and with IOWait = 1 (t80na.vhd:184) that cycle is
+    // T1, TW, T2, T3 (t80n.vhd:1781-1782 holds TState at 1 for one clock), so
+    // DI_Reg takes the port_253b_dat_0 loaded on the PREVIOUS falling edge:
+    // 2.5 T-states into the I/O cycle. jnext used clock_, the START of the
+    // instruction — 10.5 T-states early for IN A,(C), 9.5 for IN A,(n) — so a
+    // loop polling for a line left it up to one iteration late.
+    static constexpr unsigned kPort253bReloadHalfT = 5;   // 2.5 T-states
     nextreg_.set_read_handler(0x1E, [this]() -> uint8_t {
-        return static_cast<uint8_t>((current_cvc() >> 8) & 0x01);
+        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadHalfT));
+        return static_cast<uint8_t>((cvc >> 8) & 0x01);
     });
     nextreg_.set_read_handler(0x1F, [this]() -> uint8_t {
-        return static_cast<uint8_t>(current_cvc() & 0xFF);
+        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadHalfT));
+        return static_cast<uint8_t>(cvc & 0xFF);
     });
 
     // Register 0x22: Line interrupt control
@@ -4943,21 +4964,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //
     // When all four gates hold, the read returns the same byte the
     // Kempston-1 0x001F path delivers — i.e. joystick_.read_port_1f().
-    // Otherwise the port stays undecoded and the floating-bus default
-    // 0x00 (matching the pre-fix behaviour) is returned. (G130 closure.)
+    // Otherwise nothing decodes the read and it returns X"FF"
+    // (zxnext.vhd:1877) — see port_df_read(). (G130 closure; GH #262 —
+    // the gated-off read used to return 0x00.)
     port_.register_handler(0x00FF, 0x00DF,
-        [this](uint16_t) -> uint8_t {
-            // NR 0x84 bit 7 — Specdrum/DAC enable for 0xDF.
-            if ((effective_internal_port_enable(0x84) & 0x80) == 0) return 0x00;
-            // NR 0x83 bit 5 — port_mouse_io_en MUST be cleared.
-            if ((effective_internal_port_enable(0x83) & 0x20) != 0) return 0x00;
-            // NR 0x82 bit 6 — port_1f_io_en gate.
-            if ((effective_internal_port_enable(0x82) & 0x40) == 0) return 0x00;
-            // port_1f_hw_en: at least one connector in Kempston1 or
-            // MD3-Left (joyL_1f_en / joyR_1f_en live). VHDL zxnext.vhd:2454.
-            if (!joystick_.port_1f_hw_en()) return 0x00;
-            return joystick_.read_port_1f();
-        },
+        [this](uint16_t) -> uint8_t { return port_df_read(); },
         [this](uint16_t, uint8_t val) {
             // VHDL zxnext.vhd:2435 — port_dac_mono_AD_df_io_en =
             // internal_port_enable(23) = NR 0x84 bit 7 (G114). When the
@@ -5877,21 +5888,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // followed by IN A,(0x2ADF) would access Kempston mouse buttons on real
     // hardware but not in jnext. Fix: change masks to 0x0FFF / val 0x0ADF
     // (etc.) so the high nibble of cpu_a is ignored, matching VHDL :2668.
+    //
+    // GH #262: with the mouse disabled these addresses are still LSB 0xDF,
+    // so the `port_1f` alias (zxnext.vhd:2674) can decode them exactly as it
+    // decodes 0x??DF; the gated-off read therefore goes to port_df_read()
+    // rather than straight to X"FF".
     port_.register_handler(0x0FFF, 0x0ADF,
         [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return port_df_read();
             return mouse_.read_port_fadf();
         },
         nullptr);
     port_.register_handler(0x0FFF, 0x0BDF,
         [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return port_df_read();
             return mouse_.read_port_fbdf();
         },
         nullptr);
     port_.register_handler(0x0FFF, 0x0FDF,
         [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return port_df_read();
             return mouse_.read_port_ffdf();
         },
         nullptr);
@@ -5944,11 +5960,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // port_ff3b on `port_ulap_io_en = '1'`, where
     // `port_ulap_io_en <= internal_port_enable(24)` = NR 0x85 bit 0
     // (VHDL :2439). When cleared, the ports are silenced.
+    //
+    // GH #262: 0xBF3B is WRITE-ONLY. The VHDL has `port_bf3b_wr <= iowr and
+    // port_bf3b` (zxnext.vhd:2792) and no read strobe at all, and 0xBF3B is
+    // absent from `port_internal_rd_response` (:2803-2806), so an IN from it
+    // falls to `cpu_di <= X"FF"` (:1877) whether or not the port is enabled.
+    // No read callback: dispatch reaches the undecoded default. The handler
+    // used to return 0x00 whenever NR 0x85 b0 was set.
     port_.register_handler(0xFFFF, 0xBF3B,
-        [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return 0xFF;
-            return 0x00;
-        },
+        nullptr,
         [this](uint16_t, uint8_t v) {
             if ((effective_internal_port_enable(0x85) & 0x01) == 0) return;  // NR 0x85 b0 gate
             // VHDL zxnext.vhd:4532 — port_bf3b_ulap_mode <= cpu_do(7:6)
@@ -6642,10 +6662,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // port_multiface_io_en, VHDL :2412 + :2415) through
     // effective_internal_port_enable so expbus_eff_en=1 ANDs in NR 0x87
     // (VHDL :2392-2393).
-    divmmc_.set_port_io_enable(
-        (effective_internal_port_enable(0x83) & 0x01) != 0);
-    multiface_.set_enabled(
-        (effective_internal_port_enable(0x83) & 0x02) != 0);
+    //
+    // The same holds for ContentionModel's port_7ffd_io_en (NR 0x82 b1,
+    // VHDL :2399 — port_contend term :2594/:4496) and port_ulap_io_en
+    // (NR 0x85 b0, :2439 — :2685-2686), which propagate_effective_port_enables()
+    // pushes along with the two above. They must be seeded HERE, after
+    // expbus_eff_en has been re-loaded from the (reset-folded) NR 0x80 bit 7
+    // — the VHDL reloads it inside the reset clause (:5799-5806) — and not
+    // from the raw NR 0x82 / 0x85 bytes: a reset that folds NR 0x80 bit 3 into
+    // bit 7 brings expbus up live with an NR 0x86-0x89 mask that survived
+    // (NR 0x89 b7=1, :5061-5067), so the effective enable can be 0 where the
+    // raw byte is all ones. soft_reset() also writes NR 0x86-0x89 back
+    // through their handlers after init(), which re-propagates; the
+    // snapshot/NEX loaders' in-place init() writes nothing back (GH #239,
+    // V16-NMP-02-LOAD-REINIT).
+    propagate_effective_port_enables();
 
     // Wire palette manager and RAM into ULA for enhanced palette and
     // hardware-accurate VRAM access (ULA reads directly from physical bank 5,
@@ -6855,10 +6886,11 @@ bool Emulator::load_nex(const std::string& path)
     extended_nex_host_.clear();
     sd_card_.clear_read_overlay();
 
-    // Full machine reset before applying NEX data ensures clean subsystem
-    // state (palette, video layers, NextREG, etc.) regardless of whether
-    // the emulator was already running or freshly started.
-    reset();
+    // Full machine re-initialisation before applying NEX data ensures clean
+    // subsystem state (palette, video layers, NextREG, etc.) regardless of
+    // whether the emulator was already running or freshly started. In place,
+    // not a cold boot — see the init() declaration (GH #239).
+    init(config_);
 
     if (!loader.apply(*this)) return false;
     active_nex_path_ = std::filesystem::absolute(path).lexically_normal().string();
@@ -6944,7 +6976,8 @@ bool Emulator::load_nex(const std::string& path)
 
     // GH #250 — the program now runs with no NextZXOS behind it, so arm the
     // esxDOS answers nexload's OS would have provided (see the handler in
-    // init()). Disarmed by reset()/soft_reset(), like the host bridge.
+    // init()). Disarmed by init() (soft reset, re-initialising loads), like
+    // the host bridge.
     // A GUI File -> Open load can occur after init(), when no command-line
     // NEX existed and the dormant bridge was deliberately not attached, so
     // attach it here too. When disarmed the handler returns false,
@@ -6981,7 +7014,7 @@ bool Emulator::load_sna(const std::string& path)
 {
     SnaLoader loader;
     if (!loader.load(path)) return false;
-    reset();
+    init(config_);   // re-initialise in place first (see init(), GH #239)
     if (!loader.apply(*this)) return false;
     // A snapshot puts the CPU in its interrupt mode without executing an IM
     // instruction, which is what the IM latch behind NR 0xC0 bits 2:1 (and
@@ -6997,6 +7030,21 @@ void Emulator::resume_from_park(const char* reason)
     Log::emulator()->info(
         "CPU un-parked: {} — the machine was holding a load-only NEX's state "
         "(header PC=0) and would otherwise never have run it", reason);
+}
+
+void Emulator::set_magic_breakpoint(bool enabled)
+{
+    config_.magic_breakpoint = enabled;
+    if (!enabled) {
+        cpu_.on_magic_breakpoint = nullptr;
+        return;
+    }
+    cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
+        Log::emulator()->info("Magic breakpoint hit at PC={:#06x}", pc);
+        debug_state_.set_active(true);
+        debug_state_.pause();
+        return true;
+    };
 }
 
 bool Emulator::load_tap(const std::string& path, bool fast_load)
@@ -7096,7 +7144,7 @@ bool Emulator::load_szx(const std::string& path)
 {
     SzxLoader loader;
     if (!loader.load(path)) return false;
-    reset();
+    init(config_);   // re-initialise in place first (see init(), GH #239)
     if (!loader.apply(*this)) return false;
     im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
     return true;
@@ -7106,7 +7154,7 @@ bool Emulator::load_z80(const std::string& path)
 {
     Z80Loader loader;
     if (!loader.load(path)) return false;
-    reset();
+    init(config_);   // re-initialise in place first (see init(), GH #239)
     if (!loader.apply(*this)) return false;
     im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
     return true;
@@ -9249,94 +9297,6 @@ void Emulator::refresh_joystick_sources()
     }
 }
 
-void Emulator::reset()
-{
-    // NR 0x07 returns to its power-on value (3.5 MHz) across a reset, so the log
-    // change-gate must return with it — otherwise the guest's first write back to
-    // the pre-reset speed would be swallowed as "unchanged" and never logged.
-    last_logged_cpu_speed_ = 0;
-
-    // Task 60e: a hard reset re-establishes a clean machine, so any
-    // pending "corrupt after failed rewind" flag (Task 60b) is cleared —
-    // the recovery path the GUI tells the user to take.
-    last_state_error_.clear();
-
-    // GH #29/#84: a reset leaves direct-NEX execution and returns to a
-    // normally booted machine. Do not let its host-file bridge, active
-    // port-$EB stream, or synthetic SD sectors intercept that machine.
-    extended_nex_host_.clear();
-    sd_card_.clear_read_overlay();
-    direct_nex_esxdos_ = false;   // GH #250 — same lifetime as the bridge
-
-    // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x84 are reloaded
-    // to 0xFF only when reset_type (NR 0x85 bit 7) is 1. When reset_type=0,
-    // they are preserved. Save the port-enable state and reset_type before
-    // init() triggers a second nextreg_.reset() that would lose them.
-    const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
-    const uint8_t save_82 = nextreg_.cached(0x82);
-    const uint8_t save_83 = nextreg_.cached(0x83);
-    const uint8_t save_84 = nextreg_.cached(0x84);
-    // PASS-5: VHDL zxnext.vhd:5061-5067 — NR 0x86/0x87/0x88/0x89 reload to
-    // power-on defaults only when nr_89_bus_port_reset_type='0' (the
-    // INVERSE polarity vs nr_85). Mirror the same save/restore pattern
-    // used for 0x82-0x84.
-    const bool bus_reset_type_0 = (nextreg_.cached(0x89) & 0x80) == 0;
-    const uint8_t save_86 = nextreg_.cached(0x86);
-    const uint8_t save_87 = nextreg_.cached(0x87);
-    const uint8_t save_88 = nextreg_.cached(0x88);
-    const uint8_t save_89 = nextreg_.cached(0x89);
-
-    clock_.reset();
-    scheduler_.reset();
-    frame_cycle_ = 0;
-    frame_in_progress_ = false;   // no frame is in flight after a reset
-
-    ram_.reset();
-    // Emulator::reset() is a hard reset (see header — "Perform a hard
-    // reset: reinitialize all subsystems, clear RAM, reload ROM").
-    mmu_.reset(/*hard=*/true);
-    nextreg_.reset();
-    cpu_.reset(/*hard=*/true);
-    im2_.reset();
-    // V20-IM2-01 — reset pulse-mode edge-detect shadow.
-    prev_pulse_int_n_ = true;
-    keyboard_.reset();
-    // Task 19: clear phantom-typist state so a hard reset cancels any
-    // pending TAP autostart. Lifetime-bound back-pointer is NOT
-    // cleared (see header & ctor wiring).
-    phantom_typist_.reset();
-    // Input subsystem Phase 1 scaffold (Task 3).
-    joystick_.reset();
-    mouse_.reset();
-    md6_.reset();
-    membrane_stick_.reset();
-    iomode_.reset();
-    // F-key FSM (G132) — VHDL emu_fnkeys.vhd:89,106,169,182 reset path:
-    //   timer_count → 0, state → S_IDLE, cancel_nmi → 0, local_fnkeys → 0.
-    emu_fnkeys_.reset();
-
-    // Clear framebuffer to black.
-    std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);
-
-    // Re-run init to restore consistent state (reloads ROM, rewires handlers).
-    init(config_);
-
-    // Restore port-enable registers per reset_type semantics.
-    if (!reset_type_1) {
-        nextreg_.write(0x82, save_82);
-        nextreg_.write(0x83, save_83);
-        nextreg_.write(0x84, save_84);
-    }
-    // PASS-5: bus-port enable group survives reset when nr_89 bit 7 = 1
-    // (bus_reset_type_0 = false). The default nr_89 power-on bit 7 = 1.
-    if (!bus_reset_type_0) {
-        nextreg_.write(0x86, save_86);
-        nextreg_.write(0x87, save_87);
-        nextreg_.write(0x88, save_88);
-        nextreg_.write(0x89, save_89);
-    }
-}
-
 void Emulator::soft_reset()
 {
     // Soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
@@ -9361,16 +9321,9 @@ void Emulator::soft_reset()
         trace_log_.export_to_file(pre_dump);
     }
 
-    // Task 60e: soft reset also re-establishes a runnable machine, so it
-    // clears the "corrupt after failed rewind" flag (Task 60b) too.
-    last_state_error_.clear();
-
-    // GH #29/#84: direct-NEX host state is execution context, not preserved
-    // machine state. A soft reset must return file and SD traffic to the
-    // configured card/ROM just like a hard reset.
-    extended_nex_host_.clear();
-    sd_card_.clear_read_overlay();
-    direct_nex_esxdos_ = false;   // GH #250 — same lifetime as the bridge
+    // The rewind-corruption flag (Task 60e) and the direct-NEX host state
+    // (GH #29/#84/#250) are cleared by init() below, as on every
+    // (re)initialisation.
 
     const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
     const uint8_t save_82 = nextreg_.cached(0x82);
@@ -9638,6 +9591,28 @@ void Emulator::propagate_effective_port_enables(uint8_t override_reg,
         (effective_internal_port_enable(0x83, override_reg, override_val) & 0x02) != 0);
 }
 
+uint8_t Emulator::port_df_read()
+{
+    // VHDL zxnext.vhd:2674:
+    //   port_1f <= '1' when (port_1f_lsb = '1' or (port_df_lsb = '1'
+    //                  and port_dac_mono_AD_df_io_en = '1'
+    //                  and port_mouse_io_en = '0'))
+    //                  and port_1f_io_en = '1' and port_1f_hw_en = '1'
+    // port_dac_mono_AD_df_io_en = internal_port_enable(23) = NR 0x84 b7
+    // (:2435), port_mouse_io_en = (13) = NR 0x83 b5 (:2422), port_1f_io_en =
+    // (6) = NR 0x82 b6 (:2407), port_1f_hw_en = joyL_1f_en or joyR_1f_en
+    // (:2454). The read strobe is port_1f_rd (:2784). The only other LSB-0xDF
+    // decodes are the Specdrum DAC (:2658), which has write strobes alone
+    // (:2775,2778), and the mouse (:2668-2670), which needs the mouse ENABLED.
+    // So when port_1f is off `port_internal_rd_response` stays low
+    // (:2803-2806) and the read is cpu_di's X"FF" (:1877).
+    if ((effective_internal_port_enable(0x84) & 0x80) == 0) return 0xFF;
+    if ((effective_internal_port_enable(0x83) & 0x20) != 0) return 0xFF;
+    if ((effective_internal_port_enable(0x82) & 0x40) == 0) return 0xFF;
+    if (!joystick_.port_1f_hw_en()) return 0xFF;
+    return joystick_.read_port_1f();
+}
+
 uint8_t Emulator::floating_bus_read() const
 {
     // Port 0xFF read mux per VHDL zxnext.vhd:2813:
@@ -9735,7 +9710,16 @@ bool Emulator::ula_floating_bus_active_arm(uint8_t& out_byte) const
     //
     // Compute current position within the frame. Master clock is 28 MHz;
     // T-states at 3.5 MHz = master_cycles / 8.
-    uint64_t master_elapsed = clock_.get() - frame_cycle_;
+    //
+    // GH #265 — the position is where the CPU latches the byte, not where
+    // its instruction started: floating_bus_r reaches cpu_di through
+    // combinational logic only (zxula.vhd:573; zxnext.vhd:4513,4517,2813-2814,
+    // 2837, 1872-1873), and the T80 latches cpu_di into DI_Reg on the falling
+    // edge of the I/O cycle's T3 (t80na.vhd:214-222), 3.5 T-states into its
+    // four clocks (t80n.vhd:1781-1782). clock_ is the instruction's start —
+    // 10.5 T-states earlier for IN A,(n), 11.5 for IN A,(C).
+    static constexpr unsigned kDiRegLatchHalfT = 7;       // 3.5 T-states
+    uint64_t master_elapsed = io_read_sample_cycle(kDiRegLatchHalfT) - frame_cycle_;
     int tstates_in_frame = static_cast<int>(master_elapsed / cpu_speed_divisor(config_.cpu_speed));
 
     // Scanline timing:
@@ -9973,7 +9957,27 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
     }
 }
 
-int Emulator::current_cvc() const
+uint64_t Emulator::io_read_sample_cycle(unsigned edge_half_t) const
+{
+    // GH #265. clock_ holds the START of the instruction now executing (it is
+    // ticked once execute() returns), and the FUSE counter says how far into
+    // it the bus has got. fuse_z80_readport() charges the I/O cycle's T1
+    // before it calls the port handler, so the I/O cycle began
+    // (into - 1) T-states after the instruction did — contention and wait
+    // states already charged included.
+    const uint64_t now  = clock_.get();
+    const uint32_t into = cpu_.tstates_into_instruction();
+    if (into == 0) return now;   // not inside an instruction's bus cycle
+    const uint64_t d = clock_.cpu_divisor();
+    const uint64_t io_start = now + static_cast<uint64_t>(into - 1) * d;
+    // The edge is at io_start + edge_half_t * d / 2. The latch takes the
+    // value of the master cycle just before it: ceil(edge) - 1. At 3.5 MHz
+    // the CPU's falling edges land on master-cycle boundaries (d = 8); at
+    // 28 MHz (d = 1) a falling edge is mid-cycle and that cycle is the one.
+    return io_start + (static_cast<uint64_t>(edge_half_t) * d + 1) / 2 - 1;
+}
+
+int Emulator::cvc_at(uint64_t master_cycle) const
 {
     // cvc = (vc - c_min_vactive + cu_offset) mod (c_max_vc + 1)
     // (zxula_timing.vhd:455-472), read back by NR 0x1E/0x1F
@@ -9985,11 +9989,12 @@ int Emulator::current_cvc() const
     // hardware. The raw frame position is shifted back by that origin
     // before splitting it into lines, exactly as
     // tick_copper_for_master_cycles() does for the Copper's own cvc (GH #181).
-    // The position is the instruction's START (clock_ advances after it).
+    // The `% mcpf` also folds a position past the frame end (an IN whose
+    // sampling point lies beyond frame_end, GH #265) into the next frame.
     const uint64_t mcpf = timing_.master_cycles_per_frame;
     const uint64_t shift_mc =
         static_cast<uint64_t>(video_timing_.hc_ula_zero_raw_hc()) * 4u;
-    const uint64_t elapsed = clock_.get() - frame_cycle_;
+    const uint64_t elapsed = master_cycle - frame_cycle_;
     const uint64_t shifted = (elapsed + mcpf - shift_mc) % mcpf;
     const int raw_vc = static_cast<int>(shifted / timing_.master_cycles_per_line);
     const int lines_per_frame = video_timing_.vc_max() + 1;

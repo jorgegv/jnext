@@ -254,6 +254,19 @@ public:
     /// Transient per-call state; deliberately not serialised.
     bool fetched_opcode_last_execute() const { return fetched_opcode_; }
 
+    /// GH #265 — T-states the CPU has spent inside the execute() call now in
+    /// progress, on the FUSE counter the bus cycles advance (so any
+    /// contention or wait state already charged is included). 0 outside
+    /// execute(). A port read handler runs inside fuse_z80_readport(), which
+    /// has charged T1 of the I/O cycle before calling it, so there the I/O
+    /// cycle began `tstates_into_instruction() - 1` T-states after the
+    /// instruction did. The emulator's master clock only advances once
+    /// execute() returns, so this is the only way to place a read at the
+    /// point in the instruction where the hardware samples it.
+    ///
+    /// Transient per-call state; deliberately not serialised.
+    uint32_t tstates_into_instruction() const;
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -292,4 +305,8 @@ private:
     // Set by execute() only once the opcode fetch at PC has actually happened.
     // See fetched_opcode_last_execute().
     bool             fetched_opcode_ = false;
+    // GH #265 — true for the duration of execute(), with the FUSE tstates
+    // value it started at. See tstates_into_instruction().
+    bool             executing_ = false;
+    uint32_t         exec_start_tstates_ = 0;
 };

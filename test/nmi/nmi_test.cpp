@@ -29,6 +29,7 @@
 // path (Emulator → NextReg → write_handler → NmiSource::nr_02_write).
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "platform/emulator_boot.h"
 
 #include <cstdarg>
 #include <cstdint>
@@ -825,8 +826,9 @@ static void g_mf_g162_skips()
         emu.nmi_source().tick(1);
         const bool latched_w = emu.nmi_source().nmi_mf();
 
-        // Reset and try IN 0x2FFD (port_2ffd_rd term in iotrap).
-        emu.reset();
+        // Reset and try IN 0x2FFD (port_2ffd_rd term in iotrap). The reset is
+        // the production hard reset, the frontend cold boot (GH #239).
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
         emu.nmi_source().set_mf_enable(true);
         emu.port().out(0x243B, 0xD8);
         emu.port().out(0x253B, 0x01);
@@ -835,7 +837,7 @@ static void g_mf_g162_skips()
         const bool latched_r = emu.nmi_source().nmi_mf();
 
         // With NR 0xD8 bit 0 = 0, the port should NOT trap.
-        emu.reset();
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
         emu.nmi_source().set_mf_enable(true);
         // (NR 0xD8 default is 0 after reset.)
         emu.port().out(0x3FFD, 0xAA);

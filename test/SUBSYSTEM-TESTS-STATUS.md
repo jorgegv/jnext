@@ -10,13 +10,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |       92 |       92 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |       93 |       93 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      251 |      251 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Memory/MMU (int)      |       65 |       65 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Memory/MMU (int)      |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NextREG (integration) |      320 |      320 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NextREG (integration) |      324 |      324 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |       64 |       64 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      334 |      334 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -25,14 +25,14 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CTC (integration)     |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
-| UART (integration)    |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART (integration)    |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      188 |      188 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 AT command engine |      344 |      344 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card               |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card               |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -41,10 +41,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Compositor (int)      |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video             |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Floating Bus          |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
-| VideoTiming           |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Contention            |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
-| I/O Port Dispatch     |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Floating Bus          |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
+| VideoTiming           |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Contention            |      129 |      129 |      0 |       0 |    100% | 🟢 All tests pass. |
+| I/O Port Dispatch     |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -55,7 +55,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (subsystem gains) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Render-skip policy    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Emulator Boot         |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Emulator Boot         |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -65,12 +65,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host key minimum-hold latch |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Logging (gate)        |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NEX loader (screen ingest) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NEX loader (screen ingest) |      109 |      109 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       78 |       78 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Extended NEX streaming |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Extended NEX streaming |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
+| tap_loader_test       |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "tap_loader_test" to the label map in refresh-subsystem-status.sh. |
 | DMA                   |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       74 |       74 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap raster splits |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -106,7 +107,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Sizing |       21 |       21 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7263** | **7263** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| Debugger Menus        |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
+| **Total**             | **7335** | **7335** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

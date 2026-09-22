@@ -215,15 +215,17 @@ loaded from the GUI after start-up.
 **When it answers.** Three things arm it:
 
 - `direct_nex_esxdos_` — set by `Emulator::load_nex()` for every NEX it loads,
-  cleared by `reset()` and `soft_reset()`. `load_sna()`, `load_szx()` and
-  `load_z80()` reset, and RZX playback goes through `load_sna()`, so a snapshot
-  clears it. `load_tap()`, `load_tzx()` and `load_wav()` deliberately do not:
-  they attach tape media to the running machine, so a NEX still running keeps
-  its stand-in.
+  cleared by `init()`, so by a soft reset, and gone after a hard reset, which
+  reconstructs the emulator. `load_sna()`, `load_szx()` and `load_z80()`
+  re-run `init()` before applying the file, and RZX playback goes through
+  `load_sna()`, so a snapshot clears it. `load_tap()`, `load_tzx()` and
+  `load_wav()` deliberately do not: they attach tape media to the running
+  machine, so a NEX still running keeps its stand-in.
 - `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session.
 - The extended-NEX host bridge (`extended_nex_host_`), open when the NEX
   header's `file_handle` is non-zero. Only `load_nex()` opens it, so it never
-  exists without `direct_nex_esxdos_`; reset and soft reset close it.
+  exists without `direct_nex_esxdos_`; `init()` closes it, so both resets and
+  every re-initialising load do.
 
 **The ROM gate.** Whatever armed it, the handler answers nothing unless NR
 `$50` reads `$FF`, i.e. ROM is paged in at `$0000`. That is the hardware's own

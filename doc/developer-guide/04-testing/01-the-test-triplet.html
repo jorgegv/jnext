@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.167</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.167</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1895,7 +1895,11 @@ both frontends.</p>
 <p><code>JNEXT_TEST_JOBS=4</code> caps the screenshot launcher's parallelism, and it is worth
 keeping. The cap is not politeness towards the machine: <code>audio-underrun-func</code>
 and <code>screenshot-paused-func</code> are bounded by real-time pacing and start failing
-under CPU contention, so raising it makes the suite intermittently lie. Note
+under CPU contention, so raising it makes the suite intermittently lie. They
+are examples rather than the whole class — rows that merely spawn short-lived
+processes have failed under load too — which is why the suite itself flags a
+FAIL that happened on a loaded host (see
+<a href="03-the-regression-suite.html">The regression suite</a>). Note
 also that the cap is a caller convention rather than a default — the launcher
 falls back to <code>nproc</code> when the variable is unset, so <code>make regression</code> on its
 own is uncapped. CI sets it explicitly.</p>

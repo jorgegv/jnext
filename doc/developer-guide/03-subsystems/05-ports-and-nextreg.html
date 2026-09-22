@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.167</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.167</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1863,7 +1863,13 @@ hand-maintain a priority list.</p>
 <ul>
 <li><strong>Reads fall through on a missing read side.</strong> If the most specific match has
   no read callback, the scan continues to the next match that does. This models
-  write-only ports, whose reads land on an overlapping decode instead.</li>
+  write-only ports, whose reads land on an overlapping decode instead. A port
+  gets a read callback only if its read strobe is one of the OR-terms of
+  <code>port_internal_rd_response</code> (<code>zxnext.vhd:2803-2806</code>); <code>0xBF3B</code>, for one, has
+  none. A read handler whose gate is off must answer what the VHDL answers with
+  that decode gone — <code>0xFF</code>, or an overlapping decode: the Kempston mouse ports
+  with the mouse disabled are read by the <code>0xDF</code> joystick alias
+  (<code>Emulator::port_df_read</code>).</li>
 <li><strong>Writes can decline.</strong> A handler may call <code>PortDispatch::decline_write()</code> as
   its last action, and dispatch then retries with the next-most-specific match.
   The reason is that VHDL port decodes run in <em>parallel</em>: a decode ANDed with a
@@ -1893,7 +1899,9 @@ NR <code>0x86</code>-<code>0x89</code> when NR <code>0x80</code> bit 7 enables t
 (<code>zxnext.vhd:2392-2393</code>). <code>Emulator::effective_internal_port_enable()</code> computes
 one byte of it, and <code>propagate_effective_port_enables()</code> re-pushes the derived
 bits into the subsystems that keep their own shadow copy — contention, DivMMC
-and the Multiface. A handler that skips its gate check is a bug, not a shortcut.</p>
+and the Multiface — on every write that can change them and once at the end of
+every <code>init()</code>, after the reset-folded NR <code>0x80</code> bit 7 has been reloaded. A
+handler that skips its gate check is a bug, not a shortcut.</p>
 <p><code>init()</code> clears the handler and observer lists before registering anything,
 because a soft reset re-runs it and duplicate handlers would double-fire the
 auto-incrementing ports.</p>

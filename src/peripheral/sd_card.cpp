@@ -538,9 +538,13 @@ uint8_t SdCardDevice::send() {
                     state_              = State::IDLE;
                     return 0x08;  // data error token: out of range
                 }
-                sd_log()->trace(
-                    "CMD18 next block sector={} (byte={:#010x})",
-                    multi_block_sector_, byte_addr);
+                // Guarded for the should_log() reason given in
+                // PortDispatch::read (src/port/port_dispatch.cpp): unguarded,
+                // an out-of-line call per streamed block (GH #244).
+                if (sd_log()->should_log(spdlog::level::trace))
+                    sd_log()->trace(
+                        "CMD18 next block sector={} (byte={:#010x})",
+                        multi_block_sector_, byte_addr);
                 ++multi_block_sector_;
                 resp_buf_ = overlay_block
                     ? std::vector<uint8_t>{ 0xFE, 0x00, 0xFE }

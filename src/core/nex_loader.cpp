@@ -710,7 +710,7 @@ bool NexLoader::apply(Emulator& emu) const
         // Peripherals 2 and 3 are read-modify-write in both loaders, with
         // different masks, so each follows its own loader (measured under
         // NextZXOS for both: the result is the formula applied to the value
-        // found, and after load_nex()'s reset that is NR 0x06=$A0, NR 0x08=$90
+        // found, and after load_nex()'s init() that is NR 0x06=$A0, NR 0x08=$90
         // — bit 7 "not locked", bit 4 the internal speaker's hard-reset 1).
         const uint8_t nr06 = nr.read(0x06);
         const uint8_t nr08 = nr.read(0x08);
@@ -844,7 +844,7 @@ bool NexLoader::apply(Emulator& emu) const
     //    jnext models no sweep here either, and does not need to at this
     //    entry: $00 is already what PaletteManager::reset() seeds ULA
     //    0x18 with (palette.cpp kDefaultUlaRgb333[8], bright black), and
-    //    Emulator::load_nex() calls reset() before apply(). So leaving
+    //    Emulator::load_nex() re-runs init() before apply(). So leaving
     //    the entry alone lands on the oracle's value for a machine whose
     //    guest has not repainted it. Row NEXPR-V13R-03.
     //
@@ -875,7 +875,7 @@ bool NexLoader::apply(Emulator& emu) const
             // nexload2.asm:924-925 (nextRegResetData) zeroes the tilemap
             // base and pattern addresses, whose reset values are $2C/$0C
             // (measured: both read 0 at entry). Every other register that
-            // table sets already holds its value after load_nex()'s reset
+            // table sets already holds its value after load_nex()'s init()
             // (measured: no other NextREG differs), so only these two are
             // written. A tilemode loading screen sets them again in step 2.
             nr.write(0x6E, 0x00);

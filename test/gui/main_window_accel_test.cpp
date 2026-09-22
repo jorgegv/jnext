@@ -8,7 +8,7 @@
 // neither could be opened deliberately.
 //
 // WHAT #217 REPORTED. The debugger got a guard after #124
-// (test/debugger/accel_test.cpp, rows AC-01..05). The MAIN window never did,
+// (test/debugger/accel_test.cpp, rows DACC-01..05). The MAIN window never did,
 // and was already carrying three duplicate mnemonics — all pre-existing, none
 // of them catchable by anything the project ran:
 //
@@ -215,7 +215,7 @@ static void test_accelerators(MainWindow& w)
                           : bad);
     }
 
-    // MA-05 — the denominator, the same device as the debugger suite's AC-05
+    // MA-05 — the denominator, the same device as the debugger suite's DACC-05
     // and for the same reason: every row above passes trivially against an
     // empty harvest, so the shape of the walk is pinned. Eight menus; thirteen
     // popups (File, Machine + Machine Type + CPU Speed + Emulator Speed, Input

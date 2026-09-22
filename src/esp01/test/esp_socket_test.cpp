@@ -1694,7 +1694,8 @@ int main() {
             //      go on to finish safely: the result block is jointly owned, so
             //      it outlives the transport rather than dangling. The
             //      memory-safety half of that is what an ASan/TSan run of this
-            //      suite checks; the row itself proves the sequence happens.
+            //      suite would check (jnext has no sanitizer build); the row
+            //      itself proves the sequence happens.
             {
                 fake_dns::gate.store(false);
                 const int entered0 = fake_dns::entered.load();

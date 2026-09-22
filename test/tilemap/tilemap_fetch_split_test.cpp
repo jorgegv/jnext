@@ -23,6 +23,7 @@
 #include "memory/ram.h"
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "platform/emulator_boot.h"
 #include "cpu/z80_cpu.h"
 #include "memory/mmu.h"
 #include "video/palette.h"
@@ -714,7 +715,11 @@ void test_reset_restores_clip() {
                                                   sizeof(soft));
 
     narrow_tilemap_clip(emulator);
-    emulator.reset();                 // hard reset
+    // Hard reset = the production path, the frontend cold boot (GH #239;
+    // this used to call the in-place Emulator::reset(), which no user reset
+    // reaches).
+    emulator_frontend_cold_boot(emulator, emulator.config(), std::string(),
+                                ColdBootHooks{});
     const bool hard_ok = clip_back_to_reset_block(emulator, "hard", hard,
                                                   sizeof(hard));
 
@@ -722,7 +727,10 @@ void test_reset_restores_clip() {
     std::snprintf(both, sizeof(both), "%s; %s", soft, hard);
     check("TM-119",
           // VHDL zxnext.vhd:4977-4981 — the reset block restores the NR 0x1B
-          // window and its write index on soft and hard reset alike.
+          // window and its write index on a soft reset, and on a hard reset
+          // too: that reloads the FPGA, whose power-on reset pulse
+          // (zxnext_top_issue2.vhd:796-799, reset_poweron -> S_RESET_HARD_0)
+          // runs the same block.
           soft_ok && hard_ok, both);
 }
 
