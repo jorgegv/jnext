@@ -59,6 +59,20 @@ inline bool emulator_load_routes_to_nex(const std::string& file) {
            ext != ".z80" && ext != ".wav" && ext != ".rzx";
 }
 
+/// True when emulator_apply_load() above routes `file` to Emulator::load_rzx()
+/// — the `.rzx` extension. The GUI checks such a file is playable before it
+/// cold-boots the machine for it.
+inline bool emulator_load_routes_to_rzx(const std::string& file) {
+    std::string ext;
+    auto dot = file.rfind('.');
+    if (dot != std::string::npos) {
+        ext = file.substr(dot);
+        for (auto& c : ext)
+            c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    }
+    return ext == ".rzx";
+}
+
 /// The per-format boot delay the CLI startup uses (main.cpp): tape formats that
 /// still key through BASIC need the machine at its prompt first; everything else
 /// loads immediately. Kept here so cold_boot schedules the load identically.

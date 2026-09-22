@@ -323,8 +323,10 @@ debugger ones.
 **\--rzx-play** *FILE*
 :   Play back an RZX recording from the start of the run. Works the same in the
     GUI, the SDL-only build and under **\--headless**. A recording that fails
-    to load is logged, and **jnext** then exits non-zero. The recording brings
-    its own snapshot of the machine, so it cannot be combined with
+    to load is logged, and **jnext** then exits non-zero. The machine starts
+    exactly as it does for **\--load** *FILE*, so the two spellings replay
+    identically, and so do **File > Open** and **File > Play RZX Recording** in
+    the GUI. The recording brings its own snapshot of the machine, so it cannot be combined with
     **\--rzx-record**, with **\--load** or **\--inject** of another program,
     or with a second RZX file.
 

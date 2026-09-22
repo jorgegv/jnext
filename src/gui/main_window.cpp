@@ -11,6 +11,7 @@
 #include "core/nex_saver.h"
 #include "core/nex_loader.h"          // GH #228 — probe_version + policy
 #include "platform/emulator_boot.h"   // GH #228 — emulator_load_routes_to_nex
+#include "core/rzx.h"                 // rzx::playable, before a cold boot plays a file
 #include "core/log.h"
 #include "platform/screenshot.h"
 #include "peripheral/esp_host_policy.h"
@@ -1124,6 +1125,19 @@ void MainWindow::handle_load_path(const QString& path) {
     // dialog cannot load V1.3 silently, because Emulator::load_nex()
     // enforces the same policy and fails the load.
     const std::string file = path.toStdString();
+
+    // An .rzx is checked BEFORE the cold boot below, so a file that cannot
+    // play is refused with the running machine untouched — the same check
+    // for File > Open and File > Play RZX Recording, which both come here.
+    if (emulator_load_routes_to_rzx(file)) {
+        std::string why;
+        if (!rzx::playable(file, why)) {
+            QMessageBox::warning(this, tr("Play RZX Recording"),
+                tr("Cannot play %1: %2.").arg(path, QString::fromStdString(why)));
+            return;
+        }
+    }
+
     bool allow_experimental_nex_v13 = false;
     if (emulator_load_routes_to_nex(file)) {
         uint8_t ver_bcd = 0;
@@ -1595,26 +1609,23 @@ void MainWindow::on_rzx_play() {
 
 void MainWindow::handle_rzx_play_path(const QString& path) {
     if (!emulator_) return;
-    // Playing ends a running recording (Emulator::load_rzx writes it first).
-    const bool        was_recording = emulator_->rzx_recorder().is_recording();
-    const std::string rec_path      = emulator_->rzx_recorder().output_path();
-    if (!emulator_->load_rzx(path.toStdString())) {
+    // The SAME route as File > Open of an .rzx — handle_load_path(): the
+    // file is checked, then the frontend cold-boots the machine as if it had
+    // been given with --load, and plays it. Playing it in place instead
+    // replayed the recording on whatever state the running machine carried
+    // that its snapshot does not (on the Next, a boot ROM overlay among it),
+    // so the same file could replay differently depending on which menu item
+    // opened it. The cold boot also ends a running recording by writing it
+    // (QtApp::cold_boot() tells the user).
+    //
+    // The cold boot chooses the loader by extension, so a file without .rzx
+    // would be taken for a NEX: refused here instead.
+    if (!emulator_load_routes_to_rzx(path.toStdString())) {
         QMessageBox::warning(this, tr("Play RZX Recording"),
-            tr("Cannot play %1.\n\nSee the log for details.").arg(path));
+            tr("Cannot play %1: an RZX recording must have the .rzx extension.").arg(path));
         return;
     }
-    if (was_recording && emulator_->rzx_output_failed(rec_path)) {
-        QMessageBox::warning(this, tr("RZX Recording"),
-            tr("Playing %1 ended the RZX recording, and it could not be written to "
-               "%2, so it is lost.\n\nSee the log for details.")
-                .arg(path, QString::fromStdString(rec_path)));
-    } else if (was_recording) {
-        statusBar()->showMessage(
-            tr("Playing %1; the RZX recording was saved to %2")
-                .arg(path, QString::fromStdString(rec_path)), 5000);
-        return;
-    }
-    statusBar()->showMessage(tr("Playing RZX recording %1").arg(path), 3000);
+    handle_load_path(path);
 }
 
 // G35: wires SnaSaver/SzxSaver/NexSaver to File > Save Snapshot... —

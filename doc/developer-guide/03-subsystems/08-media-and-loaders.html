@@ -2186,7 +2186,13 @@ see the trap block in <code>run_frame()</code> — and a fast-load tape already 
 switched to real-time loading (<code>Emulator::rzx_suspend_tape_traps()</code>). On playback the embedded snapshot — SNA, SZX or Z80 — is parsed straight
 from the file's bytes by <code>Emulator::load_snapshot_from_memory()</code>, using the
 <code>load_from_buffer()</code> entry each of those loaders has beside its file-path
-<code>load()</code>; nothing is written to a temporary file. Any other snapshot type fails
+<code>load()</code>; nothing is written to a temporary file. Every way of starting a
+playback reaches <code>load_rzx()</code> on a freshly initialised machine whose
+<code>EmulatorConfig::load_file</code> is the recording — <code>--rzx-play</code> sets it as
+<code>--load</code> does, and the GUI's Play RZX item goes through
+<code>MainWindow::handle_load_path()</code> and the frontend cold boot like File &gt; Open —
+because that field changes the machine <code>init()</code> builds (on the Next it decides
+the boot-ROM overlay), and so how the recording replays. Any other snapshot type fails
 the load: input replayed against a machine it was not recorded on reproduces
 nothing.</p>
 <p>A recording cannot replay a reset the host performs, so none is ever carried

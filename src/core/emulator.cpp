@@ -7101,18 +7101,22 @@ bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
                                          const std::string& ext,
                                          const std::string& name)
 {
-    // Same parse -> reset() -> apply() order as load_sna/szx/z80 above: a
+    // Parse, then re-initialise in place with init(config_), then apply: a
     // snapshot that does not parse leaves the running machine untouched.
+    // init(config_), not the in-place reset(): that is what the loaders use
+    // once reset() is gone (GH #239), and every playback the frontends start
+    // reaches here on a freshly cold-booted machine anyway (see
+    // emulator_start_rzx() and MainWindow::handle_rzx_play_path()).
     if (ext == "sna") {
         SnaLoader loader;
         if (!loader.load_from_buffer(data, name)) return false;
-        reset();
+        init(config_);
         return loader.apply(*this);
     }
     if (ext == "szx") {
         SzxLoader loader;
         if (!loader.load_from_buffer(data, name)) return false;
-        reset();
+        init(config_);
         return loader.apply(*this);
     }
     if (ext == "z80") {
@@ -7121,7 +7125,7 @@ bool Emulator::load_snapshot_from_memory(const std::vector<uint8_t>& data,
             Log::emulator()->error("Z80: failed to parse {}", name);
             return false;
         }
-        reset();
+        init(config_);
         return loader.apply(*this);
     }
     // Refused rather than skipped: playing a recording's input against a

@@ -46,8 +46,12 @@ keystroke — a walkthrough, a bug report, or a speedrun that stays honest.
   From the command line the recording starts with the machine — or, when you
   also `--load` a program, as soon as it is loaded, so the recording holds it
   — and the file is written when JNEXT exits.
-- **File > Play RZX Recording…**, or `--rzx-play FILE`. Loading a `.rzx` with
-  `--load`, or naming it as the file to run (`jnext session.rzx`), plays it too.
+- **File > Play RZX Recording…**, or `--rzx-play FILE`. Opening a `.rzx` with
+  **File > Open**, loading it with `--load`, or naming it as the file to run
+  (`jnext session.rzx`) plays it too. Every one of these starts the machine
+  afresh, the way loading a program does, so a recording replays the same
+  whichever you use. A file that cannot be played is refused before anything
+  is reset, and the Play RZX item needs the `.rzx` extension.
 
 The command-line options work the same whichever way you run JNEXT: the normal
 window, the SDL-only build, or `--headless`. A recording that fails to load is

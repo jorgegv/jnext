@@ -1029,6 +1029,12 @@ int main(int argc, char* argv[]) {
         // 2026-05-04). Pure --sdcard boots leave load_file empty and
         // get the firmware overlay.
         cfg.load_file = load_file;
+        // --rzx-play FILE starts the machine exactly as `--load FILE.rzx` (and
+        // a bare FILE.rzx) do: with the file as the load. It used to leave
+        // load_file empty, which on the Next armed the boot-ROM overlay that a
+        // --load skips — the same recording then replayed differently
+        // depending on how it was named on the command line.
+        if (cfg.load_file.empty()) cfg.load_file = rzx_play_file;
         cfg.nex_cli_args = nex_cli_args;
         cfg.allow_experimental_nex_v13 = experimental_nex_v13;
         cfg.magic_breakpoint = magic_breakpoint;

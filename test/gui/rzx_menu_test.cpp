@@ -8,6 +8,11 @@
 // played are each reported to the user in a dialog. This is jnext policy, not
 // hardware, so there is no VHDL citation.
 //
+// It also pins the ROUTE a playback takes: File > Play RZX Recording and
+// File > Open of an .rzx both hand the file to the frontend's cold boot (the
+// load callback), exactly as --load does on the command line, instead of
+// playing it on the running machine — and both check it first.
+//
 // WHY THIS SUITE EXISTS. Every one of those used to end in, at most, a log
 // line: the menu handlers dropped the result of start/stop/load on the floor,
 // so an unwritable recording was discovered only when the file was not there,
@@ -38,6 +43,7 @@
 #include <fstream>
 #include <string>
 #include <system_error>
+#include <vector>
 
 #include <unistd.h>   // getpid() — per-process fixture paths (concurrent worktree runs share /tmp)
 
@@ -105,6 +111,9 @@ struct Fixture {
     Emulator   emu;
     MainWindow win;
     bool       ok = false;
+    // What the frontend's cold boot (MainWindow::LoadFileCallback) was asked
+    // to load, in order — the route every menu load takes.
+    std::vector<std::string> boots;
 
     Fixture() {
         EmulatorConfig cfg;
@@ -112,6 +121,8 @@ struct Fixture {
         cfg.rewind_buffer_frames = 0;
         if (!emu.init(cfg)) return;
         win.set_emulator(&emu);
+        win.set_load_file_callback(
+            [this](const std::string& file, bool) { boots.push_back(file); });
         QApplication::processEvents();
         ok = true;
     }
@@ -193,17 +204,19 @@ static void test_rzx_menu() {
         DialogWatcher w;
         if (f.ok) f.win.handle_rzx_play_path(QString::fromStdString(bad));
         w.stop();
-        check("RZXGUI-04", "Play RZX of a garbage file: an error dialog, and nothing plays",
-              f.ok && w.count == 1 && !f.emu.rzx_player().is_playing(),
-              fmt("dialogs=%d playing=%d (expect 1,0)", w.count,
+        check("RZXGUI-04",
+              "Play RZX of a garbage file: an error dialog, no cold boot, nothing plays",
+              f.ok && w.count == 1 && f.boots.empty() && !f.emu.rzx_player().is_playing(),
+              fmt("dialogs=%d boots=%zu playing=%d (expect 1,0,0)", w.count, f.boots.size(),
                   f.emu.rzx_player().is_playing() ? 1 : 0));
         std::error_code ec;
         std::filesystem::remove(bad, ec);
     }
 
     // RZXGUI-05 — control: a writable path records and saves with NO dialog,
-    // and the saved file then plays with no dialog either. Proves the rows
-    // above see a dialog because of the failure, not on every call.
+    // and Play RZX then hands the saved file to the cold boot with no dialog
+    // either. Proves the rows above see a dialog because of the failure, not
+    // on every call.
     {
         Fixture f;
         const std::string good = tmp_path("good", ".rzx");
@@ -217,11 +230,11 @@ static void test_rzx_menu() {
         w.stop();
         check("RZXGUI-05",
               "control: record, stop and play a writable file — no dialog, a real RZX, "
-              "playing",
-              f.ok && w.count == 0 && magic(good) == "RZX!" && f.emu.rzx_player().is_playing() &&
+              "handed to the cold boot",
+              f.ok && w.count == 0 && magic(good) == "RZX!" && f.boots.size() == 1 &&
                   !f.emu.rzx_output_failed(good),
-              fmt("dialogs=%d magic_ok=%d playing=%d (expect 0,1,1)", w.count,
-                  magic(good) == "RZX!" ? 1 : 0, f.emu.rzx_player().is_playing() ? 1 : 0));
+              fmt("dialogs=%d magic_ok=%d boots=%zu (expect 0,1,1)", w.count,
+                  magic(good) == "RZX!" ? 1 : 0, f.boots.size()));
         std::error_code ec;
         std::filesystem::remove(good, ec);
     }
@@ -290,28 +303,78 @@ static void test_rzx_reset_notice() {
               fmt("dialogs=%d (expect 1)", w.count));
     }
 
-    // RZXGUI-10 — Play RZX while recording: the recording is written and ended
-    // first; when that write fails, the user is told the recording is lost —
-    // and the playback still runs.
+    // RZXGUI-10 — File > Play RZX Recording and File > Open take the SAME
+    // route for an .rzx: one cold boot each, with the file, and nothing played
+    // on the running machine. Played in place, the recording's snapshot landed
+    // on whatever state the machine carried that it does not hold (on the
+    // Next, the boot-ROM overlay), so the same file replayed differently by
+    // menu item. A recording running meanwhile is left to the cold boot, which
+    // writes it (EB-34), rather than ended by the menu handler.
     {
         Fixture f;
-        const std::string src = tmp_path("psrc", ".rzx");
+        const std::string src = tmp_path("route", ".rzx");
+        const std::string rec = tmp_path("route-rec", ".rzx");
         bool ready = f.ok && f.emu.start_rzx_recording(src);
         if (ready) f.emu.run_frame();
-        ready = ready && f.emu.stop_rzx_recording() && f.emu.start_rzx_recording("/dev/full");
-        if (ready) f.emu.run_frame();
+        ready = ready && f.emu.stop_rzx_recording() && f.emu.start_rzx_recording(rec);
         DialogWatcher w;
-        if (ready) f.win.handle_rzx_play_path(QString::fromStdString(src));
+        if (ready) {
+            f.win.handle_rzx_play_path(QString::fromStdString(src));   // Play RZX
+            f.win.handle_load_path(QString::fromStdString(src));       // File > Open
+        }
         w.stop();
         check("RZXGUI-10",
-              "Play RZX while recording to an unwritable file: a dialog about the lost "
-              "recording, and the playback runs",
-              ready && w.count == 1 && w.text.contains("/dev/full") &&
-                  !f.emu.rzx_recorder().is_recording() && f.emu.rzx_player().is_playing(),
-              fmt("ready=%d dialogs=%d playing=%d (expect 1,1,1)", ready ? 1 : 0, w.count,
-                  f.emu.rzx_player().is_playing() ? 1 : 0));
+              "Play RZX and File > Open of one .rzx: one cold boot each, with the file; "
+              "nothing plays in place",
+              ready && w.count == 0 && f.boots.size() == 2 && f.boots[0] == src &&
+                  f.boots[1] == src && !f.emu.rzx_player().is_playing() &&
+                  f.emu.rzx_recorder().is_recording(),
+              fmt("ready=%d dialogs=%d boots=%zu playing=%d recording=%d (expect 1,0,2,0,1)",
+                  ready ? 1 : 0, w.count, f.boots.size(),
+                  f.emu.rzx_player().is_playing() ? 1 : 0,
+                  f.emu.rzx_recorder().is_recording() ? 1 : 0));
+        f.emu.stop_rzx_recording();
         std::error_code ec;
         std::filesystem::remove(src, ec);
+        std::filesystem::remove(rec, ec);
+    }
+
+    // RZXGUI-12 — Play RZX of a file without the .rzx extension: refused with
+    // a dialog (the cold boot picks the loader by extension and would take it
+    // for a NEX), and no cold boot.
+    {
+        Fixture f;
+        const std::string src = tmp_path("noext-src", ".rzx");
+        const std::string noext = tmp_path("noext", "");
+        bool ready = f.ok && f.emu.start_rzx_recording(src);
+        if (ready) f.emu.run_frame();
+        ready = ready && f.emu.stop_rzx_recording();
+        std::error_code ec;
+        if (ready) std::filesystem::copy_file(src, noext, ec);
+        DialogWatcher w;
+        if (ready && !ec) f.win.handle_rzx_play_path(QString::fromStdString(noext));
+        w.stop();
+        check("RZXGUI-12", "Play RZX of a file without .rzx: a dialog, and no cold boot",
+              ready && !ec && w.count == 1 && f.boots.empty(),
+              fmt("dialogs=%d boots=%zu (expect 1,0)", w.count, f.boots.size()));
+        std::filesystem::remove(src, ec);
+        std::filesystem::remove(noext, ec);
+    }
+
+    // RZXGUI-13 — File > Open of an .rzx that cannot play: a dialog, and the
+    // running machine is NOT cold-booted into a load that is bound to fail.
+    {
+        Fixture f;
+        const std::string bad = tmp_path("open-bad", ".rzx");
+        { std::ofstream o(bad, std::ios::binary); o << "NOTRZX NOTRZX NOTRZX"; }
+        DialogWatcher w;
+        if (f.ok) f.win.handle_load_path(QString::fromStdString(bad));
+        w.stop();
+        check("RZXGUI-13", "File > Open of an unplayable .rzx: a dialog, and no cold boot",
+              f.ok && w.count == 1 && f.boots.empty(),
+              fmt("dialogs=%d boots=%zu (expect 1,0)", w.count, f.boots.size()));
+        std::error_code ec;
+        std::filesystem::remove(bad, ec);
     }
 
     // RZXGUI-11 — Machine > Soft Reset (F4) during a recording that cannot be

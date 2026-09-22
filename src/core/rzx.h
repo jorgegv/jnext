@@ -250,6 +250,29 @@ inline bool parse(const std::string& path, RzxRecording& rec) {
     return true;
 }
 
+/// The embedded-snapshot types jnext can load (Emulator::load_snapshot_from_memory).
+inline bool snapshot_type_supported(const std::string& ext) {
+    return ext == "sna" || ext == "szx" || ext == "z80";
+}
+
+/// Whether `path` is an RZX recording jnext can play: it parses, and its
+/// embedded snapshot, if any, is of a supported type. `why` says what is
+/// wrong otherwise. The GUI asks this BEFORE it cold-boots the machine to
+/// play a file, so an unplayable one is refused with the machine untouched.
+inline bool playable(const std::string& path, std::string& why) {
+    RzxRecording rec;
+    if (!parse(path, rec)) {
+        why = "it is not an RZX recording, or it cannot be read";
+        return false;
+    }
+    if (!rec.snapshot_data.empty() && !snapshot_type_supported(rec.snapshot_ext)) {
+        why = "its embedded snapshot is of an unsupported type ('" + rec.snapshot_ext +
+              "'; supported: sna, szx, z80)";
+        return false;
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Write RZX file
 // ---------------------------------------------------------------------------

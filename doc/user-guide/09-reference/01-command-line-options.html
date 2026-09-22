@@ -3142,9 +3142,12 @@ dB to +24 dB.</dd>
 <dd>Play back an RZX recording from the start of the run. Works the same
 in the GUI, the SDL-only build and under <strong>--headless</strong>. A recording
 that fails to load is logged, and <strong>jnext</strong> then exits non-zero. The
-recording brings its own snapshot of the machine, so it cannot be
-combined with <strong>--rzx-record</strong>, with <strong>--load</strong> or <strong>--inject</strong> of
-another program, or with a second RZX file.</dd>
+machine starts exactly as it does for <strong>--load</strong> <em>FILE</em>, so the two
+spellings replay identically, and so do <strong>File &gt; Open</strong> and <strong>File
+&gt; Play RZX Recording</strong> in the GUI. The recording brings its own
+snapshot of the machine, so it cannot be combined with
+<strong>--rzx-record</strong>, with <strong>--load</strong> or <strong>--inject</strong> of another
+program, or with a second RZX file.</dd>
 <dt><strong>--rzx-record</strong> <em>FILE</em></dt>
 <dd>Record input to an RZX file from the start of the run — or, with
 <strong>--load</strong> or <strong>--inject</strong>, from the moment that program is in the
