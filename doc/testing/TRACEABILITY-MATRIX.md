@@ -43,7 +43,7 @@ mentions them, so a test can no longer be absent from this document.
 | VideoTiming                                |    59 |   56 |    0 |    0 |       3 |          0 |
 | Contention                                 |   129 |  127 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    52 |   49 |    0 |    1 |       2 |          0 |
+| SD Card                                    |    54 |   51 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    81 |   59 |    0 |    0 |      22 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4447 | 4195 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4449 | 4197 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4447**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4236**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7280**.
+Rows the sections above carry: **4449**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4238**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7298**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -75,7 +75,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 60 suites (3232 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 60 suites (3248 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -104,7 +104,7 @@ These 60 suites (3232 live rows) have no VHDL-derived plan row to map, so they h
 | `speed_report_test` | 36 | host speed-percentage reporting |
 | `host_key_latch_test` | 69 | host key latch/debounce compensation; guest matrix is `## Input` |
 | `log_test` | 22 | jnext logging façade (spdlog wiring) |
-| `log_gate_test` | 11 | jnext log-level gating |
+| `log_gate_test` | 27 | jnext log-level gating |
 | `cli_options_test` | 19 | CLI flag table vs the man page (see `make cli-check`) |
 | `video_recorder_cmd_test` | 33 | FFmpeg command-line construction (host encoder) |
 | `nex_loader_test` | 109 | NEX file-format spec (host loader), no core counterpart |
@@ -329,8 +329,8 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BOOT-NEX-05 | start_delay honoured unconditionally before code-entry, on top of any inter-bank loading_delay total | — | pass | test/mmu/mmu_test.cpp:3629 |
 | BOOT-NEX-06 | loading_bar_colour byte is written verbatim, not a fixed default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a` | — | pass | test/mmu/mmu_test.cpp:3597 |
 | BOOT-NEX-07 | G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) before screen-format ingest, eliminating attribute-area leak from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict) | — | pass | test/mmu/mmu_test.cpp:3709 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1006 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2191 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1009 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2194 |
 | BOOT-TAPESAVE-01 | TapSaver::build_block header block: LE length prefix (payload+2), flag 0x00, payload verbatim, XOR checksum — hand-computed TAP image (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3770 |
 | BOOT-TAPESAVE-02 | TapSaver data block (non-trivial XOR checksum) + append_block file ordering: file bytes == header-block \|\| data-block, hand-computed images (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3839 |
 | BOOT-TAPESAVE-03 | TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, correct boundaries/flags, payload identity, loader checksum verification, zero parse warnings (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3887 |
@@ -3431,56 +3431,58 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:171 |
-| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:179 |
-| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:205 |
-| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:249 |
-| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:257 |
-| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:265 |
-| CMD18-05 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:305 |
-| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:344 |
-| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:366 |
-| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:384 |
-| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:407 |
-| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:426 |
-| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:442 |
-| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:512 |
-| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=256 illegal (R1 bit 2 set) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:535 |
-| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:558 |
-| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:650 |
-| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:657 |
-| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:678 |
-| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:724 |
-| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:766 |
-| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:827 |
-| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:835 |
-| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:891 |
-| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:941 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1006 |
-| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1113 |
-| SD-16 | CMD16 SET_BLOCKLEN arg≠512 R1: initialized card -> 0x04 (illegal only, idle CLEAR); uninitialized card -> 0x05 (idle + illegal). Idle bit must derive from initialized_, not be hard-coded (SD spec § 4.9.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1160 |
-| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1230 |
-| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1282 |
-| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1320 |
-| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1360 |
-| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1455 |
-| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1543 |
-| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1585 |
-| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1637 |
-| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1704 |
-| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1776 |
-| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1834 |
-| SD-28 | running as root; cannot construct a read-only image | (SD SPI spec) | skip | test/sdcard/sdcard_test.cpp:1882 |
-| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2017 |
-| SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2090 |
-| SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2145 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2191 |
-| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2226 |
-| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2272 |
-| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2315 |
-| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2339 |
-| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2356 |
-| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2379 |
+| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:174 |
+| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:182 |
+| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:208 |
+| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:252 |
+| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:260 |
+| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:268 |
+| CMD18-05 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:308 |
+| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:347 |
+| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:369 |
+| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:387 |
+| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:410 |
+| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:429 |
+| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:445 |
+| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:515 |
+| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=256 illegal (R1 bit 2 set) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:538 |
+| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:561 |
+| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:653 |
+| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:660 |
+| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:681 |
+| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:727 |
+| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:769 |
+| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:830 |
+| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:838 |
+| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:894 |
+| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:944 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1009 |
+| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1116 |
+| SD-16 | CMD16 SET_BLOCKLEN arg≠512 R1: initialized card -> 0x04 (illegal only, idle CLEAR); uninitialized card -> 0x05 (idle + illegal). Idle bit must derive from initialized_, not be hard-coded (SD spec § 4.9.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1163 |
+| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1233 |
+| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1285 |
+| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1323 |
+| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1363 |
+| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1458 |
+| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1546 |
+| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1588 |
+| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1640 |
+| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1707 |
+| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1779 |
+| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1837 |
+| SD-28 | running as root; cannot construct a read-only image | (SD SPI spec) | skip | test/sdcard/sdcard_test.cpp:1885 |
+| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2020 |
+| SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2093 |
+| SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2148 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2194 |
+| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2229 |
+| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2275 |
+| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2318 |
+| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2342 |
+| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2359 |
+| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2382 |
+| SD-LOGHOT-01 | streaming into the next CMD18 block logs its trace line with sdcard at trace | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2423 |
+| SD-LOGHOT-02 | no CMD18 next-block trace line is emitted with the level off | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2431 |
 | MMC-02 | CMD8 illegal-cmd response on MMC not modelled (see G41) | — | missing | — |
 | MMC-03 | MMC byte-vs-block addressing duality unsupported (see G41) | — | missing | — |
 
@@ -3813,38 +3815,38 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | ASYNC-05 | the address policy is enforced on the RESOLVED address, and the refused connect never reached the listener | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1630 |
 | ASYNC-06 | close() during a lookup returns at once and the late result never resurrects the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1667 |
 | ASYNC-10 | a lookup abandoned by close() is never applied to the next connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1683 |
-| ASYNC-07 | destroying a transport mid-lookup returns immediately instead of waiting out the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1717 |
-| ASYNC-08 | ...and the orphaned lookup runs to completion AFTER it, into a result block that outlived the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1731 |
-| ASYNC-09 | AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the TCP handshake | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1771 |
-| ASYNC-12 | a throwing resolver degrades to a failed lookup instead of aborting the process, and its half-built address list is discarded | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1804 |
-| IPP-01 | a dotted quad parses to the address it spells | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1832 |
-| IPP-02 | the wildcard parses | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1834 |
-| IPP-03 | an IPv6 literal parses, elision and all | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1835 |
-| IPP-04 | a NAME is refused rather than resolved — a bind address that could depend on DNS is one that could change under the user | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1837 |
-| IPP-05 | so is an empty string | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1841 |
-| IPP-06 | and so is a malformed quad | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1842 |
-| IPP-07 | round trip: to_string(parse_ip(x)) == x | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1843 |
-| LSN-01 | open(0) binds and reports the port the OS chose | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1857 |
-| LSN-02 | accept() with nothing pending returns null rather than waiting | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1859 |
-| LSN-03 | a real client can connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1864 |
-| LSN-04 | poll() + accept() yield a transport, already Connected | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1866 |
-| LSN-05 | whose peer_address() is the client's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1868 |
-| LSN-21 | recv() on the accepted transport with nothing pending returns 0 at once and stays Connected — the accepted socket really is non-blocking | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1887 |
-| LSN-06 | guest -> peer: send() on the accepted transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1896 |
-| LSN-07 | ...and the client receives exactly those bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1898 |
-| LSN-08 | peer -> guest: the client can send | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1902 |
-| LSN-09 | ...and recv() on the accepted transport yields them | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1910 |
-| LSN-10 | a client close moves the accepted transport to Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1914 |
-| LSN-11 | two connects, but poll() parks only one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1932 |
-| LSN-12 | ...and the second is taken by the NEXT poll | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1934 |
-| LSN-13 | close() stops listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1941 |
-| LSN-14 | ...and the port can be bound again | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1946 |
-| LSN-15 | a port already in use is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1965 |
-| LSN-16 | ...with a reason, and nothing listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1967 |
-| LSN-17 | an address that is not local is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1979 |
-| LSN-18 | ...and does not silently become the wildcard | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1981 |
-| LSN-19 | a listener bound to 127.0.0.1 is NOT reachable through this host's LAN address — the default really confines it | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:2003 |
-| LSN-20 | ...and --esp-listen-address 0.0.0.0 IS, so widening is a real act and not a no-op | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:2015 |
+| ASYNC-07 | destroying a transport mid-lookup returns immediately instead of waiting out the resolver | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1718 |
+| ASYNC-08 | ...and the orphaned lookup runs to completion AFTER it, into a result block that outlived the transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1732 |
+| ASYNC-09 | AT+CIPSTART's deadline bounds NAME RESOLUTION, not just the TCP handshake | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1772 |
+| ASYNC-12 | a throwing resolver degrades to a failed lookup instead of aborting the process, and its half-built address list is discarded | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1805 |
+| IPP-01 | a dotted quad parses to the address it spells | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1833 |
+| IPP-02 | the wildcard parses | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1835 |
+| IPP-03 | an IPv6 literal parses, elision and all | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1836 |
+| IPP-04 | a NAME is refused rather than resolved — a bind address that could depend on DNS is one that could change under the user | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1838 |
+| IPP-05 | so is an empty string | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1842 |
+| IPP-06 | and so is a malformed quad | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1843 |
+| IPP-07 | round trip: to_string(parse_ip(x)) == x | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1844 |
+| LSN-01 | open(0) binds and reports the port the OS chose | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1858 |
+| LSN-02 | accept() with nothing pending returns null rather than waiting | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1860 |
+| LSN-03 | a real client can connect | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1865 |
+| LSN-04 | poll() + accept() yield a transport, already Connected | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1867 |
+| LSN-05 | whose peer_address() is the client's | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1869 |
+| LSN-21 | recv() on the accepted transport with nothing pending returns 0 at once and stays Connected — the accepted socket really is non-blocking | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1888 |
+| LSN-06 | guest -> peer: send() on the accepted transport | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1897 |
+| LSN-07 | ...and the client receives exactly those bytes | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1899 |
+| LSN-08 | peer -> guest: the client can send | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1903 |
+| LSN-09 | ...and recv() on the accepted transport yields them | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1911 |
+| LSN-10 | a client close moves the accepted transport to Closed | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1915 |
+| LSN-11 | two connects, but poll() parks only one | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1933 |
+| LSN-12 | ...and the second is taken by the NEXT poll | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1935 |
+| LSN-13 | close() stops listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1942 |
+| LSN-14 | ...and the port can be bound again | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1947 |
+| LSN-15 | a port already in use is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1966 |
+| LSN-16 | ...with a reason, and nothing listening | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1968 |
+| LSN-17 | an address that is not local is refused | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1980 |
+| LSN-18 | ...and does not silently become the wildcard | (host sockets) | pass | src/esp01/test/esp_socket_test.cpp:1982 |
+| LSN-19 | a listener bound to 127.0.0.1 is NOT reachable through this host's LAN address — the default really confines it | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:2004 |
+| LSN-20 | ...and --esp-listen-address 0.0.0.0 IS, so widening is a real act and not a no-op | (host sockets) | skip | src/esp01/test/esp_socket_test.cpp:2016 |
 
 ## ESP-01 AT engine — `src/esp01/test/esp_at_test.cpp`
 

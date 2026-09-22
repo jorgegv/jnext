@@ -32,7 +32,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ESP-01 jnext policy + wiring |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card               |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card               |       52 |       52 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -65,7 +65,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Achieved-speed report |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Host key minimum-hold latch |       69 |       69 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Logging               |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Logging (gate)        |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Logging (gate)        |       27 |       27 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CLI options / docs    |       19 |       19 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |      109 |      109 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -107,6 +107,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7280** | **7280** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7298** | **7298** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

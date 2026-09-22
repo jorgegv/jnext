@@ -1557,16 +1557,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // dispatch, pinned by the existing esxdos-stub suite.
         esxdos_bridge_handler_ =
             [handle_esxdos](uint8_t defb, Z80Registers& r) -> bool {
+                // Guarded for the should_log() reason given in
+                // PortDispatch::read (src/port/port_dispatch.cpp): since
+                // GH #250 this wrapper runs on EVERY RST $08 call of a
+                // directly loaded NEX, not only when tracing, so an unguarded
+                // trace() with arguments was an out-of-line call per call with
+                // tracing off (GH #244).
+                const bool trace_on = Log::esxdos()->should_log(spdlog::level::trace);
                 const char* name = esxdos_call_name(defb);
                 // Logged BEFORE handle_esxdos runs: the stub mutates r in place, so
                 // capturing the arguments afterwards would report the results as if
                 // they had been the inputs. Pinned by ESXT-28.
-                Log::esxdos()->trace(
-                    "-> ${:02X} {:<12} AF={:04X} BC={:04X} DE={:04X} HL={:04X} IX={:04X}",
-                    defb, name ? name : "(unknown)", r.AF, r.BC, r.DE, r.HL, r.IX);
+                if (trace_on)
+                    Log::esxdos()->trace(
+                        "-> ${:02X} {:<12} AF={:04X} BC={:04X} DE={:04X} HL={:04X} IX={:04X}",
+                        defb, name ? name : "(unknown)", r.AF, r.BC, r.DE, r.HL, r.IX);
 
                 const bool handled = handle_esxdos(defb, r);
 
+                if (!trace_on) return handled;
                 if (handled) {
                     // esxdos convention: carry CLEAR = success, SET = error
                     // with the code in A.

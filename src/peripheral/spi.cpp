@@ -188,7 +188,12 @@ void SpiMaster::write_data(uint8_t val) {
     SpiDevice* dev = active_device();
     if (dev) {
         rx_data_ = dev->receive(val);
-        spi_log()->debug("write tx={:#04x}, rx={:#04x}", val, rx_data_);
+        // Guarded (here and in read_data) for the should_log() reason given
+        // in PortDispatch::read (src/port/port_dispatch.cpp): this is every
+        // SPI byte, ~250k on a NextZXOS boot, and unguarded each one was an
+        // out-of-line call with the level off (GH #244).
+        if (spi_log()->should_log(spdlog::level::debug))
+            spi_log()->debug("write tx={:#04x}, rx={:#04x}", val, rx_data_);
     } else {
         rx_data_ = 0xFF;
     }
@@ -210,8 +215,9 @@ uint8_t SpiMaster::read_data() {
     SpiDevice* dev = active_device();
     if (dev) {
         rx_data_ = dev->send();
-        spi_log()->debug("read → returning prev={:#04x}, new rx={:#04x}",
-                         prev, rx_data_);
+        if (spi_log()->should_log(spdlog::level::debug))
+            spi_log()->debug("read → returning prev={:#04x}, new rx={:#04x}",
+                             prev, rx_data_);
     } else {
         rx_data_ = 0xFF;
     }
