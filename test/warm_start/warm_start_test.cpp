@@ -36,7 +36,7 @@
 //   WSC-INV-07    a missing file is REFUSED
 //   WSC-INV-08    a file shorter than the header is REFUSED
 //   WSC-INV-09    a refused load leaves the caller's buffer untouched
-//   WSC-INV-10    every refusal states a reason
+//   WSC-INV-10    all eight refusal branches state a DISTINCT reason
 //   WSC-STORE-01  store() refuses a header that disagrees with its payload
 //   WSC-STORE-02  store() refuses a digest too long for the header field
 //   WSR-RES-01    a non-Next machine is refused, naming the machine
@@ -45,11 +45,15 @@
 //   WSR-RES-03    ensure_warm_start_state() declines on a non-Next
 //   WSR-RES-04    ensure_warm_start_state() declines with no SD image
 //   WSR-RES-05    a machine with no SD image declines every time
+//   WSR-RES-06    checks 1 and 2 DID pass on that machine — asserted
+//                 directly, not inferred from the refusal message
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/warm_start_cache.h"
 
+#include <algorithm>
+#include <cstdarg>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -76,6 +80,15 @@ void check(const char* id, const char* desc, bool cond,
         if (!detail.empty()) std::printf(" [%s]", detail.c_str());
         std::printf("\n");
     }
+}
+
+std::string fmt(const char* f, ...) {
+    char buf[256];
+    va_list ap;
+    va_start(ap, f);
+    std::vsnprintf(buf, sizeof(buf), f, ap);
+    va_end(ap);
+    return buf;
 }
 
 std::string g_dir;
@@ -165,9 +178,11 @@ int main()
         check("WSC-RT-03", "no .tmp file is left behind",
               !std::filesystem::exists(warm_start::cache_path(0) + ".tmp"));
 
+        std::error_code sz_ec;
+        const auto on_disk = std::filesystem::file_size(warm_start::cache_path(0), sz_ec);
         check("WSC-HDR-01", "file length is kHeaderBytes + state_bytes",
-              std::filesystem::file_size(warm_start::cache_path(0)) ==
-                  warm_start::kHeaderBytes + state.size());
+              !sz_ec && on_disk == warm_start::kHeaderBytes + state.size(),
+              sz_ec ? sz_ec.message() : fmt("%ju bytes", (uintmax_t)on_disk));
 
         const auto raw = read_file(warm_start::cache_path(0));
         check("WSC-HDR-02", "the SD digest is ASCII hex in the header",
@@ -185,8 +200,17 @@ int main()
         const bool loaded2 = warm_start::load(id2, back2, why);
         std::vector<uint8_t> stale;
         const bool old_gone = !warm_start::load(id, stale, why);
+        // "replaces in place" is a claim about the DIRECTORY, so count it.
+        // Without this the row only says the new recording loads and the old
+        // identity does not — which a second file sitting beside the first
+        // would satisfy just as well, and an orphan per SD image is exactly
+        // what the one-file-per-machine-type naming exists to prevent.
+        size_t jwss = 0;
+        for (const auto& e : std::filesystem::directory_iterator(warm_start::cache_dir()))
+            if (e.path().extension() == ".jwss") ++jwss;
         check("WSC-RT-04", "a second store() replaces in place — one file per machine",
-              loaded2 && back2 == state2 && old_gone);
+              loaded2 && back2 == state2 && old_gone && jwss == 1,
+              fmt("%zu .jwss files", jwss));
 
         // Put the first recording back for the invalidation rows.
         warm_start::store(id, state, why);
@@ -196,15 +220,25 @@ int main()
     {
         std::vector<uint8_t> out;
         std::string why;
+        std::vector<std::string> reasons;   // one per refusal, for WSC-INV-10
 
-        auto refused = [&](warm_start::Identity want) {
+        // A refusal is only the RIGHT refusal when it comes from the branch
+        // the row names. "it was refused" is satisfied by any of the eight
+        // branches in warm_start::load(), so a row asserting only that passes
+        // whenever the fixture happens to be wrong in some other way too —
+        // the same illusory-discrimination bug WSC-INV-02 and WSR-RES-01 each
+        // had. `expect` is a fragment no other branch can produce.
+        auto refused = [&](warm_start::Identity want, const char* expect) {
             out.clear();
             why.clear();
-            return !warm_start::load(want, out, why) && !why.empty();
+            const bool rejected = !warm_start::load(want, out, why);
+            if (rejected) reasons.push_back(why);
+            return rejected && why.find(expect) != std::string::npos;
         };
 
-        check("WSC-INV-01", "a different SD image digest is refused",
-              refused(make_id(digest('c'), 0, state.size())), why);
+        check("WSC-INV-01", "a different SD image digest is refused, as such",
+              refused(make_id(digest('c'), 0, state.size()),
+                      "recorded from a different SD image"), why);
         // The machine type is BOTH the filename and a header field, and the
         // filename alone would answer this: asking for type 1 looks at a path
         // that does not exist, so it is refused for the wrong reason (measured
@@ -218,28 +252,29 @@ int main()
             f.put(static_cast<char>(1));
             f.close();
             check("WSC-INV-02",
-                  "a header recorded for another machine type is refused",
-                  refused(make_id(digest('a'), 0, state.size())), why);
+                  "a header recorded for another machine type is refused, as such",
+                  refused(make_id(digest('a'), 0, state.size()),
+                          "recorded for machine type"), why);
             warm_start::store(id, state, why);
         }
 
         warm_start::Identity bumped = make_id(digest('a'), 0, state.size());
         bumped.format_version = warm_start::kFormatVersion + 1;
-        check("WSC-INV-03", "a bumped state-format version is refused",
-              refused(bumped), why);
+        check("WSC-INV-03", "a bumped state-format version is refused, as such",
+              refused(bumped, "state-format version"), why);
 
-        check("WSC-INV-04", "a different state-stream length is refused",
-              refused(make_id(digest('a'), 0, state.size() + 1)), why);
-
-        check("WSC-INV-10", "every refusal states a reason", !why.empty(), why);
+        check("WSC-INV-04", "a different state-stream length is refused, as such",
+              refused(make_id(digest('a'), 0, state.size() + 1),
+                      "state stream is"), why);
 
         // Truncate the payload without touching the header: the length the
         // header declares no longer matches what is on disk.
         {
             const std::string p = warm_start::cache_path(0);
             std::filesystem::resize_file(p, warm_start::kHeaderBytes + 16, ec);
-            check("WSC-INV-05", "a truncated payload is refused",
-                  refused(id), why);
+            check("WSC-INV-05", "a truncated payload is refused as truncated, not "
+                  "as a length disagreement",
+                  refused(id, "is truncated"), why);
             warm_start::store(id, state, why);
         }
 
@@ -250,7 +285,8 @@ int main()
             f.seekp(0);
             f.put('X');
             f.close();
-            check("WSC-INV-06", "a wrong magic is refused", refused(id), why);
+            check("WSC-INV-06", "a wrong magic is refused, as such",
+                  refused(id, "is not a jnext warm-start file"), why);
             warm_start::store(id, state, why);
         }
 
@@ -267,7 +303,8 @@ int main()
         // Missing file.
         {
             std::filesystem::remove(warm_start::cache_path(0), ec);
-            check("WSC-INV-07", "a missing file is refused", refused(id), why);
+            check("WSC-INV-07", "a missing file is refused, as such",
+                  refused(id, "no cached state at"), why);
         }
 
         // Shorter than the header itself.
@@ -277,8 +314,29 @@ int main()
             const char stub[] = "JNEXT";
             f.write(stub, 5);
             f.close();
-            check("WSC-INV-08", "a file shorter than the header is refused",
-                  refused(id), why);
+            check("WSC-INV-08", "a file shorter than the header is refused, as such",
+                  refused(id, "is shorter than its own header"), why);
+        }
+
+        // Diagnosability, asserted rather than assumed. Every branch above
+        // must produce a DISTINCT message: the cache's whole recovery story is
+        // that a refusal tells the user which of the keys moved, and two
+        // branches sharing a message is that story quietly failing. The
+        // per-row `expect` fragments above prove each branch says the right
+        // thing; this proves no two of them say the same thing.
+        {
+            std::vector<std::string> sorted = reasons;
+            std::sort(sorted.begin(), sorted.end());
+            const bool all_set = std::none_of(
+                sorted.begin(), sorted.end(),
+                [](const std::string& r) { return r.empty(); });
+            const bool all_distinct =
+                std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end();
+            check("WSC-INV-10",
+                  "all eight refusal branches state a reason, and no two state "
+                  "the same one",
+                  reasons.size() == 8 && all_set && all_distinct,
+                  fmt("%zu refusals", reasons.size()));
         }
     }
 
@@ -286,14 +344,20 @@ int main()
     {
         std::string why;
         auto bad_len = make_id(digest('a'), 0, state.size() + 1);
+        why.clear();
         check("WSC-STORE-01",
-              "store() refuses a header that disagrees with its payload",
-              !warm_start::store(bad_len, state, why) && !why.empty(), why);
+              "store() refuses a header that disagrees with its payload, as such",
+              !warm_start::store(bad_len, state, why) &&
+                  why.find("disagrees with its own payload") != std::string::npos,
+              why);
 
         auto bad_sha = make_id(std::string(80, 'a'), 0, state.size());
+        why.clear();
         check("WSC-STORE-02",
-              "store() refuses a digest too long for the header field",
-              !warm_start::store(bad_sha, state, why) && !why.empty(), why);
+              "store() refuses a digest too long for the header field, as such",
+              !warm_start::store(bad_sha, state, why) &&
+                  why.find("does not fit the header field") != std::string::npos,
+              why);
     }
 
     // ── Residency criterion ──────────────────────────────────────────
@@ -307,9 +371,26 @@ int main()
         c48.rewind_buffer_frames = 0;
         emu48.init(c48);
         std::string why;
-        check("WSR-RES-01", "a non-Next machine is refused, naming the machine",
-              !emu48.nextzxos_resident(why) && why.find("Next") != std::string::npos,
-              why);
+        // EXACT equality, and that is the fix for a real defect in this row.
+        // It used to assert `why.find("Next")`, which THREE of the four
+        // refusal messages satisfy — "NextREG 0x03 config mode is still set"
+        // and "no NextZXOS ROM found…" both contain "Next" — so deleting the
+        // machine-type early-return from nextzxos_resident() left the row
+        // green (found by the independent review). Only check 1 can produce
+        // this string, so only check 1 can satisfy the row.
+        check("WSR-RES-01",
+              "a non-Next machine is refused BY THE MACHINE-TYPE CHECK, not by a "
+              "later one that happens to mention Next",
+              !emu48.nextzxos_resident(why) && why == "not a Next machine", why);
+        // NOTE ON WHAT THIS ROW CAN AND CANNOT PROVE. It asserts the
+        // user-facing entry point's OUTCOME, not which guard produced it:
+        // ensure_warm_start_state() returns the same `false` from the
+        // machine-type guard, the no-SD guard and a failed recording, and a
+        // caller cannot tell them apart. Deleting the machine-type guard
+        // would leave this row green (the no-SD guard catches the same
+        // fixture), so the branch discrimination lives in WSR-RES-01 above,
+        // which can see the reason. Kept because the outcome is the thing
+        // users depend on, and it is worth pinning on its own.
         check("WSR-RES-03", "ensure_warm_start_state() declines on a non-Next",
               !emu48.ensure_warm_start_state());
 
@@ -325,11 +406,27 @@ int main()
         emun.init(cn);
         why.clear();
         const bool resident = emun.nextzxos_resident(why);
+        // The fragment is unique to check 3: no other refusal message contains
+        // "no NextZXOS ROM found in SRAM pages". Asserting the bare word
+        // "NextZXOS" would be the WSR-RES-01 bug in the other direction.
         check("WSR-RES-02",
-              "a Next that never booted is refused although the two "
-              "firmware-less checks pass",
-              !resident && why.find("NextZXOS") != std::string::npos, why);
+              "a Next that never booted is refused BY THE MARKER SEARCH, although "
+              "the two firmware-less checks pass",
+              !resident &&
+                  why.find("no NextZXOS ROM found in SRAM pages") != std::string::npos,
+              why);
+        // Both checks 1 and 2 must have PASSED for check 3 to be the one
+        // that spoke — that is the whole point of the row (a firmware-less
+        // machine answers them exactly as a booted one does, GH #226), so
+        // assert it directly instead of inferring it from the message.
+        check("WSR-RES-06",
+              "and it is refused DESPITE the boot-ROM overlay being off and "
+              "config mode clear — the two questions a never-booted Next answers "
+              "like a booted one (GH #226)",
+              !emun.mmu().boot_rom_enabled() && !emun.nextreg().nr_03_config_mode());
 
+        // Same limit as WSR-RES-03: these pin the entry point's outcome, not
+        // which guard produced it.
         check("WSR-RES-04", "ensure_warm_start_state() declines with no SD image",
               !emun.ensure_warm_start_state());
         check("WSR-RES-05", "a machine with no SD image declines every time",

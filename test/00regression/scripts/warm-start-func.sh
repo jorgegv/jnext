@@ -58,7 +58,14 @@ if want warm-start-func; then
 
     ws_file=$(ls "$ws_cache_dir"/*.jwss 2>/dev/null | head -1 || true)
     [[ -s "$ws_file" ]] || ws_faults+=("A: no cache file was written to $ws_cache_dir")
-    [[ -e "$ws_cache_dir"/*.jwss.tmp ]] && ws_faults+=("A: a .tmp file was left behind")
+    # compgen -G, NOT `[[ -e "$dir"/*.tmp ]]`: `[[ -e ]]` does not perform
+    # pathname expansion on its operand, so that form tests for a file
+    # literally named `*.jwss.tmp` and can never fire. It was written that way
+    # here and was VACUOUS (proved by planting a .tmp and watching it pass) —
+    # the same illusory-assertion class as WSR-RES-01.
+    if compgen -G "$ws_cache_dir/*.tmp" >/dev/null; then
+        ws_faults+=("A: a .tmp file was left behind in $ws_cache_dir")
+    fi
 
     # B — warm cache: must restore, and must NOT boot.
     if [[ -s "$ws_file" ]]; then
