@@ -13,7 +13,7 @@
 //   POL-*    the hostname allowlist, as a pure value type
 //   ELOG-*   the connection-event log (bounded, thread-safe)
 //   EGATE-*  EspGatedTransport: refusal, forwarding, event emission
-//   AT-*     the refusal really is what the GUEST sees, through the real engine
+//   EAT-*    the refusal really is what the GUEST sees, through the real engine
 //   FAULT-*  a throwing transport is surfaced exactly once
 //   WIRE-*   Emulator: off by default, attached when on, inert under replay,
 //            preserved across a soft reset, and joined at destruction
@@ -475,7 +475,7 @@ int main() {
         EspConnectionLog log;
         const std::string refused =
             engine_reply(policy, "AT+CIPSTART=\"TCP\",\"evil.test\",80\r\n", log);
-        check("AT-01", "a refused host answers ERROR on the wire, not silence",
+        check("EAT-01", "a refused host answers ERROR on the wire, not silence",
               refused == "\r\nERROR\r\n");
 
         EspConnectionLog log2;
@@ -483,7 +483,7 @@ int main() {
             engine_reply(policy, "AT+CIPSTART=\"TCP\",\"allowed.test\",80\r\n", log2);
         // The scripted transport reports Connecting forever, so the engine
         // defers its reply; what matters is that it did NOT refuse.
-        check("AT-02", "an allowed host is not refused (the reply is deferred)",
+        check("EAT-02", "an allowed host is not refused (the reply is deferred)",
               allowed.empty());
     }
 

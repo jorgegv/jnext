@@ -230,9 +230,10 @@ which refuses when two suites (the `?`-gated GUI ones included) assert the same
 ID — that reuse is how #190's manufactured coverage happened — when a PLANNED
 row in a `*-TEST-PLAN-DESIGN.md` carries an ID asserted by a suite the matrix
 does not read that row's status from, and when a declared suite cannot be
-resolved to its source (GH #243). The 12 remaining pre-existing asserted-ID
-collisions are baselined in `test/traceability-dup-ids.conf`; anything new
-fails, and so does a baseline entry that no longer collides.
+resolved to its source (GH #243). The baseline file
+`test/traceability-dup-ids.conf` is EMPTY: GH #243 renamed one side of all 29
+pre-existing collisions. A new collision is fixed by renaming, never by adding
+a baseline line, and an entry that no longer collides is itself a refusal.
 
 The rendered user guide under `doc/user-guide` is also generated (from
 `src/doc/user-guide`, via `make docs-userguide`) and committed, and it IS

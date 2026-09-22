@@ -32,11 +32,12 @@
 # planned-then-implemented row and is fine. Asserted anywhere else, it is a
 # collision, and there is no baseline for that kind.
 #
-# The baseline in test/traceability-dup-ids.conf holds the asserted-vs-asserted
+# The baseline in test/traceability-dup-ids.conf held the asserted-vs-asserted
 # collisions that already existed when this gate was written (29, measured
-# 2026-08-01, by this script; 12 remain). Anything NOT in it is a refusal. The
-# baseline shrinks by renaming one side of a pair, which means changing its
-# plan doc and its test source together.
+# 2026-08-01, by this script). GH #243 renamed one side of every one, so it is
+# EMPTY now; the mechanism stays, and so does the refusal of any entry that no
+# longer collides. A collision is fixed by renaming one side — its plan doc and
+# its test source together — not by adding a line.
 use strict;
 use warnings;
 use FindBin qw($RealBin);
@@ -177,7 +178,7 @@ if (@dups) {
     printf STDERR "traceability-dup-ids: REFUSING — %d test ID(s) asserted by "
                 . "more than one suite.\nAn ID is a global name here; a duplicate "
                 . "lets one subsystem's row vouch for\nanother's (GH #190). Rename "
-                . "one side, or add it to test/traceability-dup-ids.conf.\n\n",
+                . "one side — its plan doc and its test source together.\n\n",
            scalar @dups;
     print STDERR "  $_\n" for @dups;
 }

@@ -333,14 +333,14 @@ int main() {
     // ══ Group C — the logging binding ═══════════════════════════════════
     //
     // The module logs through its own seam; these rows prove jnext's end of it
-    // is wired. LOG-01/LOG-02 came from esp_socket_test, which no longer knows
-    // spdlog exists.
+    // is wired. ALOG-01/ALOG-02 came from esp_socket_test, which no longer knows
+    // spdlog exists. (The group was LOG-* until GH #243: log_test owns that name.)
 
-    check("LOG-01", "Log::init() registers the esp01 logger",
+    check("ALOG-01", "Log::init() registers the esp01 logger",
           spdlog::get("esp01") != nullptr);
     {
         Log::parse_levels("esp01=trace");
-        check("LOG-02", "--log-level esp01=trace reaches the logger",
+        check("ALOG-02", "--log-level esp01=trace reaches the logger",
               spdlog::get("esp01") &&
                   spdlog::get("esp01")->level() == spdlog::level::trace);
         Log::parse_levels("esp01=off");
@@ -366,9 +366,9 @@ int main() {
         Log::parse_levels("esp01=off");
         Log::esp01()->sinks() = saved;
 
-        check("LOG-03", "a module log line reaches jnext's esp01 logger through the seam",
+        check("ALOG-03", "a module log line reaches jnext's esp01 logger through the seam",
               all.find("AT <- \"AT\"") != std::string::npos);
-        check("LOG-04", "...and carries the level the module chose, not a flattened one",
+        check("ALOG-04", "...and carries the level the module chose, not a flattened one",
               all.find("[debug]") != std::string::npos);
     }
     {
@@ -379,11 +379,11 @@ int main() {
         AtEngine       eng{tr};
         EspUartAdapter adapter{eng};
         adapter.poll();
-        check("LOG-05", "an esp01 logger at 'off' raises the module's threshold to error",
+        check("ALOG-05", "an esp01 logger at 'off' raises the module's threshold to error",
               log_threshold() == LogLevel::Error);
         Log::parse_levels("esp01=trace");
         adapter.poll();
-        check("LOG-06", "...and turning it up lowers the threshold within one poll",
+        check("ALOG-06", "...and turning it up lowers the threshold within one poll",
               log_threshold() == LogLevel::Trace);
         Log::parse_levels("esp01=off");
     }

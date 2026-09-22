@@ -650,9 +650,9 @@ What that means when you author or change a test row:
 - **Spell the ID out as a literal.** An ID built at run time is invisible to
   every source reader, and the row silently vanishes from the matrix.
 - **Do not reuse an ID another suite uses** — nor one another subsystem's plan
-  doc lists as a planned row. `traceability-dup-ids.pl` refuses both; the
-  pre-existing asserted-ID collisions are baselined and the baseline only
-  shrinks.
+  doc lists as a planned row. `traceability-dup-ids.pl` refuses both. Its
+  baseline of pre-existing collisions is empty since GH #243: rename, never
+  baseline.
 - **A planned-but-unimplemented row lives in this subsystem's
   `*-TEST-PLAN-DESIGN.md`**, which is where the generator reads planned rows
   from. It emits as `missing` — an honest backlog, and the only remaining

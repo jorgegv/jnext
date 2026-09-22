@@ -445,7 +445,7 @@ traceability-dup-check:
 	@# cannot see them at all. A declared suite it cannot resolve to a source is a
 	@# refusal, never a skip. Planned plan-doc rows are checked too, read through
 	@# refresh-traceability-matrix.pl --planned-ids (its parser, not a copy). The
-	@# 12 remaining known collisions are baselined in test/traceability-dup-ids.conf.
+	@# baseline, test/traceability-dup-ids.conf, is empty since GH #243.
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
