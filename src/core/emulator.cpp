@@ -6968,7 +6968,12 @@ bool Emulator::load_sna(const std::string& path)
     SnaLoader loader;
     if (!loader.load(path)) return false;
     reset();
-    return loader.apply(*this);
+    if (!loader.apply(*this)) return false;
+    // A snapshot puts the CPU in its interrupt mode without executing an IM
+    // instruction, which is what the IM latch behind NR 0xC0 bits 2:1 (and
+    // the hardware-IM2 gates) is fed by; seed it from the restored CPU.
+    im2_.set_im_mode(cpu_.get_registers().IM);
+    return true;
 }
 
 void Emulator::resume_from_park(const char* reason)
@@ -7078,7 +7083,9 @@ bool Emulator::load_szx(const std::string& path)
     SzxLoader loader;
     if (!loader.load(path)) return false;
     reset();
-    return loader.apply(*this);
+    if (!loader.apply(*this)) return false;
+    im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
+    return true;
 }
 
 bool Emulator::load_z80(const std::string& path)
@@ -7086,7 +7093,9 @@ bool Emulator::load_z80(const std::string& path)
     Z80Loader loader;
     if (!loader.load(path)) return false;
     reset();
-    return loader.apply(*this);
+    if (!loader.apply(*this)) return false;
+    im2_.set_im_mode(cpu_.get_registers().IM);   // see load_sna()
+    return true;
 }
 
 bool Emulator::load_wav(const std::string& path)

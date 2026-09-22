@@ -45,6 +45,13 @@ one specific reason: it lets test tiers that cannot link `jnext_core` exercise
 the real parser rather than a copy of it. See
 [chapter 4](../04-testing/index.md).
 
+A loader that puts the CPU straight into an interrupt mode (`.sna`, `.z80`,
+`.szx`, and a NEX entering at IM 1) executes no `IM` instruction, and the latch
+behind NR `0xC0` bits 2:1 is fed only by the ones the CPU decodes
+(`im2_control.vhd:218-229`). So `Emulator::load_sna()`/`load_z80()`/`load_szx()`
+and `NexLoader::apply()` seed it with `Im2Controller::set_im_mode()` from the
+restored CPU.
+
 ## Tapes: two completely different mechanisms
 
 Loading from tape is the one place where the emulator offers you a choice

@@ -502,6 +502,16 @@ target_link_libraries(tzx_loader_test PRIVATE
 target_include_directories(tzx_loader_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME tzx_loader_tests COMMAND tzx_loader_test)
 
+# A loaded snapshot's interrupt mode reaches the IM latch behind NR 0xC0
+# (.sna, .z80, .szx through the real Emulator::load_* paths).
+add_executable(snapshot_im_test core/snapshot_im_test.cpp)
+target_link_libraries(snapshot_im_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(snapshot_im_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME snapshot_im_tests COMMAND snapshot_im_test)
+
 # CLI option table / man page alignment (issue #43). Header-only table under
 # test (src/core/cli_options.h) — no emulator core needed. The three paths are
 # baked in at configure time so the suite works from any working directory

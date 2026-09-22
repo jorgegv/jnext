@@ -1943,6 +1943,12 @@ header</strong> — <code>z80_loader.h</code>, <code>tap_loader.h</code>, <code>
 one specific reason: it lets test tiers that cannot link <code>jnext_core</code> exercise
 the real parser rather than a copy of it. See
 <a href="../04-testing/index.html">chapter 4</a>.</p>
+<p>A loader that puts the CPU straight into an interrupt mode (<code>.sna</code>, <code>.z80</code>,
+<code>.szx</code>, and a NEX entering at IM 1) executes no <code>IM</code> instruction, and the latch
+behind NR <code>0xC0</code> bits 2:1 is fed only by the ones the CPU decodes
+(<code>im2_control.vhd:218-229</code>). So <code>Emulator::load_sna()</code>/<code>load_z80()</code>/<code>load_szx()</code>
+and <code>NexLoader::apply()</code> seed it with <code>Im2Controller::set_im_mode()</code> from the
+restored CPU.</p>
 <h2 id="tapes-two-completely-different-mechanisms">Tapes: two completely different mechanisms<a class="headerlink" href="#tapes-two-completely-different-mechanisms" title="Permanent link">&para;</a></h2>
 <p>Loading from tape is the one place where the emulator offers you a choice
 between fidelity and speed, so it is worth being clear about what the choice
