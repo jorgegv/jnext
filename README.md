@@ -60,7 +60,7 @@ under CI.
 - **Audio** — 3 × AY-3-8910 (TurboSound), DAC, beeper
 - **Storage and peripherals** — DivMMC, Multiface, DMA, UART, CTC,
   SPI / I²C / RTC, keyboard and USB gamepads, ESP01 Wifi subsystem
-- **Formats** — NEX, SNA, SZX, TAP, TZX, WAV, RZX
+- **Formats** — NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX
 
 **Status: Beta** — Extreme cycle-exactness is explicitly
 *not* a goal; "good enough to develop games on" is. Some things are still

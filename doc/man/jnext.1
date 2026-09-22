@@ -184,6 +184,7 @@ instruction).
 This is how a byte is made to land while the program is already running
 \(em the asynchronous\-break case \(em rather than being spent before
 the program has set NR 0x0B up.
+Requires \f[B]\-\-joy\-uart\-rx\f[R].
 .TP
 \f[B]\-\-joy\-uart\-connector\f[R] \f[I]N\f[R]
 Which joystick socket the \f[B]\-\-joy\-uart\-rx\f[R] cable is in:
@@ -191,6 +192,7 @@ Which joystick socket the \f[B]\-\-joy\-uart\-rx\f[R] cable is in:
 rig uses).
 NR 0x0B bit 4 selects the connector the machine reads, so a guest that
 selects the other one hears nothing at all.
+Requires \f[B]\-\-joy\-uart\-rx\f[R].
 .TP
 \f[B]\-\-tape\-realtime\f[R]
 Real\-time tape loading, at the speed of an actual tape, instead of fast
@@ -375,11 +377,14 @@ A recording that fails to load is logged, and \f[B]jnext\f[R] then exits
 non\-zero.
 The machine starts exactly as it does for \f[B]\-\-load\f[R]
 \f[I]FILE\f[R], so the two spellings replay identically, and so do
-\f[B]File > Open\f[R] and \f[B]File > Play RZX Recording\f[R] in the
-GUI.
+\f[B]File > Load NEX File\&...\f[R] and \f[B]File > Play RZX
+Recording\f[R] in the GUI.
 The recording brings its own snapshot of the machine, so it cannot be
 combined with \f[B]\-\-rzx\-record\f[R], with \f[B]\-\-load\f[R] or
 \f[B]\-\-inject\f[R] of another program, or with a second RZX file.
+It does not choose the machine type, though: play it on the machine it
+was recorded on (\f[B]\-\-machine\f[R], or \f[B]Machine > Machine
+Type\f[R] in the GUI), or it goes out of step.
 .TP
 \f[B]\-\-rzx\-record\f[R] \f[I]FILE\f[R]
 Record input to an RZX file from the start of the run \(em or, with
@@ -429,6 +434,7 @@ Used by \f[CR]make bench\f[R] (\f[CR]test/bench/bench.sh\f[R]).
 Workload label printed verbatim in the \f[CR]BENCH\f[R] line (default:
 the loaded file\(cqs basename, or \f[CR]boot\-<machine>\f[R]).
 No whitespace, since the \f[CR]BENCH\f[R] line is space\-delimited.
+Requires \f[B]\-\-benchmark\f[R].
 .TP
 \f[B]\-\-delayed\-screenshot\f[R] \f[I]FILE\f[R]
 Save a PNG screenshot after a delay.
@@ -446,6 +452,7 @@ Requires \f[B]\-\-delayed\-screenshot\f[R].
 Layers to compose into the screenshot: a comma\-separated list of
 \f[CR]ula\f[R], \f[CR]layer2\f[R], \f[CR]sprites\f[R], \f[CR]tiles\f[R],
 \f[CR]all\f[R] (default \f[CR]all\f[R]).
+Requires \f[B]\-\-delayed\-screenshot\f[R].
 .TP
 \f[B]\-\-delayed\-automatic\-exit\f[R] \f[I]N\f[R]
 Exit the emulator after \f[I]N\f[R] seconds.
@@ -954,7 +961,8 @@ that code path:
 .EX
 jnext \-\-headless \-\-esp stub.nex \(rs
     \-\-esp\-delayed\-disassociate\-frames 300 \(rs
-    \-\-esp\-delayed\-associate\-frames 900
+    \-\-esp\-delayed\-associate\-frames 900 \(rs
+    \-\-delayed\-automatic\-exit\-frames 1200
 .EE
 .PP
 At frame 300 the module loses its association and \f[CR]AT+CIFSR\f[R]
@@ -1099,7 +1107,7 @@ the Spectrum\(cqs Symbol Shift, so a Ctrl shortcut would eat a key the
 guest needs (see \f[B]THE KEYBOARD\f[R] below).
 .TP
 \f[B]File\f[R]
-Load a program (Alt+O \- NEX/SNA/SZX/TAP/TZX/WAV/RZX), Mount SD Card
+Load a program (Alt+O \- NEX/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Mount SD Card
 Image, Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record
 RZX / Stop RZX, Save Screenshot (Alt+S), Save Snapshot (Alt+Shift+S),
 Quit (Alt+Q).
@@ -1125,7 +1133,8 @@ pointer so the Kempston mouse can move freely (Ctrl+Alt releases it).
 Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle).
 .TP
 \f[B]Debug\f[R]
-Magic Breakpoint (toggle).
+Magic Breakpoint (toggle), Debugger (Alt+D \- the same entry as in
+\f[B]View\f[R]).
 .TP
 \f[B]View\f[R]
 Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
@@ -1540,9 +1549,11 @@ Capture Layer 2 on its own, then the ULA and sprites together:
 .IP
 .EX
 jnext \-\-headless game.nex \-\-delayed\-screenshot l2.png \(rs
-    \-\-delayed\-screenshot\-layers layer2
+    \-\-delayed\-screenshot\-layers layer2 \(rs
+    \-\-delayed\-screenshot\-frames 200 \-\-delayed\-automatic\-exit\-frames 250
 jnext \-\-headless game.nex \-\-delayed\-screenshot us.png \(rs
-    \-\-delayed\-screenshot\-layers ula,sprites
+    \-\-delayed\-screenshot\-layers ula,sprites \(rs
+    \-\-delayed\-screenshot\-frames 200 \-\-delayed\-automatic\-exit\-frames 250
 .EE
 .SH FILES
 .TP

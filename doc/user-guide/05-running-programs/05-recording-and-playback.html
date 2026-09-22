@@ -2855,12 +2855,13 @@ finalise it.</p>
 of the machine. Replaying it reproduces the session exactly, keystroke for
 keystroke — a walkthrough, a bug report, or a speedrun that stays honest.</p>
 <ul>
-<li><strong>File &gt; Record RZX…</strong>, or <code>--rzx-record FILE</code>; <strong>Stop RZX</strong> to finish.
+<li><strong>File &gt; Record RZX…</strong>, or <code>--rzx-record FILE</code>; <strong>File &gt; Stop RZX
+  Recording</strong> to finish.
   From the command line the recording starts with the machine — or, when you
   also <code>--load</code> a program, as soon as it is loaded, so the recording holds it
   — and the file is written when JNEXT exits.</li>
 <li><strong>File &gt; Play RZX Recording…</strong>, or <code>--rzx-play FILE</code>. Opening a <code>.rzx</code> with
-  <strong>File &gt; Open</strong>, loading it with <code>--load</code>, or naming it as the file to run
+  <strong>File &gt; Load NEX File…</strong>, loading it with <code>--load</code>, or naming it as the file to run
   (<code>jnext session.rzx</code>) plays it too. Every one of these starts the machine
   afresh, the way loading a program does, so a recording replays the same
   whichever you use. A file that cannot be played is refused before anything
@@ -2894,7 +2895,9 @@ video — but it only replays correctly in an emulator that models the machine
 the same way. It also only replays what its snapshot holds: on the 128K and +3
 that is the whole machine, but on the Next it is the classic 48K part only, so
 a program that uses the Next's own graphics (Layer 2, the tilemap, sprites,
-palettes) may not replay correctly.</p>
+palettes) may not replay correctly. Nor does it choose the machine type: play
+it on the machine it was recorded on — the same <code>--machine</code>, or <strong>Machine &gt;
+Machine Type</strong> before <strong>Play RZX Recording…</strong> — or it goes out of step.</p>
 <hr />
 <p>Every option mentioned in this chapter, and the ones that are not, are listed
 in full in the manual page — <code>man jnext</code>, or <a href="https://github.com/jorgegv/jnext/blob/main/USAGE.md"><code>USAGE.md</code></a>.</p>

@@ -2780,9 +2780,9 @@ your test logic ever has to be clever about it.</p>
 <p><strong>A program that fails to load is an error too.</strong> If the file given to
 <code>--load</code> (or as a bare file name) cannot be loaded — truncated, too small, not
 the format its extension says — JNEXT logs the error, keeps running the bare
-machine until it exits, and then exits non-zero, whatever the format. Under
-<code>--headless</code> the same holds for an RZX recording given to <code>--load</code> or
-<code>--rzx-play</code>. A script never mistakes "the program never loaded" for a clean
+machine until it exits, and then exits non-zero, whatever the format. The same
+holds for an RZX recording given to <code>--load</code> or <code>--rzx-play</code>, under
+<code>--headless</code>, in the window and in the SDL-only build alike. A script never mistakes "the program never loaded" for a clean
 run.</p>
 
 

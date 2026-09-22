@@ -312,7 +312,8 @@ automated run can execute that code path:
 ```bash
 jnext --headless --esp stub.nex \
     --esp-delayed-disassociate-frames 300 \
-    --esp-delayed-associate-frames 900
+    --esp-delayed-associate-frames 900 \
+    --delayed-automatic-exit-frames 1200
 ```
 
 At frame 300 the module loses its association and `AT+CIFSR` — the command a
@@ -330,7 +331,8 @@ nothing to rejoin), and its frame number has to be the larger of the two.
 ```bash
 jnext --headless --esp stub.nex \
     --esp-ip-address 192.168.1.50 --esp-ip-address-after 192.168.1.77 \
-    --esp-delayed-disassociate-frames 300 --esp-delayed-associate-frames 900
+    --esp-delayed-disassociate-frames 300 --esp-delayed-associate-frames 900 \
+    --delayed-automatic-exit-frames 1200
 ```
 
 That is what makes a program's stale-address handling testable at all. Across an
