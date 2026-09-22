@@ -356,8 +356,17 @@ libspectrum_byte fuse_z80_readport(libspectrum_word port) {
     // the IORQ falling edge; we approximate this as a single
     // contention_tick at the start of the post-IORQ phase, when
     // `cpu_iorq_n` would go low.
+    //
+    // GH #265 — the port is read AFTER that stretch. The ULA stretches the
+    // CPU clock inside the I/O cycle (o_cpu_contend, zxula.vhd:587-595; the
+    // port term needs i_cpu_iorq_n = '0' with the registered ioreqtw3_n still
+    // '1', i.e. the first clock of IORQ), and the T80 latches the data bus
+    // only on the falling edge of T3 (t80na.vhd:214-222), after it. Reading first sampled a time-dependent
+    // value (floating bus, NR 0x1E/0x1F, the tape EAR bit) up to the
+    // stretch early, and hid the stretch from
+    // Z80Cpu::tstates_into_instruction(). Writes keep their order: a write
+    // strobe acts as soon as IORQ and WR go low, at the start of the stretch.
     tstates++;
-    libspectrum_byte val = s_io->in(port);
     if (s_contention && s_contention->contention_possible()) {   // C3 gate hoist
         // mem_active_page is irrelevant for port cycles (mem_contend=0);
         // contention_tick gates on port_contend internally.
@@ -368,6 +377,7 @@ libspectrum_byte fuse_z80_readport(libspectrum_word port) {
             /*rd_n*/false,   /*wr_n*/true,
             port, pos.hc, pos.vc);
     }
+    libspectrum_byte val = s_io->in(port);
     tstates += 3;
     return val;
 }
@@ -615,9 +625,22 @@ void Z80Cpu::reset(bool hard) {
     regs_.IncDecZ = 0;
 }
 
+uint32_t Z80Cpu::tstates_into_instruction() const {
+    return executing_ ? static_cast<uint32_t>(tstates - exec_start_tstates_) : 0u;
+}
+
 int Z80Cpu::execute() {
     s_mem = &mem_;
     s_io  = &io_;
+
+    // GH #265 — mark the call in progress for tstates_into_instruction().
+    // Cleared on every return path by the guard's destructor.
+    struct ExecutingGuard {
+        bool& flag;
+        ~ExecutingGuard() { flag = false; }
+    } executing_guard{executing_};
+    exec_start_tstates_ = static_cast<uint32_t>(tstates);
+    executing_ = true;
 
     // Cleared here and set only at the real opcode fetch below, so a caller
     // can tell a completed instruction from an NMI/INT acknowledge or an
@@ -879,7 +902,12 @@ int Z80Cpu::execute() {
         }
 
         if (kZ80NOpcodeTable[ext]) {
-            Log::cpu()->trace("Z80N opcode ED {:#04x} at PC={:#06x}", ext, pc);
+            // Guarded: see the should_log() rationale in PortDispatch::read
+            // (src/port/port_dispatch.cpp). An unguarded trace() with
+            // arguments costs an out-of-line call on every Z80N opcode with
+            // tracing off (GH #244).
+            if (Log::cpu()->should_log(spdlog::level::trace))
+                Log::cpu()->trace("Z80N opcode ED {:#04x} at PC={:#06x}", ext, pc);
             // G87: fire M1 callback on BOTH bytes of the ED-prefix opcode so
             // the IM2 RETI/RETN/IM-mode decoder FSM (im2_control.vhd:158-209)
             // advances S_0 → S_ED_T4 → ... — the FSM models per-fetched-byte

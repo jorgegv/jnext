@@ -231,7 +231,7 @@ the GH #263 follow-up. The soft-reset case is SRST-10 in the compositor plan.
 
 | ID | Title | Stimulus | Expected | VHDL |
 |----|-------|----------|----------|------|
-| INT-BORDER-RST-01 | Power-on and a hard reset leave the border black | Fresh Next, CPU parked on DI; HALT, one frame; OUT (0xFE) 5, one frame; `Emulator::reset()`, parked again, one frame | Border register 0 and column 0 black on every row after power-on and after the hard reset; cyan after the OUT | zxnext.vhd:3587-3593,3601-3605; zxula.vhd:543-553 |
+| INT-BORDER-RST-01 | Power-on and a hard reset leave the border black | Fresh Next, CPU parked on DI; HALT, one frame; OUT (0xFE) 5, one frame; hard reset (`emulator_cold_boot()`), parked again, one frame | Border register 0 and column 0 black on every row after power-on and after the hard reset; cyan after the OUT | zxnext.vhd:3587-3593,3601-3605; zxula.vhd:543-553 |
 
 ## Section 4: Flash Timing
 

@@ -26,6 +26,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "platform/emulator_boot.h"
 #include "cpu/z80_cpu.h"
 #include "memory/ram.h"
 #include "memory/mmu.h"
@@ -1677,8 +1678,9 @@ static void test_border_reset_integration(Emulator& emu) {
     set_group("INT-BORDER-RST");
 
     // INT-BORDER-RST-01 — a machine that nothing has written port 0xFE on
-    // shows a black border, after power-on and again after a hard reset.
-    // The port 0xFE write in between proves the column is the border.
+    // shows a black border, after power-on and again after a hard reset
+    // (the cold boot the reset button, F1 and NR 0x02 bit 1 perform). The
+    // port 0xFE write in between proves the column is the border.
     int bad_boot = 0, bad_hard = 0;
     uint32_t mid = 0, boot_px = 0, hard_px = 0;
     uint8_t boot_reg = 0xFF, hard_reg = 0xFF;
@@ -1695,7 +1697,8 @@ static void test_border_reset_integration(Emulator& emu) {
         emu.port().out(0x00FE, 0x05);
         emu.run_frame();
         mid = emu.get_framebuffer()[0];
-        emu.reset();
+        EmulatorConfig cfg = emu.config();
+        emulator_cold_boot(emu, cfg);     // the hard reset (GH #239)
         park_on_halt(emu);
         emu.run_frame();
         hard_reg = emu.ula().get_border();

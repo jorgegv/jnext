@@ -79,12 +79,17 @@ inline int emulator_load_delay_frames(const std::string& file) {
 ///
 /// The host debugger's breakpoints and its active flag are PRESERVED across the
 /// reset: they belong to the host debugger, and (like a real hardware debugger)
-/// a target reset must not silently discard them. The transient run/step state
+/// a target reset must not silently discard them. The debugger's per-source
+/// audio mute mask is preserved for the same reason: it is not machine state
+/// (Emulator::set_audio_mute_mask()), and the Audio panel that set it survives
+/// the boot without re-pushing it, so dropping it would leave a muted source
+/// audible under an unticked box (GH #239, DAP-14). The transient run/step state
 /// (paused, step mode, trace log) is intentionally not restored — the machine
 /// starts fresh and running.
 inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     BreakpointSet saved_bps    = emu.debug_state().breakpoints();
     const bool    saved_active = emu.debug_state().active();
+    const uint8_t saved_mute   = emu.audio_mute_mask();
     auto saved_esxdos_state    = emu.esxdos_stub_state();
 
     emu.~Emulator();
@@ -93,6 +98,7 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
 
     emu.debug_state().breakpoints() = std::move(saved_bps);
     emu.debug_state().set_active(saved_active);
+    emu.set_audio_mute_mask(saved_mute);
     emu.restore_esxdos_stub_state(std::move(saved_esxdos_state));
 }
 
@@ -150,11 +156,13 @@ struct ColdBootHooks {
 ///
 /// Order is the contract:
 ///   1. the load file goes into the config;
-///   2. the LIVE per-connector joystick sources and the LIVE host output gain
-///      are carried across — they are host-side settings, not machine state,
-///      so a source picked from the Input menu or a gain set in Preferences
-///      must survive the boot (carrying `base_cfg`'s startup values instead
-///      would silently revert them);
+///   2. the LIVE per-connector joystick sources, the LIVE host output gain
+///      and the LIVE magic-breakpoint toggle are carried across — they are
+///      host-side settings, not machine state, so a source picked from the
+///      Input menu, a gain set in Preferences or Magic Breakpoint ticked in
+///      the Debug menu must survive the boot (carrying `base_cfg`'s startup
+///      values instead would silently revert them under a menu that still
+///      shows them);
 ///   3. the machine is reconstructed;
 ///   4. the frontend re-binds and re-wires its host adapters;
 ///   5. stale pending work is dropped BEFORE new work is scheduled;
@@ -172,6 +180,7 @@ inline void emulator_frontend_cold_boot(Emulator& emu, EmulatorConfig base_cfg,
     for (int chip = 0; chip < 3; ++chip)
         cfg.audio_gain_ay_db[chip] = emu.mixer().ay_gain_db(chip);
     cfg.audio_gain_dac_db = emu.mixer().dac_gain_db();
+    cfg.magic_breakpoint  = emu.config().magic_breakpoint;
 
     emulator_cold_boot(emu, cfg);
 

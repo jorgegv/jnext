@@ -1681,6 +1681,201 @@ static void section13_gh257_line_int_hc() {
     }
 }
 
+// ── Section 14: GH #265 — NR 0x1E/0x1F sampled at the IN's I/O cycle ──
+//
+// An IN from 0x253B returns port_253b_dat_0 (zxnext.vhd:2819), reloaded from
+// port_253b_dat on every CLK_CPU falling edge (:5871-5876); port_253b_dat
+// follows cvc on CLK_28 (:5878-5882,5982-5986). The T80 latches the bus into DI_Reg on
+// the falling edge of the I/O cycle's T3 (t80na.vhd:214-222); with IOWait=1
+// the I/O cycle is four clocks (t80n.vhd:1781-1782, TStates=3 at
+// t80n_mcode.vhd:235, T_Res at t80n.vhd:412), so DI_Reg takes the value
+// reloaded on the previous falling edge, 2.5 T-states into the I/O cycle —
+// the value cvc held just before that edge.
+//
+// Next timing (1824 master cycles/line, 8 per T-state at 3.5 MHz): cvc steps
+// 310 -> 0 at raw line 64, master cycle 64*1824 + 500 = 117236 (VT-GH257-06).
+// IN A,(C) = ED 78: two 4-T M1 cycles, then the I/O cycle, so its reload
+// edge is 8*8 + 20 = 84 master cycles after the instruction starts; IN A,(n)
+// = DB n: M1 4 T + operand read 3 T, edge at 7*8 + 20 = 76. Code at 0x8000
+// (bank 2) and port 0x253B are uncontended, and the clock is moved directly,
+// so the instruction's start is exactly the requested cycle.
+
+namespace gh265 {
+
+constexpr uint64_t kStep = 64ULL * 1824 + 500;   // cvc 310 -> 0
+
+enum class Form { IN_A_C, IN_A_N };
+
+// Execute one IN that reads NR @p reg, with the instruction starting at
+// master cycle @p start. Returns the byte read (A). @p ok is false if the
+// emulator could not be built or the clock was already past @p start.
+static uint8_t in_nr_at(uint8_t reg, uint64_t start, Form form, bool& ok) {
+    Emulator emu;
+    ok = g163::build_emulator(emu) && emu.clock().get() <= start;
+    if (!ok) return 0;
+    emu.port().out(0x243B, reg);                  // select, outside the IN
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000;
+    if (form == Form::IN_A_C) {
+        emu.mmu().write(0x8000, 0xED);
+        emu.mmu().write(0x8001, 0x78);            // IN A,(C)
+        regs.BC = 0x253B;
+    } else {
+        emu.mmu().write(0x8000, 0xDB);
+        emu.mmu().write(0x8001, 0x3B);            // IN A,(0x3B)
+        regs.AF = static_cast<uint16_t>(0x2500 | (regs.AF & 0x00FF));
+    }
+    emu.cpu().set_registers(regs);
+    emu.clock().tick(static_cast<int>(start - emu.clock().get()));
+    emu.cpu().execute();
+    return static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+}
+
+}  // namespace gh265
+
+static void section14_gh265_nr_read_io_cycle() {
+    set_group("VT-S14-GH265-NR-READ-IO-CYCLE");
+    using gh265::Form;
+    using gh265::in_nr_at;
+    using gh265::kStep;
+
+    // VT-GH265-01 — IN A,(C) of NR 0x1F starting 36 master cycles before the
+    // step: its reload edge is 48 cycles after it, so it reads cvc 0.
+    // Sampling at the instruction's start (pre-fix) reads 310 & 0xFF = 0x36.
+    {
+        bool ok = false;
+        const uint8_t v = in_nr_at(0x1F, kStep - 36, Form::IN_A_C, ok);
+        check("VT-GH265-01",
+              "IN A,(C) of NR 0x1F starting before the cvc step samples at its "
+              "I/O cycle: reads 0x00, not the start-of-instruction 0x36 "
+              "(zxnext.vhd:2819,5871-5876,5985-5986; t80na.vhd:214-222)",
+              ok && v == 0x00,
+              "ok=" + std::to_string(ok) + " v=" + std::to_string(v)
+              + " (want 0)");
+    }
+
+    // VT-GH265-02 — the same instruction reading NR 0x1E (cvc bit 8): 0 at
+    // the I/O cycle, 1 (from 310) at the instruction's start.
+    {
+        bool ok = false;
+        const uint8_t v = in_nr_at(0x1E, kStep - 36, Form::IN_A_C, ok);
+        check("VT-GH265-02",
+              "IN A,(C) of NR 0x1E starting before the cvc step reads cvc(8) "
+              "at its I/O cycle: 0x00, not the start-of-instruction 0x01 "
+              "(zxnext.vhd:2819,5871-5876,5982-5983)",
+              ok && v == 0x00,
+              "ok=" + std::to_string(ok) + " v=" + std::to_string(v)
+              + " (want 0)");
+    }
+
+    // VT-GH265-03 — the sampling edge to the T-state. Starting 84 master
+    // cycles before the step puts the reload edge exactly ON it: the latch
+    // takes cvc as it was just before the edge, 310 (0x36). Starting one
+    // T-state later puts the edge 8 cycles past it: 0.
+    {
+        bool ok1 = false, ok2 = false;
+        const uint8_t on_edge = in_nr_at(0x1F, kStep - 84, Form::IN_A_C, ok1);
+        const uint8_t after   = in_nr_at(0x1F, kStep - 76, Form::IN_A_C, ok2);
+        check("VT-GH265-03",
+              "IN A,(C) reload edge 2.5 T into the I/O cycle: edge on the cvc "
+              "step reads the old line 0x36, one T-state later reads 0x00 "
+              "(zxnext.vhd:5871-5876; t80na.vhd:214-222; t80n.vhd:1781-1782)",
+              ok1 && ok2 && on_edge == 0x36 && after == 0x00,
+              "on_edge=" + std::to_string(on_edge) + " after="
+              + std::to_string(after) + " (want 54, 0)");
+    }
+
+    // VT-GH265-04 — IN A,(n) reaches its I/O cycle one T-state earlier (M1 +
+    // operand read = 7 T, not 8): starting 76 before the step puts its edge
+    // on the step (0x36), 68 before puts it 8 past (0x00). IN A,(C) started
+    // 76 before reads 0x00 (VT-GH265-03), so the two forms are told apart.
+    {
+        bool ok1 = false, ok2 = false;
+        const uint8_t on_edge = in_nr_at(0x1F, kStep - 76, Form::IN_A_N, ok1);
+        const uint8_t after   = in_nr_at(0x1F, kStep - 68, Form::IN_A_N, ok2);
+        check("VT-GH265-04",
+              "IN A,(n) of NR 0x1F: I/O cycle after 7 T, edge on the cvc step "
+              "reads 0x36, one T-state later 0x00 "
+              "(zxnext.vhd:5871-5876; t80na.vhd:214-222)",
+              ok1 && ok2 && on_edge == 0x36 && after == 0x00,
+              "on_edge=" + std::to_string(on_edge) + " after="
+              + std::to_string(after) + " (want 54, 0)");
+    }
+
+    // VT-GH265-05 — a polling loop, run by the emulator's own per-instruction
+    // path: `IN A,(C) / OR A / JR NZ,loop`, 28 T (224 master cycles) a turn,
+    // waiting for NR 0x1F to read 0. Started 708 cycles before the step, turn
+    // k's IN starts at step - 708 + 224k and its edge falls 84 later: turn 3
+    // (edge 48 past the step) is the first to read 0, so the loop leaves
+    // after 4 INs, 12 instructions, with the clock at start + 3*224 + 23*8.
+    // Sampling at the instruction's start the loop runs one more turn.
+    {
+        Emulator emu;
+        bool ok = g163::build_emulator(emu);
+        int steps = 0;
+        uint64_t exit_clock = 0;
+        const uint64_t start = kStep - 708;
+        if (ok) {
+            emu.port().out(0x243B, 0x1F);
+            const uint8_t code[] = { 0xED, 0x78,        // 8000 IN A,(C)
+                                     0xB7,              // 8002 OR A
+                                     0x20, 0xFB,        // 8003 JR NZ,8000
+                                     0x18, 0xFE };      // 8005 JR 8005
+            for (int i = 0; i < 7; ++i)
+                emu.mmu().write(static_cast<uint16_t>(0x8000 + i), code[i]);
+            auto regs = emu.cpu().get_registers();
+            regs.PC = 0x8000;
+            regs.BC = 0x253B;
+            emu.cpu().set_registers(regs);
+            emu.clock().tick(static_cast<int>(start - emu.clock().get()));
+            while (emu.cpu().pc() != 0x8005 && steps < 100) {
+                emu.execute_single_instruction();
+                ++steps;
+            }
+            exit_clock = emu.clock().get();
+        }
+        const uint64_t want = start + 3 * 224 + 23 * 8;
+        check("VT-GH265-05",
+              "a loop polling NR 0x1F for line 0 leaves on the first turn whose "
+              "IN samples past the cvc step: 12 instructions, not 15 "
+              "(zxnext.vhd:5871-5876,5985-5986; t80na.vhd:214-222)",
+              ok && steps == 12 && exit_clock == want,
+              "steps=" + std::to_string(steps) + " clock="
+              + std::to_string(exit_clock) + " (want 12, "
+              + std::to_string(want) + ")");
+    }
+
+    // VT-GH265-06 — the offset belongs to the instruction in progress only. A
+    // read made outside any instruction (the harness here; the debugger's
+    // NextREG panel in practice) samples at the clock itself, even right
+    // after an IN has run: 8 master cycles before the step it reads 310.
+    // A leftover in-instruction offset from the IN (12 T) would carry it
+    // past the step.
+    {
+        Emulator emu;
+        bool ok = g163::build_emulator(emu);
+        uint8_t v = 0;
+        if (ok) {
+            emu.mmu().write(0x8000, 0xED);
+            emu.mmu().write(0x8001, 0x78);            // IN A,(C)
+            auto regs = emu.cpu().get_registers();
+            regs.PC = 0x8000;
+            regs.BC = 0x253B;
+            emu.cpu().set_registers(regs);
+            emu.cpu().execute();
+            emu.clock().tick(static_cast<int>(kStep - 8 - emu.clock().get()));
+            v = g163::nr_read(emu, 0x1F);
+        }
+        check("VT-GH265-06",
+              "a NR 0x1F read outside any instruction samples at the clock, "
+              "even after an IN has executed: 8 cycles before the step it "
+              "reads 0x36 (zxnext.vhd:5985-5986; zxula_timing.vhd:457-470)",
+              ok && v == 0x36,
+              "ok=" + std::to_string(ok) + " v=" + std::to_string(v)
+              + " (want 54)");
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1732,6 +1927,9 @@ int main() {
 
     section13_gh257_line_int_hc();
     std::printf("  Section 13: VT-S13-GH257-LINE-INT-HC — done (6 live)\n");
+
+    section14_gh265_nr_read_io_cycle();
+    std::printf("  Section 14: VT-S14-GH265-NR-READ-IO-CYCLE — done (6 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

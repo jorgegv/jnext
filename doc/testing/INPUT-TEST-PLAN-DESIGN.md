@@ -719,6 +719,11 @@ Coverage of `zxnext.vhd` 2668-2670 and 3543-3561.
 | MOUSE-11 | `port_mouse_io_en=1`, `nr_0a_mouse_dpi = "00"` vs `"11"` | same physical motion | no visible change in `i_MOUSE_X/Y` at the VHDL port — DPI scaling is applied in the host mouse adapter before it drives `i_MOUSE_X/Y`, not inside `zxnext.vhd`. Open question §6.6. | 1128, 5198 |
 | MOUSE-12 | `port_dac_mono_AD_df_io_en=1` AND `port_mouse_io_en=0` AND joy0=001 (Kempston1) → read 0xDF returns Kempston joy byte (alias path), NOT 0x00 | `zxnext.vhd:2674` enables port_1f path also via port_df_lsb when port_dac_mono_AD_df_io_en=1 AND port_mouse_io_en=0; `emulator.cpp:1563-1567` returns 0x00 unconditionally. skip — alias path missing; triple-gate (DAC=1 AND mouse=0 AND Kempston1 mode) (see G130) | 2674 |
 
+GH #262 — MOUSE-12's three negative cases (mouse enabled; NR 0x84 b7 = 0;
+`port_1f_hw_en` = 0) read 0xFF, not 0x00: with `port_1f` off nothing answers
+an IN at LSB 0xDF (`zxnext.vhd:2784`, `:2803-2806`), so it is cpu_di's `X"FF"`
+(`:1877`). The test had pinned jnext's old gated-off value.
+
 ### 3.11 NMI buttons (NMI-*)
 
 Coverage of `zxnext.vhd` 2090-2091 and NR 0x06 bits 3-4.

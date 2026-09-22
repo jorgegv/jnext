@@ -86,7 +86,7 @@ targets: build variants, per-variant `-run`/`-clean`, tests, packaging, versioni
 | Target | Description |
 |--------|-------------|
 | `make gui-release` | Qt6 GUI + debugger, release (optimised) → `build/gui-release/jnext` |
-| `make gui-debug` | Qt6 GUI, debug (sanitisers + debug symbols) |
+| `make gui-debug` | Qt6 GUI, debug (`-Og`, debug symbols, frame pointers) |
 | `make sdl-release` | SDL-only, release → `build/sdl-release/jnext` |
 | `make sdl-debug` | SDL-only, debug |
 | `make win-release` | Cross-compile the Windows `jnext.exe` (Fedora MinGW), DLLs bundled beside it |

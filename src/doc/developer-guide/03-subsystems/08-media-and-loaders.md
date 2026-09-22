@@ -45,6 +45,13 @@ one specific reason: it lets test tiers that cannot link `jnext_core` exercise
 the real parser rather than a copy of it. See
 [chapter 4](../04-testing/index.md).
 
+A loader that puts the CPU straight into an interrupt mode (`.sna`, `.z80`,
+`.szx`, and a NEX entering at IM 1) executes no `IM` instruction, and the latch
+behind NR `0xC0` bits 2:1 is fed only by the ones the CPU decodes
+(`im2_control.vhd:218-229`). So `Emulator::load_sna()`/`load_z80()`/`load_szx()`
+and `NexLoader::apply()` seed it with `Im2Controller::set_im_mode()` from the
+restored CPU.
+
 ## Tapes: two completely different mechanisms
 
 Loading from tape is the one place where the emulator offers you a choice
@@ -80,6 +87,29 @@ in `src/input/phantom_typist.h` types `LOAD ""` for you once it can prove the
 ROM's input loop is running — see [3.7 Input](07-input.md) for how it decides
 that. It is armed by `load_tap()` only; `.tzx` and `.wav` still fall back to a
 fixed 100-frame delay.
+
+`TapLoader::parse_blocks()` refuses a `.tap` whose blocks do not tile the
+file exactly — a block whose declared length runs past the end, or one stray
+byte where a length field should start — the two cases FUSE's libspectrum TAP
+reader rejects. A bad checksum or flag byte inside a complete block is not a
+container error: the tape loads, and the ROM reports "R Tape loading error"
+when it reads that block. `TzxLoader::validate()` does the same for a `.tzx`
+against libspectrum's TZX reader: the `ZXTape!` signature, then every block
+walked with that reader's length rules, so a block that runs past the end or a
+header with no block after it refuses the whole tape. ZOT's own `tzx_load()`
+checks none of this — it took any file of two bytes or more, and one without
+the signature as TAP data — so the check runs first and ZOT only ever sees a
+validated TZX.
+
+Where jnext deliberately accepts more than libspectrum is the block IDs that
+library does not implement and refuses outright. The TZX specification gives
+each of `$16`, `$17`, `$18`, `$26`, `$27`, `$34` and `$40` a length formula, and
+every later ID one through its General Extension Rule (a DWORD length after
+the ID), so such a block is valid when its length fields fit the file.
+`spec_skip_body()` holds those formulas; the validator, the fast-load scanner
+and ZOT (a local patch in `third_party/zot/tzx.c`) all skip these blocks by
+them, and `$19`, which ZOT cannot play either, the same way — the blocks after
+still load. `load()` warns about each skipped block that carried content.
 
 ## NEX
 
@@ -122,7 +152,8 @@ handle goes: 1 to `$3FFF` in `BC` (`B`=0, `C`=handle), `$4000` and above
 written to that address (`delivers_handle_in_bc()`; `nexload2.asm:397-407`,
 `nexload.asm:560-570` and `:606-609`). `Emulator::load_nex()` then opens the
 host file behind the handle — the extended-NEX host bridge in the stand-in
-below — and the program streams them. With 0, both loaders read the declared
+below — at `payload_offset()`, just after the last bank, where both loaders
+hand their own handle over (GH #267), and the program streams them. With 0, both loaders read the declared
 banks and close the file, with no size check at all (`nexload2.asm:390-395`,
 `nexload.asm:547-551`), so the bytes are dead. jnext matches that: the program
 loads and runs, and more than 16 KB of dead bytes logs a warning (GH #250,
@@ -130,6 +161,33 @@ found on Spectron2084). That warning replaces the refusal issue #10 added,
 which had turned such a file away. No host bridge is opened for such a file,
 so the stand-in cannot reach the bytes either: its `F_OPEN` then knows only
 the in-memory file.
+
+When no handle goes in `BC` (`file_handle` 0, or `$4000` and above), the two
+loaders disagree on what `BC` holds at entry, and `load_nex()` follows the one
+that really runs the file: `$00FF` ("no handle") for V1.3 (`nexload2.asm:407`),
+`$0000` for V1.0–V1.2 (`nexload.asm:582-585`).
+
+The rest of the entry state is `NexLoader::apply()`'s, and the comment there
+tabulates it. Both loaders jump through the NextZXOS DivMMC ROM's `RST $20`,
+which leaves `AF=$0044`, `HL` = PC, and the entry PC in the word just below
+`SP` (its `push hl : ret`; `load_nex()` writes it). `DE` and `IX` are what each loader's
+own last instructions leave: for V1.0–V1.2, `DE=$6Fxx` from the bank loop and
+`IX` = the address of the last block read; for V1.3, `DE` = the CLI buffer
+address plus its size (not the address, whatever the format's notes say) and
+`IX` = 0, 1 or `$C000`. `IY`, `I`, `IM` and the alternate set belong to
+NextZXOS, which neither loader touches; jnext uses the values measured under
+the distro image's NextZXOS (`IY=$5C3A`, `I=$09`, IM 1), found identical for
+every launch path tried. Interrupts are off. NR `0xC0`'s interrupt-mode field
+is seeded to match, since no `IM` instruction runs.
+
+The NextREGs follow each loader the same way: NR `0x06` and `0x08` are
+read-modify-writes with each loader's own masks (so the internal-speaker and
+stereo bits a user set survive where that loader keeps them); the V1.0–V1.2
+loader sets 14 MHz before anything else, so a file with DONTRESETNEXTREGS set
+starts at 14 MHz, not at the speed it found; and both loaders act on the
+expansion-bus byte at header offset 142 whatever the file's version. What
+NextZXOS itself leaves in registers no loader writes (its config, its NMI
+setup) jnext does not reproduce; the list is in `apply()`.
 
 ## The esxDOS stand-in for directly loaded programs
 
@@ -157,15 +215,17 @@ loaded from the GUI after start-up.
 **When it answers.** Three things arm it:
 
 - `direct_nex_esxdos_` — set by `Emulator::load_nex()` for every NEX it loads,
-  cleared by `reset()` and `soft_reset()`. `load_sna()`, `load_szx()` and
-  `load_z80()` reset, and RZX playback goes through `load_sna()`, so a snapshot
-  clears it. `load_tap()`, `load_tzx()` and `load_wav()` deliberately do not:
-  they attach tape media to the running machine, so a NEX still running keeps
-  its stand-in.
+  cleared by `init()`, so by a soft reset, and gone after a hard reset, which
+  reconstructs the emulator. `load_sna()`, `load_szx()` and `load_z80()`
+  re-run `init()` before applying the file, and RZX playback goes through
+  `load_sna()`, so a snapshot clears it. `load_tap()`, `load_tzx()` and
+  `load_wav()` deliberately do not: they attach tape media to the running
+  machine, so a NEX still running keeps its stand-in.
 - `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session.
 - The extended-NEX host bridge (`extended_nex_host_`), open when the NEX
   header's `file_handle` is non-zero. Only `load_nex()` opens it, so it never
-  exists without `direct_nex_esxdos_`; reset and soft reset close it.
+  exists without `direct_nex_esxdos_`; `init()` closes it, so both resets and
+  every re-initialising load do.
 
 **The ROM gate.** Whatever armed it, the handler answers nothing unless NR
 `$50` reads `$FF`, i.e. ROM is paged in at `$0000`. That is the hardware's own
@@ -234,11 +294,8 @@ real programs.
 
 **Known gaps.** A directly loaded program cannot reach host files other than
 the kept-open NEX and its siblings; a host directory for it is
-[#31](https://github.com/jorgegv/jnext/issues/31), not implemented. The
-kept-open handle starts at file position 0 rather than after the last bank, as
-`nexload` leaves it
-([#267](https://github.com/jorgegv/jnext/issues/267)). There is one
-in-memory file, with no `F_SEEK`. `M_DOSVERSION` reports 1.94 without the host
+[#31](https://github.com/jorgegv/jnext/issues/31), not implemented. There is
+one in-memory file, with no `F_SEEK`. `M_DOSVERSION` reports 1.94 without the host
 bridge.
 
 ## RZX

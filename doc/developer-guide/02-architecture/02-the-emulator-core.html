@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1878,8 +1878,8 @@ and the unit suites simply never fire them.</p>
 to NextZXOS without re-running the boot chain, and a <em>power</em> reset, which
 starts the machine over from nothing. Users see both, as <strong>Machine ▸ Soft
 Reset</strong> (F4) and <strong>Machine ▸ Power Reset</strong> (F1). Internally there is a third
-path that is neither of them, and confusing the three is an easy mistake to
-make.</p>
+way to re-initialise the machine that is neither of them, and confusing the
+three is an easy mistake to make.</p>
 <table>
 <thead>
 <tr>
@@ -1895,18 +1895,24 @@ make.</p>
 <td>NR 0x02 bit 0, F4</td>
 </tr>
 <tr>
-<td><code>reset()</code></td>
-<td>Re-runs <code>init(config_)</code> in place, clearing RAM and reloading ROM. Despite the name it is <strong>not</strong> the machine's reset button: <code>config_mode</code> is preserved, so it would drop through to 48K BASIC rather than re-booting NextZXOS. It survives as the reinitialisation the file loaders need.</td>
-<td>file loaders, test setup</td>
+<td>Cold boot</td>
+<td><code>emu.~Emulator(); new (&amp;emu) Emulator();</code> at the same address, followed by <code>init(cfg)</code> — <code>emulator_cold_boot()</code> in <code>src/platform/emulator_boot.h</code>. This is what the reset button, F1 and NR 0x02 bit 1 actually do: the hardware reloads the FPGA, so nothing survives. Only host-side state is carried across: <code>emulator_cold_boot()</code> keeps the breakpoints and the debugger's active flag, the per-source audio mute mask and the esxDOS stub's in-memory file, and <code>emulator_frontend_cold_boot()</code> puts the live joystick sources, output gains and magic-breakpoint toggle into the boot config.</td>
+<td>frontend, after <code>take_hard_reset_request()</code></td>
 </tr>
 <tr>
-<td>Cold boot</td>
-<td><code>emu.~Emulator(); new (&amp;emu) Emulator();</code> at the same address, followed by <code>init(cfg)</code> — <code>emulator_cold_boot()</code> in <code>src/platform/emulator_boot.h</code>. This is what the reset button, F1 and NR 0x02 bit 1 actually do.</td>
-<td>frontend, after <code>take_hard_reset_request()</code></td>
+<td>In-place <code>init(config_)</code></td>
+<td>Re-runs <code>init()</code> on the live object, clearing RAM and reloading ROM. It is <strong>not</strong> a reset: members <code>init()</code> does not touch keep their values, the NextREG fields that survive a reset survive it too, and <code>config_mode</code> is preserved, so it would drop through to 48K BASIC rather than re-booting NextZXOS. It is how the snapshot and NEX loaders re-initialise a possibly running machine before applying a file — they cannot cold-boot themselves, because reconstructing the object from inside one of its own member functions would also drop the host wiring the frontend re-installs after its cold boot.</td>
+<td><code>load_nex()</code>, <code>load_sna()</code>, <code>load_szx()</code>, <code>load_z80()</code></td>
 </tr>
 </tbody>
 </table>
-<p>Reconstructing in place, at a stable address, is the point of the third row:
+<p>A test that means "hard reset" must go through the cold boot
+(<code>emulator_frontend_cold_boot()</code> is the whole frontend sequence), and one that
+means "the reset flip-flop domain" — what a VHDL reset clause describes — must
+use the soft reset. There used to be an in-place <code>Emulator::reset()</code> as well;
+it had no caller outside the file loaders, rows that called it tested neither
+reset, and it was removed (GH #239).</p>
+<p>Reconstructing in place, at a stable address, is the point of the cold boot:
 host code that is holding <code>&amp;emu</code>, or a reference to something inside it, stays
 valid across a cold boot. The same trick is why a live worker thread inside the
 object would be a silent-corruption hazard rather than an obvious crash, and it

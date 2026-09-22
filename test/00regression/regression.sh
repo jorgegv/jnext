@@ -182,6 +182,8 @@ if ! $HAS_COMPARE; then
 fi
 
 echo -e "${BOLD}=== JNEXT Regression Test Suite ===${RESET}"
+# Recorded, not acted on: a FAIL on a loaded host is flagged, never excused (GH #245).
+load_report start
 echo ""
 
 # Group rows: the two preflight lints and the SD-image provisioning, then the
@@ -213,6 +215,8 @@ done
 echo ""
 echo -e "${BOLD}=== Results ===${RESET}"
 echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"
+load_report end
+load_summary
 
 # --- Completeness: prove the suite ran everything it declares ---
 # A green result is only as trustworthy as its denominator. On a full run, every

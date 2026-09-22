@@ -97,16 +97,23 @@ A ZX Spectrum Next distinguishes between a *soft* reset, which drops you back
 to NextZXOS without re-running the boot chain, and a *power* reset, which
 starts the machine over from nothing. Users see both, as **Machine ▸ Soft
 Reset** (F4) and **Machine ▸ Power Reset** (F1). Internally there is a third
-path that is neither of them, and confusing the three is an easy mistake to
-make.
+way to re-initialise the machine that is neither of them, and confusing the
+three is an easy mistake to make.
 
 | | What it does | Trigger |
 |---|---|---|
 | `soft_reset()` | Re-runs `init(config_, preserve_memory=true)`. Clears flip-flop state but keeps RAM, the ROM-in-SRAM window, the boot-ROM overlay, the other memories with no reset port (palette, sprite attribute and pattern RAM, Copper RAM, the bank-5/7 BRAMs) and the free-running clock and scheduler. It can land mid-frame, so it also keeps that frame going: its 50/60 Hz geometry and effective machine timing (a pending NR 0x03 timing still waits for the frame edge), the picture on screen, and each video subsystem's per-scanline render history, into which it records the register reset at the current line (GH #263). Models tbblue's `RESET_SOFT` / NR 0x02 bit 0. | NR 0x02 bit 0, F4 |
-| `reset()` | Re-runs `init(config_)` in place, clearing RAM and reloading ROM. Despite the name it is **not** the machine's reset button: `config_mode` is preserved, so it would drop through to 48K BASIC rather than re-booting NextZXOS. It survives as the reinitialisation the file loaders need. | file loaders, test setup |
-| Cold boot | `emu.~Emulator(); new (&emu) Emulator();` at the same address, followed by `init(cfg)` — `emulator_cold_boot()` in `src/platform/emulator_boot.h`. This is what the reset button, F1 and NR 0x02 bit 1 actually do. | frontend, after `take_hard_reset_request()` |
+| Cold boot | `emu.~Emulator(); new (&emu) Emulator();` at the same address, followed by `init(cfg)` — `emulator_cold_boot()` in `src/platform/emulator_boot.h`. This is what the reset button, F1 and NR 0x02 bit 1 actually do: the hardware reloads the FPGA, so nothing survives. Only host-side state is carried across: `emulator_cold_boot()` keeps the breakpoints and the debugger's active flag, the per-source audio mute mask and the esxDOS stub's in-memory file, and `emulator_frontend_cold_boot()` puts the live joystick sources, output gains and magic-breakpoint toggle into the boot config. | frontend, after `take_hard_reset_request()` |
+| In-place `init(config_)` | Re-runs `init()` on the live object, clearing RAM and reloading ROM. It is **not** a reset: members `init()` does not touch keep their values, the NextREG fields that survive a reset survive it too, and `config_mode` is preserved, so it would drop through to 48K BASIC rather than re-booting NextZXOS. It is how the snapshot and NEX loaders re-initialise a possibly running machine before applying a file — they cannot cold-boot themselves, because reconstructing the object from inside one of its own member functions would also drop the host wiring the frontend re-installs after its cold boot. | `load_nex()`, `load_sna()`, `load_szx()`, `load_z80()` |
 
-Reconstructing in place, at a stable address, is the point of the third row:
+A test that means "hard reset" must go through the cold boot
+(`emulator_frontend_cold_boot()` is the whole frontend sequence), and one that
+means "the reset flip-flop domain" — what a VHDL reset clause describes — must
+use the soft reset. There used to be an in-place `Emulator::reset()` as well;
+it had no caller outside the file loaders, rows that called it tested neither
+reset, and it was removed (GH #239).
+
+Reconstructing in place, at a stable address, is the point of the cold boot:
 host code that is holding `&emu`, or a reference to something inside it, stays
 valid across a cold boot. The same trick is why a live worker thread inside the
 object would be a silent-corruption hazard rather than an obvious crash, and it
