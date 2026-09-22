@@ -134,8 +134,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // middle of it, wiping the render history rows already drawn had
         // left and re-scheduling the frame's events (GH #263).
         frame_in_progress_ = false;
+        // Host-side, like the flag above: a guest soft reset that a rewind
+        // re-executes must not end the replay, or the rest of it renders,
+        // mixes audio, re-sends ESP traffic and pushes rewind snapshots.
+        replay_mode_ = false;
     }
-    replay_mode_ = false;
     boot_hold_frames_remaining_ = 0;  // G156
     cpu_parked_ = false;              // GH #164
 
@@ -6708,7 +6711,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Initialise rewind buffer.
     // Measure snapshot size by doing a dry-run in measure mode (buf=nullptr).
-    if (cfg.rewind_buffer_frames > 0) {
+    //
+    // Hard reset only. The rewind history, its size (the debugger resizes it
+    // live) and on/off state are the host's; a soft reset (NR 0x02 bit 0,
+    // F4) is an event IN that history, not the start of a new one. Rebuilding
+    // it here discarded every snapshot at each soft reset (a NextZXOS boot
+    // performs one) and put back the command-line size (GH #263 audit).
+    if (preserve_memory) {
+        // keep rewind_buffer_ / rewind_enabled_ as they are
+    } else if (cfg.rewind_buffer_frames > 0) {
         StateWriter measure;
         save_state(measure);
         size_t snap_bytes = measure.position();

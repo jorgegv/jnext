@@ -17,6 +17,9 @@
 #include "debug/debug_state.h"
 #include "memory/attribute_mux.h"
 #include "memory/mmu.h"
+#include "memory/ram.h"
+#include "audio/mixer.h"
+#include "cpu/z80_cpu.h"
 #include "video/layer2.h"
 #include "video/lores.h"
 #include "video/palette.h"
@@ -1437,6 +1440,94 @@ static int test_rewind_callers_render_state()
     return 0;
 }
 
+// ── Test 15: a guest soft reset inside the rewind history (GH #263 audit) ──
+//
+// A soft reset (NR 0x02 bit 0, zxnext.vhd:6370) re-runs Emulator::init(),
+// which used to rebuild the rewind buffer from the command-line size and
+// clear replay_mode_ — both host state, not machine state. The history is
+// the host's record of the machine; a reset is one more event in it.
+
+// ZXN, CPU parked on a HALT, DI; HALT in the ROM window the Z80 restarts in
+// (SRAM page 0), frame 0 run, then a Copper program that resets the machine
+// at cvc 100 of every frame until the reset stops it.
+static void rw_soft_reset_fixture(Emulator& emu, int rewind_frames)
+{
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = rewind_frames;
+    emu.init(cfg);
+    emu.mmu().write(0x8000, 0x76);    // HALT
+    rw_park(emu, 0x8000);
+    emu.ram().write(0, 0xF3);         // DI
+    emu.ram().write(1, 0x76);         // HALT
+    emu.run_frame();                  // frame 0
+    rw_nr(emu, 0x61, 0x00);
+    rw_nr(emu, 0x62, 0x00);
+    for (uint16_t w : {static_cast<uint16_t>(0x8000u | 100u),
+                       static_cast<uint16_t>((0x02u << 8) | 0x01u),
+                       static_cast<uint16_t>(0x8000u | 511u)}) {
+        rw_nr(emu, 0x60, static_cast<uint8_t>(w >> 8));
+        rw_nr(emu, 0x60, static_cast<uint8_t>(w));
+    }
+    rw_nr(emu, 0x62, 0xC0);
+}
+
+static int test_rewind_across_soft_reset()
+{
+    printf("\n--- Test 15: rewind across a guest soft reset (GH #263) ---\n");
+
+    {
+        // The history before the reset survives it (frames 0 and 1 are
+        // still there after frame 1 reset the machine), and so does a size
+        // set live from the debugger (2, not the command line's 10).
+        Emulator emu;
+        rw_soft_reset_fixture(emu, 10);
+        emu.run_frame();                  // frame 1 — resets at cvc 100
+        emu.run_frame();                  // frame 2
+        const RewindBuffer* rb = emu.rewind_buffer();
+        const bool kept = rb && rb->depth() == 3 &&
+                          rb->frame_cycle_for(1) != UINT64_MAX;
+        const size_t depth = rb ? rb->depth() : 0;
+
+        Emulator sized;
+        rw_soft_reset_fixture(sized, 10);
+        sized.resize_rewind_buffer(2);
+        for (int i = 0; i < 4; ++i) sized.run_frame();   // reset in the 1st
+        const size_t sized_depth =
+            sized.rewind_buffer() ? sized.rewind_buffer()->depth() : 0;
+        char msg[200];
+        std::snprintf(msg, sizeof(msg),
+                      "RWR-14 a guest soft reset keeps the rewind history and "
+                      "its live size (depth %zu want 3, frame 1 kept %d; "
+                      "resized depth %zu want 2)", depth, kept, sized_depth);
+        CHECK(kept && sized_depth == 2, msg);
+    }
+    {
+        // A replay that re-executes the reset stays a replay: rewind into
+        // frame 1 past the cvc-100 reset, to raw line 250, mixes no audio.
+        Emulator emu;
+        rw_soft_reset_fixture(emu, 10);
+        emu.run_frame();                  // frame 1 — resets at cvc 100
+        emu.run_frame();                  // frame 2
+        int16_t drain[1024];
+        while (emu.mixer().read_samples(drain, 512) > 0) {}
+        const uint64_t f1 = emu.rewind_buffer()->frame_cycle_for(1);
+        REQUIRE(f1 != UINT64_MAX, "RWR fixture: frame 1 is in the history");
+        const uint64_t target = f1 + 250u * emu.timing().master_cycles_per_line;
+        REQUIRE(emu.rewind_to_cycle(target) != UINT64_MAX,
+                "RWR fixture: rewind_to_cycle into frame 1");
+        const bool reset_replayed =
+            emu.cpu().get_registers().PC == 0x0001 && emu.cpu().is_halted();
+        char msg[200];
+        std::snprintf(msg, sizeof(msg),
+                      "RWR-15 a guest soft reset replayed by rewind_to_cycle does "
+                      "not end the replay (%d samples mixed, want 0; reset "
+                      "replayed %d)", emu.mixer().available(), reset_replayed);
+        CHECK(reset_replayed && emu.mixer().available() == 0, msg);
+    }
+    return 0;
+}
+
 // SS-VER-01..07 (G66) removed 2026-07-15 — reclassified as a Phase 11
 // future enhancement (see comment above test_monotonic_tape_clock_roundtrip).
 // RB-FRAME-01..03 (G67) became real rows in Test 11 (Task 60b).
@@ -1464,6 +1555,7 @@ int main()
     test_rewind_chain_corrupted_slot();
     test_rewind_restores_render_state();
     test_rewind_callers_render_state();
+    test_rewind_across_soft_reset();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),
