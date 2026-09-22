@@ -267,6 +267,14 @@ public:
     /// Transient per-call state; deliberately not serialised.
     uint32_t tstates_into_instruction() const;
 
+    /// GH #265 follow-up — where clock @p io_clock (0..3: T1, the automatic
+    /// wait, T2, T3) of the CURRENT I/O machine cycle begins, in T-states
+    /// into the instruction, after the contention stretch charged at the
+    /// start of that clock and of every clock before it (a stretch holds
+    /// the CPU clock high, delaying that clock's falling edge). Only
+    /// meaningful inside a port handler during execute(); 0 otherwise.
+    uint32_t io_clock_into_instruction(unsigned io_clock) const;
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 

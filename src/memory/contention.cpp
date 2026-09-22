@@ -217,6 +217,26 @@ bool ContentionModel::port_contend(uint16_t cpu_a, bool port_ulap_io_en) const {
     return false;
 }
 
+uint8_t ContentionModel::io_clock_tick(unsigned io_clock, uint16_t cpu_a,
+                                       uint16_t hc, uint16_t vc) const {
+    // See the declaration for the per-clock rule and its VHDL derivation.
+    if (machine_timing_ == MachineTimingMode::TimingPlus3) return 0;
+    // The memory term: mem_contend of cpu_a's page (mem_active_page_) inside
+    // the wait_s window — contention_tick() evaluates exactly that when asked
+    // for a memory cycle.
+    const uint8_t page = contention_tick(/*mreq_n*/false, /*iorq_n*/true,
+                                         /*rd_n*/true, /*wr_n*/true,
+                                         cpu_a, hc, vc);
+    if (io_clock == 0) return page;
+    const bool port_c = port_contend(cpu_a, port_ulap_io_en_);
+    if (io_clock == 1) {
+        if (page != 0 || !port_c) return page;
+        return contention_tick(/*mreq_n*/true, /*iorq_n*/false,
+                               /*rd_n*/true, /*wr_n*/true, cpu_a, hc, vc);
+    }
+    return port_c ? 0 : page;
+}
+
 uint8_t ContentionModel::contention_tick(bool mreq_n, bool iorq_n,
                                          bool /*rd_n*/, bool /*wr_n*/,
                                          uint16_t cpu_a,

@@ -2782,16 +2782,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (t80na.vhd:214-222), and with IOWait = 1 (t80na.vhd:184) that cycle is
     // T1, TW, T2, T3 (t80n.vhd:1781-1782 holds TState at 1 for one clock), so
     // DI_Reg takes the port_253b_dat_0 loaded on the PREVIOUS falling edge:
-    // 2.5 T-states into the I/O cycle. jnext used clock_, the START of the
-    // instruction — 10.5 T-states early for IN A,(C), 9.5 for IN A,(n) — so a
-    // loop polling for a line left it up to one iteration late.
-    static constexpr unsigned kPort253bReloadHalfT = 5;   // 2.5 T-states
+    // 2.5 T-states into the I/O cycle — the falling edge of its third clock
+    // (index 2), after any contention stretch of the cycle so far. jnext used
+    // clock_, the START of the instruction — 10.5 T-states early for
+    // IN A,(C), 9.5 for IN A,(n) — so a loop polling for a line left it up
+    // to one iteration late.
+    static constexpr unsigned kPort253bReloadClock = 2;
     nextreg_.set_read_handler(0x1E, [this]() -> uint8_t {
-        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadHalfT));
+        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadClock));
         return static_cast<uint8_t>((cvc >> 8) & 0x01);
     });
     nextreg_.set_read_handler(0x1F, [this]() -> uint8_t {
-        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadHalfT));
+        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadClock));
         return static_cast<uint8_t>(cvc & 0xFF);
     });
 
@@ -9740,78 +9742,106 @@ uint8_t Emulator::floating_bus_read() const
 
 bool Emulator::ula_floating_bus_active_arm(uint8_t& out_byte) const
 {
-    // VHDL zxula.vhd:573 — the "active arm" of `o_ula_floating_bus` fires
-    // when `border_active_ula='0' AND floating_bus_en='1'`. Inside the
-    // active display the ULA is reading pixel + attribute bytes from
-    // bank 5 (legacy 128K bank 5 / Next page 0x0A-0x0B = SRAM 0x14000+).
-    // This helper returns true and writes the byte the ULA would have
-    // latched at the current T-state position; otherwise returns false
-    // (caller selects the appropriate fallback — i_p3_floating_bus on
-    // +3, X"FF" elsewhere).
+    // VHDL zxula.vhd:573 — the "active arm" of `o_ula_floating_bus`:
+    //     floating_bus_r  when border_active_ula = '0' and floating_bus_en = '1'
+    // Returns true and writes floating_bus_r into @p out_byte when the arm
+    // fires; false otherwise (caller picks the fallback — i_p3_floating_bus
+    // on +3, X"FF" elsewhere).
     //
-    // Compute current position within the frame. Master clock is 28 MHz;
-    // T-states at 3.5 MHz = master_cycles / 8.
+    // GH #265 follow-up (verifier finding 1). Evaluated in the ULA's OWN
+    // counters, the same hc_ula / vc_ula frame the contention path and NR
+    // 0x1E/0x1F use (hc_ula == 0 at raw hc c_min_hactive - 11,
+    // zxula_timing.vhd:423-436; vc_ula == 0 on raw line c_min_vactive,
+    // :441-451). The model this replaces read "raw line 64..255, raw T 0..127"
+    // of jnext's frame, 58 T (48K) / 62 T (128K) before the ULA's fetch
+    // window, and ignored the Timex modes, the ULA scroll and the shadow
+    // screen.
     //
-    // GH #265 — the position is where the CPU latches the byte, not where
-    // its instruction started: floating_bus_r reaches cpu_di through
-    // combinational logic only (zxula.vhd:573; zxnext.vhd:4513,4517,2813-2814,
-    // 2837, 1872-1873), and the T80 latches cpu_di into DI_Reg on the falling
-    // edge of the I/O cycle's T3 (t80na.vhd:214-222), 3.5 T-states into its
-    // four clocks (t80n.vhd:1781-1782). clock_ is the instruction's start —
-    // 10.5 T-states earlier for IN A,(n), 11.5 for IN A,(C).
-    static constexpr unsigned kDiRegLatchHalfT = 7;       // 3.5 T-states
-    uint64_t master_elapsed = io_read_sample_cycle(kDiRegLatchHalfT) - frame_cycle_;
-    int tstates_in_frame = static_cast<int>(master_elapsed / cpu_speed_divisor(config_.cpu_speed));
+    // WHEN: floating_bus_r reaches cpu_di through combinational logic only
+    // (zxula.vhd:573; zxnext.vhd:4513,4517,2813-2814,2837,1872-1873), and the
+    // T80 latches cpu_di into DI_Reg on the falling edge of the I/O cycle's
+    // T3 (t80na.vhd:214-222) — after every contention stretch of the cycle.
+    static constexpr unsigned kDiRegLatchClock = 3;       // T3's falling edge
+    const uint64_t m    = io_read_sample_cycle(kDiRegLatchClock);
+    const uint64_t mcpf = timing_.master_cycles_per_frame;
+    const uint64_t mcpl = timing_.master_cycles_per_line;
+    const uint64_t origin_mc =
+        static_cast<uint64_t>(video_timing_.hc_ula_zero_raw_hc()) * 4u;
+    const uint64_t shifted = ((m - frame_cycle_) % mcpf + mcpf - origin_mc) % mcpf;
+    const int  lpf    = video_timing_.vc_max() + 1;
+    const int  uline  = static_cast<int>(shifted / mcpl);
+    const int  mc_in  = static_cast<int>(shifted % mcpl);  // master cycles since hc_ula 0
+    const int  vc_ula = (uline - video_timing_.display_origin().vc + lpf) % lpf;
 
-    // Scanline timing:
-    //   228 T-states per line (48K/128K).
-    //   First 128 T-states: ULA fetches pixel/attribute data.
-    //   Last 100 T-states: border (bus idle = 0xFF).
-    //   Active display: lines 64-255 (192 pixel lines).
-    int line = tstates_in_frame / timing_.tstates_per_line;
-    int tstate_in_line = tstates_in_frame % timing_.tstates_per_line;
+    // border_active_ula <= i_hc(8) or border_active_v, border_active_v <=
+    // i_vc(8) or (i_vc(7) and i_vc(6)) (zxula.vhd:414-416) — in the output
+    // gate at :573 with the CURRENT counters.
+    const int hc_now = mc_in / 4;
+    if ((hc_now & 0x100) != 0 || vc_ula >= 192) return false;
 
-    // Outside active display area: border, bus is idle
-    if (line < 64 || line >= 256 || tstate_in_line >= 128)
-        return false;
-
-    // Within active display: ULA fetches in 8-T-state cycles.
-    // Each 8T cycle: T+0=bitmap, T+1=attr, T+2=bitmap+1, T+3=attr+1, T+4..7=idle
-    // (Actually the FUSE/ZesarUX model uses: T%8: 2=pixel, 3=attr, 4=pixel+1, 5=attr+1)
-    int pixel_line = line - 64;
-    int char_col = tstate_in_line / 8;  // character column (0-15)
-
-    // Compute the VRAM address the ULA would be reading.
-    // Pixel address: standard ZX Spectrum display file layout
-    //   addr = 0x4000 | (line[7:6] << 11) | (line[2:0] << 8) | (line[5:3] << 5) | col
-    int y = pixel_line;
-    uint16_t pixel_addr = 0x4000
-        | ((y & 0xC0) << 5)   // bits 7:6 → bits 12:11
-        | ((y & 0x07) << 8)   // bits 2:0 → bits 10:8
-        | ((y & 0x38) << 2)   // bits 5:3 → bits 7:5
-        | (char_col * 2);     // 2 bytes per 8T cycle
-
-    // Attribute address: 0x5800 + (line/8)*32 + col
-    uint16_t attr_addr = 0x5800 + (y / 8) * 32 + char_col * 2;
-
-    // Task 25: the floating bus exposes the byte the ULA fetched — on the
-    // Next that comes from the dedicated bank-5 VRAM (bank5_ram dpram2,
-    // zxnext.vhd:6558), the same source Ula::vram_read uses; standalone
-    // machines keep the flat physical-page-10 read. Same machine gate as
-    // the ULA/tilemap wiring in init().
-    const uint8_t* b5 = (config_.type == MachineType::ZXN_ISSUE2)
-                            ? mmu_.bank5_vram() : nullptr;
-    auto bank5_byte = [&](uint16_t cpu_addr) -> uint8_t {
-        const uint16_t off = static_cast<uint16_t>(cpu_addr - 0x4000);
-        return b5 ? b5[off & 0x3FFF] : ram_.read(off + 10 * 0x2000);
-    };
-    switch (tstate_in_line % 8) {
-        case 2: out_byte = bank5_byte(pixel_addr);     return true;
-        case 3: out_byte = bank5_byte(attr_addr);      return true;
-        case 4: out_byte = bank5_byte(pixel_addr + 1); return true;
-        case 5: out_byte = bank5_byte(attr_addr + 1);  return true;
-        default: return false;  // idle T-states within the 8T cycle
+    // floating_bus_r is reloaded on the FALLING edge of CLK_7, half-way
+    // through each hc_ula count (zxula.vhd:308-340); a latch sees the value
+    // of the last edge before it. `mc_in` is a master cycle, and hc_ula's
+    // falling edge sits 2 master cycles into its 4.
+    if (mc_in < 2) return false;               // last edge: previous line's border
+    const int hc_e = (mc_in - 2) / 4;          // i_hc at the last falling edge
+    const int q    = hc_e & 0x0F;
+    // Reload schedule (zxula.vhd:319-340): hc(3:0) = 1 -> X"FF" (en <= 0);
+    // 9 -> VRAM byte (en <= 1); B, D, F -> VRAM byte; others hold. The byte
+    // on i_ula_vram_d at 9/B/D/F is the fetch set up two counts earlier
+    // (vram_a on the rising edges ending hc 7/9/B/D, zxula.vhd:224-258):
+    // pixel(px), attribute(px), pixel(px'), attribute(px'), where px is
+    // latched at hc(3:0) = 3 and px' at hc(3:0) = B (zxula.vhd:193-209).
+    int block = hc_e >> 4;
+    int half, kind;                            // half: px(0)/px'(1); kind: pixel(0)/attr(1)
+    switch (q) {
+        case 9: case 10:  half = 0; kind = 0; break;
+        case 11: case 12: half = 0; kind = 1; break;
+        case 13: case 14: half = 1; kind = 0; break;
+        case 15:          half = 1; kind = 1; break;
+        case 0:
+            // Still attribute(px') of the PREVIOUS block, reloaded at its F.
+            // At hc_ula 0 that edge was the previous line's border: X"FF".
+            if (hc_e == 0) return false;
+            block -= 1; half = 1; kind = 1; break;
+        default: return false;                 // 1..8: reset to X"FF", en = 0
     }
+
+    // px(7:3) <= i_hc(7:3) + i_ula_scroll_x(7:3) at hc(3:0) = 3 / B
+    // (zxula.vhd:199): i_hc(7:3) is 2*block / 2*block+1 there.
+    const auto& ula = renderer_.ula();
+    const int col = ((2 * block + half) + (ula.get_ula_scroll_x_coarse() >> 3)) & 0x1F;
+    // py <= i_vc + i_ula_scroll_y, folded into 0..191 (zxula.vhd:192,201-207).
+    const int py_s = vc_ula + ula.get_ula_scroll_y();
+    int py;
+    if ((py_s & 0x180) == 0x180) {
+        py = py_s & 0x7F;                                   // (not py_s(7)) & py_s(6:0)
+    } else if ((py_s & 0x100) != 0 || (py_s & 0xC0) == 0xC0) {
+        py = ((((py_s >> 6) + 1) & 0x03) << 6) | (py_s & 0x3F);  // (py_s(7:6)+1) & py_s(5:0)
+    } else {
+        py = py_s & 0xFF;
+    }
+    // screen_mode_s <= i_port_ff_reg(2:0) when i_ula_shadow_en = '0' else
+    // "000" (zxula.vhd:191); the shadow screen is bank 7 (zxnext.vhd:6649-6656,
+    // Ula::fetch_vram).
+    const int mode = ula.get_shadow_screen_en() ? 0 : (ula.get_screen_mode_reg() & 0x07);
+    // addr_p_spc_12_5 <= py(7:6) & py(2:0) & py(5:3); addr_a_spc_12_5 <=
+    // "110" & py(7:3) (zxula.vhd:220-221); vram_a (zxula.vhd:236-252):
+    //   pixel:     screen_mode(0) & addr_p & px(7:3)
+    //   attribute: '1' & addr_p & px(7:3)             when screen_mode(1) = '1'
+    //              screen_mode(0) & addr_a & px(7:3)  otherwise
+    const int addr_p = (py & 0xC0) | ((py & 0x07) << 3) | ((py & 0x38) >> 3);
+    const int addr_a = 0xC0 | (py >> 3);
+    int vram_a;
+    if (kind == 0) {
+        vram_a = ((mode & 1) << 13) | (addr_p << 5) | col;
+    } else if ((mode & 0x02) != 0) {
+        vram_a = (1 << 13) | (addr_p << 5) | col;
+    } else {
+        vram_a = ((mode & 1) << 13) | (addr_a << 5) | col;
+    }
+    out_byte = ula.fetch_vram(static_cast<uint16_t>(vram_a));
+    return true;
 }
 
 void Emulator::enqueue_cpu_nr_write(uint8_t reg, uint8_t val)
@@ -9998,24 +10028,22 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
     }
 }
 
-uint64_t Emulator::io_read_sample_cycle(unsigned edge_half_t) const
+uint64_t Emulator::io_read_sample_cycle(unsigned io_clock) const
 {
     // GH #265. clock_ holds the START of the instruction now executing (it is
-    // ticked once execute() returns), and the FUSE counter says how far into
-    // it the bus has got. fuse_z80_readport() charges the I/O cycle's T1
-    // before it calls the port handler, so the I/O cycle began
-    // (into - 1) T-states after the instruction did — contention and wait
-    // states already charged included.
-    const uint64_t now  = clock_.get();
-    const uint32_t into = cpu_.tstates_into_instruction();
-    if (into == 0) return now;   // not inside an instruction's bus cycle
+    // ticked once execute() returns); the CPU says where, in T-states into
+    // the instruction, clock `io_clock` of the current I/O cycle began once
+    // its stretch (and every earlier one) had been charged.
+    const uint64_t now = clock_.get();
+    if (cpu_.tstates_into_instruction() == 0) return now;   // not inside an instruction
     const uint64_t d = clock_.cpu_divisor();
-    const uint64_t io_start = now + static_cast<uint64_t>(into - 1) * d;
-    // The edge is at io_start + edge_half_t * d / 2. The latch takes the
+    const uint64_t clk_start =
+        now + static_cast<uint64_t>(cpu_.io_clock_into_instruction(io_clock)) * d;
+    // The falling edge is half a T-state into the clock. The latch takes the
     // value of the master cycle just before it: ceil(edge) - 1. At 3.5 MHz
     // the CPU's falling edges land on master-cycle boundaries (d = 8); at
     // 28 MHz (d = 1) a falling edge is mid-cycle and that cycle is the one.
-    return io_start + (static_cast<uint64_t>(edge_half_t) * d + 1) / 2 - 1;
+    return clk_start + (d + 1) / 2 - 1;
 }
 
 int Emulator::cvc_at(uint64_t master_cycle) const

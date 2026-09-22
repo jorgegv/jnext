@@ -124,13 +124,26 @@ than at the start of the frame, so feeding it raw coordinates would contend the
 top border while missing the bottom 64 display lines. The runtime is installed
 by `z80_set_contention_runtime()`; with it null, all seven sites are inert.
 
-`fuse_z80_readport` charges the I/O cycle's stretch *before* it calls the port
-handler, because the T80 latches the data bus only on the falling edge of T3,
-after the stretch; `fuse_z80_writeport` calls the handler first, because a
-write strobe acts as soon as IORQ and WR go low. The order matters to any read
-whose value depends on time — the floating bus, NR 0x1E/0x1F, the tape EAR bit
-— and to `Z80Cpu::tstates_into_instruction()`, which those reads use to find
-where in the instruction the bus is (GH #265).
+The two port callbacks charge the I/O cycle clock by clock — T1, the automatic
+wait, T2, T3 — each clock's stretch from `ContentionModel::io_clock_tick()`
+(`zxula.vhd:587-595`): the port's *page* can stretch any clock, the *port*
+decode only the second, and a port-contended cycle stops stretching after it.
+`fuse_z80_readport` calls the port handler in the last clock, after every
+stretch, because the T80 latches the data bus only on the falling edge of T3;
+`fuse_z80_writeport` calls it at the start of the second clock, because a write
+strobe acts as soon as IORQ and WR go low. The order matters to any read whose
+value depends on time — the floating bus, NR 0x1E/0x1F, the tape EAR bit — and
+`Z80Cpu::io_clock_into_instruction()` tells those reads where each clock of the
+cycle began, stretches included (GH #265).
+
+`derive_hc_vc()` only gives the right answer if the FUSE counter and the master
+clock agree: counter × CPU divisor = clock − frame start, at every instruction
+boundary. `Emulator::rebase_fuse_tstates_()` re-establishes that where the
+counter's origin or unit changes — the frame start, which seeds it with the
+last instruction's overshoot past the frame end, and an effective CPU-speed
+change — and `advance_fuse_tstates_()` moves it with the clock when the clock
+advances with no CPU instruction (DMA holding the bus, a parked CPU, a tape
+trap's synthetic cycles).
 
 A separate stretch is the 28 MHz SRAM read wait (`zxnext.vhd:3171-3181`): at CPU
 speed 3, every memory *read* cycle that reaches external SRAM costs one extra

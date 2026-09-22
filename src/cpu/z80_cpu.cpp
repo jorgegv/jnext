@@ -350,50 +350,61 @@ void fuse_z80_writebyte(libspectrum_word address, libspectrum_byte b) {
 // Expose tstates for contention callback to add delays
 libspectrum_dword* fuse_z80_tstates_ptr(void) { return &tstates; }
 
-libspectrum_byte fuse_z80_readport(libspectrum_word port) {
-    // VHDL: port reads consume 1 T-state of pre-IORQ + 3 T-states of
-    // post-IORQ (FUSE timing model). Real-hardware contention fires on
-    // the IORQ falling edge; we approximate this as a single
-    // contention_tick at the start of the post-IORQ phase, when
-    // `cpu_iorq_n` would go low.
-    //
-    // GH #265 — the port is read AFTER that stretch. The ULA stretches the
-    // CPU clock inside the I/O cycle (o_cpu_contend, zxula.vhd:587-595; the
-    // port term needs i_cpu_iorq_n = '0' with the registered ioreqtw3_n still
-    // '1', i.e. the first clock of IORQ), and the T80 latches the data bus
-    // only on the falling edge of T3 (t80na.vhd:214-222), after it. Reading first sampled a time-dependent
-    // value (floating bus, NR 0x1E/0x1F, the tape EAR bit) up to the
-    // stretch early, and hid the stretch from
-    // Z80Cpu::tstates_into_instruction(). Writes keep their order: a write
-    // strobe acts as soon as IORQ and WR go low, at the start of the stretch.
-    tstates++;
-    if (s_contention && s_contention->contention_possible()) {   // C3 gate hoist
-        // mem_active_page is irrelevant for port cycles (mem_contend=0);
-        // contention_tick gates on port_contend internally.
+// GH #265 follow-up (verifier finding 2) — the I/O machine cycle, clock by
+// clock. The ULA can stretch each of its four clocks (T1, the automatic
+// wait, T2, T3 in T80 order — t80n.vhd:1781-1782 hold TState for the wait);
+// which clocks may stretch depends on whether the port's PAGE is contended
+// and whether the PORT is (ContentionModel::io_clock_tick(), from
+// zxula.vhd:587-595). Each stretch is charged at the start of its clock and
+// recorded, so Z80Cpu::io_clock_into_instruction() can place a latch edge
+// inside the cycle after all the stretches that precede it.
+static uint32_t s_io_start_ts = 0;        // FUSE tstates when the I/O cycle began
+static uint8_t  s_io_stretch[4] = {};     // stretch charged at each clock
+
+namespace {
+inline void io_cycle_begin(libspectrum_word port) {
+    s_io_start_ts = tstates;
+    s_io_stretch[0] = s_io_stretch[1] = s_io_stretch[2] = s_io_stretch[3] = 0;
+    if (s_contention && s_contention->contention_possible())     // C3 gate hoist
         s_contention->set_mem_active_page(mem_active_page_for(port));
+}
+
+inline void io_clock_stretch(unsigned k, libspectrum_word port) {
+    if (s_contention && s_contention->contention_possible()) {   // C3 gate hoist
         auto pos = to_ula_counters(derive_hc_vc(tstates));
-        tstates += s_contention->contention_tick(
-            /*mreq_n*/true,  /*iorq_n*/false,
-            /*rd_n*/false,   /*wr_n*/true,
-            port, pos.hc, pos.vc);
+        const uint8_t st = s_contention->io_clock_tick(k, port, pos.hc, pos.vc);
+        s_io_stretch[k] = st;
+        tstates += st;
     }
+}
+} // namespace
+
+libspectrum_byte fuse_z80_readport(libspectrum_word port) {
+    // The port is read after every stretch of the cycle, in its last clock:
+    // the T80 latches the data bus only on the falling edge of T3
+    // (t80na.vhd:214-222). Reading earlier sampled a time-dependent value
+    // (floating bus, NR 0x1E/0x1F, the tape EAR bit) too early (GH #265).
+    // This is also FUSE's order (readport: contend early + late, then read).
+    io_cycle_begin(port);
+    io_clock_stretch(0, port); tstates++;
+    io_clock_stretch(1, port); tstates++;
+    io_clock_stretch(2, port); tstates++;
+    io_clock_stretch(3, port);
     libspectrum_byte val = s_io->in(port);
-    tstates += 3;
+    tstates++;
     return val;
 }
 
 void fuse_z80_writeport(libspectrum_word port, libspectrum_byte b) {
-    tstates++;
+    // A write strobe acts as soon as IORQ and WR are both low, at the start
+    // of the second clock (t80na.vhd:151-154, :334-359) — before that
+    // clock's stretch. FUSE's writeport: contend early, write, contend late.
+    io_cycle_begin(port);
+    io_clock_stretch(0, port); tstates++;
     s_io->out(port, b);
-    if (s_contention && s_contention->contention_possible()) {   // C3 gate hoist
-        s_contention->set_mem_active_page(mem_active_page_for(port));
-        auto pos = to_ula_counters(derive_hc_vc(tstates));
-        tstates += s_contention->contention_tick(
-            /*mreq_n*/true,  /*iorq_n*/false,
-            /*rd_n*/true,    /*wr_n*/false,
-            port, pos.hc, pos.vc);
-    }
-    tstates += 3;
+    io_clock_stretch(1, port); tstates++;
+    io_clock_stretch(2, port); tstates++;
+    io_clock_stretch(3, port); tstates++;
 }
 
 // ── G141 (2026-05-01) — FUSE in-opcode contention overrides ────────────
@@ -617,6 +628,13 @@ void Z80Cpu::reset(bool hard) {
 
 uint32_t Z80Cpu::tstates_into_instruction() const {
     return executing_ ? static_cast<uint32_t>(tstates - exec_start_tstates_) : 0u;
+}
+
+uint32_t Z80Cpu::io_clock_into_instruction(unsigned io_clock) const {
+    if (!executing_ || io_clock > 3) return 0u;
+    uint32_t t = static_cast<uint32_t>(s_io_start_ts - exec_start_tstates_) + io_clock;
+    for (unsigned j = 0; j <= io_clock; ++j) t += s_io_stretch[j];
+    return t;
 }
 
 int Z80Cpu::execute() {

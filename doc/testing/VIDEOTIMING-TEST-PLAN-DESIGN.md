@@ -941,6 +941,17 @@ exactly — is the one the contention model already makes (CT-GH183-01..05).
 | VT-GH265-05 | `IN A,(C) / OR A / JR NZ` loop waiting for NR 0x1F = 0, started at step − 708, run through `execute_single_instruction()` | leaves after 4 INs: 12 instructions, clock = start + 3·224 + 23·8; pre-fix 15 | zxnext.vhd:5871-5876,5985-5986; t80na.vhd:214-222 |
 | VT-GH265-06 | An IN executes, then the clock is moved to step − 8 and NR 0x1F is read through the port with no instruction running | 0x36 — a read outside an instruction samples at the clock, with no leftover offset | zxnext.vhd:5985-5986; zxula_timing.vhd:457-470 |
 
+*GH #265 follow-up (2026-09-22).* The I/O cycle is now charged clock by
+clock, each clock's contention stretch before it (CONTENTION-TEST-PLAN-DESIGN.md,
+CT-IOC), and the reload edge is placed as "the falling edge of the I/O
+cycle's third clock (index 2), after every stretch up to it"
+(`Emulator::io_read_sample_cycle(2)`) instead of a fixed 2.5 T-states. In an
+unstretched cycle the two are the same instant, so VT-GH265-01..06 are
+unchanged; they differ only when the port's page is contended (e.g. MMU1 on
+a contended page under 48K/128K timing), where a stretch delays the edge as
+it delays CLK_CPU (`zxula.vhd:587-595`). That stretch-inclusion is the same
+function the floating bus uses and is pinned there (FB-FUSE-128-CONT).
+
 ## Planned rows carried over from the traceability matrix (GH #196)
 
 These rows were recorded only in `TRACEABILITY-MATRIX.md`, which is now a

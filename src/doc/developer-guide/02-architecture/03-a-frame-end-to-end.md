@@ -49,9 +49,11 @@ logs the compositor replays. The visible symptom is a frame that renders flat.
 2. Commit the frame-edge NextREG latches — NR 0x03 machine timing, and NR 0x05
    for 50/60 Hz and scandouble — re-deriving every timing surface if the
    effective mode changed.
-3. Reset the frame-relative FUSE T-state counter, from which contention derives
-   its `(hc, vc)` position, after folding the outgoing frame into the monotonic
-   base that real-time tape playback runs off.
+3. Rebase the frame-relative FUSE T-state counter, from which contention derives
+   its `(hc, vc)` position, onto the new frame — seeded with the last
+   instruction's overshoot past the frame end, not zero, so it keeps agreeing
+   with the clock — after folding the outgoing frame into the monotonic base
+   that real-time tape playback runs off.
 4. Schedule the **ULA frame interrupt** at
    `VideoTiming::frame_int_master_cycle_offset()`, and the **line interrupt**
    via `reschedule_line_interrupt()`.

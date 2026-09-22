@@ -39,9 +39,9 @@ mentions them, so a test can no longer be absent from this document.
 | IO Port Dispatch                           |   137 |  126 |    0 |    0 |      11 |          0 |
 | Input                                      |   354 |  342 |    0 |    0 |      12 |          0 |
 | Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
-| Floating Bus                               |    40 |   40 |    0 |    0 |       0 |          0 |
+| Floating Bus                               |    58 |   58 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |    65 |   62 |    0 |    0 |       3 |          0 |
-| Contention                                 |   136 |  134 |    0 |    0 |       2 |          0 |
+| Contention                                 |   162 |  158 |    0 |    0 |       4 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    52 |   49 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    81 |   59 |    0 |    0 |      22 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4467 | 4215 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4511 | 4257 |    0 |    5 |     249 |          0 |
 
-Rows the sections above carry: **4467**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4256**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7293**.
+Rows the sections above carry: **4511**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4300**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7335**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3094,46 +3094,64 @@ Notes and rationale: [FLOATING-BUS-TEST-PLAN-DESIGN.md](FLOATING-BUS-TEST-PLAN-D
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| FB-01 | 48K V-border (line=32) port 0xFF read returns 0xFF (zxula.vhd:312-316,414,573) | zxula.vhd:312-316,414,573 | pass | test/floating_bus/floating_bus_test.cpp:275 |
-| FB-02 | 48K H-blank inside V-active (line=100, t=150) port 0xFF=0xFF (zxula.vhd:316,416,573) | zxula.vhd:316,416,573 | pass | test/floating_bus/floating_bus_test.cpp:290 |
-| FB-2A | 48K active display, T%8=2 → pixel byte from VRAM (zxula.vhd:325-327) | zxula.vhd:325-327 | pass | test/floating_bus/floating_bus_test.cpp:326 |
-| FB-2B | 48K active display, T%8=3 → attribute byte from VRAM (zxula.vhd:329-330) | zxula.vhd:329-330 | pass | test/floating_bus/floating_bus_test.cpp:343 |
-| FB-2C | 48K active display, T%8=4 → pixel+1 byte from VRAM (zxula.vhd:332-333) | zxula.vhd:332-333 | pass | test/floating_bus/floating_bus_test.cpp:361 |
-| FB-2D | 48K active display, T%8=5 → attr+1 byte from VRAM (zxula.vhd:335-336) | zxula.vhd:335-336 | pass | test/floating_bus/floating_bus_test.cpp:378 |
-| FB-2E | 48K active display, idle phase (T%8=0) returns 0xFF (zxula.vhd:321-323,573) | zxula.vhd:321-323,573 | pass | test/floating_bus/floating_bus_test.cpp:400 |
-| FB-2F | 48K above-active V-border (line=50) returns 0xFF (zxula.vhd:414-416,573) | zxula.vhd:414-416,573 | pass | test/floating_bus/floating_bus_test.cpp:415 |
-| FB-03 | +3 port 0xFF in active capture phase hard-forced to 0xFF (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:458 |
-| FB-03a | +3 port 0x0FFD active-display VRAM byte \| 0x01 → 0x43 (zxula.vhd:573 active arm + zxnext.vhd:4517) | zxula.vhd:573, zxnext.vhd:4517 | pass | test/floating_bus/floating_bus_test.cpp:487 |
-| FB-04 | +3 port 0xFF at border ignores p3_floating_bus_dat shadow → 0xFF (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:503 |
-| FB-04a | +3 port 0x0FFD border fallback via p3_floating_bus_dat → 0xA5 (zxula.vhd:573 + zxnext.vhd:4498-4509,4517) | zxula.vhd:573, zxnext.vhd:4498-4509,4517 | pass | test/floating_bus/floating_bus_test.cpp:519 |
-| FB-04b | +3 port 0x0FFD bit-0 force is scoped to the active-display arm only: same 0x42 source byte reads 0x42 at border (raw i_p3_floating_bus) and 0x43 in active display (floating_bus_r(0) or i_timing_p3) (zxula.vhd:573 + zxnext.vhd:4478, 4499-4508, 4517) | zxula.vhd:573, zxnext.vhd:4478,4499-4508,4517 | pass | test/floating_bus/floating_bus_test.cpp:568 |
-| FB-3A | +3 port 0x0FFD + port_7ffd_locked=1 → 0xFF (zxnext.vhd:4517) | zxnext.vhd:4517 | pass | test/floating_bus/floating_bus_test.cpp:590 |
-| FB-3B | +3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0xFF (zxnext.vhd:2403, 2589, 2716, 2803-2806, 1877) | zxnext.vhd:2403,2589,2716,2803-2806,1877 | pass | test/floating_bus/floating_bus_test.cpp:617 |
-| FB-3C | 48K port 0x0FFD → 0xFF (p3_timing_hw_en gate blocks decode) (zxnext.vhd:2589, 2716, 2803-2806, 1877) | zxnext.vhd:2589,2716,2803-2806,1877 | pass | test/floating_bus/floating_bus_test.cpp:631 |
-| FB-3D | 128K port 0x0FFD → 0xFF (p3_timing_hw_en gate blocks decode) (zxnext.vhd:2589, 2716, 2803-2806, 1877) | zxnext.vhd:2589,2716,2803-2806,1877 | pass | test/floating_bus/floating_bus_test.cpp:643 |
-| FB-3F | Next port 0x0FFD decoded post-D3F-01 (machine_timing_ keyed) → raw border-arm p3_floating_bus_dat = 0x42, NOT the blocked-decode 0xFF (zxnext.vhd:2589 + :1099 default tim_sel=011; zxula.vhd:573 second arm) | zxnext.vhd:2589,1099, zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:680 |
-| FB-4A | 128K active capture → ULA floating bus reaches port 0xFF (0x5A) (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:814 |
-| FB-4C | Next-base active capture → port 0xFF hard-forced 0xFF (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:834 |
-| FB-06 | 48K CPU IN A,(0xFF) at border returns 0xFF via port_dispatch.set_default_read (zxnext.vhd:2713,2813) | zxnext.vhd:2713,2813 | pass | test/floating_bus/floating_bus_test.cpp:864 |
-| FB-5A | 48K CPU IN A,(0xFF) in active line 100 sees VRAM marker 0xC3 (VRAM saturated for all char_col; the IN's port sample lands inside the pixel-fetch window; zxnext.vhd:2713,2813; emulator.cpp:3090-3197) | zxnext.vhd:2713,2813 | pass | test/floating_bus/floating_bus_test.cpp:921 |
-| FB-07 | 48K NR 0x08 b2=1 + port 0xFF write 0x02 → read returns 0x02 (Timex arm wins; zxnext.vhd:2813,5180,3630) | zxnext.vhd:2813,5180,3630 | pass | test/floating_bus/floating_bus_test.cpp:961 |
-| FB-6A | 48K reset state NR 0x08 b2=0 → border read returns 0xFF (floating-bus arm wins; zxnext.vhd:1118,2813,5180) | zxnext.vhd:1118,2813,5180 | pass | test/floating_bus/floating_bus_test.cpp:977 |
-| FB-6B | 48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF (zxnext.vhd:2397,2813) | zxnext.vhd:2397,2813 | pass | test/floating_bus/floating_bus_test.cpp:996 |
-| FB-109-01 | 48K active capture: undecoded port 0x40A7 returns 0xFF, not the ULA floating bus (zxnext.vhd:1877; port_ff scope :2583) | zxnext.vhd:1877 | pass | test/floating_bus/floating_bus_test.cpp:1239 |
+| FB-01 | 48K V-border (line=32) port 0xFF read returns 0xFF (zxula.vhd:312-316,414,573) | zxula.vhd:312-316,414,573 | pass | test/floating_bus/floating_bus_test.cpp:349 |
+| FB-02 | 48K horizontal border inside V-active (hc_ula 268) port 0xFF = 0xFF (zxula.vhd:312-316,414-416,573) | zxula.vhd:312-316,414-416,573 | pass | test/floating_bus/floating_bus_test.cpp:367 |
+| FB-2A | 48K display: after the hc_ula(3:0)=9 reload → pixel byte of column 4 (zxula.vhd:325-327) | zxula.vhd:325-327 | pass | test/floating_bus/floating_bus_test.cpp:395 |
+| FB-2B | 48K display: after the hc_ula(3:0)=B reload → attribute byte of column 4 (zxula.vhd:329-330) | zxula.vhd:329-330 | pass | test/floating_bus/floating_bus_test.cpp:408 |
+| FB-2C | 48K display: after the hc_ula(3:0)=D reload → pixel byte of column 5 (zxula.vhd:332-333) | zxula.vhd:332-333 | pass | test/floating_bus/floating_bus_test.cpp:421 |
+| FB-2D | 48K display: after the hc_ula(3:0)=F reload → attribute byte of column 5 (zxula.vhd:335-336) | zxula.vhd:335-336 | pass | test/floating_bus/floating_bus_test.cpp:434 |
+| FB-2E | 48K display, idle half of the 16-count block (hc(3:0)=4) returns 0xFF (zxula.vhd:321-323,573) | zxula.vhd:321-323,573 | pass | test/floating_bus/floating_bus_test.cpp:453 |
+| FB-2F | 48K above-active V-border (line=50) returns 0xFF (zxula.vhd:414-416,573) | zxula.vhd:414-416,573 | pass | test/floating_bus/floating_bus_test.cpp:471 |
+| FB-03 | +3 port 0xFF in active capture phase hard-forced to 0xFF (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:512 |
+| FB-03a | +3 port 0x0FFD active-display VRAM byte \| 0x01 → 0x43 (zxula.vhd:573 active arm + zxnext.vhd:4517) | zxula.vhd:573, zxnext.vhd:4517 | pass | test/floating_bus/floating_bus_test.cpp:539 |
+| FB-04 | +3 port 0xFF at border ignores p3_floating_bus_dat shadow → 0xFF (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:555 |
+| FB-04a | +3 port 0x0FFD border fallback via p3_floating_bus_dat → 0xA5 (zxula.vhd:573 + zxnext.vhd:4498-4509,4517) | zxula.vhd:573, zxnext.vhd:4498-4509,4517 | pass | test/floating_bus/floating_bus_test.cpp:571 |
+| FB-04b | +3 port 0x0FFD bit-0 force is scoped to the active-display arm only: same 0x42 source byte reads 0x42 at border (raw i_p3_floating_bus) and 0x43 in active display (floating_bus_r(0) or i_timing_p3) (zxula.vhd:573 + zxnext.vhd:4478, 4499-4508, 4517) | zxula.vhd:573, zxnext.vhd:4478,4499-4508,4517 | pass | test/floating_bus/floating_bus_test.cpp:619 |
+| FB-3A | +3 port 0x0FFD + port_7ffd_locked=1 → 0xFF (zxnext.vhd:4517) | zxnext.vhd:4517 | pass | test/floating_bus/floating_bus_test.cpp:641 |
+| FB-3B | +3 port 0x0FFD + NR 0x82 b4=0 → decode blocked → 0xFF (zxnext.vhd:2403, 2589, 2716, 2803-2806, 1877) | zxnext.vhd:2403,2589,2716,2803-2806,1877 | pass | test/floating_bus/floating_bus_test.cpp:668 |
+| FB-3C | 48K port 0x0FFD → 0xFF (p3_timing_hw_en gate blocks decode) (zxnext.vhd:2589, 2716, 2803-2806, 1877) | zxnext.vhd:2589,2716,2803-2806,1877 | pass | test/floating_bus/floating_bus_test.cpp:682 |
+| FB-3D | 128K port 0x0FFD → 0xFF (p3_timing_hw_en gate blocks decode) (zxnext.vhd:2589, 2716, 2803-2806, 1877) | zxnext.vhd:2589,2716,2803-2806,1877 | pass | test/floating_bus/floating_bus_test.cpp:694 |
+| FB-3F | Next port 0x0FFD decoded post-D3F-01 (machine_timing_ keyed) → raw border-arm p3_floating_bus_dat = 0x42, NOT the blocked-decode 0xFF (zxnext.vhd:2589 + :1099 default tim_sel=011; zxula.vhd:573 second arm) | zxnext.vhd:2589,1099, zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:731 |
+| FB-4A | 128K active capture → ULA floating bus reaches port 0xFF (0x5A) (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:862 |
+| FB-4C | Next-base active capture → port 0xFF hard-forced 0xFF (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:879 |
+| FB-06 | 48K CPU IN A,(0xFF) at border returns 0xFF via port_dispatch.set_default_read (zxnext.vhd:2713,2813) | zxnext.vhd:2713,2813 | pass | test/floating_bus/floating_bus_test.cpp:909 |
+| FB-5A | 48K CPU IN A,(0xFF) starting at FUSE T 14328+224*36+16 returns the pixel byte of line 36 column 4 (FUSE 1.6 sweep; zxnext.vhd:2713,2813; zxula.vhd:319-340,573) | zxnext.vhd:2713,2813, zxula.vhd:319-340,573 | pass | test/floating_bus/floating_bus_test.cpp:933 |
+| FB-07 | 48K NR 0x08 b2=1 + port 0xFF write 0x02 → read returns 0x02 (Timex arm wins; zxnext.vhd:2813,5180,3630) | zxnext.vhd:2813,5180,3630 | pass | test/floating_bus/floating_bus_test.cpp:970 |
+| FB-6A | 48K reset state NR 0x08 b2=0 → border read returns 0xFF (floating-bus arm wins; zxnext.vhd:1118,2813,5180) | zxnext.vhd:1118,2813,5180 | pass | test/floating_bus/floating_bus_test.cpp:986 |
+| FB-6B | 48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF (zxnext.vhd:2397,2813) | zxnext.vhd:2397,2813 | pass | test/floating_bus/floating_bus_test.cpp:1005 |
+| FB-109-01 | 48K active capture: undecoded port 0x40A7 returns 0xFF, not the ULA floating bus (zxnext.vhd:1877; port_ff scope :2583) | zxnext.vhd:1877 | pass | test/floating_bus/floating_bus_test.cpp:1242 |
 | FB-109-02 | 48K active capture: port 0x40FF (LSB-only port_ff decode) returns the VRAM byte (zxnext.vhd:2571+2583,2813,4513) | zxnext.vhd:2571 | pass | test/floating_bus/floating_bus_test.cpp:1263 |
-| FB-GH265-01 | 48K IN A,(0xFF) samples the floating bus at the DI_Reg latch, 3.5 T into its I/O cycle: started at T 16 it reads the T 26 pixel byte (zxula.vhd:573; zxnext.vhd:4513; t80na.vhd:214-222) | zxula.vhd:573, zxnext.vhd:4513, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1423 |
-| FB-GH265-02 | 48K IN A,(C) of port 0x00FF started at T 16 reads the T 27 attribute byte (zxula.vhd:573; zxnext.vhd:4513; t80na.vhd:214-222) | zxula.vhd:573, zxnext.vhd:4513, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1446 |
-| FB-GH265-03 | +3 IN A,(C) of port 0x0FFD started at T 16 reads the T 27 attribute byte \| 0x01 (zxula.vhd:573; zxnext.vhd:4517; t80na.vhd:214-222) | zxula.vhd:573, zxnext.vhd:4517, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1465 |
-| FIX-FB-EFFLOCK-01 | +3 port 0x0FFD with paging-locked but Pentagon-1024 override drops effective_paging_locked → returns the raw border-arm latch 0x42 (NOT 0xFF) — VHDL zxnext.vhd:3769, 4517 + zxula.vhd:573 second arm; verify8 A4 / GH #112 | zxnext.vhd:3769, zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:747 |
-| FB-3X | +3 port 0x0FFD dispatches to 0x0FFD handler not 0x7FFD (specificity: mask 0xF003 > 0x8003) → raw border-arm latch 0x42 (zxula.vhd:573 second arm + zxnext.vhd:4478, 4499-4508; port_dispatch.cpp most-specific-match) | zxula.vhd:573, zxnext.vhd:4478,4499-4508 | pass | test/floating_bus/floating_bus_test.cpp:784 |
-| FB-D3F-01 | Port 0x0FFD gate keys on machine_timing_ (tim_sel) per VHDL :2589 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0x0FFD returns the raw border-arm latch 0xA4 (post-fix); pre-D3F-01 returned 0x00 (config_.type != ZX_PLUS3); pre-GH#112 returned 0xA5 | zxula.vhd:573, zxnext.vhd:4478 | pass | test/floating_bus/floating_bus_test.cpp:1087 |
-| FB-D3F-02 | Port 0xBFFD AY-read alias gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:2771 — init 128K + NR 0x03 = 0xB2 (tim_sel=+3, typ_sel=128) → after run_frame() BFFD read aliases to AY reg 0 = 0x5A (post-fix); pre-fix returned 0xFF (config_.type != ZX_PLUS3) | zxnext.vhd:2771 | pass | test/floating_bus/floating_bus_test.cpp:1138 |
-| FB-D3F-03 | Port 0xFF ULA-arm gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:4513 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0xFF returns 0xFF (machine_timing_ neither 48 nor 128); pre-fix returned the VRAM byte 0x42 (config_.type == ZX48K) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:1189 |
+| FB-GH265-01 | 48K IN A,(0xFF) starting at FUSE T 14328+224*36+17 reads the attribute byte of column 4, 0x44 — the byte on the bus at the DI_Reg latch (FUSE 1.6; zxula.vhd:573; t80na.vhd:214-222) | zxula.vhd:573, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1413 |
+| FB-GH265-02 | 48K IN A,(C) of 0x00FF starting at FUSE T 14328+224*36+16 reads the attribute of column 4, 0x44 (FUSE 1.6; zxula.vhd:573; t80na.vhd:214-222) | zxula.vhd:573, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1430 |
+| FB-GH265-03 | +3 IN A,(C) of 0x0FFD starting at raw (100, T 72) reads the pixel of column 4 \| 0x01 = 0x43 at its DI_Reg latch (zxula.vhd:319-340,573; zxnext.vhd:4517; t80na.vhd:214-222) | zxula.vhd:319-340,573, zxnext.vhd:4517, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1454 |
+| FB-HC-48 | 48K: floating_bus_r after each hc_ula reload 0..31 follows the 9/B/D/F load, 1 reset schedule (zxula.vhd:319-340,573; zxula_timing.vhd:423-436) | zxula.vhd:319-340,573, zxula_timing.vhd:423-436 | pass | test/floating_bus/floating_bus_test.cpp:1544 |
+| FB-HC-128 | 128K: same schedule, hc_ula 0 at raw hc 125 (zxula.vhd:319-340,573; zxula_timing.vhd:423-436) | — | pass | test/floating_bus/floating_bus_test.cpp:1548 |
+| FB-FUSE-48-PHASE | 48K IN A,(0xFF) at FUSE T 14328+224*36+16+k returns P4 A4 P5 A5 FF FF FF FF, as FUSE 1.6 does (zxula.vhd:573) | zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:1555 |
+| FB-FUSE-128-PHASE | 128K IN A,(0xFF) at FUSE T 14354+228*36+16+k returns P4 A4 P5 A5 FF FF FF FF, as FUSE 1.6 does (zxula.vhd:573) | — | pass | test/floating_bus/floating_bus_test.cpp:1559 |
+| FB-FUSE-48-EDGES | 48K floating-bus window corners match FUSE 1.6: first byte at T 14328, none at 14327, last at 14328+224*191+123, none past it or on lines -1 / 192 (zxula.vhd:414-416,573) | zxula.vhd:414-416,573 | pass | test/floating_bus/floating_bus_test.cpp:1578 |
+| FB-FUSE-128-EDGES | 128K floating-bus window corners match FUSE 1.6: first byte at T 14354, none at 14353, last at 14354+228*191+123, none past it or on lines -1 / 192 (zxula.vhd:414-416,573) | zxula.vhd:414-416,573 | pass | test/floating_bus/floating_bus_test.cpp:1593 |
+| FB-FUSE-128-CONT | 128K contended IN A,(0xFF) (A=0x40) matches FUSE 1.6 in T-states and byte at columns 32-38 and 47 (zxula.vhd:573,587-595; t80na.vhd:214-222) | zxula.vhd:573,587-595, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1621 |
+| FB-SHD-01 | 128K 0x7FFD b3 (shadow screen): the floating bus returns bank 7's bytes, as FUSE 1.6 does (zxnext.vhd:6649-6656; zxula.vhd:573) | zxnext.vhd:6649-6656, zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:1655 |
+| FB-SHD-02 | Shadow screen forces the standard layout: with port 0xFF in hi-colour the attribute capture reads bank 7's attribute of (36,4), 0x93, not the hi-colour address (bank 7 pixel 0x91) (zxula.vhd:191,246-252; zxnext.vhd:6649-6656) | zxula.vhd:191,246-252, zxnext.vhd:6649-6656 | pass | test/floating_bus/floating_bus_test.cpp:1681 |
+| FB-TMX-01 | Timex mode 1: the pixel fetch (and the floating bus) reads the 0x6000 screen, 0x22 (zxula.vhd:191,236-240) | zxula.vhd:191,236-240 | pass | test/floating_bus/floating_bus_test.cpp:1702 |
+| FB-TMX-02 | Timex hi-colour: the attribute fetch reads 0x2000 + the pixel layout, 0x44, not the 0x5800 attribute (zxula.vhd:246-252) | zxula.vhd:246-252 | pass | test/floating_bus/floating_bus_test.cpp:1715 |
+| FB-TMX-03 | Timex hi-res: the pixel slot reads screen 0 (0x55), the attribute slot screen 1's pixel byte (0x66) (zxula.vhd:236-252) | zxula.vhd:236-252 | pass | test/floating_bus/floating_bus_test.cpp:1731 |
+| FB-SCR-01 | NR 0x26 = 0x10: the column-4 fetch reads column 6, 0x7A (zxula.vhd:199) | zxula.vhd:199 | pass | test/floating_bus/floating_bus_test.cpp:1750 |
+| FB-SCR-02 | NR 0x27 = 8: display line 36 fetches pixel line 44, 0x7B (zxula.vhd:192,201-209) | zxula.vhd:192,201-209 | pass | test/floating_bus/floating_bus_test.cpp:1762 |
+| FB-SCR-03 | NR 0x27 = 20 on display line 180: py_s = 200 folds to pixel line 8, 0x7C (zxula.vhd:201-209) | zxula.vhd:201-209 | pass | test/floating_bus/floating_bus_test.cpp:1774 |
+| FB-SCR-04 | NR 0x27 = 250 on display line 150: py_s = 400, py_s(8:7) = "11", folds to pixel line 16, 0x7D (zxula.vhd:201-203) | zxula.vhd:201-203 | pass | test/floating_bus/floating_bus_test.cpp:1787 |
+| FB-SPD-01 | 28 MHz: IN A,(0xFF) started 500 master cycles into raw line 100 reads the pixel of column 0 at its latch, 0x5E (zxnext.vhd:4513; zxula.vhd:319-340,573; t80na.vhd:214-222) | zxnext.vhd:4513, zxula.vhd:319-340,573, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1812 |
+| FB-SPD-02 | 28 MHz: an IN A,(0xFF) latching in master cycle 4h+1 of the ULA line misses count h's reload (0xFF), one latching in 4h+2 sees it (pixel 0x5E) (zxula.vhd:308-340; t80na.vhd:214-222) | zxula.vhd:308-340, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1848 |
+| FIX-FB-EFFLOCK-01 | +3 port 0x0FFD with paging-locked but Pentagon-1024 override drops effective_paging_locked → returns the raw border-arm latch 0x42 (NOT 0xFF) — VHDL zxnext.vhd:3769, 4517 + zxula.vhd:573 second arm; verify8 A4 / GH #112 | zxnext.vhd:3769, zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:798 |
+| FB-3X | +3 port 0x0FFD dispatches to 0x0FFD handler not 0x7FFD (specificity: mask 0xF003 > 0x8003) → raw border-arm latch 0x42 (zxula.vhd:573 second arm + zxnext.vhd:4478, 4499-4508; port_dispatch.cpp most-specific-match) | zxula.vhd:573, zxnext.vhd:4478,4499-4508 | pass | test/floating_bus/floating_bus_test.cpp:835 |
+| FB-D3F-01 | Port 0x0FFD gate keys on machine_timing_ (tim_sel) per VHDL :2589 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0x0FFD returns the raw border-arm latch 0xA4 (post-fix); pre-D3F-01 returned 0x00 (config_.type != ZX_PLUS3); pre-GH#112 returned 0xA5 | zxula.vhd:573, zxnext.vhd:4478 | pass | test/floating_bus/floating_bus_test.cpp:1096 |
+| FB-D3F-02 | Port 0xBFFD AY-read alias gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:2771 — init 128K + NR 0x03 = 0xB2 (tim_sel=+3, typ_sel=128) → after run_frame() BFFD read aliases to AY reg 0 = 0x5A (post-fix); pre-fix returned 0xFF (config_.type != ZX_PLUS3) | zxnext.vhd:2771 | pass | test/floating_bus/floating_bus_test.cpp:1147 |
+| FB-D3F-03 | Port 0xFF ULA-arm gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:4513 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0xFF returns 0xFF (machine_timing_ neither 48 nor 128); pre-fix returned the VRAM byte 0x42 (config_.type == ZX48K) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:1195 |
 | FB-HARNESS-01 | set_raster_position(100, 50) lands clock at expected master cycle and current_scanline()==100 | — | pass | test/floating_bus/floating_bus_test.cpp:1295 |
-| FB-HARNESS-02 | set_raster_position_hc(64, 144) lands clock at expected master cycle and current_hc()==144 | — | pass | test/floating_bus/floating_bus_test.cpp:1321 |
-| FB-HARNESS-03 | cpu_in_a_FF executes IN A,(0xFF) on 48K at line 0 → A=0xFF (border early-return path) and PC=0x8002 | — | pass | test/floating_bus/floating_bus_test.cpp:1343 |
-| FB-HARNESS-04 | cpu_in_a_0FFD executes IN A,(C) with BC=0x0FFD; helper completes, PC advances 2 bytes, BC preserved | — | pass | test/floating_bus/floating_bus_test.cpp:1361 |
-| FB-HARNESS-05 | read_port_default(0x00FF) on fresh 48K returns 0xFF (border early-return path through port_dispatch default) | — | pass | test/floating_bus/floating_bus_test.cpp:1376 |
+| FB-HARNESS-02 | set_raster_position_hc(64, 144) lands clock at expected master cycle and current_hc()==144 | — | pass | test/floating_bus/floating_bus_test.cpp:1320 |
+| FB-HARNESS-03 | cpu_in_a_FF executes IN A,(0xFF) on 48K at line 0 → A=0xFF (border early-return path) and PC=0x8002 | — | pass | test/floating_bus/floating_bus_test.cpp:1342 |
+| FB-HARNESS-04 | cpu_in_a_0FFD executes IN A,(C) with BC=0x0FFD; helper completes, PC advances 2 bytes, BC preserved | — | pass | test/floating_bus/floating_bus_test.cpp:1360 |
+| FB-HARNESS-05 | read_port_default(0x00FF) on fresh 48K returns 0xFF (border early-return path through port_dispatch default) | — | pass | test/floating_bus/floating_bus_test.cpp:1375 |
 
 ## VideoTiming — `test/videotiming/videotiming_test.cpp`
 
@@ -3314,13 +3332,32 @@ Notes and rationale: [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIG
 | CT-GH183-04 | 128K: same whole-frame VHDL-exact rebase comparison — zero differing T-states, identical per-frame contention total [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4225 |
 | CT-GH183-05 | +3: the hc_adj(3:1)=000 wait_s extension puts index pair {15,0} astride the i_hc(8) window edge, so the -12 vs -11 rebase relocates exactly 2 T-states per display line (384/frame) with an IDENTICAL per-frame contention total — a sub-T-state blip, not a delay change [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:4248 |
 | CT-GH183-06 | Emulator::init failed — would verify end-to-end origin invariance [zxula_timing.vhd:423-436] | zxula_timing.vhd:423-436 | pass | test/contention/contention_test.cpp:4271 |
-| CT-GH265-01 | 48K port-contended IN A,(C): the port handler runs after the I/O cycle's stretch, 3 T before the end (zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222) | zxnext.vhd:4496, zxula.vhd:587-595, t80na.vhd:214-222 | pass | test/contention/contention_test.cpp:4368 |
-| CT-GH265-02 | 48K IN A,(C) in the top border: no stretch, 12 T, handler at 9 T (zxula.vhd:414,583) | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:4384 |
-| CT-OVS-01 | Every IN of a 31-T loop over 4 frames finds the contention counter at clock - frame start: the frame start carries the overshoot (zxula.vhd:582-583 via derive_hc_vc) | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:4452 |
-| CT-OVS-02 | A DMA step moves the contention counter with the clock (dma_holds_bus: no CPU cycle, zxnext.vhd:1828-1844) | zxnext.vhd:1828-1844 | pass | test/contention/contention_test.cpp:4479 |
-| CT-OVS-03 | A parked frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:4501 |
-| CT-OVS-04 | After a 7 MHz -> 3.5 MHz switch mid-frame every IN finds the contention counter at clock - frame start (zxnext.vhd:5796-5828 commit) | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:4529 |
-| CT-OVS-05 | A tape-trap frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:4567 |
+| CT-GH265-01 | 48K port-contended IN A,(C): the port handler runs after the I/O cycle's stretch, in its last clock (zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222) | zxnext.vhd:4496, zxula.vhd:587-595, t80na.vhd:214-222 | pass | test/contention/contention_test.cpp:4369 |
+| CT-GH265-02 | 48K IN A,(C) in the top border: no stretch, 12 T, handler at 11 T (zxula.vhd:414,583) | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:4385 |
+| CT-OVS-01 | Every IN of a 31-T loop over 4 frames finds the contention counter at clock - frame start: the frame start carries the overshoot (zxula.vhd:582-583 via derive_hc_vc) | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:4667 |
+| CT-OVS-02 | A DMA step moves the contention counter with the clock (dma_holds_bus: no CPU cycle, zxnext.vhd:1828-1844) | zxnext.vhd:1828-1844 | pass | test/contention/contention_test.cpp:4694 |
+| CT-OVS-03 | A parked frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:4716 |
+| CT-OVS-04 | After a 7 MHz -> 3.5 MHz switch mid-frame every IN finds the contention counter at clock - frame start (zxnext.vhd:5796-5828 commit) | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:4744 |
+| CT-OVS-05 | A tape-trap frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:4782 |
+| CT-IOC-01 | 48K IN A,(C) of 0x00FE (even port, uncontended page, N:1,C:3) matches FUSE 1.6 in all 8 phases (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4492 |
+| CT-IOC-02 | 48K IN A,(C) of 0x40FE (even port, contended page, C:1,C:3) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:4495 |
+| CT-IOC-03 | 48K IN A,(C) of 0x40FF (odd port, contended page, C:1 x4) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4498 |
+| CT-IOC-04 | 48K IN A,(C) of 0x00FF (odd port, uncontended page, N:4) takes 12 T in every phase, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4501 |
+| CT-IOC-05 | 48K IN A,(C) of 0x7FFD: no port_7ffd_active on 48K timing, so an odd port in bank 5's page (C:1 x4), as FUSE 1.6 (zxnext.vhd:2594,4489-4496) | zxnext.vhd:2594,4489-4496 | pass | test/contention/contention_test.cpp:4504 |
+| CT-IOC-06..09 | 48K `OUT (C),A` to 0x00FE / 0x40FE / 0x40FF / 0x00FF: same four classes | — | missing | — |
+| CT-IOC-10 | 48K IN A,(0xFF) with A=0x40 (port 0x40FF, contended page) matches FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4522 |
+| CT-IOC-11 | 48K IN A,(0xFF) with A=0x80 (port 0x80FF, bank 2 page) is never stretched, 11 T, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4526 |
+| CT-IOC-12..14 | 128K, bank 1 at 0xC000: `IN` 0xC0FF (C:1 ×4), `IN` 0xC0FE (C:1,C:3), `OUT` 0xC0FF (C:1 ×4) | zxnext.vhd:4489-4493 | missing | — |
+| CT-IOC-15 | 128K IN A,(C) of 0x40FF (bank 5) matches FUSE 1.6 (C:1 x4) | — | pass | test/contention/contention_test.cpp:4542 |
+| CT-IOC-16 | 128K IN A,(C) of 0x80FF (bank 2) takes 12 T in every phase, as FUSE 1.6 (N:4) | — | pass | test/contention/contention_test.cpp:4545 |
+| CT-IOC-17 | 128K IN A,(C) of 0x7FFE (keyboard half-row, even, bank 5) matches FUSE 1.6 (C:1,C:3) | — | pass | test/contention/contention_test.cpp:4548 |
+| CT-IOC-18 | 128K OUT (C),A to 0x7FFD: port_7ffd_active makes it a contended port in a contended page, C:1,C:3 (VHDL; FUSE differs) (zxnext.vhd:2594,4496; zxula.vhd:587-595) | zxnext.vhd:2594,4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4557 |
+| CT-IOC-19 | 128K OUT (C),A to 0xBF3B (ULA+ on, bank 2 page): a contended port in an uncontended page, N:1,C:3 (zxnext.vhd:2685,4496; zxula.vhd:587-595) | zxnext.vhd:2685,4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4563 |
+| CT-IOC-20 | 128K OUT (C),A to 0xFF3B (ULA+ on) with bank 1 at 0xC000: contended port and page, C:1,C:3 (zxnext.vhd:2686,4489-4496; zxula.vhd:587-595) | zxnext.vhd:2686,4489-4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4567 |
+| CT-IOC-21 | 128K OUT (C),A to 0xFF3B with ULA+ off (NR 0x85 b0=0), bank 1 at 0xC000: just an odd port in a contended page, C:1 x4 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:4572 |
+| CT-IOC-22 | 48K timing, MMU7 = page 10 (bank 5): IN A,(C) of 0xE0FF is in a contended page, C:1 x4 (zxnext.vhd:2952,4489-4493) | zxnext.vhd:2952,4489-4493 | pass | test/contention/contention_test.cpp:4582 |
+| CT-IOC-23 | 48K timing, MMU2 = page 4 (bank 2): IN A,(C) of 0x40FF is NOT in a contended page, N:4 (zxnext.vhd:2952,4489-4493) | zxnext.vhd:2952,4489-4493 | pass | test/contention/contention_test.cpp:4587 |
+| CT-IOC-24 | +3 timing: IN A,(C) of 0x40FE and 0x40FF are never stretched, 12 T in every phase (zxula.vhd:599-600) | zxula.vhd:599-600 | pass | test/contention/contention_test.cpp:4603 |
 | CT-DELAY-01 | Emulator::init failed for one or more machines — would verify per-frame contention drift bound across 48K/128K/+3 [zxula.vhd:582-595; zxnext.vhd:4481] | zxula.vhd:582-595, zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:1602 |
 | CT-FUSE-05 | Emulator::init failed — would verify single-contention-path invariant [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2060 |
 | CT-TURBO-08 | Combined mid-line NR 0x07 + NR 0x08 b6 writes: each shadow commits on its OWN edge (NR 0x07 on bus-idle CLK_CPU; NR 0x08 b6 on bus-idle CLK_CPU AND hc(8)='1'); independent — one edge satisfied does not commit the other [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:2184 |
@@ -3349,6 +3386,13 @@ Notes and rationale: [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIG
 | T50-04 | 48K, read $4000: raw vc=255 (LAST display line) contends, raw vc=256 (BOTTOM BORDER) does not — the window closes at exactly 192 ULA lines (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3572 |
 | T50-05 | 48K, read $4000 on a display line but at hc=4 (LEFT BORDER, before ula_min_hactive=c_min_hactive-12=116) → NO contention (zxula.vhd:416 border_active_ula = i_hc(8) or border_active_v; zxula_timing.vhd:423) | zxula.vhd:416, zxula_timing.vhd:423 | pass | test/contention/contention_test.cpp:3586 |
 | T50-06 | 128K (c_min_hactive=136, 228 T/line): top border does not contend and a display line does — proves the ULA counter origins are taken per-machine from VideoTiming, not hardcoded to the 48K values (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/contention/contention_test.cpp:3614 |
+| CT-IOC-06 | 48K OUT (C),A to 0x00FE matches FUSE 1.6 (N:1,C:3) (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4508 |
+| CT-IOC-07 | 48K OUT (C),A to 0x40FE matches FUSE 1.6 (C:1,C:3) (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:4511 |
+| CT-IOC-08 | 48K OUT (C),A to 0x40FF matches FUSE 1.6 (C:1 x4) (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4514 |
+| CT-IOC-09 | 48K OUT (C),A to 0x00FF takes 12 T in every phase (N:4), as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4517 |
+| CT-IOC-12 | 128K IN A,(C) of 0xC0FF with bank 1 at 0xC000 (odd page, contended) matches FUSE 1.6 (C:1 x4; zxnext.vhd:4489-4493) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4530 |
+| CT-IOC-13 | 128K IN A,(C) of 0xC0FE with bank 1 at 0xC000 matches FUSE 1.6 (C:1,C:3; zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4534 |
+| CT-IOC-14 | 128K OUT (C),A to 0xC0FF with bank 1 at 0xC000 matches FUSE 1.6 (C:1 x4) | — | pass | test/contention/contention_test.cpp:4538 |
 
 ## LoRes — `test/lores/lores_test.cpp`
 
@@ -3443,7 +3487,7 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | LR-161 | NR $68 bit 2 (ULA half-pixel scroll) does not move the LoRes image (zxnext.vhd:4241-4271 — no such port on the LoRes module) | zxnext.vhd:4241-4271 | pass | test/compositor/compositor_test.cpp:5864 |
 | LR-162 | NR $1D is not a LoRes clip register — writing it changes neither the shared ULA/LoRes clip window nor any LoRes register (zxnext.vhd:1167-1171, 5278 undecoded, 6785-6793) | zxnext.vhd:1167-1171,5278 | pass | test/nextreg/nextreg_integration_test.cpp:7058 |
 | LR-163 | enabling LoRes does not change ULA memory contention — 20000 instructions of contended bank-5 access cost the same T-states with NR $15 bit 7 = 0 and = 1 (zxula.vhd:583; zxnext.vhd:6603-6631, separate BRAM port) | zxula.vhd:583, zxnext.vhd:6603-6631 | pass | test/lores/lores_integration_test.cpp:152 |
-| LR-164 | enabling LoRes does not change the floating-bus value — 500 port 0xFF reads spread across a frame are byte-identical with NR $15 bit 7 = 0 and = 1 (zxula.vhd:573, ULA port B only) | zxula.vhd:573 | pass | test/lores/lores_integration_test.cpp:200 |
+| LR-164 | enabling LoRes does not change the floating-bus value — 500 port 0xFF reads spread across a frame are byte-identical with NR $15 bit 7 = 0 and = 1 (zxula.vhd:573, ULA port B only) | zxula.vhd:573 | pass | test/lores/lores_integration_test.cpp:207 |
 | LR-165 | LoRes does not disturb the ULA's own VRAM fetch — switching LoRes off again restores an intact ULA screen (zxnext.vhd:6631, 6660) | zxnext.vhd:6631,6660 | pass | test/compositor/compositor_test.cpp:5884 |
 | LR-166 | NR $19 (sprite clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4366-4369) | zxnext.vhd:4258-4261 | pass | test/compositor/compositor_test.cpp:5909 |
 | LR-167 | NR $1B (tilemap clip) does not clip LoRes — the full 256x192 image still draws (zxnext.vhd:4258-4261, 4424-4427) | zxnext.vhd:4258-4261,4424-4427 | pass | test/compositor/compositor_test.cpp:5918 |
@@ -4417,7 +4461,7 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
 | LR-163 | enabling LoRes does not change ULA memory contention — 20000 instructions of contended bank-5 access cost the same T-states with NR $15 bit 7 = 0 and = 1 (zxula.vhd:583; zxnext.vhd:6603-6631, separate BRAM port) | zxula.vhd:583, zxnext.vhd:6603-6631 | pass | test/lores/lores_integration_test.cpp:152 |
-| LR-164 | enabling LoRes does not change the floating-bus value — 500 port 0xFF reads spread across a frame are byte-identical with NR $15 bit 7 = 0 and = 1 (zxula.vhd:573, ULA port B only) | zxula.vhd:573 | pass | test/lores/lores_integration_test.cpp:200 |
+| LR-164 | enabling LoRes does not change the floating-bus value — 500 port 0xFF reads spread across a frame are byte-identical with NR $15 bit 7 = 0 and = 1 (zxula.vhd:573, ULA port B only) | zxula.vhd:573 | pass | test/lores/lores_integration_test.cpp:207 |
 
 ### Companion integration suite — `test/ctc_interrupts/ctc_interrupts_test.cpp`
 

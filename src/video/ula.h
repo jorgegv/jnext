@@ -548,6 +548,13 @@ public:
     /// render_scanline_bank() override is properly restored.
     bool vram_bank7() const { return vram_use_bank7_; }
 
+    /// GH #265 follow-up — the byte the ULA's own fetch reads at VRAM address
+    /// @p vram_a (zxula.vhd `vram_a`; only its 14-bit bank offset is used):
+    /// bank 5, or bank 7 while the 128K shadow screen is selected
+    /// (zxnext.vhd:6649-6656). The floating bus latches exactly these bytes.
+    /// 0xFF if no RAM is wired (bare-Ula unit tests).
+    uint8_t fetch_vram(uint16_t vram_a) const;
+
     // Wave-D hook: select `border_clr_tmx` (VHDL zxula.vhd:419) route for
     // border rendering instead of the standard `border_clr`. Default false
     // preserves existing behaviour; Phase-2 Wave D may flip this based on

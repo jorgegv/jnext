@@ -7,12 +7,22 @@
 // All 26 plan rows are now live `check()` calls — Phase 3 (this commit)
 // flipped them against the Branch A/B/C emulator + harness landed today.
 //
-// Open Q 2 resolved (plan §Open Questions): production
-// `Emulator::floating_bus_read` (src/core/emulator.cpp:3090-3197) folds
-// raster phase by `tstate_in_line % 8` and returns VRAM at offsets
-// {2,3,4,5}. The 16-hc VHDL window is approximated 1:2 — phases 9/B/D/F
-// land in the *first* half of each 8T window in the C++ model. Tests
-// use `set_raster_position` (raw 3.5 MHz T-states) accordingly.
+// GH #265 follow-up (verifier finding 1): the floating bus is now
+// evaluated in the ULA's own hc_ula / vc_ula counters and reloaded on the
+// VHDL schedule (zxula.vhd:319-340). Every row that places the raster
+// derives its position from one of two oracles:
+//   * VHDL — a DIRECT read (no CPU instruction) positioned with
+//     set_fb_capture(): see the derivation there. Section 10's FB-HC-*
+//     rows pin the hc_ula(3:0) schedule itself, the "16-hc-vs-8T
+//     mapping" this file used to call unresolved.
+//   * FUSE — CPU rows (IN A,(0xFF) etc.) placed with at_fuse_T(): FUSE
+//     1.6 was run on the same program (48K .sna / 128K .z80) and the
+//     byte an IN starting at each INT-relative T returns was recorded.
+//     The T-state → raw-frame mapping is the one jnext's FUSE-verified
+//     memory contention already uses (see at_fuse_T()).
+// The rows that assumed the old model's window — "raw T 0..127 of raw
+// lines 64..255, T%8 in {2,3,4,5}" — were re-derived; that window sat
+// 58 T (48K) / 62 T (128K) before the ULA's fetch.
 //
 // Run: ./build/test/floating_bus_test
 
@@ -26,6 +36,7 @@
 #include "video/ula.h"
 
 #include <cstdarg>
+#include <initializer_list>
 #include <cstdint>
 #include <cstdio>
 #include <string>
@@ -92,17 +103,12 @@ std::string fmt(const char* fmt_str, ...) {
 // These helpers exist so the upcoming Phase 3 unskip work can flip the 26
 // FB-NN rows mechanically. They are *test-side only* — no src/ change.
 //
-// Open Q 2 (plan doc §Open Questions): the production
-// `Emulator::floating_bus_read` (src/core/emulator.cpp:3090-3197) folds
-// raster phase by `tstate_in_line % 8` and selects pixel/attr at offsets
-// {2, 3, 4, 5}. The VHDL oracle (zxula.vhd:319-340) folds by `hc(3:0)`
-// over a 16-pixel-clock window and selects pixel/attr at hc phases
-// {0x9, 0xB, 0xD, 0xF}. The 16-hc-vs-8T mapping has not yet been pinned
-// to VHDL — Phase 3 will resolve it. So `set_raster_position` accepts a
-// raw `tstate` parameter (3.5 MHz T-states from the start of the line)
-// and a separate `set_raster_position_hc` overload that takes `hc`
-// (7 MHz pixel clocks from the start of the line) so Phase 3 can sweep
-// either interpretation against the same fixture.
+// Open Q 2 (plan doc §Open Questions), RESOLVED by the GH #265 follow-up:
+// the floating bus runs on the VHDL hc_ula(3:0) schedule (zxula.vhd:319-340),
+// one hc_ula count = 4 master cycles; Section 10's FB-HC-* rows pin it.
+// `set_raster_position` places the raw frame by (line, 3.5 MHz T-state);
+// `set_raster_position_hc` by (line, 7 MHz raw hc); set_fb_capture() below
+// places a read in hc_ula terms.
 //
 // Idiom (per nmi_integration_test.cpp `fresh_cpu_at_c000`): re-init the
 // Emulator at the start of every scenario to avoid carry-over of clock,
@@ -123,8 +129,8 @@ static bool fresh_emulator(Emulator& emu,
 
 // Advance the emulator's master clock so that
 //   (clock_.get() - frame_cycle_) / cpu_speed_divisor == line * tstates_per_line + tstate
-// matching the geometry used by `Emulator::floating_bus_read`
-// (src/core/emulator.cpp:3155-3167).
+// i.e. raw line `line`, raw T-state `tstate` of jnext's frame (NOT the
+// ULA's hc_ula / vc_ula; see set_fb_capture()).
 //
 // Mechanism: `Clock` exposes only `tick(n)` and `reset()` — there is no
 // direct setter for the cycle counter. We therefore compute the master
@@ -146,8 +152,7 @@ static bool set_raster_position(Emulator& emu, int line, int tstate) {
     const int divisor  = cpu_speed_divisor(emu.config().cpu_speed);
 
     // Target: (line * tstates_per_line + tstate) T-states since frame start,
-    // converted back to master cycles. tstate is raw 3.5 MHz T-states
-    // (Open Q 2: Phase 3 may need to sweep hc instead — see helper below).
+    // converted back to master cycles. tstate is raw 3.5 MHz T-states.
     const uint64_t target_master =
         static_cast<uint64_t>(line) * timing.master_cycles_per_line
         + static_cast<uint64_t>(tstate) * static_cast<uint64_t>(divisor);
@@ -158,9 +163,8 @@ static bool set_raster_position(Emulator& emu, int line, int tstate) {
     return true;
 }
 
-// Sister helper for the hc (7 MHz pixel-clock) interpretation of the
-// VHDL `hc(3:0)` phase fold. 1 hc = 4 master cycles (= 0.5 T-state at
-// 3.5 MHz CPU). Use this when Phase 3 sweeps the VHDL hc-window model.
+// Sister helper in raw hc (7 MHz pixel clocks from the start of the raw
+// line). 1 hc = 4 master cycles (= 0.5 T-state at 3.5 MHz CPU).
 // Same mechanism + preconditions as `set_raster_position`.
 [[maybe_unused]]
 static bool set_raster_position_hc(Emulator& emu, int line, int hc) {
@@ -229,26 +233,96 @@ static uint8_t read_port_default(Emulator& emu, uint16_t port) {
     return emu.port().in(port);
 }
 
-// Compute the VRAM-bank-5 RAM offset for a given pixel line+col matching
-// the formula at src/core/emulator.cpp:3182-3189. Returns the raw
-// `Ram::write` index for the *pixel* byte at (pixel_line, char_col).
-// Bank 5 sits at SRAM offset 10*0x2000 = 0x14000; pixel address scheme
-// is the standard ZX Spectrum display-file layout.
-static uint32_t vram_pixel_ram_offset(int pixel_line, int char_col) {
-    const int y = pixel_line;
-    const uint16_t pixel_addr = 0x4000
-        | ((y & 0xC0) << 5)
-        | ((y & 0x07) << 8)
-        | ((y & 0x38) << 2)
-        | (char_col * 2);
-    return static_cast<uint32_t>(pixel_addr) - 0x4000u + 10u * 0x2000u;
+// ── GH #265 follow-up helpers ─────────────────────────────────────────
+
+// CPU address of display byte (line dline, COLUMN col) — standard layout.
+static uint16_t scr_pix(int dline, int col) {
+    return static_cast<uint16_t>(0x4000 | ((dline & 0xC0) << 5) |
+                                 ((dline & 0x07) << 8) | ((dline & 0x38) << 2) | col);
+}
+static uint16_t scr_attr(int dline, int col) {
+    return static_cast<uint16_t>(0x5800 + (dline / 8) * 32 + col);
 }
 
-// Same for the attribute byte at (pixel_line, char_col).
-// attr_addr = 0x5800 + (line/8)*32 + char_col*2 per emulator.cpp:3189.
-static uint32_t vram_attr_ram_offset(int pixel_line, int char_col) {
-    const uint16_t attr_addr = 0x5800u + (pixel_line / 8) * 32u + char_col * 2u;
-    return static_cast<uint32_t>(attr_addr) - 0x4000u + 10u * 0x2000u;
+// VHDL position of a DIRECT read (no CPU instruction; the port handler
+// samples the master cycle the clock is at) that sees floating_bus_r
+// holding `kind` (0 = pixel, 1 = attribute) of display column `col` on
+// display line `dline`.
+//   * floating_bus_r is reloaded on the FALLING edge of CLK_7, half-way
+//     through hc_ula counts 16k+9 (pixel 2k), 16k+11 (attribute 2k),
+//     16k+13 (pixel 2k+1) and 16k+15 (attribute 2k+1); count 16k+1
+//     resets it to X"FF" (zxula.vhd:319-340; the bytes are the fetches set
+//     up two counts earlier, :224-258).
+//   * A read at the START of count h therefore sees the reload of count
+//     h-1: pixel(2k) is visible at the start of 16k+10.
+//   * hc_ula 0 is raw hc c_min_hactive - 11 (zxula_timing.vhd:423-436), on
+//     raw line c_min_vactive for display line 0 (:441-451).
+[[maybe_unused]]
+static bool set_fb_capture(Emulator& emu, int dline, int col, int kind) {
+    const auto& vt = emu.video_timing();
+    const int reload = 16 * (col / 2) + 9 + 4 * (col & 1) + 2 * kind;
+    return set_raster_position_hc(emu, vt.display_origin().vc + dline,
+                                  vt.hc_ula_zero_raw_hc() + reload + 1);
+}
+// Same, for an arbitrary hc_ula reload count `e`.
+[[maybe_unused]]
+static bool set_fb_after_reload(Emulator& emu, int dline, int e) {
+    const auto& vt = emu.video_timing();
+    return set_raster_position_hc(emu, vt.display_origin().vc + dline,
+                                  vt.hc_ula_zero_raw_hc() + e + 1);
+}
+
+// FUSE oracle mapping. FUSE's T-state counter is INT-relative; jnext's
+// clock and contention counter count from the raw frame top. jnext's
+// memory contention, verified against FUSE on every T-state of a frame
+// (GH #265 follow-up; Task 50/54), puts FUSE's first contended T-state of
+// the display — 14335 (48K) / 14361 (128K) — on raw T 64*224+60 = 14396 /
+// 64*228+64 = 14656 (hc_ula pair {3,4} of zxula.vhd:582-583, the first
+// kPat48 stretch). So FUSE T = raw T - 61 (48K) / - 295 (128K).
+constexpr int kFuseToRaw48  = 61;
+constexpr int kFuseToRaw128 = 295;
+// Put the next instruction's start at FUSE INT-relative T `fuse_t`: moves
+// the clock (floating bus, NR reads) AND the FUSE counter (contention) to
+// the same raw position, as a running frame keeps them.
+[[maybe_unused]]
+static bool at_fuse_T(Emulator& emu, int fuse_t, int offset) {
+    const uint64_t raw = static_cast<uint64_t>(fuse_t + offset);
+    const uint64_t target = raw * 8u;
+    const uint64_t now = emu.clock().get() - emu.current_frame_cycle();
+    if (target < now) return false;
+    emu.clock().tick(target - now);
+    *fuse_z80_tstates_ptr() = static_cast<uint32_t>(raw);
+    return true;
+}
+// FUSE's screen fill for its floating-bus programs: pixel (line y, col c)
+// = c | (y&1)<<5, attribute (row r, col c) = 0x40 | c | (r&1)<<5, so every
+// byte names its own kind and column.
+[[maybe_unused]]
+static void fuse_screen_fill(Emulator& emu) {
+    for (int y = 0; y < 192; ++y)
+        for (int c = 0; c < 32; ++c)
+            emu.mmu().write(scr_pix(y, c), static_cast<uint8_t>(c | ((y & 1) << 5)));
+    for (int r = 0; r < 24; ++r)
+        for (int c = 0; c < 32; ++c)
+            emu.mmu().write(static_cast<uint16_t>(0x5800 + r * 32 + c),
+                            static_cast<uint8_t>(0x40 | c | ((r & 1) << 5)));
+}
+// Run ONE instruction at 0x8000 made of `bytes`, with A and BC preset.
+// Returns T consumed; `a_out` receives A.
+[[maybe_unused]]
+static int run_at_8000(Emulator& emu, std::initializer_list<uint8_t> bytes,
+                       uint8_t a, uint16_t bc, uint8_t& a_out) {
+    uint16_t adr = 0x8000;
+    for (uint8_t b : bytes) emu.mmu().write(adr++, b);
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000;
+    regs.AF = static_cast<uint16_t>((a << 8) | (regs.AF & 0x00FF));
+    regs.BC = bc;
+    regs.IFF1 = regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+    const int t = emu.cpu().execute();
+    a_out = static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+    return t;
 }
 
 } // namespace
@@ -278,128 +352,107 @@ static void test_section1_border(void) {
               v == 0xFF, fmt("v=0x%02X", v));
     }
 
-    // FB-02 — neighbour. 48K, H-blank inside V-active; expected 0xFF.
-    // Per zxula.vhd:316,416 border_active_ula = i_hc(8) OR border_active_v;
-    // emulator models H-blank via tstate_in_line >= 128 (emulator.cpp:3169).
+    // FB-02 — neighbour. 48K, horizontal border inside V-active; 0xFF.
+    // border_active_ula = i_hc(8) OR border_active_v (zxula.vhd:414-416):
+    // hc_ula >= 256 is border whatever the reload schedule says. Read after
+    // the reload of hc_ula 267 (267 & 15 = 11 — an attribute reload inside
+    // the display) on display line 36: were the i_hc(8) gate missing, the
+    // attribute byte seeded below would come back.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        // Line 100 = active display; tstate 150 > 128 = H-blank window.
-        set_raster_position(emu, 100, 150);
+        emu.mmu().write(scr_attr(36, (2 * (267 >> 4)) & 31), 0x3C);
+        set_fb_after_reload(emu, 36, 267);
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-02",
-              "48K H-blank inside V-active (line=100, t=150) port 0xFF=0xFF "
-              "(zxula.vhd:316,416,573)",
+              "48K horizontal border inside V-active (hc_ula 268) port 0xFF "
+              "= 0xFF (zxula.vhd:312-316,414-416,573)",
               v == 0xFF, fmt("v=0x%02X", v));
     }
 }
 
 // ══════════════════════════════════════════════════════════════════════
 // Section 2 — Active-display capture phases
-// VHDL: zxula.vhd:319-340 (hc(3:0) case → floating_bus_r load phases
-//       0x9/0xB/0xD/0xF from i_ula_vram_d; phase 0x1 resets).
+// VHDL: zxula.vhd:319-340 (hc(3:0) case → floating_bus_r reloads at
+//       0x9/0xB/0xD/0xF from i_ula_vram_d; 0x1 resets it to X"FF").
 // Plan: doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md §2
 //
-// Open Q 2 (resolved): production folds raster phase by `tstate_in_line
-// % 8` and selects {pixel, attr, pixel+1, attr+1} at offsets {2, 3, 4, 5}.
-// Tests use `set_raster_position` with raw 3.5 MHz T-states; phase
-// selection is via the chosen `tstate % 8`.
+// GH #265 follow-up: rows re-derived from the VHDL schedule in hc_ula
+// (set_fb_capture()); the old "T%8 in {2,3,4,5} of the raw line" mapping
+// is gone. Display line 36 (raw line 100), columns 4/5 (hc_ula block 2).
 // ══════════════════════════════════════════════════════════════════════
 
 static void test_section2_capture_phases(void) {
     set_group("FB-2-Capture");
 
-    // FB-2A — VHDL hc phase 0x9 ↔ host T%8=2 → pixel byte.
-    // Place raster at line=64 (top of active), col=8 (char_col=4 chars in
-    // = pixel column 32; well clear of left border at col<32). tstate=34
-    // → tstate%8 = 2 → pixel byte arm.
+    // FB-2A — reload at hc(3:0) = 9 → pixel byte of column 2k (k = 2).
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        const int LINE = 100, TSTATE = 34;          // tstate%8=2, char_col=4
-        const int pixel_line = LINE - 64;           // 36
-        const int char_col   = TSTATE / 8;          // 4
-        const uint8_t MARKER = 0xA5;
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), MARKER);
-        set_raster_position(emu, LINE, TSTATE);
+        emu.mmu().write(scr_pix(36, 4), 0xA5);
+        set_fb_capture(emu, 36, 4, 0);
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-2A",
-              "48K active display, T%8=2 → pixel byte from VRAM "
-              "(zxula.vhd:325-327)",
-              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
+              "48K display: after the hc_ula(3:0)=9 reload → pixel byte of "
+              "column 4 (zxula.vhd:325-327)",
+              v == 0xA5, fmt("v=0x%02X expected=0xA5", v));
     }
 
-    // FB-2B — VHDL hc phase 0xB ↔ host T%8=3 → attr byte.
+    // FB-2B — reload at hc(3:0) = B → attribute byte of column 2k.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        const int LINE = 100, TSTATE = 35;          // tstate%8=3, char_col=4
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
-        const uint8_t MARKER = 0x5C;
-        emu.ram().write(vram_attr_ram_offset(pixel_line, char_col), MARKER);
-        set_raster_position(emu, LINE, TSTATE);
+        emu.mmu().write(scr_attr(36, 4), 0x5C);
+        set_fb_capture(emu, 36, 4, 1);
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-2B",
-              "48K active display, T%8=3 → attribute byte from VRAM "
-              "(zxula.vhd:329-330)",
-              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
+              "48K display: after the hc_ula(3:0)=B reload → attribute byte "
+              "of column 4 (zxula.vhd:329-330)",
+              v == 0x5C, fmt("v=0x%02X expected=0x5C", v));
     }
 
-    // FB-2C — VHDL hc phase 0xD ↔ host T%8=4 → pixel+1 byte.
+    // FB-2C — reload at hc(3:0) = D → pixel byte of column 2k+1.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        const int LINE = 100, TSTATE = 36;          // tstate%8=4, char_col=4
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
-        const uint8_t MARKER = 0x3E;
-        // pixel+1 → write at pixel offset + 1
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col) + 1, MARKER);
-        set_raster_position(emu, LINE, TSTATE);
+        emu.mmu().write(scr_pix(36, 5), 0x3E);
+        set_fb_capture(emu, 36, 5, 0);
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-2C",
-              "48K active display, T%8=4 → pixel+1 byte from VRAM "
-              "(zxula.vhd:332-333)",
-              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
+              "48K display: after the hc_ula(3:0)=D reload → pixel byte of "
+              "column 5 (zxula.vhd:332-333)",
+              v == 0x3E, fmt("v=0x%02X expected=0x3E", v));
     }
 
-    // FB-2D — VHDL hc phase 0xF ↔ host T%8=5 → attr+1 byte.
+    // FB-2D — reload at hc(3:0) = F → attribute byte of column 2k+1.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        const int LINE = 100, TSTATE = 37;          // tstate%8=5, char_col=4
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
-        const uint8_t MARKER = 0x77;
-        emu.ram().write(vram_attr_ram_offset(pixel_line, char_col) + 1, MARKER);
-        set_raster_position(emu, LINE, TSTATE);
+        emu.mmu().write(scr_attr(36, 5), 0x77);
+        set_fb_capture(emu, 36, 5, 1);
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-2D",
-              "48K active display, T%8=5 → attr+1 byte from VRAM "
-              "(zxula.vhd:335-336)",
-              v == MARKER, fmt("v=0x%02X expected=0x%02X", v, MARKER));
+              "48K display: after the hc_ula(3:0)=F reload → attribute byte "
+              "of column 5 (zxula.vhd:335-336)",
+              v == 0x77, fmt("v=0x%02X expected=0x77", v));
     }
 
-    // FB-2E — reset/idle phase. Plan picks T%8=0 (production default arm
-    // at emulator.cpp:3196 returns 0xFF for {0,1,6,7}). VHDL calls this
-    // hc(3:0)=0x1 (reset). The 8T model collapses 8 of the 16 hc phases
-    // into the "idle" arm; FB-2E pins one representative.
+    // FB-2E — reset/idle: after the hc(3:0) = 1 reset and before the next
+    // 9, floating_bus_r is X"FF" with floating_bus_en = '0'. Read after the
+    // reload of count 16*2+4 (q = 4); the block's bytes are seeded so a
+    // model that returned a fetched byte here would fail.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        const int LINE = 100, TSTATE = 32;          // tstate%8=0
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
-        // Seed VRAM with a non-FF byte so a bug returning the pixel/attr
-        // byte instead of 0xFF would witness as a fail.
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x33);
-        emu.ram().write(vram_attr_ram_offset(pixel_line, char_col),  0x33);
-        set_raster_position(emu, LINE, TSTATE);
+        emu.mmu().write(scr_pix(36, 4), 0x33);
+        emu.mmu().write(scr_attr(36, 4), 0x33);
+        emu.mmu().write(scr_pix(36, 5), 0x33);
+        emu.mmu().write(scr_attr(36, 5), 0x33);
+        set_fb_after_reload(emu, 36, 16 * 2 + 4);
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-2E",
-              "48K active display, idle phase (T%8=0) returns 0xFF "
-              "(zxula.vhd:321-323,573)",
+              "48K display, idle half of the 16-count block (hc(3:0)=4) "
+              "returns 0xFF (zxula.vhd:321-323,573)",
               v == 0xFF, fmt("v=0x%02X", v));
     }
 
@@ -407,10 +460,13 @@ static void test_section2_capture_phases(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        // Line 50 < 64 → above-active border. tstate=20 (in pixel-fetch
-        // window if it were active) so the row pins the V-axis gate, not
-        // the H-blank gate.
-        set_raster_position(emu, 50, 20);
+        // Raw line 50 < c_min_vactive 64 → vc_ula in the vertical border
+        // (border_active_v, zxula.vhd:414). Read after the hc_ula 9 reload
+        // (a pixel phase were the line displayed) so the row pins the
+        // V-axis gate, not the horizontal one. GH #265 follow-up: the old
+        // stimulus (raw T 20) sat in the horizontal border under the VHDL
+        // counters and no longer isolated the vertical gate.
+        set_raster_position_hc(emu, 50, emu.video_timing().hc_ula_zero_raw_hc() + 10);
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-2F",
               "48K above-active V-border (line=50) returns 0xFF "
@@ -447,13 +503,11 @@ static void test_section3_p3_paths(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX_PLUS3);
-        const int LINE = 100, TSTATE = 34;          // active capture, T%8=2
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
         // Seed VRAM so a regression that bypasses the +3 gate would emit
-        // this marker instead of 0xFF.
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x42);
-        set_raster_position(emu, LINE, TSTATE);
+        // this marker instead of 0xFF. Pixel capture of column 4, display
+        // line 36 (set_fb_capture, VHDL schedule; GH #265 follow-up).
+        emu.mmu().write(scr_pix(36, 4), 0x42);
+        set_fb_capture(emu, 36, 4, 0);
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-03",
               "+3 port 0xFF in active capture phase hard-forced to 0xFF "
@@ -473,16 +527,14 @@ static void test_section3_p3_paths(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX_PLUS3);
+        // Pixel capture of column 4, display line 36 (set_fb_capture, VHDL
+        // schedule; GH #265 follow-up — +3 timing, hc_ula 0 at raw hc 125).
+        // Seeded FIRST: a bank-5 write also reloads the contended-CPU latch.
+        emu.mmu().write(scr_pix(36, 4), 0x42);
         // Seed the contended-CPU latch (Mmu::write to slot 1 updates
         // p3_floating_bus_dat_ on contended pages).
         emu.mmu().write(0x4000, 0xA4);
-        // Active display + T%8=2 (pixel byte 0). At LINE=100, TSTATE=34 →
-        // pixel_line=36, char_col=4 → pixel_addr per VHDL display layout.
-        const int LINE = 100, TSTATE = 34;
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x42);
-        set_raster_position(emu, LINE, TSTATE);
+        set_fb_capture(emu, 36, 4, 0);
         const uint8_t v = read_port_default(emu, 0x0FFD);
         check("FB-03a",
               "+3 port 0x0FFD active-display VRAM byte | 0x01 → 0x43 "
@@ -553,16 +605,15 @@ static void test_section3_p3_paths(void) {
         // Waveform-2 source: the contended-CPU latch (bank 5 is
         // contended on +3 timing → mmu().write updates it).
         emu.mmu().write(0x4000, 0x42);
-        // Waveform-1 source: the VRAM pixel byte the ULA fetches at
-        // (LINE=100, TSTATE=34) → pixel_line=36, char_col=4.
-        const int LINE = 100, TSTATE = 34;
-        emu.ram().write(vram_pixel_ram_offset(LINE - 64, TSTATE / 8), 0x42);
+        // Waveform-1 source: the VRAM pixel byte of column 4, display line
+        // 36 (set_fb_capture, VHDL schedule; GH #265 follow-up).
+        emu.mmu().write(scr_pix(36, 4), 0x42);
 
         // Border first (set_raster_position only ticks FORWARD).
         set_raster_position(emu, 32, 64);          // V-border
         const uint8_t v_border = read_port_default(emu, 0x0FFD);
         // Then into the active-display capture phase.
-        set_raster_position(emu, LINE, TSTATE);
+        set_fb_capture(emu, 36, 4, 0);
         const uint8_t v_active = read_port_default(emu, 0x0FFD);
 
         check("FB-04b",
@@ -804,12 +855,9 @@ static void test_section4_per_machine(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX128K);
-        const int LINE = 100, TSTATE = 34;          // T%8=2 (pixel arm)
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
         const uint8_t MARKER = 0x5A;
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), MARKER);
-        set_raster_position(emu, LINE, TSTATE);
+        emu.mmu().write(scr_pix(36, 4), MARKER);   // GH #265 follow-up:
+        set_fb_capture(emu, 36, 4, 0);             // VHDL pixel capture
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-4A",
               "128K active capture → ULA floating bus reaches port 0xFF (0x5A) "
@@ -825,11 +873,8 @@ static void test_section4_per_machine(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZXN_ISSUE2);
-        const int LINE = 100, TSTATE = 34;
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x5A);
-        set_raster_position(emu, LINE, TSTATE);
+        emu.mmu().write(scr_pix(36, 4), 0x5A);     // GH #265 follow-up:
+        set_fb_capture(emu, 36, 4, 0);             // VHDL pixel capture
         const uint8_t v = read_port_default(emu, 0x00FF);
         check("FB-4C",
               "Next-base active capture → port 0xFF hard-forced 0xFF "
@@ -867,65 +912,29 @@ static void test_section5_port_ff_wiring(void) {
               a == 0xFF, fmt("a=0x%02X", a));
     }
 
-    // FB-5A — neighbour. 48K IN A,(0xFF) in active capture → VRAM byte.
-    // Approach: bypass the (uncertain) per-CPU-cycle port-sample timing
-    // of the FUSE Z80 core by saturating the entire pixel-fetch window
-    // (T-states 0..127) of one active line with the SAME marker byte.
-    // Whichever T%8 phase the IN's port sample lands on, the read either
-    // returns the marker (phases 2/3/4/5) or 0xFF (phases 0/1/6/7).
-    // We pin raster *after* the IN's leading 7 T-states (DB+FF fetches)
-    // so the actual port sample lands inside the pixel-fetch window,
-    // then assert the read is the marker.
+    // FB-5A — neighbour. 48K IN A,(0xFF) in active capture → VRAM byte,
+    // through the full CPU + port-dispatch path.
     //
-    // To make the test deterministic regardless of FUSE Z80 sample
-    // timing, set the raster position so the port sample ends up at a
-    // T%8 ∈ {2,3,4,5} phase. Empirically `set_raster_position(100, 64)`
-    // followed by cpu_in_a_FF lands at a stable phase; we verify post
-    // hoc that the read returned the seeded marker.
+    // GH #265 follow-up: re-derived from FUSE. FUSE 1.6, 48K, IN A,(0xFF)
+    // with A = 0 (uncontended): an IN STARTING at INT-relative
+    // 14328 + 224*L + 8*g + k returns pixel(L, 2g), attr(L, 2g),
+    // pixel(L, 2g+1), attr(L, 2g+1) for k = 0..3 and 0xFF for k = 4..7
+    // (every T of the frame swept, 0 inconsistent samples). L = 36, g = 2,
+    // k = 0 → pixel of column 4. The row used to saturate the whole line
+    // and pick its start "empirically" against the old window.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        // Saturate ALL pixel + attr bytes for every char_col on line 100
-        // with the same marker. Whichever (char_col, phase) the IN samples
-        // in the {2,3,4,5} arms, the byte is the same.
-        const int LINE = 100;
-        const int pixel_line = LINE - 64;
         const uint8_t MARKER = 0xC3;
-        for (int cc = 0; cc < 32; ++cc) {
-            emu.ram().write(vram_pixel_ram_offset(pixel_line, cc),     MARKER);
-            emu.ram().write(vram_pixel_ram_offset(pixel_line, cc) + 1, MARKER);
-            emu.ram().write(vram_attr_ram_offset (pixel_line, cc),     MARKER);
-            emu.ram().write(vram_attr_ram_offset (pixel_line, cc) + 1, MARKER);
-        }
-        // Position raster early enough that the IN's leading fetches +
-        // contention land the port sample inside the pixel-fetch window
-        // (tstate < 128).
-        //
-        // GH #265 — the byte is sampled where the CPU latches it, not at the
-        // instruction's start (Section 9): IN A,(n) reaches its I/O cycle
-        // after 7 T (M1 + operand read) and DI_Reg latches 3.5 T into it, so
-        // an IN started at T 16 samples T-state 26, T%8 = 2 (pixel arm).
-        // This row used to start at T 20, chosen empirically against the
-        // start-of-instruction sampling (T 20, T%8 = 4); at the I/O cycle
-        // that is T 30, T%8 = 6, the 0xFF arm. Code at 0x8000 is uncontended
-        // on 48K (bank 2), so no contention moves the sample.
-        set_raster_position(emu, LINE, 16);
-        const uint8_t a = cpu_in_a_FF(emu);
-        // The post-IN raster position tells us which T%8 phase we sampled.
-        // Phases {2,3,4,5} → marker; phases {0,1,6,7} → 0xFF (default arm).
-        const int post_line  = emu.current_scanline();
-        const int post_tcyc  = static_cast<int>(
-            (emu.clock().get() - emu.current_frame_cycle())
-            / cpu_speed_divisor(emu.config().cpu_speed));
-        const int post_tline = post_tcyc % emu.timing().tstates_per_line;
+        emu.mmu().write(scr_pix(36, 4), MARKER);
+        at_fuse_T(emu, 14328 + 224 * 36 + 8 * 2 + 0, kFuseToRaw48);
+        uint8_t a = 0;
+        run_at_8000(emu, {0xDB, 0xFF}, 0x00, 0x0000, a);   // IN A,(0xFF)
         check("FB-5A",
-              "48K CPU IN A,(0xFF) in active line 100 sees VRAM marker 0xC3 "
-              "(VRAM saturated for all char_col; the IN's port sample lands "
-              "inside the pixel-fetch window; zxnext.vhd:2713,2813; "
-              "emulator.cpp:3090-3197)",
-              a == MARKER,
-              fmt("a=0x%02X expected=0x%02X post_line=%d post_tline=%d phase=%d",
-                  a, MARKER, post_line, post_tline, post_tline % 8));
+              "48K CPU IN A,(0xFF) starting at FUSE T 14328+224*36+16 returns "
+              "the pixel byte of line 36 column 4 (FUSE 1.6 sweep; "
+              "zxnext.vhd:2713,2813; zxula.vhd:319-340,573)",
+              a == MARKER, fmt("a=0x%02X expected=0x%02X", a, MARKER));
     }
 }
 
@@ -1171,10 +1180,7 @@ static void test_section7_d3f_followup(void) {
 
         // Seed bank-5 VRAM at the position the ULA would fetch at
         // active capture phase. Same coords as FB-03 / FB-03a.
-        const int LINE = 100, TSTATE = 34;          // active capture, T%8=2
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), 0x42);
+        emu.mmu().write(scr_pix(36, 4), 0x42);
 
         // NR 0x03 = 0xB1: tim_sel=+3, typ_sel=48 (unchanged).
         emu.nextreg().write(0x03, 0xB1);
@@ -1183,7 +1189,7 @@ static void test_section7_d3f_followup(void) {
         const MachineTimingMode tim_after = emu.mmu().machine_timing();
         const MachineType       typ_after = emu.mmu().machine_type();
 
-        set_raster_position(emu, LINE, TSTATE);
+        set_fb_capture(emu, 36, 4, 0);             // VHDL pixel capture
         const uint8_t v = read_port_default(emu, 0x00FF);
 
         check("FB-D3F-03",
@@ -1229,12 +1235,9 @@ static void test_section8_gh109_scope(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        const int LINE = 100, TSTATE = 34;          // active capture, T%8=2
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
         const uint8_t MARKER = 0x5A;
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), MARKER);
-        set_raster_position(emu, LINE, TSTATE);
+        emu.mmu().write(scr_pix(36, 4), MARKER);   // GH #265 follow-up:
+        set_fb_capture(emu, 36, 4, 0);             // VHDL pixel capture
         const uint8_t v = read_port_default(emu, 0x40A7);
         check("FB-109-01",
               "48K active capture: undecoded port 0x40A7 returns 0xFF, not "
@@ -1253,12 +1256,9 @@ static void test_section8_gh109_scope(void) {
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        const int LINE = 100, TSTATE = 34;          // active capture, T%8=2
-        const int pixel_line = LINE - 64;
-        const int char_col   = TSTATE / 8;
         const uint8_t MARKER = 0x5A;
-        emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col), MARKER);
-        set_raster_position(emu, LINE, TSTATE);
+        emu.mmu().write(scr_pix(36, 4), MARKER);   // GH #265 follow-up:
+        set_fb_capture(emu, 36, 4, 0);             // VHDL pixel capture
         const uint8_t v = read_port_default(emu, 0x40FF);
         check("FB-109-02",
               "48K active capture: port 0x40FF (LSB-only port_ff decode) "
@@ -1304,8 +1304,7 @@ static void test_harness_smoke(void) {
     }
 
     // FB-HARNESS-02 — set_raster_position_hc uses the 7 MHz pixel-clock
-    // domain (1 hc = 4 master cycles). This is the alternate
-    // interpretation of the VHDL hc(3:0) phase fold per Open Q 2.
+    // domain (1 hc = 4 master cycles).
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
@@ -1390,83 +1389,467 @@ static void test_harness_smoke(void) {
 //       (t80na.vhd:214-222), 3.5 T into its four clocks (t80n.vhd:1781-1782).
 // Plan: doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md §9
 //
-// jnext sampled the raster at clock_, the instruction's START. With the
-// instruction started at T 16 of an active line, the start-of-instruction
-// sample is T%8 = 0 (the 0xFF arm), while the latch lands at T 26 for
-// IN A,(n) (7 T to the I/O cycle) and T 27 for IN A,(C) (8 T). Char column
-// 3 (T 24..31) is seeded with distinct pixel / attribute bytes so each arm
-// is identifiable. Code at 0x8000 (bank 2) is uncontended on 48K and +3.
+// GH #265 follow-up: re-derived from FUSE (48K) and the VHDL (+3 0x0FFD).
+// FUSE: IN A,(0xFF) starting at 14328 + 224*L + 8*g + k returns pixel(2g),
+// attr(2g), pixel(2g+1), attr(2g+1) for k = 0..3; IN A,(C) reaches its I/O
+// cycle one T later, so the same bytes come from starts one T EARLIER
+// (FUSE's IN A,(C) of 0x00FF: start 8g-1 → pixel(2g), verified in the same
+// sweep). Sampling at the instruction's start instead reads the raster
+// 10.5 / 11.5 T early — the idle half of the block here, 0xFF.
 // ══════════════════════════════════════════════════════════════════════
-
-static void seed_char_col(Emulator& emu, int pixel_line, int char_col,
-                          uint8_t pix, uint8_t attr) {
-    emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col),     pix);
-    emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col) + 1,
-                    static_cast<uint8_t>(pix + 1));
-    emu.ram().write(vram_attr_ram_offset (pixel_line, char_col),     attr);
-    emu.ram().write(vram_attr_ram_offset (pixel_line, char_col) + 1,
-                    static_cast<uint8_t>(attr + 1));
-}
 
 static void test_section9_gh265_io_cycle(void) {
     set_group("FB-9-GH265");
-    const int LINE = 100, START = 16, COL = 3;
+    const int base48 = 14328 + 224 * 36 + 8 * 2;   // L = 36, g = 2
 
-    // FB-GH265-01 — IN A,(0xFF) started at T 16: sampled at T 26, T%8 = 2,
-    // the pixel byte of char column 3. Pre-fix: T 16, T%8 = 0 → 0xFF.
+    // FB-GH265-01 — IN A,(0xFF) at k = 1 → attribute byte of column 4.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        seed_char_col(emu, LINE - 64, COL, 0x16, 0x86);
-        set_raster_position(emu, LINE, START);
-        const uint8_t a = cpu_in_a_FF(emu);
+        fuse_screen_fill(emu);
+        at_fuse_T(emu, base48 + 1, kFuseToRaw48);
+        uint8_t a = 0;
+        run_at_8000(emu, {0xDB, 0xFF}, 0x00, 0x0000, a);
         check("FB-GH265-01",
-              "48K IN A,(0xFF) samples the floating bus at the DI_Reg latch, "
-              "3.5 T into its I/O cycle: started at T 16 it reads the T 26 "
-              "pixel byte (zxula.vhd:573; zxnext.vhd:4513; t80na.vhd:214-222)",
-              a == 0x16, fmt("a=0x%02X (want 0x16; pre-fix 0xFF)", a));
+              "48K IN A,(0xFF) starting at FUSE T 14328+224*36+17 reads the "
+              "attribute byte of column 4, 0x44 — the byte on the bus at the "
+              "DI_Reg latch (FUSE 1.6; zxula.vhd:573; t80na.vhd:214-222)",
+              a == 0x44, fmt("a=0x%02X (want 0x44; start-of-instruction 0xFF)", a));
     }
 
-    // FB-GH265-02 — IN A,(C) with BC = 0x00FF reaches its I/O cycle one
-    // T-state later (two M1s): sampled at T 27, T%8 = 3, the attribute byte.
-    // Pre-fix: 0xFF.
+    // FB-GH265-02 — IN A,(C) of 0x00FF started where FB-5A's IN A,(n) starts
+    // (k = 0): its I/O cycle is one T later, so it latches the k = 1 byte,
+    // the attribute of column 4, not the pixel.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX48K);
-        seed_char_col(emu, LINE - 64, COL, 0x16, 0x86);
-        set_raster_position(emu, LINE, START);
-        emu.mmu().write(0x8000, 0xED);
-        emu.mmu().write(0x8001, 0x78);            // IN A,(C)
-        auto regs = emu.cpu().get_registers();
-        regs.PC = 0x8000;
-        regs.BC = 0x00FF;
-        emu.cpu().set_registers(regs);
-        emu.cpu().execute();
-        const uint8_t a = static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+        fuse_screen_fill(emu);
+        at_fuse_T(emu, base48 + 0, kFuseToRaw48);
+        uint8_t a = 0;
+        run_at_8000(emu, {0xED, 0x78}, 0x00, 0x00FF, a);
         check("FB-GH265-02",
-              "48K IN A,(C) of port 0x00FF started at T 16 reads the T 27 "
-              "attribute byte (zxula.vhd:573; zxnext.vhd:4513; "
+              "48K IN A,(C) of 0x00FF starting at FUSE T 14328+224*36+16 reads "
+              "the attribute of column 4, 0x44 (FUSE 1.6; zxula.vhd:573; "
               "t80na.vhd:214-222)",
-              a == 0x86, fmt("a=0x%02X (want 0x86; pre-fix 0xFF)", a));
+              a == 0x44, fmt("a=0x%02X (want 0x44)", a));
     }
 
-    // FB-GH265-03 — the +3 port 0x0FFD active arm shares the same sampling
-    // point: IN A,(C) started at T 16 reads the T 27 attribute byte with bit
-    // 0 forced (zxula.vhd:573 `or i_timing_p3`). Pre-fix the T 16 sample is
-    // outside the capture phases, so the border arm returns the seeded
-    // contended-CPU latch 0xA4 raw.
+    // FB-GH265-03 — +3 port 0x0FFD shares the sampling point (VHDL; +3 has
+    // the 128K geometry, hc_ula 0 at raw hc 125): IN A,(C) of 0x0FFD
+    // starting at raw (line 100, T 72) latches in T-state 83, i.e. master
+    // cycle 8*83+3 = 667 of the line — hc_ula count (667-500-2)/4 = 41,
+    // hc(3:0) = 9: pixel of column 4 on display line 36, bit 0 forced
+    // (zxula.vhd:573). At the instruction's start (hc_ula count 18, reset
+    // half) the active arm is silent and the border arm returns the seeded
+    // contended-CPU latch 0xA4.
     {
         Emulator emu;
         fresh_emulator(emu, MachineType::ZX_PLUS3);
+        emu.mmu().write(scr_pix(36, 4), 0x42);
         emu.mmu().write(0x4000, 0xA4);            // p3_floating_bus_dat latch
-        seed_char_col(emu, LINE - 64, COL, 0x16, 0x86);
-        set_raster_position(emu, LINE, START);
-        const uint8_t a = cpu_in_a_0FFD(emu);
+        set_raster_position(emu, 100, 72);
+        *fuse_z80_tstates_ptr() = 100u * 228u + 72u;
+        uint8_t a = 0;
+        run_at_8000(emu, {0xED, 0x78}, 0x00, 0x0FFD, a);
         check("FB-GH265-03",
-              "+3 IN A,(C) of port 0x0FFD started at T 16 reads the T 27 "
-              "attribute byte | 0x01 (zxula.vhd:573; zxnext.vhd:4517; "
+              "+3 IN A,(C) of 0x0FFD starting at raw (100, T 72) reads the "
+              "pixel of column 4 | 0x01 = 0x43 at its DI_Reg latch "
+              "(zxula.vhd:319-340,573; zxnext.vhd:4517; t80na.vhd:214-222)",
+              a == 0x43, fmt("a=0x%02X (want 0x43; start-of-instruction 0xA4)", a));
+    }
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// Section 10 — GH #265 follow-up: the ULA's own counters, Timex, scroll,
+// shadow screen (verifier finding 1)
+// VHDL: zxula.vhd:191-258 (screen mode, scroll, fetch addresses),
+//       :319-340 (floating_bus_r reload schedule), :414-416,573;
+//       zxula_timing.vhd:423-451 (hc_ula / vc_ula origins);
+//       zxnext.vhd:6649-6656 (bank 7 for the 128K shadow screen).
+// FUSE 1.6: 48K / 128K sweeps of IN A,(0xFF) over every T of the frame.
+// Plan: doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md §10
+// ══════════════════════════════════════════════════════════════════════
+
+// Expected floating_bus_r after the reload of hc_ula count e on a display
+// line whose FUSE-fill bytes are p(c) / a(c) (zxula.vhd:319-340).
+static int fb_expected_after(int e, int dline) {
+    const int q = e & 15, k = e >> 4;
+    const int pix0 = (dline & 1) << 5, att0 = 0x40 | (((dline / 8) & 1) << 5);
+    switch (q) {
+        case 9: case 10:  return pix0 | (2 * k);
+        case 11: case 12: return att0 | (2 * k);
+        case 13: case 14: return pix0 | (2 * k + 1);
+        case 15:          return att0 | (2 * k + 1);
+        case 0:           return e == 0 ? 0xFF : (att0 | (2 * (k - 1) + 1));
+        default:          return 0xFF;
+    }
+}
+
+static void fb_hc_sweep(const char* id, MachineType mt, const char* desc) {
+    std::string bad;
+    Emulator emu;
+    fresh_emulator(emu, mt);
+    fuse_screen_fill(emu);
+    for (int e = 0; e < 32; ++e) {
+        set_fb_after_reload(emu, 36, e);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        const int want = fb_expected_after(e, 36);
+        if (v != want && bad.size() < 200)
+            bad += fmt(" e=%d got=0x%02X want=0x%02X", e, v, want);
+    }
+    check(id, desc, bad.empty(), bad);
+}
+
+static void fb_fuse_phase(const char* id, MachineType mt, int base, int line,
+                          int offset, const char* desc) {
+    // IN A,(0xFF), A = 0, starting at FUSE T base + line*L + 8*2 + k.
+    std::string bad;
+    for (int k = 0; k < 8; ++k) {
+        Emulator emu;
+        fresh_emulator(emu, mt);
+        fuse_screen_fill(emu);
+        at_fuse_T(emu, base + 16 + k, offset);
+        uint8_t a = 0;
+        run_at_8000(emu, {0xDB, 0xFF}, 0x00, 0x0000, a);
+        static const int col[4] = {4, 4, 5, 5};
+        const int want = k >= 4 ? 0xFF
+            : ((k & 1) ? (0x40 | col[k] | (((line / 8) & 1) << 5))
+                       : (col[k] | ((line & 1) << 5)));
+        if (a != want) bad += fmt(" k=%d got=0x%02X want=0x%02X", k, a, want);
+        (void)line;
+    }
+    check(id, desc, bad.empty(), bad);
+}
+
+// One FUSE-observed (start, expected byte) edge sample.
+static std::string fb_fuse_edge(MachineType mt, int fuse_t, int offset, int want) {
+    Emulator emu;
+    fresh_emulator(emu, mt);
+    fuse_screen_fill(emu);
+    at_fuse_T(emu, fuse_t, offset);
+    uint8_t a = 0;
+    run_at_8000(emu, {0xDB, 0xFF}, 0x00, 0x0000, a);
+    return a == want ? std::string() : fmt(" T=%d got=0x%02X want=0x%02X", fuse_t, a, want);
+}
+
+static void test_section10_ula_counters(void) {
+    set_group("FB-10-ULA-COUNTERS");
+
+    // FB-HC-48 / FB-HC-128 — the reload schedule itself, in hc_ula counts
+    // (the "16-hc-vs-8T mapping"): a direct read after the reload of count
+    // e = 0..31 on display line 36 sees X"FF" for e(3:0) = 1..8 (reset at
+    // 1), pixel(2k) for 9-10, attr(2k) for 11-12, pixel(2k+1) for 13-14,
+    // attr(2k+1) for 15 and for the next block's 0; count 0 of the line
+    // follows the previous line's border (X"FF").
+    fb_hc_sweep("FB-HC-48", MachineType::ZX48K,
+                "48K: floating_bus_r after each hc_ula reload 0..31 follows "
+                "the 9/B/D/F load, 1 reset schedule (zxula.vhd:319-340,573; "
+                "zxula_timing.vhd:423-436)");
+    fb_hc_sweep("FB-HC-128", MachineType::ZX128K,
+                "128K: same schedule, hc_ula 0 at raw hc 125 "
+                "(zxula.vhd:319-340,573; zxula_timing.vhd:423-436)");
+
+    // FB-FUSE-48-PHASE / FB-FUSE-128-PHASE — FUSE: IN A,(0xFF) starting at
+    // base + 224/228*36 + 16 + k, k = 0..7, returns pixel(4), attr(4),
+    // pixel(5), attr(5), then 0xFF x4.
+    fb_fuse_phase("FB-FUSE-48-PHASE", MachineType::ZX48K,
+                  14328 + 224 * 36, 36, kFuseToRaw48,
+                  "48K IN A,(0xFF) at FUSE T 14328+224*36+16+k returns "
+                  "P4 A4 P5 A5 FF FF FF FF, as FUSE 1.6 does (zxula.vhd:573)");
+    fb_fuse_phase("FB-FUSE-128-PHASE", MachineType::ZX128K,
+                  14354 + 228 * 36, 36, kFuseToRaw128,
+                  "128K IN A,(0xFF) at FUSE T 14354+228*36+16+k returns "
+                  "P4 A4 P5 A5 FF FF FF FF, as FUSE 1.6 does (zxula.vhd:573)");
+
+    // FB-FUSE-48-EDGES / FB-FUSE-128-EDGES — the window's corners, from the
+    // FUSE sweep: first byte (line 0, g 0, k 0 → pixel 0 of line 0 = 0x00)
+    // and the T before it (0xFF); last byte (line 191, g 15, k 3 → attr 31
+    // of row 23 = 0x7F) and the next group (0xFF); line -1 and line 192 at
+    // the first byte's column (0xFF).
+    {
+        std::string bad;
+        const int b = 14328;
+        bad += fb_fuse_edge(MachineType::ZX48K, b, kFuseToRaw48, 0x00);
+        bad += fb_fuse_edge(MachineType::ZX48K, b - 1, kFuseToRaw48, 0xFF);
+        bad += fb_fuse_edge(MachineType::ZX48K, b + 224 * 191 + 8 * 15 + 3, kFuseToRaw48, 0x7F);
+        bad += fb_fuse_edge(MachineType::ZX48K, b + 224 * 191 + 8 * 16, kFuseToRaw48, 0xFF);
+        bad += fb_fuse_edge(MachineType::ZX48K, b - 224, kFuseToRaw48, 0xFF);
+        bad += fb_fuse_edge(MachineType::ZX48K, b + 224 * 192, kFuseToRaw48, 0xFF);
+        check("FB-FUSE-48-EDGES",
+              "48K floating-bus window corners match FUSE 1.6: first byte at "
+              "T 14328, none at 14327, last at 14328+224*191+123, none past "
+              "it or on lines -1 / 192 (zxula.vhd:414-416,573)",
+              bad.empty(), bad);
+    }
+    {
+        std::string bad;
+        const int b = 14354;
+        bad += fb_fuse_edge(MachineType::ZX128K, b, kFuseToRaw128, 0x00);
+        bad += fb_fuse_edge(MachineType::ZX128K, b - 1, kFuseToRaw128, 0xFF);
+        bad += fb_fuse_edge(MachineType::ZX128K, b + 228 * 191 + 8 * 15 + 3, kFuseToRaw128, 0x7F);
+        bad += fb_fuse_edge(MachineType::ZX128K, b + 228 * 191 + 8 * 16, kFuseToRaw128, 0xFF);
+        bad += fb_fuse_edge(MachineType::ZX128K, b - 228, kFuseToRaw128, 0xFF);
+        bad += fb_fuse_edge(MachineType::ZX128K, b + 228 * 192, kFuseToRaw128, 0xFF);
+        check("FB-FUSE-128-EDGES",
+              "128K floating-bus window corners match FUSE 1.6: first byte "
+              "at T 14354, none at 14353, last at 14354+228*191+123, none "
+              "past it or on lines -1 / 192 (zxula.vhd:414-416,573)",
+              bad.empty(), bad);
+    }
+
+    // FB-FUSE-128-CONT — contended I/O and the floating bus together: 128K,
+    // IN A,(0xFF) with A = 0x40 (port 0x40FF: bank 5 page, so every clock of
+    // the I/O cycle may stretch — C:1 x4). FUSE 1.6, (T consumed, byte) by
+    // start column x of a display line: x = 32..38 → (23..17, 0xFF) — the
+    // stretches push the latch into the idle half — and x = 47 → (23,
+    // attribute of column 15). Line 36 (row 4, even) → 0x4F.
+    {
+        std::string bad;
+        const int xs[8]   = {32, 33, 34, 35, 36, 37, 38, 47};
+        const int t_w[8]  = {23, 22, 21, 20, 19, 18, 17, 23};
+        const int a_w[8]  = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0x4F};
+        for (int i = 0; i < 8; ++i) {
+            Emulator emu;
+            fresh_emulator(emu, MachineType::ZX128K);
+            fuse_screen_fill(emu);
+            at_fuse_T(emu, 14354 + 228 * 36 + xs[i], kFuseToRaw128);
+            uint8_t a = 0;
+            const int t = run_at_8000(emu, {0xDB, 0xFF}, 0x40, 0x0000, a);
+            if (t != t_w[i] || a != a_w[i])
+                bad += fmt(" x=%d got=(%d,0x%02X) want=(%d,0x%02X)", xs[i], t, a, t_w[i], a_w[i]);
+        }
+        check("FB-FUSE-128-CONT",
+              "128K contended IN A,(0xFF) (A=0x40) matches FUSE 1.6 in T-states "
+              "and byte at columns 32-38 and 47 (zxula.vhd:573,587-595; "
               "t80na.vhd:214-222)",
-              a == 0x87, fmt("a=0x%02X (want 0x87; pre-fix 0xA4)", a));
+              bad.empty(), bad);
+    }
+
+    // FB-SHD-01 — 128K shadow screen (0x7FFD bit 3): the ULA fetches from
+    // bank 7 (zxnext.vhd:6649-6656), so does the floating bus. FUSE 1.6 with
+    // 7FFD = 0x18 and bank 7's screen filled pixel = 0x80|c|(y&1)<<5, attr
+    // = 0xC0|c|(r&1)<<5: IN A,(0xFF) at 14354+228*36+16+k → 0x84 0xC4 0x85
+    // 0xC5 (bank 5 holds the ordinary fill, 0x04 0x44 0x05 0x45).
+    {
+        std::string bad;
+        for (int k = 0; k < 4; ++k) {
+            Emulator emu;
+            fresh_emulator(emu, MachineType::ZX128K);
+            fuse_screen_fill(emu);                     // bank 5
+            emu.port().out(0x7FFD, 0x17);              // bank 7 at 0xC000
+            for (int y = 0; y < 192; ++y)
+                for (int c = 0; c < 32; ++c)
+                    emu.mmu().write(static_cast<uint16_t>(scr_pix(y, c) + 0x8000),
+                                    static_cast<uint8_t>(0x80 | c | ((y & 1) << 5)));
+            for (int r = 0; r < 24; ++r)
+                for (int c = 0; c < 32; ++c)
+                    emu.mmu().write(static_cast<uint16_t>(0xD800 + r * 32 + c),
+                                    static_cast<uint8_t>(0xC0 | c | ((r & 1) << 5)));
+            emu.port().out(0x7FFD, 0x18);              // shadow screen, bank 0
+            at_fuse_T(emu, 14354 + 228 * 36 + 16 + k, kFuseToRaw128);
+            uint8_t a = 0;
+            run_at_8000(emu, {0xDB, 0xFF}, 0x00, 0x0000, a);
+            static const int want[4] = {0x84, 0xC4, 0x85, 0xC5};
+            if (a != want[k]) bad += fmt(" k=%d got=0x%02X want=0x%02X", k, a, want[k]);
+        }
+        check("FB-SHD-01",
+              "128K 0x7FFD b3 (shadow screen): the floating bus returns bank "
+              "7's bytes, as FUSE 1.6 does (zxnext.vhd:6649-6656; "
+              "zxula.vhd:573)",
+              bad.empty(), bad);
+    }
+
+    // FB-SHD-02 — VHDL: with the shadow screen on, screen_mode_s is forced
+    // to "000" whatever port 0xFF holds (zxula.vhd:191, "limit timex modes
+    // to bank 5 as bank 7 only has 8k bram"). Timex hi-colour would fetch
+    // the attribute from '1' & addr_p — offset 0x2000 + the pixel layout,
+    // which bank 7's 8K BRAM folds onto the PIXEL byte; with the shadow
+    // screen the standard attribute of bank 7 is read. Direct read,
+    // attribute capture of column 4.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX128K);
+        emu.port().out(0x7FFD, 0x17);                  // bank 7 at 0xC000
+        emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x8000), 0x91);
+        emu.mmu().write(static_cast<uint16_t>(scr_attr(36, 4) + 0x8000), 0x93);
+        // Shadow screen FIRST, then port 0xFF: Ula::set_shadow_screen_en()
+        // also clears the stored mode bits, which would hide the gate.
+        emu.port().out(0x7FFD, 0x18);                  // shadow screen on
+        emu.port().out(0x00FF, 0x02);                  // Timex hi-colour
+        set_fb_capture(emu, 36, 4, 1);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-SHD-02",
+              "Shadow screen forces the standard layout: with port 0xFF in "
+              "hi-colour the attribute capture reads bank 7's attribute of "
+              "(36,4), 0x93, not the hi-colour address (bank 7 pixel 0x91) "
+              "(zxula.vhd:191,246-252; zxnext.vhd:6649-6656)",
+              v == 0x93, fmt("v=0x%02X (want 0x93)", v));
+    }
+
+    // FB-TMX-01..03 — Timex modes pick the fetch address (zxula.vhd:236-252):
+    //   pixel:     screen_mode(0) & addr_p & px
+    //   attribute: '1' & addr_p & px when screen_mode(1), else
+    //              screen_mode(0) & addr_a & px
+    // 48K timing, display line 36, column 4. Direct reads.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        emu.mmu().write(scr_pix(36, 4), 0x11);
+        emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x2000), 0x22);
+        emu.port().out(0x00FF, 0x01);                  // alternate screen
+        set_fb_capture(emu, 36, 4, 0);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-TMX-01",
+              "Timex mode 1: the pixel fetch (and the floating bus) reads the "
+              "0x6000 screen, 0x22 (zxula.vhd:191,236-240)",
+              v == 0x22, fmt("v=0x%02X (want 0x22)", v));
+    }
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        emu.mmu().write(scr_attr(36, 4), 0x33);
+        emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x2000), 0x44);
+        emu.port().out(0x00FF, 0x02);                  // hi-colour
+        set_fb_capture(emu, 36, 4, 1);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-TMX-02",
+              "Timex hi-colour: the attribute fetch reads 0x2000 + the pixel "
+              "layout, 0x44, not the 0x5800 attribute (zxula.vhd:246-252)",
+              v == 0x44, fmt("v=0x%02X (want 0x44)", v));
+    }
+    {
+        std::string bad;
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        emu.mmu().write(scr_pix(36, 4), 0x55);
+        emu.mmu().write(static_cast<uint16_t>(scr_pix(36, 4) + 0x2000), 0x66);
+        emu.port().out(0x00FF, 0x06);                  // hi-res
+        set_fb_capture(emu, 36, 4, 0);
+        const uint8_t vp = read_port_default(emu, 0x00FF);
+        set_fb_capture(emu, 36, 4, 1);
+        const uint8_t va = read_port_default(emu, 0x00FF);
+        check("FB-TMX-03",
+              "Timex hi-res: the pixel slot reads screen 0 (0x55), the "
+              "attribute slot screen 1's pixel byte (0x66) "
+              "(zxula.vhd:236-252)",
+              vp == 0x55 && va == 0x66,
+              fmt("pixel=0x%02X (want 0x55) attr=0x%02X (want 0x66)", vp, va));
+    }
+
+    // FB-SCR-01..04 — ULA scroll moves the fetch address (zxula.vhd:192-209):
+    //   px(7:3) = hc(7:3) + scroll_x(7:3); py = vc + scroll_y folded into
+    //   0..191. 48K timing, direct reads at the pixel capture of column 4 on
+    //   display line 36 (or 180 / 150).
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        emu.mmu().write(scr_pix(36, 6), 0x7A);
+        emu.nextreg().write(0x26, 0x10);               // +16 px = +2 columns
+        set_fb_capture(emu, 36, 4, 0);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-SCR-01",
+              "NR 0x26 = 0x10: the column-4 fetch reads column 6, 0x7A "
+              "(zxula.vhd:199)",
+              v == 0x7A, fmt("v=0x%02X (want 0x7A)", v));
+    }
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        emu.mmu().write(scr_pix(44, 4), 0x7B);
+        emu.nextreg().write(0x27, 8);                  // +8 lines
+        set_fb_capture(emu, 36, 4, 0);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-SCR-02",
+              "NR 0x27 = 8: display line 36 fetches pixel line 44, 0x7B "
+              "(zxula.vhd:192,201-209)",
+              v == 0x7B, fmt("v=0x%02X (want 0x7B)", v));
+    }
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        emu.mmu().write(scr_pix(8, 4), 0x7C);
+        emu.nextreg().write(0x27, 20);                 // 180 + 20 = 200 → 8
+        set_fb_capture(emu, 180, 4, 0);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-SCR-03",
+              "NR 0x27 = 20 on display line 180: py_s = 200 folds to pixel "
+              "line 8, 0x7C (zxula.vhd:201-209)",
+              v == 0x7C, fmt("v=0x%02X (want 0x7C)", v));
+    }
+
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        emu.mmu().write(scr_pix(16, 4), 0x7D);
+        emu.nextreg().write(0x27, 250);                // 150 + 250 = 400 → 16
+        set_fb_capture(emu, 150, 4, 0);
+        const uint8_t v = read_port_default(emu, 0x00FF);
+        check("FB-SCR-04",
+              "NR 0x27 = 250 on display line 150: py_s = 400, py_s(8:7) = "
+              "\"11\", folds to pixel line 16, 0x7D (zxula.vhd:201-203)",
+              v == 0x7D, fmt("v=0x%02X (want 0x7D)", v));
+    }
+
+    // FB-SPD-01 — the position is in master cycles, not in CPU T-states: at
+    // 28 MHz (NR 0x07 = 3; port_ff_dat_ula has no speed gate, zxnext.vhd:4513)
+    // an IN A,(0xFF) from SRAM lasts 13 master cycles — its M1 and operand
+    // reads each carry the 28 MHz SRAM wait (zxnext.vhd:3171-3181) — so its
+    // I/O cycle starts in cycle 9 and T3's falling edge is in cycle 12.
+    // Started 500 master cycles into raw line 100 it latches in cycle 512 =
+    // hc_ula count (512-468-2)/4 = 10 → pixel of column 0 on display line
+    // 36. The old model divided the frame position by the configured
+    // 3.5 MHz divisor.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        emu.mmu().write(scr_pix(36, 0), 0x5E);
+        emu.nextreg().write(0x07, 0x03);
+        emu.clock().commit_pending_cpu_speed_on_bus_idle(true);
+        emu.contention().commit_pending_cpu_speed_on_bus_idle(true);
+        emu.clock().tick(100u * 1792u + 500u);
+        uint8_t a = 0;
+        run_at_8000(emu, {0xDB, 0xFF}, 0x00, 0x0000, a);
+        check("FB-SPD-01",
+              "28 MHz: IN A,(0xFF) started 500 master cycles into raw line 100 "
+              "reads the pixel of column 0 at its latch, 0x5E "
+              "(zxnext.vhd:4513; zxula.vhd:319-340,573; t80na.vhd:214-222)",
+              a == 0x5E, fmt("a=0x%02X (want 0x5E)", a));
+    }
+
+    // FB-SPD-02 — where inside an hc_ula count the reload lands. At 28 MHz
+    // the CPU can latch in any master cycle, which exposes it: floating_bus_r
+    // is reloaded on CLK_7's falling edge, the CLK_28 rising edge 2 master
+    // cycles into the count (zxula.vhd:308-340), and T3's falling edge at
+    // 28 MHz lies half a master cycle into its cycle (t80na.vhd:214-222). So
+    // a latch in master cycle 4h+1 of the ULA line precedes count h's reload
+    // and one in 4h+2 follows it. Count 9 is the pixel load of column 0: an
+    // IN A,(0xFF) (latch 12 cycles after its start, see FB-SPD-01) started
+    // at raw-line master cycle 493 latches in 505 = 468+37 (X"FF", count 8's
+    // reset half); started at 494, in 506 = 468+38 (pixel). Assumes CLK_7's
+    // rising edges on master cycles = 0 mod 4 of the raw line, as CT-GH183
+    // and VT-GH265 do.
+    {
+        std::string bad;
+        const int      start[2] = {493, 494};
+        const uint8_t  want[2]  = {0xFF, 0x5E};
+        for (int i = 0; i < 2; ++i) {
+            Emulator emu;
+            fresh_emulator(emu, MachineType::ZX48K);
+            emu.mmu().write(scr_pix(36, 0), 0x5E);
+            emu.nextreg().write(0x07, 0x03);
+            emu.clock().commit_pending_cpu_speed_on_bus_idle(true);
+            emu.contention().commit_pending_cpu_speed_on_bus_idle(true);
+            emu.clock().tick(100u * 1792u + static_cast<uint64_t>(start[i]));
+            uint8_t a = 0;
+            run_at_8000(emu, {0xDB, 0xFF}, 0x00, 0x0000, a);
+            if (a != want[i])
+                bad += fmt(" start=%d a=0x%02X want=0x%02X", start[i], a, want[i]);
+        }
+        check("FB-SPD-02",
+              "28 MHz: an IN A,(0xFF) latching in master cycle 4h+1 of the "
+              "ULA line misses count h's reload (0xFF), one latching in 4h+2 "
+              "sees it (pixel 0x5E) (zxula.vhd:308-340; t80na.vhd:214-222)",
+              bad.empty(), bad);
     }
 }
 
@@ -1507,6 +1890,9 @@ int main() {
 
     test_section9_gh265_io_cycle();
     std::printf("  Section 9 (GH #265 I/O cycle)  — %2d rows\n", 3);
+
+    test_section10_ula_counters();
+    std::printf("  Section 10 (ULA counters)      — %2d rows\n", 18);
 
     test_harness_smoke();
     std::printf("  Harness smoke (FB-HARNESS-NN)  — %2d rows\n", 5);

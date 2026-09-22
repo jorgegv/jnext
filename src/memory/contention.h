@@ -372,6 +372,32 @@ public:
     /// port 0x7FFD writes silently missed contention.
     bool port_contend(uint16_t cpu_a, bool port_ulap_io_en) const;
 
+    /// GH #265 follow-up (verifier finding 2) — the stretch for ONE clock of
+    /// an I/O machine cycle to @p cpu_a, @p io_clock 0..3 (T1, the automatic
+    /// wait, T2, T3 in T80 order). Caller sets mem_active_page to the MMU page
+    /// of @p cpu_a first, exactly as for a memory cycle.
+    ///
+    /// VHDL zxula.vhd:587-595 (48K/128K; `o_cpu_contend`):
+    ///     ((mem_contend and mreq23_n='1' and ioreqtw3_n='1') or
+    ///      (port_contend and iorq_n='0' and ioreqtw3_n='1')) and wait_s
+    /// `mem_contend` is the page decode of the address bus
+    /// (zxnext.vhd:4489-4493) — an I/O cycle carries the port there, so a
+    /// port in a contended page contends — and MREQ is high throughout the
+    /// cycle, so its registered copy `mreq23_n` is '1'. IORQ goes low at the
+    /// second clock (t80na.vhd:151-152, :334-359), and `ioreqtw3_n` is
+    /// IORQ OR NOT port_contend registered on the CPU clock's rising edge,
+    /// '1' until the edge after IORQ falls. Per clock that gives:
+    ///   0 (T1):          page contended;
+    ///   1 (wait):        page contended OR port_contend;
+    ///   2, 3 (T2, T3):   page contended AND NOT port_contend.
+    /// FUSE's port model (C:1 x4 / C:1,C:3 / N:1,C:3 / N:4) is the same
+    /// rule with `port_contend` narrowed to the even ports; the VHDL's
+    /// `port_contend` also carries port_7ffd_active and the ULA+ ports
+    /// (zxnext.vhd:4496), so 0x7FFD on 128K is C:1,C:3 here and C:1 x4 in
+    /// FUSE. +3: `o_cpu_wait_n` is memory-only (zxula.vhd:599-600) — 0.
+    uint8_t io_clock_tick(unsigned io_clock, uint16_t cpu_a,
+                          uint16_t hc, uint16_t vc) const;
+
 private:
     // lut_[vc][hc] — vc 0..319, hc 0..455
     std::array<std::array<uint8_t, 456>, 320> lut_{};

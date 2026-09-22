@@ -1623,14 +1623,16 @@ private:
     int cvc_at(uint64_t master_cycle) const;
 
     /// GH #265 — the master cycle whose value a port read sees, when the
-    /// VHDL latches that value on the CLK_CPU falling edge @p edge_half_t
-    /// half-T-states after the start of the I/O machine cycle of the IN
-    /// now executing: the last master cycle before that edge, since a
-    /// latch takes the value its input held just before it. clock_ only
-    /// advances when an instruction completes, so without this every read
-    /// would see the position at the instruction's START. Outside an
-    /// instruction (test harness, debugger, DMA) it is clock_.get().
-    uint64_t io_read_sample_cycle(unsigned edge_half_t) const;
+    /// VHDL latches that value on the CLK_CPU falling edge inside clock
+    /// @p io_clock (0..3: T1, the automatic wait, T2, T3) of the I/O machine
+    /// cycle of the IN now executing: the last master cycle before that
+    /// edge, since a latch takes the value its input held just before it.
+    /// The edge follows every contention stretch charged up to and including
+    /// that clock (Z80Cpu::io_clock_into_instruction()). clock_ only advances
+    /// when an instruction completes, so without this every read would see
+    /// the position at the instruction's START. Outside an instruction (test
+    /// harness, debugger, DMA) it is clock_.get().
+    uint64_t io_read_sample_cycle(unsigned io_clock) const;
 
     /// GH #262 — an IN from a port with LSB 0xDF that the mouse decode does
     /// not claim. VHDL zxnext.vhd:2674 decodes it as `port_1f` (Kempston 1)

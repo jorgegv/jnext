@@ -1049,11 +1049,17 @@ its handler runs.
 
 | ID | Assertion | VHDL |
 |----|-----------|------|
-| CT-GH265-01 | 48K, `IN A,(C)` of 0x0012 started 2 T after the ULA counter origin of the first display line: the IN takes more than 12 T and the handler sees `total - 3` (pre-fix `9`, before the stretch) | zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222 |
-| CT-GH265-02 | Control: the same IN in the top border takes 12 T and the handler sees 9 | zxula.vhd:414,583 |
+| CT-GH265-01 | 48K, `IN A,(C)` of 0x0012 started 2 T after the ULA counter origin of the first display line: the IN takes more than 12 T and the handler sees `total - 1` (pre-fix `9`, before the stretch) | zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222 |
+| CT-GH265-02 | Control: the same IN in the top border takes 12 T and the handler sees 11 | zxula.vhd:414,583 |
 
 Mutation-verified: restoring the read-before-stretch order fails CT-GH265-01
 with `total = 17, into = 9`.
+
+*Re-derived by the follow-up below (2026-09-22):* the I/O cycle is now
+charged clock by clock and the handler runs in its LAST clock (T3), after
+all four clocks' stretches, so it sees `total - 1` (was `total - 3`, when
+the whole cycle's single stretch was charged before three trailing
+T-states). The row's claim — the read follows the stretch — is unchanged.
 
 ## GH #265 follow-up (2026-09-22) — the contention counter carries the overshoot (verifier finding 4)
 
@@ -1083,6 +1089,86 @@ start.
 | CT-OVS-03 | A parked CPU frame moves it with the clock | invariant |
 | CT-OVS-04 | 7 MHz → 3.5 MHz switch mid-frame: every later IN satisfies the invariant | invariant; zxnext.vhd:5796-5828 |
 | CT-OVS-05 | A tape ROM trap's synthetic cycles move the counter with the clock | invariant |
+
+## GH #265 follow-up (2026-09-22) — I/O contention clock by clock (verifier finding 2)
+
+Found by the independent verification of GH #265 (finding 2): an I/O cycle
+to a port in a contended PAGE was never contended. `zxula.vhd:587-595`:
+
+```
+o_cpu_contend <= ((mem_contend and mreq23_n='1' and ioreqtw3_n='1') or
+                  (port_contend and iorq_n='0' and ioreqtw3_n='1')) and wait_s
+```
+
+`mem_contend` is the page decode of the address bus (`zxnext.vhd:4489-4493`,
+`mem_active_page` of cpu_a's MMU slot, `:2952`), and an I/O cycle carries
+the port on that bus; MREQ stays high through it, so the registered
+`mreq23_n` is `'1'`. IORQ falls at the second clock (`t80na.vhd:151-152,
+334-359`) and `ioreqtw3_n` (IORQ OR NOT port_contend, registered) stays `'1'`
+until the edge after. Clock by clock (T1, the automatic wait, T2, T3):
+`page` | `page OR port` | `page AND NOT port` | `page AND NOT port`. jnext
+charged one `port_contend` stretch and never the page term
+(`contention_tick` needs `mreq_n = 0`). `ContentionModel::io_clock_tick()`
+now gives the per-clock stretch, `fuse_z80_readport/writeport` charge it
+clock by clock, and `Z80Cpu::io_clock_into_instruction()` exposes where each
+clock begins so `Emulator::io_read_sample_cycle()` can place a latch after
+every stretch that precedes it (T3's falling edge for DI_Reg; the falling
+edge of the third clock for NR 0x1E/0x1F's `port_253b_dat_0` reload).
++3 timing: `o_cpu_wait_n` is memory-only (`zxula.vhd:599-600`), no I/O
+stretch — unchanged. A port WRITE strobe acts at the start of the second
+clock, before its stretch (FUSE: contend early, write, contend late); where
+exactly inside the cycle the write lands is not observable in jnext, whose
+port handlers do not read the raster on writes.
+
+FUSE's port model (C:1 ×4 / C:1,C:3 / N:1,C:3 / N:4) is the same rule with
+`port_contend` narrowed to the even ports. The VHDL's `port_contend` also
+carries `port_7ffd_active` and the ULA+ ports (`zxnext.vhd:4496`), so 0x7FFD
+on 128K is C:1,C:3 here and C:1 ×4 in FUSE — **the VHDL is followed**
+(CT-IOC-18).
+
+Oracle: FUSE 1.6 (48K `.sna`, 128K `.z80` v3 — a 128K `.sna` makes FUSE pick
+Pentagon), `IN A,(C)` / `OUT (C),A` / `IN A,(n)` from bank 2, every start T
+of a DI loop swept over the frame; the T-states each instance takes, by
+start phase `p = (start − 14328) mod 8` (48K) / `(start − 14354) mod 8`
+(128K). FUSE T = raw T − 61 (48K) / − 295 (128K), the mapping under which
+jnext's memory contention (`LD A,(0x4000)`) matches FUSE on every T.
+
+| Class (FUSE) | T by phase p = 0..7 |
+|---|---|
+| N:1,C:3 (even port, uncontended page) | 16 15 14 13 12 12 18 17 |
+| C:1,C:3 (even port, contended page) | 17 16 15 14 13 12 18 18 |
+| C:1 ×4 (odd port, contended page) | 23 22 21 20 19 18 24 24 |
+| N:4 (odd port, uncontended page) | 12 in every phase |
+| `IN A,(n)`, port in a contended page | 23 22 21 20 19 18 17 23 |
+| `IN A,(n)`, port in an uncontended page | 11 in every phase |
+
+After the fix jnext equals FUSE on every swept sample of all 16 48K and all
+16 128K instruction/port classes, except 128K `OUT (C),A` to 0x7FFD (VHDL,
+above) and 48K `IN A,(C)` of 0x7FFD's BYTE (FUSE floats every odd port on
+48K; the VHDL floats only LSB 0xFF — the T-states agree). Before: 6/16
+(48K) and 3/16 (128K) classes matched in all phases.
+
+| ID | Assertion | Oracle / VHDL |
+|----|-----------|---------------|
+| CT-IOC-01 | 48K `IN A,(C)` 0x00FE: N:1,C:3 | FUSE; zxula.vhd:587-595 |
+| CT-IOC-02 | 48K `IN A,(C)` 0x40FE: C:1,C:3 | FUSE; zxnext.vhd:4489-4496 |
+| CT-IOC-03 | 48K `IN A,(C)` 0x40FF: C:1 ×4 | FUSE; zxnext.vhd:4489-4493 |
+| CT-IOC-04 | 48K `IN A,(C)` 0x00FF: N:4 | FUSE |
+| CT-IOC-05 | 48K `IN A,(C)` 0x7FFD: no `port_7ffd_active` on 48K, C:1 ×4 | FUSE; zxnext.vhd:2594,4496 |
+| CT-IOC-06..09 | 48K `OUT (C),A` to 0x00FE / 0x40FE / 0x40FF / 0x00FF: same four classes | FUSE |
+| CT-IOC-10 | 48K `IN A,(0xFF)`, A = 0x40: 23 22 21 20 19 18 17 23 | FUSE |
+| CT-IOC-11 | 48K `IN A,(0xFF)`, A = 0x80: 11 | FUSE |
+| CT-IOC-12..14 | 128K, bank 1 at 0xC000: `IN` 0xC0FF (C:1 ×4), `IN` 0xC0FE (C:1,C:3), `OUT` 0xC0FF (C:1 ×4) | FUSE; zxnext.vhd:4489-4493 |
+| CT-IOC-15 | 128K `IN A,(C)` 0x40FF: C:1 ×4 | FUSE |
+| CT-IOC-16 | 128K `IN A,(C)` 0x80FF: N:4 | FUSE |
+| CT-IOC-17 | 128K `IN A,(C)` 0x7FFE (keyboard half-row): C:1,C:3 | FUSE |
+| CT-IOC-18 | 128K `OUT (C),A` 0x7FFD: C:1,C:3 (`port_7ffd_active`; FUSE: C:1 ×4) | zxnext.vhd:2594,4496 |
+| CT-IOC-19 | 128K `OUT` 0xBF3B, ULA+ on, bank 2 page: N:1,C:3 | zxnext.vhd:2685,4496 |
+| CT-IOC-20 | 128K `OUT` 0xFF3B, ULA+ on, bank 1 at 0xC000: C:1,C:3 | zxnext.vhd:2686,4489-4496 |
+| CT-IOC-21 | Same with ULA+ off (NR 0x85 b0 = 0): C:1 ×4 | zxnext.vhd:2439,2686,4496 |
+| CT-IOC-22 | 48K timing, MMU7 = page 10: `IN` 0xE0FF is in a contended page, C:1 ×4 | zxnext.vhd:2952,4489-4493 |
+| CT-IOC-23 | 48K timing, MMU2 = page 4: `IN` 0x40FF is not, N:4 | zxnext.vhd:2952,4489-4493 |
+| CT-IOC-24 | +3: `IN` 0x40FE / 0x40FF never stretched, 12 T | zxula.vhd:599-600 |
 
 ## Coverage notes (moved from the traceability matrix, GH #196)
 
