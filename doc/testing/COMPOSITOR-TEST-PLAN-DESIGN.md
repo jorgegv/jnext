@@ -937,17 +937,17 @@ end-of-frame snapshot is the only one it gets.
 
 | ID | Title | Stimulus | Expected | VHDL |
 |----|-------|----------|----------|------|
-| EOF255-01 | NR 0x4A fallback below the display | ULA hidden, NR 0x4A = 0x03; `MOVE 0x4A,0xE0` at cvc 230 | Column 0 fallback blue on every row incl. 255; `fallback_for_line(255)` = 0x03; live NR 0x4A = 0xE0 | zxnext.vhd:6829; zxula_timing.vhd:195-204 |
-| EOF255-02 | NR 0x68 b7 (ULA enable) below the display | ULA on, border 2, fallback blue; `MOVE 0x68,0x80` at cvc 230 | Column 0 border colour on every row incl. 255 (not fallback); ULA disabled at frame end | zxnext.vhd:6811,7103; zxula_timing.vhd:195-204 |
-| EOF255-03 | NR 0x68 b0 (stencil) below the display | `MOVE 0x68,0x01` at cvc 230 | `stencil_mode_for_line(255)` = 0; live b0 = 1 | zxnext.vhd:6813; zxula_timing.vhd:195-204 |
-| EOF255-04 | NR 0x68 b6:5 (blend) below the display | `MOVE 0x68,0x60` at cvc 230 | `blend_mode_for_line(255)` = 0; live = 11 | zxnext.vhd:6814; zxula_timing.vhd:195-204 |
-| EOF255-05 | NR 0x6B b7 (stencil gate) below the display | `MOVE 0x6B,0x80` at cvc 230 | `tm_enabled_for_line(255)` = 0; live b7 = 1 | zxnext.vhd:6824; zxula_timing.vhd:195-204 |
-| EOF255-06 | NR 0x14 below the display | `MOVE 0x14,0x00` at cvc 230 | `transparent_rgb_for_line(255)` = 0xE3; live 0x00 | zxnext.vhd:6828; zxula_timing.vhd:195-204 |
-| EOF255-07 | NR 0x1A ULA clip below the display | `MOVE 0x1C,0x04`, four `MOVE 0x1A` at cvc 230 | `ula_clip_for_line(255)` = 00/FF/00/BF; live x1 = 0x40 | zxnext.vhd:6774-6783; zxula_timing.vhd:195-204 |
-| EOF255-08 | NR 0x32 LoRes scroll below the display | `MOVE 0x32,0x10` at cvc 230 | LoRes `state_for_line(255).scroll_x` = 0; live 0x10 | zxnext.vhd:6771; zxula_timing.vhd:195-204 |
+| EOF255-01 | NR 0x4A fallback below the display | ULA hidden, NR 0x4A = 0x03; `MOVE 0x4A,0xE0` at cvc 230 | Column 0 fallback blue on every row incl. 255; `fallback_for_line(255)` = 0x03; live NR 0x4A = 0xE0 | zxnext.vhd:6823; zxula_timing.vhd:195-204 |
+| EOF255-02 | NR 0x68 b7 (ULA enable) below the display | ULA on, border 2, fallback blue; `MOVE 0x68,0x80` at cvc 230 | Column 0 border colour on every row incl. 255 (not fallback); ULA disabled at frame end | zxnext.vhd:6809,7103; zxula_timing.vhd:195-204 |
+| EOF255-03 | NR 0x68 b0 (stencil) below the display | `MOVE 0x68,0x01` at cvc 230 | `stencil_mode_for_line(255)` = 0; live b0 = 1 | zxnext.vhd:6810; zxula_timing.vhd:195-204 |
+| EOF255-04 | NR 0x68 b6:5 (blend) below the display | `MOVE 0x68,0x60` at cvc 230 | `blend_mode_for_line(255)` = 0; live = 11 | zxnext.vhd:6811; zxula_timing.vhd:195-204 |
+| EOF255-05 | NR 0x6B b7 (stencil gate) below the display | `MOVE 0x6B,0x80` at cvc 230 | `tm_enabled_for_line(255)` = 0; live b7 = 1 | zxnext.vhd:6820; zxula_timing.vhd:195-204 |
+| EOF255-06 | NR 0x14 below the display | `MOVE 0x14,0x00` at cvc 230 | `transparent_rgb_for_line(255)` = 0xE3; live 0x00 | zxnext.vhd:6822; zxula_timing.vhd:195-204 |
+| EOF255-07 | NR 0x1A ULA clip below the display | `MOVE 0x1C,0x04`, four `MOVE 0x1A` at cvc 230 | `ula_clip_for_line(255)` = 00/FF/00/BF; live x1 = 0x40 | zxnext.vhd:6775-6783; zxula_timing.vhd:195-204 |
+| EOF255-08 | NR 0x32 LoRes scroll below the display | `MOVE 0x32,0x10` at cvc 230 | LoRes `state_for_line(255).scroll_x` = 0; live 0x10 | zxnext.vhd:6772; zxula_timing.vhd:195-204 |
 | EOF255-09 | Port 0xFE border below the display | Border 2; CPU polls NR 0x1F to cvc 230, `OUT (0xFE)` 5 | Column 0 border 2 on every row incl. 255; `border_for_line(255)` = 2; live 5 | zxnext.vhd:3587-3605; zxula_timing.vhd:195-204 |
 | EOF255-10 | NR 0x15 b1 (sprites over border) below the display | Sprite in the left border, rows 200..327, NR 0x15 = 0x03; `MOVE 0x15,0x01` at cvc 230 | Sprite red at column 20 on rows 200..255 incl. 255 | sprites.vhd:1043-1067; zxnext.vhd:4336; zxula_timing.vhd:195-204 |
-| EOF255-11 | NR 0x43 b0 (ULAnext, ULA control lane) below the display | `MOVE 0x43,0x01` at cvc 230 | `ulanext_en_for_line(255)` = 0; live b0 = 1 | zxnext.vhd:6816; zxula_timing.vhd:195-204 |
+| EOF255-11 | NR 0x43 b0 (ULAnext, ULA control lane) below the display | `MOVE 0x43,0x01` at cvc 230 | `ulanext_en_for_line(255)` = 0; live b0 = 1 | zxnext.vhd:6813; zxula_timing.vhd:195-204 |
 | EOF255-12 | 60 Hz: row 255's only snapshot is the end-of-frame one | 60 Hz; Copper at cvc 100 writes NR 0x4A, 0x68 (0xE1), 0x6B, 0x14, 0x1A, 0x32, 0x15 (over border), 0x43; CPU writes border 5 at cvc 100; zeroed tiles made transparent (NR 0x4C = 0) | Row 255 carries every new value: accessors for fallback, stencil, blend, tm_en, NR 0x14, clip, LoRes, border, ULAnext; pixels for ULA hidden (column 0 = NR 0x4A red) and the border sprite (column 20 red) | zxula_timing.vhd:229-238; zxnext.vhd:6767-6830 |
 
 ### Group SRST — A soft reset in the middle of a frame (GH #263)

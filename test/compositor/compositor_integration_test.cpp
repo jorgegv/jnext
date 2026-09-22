@@ -1092,7 +1092,7 @@ static void test_eof255_integration(Emulator& emu) {
         const uint8_t live = nr_read_port(emu, 0x4A);
         check("EOF255-01",
               "NR 0x4A written below the display at 50 Hz does not reach row "
-              "255 (zxnext.vhd:6829; zxula_timing.vhd:195-204)",
+              "255 (zxnext.vhd:6823; zxula_timing.vhd:195-204)",
               px && row == 0x03 && live == 0xE0,
               d + fmt("; row255=0x%02X (exp 0x03) live=0x%02X (exp 0xE0)",
                       row, live));
@@ -1114,7 +1114,7 @@ static void test_eof255_integration(Emulator& emu) {
         const bool en_end = emu.ula().ula_enabled();
         check("EOF255-02",
               "NR 0x68 b7 cleared below the display at 50 Hz: row 255 still "
-              "shows the ULA border (zxnext.vhd:6811,7103; "
+              "shows the ULA border (zxnext.vhd:6809,7103; "
               "zxula_timing.vhd:195-204)",
               px && border != FALLBACK && !en_end,
               d + fmt("; border=0x%08X ula_en_end=%d (exp 0)", border, en_end));
@@ -1130,7 +1130,7 @@ static void test_eof255_integration(Emulator& emu) {
         const uint8_t live = nr_read_port(emu, 0x68);
         check("EOF255-03",
               "NR 0x68 b0 (stencil) written below the display at 50 Hz does "
-              "not reach row 255 (zxnext.vhd:6813; zxula_timing.vhd:195-204)",
+              "not reach row 255 (zxnext.vhd:6810; zxula_timing.vhd:195-204)",
               !row && (live & 0x01) != 0,
               fmt("row255 stencil=%d (exp 0) NR68=0x%02X", row, live));
     }
@@ -1145,7 +1145,7 @@ static void test_eof255_integration(Emulator& emu) {
         const uint8_t live = nr_read_port(emu, 0x68);
         check("EOF255-04",
               "NR 0x68 b6:5 (blend) written below the display at 50 Hz does "
-              "not reach row 255 (zxnext.vhd:6814; zxula_timing.vhd:195-204)",
+              "not reach row 255 (zxnext.vhd:6811; zxula_timing.vhd:195-204)",
               row == 0 && (live & 0x60) == 0x60,
               fmt("row255 blend=%u (exp 0) NR68=0x%02X", row, live));
     }
@@ -1160,7 +1160,7 @@ static void test_eof255_integration(Emulator& emu) {
         const uint8_t live = nr_read_port(emu, 0x6B);
         check("EOF255-05",
               "NR 0x6B b7 written below the display at 50 Hz does not reach "
-              "row 255's stencil gate (zxnext.vhd:6824; "
+              "row 255's stencil gate (zxnext.vhd:6820; "
               "zxula_timing.vhd:195-204)",
               !row && (live & 0x80) != 0,
               fmt("row255 tm_en=%d (exp 0) NR6B=0x%02X", row, live));
@@ -1176,7 +1176,7 @@ static void test_eof255_integration(Emulator& emu) {
         const uint8_t live = nr_read_port(emu, 0x14);
         check("EOF255-06",
               "NR 0x14 written below the display at 50 Hz does not reach row "
-              "255 (zxnext.vhd:6828; zxula_timing.vhd:195-204)",
+              "255 (zxnext.vhd:6822; zxula_timing.vhd:195-204)",
               row == 0xE3 && live == 0x00,
               fmt("row255 NR14=0x%02X (exp 0xE3) live=0x%02X", row, live));
     }
@@ -1194,7 +1194,7 @@ static void test_eof255_integration(Emulator& emu) {
         const Ula& ula = emu.ula();
         check("EOF255-07",
               "NR 0x1A written below the display at 50 Hz does not reach row "
-              "255 (zxnext.vhd:6774-6783; zxula_timing.vhd:195-204)",
+              "255 (zxnext.vhd:6775-6783; zxula_timing.vhd:195-204)",
               row.x1 == 0x00 && row.x2 == 0xFF && row.y1 == 0x00 &&
               row.y2 == 0xBF && ula.clip_x1() == 0x40 && ula.clip_y2() == 0x20,
               fmt("row255 clip=%02X/%02X/%02X/%02X (exp 00/FF/00/BF) "
@@ -1213,7 +1213,7 @@ static void test_eof255_integration(Emulator& emu) {
         const uint8_t live = emu.renderer().lores().scroll_x();
         check("EOF255-08",
               "NR 0x32 written below the display at 50 Hz does not reach row "
-              "255 (zxnext.vhd:6771; zxula_timing.vhd:195-204)",
+              "255 (zxnext.vhd:6772; zxula_timing.vhd:195-204)",
               row == 0x00 && live == 0x10,
               fmt("row255 lores scroll_x=0x%02X (exp 0) live=0x%02X",
                   row, live));
@@ -1271,7 +1271,7 @@ static void test_eof255_integration(Emulator& emu) {
         const uint8_t live = nr_read_port(emu, 0x43);
         check("EOF255-11",
               "NR 0x43 b0 written below the display at 50 Hz does not reach "
-              "row 255 (zxnext.vhd:6816; zxula_timing.vhd:195-204)",
+              "row 255 (zxnext.vhd:6813; zxula_timing.vhd:195-204)",
               !row && (live & 0x01) != 0,
               fmt("row255 ulanext=%d (exp 0) NR43=0x%02X", row, live));
     }
