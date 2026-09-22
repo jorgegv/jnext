@@ -1986,12 +1986,20 @@ reader rejects. A bad checksum or flag byte inside a complete block is not a
 container error: the tape loads, and the ROM reports "R Tape loading error"
 when it reads that block. <code>TzxLoader::validate()</code> does the same for a <code>.tzx</code>
 against libspectrum's TZX reader: the <code>ZXTape!</code> signature, then every block
-walked with that reader's length rules, so a block that runs past the end, a
-block ID libspectrum does not implement (the spec's own <code>$16</code>–<code>$18</code>, <code>$26</code>,
-<code>$27</code>, <code>$34</code> and <code>$40</code> included) or a header with no block after it refuses the
-whole tape. ZOT's own <code>tzx_load()</code> checks none of this — it took any file of
-two bytes or more, and one without the signature as TAP data — so the check
-runs first and ZOT only ever sees a validated TZX.</p>
+walked with that reader's length rules, so a block that runs past the end or a
+header with no block after it refuses the whole tape. ZOT's own <code>tzx_load()</code>
+checks none of this — it took any file of two bytes or more, and one without
+the signature as TAP data — so the check runs first and ZOT only ever sees a
+validated TZX.</p>
+<p>Where jnext deliberately accepts more than libspectrum is the block IDs that
+library does not implement and refuses outright. The TZX specification gives
+each of <code>$16</code>, <code>$17</code>, <code>$18</code>, <code>$26</code>, <code>$27</code>, <code>$34</code> and <code>$40</code> a length formula, and
+every later ID one through its General Extension Rule (a DWORD length after
+the ID), so such a block is valid when its length fields fit the file.
+<code>spec_skip_body()</code> holds those formulas; the validator, the fast-load scanner
+and ZOT (a local patch in <code>third_party/zot/tzx.c</code>) all skip these blocks by
+them, and <code>$19</code>, which ZOT cannot play either, the same way — the blocks after
+still load. <code>load()</code> warns about each skipped block that carried content.</p>
 <h2 id="nex">NEX<a class="headerlink" href="#nex" title="Permanent link">&para;</a></h2>
 <p><code>.nex</code> is the Next's native program container, and the most involved loader
 here: four header versions, optional Layer 2 / LoRes / tilemode loading

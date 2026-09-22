@@ -13,7 +13,8 @@
 //     what a random file, and a TAP file renamed .tzx, get)
 //   - a block that runs past the end   -> LIBSPECTRUM_ERROR_CORRUPT
 //   - a block ID it does not implement -> LIBSPECTRUM_ERROR_UNKNOWN, including
-//     the TZX spec's own $16-$18, $26, $27, $34 and $40
+//     the TZX spec's own $16-$18, $26, $27, $34 and $40. HERE JNEXT ACCEPTS
+//     MORE: it follows the TZX specification for those (TZXC-60..99 below).
 //   - the header and nothing else      -> read, but no tape present
 //   - a bad checksum in a complete block -> accepted (a ROM "R Tape loading
 //     error" when that block is read, not a container error)
@@ -118,6 +119,12 @@ std::string write_file(const std::string& name, const Bytes& bytes) {
     out.write(reinterpret_cast<const char*>(bytes.data()),
               static_cast<std::streamsize>(bytes.size()));
     return path.string();
+}
+
+int count_occurrences(const std::string& hay, const std::string& needle) {
+    int n = 0;
+    for (size_t p = hay.find(needle); p != std::string::npos; p = hay.find(needle, p + 1)) ++n;
+    return n;
 }
 
 struct Loaded { bool ok; bool is_loaded; };
@@ -365,25 +372,131 @@ int main(int argc, char** argv) {
               !bad.ok && !bad.is_loaded, detail(bad));
     }
 
-    // TZXC-60..66 — block IDs libspectrum does not implement are refused,
-    // even the TZX spec's own (each carries a well-formed body here).
-    struct Unsupported { const char* id; const char* name; Bytes block; };
-    const Unsupported unsupported[] = {
-        {"TZXC-60", "16-c64rom", concat({{0x16}, le32(4), {0, 0, 0, 0}})},
-        {"TZXC-61", "17-c64turbo", concat({{0x17}, le32(4), {0, 0, 0, 0}})},
-        {"TZXC-62", "18-csw", concat({{0x18}, le32(4), {0, 0, 0, 0}})},
-        {"TZXC-63", "26-call", concat({{0x26}, le16(1), le16(1)})},
-        {"TZXC-64", "27-return", {0x27}},
-        {"TZXC-65", "34-emuinfo", concat({{0x34}, Bytes(8, 0)})},
-        {"TZXC-66", "40-snapshot", concat({{0x40, 0x00}, le24(3), {1, 2, 3}})},
-        {"TZXC-67", "5b-unknown", concat({{0x5B}, le32(3), {1, 2, 3}})},
+    // TZXC-60..99 — the block IDs libspectrum does NOT implement. Here jnext
+    // deliberately accepts more than that library (which refuses them all,
+    // LIBSPECTRUM_ERROR_UNKNOWN): the TZX specification defines each with a
+    // length formula, and gives every later ID one by its General Extension
+    // Rule, so such a block is valid when its length fields fit the file —
+    // and refused, like any block, when they do not. The player cannot play
+    // any of them and skips each, so the blocks after it still load, fast or
+    // in real time. Oracle: the TZX specification
+    // (worldofspectrum.net/TZXformat.html), the "length:" of each block.
+    // (The $19 rows: libspectrum does implement $19 — TZXC-32/33 — but the
+    // player does not; it used to stop playback there.)
+    struct Rare {
+        const char* id_ok; const char* id_cut; const char* id_fast; const char* id_real;
+        const char* name; Bytes block;
     };
-    for (const auto& u : unsupported) {
-        const std::string n = u.name;
-        const Loaded l = load_bytes(n + ".tzx", concat({kHeader, b10(hdr_body()), u.block}));
-        check(u.id, (n + ": a block ID libspectrum does not implement is refused "
-                         "(libspectrum UNKNOWN)").c_str(),
-              !l.ok && !l.is_loaded, detail(l));
+    const Rare rare[] = {
+        // $16/$17: the DWORD is the WHOLE block's length, itself included.
+        {"TZXC-60", "TZXC-70", "TZXC-80", "TZXC-90", "16-c64rom",
+         concat({{0x16}, le32(8), {1, 2, 3, 4}})},
+        {"TZXC-61", "TZXC-71", "TZXC-81", "TZXC-91", "17-c64turbo",
+         concat({{0x17}, le32(6), {1, 2}})},
+        {"TZXC-62", "TZXC-72", "TZXC-82", "TZXC-92", "18-csw",          // [00..03]+04
+         concat({{0x18}, le32(4), {1, 2, 3, 4}})},
+        {"TZXC-63", "TZXC-73", "TZXC-83", "TZXC-93", "26-call",         // [00,01]*02+02
+         concat({{0x26}, le16(2), le16(1), le16(1)})},
+        {"TZXC-64", nullptr,   "TZXC-84", "TZXC-94", "27-return",       // 00
+         Bytes{0x27}},
+        {"TZXC-65", "TZXC-75", "TZXC-85", "TZXC-95", "34-emuinfo",      // 08
+         concat({{0x34}, Bytes(8, 0x11)})},
+        {"TZXC-66", "TZXC-76", "TZXC-86", "TZXC-96", "40-snapshot",     // [01,02,03]+04
+         concat({{0x40, 0x00}, le24(3), {1, 2, 3}})},
+        {"TZXC-67", "TZXC-77", "TZXC-87", "TZXC-97", "5b-unknown",      // extension rule
+         concat({{0x5B}, le32(3), {1, 2, 3}})},
+        {nullptr,   nullptr,   "TZXC-88", "TZXC-98", "19-generalised",
+         concat({{0x19}, le32(static_cast<uint32_t>(gdb_body.size())), gdb_body})},
+    };
+    // The fast-load path: the ROM LD-BYTES trap, run for the header block and
+    // then the data block; true when the second one delivers the data's bytes.
+    auto fast_load_reaches_data = [&](const std::string& path) {
+        auto emu = std::make_unique<Emulator>();
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX48K;
+        cfg.rewind_buffer_frames = 0;
+        TzxLoader t;
+        if (!emu->init(cfg) || !t.load(path)) return false;
+        auto trap = [&](uint16_t af, uint16_t ix, uint16_t de) {
+            Z80Registers r = emu->cpu().get_registers();
+            r.AF = af; r.IX = ix; r.DE = de; r.SP = 0x9000;
+            emu->mmu().write(0x9000, 0x34);
+            emu->mmu().write(0x9001, 0x12);
+            emu->cpu().set_registers(r);
+            return t.handle_ld_bytes_trap(*emu) && (emu->cpu().get_registers().AF & 1) != 0;
+        };
+        const bool hdr = trap(0x0001, 0x8000, 17);   // flag $00, LOAD
+        const bool dat = trap(0xFF01, 0x8100, 5);    // flag $FF, LOAD
+        bool bytes = true;
+        for (int i = 0; i < 5; ++i)
+            bytes = bytes && emu->mmu().read(static_cast<uint16_t>(0x8100 + i)) == i + 1;
+        return hdr && dat && bytes;
+    };
+    // The real-time path: EAR edges the player produces in the first 20000
+    // T-states. The $12 tone after the block under test gives ten.
+    auto realtime_edges = [&](const std::string& path) {
+        TzxLoader t;
+        if (!t.load(path)) return -1;
+        t.start_playback(0);
+        uint8_t last = t.update(0);
+        int edges = 0;
+        for (uint64_t c = 100; c <= 20000; c += 100) {
+            const uint8_t l = t.update(c);
+            edges += (l != last) ? 1 : 0;
+            last = l;
+        }
+        return edges;
+    };
+    const Bytes tone = concat({{0x12}, le16(1000), le16(10)});
+    for (const auto& r : rare) {
+        const std::string n = r.name;
+        if (r.id_ok) {
+            const Loaded ok = load_bytes(n + "-ok.tzx", concat({kHeader, r.block, b10(data_body())}));
+            check(r.id_ok, (n + ": accepted when its TZX-spec length fits the file (libspectrum "
+                                "refuses it: UNKNOWN), and the walk lands on the next block").c_str(),
+                  ok.ok && ok.is_loaded, detail(ok));
+        }
+        if (r.id_cut) {
+            Bytes cut = concat({kHeader, r.block});
+            cut.pop_back();
+            const Loaded bad = load_bytes(n + "-cut.tzx", cut);
+            check(r.id_cut, (n + ": one byte short at end of file is refused").c_str(),
+                  !bad.ok && !bad.is_loaded, detail(bad));
+        }
+        const std::string fast = write_file(n + "-fast.tzx",
+            concat({kHeader, b10(hdr_body()), r.block, b10(data_body())}));
+        check(r.id_fast, (n + ": fast load skips it — the data block after it still loads "
+                              "through the LD-BYTES trap").c_str(),
+              fast_load_reaches_data(fast));
+        const int edges = realtime_edges(write_file(n + "-real.tzx", concat({kHeader, r.block, tone})));
+        check(r.id_real, (n + ": real-time playback skips it — the tone after it still plays").c_str(),
+              edges >= 9, "edges=" + std::to_string(edges));
+    }
+    // TZXC-78 — a $16 whose "whole block" length is below the 4 bytes of the
+    // length field itself is inconsistent, and refused. The fixture declares
+    // 0 and is followed by exactly the bytes that WOULD walk cleanly if 0
+    // were taken at face value (an empty $16, then an extension-rule block
+    // of ID $00 made of the length field's own zeros), so only the "counts
+    // itself" rule refuses it.
+    {
+        const Loaded l = load_bytes("16-short.tzx",
+                                    concat({kHeader, b10(hdr_body()), {0x16}, le32(0), {0x00}}));
+        check("TZXC-78", "a $16 block declaring a whole-block length of 0 (below its own 4 "
+              "length bytes) is refused", !l.ok && !l.is_loaded, detail(l));
+    }
+    // TZXC-99 — a block the player skips without playing is reported when the
+    // tape loads (a CSW recording's data is lost); a call sequence, whose
+    // skipping loses nothing the player ever honoured, is not.
+    {
+        log_out.str("");
+        TzxLoader t;
+        const bool ok = t.load(write_file("warn.tzx",
+            concat({kHeader, rare[2].block, rare[3].block, b10(data_body())})));
+        const std::string log = log_out.str();
+        check("TZXC-99", "loading a tape with a CSW block logs one warning naming it as "
+              "skipped, and none for the call-sequence block",
+              ok && count_occurrences(log, "does not play; it is skipped") == 1 &&
+              log.find("block 0 (ID $18)") != std::string::npos, log);
     }
 
     // TZXC-68 — a new TZX replaces a WAV that was in (it already replaced a

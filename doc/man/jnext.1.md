@@ -536,7 +536,12 @@ format is detected from the extension:
 :   Fast load via a ROM trap; `LOAD ""` is auto-typed.
 
 `.tzx`
-:   Full block support; fast load or real-time.
+:   Fast load or real-time. The tape player plays the standard, turbo, tone,
+    pulse, pure-data and direct-recording blocks; a valid block it cannot play
+    (CSW, generalised data, the deprecated C64, emulation-info and snapshot
+    blocks, or an ID a later TZX revision adds) is skipped with a warning, and
+    the blocks after it still load. A file that is not a well-formed TZX is
+    refused.
 
 `.wav`
 :   RIFF/PCM EAR-bit playback (8/16-bit, mono/stereo).

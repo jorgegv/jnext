@@ -95,12 +95,21 @@ reader rejects. A bad checksum or flag byte inside a complete block is not a
 container error: the tape loads, and the ROM reports "R Tape loading error"
 when it reads that block. `TzxLoader::validate()` does the same for a `.tzx`
 against libspectrum's TZX reader: the `ZXTape!` signature, then every block
-walked with that reader's length rules, so a block that runs past the end, a
-block ID libspectrum does not implement (the spec's own `$16`–`$18`, `$26`,
-`$27`, `$34` and `$40` included) or a header with no block after it refuses the
-whole tape. ZOT's own `tzx_load()` checks none of this — it took any file of
-two bytes or more, and one without the signature as TAP data — so the check
-runs first and ZOT only ever sees a validated TZX.
+walked with that reader's length rules, so a block that runs past the end or a
+header with no block after it refuses the whole tape. ZOT's own `tzx_load()`
+checks none of this — it took any file of two bytes or more, and one without
+the signature as TAP data — so the check runs first and ZOT only ever sees a
+validated TZX.
+
+Where jnext deliberately accepts more than libspectrum is the block IDs that
+library does not implement and refuses outright. The TZX specification gives
+each of `$16`, `$17`, `$18`, `$26`, `$27`, `$34` and `$40` a length formula, and
+every later ID one through its General Extension Rule (a DWORD length after
+the ID), so such a block is valid when its length fields fit the file.
+`spec_skip_body()` holds those formulas; the validator, the fast-load scanner
+and ZOT (a local patch in `third_party/zot/tzx.c`) all skip these blocks by
+them, and `$19`, which ZOT cannot play either, the same way — the blocks after
+still load. `load()` warns about each skipped block that carried content.
 
 ## NEX
 

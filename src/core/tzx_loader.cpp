@@ -83,7 +83,69 @@ TzxLoader& TzxLoader::operator=(TzxLoader&& other) noexcept {
 // truncated .tzx "loaded".
 // ---------------------------------------------------------------------------
 
-bool TzxLoader::validate(const std::vector<uint8_t>& data, std::string& error)
+// Body length (the bytes after the ID) of a block libspectrum does not
+// implement, from the TZX specification (worldofspectrum.net/TZXformat.html,
+// "length:" of each block, in its notation: [a,b] = the value read at those
+// offsets). -1 when `remaining` cannot hold the block's length fields or the
+// body they declare. The player plays none of these; it skips them.
+//
+//   $16, $17 (C64 data, deprecated)  [00,01,02,03]  the DWORD is "Length of the
+//                                    WHOLE block including the data", so it
+//                                    counts itself and cannot be below 4
+//   $18 (CSW recording)              [00,01,02,03]+04
+//   $26 (call sequence)              [00,01]*02+02
+//   $27 (return from sequence)       00
+//   $34 (emulation info, deprecated) 08
+//   $40 (snapshot, deprecated)       [01,02,03]+04
+//   any other ID                     the General Extension Rule: "ALL custom
+//                                    blocks that will be added after version
+//                                    1.10 will have the length of the block in
+//                                    first 4 bytes (long word) after the ID
+//                                    (this length does not include these 4
+//                                    length bytes). This should enable programs
+//                                    that can only handle older versions to
+//                                    skip that block." Every ID up to 1.10 has
+//                                    its own entry, so this gives every
+//                                    unknown ID a length; none is refused for
+//                                    lacking one.
+static int64_t spec_skip_body(uint8_t id, const uint8_t* b, size_t remaining)
+{
+    auto u = [b](int at, int n) {
+        uint64_t v = 0;
+        for (int i = 0; i < n; ++i) v |= static_cast<uint64_t>(b[at + i]) << (8 * i);
+        return v;
+    };
+    uint64_t body = 0;
+    switch (id) {
+    case 0x16:
+    case 0x17:
+        if (remaining < 4 || u(0, 4) < 4) return -1;
+        body = u(0, 4);
+        break;
+    case 0x26:
+        if (remaining < 2) return -1;
+        body = 2 + 2 * u(0, 2);
+        break;
+    case 0x27:
+        body = 0;
+        break;
+    case 0x34:
+        body = 8;
+        break;
+    case 0x40:
+        if (remaining < 4) return -1;
+        body = 4 + u(1, 3);
+        break;
+    default:   // $18 and every unknown ID: DWORD + 4
+        if (remaining < 4) return -1;
+        body = 4 + u(0, 4);
+        break;
+    }
+    return body <= remaining ? static_cast<int64_t>(body) : -1;
+}
+
+bool TzxLoader::validate(const std::vector<uint8_t>& data, std::string& error,
+                         std::vector<std::pair<size_t, uint8_t>>* unplayed)
 {
     char msg[160];
     const size_t size = data.size();
@@ -202,6 +264,7 @@ bool TzxLoader::validate(const std::vector<uint8_t>& data, std::string& error)
             if (left(pos) < data_count) { ok = false; break; }
             pos += data_count;
             ok = pos == blockend;   // "sanity check failed"
+            if (ok && unplayed) unplayed->emplace_back(blocks, id);   // ZOT has no $19
             break;
         }
         case 0x20:  // tzx_read_pause
@@ -271,15 +334,22 @@ bool TzxLoader::validate(const std::vector<uint8_t>& data, std::string& error)
             ok = left(pos) >= 9;
             pos += 9;
             break;
-        default:
-            // "For now, don't handle anything else" — libspectrum refuses
-            // every other ID, including the TZX spec's own 0x16-0x18, 0x26,
-            // 0x27, 0x34 and 0x40, and any ID a later spec version adds.
-            std::snprintf(msg, sizeof(msg),
-                          "block %zu at offset %zu has ID $%02X, which is not a "
-                          "supported TZX block type", blocks, start, id);
-            error = msg;
-            return false;
+        default: {
+            // libspectrum stops here ("For now, don't handle anything else")
+            // and refuses the tape. jnext follows the TZX specification
+            // instead: the block is valid when its length fields fit the file
+            // (spec_skip_body() above), and the player skips it.
+            const int64_t body = spec_skip_body(id, data.data() + pos, left(pos));
+            ok = body >= 0;
+            if (ok) {
+                pos += static_cast<size_t>(body);
+                // $26/$27 have no content to lose (ZOT already skipped them);
+                // the others carry data or settings nothing plays.
+                if (unplayed && id != 0x26 && id != 0x27)
+                    unplayed->emplace_back(blocks, id);
+            }
+            break;
+        }
         }
 
         if (!ok) {
@@ -320,9 +390,14 @@ bool TzxLoader::load(const std::string& path) {
     // Refuse before touching any member, so a failed load leaves this loader
     // (and whatever tape it held) exactly as it was.
     std::string why;
-    if (!validate(bytes, why)) {
+    std::vector<std::pair<size_t, uint8_t>> unplayed;
+    if (!validate(bytes, why, &unplayed)) {
         Log::emulator()->error("TZX: '{}' is not a valid TZX file: {}", path, why);
         return false;
+    }
+    for (const auto& [index, id] : unplayed) {
+        Log::emulator()->warn("TZX: '{}' block {} (ID ${:02X}) is a valid block the tape "
+                              "player does not play; it is skipped", path, index, id);
     }
     file_data_ = std::move(bytes);
 
@@ -472,13 +547,18 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
             fast_load_offset_ += 1 + 2 + read_u16(b);
             break;
         }
-        // Unknown blocks: try common size patterns.
+        // Every other block carries no standard-speed data: skip it by its
+        // length. load() has validated the structure, so each is known.
         default: {
-            int body_size = -1;
+            int64_t body_size = -1;
             switch (id) {
+                case 0x19: if (remaining >= 4) body_size = 4 + static_cast<int64_t>(
+                               static_cast<uint32_t>(b[0]) |
+                               (static_cast<uint32_t>(b[1]) << 8) |
+                               (static_cast<uint32_t>(b[2]) << 16) |
+                               (static_cast<uint32_t>(b[3]) << 24));
+                           break;
                 case 0x23: body_size = 2; break;
-                case 0x26: if (remaining >= 2) body_size = 2 + read_u16(b) * 2; break;
-                case 0x27: body_size = 0; break;
                 case 0x28: if (remaining >= 2) body_size = 2 + read_u16(b); break;
                 case 0x31: if (remaining >= 2) body_size = 2 + b[1]; break;
                 case 0x33: if (remaining >= 1) body_size = 1 + b[0] * 3; break;
@@ -491,10 +571,12 @@ const uint8_t* TzxLoader::next_data_block(int& out_len) {
                     break;
                 }
                 case 0x5A: body_size = 9; break;
-                default: break;
+                default:   // $16-$18, $26, $27, $34, $40 and unknown IDs
+                    body_size = spec_skip_body(id, b, static_cast<size_t>(remaining));
+                    break;
             }
             if (body_size >= 0 && 1 + body_size <= len - fast_load_offset_) {
-                fast_load_offset_ += 1 + body_size;
+                fast_load_offset_ += 1 + static_cast<int>(body_size);
             } else {
                 Log::emulator()->warn("TZX fast-load: unknown block 0x{:02X} at offset {}, stopping",
                                        id, fast_load_offset_);
