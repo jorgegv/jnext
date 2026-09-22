@@ -470,27 +470,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         preserve_memory ? mmu_.machine_type() : cfg.type;
     contention_.build(init_machine_type);
     contention_.set_cpu_speed(static_cast<uint8_t>(cfg.cpu_speed) & 0x03);
-    // Verify9-memory class-(c) → class-(a) fix: seed
-    // ContentionModel's port_7ffd_io_en gate from NR 0x82 bit 1
-    // (VHDL zxnext.vhd:2399). Power-on default is 0xFF (all bits set,
-    // see nextreg.cpp:40 + VHDL :1226), so port_7ffd_io_en starts
-    // enabled. The NR 0x82 write handler at install_port_handlers()
-    // refreshes this on every subsequent write. ContentionModel::build()
-    // resets the gate to false; we re-seed it here to match the VHDL
-    // power-on default after build().
-    contention_.set_port_7ffd_io_en((nextreg_.cached(0x82) & 0x02) != 0);
-    // V15-CPU-NIT-03 (reviewer-promoted): seed
-    // ContentionModel's port_ulap_io_en gate from NR 0x85 bit 0
-    // (VHDL zxnext.vhd:2439 — port_ulap_io_en <= internal_port_enable(24);
-    // bit 24 = first bit of nr_85). Power-on default is 0x0F (low 4 bits
-    // set per VHDL :1229 — `nr_85_internal_port_enable` resets to all-1
-    // and the register is 4 bits wide, so reset value = 0x0F). The
-    // NR 0x85 write handler installed at install_port_handlers()
-    // refreshes the shadow on every subsequent write. The CPU-side
-    // bus callbacks (fuse_z80_readport / fuse_z80_writeport) consult
-    // the shadow internally via contention_tick() — no parameter
-    // needed (matches the port_7ffd_io_en_ pattern).
-    contention_.set_port_ulap_io_en((nextreg_.cached(0x85) & 0x01) != 0);
+    // ContentionModel's port_7ffd_io_en / port_ulap_io_en gates (build()
+    // clears the first) are seeded near the END of init(), with the DivMMC
+    // and Multiface enables, once expbus_eff_en is known — see there.
 
     // GH #237 — the VideoTiming seed used to live HERE, as
     // `video_timing_.init(cfg.type, false)`. It now runs below, once
@@ -6666,10 +6648,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // port_multiface_io_en, VHDL :2412 + :2415) through
     // effective_internal_port_enable so expbus_eff_en=1 ANDs in NR 0x87
     // (VHDL :2392-2393).
-    divmmc_.set_port_io_enable(
-        (effective_internal_port_enable(0x83) & 0x01) != 0);
-    multiface_.set_enabled(
-        (effective_internal_port_enable(0x83) & 0x02) != 0);
+    //
+    // The same holds for ContentionModel's port_7ffd_io_en (NR 0x82 b1,
+    // VHDL :2399 — port_contend term :2594/:4496) and port_ulap_io_en
+    // (NR 0x85 b0, :2439 — :2685-2686), which propagate_effective_port_enables()
+    // pushes along with the two above. They must be seeded HERE, after
+    // expbus_eff_en has been re-loaded from the (reset-folded) NR 0x80 bit 7
+    // — the VHDL reloads it inside the reset clause (:5799-5806) — and not
+    // from the raw NR 0x82 / 0x85 bytes: a reset that folds NR 0x80 bit 3 into
+    // bit 7 brings expbus up live with an NR 0x86-0x89 mask that survived
+    // (NR 0x89 b7=1, :5061-5067), so the effective enable can be 0 where the
+    // raw byte is all ones. soft_reset() also writes NR 0x86-0x89 back
+    // through their handlers after init(), which re-propagates; the
+    // snapshot/NEX loaders' in-place init() writes nothing back (GH #239,
+    // V16-NMP-02-LOAD-REINIT).
+    propagate_effective_port_enables();
 
     // Wire palette manager and RAM into ULA for enhanced palette and
     // hardware-accurate VRAM access (ULA reads directly from physical bank 5,

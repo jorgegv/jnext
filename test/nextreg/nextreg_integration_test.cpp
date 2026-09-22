@@ -21,6 +21,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "core/sna_saver.h"
 #include "debug/debug_state.h"
 #include "platform/emulator_boot.h"
 #include "input/joystick.h"
@@ -32,10 +33,14 @@
 #include <cstdarg>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
 #include <memory>
 #include <initializer_list>
+
+#include <unistd.h>   // getpid() — per-process fixture path
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -6326,6 +6331,159 @@ static void test_v16_nmp_02_expbus_and_mask(Emulator& emu) {
               !emu.contention().port_ulap_io_en(),
               "port_ulap_io_en=" +
                   std::to_string(emu.contention().port_ulap_io_en()));
+    }
+
+    // Power-on: every NR 0x82-0x89 enable bit starts at '1' (zxnext.vhd:
+    // 1226-1235) and NR 0x80 at X"00" (:360), so expbus is off and
+    // internal_port_enable is the raw NR 0x82-0x85 vector (:2392): 0x7FFD is
+    // decoded AND contended on 128K timing (:2593-2594, :4496), and the ULA+
+    // ports are enabled (:2439). ContentionModel::build() clears its
+    // port_7ffd_io_en copy, so this pins that init() seeds it again (the
+    // seed now sits at the end of init(), GH #239).
+    {
+        hard_reset(emu);
+        const bool gate    = emu.contention().port_7ffd_io_en();
+        const bool contend = emu.contention().port_contend(0x7FFD, false);
+        const bool ulap    = emu.contention().port_ulap_io_en();
+        check("V16-NMP-02-POWERON-SEED",
+              "a freshly booted machine has port_7ffd_io_en = 1 (0x7FFD "
+              "contended on 128K timing) and port_ulap_io_en = 1 "
+              "[zxnext.vhd:360, :1226-1235, :2392, :2399, :2439, :2594, :4496]",
+              gate && contend && ulap,
+              "port_7ffd_io_en=" + std::to_string(gate) +
+                  " port_contend(7FFD)=" + std::to_string(contend) +
+                  " port_ulap_io_en=" + std::to_string(ulap) + " (want 1 1 1)");
+    }
+
+    // The AND-mask must also hold on the machine a reset brings up, not only
+    // after a live NR write. On a reset the VHDL:
+    //   * folds NR 0x80's low nibble into its high one (zxnext.vhd:2185-2186
+    //     `nr_80_expbus(7 downto 4) <= nr_80_expbus(3 downto 0)`), so bit 3
+    //     written before the reset is `expbus_en` (bit 7, :2197) after it;
+    //   * reloads expbus_eff_en from expbus_en inside the reset clause
+    //     (:5799-5806) — the reset is held for many clocks, so it ends up
+    //     holding the folded bit;
+    //   * reloads NR 0x82-0x85 to all ones only when reset_type (NR 0x85 b7)
+    //     is 1, and NR 0x86-0x89 only when NR 0x89 b7 is 0 (:5052-5067) —
+    //     with the power-on reset_type bits (:1228, :1235) a mask written to
+    //     NR 0x86-0x89 SURVIVES while NR 0x82-0x85 come back all ones.
+    // So after RESET_SOFT with NR 0x80 = 0x08 and NR 0x86 b1 = 0, expbus is
+    // live and internal_port_enable(1) = NR 0x86 b1 AND NR 0x82 b1 = 0
+    // (:2392-2393), i.e. port_7ffd_io_en = 0 (:2399) — which gates both the
+    // port decode (:2593) and the port_contend term (:2594, :4496).
+    //
+    // Pre-fix Emulator::init() seeded the contention path's copies of
+    // port_7ffd_io_en / port_ulap_io_en from the RAW NR 0x82 / 0x85 bytes
+    // before it re-seeded expbus_eff_en from NR 0x80, and nothing
+    // re-propagated them: the port decode was masked (it reads the effective
+    // gate per access) while port_contend still contended 0x7FFD.
+    {
+        hard_reset(emu);
+        nr_write(emu, 0x80, 0x08);          // expbus_en after reset; off now
+        nr_write(emu, 0x86, 0xFD);          // bus mask: port_7ffd off
+        guest_soft_reset(emu);              // RESET_SOFT
+        const uint8_t nr80 = nr_read(emu, 0x80);
+        const uint8_t nr82 = nr_read(emu, 0x82);
+        const uint8_t nr86 = nr_read(emu, 0x86);
+        const uint8_t before = emu.mmu().port_7ffd();
+        emu.port().out(0x7FFD, static_cast<uint8_t>(before ^ 0x07));
+        const bool decoded = emu.mmu().port_7ffd() != before;
+        const bool gate    = emu.contention().port_7ffd_io_en();
+        const bool contend = emu.contention().port_contend(0x7FFD, false);
+        check("V16-NMP-02-SOFTRESET-7FFD",
+              "after RESET_SOFT with NR 0x80=0x08 and NR 0x86 b1=0, expbus is "
+              "live and port_7ffd_io_en = 0: OUT 0x7FFD is not decoded AND "
+              "0x7FFD is not contended [zxnext.vhd:2185-2186, :5799-5806, "
+              ":5052-5067, :2392-2393, :2399, :2593-2594, :4496]",
+              nr80 == 0x88 && nr82 == 0xFF && nr86 == 0xFD &&
+                  !decoded && !gate && !contend,
+              "NR80=" + hex2(nr80) + " NR82=" + hex2(nr82) + " NR86=" + hex2(nr86) +
+                  " decoded=" + std::to_string(decoded) +
+                  " port_7ffd_io_en=" + std::to_string(gate) +
+                  " port_contend(7FFD)=" + std::to_string(contend) +
+                  " (want 88 FF FD 0 0 0)");
+    }
+
+    // Same for the ULA+ pair: NR 0x89 b0 = 0 masks NR 0x85 b0
+    // (port_ulap_io_en, :2439) once expbus comes up live out of the reset.
+    // NR 0x89 is written 0x8E so its reset_type bit stays 1 and the mask
+    // survives (:5061).
+    {
+        hard_reset(emu);
+        nr_write(emu, 0x80, 0x08);
+        nr_write(emu, 0x89, 0x8E);          // keep across reset; b0 = 0
+        guest_soft_reset(emu);
+        const uint8_t nr85 = nr_read(emu, 0x85);
+        const uint8_t nr89 = nr_read(emu, 0x89);
+        const bool ulap = emu.contention().port_ulap_io_en();
+        check("V16-NMP-02-SOFTRESET-ULAP",
+              "after RESET_SOFT with NR 0x80=0x08 and NR 0x89 b0=0, "
+              "port_ulap_io_en = NR 0x85 b0 AND NR 0x89 b0 = 0, so the ULA+ "
+              "ports are not contended [zxnext.vhd:2185-2186, :5799-5806, "
+              ":5061-5067, :2392-2393, :2439, :2685-2686, :4496]",
+              (nr85 & 0x0F) == 0x0F && nr89 == 0x8E && !ulap,
+              "NR85=" + hex2(nr85) + " NR89=" + hex2(nr89) +
+                  " port_ulap_io_en=" + std::to_string(ulap) +
+                  " (want x F, 8E, 0)");
+    }
+
+    // The snapshot/NEX loaders re-initialise in place with init(config_),
+    // which leaves the NextREG file exactly as a reset does (the NR 0x80 fold,
+    // the NR 0x82-0x89 reset_type rules — see the init() declaration) but,
+    // unlike soft_reset(), writes nothing back through the NR handlers
+    // afterwards. So whatever init() itself seeds is what the loaded program
+    // runs with. With NR 0x80 = 0x08, NR 0x86 b1 = 0 and NR 0x89 b0 = 0 before
+    // the load, the NextREG state after it is expbus live (NR 0x80 = 0x88)
+    // with both masks in place, and the VHDL formula gives port_7ffd_io_en =
+    // port_ulap_io_en = 0 [zxnext.vhd:2392-2393, :2399, :2439] — for the
+    // contention path's copies too, not only the port decode.
+    //
+    // Pre-fix init() seeded those copies from the raw NR 0x82 / 0x85 bytes
+    // before it re-seeded expbus_eff_en: 0x7FFD and the ULA+ ports stayed
+    // contended while the decode was masked. (Until GH #239 the loaders went
+    // through the in-place Emulator::reset(), whose NR 0x86-0x89 write-back
+    // re-propagated them as a side effect.)
+    {
+        hard_reset(emu);
+        const std::string path = (std::filesystem::temp_directory_path() /
+            ("jnext-nr-v16-load-" + std::to_string(getpid()) + ".sna")).string();
+        bool wrote = false;
+        {
+            const std::vector<uint8_t> sna = SnaSaver::save(emu);
+            std::ofstream f(path, std::ios::binary | std::ios::trunc);
+            f.write(reinterpret_cast<const char*>(sna.data()),
+                    static_cast<std::streamsize>(sna.size()));
+            wrote = !sna.empty() && static_cast<bool>(f);
+        }
+        nr_write(emu, 0x80, 0x08);          // expbus_en after a reset; off now
+        nr_write(emu, 0x86, 0xFD);          // bus mask: port_7ffd off
+        nr_write(emu, 0x89, 0x8E);          // bus mask: port_ulap off; keep
+        const bool loaded = wrote && emu.load_sna(path);
+        std::remove(path.c_str());
+        const uint8_t nr80 = nr_read(emu, 0x80);
+        const uint8_t nr86 = nr_read(emu, 0x86);
+        const uint8_t nr89 = nr_read(emu, 0x89);
+        const uint8_t before = emu.mmu().port_7ffd();
+        emu.port().out(0x7FFD, static_cast<uint8_t>(before ^ 0x07));
+        const bool decoded = emu.mmu().port_7ffd() != before;
+        const bool gate    = emu.contention().port_7ffd_io_en();
+        const bool contend = emu.contention().port_contend(0x7FFD, false);
+        const bool ulap    = emu.contention().port_ulap_io_en();
+        check("V16-NMP-02-LOAD-REINIT",
+              "after a snapshot load re-initialises a machine whose NR 0x80=0x08, "
+              "NR 0x86 b1=0 and NR 0x89 b0=0, expbus is live and the contention "
+              "path follows the masked enables: 0x7FFD neither decoded nor "
+              "contended, port_ulap_io_en = 0 [zxnext.vhd:2185-2186, :2392-2393, "
+              ":2399, :2439, :2593-2594, :4496]",
+              loaded && nr80 == 0x88 && nr86 == 0xFD && nr89 == 0x8E &&
+                  !decoded && !gate && !contend && !ulap,
+              "loaded=" + std::to_string(loaded) + " NR80=" + hex2(nr80) +
+                  " NR86=" + hex2(nr86) + " NR89=" + hex2(nr89) +
+                  " decoded=" + std::to_string(decoded) +
+                  " port_7ffd_io_en=" + std::to_string(gate) +
+                  " port_contend(7FFD)=" + std::to_string(contend) +
+                  " port_ulap_io_en=" + std::to_string(ulap) +
+                  " (want 1 88 FD 8E 0 0 0 0)");
     }
 
     // Restore baseline: NR 0x80=0, NR 0x82-0x89 = power-on defaults.
