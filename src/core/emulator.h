@@ -1435,11 +1435,15 @@ private:
     /// esxDOS chain-load) costs neither a boot nor a re-read.
     std::vector<uint8_t> warm_start_state_;
 
-    /// Sticky: a recording that FAILED is not retried. Without it a machine
-    /// whose SD image cannot produce a NextZXOS — no firmware on the card, a
-    /// non-NextZXOS distro — would pay a 500-frame boot on every single load
-    /// and report the same failure each time.
-    bool warm_start_unavailable_ = false;
+    /// The SD image a recording attempt FAILED on, or empty.
+    ///
+    /// Sticky per image, not per session: without it a card that cannot
+    /// produce a NextZXOS — no firmware on it, a non-NextZXOS distro — would
+    /// pay a 500-frame boot on every single load and report the same failure
+    /// each time. Keyed on the path rather than a plain bool so that mounting
+    /// a DIFFERENT image (GUI File > Mount SD image) gets its own chance; the
+    /// verdict belongs to the card, not to the run.
+    std::string warm_start_failed_image_;
 
     /// Boot the firmware in place and serialise the result. Returns false,
     /// having logged why, when the boot does not land on a NextZXOS.

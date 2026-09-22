@@ -837,6 +837,29 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // GH #234 — --warm-start only reaches the NEX load path. Saying so is not
+    // pedantry: it changes the machine a program starts on, so a user who
+    // passes it expects a different result, and getting the old one with no
+    // word said is the failure mode the #138 enumeration was about. A warning
+    // rather than an error, because the rest of the command line is perfectly
+    // runnable. (The machine-type and no-SD cases are reported by the
+    // emulator itself, which is where the machine is known.)
+    if (warm_start) {
+        std::string ws_ext;
+        if (auto dot = load_file.rfind('.'); dot != std::string::npos) {
+            ws_ext = load_file.substr(dot);
+            for (auto& c : ws_ext)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        if (load_file.empty()) {
+            fprintf(stderr, "--warm-start has nothing to do without --load: a run with no "
+                            "program boots the firmware anyway.\n");
+        } else if (ws_ext != ".nex") {
+            fprintf(stderr, "--warm-start applies to .nex files only; '%s' loads as it "
+                            "always has.\n", load_file.c_str());
+        }
+    }
+
     // --delayed-screenshot-layers only means anything with a screenshot to
     // apply it to. Say so instead of quietly doing nothing.
     if (screenshot_layers_set && screenshot_file.empty()) {

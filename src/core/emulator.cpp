@@ -7164,7 +7164,8 @@ bool Emulator::record_warm_start_state(std::vector<uint8_t>& out)
 bool Emulator::ensure_warm_start_state()
 {
     if (!warm_start_state_.empty()) return true;
-    if (warm_start_unavailable_) return false;
+    if (!config_.sd_card_image.empty() &&
+        warm_start_failed_image_ == config_.sd_card_image) return false;
 
     if (config_.type != MachineType::ZXN_ISSUE2) {
         // Not a failure, and not silence either: a user who asked for a warm
@@ -7174,13 +7175,11 @@ bool Emulator::ensure_warm_start_state()
             "warm start: ignored on the {} — only the Next boots firmware, so there "
             "is nothing to record",
             machine_type_str(config_.type));
-        warm_start_unavailable_ = true;
         return false;
     }
     if (config_.sd_card_image.empty()) {
         Log::emulator()->warn("warm start: ignored — no SD image is mounted, so there "
                               "is no firmware to boot");
-        warm_start_unavailable_ = true;
         return false;
     }
 
@@ -7197,7 +7196,7 @@ bool Emulator::ensure_warm_start_state()
         Log::emulator()->warn("warm start: cannot digest SD image '{}' — falling back "
                               "to the synthetic machine",
                               config_.sd_card_image);
-        warm_start_unavailable_ = true;
+        warm_start_failed_image_ = config_.sd_card_image;
         return false;
     }
 
@@ -7218,7 +7217,23 @@ bool Emulator::ensure_warm_start_state()
 
     if (!record_warm_start_state(warm_start_state_)) {
         warm_start_state_.clear();
-        warm_start_unavailable_ = true;
+        warm_start_failed_image_ = config_.sd_card_image;
+        return false;
+    }
+
+    // The recording came off a DIFFERENT Emulator, so the length it produced
+    // is asserted here rather than assumed. It cannot differ today — every
+    // Emulator constructs the same fixed-size Ram — but the length is the
+    // guard that stops a foreign stream writing past that buffer
+    // (Ram::load_state reads a count-prefixed blob straight into it), and a
+    // guard derived from an assumption is not one.
+    if (warm_start_state_.size() != id.state_bytes) {
+        Log::emulator()->error(
+            "warm start: the recording is {} bytes but this machine's state stream is "
+            "{} — discarding it",
+            warm_start_state_.size(), id.state_bytes);
+        warm_start_state_.clear();
+        warm_start_failed_image_ = config_.sd_card_image;
         return false;
     }
 
@@ -7259,7 +7274,7 @@ bool Emulator::init_for_load_from_file()
             "it and falling back to the synthetic machine",
             last_state_error().empty() ? std::string("unknown") : last_state_error());
         warm_start_state_.clear();
-        warm_start_unavailable_ = true;
+        warm_start_failed_image_ = config_.sd_card_image;
         return init(config_);
     }
 
@@ -7273,7 +7288,7 @@ bool Emulator::init_for_load_from_file()
             "warm start: the restored machine is not NextZXOS-resident ({}) — "
             "discarding it and falling back to the synthetic machine", why);
         warm_start_state_.clear();
-        warm_start_unavailable_ = true;
+        warm_start_failed_image_ = config_.sd_card_image;
         return init(config_);
     }
 

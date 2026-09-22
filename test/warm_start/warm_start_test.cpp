@@ -44,7 +44,7 @@
 //                 FIRMWARE-LESS checks pass — the case with no symptom
 //   WSR-RES-03    ensure_warm_start_state() declines on a non-Next
 //   WSR-RES-04    ensure_warm_start_state() declines with no SD image
-//   WSR-RES-05    the decline is sticky — a second call declines too
+//   WSR-RES-05    a machine with no SD image declines every time
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -332,7 +332,7 @@ int main()
 
         check("WSR-RES-04", "ensure_warm_start_state() declines with no SD image",
               !emun.ensure_warm_start_state());
-        check("WSR-RES-05", "the decline is sticky — a second call declines too",
+        check("WSR-RES-05", "a machine with no SD image declines every time",
               !emun.ensure_warm_start_state());
     }
 
