@@ -700,8 +700,9 @@ int main() {
     // XNEX-37/38 are the regression rows for the load_nex() BC write: without
     // it, V1.3 enters with BC=$0000. XNEX-39 guards the handle-in-BC case
     // against that write. XNEX-40/41 are NOT regression rows for it — BC is
-    // already $0000 after load_nex()'s hard reset, so they pass with the
-    // write removed. They pin V1.0-V1.2 to the distro loader's $0000 against
+    // already $0000 after load_nex()'s init(config_) re-initialisation, so
+    // they pass with the write removed. They pin V1.0-V1.2 to the distro
+    // loader's $0000 against
     // a "use nexload2's 255 for every version" change, which they do catch.
     struct BcLoad { bool ok = false; uint16_t bc = 0; uint8_t at_4000 = 0; };
     auto load_bc = [&](const char* name, const char* version, uint16_t file_handle) {
