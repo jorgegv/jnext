@@ -40,11 +40,12 @@ mentions them, so a test can no longer be absent from this document.
 | Input                                      |   356 |  344 |    0 |    0 |      12 |          0 |
 | Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
-| VideoTiming                                |    65 |   62 |    0 |    0 |       3 |          0 |
+| VideoTiming                                |    67 |   64 |    0 |    0 |       3 |          0 |
 | Contention                                 |   160 |  158 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    55 |   52 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    82 |   60 |    0 |    0 |      22 |          0 |
+| Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   190 |  186 |    0 |    4 |       0 |          0 |
@@ -61,9 +62,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    40 |   40 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4649 | 4397 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4737 | 4485 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4649**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4381**. Rows the 108 suites declared in `test/unit-tests.conf` run live: **7712**.
+Rows the sections above carry: **4737**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4469**. Rows the 109 suites declared in `test/unit-tests.conf` run live: **7814**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -75,7 +76,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 67 suites (3519 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 67 suites (3533 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -137,7 +138,7 @@ These 67 suites (3519 live rows) have no VHDL-derived plan row to map, so they h
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
 | `quit_cleanup_test` | 7 | host shutdown ordering (GUI lifecycle) |
 | `preferences_apply_test` | 53 | Preferences dialog wiring (host GUI) |
-| `debugger_video_panel_test` | 92 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
+| `debugger_video_panel_test` | 106 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 15 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 5 | debugger quit gating (host GUI lifecycle) |
 | `debugger_persistent_bp_test` | 5 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
@@ -3248,12 +3249,12 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-GH257-04 | Next: line-int target 0 (int_line_num = c_max_vc = 310) fires at raw (63, hc 380) = (63*456+380)*4 = 116432 (zxula_timing.vhd:566-570,577) | zxula_timing.vhd:566-570,577 | pass | test/videotiming/videotiming_test.cpp:1609 |
 | VT-GH257-05 | Emulator raises the target-208 line interrupt in the instruction crossing raw (271, hc 380), hc_ula 255 (zxula_timing.vhd:423-436,577; zxnext.vhd:6752-6758) | zxula_timing.vhd:423-436,577, zxnext.vhd:6752-6758 | pass | test/videotiming/videotiming_test.cpp:1642 |
 | VT-GH257-06 | NR 0x1E/0x1F cvc steps at hc_ula 0 (raw hc 125, master cycle 500): raw line 64 reads 310 up to cycle 499 and 0 from 500 (zxula_timing.vhd:423-436,457-470; zxnext.vhd:5982-5986) | zxula_timing.vhd:423-436,457-470, zxnext.vhd:5982-5986 | pass | test/videotiming/videotiming_test.cpp:1676 |
-| VT-GH265-01 | IN A,(C) of NR 0x1F starting before the cvc step samples at its I/O cycle: reads 0x00, not the start-of-instruction 0x36 (zxnext.vhd:2819,5871-5876,5985-5986; t80na.vhd:214-222) | zxnext.vhd:2819,5871-5876,5985-5986, t80na.vhd:214-222 | pass | test/videotiming/videotiming_test.cpp:1748 |
-| VT-GH265-02 | IN A,(C) of NR 0x1E starting before the cvc step reads cvc(8) at its I/O cycle: 0x00, not the start-of-instruction 0x01 (zxnext.vhd:2819,5871-5876,5982-5983) | zxnext.vhd:2819,5871-5876,5982-5983 | pass | test/videotiming/videotiming_test.cpp:1762 |
-| VT-GH265-03 | IN A,(C) reload edge 2.5 T into the I/O cycle: edge on the cvc step reads the old line 0x36, one T-state later reads 0x00 (zxnext.vhd:5871-5876; t80na.vhd:214-222; t80n.vhd:1781-1782) | zxnext.vhd:5871-5876, t80na.vhd:214-222, t80n.vhd:1781-1782 | pass | test/videotiming/videotiming_test.cpp:1779 |
-| VT-GH265-04 | IN A,(n) of NR 0x1F: I/O cycle after 7 T, edge on the cvc step reads 0x36, one T-state later 0x00 (zxnext.vhd:5871-5876; t80na.vhd:214-222) | zxnext.vhd:5871-5876, t80na.vhd:214-222 | pass | test/videotiming/videotiming_test.cpp:1796 |
-| VT-GH265-05 | a loop polling NR 0x1F for line 0 leaves on the first turn whose IN samples past the cvc step: 12 instructions, not 15 (zxnext.vhd:5871-5876,5985-5986; t80na.vhd:214-222) | zxnext.vhd:5871-5876,5985-5986, t80na.vhd:214-222 | pass | test/videotiming/videotiming_test.cpp:1838 |
-| VT-GH265-06 | a NR 0x1F read outside any instruction samples at the clock, even after an IN has executed: 8 cycles before the step it reads 0x36 (zxnext.vhd:5985-5986; zxula_timing.vhd:457-470) | zxnext.vhd:5985-5986, zxula_timing.vhd:457-470 | pass | test/videotiming/videotiming_test.cpp:1869 |
+| VT-GH265-01 | IN A,(C) of NR 0x1F starting before the cvc step samples at its I/O cycle: reads 0x00, not the start-of-instruction 0x36 (zxnext.vhd:2819,5871-5876,5985-5986; t80na.vhd:214-222) | zxnext.vhd:2819,5871-5876,5985-5986, t80na.vhd:214-222 | pass | test/videotiming/videotiming_test.cpp:1795 |
+| VT-GH265-02 | IN A,(C) of NR 0x1E starting before the cvc step reads cvc(8) at its I/O cycle: 0x00, not the start-of-instruction 0x01 (zxnext.vhd:2819,5871-5876,5982-5983) | zxnext.vhd:2819,5871-5876,5982-5983 | pass | test/videotiming/videotiming_test.cpp:1809 |
+| VT-GH265-03 | IN A,(C) reload edge 2.5 T into the I/O cycle: edge on the cvc step reads the old line 0x36, one T-state later reads 0x00 (zxnext.vhd:5871-5876; t80na.vhd:214-222; t80n.vhd:1781-1782) | zxnext.vhd:5871-5876, t80na.vhd:214-222, t80n.vhd:1781-1782 | pass | test/videotiming/videotiming_test.cpp:1826 |
+| VT-GH265-04 | IN A,(n) of NR 0x1F: I/O cycle after 7 T, edge on the cvc step reads 0x36, one T-state later 0x00 (zxnext.vhd:5871-5876; t80na.vhd:214-222) | zxnext.vhd:5871-5876, t80na.vhd:214-222 | pass | test/videotiming/videotiming_test.cpp:1843 |
+| VT-GH265-05 | a loop polling NR 0x1F for line 0 leaves on the first turn whose IN samples past the cvc step: 12 instructions, not 15 (zxnext.vhd:5871-5876,5985-5986; t80na.vhd:214-222) | zxnext.vhd:5871-5876,5985-5986, t80na.vhd:214-222 | pass | test/videotiming/videotiming_test.cpp:1885 |
+| VT-GH265-06 | a NR 0x1F read outside any instruction samples at the clock, even after an IN has executed: 8 cycles before the step it reads 0x36 (zxnext.vhd:5985-5986; zxula_timing.vhd:457-470) | zxnext.vhd:5985-5986, zxula_timing.vhd:457-470 | pass | test/videotiming/videotiming_test.cpp:1916 |
 | VT-03 | Pentagon `hc_max()`/`vc_max()` after `init(PENTAGON)` = 447, 319 (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:160/168 — `c_max_hc<=447`, `c_max_vc<=319`. No `check()` exists under the literal ID `VT-03`: the standalone `MachineType::Pentagon` enum this row's `init(PENTAGON)` API describes was dropped Wave 0.3 (2026-05-04) — but Pentagon TIMING itself is not gone, NR 0x03 tim_sel bit 2 still selects it at runtime. The identical facts are proven LIVE by `VT-T51-01` (Section 10, Task 51) via `init_timing(MachineTimingMode::TimingPentagon)`, same VHDL lines) | zxula_timing.vhd:160/168, zxula_timing.vhd:160,168 | missing | — |
 | VT-05 | Pentagon `display_origin()` = {128, 80} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:159/167 — `c_min_hactive<=128`, `c_min_vactive<=80`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:159/167, zxula_timing.vhd:159,167 | missing | — |
 | VT-12 | Pentagon `int_position()` = {439, 319} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:155/163 — `c_int_h<=448+3-12`=439, `c_int_v<=319`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:155/163, zxula_timing.vhd:155,163 | missing | — |
@@ -3300,6 +3301,8 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-GH237-05 | 48K RESET_SOFT with no guest NR 0x03 write stays on 48K constants: INT (116,0) and 448x312 in BOTH VideoTiming and the master-cycle frame [zxula_timing.vhd:257,261,262,265] | zxula_timing.vhd:257,261,262,265 | pass | test/videotiming/videotiming_test.cpp:1471 |
 | VT-GH237-06 | NR 0x03 tim_sel survives RESET_SOFT — it is a plain FF with an initial value only and appears nowhere in the master reset block [zxnext.vhd:1099, :4926-5111] | zxnext.vhd:1099,4926-5111 | pass | test/videotiming/videotiming_test.cpp:1491 |
 | VT-GH237-07 | 128K + guest-selected Pentagon timing across RESET_SOFT: the reset frame keeps the 128K geometry, and from the next frame edge VideoTiming AND the master-cycle frame both follow the preserved tim_sel (448x320, INT (439,319)) — one source, no drift [zxnext.vhd:6696-6703,6721; zxula_timing.vhd:155,159,160,163,167,168,196,204] | zxnext.vhd:6696-6703,6721, zxula_timing.vhd:155,159,160,163,167,168,196,204 | pass | test/videotiming/videotiming_test.cpp:1528 |
+| VT-GH22-01 | 128K in_display() uses c_min_hactive=136, not the 48K 128 (zxula_timing.vhd:195) | zxula_timing.vhd:195 | pass | test/videotiming/videotiming_test.cpp:1758 |
+| VT-GH22-02 | Pentagon in_display() uses c_min_vactive=80, not the 48K 64 (zxula_timing.vhd:167) | zxula_timing.vhd:167 | pass | test/videotiming/videotiming_test.cpp:1774 |
 
 ## Contention — `test/contention/contention_test.cpp`
 
@@ -3716,6 +3719,97 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | GATE-11 | expbus_eff_en=1 + disable_mem=0 + pin low → producer + latch + FSM fetch | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1811 |
 | TC-NMI3-END-IDLE | FSM advances End → Idle so subsequent NMIs fire [zxnext.vhd:2149-2162 / Initial NMI-3 fix c1d7998] | zxnext.vhd:2149-2162 | pass | test/nmi/nmi_test.cpp:1959 |
 | TC-NMI-HOLD-LINE-HIGH | /NMI deasserted (HIGH) during HOLD state [zxnext.vhd:2168 / Verify1 78f5f1c] | zxnext.vhd:2168 | pass | test/nmi/nmi_test.cpp:1999 |
+
+## Raster State — `test/debug/raster_state_test.cpp`
+
+| Test ID | Description | VHDL file:line | Status | Test file:line |
+|---------|-------------|----------------|--------|----------------|
+| RS-BLANK-01 | 48K c_max_hblank = 95 (zxula_timing.vhd:260) | zxula_timing.vhd:260 | pass | test/debug/raster_state_test.cpp:74 |
+| RS-BLANK-02 | 48K c_max_vblank = 7 (zxula_timing.vhd:268) | zxula_timing.vhd:268 | pass | test/debug/raster_state_test.cpp:76 |
+| RS-BLANK-03 | 128K c_max_hblank = 95 (zxula_timing.vhd:194) | zxula_timing.vhd:194 | pass | test/debug/raster_state_test.cpp:78 |
+| RS-BLANK-04 | 128K c_max_vblank = 7 (zxula_timing.vhd:202) | zxula_timing.vhd:202 | pass | test/debug/raster_state_test.cpp:80 |
+| RS-BLANK-05 | +3 shares the 128K blanking block = 95/7 (zxula_timing.vhd:194,202) | zxula_timing.vhd:194,202 | pass | test/debug/raster_state_test.cpp:82 |
+| RS-BLANK-06 | Pentagon c_max_hblank = 63 (zxula_timing.vhd:158) | zxula_timing.vhd:158 | pass | test/debug/raster_state_test.cpp:84 |
+| RS-BLANK-07 | Pentagon c_max_vblank = 15 (zxula_timing.vhd:166) | zxula_timing.vhd:166 | pass | test/debug/raster_state_test.cpp:86 |
+| RS-BLANK-08 | 60 Hz branch keeps 95/7 (zxula_timing.vhd:228,236 / :288,296) | zxula_timing.vhd:228,236/288,296 | pass | test/debug/raster_state_test.cpp:88 |
+| RS-HCULA-01 | 48K hc_ula = 0 at raw hc 117 = c_min_hactive-11 (zxula_timing.vhd:261,423-436) | zxula_timing.vhd:261,423-436 | pass | test/debug/raster_state_test.cpp:97 |
+| RS-HCULA-02 | 128K hc_ula = 0 at raw hc 125 = c_min_hactive-11 (zxula_timing.vhd:195,423-436) | zxula_timing.vhd:195,423-436 | pass | test/debug/raster_state_test.cpp:99 |
+| RS-HCULA-03 | Pentagon hc_ula = 0 at raw hc 117 = c_min_hactive-11 (zxula_timing.vhd:159,423-436) | zxula_timing.vhd:159,423-436 | pass | test/debug/raster_state_test.cpp:101 |
+| RS-HCULA-04 | 48K hc_ula counts up with raw hc within the line (zxula_timing.vhd:427-436) | zxula_timing.vhd:427-436 | pass | test/debug/raster_state_test.cpp:103 |
+| RS-HCULA-05 | 48K hc_ula wraps the line: raw hc 116 is the last tick, hc_ula = 447 (zxula_timing.vhd:262,427-436) | zxula_timing.vhd:262,427-436 | pass | test/debug/raster_state_test.cpp:105 |
+| RS-PHC-01 | 48K phc = 0 when hc_ula = 0xC (zxula.vhd:43-46, zxula_timing.vhd:510-522) | zxula.vhd:43-46, zxula_timing.vhd:510-522 | pass | test/debug/raster_state_test.cpp:113 |
+| RS-PHC-02 | 48K phc = -12 at hc_ula 0 — the prefetch lead (zxula_timing.vhd:423,513-517) | zxula_timing.vhd:423,513-517 | pass | test/debug/raster_state_test.cpp:115 |
+| RS-PHC-03 | 48K phc reloads to -48 at raw hc c_min_hactive-47 = 81 (zxula_timing.vhd:511-515) | zxula_timing.vhd:511-515 | pass | test/debug/raster_state_test.cpp:117 |
+| RS-PHC-04 | 48K phc still counting at raw hc c_min_hactive-48 = 80 (registered load, zxula_timing.vhd:513-517) | zxula_timing.vhd:513-517 | pass | test/debug/raster_state_test.cpp:119 |
+| RS-PHC-05 | 128K phc = 0 at raw hc 137 = c_min_hactive+1 (zxula_timing.vhd:195,510-522) | zxula_timing.vhd:195,510-522 | pass | test/debug/raster_state_test.cpp:121 |
+| RS-PHC-06 | 48K last paper pixel phc = 255 at raw hc 384 (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:123 |
+| RS-PHC-07 | 128K phc still counting at raw hc 88 = c_min_hactive-48 (zxula_timing.vhd:195,196,513-517) | zxula_timing.vhd:195,196,513-517 | pass | test/debug/raster_state_test.cpp:132 |
+| RS-PHC-08 | 128K phc reloads to -48 at raw hc 89, folding on c_max_hc+1 = 456 (zxula_timing.vhd:196,511-515) | zxula_timing.vhd:196,511-515 | pass | test/debug/raster_state_test.cpp:134 |
+| RS-PHC-09 | +3 shares the 128K line geometry: hc 88 -> 407, hc 89 -> -48 (zxula_timing.vhd:195,196) | zxula_timing.vhd:195,196 | pass | test/debug/raster_state_test.cpp:136 |
+| RS-PHC-10 | Pentagon folds on c_max_hc+1 = 448: hc 80 -> 399, hc 81 -> -48 (zxula_timing.vhd:159,160) | zxula_timing.vhd:159,160 | pass | test/debug/raster_state_test.cpp:138 |
+| RS-PHC-11 | 48K 60 Hz keeps c_min_hactive 128 / c_max_hc 447, so the fold is unmoved (zxula_timing.vhd:261,262 vs :289,290) | zxula_timing.vhd:261,262 | pass | test/debug/raster_state_test.cpp:140 |
+| RS-VCULA-01 | 48K vc_ula = 0 on raw line 64 at/after the ULA origin (zxula_timing.vhd:269,441-451) | zxula_timing.vhd:269,441-451 | pass | test/debug/raster_state_test.cpp:147 |
+| RS-VCULA-02 | 48K raw hc before the ULA origin still belongs to the previous ULA line (zxula_timing.vhd:441-451) | zxula_timing.vhd:441-451 | pass | test/debug/raster_state_test.cpp:149 |
+| RS-VCULA-03 | Pentagon vc_ula = 0 on raw line 80 (zxula_timing.vhd:167,441-451) | zxula_timing.vhd:167,441-451 | pass | test/debug/raster_state_test.cpp:151 |
+| RS-VCULA-04 | 48K 60 Hz vc_ula = 0 on raw line 40 (zxula_timing.vhd:297,441-451) | zxula_timing.vhd:297,441-451 | pass | test/debug/raster_state_test.cpp:153 |
+| RS-VCULA-05 | 48K last paper line vc_ula = 191 on raw line 255 (zxula.vhd:414) | zxula.vhd:414 | pass | test/debug/raster_state_test.cpp:155 |
+| RS-VCULA-06 | 128K vc_ula above the frame top wraps on 311, not 312 (zxula_timing.vhd:203,204) | zxula_timing.vhd:203,204 | pass | test/debug/raster_state_test.cpp:162 |
+| RS-VCULA-07 | +3 wraps on 311 like 128K (zxula_timing.vhd:203,204) | zxula_timing.vhd:203,204 | pass | test/debug/raster_state_test.cpp:164 |
+| RS-VCULA-08 | Pentagon wraps on 320 (zxula_timing.vhd:167,168) | zxula_timing.vhd:167,168 | pass | test/debug/raster_state_test.cpp:166 |
+| RS-VCULA-09 | 48K 60 Hz wraps on 264 (zxula_timing.vhd:297,298) | zxula_timing.vhd:297,298 | pass | test/debug/raster_state_test.cpp:168 |
+| RS-VCULA-10 | 128K pre-origin line borrow wraps on 311 too (zxula_timing.vhd:204,441-451) | zxula_timing.vhd:204,441-451 | pass | test/debug/raster_state_test.cpp:170 |
+| RS-CVC-01 | cvc == vc_ula when NR 0x64 = 0 (zxula_timing.vhd:455-470) | zxula_timing.vhd:455-470 | pass | test/debug/raster_state_test.cpp:179 |
+| RS-CVC-04 | cvc is NOT the raw frame line — NR 0x1E/0x1F is paper-relative (zxnext.vhd:5982-5986) | zxnext.vhd:5982-5986 | pass | test/debug/raster_state_test.cpp:181 |
+| RS-CVC-02 | NR 0x64 offset 10 shifts cvc by 10 (zxula_timing.vhd:462) | zxula_timing.vhd:462 | pass | test/debug/raster_state_test.cpp:184 |
+| RS-CVC-03 | cvc wraps at c_max_vc: vc_ula 191 + 200 = 79 mod 312 (zxula_timing.vhd:463-466) | zxula_timing.vhd:463-466 | pass | test/debug/raster_state_test.cpp:187 |
+| RS-CVC-05 | 128K cvc wraps on 311: vc_ula 191 + 200 = 80 (zxula_timing.vhd:204,463-466) | zxula_timing.vhd:204,463-466 | pass | test/debug/raster_state_test.cpp:195 |
+| RS-CVC-06 | Pentagon cvc wraps on 320: vc_ula 175 + 200 = 55 (zxula_timing.vhd:168,463-466) | zxula_timing.vhd:168,463-466 | pass | test/debug/raster_state_test.cpp:201 |
+| RS-REG-01 | 48K raw (129,100) is Paper — first displayed pixel (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:207 |
+| RS-REG-02 | 48K raw (128,100) is Border — c_min_hactive itself, one pixel early (zxula_timing.vhd:344) | zxula_timing.vhd:344 | pass | test/debug/raster_state_test.cpp:209 |
+| RS-REG-03 | 48K raw (385,100) is Border — phc 256, i_phc(8) set (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:211 |
+| RS-REG-04 | 48K raw hc 95 is Blanking — c_max_hblank inclusive (zxula_timing.vhd:260,351) | zxula_timing.vhd:260,351 | pass | test/debug/raster_state_test.cpp:213 |
+| RS-REG-05 | 48K raw hc 96 is Border — one tick past c_max_hblank (zxula_timing.vhd:260,351) | zxula_timing.vhd:260,351 | pass | test/debug/raster_state_test.cpp:215 |
+| RS-REG-06 | 48K raw vc 7 is Blanking at any hc — c_max_vblank inclusive (zxula_timing.vhd:268,351) | zxula_timing.vhd:268,351 | pass | test/debug/raster_state_test.cpp:217 |
+| RS-REG-07 | 48K raw vc 8 is Border at raw hc 200 (zxula_timing.vhd:268,351) | zxula_timing.vhd:268,351 | pass | test/debug/raster_state_test.cpp:219 |
+| RS-REG-08 | 48K raw vc 256 is Border — vc_ula 192, border_active_v (zxula.vhd:414) | zxula.vhd:414 | pass | test/debug/raster_state_test.cpp:221 |
+| RS-REG-09 | Pentagon raw hc 80 is Border where 48K is Blanking (zxula_timing.vhd:158 vs :260) | zxula_timing.vhd:158 | pass | test/debug/raster_state_test.cpp:223 |
+| RS-REG-10 | Pentagon raw vc 10 is Blanking where 48K is Border (zxula_timing.vhd:166 vs :268) | zxula_timing.vhd:166 | pass | test/debug/raster_state_test.cpp:226 |
+| RS-REG-11 | 128K Paper starts at raw hc 137 = c_min_hactive+1 (zxula_timing.vhd:195, zxula.vhd:415) | zxula_timing.vhd:195, zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:229 |
+| RS-REG-12 | +3 Paper window matches 128K (zxula_timing.vhd:195) | zxula_timing.vhd:195 | pass | test/debug/raster_state_test.cpp:232 |
+| RS-REG-13 | Pentagon Paper starts on raw line 80, Border on 79 (zxula_timing.vhd:167) | zxula_timing.vhd:167 | pass | test/debug/raster_state_test.cpp:235 |
+| RS-REG-14 | 48K Paper starts on raw line 64, Border on 63 (zxula_timing.vhd:269) | zxula_timing.vhd:269 | pass | test/debug/raster_state_test.cpp:238 |
+| RS-REG-15 | in_paper() agrees with region == Paper (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:241 |
+| RS-FET-01 | 48K hc_ula 0 fetches a bitmap byte (zxula.vhd:234-235,270-303) | zxula.vhd:234-235,270-303 | pass | test/debug/raster_state_test.cpp:252 |
+| RS-FET-02 | 48K hc_ula 2 fetches an attribute byte (zxula.vhd:238-241,270-303) | zxula.vhd:238-241,270-303 | pass | test/debug/raster_state_test.cpp:254 |
+| RS-FET-03 | 48K hc_ula 4 fetches a bitmap byte (zxula.vhd:234-235) | zxula.vhd:234-235 | pass | test/debug/raster_state_test.cpp:256 |
+| RS-FET-04 | 48K hc_ula 6 fetches an attribute byte (zxula.vhd:238-241) | zxula.vhd:238-241 | pass | test/debug/raster_state_test.cpp:258 |
+| RS-FET-05 | 48K whole 16-tick block is BBAA x4 (zxula.vhd:226-263,270-303) | zxula.vhd:226-263,270-303 | pass | test/debug/raster_state_test.cpp:268 |
+| RS-FET-06 | 48K hc_ula 255 is the last fetching tick (zxula.vhd:416) | zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:270 |
+| RS-FET-07 | 48K hc_ula 256 is Idle — i_hc(8) sets border_active_ula (zxula.vhd:416) | zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:272 |
+| RS-FET-08 | vc_ula 192 is Idle at every hc_ula — border_active_v (zxula.vhd:414,416) | zxula.vhd:414,416 | pass | test/debug/raster_state_test.cpp:274 |
+| RS-FET-09 | the ULA fetches while the beam is still in the LEFT BORDER (zxula.vhd:415 vs :416) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:277 |
+| RS-FET-10 | the beam is still in PAPER after the fetch window closes (zxula.vhd:415 vs :416) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:280 |
+| RS-FET-11 | Timex hi-colour (port 0xFF=0x02): attribute slots fetch a 2nd bitmap plane (zxula.vhd:238-239) | zxula.vhd:238-239 | pass | test/debug/raster_state_test.cpp:283 |
+| RS-FET-12 | Timex hi-res (port 0xFF=0x06): attribute slots fetch a 2nd bitmap plane (zxula.vhd:248-249) | zxula.vhd:248-249 | pass | test/debug/raster_state_test.cpp:285 |
+| RS-FET-13 | shadow screen forces screen_mode "000" — attributes again (zxula.vhd:191) | zxula.vhd:191 | pass | test/debug/raster_state_test.cpp:287 |
+| RS-FET-14 | port 0xFF=0x01 (alternate screen) keeps attribute fetches (zxula.vhd:238-241) | zxula.vhd:238-241 | pass | test/debug/raster_state_test.cpp:289 |
+| RS-FET-15 | 128K fetch window is raw hc [125,380] (zxula_timing.vhd:195,423, zxula.vhd:416) | zxula_timing.vhd:195,423, zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:291 |
+| RS-FET-16 | Pentagon fetch window is raw hc [117,372] on paper lines 80.. (zxula_timing.vhd:159,167) | zxula_timing.vhd:159,167 | pass | test/debug/raster_state_test.cpp:296 |
+| RS-FET-17 | Timex mode bit 1 selects the plane; bit 0/2 alone do not (zxula.vhd:238-241,248-251) | zxula.vhd:238-241,248-251 | pass | test/debug/raster_state_test.cpp:301 |
+| RS-NAME-01 | "Paper" names border_active = '0' (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:307 |
+| RS-NAME-02 | "Border" names border_active = '1' inside blank_n (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:309 |
+| RS-NAME-03 | "Blanking" names blank_n = '0' (zxula_timing.vhd:348-357) | zxula_timing.vhd:348-357 | pass | test/debug/raster_state_test.cpp:311 |
+| RS-NAME-04 | "Bitmap" names a pixel-byte read cycle (zxula.vhd:234-235) | zxula.vhd:234-235 | pass | test/debug/raster_state_test.cpp:313 |
+| RS-NAME-05 | "Attribute" names an attribute-byte read cycle (zxula.vhd:240-241) | zxula.vhd:240-241 | pass | test/debug/raster_state_test.cpp:315 |
+| RS-NAME-06 | "Idle" names border_active_ula = '1' (zxula.vhd:416) | zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:317 |
+| RS-FOLD-01 | raw hc past c_max_hc folds into the line (zxula_timing.vhd:316-327) | zxula_timing.vhd:316-327 | pass | test/debug/raster_state_test.cpp:326 |
+| RS-FOLD-02 | negative raw vc folds into the frame (zxula_timing.vhd:329-341) | zxula_timing.vhd:329-341 | pass | test/debug/raster_state_test.cpp:329 |
+| RS-FOLD-03 | 128K raw hc folds on 456, not 448 (zxula_timing.vhd:196,316-327) | zxula_timing.vhd:196,316-327 | pass | test/debug/raster_state_test.cpp:335 |
+| RS-FOLD-04 | +3 raw hc folds on 456 (zxula_timing.vhd:196,316-327) | zxula_timing.vhd:196,316-327 | pass | test/debug/raster_state_test.cpp:338 |
+| RS-FOLD-05 | Pentagon raw hc folds on 448 (zxula_timing.vhd:160,316-327) | zxula_timing.vhd:160,316-327 | pass | test/debug/raster_state_test.cpp:340 |
+| RS-FOLD-06 | 128K negative raw vc folds on 311 (zxula_timing.vhd:204,329-341) | zxula_timing.vhd:204,329-341 | pass | test/debug/raster_state_test.cpp:343 |
+| RS-FOLD-07 | Pentagon negative raw vc folds on 320 (zxula_timing.vhd:168,329-341) | zxula_timing.vhd:168,329-341 | pass | test/debug/raster_state_test.cpp:345 |
+| RS-FOLD-08 | 48K 60 Hz negative raw vc folds on 264 (zxula_timing.vhd:298,329-341) | zxula_timing.vhd:298,329-341 | pass | test/debug/raster_state_test.cpp:347 |
 
 ## CPU interrupt pulse — `test/cpu/int_pulse_test.cpp`
 

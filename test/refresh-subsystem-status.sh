@@ -163,6 +163,7 @@ BEGIN {
     M["persistent_bp_test"]            = "Debugger persistent BPs"
     M["io_watchpoint_test"]            = "Debugger I/O Watchpoints"
     M["resume_step_off_test"]          = "Debugger resume step-off"
+    M["raster_state_test"]             = "Raster State (beam + ULA fetch)"
     M["app_config_test"]               = "GUI Preferences (AppConfig)"
     M["debugger_video_panel_test"]     = "Debugger Video Panel"
     M["debugger_audio_panel_test"]     = "Debugger Audio Panel"

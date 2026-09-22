@@ -1733,6 +1733,53 @@ static uint8_t in_nr_at(uint8_t reg, uint64_t start, Form form, bool& ok) {
 
 }  // namespace gh265
 
+// ── Section 15 — in_display() is per-machine (GH #22) ─────────────────
+//
+// Found while deriving the debugger's raster indicator. `in_display()` tested
+// the FIXED 48K constants DISPLAY_LEFT / DISPLAY_TOP instead of the live
+// machine's c_min_hactive / c_min_vactive, so it answered 8 ticks off on
+// 128K/+3 and 16 lines off on Pentagon. It had no callers, which is why no row
+// had caught it — and it sits in the class the raster indicator now treats as
+// the single source of per-machine raster constants.
+static void section15_gh22_in_display_per_machine() {
+    set_group("VT-S15-GH22-IN-DISPLAY");
+
+    // 128K: the active area opens at c_min_hactive = 136, not 128.
+    {
+        VideoTiming t;
+        t.init_timing(MachineTimingMode::Timing128);
+        // Walk to (hc=130, vc=100): inside the 48K window, outside the 128K one.
+        // One T-state is 2 pixel ticks, so a line is (c_max_hc+1)/2 T-states.
+        t.advance(100 * (455 + 1) / 2 + 130 / 2);
+        const bool at_130 = t.in_display();
+        VideoTiming u;
+        u.init_timing(MachineTimingMode::Timing128);
+        u.advance(100 * (455 + 1) / 2 + 140 / 2);
+        check("VT-GH22-01",
+              "128K in_display() uses c_min_hactive=136, not the 48K 128 "
+              "(zxula_timing.vhd:195)",
+              !at_130 && u.in_display(),
+              "hc130=" + std::to_string(int(at_130))
+                  + " hc140=" + std::to_string(int(u.in_display())));
+    }
+
+    // Pentagon: the active area opens at c_min_vactive = 80, not 64.
+    {
+        VideoTiming t;
+        t.init_timing(MachineTimingMode::TimingPentagon);
+        t.advance(70 * (447 + 1) / 2 + 200 / 2);   // raw vc 70
+        VideoTiming u;
+        u.init_timing(MachineTimingMode::TimingPentagon);
+        u.advance(90 * (447 + 1) / 2 + 200 / 2);   // raw vc 90
+        check("VT-GH22-02",
+              "Pentagon in_display() uses c_min_vactive=80, not the 48K 64 "
+              "(zxula_timing.vhd:167)",
+              !t.in_display() && u.in_display(),
+              "vc70=" + std::to_string(int(t.in_display()))
+                  + " vc90=" + std::to_string(int(u.in_display())));
+    }
+}
+
 static void section14_gh265_nr_read_io_cycle() {
     set_group("VT-S14-GH265-NR-READ-IO-CYCLE");
     using gh265::Form;
@@ -1930,6 +1977,9 @@ int main() {
 
     section14_gh265_nr_read_io_cycle();
     std::printf("  Section 14: VT-S14-GH265-NR-READ-IO-CYCLE — done (6 live)\n");
+
+    section15_gh22_in_display_per_machine();
+    std::printf("  Section 15: VT-S15-GH22-IN-DISPLAY   — done (2 live)\n");
 
     std::printf("\n======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
