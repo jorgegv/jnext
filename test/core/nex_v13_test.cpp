@@ -1544,9 +1544,10 @@ void test_cli_buffer() {
         Fixture f(o, "cli1");
         const auto regs = f.emu.cpu().get_registers();
         check("NEXV13-CLI-01",
-              "a CLI buffer address and size set DE to the buffer address "
-              "(nexload2.asm:376-389)",
-              f.apply_ok && regs.DE == 0xC000, fmt("DE=%#06x want 0xC000", regs.DE));
+              "a CLI buffer address and size leave DE = address + size, where the copy's "
+              "ldir stops (nexload2.asm:379-388; measured under NextZXOS: $A000/16 enters "
+              "with $A010) — not the address the header comment (:126) promises",
+              f.apply_ok && regs.DE == 0xC100, fmt("DE=%#06x want 0xC100", regs.DE));
 
         check("NEXV13-CLI-02",
               "the CLI buffer receives a zero-terminated (here empty) argument line, so a "
@@ -1603,8 +1604,8 @@ void test_cli_args() {
             mmu.read(0xC004) == 'o' && mmu.read(0xC005) == 0x00;
         check("NEXV13-CLI-04",
               "--nex-args lands verbatim and zero-terminated at the header's declared "
-              "buffer address, with DE pointing at it (nexload2.asm:379-388)",
-              text_ok && regs.DE == 0xC000,
+              "buffer address, with DE one past the buffer (nexload2.asm:379-388)",
+              text_ok && regs.DE == 0xC100,
               fmt("[C000..C005]=%02x %02x %02x %02x %02x %02x DE=%#06x",
                   mmu.read(0xC000), mmu.read(0xC001), mmu.read(0xC002),
                   mmu.read(0xC003), mmu.read(0xC004), mmu.read(0xC005), regs.DE));

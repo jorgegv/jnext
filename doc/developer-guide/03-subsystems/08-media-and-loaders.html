@@ -2033,6 +2033,17 @@ the in-memory file.</p>
 loaders disagree on what <code>BC</code> holds at entry, and <code>load_nex()</code> follows the one
 that really runs the file: <code>$00FF</code> ("no handle") for V1.3 (<code>nexload2.asm:407</code>),
 <code>$0000</code> for V1.0–V1.2 (<code>nexload.asm:582-585</code>).</p>
+<p>The rest of the entry state is <code>NexLoader::apply()</code>'s, and the comment there
+tabulates it. Both loaders jump through the NextZXOS DivMMC ROM's <code>RST $20</code>,
+which leaves <code>AF=$0044</code> and <code>HL</code> = PC. <code>DE</code> and <code>IX</code> are what each loader's
+own last instructions leave: for V1.0–V1.2, <code>DE=$6Fxx</code> from the bank loop and
+<code>IX</code> = the address of the last block read; for V1.3, <code>DE</code> = the CLI buffer
+address plus its size (not the address, whatever the format's notes say) and
+<code>IX</code> = 0, 1 or <code>$C000</code>. <code>IY</code>, <code>I</code>, <code>IM</code> and the alternate set belong to
+NextZXOS, which neither loader touches; jnext uses the values measured under
+the distro image's NextZXOS (<code>IY=$5C3A</code>, <code>I=$09</code>, IM 1), found identical for
+every launch path tried. Interrupts are off. NR <code>0xC0</code>'s interrupt-mode field
+is seeded to match, since no <code>IM</code> instruction runs.</p>
 <h2 id="the-esxdos-stand-in-for-directly-loaded-programs">The esxDOS stand-in for directly loaded programs<a class="headerlink" href="#the-esxdos-stand-in-for-directly-loaded-programs" title="Permanent link">&para;</a></h2>
 <p>On hardware a NEX is always started by NextZXOS's <code>nexload</code>, so the program
 can call the esxDOS / NextZXOS API: <code>RST $08</code> followed by a one-byte call

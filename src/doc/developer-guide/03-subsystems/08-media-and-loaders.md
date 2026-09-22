@@ -150,6 +150,18 @@ loaders disagree on what `BC` holds at entry, and `load_nex()` follows the one
 that really runs the file: `$00FF` ("no handle") for V1.3 (`nexload2.asm:407`),
 `$0000` for V1.0–V1.2 (`nexload.asm:582-585`).
 
+The rest of the entry state is `NexLoader::apply()`'s, and the comment there
+tabulates it. Both loaders jump through the NextZXOS DivMMC ROM's `RST $20`,
+which leaves `AF=$0044` and `HL` = PC. `DE` and `IX` are what each loader's
+own last instructions leave: for V1.0–V1.2, `DE=$6Fxx` from the bank loop and
+`IX` = the address of the last block read; for V1.3, `DE` = the CLI buffer
+address plus its size (not the address, whatever the format's notes say) and
+`IX` = 0, 1 or `$C000`. `IY`, `I`, `IM` and the alternate set belong to
+NextZXOS, which neither loader touches; jnext uses the values measured under
+the distro image's NextZXOS (`IY=$5C3A`, `I=$09`, IM 1), found identical for
+every launch path tried. Interrupts are off. NR `0xC0`'s interrupt-mode field
+is seeded to match, since no `IM` instruction runs.
+
 ## The esxDOS stand-in for directly loaded programs
 
 On hardware a NEX is always started by NextZXOS's `nexload`, so the program

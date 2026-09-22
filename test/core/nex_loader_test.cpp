@@ -87,6 +87,7 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -959,6 +960,239 @@ void test_preserve_nextregs() {
     }
 }
 
+// ── NEXENT — the register state a directly loaded NEX enters with ─────
+//
+// Oracle: both loaders' own last instructions (nexload.asm for V1.0-V1.2,
+// nexload2.asm for V1.3; jnext follows the one that really runs each version,
+// as for NR 0x07 and BC), the NextZXOS DivMMC ROM's RST $20 that both jump
+// through (enNxtmmc.rom $0020-$0025, $0071-$0076, $1FF9), and — for what
+// neither sets — the environment, MEASURED: the distro SD image's NextZXOS
+// booted in jnext, a probe NEX started with `.nexload` / `.nexload2` whose
+// first instruction saves every register. Each row names the probe variant
+// it reproduces; "source" rows follow the loader source where no probe could
+// run (see the comment in NexLoader::apply(), step 4). Everything goes
+// through Emulator::load_nex(), the --load / menu path, so BC (placed there)
+// is the full path's value.
+struct EntryOpts {
+    const char* version = "V1.2";
+    uint16_t pc = 0x8000;
+    uint16_t sp = 0xBFF0;
+    uint16_t file_handle = 0;
+    uint8_t  preserve = 0;
+    uint8_t  start_delay = 0;
+    uint8_t  loading_bar = 0;
+    uint8_t  bar_colour = 0x2A;
+    uint8_t  screen_flags = 0;          // 0, 0x02 (ULA) or 0x10 (HiColour)
+    std::vector<int> banks = {2};
+    uint16_t cli_addr = 0;
+    uint16_t cli_size = 0;
+};
+
+struct EntryResult {
+    bool ok = false;
+    Z80Registers r{};
+    uint8_t nr_c0 = 0;
+};
+
+EntryResult load_entry(const EntryOpts& o, const char* tag) {
+    EntryResult res;
+    const std::string path = fixture_path(tag);
+    std::vector<uint8_t> file(512, 0x00);
+    std::memcpy(file.data(), "Next", 4);
+    std::memcpy(file.data() + 4, o.version, 4);
+    file[9]  = static_cast<uint8_t>(o.banks.size());
+    file[10] = o.screen_flags;
+    file[12] = static_cast<uint8_t>(o.sp); file[13] = static_cast<uint8_t>(o.sp >> 8);
+    file[14] = static_cast<uint8_t>(o.pc); file[15] = static_cast<uint8_t>(o.pc >> 8);
+    for (int b : o.banks) file[18 + b] = 1;
+    file[130] = o.loading_bar;
+    file[131] = o.bar_colour;
+    file[133] = o.start_delay;
+    file[134] = o.preserve;
+    file[140] = static_cast<uint8_t>(o.file_handle);
+    file[141] = static_cast<uint8_t>(o.file_handle >> 8);
+    size_t screen = 0;
+    if (o.screen_flags == 0x02) screen = 6912;
+    if (o.screen_flags == 0x10) screen = 12288;
+    if (std::strcmp(o.version, "V1.3") == 0) {
+        const uint32_t banks_offset = static_cast<uint32_t>(512 + screen);
+        for (int i = 0; i < 4; ++i) file[144 + i] = static_cast<uint8_t>(banks_offset >> (8 * i));
+        file[148] = static_cast<uint8_t>(o.cli_addr); file[149] = static_cast<uint8_t>(o.cli_addr >> 8);
+        file[150] = static_cast<uint8_t>(o.cli_size); file[151] = static_cast<uint8_t>(o.cli_size >> 8);
+    }
+    file.resize(file.size() + screen, 0x11);
+    static const int order[] = {5, 2, 0, 1, 3, 4, 6, 7};
+    for (int b : order)
+        for (int want : o.banks)
+            if (want == b) file.resize(file.size() + 16384, static_cast<uint8_t>(0x40 + b));
+    if (o.file_handle != 0) for (int i = 0; i < 64; ++i) file.push_back(static_cast<uint8_t>(i));
+    {
+        std::ofstream f(path, std::ios::binary | std::ios::trunc);
+        f.write(reinterpret_cast<const char*>(file.data()), static_cast<std::streamsize>(file.size()));
+        if (!f) return res;
+    }
+    auto emu = std::make_unique<Emulator>();
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    cfg.allow_experimental_nex_v13 = true;   // V1.3 is opt-in (GH #228)
+    res.ok = emu->init(cfg) && emu->load_nex(path);
+    res.r = emu->cpu().get_registers();
+    res.nr_c0 = emu->nextreg().read(0xC0);
+    std::error_code ec;
+    std::filesystem::remove(path, ec);
+    return res;
+}
+
+std::string entry_detail(const EntryResult& e) {
+    const Z80Registers& r = e.r;
+    return fmt("ok=%d AF=%04X BC=%04X DE=%04X HL=%04X IX=%04X IY=%04X SP=%04X PC=%04X "
+               "AF'=%04X BC'=%04X DE'=%04X HL'=%04X I=%02X IM=%u IFF=%u/%u MEMPTR=%04X NRC0=%02X",
+               e.ok ? 1 : 0, r.AF, r.BC, r.DE, r.HL, r.IX, r.IY, r.SP, r.PC,
+               r.AF2, r.BC2, r.DE2, r.HL2, r.I, r.IM, r.IFF1, r.IFF2, r.MEMPTR, e.nr_c0);
+}
+
+// The environment NextZXOS leaves in the registers neither loader touches
+// (measured, every probe variant).
+bool nextzxos_environment(const Z80Registers& r) {
+    return r.IY == 0x5C3A && r.I == 0x09 && r.IM == 1 &&
+           r.AF2 == 0x0149 && r.BC2 == 0x0B00 && r.DE2 == 0x369B && r.HL2 == 0x339B;
+}
+
+void test_entry_state() {
+    // Probe r12a: V1.2, file_handle 0, bank 2, no screen.
+    const EntryResult a = load_entry(EntryOpts{}, "ent_r12a");
+    check("NEXENT-01",
+          "V1.2 enters with AF=$0044 (the RST $20 handler's `xor a`, enNxtmmc.rom $0072), "
+          "HL = PC and MEMPTR = PC (`ld hl,(PCReg)` then the handler's `ret`, "
+          "nexload.asm:589-590), SP = header SP (probe r12a)",
+          a.ok && a.r.AF == 0x0044 && a.r.PC == 0x8000 && a.r.HL == 0x8000 &&
+          a.r.MEMPTR == 0x8000 && a.r.SP == 0xBFF0, entry_detail(a));
+    check("NEXENT-02",
+          "V1.2 enters with interrupts disabled (nexload.asm:250 `di`; nothing on the way "
+          "to the program re-enables them) (probe r12a)",
+          a.ok && a.r.IFF1 == 0 && a.r.IFF2 == 0, entry_detail(a));
+    check("NEXENT-03",
+          "V1.2: IY, I, IM and the alternate set are NextZXOS's, which neither loader "
+          "touches: IY=$5C3A I=$09 IM 1 AF'=$0149 BC'=$0B00 DE'=$369B HL'=$339B (probe r12a)",
+          a.ok && nextzxos_environment(a.r), entry_detail(a));
+    check("NEXENT-04",
+          "NR 0xC0 bits 2:1 read IM 1 at entry, as the CPU is in it (probe r12a: NR 0xC0 "
+          "IM field = 1)",
+          a.ok && ((a.nr_c0 >> 1) & 0x03) == 1, entry_detail(a));
+    check("NEXENT-05",
+          "V1.2 DE=$6FA3: the bank loop's last `pop de` (D = slot 111, E = flags of "
+          "`cp 112`), nexload.asm:537-545 (probe r12a)",
+          a.ok && a.r.DE == 0x6FA3, entry_detail(a));
+    check("NEXENT-06",
+          "V1.2 IX=$8000: the last fread was bank 2's, `ld ix,$8000` (nexload.asm:529) "
+          "(probe r12a)",
+          a.ok && a.r.IX == 0x8000, entry_detail(a));
+
+    {   // Probe r12i: loading bar on, colour $2A, no start delay.
+        EntryOpts o; o.loading_bar = 1;
+        const EntryResult e = load_entry(o, "ent_r12i");
+        check("NEXENT-07",
+              "V1.2 with the loading bar on: DE=$6F2A, E = the bar colour progress loads "
+              "(nexload.asm:619) (probe r12i)",
+              e.ok && e.r.DE == 0x6F2A, entry_detail(e));
+    }
+    {   // Probe r12e: start delay 2, loading bar on.
+        EntryOpts o; o.start_delay = 2; o.loading_bar = 1;
+        const EntryResult e = load_entry(o, "ent_r12e");
+        check("NEXENT-08",
+              "V1.2 with a start delay: DE=$6F00, the delay's rasterWait counts E to 0 "
+              "(nexload.asm:575-577, :630) (probe r12e)",
+              e.ok && e.r.DE == 0x6F00, entry_detail(e));
+    }
+    {   // Probe r12f: ULA screen, banks 2 and 3.
+        EntryOpts o; o.screen_flags = 0x02; o.banks = {2, 3};
+        const EntryResult e = load_entry(o, "ent_r12f");
+        check("NEXENT-09",
+              "V1.2 IX=$C000 when the last bank read is not 5 or 2 (bank 3, "
+              "nexload.asm:539) (probe r12f)",
+              e.ok && e.r.IX == 0xC000, entry_detail(e));
+    }
+    {   // Probe r12j: ULA screen only, code in it.
+        EntryOpts o; o.screen_flags = 0x02; o.banks = {}; o.pc = 0x4000; o.sp = 0x7FF0;
+        const EntryResult e = load_entry(o, "ent_r12j");
+        check("NEXENT-10",
+              "V1.2 with no bank: IX=$4000, the ULA screen's fread (nexload.asm:457), and "
+              "DE=$6FA3 still (the bank loop runs anyway) (probe r12j)",
+              e.ok && e.r.IX == 0x4000 && e.r.DE == 0x6FA3, entry_detail(e));
+    }
+    {   // Probe r12k: HiColour screen only.
+        EntryOpts o; o.screen_flags = 0x10; o.banks = {}; o.pc = 0x4000; o.sp = 0x7FF0;
+        const EntryResult e = load_entry(o, "ent_r12k");
+        check("NEXENT-11",
+              "V1.2 with a HiColour screen and no bank: IX=$6000, its second fread "
+              "(nexload.asm:507) (probe r12k)",
+              e.ok && e.r.IX == 0x6000, entry_detail(e));
+    }
+    {   // Probe r12d: DONTRESETNEXTREGS set.
+        EntryOpts o; o.preserve = 1;
+        const EntryResult e = load_entry(o, "ent_r12d");
+        check("NEXENT-12",
+              "V1.2 with DONTRESETNEXTREGS set enters with the same registers: the flag "
+              "gates NextREG writes only (probe r12d)",
+              e.ok && e.r.AF == 0x0044 && e.r.HL == 0x8000 && e.r.DE == 0x6FA3 &&
+              e.r.IX == 0x8000 && e.r.IM == 1 && nextzxos_environment(e.r),
+              entry_detail(e));
+    }
+
+    // V1.3 — nexload2.asm.
+    {   // Probe r13a: file_handle 0, no CLI buffer.
+        EntryOpts o; o.version = "V1.3";
+        const EntryResult e = load_entry(o, "ent_r13a");
+        check("NEXENT-13",
+              "V1.3 enters like V1.2 through RST $20 (AF=$0044, HL = PC, IFF 0, the "
+              "NextZXOS environment), BC=$00FF (probe r13a)",
+              e.ok && e.r.AF == 0x0044 && e.r.HL == 0x8000 && e.r.SP == 0xBFF0 &&
+              e.r.BC == 0x00FF && e.r.IFF1 == 0 && e.r.IFF2 == 0 &&
+              nextzxos_environment(e.r) && ((e.nr_c0 >> 1) & 0x03) == 1,
+              entry_detail(e));
+        check("NEXENT-14",
+              "V1.3 with no CLI buffer and file_handle 0: DE=0 (`ld de,(CLIBUFFER)`, "
+              "nexload2.asm:379) and IX=0 (the F_CLOSE's `push hl : pop ix` with "
+              "HL = FILEHANDLERET = 0, :391-395, :227) (probe r13a)",
+              e.ok && e.r.DE == 0x0000 && e.r.IX == 0x0000, entry_detail(e));
+    }
+    {   // Probe r13b: CLI buffer $A000, 16 bytes.
+        EntryOpts o; o.version = "V1.3"; o.cli_addr = 0xA000; o.cli_size = 16;
+        const EntryResult e = load_entry(o, "ent_r13b");
+        check("NEXENT-15",
+              "V1.3 with a CLI buffer: DE = address + size, where the copy's `ldir` "
+              "leaves it (nexload2.asm:379-388), not the address its header comment "
+              "promises (probe r13b: $A000/16 -> $A010)",
+              e.ok && e.r.DE == 0xA010, entry_detail(e));
+    }
+    {   // Source: address set, size 0 — the ldir is skipped.
+        EntryOpts o; o.version = "V1.3"; o.cli_addr = 0xA000; o.cli_size = 0;
+        const EntryResult e = load_entry(o, "ent_cli0");
+        check("NEXENT-16",
+              "V1.3 with a CLI address but size 0: DE = the address, the size test "
+              "skips the ldir (nexload2.asm:379-386; source, not probed)",
+              e.ok && e.r.DE == 0xA000, entry_detail(e));
+    }
+    {   // Probe r13c: handle kept in BC, banks 2 and 3.
+        EntryOpts o; o.version = "V1.3"; o.file_handle = 1; o.banks = {2, 3};
+        const EntryResult e = load_entry(o, "ent_r13c");
+        check("NEXENT-17",
+              "V1.3 keeping the file open: IX=$C000, the last bank's F_READ (every bank "
+              "is read at $C000, nexload2.asm:1002-1004) (probe r13c)",
+              e.ok && e.r.IX == 0xC000, entry_detail(e));
+    }
+    {   // Probe r13e: handle kept, ULA screen only.
+        EntryOpts o; o.version = "V1.3"; o.file_handle = 1; o.screen_flags = 0x02;
+        o.banks = {}; o.pc = 0x4000; o.sp = 0x7FF0;
+        const EntryResult e = load_entry(o, "ent_r13e");
+        check("NEXENT-18",
+              "V1.3 keeping the file open with no bank: IX=1, the position check's "
+              "F_SEEK (nexload2.asm:337-341) (probe r13e)",
+              e.ok && e.r.IX == 0x0001, entry_detail(e));
+    }
+}
+
 } // namespace
 
 // ── GH #228 — the experimental-V1.3 entry-point gate ─────────────────
@@ -1719,9 +1953,10 @@ int main() {
         AppliedFixture f(kHdrPC, /*preserve_regs=*/0, /*entry_bank=*/3, "reset_pcnz");
         const Z80Registers r = f.emu.cpu().get_registers();
         check("NEXPC0-02",
-              "control: PC!=0, preserve_regs=0 still resets the entry state and takes "
-              "PC/SP from the header (nexload.asm:580 — the non-zero branch)",
-              f.ok && r.PC == kHdrPC && r.SP == kHdrSP && r.AF == 0xFFFF && r.IM == 1,
+              "control: PC!=0, preserve_regs=0 still establishes the entry state and takes "
+              "PC/SP from the header (nexload.asm:580 — the non-zero branch; AF=$0044 "
+              "and IM 1 as in NEXENT-01/03)",
+              f.ok && r.PC == kHdrPC && r.SP == kHdrSP && r.AF == 0x0044 && r.IM == 1,
               fmt("apply=%d PC=0x%04X want 0x%04X, SP=0x%04X want 0x%04X, AF=0x%04X IM=%u",
                   f.ok ? 1 : 0, r.PC, kHdrPC, r.SP, kHdrSP, r.AF, r.IM));
     }
@@ -1742,8 +1977,8 @@ int main() {
         AppliedFixture f(kHdrPC, /*preserve_regs=*/1, /*entry_bank=*/3, "pres_pcnz");
         const Z80Registers r = f.emu.cpu().get_registers();
         check("NEXPC0-04",
-              "control: PC!=0, preserve_regs=1 takes PC/SP from the header while "
-              "leaving the other registers alone",
+              "control: PC!=0, preserve_regs=1 takes PC/SP from the header; BC is not "
+              "apply()'s to set (Emulator::load_nex places it)",
               f.ok && r.PC == kHdrPC && r.SP == kHdrSP && r.BC == kSeedBC,
               fmt("apply=%d PC=0x%04X want 0x%04X, SP=0x%04X want 0x%04X, BC=0x%04X want 0x%04X",
                   f.ok ? 1 : 0, r.PC, kHdrPC, r.SP, kHdrSP, r.BC, kSeedBC));
@@ -2139,6 +2374,10 @@ int main() {
         std::filesystem::remove(parked_path, ec);
         std::filesystem::remove(running_path, ec);
     }
+
+    // The register state at entry.
+    set_group("NEXENT");
+    test_entry_state();
 
     // GH #228 — the experimental-V1.3 entry-point gate.
     test_v13_gate();

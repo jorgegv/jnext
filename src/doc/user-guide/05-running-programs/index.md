@@ -19,8 +19,10 @@ fills it:
 jnext --load game.nex --nex-args "level 3"
 ```
 
-The program finds that text with `DE` pointing at it, zero-terminated, exactly
-as it would when launched with arguments from NextZXOS. A line longer than the
+The program finds that text zero-terminated at the address the file declares,
+exactly as it would when launched with arguments from NextZXOS; `DE` then holds
+that address plus the buffer's size, which is where the Next's V1.3 loader
+leaves it (not the address itself, as the format's notes say). A line longer than the
 buffer the file declares is truncated to fit. Only V1.3 files have the buffer,
 so with anything else the option warns and is ignored.
 

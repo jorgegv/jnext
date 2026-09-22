@@ -59,8 +59,10 @@ More than 16 KB of ignored bytes also logs a warning.
 \f[B]\-\-nex\-args\f[R] \f[I]LINE\f[R]
 Argument line for a NEX \f[B]V1.3\f[R] program.
 \f[I]LINE\f[R] is placed, verbatim and zero\-terminated, in the CLI
-buffer the file\(cqs header declares (its address and size), and
-\f[CR]DE\f[R] points at it when the program starts.
+buffer the file\(cqs header declares (its address and size).
+When the program starts, \f[CR]DE\f[R] holds that address plus the size
+\- one past the buffer \- which is where the reference V1.3 loader
+leaves it (the V1.3 header comment says the address itself).
 A line as long as or longer than that buffer is truncated to the
 buffer\(cqs size with no terminator \- which is what the reference V1.3
 loader does.

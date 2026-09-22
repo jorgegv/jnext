@@ -66,7 +66,9 @@ debugger ones.
 **\--nex-args** *LINE*
 :   Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim and
     zero-terminated, in the CLI buffer the file's header declares (its address
-    and size), and `DE` points at it when the program starts. A line as long as
+    and size). When the program starts, `DE` holds that address plus the size -
+    one past the buffer - which is where the reference V1.3 loader leaves it
+    (the V1.3 header comment says the address itself). A line as long as
     or longer than that buffer is truncated to the buffer's size with no
     terminator - which is what the reference V1.3 loader does. Quote *LINE* to
     pass more than one word: `jnext --load game.nex --nex-args "level 3"`.

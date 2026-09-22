@@ -2754,8 +2754,10 @@ exactly the same as <code>--load FILE</code>; you cannot use both at once.</p>
 fills it:</p>
 <pre><code>jnext --load game.nex --nex-args &quot;level 3&quot;
 </code></pre>
-<p>The program finds that text with <code>DE</code> pointing at it, zero-terminated, exactly
-as it would when launched with arguments from NextZXOS. A line longer than the
+<p>The program finds that text zero-terminated at the address the file declares,
+exactly as it would when launched with arguments from NextZXOS; <code>DE</code> then holds
+that address plus the buffer's size, which is where the Next's V1.3 loader
+leaves it (not the address itself, as the format's notes say). A line longer than the
 buffer the file declares is truncated to fit. Only V1.3 files have the buffer,
 so with anything else the option warns and is ignored.</p>
 <p>Note that NEX <strong>V1.3</strong> is an experimental format and is not supported in any
