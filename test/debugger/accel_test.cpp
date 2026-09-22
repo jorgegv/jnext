@@ -36,11 +36,11 @@
 //     namespace.
 //
 // Groups:
-//   AC  walks the REAL DebuggerWindow's accelerators and asserts uniqueness in
-//       each of those namespaces. This is the guard the defect class never had
-//       — Alt+W was one instance of it, and nothing would have caught the next.
-//   AK  presses the keys, through the real platform key path, and asserts the
-//       menu that opens is the one asked for and the SAME one every time.
+//   DACC  walks the REAL DebuggerWindow's accelerators and asserts uniqueness in
+//         each of those namespaces. This is the guard the defect class never had
+//         — Alt+W was one instance of it, and nothing would have caught the next.
+//   AK    presses the keys, through the real platform key path, and asserts the
+//         menu that opens is the one asked for and the SAME one every time.
 //
 // Discriminative — each row was mutation-tested against the product, one
 // mutation at a time:
@@ -215,11 +215,11 @@ QString alt_press(QWindow* wh, QMenuBar* bar, Qt::Key key) {
 
 } // namespace
 
-// ── AC: no two accelerators share a namespace ─────────────────────────
+// ── DACC: no two accelerators share a namespace ───────────────────────
 
 static void test_accelerators(Fixture& fx)
 {
-    set_group("AC");
+    set_group("DACC");
 
     if (!fx.ok) {
         check("DACC-01", "the menu bar's own mnemonics are unique", false, "fixture failed");
@@ -414,7 +414,7 @@ int main(int argc, char** argv)
 
     Fixture fx;
     test_accelerators(fx);
-    std::printf("  Group: AC             — done\n");
+    std::printf("  Group: DACC           — done\n");
     test_keystrokes(fx);
     std::printf("  Group: AK             — done\n");
 
