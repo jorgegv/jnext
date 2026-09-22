@@ -74,6 +74,233 @@ TzxLoader& TzxLoader::operator=(TzxLoader&& other) noexcept {
     return *this;
 }
 
+// ---------------------------------------------------------------------------
+// Container validation — the oracle is libspectrum 1.5.0's internal_tzx_read()
+// (tzx_read.c), the TZX reader FUSE loads tapes with. Each case below is that
+// function's per-block reader reduced to its length rules; the comments name
+// the reader. ZOT's own tzx_load() checks nothing: it took any file of two
+// bytes or more, and one without the signature as TAP data, so a random or
+// truncated .tzx "loaded".
+// ---------------------------------------------------------------------------
+
+bool TzxLoader::validate(const std::vector<uint8_t>& data, std::string& error)
+{
+    char msg[160];
+    const size_t size = data.size();
+
+    // internal_tzx_read(): the 8-byte signature plus the 2 version bytes.
+    if (size < 10) {
+        std::snprintf(msg, sizeof(msg),
+                      "%zu bytes, too short for the 10-byte TZX header", size);
+        error = msg;
+        return false;
+    }
+    if (std::memcmp(data.data(), "ZXTape!\x1A", 8) != 0) {
+        error = "no \"ZXTape!\" signature";
+        return false;
+    }
+
+    size_t pos = 10;      // libspectrum skips the version bytes unread
+    size_t blocks = 0;    // blocks libspectrum would append to the tape
+
+    // Bytes left at `at` (0 once past the end).
+    auto left = [&](size_t at) -> size_t { return at < size ? size - at : 0; };
+    auto le = [&](size_t at, int n) -> uint32_t {
+        uint32_t v = 0;
+        for (int i = 0; i < n; ++i) v |= static_cast<uint32_t>(data[at + i]) << (8 * i);
+        return v;
+    };
+    // tzx_read_string(): a 1-byte length (present — every caller checks it
+    // first) and that many bytes.
+    auto skip_string = [&](size_t& p) -> bool {
+        const size_t n = data[p];
+        if (left(p + 1) < n) return false;
+        p += 1 + n;
+        return true;
+    };
+
+    while (pos < size) {
+        const size_t start = pos;
+        const uint8_t id = data[pos++];
+        bool ok = true;
+
+        switch (id) {
+        case 0x10:  // tzx_read_rom_block: pause(2) + 2-byte length + data
+            ok = left(pos) >= 4 && left(pos + 4) >= le(pos + 2, 2);
+            if (ok) pos += 4 + le(pos + 2, 2);
+            break;
+        case 0x11:  // tzx_read_turbo_block: 15 bytes of timing + 3-byte length
+            ok = left(pos) >= 18 && left(pos + 18) >= le(pos + 15, 3);
+            if (ok) pos += 18 + le(pos + 15, 3);
+            break;
+        case 0x12:  // tzx_read_pure_tone
+            ok = left(pos) >= 4;
+            pos += 4;
+            break;
+        case 0x13:  // tzx_read_pulses_block: count + 2 bytes per pulse
+            ok = left(pos) >= 1 && left(pos + 1) >= 2u * data[pos];
+            if (ok) pos += 1 + 2u * data[pos];
+            break;
+        case 0x14:  // tzx_read_pure_data: 7 bytes of timing + 3-byte length
+            ok = left(pos) >= 10 && left(pos + 10) >= le(pos + 7, 3);
+            if (ok) pos += 10 + le(pos + 7, 3);
+            break;
+        case 0x15:  // tzx_read_raw_data: 5 bytes + 3-byte length
+            ok = left(pos) >= 8 && left(pos + 8) >= le(pos + 5, 3);
+            if (ok) pos += 8 + le(pos + 5, 3);
+            break;
+        case 0x19: {  // tzx_read_generalised_data, check for check.
+            // Its arithmetic is kept as written, 32-bit unsigned `length`
+            // and all: `length -= ptr2 - *ptr` ADDS each symbol table's size
+            // back rather than subtracting it, and the data table's size
+            // error is ignored (the table is then simply not skipped). Both
+            // only loosen the intermediate checks; the final one — the parts
+            // must end exactly where the block's declared length ends —
+            // decides. Anything that would read past the end of the file
+            // (libspectrum does not guard every such read) is refused.
+            if (left(pos) < 4) { ok = false; break; }
+            uint32_t length = le(pos, 4);
+            pos += 4;
+            const size_t blockend = pos + length;
+            if (length < 14 || left(pos) < length) { ok = false; break; }
+            const uint32_t totp = le(pos + 2, 4);
+            const uint32_t npp  = data[pos + 6];
+            const uint32_t asp  = (data[pos + 7] == 0 && totp) ? 256u : data[pos + 7];
+            const uint32_t totd = le(pos + 8, 4);
+            const uint32_t npd  = data[pos + 12];
+            const uint32_t asd  = (data[pos + 13] == 0 && totd) ? 256u : data[pos + 13];
+            pos += 14;
+            length -= 14;
+            // Pilot symbol table (libspectrum_tape_block_read_symbol_table).
+            if (totp) {
+                const uint32_t table = (2 * npp + 1) * asp;
+                if (length < table) { ok = false; break; }
+                pos += table;
+                length += table;                         // the quirk, as written
+            }
+            // Pilot stream: 3 bytes per symbol.
+            if (length < 3u * totp) { ok = false; break; }
+            pos += 3u * static_cast<size_t>(totp);
+            length -= 3u * totp;
+            if (pos > size) { ok = false; break; }
+            // Data symbol table: size error ignored, table then not skipped.
+            if (totd) {
+                const uint32_t table = (2 * npd + 1) * asd;
+                if (length >= table) {
+                    pos += table;
+                    length += table;
+                }
+            }
+            if (pos > size) { ok = false; break; }
+            // Data stream: ceil(log2(symbols in table)) bits per symbol.
+            // (32-bit, like libspectrum's `( bits_per_symbol * symbol_count
+            // + 7 ) / 8`; its floating-point ceil(log()) gives the exact
+            // integer for every table size 1..256.)
+            uint32_t bits = 0;
+            while (totd && (1u << bits) < asd) ++bits;
+            const uint32_t data_count = (bits * totd + 7u) / 8u;
+            if (left(pos) < data_count) { ok = false; break; }
+            pos += data_count;
+            ok = pos == blockend;   // "sanity check failed"
+            break;
+        }
+        case 0x20:  // tzx_read_pause
+        case 0x23:  // tzx_read_jump
+        case 0x24:  // tzx_read_loop_start
+            ok = left(pos) >= 2;
+            pos += 2;
+            break;
+        case 0x21:  // tzx_read_group_start: a string
+        case 0x30:  // tzx_read_comment: a string
+            ok = left(pos) >= 1 && skip_string(pos);
+            break;
+        case 0x22:  // group end: tzx_read_empty_block
+        case 0x25:  // loop end: tzx_read_empty_block
+            break;
+        case 0x28: {  // tzx_read_select: 2-byte length (checked, then unused)
+                      // + count + per entry an offset and a string
+            ok = left(pos) >= 3 && left(pos + 2) >= le(pos, 2);
+            if (!ok) break;
+            const size_t count = data[pos + 2];
+            pos += 3;
+            for (size_t i = 0; ok && i < count; ++i) {
+                ok = left(pos) >= 3;
+                if (!ok) break;
+                pos += 2;
+                ok = skip_string(pos);
+            }
+            break;
+        }
+        case 0x2A:  // tzx_read_stop
+            ok = left(pos) >= 4;
+            pos += 4;
+            break;
+        case 0x2B:  // tzx_read_set_signal_level: 4-byte length (unused) + level
+            ok = left(pos) >= 5;
+            pos += 5;
+            break;
+        case 0x31:  // tzx_read_message: time + a string
+            ok = left(pos) >= 2;
+            if (!ok) break;
+            pos += 1;
+            ok = skip_string(pos);
+            break;
+        case 0x32: {  // tzx_read_archive_info: 2-byte length (unused) + count
+                      // + per entry an ID and a string
+            ok = left(pos) >= 3;
+            if (!ok) break;
+            const size_t count = data[pos + 2];
+            pos += 3;
+            for (size_t i = 0; ok && i < count; ++i) {
+                ok = left(pos) >= 2;
+                if (!ok) break;
+                pos += 1;
+                ok = skip_string(pos);
+            }
+            break;
+        }
+        case 0x33:  // tzx_read_hardware: count + 3 bytes per entry
+            ok = left(pos) >= 1 && left(pos + 1) >= 3u * data[pos];
+            if (ok) pos += 1 + 3u * data[pos];
+            break;
+        case 0x35:  // tzx_read_custom: 16-byte name + 4-byte length + data
+            ok = left(pos) >= 20 && left(pos + 20) >= le(pos + 16, 4);
+            if (ok) pos += 20 + static_cast<size_t>(le(pos + 16, 4));
+            break;
+        case 0x5A:  // tzx_read_concat: the rest of a second header; appends no block
+            ok = left(pos) >= 9;
+            pos += 9;
+            break;
+        default:
+            // "For now, don't handle anything else" — libspectrum refuses
+            // every other ID, including the TZX spec's own 0x16-0x18, 0x26,
+            // 0x27, 0x34 and 0x40, and any ID a later spec version adds.
+            std::snprintf(msg, sizeof(msg),
+                          "block %zu at offset %zu has ID $%02X, which is not a "
+                          "supported TZX block type", blocks, start, id);
+            error = msg;
+            return false;
+        }
+
+        if (!ok) {
+            std::snprintf(msg, sizeof(msg),
+                          "block %zu (ID $%02X) at offset %zu runs past the end of "
+                          "the file or is inconsistent", blocks, id, start);
+            error = msg;
+            return false;
+        }
+        if (id != 0x5A) ++blocks;
+    }
+
+    // libspectrum reads a header-only file but finds no tape in it
+    // (libspectrum_tape_present() == 0).
+    if (blocks == 0) {
+        error = "no blocks after the header";
+        return false;
+    }
+    return true;
+}
+
 bool TzxLoader::load(const std::string& path) {
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) {
@@ -81,20 +308,30 @@ bool TzxLoader::load(const std::string& path) {
         return false;
     }
 
-    auto file_size = f.tellg();
-    if (file_size < 2) {
-        Log::emulator()->error("TZX: file too small '{}'", path);
+    const auto file_size = f.tellg();
+    std::vector<uint8_t> bytes(file_size > 0 ? static_cast<size_t>(file_size) : 0);
+    f.seekg(0);
+    f.read(reinterpret_cast<char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
+    if (!f) {
+        Log::emulator()->error("TZX: cannot read '{}'", path);
         return false;
     }
 
-    f.seekg(0);
-    file_data_.resize(static_cast<size_t>(file_size));
-    f.read(reinterpret_cast<char*>(file_data_.data()), file_size);
+    // Refuse before touching any member, so a failed load leaves this loader
+    // (and whatever tape it held) exactly as it was.
+    std::string why;
+    if (!validate(bytes, why)) {
+        Log::emulator()->error("TZX: '{}' is not a valid TZX file: {}", path, why);
+        return false;
+    }
+    file_data_ = std::move(bytes);
 
-    // Load into ZOT player (auto-detects TZX vs TAP).
+    // Load into ZOT player. validate() has seen the signature, so ZOT takes
+    // the TZX branch; its TAP branch is unreachable from here.
     if (tzx_load(P(), file_data_.data(), static_cast<int>(file_data_.size())) != 0) {
         Log::emulator()->error("TZX: failed to parse '{}'", path);
         file_data_.clear();
+        loaded_ = false;
         return false;
     }
 

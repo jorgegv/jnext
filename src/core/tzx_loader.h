@@ -27,8 +27,23 @@ public:
     TzxLoader(TzxLoader&& other) noexcept;
     TzxLoader& operator=(TzxLoader&& other) noexcept;
 
-    /// Load a TZX (or TAP) file.  Returns true on success.
+    /// Load a TZX file.  Returns true on success. A file that is not a
+    /// well-formed TZX (see validate()) is refused with an error log line,
+    /// and the loader is left exactly as it was.
     bool load(const std::string& path);
+
+    /// True when `data` is a TZX file libspectrum 1.5.0 — the tape library
+    /// FUSE loads tapes with — would accept AND find a tape in. Otherwise
+    /// false, with the reason in `error`. Mirrors libspectrum's
+    /// internal_tzx_read() (tzx_read.c): the 10-byte header and its
+    /// "ZXTape!\x1A" signature, then every block walked with the same
+    /// length rules, so a block that runs past the end of the file, a
+    /// fragment too short for its own fields, and a block ID libspectrum
+    /// does not implement all refuse the whole tape. A header with no block
+    /// after it is refused too: libspectrum reads it but reports no tape
+    /// present, which is the same verdict TapLoader gives an empty .tap.
+    /// Bad checksums inside complete blocks are not container errors.
+    static bool validate(const std::vector<uint8_t>& data, std::string& error);
 
     /// True if a file is loaded.
     bool is_loaded() const { return loaded_; }

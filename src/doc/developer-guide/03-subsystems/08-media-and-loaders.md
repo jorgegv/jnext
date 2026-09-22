@@ -86,9 +86,14 @@ file exactly — a block whose declared length runs past the end, or one stray
 byte where a length field should start — the two cases FUSE's libspectrum TAP
 reader rejects. A bad checksum or flag byte inside a complete block is not a
 container error: the tape loads, and the ROM reports "R Tape loading error"
-when it reads that block. `.tzx` gets no such check:
-ZOT's `tzx_load()` accepts any file of two bytes or more, taking one without
-the TZX signature as TAP data.
+when it reads that block. `TzxLoader::validate()` does the same for a `.tzx`
+against libspectrum's TZX reader: the `ZXTape!` signature, then every block
+walked with that reader's length rules, so a block that runs past the end, a
+block ID libspectrum does not implement (the spec's own `$16`–`$18`, `$26`,
+`$27`, `$34` and `$40` included) or a header with no block after it refuses the
+whole tape. ZOT's own `tzx_load()` checks none of this — it took any file of
+two bytes or more, and one without the signature as TAP data — so the check
+runs first and ZOT only ever sees a validated TZX.
 
 ## NEX
 
