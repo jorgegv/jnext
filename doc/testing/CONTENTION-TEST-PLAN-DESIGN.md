@@ -1155,10 +1155,15 @@ above) and 48K `IN A,(C)` of 0x7FFD's BYTE (FUSE floats every odd port on
 | CT-IOC-03 | 48K `IN A,(C)` 0x40FF: C:1 ×4 | FUSE; zxnext.vhd:4489-4493 |
 | CT-IOC-04 | 48K `IN A,(C)` 0x00FF: N:4 | FUSE |
 | CT-IOC-05 | 48K `IN A,(C)` 0x7FFD: no `port_7ffd_active` on 48K, C:1 ×4 | FUSE; zxnext.vhd:2594,4496 |
-| CT-IOC-06..09 | 48K `OUT (C),A` to 0x00FE / 0x40FE / 0x40FF / 0x00FF: same four classes | FUSE |
+| CT-IOC-06 | 48K `OUT (C),A` to 0x00FE: N:1,C:3 | FUSE |
+| CT-IOC-07 | 48K `OUT (C),A` to 0x40FE: C:1,C:3 | FUSE |
+| CT-IOC-08 | 48K `OUT (C),A` to 0x40FF: C:1 ×4 | FUSE |
+| CT-IOC-09 | 48K `OUT (C),A` to 0x00FF: N:4 | FUSE |
 | CT-IOC-10 | 48K `IN A,(0xFF)`, A = 0x40: 23 22 21 20 19 18 17 23 | FUSE |
 | CT-IOC-11 | 48K `IN A,(0xFF)`, A = 0x80: 11 | FUSE |
-| CT-IOC-12..14 | 128K, bank 1 at 0xC000: `IN` 0xC0FF (C:1 ×4), `IN` 0xC0FE (C:1,C:3), `OUT` 0xC0FF (C:1 ×4) | FUSE; zxnext.vhd:4489-4493 |
+| CT-IOC-12 | 128K, bank 1 at 0xC000: `IN A,(C)` 0xC0FF: C:1 ×4 | FUSE; zxnext.vhd:4489-4493 |
+| CT-IOC-13 | Same paging, `IN A,(C)` 0xC0FE: C:1,C:3 | FUSE; zxnext.vhd:4489-4496 |
+| CT-IOC-14 | Same paging, `OUT (C),A` 0xC0FF: C:1 ×4 | FUSE; zxnext.vhd:4489-4493 |
 | CT-IOC-15 | 128K `IN A,(C)` 0x40FF: C:1 ×4 | FUSE |
 | CT-IOC-16 | 128K `IN A,(C)` 0x80FF: N:4 | FUSE |
 | CT-IOC-17 | 128K `IN A,(C)` 0x7FFE (keyboard half-row): C:1,C:3 | FUSE |

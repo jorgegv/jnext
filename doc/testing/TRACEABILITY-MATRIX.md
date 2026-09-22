@@ -41,7 +41,7 @@ mentions them, so a test can no longer be absent from this document.
 | Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
 | Floating Bus                               |    58 |   58 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |    65 |   62 |    0 |    0 |       3 |          0 |
-| Contention                                 |   162 |  158 |    0 |    0 |       4 |          0 |
+| Contention                                 |   160 |  158 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    55 |   52 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    81 |   59 |    0 |    0 |      22 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    38 |   38 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4522 | 4268 |    0 |    5 |     249 |          0 |
+| **Total**                                  |  4520 | 4268 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4522**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4313**. Rows the 102 suites declared in `test/unit-tests.conf` run live: **7382**.
+Rows the sections above carry: **4520**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4311**. Rows the 102 suites declared in `test/unit-tests.conf` run live: **7382**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3345,10 +3345,15 @@ Notes and rationale: [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIG
 | CT-IOC-03 | 48K IN A,(C) of 0x40FF (odd port, contended page, C:1 x4) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4498 |
 | CT-IOC-04 | 48K IN A,(C) of 0x00FF (odd port, uncontended page, N:4) takes 12 T in every phase, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4501 |
 | CT-IOC-05 | 48K IN A,(C) of 0x7FFD: no port_7ffd_active on 48K timing, so an odd port in bank 5's page (C:1 x4), as FUSE 1.6 (zxnext.vhd:2594,4489-4496) | zxnext.vhd:2594,4489-4496 | pass | test/contention/contention_test.cpp:4504 |
-| CT-IOC-06..09 | 48K `OUT (C),A` to 0x00FE / 0x40FE / 0x40FF / 0x00FF: same four classes | — | missing | — |
+| CT-IOC-06 | 48K OUT (C),A to 0x00FE matches FUSE 1.6 (N:1,C:3) (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4508 |
+| CT-IOC-07 | 48K OUT (C),A to 0x40FE matches FUSE 1.6 (C:1,C:3) (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:4511 |
+| CT-IOC-08 | 48K OUT (C),A to 0x40FF matches FUSE 1.6 (C:1 x4) (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4514 |
+| CT-IOC-09 | 48K OUT (C),A to 0x00FF takes 12 T in every phase (N:4), as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4517 |
 | CT-IOC-10 | 48K IN A,(0xFF) with A=0x40 (port 0x40FF, contended page) matches FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4522 |
 | CT-IOC-11 | 48K IN A,(0xFF) with A=0x80 (port 0x80FF, bank 2 page) is never stretched, 11 T, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4526 |
-| CT-IOC-12..14 | 128K, bank 1 at 0xC000: `IN` 0xC0FF (C:1 ×4), `IN` 0xC0FE (C:1,C:3), `OUT` 0xC0FF (C:1 ×4) | zxnext.vhd:4489-4493 | missing | — |
+| CT-IOC-12 | 128K IN A,(C) of 0xC0FF with bank 1 at 0xC000 (odd page, contended) matches FUSE 1.6 (C:1 x4; zxnext.vhd:4489-4493) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4530 |
+| CT-IOC-13 | 128K IN A,(C) of 0xC0FE with bank 1 at 0xC000 matches FUSE 1.6 (C:1,C:3; zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4534 |
+| CT-IOC-14 | 128K OUT (C),A to 0xC0FF with bank 1 at 0xC000 matches FUSE 1.6 (C:1 x4) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4538 |
 | CT-IOC-15 | 128K IN A,(C) of 0x40FF (bank 5) matches FUSE 1.6 (C:1 x4) | — | pass | test/contention/contention_test.cpp:4542 |
 | CT-IOC-16 | 128K IN A,(C) of 0x80FF (bank 2) takes 12 T in every phase, as FUSE 1.6 (N:4) | — | pass | test/contention/contention_test.cpp:4545 |
 | CT-IOC-17 | 128K IN A,(C) of 0x7FFE (keyboard half-row, even, bank 5) matches FUSE 1.6 (C:1,C:3) | — | pass | test/contention/contention_test.cpp:4548 |
@@ -3387,13 +3392,6 @@ Notes and rationale: [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIG
 | T50-04 | 48K, read $4000: raw vc=255 (LAST display line) contends, raw vc=256 (BOTTOM BORDER) does not — the window closes at exactly 192 ULA lines (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3572 |
 | T50-05 | 48K, read $4000 on a display line but at hc=4 (LEFT BORDER, before ula_min_hactive=c_min_hactive-12=116) → NO contention (zxula.vhd:416 border_active_ula = i_hc(8) or border_active_v; zxula_timing.vhd:423) | zxula.vhd:416, zxula_timing.vhd:423 | pass | test/contention/contention_test.cpp:3586 |
 | T50-06 | 128K (c_min_hactive=136, 228 T/line): top border does not contend and a display line does — proves the ULA counter origins are taken per-machine from VideoTiming, not hardcoded to the 48K values (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/contention/contention_test.cpp:3614 |
-| CT-IOC-06 | 48K OUT (C),A to 0x00FE matches FUSE 1.6 (N:1,C:3) (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4508 |
-| CT-IOC-07 | 48K OUT (C),A to 0x40FE matches FUSE 1.6 (C:1,C:3) (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:4511 |
-| CT-IOC-08 | 48K OUT (C),A to 0x40FF matches FUSE 1.6 (C:1 x4) (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4514 |
-| CT-IOC-09 | 48K OUT (C),A to 0x00FF takes 12 T in every phase (N:4), as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4517 |
-| CT-IOC-12 | 128K IN A,(C) of 0xC0FF with bank 1 at 0xC000 (odd page, contended) matches FUSE 1.6 (C:1 x4; zxnext.vhd:4489-4493) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4530 |
-| CT-IOC-13 | 128K IN A,(C) of 0xC0FE with bank 1 at 0xC000 matches FUSE 1.6 (C:1,C:3; zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4534 |
-| CT-IOC-14 | 128K OUT (C),A to 0xC0FF with bank 1 at 0xC000 matches FUSE 1.6 (C:1 x4) | — | pass | test/contention/contention_test.cpp:4538 |
 
 ## LoRes — `test/lores/lores_test.cpp`
 
