@@ -2,6 +2,7 @@
 #include "gui/main_window.h"
 #include "gui/emulator_widget.h"
 #include "platform/emulator_boot.h"
+#include "platform/auto_exit.h"
 #include "platform/rzx_startup.h"
 #include "platform/render_policy.h"
 #include "platform/speed_report.h"
@@ -634,6 +635,15 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // Delayed automatic exit.
     if (a.exit_countdown_ == 0) {
         Log::platform()->info("automatic exit triggered");
+        // Deferred command-line work it cuts off fails the run
+        // (platform/auto_exit.h).
+        if (!auto_exit_finds_no_deferred_work(a.emulator_, {
+                {"--load", a.load_file_, a.load_countdown_ >= 0},
+                {"--inject", a.inject_file_, a.inject_countdown_ >= 0},
+                {"--rzx-record", a.rzx_record_file_,
+                 !a.rzx_record_file_.empty() && !a.rzx_record_started_},
+            }))
+            a.exit_code_ = 1;
         // Finish an RZX recording HERE, before quit(): quit() closes the main
         // window, and MainWindow::closeEvent() reports a recording it has to
         // stop in a modal dialog — right for a user closing the window, but an

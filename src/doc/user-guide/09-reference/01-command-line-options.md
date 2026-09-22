@@ -420,10 +420,21 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     **--delayed-screenshot**.
 
 **--delayed-automatic-exit** *N*
-:   Exit the emulator after *N* seconds.
+:   Exit the emulator after *N* seconds. The exit always fires, but work
+    the command line deferred to a later frame and that has not happened
+    by then is an error, and **jnext** exits non-zero: a **--load**
+    still waiting out its boot delay (100 frames for `.tzx` and `.wav`),
+    an **--inject** with **--inject-delay**, an **--rzx-record** waiting
+    for that load, a **--delayed-keypress**, **--delayed-nmi** or
+    **--delayed-screenshot** still to come, a **--joy-uart-rx** stream
+    still held by **--joy-uart-rx-delay-frames**, and an edge of the
+    **--esp-delayed-disassociate-frames** /
+    **--esp-delayed-associate-frames** outage not yet reached. Give the
+    exit headroom over the last of them.
 
 **--delayed-automatic-exit-frames** *N*
-:   Exit after *N* frames. Overrides **--delayed-automatic-exit**.
+:   Exit after *N* frames. Overrides **--delayed-automatic-exit**, and
+    keeps its rule on work still to come.
 
 **--delayed-snapshot** *FILE*
 :   Headless only: requires **--headless**. Save a snapshot after a

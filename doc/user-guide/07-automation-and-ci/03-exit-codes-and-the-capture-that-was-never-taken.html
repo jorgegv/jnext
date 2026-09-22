@@ -2777,6 +2777,21 @@ build. The contract means a broken run fails loudly at the emulator, before
 your test logic ever has to be clever about it.</p>
 <p>Give the exit bound headroom over the capture point (the example above uses
 <code>frames + 50</code>) so a slightly slower boot does not trip this.</p>
+<p><strong>Nothing else the command line deferred may be cut off either.</strong> The same
+error and non-zero exit follow when the automatic exit fires before any other
+deferred work has happened: a <code>--load</code> still waiting out its boot delay (a
+<code>.tzx</code> or <code>.wav</code> waits 100 frames for BASIC), an <code>--inject</code> with
+<code>--inject-delay</code>, an <code>--rzx-record</code> waiting for that load, a
+<code>--delayed-keypress</code> or <code>--delayed-nmi</code> still to come, a <code>--joy-uart-rx</code>
+stream still in its start delay, or an edge of a scheduled ESP outage. The log
+names each one:</p>
+<pre><code class="language-console">$ jnext --headless --machine 48k --load game.tzx --delayed-automatic-exit-frames 5
+...
+[platform] [error] --load: 'game.tzx' never happened — --delayed-automatic-exit
+  fired first. Exiting non-zero.
+$ echo $?
+1
+</code></pre>
 <p><strong>A program that fails to load is an error too.</strong> If the file given to
 <code>--load</code> (or as a bare file name) cannot be loaded — truncated, too small, not
 the format its extension says — JNEXT logs the error, keeps running the bare

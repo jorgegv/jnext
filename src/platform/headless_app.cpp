@@ -1,5 +1,6 @@
 #include "headless_app.h"
 #include "platform/emulator_boot.h"
+#include "platform/auto_exit.h"
 #include "platform/rzx_startup.h"
 #include "core/log.h"
 #include "core/sna_saver.h"
@@ -771,9 +772,22 @@ void HeadlessApp::run() {
             --snapshot_countdown_;
         }
 
-        // Delayed automatic exit.
+        // Delayed automatic exit. Deferred command-line work it cuts off
+        // fails the run (platform/auto_exit.h).
         if (exit_countdown_ == 0) {
             Log::platform()->info("automatic exit triggered");
+            std::string keys, nmis;
+            for (const auto& k : delayed_keys_) keys += (keys.empty() ? "" : ", ") + k.name;
+            for (const auto& n : delayed_nmis_) nmis += (nmis.empty() ? "" : ", ") + n.name;
+            if (!auto_exit_finds_no_deferred_work(emulator_, {
+                    {"--load", load_file_, load_countdown_ >= 0},
+                    {"--inject", inject_file_, inject_countdown_ >= 0},
+                    {"--rzx-record", rzx_record_file_,
+                     !rzx_record_file_.empty() && !rzx_record_started_},
+                    {"--delayed-keypress", keys, !delayed_keys_.empty()},
+                    {"--delayed-nmi", nmis, !delayed_nmis_.empty()},
+                }))
+                exit_code_ = 1;
             running_ = false;
         } else if (exit_countdown_ > 0) {
             --exit_countdown_;

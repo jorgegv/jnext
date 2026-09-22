@@ -151,5 +151,9 @@ drives the emulator. The delays are counted in emulated frames rather than
 wall-clock seconds precisely so that a loaded machine produces the same bytes
 as an idle one. And a capture that was requested but never taken makes the
 process exit non-zero rather than quietly writing nothing, so a broken test run
-cannot pass by producing no output. See [2.5](05-save-state-and-rewind.md) and
+cannot pass by producing no output. The same holds for any other work the
+command line deferred — a `--load` or `--inject` still waiting, a keypress, an
+NMI, a recording, a serial stream or ESP outage edge still to come — when the
+automatic exit fires first: each frontend asks `auto_exit_finds_no_deferred_work()`
+(`src/platform/auto_exit.h`) at that moment. See [2.5](05-save-state-and-rewind.md) and
 [4.3 The regression suite](../04-testing/03-the-regression-suite.md).

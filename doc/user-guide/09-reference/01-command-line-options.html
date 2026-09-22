@@ -3217,9 +3217,20 @@ the <code>BENCH</code> line is space-delimited. Requires <strong>--benchmark</st
 <code>ula</code>, <code>layer2</code>, <code>sprites</code>, <code>tiles</code>, <code>all</code> (default <code>all</code>). Requires
 <strong>--delayed-screenshot</strong>.</dd>
 <dt><strong>--delayed-automatic-exit</strong> <em>N</em></dt>
-<dd>Exit the emulator after <em>N</em> seconds.</dd>
+<dd>Exit the emulator after <em>N</em> seconds. The exit always fires, but work
+the command line deferred to a later frame and that has not happened
+by then is an error, and <strong>jnext</strong> exits non-zero: a <strong>--load</strong>
+still waiting out its boot delay (100 frames for <code>.tzx</code> and <code>.wav</code>),
+an <strong>--inject</strong> with <strong>--inject-delay</strong>, an <strong>--rzx-record</strong> waiting
+for that load, a <strong>--delayed-keypress</strong>, <strong>--delayed-nmi</strong> or
+<strong>--delayed-screenshot</strong> still to come, a <strong>--joy-uart-rx</strong> stream
+still held by <strong>--joy-uart-rx-delay-frames</strong>, and an edge of the
+<strong>--esp-delayed-disassociate-frames</strong> /
+<strong>--esp-delayed-associate-frames</strong> outage not yet reached. Give the
+exit headroom over the last of them.</dd>
 <dt><strong>--delayed-automatic-exit-frames</strong> <em>N</em></dt>
-<dd>Exit after <em>N</em> frames. Overrides <strong>--delayed-automatic-exit</strong>.</dd>
+<dd>Exit after <em>N</em> frames. Overrides <strong>--delayed-automatic-exit</strong>, and
+keeps its rule on work still to come.</dd>
 <dt><strong>--delayed-snapshot</strong> <em>FILE</em></dt>
 <dd>Headless only: requires <strong>--headless</strong>. Save a snapshot after a
 delay in frames. The format is chosen by the extension of <em>FILE</em>:
