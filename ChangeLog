@@ -1,5 +1,13 @@
 # ChangeLog
 
+## v1.0.1 (2026-09-22)
+
+### Bug Fixes
+- RZX playback now runs on the machine the recording was made on; `--machine` still overrides it
+- An automatic exit that arrives before a pending load or other startup work now fails with an error
+- 128K `.z80` v2 snapshots (hardware mode 3) now load as 128K instead of 48K
+- The status bar and Machine menu now show the machine actually running at startup
+
 ## v1.0.0 (2026-09-22)
 
 ### Developer Features

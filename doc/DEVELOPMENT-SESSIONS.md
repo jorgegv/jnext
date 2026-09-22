@@ -161,6 +161,6 @@
 |         |      | v0.99.154->.155                                                                                        |
 | 21/9    | 17h  | Every render register replayed per scanline (#256); line-interrupt rows (#257); esxDOS stand-in        |
 |         |      | for directly loaded NEX (#250); #258-#261; RZX in every frontend. v0.99.156->.163                      |
-| 22/9    | 10h  | No-deferral day: 8 branches, 14 issues closed; loaders, RZX, soft reset, timing vs FUSE                |
-|         |      | (floating bus, I/O contention, in-instruction reads). v0.99.164->.172; v1.0.0 PUBLIC RELEASE           |
-| TOTAL:  | 663h |                                                                                                        |
+| 22/9    | 13h  | No-deferral day: 8 branches, 14 issues closed; loaders, RZX, soft reset, timing vs FUSE                |
+|         |      | (floating bus, I/O contention, in-instruction reads). v0.99.164->.172; v1.0.0 + v1.0.1 PUBLIC          |
+| TOTAL:  | 666h |                                                                                                        |
