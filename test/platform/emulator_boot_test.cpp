@@ -569,7 +569,7 @@ int main()
             check("EB-21a", "--rzx-record: returns true and the recorder is running",
                   ok && emu.rzx_recorder().is_recording());
             for (int i = 0; i < 3; ++i) emu.run_frame();
-            emulator_finish_rzx(emu);
+            emulator_finish_rzx(emu, rec);
             recorded_frames = emu.rzx_recorder().recording().frames.size();
             check("EB-21b", "finishing stops the recorder and writes an RZX! file",
                   !emu.rzx_recorder().is_recording() && magic(rec) == "RZX!" &&
@@ -608,7 +608,7 @@ int main()
             emu.init(base_config());
             const bool ok = emulator_start_rzx(emu, bad, rec2);
             emu.run_frame();
-            emulator_finish_rzx(emu);
+            emulator_finish_rzx(emu, rec2);
             check("EB-24", "failed playback + --rzx-record: returns false, still records",
                   !ok && magic(rec2) == "RZX!", "magic='" + magic(rec2) + "'");
         }
@@ -714,6 +714,110 @@ int main()
         std::remove(sna_rzx.c_str());
         std::remove(z80_rzx.c_str());
         std::remove(odd_rzx.c_str());
+    }
+
+    // --- EB-28..EB-32: a recording that cannot be written is an error --------
+    // Contract (Emulator::start_rzx_recording / stop_rzx_recording,
+    // emulator_start_rzx / emulator_finish_rzx): a path that cannot be written
+    // is refused at the start; a write that fails when the file is saved is
+    // reported and latched per path; either way the frontend is told, so the
+    // run exits non-zero. A running recording is never silently replaced.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string nodir =
+            (tmp / ("jnext-eb-nodir-" + stamp) / "sub" / "out.rzx").string();
+        const std::string ok_path = (tmp / ("jnext-eb-ok-" + stamp + ".rzx")).string();
+        const std::string ok2_path = (tmp / ("jnext-eb-ok2-" + stamp + ".rzx")).string();
+        const std::string full = "/dev/full";   // opens; every flush fails ENOSPC
+
+        // EB-28: an unwritable path is refused up front.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emu.start_rzx_recording(nodir);
+            std::error_code ec;
+            check("EB-28", "start_rzx_recording to an unwritable path: false, not recording",
+                  !ok && !emu.rzx_recorder().is_recording() &&
+                      !std::filesystem::exists(nodir, ec));
+        }
+
+        // EB-29: ...and the command-line helper reports it, so the frontend
+        // exits non-zero.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emulator_start_rzx(emu, "", nodir);
+            check("EB-29", "emulator_start_rzx with an unwritable --rzx-record: returns false",
+                  !ok && !emu.rzx_recorder().is_recording());
+        }
+
+        // EB-30: a write that fails when the file is saved (a full disk) is
+        // reported by stop, latched for that path, and makes the exit-time
+        // helper fail — also when the stop happened earlier (the GUI's Stop).
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording(full);
+            emu.run_frame();
+            const bool stopped = emu.stop_rzx_recording();
+            const bool finish = emulator_finish_rzx(emu, full);
+            check("EB-30", "a failed write: stop false, latched, emulator_finish_rzx false",
+                  started && !stopped && emu.rzx_output_failed(full) && !finish,
+                  "started=" + std::to_string(started) + " stopped=" +
+                      std::to_string(stopped) + " finish=" + std::to_string(finish));
+        }
+
+        // EB-31: starting a recording over a running one is refused; the
+        // running recording keeps going and is written in full.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool first = emu.start_rzx_recording(ok_path);
+            emu.run_frame();
+            const bool second = emu.start_rzx_recording(ok2_path);
+            emu.run_frame();
+            const std::size_t frames = emu.rzx_recorder().recording().frames.size();
+            const bool finish = emulator_finish_rzx(emu, ok_path);
+            std::error_code ec;
+            check("EB-31", "a second start is refused; the first recording keeps all its frames",
+                  first && !second && frames == 2 && finish &&
+                      std::filesystem::exists(ok_path, ec) &&
+                      !std::filesystem::exists(ok2_path, ec),
+                  "frames=" + std::to_string(frames));
+        }
+
+        // EB-32: control — a recording that was written leaves nothing latched
+        // and the exit-time helper succeeds.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording(ok2_path);
+            emu.run_frame();
+            const bool finish = emulator_finish_rzx(emu, ok2_path);
+            check("EB-32", "control: a written recording finishes true and latches nothing",
+                  started && finish && !emu.rzx_output_failed(ok2_path));
+        }
+
+        // EB-33: no recording during playback — every IN is answered from the
+        // file being played and never reaches the recorder, so it would hold
+        // no input at all.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            bool playing = false;
+            if (emu.start_rzx_recording(ok_path)) {
+                emu.run_frame();
+                playing = emu.stop_rzx_recording() && emu.load_rzx(ok_path);
+            }
+            const bool ok = emu.start_rzx_recording(ok2_path);
+            check("EB-33", "start_rzx_recording during playback: refused, nothing records",
+                  playing && !ok && !emu.rzx_recorder().is_recording());
+        }
+
+        std::remove(ok_path.c_str());
+        std::remove(ok2_path.c_str());
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

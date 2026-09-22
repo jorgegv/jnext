@@ -90,7 +90,15 @@ request in `run()` or in its frame loop, and never read the value back inside
 The command-line RZX requests are now started by one shared helper,
 `emulator_start_rzx()` in `src/platform/rzx_startup.h`, which all three
 frontends call at the top of `run()`; `rzx-frontends-func` checks every
-spelling of them in every frontend.
+spelling of them in every frontend. Its twin `emulator_finish_rzx()`, called
+from every `shutdown()`, writes a recording still running and reports whether
+the command-line one reached the disk — at exit or at any earlier point, since
+`Emulator::stop_rzx_recording()` latches a failed path
+(`Emulator::rzx_output_failed()`), as `VideoRecorder::output_failed()` does for
+`--record` — so a lost recording exits non-zero (`rzx-record-status-func`).
+`QtApp` calls it before an automatic exit's `quit()` too: `quit()` closes the
+main window, and `MainWindow::closeEvent()` reports a recording it has to stop
+in a modal dialog that an unattended run would wait on forever.
 
 - **`QtApp`** (`src/gui/qt_app.h`) owns a `QApplication` and a `MainWindow`
   whose central widget is an `EmulatorWidget`. A `QTimer` drives the machine,

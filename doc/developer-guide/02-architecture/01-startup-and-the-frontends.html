@@ -1894,7 +1894,15 @@ request in <code>run()</code> or in its frame loop, and never read the value bac
 The command-line RZX requests are now started by one shared helper,
 <code>emulator_start_rzx()</code> in <code>src/platform/rzx_startup.h</code>, which all three
 frontends call at the top of <code>run()</code>; <code>rzx-frontends-func</code> checks every
-spelling of them in every frontend.</p>
+spelling of them in every frontend. Its twin <code>emulator_finish_rzx()</code>, called
+from every <code>shutdown()</code>, writes a recording still running and reports whether
+the command-line one reached the disk — at exit or at any earlier point, since
+<code>Emulator::stop_rzx_recording()</code> latches a failed path
+(<code>Emulator::rzx_output_failed()</code>), as <code>VideoRecorder::output_failed()</code> does for
+<code>--record</code> — so a lost recording exits non-zero (<code>rzx-record-status-func</code>).
+<code>QtApp</code> calls it before an automatic exit's <code>quit()</code> too: <code>quit()</code> closes the
+main window, and <code>MainWindow::closeEvent()</code> reports a recording it has to stop
+in a modal dialog that an unattended run would wait on forever.</p>
 <ul>
 <li><strong><code>QtApp</code></strong> (<code>src/gui/qt_app.h</code>) owns a <code>QApplication</code> and a <code>MainWindow</code>
   whose central widget is an <code>EmulatorWidget</code>. A <code>QTimer</code> drives the machine,

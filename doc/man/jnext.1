@@ -371,6 +371,9 @@ The file is written when \f[B]jnext\f[R] exits (or, in the GUI, at
 \f[B]File > Stop RZX Recording\f[R]).
 Works the same in the GUI, the SDL\-only build and under
 \f[B]\-\-headless\f[R].
+A \f[I]FILE\f[R] that cannot be written is refused before the machine
+starts, and a recording that cannot be saved when it is written is
+logged; either way \f[B]jnext\f[R] exits non\-zero.
 .TP
 \f[B]\-\-rewind\-buffer\-size\f[R] \f[I]N\f[R]
 Frame\-snapshot ring buffer for backwards execution.

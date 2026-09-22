@@ -3142,7 +3142,9 @@ that fails to load is logged, and <strong>jnext</strong> then exits non-zero.</d
 <dd>Record input to an RZX file from the start of the run. The file is
 written when <strong>jnext</strong> exits (or, in the GUI, at <strong>File &gt; Stop RZX
 Recording</strong>). Works the same in the GUI, the SDL-only build and
-under <strong>--headless</strong>.</dd>
+under <strong>--headless</strong>. A <em>FILE</em> that cannot be written is refused
+before the machine starts, and a recording that cannot be saved when
+it is written is logged; either way <strong>jnext</strong> exits non-zero.</dd>
 <dt><strong>--rewind-buffer-size</strong> <em>N</em></dt>
 <dd>Frame-snapshot ring buffer for backwards execution. Opt-in; default
 0 = off.</dd>

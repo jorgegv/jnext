@@ -461,8 +461,9 @@ void SdlApp::shutdown() {
         exit_code_ = 1;
     }
 
-    // Stop RZX recording if active (writes the file).
-    emulator_finish_rzx(emulator_);
+    // Stop RZX recording if active (writes the file). A command-line recording
+    // that did not reach the disk exits non-zero.
+    if (!emulator_finish_rzx(emulator_, rzx_record_file_)) exit_code_ = 1;
 
     // Close any open game-controllers (G42): GamepadHost owns their lifecycle
     // now (Task 79), so destroying it here (before SDL_Quit) closes them.

@@ -294,11 +294,21 @@ public:
     bool load_snapshot_from_memory(const std::vector<uint8_t>& data,
                                    const std::string& ext, const std::string& name);
 
-    /// Start recording RZX input to the given file path.
+    /// Start recording RZX input to the given file path. Returns false, with
+    /// the reason logged, when `path` cannot be written, when a recording is
+    /// already running (it is never silently replaced), or during playback.
     bool start_rzx_recording(const std::string& path);
 
-    /// Stop RZX recording and write the file.
-    void stop_rzx_recording();
+    /// Stop RZX recording and write the file. Returns false when the file
+    /// could not be written; that path is then latched, see
+    /// rzx_output_failed(). Returns true when no recording was running.
+    bool stop_rzx_recording();
+
+    /// Whether writing a recording to `path` has failed at any point in this
+    /// session — the per-path latch a frontend reads at exit, so a failure
+    /// reported and cleared mid-session (the GUI's Stop, a cold boot) still
+    /// makes the run exit non-zero. Mirrors VideoRecorder::output_failed().
+    bool rzx_output_failed(const std::string& path) const;
 
     /// Access the RZX player/recorder.
     RzxPlayer& rzx_player() { return rzx_player_; }
@@ -1148,6 +1158,7 @@ private:
     VideoRecorder   video_recorder_;
     RzxPlayer       rzx_player_;
     RzxRecorder     rzx_recorder_;
+    std::vector<std::string> rzx_failed_outputs_;   // see rzx_output_failed()
     uint32_t        rzx_frame_instruction_count_ = 0;
 
     /// Rewind snapshot buffer (null when disabled).

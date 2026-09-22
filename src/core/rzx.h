@@ -312,7 +312,12 @@ inline bool write(const std::string& path, const RzxRecording& rec) {
         f.write(reinterpret_cast<const char*>(blk.data()), static_cast<std::streamsize>(block_size));
     }
 
-    return f.good();
+    // Close before judging: the stream buffers, so for a small recording
+    // every byte can still be in memory here and a full disk only shows up
+    // when the buffer is flushed. good() before close() reported success
+    // for a file that never reached the disk.
+    f.close();
+    return !f.fail();
 }
 
 }  // namespace rzx

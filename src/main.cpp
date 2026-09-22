@@ -3,6 +3,7 @@
 #include "core/cli_options.h"
 #include "core/log.h"
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
+#include "core/rzx_recorder.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
@@ -1100,6 +1101,19 @@ int main(int argc, char* argv[]) {
             fprintf(stderr,
                     "--wav-record cannot be used while audio is disabled in preferences.\n");
             return 1;
+        }
+        // Refused HERE, before the machine boots, for the same reason as a
+        // --record that cannot start (GH #86): discovering at exit that the
+        // recording could never have been written wastes the whole run. A
+        // failure that only shows when the file is written (a full disk) is
+        // still caught then, by emulator_finish_rzx(), and exits non-zero too.
+        if (!rzx_record_file.empty()) {
+            std::string why;
+            if (!RzxRecorder::can_write(rzx_record_file, why)) {
+                fprintf(stderr, "--rzx-record: cannot write '%s': %s\n",
+                        rzx_record_file.c_str(), why.c_str());
+                return 1;
+            }
         }
         if (!wav_record_file.empty()) {
             if (!audio_recorder.start(wav_record_file)) {

@@ -860,6 +860,16 @@ if(ENABLE_QT_UI)
     target_include_directories(nex_v13_dialog_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME nex_v13_dialog_tests COMMAND nex_v13_dialog_test)
 
+    # The File menu's RZX actions: each failure (unwritable recording, one that
+    # would replace a running recording, recording during playback, an
+    # unplayable file) must reach the user as a dialog. Same offscreen-QPA
+    # post-picker-seam idiom as nex_v13_dialog_test.
+    add_executable(rzx_menu_test gui/rzx_menu_test.cpp)
+    set_target_properties(rzx_menu_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(rzx_menu_test PRIVATE jnext_gui)
+    target_include_directories(rzx_menu_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME rzx_menu_tests COMMAND rzx_menu_test)
+
     add_executable(esc_break_test gui/esc_break_test.cpp)
     set_target_properties(esc_break_test PROPERTIES AUTOMOC ON)
     target_link_libraries(esc_break_test PRIVATE jnext_gui)

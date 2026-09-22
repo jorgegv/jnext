@@ -51,7 +51,14 @@ keystroke — a walkthrough, a bug report, or a speedrun that stays honest.
 The command-line options work the same whichever way you run JNEXT: the normal
 window, the SDL-only build, or `--headless`. A recording that fails to load is
 reported, and JNEXT then exits with a non-zero status, exactly as it does for a
-program that fails to load.
+program that fails to load. So does a recording that cannot be written: a
+`--rzx-record` file that cannot be created stops JNEXT before the machine
+starts, and one that cannot be saved (a full disk) makes it exit non-zero.
+
+In the window, the File menu says so instead: a recording that cannot be
+started or saved, and a file that cannot be played, each put up a message.
+Only one recording runs at a time — **Record RZX…** while one is running tells
+you to stop it first — and nothing is recorded while a recording plays back.
 
 Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine

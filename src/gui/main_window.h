@@ -113,6 +113,17 @@ public:
     // every suite green).
     void handle_load_path(const QString& path);
 
+    // The File menu's RZX actions — everything each does AFTER its file picker
+    // returns. Public and separate from the pickers for the reason given at
+    // handle_load_path(): rzx_menu_test drives the REAL dialogs, and the
+    // dialogs are the point. A recording that cannot be written, one that
+    // would replace a running recording, and a file that cannot be played are
+    // each SAID to the user; before, the first two were a log line nobody
+    // sees and the last was nothing at all.
+    void handle_rzx_record_path(const QString& path);
+    void handle_rzx_stop();
+    void handle_rzx_play_path(const QString& path);
+
     // Issue #40 — a machine-type change is a power cycle, and it must take the
     // ONE canonical cold-boot path (platform/emulator_boot.h) like every other
     // reboot. MainWindow therefore requests it from the frontend instead of
@@ -250,6 +261,12 @@ private:
     // Recording slots
     void on_record_start();
     void on_record_stop();
+
+    // RZX slots: the file pickers in front of the handle_rzx_* seams above.
+    void on_rzx_record();
+    void on_rzx_play();
+    /// Why a new RZX recording cannot start right now, or empty if it can.
+    QString rzx_record_refusal() const;
 
     // Snapshot save slot (G35: wires SnaSaver to File menu).
     void on_save_snapshot();

@@ -336,7 +336,9 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 :   Record input to an RZX file from the start of the run. The file is
     written when **jnext** exits (or, in the GUI, at **File \> Stop RZX
     Recording**). Works the same in the GUI, the SDL-only build and
-    under **--headless**.
+    under **--headless**. A *FILE* that cannot be written is refused
+    before the machine starts, and a recording that cannot be saved when
+    it is written is logged; either way **jnext** exits non-zero.
 
 **--rewind-buffer-size** *N*
 :   Frame-snapshot ring buffer for backwards execution. Opt-in; default

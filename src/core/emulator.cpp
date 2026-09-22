@@ -7160,10 +7160,24 @@ bool Emulator::load_rzx(const std::string& path)
 
 bool Emulator::start_rzx_recording(const std::string& path)
 {
+    // Refused, never silently replaced: starting over the top of a running
+    // recording used to throw that recording away unwritten.
+    if (rzx_recorder_.is_recording()) {
+        Log::emulator()->error("RZX: already recording to '{}'; stop that recording first",
+                               rzx_recorder_.output_path());
+        return false;
+    }
+    // During playback every IN is answered from the file being played and
+    // never reaches the recorder, so the "recording" would hold no input.
+    if (rzx_player_.is_playing()) {
+        Log::emulator()->error("RZX: cannot record while an RZX recording is playing");
+        return false;
+    }
+
+    if (!rzx_recorder_.start(path)) return false;
+
     // Save current state as SNA snapshot for embedding.
     auto sna_data = SnaSaver::save(*this);
-
-    rzx_recorder_.start(path);
     if (!sna_data.empty()) {
         rzx_recorder_.set_snapshot(std::move(sna_data), "sna");
     }
@@ -7177,10 +7191,21 @@ bool Emulator::start_rzx_recording(const std::string& path)
     return true;
 }
 
-void Emulator::stop_rzx_recording()
+bool Emulator::stop_rzx_recording()
 {
     port_.rzx_in_record = nullptr;
-    rzx_recorder_.stop();
+    if (!rzx_recorder_.is_recording()) return true;   // nothing to write
+    const std::string path = rzx_recorder_.output_path();
+    const bool ok = rzx_recorder_.stop();
+    if (!ok) rzx_failed_outputs_.push_back(path);
+    return ok;
+}
+
+bool Emulator::rzx_output_failed(const std::string& path) const
+{
+    for (const auto& p : rzx_failed_outputs_)
+        if (p == path) return true;
+    return false;
 }
 
 void Emulator::repush_video_timing_from_machine_timing()

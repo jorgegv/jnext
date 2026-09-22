@@ -382,8 +382,9 @@ void QtApp::shutdown() {
         exit_code_ = 1;
     }
 
-    // Stop RZX recording if active (writes the file).
-    emulator_finish_rzx(emulator_);
+    // Stop RZX recording if active (writes the file). A command-line recording
+    // that did not reach the disk exits non-zero.
+    if (!emulator_finish_rzx(emulator_, rzx_record_file_)) exit_code_ = 1;
 
     if (frame_timer_) {
         frame_timer_->stop();
@@ -604,6 +605,11 @@ void QtApp::TickEffects::post_frames(int frames_rendered) {
     // Delayed automatic exit.
     if (a.exit_countdown_ == 0) {
         Log::platform()->info("automatic exit triggered");
+        // Finish an RZX recording HERE, before quit(): quit() closes the main
+        // window, and MainWindow::closeEvent() reports a recording it has to
+        // stop in a modal dialog — right for a user closing the window, but an
+        // unattended exit would then wait forever on a dialog nobody answers.
+        if (!emulator_finish_rzx(a.emulator_, a.rzx_record_file_)) a.exit_code_ = 1;
         a.qapp_->quit();
         a.exit_countdown_ = -1;  // done
     } else if (a.exit_countdown_ > 0) {

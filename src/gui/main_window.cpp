@@ -555,29 +555,13 @@ void MainWindow::create_menus() {
     file_menu->addSeparator();
 
     QAction* rzx_play = file_menu->addAction(tr("Play &RZX Recording..."));
-    connect(rzx_play, &QAction::triggered, this, [this]() {
-        QString path = QFileDialog::getOpenFileName(
-            this, tr("Play RZX File"), QString(),
-            tr("RZX Files (*.rzx);;All Files (*)"));
-        if (!path.isEmpty() && emulator_) {
-            emulator_->load_rzx(path.toStdString());
-        }
-    });
+    connect(rzx_play, &QAction::triggered, this, &MainWindow::on_rzx_play);
 
     QAction* rzx_record = file_menu->addAction(tr("Record R&ZX..."));
-    connect(rzx_record, &QAction::triggered, this, [this]() {
-        QString path = QFileDialog::getSaveFileName(
-            this, tr("Record RZX File"), QString(),
-            tr("RZX Files (*.rzx);;All Files (*)"));
-        if (!path.isEmpty() && emulator_) {
-            emulator_->start_rzx_recording(path.toStdString());
-        }
-    });
+    connect(rzx_record, &QAction::triggered, this, &MainWindow::on_rzx_record);
 
     QAction* rzx_stop = file_menu->addAction(tr("Stop RZX Recordin&g"));
-    connect(rzx_stop, &QAction::triggered, this, [this]() {
-        if (emulator_) emulator_->stop_rzx_recording();
-    });
+    connect(rzx_stop, &QAction::triggered, this, &MainWindow::handle_rzx_stop);
 
     file_menu->addSeparator();
 
@@ -1510,6 +1494,88 @@ void MainWindow::on_record_stop() {
     }
 }
 
+void MainWindow::on_rzx_record() {
+    if (!emulator_) return;
+    // Refuse before the picker: asking for a file name only to refuse it
+    // afterwards wastes the user's time.
+    if (const QString why = rzx_record_refusal(); !why.isEmpty()) {
+        QMessageBox::warning(this, tr("RZX Recording"), why);
+        return;
+    }
+    const QString path = QFileDialog::getSaveFileName(
+        this, tr("Record RZX File"), QString(),
+        tr("RZX Files (*.rzx);;All Files (*)"));
+    if (path.isEmpty()) return;
+    handle_rzx_record_path(path);
+}
+
+QString MainWindow::rzx_record_refusal() const {
+    if (!emulator_) return QString();
+    if (emulator_->rzx_recorder().is_recording()) {
+        return tr("An RZX recording to %1 is already running.\n\n"
+                  "Stop it first (File > Stop RZX Recording).")
+            .arg(QString::fromStdString(emulator_->rzx_recorder().output_path()));
+    }
+    if (emulator_->rzx_player().is_playing()) {
+        return tr("An RZX recording is playing. Input cannot be recorded during "
+                  "playback, so wait for it to finish.");
+    }
+    return QString();
+}
+
+void MainWindow::handle_rzx_record_path(const QString& path) {
+    if (!emulator_) return;
+    if (const QString why = rzx_record_refusal(); !why.isEmpty()) {
+        QMessageBox::warning(this, tr("RZX Recording"), why);
+        return;
+    }
+    std::string reason;
+    if (!RzxRecorder::can_write(path.toStdString(), reason) ||
+        !emulator_->start_rzx_recording(path.toStdString())) {
+        QMessageBox::warning(this, tr("RZX Recording"),
+            tr("Cannot record to %1:\n%2")
+                .arg(path, reason.empty() ? tr("see the log for details")
+                                          : QString::fromStdString(reason)));
+        return;
+    }
+    statusBar()->showMessage(tr("Recording RZX to %1").arg(path), 3000);
+}
+
+void MainWindow::handle_rzx_stop() {
+    if (!emulator_) return;
+    if (!emulator_->rzx_recorder().is_recording()) {
+        statusBar()->showMessage(tr("No RZX recording is running"), 3000);
+        return;
+    }
+    const QString path = QString::fromStdString(emulator_->rzx_recorder().output_path());
+    if (emulator_->stop_rzx_recording()) {
+        statusBar()->showMessage(tr("RZX recording saved to %1").arg(path), 3000);
+    } else {
+        QMessageBox::warning(this, tr("RZX Recording"),
+            tr("The RZX recording could not be written to %1, and is lost.\n\n"
+               "See the log for details.").arg(path));
+    }
+}
+
+void MainWindow::on_rzx_play() {
+    if (!emulator_) return;
+    const QString path = QFileDialog::getOpenFileName(
+        this, tr("Play RZX File"), QString(),
+        tr("RZX Files (*.rzx);;All Files (*)"));
+    if (path.isEmpty()) return;
+    handle_rzx_play_path(path);
+}
+
+void MainWindow::handle_rzx_play_path(const QString& path) {
+    if (!emulator_) return;
+    if (!emulator_->load_rzx(path.toStdString())) {
+        QMessageBox::warning(this, tr("Play RZX Recording"),
+            tr("Cannot play %1.\n\nSee the log for details.").arg(path));
+        return;
+    }
+    statusBar()->showMessage(tr("Playing RZX recording %1").arg(path), 3000);
+}
+
 // G35: wires SnaSaver/SzxSaver/NexSaver to File > Save Snapshot... —
 // closes BOOT-SNAPSAVE-01/02/03/04 in mmu_test. Format is chosen by the
 // extension the user picks (or types); defaults to .sna if none/unknown.
@@ -2192,6 +2258,10 @@ void MainWindow::closeEvent(QCloseEvent* event) {
     if (emulator_ && emulator_->video_recorder().is_recording()) {
         emulator_->stop_recording();
     }
+    // Same for an RZX recording (latched by Emulator::rzx_output_failed(),
+    // read by QtApp::shutdown()), and the user is TOLD here, while the window
+    // still exists: a recording lost at exit is otherwise one log line.
+    if (emulator_ && emulator_->rzx_recorder().is_recording()) handle_rzx_stop();
 
 #ifdef ENABLE_DEBUGGER
     if (debugger_mgr_) {
