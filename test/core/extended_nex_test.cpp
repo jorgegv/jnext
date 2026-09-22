@@ -488,12 +488,23 @@ int main() {
         reload_after_soft && esx(gui_emu, 0x88, regs) && !carry(regs);
     // GH #239 — the production hard reset (F1, Machine > Power Reset, a
     // guest's NR 0x02 bit 1): the frontend cold boot, with no file to load.
+    // That boot attaches the RST $08 hook only for --esxdos-stub or with the
+    // esxdos logger at trace; with no hook, "not answered" would hold by
+    // absence. So the reset runs with esxdos at trace (as
+    // `--log-level esxdos=trace` then F1 does) and the row REQUIRES the hook,
+    // whose answer is then the evidence that the bridge was disarmed.
+    const auto esx_level = Log::esxdos()->level();
+    Log::esxdos()->set_level(spdlog::level::trace);
     emulator_frontend_cold_boot(gui_emu, gui_emu.config(), std::string(),
                                 ColdBootHooks{});
     regs = {};
-    const bool hard_bridge_gone = !esx(gui_emu, 0x88, regs);
-    check("XNEX-26", "hard reset (frontend cold boot) disarms a reloaded host bridge",
-          rearmed_after_soft && hard_bridge_gone &&
+    const bool hard_hook = static_cast<bool>(gui_emu.cpu().on_esxdos_call);
+    const bool hard_bridge_gone = hard_hook && !esx(gui_emu, 0x88, regs);
+    Log::esxdos()->set_level(esx_level);
+    check("XNEX-26", "hard reset (frontend cold boot) disarms a reloaded host bridge: "
+          "with the hook present (esxdos tracing on) M_DOSVERSION is no longer "
+          "answered and the SD read overlay is gone",
+          rearmed_after_soft && hard_hook && hard_bridge_gone &&
           !gui_emu.sd_card().has_read_overlay());
 
     // A command-line load reattaches the dormant hook on a SOFT reset, because
