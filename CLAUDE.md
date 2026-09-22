@@ -393,6 +393,18 @@ timeout. Raising in-suite concurrency makes the suite intermittently lie, which
 is far more expensive than the ~55 s it would save. This was measured and
 rejected in Task 39.
 
+**Those two rows are examples, not the list** (GH #245). Contention also fails
+rows that merely spawn short-lived processes — `subsystem-gain-func` failed
+under a three-agent load on 2026-08-09 and never reproduced solo — and a
+concurrent duplicate build once produced an `undefined reference to main`. So:
+a single regression FAIL on a loaded host is unconfirmed until that row is
+re-run SOLO (`bash test/00regression/regression.sh <row>`), and it is not
+dismissed either until the solo run passes — a row that also fails solo is
+real. **Always record the row name.** The harness does the bookkeeping: it
+prints the 1-minute load at the start and the end of the run, flags each FAIL
+that happened with the load at or above `nproc`, and lists every failed row by
+name after the results. It never changes a verdict.
+
 ### Headless mode
 
 The `--headless` option runs without display/audio for automated testing:

@@ -1863,9 +1863,13 @@ offending row script fails the whole regression preflight rather than just the
 lint. The rest cover cleanup, checking that every SD-clone cleanup script
 handles INT and TERM as well as EXIT, that each handler <strong>exits</strong> rather than
 resuming, and that the three real cleanup bodies are bounded and remove only
-their own run directory.</p>
+their own run directory. Finally <code>HS-50</code>..<code>HS-54</code> pin the regression suite's
+host-load bookkeeping (GH #245): the real suite library, sourced against a fake
+<code>/proc/loadavg</code>, must flag a FAIL on a loaded host and must not flag the same
+FAIL on an idle one, must name every failed row at the end, must never change
+the count — and the driver must still call it.</p>
 <h2 id="it-pins-its-own-count">It pins its own count<a class="headerlink" href="#it-pins-its-own-count" title="Permanent link">&para;</a></h2>
-<p><code>EXPECTED_TOTAL = 45</code> sits in the script, right next to the rows it counts, and
+<p><code>EXPECTED_TOTAL = 50</code> sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

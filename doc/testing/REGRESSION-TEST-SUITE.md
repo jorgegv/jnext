@@ -12,6 +12,18 @@ See also: [TEST-TAXONOMY.md](TEST-TAXONOMY.md) — every screenshot row belongs 
 - z88dk toolchain (only if rebuilding demo programs)
 - `xvfb-run` + `python3` (only for `audio-underrun-func`; the test SKIPs without them)
 
+## Failures on a loaded host
+
+Some rows can fail spuriously under CPU contention: the real-time-paced ones
+(`audio-underrun-func`, `screenshot-paused-func`) and, as GH #245 recorded,
+rows that merely spawn short-lived processes. The suite therefore reports the
+host's 1-minute load average at the start and end of every run, flags each FAIL
+that happened with the load at or above `nproc`, and lists every failed row by
+name after the results. A flagged FAIL is still a FAIL — the verdict and exit
+status never change. Re-run that row solo (`bash test/00regression/regression.sh
+<row>`) before treating it as a regression, and do not dismiss it until the solo
+run passes.
+
 ## Quick Start
 
 ```bash

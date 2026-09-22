@@ -102,6 +102,7 @@ for test_name in "${ORDERED_TESTS[@]}"; do
     ref_img="$IMG_DIR/${test_name}-reference.png"
     out_img="$TMP_DIR/${test_name}.png"
 
+    CURRENT_ROW=$test_name
     printf "  %-25s " "[$test_name]"
 
     # Check if emulator produced output
