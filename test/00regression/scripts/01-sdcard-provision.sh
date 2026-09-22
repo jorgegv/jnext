@@ -133,6 +133,7 @@ case "$SD_CLONE_MODE" in
     *)       sd_verdict=fail; sd_text+="; per-run clone $SD_CLONE_MODE — this run would share the master" ;;
 esac
 
+CURRENT_ROW=sdcard-provision
 printf "  "
 if [[ "$sd_verdict" == pass ]]; then pass_row "$sd_text"; else fail_row "$sd_text"; fi
 echo ""

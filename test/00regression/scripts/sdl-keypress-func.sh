@@ -9,7 +9,7 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # SDL frontend host-keypress test (GitHub issue #122).
 #
 # WHY THIS ROW EXISTS AT ALL. jnext's host-key minimum-hold latch is unit-tested
-# to death (host_key_latch_test, rows HK-* and RT-* for the policy, SDL-* for
+# to death (host_key_latch_test, rows HKL-* and RT-* for the policy, SDL-* for
 # the tick shapes). None of that touches the three lines in src/platform/
 # sdl_app.cpp that CONNECT the latch to the running emulator — the attach(), the
 # on_host_key() forward and the on_tick_end() discharge. Reverting all three to

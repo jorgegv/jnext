@@ -81,6 +81,15 @@ ROM's input loop is running — see [3.7 Input](07-input.md) for how it decides
 that. It is armed by `load_tap()` only; `.tzx` and `.wav` still fall back to a
 fixed 100-frame delay.
 
+`TapLoader::parse_blocks()` refuses a `.tap` whose blocks do not tile the
+file exactly — a block whose declared length runs past the end, or one stray
+byte where a length field should start — the two cases FUSE's libspectrum TAP
+reader rejects. A bad checksum or flag byte inside a complete block is not a
+container error: the tape loads, and the ROM reports "R Tape loading error"
+when it reads that block. `.tzx` gets no such check:
+ZOT's `tzx_load()` accepts any file of two bytes or more, taking one without
+the TZX signature as TAP data.
+
 ## NEX
 
 `.nex` is the Next's native program container, and the most involved loader
@@ -131,6 +140,11 @@ which had turned such a file away. No host bridge is opened for such a file,
 so the stand-in cannot reach the bytes either: its `F_OPEN` then knows only
 the in-memory file.
 
+When no handle goes in `BC` (`file_handle` 0, or `$4000` and above), the two
+loaders disagree on what `BC` holds at entry, and `load_nex()` follows the one
+that really runs the file: `$00FF` ("no handle") for V1.3 (`nexload2.asm:407`),
+`$0000` for V1.0–V1.2 (`nexload.asm:582-585`).
+
 ## The esxDOS stand-in for directly loaded programs
 
 On hardware a NEX is always started by NextZXOS's `nexload`, so the program
@@ -157,15 +171,17 @@ loaded from the GUI after start-up.
 **When it answers.** Three things arm it:
 
 - `direct_nex_esxdos_` — set by `Emulator::load_nex()` for every NEX it loads,
-  cleared by `reset()` and `soft_reset()`. `load_sna()`, `load_szx()` and
-  `load_z80()` reset, and RZX playback goes through `load_sna()`, so a snapshot
-  clears it. `load_tap()`, `load_tzx()` and `load_wav()` deliberately do not:
-  they attach tape media to the running machine, so a NEX still running keeps
-  its stand-in.
+  cleared by `init()`, so by a soft reset, and gone after a hard reset, which
+  reconstructs the emulator. `load_sna()`, `load_szx()` and `load_z80()`
+  re-run `init()` before applying the file, and RZX playback goes through
+  `load_sna()`, so a snapshot clears it. `load_tap()`, `load_tzx()` and
+  `load_wav()` deliberately do not: they attach tape media to the running
+  machine, so a NEX still running keeps its stand-in.
 - `EmulatorConfig::esxdos_stub` (`--esxdos-stub`), for the whole session.
 - The extended-NEX host bridge (`extended_nex_host_`), open when the NEX
   header's `file_handle` is non-zero. Only `load_nex()` opens it, so it never
-  exists without `direct_nex_esxdos_`; reset and soft reset close it.
+  exists without `direct_nex_esxdos_`; `init()` closes it, so both resets and
+  every re-initialising load do.
 
 **The ROM gate.** Whatever armed it, the handler answers nothing unless NR
 `$50` reads `$FF`, i.e. ROM is paged in at `$0000`. That is the hardware's own

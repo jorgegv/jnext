@@ -92,7 +92,9 @@ NR `0x86`-`0x89` when NR `0x80` bit 7 enables the expansion bus
 (`zxnext.vhd:2392-2393`). `Emulator::effective_internal_port_enable()` computes
 one byte of it, and `propagate_effective_port_enables()` re-pushes the derived
 bits into the subsystems that keep their own shadow copy — contention, DivMMC
-and the Multiface. A handler that skips its gate check is a bug, not a shortcut.
+and the Multiface — on every write that can change them and once at the end of
+every `init()`, after the reset-folded NR `0x80` bit 7 has been reloaded. A
+handler that skips its gate check is a bug, not a shortcut.
 
 `init()` clears the handler and observer lists before registering anything,
 because a soft reset re-runs it and duplicate handlers would double-fire the
