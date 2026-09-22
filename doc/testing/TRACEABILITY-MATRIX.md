@@ -41,7 +41,7 @@ mentions them, so a test can no longer be absent from this document.
 | Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
 | Floating Bus                               |    40 |   40 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |    65 |   62 |    0 |    0 |       3 |          0 |
-| Contention                                 |   129 |  127 |    0 |    0 |       2 |          0 |
+| Contention                                 |   131 |  129 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    52 |   49 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    81 |   59 |    0 |    0 |      22 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4460 | 4208 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4462 | 4210 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4460**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4249**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7286**.
+Rows the sections above carry: **4462**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4251**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7288**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3314,6 +3314,8 @@ Notes and rationale: [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIG
 | CT-GH183-04 | 128K: same whole-frame VHDL-exact rebase comparison — zero differing T-states, identical per-frame contention total [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4222 |
 | CT-GH183-05 | +3: the hc_adj(3:1)=000 wait_s extension puts index pair {15,0} astride the i_hc(8) window edge, so the -12 vs -11 rebase relocates exactly 2 T-states per display line (384/frame) with an IDENTICAL per-frame contention total — a sub-T-state blip, not a delay change [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:4245 |
 | CT-GH183-06 | Emulator::init failed — would verify end-to-end origin invariance [zxula_timing.vhd:423-436] | zxula_timing.vhd:423-436 | pass | test/contention/contention_test.cpp:4268 |
+| CT-GH265-01 | 48K port-contended IN A,(C): the port handler runs after the I/O cycle's stretch, 3 T before the end (zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222) | zxnext.vhd:4496, zxula.vhd:587-595, t80na.vhd:214-222 | pass | test/contention/contention_test.cpp:4365 |
+| CT-GH265-02 | 48K IN A,(C) in the top border: no stretch, 12 T, handler at 9 T (zxula.vhd:414,583) | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:4381 |
 | CT-DELAY-01 | Emulator::init failed for one or more machines — would verify per-frame contention drift bound across 48K/128K/+3 [zxula.vhd:582-595; zxnext.vhd:4481] | zxula.vhd:582-595, zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:1599 |
 | CT-FUSE-05 | Emulator::init failed — would verify single-contention-path invariant [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2057 |
 | CT-TURBO-08 | Combined mid-line NR 0x07 + NR 0x08 b6 writes: each shadow commits on its OWN edge (NR 0x07 on bus-idle CLK_CPU; NR 0x08 b6 on bus-idle CLK_CPU AND hc(8)='1'); independent — one edge satisfied does not commit the other [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:2181 |
