@@ -899,9 +899,17 @@ static void test_section5_port_ff_wiring(void) {
         }
         // Position raster early enough that the IN's leading fetches +
         // contention land the port sample inside the pixel-fetch window
-        // (tstate < 128). Choose tstate=20 to leave ample slack against
-        // contention adjustments (worst-case ~+12 T per access).
-        set_raster_position(emu, LINE, 20);
+        // (tstate < 128).
+        //
+        // GH #265 — the byte is sampled where the CPU latches it, not at the
+        // instruction's start (Section 9): IN A,(n) reaches its I/O cycle
+        // after 7 T (M1 + operand read) and DI_Reg latches 3.5 T into it, so
+        // an IN started at T 16 samples T-state 26, T%8 = 2 (pixel arm).
+        // This row used to start at T 20, chosen empirically against the
+        // start-of-instruction sampling (T 20, T%8 = 4); at the I/O cycle
+        // that is T 30, T%8 = 6, the 0xFF arm. Code at 0x8000 is uncontended
+        // on 48K (bank 2), so no contention moves the sample.
+        set_raster_position(emu, LINE, 16);
         const uint8_t a = cpu_in_a_FF(emu);
         // The post-IN raster position tells us which T%8 phase we sampled.
         // Phases {2,3,4,5} → marker; phases {0,1,6,7} → 0xFF (default arm).
@@ -1373,6 +1381,95 @@ static void test_harness_smoke(void) {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section 9 — GH #265: the CPU samples the floating bus at its I/O cycle
+// VHDL: floating_bus_r → o_ula_floating_bus (zxula.vhd:573) → port_ff_dat_ula
+//       / port_p3_floating_bus_dat (zxnext.vhd:4513,4517) → port_rd_dat
+//       (:2813-2814,2837) → cpu_di (:1872-1873) is combinational; the T80
+//       latches cpu_di into DI_Reg on the falling edge of the I/O cycle's T3
+//       (t80na.vhd:214-222), 3.5 T into its four clocks (t80n.vhd:1781-1782).
+// Plan: doc/testing/FLOATING-BUS-TEST-PLAN-DESIGN.md §9
+//
+// jnext sampled the raster at clock_, the instruction's START. With the
+// instruction started at T 16 of an active line, the start-of-instruction
+// sample is T%8 = 0 (the 0xFF arm), while the latch lands at T 26 for
+// IN A,(n) (7 T to the I/O cycle) and T 27 for IN A,(C) (8 T). Char column
+// 3 (T 24..31) is seeded with distinct pixel / attribute bytes so each arm
+// is identifiable. Code at 0x8000 (bank 2) is uncontended on 48K and +3.
+// ══════════════════════════════════════════════════════════════════════
+
+static void seed_char_col(Emulator& emu, int pixel_line, int char_col,
+                          uint8_t pix, uint8_t attr) {
+    emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col),     pix);
+    emu.ram().write(vram_pixel_ram_offset(pixel_line, char_col) + 1,
+                    static_cast<uint8_t>(pix + 1));
+    emu.ram().write(vram_attr_ram_offset (pixel_line, char_col),     attr);
+    emu.ram().write(vram_attr_ram_offset (pixel_line, char_col) + 1,
+                    static_cast<uint8_t>(attr + 1));
+}
+
+static void test_section9_gh265_io_cycle(void) {
+    set_group("FB-9-GH265");
+    const int LINE = 100, START = 16, COL = 3;
+
+    // FB-GH265-01 — IN A,(0xFF) started at T 16: sampled at T 26, T%8 = 2,
+    // the pixel byte of char column 3. Pre-fix: T 16, T%8 = 0 → 0xFF.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        seed_char_col(emu, LINE - 64, COL, 0x16, 0x86);
+        set_raster_position(emu, LINE, START);
+        const uint8_t a = cpu_in_a_FF(emu);
+        check("FB-GH265-01",
+              "48K IN A,(0xFF) samples the floating bus at the DI_Reg latch, "
+              "3.5 T into its I/O cycle: started at T 16 it reads the T 26 "
+              "pixel byte (zxula.vhd:573; zxnext.vhd:4513; t80na.vhd:214-222)",
+              a == 0x16, fmt("a=0x%02X (want 0x16; pre-fix 0xFF)", a));
+    }
+
+    // FB-GH265-02 — IN A,(C) with BC = 0x00FF reaches its I/O cycle one
+    // T-state later (two M1s): sampled at T 27, T%8 = 3, the attribute byte.
+    // Pre-fix: 0xFF.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX48K);
+        seed_char_col(emu, LINE - 64, COL, 0x16, 0x86);
+        set_raster_position(emu, LINE, START);
+        emu.mmu().write(0x8000, 0xED);
+        emu.mmu().write(0x8001, 0x78);            // IN A,(C)
+        auto regs = emu.cpu().get_registers();
+        regs.PC = 0x8000;
+        regs.BC = 0x00FF;
+        emu.cpu().set_registers(regs);
+        emu.cpu().execute();
+        const uint8_t a = static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+        check("FB-GH265-02",
+              "48K IN A,(C) of port 0x00FF started at T 16 reads the T 27 "
+              "attribute byte (zxula.vhd:573; zxnext.vhd:4513; "
+              "t80na.vhd:214-222)",
+              a == 0x86, fmt("a=0x%02X (want 0x86; pre-fix 0xFF)", a));
+    }
+
+    // FB-GH265-03 — the +3 port 0x0FFD active arm shares the same sampling
+    // point: IN A,(C) started at T 16 reads the T 27 attribute byte with bit
+    // 0 forced (zxula.vhd:573 `or i_timing_p3`). Pre-fix the T 16 sample is
+    // outside the capture phases, so the border arm returns the seeded
+    // contended-CPU latch 0xA4 raw.
+    {
+        Emulator emu;
+        fresh_emulator(emu, MachineType::ZX_PLUS3);
+        emu.mmu().write(0x4000, 0xA4);            // p3_floating_bus_dat latch
+        seed_char_col(emu, LINE - 64, COL, 0x16, 0x86);
+        set_raster_position(emu, LINE, START);
+        const uint8_t a = cpu_in_a_0FFD(emu);
+        check("FB-GH265-03",
+              "+3 IN A,(C) of port 0x0FFD started at T 16 reads the T 27 "
+              "attribute byte | 0x01 (zxula.vhd:573; zxnext.vhd:4517; "
+              "t80na.vhd:214-222)",
+              a == 0x87, fmt("a=0x%02X (want 0x87; pre-fix 0xA4)", a));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1407,6 +1504,9 @@ int main() {
 
     test_section8_gh109_scope();
     std::printf("  Section 8 (GH #109 FF scope)   — %2d rows\n", 2);
+
+    test_section9_gh265_io_cycle();
+    std::printf("  Section 9 (GH #265 I/O cycle)  — %2d rows\n", 3);
 
     test_harness_smoke();
     std::printf("  Harness smoke (FB-HARNESS-NN)  — %2d rows\n", 5);

@@ -53,11 +53,13 @@ void put_u16(std::vector<uint8_t>& bytes, std::size_t off, uint16_t value) {
 }
 
 bool write_nex(const std::filesystem::path& path, uint16_t file_handle,
-               const std::vector<uint8_t>& appended, uint8_t bank_fill = 0) {
+               const std::vector<uint8_t>& appended, uint8_t bank_fill = 0,
+               const char* version = "V1.2") {
     constexpr std::size_t bank_size = 16384;
     std::vector<uint8_t> bytes(512 + bank_size + appended.size(), 0);
     std::fill(bytes.begin() + 512, bytes.begin() + 512 + bank_size, bank_fill);
-    std::memcpy(bytes.data(), "NextV1.2", 8);
+    std::memcpy(bytes.data(), "Next", 4);
+    std::memcpy(bytes.data() + 4, version, 4);
     bytes[8] = 0;       // 768K requirement
     bytes[9] = 1;       // one bank
     bytes[18] = 1;      // bank 0 present
@@ -683,6 +685,62 @@ int main() {
           !mem4000_loader.delivers_handle_in_bc() &&
           mem4000_emu.mmu().read(0x4000) == ExtendedNexHost::kHandle &&
           mem4000_emu.cpu().get_registers().BC != ExtendedNexHost::kHandle);
+
+    // BC at entry when no handle travels in it. Each loader ends with an
+    // `ld bc,nn` whose low byte only the handle-in-BC case patches; the
+    // default immediates differ, and jnext follows the loader that really
+    // runs each version: V1.3 -> nexload2.asm:407 `ld bc,255`; V1.0-V1.2 ->
+    // the distro nexload.asm:582-585 `db 01 / db 0 / db 0` (`ld bc,$0000`).
+    //
+    // XNEX-37/38 are the regression rows for the load_nex() BC write: without
+    // it, V1.3 enters with BC=$0000. XNEX-39 guards the handle-in-BC case
+    // against that write. XNEX-40/41 are NOT regression rows for it — BC is
+    // already $0000 after load_nex()'s hard reset, so they pass with the
+    // write removed. They pin V1.0-V1.2 to the distro loader's $0000 against
+    // a "use nexload2's 255 for every version" change, which they do catch.
+    struct BcLoad { bool ok = false; uint16_t bc = 0; uint8_t at_4000 = 0; };
+    auto load_bc = [&](const char* name, const char* version, uint16_t file_handle) {
+        BcLoad r;
+        const auto path = root / name;
+        auto emu_ptr = std::make_unique<Emulator>();
+        EmulatorConfig bc_cfg = cfg;
+        bc_cfg.load_file = path.string();
+        bc_cfg.allow_experimental_nex_v13 = true;   // V1.3 is opt-in (GH #228)
+        r.ok = write_nex(path, file_handle, payload, 0, version) &&
+               emu_ptr->init(bc_cfg) && emu_ptr->load_nex(path.string());
+        r.bc = emu_ptr->cpu().get_registers().BC;
+        r.at_4000 = emu_ptr->mmu().read(0x4000);
+        return r;
+    };
+    auto bc_detail = [](const BcLoad& r) {
+        char buf[64];
+        std::snprintf(buf, sizeof(buf), "ok=%d BC=0x%04X", r.ok ? 1 : 0, r.bc);
+        return std::string(buf);
+    };
+
+    const BcLoad v13_closed = load_bc("bc-v13-closed.nex", "V1.3", 0x0000);
+    check("XNEX-37", "V1.3, file_handle=0: BC=$00FF at entry (nexload2.asm:407 ld bc,255)",
+          v13_closed.ok && v13_closed.bc == 0x00FF, bc_detail(v13_closed));
+
+    const BcLoad v13_mem = load_bc("bc-v13-mem.nex", "V1.3", 0x4000);
+    check("XNEX-38", "V1.3, file_handle=0x4000: handle in memory, BC=$00FF (nexload2.asm:400-407)",
+          v13_mem.ok && v13_mem.at_4000 == ExtendedNexHost::kHandle &&
+          v13_mem.bc == 0x00FF, bc_detail(v13_mem));
+
+    const BcLoad v13_bc = load_bc("bc-v13-bc.nex", "V1.3", 0x0001);
+    check("XNEX-39", "V1.3, file_handle=1: the handle, not 255, is in BC (nexload2.asm:401-404)",
+          v13_bc.ok && v13_bc.bc == ExtendedNexHost::kHandle, bc_detail(v13_bc));
+
+    const BcLoad v12_closed = load_bc("bc-v12-closed.nex", "V1.2", 0x0000);
+    check("XNEX-40", "V1.2, file_handle=0: BC=$0000, the distro loader's value, not nexload2's "
+          "255 (nexload.asm:582-585 ld bc,$0000; version pin, not a regression row)",
+          v12_closed.ok && v12_closed.bc == 0x0000, bc_detail(v12_closed));
+
+    const BcLoad v12_mem = load_bc("bc-v12-mem.nex", "V1.2", 0x4000);
+    check("XNEX-41", "V1.2, file_handle=0x4000: handle in memory, BC=$0000, not nexload2's 255 "
+          "(nexload.asm:560-585; version pin, not a regression row)",
+          v12_mem.ok && v12_mem.at_4000 == ExtendedNexHost::kHandle &&
+          v12_mem.bc == 0x0000, bc_detail(v12_mem));
 
     Log::emulator()->sinks().pop_back();
 

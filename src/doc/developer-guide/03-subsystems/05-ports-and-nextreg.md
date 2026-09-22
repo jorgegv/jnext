@@ -54,7 +54,13 @@ Three details are worth knowing before adding a handler:
 
 - **Reads fall through on a missing read side.** If the most specific match has
   no read callback, the scan continues to the next match that does. This models
-  write-only ports, whose reads land on an overlapping decode instead.
+  write-only ports, whose reads land on an overlapping decode instead. A port
+  gets a read callback only if its read strobe is one of the OR-terms of
+  `port_internal_rd_response` (`zxnext.vhd:2803-2806`); `0xBF3B`, for one, has
+  none. A read handler whose gate is off must answer what the VHDL answers with
+  that decode gone — `0xFF`, or an overlapping decode: the Kempston mouse ports
+  with the mouse disabled are read by the `0xDF` joystick alias
+  (`Emulator::port_df_read`).
 - **Writes can decline.** A handler may call `PortDispatch::decline_write()` as
   its last action, and dispatch then retries with the next-most-specific match.
   The reason is that VHDL port decodes run in *parallel*: a decode ANDed with a
