@@ -920,8 +920,8 @@ data bus into `DI_Reg` on the falling edge of the I/O cycle's T3
 `t80n.vhd:412`), so `DI_Reg` takes the value reloaded on the PREVIOUS falling
 edge — 2.5 T-states into the I/O cycle — which is `cvc` as it stood just before
 that edge. jnext read `cvc` at `clock_`, the start of the instruction, because
-the master clock only advances when an instruction completes: 9.5 T-states
-early for `IN A,(C)`, 7.5 for `IN A,(n)`. A loop polling for a line therefore
+the master clock only advances when an instruction completes: 10.5 T-states
+early for `IN A,(C)`, 9.5 for `IN A,(n)`. A loop polling for a line therefore
 left it one turn LATE (the value lags), not early as the issue text had it.
 
 Fixture: Next timing, 1824 master cycles a line, 8 a T-state; `cvc` steps

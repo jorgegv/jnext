@@ -2783,7 +2783,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // T1, TW, T2, T3 (t80n.vhd:1781-1782 holds TState at 1 for one clock), so
     // DI_Reg takes the port_253b_dat_0 loaded on the PREVIOUS falling edge:
     // 2.5 T-states into the I/O cycle. jnext used clock_, the START of the
-    // instruction — 9.5 T-states early for IN A,(C), 7.5 for IN A,(n) — so a
+    // instruction — 10.5 T-states early for IN A,(C), 9.5 for IN A,(n) — so a
     // loop polling for a line left it up to one iteration late.
     static constexpr unsigned kPort253bReloadHalfT = 5;   // 2.5 T-states
     nextreg_.set_read_handler(0x1E, [this]() -> uint8_t {
