@@ -1936,6 +1936,230 @@ static void test_section6_ulanext() {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // GH #70 — the 16 std-ULA colours reset() seeds are the boot chain's,
+    // not the conventional emulator ZX palette.
+    //
+    // S6.14 pinned the SHAPE of the post-firmware palette (0x20..0xFF repeat
+    // the 16 colours) but expressed it as a relation, deliberately "rather
+    // than duplicating the colour table" — so the table itself was unpinned,
+    // and it was wrong: the six non-bright chromatics carried RGB333 level 6
+    // and bright magenta 0x1C7, one step brighter than the machine on eight
+    // of the sixteen entries.
+    //
+    // ORACLE.  There is no hardware default to copy — `palette_utm`
+    // (zxnext.vhd:6960-6965) is a `dpram2` with no init_file_g, so the
+    // palette RAM powers up all-zero (dpram2.vhd:41-46,63-80).  The bytes
+    // below are what the SOFTWARE writes, from two independent sources that
+    // agree byte for byte:
+    //   * NextZXOS `enNextZX.rom` — 16-byte 0xAA-terminated table at bank
+    //     offset 0x1626, streamed at boot through NR 0x41 into all 256
+    //     entries of both ULA banks.
+    //   * `nexload.asm:728-730` `DefaultPalette`.
+    // Independently confirmed end to end in jnext's own committed reference
+    // `test/00regression/img/boot-nextzxos-welcome-reference.png`, whose
+    // dominant colour is (182,182,182) — RGB333 level 5, the firmware's
+    // non-bright white — with no level-6 (219) pixel anywhere in the frame.
+    //
+    // The 8 -> 9 bit widening is zxnext.vhd:4919
+    //   nr_palette_value <= nr_wr_dat & (nr_wr_dat(1) or nr_wr_dat(0))
+    // i.e. RRRGGGBB -> RRRGGGBBB with the new LSB = (B1 or B0).  It is
+    // re-derived here from that line rather than borrowed from the
+    // implementation, so the row cannot agree with a broken helper.
+    //
+    // NOT A FULLY FAITHFUL END STATE, and deliberately so: a NEX of version
+    // <= V1.2 sees neither table on hardware, because nexload.asm:396-399
+    // repaints all 256 ULA entries from its own DefaultPalette before entry
+    // and jnext models no such sweep.  The colours coincide (the two tables
+    // are the same bytes); the sweep's other effects are still unmodelled.
+    // ─────────────────────────────────────────────────────────────────────
+
+    // The boot chain's 16 bytes, transcribed from the two sources above.
+    static const uint8_t kFwUla8[16] = {
+        0x00, 0x02, 0xA0, 0xA2, 0x14, 0x16, 0xB4, 0xB6,
+        0x00, 0x03, 0xE0, 0xE7, 0x1C, 0x1F, 0xFC, 0xFF,
+    };
+    // zxnext.vhd:4919, written out rather than called out of palette.cpp.
+    auto fw_rgb333 = [](uint8_t v) -> uint16_t {
+        return static_cast<uint16_t>((static_cast<uint16_t>(v) << 1)
+                                     | ((v >> 1) & 1) | (v & 1));
+    };
+
+    // S6.27 — reset() seeds the 16 std-ULA colours to the boot chain's
+    // table, at the ink slots 0x00..0x0F AND their paper mirrors
+    // 0x10..0x1F, in both ULA banks (zxula.vhd:543-553 emits 0x00..0x1F).
+    {
+        PaletteManager pal;
+        pal.reset();
+        int bad = 0;
+        int bad_idx = -1;
+        uint16_t bad_got = 0, bad_exp = 0;
+        for (int bank = 0; bank < 2 && bad_idx < 0; ++bank) {
+            for (int i = 0; i < 32; ++i) {
+                const uint16_t exp = fw_rgb333(kFwUla8[i & 0x0F]);
+                const uint16_t got = pal.ula_rgb333(bank != 0,
+                                                    static_cast<uint8_t>(i));
+                if (got != exp) {
+                    if (bad == 0) { bad_idx = i; bad_got = got; bad_exp = exp; }
+                    ++bad;
+                }
+            }
+        }
+        check("S6.27",
+              "GH #70 — reset() seeds the 16 std-ULA colours to the table "
+              "NextZXOS (enNextZX.rom @0x1626) and nexload.asm:728-730 "
+              "write, widened per zxnext.vhd:4919 (B0 = B1 or B0): the six "
+              "non-bright chromatics are RGB333 level 5, not the "
+              "conventional emulator level 6.  Both banks, ink 0x00..0x0F "
+              "and paper mirrors 0x10..0x1F",
+              bad == 0,
+              bad_idx < 0 ? std::string{}
+                          : fmt("%d mismatches; first idx 0x%02X = 0x%03X "
+                                "exp 0x%03X", bad, bad_idx, bad_got, bad_exp));
+    }
+
+    // S6.28 — the seeding is EQUIVALENT to the firmware's actual write path.
+    // NextZXOS does not poke an emulator table; it streams those 16 bytes
+    // through NR 0x41, 16 times over, into all 256 entries of each bank.
+    // Replaying exactly that must reproduce reset()'s content bit for bit —
+    // which pins the seed, the 0x20..0xFF repeat and the NR 0x41 expansion
+    // against each other in one assertion.
+    {
+        PaletteManager seeded;
+        seeded.reset();
+
+        PaletteManager streamed;
+        streamed.reset();
+        for (int bank = 0; bank < 2; ++bank) {
+            // NR 0x43 palette write select: 0x00 = ULA first, 0x40 = second
+            // (the firmware toggles exactly this bit with XOR $40).
+            streamed.write_control(bank == 0 ? 0x00 : 0x40);
+            streamed.set_index(0x00);
+            for (int i = 0; i < 256; ++i)
+                streamed.write_8bit(kFwUla8[i & 0x0F]);   // NR 0x41
+        }
+
+        int bad = 0;
+        int bad_idx = -1, bad_bank = -1;
+        for (int bank = 0; bank < 2 && bad_idx < 0; ++bank) {
+            for (int i = 0; i < 256; ++i) {
+                const uint8_t idx = static_cast<uint8_t>(i);
+                if (seeded.ula_rgb333(bank != 0, idx)
+                        != streamed.ula_rgb333(bank != 0, idx)
+                    || seeded.ula_colour(bank != 0, idx)
+                        != streamed.ula_colour(bank != 0, idx)) {
+                    if (bad == 0) { bad_idx = i; bad_bank = bank; }
+                    ++bad;
+                }
+            }
+        }
+        check("S6.28",
+              "GH #70 — reset()'s ULA seeding is bit-identical to replaying "
+              "the boot chain's 16 bytes through NR 0x41 across all 256 "
+              "entries of both banks (zxnext.vhd:4919 expansion; "
+              "enNextZX.rom's writer reloads the table on its 0xAA sentinel, "
+              "so the 16 colours repeat 16 times per bank)",
+              bad == 0,
+              bad_idx < 0 ? std::string{}
+                          : fmt("%d mismatches; first bank %d idx 0x%02X "
+                                "seeded 0x%03X vs NR41 0x%03X", bad, bad_bank,
+                                bad_idx,
+                                seeded.ula_rgb333(bad_bank != 0,
+                                                  static_cast<uint8_t>(bad_idx)),
+                                streamed.ula_rgb333(bad_bank != 0,
+                                                    static_cast<uint8_t>(bad_idx))));
+    }
+
+    // S6.29 — the GH #70 regression itself, stated as the negative and read
+    // through ula_colour(), the ARGB accessor the compositor samples, so the
+    // row pins the value that reaches the framebuffer.
+    //
+    // RGB333 -> 8-bit is jnext's own display widening (xxx -> xxx_xx_x,
+    // palette.cpp rgb333_to_argb8888), not a VHDL rule: the FPGA drives
+    // 3-bit DACs.  Level 5 -> (5<<5)|(5<<2)|(5>>1) = 182; the level 6 jnext
+    // used to seed -> 219.  182 is what the NextZXOS boot reference PNG
+    // contains; 219 appears nowhere in it.
+    {
+        PaletteManager pal;
+        pal.reset();
+        const uint32_t kLvl5 = rgb333_to_argb8888(5, 5, 5);   // 0xFFB6B6B6
+        const uint32_t kLvl6 = rgb333_to_argb8888(6, 6, 6);   // 0xFFDBDBDB
+
+        // White (7) is the all-chromatic case; blue (1) isolates one channel.
+        const uint32_t white = pal.ula_colour(false, 0x07);
+        const uint32_t blue  = pal.ula_colour(false, 0x01);
+        // Bright magenta dodges 0xE3, the default global transparency index
+        // (NR 0x14), by carrying G=1: 0xE7 -> 0x1CF, never 0x1C7.
+        const uint16_t bmag  = pal.ula_rgb333(false, 0x0B);
+
+        // And no std-ULA entry anywhere may carry a level-6 component.
+        int lvl6 = 0;
+        for (int bank = 0; bank < 2; ++bank)
+            for (int i = 0; i < 256; ++i) {
+                const uint16_t v = pal.ula_rgb333(bank != 0,
+                                                  static_cast<uint8_t>(i));
+                if (((v >> 6) & 7) == 6 || ((v >> 3) & 7) == 6 || (v & 7) == 6)
+                    ++lvl6;
+            }
+
+        check("S6.29",
+              "GH #70 — the rendered ULA default colours are the firmware's: "
+              "non-bright white is level 5 (0xFFB6B6B6), not the level 6 "
+              "(0xFFDBDBDB) jnext seeded; bright magenta is 0x1CF (0xE7, "
+              "G=1) not 0x1C7, because 0xE3 is the default NR 0x14 global "
+              "transparency index; and no ULA palette entry carries a "
+              "level-6 component at all",
+              white == kLvl5 && white != kLvl6
+              && blue == rgb333_to_argb8888(0, 0, 5)
+              && bmag == 0x1CF && lvl6 == 0,
+              fmt("white=0x%08X (exp 0x%08X, old 0x%08X)  blue=0x%08X "
+                  "(exp 0x%08X)  bright_magenta=0x%03X (exp 0x1CF)  "
+                  "level-6 entries=%d (exp 0)",
+                  white, kLvl5, kLvl6, blue, rgb333_to_argb8888(0, 0, 5),
+                  bmag, lvl6));
+    }
+
+    // S6.30 — WHY entry 11 is 0xE7 and not the 0xE3 a "pure bright magenta"
+    // would be, stated as the invariant rather than the value.
+    //
+    // zxnext.vhd:7100
+    //   ula_mix_transparent <= '1' when (ula_rgb_2(8 downto 1) = transparent_rgb_2) ...
+    // compares the TOP 8 BITS of the 9-bit ULA colour against NR 0x14, whose
+    // reset value is 0xE3 (zxnext.vhd:4946).  Since a 9-bit value widened
+    // from RRRGGGBB has those top 8 bits equal to the source byte, a default
+    // palette entry whose byte is 0xE3 makes that ULA colour TRANSPARENT
+    // wherever it is drawn.  jnext's old bright magenta was exactly 0x1C7,
+    // i.e. byte 0xE3 — so bright-magenta ULA pixels fell through to whatever
+    // was below instead of being drawn.  The boot chain avoids the collision
+    // by spending one green step (0xE7); jnext now does too.
+    {
+        PaletteManager pal;
+        pal.reset();
+        const uint8_t transp = pal.global_transparency();   // NR 0x14 reset = 0xE3
+        int collisions = 0;
+        int first = -1;
+        for (int bank = 0; bank < 2; ++bank)
+            for (int i = 0; i < 256; ++i) {
+                const uint16_t v = pal.ula_rgb333(bank != 0,
+                                                  static_cast<uint8_t>(i));
+                if (static_cast<uint8_t>(v >> 1) == transp) {
+                    if (collisions == 0) first = i;
+                    ++collisions;
+                }
+            }
+        check("S6.30",
+              "GH #70 — no default ULA palette entry collides with the reset "
+              "global transparency index: zxnext.vhd:7100 compares "
+              "ula_rgb_2(8 downto 1) against NR 0x14 (reset 0xE3, "
+              "zxnext.vhd:4946), so an entry whose source byte is 0xE3 would "
+              "render TRANSPARENT.  That is why the boot chain writes 0xE7 "
+              "for bright magenta and why jnext's old 0x1C7 was wrong twice "
+              "over",
+              transp == 0xE3 && collisions == 0,
+              fmt("NR 0x14=0x%02X (exp 0xE3)  collisions=%d (exp 0), first "
+                  "idx 0x%02X", transp, collisions, first & 0xFF));
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // GH #96 — display-row border strips route through the ULAnext encoder.
     //
     // VHDL zxula.vhd:494-504 makes NO distinction between border pixels on

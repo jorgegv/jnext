@@ -33,6 +33,22 @@ Update (2026-09-21, GH #258): `ula_integration_test.cpp` gains INT-ULAPLUS-06/07
 
 Update (2026-09-22, GH #263 follow-up): `ula_integration_test.cpp` gains INT-BORDER-RST-01 (17 rows) — the border after power-on and a hard reset is black; see §3.
 
+Update (2026-09-23, GH #70): §6 gains S6.27-S6.29 — the 16-colour std-ULA
+table `PaletteManager::reset()` seeds. S6.14 pinned the 0x20-0xFF *repeat*
+as a relation and deliberately did not duplicate the colour table, so the
+table itself was unpinned and was wrong: six non-bright chromatics at RGB333
+level 6 and bright magenta at 0x1C7, one step brighter than the machine on
+eight of the sixteen entries. The oracle is the boot chain, since there is no
+hardware default at all (`palette_utm`, `zxnext.vhd:6960-6965`, is a `dpram2`
+with no `init_file_g`, so the palette RAM powers up all-zero —
+`dpram2.vhd:41-46,63-80`): NextZXOS's 0xAA-terminated 16-byte table in
+`enNextZX.rom` at bank offset 0x1626, streamed through NR 0x41 into all 256
+entries of both ULA banks, byte-identical to `nexload.asm:728-730`
+`DefaultPalette`. Widening is `zxnext.vhd:4919`. Not a fully faithful end
+state: a NEX <= V1.2 sees neither table on hardware, because
+`nexload.asm:396-399` repaints all 256 entries before entry and jnext models
+no such sweep — the colours now coincide, the sweep does not.
+
 See `doc/testing/audits/task3-ula-phase4.md` for full per-wave critic verdicts and backlog items.
 
 ## Scope
@@ -427,6 +443,9 @@ branch.)
 | 23| S6.24 | STANDARD full top-border row, ULAnext (GH #103) — zxula.vhd:494-504,:414-415,:418 | 0x07 | - | border=3 | full row indexes ULA palette entry 0x80\|border (0x83), not std paper 0x13 | pass |
 | 24| S6.25 | STANDARD full bottom-border row, format 0xFF (GH #103) — zxula.vhd:500-502 + zxnext.vhd:6987-6991 | 0xFF | - | border=2 | full row takes the NR $4A fallback (select_bgnd) | pass |
 | 25| S6.26 | HI_COLOUR full top-border row, ULAnext (GH #103) — zxula.vhd:494-504,:414-415,:426 | 0x07 | - | mode 010, border=5 | full row indexes entry 0x80\|border (0x85), not std paper 0x15 | pass |
+| 26| S6.27 | Default ULA colour table (GH #70) — zxnext.vhd:4919 + zxnext.vhd:6960-6965 / dpram2.vhd:41-46,63-80 | - | - | `reset()` | the 16 std-ULA colours at 0x00-0x1F, both banks, are the boot chain's bytes widened by B0=(B1 or B0) — non-bright chromatics at level 5 | pass |
+| 27| S6.28 | Seeding equals the firmware's NR 0x41 write path (GH #70) — zxnext.vhd:4919 | - | - | replay 16 bytes x16 per bank | all 256 entries of both banks bit-identical to `reset()` | pass |
+| 28| S6.29 | Rendered default colours are the firmware's (GH #70) — zxnext.vhd:4919 | - | - | `ula_colour()` | non-bright white 0xFFB6B6B6 not 0xFFDBDBDB; bright magenta 0x1CF not 0x1C7 (0xE3 is the NR 0x14 transparency index); no level-6 component anywhere | pass |
 
 Integration coverage: **INT-ULANEXT-01** in `ula_integration_test.cpp` — enables NR 0x43 bit 0, sets NR 0x42=0x0F, verifies the rendered paper index matches the lookup at `zxula.vhd:503-515`.
 
