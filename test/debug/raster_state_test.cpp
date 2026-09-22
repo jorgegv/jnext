@@ -137,7 +137,7 @@ int main() {
           at(tp3, 88, 100).phc == 407 && at(tp3, 89, 100).phc == -48);
     check("RS-PHC-10", "Pentagon folds on c_max_hc+1 = 448: hc 80 -> 399, hc 81 -> -48 (zxula_timing.vhd:159,160)",
           at(tpent, 80, 100).phc == 399 && at(tpent, 81, 100).phc == -48);
-    check("RS-PHC-11", "48K 60 Hz keeps c_max_hc 447, so the fold is unmoved (zxula_timing.vhd:260,262 vs :288,290)",
+    check("RS-PHC-11", "48K 60 Hz keeps c_min_hactive 128 / c_max_hc 447, so the fold is unmoved (zxula_timing.vhd:261,262 vs :289,290)",
           at(t48_60, 80, 100).phc == 399 && at(t48_60, 81, 100).phc == -48);
 
     // vc_ula is clocked by the SAME ula_max_hc pulse as hc_ula

@@ -2200,6 +2200,12 @@ static void test_raster_indicator(Emulator& emu) {
                       region->text().toUtf8().constData(),
                       fetch->text().toUtf8().constData(),
                       raw->text().toUtf8().constData()));
+            // DVP-RAS-12 is a NEGATIVE row and cannot stand alone: `beam_drawn`
+            // looks for one exact colour, so a mutation that merely changes the
+            // marker's colour makes it pass vacuously.  DVP-RAS-13 below is its
+            // positive control — it requires a marker to EXIST, through the same
+            // detector, in the same block, on the same panel.  The pair is only
+            // sound together: do not split them, and do not "simplify" 13 away.
             check("DVP-RAS-12",
                   "…and the diagram draws no beam marker while running",
                   !beam_drawn(diagram));
@@ -2221,6 +2227,35 @@ static void test_raster_indicator(Emulator& emu) {
                       fetch->text().toUtf8().constData(),
                       raw->text().toUtf8().constData(),
                       int(beam_drawn(diagram))));
+
+            // DVP-RAS-14 — the ORDER that actually happens at a breakpoint.
+            //
+            // 11/12 above run on a freshly-constructed panel whose labels still
+            // hold create_ui()'s placeholders, so a running-branch that did
+            // NOTHING would look identical to one that clears correctly.  This
+            // row removes that ambiguity: it starts from the real values 13 has
+            // just proved are on screen, resumes, and requires refresh() to have
+            // put every field back.  A developer resuming from a breakpoint must
+            // not be left staring at a frozen raster position that reads like a
+            // live one.
+            check("DVP-RAS-14",
+                  "resuming from a breakpoint REVERTS the read-out — no stale live values",
+                  [&] {
+                      // Premise: 13 left real values on screen.
+                      if (region->text() == QStringLiteral("---")) return false;
+                      emu.debug_state().resume();
+                      panel.refresh();
+                      return region->text() == QStringLiteral("---")
+                          && fetch->text() == QStringLiteral("---")
+                          && raw->text().contains(QStringLiteral("----"))
+                          && !beam_drawn(diagram);
+                  }(),
+                  fmt("after resume: region='%s' fetch='%s' raw='%s' beam=%d",
+                      region->text().toUtf8().constData(),
+                      fetch->text().toUtf8().constData(),
+                      raw->text().toUtf8().constData(),
+                      int(beam_drawn(diagram))));
+
             emu.debug_state().resume();
         }
     }

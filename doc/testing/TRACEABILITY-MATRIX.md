@@ -64,7 +64,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    40 |   40 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  4731 | 4479 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4731**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4463**. Rows the 107 suites declared in `test/unit-tests.conf` run live: **7735**.
+Rows the sections above carry: **4731**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4463**. Rows the 107 suites declared in `test/unit-tests.conf` run live: **7736**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -76,7 +76,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 65 suites (3460 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 65 suites (3461 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -137,7 +137,7 @@ These 65 suites (3460 live rows) have no VHDL-derived plan row to map, so they h
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
 | `quit_cleanup_test` | 7 | host shutdown ordering (GUI lifecycle) |
 | `preferences_apply_test` | 46 | Preferences dialog wiring (host GUI) |
-| `debugger_video_panel_test` | 105 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
+| `debugger_video_panel_test` | 106 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 15 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 5 | debugger quit gating (host GUI lifecycle) |
 | `debugger_persistent_bp_test` | 5 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
@@ -3739,7 +3739,7 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | RS-PHC-08 | 128K phc reloads to -48 at raw hc 89, folding on c_max_hc+1 = 456 (zxula_timing.vhd:196,511-515) | zxula_timing.vhd:196,511-515 | pass | test/debug/raster_state_test.cpp:134 |
 | RS-PHC-09 | +3 shares the 128K line geometry: hc 88 -> 407, hc 89 -> -48 (zxula_timing.vhd:195,196) | zxula_timing.vhd:195,196 | pass | test/debug/raster_state_test.cpp:136 |
 | RS-PHC-10 | Pentagon folds on c_max_hc+1 = 448: hc 80 -> 399, hc 81 -> -48 (zxula_timing.vhd:159,160) | zxula_timing.vhd:159,160 | pass | test/debug/raster_state_test.cpp:138 |
-| RS-PHC-11 | 48K 60 Hz keeps c_max_hc 447, so the fold is unmoved (zxula_timing.vhd:260,262 vs :288,290) | zxula_timing.vhd:260,262 | pass | test/debug/raster_state_test.cpp:140 |
+| RS-PHC-11 | 48K 60 Hz keeps c_min_hactive 128 / c_max_hc 447, so the fold is unmoved (zxula_timing.vhd:261,262 vs :289,290) | zxula_timing.vhd:261,262 | pass | test/debug/raster_state_test.cpp:140 |
 | RS-VCULA-01 | 48K vc_ula = 0 on raw line 64 at/after the ULA origin (zxula_timing.vhd:269,441-451) | zxula_timing.vhd:269,441-451 | pass | test/debug/raster_state_test.cpp:147 |
 | RS-VCULA-02 | 48K raw hc before the ULA origin still belongs to the previous ULA line (zxula_timing.vhd:441-451) | zxula_timing.vhd:441-451 | pass | test/debug/raster_state_test.cpp:149 |
 | RS-VCULA-03 | Pentagon vc_ula = 0 on raw line 80 (zxula_timing.vhd:167,441-451) | zxula_timing.vhd:167,441-451 | pass | test/debug/raster_state_test.cpp:151 |
