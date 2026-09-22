@@ -163,7 +163,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // keeps the BRAMs (palette RAM, sprite attribute and pattern RAM — no
     // reset port, like the bank-5/7 BRAMs above) and, because it can land
     // mid-frame, keeps each owner's per-scanline render history and records
-    // the register reset in it at the current line; a hard reset clears it.
+    // the register reset in it at the current line. A hard reset happens only
+    // between frames, and the next begin_new_frame() rebuilds that history.
     palette_.reset(/*hard=*/!preserve_memory);
     layer2_.reset(/*hard=*/!preserve_memory);
     sprites_.reset(/*hard=*/!preserve_memory);
