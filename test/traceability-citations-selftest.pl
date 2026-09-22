@@ -14,6 +14,9 @@
 #
 # So each case below pins one tier, and the last two pin the *refusals*.
 #
+# The duplicate-ID gate (`test/traceability-dup-ids.pl`) is pinned here too,
+# end to end, by SELF-208..210 near the bottom (GH #243).
+#
 # Usage:
 #     perl test/traceability-citations-selftest.pl
 #
@@ -3315,6 +3318,72 @@ check('SELF-195', 'a suite may be a fallback elsewhere AND own its section: it p
       "lender section rows = " . join(' ', sort keys %$lend)
       . " status=" . ($lend->{'FBK-LEND-01'}{status} // '(absent)'));
 
+# ── The duplicate-ID gate, end to end (GH #243) ───────────────────────
+#
+# `test/traceability-dup-ids.pl` is the other half of the traceability tooling
+# and had no self-test at all, which is how it shipped skipping every
+# `?`-prefixed suite: it never stripped the prefix, so `$src{"?x_test"}` never
+# resolved, and an unresolved suite was a silent `next`. It reported OK over
+# 79 of 100 suites for as long as it existed, with 13 real collisions in the
+# other 21.
+#
+# So these rows run the REAL script as a REAL process against a throwaway tree
+# (it resolves its root from its own location, so a copy under a fixture's
+# `test/` reads only that fixture). The fixture is the minimum that reaches
+# each path: two suites, one of them GUI-gated, sharing — or not — one ID.
+{
+    my $DUP = "$FIXTURE_ROOT/dupids";
+    my $build_dup = sub {
+        my (%o) = @_;
+        system('rm', '-rf', $DUP) == 0 or die "dupids: rm -rf: $?";
+        system('mkdir', '-p', "$DUP/test/alpha", "$DUP/test/beta") == 0
+            or die "dupids: mkdir: $?";
+        system('cp', "$REAL_ROOT/test/traceability-dup-ids.pl", "$DUP/test/") == 0
+            or die "dupids: cp: $?";
+        my $put = sub {
+            my ($rel, $body) = @_;
+            open(my $fh, '>', "$DUP/$rel") or die "dupids: write $rel: $!";
+            print $fh $body;
+            close $fh;
+        };
+        $put->('test/unit-tests.conf',
+               "# fixture\nalpha_test 1\n?beta_test 1\n"
+             . ($o{ghost} ? "?ghost_test 1\n" : ''));
+        $put->('test/CMakeLists.txt',
+               "add_executable(alpha_test alpha/alpha_test.cpp)\n"
+             . "add_executable(beta_test beta/beta_test.cpp)\n");
+        $put->('test/traceability-dup-ids.conf', "# fixture: no baseline\n");
+        $put->('test/alpha/alpha_test.cpp', "check(\"FIX-01\", \"alpha row\", ok);\n");
+        $put->('test/beta/beta_test.cpp',
+               "check(\"" . ($o{collide} ? 'FIX-01' : 'FIX-02') . "\", \"beta row\", ok);\n");
+    };
+    my $run_dup = sub {
+        my $out = "$DUP/out.txt";
+        my $rc  = system("perl '$DUP/test/traceability-dup-ids.pl' >'$out' 2>&1") >> 8;
+        my $body = '';
+        if (open(my $h, '<', $out)) { local $/; $body = <$h>; close $h; }
+        return ($rc, $body);
+    };
+
+    $build_dup->(collide => 1);
+    my ($rc_c, $out_c) = $run_dup->();
+    check('SELF-208', 'DUP-IDS: an ID shared with a `?`-prefixed (GUI-gated) suite is REFUSED, naming both suites (GH #243)',
+          scalar($rc_c == 2 && $out_c =~ /FIX-01: alpha_test, beta_test/),
+          "exit $rc_c; output: $out_c");
+
+    $build_dup->();
+    my ($rc_ok, $out_ok) = $run_dup->();
+    check('SELF-209', 'DUP-IDS: THE CONTROL — the same tree with distinct IDs passes, and counts BOTH suites',
+          scalar($rc_ok == 0 && $out_ok =~ /OK — 2 ids across 2 suites/),
+          "exit $rc_ok; output: $out_ok");
+
+    $build_dup->(ghost => 1);
+    my ($rc_g, $out_g) = $run_dup->();
+    check('SELF-210', 'DUP-IDS: a declared suite with no CMake source is REFUSED by name, not skipped (GH #243)',
+          scalar($rc_g == 2 && $out_g =~ /ghost_test: no add_executable/),
+          "exit $rc_g; output: $out_g");
+}
+
 
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
@@ -3338,7 +3407,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 207;
+my $EXPECTED_ROWS = 210;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"

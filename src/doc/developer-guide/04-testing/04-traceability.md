@@ -67,10 +67,14 @@ collisions that already existed are baselined in
 `test/traceability-dup-ids.conf`, so anything new fails, and the baseline
 shrinks only by renaming one side in the plan doc and the test source together.
 
-The checker enumerates suites from `test/unit-tests.conf` — all 90 of them —
-and deliberately not from the matrix's own sections, because 49 suites are
-tombstoned and have no section at all, so a matrix-derived audit would never
-see them.
+The checker enumerates suites from `test/unit-tests.conf` — every one it
+declares, the `?`-prefixed GUI-gated suites included — and deliberately not
+from the matrix's own sections, because tombstoned suites have no section at
+all, so a matrix-derived audit would never see them. A declared suite it
+cannot resolve to a source file is a **refusal**, not a skip: until GH #243 it
+never stripped the `?` prefix, so it silently checked 79 suites of 100 while
+reporting OK, with 13 real collisions in the rest. `make traceability-selftest`
+pins both behaviours end to end.
 
 ## The exceptions file
 

@@ -439,10 +439,12 @@ traceability-check: unit-test-build
 
 # Fail when one test ID is asserted by two different suites
 traceability-dup-check:
-	@# GH #196 phase 3.2. Enumerated from test/unit-tests.conf — ALL 90 suites —
-	@# and NOT from the matrix's sections: 49 suites are tombstoned and have no
-	@# section, so a matrix-derived audit under-counts (it cannot see them at all;
-	@# the 29 known ones are baselined in test/traceability-dup-ids.conf.
+	@# GH #196 phase 3.2. Enumerated from test/unit-tests.conf — EVERY declared
+	@# suite, `?`-gated GUI ones included (GH #243) — and NOT from the matrix's
+	@# sections: tombstoned suites have no section, so a matrix-derived audit
+	@# cannot see them at all. A declared suite it cannot resolve to a source is a
+	@# refusal, never a skip. The 29 known collisions are baselined in
+	@# test/traceability-dup-ids.conf.
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
@@ -546,7 +548,7 @@ harness-selftest: unit-test-build gui-release sdl-release
 	@# prerequisites.
 	@bash test/harness-selftest.sh
 
-# Self-test the traceability-matrix VHDL-citation extractor against fixtures
+# Self-test the traceability tooling (citation extractor, dup-ID gate) on fixtures
 traceability-selftest:
 	@# WIRED IN as a prerequisite of `unit-test` below (GH #146). Until then no
 	@# gate ran it at all: not `unit-test`, not `regression`, not CI — verified by
@@ -564,7 +566,9 @@ traceability-selftest:
 	@#
 	@# ~5 s, no build prerequisite: the end-to-end rows run the real refresh
 	@# script twice against a throwaway repository built from the real manifest,
-	@# CMakeLists and matrix, with stub sources and binaries.
+	@# CMakeLists and matrix, with stub sources and binaries. SELF-208..210 run
+	@# test/traceability-dup-ids.pl the same way (GH #243): it had no self-test
+	@# of its own, and shipped skipping every `?`-prefixed suite.
 	@perl test/traceability-citations-selftest.pl
 
 # Benchmark the 5 canonical workloads on the fastest core (needs 'make gui-release' first)

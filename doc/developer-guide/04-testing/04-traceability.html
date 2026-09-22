@@ -1886,10 +1886,14 @@ identically-named row in another subsystem was vouching for it. The 29
 collisions that already existed are baselined in
 <code>test/traceability-dup-ids.conf</code>, so anything new fails, and the baseline
 shrinks only by renaming one side in the plan doc and the test source together.</p>
-<p>The checker enumerates suites from <code>test/unit-tests.conf</code> — all 90 of them —
-and deliberately not from the matrix's own sections, because 49 suites are
-tombstoned and have no section at all, so a matrix-derived audit would never
-see them.</p>
+<p>The checker enumerates suites from <code>test/unit-tests.conf</code> — every one it
+declares, the <code>?</code>-prefixed GUI-gated suites included — and deliberately not
+from the matrix's own sections, because tombstoned suites have no section at
+all, so a matrix-derived audit would never see them. A declared suite it
+cannot resolve to a source file is a <strong>refusal</strong>, not a skip: until GH #243 it
+never stripped the <code>?</code> prefix, so it silently checked 79 suites of 100 while
+reporting OK, with 13 real collisions in the rest. <code>make traceability-selftest</code>
+pins both behaviours end to end.</p>
 <h2 id="the-exceptions-file">The exceptions file<a class="headerlink" href="#the-exceptions-file" title="Permanent link">&para;</a></h2>
 <p><code>test/traceability-exceptions.conf</code> is the <strong>single</strong> hand-maintained input to
 the generator: three <code>|</code>-separated fields per record, giving section, row ID and

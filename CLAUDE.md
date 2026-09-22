@@ -226,9 +226,10 @@ reader can see: the matrix then carried two IDs that are not rows and none of
 the six that are. Spell every ID out.
 
 **An ID is a GLOBAL name.** `make unit-test` runs `traceability-dup-ids.pl`,
-which refuses when two suites assert the same ID — that reuse is how #190's
-manufactured coverage happened. The 29 pre-existing collisions are baselined in
-`test/traceability-dup-ids.conf`; anything new fails.
+which refuses when two suites (the `?`-gated GUI ones included) assert the same
+ID — that reuse is how #190's manufactured coverage happened — and when a
+declared suite cannot be resolved to its source (GH #243). The 29 pre-existing
+collisions are baselined in `test/traceability-dup-ids.conf`; anything new fails.
 
 The rendered user guide under `doc/user-guide` is also generated (from
 `src/doc/user-guide`, via `make docs-userguide`) and committed, and it IS
