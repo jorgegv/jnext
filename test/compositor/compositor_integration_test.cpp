@@ -1017,6 +1017,320 @@ static void test_plrs_integration(Emulator& emu) {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Group EOF255-INT — the last visible row keeps the value it was drawn
+// with (GH #264)
+//
+// At 50 Hz on the Next timing the display ends at raw line 287 = framebuffer
+// row 255 and the frame runs on to raw line 310 (zxula_timing.vhd:195-204,
+// c_min_vactive 64, c_max_vc 310). Nothing written in raw lines 288-310 is
+// displayed: the video pipeline gathers every one of these registers from
+// the live NextREGs once per pixel (zxnext.vhd:6767-6830), and no pixel of
+// the frame is left to gather them. Each row drives one Copper MOVE (or, for
+// port 0xFE, a CPU OUT) at cvc 230 = raw line 294 and checks that row 255
+// kept the value in force when it was drawn. Until GH #264 the end-of-frame
+// block re-snapshotted row 255 for every lane but the tilemap's, so each of
+// these writes repainted the last row.
+//
+// EOF255-12 is the other branch: at 60 Hz row 255's raw line (263) is the
+// frame's last, no scanline event follows it, and the end-of-frame snapshot
+// is the ONLY one row 255 gets — a write made higher up must still reach it.
+// ══════════════════════════════════════════════════════════════════════
+
+namespace {
+constexpr int kBelowDisplayCvc = 230;   // raw line 64 + 230 = 294 > 287
+constexpr int kLastRow = Renderer::FB_HEIGHT - 1;
+} // namespace
+
+static uint8_t nr_read_port(Emulator& emu, uint8_t reg) {
+    emu.port().out(0x243B, reg);
+    return emu.port().in(0x253B);
+}
+
+// CPU program at 0x8000: poll NR 0x1F (cvc low byte) until it reads `cvc`,
+// then OUT (0xFE),A with A = `border`, then HALT. cvc 0..255 occurs once
+// per frame, so the OUT lands in cvc's raw line (PLRS-PAL-01's idiom).
+static void cpu_border_at_cvc(Emulator& emu, uint8_t cvc, uint8_t border) {
+    const uint8_t prog[] = {
+        0xF3,                   // DI
+        0x01, 0x3B, 0x24,       // LD BC,0x243B
+        0x3E, 0x1F,             // LD A,0x1F
+        0xED, 0x79,             // OUT (C),A
+        0x06, 0x25,             // LD B,0x25
+        0xED, 0x78,             // loop: IN A,(C)
+        0xFE, cvc,              // CP cvc
+        0x20, 0xFA,             // JR NZ,loop
+        0x3E, border,           // LD A,border
+        0xD3, 0xFE,             // OUT (0xFE),A
+        0x76,                   // HALT
+    };
+    for (size_t i = 0; i < sizeof(prog); ++i)
+        emu.mmu().write(static_cast<uint16_t>(0x8000 + i), prog[i]);
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000; regs.SP = 0xFFFD; regs.IFF1 = 0; regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+}
+
+static void test_eof255_integration(Emulator& emu) {
+    set_group("EOF255-INT");
+    const uint16_t W = cu_wait(kBelowDisplayCvc);
+
+    // EOF255-01 — NR 0x4A fallback. ULA hidden: every pixel is fallback.
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+        nr_write_port(emu, 0x68, 0x80);
+        nr_write_port(emu, 0x4A, 0x03);
+        copper_run(emu, {W, cu_move(0x4A, 0xE0), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool px = column_ok(emu, 0, 0, Renderer::FB_HEIGHT,
+                                  [](int) { return FALLBACK; }, d);
+        const uint8_t row = emu.renderer().fallback_for_line(kLastRow);
+        const uint8_t live = nr_read_port(emu, 0x4A);
+        check("EOF255-01",
+              "NR 0x4A written below the display at 50 Hz does not reach row "
+              "255 (zxnext.vhd:6829; zxula_timing.vhd:195-204)",
+              px && row == 0x03 && live == 0xE0,
+              d + fmt("; row255=0x%02X (exp 0x03) live=0x%02X (exp 0xE0)",
+                      row, live));
+    }
+
+    // EOF255-02 — NR 0x68 b7 ULA enable. ULA on, border 2; hiding the ULA
+    // below the display must not turn row 255's border into fallback.
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+        nr_write_port(emu, 0x4A, 0x03);
+        emu.port().out(0x00FE, 0x02);
+        copper_run(emu, {W, cu_move(0x68, 0x80), CU_HALT});
+        emu.run_frame();
+        const uint32_t border = fb_pixel(emu, 0, 0);
+        std::string d;
+        const bool px = column_ok(emu, 0, 0, Renderer::FB_HEIGHT,
+                                  [&](int) { return border; }, d);
+        const bool en_end = emu.ula().ula_enabled();
+        check("EOF255-02",
+              "NR 0x68 b7 cleared below the display at 50 Hz: row 255 still "
+              "shows the ULA border (zxnext.vhd:6811,7103; "
+              "zxula_timing.vhd:195-204)",
+              px && border != FALLBACK && !en_end,
+              d + fmt("; border=0x%08X ula_en_end=%d (exp 0)", border, en_end));
+    }
+
+    // EOF255-03 — NR 0x68 b0 stencil mode.
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+        copper_run(emu, {W, cu_move(0x68, 0x01), CU_HALT});
+        emu.run_frame();
+        const bool row = emu.renderer().stencil_mode_for_line(kLastRow);
+        const uint8_t live = nr_read_port(emu, 0x68);
+        check("EOF255-03",
+              "NR 0x68 b0 (stencil) written below the display at 50 Hz does "
+              "not reach row 255 (zxnext.vhd:6813; zxula_timing.vhd:195-204)",
+              !row && (live & 0x01) != 0,
+              fmt("row255 stencil=%d (exp 0) NR68=0x%02X", row, live));
+    }
+
+    // EOF255-04 — NR 0x68 b6:5 blend mode.
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+        copper_run(emu, {W, cu_move(0x68, 0x60), CU_HALT});
+        emu.run_frame();
+        const uint8_t row = emu.renderer().blend_mode_for_line(kLastRow);
+        const uint8_t live = nr_read_port(emu, 0x68);
+        check("EOF255-04",
+              "NR 0x68 b6:5 (blend) written below the display at 50 Hz does "
+              "not reach row 255 (zxnext.vhd:6814; zxula_timing.vhd:195-204)",
+              row == 0 && (live & 0x60) == 0x60,
+              fmt("row255 blend=%u (exp 0) NR68=0x%02X", row, live));
+    }
+
+    // EOF255-05 — NR 0x6B b7 as the stencil gate sees it.
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+        copper_run(emu, {W, cu_move(0x6B, 0x80), CU_HALT});
+        emu.run_frame();
+        const bool row = emu.renderer().tm_enabled_for_line(kLastRow);
+        const uint8_t live = nr_read_port(emu, 0x6B);
+        check("EOF255-05",
+              "NR 0x6B b7 written below the display at 50 Hz does not reach "
+              "row 255's stencil gate (zxnext.vhd:6824; "
+              "zxula_timing.vhd:195-204)",
+              !row && (live & 0x80) != 0,
+              fmt("row255 tm_en=%d (exp 0) NR6B=0x%02X", row, live));
+    }
+
+    // EOF255-06 — NR 0x14 global transparent RGB.
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+        copper_run(emu, {W, cu_move(0x14, 0x00), CU_HALT});
+        emu.run_frame();
+        const uint8_t row = emu.renderer().transparent_rgb_for_line(kLastRow);
+        const uint8_t live = nr_read_port(emu, 0x14);
+        check("EOF255-06",
+              "NR 0x14 written below the display at 50 Hz does not reach row "
+              "255 (zxnext.vhd:6828; zxula_timing.vhd:195-204)",
+              row == 0xE3 && live == 0x00,
+              fmt("row255 NR14=0x%02X (exp 0xE3) live=0x%02X", row, live));
+    }
+
+    // EOF255-07 — NR 0x1A ULA clip window (NR 0x1C b2 rewinds its index).
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+        copper_run(emu, {W, cu_move(0x1C, 0x04), cu_move(0x1A, 0x40),
+                         cu_move(0x1A, 0x80), cu_move(0x1A, 0x10),
+                         cu_move(0x1A, 0x20), CU_HALT});
+        emu.run_frame();
+        const Renderer::UlaClipWindow row =
+            emu.renderer().ula_clip_for_line(kLastRow);
+        const Ula& ula = emu.ula();
+        check("EOF255-07",
+              "NR 0x1A written below the display at 50 Hz does not reach row "
+              "255 (zxnext.vhd:6774-6783; zxula_timing.vhd:195-204)",
+              row.x1 == 0x00 && row.x2 == 0xFF && row.y1 == 0x00 &&
+              row.y2 == 0xBF && ula.clip_x1() == 0x40 && ula.clip_y2() == 0x20,
+              fmt("row255 clip=%02X/%02X/%02X/%02X (exp 00/FF/00/BF) "
+                  "live x1=%02X y2=%02X", row.x1, row.x2, row.y1, row.y2,
+                  ula.clip_x1(), ula.clip_y2()));
+    }
+
+    // EOF255-08 — LoRes NR 0x32 scroll.
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+        copper_run(emu, {W, cu_move(0x32, 0x10), CU_HALT});
+        emu.run_frame();
+        const uint8_t row =
+            emu.renderer().lores().state_for_line(kLastRow).scroll_x;
+        const uint8_t live = emu.renderer().lores().scroll_x();
+        check("EOF255-08",
+              "NR 0x32 written below the display at 50 Hz does not reach row "
+              "255 (zxnext.vhd:6771; zxula_timing.vhd:195-204)",
+              row == 0x00 && live == 0x10,
+              fmt("row255 lores scroll_x=0x%02X (exp 0) live=0x%02X",
+                  row, live));
+    }
+
+    // EOF255-09 — port 0xFE border (the Copper cannot reach a port, so the
+    // CPU writes it at cvc 230).
+    {
+        fresh(emu);
+        emu.port().out(0x00FE, 0x02);
+        cpu_border_at_cvc(emu, static_cast<uint8_t>(kBelowDisplayCvc), 0x05);
+        emu.run_frame();
+        const uint32_t border = fb_pixel(emu, 0, 0);
+        std::string d;
+        const bool px = column_ok(emu, 0, 0, Renderer::FB_HEIGHT,
+                                  [&](int) { return border; }, d);
+        const uint8_t row = emu.ula().border_for_line(kLastRow);
+        const uint8_t live = emu.ula().get_border();
+        check("EOF255-09",
+              "Port 0xFE written below the display at 50 Hz does not recolour "
+              "row 255's border (zxnext.vhd:3587-3605; "
+              "zxula_timing.vhd:195-204)",
+              px && row == 0x02 && live == 0x05,
+              d + fmt("; row255 border=%u (exp 2) live=%u", row, live));
+    }
+
+    // EOF255-10 — NR 0x15 b1 sprites over the border. A sprite in the left
+    // border spanning rows 200..255 stays visible on row 255 when over-border
+    // is cleared below the display.
+    {
+        sprite_fixture(emu);
+        sprite_place(emu, 0, 8, 200, 0);  // 320-grid x 8..23, rows 200..327
+        nr_write_port(emu, 0x15, 0x03);   // sprites on, over border
+        copper_run(emu, {W, cu_move(0x15, 0x01), CU_HALT});
+        emu.run_frame();
+        std::string d;
+        const bool px = column_ok(emu, 20, 0, Renderer::FB_HEIGHT,
+            [](int r) { return r >= 200 ? P_RED : FALLBACK; }, d);
+        const uint8_t live = nr_read_port(emu, 0x15);
+        check("EOF255-10",
+              "NR 0x15 b1 cleared below the display at 50 Hz: row 255 still "
+              "shows the border sprite (sprites.vhd:1043-1067; "
+              "zxnext.vhd:4336; zxula_timing.vhd:195-204)",
+              px && (live & 0x02) == 0,
+              d + fmt("; NR15=0x%02X", live));
+    }
+
+    // EOF255-11 — NR 0x43 b0 ULAnext enable (the ULA control lane).
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+        copper_run(emu, {W, cu_move(0x43, 0x01), CU_HALT});
+        emu.run_frame();
+        const bool row = emu.ula().ulanext_en_for_line(kLastRow);
+        const uint8_t live = nr_read_port(emu, 0x43);
+        check("EOF255-11",
+              "NR 0x43 b0 written below the display at 50 Hz does not reach "
+              "row 255 (zxnext.vhd:6816; zxula_timing.vhd:195-204)",
+              !row && (live & 0x01) != 0,
+              fmt("row255 ulanext=%d (exp 0) NR43=0x%02X", row, live));
+    }
+
+    // EOF255-12 — 60 Hz: row 255 is the frame's last raw line (263), so its
+    // only snapshot is the end-of-frame one, and every lane written at cvc
+    // 100 (raw 140, zxula_timing.vhd:229-238) must carry the new value there.
+    {
+        sprite_fixture(emu);
+        sprite_place(emu, 0, 8, 200, 0);
+        nr_write_port(emu, 0x05, 0x04);   // 60 Hz, committed at the frame edge
+        emu.run_frame();
+        const bool is_60 = emu.timing().lines_per_frame == 264;
+        nr_write_port(emu, 0x68, 0x00);   // ULA on, stencil/blend off
+        nr_write_port(emu, 0x15, 0x01);   // sprites on, NOT over border
+        nr_write_port(emu, 0x4C, 0x00);   // the (zeroed) tiles NR 0x6B shows are transparent
+        emu.port().out(0x00FE, 0x02);
+        cpu_border_at_cvc(emu, 100, 0x05);
+        copper_run(emu, {cu_wait(100),
+                         cu_move(0x4A, 0xE0), cu_move(0x68, 0xE1),
+                         cu_move(0x6B, 0x80), cu_move(0x14, 0x00),
+                         cu_move(0x1C, 0x04), cu_move(0x1A, 0x40),
+                         cu_move(0x32, 0x10), cu_move(0x15, 0x03),
+                         cu_move(0x43, 0x01), CU_HALT});
+        emu.run_frame();
+        Renderer& r = emu.renderer();
+        const bool lanes =
+            r.fallback_for_line(kLastRow) == 0xE0 &&
+            r.stencil_mode_for_line(kLastRow) &&
+            r.blend_mode_for_line(kLastRow) == 3 &&
+            r.tm_enabled_for_line(kLastRow) &&
+            r.transparent_rgb_for_line(kLastRow) == 0x00 &&
+            r.ula_clip_for_line(kLastRow).x1 == 0x40 &&
+            r.lores().state_for_line(kLastRow).scroll_x == 0x10 &&
+            emu.ula().border_for_line(kLastRow) == 0x05 &&
+            emu.ula().ulanext_en_for_line(kLastRow);
+        // The ULA-enable and sprite lanes have no accessor: row 255's border
+        // must be the NR 0x4A fallback (ULA hidden, not border 5), and the
+        // border sprite must show once over-border is on.
+        const uint32_t hid = fb_pixel(emu, kLastRow, 0);
+        const uint32_t spr = fb_pixel(emu, kLastRow, 20);
+        check("EOF255-12",
+              "60 Hz: row 255 (raw line 263, the frame's last) carries every "
+              "lane's value written higher up the frame "
+              "(zxula_timing.vhd:229-238; zxnext.vhd:6767-6830)",
+              is_60 && lanes && hid == 0xFFFF0000u && spr == P_RED,
+              fmt("lines=%d fb=%02X col0=0x%08X sten=%d blend=%u tm=%d nr14=%02X "
+                  "clipx1=%02X lores_sx=%02X border=%u ulanext=%d spr=0x%08X",
+                  emu.timing().lines_per_frame,
+                  r.fallback_for_line(kLastRow), hid,
+                  r.stencil_mode_for_line(kLastRow),
+                  r.blend_mode_for_line(kLastRow),
+                  r.tm_enabled_for_line(kLastRow),
+                  r.transparent_rgb_for_line(kLastRow),
+                  r.ula_clip_for_line(kLastRow).x1,
+                  r.lores().state_for_line(kLastRow).scroll_x,
+                  emu.ula().border_for_line(kLastRow),
+                  emu.ula().ulanext_en_for_line(kLastRow), spr));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1038,6 +1352,9 @@ int main() {
 
     test_plrs_integration(emu);
     std::printf("  Group: PLRS-INT — done\n");
+
+    test_eof255_integration(emu);
+    std::printf("  Group: EOF255-INT — done\n");
 
     std::printf("\n=======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

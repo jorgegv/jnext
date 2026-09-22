@@ -119,10 +119,11 @@ run at instruction boundaries**, on the first instruction that carries the
 clock past their timestamp — not at the exact cycle they were scheduled for.
 
 `Emulator::on_scanline(line)` (`:9092`) renders nothing at all. What it does is
-capture the previous row's fallback colour, ULA-enable, stencil and blend mode,
-transparent RGB, ULA clip, LoRes registers and border; latch the current row's
-tilemap scroll and fetch state; and re-tag every per-scanline change log with
-the new framebuffer row. The conversion from raw scanline to framebuffer row is
+capture the previous row's per-line render state through
+`snapshot_row_render_state()` — fallback colour, ULA-enable, stencil and blend
+mode, transparent RGB, ULA clip, LoRes registers, border, the sprite and ULA
+controls, and the tilemap's scroll, fetch and output state — and re-tag every
+per-scanline change log with the new framebuffer row. The conversion from raw scanline to framebuffer row is
 a subtraction of `video_timing_.vblank_top()`, which differs per machine.
 
 ## Frame end
@@ -130,7 +131,10 @@ a subtraction of `video_timing_.vblank_top()`, which differs per machine.
 Once the loop exits, `end_of_frame()` runs: the end-of-frame raster position is
 saved, `frame_cycle_` advances to `frame_end`, `frame_in_progress_` clears, and
 any NEX boot hold counts down. The last visible row, 255, gets its snapshots
-taken here, because no `on_scanline` will ever fire for it.
+taken here only when its raw line is the frame's last (60 Hz), because then no
+`on_scanline` follows it. At 50 Hz `on_scanline` has already taken them, and
+taking them again here would paint row 255 with writes made in the raw lines
+below the display, which the hardware never shows (GH #264).
 
 `end_of_frame()` is a separate function rather than the tail of `run_frame()`
 for the same reason `step_one_instruction()` is: the debugger's Step needs it

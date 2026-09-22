@@ -8074,37 +8074,19 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // same un-re-executable side effect the ESP replay gate exists for.
     if (joy_uart_source_) joy_uart_source_->end_frame();
 
-    // Snapshot the fallback/border/ULA-enable colour for the last visible
-    // framebuffer row. G164v2 — these arrays are indexed by fb_row in
-    // [0, FB_HEIGHT), so the end-of-frame snapshot must use FB_HEIGHT-1
-    // (=255), not the raw last VC line.
-    //
-    // The tilemap lane takes it only when no on_scanline() event followed
-    // row 255's raw line — i.e. when that line is the frame's last (60 Hz:
-    // vblank_top 8 + 256 = 264 lines). Otherwise on_scanline() has already
-    // captured row 255 at the end of its raw line, and re-snapshotting here
-    // would overwrite it with the frame's FINAL value, leaking a HUD-zone
-    // re-scroll written in the bottom vblank onto the last visible row
-    // (GH #16).
+    // Snapshot the last visible framebuffer row (FB_HEIGHT-1 = 255 — G164v2:
+    // these arrays are indexed by fb_row, not by raw VC) — but ONLY when no
+    // on_scanline() event followed row 255's raw line, i.e. when that line is
+    // the frame's last (60 Hz: vblank_top 8 + 256 = 264 lines). Otherwise
+    // on_scanline() has already captured row 255 at the end of its raw line,
+    // and re-snapshotting here would overwrite it with the frame's FINAL
+    // value: at 50 Hz a write in the undisplayed raw lines 288-310
+    // (zxula_timing.vhd:195-204, c_max_vc 310) would repaint row 255. The
+    // tilemap lane was guarded for GH #16/#257; every lane is now (GH #264).
     if (video_timing_.vblank_top() + Renderer::FB_HEIGHT
             >= timing_.lines_per_frame) {
-        tilemap_.snapshot_scroll_for_line(Renderer::FB_HEIGHT - 1);
-        tilemap_.snapshot_fetch_for_line(Renderer::FB_HEIGHT - 1);
-        tilemap_.snapshot_output_for_line(Renderer::FB_HEIGHT - 1,
-                                          palette_.tilemap_transparency());
+        snapshot_row_render_state(Renderer::FB_HEIGHT - 1);
     }
-    renderer_.snapshot_fallback_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_ula_enabled_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_stencil_mode_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_blend_mode_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_tm_enabled_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_transparent_rgb_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_ula_clip_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.lores().snapshot_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.ula().snapshot_border_for_line(Renderer::FB_HEIGHT - 1);
-    sprites_.snapshot_control_for_line(Renderer::FB_HEIGHT - 1,
-                                       palette_.sprite_transparency());
-    renderer_.ula().snapshot_control_for_line(Renderer::FB_HEIGHT - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
@@ -9960,37 +9942,7 @@ void Emulator::on_scanline(int line)
     {
         const int prev_fb_row = (line - 1) - video_timing_.vblank_top();
         if (prev_fb_row >= 0 && prev_fb_row < Renderer::FB_HEIGHT) {
-            renderer_.snapshot_fallback_for_line(prev_fb_row);
-            renderer_.snapshot_ula_enabled_for_line(prev_fb_row);
-            renderer_.snapshot_stencil_mode_for_line(prev_fb_row);
-            renderer_.snapshot_blend_mode_for_line(prev_fb_row);
-            renderer_.snapshot_tm_enabled_for_line(prev_fb_row);
-            renderer_.snapshot_transparent_rgb_for_line(prev_fb_row);
-            renderer_.snapshot_ula_clip_for_line(prev_fb_row);
-            renderer_.lores().snapshot_for_line(prev_fb_row);
-            renderer_.ula().snapshot_border_for_line(prev_fb_row);
-            // GH #256 — sprite clip / NR 0x15 b6,b5,b1 / NR 0x4B index, and
-            // the ULA's ULA+ / ULAnext / shadow-bank state.
-            sprites_.snapshot_control_for_line(prev_fb_row,
-                                               palette_.sprite_transparency());
-            renderer_.ula().snapshot_control_for_line(prev_fb_row);
-            // Tilemap scroll (GH #16), fetch bases (GH #53) and output-stage
-            // NR 0x1B clip / NR 0x4C index (GH #256), all at the one point so
-            // a Copper split of several of them switches on one row. GH #257 —
-            // these used to be taken at the START of the raw line (a write in
-            // line N showed from row N+1), which was one row late for a Copper
-            // WAIT(n,0) + MOVE: that completes at hc_ula 12 = whc 32, the
-            // start of the paper (copper.vhd:94, zxula_timing.vhd:423-436,
-            // :474-490), and the tilemap re-reads the live registers at every
-            // character's S_IDLE (tilemap.vhd:309,345-350) and compares NR 0x4C
-            // per pixel (:427), so hardware changes row n from x~35. The start-
-            // of-line latch had been right for GH #16 only because the line
-            // interrupt fired ~380 pixels early (fixed in
-            // VideoTiming::line_int_master_cycle_offset()).
-            tilemap_.snapshot_scroll_for_line(prev_fb_row);
-            tilemap_.snapshot_fetch_for_line(prev_fb_row);
-            tilemap_.snapshot_output_for_line(prev_fb_row,
-                                              palette_.tilemap_transparency());
+            snapshot_row_render_state(prev_fb_row);
         }
     }
     // G164v2 — convert raw VC scanline to framebuffer-row before tagging
@@ -10037,6 +9989,38 @@ void Emulator::on_scanline(int line)
     mmu_.attr_mux_set_current_line(tag);
     // G02 — tag subsequent NR 0x15 writes (layer priority / sprite enable).
     renderer_.set_current_line_nr15(tag);
+}
+
+void Emulator::snapshot_row_render_state(int fb_row)
+{
+    renderer_.snapshot_fallback_for_line(fb_row);
+    renderer_.snapshot_ula_enabled_for_line(fb_row);
+    renderer_.snapshot_stencil_mode_for_line(fb_row);
+    renderer_.snapshot_blend_mode_for_line(fb_row);
+    renderer_.snapshot_tm_enabled_for_line(fb_row);
+    renderer_.snapshot_transparent_rgb_for_line(fb_row);
+    renderer_.snapshot_ula_clip_for_line(fb_row);
+    renderer_.lores().snapshot_for_line(fb_row);
+    renderer_.ula().snapshot_border_for_line(fb_row);
+    // GH #256 — sprite clip / NR 0x15 b6,b5,b1 / NR 0x4B index, and the
+    // ULA's ULA+ / ULAnext / shadow-bank state.
+    sprites_.snapshot_control_for_line(fb_row, palette_.sprite_transparency());
+    renderer_.ula().snapshot_control_for_line(fb_row);
+    // Tilemap scroll (GH #16), fetch bases (GH #53) and output-stage NR 0x1B
+    // clip / NR 0x4C index (GH #256), all at the one point so a Copper split
+    // of several of them switches on one row. GH #257 — these used to be
+    // taken at the START of the raw line (a write in line N showed from row
+    // N+1), which was one row late for a Copper WAIT(n,0) + MOVE: that
+    // completes at hc_ula 12 = whc 32, the start of the paper (copper.vhd:94,
+    // zxula_timing.vhd:423-436, :474-490), and the tilemap re-reads the live
+    // registers at every character's S_IDLE (tilemap.vhd:309,345-350) and
+    // compares NR 0x4C per pixel (:427), so hardware changes row n from x~35.
+    // The start-of-line latch had been right for GH #16 only because the
+    // line interrupt fired ~380 pixels early (fixed in
+    // VideoTiming::line_int_master_cycle_offset()).
+    tilemap_.snapshot_scroll_for_line(fb_row);
+    tilemap_.snapshot_fetch_for_line(fb_row);
+    tilemap_.snapshot_output_for_line(fb_row, palette_.tilemap_transparency());
 }
 
 void Emulator::on_vsync()

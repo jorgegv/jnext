@@ -919,6 +919,37 @@ last value — and the NR 0xFF poke never reached the screen at all, because
 | PLRS-CMP-01 | NR 0x6B b7 (tm_en) in the stencil gate | Stencil on, ULA paper yellow, tile cyan; Copper `MOVE 0x6B,0x00` at cvc 60 | Stencil AND (green) above row 92, ULA yellow from it | zxnext.vhd:6820,6909-6910,7069,7130 |
 | PLRS-PAL-01 | NR 0xFF ULA+ palette pokes made during a frame | ULA+ on, attr 0x07 paper (index 0xC8); CPU pokes red at frame start, polls NR 0x1F to cvc 100, pokes green | Red above row 132, green from it — before GH #256 the default (black) everywhere | zxnext.vhd:4906,4919,6957-6958 |
 
+### Group EOF255 — The last visible row keeps the value it was drawn with (GH #264)
+
+Companion suite `test/compositor/compositor_integration_test.cpp`. At 50 Hz on
+the Next timing framebuffer row 255 is raw line 287 and the frame runs on to
+raw line 310 (zxula_timing.vhd:195-204); the pipeline gathers every per-row
+register from the live NextREGs once per pixel (zxnext.vhd:6767-6830), so a
+write in raw lines 288-310 reaches no displayed pixel. Each 50 Hz row writes
+one lane at cvc 230 (raw line 294) — by Copper MOVE, or by the CPU for port
+0xFE — and checks row 255 kept the earlier value, through the pixels where the
+lane shows on the bottom border row and through the per-line accessor where it
+does not. Before GH #264 `Emulator::end_of_frame()` re-snapshotted row 255 for
+every lane but the tilemap's (guarded by GH #16/#257), so each write repainted
+the last row. EOF255-12 pins the other branch of the same guard: at 60 Hz row
+255 is the frame's last raw line (263), no scanline event follows it, and the
+end-of-frame snapshot is the only one it gets.
+
+| ID | Title | Stimulus | Expected | VHDL |
+|----|-------|----------|----------|------|
+| EOF255-01 | NR 0x4A fallback below the display | ULA hidden, NR 0x4A = 0x03; `MOVE 0x4A,0xE0` at cvc 230 | Column 0 fallback blue on every row incl. 255; `fallback_for_line(255)` = 0x03; live NR 0x4A = 0xE0 | zxnext.vhd:6829; zxula_timing.vhd:195-204 |
+| EOF255-02 | NR 0x68 b7 (ULA enable) below the display | ULA on, border 2, fallback blue; `MOVE 0x68,0x80` at cvc 230 | Column 0 border colour on every row incl. 255 (not fallback); ULA disabled at frame end | zxnext.vhd:6811,7103; zxula_timing.vhd:195-204 |
+| EOF255-03 | NR 0x68 b0 (stencil) below the display | `MOVE 0x68,0x01` at cvc 230 | `stencil_mode_for_line(255)` = 0; live b0 = 1 | zxnext.vhd:6813; zxula_timing.vhd:195-204 |
+| EOF255-04 | NR 0x68 b6:5 (blend) below the display | `MOVE 0x68,0x60` at cvc 230 | `blend_mode_for_line(255)` = 0; live = 11 | zxnext.vhd:6814; zxula_timing.vhd:195-204 |
+| EOF255-05 | NR 0x6B b7 (stencil gate) below the display | `MOVE 0x6B,0x80` at cvc 230 | `tm_enabled_for_line(255)` = 0; live b7 = 1 | zxnext.vhd:6824; zxula_timing.vhd:195-204 |
+| EOF255-06 | NR 0x14 below the display | `MOVE 0x14,0x00` at cvc 230 | `transparent_rgb_for_line(255)` = 0xE3; live 0x00 | zxnext.vhd:6828; zxula_timing.vhd:195-204 |
+| EOF255-07 | NR 0x1A ULA clip below the display | `MOVE 0x1C,0x04`, four `MOVE 0x1A` at cvc 230 | `ula_clip_for_line(255)` = 00/FF/00/BF; live x1 = 0x40 | zxnext.vhd:6774-6783; zxula_timing.vhd:195-204 |
+| EOF255-08 | NR 0x32 LoRes scroll below the display | `MOVE 0x32,0x10` at cvc 230 | LoRes `state_for_line(255).scroll_x` = 0; live 0x10 | zxnext.vhd:6771; zxula_timing.vhd:195-204 |
+| EOF255-09 | Port 0xFE border below the display | Border 2; CPU polls NR 0x1F to cvc 230, `OUT (0xFE)` 5 | Column 0 border 2 on every row incl. 255; `border_for_line(255)` = 2; live 5 | zxnext.vhd:3587-3605; zxula_timing.vhd:195-204 |
+| EOF255-10 | NR 0x15 b1 (sprites over border) below the display | Sprite in the left border, rows 200..327, NR 0x15 = 0x03; `MOVE 0x15,0x01` at cvc 230 | Sprite red at column 20 on rows 200..255 incl. 255 | sprites.vhd:1043-1067; zxnext.vhd:4336; zxula_timing.vhd:195-204 |
+| EOF255-11 | NR 0x43 b0 (ULAnext, ULA control lane) below the display | `MOVE 0x43,0x01` at cvc 230 | `ulanext_en_for_line(255)` = 0; live b0 = 1 | zxnext.vhd:6816; zxula_timing.vhd:195-204 |
+| EOF255-12 | 60 Hz: row 255's only snapshot is the end-of-frame one | 60 Hz; Copper at cvc 100 writes NR 0x4A, 0x68 (0xE1), 0x6B, 0x14, 0x1A, 0x32, 0x15 (over border), 0x43; CPU writes border 5 at cvc 100; zeroed tiles made transparent (NR 0x4C = 0) | Row 255 carries every new value: accessors for fallback, stencil, blend, tm_en, NR 0x14, clip, LoRes, border, ULAnext; pixels for ULA hidden (column 0 = NR 0x4A red) and the border sprite (column 20 red) | zxula_timing.vhd:229-238; zxnext.vhd:6767-6830 |
+
 ### Group UCLIP — NR 0x1A ULA clip window per-line deferral
 
 The last instance of the Task 43/45/46 per-line-deferral bug class.
@@ -1153,4 +1184,4 @@ as the fallback colour) and pass once it is present. Screenshot-level twin:
 The matrix is a generated artifact now and carries no prose of its own; it
 links here instead. These notes were written alongside the rows they explain.
 
-Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that require a full `Emulator` fixture (NR 0x68 bit 7 ULA-disable observed at the framebuffer level, including Copper mid-frame MOVE NR 0x68,0x80). GH #256 added `PSCAN-G04-02` and Group PLRS (12 rows, all recorded in their groups above). Runtime: `Total:   20  Passed:   20  Failed:    0  Skipped:    0`. Each row is a live pass. Only the 2 UDIS rows are listed below. Of the other 6 live rows, `PFF-G108-01/02/03` are recorded in the parent `## Compositor` table — they are Compositor plan rows re-homed here 2026-04-28, not new rows; `PFF-G108-02b` is recorded only by sub-letter aliasing under `PFF-G108-02` (the script's `ALIASED` report); and `PFF-G108-04` + `PSCAN-VBLANK-COALESCE-01` are recorded nowhere (its `UNRECORDED` report). Both reports print on every run.
+Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that require a full `Emulator` fixture (NR 0x68 bit 7 ULA-disable observed at the framebuffer level, including Copper mid-frame MOVE NR 0x68,0x80). GH #256 added `PSCAN-G04-02` and Group PLRS (12 rows, all recorded in their groups above); GH #264 added Group EOF255 (12 rows, recorded above). Runtime: `Total:   32  Passed:   32  Failed:    0  Skipped:    0`. Each row is a live pass. Only the 2 UDIS rows are listed below. Of the other 6 live rows, `PFF-G108-01/02/03` are recorded in the parent `## Compositor` table — they are Compositor plan rows re-homed here 2026-04-28, not new rows; `PFF-G108-02b` is recorded only by sub-letter aliasing under `PFF-G108-02` (the script's `ALIASED` report); and `PFF-G108-04` + `PSCAN-VBLANK-COALESCE-01` are recorded nowhere (its `UNRECORDED` report). Both reports print on every run.

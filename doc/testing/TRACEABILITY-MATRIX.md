@@ -28,7 +28,7 @@ mentions them, so a test can no longer be absent from this document.
 | Sprites                                    |   221 |  214 |    0 |    0 |       7 |          0 |
 | Tilemap                                    |   102 |   84 |    0 |    0 |      18 |          0 |
 | Copper                                     |    95 |   92 |    0 |    0 |       3 |          0 |
-| Compositor                                 |   234 |  231 |    0 |    0 |       3 |          0 |
+| Compositor                                 |   246 |  243 |    0 |    0 |       3 |          0 |
 | Audio                                      |   223 |  200 |    0 |    0 |      23 |          0 |
 | DMA                                        |   168 |  160 |    0 |    0 |       8 |          0 |
 | DivMMC+SPI                                 |   176 |  148 |    0 |    0 |      28 |          0 |
@@ -52,7 +52,7 @@ mentions them, so a test can no longer be absent from this document.
 | ESP-01 jnext UART adapter                  |    30 |   30 |    0 |    0 |       0 |          0 |
 | Companion: mmu_integration_test            |    65 |   65 |    0 |    0 |       0 |          0 |
 | Companion: ula_integration_test            |    16 |   16 |    0 |    0 |       0 |          0 |
-| Companion: compositor_integration_test     |    20 |   20 |    0 |    0 |       0 |          0 |
+| Companion: compositor_integration_test     |    32 |   32 |    0 |    0 |       0 |          0 |
 | Companion: copper_integration_test         |     7 |    7 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4444 | 4192 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4468 | 4216 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4444**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4233**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7270**.
+Rows the sections above carry: **4468**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4245**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7282**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1368,6 +1368,18 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | PLRS-ULA-05 | LoRes Radastan follows the row's ULA+ and ULAnext enables, not the frame's last (zxnext.vhd:4246; lores.vhd:107) | zxnext.vhd:4246, lores.vhd:107 | pass | test/compositor/compositor_integration_test.cpp:940 |
 | PLRS-CMP-01 | Copper clears NR 0x6B b7 mid-frame: the stencil AND holds until the split row (zxnext.vhd:6820,6909-6910,7069,7130) | zxnext.vhd:6820,6909-6910,7069,7130 | pass | test/compositor/compositor_integration_test.cpp:970 |
 | PLRS-PAL-01 | NR 0xFF palette pokes made during a frame reach the screen, each from its own row (zxnext.vhd:4906,4919,6957-6958) | zxnext.vhd:4906,4919,6957-6958 | pass | test/compositor/compositor_integration_test.cpp:1013 |
+| EOF255-01 | NR 0x4A written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6829; zxula_timing.vhd:195-204) | zxnext.vhd:6829, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1091 |
+| EOF255-02 | NR 0x68 b7 cleared below the display at 50 Hz: row 255 still shows the ULA border (zxnext.vhd:6811,7103; zxula_timing.vhd:195-204) | zxnext.vhd:6811,7103, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1113 |
+| EOF255-03 | NR 0x68 b0 (stencil) written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6813; zxula_timing.vhd:195-204) | zxnext.vhd:6813, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1129 |
+| EOF255-04 | NR 0x68 b6:5 (blend) written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6814; zxula_timing.vhd:195-204) | zxnext.vhd:6814, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1144 |
+| EOF255-05 | NR 0x6B b7 written below the display at 50 Hz does not reach row 255's stencil gate (zxnext.vhd:6824; zxula_timing.vhd:195-204) | zxnext.vhd:6824, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1159 |
+| EOF255-06 | NR 0x14 written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6828; zxula_timing.vhd:195-204) | zxnext.vhd:6828, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1175 |
+| EOF255-07 | NR 0x1A written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6774-6783; zxula_timing.vhd:195-204) | zxnext.vhd:6774-6783, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1193 |
+| EOF255-08 | NR 0x32 written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6771; zxula_timing.vhd:195-204) | zxnext.vhd:6771, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1212 |
+| EOF255-09 | Port 0xFE written below the display at 50 Hz does not recolour row 255's border (zxnext.vhd:3587-3605; zxula_timing.vhd:195-204) | zxnext.vhd:3587-3605, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1233 |
+| EOF255-10 | NR 0x15 b1 cleared below the display at 50 Hz: row 255 still shows the border sprite (sprites.vhd:1043-1067; zxnext.vhd:4336; zxula_timing.vhd:195-204) | sprites.vhd:1043-1067, zxnext.vhd:4336, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1254 |
+| EOF255-11 | NR 0x43 b0 written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6816; zxula_timing.vhd:195-204) | zxnext.vhd:6816, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1270 |
+| EOF255-12 | 60 Hz: row 255 (raw line 263, the frame's last) carries every lane's value written higher up the frame (zxula_timing.vhd:229-238; zxnext.vhd:6767-6830) | zxula_timing.vhd:229-238, zxnext.vhd:6767-6830 | pass | test/compositor/compositor_integration_test.cpp:1314 |
 | UCLIP-01 | mid-frame NR 0x1A write does not retroactively re-mask a row whose per-line snapshot already ran — col 200 survives under the stale window A (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4369 |
 | UCLIP-02 | …and the left border is clipped per the SNAPSHOTTED window A (x1=128>0) — proves the snapshot is captured, not the reset default (renderer.cpp left_clipped; VHDL 6779-6783) | — | pass | test/compositor/compositor_test.cpp:4380 |
 | UCLIP-03 | after the deferred snapshot lands, the SAME row selects window B: col 200 clipped, left border kept, right border clipped (VHDL zxnext.vhd:988-991, 6779-6783) | zxnext.vhd:988-991,6779-6783 | pass | test/compositor/compositor_test.cpp:4399 |
@@ -4353,6 +4365,18 @@ Notes and rationale: [COMPOSITOR-TEST-PLAN-DESIGN.md](COMPOSITOR-TEST-PLAN-DESIG
 | PLRS-ULA-05 | LoRes Radastan follows the row's ULA+ and ULAnext enables, not the frame's last (zxnext.vhd:4246; lores.vhd:107) | zxnext.vhd:4246, lores.vhd:107 | pass | test/compositor/compositor_integration_test.cpp:940 |
 | PLRS-CMP-01 | Copper clears NR 0x6B b7 mid-frame: the stencil AND holds until the split row (zxnext.vhd:6820,6909-6910,7069,7130) | zxnext.vhd:6820,6909-6910,7069,7130 | pass | test/compositor/compositor_integration_test.cpp:970 |
 | PLRS-PAL-01 | NR 0xFF palette pokes made during a frame reach the screen, each from its own row (zxnext.vhd:4906,4919,6957-6958) | zxnext.vhd:4906,4919,6957-6958 | pass | test/compositor/compositor_integration_test.cpp:1013 |
+| EOF255-01 | NR 0x4A written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6829; zxula_timing.vhd:195-204) | zxnext.vhd:6829, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1091 |
+| EOF255-02 | NR 0x68 b7 cleared below the display at 50 Hz: row 255 still shows the ULA border (zxnext.vhd:6811,7103; zxula_timing.vhd:195-204) | zxnext.vhd:6811,7103, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1113 |
+| EOF255-03 | NR 0x68 b0 (stencil) written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6813; zxula_timing.vhd:195-204) | zxnext.vhd:6813, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1129 |
+| EOF255-04 | NR 0x68 b6:5 (blend) written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6814; zxula_timing.vhd:195-204) | zxnext.vhd:6814, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1144 |
+| EOF255-05 | NR 0x6B b7 written below the display at 50 Hz does not reach row 255's stencil gate (zxnext.vhd:6824; zxula_timing.vhd:195-204) | zxnext.vhd:6824, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1159 |
+| EOF255-06 | NR 0x14 written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6828; zxula_timing.vhd:195-204) | zxnext.vhd:6828, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1175 |
+| EOF255-07 | NR 0x1A written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6774-6783; zxula_timing.vhd:195-204) | zxnext.vhd:6774-6783, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1193 |
+| EOF255-08 | NR 0x32 written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6771; zxula_timing.vhd:195-204) | zxnext.vhd:6771, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1212 |
+| EOF255-09 | Port 0xFE written below the display at 50 Hz does not recolour row 255's border (zxnext.vhd:3587-3605; zxula_timing.vhd:195-204) | zxnext.vhd:3587-3605, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1233 |
+| EOF255-10 | NR 0x15 b1 cleared below the display at 50 Hz: row 255 still shows the border sprite (sprites.vhd:1043-1067; zxnext.vhd:4336; zxula_timing.vhd:195-204) | sprites.vhd:1043-1067, zxnext.vhd:4336, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1254 |
+| EOF255-11 | NR 0x43 b0 written below the display at 50 Hz does not reach row 255 (zxnext.vhd:6816; zxula_timing.vhd:195-204) | zxnext.vhd:6816, zxula_timing.vhd:195-204 | pass | test/compositor/compositor_integration_test.cpp:1270 |
+| EOF255-12 | 60 Hz: row 255 (raw line 263, the frame's last) carries every lane's value written higher up the frame (zxula_timing.vhd:229-238; zxnext.vhd:6767-6830) | zxula_timing.vhd:229-238, zxnext.vhd:6767-6830 | pass | test/compositor/compositor_integration_test.cpp:1314 |
 
 ### Companion integration suite — `test/copper/copper_integration_test.cpp`
 
