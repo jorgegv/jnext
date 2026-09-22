@@ -335,6 +335,15 @@ hardware does". Closing it means modelling the sweep, which moves the
    §7.1's blast radius is real (§10.4) and moving ten committed references is
    the repository owner's decision, not a side effect of adding a mechanism.
    `--warm-start-regenerate` forces a fresh recording.
+
+   It is also **CLI-only**: no `jnext.conf` key, no Preferences checkbox. A
+   saved preference is one the user does not re-read, and while §10.4's ten
+   references are unresolved the worst place for this switch is a file that
+   turns it on for a run nobody remembers configuring. The GUI still honours
+   it — a `jnext --warm-start` session that then loads a NEX from **File >
+   Load NEX File…** gets the warm machine, because `Emulator::load_nex()`
+   reads the same config — so nothing is unreachable from the window, only
+   unsaveable.
 4. **TAP/TZX/SNA/Z80 too?** No, and not by omission. A snapshot replaces the
    whole machine, so there is nothing for a warm start to contribute. A tape
    is loaded by `LOAD ""` in BASIC, and jnext's fast-load trap is an address in
