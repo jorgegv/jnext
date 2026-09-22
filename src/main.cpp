@@ -178,6 +178,8 @@ int main(int argc, char* argv[]) {
     bool     inject_pc_set = false;
     uint16_t inject_pc  = 0;
     int      inject_delay = 0;
+    bool     inject_org_set = false;
+    bool     inject_delay_set = false;
     std::string load_file;
     std::string nex_cli_args;      // --nex-args: argument line for a V1.3 CLI buffer
     bool     experimental_nex_v13 = false;  // --experimental-nex-v1.3 (GH #228)
@@ -188,6 +190,7 @@ int main(int argc, char* argv[]) {
     bool        sdcard_download_force   = false;
     std::string screenshot_file;
     int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
+    bool        screenshot_delay_set = false; // --delayed-screenshot-time given
     int         screenshot_delay_frames = -1; // -1 = unset; if set, overrides screenshot_delay
     uint8_t     screenshot_layers = Renderer::LAYER_ALL;  // --delayed-screenshot-layers
     bool        screenshot_layers_set = false;
@@ -195,6 +198,7 @@ int main(int argc, char* argv[]) {
     int         auto_exit_delay_frames = -1;  // -1 = unset; if set, overrides auto_exit_delay
     std::string snapshot_file;
     int         snapshot_delay_frames = 0;    // --delayed-snapshot-frames
+    bool        snapshot_delay_frames_set = false;
     MachineType machine_type = MachineType::ZXN_ISSUE2;
     bool        machine_type_set = false;
     std::string machine_arg = "next";  // raw --machine string, for the benchmark label
@@ -240,6 +244,7 @@ int main(int argc, char* argv[]) {
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
+    bool        magic_port_mode_set = false;
     std::string record_file;
     std::string wav_record_file;
     std::string dac_trace_file;
@@ -256,8 +261,10 @@ int main(int argc, char* argv[]) {
     bool        trace_enabled = false;
     std::string compositor_trace_path;
     int         compositor_trace_frame = 250;
+    bool        compositor_trace_frame_set = false;
     bool        profile_enabled = false;
     std::string profile_output_path = "profile.dat";
+    bool        profile_output_set = false;
     std::string rtc_fixed_arg;
     std::tm     rtc_fixed_tm{};
     // Task 79 — per-connector host input source (Joy 1 / Joy 2). Defaults Sdl;
@@ -310,6 +317,7 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::InjectOrg:
                 inject_org = parse_hex16(v[0]);
+                inject_org_set = true;
                 break;
             case cli::OptId::InjectPc:
                 inject_pc = parse_hex16(v[0]);
@@ -317,6 +325,7 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::InjectDelay:
                 inject_delay = std::stoi(v[0]);
+                inject_delay_set = true;
                 break;
             case cli::OptId::Load:
                 load_file = v[0];
@@ -352,6 +361,7 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::DelayedScreenshotTime:
                 screenshot_delay = std::stoi(v[0]);
+                screenshot_delay_set = true;
                 break;
             case cli::OptId::DelayedScreenshotFrames:
                 screenshot_delay_frames = std::stoi(v[0]);
@@ -376,6 +386,7 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::DelayedSnapshotFrames:
                 snapshot_delay_frames = std::stoi(v[0]);
+                snapshot_delay_frames_set = true;
                 break;
             case cli::OptId::Machine:
                 if (!parse_machine_type(v[0], machine_type)) {
@@ -560,6 +571,7 @@ int main(int argc, char* argv[]) {
                 else if (mode == "ascii") magic_port_mode = EmulatorConfig::MagicPortMode::ASCII;
                 else if (mode == "line") magic_port_mode = EmulatorConfig::MagicPortMode::LINE;
                 else { fprintf(stderr, "Unknown magic port mode: %s (valid: hex, dec, ascii, line)\n", v[0]); return 1; }
+                magic_port_mode_set = true;
                 break;
             }
             case cli::OptId::Record:
@@ -717,12 +729,14 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::CompositorTraceFrame:
                 compositor_trace_frame = std::stoi(v[0]);
+                compositor_trace_frame_set = true;
                 break;
             case cli::OptId::Profile:
                 profile_enabled = true;
                 break;
             case cli::OptId::ProfileOutput:
                 profile_output_path = v[0];
+                profile_output_set = true;
                 break;
             case cli::OptId::Rtc:
                 rtc_fixed_arg = v[0];
@@ -815,6 +829,50 @@ int main(int argc, char* argv[]) {
     if (screenshot_layers_set && screenshot_file.empty()) {
         fprintf(stderr, "--delayed-screenshot-layers requires --delayed-screenshot FILE.\n");
         return 1;
+    }
+    // The same for every other option that only qualifies another one (#138's
+    // enumeration found these accepted and doing nothing, in every frontend).
+    {
+        struct Needs { bool given; const char* option; bool base; const char* needs; };
+        const Needs needs[] = {
+            { screenshot_delay_set,         "--delayed-screenshot-time",   !screenshot_file.empty(),
+              "--delayed-screenshot FILE" },
+            { screenshot_delay_frames >= 0, "--delayed-screenshot-frames", !screenshot_file.empty(),
+              "--delayed-screenshot FILE" },
+            { snapshot_delay_frames_set,    "--delayed-snapshot-frames",   !snapshot_file.empty(),
+              "--delayed-snapshot FILE" },
+            { inject_org_set,               "--inject-org",                !inject_file.empty(),
+              "--inject FILE" },
+            { inject_pc_set,                "--inject-pc",                 !inject_file.empty(),
+              "--inject FILE" },
+            { inject_delay_set,             "--inject-delay",              !inject_file.empty(),
+              "--inject FILE" },
+            { compositor_trace_frame_set,   "--compositor-trace-frame",    !compositor_trace_path.empty(),
+              "--compositor-trace FILE" },
+            { profile_output_set,           "--profile-output",            profile_enabled,
+              "--profile" },
+            { magic_port_mode_set,          "--magic-port-mode",           magic_port_enabled,
+              "--magic-port PORT" },
+        };
+        for (const Needs& n : needs) {
+            if (n.given && !n.base) {
+                fprintf(stderr, "%s requires %s.\n", n.option, n.needs);
+                return 1;
+            }
+        }
+    }
+    // Headless automation (each says so in --help): the windowed frontends
+    // never read these, so there they were accepted and did nothing (#138).
+    if (!headless) {
+        const char* headless_only = !delayed_keys.empty()  ? "--delayed-keypress"
+                                  : !delayed_nmis.empty()  ? "--delayed-nmi"
+                                  : !snapshot_file.empty() ? "--delayed-snapshot"
+                                  : nullptr;
+        if (headless_only) {
+            fprintf(stderr, "%s requires --headless (it is a headless automation option).\n",
+                    headless_only);
+            return 1;
+        }
     }
 
     if (!inject_pc_set) inject_pc = inject_org;
@@ -937,6 +995,13 @@ int main(int argc, char* argv[]) {
         std::fprintf(stderr,
             "warning: --when-slow-prefer has no effect with --headless "
             "(headless runs uncapped with no audio device); ignoring.\n");
+    }
+    // --speed is a pace, and headless has none: it runs uncapped. Said, as
+    // for --when-slow-prefer, rather than quietly ignored.
+    if (headless && speed_percent_set) {
+        std::fprintf(stderr,
+            "warning: --speed has no effect with --headless (headless runs "
+            "uncapped); ignoring.\n");
     }
 
     // Task 79 — cursor keys can drive only one connector.
@@ -1219,9 +1284,11 @@ int main(int argc, char* argv[]) {
         }
 #else
         // The SDL frontend has no Preferences dialog and no saved config, so
-        // the CLI value is the whole story.
+        // the CLI value is the whole story. --speed used to reach only the Qt
+        // path above, so on this frontend it was accepted and ignored (#138).
         if constexpr (std::is_same_v<std::decay_t<decltype(app)>, SdlApp>) {
             app.set_when_slow_prefer(when_slow_prefer);
+            if (speed_percent_set) app.set_speed_percent(speed_percent);
         }
 #endif
 

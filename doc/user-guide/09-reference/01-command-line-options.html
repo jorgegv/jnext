@@ -2931,7 +2931,9 @@ with the SD write-error token rather than silently discarded. Use it
 when a run must not disturb an image other runs share.</dd>
 <dt><strong>--speed</strong> <em>PERCENT</em></dt>
 <dd>Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
-Clamped to 10..1000.</dd>
+Clamped to 10..1000. Works in the GUI and the SDL-only build;
+<strong>--headless</strong> runs uncapped, so there it has no effect, and
+<strong>jnext</strong> warns.</dd>
 <dt><strong>--when-slow-prefer</strong> <em>WHAT</em></dt>
 <dd>
 <p>What to sacrifice on a host that cannot emulate in real time:
@@ -3028,14 +3030,15 @@ CPU-bound runs. Tape loading (EAR input) is unaffected.</dd>
 <dt><strong>--inject</strong> <em>FILE</em></dt>
 <dd>Load a raw binary into RAM.</dd>
 <dt><strong>--inject-org</strong> <em>ADDR</em></dt>
-<dd>Load address for <strong>--inject</strong> (hex, default <code>8000</code>).</dd>
+<dd>Load address for <strong>--inject</strong> (hex, default <code>8000</code>). Requires
+<strong>--inject</strong>.</dd>
 <dt><strong>--inject-pc</strong> <em>ADDR</em></dt>
 <dd>Entry point for <strong>--inject</strong> (hex, default: same as
-<strong>--inject-org</strong>).</dd>
+<strong>--inject-org</strong>). Requires <strong>--inject</strong>.</dd>
 <dt><strong>--inject-delay</strong> <em>N</em></dt>
 <dd>Wait <em>N</em> frames before injecting (default 0). Use around 100 if the
 binary calls ROM routines that need the system variables set up
-first.</dd>
+first. Requires <strong>--inject</strong>.</dd>
 </dl>
 <h2 id="networking-esp-01-wifi">Networking (ESP-01 WiFi)<a class="headerlink" href="#networking-esp-01-wifi" title="Permanent link">&para;</a></h2>
 <dl>
@@ -3186,9 +3189,10 @@ the <code>BENCH</code> line is space-delimited.</dd>
 <dt><strong>--delayed-screenshot</strong> <em>FILE</em></dt>
 <dd>Save a PNG screenshot after a delay.</dd>
 <dt><strong>--delayed-screenshot-time</strong> <em>N</em></dt>
-<dd>Delay in seconds (default 10).</dd>
+<dd>Delay in seconds (default 10). Requires <strong>--delayed-screenshot</strong>.</dd>
 <dt><strong>--delayed-screenshot-frames</strong> <em>N</em></dt>
-<dd>Delay in frames. Overrides <strong>--delayed-screenshot-time</strong>.</dd>
+<dd>Delay in frames. Overrides <strong>--delayed-screenshot-time</strong>. Requires
+<strong>--delayed-screenshot</strong>.</dd>
 <dt><strong>--delayed-screenshot-layers</strong> <em>LIST</em></dt>
 <dd>Layers to compose into the screenshot: a comma-separated list of
 <code>ula</code>, <code>layer2</code>, <code>sprites</code>, <code>tiles</code>, <code>all</code> (default <code>all</code>).</dd>
@@ -3197,39 +3201,43 @@ the <code>BENCH</code> line is space-delimited.</dd>
 <dt><strong>--delayed-automatic-exit-frames</strong> <em>N</em></dt>
 <dd>Exit after <em>N</em> frames. Overrides <strong>--delayed-automatic-exit</strong>.</dd>
 <dt><strong>--delayed-snapshot</strong> <em>FILE</em></dt>
-<dd>Headless only. Save a snapshot after a delay in frames. The format
-is chosen by the extension of <em>FILE</em>: <code>.szx</code>, <code>.nex</code>, anything else
-<code>.sna</code>.</dd>
+<dd>Headless only: requires <strong>--headless</strong>. Save a snapshot after a
+delay in frames. The format is chosen by the extension of <em>FILE</em>:
+<code>.szx</code>, <code>.nex</code>, anything else <code>.sna</code>.</dd>
 <dt><strong>--delayed-snapshot-frames</strong> <em>N</em></dt>
-<dd>Delay in frames for <strong>--delayed-snapshot</strong> (default 0).</dd>
+<dd>Delay in frames for <strong>--delayed-snapshot</strong> (default 0). Requires
+<strong>--delayed-snapshot</strong>.</dd>
 <dt><strong>--delayed-keypress</strong> <em>SECS</em> <em>KEY</em></dt>
-<dd>Press <em>KEY</em> after <em>SECS</em> seconds. Headless only, repeatable.</dd>
+<dd>Press <em>KEY</em> after <em>SECS</em> seconds. Headless only (requires
+<strong>--headless</strong>), repeatable.</dd>
 <dt><strong>--delayed-keypress-frames</strong> <em>N</em> <em>KEY</em></dt>
 <dd>Press <em>KEY</em> after <em>N</em> emulated frames. This is the frames-unit
 spelling of <strong>--delayed-keypress</strong>, not an override of it: both
 forms queue into the same list, so giving both schedules two
-keypresses.</dd>
+keypresses. Requires <strong>--headless</strong>.</dd>
 <dt><strong>--delayed-nmi</strong> <em>SECS</em> <em>BUTTON</em></dt>
-<dd>Press an NMI <em>BUTTON</em> after <em>SECS</em> seconds. Headless only,
-repeatable. <em>BUTTON</em> is case-insensitive and names which button to
-press, spelled as the label on a real Next’s case. Of its three
-buttons, two raise an NMI: <code>nmi</code> (aliases <code>mf</code>, <code>m1</code>) is the <strong>NMI</strong>
-button, wired to the Multiface; <code>drive</code> (alias <code>divmmc</code>) is the
-<strong>DRIVE</strong> button, wired to the DivMMC. <strong>RESET</strong> is not an NMI
-button and is not accepted here. The press goes through the same
-path as the host F9 / F10 hotkeys, so it is subject to the same
-enable gates — NextREG 0x06 bit 3 for the Multiface, bit 4 plus
+<dd>Press an NMI <em>BUTTON</em> after <em>SECS</em> seconds. Headless only (requires
+<strong>--headless</strong>), repeatable. <em>BUTTON</em> is case-insensitive and names
+which button to press, spelled as the label on a real Next’s case.
+Of its three buttons, two raise an NMI: <code>nmi</code> (aliases <code>mf</code>, <code>m1</code>)
+is the <strong>NMI</strong> button, wired to the Multiface; <code>drive</code> (alias
+<code>divmmc</code>) is the <strong>DRIVE</strong> button, wired to the DivMMC. <strong>RESET</strong> is
+not an NMI button and is not accepted here. The press goes through
+the same path as the host F9 / F10 hotkeys, so it is subject to the
+same enable gates — NextREG 0x06 bit 3 for the Multiface, bit 4 plus
 NextREG 0x83 bit 0 for the DivMMC — and a press with its gate closed
 does nothing, exactly as on hardware. One press generates one NMI,
 not a repeating one.</dd>
 <dt><strong>--delayed-nmi-frames</strong> <em>N</em> <em>BUTTON</em></dt>
 <dd>Press <em>BUTTON</em> after <em>N</em> emulated frames. This is the frames-unit
 spelling of <strong>--delayed-nmi</strong>, not an override of it: both forms
-queue into the same list, so giving both schedules two presses.</dd>
+queue into the same list, so giving both schedules two presses.
+Requires <strong>--headless</strong>.</dd>
 <dt><strong>--compositor-trace</strong> <em>FILE</em></dt>
 <dd>Dump a per-pixel compositor trace (CSV) for one frame.</dd>
 <dt><strong>--compositor-trace-frame</strong> <em>N</em></dt>
-<dd>Target frame for <strong>--compositor-trace</strong> (default 250).</dd>
+<dd>Target frame for <strong>--compositor-trace</strong> (default 250). Requires
+<strong>--compositor-trace</strong>.</dd>
 </dl>
 <p><em>KEY</em> is case-insensitive and is one of: a single character (<code>a</code>-<code>z</code>,
 <code>0</code>-<code>9</code>, <code>.</code>, <code>,</code>, <code>;</code>, <code>:</code>), one of the symbolic names <code>ENTER</code>,
@@ -3252,13 +3260,15 @@ debugger can set a breakpoint.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, for example <code>0x00FF</code>).</dd>
 <dt><strong>--magic-port-mode</strong> <em>MODE</em></dt>
-<dd>Magic-port output mode: <code>hex</code> (default), <code>dec</code>, <code>ascii</code>, <code>line</code>.</dd>
+<dd>Magic-port output mode: <code>hex</code> (default), <code>dec</code>, <code>ascii</code>, <code>line</code>.
+Requires <strong>--magic-port</strong>.</dd>
 <dt><strong>--profile</strong></dt>
 <dd>Enable the CPU T-state profiler. It allocates an mmap’d histogram
 and accumulates one entry per executed instruction; on exit the
 histogram is written to <strong>--profile-output</strong>.</dd>
 <dt><strong>--profile-output</strong> <em>FILE</em></dt>
-<dd>Output path for <strong>--profile</strong> (default <code>profile.dat</code>).</dd>
+<dd>Output path for <strong>--profile</strong> (default <code>profile.dat</code>). Requires
+<strong>--profile</strong>.</dd>
 <dt><strong>--log-level</strong> <em>SPEC</em></dt>
 <dd>Set per-subsystem log levels; see <a href="https://github.com/jorgegv/jnext/blob/main/USAGE.md#logging">the LOGGING section of the man
 page</a>.</dd>

@@ -164,7 +164,8 @@ run must not disturb an image other runs share.
 
 **--speed** *PERCENT*  
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x. Clamped
-to 10..1000.
+to 10..1000. Works in the GUI and the SDL-only build; **--headless**
+runs uncapped, so there it has no effect, and **jnext** warns.
 
 **--when-slow-prefer** *WHAT*  
 What to sacrifice on a host that cannot emulate in real time: `audio`
@@ -272,14 +273,17 @@ runs. Tape loading (EAR input) is unaffected.
 Load a raw binary into RAM.
 
 **--inject-org** *ADDR*  
-Load address for **--inject** (hex, default `8000`).
+Load address for **--inject** (hex, default `8000`). Requires
+**--inject**.
 
 **--inject-pc** *ADDR*  
 Entry point for **--inject** (hex, default: same as **--inject-org**).
+Requires **--inject**.
 
 **--inject-delay** *N*  
 Wait *N* frames before injecting (default 0). Use around 100 if the
 binary calls ROM routines that need the system variables set up first.
+Requires **--inject**.
 
 ### Networking (ESP-01 WiFi)
 
@@ -444,10 +448,11 @@ line is space-delimited.
 Save a PNG screenshot after a delay.
 
 **--delayed-screenshot-time** *N*  
-Delay in seconds (default 10).
+Delay in seconds (default 10). Requires **--delayed-screenshot**.
 
 **--delayed-screenshot-frames** *N*  
-Delay in frames. Overrides **--delayed-screenshot-time**.
+Delay in frames. Overrides **--delayed-screenshot-time**. Requires
+**--delayed-screenshot**.
 
 **--delayed-screenshot-layers** *LIST*  
 Layers to compose into the screenshot: a comma-separated list of `ula`,
@@ -460,43 +465,49 @@ Exit the emulator after *N* seconds.
 Exit after *N* frames. Overrides **--delayed-automatic-exit**.
 
 **--delayed-snapshot** *FILE*  
-Headless only. Save a snapshot after a delay in frames. The format is
-chosen by the extension of *FILE*: `.szx`, `.nex`, anything else `.sna`.
+Headless only: requires **--headless**. Save a snapshot after a delay in
+frames. The format is chosen by the extension of *FILE*: `.szx`, `.nex`,
+anything else `.sna`.
 
 **--delayed-snapshot-frames** *N*  
-Delay in frames for **--delayed-snapshot** (default 0).
+Delay in frames for **--delayed-snapshot** (default 0). Requires
+**--delayed-snapshot**.
 
 **--delayed-keypress** *SECS* *KEY*  
-Press *KEY* after *SECS* seconds. Headless only, repeatable.
+Press *KEY* after *SECS* seconds. Headless only (requires
+**--headless**), repeatable.
 
 **--delayed-keypress-frames** *N* *KEY*  
 Press *KEY* after *N* emulated frames. This is the frames-unit spelling
 of **--delayed-keypress**, not an override of it: both forms queue into
-the same list, so giving both schedules two keypresses.
+the same list, so giving both schedules two keypresses. Requires
+**--headless**.
 
 **--delayed-nmi** *SECS* *BUTTON*  
-Press an NMI *BUTTON* after *SECS* seconds. Headless only, repeatable.
-*BUTTON* is case-insensitive and names which button to press, spelled as
-the label on a real Next’s case. Of its three buttons, two raise an NMI:
-`nmi` (aliases `mf`, `m1`) is the **NMI** button, wired to the
-Multiface; `drive` (alias `divmmc`) is the **DRIVE** button, wired to
-the DivMMC. **RESET** is not an NMI button and is not accepted here. The
-press goes through the same path as the host F9 / F10 hotkeys, so it is
-subject to the same enable gates — NextREG 0x06 bit 3 for the Multiface,
-bit 4 plus NextREG 0x83 bit 0 for the DivMMC — and a press with its gate
-closed does nothing, exactly as on hardware. One press generates one
-NMI, not a repeating one.
+Press an NMI *BUTTON* after *SECS* seconds. Headless only (requires
+**--headless**), repeatable. *BUTTON* is case-insensitive and names
+which button to press, spelled as the label on a real Next’s case. Of
+its three buttons, two raise an NMI: `nmi` (aliases `mf`, `m1`) is the
+**NMI** button, wired to the Multiface; `drive` (alias `divmmc`) is the
+**DRIVE** button, wired to the DivMMC. **RESET** is not an NMI button
+and is not accepted here. The press goes through the same path as the
+host F9 / F10 hotkeys, so it is subject to the same enable gates —
+NextREG 0x06 bit 3 for the Multiface, bit 4 plus NextREG 0x83 bit 0 for
+the DivMMC — and a press with its gate closed does nothing, exactly as
+on hardware. One press generates one NMI, not a repeating one.
 
 **--delayed-nmi-frames** *N* *BUTTON*  
 Press *BUTTON* after *N* emulated frames. This is the frames-unit
 spelling of **--delayed-nmi**, not an override of it: both forms queue
-into the same list, so giving both schedules two presses.
+into the same list, so giving both schedules two presses. Requires
+**--headless**.
 
 **--compositor-trace** *FILE*  
 Dump a per-pixel compositor trace (CSV) for one frame.
 
 **--compositor-trace-frame** *N*  
-Target frame for **--compositor-trace** (default 250).
+Target frame for **--compositor-trace** (default 250). Requires
+**--compositor-trace**.
 
 *KEY* is case-insensitive and is one of: a single character (`a`-`z`,
 `0`-`9`, `.`, `,`, `;`, `:`), one of the symbolic names `ENTER`,
@@ -524,6 +535,7 @@ Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
 
 **--magic-port-mode** *MODE*  
 Magic-port output mode: `hex` (default), `dec`, `ascii`, `line`.
+Requires **--magic-port**.
 
 **--profile**  
 Enable the CPU T-state profiler. It allocates an mmap’d histogram and
@@ -531,7 +543,8 @@ accumulates one entry per executed instruction; on exit the histogram is
 written to **--profile-output**.
 
 **--profile-output** *FILE*  
-Output path for **--profile** (default `profile.dat`).
+Output path for **--profile** (default `profile.dat`). Requires
+**--profile**.
 
 **--log-level** *SPEC*  
 Set per-subsystem log levels; see **LOGGING**.

@@ -449,7 +449,8 @@ private:
 ///   * it paces with a blocking SDL_Delay to a whole-ms period, not a QTimer
 ///     against a fractional absolute deadline — it has no deadline schedule at
 ///     all, and giving it one would change its rate;
-///   * it has no speed multiplier, so no >1x compositor throttle;
+///   * its speed multiplier (--speed, GH #138) scales that whole-ms sleep and
+///     throttles presents above 1x inline, rather than through a deadline;
 ///   * it emits no tick-stats and no cadence report (both are GUI diagnostics
 ///     driven by the Qt status timer, which SDL does not have);
 ///   * fastload is handled by SKIPPING THE SLEEP rather than by an in-tick

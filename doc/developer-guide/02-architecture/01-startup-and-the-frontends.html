@@ -1909,7 +1909,11 @@ in a modal dialog that an unattended run would wait on forever.</p>
   paced from <code>Emulator::frame_period_ms()</code> and the current speed multiplier.
   SDL is still linked into this build, but only to get audio out.</li>
 <li><strong><code>SdlApp</code></strong> (<code>src/platform/sdl_app.h</code>) owns an <code>SdlDisplay</code>, an <code>SdlInput</code>
-  and an <code>SdlAudio</code>, and runs its own event and pacing loop.</li>
+  and an <code>SdlAudio</code>, and runs its own event and pacing loop. Its speed
+  multiplier (<code>--speed</code>, <code>SdlApp::set_speed_percent()</code>) scales the whole-ms
+  sleep, switches off audio pacing away from 1x and, above it, presents at most
+  every <code>frame_sequencer::RENDER_INTERVAL_MS</code> — the same three things
+  <code>QtApp</code> does, done inline because this loop does not use the sequencer.</li>
 <li><strong><code>HeadlessApp</code></strong> (<code>src/platform/headless_app.h</code>) owns nothing but the
   <code>Emulator</code>. Its <code>run()</code> is a bare <code>run_frame()</code> loop with no sleep in it.</li>
 </ul>
@@ -1958,7 +1962,11 @@ measuring the frame timer rather than the emulator.</p>
 <code>--delayed-screenshot</code>, <code>--delayed-snapshot</code>, <code>--delayed-keypress</code> and
 <code>--delayed-automatic-exit</code> family lets a script boot the machine, wait a
 defined amount of emulated time, press keys and capture the screen without any
-human present — which is how the project's own screenshot regression suite
+human present (<code>--delayed-snapshot</code>, <code>--delayed-keypress</code> and <code>--delayed-nmi</code>
+are headless-only: only <code>HeadlessApp</code> reads them, so <code>main.cpp</code> refuses them
+without <code>--headless</code> rather than let a windowed frontend ignore them — the same
+up-front refusal it gives an option that only qualifies one that is absent,
+such as <code>--inject-pc</code> without <code>--inject</code>) — which is how the project's own screenshot regression suite
 drives the emulator. The delays are counted in emulated frames rather than
 wall-clock seconds precisely so that a loaded machine produces the same bytes
 as an idle one. And a capture that was requested but never taken makes the

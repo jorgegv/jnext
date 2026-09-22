@@ -1,6 +1,7 @@
 #include "sdl_app.h"
 #include "platform/emulator_boot.h"
 #include "platform/rzx_startup.h"
+#include "platform/frame_sequencer.h"   // RENDER_INTERVAL_MS, shared with QtApp
 #include "platform/render_policy.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
@@ -242,6 +243,14 @@ void SdlApp::set_delayed_screenshot(const std::string& file, int delay_frames,
                            Renderer::layer_mask_to_string(layer_mask));
 }
 
+void SdlApp::set_speed_percent(int percent) {
+    double multiplier = percent / 100.0;
+    if (multiplier < 0.1) multiplier = 0.1;
+    if (multiplier > 10.0) multiplier = 10.0;
+    speed_multiplier_ = multiplier;
+    Log::platform()->info("Emulator speed: {}x", multiplier);
+}
+
 void SdlApp::set_delayed_exit(int delay_frames) {
     exit_countdown_ = delay_frames;
     Log::platform()->info("--delayed-automatic-exit: will exit after {} frame(s)",
@@ -272,8 +281,7 @@ void SdlApp::run() {
         // Apply pending load when countdown reaches zero.
         if (load_countdown_ == 0) {
             // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
-            // SDL has no --tape-realtime toggle; fast tape load (false).
-            if (!emulator_apply_load(emulator_, load_file_, /*tape_realtime=*/false)) {
+            if (!emulator_apply_load(emulator_, load_file_, tape_realtime_)) {
                 Log::platform()->error("load: failed to load '{}'", load_file_);
                 exit_code_ = 1;   // a failed load exits non-zero (as headless)
             }
@@ -314,16 +322,34 @@ void SdlApp::run() {
         // card wants gets its own iteration (and its own present) instead of
         // being superseded inside this one.
         bool next_tick_asap = false;
+        // --speed away from 100% decouples emulated time from real time: the
+        // machine's sample rate no longer matches the sound card's, so the
+        // audio pacer cannot hold and the loop paces on the wall clock at the
+        // scaled period instead (the sleep below) — exactly as QtApp does.
+        const bool speed_scaled = (speed_multiplier_ != 1.0);
+        const bool screenshot_due = (screenshot_countdown_ == 0);
+        // Above 100%, present at most every RENDER_INTERVAL_MS (QtApp's
+        // compositor throttle): the frames in between are never seen, and the
+        // renderer is vsynced, so presenting every one would cap the machine
+        // at the display's refresh rate. A due screenshot always presents.
+        bool present_this_tick = true;
+        if (speed_multiplier_ > 1.0 && !screenshot_due) {
+            const uint32_t now = SDL_GetTicks();
+            if (now - last_present_ms_ < static_cast<uint32_t>(
+                                             frame_sequencer::RENDER_INTERVAL_MS))
+                present_this_tick = false;
+            else
+                last_present_ms_ = now;
+        }
         {
             const audio_pacing::TickPlan plan =
-                emulator_.fastload_active()
+                (emulator_.fastload_active() || speed_scaled)
                     ? audio_pacing::TickPlan{1, false}
                     : audio_pacing::plan_for(
                           audio_pacing::frames_for_tick(pacing_band_, audio_.queued_ms()),
                           when_slow_prefer_);
             const int frames = plan.frames;
             next_tick_asap   = plan.next_tick_asap;
-            const bool screenshot_due = (screenshot_countdown_ == 0);
             for (int i = 0; i < frames; i++) {
                 // Superseded-composite skip (issue #9): the display presents
                 // once, below, so only the tick's last frame composites
@@ -331,6 +357,7 @@ void SdlApp::run() {
                 // (its pacing comes from skipping the delay), so it always
                 // composites; a due screenshot forces the whole tick.
                 emulator_.set_render_enabled(
+                    present_this_tick &&
                     render_policy::composite_frame_in_tick(i, frames,
                                                            screenshot_due));
                 emulator_.run_frame();
@@ -381,16 +408,19 @@ void SdlApp::run() {
         // fastloading windows (timer/timer.c).
         const bool fastload = emulator_.fastload_active();
         if (!fastload) {
-            // SdlApp has no speed multiplier, so outside fastload it always
-            // paces on the audio clock — the underrun hold is safe to enable.
-            audio_.push_from_mixer(emulator_.mixer(), /*hold_on_underrun=*/true);
+            // The underrun hold is a rescue for a device the loop keeps fed on
+            // the audio clock; unpaced (--speed away from 100%) it would fire
+            // every tick instead — QtApp gates it the same way.
+            audio_.push_from_mixer(emulator_.mixer(), /*hold_on_underrun=*/!speed_scaled);
         }
 
         const uint32_t* fb = emulator_.get_framebuffer();
         const int fb_w = emulator_.get_framebuffer_width();
         const int fb_h = emulator_.get_framebuffer_height();
-        display_.upload_frame(fb, fb_w, fb_h);
-        display_.present();
+        if (present_this_tick) {
+            display_.upload_frame(fb, fb_w, fb_h);
+            display_.present();
+        }
 
         // Delayed screenshot: take after countdown expires.
         if (screenshot_countdown_ == 0) {
@@ -442,13 +472,14 @@ void SdlApp::run() {
         // frame runs in the NEXT iteration, where it is composited and shown,
         // rather than inside this one, where it would be superseded.
         if (!fastload && !next_tick_asap) {
+            // --speed scales the period (QtApp::effective_frame_period_us()).
             const uint32_t frame_ms = static_cast<uint32_t>(
-                std::lround(emulator_.frame_period_ms()));
+                std::lround(emulator_.frame_period_ms() / speed_multiplier_));
             if (frame_ms != last_frame_ms_) {
                 last_frame_ms_ = frame_ms;
                 Log::platform()->info(
-                    "frame pacing: {:.2f} Hz video refresh -> {} ms/frame",
-                    1000.0 / emulator_.frame_period_ms(), frame_ms);
+                    "frame pacing: {:.2f} Hz video refresh at {}x -> {} ms/frame",
+                    1000.0 / emulator_.frame_period_ms(), speed_multiplier_, frame_ms);
             }
             uint32_t elapsed = SDL_GetTicks() - frame_start;
             if (elapsed < frame_ms) SDL_Delay(frame_ms - elapsed);

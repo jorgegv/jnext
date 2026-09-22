@@ -102,6 +102,8 @@ Use it when a run must not disturb an image other runs share.
 \f[B]\-\-speed\f[R] \f[I]PERCENT\f[R]
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
 Clamped to 10..1000.
+Works in the GUI and the SDL\-only build; \f[B]\-\-headless\f[R] runs
+uncapped, so there it has no effect, and \f[B]jnext\f[R] warns.
 .TP
 \f[B]\-\-when\-slow\-prefer\f[R] \f[I]WHAT\f[R]
 What to sacrifice on a host that cannot emulate in real time:
@@ -228,15 +230,18 @@ Load a raw binary into RAM.
 .TP
 \f[B]\-\-inject\-org\f[R] \f[I]ADDR\f[R]
 Load address for \f[B]\-\-inject\f[R] (hex, default \f[CR]8000\f[R]).
+Requires \f[B]\-\-inject\f[R].
 .TP
 \f[B]\-\-inject\-pc\f[R] \f[I]ADDR\f[R]
 Entry point for \f[B]\-\-inject\f[R] (hex, default: same as
 \f[B]\-\-inject\-org\f[R]).
+Requires \f[B]\-\-inject\f[R].
 .TP
 \f[B]\-\-inject\-delay\f[R] \f[I]N\f[R]
 Wait \f[I]N\f[R] frames before injecting (default 0).
 Use around 100 if the binary calls ROM routines that need the system
 variables set up first.
+Requires \f[B]\-\-inject\f[R].
 .SS Networking (ESP\-01 WiFi)
 .TP
 \f[B]\-\-esp\f[R]
@@ -424,10 +429,12 @@ Save a PNG screenshot after a delay.
 .TP
 \f[B]\-\-delayed\-screenshot\-time\f[R] \f[I]N\f[R]
 Delay in seconds (default 10).
+Requires \f[B]\-\-delayed\-screenshot\f[R].
 .TP
 \f[B]\-\-delayed\-screenshot\-frames\f[R] \f[I]N\f[R]
 Delay in frames.
 Overrides \f[B]\-\-delayed\-screenshot\-time\f[R].
+Requires \f[B]\-\-delayed\-screenshot\f[R].
 .TP
 \f[B]\-\-delayed\-screenshot\-layers\f[R] \f[I]LIST\f[R]
 Layers to compose into the screenshot: a comma\-separated list of
@@ -442,27 +449,29 @@ Exit after \f[I]N\f[R] frames.
 Overrides \f[B]\-\-delayed\-automatic\-exit\f[R].
 .TP
 \f[B]\-\-delayed\-snapshot\f[R] \f[I]FILE\f[R]
-Headless only.
+Headless only: requires \f[B]\-\-headless\f[R].
 Save a snapshot after a delay in frames.
 The format is chosen by the extension of \f[I]FILE\f[R]:
 \f[CR].szx\f[R], \f[CR].nex\f[R], anything else \f[CR].sna\f[R].
 .TP
 \f[B]\-\-delayed\-snapshot\-frames\f[R] \f[I]N\f[R]
 Delay in frames for \f[B]\-\-delayed\-snapshot\f[R] (default 0).
+Requires \f[B]\-\-delayed\-snapshot\f[R].
 .TP
 \f[B]\-\-delayed\-keypress\f[R] \f[I]SECS\f[R] \f[I]KEY\f[R]
 Press \f[I]KEY\f[R] after \f[I]SECS\f[R] seconds.
-Headless only, repeatable.
+Headless only (requires \f[B]\-\-headless\f[R]), repeatable.
 .TP
 \f[B]\-\-delayed\-keypress\-frames\f[R] \f[I]N\f[R] \f[I]KEY\f[R]
 Press \f[I]KEY\f[R] after \f[I]N\f[R] emulated frames.
 This is the frames\-unit spelling of \f[B]\-\-delayed\-keypress\f[R],
 not an override of it: both forms queue into the same list, so giving
 both schedules two keypresses.
+Requires \f[B]\-\-headless\f[R].
 .TP
 \f[B]\-\-delayed\-nmi\f[R] \f[I]SECS\f[R] \f[I]BUTTON\f[R]
 Press an NMI \f[I]BUTTON\f[R] after \f[I]SECS\f[R] seconds.
-Headless only, repeatable.
+Headless only (requires \f[B]\-\-headless\f[R]), repeatable.
 \f[I]BUTTON\f[R] is case\-insensitive and names which button to press,
 spelled as the label on a real Next\(cqs case.
 Of its three buttons, two raise an NMI: \f[CR]nmi\f[R] (aliases
@@ -481,12 +490,14 @@ Press \f[I]BUTTON\f[R] after \f[I]N\f[R] emulated frames.
 This is the frames\-unit spelling of \f[B]\-\-delayed\-nmi\f[R], not an
 override of it: both forms queue into the same list, so giving both
 schedules two presses.
+Requires \f[B]\-\-headless\f[R].
 .TP
 \f[B]\-\-compositor\-trace\f[R] \f[I]FILE\f[R]
 Dump a per\-pixel compositor trace (CSV) for one frame.
 .TP
 \f[B]\-\-compositor\-trace\-frame\f[R] \f[I]N\f[R]
 Target frame for \f[B]\-\-compositor\-trace\f[R] (default 250).
+Requires \f[B]\-\-compositor\-trace\f[R].
 .PP
 \f[I]KEY\f[R] is case\-insensitive and is one of: a single character
 (\f[CR]a\f[R]\-\f[CR]z\f[R], \f[CR]0\f[R]\-\f[CR]9\f[R], \f[CR].\f[R],
@@ -521,6 +532,7 @@ Enable the magic debug port at \f[I]PORT\f[R] (hex, for example
 \f[B]\-\-magic\-port\-mode\f[R] \f[I]MODE\f[R]
 Magic\-port output mode: \f[CR]hex\f[R] (default), \f[CR]dec\f[R],
 \f[CR]ascii\f[R], \f[CR]line\f[R].
+Requires \f[B]\-\-magic\-port\f[R].
 .TP
 \f[B]\-\-profile\f[R]
 Enable the CPU T\-state profiler.
@@ -530,6 +542,7 @@ executed instruction; on exit the histogram is written to
 .TP
 \f[B]\-\-profile\-output\f[R] \f[I]FILE\f[R]
 Output path for \f[B]\-\-profile\f[R] (default \f[CR]profile.dat\f[R]).
+Requires \f[B]\-\-profile\f[R].
 .TP
 \f[B]\-\-log\-level\f[R] \f[I]SPEC\f[R]
 Set per\-subsystem log levels; see \f[B]LOGGING\f[R].

@@ -57,7 +57,20 @@ public:
     /// --delayed-screenshot was never written.
     int exit_code() const { return exit_code_; }
 
-    void set_tape_realtime(bool) {}
+    /// --tape-realtime: load .tap/.tzx in real time (EAR edges) instead of
+    /// through the ROM trap. Used by every load the frontend applies — the
+    /// command-line one and a cold boot's (GH #138: this was an empty stub).
+    void set_tape_realtime(bool realtime) { tape_realtime_ = realtime; }
+
+    /// --speed PERCENT: run the machine at PERCENT% of real time (GH #138:
+    /// this frontend used to ignore it). Clamped to the same 10%..1000% range
+    /// as QtApp::set_speed_multiplier(). Away from 100% the loop paces on the
+    /// wall clock at the scaled frame period, as QtApp does — the emulated
+    /// sample rate no longer matches the sound card's, so no audio pacing can
+    /// hold — and above 100% it presents at most every RENDER_INTERVAL_MS, so
+    /// a vsynced present cannot cap the speed at the display's refresh.
+    void set_speed_percent(int percent);
+    double speed_multiplier() const { return speed_multiplier_; }
     /// --rzx-play / --rzx-record. Acted on at the start of run(), so they may
     /// be called before or after init() (see emulator_start_rzx()).
     void set_rzx_play(const std::string& file) { rzx_play_file_ = file; }
@@ -133,6 +146,14 @@ private:
 
     // Last frame-pacing period logged (ms); logs only on a 50/60 Hz change.
     uint32_t    last_frame_ms_ = 0;
+
+    // --tape-realtime (see set_tape_realtime()).
+    bool        tape_realtime_ = false;
+
+    // --speed (see set_speed_percent()); 1.0 = real time.
+    double      speed_multiplier_ = 1.0;
+    // SDL_GetTicks() of the last present, for the >1x present throttle.
+    uint32_t    last_present_ms_ = 0;
 
     // Pending --rzx-play / --rzx-record, started at the top of run().
     std::string rzx_play_file_;
