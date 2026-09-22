@@ -89,4 +89,37 @@ can write to FAT32 disk images, such as `mcopy` from mtools.
 (A NEX file whose header asks to keep its own file open can also read that
 file, and read files next to it, when loaded directly. It cannot write them.)
 
+## Starting from a real NextZXOS: `--warm-start`
+
+There is a middle road between the two. `--warm-start` boots the firmware for
+real — once — and then starts your program on the machine that boot produced:
+
+```
+jnext --warm-start game.nex
+```
+
+The first time you use it with a given SD card image, JNEXT cold-boots it the
+way it does with no arguments (the FPGA boot ROM, then `TBBLUE.FW`, then
+NextZXOS), and saves the resulting machine to `~/.jnext/warm-start/`. That
+takes a few seconds and prints a line saying so. Every run after that restores
+the saved machine instead of booting, so it costs nothing.
+
+What your program gets is a Next with NextZXOS resident and its ROM paged in —
+the environment a NEX file is written for, because on real hardware every NEX
+is launched by NextZXOS. Without it, the program meets a machine JNEXT
+assembles, whose settings are JNEXT's idea of what the firmware would have
+left rather than what it actually left.
+
+The saved machine is recorded from *your* image and is never shipped with
+JNEXT: it contains NextZXOS's own ROM. It re-records itself when the image
+changes, when you pick a different machine, or when a JNEXT update changes the
+format — `--warm-start-regenerate` forces it.
+
+Two limits. It is the ZX Spectrum Next only: the 48K, 128K and +3 run no
+firmware, so there is nothing to record, and the option says so and does
+nothing. And it applies to `.nex` files; tapes and snapshots load as they
+always have.
+
+It is off by default, because it changes what every loaded program sees.
+
 ---

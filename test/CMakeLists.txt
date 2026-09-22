@@ -303,6 +303,14 @@ target_link_libraries(sdcard_provisioner_test PRIVATE jnext_core ZLIB::ZLIB)
 target_include_directories(sdcard_provisioner_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME sdcard_provisioner_tests COMMAND sdcard_provisioner_test)
 
+# Warm-start tests (GH #234): the on-disk state cache — paths, round trip and
+# the four keys that invalidate it — plus the NextZXOS-residency criterion that
+# decides whether a boot may be recorded. Offline: no SD image, no firmware.
+add_executable(warm_start_test warm_start/warm_start_test.cpp)
+target_link_libraries(warm_start_test PRIVATE jnext_core)
+target_include_directories(warm_start_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME warm_start_tests COMMAND warm_start_test)
+
 # Sprites subsystem compliance test
 add_executable(sprites_test sprites/sprites_test.cpp)
 target_link_libraries(sprites_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)

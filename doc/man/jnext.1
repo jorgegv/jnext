@@ -101,6 +101,27 @@ The emulated machine sees a write\-protected card: writes are rejected
 with the SD write\-error token rather than silently discarded.
 Use it when a run must not disturb an image other runs share.
 .TP
+\f[B]\-\-warm\-start\f[R]
+Run a \f[B]\-\-load\f[R] program on a RECORDING of a real firmware boot
+instead of the machine \f[B]jnext\f[R] assembles.
+On the first use with a given SD image, \f[B]jnext\f[R] cold\-boots it
+(\f[CR]nextboot.rom\f[R] \-> \f[CR]TBBLUE.FW\f[R] \-> NextZXOS), saves
+the resulting machine state to \f[CR]\(ti/.jnext/warm\-start/\f[R], and
+applies the program on top of it \(em which is what \f[CR].nexload\f[R]
+does on real hardware.
+Later runs restore the saved state instead of booting, so they cost
+nothing.
+The ZX Spectrum Next only: the other machine types run no firmware, and
+the option warns and does nothing there.
+Currently applies to \f[CR].nex\f[R] files.
+.TP
+\f[B]\-\-warm\-start\-regenerate\f[R]
+Discard the cached recording and take a fresh one.
+Implies \f[B]\-\-warm\-start\f[R].
+The cache is keyed by the SD image\(cqs contents, the machine type and
+the state format, so it invalidates itself when any of those change;
+this is for forcing the issue.
+.TP
 \f[B]\-\-speed\f[R] \f[I]PERCENT\f[R]
 Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
 Clamped to 10..1000.

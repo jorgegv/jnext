@@ -2932,6 +2932,22 @@ explicit path always wins.</dd>
 emulated machine sees a write-protected card: writes are rejected
 with the SD write-error token rather than silently discarded. Use it
 when a run must not disturb an image other runs share.</dd>
+<dt><strong>--warm-start</strong></dt>
+<dd>Run a <strong>--load</strong> program on a RECORDING of a real firmware boot
+instead of the machine <strong>jnext</strong> assembles. On the first use with a
+given SD image, <strong>jnext</strong> cold-boots it (<code>nextboot.rom</code> -&gt;
+<code>TBBLUE.FW</code> -&gt; NextZXOS), saves the resulting machine state to
+<code>~/.jnext/warm-start/</code>, and applies the program on top of it — which
+is what <code>.nexload</code> does on real hardware. Later runs restore the
+saved state instead of booting, so they cost nothing. The ZX
+Spectrum Next only: the other machine types run no firmware, and the
+option warns and does nothing there. Currently applies to <code>.nex</code>
+files.</dd>
+<dt><strong>--warm-start-regenerate</strong></dt>
+<dd>Discard the cached recording and take a fresh one. Implies
+<strong>--warm-start</strong>. The cache is keyed by the SD image’s contents, the
+machine type and the state format, so it invalidates itself when any
+of those change; this is for forcing the issue.</dd>
 <dt><strong>--speed</strong> <em>PERCENT</em></dt>
 <dd>Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
 Clamped to 10..1000. Works in the GUI and the SDL-only build;

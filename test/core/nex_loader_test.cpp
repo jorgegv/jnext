@@ -1378,6 +1378,119 @@ void test_entry_state() {
 // pre-load probe, and the enforcement seam (Emulator::load_nex), including
 // the contract that NexLoader itself stays fully V1.3-capable — the gate
 // governs entry points, not the loader.
+// ── GH #234 — the MMU map both loaders hand the entry code ────────────
+//
+// NexLoader::apply() did not model MMU0-5 at all: it relied on
+// Emulator::init()'s reset defaults happening to hold bank 5 at $4000 and
+// bank 2 at $8000. Both reference loaders set them EXPLICITLY, and the
+// assumption stops holding the moment the machine the NEX lands on was not
+// assembled by init() — a warm-started load (GH #234) measured MMU3 = 17
+// (Layer 2's bank 8, left there by NextZXOS), and tilemap-demo, stencil-demo
+// and odemo rendered a black frame while lores-demo lost the half of its
+// picture that lives in bank 5's second 8 KB.
+//
+// ORACLES, and they gate DIFFERENTLY — the same per-loader split GH #166 and
+// GH #171 found for NR 0x07/0x15/0x42/0x43:
+//
+//   nexload.asm:280-284   UNCONDITIONAL prologue, ABOVE the
+//                         DONTRESETNEXTREGS gate at :323
+//                           ld a,5*2 : NEXTREG_A MMU_REGISTER_2
+//                           inc a    : NEXTREG_A MMU_REGISTER_3
+//                           ld a,2*2 : NEXTREG_A MMU_REGISTER_4
+//                           inc a    : NEXTREG_A MMU_REGISTER_5
+//   nexload.asm:406-407   MMU0/1 := 255 (ROM), INSIDE the gated block
+//   nexload2.asm:913-918  `nextRegResetData`, inside its own PRESERVENEXTREG
+//                         gate: `db MMU0_NR50, 8` / `db $FF,$FF,10,11,4,5,0,1`
+//
+// Each row DISTURBS the map first — through the NextREG path, as a guest
+// would — so it discriminates "apply() establishes this" from "the reset
+// default happened to be right", which is the whole failure this closes.
+void test_loader_mmu() {
+    set_group("NEXMMU");
+
+    struct MmuFixture {
+        Emulator emu;
+        bool     ok = false;
+        // `disturb` is applied AFTER init() and BEFORE apply(), so what the
+        // rows read back can only have come from apply() itself.
+        MmuFixture(const char* tag, uint8_t preserve_regs, const char* version) {
+            EmulatorConfig cfg;
+            cfg.type = MachineType::ZXN_ISSUE2;
+            cfg.rewind_buffer_frames = 0;
+            emu.init(cfg);
+            // Nothing the reset default holds: pages 20..25 are RAM banks
+            // 10-12, which no part of a NEX load maps.
+            for (uint8_t i = 0; i < 6; ++i)
+                emu.nextreg().write(static_cast<uint8_t>(0x50 + i),
+                                    static_cast<uint8_t>(20 + i));
+            const std::string path = fixture_path(tag);
+            if (write_nex_bank_fixture(path, 0x8000, 0xFF00, preserve_regs,
+                                       /*entry_bank=*/3, /*bank_no=*/3, {}, 0, version)) {
+                NexLoader loader;
+                if (loader.load(path)) ok = loader.apply(emu);
+            }
+            std::error_code ec;
+            std::filesystem::remove(path, ec);
+        }
+        uint8_t page(int slot) { return emu.mmu().get_page(slot); }
+    };
+
+    {
+        MmuFixture f("mmu_v12_reset", 0, "V1.2");
+        check("NEXMMU-01",
+              "V1.2, DONTRESETNEXTREGS clear: MMU2-5 = bank 5, bank 2 "
+              "(nexload.asm:280-283)",
+              f.ok && f.page(2) == 10 && f.page(3) == 11 &&
+                      f.page(4) == 4 && f.page(5) == 5,
+              fmt("got %u %u %u %u", f.page(2), f.page(3), f.page(4), f.page(5)));
+        check("NEXMMU-03",
+              "V1.2, DONTRESETNEXTREGS clear: MMU0/1 = ROM "
+              "(nexload.asm:406-407)",
+              f.ok && f.page(0) == 0xFF && f.page(1) == 0xFF,
+              fmt("got %u %u", f.page(0), f.page(1)));
+        check("NEXMMU-07",
+              "MMU6/7 are the header entry bank, not the loaders' scratch 0,1 "
+              "(nexload.asm:557-558)",
+              f.ok && f.page(6) == 3 * 2 && f.page(7) == 3 * 2 + 1,
+              fmt("got %u %u", f.page(6), f.page(7)));
+    }
+    {
+        MmuFixture f("mmu_v12_preserve", 1, "V1.2");
+        check("NEXMMU-02",
+              "V1.2, DONTRESETNEXTREGS SET: MMU2-5 still forced — the prologue "
+              "is above the gate (nexload.asm:280-283 vs :323)",
+              f.ok && f.page(2) == 10 && f.page(3) == 11 &&
+                      f.page(4) == 4 && f.page(5) == 5,
+              fmt("got %u %u %u %u", f.page(2), f.page(3), f.page(4), f.page(5)));
+        check("NEXMMU-04",
+              "V1.2, DONTRESETNEXTREGS SET: MMU0/1 NOT forced — :406-407 is "
+              "inside the gated block, so the guest's mapping survives",
+              f.ok && f.page(0) == 20 && f.page(1) == 21,
+              fmt("got %u %u", f.page(0), f.page(1)));
+    }
+    {
+        MmuFixture f("mmu_v13_reset", 0, "V1.3");
+        check("NEXMMU-05",
+              "V1.3, PRESERVENEXTREG clear: MMU0-5 = FF,FF,10,11,4,5 "
+              "(nexload2.asm:913-918 nextRegResetData)",
+              f.ok && f.page(0) == 0xFF && f.page(1) == 0xFF &&
+                      f.page(2) == 10 && f.page(3) == 11 &&
+                      f.page(4) == 4 && f.page(5) == 5,
+              fmt("got %u %u %u %u %u %u", f.page(0), f.page(1), f.page(2),
+                  f.page(3), f.page(4), f.page(5)));
+    }
+    {
+        MmuFixture f("mmu_v13_preserve", 1, "V1.3");
+        check("NEXMMU-06",
+              "V1.3, PRESERVENEXTREG SET: MMU0-5 NOT forced — nexload2 has no "
+              "prologue, its whole table sits inside the gate (:781-783)",
+              f.ok && f.page(0) == 20 && f.page(1) == 21 && f.page(2) == 22 &&
+                      f.page(3) == 23 && f.page(4) == 24 && f.page(5) == 25,
+              fmt("got %u %u %u %u %u %u", f.page(0), f.page(1), f.page(2),
+                  f.page(3), f.page(4), f.page(5)));
+    }
+}
+
 void test_v13_gate() {
     set_group("NEXGATE");
 
@@ -2607,6 +2720,9 @@ int main() {
     // Read-modify-write NextREGs, per loader.
     set_group("NEXNR");
     test_loader_nextregs();
+
+    // GH #234 — the MMU map both loaders establish before entry.
+    test_loader_mmu();
 
     // GH #228 — the experimental-V1.3 entry-point gate.
     test_v13_gate();

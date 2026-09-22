@@ -1,7 +1,10 @@
 # Warm-Start State Cache — running NEX files from a real post-boot machine
 
-> Status: **design proposal**, not implemented. Milestone v1.1.
+> Status: **implemented, opt-in** (`--warm-start`). Milestone v1.1.
 > Tracking issue: [#234](https://github.com/jorgegv/jnext/issues/234).
+>
+> §10 below is the implementation record: what the measurement the design
+> demanded actually found, including the two places this document was wrong.
 
 ## 1. The problem
 
@@ -182,3 +185,193 @@ for. A cache that cannot go stale is a recording; one that can is a fixture.
    firmware-less-machine argument applies?
 5. Where does this leave the `--machine 48k/128k/plus3` paths — documented as
    out of scope, or given their own smaller treatment?
+
+---
+
+## 10. Implementation record (2026-09-22)
+
+Everything here is measured. Where it contradicts §1-§9, this section wins —
+§1-§9 are the argument that was made before the machine was built.
+
+### 10.1 The gating question, answered
+
+> "Does the NEX apply cleanly on top of a NextZXOS-resident machine, or does it
+> need the OS torn down first (the way `nexload` does on hardware)?" (§9.1)
+
+**It applies cleanly, and no teardown has to be added: `NexLoader::apply()`
+already IS the teardown.** That routine models what `nexload.asm` /
+`nexload2.asm` do before handing over — the NextREG reset block, the palette
+and clip windows, the loading screen, the bank placement, the entry registers —
+and it runs unchanged on a restored machine. The oracle for the question is the
+loader, not the OS, and jnext already had it.
+
+Evidence, in the order it was taken:
+
+1. **The hardware path works in jnext.** Booting NextZXOS headless, selecting
+   *Command Line* from the main menu and typing `.nexload s.nex` (the distro's
+   own `/DOT/NEXLOAD`, against a copy of `/demos/show512/show512.nex` placed at
+   the card root) runs the program. That is the reference image every later
+   comparison is against, and it is the real loader on the real OS.
+2. **A warm-started `--load` of the same file is PIXEL-IDENTICAL to the
+   committed `show512` reference** — 0 pixels differ. Applying a NEX on top of
+   a restored NextZXOS neither crashes nor changes what that program renders.
+3. **The whole `--load` corpus was measured**, not one file: all 37 `next` +
+   `.nex` screenshot rows of the regression suite, run twice (synthetic and
+   `--warm-start`) and pixel-diffed against their committed references. Result
+   after the fix in §10.3: **27 of 37 identical, 10 moved**, and every one of
+   the 10 is accounted for in §10.4. The synthetic path is byte-for-byte
+   unchanged (`cold_vs_ref = 0` on all 37), which is what makes `--warm-start`
+   safe to ship opt-in.
+
+### 10.2 A recording must be a COLD boot, and re-`init()`ing is not one
+
+The first implementation re-`init()`ed the live emulator with `load_file`
+cleared. It produced a machine that ran 500 frames and **drew nothing**: four
+RAM pages changed, none of them the screen, and the ROM window still held
+exactly the `48.rom` bytes `init()` seeds.
+
+The cause is a preserved bit. `nr_03_config_mode` has no reset clause in the
+VHDL (`zxnext.vhd:1102`) and `NextReg::reset()` faithfully preserves it, so the
+firmware-less NR `$03` commit that the *first* `init()` makes (GH #226) left
+config mode **clear** — and with it clear, `TBBLUE.FW`'s ROM streaming through
+the NR `$04` window (`zxnext.vhd:3044-3050`) never reaches the ROM area at all.
+
+So the recording is taken on a **separate, freshly constructed `Emulator`**,
+which is at power-on state by construction, exactly as
+`platform/emulator_boot.h::emulator_cold_boot()` is for F1. It also means a
+failed recording cannot leave the live machine half-booted.
+
+This is a correction to §2, which said "jnext performs a full native cold boot"
+without noticing that the object it would perform it on had already been
+initialised once.
+
+### 10.3 What the warm start SURFACED, and what was fixed
+
+`NexLoader::apply()` did not model MMU0-5 at all. It relied on `init()`'s reset
+defaults happening to hold bank 5 at `$4000` and bank 2 at `$8000`. They do on
+a machine `init()` assembled; they do not on one NextZXOS has been running in.
+A warm-started load measured **MMU3 = page 17** — Layer 2's bank 8, which
+NextZXOS's welcome screen had paged in — so every write a program made to
+`$6000-$7FFF` landed in the wrong bank.
+
+Symptom, before the fix: `tilemap-demo`, `stencil-demo`, `stencil-layers-tiles`
+and `odemo` rendered a **black frame**, and `lores-demo` lost the bottom half
+of its picture (the half that lives in bank 5's second 8 KB).
+
+Both reference loaders set these registers explicitly, and — as for
+NR `$07`/`$15`/`$42`/`$43` (GH #166, GH #171) — they gate them differently:
+
+| Register | `nexload.asm` (<= V1.2) | `nexload2.asm` (V1.3) |
+|---|---|---|
+| MMU2-5 = 10, 11, 4, 5 | `:280-283`, UNCONDITIONAL prologue, above the `DONTRESETNEXTREGS` gate at `:323` | `:913-918` `nextRegResetData`, inside the PRESERVENEXTREG gate |
+| MMU0/1 = `$FF` (ROM) | `:406-407`, inside the gated block | same table, same gate |
+
+`apply()` now writes them under exactly those gates. It is a **no-op on the
+synthetic path** (the reset defaults already match), which the 37-row
+measurement confirms, and it is pinned by `NEXMMU-01..07` in `nex_loader_test`.
+
+MMU6/7 are deliberately NOT modelled although both tables set them to 0,1:
+step 6 overwrites them with the entry bank on every path, and the only path
+that reads the pre-entry value back is the load-only one (header PC = 0), which
+restores what it found. On hardware `.returnToBasicTidy` restores BANKM
+(`$5B5C`) — the OS's own `$C000` bank — which under a warm start is exactly
+what was found. Writing the loader's scratch 0,1 there would make that path
+LESS faithful.
+
+### 10.4 The residual reference movement — measured, explained, NOT regenerated
+
+With the MMU fix in, 10 of 37 rows still differ under `--warm-start`. **No
+reference was regenerated.** Two mechanisms account for all of them:
+
+**(a) The ULA palette — issue [#70](https://github.com/jorgegv/jnext/issues/70),
+8 rows.** The dominant changed pixel pair is always `219 -> 182` in a channel:
+RGB333 level **6** becoming level **5**. `kDefaultUlaRgb333`
+(`src/video/palette.cpp:32`) holds level 6 for the non-bright colours; the
+firmware writes level 5 (tbblue's classic palette has white at `$B6` = 101 101
+10, which expands to 5,5,5). So a warm start makes jnext's ULA palette match
+the firmware's, and the committed references — taken on the synthetic
+machine — are the side that moves. Rows: `sprite-scaling`, `sprite-anchor`,
+`magic-bp-demo`, `magic-port-demo`, `stencil-demo`, `stencil-layers-ula`,
+`layers-beast-ula`, `beast-demo`.
+
+This is the **blast radius of #70**, now quantified: fixing that table on the
+cold path moves the same eight references.
+
+**(b) Animation phase, 2 rows.** `celeste` (1440 px, 0.9%) and `celeste2` (890
+px) render the same scene with small particle/sparkle details in a different
+phase. The program starts on a machine whose RAM holds NextZXOS's leftovers
+and whose `$0038` handler is NextZXOS's rather than the 48K ROM's — which is
+what happens on hardware too. Nothing is wrong with either frame; the phase is
+simply not pinned.
+
+### 10.5 What the warm start does NOT fix
+
+`show512` under real `.nexload` shows a **black** background behind its text;
+under `--load` — warm or cold — it shows **magenta**, 11.7% of the frame. The
+warm start does not close this, and should not be expected to: the cause is a
+LOADER gap, not a firmware-state gap. `nexload.asm:396-399` repaints all 256
+ULA entries with its own `DefaultPalette` (entry `$18` ends at `$00`, black),
+and jnext models no sweep, so the `$E3` that `apply()` writes at ULA index
+`$18` (`nexload.asm:269-270`) survives — `$E3` is exactly the magenta measured
+(RGB333 7,0,7 = 255,0,255).
+
+This is already a known, deliberately recorded divergence: row
+`NEXPR-ALWAYS-08` in `nex_loader_test` "records what jnext does, not what
+hardware does". Closing it means modelling the sweep, which moves the
+`show512` reference, and is therefore out of scope here.
+
+### 10.6 Answers to the remaining open questions (§9)
+
+2. **Per machine type, per SD image, or both?** Both, plus two more. The
+   identity is the SD image's SHA-256, the machine type, a state-format
+   version AND the exact state-stream length. The length is not bookkeeping:
+   `Ram::load_state` reads a count-prefixed blob straight into the live RAM
+   buffer, so refusing any stream whose length is not exactly what this build
+   writes is what stops a foreign recording writing past it. The file is named
+   per machine type and replaced in place, so a changed image leaves no orphan.
+   Whole-image hashing is affordable because a boot does not write: a 600-frame
+   NextZXOS boot leaves the image byte-identical (measured).
+3. **Opt out?** Inverted: the feature is **opt-in** (`--warm-start`), because
+   §7.1's blast radius is real (§10.4) and moving ten committed references is
+   the repository owner's decision, not a side effect of adding a mechanism.
+   `--warm-start-regenerate` forces a fresh recording.
+4. **TAP/TZX/SNA/Z80 too?** No, and not by omission. A snapshot replaces the
+   whole machine, so there is nothing for a warm start to contribute. A tape
+   is loaded by `LOAD ""` in BASIC, and jnext's fast-load trap is an address in
+   the 48K ROM — on a NextZXOS-resident machine that ROM is not the one paged
+   in, and NextZXOS does not boot to a BASIC prompt anyway. Warm-starting
+   those would break loading, not improve it.
+5. **`--machine 48k/128k/plus3`?** Out of scope, loudly: `ensure_warm_start_state()`
+   warns "only the Next boots firmware, so there is nothing to record" and
+   declines. §7.4 asked for exactly this.
+
+### 10.7 Where the first-run cost shows
+
+A cache miss costs 500 frames of emulated boot — about 3.5 s headless on the
+development machine. It is announced on `info` before it starts ("cold-booting
+the firmware … This happens once per SD image") and again when it succeeds,
+per §7.5. In the regression suite the cache lands in the run's own
+`$JNEXT_CONFIG_DIR`, so a full run pays it at most once.
+
+### 10.8 The capture point, in practice
+
+§3 recommended "after NextZXOS reaches idle" and warned (§7.3) against pinning
+a PC. What is implemented is a **frame budget plus a positive residency
+check**: 500 frames (the `boot-nextzxos-welcome` row pins the welcome screen as
+rendered by frame 400, plus slack), then `Emulator::nextzxos_resident()` must
+agree or nothing is recorded and the load falls back to the synthetic machine
+with an error.
+
+That check asks three questions, and the third is the load-bearing one: the
+boot-ROM overlay is off, `nr_03_config_mode` is clear, and a NextZXOS marker
+string is present in SRAM ROM pages 0-7. **A machine that never booted answers
+the first two exactly as a booted one does** — `init()` commits NR `$03` itself
+on the firmware-less path (GH #226) and installs no overlay — so a criterion
+that stopped at two would happily record an empty machine and cache it. Row
+`WSR-RES-02` is that case.
+
+No keypress is injected to reach the main menu or the command line. Driving a
+menu at a fixed frame number is precisely the silent-wrong-capture failure §7.3
+warns about, and it turned out to be unnecessary: the loader establishes the
+memory map (§10.3) and zeroes bank 5, so what screen NextZXOS happened to be
+showing does not reach the program.
