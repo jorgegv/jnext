@@ -70,7 +70,8 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Video recorder (ffmpeg cmd) |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (screen ingest) |      108 |      108 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NEX loader (V1.3)     |       78 |       78 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Extended NEX streaming |       36 |       36 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Extended NEX streaming |       41 |       41 |      0 |       0 |    100% | 🟢 All tests pass. |
+| tap_loader_test       |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "tap_loader_test" to the label map in refresh-subsystem-status.sh. |
 | DMA                   |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap               |       74 |       74 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap raster splits |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -107,6 +108,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7288** | **7288** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7302** | **7302** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

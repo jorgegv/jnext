@@ -24,8 +24,13 @@ bool TapLoader::load(const std::string& path) {
 
     // Parse the raw bytes — the loop lives inline in tap_loader.h
     // (parse_blocks) so mmu_test can round-trip TapSaver output through it.
-    parse_blocks(file_data, blocks_,
-                 [](const std::string& msg) { Log::emulator()->warn("{}", msg); });
+    std::string error;
+    if (!parse_blocks(file_data, blocks_,
+                      [](const std::string& msg) { Log::emulator()->warn("{}", msg); },
+                      &error)) {
+        Log::emulator()->error("TAP: '{}' is not a valid TAP file: {}", path, error);
+        return false;
+    }
 
     Log::emulator()->info("TAP: loaded '{}' — {} blocks", path, blocks_.size());
 

@@ -6913,6 +6913,27 @@ bool Emulator::load_nex(const std::string& path)
         }
     }
 
+    // BC when no handle travels in it (file_handle 0, or 0x4000 and above).
+    // Both loaders load BC unconditionally just before the jump, from an
+    // `ld bc,nn` whose low byte the handle-in-BC case patches, and the two
+    // default immediates differ. As for NR 0x07 (GH #166), follow the loader
+    // that would really run the file:
+    //   - V1.3: nexload2.asm:407 `.handleInBcSMC=$+1 : ld bc,255` -> BC=$00FF
+    //     ("no handle"; its v2.2 changelog, :39: "set up C to 255 in case
+    //     there's no file handle (for C projects)").
+    //   - V1.0-V1.2: the distro nexload.asm:582-585 `db 01` + `.regBCHandleSMC
+    //     db 0` + `db 0`, i.e. `ld bc,$0000` -> BC=$0000. nexload2 would give
+    //     $00FF here too, but the distro's .nexload is the loader NextZXOS
+    //     ships for these versions (it refuses V1.3, nexload.asm:291,:749).
+    //     BC is ALREADY $0000 at this point — reset() above is a hard reset,
+    //     which zeroes BC — so this half of the write changes nothing; it only
+    //     makes the distro loader's value explicit next to nexload2's.
+    if (!loader.delivers_handle_in_bc()) {
+        auto regs = cpu_.get_registers();
+        regs.BC = loader.is_v13() ? 0x00FF : 0x0000;
+        cpu_.set_registers(regs);
+    }
+
     // GH #250 — the program now runs with no NextZXOS behind it, so arm the
     // esxDOS answers nexload's OS would have provided (see the handler in
     // init()). Disarmed by reset()/soft_reset(), like the host bridge.
