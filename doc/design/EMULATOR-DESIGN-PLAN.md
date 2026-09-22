@@ -1206,7 +1206,7 @@ Extends the Phase 6 Qt 6 main window with **dockable debugger panels** providing
 - ~~Verify replayed ROM data correctness~~ — obsolete (no replay; see above)
 - ~~Handle ULA screen RAM bank overlap during replay~~ — obsolete (no replay); the underlying bank-7 aliasing WAS the real bug and is fixed (dedicated BRAM buffer, 2026-07-10)
 - [x] End-to-end test with screenshot comparison against reference image — `boot-nextzxos-welcome` / `boot-nextzxos-menu` / `boot-nextzxos-splash` rows in `test/00regression/regression_tests.conf` (Task 24, 2026-07-10)
-- [ ] **Milestone**: v1.0 release (NextZXOS boots from SD image ✓ 2026-07-10, NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - Lots of bugs ironed out. 
+- [x] **Milestone**: v1.0 release (NextZXOS boots from SD image ✓ 2026-07-10, NEX loading, 48K/128K/+3 BASIC, debugger, all video/audio) - Lots of bugs ironed out. **RELEASED 2026-09-22 as v1.0.0, then v1.0.1**; the v1.0 GitHub milestone closed with 176 issues. 
 
 ### Phase 11 - New functions
 
