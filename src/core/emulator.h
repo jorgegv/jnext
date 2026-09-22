@@ -1605,6 +1605,16 @@ private:
     /// Read back by NR 0x1E/0x1F and used by the line-interrupt comparator.
     int current_cvc() const;
 
+    /// GH #262 — an IN from a port with LSB 0xDF that the mouse decode does
+    /// not claim. VHDL zxnext.vhd:2674 decodes it as `port_1f` (Kempston 1)
+    /// only when port_dac_mono_AD_df_io_en (NR 0x84 b7) AND NOT
+    /// port_mouse_io_en (NR 0x83 b5) AND port_1f_io_en (NR 0x82 b6) AND
+    /// port_1f_hw_en all hold; otherwise no decode answers the read, which
+    /// returns cpu_di's X"FF" (:1877). Shared by the LSB-0xDF handler and
+    /// the three mouse handlers, whose own decode (:2668-2670) drops out
+    /// when the mouse is disabled.
+    uint8_t port_df_read();
+
     /// Called by the SCANLINE event handler for scanline `line`.
     void on_scanline(int line);
 

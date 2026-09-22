@@ -440,6 +440,32 @@ The 48K floating-bus side of the same fix (undecoded port must NOT
 leak the ULA floating bus) lives in the floating-bus plan
 (`FLOATING-BUS-TEST-PLAN-DESIGN.md` §8, rows FB-109-01/02).
 
+### Group L. GH #262 — read side of write-only and gated decodes
+
+A port answers an IN only when its read strobe is an OR-term of
+`port_internal_rd_response` (`zxnext.vhd:2803-2806`); otherwise the cpu_di
+IORQ arm returns `X"FF"` (`:1877`). An audit of every jnext read handler
+against that list found three that disagreed: 0xBF3B answered 0x00 although
+it has no read strobe at all (only `port_bf3b_wr`, `:2792`); the LSB-0xDF
+handler answered 0x00 whenever the `port_1f` alias (`:2674`) was gated off;
+and the three mouse handlers answered 0xFF with the mouse disabled although
+their addresses are LSB 0xDF too, so the same alias decodes them.
+
+REG-26's observable was rewritten by the same change: it read 0x00DF after
+re-enabling the mouse and asserted `!= 0xFF`, which held only because of the
+0x00 defect. It now observes the Specdrum sink (DAC A+D) and the `port_1f`
+read with the mouse disabled, as its plan row describes.
+
+| ID       | Title                                              | Stimulus                                                                 | Expected                                  | Oracle                                   |
+|----------|----------------------------------------------------|--------------------------------------------------------------------------|-------------------------------------------|------------------------------------------|
+| GH262-01 | 0xBF3B is write-only                               | Next, NR 0x85 b0 = 1 (reset); OUT 0xBF3B,0x40; IN 0xBF3B                  | 0xFF (pre-fix 0x00)                        | `zxnext.vhd:2792, 2803-2806, 1877`       |
+| GH262-02 | 0xDF undecoded with the mouse enabled              | NR 0x83 b5 = 1 (reset), other `port_1f` gates open; IN 0x00DF             | 0xFF (pre-fix 0x00)                        | `zxnext.vhd:2668-2670, 2674, 1877`       |
+| GH262-03 | 0xDF undecoded with Specdrum enable off            | Mouse off; NR 0x84 b7 = 0; IN 0x00DF                                     | 0xFF (pre-fix 0x00)                        | `zxnext.vhd:2435, 2674, 1877`            |
+| GH262-04 | 0xDF undecoded with `port_1f_io_en` off            | Mouse off; NR 0x82 b6 = 0; IN 0x00DF                                     | 0xFF (pre-fix 0x00)                        | `zxnext.vhd:2407, 2674, 1877`            |
+| GH262-05 | 0xDF undecoded with `port_1f_hw_en` off            | Mouse off; NR 0x05 = 0x00 (no Kempston1/MD3-Left); IN 0x00DF             | 0xFF (pre-fix 0x00)                        | `zxnext.vhd:2454, 2674, 1877`            |
+| GH262-06 | Mouse addresses fall to the `port_1f` alias        | Mouse off, alias live, joy0 up; IN 0x001F, 0xFADF, 0xFBDF, 0xFFDF         | 0x08 from all four (pre-fix 0xFF from the three mouse ports) | `zxnext.vhd:2668-2670, 2674` |
+| GH262-07 | The fall-through keeps the alias gate              | Mouse off, NR 0x84 b7 = 0; IN 0xFADF                                     | 0xFF                                       | `zxnext.vhd:2435, 2668, 2674, 1877`      |
+
 ## Out-of-scope / explicitly not tested
 
 - Internal signal cycle-accuracy of the VHDL two-stage decode. The C++

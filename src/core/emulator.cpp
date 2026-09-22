@@ -4943,21 +4943,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //
     // When all four gates hold, the read returns the same byte the
     // Kempston-1 0x001F path delivers — i.e. joystick_.read_port_1f().
-    // Otherwise the port stays undecoded and the floating-bus default
-    // 0x00 (matching the pre-fix behaviour) is returned. (G130 closure.)
+    // Otherwise nothing decodes the read and it returns X"FF"
+    // (zxnext.vhd:1877) — see port_df_read(). (G130 closure; GH #262 —
+    // the gated-off read used to return 0x00.)
     port_.register_handler(0x00FF, 0x00DF,
-        [this](uint16_t) -> uint8_t {
-            // NR 0x84 bit 7 — Specdrum/DAC enable for 0xDF.
-            if ((effective_internal_port_enable(0x84) & 0x80) == 0) return 0x00;
-            // NR 0x83 bit 5 — port_mouse_io_en MUST be cleared.
-            if ((effective_internal_port_enable(0x83) & 0x20) != 0) return 0x00;
-            // NR 0x82 bit 6 — port_1f_io_en gate.
-            if ((effective_internal_port_enable(0x82) & 0x40) == 0) return 0x00;
-            // port_1f_hw_en: at least one connector in Kempston1 or
-            // MD3-Left (joyL_1f_en / joyR_1f_en live). VHDL zxnext.vhd:2454.
-            if (!joystick_.port_1f_hw_en()) return 0x00;
-            return joystick_.read_port_1f();
-        },
+        [this](uint16_t) -> uint8_t { return port_df_read(); },
         [this](uint16_t, uint8_t val) {
             // VHDL zxnext.vhd:2435 — port_dac_mono_AD_df_io_en =
             // internal_port_enable(23) = NR 0x84 bit 7 (G114). When the
@@ -5877,21 +5867,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // followed by IN A,(0x2ADF) would access Kempston mouse buttons on real
     // hardware but not in jnext. Fix: change masks to 0x0FFF / val 0x0ADF
     // (etc.) so the high nibble of cpu_a is ignored, matching VHDL :2668.
+    //
+    // GH #262: with the mouse disabled these addresses are still LSB 0xDF,
+    // so the `port_1f` alias (zxnext.vhd:2674) can decode them exactly as it
+    // decodes 0x??DF; the gated-off read therefore goes to port_df_read()
+    // rather than straight to X"FF".
     port_.register_handler(0x0FFF, 0x0ADF,
         [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return port_df_read();
             return mouse_.read_port_fadf();
         },
         nullptr);
     port_.register_handler(0x0FFF, 0x0BDF,
         [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return port_df_read();
             return mouse_.read_port_fbdf();
         },
         nullptr);
     port_.register_handler(0x0FFF, 0x0FDF,
         [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return port_df_read();
             return mouse_.read_port_ffdf();
         },
         nullptr);
@@ -5944,11 +5939,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // port_ff3b on `port_ulap_io_en = '1'`, where
     // `port_ulap_io_en <= internal_port_enable(24)` = NR 0x85 bit 0
     // (VHDL :2439). When cleared, the ports are silenced.
+    //
+    // GH #262: 0xBF3B is WRITE-ONLY. The VHDL has `port_bf3b_wr <= iowr and
+    // port_bf3b` (zxnext.vhd:2792) and no read strobe at all, and 0xBF3B is
+    // absent from `port_internal_rd_response` (:2803-2806), so an IN from it
+    // falls to `cpu_di <= X"FF"` (:1877) whether or not the port is enabled.
+    // No read callback: dispatch reaches the undecoded default. The handler
+    // used to return 0x00 whenever NR 0x85 b0 was set.
     port_.register_handler(0xFFFF, 0xBF3B,
-        [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return 0xFF;
-            return 0x00;
-        },
+        nullptr,
         [this](uint16_t, uint8_t v) {
             if ((effective_internal_port_enable(0x85) & 0x01) == 0) return;  // NR 0x85 b0 gate
             // VHDL zxnext.vhd:4532 — port_bf3b_ulap_mode <= cpu_do(7:6)
@@ -9578,6 +9577,28 @@ void Emulator::propagate_effective_port_enables(uint8_t override_reg,
         (effective_internal_port_enable(0x83, override_reg, override_val) & 0x01) != 0);
     multiface_.set_enabled(
         (effective_internal_port_enable(0x83, override_reg, override_val) & 0x02) != 0);
+}
+
+uint8_t Emulator::port_df_read()
+{
+    // VHDL zxnext.vhd:2674:
+    //   port_1f <= '1' when (port_1f_lsb = '1' or (port_df_lsb = '1'
+    //                  and port_dac_mono_AD_df_io_en = '1'
+    //                  and port_mouse_io_en = '0'))
+    //                  and port_1f_io_en = '1' and port_1f_hw_en = '1'
+    // port_dac_mono_AD_df_io_en = internal_port_enable(23) = NR 0x84 b7
+    // (:2435), port_mouse_io_en = (13) = NR 0x83 b5 (:2422), port_1f_io_en =
+    // (6) = NR 0x82 b6 (:2407), port_1f_hw_en = joyL_1f_en or joyR_1f_en
+    // (:2454). The read strobe is port_1f_rd (:2784). The only other LSB-0xDF
+    // decodes are the Specdrum DAC (:2658), which has write strobes alone
+    // (:2775,2778), and the mouse (:2668-2670), which needs the mouse ENABLED.
+    // So when port_1f is off `port_internal_rd_response` stays low
+    // (:2803-2806) and the read is cpu_di's X"FF" (:1877).
+    if ((effective_internal_port_enable(0x84) & 0x80) == 0) return 0xFF;
+    if ((effective_internal_port_enable(0x83) & 0x20) != 0) return 0xFF;
+    if ((effective_internal_port_enable(0x82) & 0x40) == 0) return 0xFF;
+    if (!joystick_.port_1f_hw_en()) return 0xFF;
+    return joystick_.read_port_1f();
 }
 
 uint8_t Emulator::floating_bus_read() const

@@ -2483,8 +2483,11 @@ static void test_mouse() {
     //                          (port_1f_hw_en, zxnext.vhd:2454, 3475-3491)
     //
     // When all gates hold the read returns the same byte port 0x001F
-    // delivers; otherwise the port stays undecoded (0x00 — matches the
-    // pre-fix unconditional default).
+    // delivers; otherwise nothing decodes the read: `port_1f_rd` is the only
+    // read strobe at LSB 0xDF that can fire with the mouse addresses
+    // unmatched (zxnext.vhd:2784, 2803-2806), so it is cpu_di's X"FF"
+    // (:1877). GH #262 — these three negative cases used to expect 0x00,
+    // which was jnext's gated-off return value, not the VHDL's.
     {
         Emulator emu;
         EmulatorConfig cfg;
@@ -2526,12 +2529,12 @@ static void test_mouse() {
         check("MOUSE-12",
               "0xDF Kempston-joy alias gates: DAC=1 AND mouse=0 AND "
               "Kempston/MD-Left live  (zxnext.vhd:2674; G130 closure)",
-              mouse_on == 0x00 &&
+              mouse_on == 0xFF &&
               mouse_off_dac_on_kemp == 0x08 &&
-              dac_off == 0x00 &&
-              hw_off == 0x00,
+              dac_off == 0xFF &&
+              hw_off == 0xFF,
               DETAIL("mouse_on=0x%02X kemp_on=0x%02X dac_off=0x%02X "
-                     "hw_off=0x%02X (want 0x00, 0x08, 0x00, 0x00)",
+                     "hw_off=0x%02X (want 0xFF, 0x08, 0xFF, 0xFF)",
                      mouse_on, mouse_off_dac_on_kemp, dac_off, hw_off));
     }
 
