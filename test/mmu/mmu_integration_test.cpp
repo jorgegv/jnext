@@ -16,9 +16,11 @@
 #include "core/emulator_config.h"
 #include "core/saveable.h"
 #include "core/szx_saver.h"
+#include "core/sna_saver.h"
 #include "core/nex_saver.h"
 #include "memory/contention.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -1372,7 +1374,7 @@ static void test_snapsave_szx_roundtrip_48k() {
           ram_ok);
 
     // Bank 1 was never saved (48K page set is {0,2,5} only). load_szx()
-    // calls Emulator::reset() (which zero-fills RAM) before applying the
+    // re-runs init() (which zero-fills RAM) before applying the
     // snapshot's RAMP chunks, so bank 1 must read back as all-zero — if
     // the {0,1,2}-first-N-banks bug this test guards against were
     // present, chPageNo=1's payload would carry emu1's distinctive bank-1
@@ -1387,14 +1389,142 @@ static void test_snapsave_szx_roundtrip_48k() {
     }
     check("SNAPSAVE-SZX-RT-48K-BANK1-UNTOUCHED",
           "bank 1 (not part of a 48K's RAM) is never written by load_szx() "
-          "— reads back as reset()'s all-zero fill, not the distinctive "
-          "pattern emu1's physical bank 1 was seeded with",
+          "— reads back as the re-initialisation's all-zero fill, not the "
+          "distinctive pattern emu1's physical bank 1 was seeded with",
           bank1_untouched);
 
     bool border_ok = emu2.ula().get_border() == 6;
     check("SNAPSAVE-SZX-RT-48K-BORDER",
           "border colour round-trips via ZXSTSPECREGS.chFe for 48K",
           border_ok, fmt("border=%d (want 6)", emu2.ula().get_border()));
+}
+
+// ── LOADER-REINIT — every snapshot/NEX loader re-initialises first ────────
+//
+// GH #239. load_nex / load_sna / load_szx / load_z80 each return the machine
+// to its power-on state before applying the file, "regardless of whether the
+// emulator was already running or freshly started" (Emulator::load_nex). They
+// do it with an in-place init(config_) — they used to call the in-place
+// Emulator::reset(), removed by GH #239; the init() declaration says why a
+// loader cannot cold-boot itself. Nothing pinned it: every other loader row
+// loads into a freshly initialised machine, where the re-initialisation is a
+// no-op, and deleting it from any loader left the whole unit suite green.
+//
+// It is reachable on a RUNNING machine in the product: Play RZX Recording...
+// (File menu) calls load_rzx() on the live machine, and an RZX with an
+// embedded snapshot goes through load_sna() / load_szx().
+//
+// Each row dirties RAM the file does not carry, then loads. init() zero-fills
+// RAM, so that RAM can only read back zero if the loader re-initialised.
+// Mutation-tested: deleting init(config_) from load_sna / load_szx /
+// load_z80 turns exactly that loader's row red.
+
+namespace {
+
+EmulatorConfig reinit_cfg(MachineType t) {
+    EmulatorConfig c;
+    c.type = t;
+    c.rewind_buffer_frames = 0;
+    return c;
+}
+
+/// Fill physical 8K pages [first, first+count) with `v`.
+void fill_pages(Emulator& emu, int first, int count, uint8_t v) {
+    for (int pg = first; pg < first + count; ++pg)
+        std::fill(emu.ram().page_ptr(static_cast<uint16_t>(pg)),
+                  emu.ram().page_ptr(static_cast<uint16_t>(pg)) + 8192, v);
+}
+
+/// Number of non-zero bytes in physical 8K pages [first, first+count).
+int nonzero_bytes(Emulator& emu, int first, int count) {
+    int n = 0;
+    for (int pg = first; pg < first + count; ++pg) {
+        const uint8_t* p = emu.ram().page_ptr(static_cast<uint16_t>(pg));
+        for (int i = 0; i < 8192; ++i) n += p[i] != 0;
+    }
+    return n;
+}
+
+/// A 48K machine with recognisable RAM and a runnable PC, the source of the
+/// SNA / SZX / Z80 fixtures.
+void make_48k_source(Emulator& src) {
+    src.init(reinit_cfg(MachineType::ZX48K));
+    for (uint16_t a = 0x4000; a != 0x0000; ++a)
+        src.mmu().write(a, static_cast<uint8_t>(a ^ (a >> 8)));
+    Z80Registers r = src.cpu().get_registers();
+    r.PC = 0x8000; r.SP = 0xFF00; r.IFF1 = r.IFF2 = 0; r.IM = 1;
+    src.cpu().set_registers(r);
+}
+
+/// A minimal version-1, uncompressed .z80 of `src`'s 48K RAM (the canonical
+/// .z80 FAQ layout: 30-byte header, PC at offset 6 non-zero, flags1 bit 5
+/// clear = uncompressed, then 0x4000-0xFFFF verbatim).
+std::vector<uint8_t> make_z80_v1(Emulator& src) {
+    std::vector<uint8_t> f(30, 0);
+    const Z80Registers r = src.cpu().get_registers();
+    f[6] = static_cast<uint8_t>(r.PC); f[7] = static_cast<uint8_t>(r.PC >> 8);
+    f[8] = static_cast<uint8_t>(r.SP); f[9] = static_cast<uint8_t>(r.SP >> 8);
+    f[12] = 0x00;                                   // border 0, uncompressed
+    f[29] = 0x01;                                   // IM 1
+    for (uint32_t a = 0x4000; a <= 0xFFFF; ++a)
+        f.push_back(src.mmu().read(static_cast<uint16_t>(a)));
+    return f;
+}
+
+/// Load `bytes` through `load` into a DIRTY 48K machine and report how much of
+/// bank 1 (physical pages 2/3 — RAM a 48K snapshot never carries) survived.
+template <class Load>
+bool reinit_48k_row(const char* id, const char* desc,
+                    const std::vector<uint8_t>& bytes, Load load) {
+    std::string path;
+    if (bytes.empty() || !write_temp_file(bytes, path)) {
+        check(id, desc, false, "fixture could not be written");
+        return false;
+    }
+    Emulator dst;
+    dst.init(reinit_cfg(MachineType::ZX48K));
+    for (int i = 0; i < 3; ++i) dst.run_frame();        // a running machine
+    fill_pages(dst, 2, 2, 0xC3);                        // dirt the file lacks
+    const int dirt_before = nonzero_bytes(dst, 2, 2);
+    const bool loaded = load(dst, path);
+    std::remove(path.c_str());
+    const int dirt_after = nonzero_bytes(dst, 2, 2);
+    check(id, desc, loaded && dirt_before == 16384 && dirt_after == 0,
+          fmt("loaded=%d bank-1 non-zero bytes before=%d after=%d (want 16384, 0)",
+              loaded ? 1 : 0, dirt_before, dirt_after));
+    return loaded;
+}
+
+}  // namespace
+
+static void test_loader_reinit() {
+    set_group("LOADER-REINIT");
+
+    Emulator src;
+    make_48k_source(src);
+
+    reinit_48k_row("LOADER-REINIT-SNA",
+                   "load_sna() re-initialises a running machine before applying "
+                   "the snapshot: RAM the .sna does not carry reads back zero",
+                   SnaSaver::save(src),
+                   [](Emulator& e, const std::string& p) { return e.load_sna(p); });
+
+    const auto szx = SzxSaver::save(src);
+    reinit_48k_row("LOADER-REINIT-SZX",
+                   "load_szx() re-initialises a running machine before applying "
+                   "the snapshot: RAM the .szx does not carry reads back zero",
+                   szx.ok ? szx.data : std::vector<uint8_t>{},
+                   [](Emulator& e, const std::string& p) { return e.load_szx(p); });
+
+    reinit_48k_row("LOADER-REINIT-Z80",
+                   "load_z80() re-initialises a running machine before applying "
+                   "the snapshot: RAM the .z80 does not carry reads back zero",
+                   make_z80_v1(src),
+                   [](Emulator& e, const std::string& p) { return e.load_z80(p); });
+
+    // load_nex() has the same contract; its row is LOADER-REINIT-NEX in
+    // nex_loader_test, because NexSaver writes EVERY RAM bank into the file,
+    // so a NEX round-tripped through it carries no RAM to leave dirty.
 }
 
 static void test_snapsave_nex_roundtrip() {
@@ -1443,7 +1573,7 @@ static void test_snapsave_nex_roundtrip() {
     if (!loaded) return;
 
     // HONEST LIMITATION (see NexSaver class doc-comment): only PC/SP
-    // survive — Emulator::load_nex() resets before apply(), so every
+    // survive — Emulator::load_nex() re-runs init() before apply(), so every
     // other register is reset-baseline, not the original value.
     Z80Registers r2 = emu2.cpu().get_registers();
     check("SNAPSAVE-NEX-RT-PCSP",
@@ -1692,6 +1822,9 @@ int main() {
 
     test_snapsave_nex_roundtrip();
     std::printf("  Group: SNAPSAVE-NEX-RT (Task 13b .nex full round trip) — done\n");
+
+    test_loader_reinit();
+    std::printf("  Group: LOADER-REINIT (GH #239 loaders re-initialise first) — done\n");
 
     test_g33_tapesave_trap();
     std::printf("  Group: G33-TAPESAVE-TRAP (Task 57 SA-BYTES SAVE trap + gate) — done\n");

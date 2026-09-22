@@ -81,6 +81,7 @@
 #include "video/renderer.h"
 #include "video/ula.h"
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -1907,7 +1908,10 @@ int main() {
     // NEXPC0-11 — a park must not be permanent from the user's side. The
     // machine is deliberately left with nothing running, so the ONLY way
     // out is a reset; if that did not clear the flag, loading a PC=0 NEX
-    // would wedge jnext until the user quit it.
+    // would wedge jnext until the user quit it. Both user resets are driven
+    // through their production paths (GH #239): the HARD reset (Reset button,
+    // F1) is the frontend cold boot, which reconstructs the Emulator; the
+    // SOFT reset (F4, NR 0x02 bit 0) re-runs init(), which clears the flag.
     {
         constexpr int FRAMES = 10;
         const std::string path = fixture_path("reset_pc0");
@@ -1920,20 +1924,70 @@ int main() {
         const bool ok    = built && emu.init(cfg) && emu.load_nex(path);
         const bool parked_after_load = emu.cpu_parked();
 
-        emu.reset();
-        const Z80Registers before = emu.cpu().get_registers();
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+        const bool parked_after_hard = emu.cpu_parked();
+        Z80Registers before = emu.cpu().get_registers();
         for (int i = 0; i < FRAMES; ++i) emu.run_frame();
-        const Z80Registers after = emu.cpu().get_registers();
+        const bool ran_after_hard = emu.cpu().get_registers().R != before.R;
+
+        const bool reloaded = emu.load_nex(path);
+        const bool parked_after_reload = emu.cpu_parked();
+        emu.soft_reset();
+        const bool parked_after_soft = emu.cpu_parked();
+        before = emu.cpu().get_registers();
+        for (int i = 0; i < FRAMES; ++i) emu.run_frame();
+        const bool ran_after_soft = emu.cpu().get_registers().R != before.R;
 
         check("NEXPC0-11",
-              "a reset un-parks the machine — the CPU runs again afterwards, so a "
-              "load-only NEX cannot wedge jnext (reset() re-runs init(), which "
-              "clears the flag; the frontends' Reset takes the same path)",
-              ok && parked_after_load && !emu.cpu_parked() && after.R != before.R,
-              fmt("load=%d parked_after_load=%d parked_after_reset=%d R %02X->%02X",
-                  ok ? 1 : 0, parked_after_load ? 1 : 0, emu.cpu_parked() ? 1 : 0,
-                  before.R, after.R));
+              "either reset un-parks the machine — the CPU runs again afterwards, so "
+              "a load-only NEX cannot wedge jnext (hard reset: the frontend cold "
+              "boot; soft reset: init() clears the flag)",
+              ok && parked_after_load && !parked_after_hard && ran_after_hard &&
+                  reloaded && parked_after_reload && !parked_after_soft && ran_after_soft,
+              fmt("load=%d parked_after_load=%d parked_after_hard=%d ran=%d | "
+                  "reload=%d parked=%d parked_after_soft=%d ran=%d",
+                  ok ? 1 : 0, parked_after_load ? 1 : 0, parked_after_hard ? 1 : 0,
+                  ran_after_hard ? 1 : 0, reloaded ? 1 : 0, parked_after_reload ? 1 : 0,
+                  parked_after_soft ? 1 : 0, ran_after_soft ? 1 : 0));
 
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+
+    // LOADER-REINIT-NEX — load_nex() returns a RUNNING machine to power-on
+    // state before applying the file ("regardless of whether the emulator was
+    // already running or freshly started", Emulator::load_nex), with an
+    // in-place init(config_) (GH #239: it used to call the in-place
+    // Emulator::reset(), since removed). Every other NEX row loads into a
+    // freshly initialised machine, where that is a no-op, so deleting it left
+    // the suite green. The fixture carries bank 2 only; bank 30 (physical
+    // pages 60/61) is dirtied first and can read back zero only if the load
+    // re-initialised (init() zero-fills RAM; apply() pre-zeroes only bank 5).
+    // Mutation-tested: deleting load_nex()'s init(config_) turns it red.
+    // Siblings for load_sna/load_szx/load_z80 live in mmu_integration_test.
+    {
+        const std::string path = fixture_path("reinit");
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        Emulator emu;
+        const bool built = write_nex_bank_fixture(path, 0x8000, kHdrSP, 0, 0, 2, {});
+        const bool up    = emu.init(cfg);
+        for (int i = 0; i < 3; ++i) emu.run_frame();          // a running machine
+        int dirt_before = 0, dirt_after = 0;
+        for (uint16_t pg = 60; pg < 62; ++pg) {
+            std::fill(emu.ram().page_ptr(pg), emu.ram().page_ptr(pg) + 8192, 0xC3);
+            for (int i = 0; i < 8192; ++i) dirt_before += emu.ram().page_ptr(pg)[i] != 0;
+        }
+        const bool loaded = built && up && emu.load_nex(path);
+        for (uint16_t pg = 60; pg < 62; ++pg)
+            for (int i = 0; i < 8192; ++i) dirt_after += emu.ram().page_ptr(pg)[i] != 0;
+        check("LOADER-REINIT-NEX",
+              "load_nex() re-initialises a running machine before applying the "
+              "file: RAM the .nex does not carry reads back zero",
+              loaded && dirt_before == 16384 && dirt_after == 0,
+              fmt("loaded=%d bank-30 non-zero bytes before=%d after=%d (want 16384, 0)",
+                  loaded ? 1 : 0, dirt_before, dirt_after));
         std::error_code ec;
         std::filesystem::remove(path, ec);
     }

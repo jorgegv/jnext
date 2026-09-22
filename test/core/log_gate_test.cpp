@@ -25,6 +25,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/log.h"
+#include "platform/emulator_boot.h"
 #include "port/nextreg.h"
 #include "port/port_dispatch.h"
 
@@ -103,20 +104,44 @@ int main()
     std::snprintf(detail, sizeof(detail), "lines=%d want 2", speed_lines());
     check("GATE-02", "an actual change of CPU speed does log", speed_lines() == 2, detail);
 
-    // --- GATE-03: the gate clears on reset -------------------------------------
+    // --- GATE-03: the gate clears on a hard reset -------------------------------
     // NR 0x07 returns to its power-on 3.5 MHz across a reset, so a write back to
     // the pre-reset speed is a REAL change and must log. If the gate is not
-    // cleared, that line is swallowed as "unchanged".
+    // cleared, that line is swallowed as "unchanged". Driven through the
+    // production hard reset (GH #239): the frontend cold boot, which
+    // reconstructs the Emulator.
     nr_write(emu, 0x07, 0x03);                                // 7 -> 28 MHz  (3 lines)
     const int before_reset = speed_lines();
-    emu.reset();
+    emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
     nr_write(emu, 0x07, 0x03);                                // 3.5 -> 28 again
     std::snprintf(detail, sizeof(detail),
                   "lines before reset=%d, after the post-reset write=%d "
                   "(want %d; a swallowed write leaves it at %d)",
                   before_reset, speed_lines(), before_reset + 1, before_reset);
-    check("GATE-03", "the gate clears on reset, so the first post-reset write logs",
+    check("GATE-03", "the gate clears on a hard reset (frontend cold boot), so the "
+          "first post-reset write logs",
           before_reset == 3 && speed_lines() == 4, detail);
+
+    // --- LOGGATE-04: ... and on a soft reset -----------------------------------
+    // NR 0x07 is in the `reset` flip-flop domain (zxnext.vhd:1300 reset "00";
+    // the one reset wire covers soft as well as hard, zxnext_top_issue2.vhd:840),
+    // so a SOFT reset (NR 0x02 bit 0, the guest path) also returns it to
+    // 3.5 MHz. Before GH #239 the gate was cleared only by the in-place
+    // Emulator::reset(), which a soft reset never called: the machine came back
+    // at 3.5 MHz while the gate still said 28, and the guest's write back to
+    // 28 MHz was swallowed.
+    const int before_soft = speed_lines();                    // 28 MHz again (4 lines)
+    nr_write(emu, 0x02, 0x01);                                // RESET_SOFT
+    const uint8_t speed_after_soft = emu.nextreg().read(0x07) & 0x03;
+    nr_write(emu, 0x07, 0x03);                                // 3.5 -> 28 again
+    std::snprintf(detail, sizeof(detail),
+                  "NR 0x07 speed after soft reset=%u (want 0), lines before=%d "
+                  "after the post-reset write=%d (want %d; a swallowed write leaves %d)",
+                  speed_after_soft, before_soft, speed_lines(), before_soft + 1,
+                  before_soft);
+    check("LOGGATE-04", "the gate clears on a soft reset too (NR 0x07 returns to "
+          "3.5 MHz, zxnext.vhd:1300), so the first post-reset write logs",
+          before_soft == 4 && speed_after_soft == 0 && speed_lines() == 5, detail);
 
     logger->sinks().pop_back();
 

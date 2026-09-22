@@ -729,18 +729,24 @@ int main() {
                   " handled=" + std::to_string(b2_handled));
         }
 
-        // After reset() no directly-loaded program is running any more: the
-        // machine is back on its own ROM, so the stand-in must stand down
-        // (the same lifetime as the host-file bridge, XNEX-25..27).
-        e250.reset();
+        // After a hard reset no directly-loaded program is running any more:
+        // the machine is back on its own ROM, so the stand-in must stand down
+        // (the same lifetime as the host-file bridge, XNEX-25..27). Driven
+        // through the production hard reset (GH #239): the frontend cold boot,
+        // which reconstructs the Emulator and clears the load file, so it
+        // normally attaches no hook at all; if a hook is there (the esxdos
+        // trace level is on), it must decline.
+        emulator_frontend_cold_boot(e250, e250.config(), std::string(),
+                                    ColdBootHooks{});
         Z80Registers after_reset{};
         const bool hook_present = static_cast<bool>(e250.cpu().on_esxdos_call);
         const bool serviced = hook_present &&
                               e250.cpu().on_esxdos_call(0x89, after_reset);
         check("ESXN-08",
-              "reset() disarms the direct-NEX esxDOS stand-in: M_GETSETDRV is "
-              "no longer answered and $0008 runs the machine's own code",
-              loaded && hook_present && !serviced,
+              "a hard reset (frontend cold boot) disarms the direct-NEX esxDOS "
+              "stand-in: M_GETSETDRV is no longer answered and $0008 runs the "
+              "machine's own code",
+              loaded && !serviced,
               "hook=" + std::to_string(hook_present) +
               " serviced=" + std::to_string(serviced));
 

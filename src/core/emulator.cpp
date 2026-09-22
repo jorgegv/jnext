@@ -133,6 +133,27 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     boot_hold_frames_remaining_ = 0;  // G156
     cpu_parked_ = false;              // GH #164
 
+    // NR 0x07 returns to its power-on value (3.5 MHz) on every reset, soft
+    // included (zxnext.vhd:1300 `nr_07_cpu_speed` reset "00"), so the log
+    // change-gate must return with it — otherwise the guest's first write
+    // back to the pre-reset speed would be swallowed as "unchanged" and never
+    // logged. It lived only in the since-removed in-place Emulator::reset()
+    // (GH #239), so a soft reset left the gate stale.
+    last_logged_cpu_speed_ = 0;
+
+    // Task 60e: any (re)initialisation re-establishes a clean machine, so a
+    // pending "corrupt after failed rewind" flag (Task 60b) is cleared — the
+    // recovery path the GUI tells the user to take.
+    last_state_error_.clear();
+
+    // GH #29/#84: direct-NEX host state is execution context, not machine
+    // state. Every (re)initialisation — soft reset, and the loaders that
+    // re-initialise before applying a file — returns file and SD traffic to
+    // the configured card/ROM. load_nex() re-arms both afterwards.
+    extended_nex_host_.clear();
+    sd_card_.clear_read_overlay();
+    direct_nex_esxdos_ = false;   // GH #250 — same lifetime as the bridge
+
     // Subsystem resets. RAM and the separate Rom buffer are skipped on
     // soft reset so tbblue-loaded content in SRAM (including the ROM-in-SRAM
     // window pages 0..7 for Next) survives RESET_SOFT, matching VHDL: SRAM
@@ -163,10 +184,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // GH #233 — the phantom typist is host-side input state bound to the
     // keyboard it drives, so it belongs with keyboard_.reset(): a reset
     // cancels a pending TAP autostart instead of typing LOAD"" into the
-    // machine that came up after it. Pre-fix the call lived ONLY in
-    // Emulator::reset() (the hard-reset path), so a soft reset — which
-    // routes through init(preserve_memory=true) and never through
-    // reset() — left an armed typist running.
+    // machine that came up after it. Pre-fix the call lived ONLY in the
+    // in-place Emulator::reset() (since removed, GH #239), so a soft reset —
+    // which routes through init(preserve_memory=true) and never went
+    // through that method — left an armed typist running.
     //
     // Unconditional (no preserve_memory guard) and safe against the one
     // ordering that could disarm a legitimate autostart: `arm()` has a
@@ -678,8 +699,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     apply_video_timing(init_tim_mode, /*refresh_60hz=*/false);
 
     // Clear all port dispatch handlers before re-registering them.
-    // Without this, reset() → init() would duplicate every handler, causing
-    // double-fired writes (breaking auto-increment ports like sprites/palette).
+    // Without this, a second init() (a soft reset, a re-initialising load)
+    // would duplicate every handler, causing double-fired writes (breaking
+    // auto-increment ports like sprites/palette).
     port_.clear_handlers();
     port_.clear_io_observers();
 
@@ -1055,14 +1077,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     debug_state_.set_persistent_breakpoints(cfg.persistent_breakpoints);
 
     // Magic breakpoint: ED FF (ZEsarUX) / DD 01 (CSpect) trigger debugger pause.
-    if (cfg.magic_breakpoint) {
-        cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
-            Log::emulator()->info("Magic breakpoint hit at PC={:#06x}", pc);
-            debug_state_.set_active(true);
-            debug_state_.pause();
-            return true;
-        };
-    }
+    set_magic_breakpoint(cfg.magic_breakpoint);
 
     // Host-side compatibility for directly loaded NEX programs.
     //
@@ -6855,10 +6870,11 @@ bool Emulator::load_nex(const std::string& path)
     extended_nex_host_.clear();
     sd_card_.clear_read_overlay();
 
-    // Full machine reset before applying NEX data ensures clean subsystem
-    // state (palette, video layers, NextREG, etc.) regardless of whether
-    // the emulator was already running or freshly started.
-    reset();
+    // Full machine re-initialisation before applying NEX data ensures clean
+    // subsystem state (palette, video layers, NextREG, etc.) regardless of
+    // whether the emulator was already running or freshly started. In place,
+    // not a cold boot — see the init() declaration (GH #239).
+    init(config_);
 
     if (!loader.apply(*this)) return false;
     active_nex_path_ = std::filesystem::absolute(path).lexically_normal().string();
@@ -6901,7 +6917,8 @@ bool Emulator::load_nex(const std::string& path)
 
     // GH #250 — the program now runs with no NextZXOS behind it, so arm the
     // esxDOS answers nexload's OS would have provided (see the handler in
-    // init()). Disarmed by reset()/soft_reset(), like the host bridge.
+    // init()). Disarmed by init() (soft reset, re-initialising loads), like
+    // the host bridge.
     // A GUI File -> Open load can occur after init(), when no command-line
     // NEX existed and the dormant bridge was deliberately not attached, so
     // attach it here too. When disarmed the handler returns false,
@@ -6938,7 +6955,7 @@ bool Emulator::load_sna(const std::string& path)
 {
     SnaLoader loader;
     if (!loader.load(path)) return false;
-    reset();
+    init(config_);   // re-initialise in place first (see init(), GH #239)
     return loader.apply(*this);
 }
 
@@ -6949,6 +6966,21 @@ void Emulator::resume_from_park(const char* reason)
     Log::emulator()->info(
         "CPU un-parked: {} — the machine was holding a load-only NEX's state "
         "(header PC=0) and would otherwise never have run it", reason);
+}
+
+void Emulator::set_magic_breakpoint(bool enabled)
+{
+    config_.magic_breakpoint = enabled;
+    if (!enabled) {
+        cpu_.on_magic_breakpoint = nullptr;
+        return;
+    }
+    cpu_.on_magic_breakpoint = [this](uint16_t pc) -> bool {
+        Log::emulator()->info("Magic breakpoint hit at PC={:#06x}", pc);
+        debug_state_.set_active(true);
+        debug_state_.pause();
+        return true;
+    };
 }
 
 bool Emulator::load_tap(const std::string& path, bool fast_load)
@@ -7042,7 +7074,7 @@ bool Emulator::load_szx(const std::string& path)
 {
     SzxLoader loader;
     if (!loader.load(path)) return false;
-    reset();
+    init(config_);   // re-initialise in place first (see init(), GH #239)
     return loader.apply(*this);
 }
 
@@ -7050,7 +7082,7 @@ bool Emulator::load_z80(const std::string& path)
 {
     Z80Loader loader;
     if (!loader.load(path)) return false;
-    reset();
+    init(config_);   // re-initialise in place first (see init(), GH #239)
     return loader.apply(*this);
 }
 
@@ -9191,94 +9223,6 @@ void Emulator::refresh_joystick_sources()
     }
 }
 
-void Emulator::reset()
-{
-    // NR 0x07 returns to its power-on value (3.5 MHz) across a reset, so the log
-    // change-gate must return with it — otherwise the guest's first write back to
-    // the pre-reset speed would be swallowed as "unchanged" and never logged.
-    last_logged_cpu_speed_ = 0;
-
-    // Task 60e: a hard reset re-establishes a clean machine, so any
-    // pending "corrupt after failed rewind" flag (Task 60b) is cleared —
-    // the recovery path the GUI tells the user to take.
-    last_state_error_.clear();
-
-    // GH #29/#84: a reset leaves direct-NEX execution and returns to a
-    // normally booted machine. Do not let its host-file bridge, active
-    // port-$EB stream, or synthetic SD sectors intercept that machine.
-    extended_nex_host_.clear();
-    sd_card_.clear_read_overlay();
-    direct_nex_esxdos_ = false;   // GH #250 — same lifetime as the bridge
-
-    // VHDL zxnext.vhd:5052-5057: on soft reset, NR 0x82-0x84 are reloaded
-    // to 0xFF only when reset_type (NR 0x85 bit 7) is 1. When reset_type=0,
-    // they are preserved. Save the port-enable state and reset_type before
-    // init() triggers a second nextreg_.reset() that would lose them.
-    const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
-    const uint8_t save_82 = nextreg_.cached(0x82);
-    const uint8_t save_83 = nextreg_.cached(0x83);
-    const uint8_t save_84 = nextreg_.cached(0x84);
-    // PASS-5: VHDL zxnext.vhd:5061-5067 — NR 0x86/0x87/0x88/0x89 reload to
-    // power-on defaults only when nr_89_bus_port_reset_type='0' (the
-    // INVERSE polarity vs nr_85). Mirror the same save/restore pattern
-    // used for 0x82-0x84.
-    const bool bus_reset_type_0 = (nextreg_.cached(0x89) & 0x80) == 0;
-    const uint8_t save_86 = nextreg_.cached(0x86);
-    const uint8_t save_87 = nextreg_.cached(0x87);
-    const uint8_t save_88 = nextreg_.cached(0x88);
-    const uint8_t save_89 = nextreg_.cached(0x89);
-
-    clock_.reset();
-    scheduler_.reset();
-    frame_cycle_ = 0;
-    frame_in_progress_ = false;   // no frame is in flight after a reset
-
-    ram_.reset();
-    // Emulator::reset() is a hard reset (see header — "Perform a hard
-    // reset: reinitialize all subsystems, clear RAM, reload ROM").
-    mmu_.reset(/*hard=*/true);
-    nextreg_.reset();
-    cpu_.reset(/*hard=*/true);
-    im2_.reset();
-    // V20-IM2-01 — reset pulse-mode edge-detect shadow.
-    prev_pulse_int_n_ = true;
-    keyboard_.reset();
-    // Task 19: clear phantom-typist state so a hard reset cancels any
-    // pending TAP autostart. Lifetime-bound back-pointer is NOT
-    // cleared (see header & ctor wiring).
-    phantom_typist_.reset();
-    // Input subsystem Phase 1 scaffold (Task 3).
-    joystick_.reset();
-    mouse_.reset();
-    md6_.reset();
-    membrane_stick_.reset();
-    iomode_.reset();
-    // F-key FSM (G132) — VHDL emu_fnkeys.vhd:89,106,169,182 reset path:
-    //   timer_count → 0, state → S_IDLE, cancel_nmi → 0, local_fnkeys → 0.
-    emu_fnkeys_.reset();
-
-    // Clear framebuffer to black.
-    std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);
-
-    // Re-run init to restore consistent state (reloads ROM, rewires handlers).
-    init(config_);
-
-    // Restore port-enable registers per reset_type semantics.
-    if (!reset_type_1) {
-        nextreg_.write(0x82, save_82);
-        nextreg_.write(0x83, save_83);
-        nextreg_.write(0x84, save_84);
-    }
-    // PASS-5: bus-port enable group survives reset when nr_89 bit 7 = 1
-    // (bus_reset_type_0 = false). The default nr_89 power-on bit 7 = 1.
-    if (!bus_reset_type_0) {
-        nextreg_.write(0x86, save_86);
-        nextreg_.write(0x87, save_87);
-        nextreg_.write(0x88, save_88);
-        nextreg_.write(0x89, save_89);
-    }
-}
-
 void Emulator::soft_reset()
 {
     // Soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
@@ -9303,16 +9247,9 @@ void Emulator::soft_reset()
         trace_log_.export_to_file(pre_dump);
     }
 
-    // Task 60e: soft reset also re-establishes a runnable machine, so it
-    // clears the "corrupt after failed rewind" flag (Task 60b) too.
-    last_state_error_.clear();
-
-    // GH #29/#84: direct-NEX host state is execution context, not preserved
-    // machine state. A soft reset must return file and SD traffic to the
-    // configured card/ROM just like a hard reset.
-    extended_nex_host_.clear();
-    sd_card_.clear_read_overlay();
-    direct_nex_esxdos_ = false;   // GH #250 — same lifetime as the bridge
+    // The rewind-corruption flag (Task 60e) and the direct-NEX host state
+    // (GH #29/#84/#250) are cleared by init() below, as on every
+    // (re)initialisation.
 
     const bool reset_type_1 = (nextreg_.cached(0x85) & 0x80) != 0;
     const uint8_t save_82 = nextreg_.cached(0x82);

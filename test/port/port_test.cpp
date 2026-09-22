@@ -1480,8 +1480,11 @@ static void test_group_nr_gating() {
         Emulator emu; build_next_emulator(emu);
         // NR-RST-01: clear NR 0x82 bit 0, keep NR 0x85 bit 7 = 1 (default),
         // soft reset, expect NR 0x82 to reload to 0xFF. VHDL 5052-5057.
+        // The soft reset is the guest's NR 0x02 bit 0 (RESET_SOFT) — GH #239:
+        // this row used to call the in-place Emulator::reset(), which is not
+        // a soft reset at all.
         nr_write(emu, 0x82, 0xFE);
-        emu.reset();
+        nr_write(emu, 0x02, 0x01);
         uint8_t rb = nr_read(emu, 0x82);
         check("NR-RST-01",
               "Soft reset reloads NR 0x82 to 0xFF when reset_type=1",
@@ -1495,7 +1498,7 @@ static void test_group_nr_gating() {
         uint8_t cur85 = nr_read(emu, 0x85);
         nr_write(emu, 0x85, cur85 & 0x7F);      // clear bit 7
         nr_write(emu, 0x82, 0xFE);
-        emu.reset();
+        nr_write(emu, 0x02, 0x01);              // RESET_SOFT (GH #239, as NR-RST-01)
         uint8_t rb = nr_read(emu, 0x82);
         check("NR-RST-02",
               "Soft reset preserves NR 0x82 when reset_type=0",

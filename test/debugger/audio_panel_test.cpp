@@ -33,6 +33,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debugger/audio_panel.h"
+#include "platform/emulator_boot.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -479,6 +480,13 @@ static void test_mute_is_not_machine_state(Emulator& emu) {
     // AP-14 — the mute is NOT machine state: a reset must not silently un-mute.
     // If it did, the panel's tick-marks (which are never re-pushed) would start
     // lying about what is audible.
+    //
+    // GH #239: the reset is the production HARD reset (F1, Machine > Power
+    // Reset), i.e. the frontend cold boot, which destroys and reconstructs the
+    // Emulator — the debugger's panels survive it (MainWindow::set_emulator()
+    // keeps the DebuggerManager). This row used to call the in-place
+    // Emulator::reset(), which never touched the mask, so it passed while the
+    // real reset reconstructed the mask to NONE under an unticked box.
     {
         if (!build_next_emulator(emu)) { check("AP-14", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x02);
@@ -488,10 +496,10 @@ static void test_mute_is_not_machine_state(Emulator& emu) {
         source_box(panel, "AY #1")->click();   // a real user click
         const uint8_t before = emu.audio_mute_mask();
 
-        emu.reset();
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
 
-        check("AP-14", "a machine reset does not clear the debugger mute mask "
-              "(host facility, not machine state)",
+        check("AP-14", "a hard reset (frontend cold boot) does not clear the debugger "
+              "mute mask (host facility, not machine state)",
               before == AudioMute::AY1 && emu.audio_mute_mask() == AudioMute::AY1 &&
                   emu.turbosound().chip_mute_mask() == AudioMute::AY1,
               fmt("mask before reset=0x%02X after=0x%02X ts=0x%02X",

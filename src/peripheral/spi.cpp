@@ -75,7 +75,7 @@ void SpiMaster::reset() {
     // that clause NEVER fires. miso_dat therefore retains its last latched
     // value across every system reset (only FPGA bitstream load can affect
     // it). Pre-fix `rx_data_ = 0xFF` here clobbered the previous-transfer
-    // byte on every Emulator::reset() — diverging from VHDL whenever
+    // byte on every Emulator::init() — diverging from VHDL whenever
     // firmware reads port 0xEB after a soft reset (`NR 0x02 ← 0x01`)
     // before issuing any new SPI write. Practical impact on the boot path
     // is nil (firmware always issues a CMD before reading), but
