@@ -10664,9 +10664,12 @@ bool Emulator::load_state(StateReader& r)
     // The saved value is the folded monotonic instant; re-establish it as
     // the base and zero the live FUSE counter so monotonic_tstates() is
     // exactly the saved value. Safe: restores only happen between frames
-    // (frame_in_progress_ = false above), and the next run_frame() begins
-    // with begin_new_frame(), which would zero the live counter anyway —
-    // with the counter already 0, its base fold is a no-op.
+    // (frame_in_progress_ = false above), so the next run_frame() or
+    // step_frame_slot() calls begin_new_frame() before any
+    // instruction consults the counter, and its rebase_fuse_tstates_()
+    // re-seeds it from (clock_ - frame_cycle_) / divisor while moving the
+    // same amount out of the base — monotonic_tstates() stays the saved
+    // value, and contention sees the restored raster position.
     tstates_frame_base_ = r.read_u64();
     *fuse_z80_tstates_ptr() = 0;
     frame_num_        = r.read_u32();
