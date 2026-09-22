@@ -154,4 +154,13 @@
 |         |      | begins: NR 0x02 handler destroyed mid-call, four soft-reset defects. v0.99.133->.140                   |
 | 9/8     | 4h   | v1.0 EMPTIED; v0.99.144 PUBLIC RELEASE; window scale + fullscreen (lordheavy); AT+CIPSTO               |
 |         |      | Lambda/closure perf study: 2 void optimisation candidates struck. v0.99.141->.147                      |
-| TOTAL:  | 617h |                                                                                                        |
+| 10/8    | 6h   | ESP-01 WiFi outage + configurable station address; --help generated from the option table              |
+|         |      | #246 #247 closed. v0.99.148->.151                                                                      |
+| 11/8    | 8h   | --inject clears the HALT latch; AT+CIPSTO refused with no server (#248 #249). v0.99.152->.153          |
+| 13/8    | 5h   | --joy-uart-rx serial source on the joystick-port UART; UART select bit 6 (#251 #253)                   |
+|         |      | v0.99.154->.155                                                                                        |
+| 21/9    | 17h  | Every render register replayed per scanline (#256); line-interrupt rows (#257); esxDOS stand-in        |
+|         |      | for directly loaded NEX (#250); #258-#261; RZX in every frontend. v0.99.156->.163                      |
+| 22/9    | 10h  | No-deferral day: 8 branches, 14 issues closed; loaders, RZX, soft reset, timing vs FUSE                |
+|         |      | (floating bus, I/O contention, in-instruction reads). v0.99.164->.172; v1.0.0 PUBLIC RELEASE           |
+| TOTAL:  | 663h |                                                                                                        |

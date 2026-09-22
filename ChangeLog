@@ -1,6 +1,6 @@
 # ChangeLog
 
-## Unreleased (2026-09-22)
+## v1.0.0 (2026-09-22)
 
 ### Developer Features
 - New `--joy-uart-rx` puts a serial byte source on the joystick-port UART, with connector and start-delay options
