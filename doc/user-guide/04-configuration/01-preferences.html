@@ -2877,7 +2877,11 @@ below — and while it <em>is</em> running with the ESP on, the status bar alway
 carries an ESP cell, so it can never be on invisibly.</p>
 <p><strong>Paths</strong> remembers three directories so the file dialogs open somewhere
 useful: the last directory you loaded a program from, a default SD-card image,
-and where screenshots go.</p>
+and where screenshots go. It also holds the two settings <strong>File &gt; Quick
+Screenshot</strong> needs, since that capture never asks: the directory it writes to
+(blank means <code>~/.jnext/screenshots</code>) and whether it writes PNG or SCR. Those
+two are a deliberate choice rather than a memory of the last dialog, so the
+quick capture always lands in the same place.</p>
 <h2 id="apply-ok-and-cancel">Apply, OK and Cancel<a class="headerlink" href="#apply-ok-and-cancel" title="Permanent link">&para;</a></h2>
 <p><strong>Apply</strong> pushes the settings to the <em>running</em> machine — change the window
 scale or a joystick source and it happens immediately, with nothing lost.

@@ -3206,7 +3206,10 @@ summary to stdout, then exit. Used by <code>make bench</code>
 loaded file’s basename, or <code>boot-&lt;machine&gt;</code>). No whitespace, since
 the <code>BENCH</code> line is space-delimited. Requires <strong>--benchmark</strong>.</dd>
 <dt><strong>--delayed-screenshot</strong> <em>FILE</em></dt>
-<dd>Save a PNG screenshot after a delay.</dd>
+<dd>Save a screenshot after a delay. The format is taken from <em>FILE</em>’s
+extension: <code>.scr</code> writes the raw ULA screen memory, anything else
+writes a PNG of the composited picture. See <strong>SCREENSHOT FORMATS</strong>
+below.</dd>
 <dt><strong>--delayed-screenshot-time</strong> <em>N</em></dt>
 <dd>Delay in seconds (default 10). Requires <strong>--delayed-screenshot</strong>.</dd>
 <dt><strong>--delayed-screenshot-frames</strong> <em>N</em></dt>
@@ -3215,7 +3218,8 @@ the <code>BENCH</code> line is space-delimited. Requires <strong>--benchmark</st
 <dt><strong>--delayed-screenshot-layers</strong> <em>LIST</em></dt>
 <dd>Layers to compose into the screenshot: a comma-separated list of
 <code>ula</code>, <code>layer2</code>, <code>sprites</code>, <code>tiles</code>, <code>all</code> (default <code>all</code>). Requires
-<strong>--delayed-screenshot</strong>.</dd>
+<strong>--delayed-screenshot</strong>, and is rejected when that screenshot is a
+<code>.scr</code>, which has no layers to choose from.</dd>
 <dt><strong>--delayed-automatic-exit</strong> <em>N</em></dt>
 <dd>Exit the emulator after <em>N</em> seconds. The exit always fires, but work
 the command line deferred to a later frame and that has not happened

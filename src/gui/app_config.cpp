@@ -31,6 +31,13 @@ QString when_slow_prefer_to_key(audio_pacing::WhenSlowPrefer p) {
                                                     : QStringLiteral("audio");
 }
 
+// GH #19 — on-disk spelling of the quick-screenshot format. The same two
+// words a filename extension uses, so `.scr` and `quick_format=scr` are one
+// vocabulary rather than two.
+QString quick_screenshot_format_to_key(ScreenshotFormat f) {
+    return f == ScreenshotFormat::Scr ? QStringLiteral("scr") : QStringLiteral("png");
+}
+
 void load_gain(QSettings& settings, const char* key, float& target)
 {
     bool ok = false;
@@ -128,6 +135,27 @@ void AppConfig::load() {
     data_.screenshot_dir = settings_.value("screenshot_dir", data_.screenshot_dir).toString();
     settings_.endGroup();
 
+    // GH #19. A new group rather than more `[paths]` keys, because only one of
+    // the two is a path. No CONFIG_VERSION bump: both keys are absent from a
+    // v1 file and both fall back to their defaults, which is the behaviour
+    // that file already had.
+    settings_.beginGroup("screenshot");
+    data_.quick_screenshot_dir = settings_.value(
+        "quick_dir", data_.quick_screenshot_dir).toString();
+    {
+        // Anything other than the two known words keeps the default, the same
+        // way when_slow_prefer and joy_source do: a typo in a hand-edited file
+        // must not silently change what a capture produces.
+        const QString fmt = settings_.value(
+            "quick_format", quick_screenshot_format_to_key(data_.quick_screenshot_format))
+                               .toString().trimmed().toLower();
+        if (fmt == QLatin1String("scr"))
+            data_.quick_screenshot_format = ScreenshotFormat::Scr;
+        else if (fmt == QLatin1String("png"))
+            data_.quick_screenshot_format = ScreenshotFormat::Png;
+    }
+    settings_.endGroup();
+
     // Task 79 — per-connector input source. Unknown/malformed values keep the
     // default (Sdl). The one-cursor rule is enforced by the UI and by the
     // Emulator coordinator, so a hand-edited both-"keys" file resolves cleanly
@@ -189,6 +217,12 @@ void AppConfig::save() const {
     settings_.setValue("last_load_dir", data_.last_load_dir);
     settings_.setValue("sd_card_path", data_.sd_card_path);
     settings_.setValue("screenshot_dir", data_.screenshot_dir);
+    settings_.endGroup();
+
+    settings_.beginGroup("screenshot");   // GH #19
+    settings_.setValue("quick_dir", data_.quick_screenshot_dir);
+    settings_.setValue("quick_format",
+                       quick_screenshot_format_to_key(data_.quick_screenshot_format));
     settings_.endGroup();
 
     settings_.beginGroup("input");   // Task 79

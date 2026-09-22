@@ -2780,6 +2780,12 @@ with <code>gain_beeper_db</code>, <code>gain_ay0_db</code>, <code>gain_ay1_db</c
 <code>gain_dac_db</code> for the individual sources. Each accepts -24 through +24; an
 invalid value falls back to 0 dB. An explicit matching <code>--audio-gain-...-db</code>
 value overrides the saved setting for that run.</p>
+<p>The quick screenshot is stored in the <code>[screenshot]</code> section: <code>quick_dir</code> (an
+empty value means <code>~/.jnext/screenshots</code>) and <code>quick_format</code>, either <code>png</code> or
+<code>scr</code>. They are the same two settings as the Preferences <strong>Paths</strong> tab;
+anything else in <code>quick_format</code> keeps <code>png</code> rather than changing what a capture
+produces. Both keys are simply absent from a configuration file written by an
+older JNEXT, which loads unchanged.</p>
 
 
 

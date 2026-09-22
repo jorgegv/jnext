@@ -39,7 +39,7 @@ own SD-card clone. Any row whose guest **writes** to the card needs it.
 in run order. Each has its logic in `scripts/<name>.sh` and calls
 `begin_func <name>` to register that its row really was reported.
 
-Both files carry a `# expect: N` pin — currently 65 screenshots and 51
+Both files carry a `# expect: N` pin — currently 65 screenshots and 67
 functional — and the driver faults if a pin and the declared lines disagree.
 
 ## The independent witness
@@ -63,7 +63,7 @@ the manifest.
 At the end of a full run — that is, one not in `--update` mode — the driver
 proves three things: that every declared functional test reported **exactly
 one** row, that no undeclared row appeared, and that the grand total equals
-`2 lint + 1 sdcard-provision + screenshots + functional`. Any mismatch is
+`3 lint + 1 sdcard-provision + screenshots + functional`. Any mismatch is
 reported as a **harness fault**, exit 2, and is explicitly not a pass.
 
 Build artifacts that rows depend on — `rewind_test` and the SDL-only `jnext` —

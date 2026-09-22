@@ -14,6 +14,7 @@
 // other options, before the frontend type is known.
 #include "platform/audio_pacing.h"
 #include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
+#include "platform/screenshot.h"   // screenshot_format_for_path (GH #18)
 #include "video/renderer.h"
 #include "version.h"
 #include <cctype>
@@ -829,6 +830,17 @@ int main(int argc, char* argv[]) {
     // apply it to. Say so instead of quietly doing nothing.
     if (screenshot_layers_set && screenshot_file.empty()) {
         fprintf(stderr, "--delayed-screenshot-layers requires --delayed-screenshot FILE.\n");
+        return 1;
+    }
+    // ...and nothing to apply it to is also what a `.SCR` target is: a .SCR
+    // is a dump of the ULA layer's own memory, so there is no compositor pass
+    // for a layer mask to change (GH #18). Refused rather than ignored, for
+    // the same reason as the check above.
+    if (screenshot_layers_set
+        && screenshot_format_for_path(screenshot_file) == ScreenshotFormat::Scr) {
+        fprintf(stderr,
+                "--delayed-screenshot-layers cannot be used with a .scr screenshot: "
+                "a .SCR records the ULA screen memory, not the composited layers.\n");
         return 1;
     }
     // The same for every other option that only qualifies another one (#138's

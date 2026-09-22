@@ -370,17 +370,53 @@ to it: `rzx::parse()` stops there and counts the rest in
 
 | What | Flag / UI | Code |
 |---|---|---|
-| PNG screenshot | `--delayed-screenshot`, File ▸ Save Screenshot | `src/platform/screenshot.*` |
+| PNG or `.SCR` screenshot | `--delayed-screenshot`, File ▸ Save Screenshot, File ▸ Quick Screenshot | `src/platform/screenshot.*` |
 | WAV of the mixer | `--wav-record` | `src/audio/audio_recorder.*` |
 | DAC activity CSV | `--dac-trace` | `src/audio/dac_trace_recorder.*` |
 | MP4 with audio | `--record`, File ▸ Record MPEG4 Video | `src/core/video_recorder.*` |
 
-Screenshots are always written at double height — each framebuffer row is
+**Two formats, and the extension is the only selector.** There is no format
+flag and no format argument anywhere: `screenshot_format_for_path()` reads the
+filename's last extension, and `save_screenshot()` is the single dispatch every
+caller goes through — the three frontends' `--delayed-screenshot` handlers and
+both GUI menu entries. Adding a third format means adding it there, once.
+
+PNG screenshots are always written at double height — each framebuffer row is
 emitted twice — so that a 640×256 frame becomes a 640×512 PNG with square
 pixels and the aspect ratio a viewer expects.
 `--delayed-screenshot-layers` narrows a capture by clearing layer enables in
 the renderer rather than by masking the result, so the layers that remain still
 follow NR 0x15 priority; see [3.3 Video](03-video.md).
+
+`.SCR` is not a rendering at all. `Ula::screen_dump()` copies the ULA's own
+storage through `fetch_vram_bank()` — the same function the pixel and attribute
+fetches use — so the file is the bytes the display is reading, not a conversion
+of the composited picture. Bank and layout come from the live register state
+exactly as the renderer derives them: the port 0x7FFD shadow bit alone chooses
+bank 5 or bank 7 (`zxnext.vhd:6649-6656`), and port 0xFF bits 2:0 choose the
+window, masked back to the standard mode while shadow is on
+(`zxula.vhd:191`). Standard and Timex-alt give 6912 bytes; hi-colour and
+hi-res give 12288, the two 6144-byte planes the ULA fetches. Nothing else in
+the machine is representable, so a Layer 2 or tilemap program captured this way
+yields whatever is left in the ULA screen memory — a documented limitation of
+the format, not of the dump.
+
+`--delayed-screenshot-layers` is *refused* with a `.scr` target rather than
+ignored (`src/main.cpp`), for the same reason it is refused without a
+screenshot at all: an option that silently does nothing is worse than an error.
+
+Both writers treat a failed `fclose()` as a failure. That is not defensive
+noise: a screenshot is small enough to sit entirely in stdio's buffer, so on a
+full disk the only write(2) happens at the close, and ignoring its result is
+precisely how a truncated file gets reported as saved.
+
+**Quick Screenshot** (File ▸ Quick Screenshot, Alt+K) is the same write with no
+dialog: `auto_screenshot_path()` builds `jnext-YYYYMMDD-HHMMSS<ext>` in the
+configured directory, creating it if needed and appending `-02`, `-03`… while
+the name is taken. Its directory and format are separate config fields from the
+Save-Screenshot dialog's remembered directory, deliberately — that one follows
+the dialog around, and a no-dialog capture whose destination moves is
+unfindable.
 
 Video recording needs **FFmpeg on the host**. jnext writes raw ARGB frames and
 raw stereo PCM to temporary files during the run, so the hot loop pays no

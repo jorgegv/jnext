@@ -74,6 +74,11 @@ uint8_t Ula::vram_read(uint16_t addr, Mmu& mmu) const
 
 uint8_t Ula::fetch_vram(uint16_t vram_a) const
 {
+    return fetch_vram_bank(vram_a, vram_use_bank7_);
+}
+
+uint8_t Ula::fetch_vram_bank(uint16_t vram_a, bool bank7) const
+{
     // Direct physical access, bypassing the MMU — as on real hardware.
     // Only the 14-bit bank offset matters (a CPU-space 0x4000-0x7FFF address
     // and a raw zxula.vhd `vram_a` give the same offset).
@@ -85,7 +90,7 @@ uint8_t Ula::fetch_vram(uint16_t vram_a) const
     //   page-14 fallback keeps standalone unit tests working.
     const uint16_t offset = vram_a & 0x3FFF;
     if (!ram_) return 0xFF;
-    if (vram_use_bank7_) {
+    if (bank7) {
         if (bank7_bram_) return bank7_bram_[offset & 0x1FFF];
         return ram_->read(14u * 8192u + offset);
     }
@@ -344,6 +349,76 @@ void Ula::apply_changes_for_line(int line)
         screen_mode_reg_ = c.value;
         decode_screen_mode_into(screen_mode_reg_, mode_, alt_file_);
     }
+}
+
+// ---------------------------------------------------------------------------
+// screen_dump — GH #18, the `.SCR` body for the currently displayed screen
+// ---------------------------------------------------------------------------
+//
+// Reads the same storage the ULA fetch reads (fetch_vram_bank), from the bank
+// and address window the LIVE register state selects. It is called after a
+// frame has been rendered, where `screen_mode_reg_` / `mode_` / `alt_file_`
+// have been left at the frame's last replayed value by flush_remaining_changes()
+// above — i.e. at the live port-0xFF value — so no rewind/replay bookkeeping
+// leaks into the capture.
+//
+// Deliberately NOT routed through attr_vram_read(): AttributeMux reconstructs,
+// for one render row, what an attribute byte held EARLIER in the frame
+// (attribute_mux.h). A `.SCR` is a dump of memory as it stands, and there is
+// no single row for it to be reconstructed at.
+//
+// Layout decisions and their VHDL citations are on the declaration in ula.h.
+
+std::vector<uint8_t> Ula::screen_dump() const
+{
+    // Bank: the 7FFD shadow bit alone (zxnext.vhd:6649-6656), exactly as
+    // render_scanline_in_bank / attr_vram_read derive it.
+    const bool bank7 = shadow_screen_en_;
+
+    // Mode: port 0xFF bits 2:0, masked to "000" while shadow is on
+    // (zxula.vhd:191) — the same mask render_scanline_in_bank applies.
+    TimexScreenMode mode = TimexScreenMode::STANDARD;
+    // `alt` is an out-parameter of the shared decoder and is not read here:
+    // the alt-file case is already a distinct TimexScreenMode (STANDARD_1),
+    // and in the two Timex modes both planes are dumped either way.
+    bool            alt  = false;
+    if (!bank7)
+        decode_screen_mode_into(screen_mode_reg_, mode, alt);
+
+    constexpr uint16_t kPlaneBytes = 6144;
+    constexpr uint16_t kAttrBytes  = 768;
+
+    std::vector<uint8_t> out;
+    auto copy_from = [&](uint16_t base, uint16_t count) {
+        for (uint16_t i = 0; i < count; ++i)
+            out.push_back(fetch_vram_bank(static_cast<uint16_t>(base + i), bank7));
+    };
+
+    switch (mode) {
+        case TimexScreenMode::HI_COLOUR:
+        case TimexScreenMode::HI_RES:
+            // Two 6144-byte planes: screen 0 then screen 1 (zxula.vhd:235/245
+            // fetch both; 389 interleaves them in hi-res, 218 selects the
+            // per-cell attribute plane in hi-colour).
+            out.reserve(2u * kPlaneBytes);
+            copy_from(0x0000, kPlaneBytes);
+            copy_from(0x2000, kPlaneBytes);
+            break;
+        case TimexScreenMode::STANDARD_1:
+            // Timex alt file — pixels 0x6000 / attrs 0x7800 in CPU space,
+            // i.e. bank offsets 0x2000 / 0x3800 (zxula.vhd:218).
+            out.reserve(kPlaneBytes + kAttrBytes);
+            copy_from(0x2000, kPlaneBytes);
+            copy_from(0x3800, kAttrBytes);
+            break;
+        case TimexScreenMode::STANDARD:
+        default:
+            out.reserve(kPlaneBytes + kAttrBytes);
+            copy_from(0x0000, kPlaneBytes);
+            copy_from(0x1800, kAttrBytes);
+            break;
+    }
+    return out;
 }
 
 void Ula::flush_remaining_changes()

@@ -103,6 +103,14 @@ static void test_defaults_no_file(QTemporaryDir& dir) {
     check("AC-09", "last_load_dir defaults to empty", d.last_load_dir.isEmpty());
     check("AC-10", "sd_card_path defaults to empty", d.sd_card_path.isEmpty());
     check("AC-11", "screenshot_dir defaults to empty", d.screenshot_dir.isEmpty());
+    // GH #19 — an empty quick_screenshot_dir MEANS ~/.jnext/screenshots, and
+    // the struct must not bake an absolute home path in: a config written on
+    // one machine must not pin another machine's home directory.
+    check("AC-65", "quick_screenshot_dir defaults to empty (= ~/.jnext/screenshots)",
+          d.quick_screenshot_dir.isEmpty() && def.quick_screenshot_dir.isEmpty());
+    check("AC-66", "quick_screenshot_format defaults to PNG",
+          d.quick_screenshot_format == ScreenshotFormat::Png
+              && def.quick_screenshot_format == ScreenshotFormat::Png);
     // GH #25 — the ESP is a network capability, so "no config file" MUST mean
     // "not on the network". This row is the one that would catch a default
     // flipped by accident.
@@ -136,6 +144,8 @@ static void test_roundtrip(QTemporaryDir& dir) {
         writer.data().last_load_dir          = "/home/user/games";
         writer.data().sd_card_path           = "/home/user/sd/next.img";
         writer.data().screenshot_dir         = "/home/user/shots";
+        writer.data().quick_screenshot_dir    = "/home/user/quick-shots";
+        writer.data().quick_screenshot_format = ScreenshotFormat::Scr;
         writer.data().esp_enabled            = true;
         writer.data().esp_allowed_hosts      = {"nx.nxtel.org", "sync.lan"};
         writer.save();
@@ -163,6 +173,10 @@ static void test_roundtrip(QTemporaryDir& dir) {
     check("AC-21", "last_load_dir round-trips", d.last_load_dir == written.last_load_dir);
     check("AC-22", "sd_card_path round-trips", d.sd_card_path == written.sd_card_path);
     check("AC-23", "screenshot_dir round-trips", d.screenshot_dir == written.screenshot_dir);
+    check("AC-67", "quick_screenshot_dir round-trips",
+          d.quick_screenshot_dir == written.quick_screenshot_dir);
+    check("AC-68", "quick_screenshot_format round-trips as \"scr\"",
+          d.quick_screenshot_format == written.quick_screenshot_format);
     check("AC-24", "loaded_from_existing_file() is true once a file was written",
           reader.loaded_from_existing_file());
     check("AC-44", "joy_source round-trips (Joy 1 keys, Joy 2 sdl)",
@@ -206,6 +220,12 @@ static void test_partial_file(QTemporaryDir& dir) {
           d.last_load_dir.isEmpty() && d.sd_card_path.isEmpty() && d.screenshot_dir.isEmpty());
     check("AC-48", "an absent audio/gain_db falls back to 0 dB",
           d.audio_gain_db == def.audio_gain_db);
+    // GH #19 — the whole [screenshot] group is absent from every config file
+    // written before it existed, which is why it needed no CONFIG_VERSION
+    // bump: a v1 file loads with both fields at their defaults.
+    check("AC-69", "an entirely absent group (screenshot/*) falls back to defaults",
+          d.quick_screenshot_dir.isEmpty()
+              && d.quick_screenshot_format == def.quick_screenshot_format);
 }
 
 // ── AC-MALFORMED: garbage / out-of-range values must not be accepted ───
@@ -228,6 +248,9 @@ static void test_malformed_values(QTemporaryDir& dir) {
         raw.endGroup();
         raw.beginGroup("audio");
         raw.setValue("gain_db", 25.0);                     // out of [-24,+24]
+        raw.endGroup();
+        raw.beginGroup("screenshot");
+        raw.setValue("quick_format", "jpeg");              // GH #19: not a format
         raw.endGroup();
         // GH #25 — a hand-edited allowlist goes through EspHostPolicy::add, so
         // blanks and case-duplicates are handled exactly as on the CLI.
@@ -260,6 +283,9 @@ static void test_malformed_values(QTemporaryDir& dir) {
           d.audio_gain_db == def.audio_gain_db);
     check("AC-57", "a hand-edited allowlist drops blanks and case-duplicates",
           d.esp_allowed_hosts.size() == 1 && d.esp_allowed_hosts[0] == "Example.Test");
+    // GH #19 — a typo must not silently change what a quick capture produces.
+    check("AC-70", "unknown quick_format string falls back to default (png)",
+          d.quick_screenshot_format == def.quick_screenshot_format);
 
     // The slider narrowed the range to +/-24 dB (PR #41): a formerly-valid
     // deep attenuation must now fall back as well.

@@ -449,7 +449,11 @@ No whitespace, since the \f[CR]BENCH\f[R] line is space\-delimited.
 Requires \f[B]\-\-benchmark\f[R].
 .TP
 \f[B]\-\-delayed\-screenshot\f[R] \f[I]FILE\f[R]
-Save a PNG screenshot after a delay.
+Save a screenshot after a delay.
+The format is taken from \f[I]FILE\f[R]\(cqs extension: \f[CR].scr\f[R]
+writes the raw ULA screen memory, anything else writes a PNG of the
+composited picture.
+See \f[B]SCREENSHOT FORMATS\f[R] below.
 .TP
 \f[B]\-\-delayed\-screenshot\-time\f[R] \f[I]N\f[R]
 Delay in seconds (default 10).
@@ -464,7 +468,8 @@ Requires \f[B]\-\-delayed\-screenshot\f[R].
 Layers to compose into the screenshot: a comma\-separated list of
 \f[CR]ula\f[R], \f[CR]layer2\f[R], \f[CR]sprites\f[R], \f[CR]tiles\f[R],
 \f[CR]all\f[R] (default \f[CR]all\f[R]).
-Requires \f[B]\-\-delayed\-screenshot\f[R].
+Requires \f[B]\-\-delayed\-screenshot\f[R], and is rejected when that
+screenshot is a \f[CR].scr\f[R], which has no layers to choose from.
 .TP
 \f[B]\-\-delayed\-automatic\-exit\f[R] \f[I]N\f[R]
 Exit the emulator after \f[I]N\f[R] seconds.
@@ -825,6 +830,90 @@ independently before the master gain.
 They change playback and recording volume without changing
 guest\-visible audio state and survive cold boots.
 Each explicit CLI value overrides its corresponding saved preference.
+.SS SCREENSHOT FORMATS
+The output format is never a separate option: it is whatever the
+filename\(cqs extension asks for, in \f[B]\-\-delayed\-screenshot\f[R],
+in \f[B]File > Save Screenshot\&...\f[R] and in \f[B]File > Quick
+Screenshot\f[R].
+.TP
+\f[CR].png\f[R]
+The composited picture \(em every enabled layer, the border, the
+palette, the ULA scroll \(em exactly as the window shows it.
+The in\-memory frame is 640x256; the file is 640x512, each row written
+twice, so the pixels are square and the image is 4:3 without
+post\-processing.
+.TP
+\f[CR].scr\f[R]
+The raw ULA screen memory, the format Spectrum graphics tools read and
+write.
+No composition, no palette, no scroll: it is a copy of the bytes the ULA
+is fetching, from whichever screen bank is currently being displayed
+(bank 5, or bank 7 while the 128K shadow screen is selected by port
+0x7FFD bit 3).
+.RS
+.PP
+\f[B]A \f[CB].SCR\f[B] can only describe the classic ULA layer.\f[R]
+Layer 2, the tilemap, the sprites, the LoRes modes and the Next palettes
+have no representation in it at all, and are not in the file \(em a
+Layer 2 game captured to \f[CR].scr\f[R] yields whatever happens to be
+sitting in the ULA screen memory, which is often blank.
+Capture those as \f[CR].png\f[R].
+.PP
+Size depends on the Timex screen mode in port 0xFF bits 2:0:
+.PP
+.TS
+tab(@);
+lw(19.1n) lw(19.1n) lw(31.8n).
+T{
+Mode
+T}@T{
+Size
+T}@T{
+Contents
+T}
+_
+T{
+Standard
+T}@T{
+6912
+T}@T{
+6144 pixel bytes, then 768 attribute bytes
+T}
+T{
+Standard, alt file (mode 1)
+T}@T{
+6912
+T}@T{
+the same, from the alternate screen at 0x6000/0x7800
+T}
+T{
+Timex hi\-colour (modes 2, 3)
+T}@T{
+12288
+T}@T{
+pixel plane, then the per\-cell attribute plane
+T}
+T{
+Timex hi\-res (modes 6, 7)
+T}@T{
+12288
+T}@T{
+the even pixel plane, then the odd one
+T}
+.TE
+.PP
+The 12288\-byte form is the de\-facto Timex \f[CR].SCR\f[R] layout, and
+is exactly the two 6144\-byte planes the ULA fetches.
+It does not record which of the two Timex modes produced it, nor the
+hi\-res ink/paper colour held in port 0xFF bits 5:3, because the format
+has nowhere to put either.
+Writing 6912 bytes in those modes was rejected as worse: the final 768
+bytes would be pixel data presented as attributes.
+.PP
+While the shadow screen is selected the ULA is forced back to the
+standard mode by the hardware, so a shadow\-screen capture is always
+6912 bytes.
+.RE
 .SH NETWORKING (ESP\-01 WiFi)
 A real ZX Spectrum Next has a header for an ESP\-01 WiFi module on UART
 0.
@@ -1137,8 +1226,22 @@ guest needs (see \f[B]THE KEYBOARD\f[R] below).
 \f[B]File\f[R]
 Load a program (Alt+O \- NEX/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Mount SD Card
 Image, Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record
-RZX / Stop RZX, Save Screenshot (Alt+S), Save Snapshot (Alt+Shift+S),
-Quit (Alt+Q).
+RZX / Stop RZX, Save Screenshot (Alt+S), Quick Screenshot (Alt+K), Save
+Snapshot (Alt+Shift+S), Quit (Alt+Q).
+.RS
+.PP
+\f[B]Save Screenshot\&...\f[R] asks for a name; the extension chooses
+the format (\f[B]SCREENSHOT FORMATS\f[R] above).
+\f[B]Quick Screenshot\f[R] asks nothing: it writes
+\f[CR]jnext\-YYYYMMDD\-HHMMSS.png\f[R] (or \f[CR].scr\f[R]) into the
+quick\-screenshot directory immediately and names the file it wrote in
+the status bar, so a sequence of captures costs one keypress each.
+The directory and the format are set under \f[B]Settings > Preferences >
+Paths\f[R]; the directory defaults to \f[CR]\(ti/.jnext/screenshots\f[R]
+and is created on first use.
+A name already in use gains a \f[CR]\-02\f[R], \f[CR]\-03\f[R] suffix,
+so two captures in the same second cannot overwrite each other.
+.RE
 .TP
 \f[B]Machine\f[R]
 Power Reset (Alt+R \- power off/on cold boot, full boot chain), Soft
@@ -1352,7 +1455,7 @@ and stop video recording), and function keys have no Spectrum meaning to
 lose.
 .PP
 Alt is the opposite: it is a host modifier, never a Spectrum key.
-jnext claims Alt + Q/O/S/R/T/D/P and Alt+Shift+S (menu shortcuts) plus
+jnext claims Alt + Q/O/S/K/R/T/D/P and Alt+Shift+S (menu shortcuts) plus
 Alt + F/M/I/A/B/V/N/H (menu bar), which leaves the guest only Alt +
 E/G/C (EDIT, GRAPH, CAPS LOCK) and Alt + the key left of \f[CR]1\f[R]
 (INV VIDEO).
@@ -1609,8 +1712,18 @@ Whenever \f[CR]enabled\f[R] is set the status bar carries the ESP cell
 \f[B]NETWORKING\f[R] describes, so neither a config file nor that page
 can put the guest on the network without saying so.
 \f[B]\-\-no\-esp\f[R] overrides it for one run.
+The quick screenshot is stored under \f[CR][screenshot]\f[R] as
+\f[CR]quick_dir\f[R] (empty means \f[CR]\(ti/.jnext/screenshots\f[R])
+and \f[CR]quick_format\f[R] (\f[CR]png\f[R] or \f[CR]scr\f[R]), edited
+under \f[B]Settings > Preferences > Paths\f[R]; an unrecognised format
+keeps the default.
 CLI options always take precedence over saved values, and headless runs
 never read it.
+.TP
+\f[CR]\(ti/.jnext/screenshots/\f[R]
+Where \f[B]File > Quick Screenshot\f[R] writes, unless
+\f[CR][screenshot] quick_dir\f[R] says otherwise.
+Created on the first capture.
 .TP
 \f[CR]\(ti/.jnext/sdcard/cspect\-next\-1gb\-fixed.img\f[R]
 The default SD\-card image, used when \f[B]\-\-sdcard\f[R] is not given.

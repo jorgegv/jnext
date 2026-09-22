@@ -706,11 +706,13 @@ void HeadlessApp::run() {
             // The write can fail (missing directory, no permission, disk full).
             // Same contract as the never-taken routes below: a screenshot that
             // was requested and did not appear is an error and a non-zero exit,
-            // never a silent status-0 no-op. save_screenshot_png() has already
-            // logged WHY.
-            if (!save_screenshot_png(screenshot_file_, emulator_.get_framebuffer(),
-                                     emulator_.get_framebuffer_width(),
-                                     emulator_.get_framebuffer_height())) {
+            // never a silent status-0 no-op. save_screenshot() has already
+            // logged WHY. It picks PNG or .SCR from the filename's extension
+            // (GH #18) — one dispatch shared with the two GUI frontends.
+            if (!save_screenshot(screenshot_file_, emulator_.get_framebuffer(),
+                                 emulator_.get_framebuffer_width(),
+                                 emulator_.get_framebuffer_height(),
+                                 emulator_.ula())) {
                 Log::platform()->error(
                     "--delayed-screenshot: FAILED to write '{}' (layers: {}); "
                     "see the error above. Exiting non-zero.",

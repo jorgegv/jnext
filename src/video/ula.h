@@ -2,6 +2,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <vector>
 
 class Mmu;
 class Ram;
@@ -570,6 +571,40 @@ public:
     /// 0xFF if no RAM is wired (bare-Ula unit tests).
     uint8_t fetch_vram(uint16_t vram_a) const;
 
+    /// GH #18 — the raw ULA screen memory the display is fetching RIGHT NOW,
+    /// as a `.SCR` file body.
+    ///
+    /// This is a dump of RAM, not a re-render: it returns the same bytes
+    /// `fetch_vram()` serves the pixel/attribute fetches, from whichever
+    /// physical bank and address window the live register state selects.
+    /// Nothing in it is composited, scrolled or palette-mapped, because a
+    /// `.SCR` cannot express any of that.
+    ///
+    /// BANK. Purely the 128K shadow-screen bit (port 0x7FFD b3 / NR 0x69 b6):
+    /// `ula_bank_do <= vram_bank5_do1 when ula_vram_shadow = '0' else
+    /// vram_bank7_do` (zxnext.vhd:6649-6656) — bank 7 while it is set, bank 5
+    /// otherwise, independent of the Timex mode.
+    ///
+    /// LAYOUT, from the live port-0xFF mode field (bits 2:0, zxula.vhd:191),
+    /// with the shadow-screen mask applied (`screen_mode_s <= "000" when
+    /// i_ula_shadow_en = '1'`, so a shadow dump is always the classic one):
+    ///
+    ///   STANDARD    6912 bytes — 6144 pixels @ bank+0x0000, 768 attrs @ +0x1800
+    ///   STANDARD_1  6912 bytes — the Timex alt file: pixels @ +0x2000,
+    ///                            attrs @ +0x3800 (zxula.vhd:218)
+    ///   HI_COLOUR  12288 bytes — plane 0 @ +0x0000 then plane 1 @ +0x2000;
+    ///   HI_RES     12288 bytes   in hi-colour plane 1 is the per-cell attribute
+    ///                            plane, in hi-res it is the odd pixel plane
+    ///
+    /// The 12288-byte form is the de-facto Timex `.SCR` other tools write, and
+    /// it is exactly the two 6144-byte planes the ULA fetches. It does NOT
+    /// record WHICH of the two Timex modes produced it, nor the hi-res
+    /// ink/paper colour in port 0xFF bits 5:3 — a `.SCR` has no room for
+    /// either. Truncating those modes to 6912 bytes was rejected: the last
+    /// 768 bytes would be plane-0 pixel data presented as attributes, which
+    /// is a silently wrong file rather than a lossy one.
+    std::vector<uint8_t> screen_dump() const;
+
     // Wave-D hook: select `border_clr_tmx` (VHDL zxula.vhd:419) route for
     // border rendering instead of the standard `border_clr`. Default false
     // preserves existing behaviour; Phase-2 Wave D may flip this based on
@@ -962,6 +997,13 @@ private:
     /// we convert it to a physical RAM offset in bank 5.
     /// Falls back to MMU reads if RAM is not wired (backward compat).
     uint8_t vram_read(uint16_t addr, Mmu& mmu) const;
+
+    /// fetch_vram() with the bank chosen explicitly instead of read from
+    /// `vram_use_bank7_`. The one place that knows how a 14-bit VRAM address
+    /// maps onto bank 5 / bank 7 storage, so the dedicated-BRAM and legacy
+    /// page-10/14 fallbacks cannot drift between the fetch path and
+    /// screen_dump().
+    uint8_t fetch_vram_bank(uint16_t vram_a, bool bank7) const;
 
     /// G12 — attribute-byte read for the STANDARD/STANDARD_1 renderer.
     /// Always-on (no arm/gate — removed round 3): returns the value

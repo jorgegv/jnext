@@ -1880,7 +1880,7 @@ own SD-card clone. Any row whose guest <strong>writes</strong> to the card needs
 <p><strong>Functional rows</strong> are declared in <code>functional_tests.conf</code>, one name per line,
 in run order. Each has its logic in <code>scripts/&lt;name&gt;.sh</code> and calls
 <code>begin_func &lt;name&gt;</code> to register that its row really was reported.</p>
-<p>Both files carry a <code># expect: N</code> pin — currently 65 screenshots and 51
+<p>Both files carry a <code># expect: N</code> pin — currently 65 screenshots and 67
 functional — and the driver faults if a pin and the declared lines disagree.</p>
 <h2 id="the-independent-witness">The independent witness<a class="headerlink" href="#the-independent-witness" title="Permanent link">&para;</a></h2>
 <p>The completeness check compares rows reported against rows declared, but for
@@ -1899,7 +1899,7 @@ the manifest.</p>
 <p>At the end of a full run — that is, one not in <code>--update</code> mode — the driver
 proves three things: that every declared functional test reported <strong>exactly
 one</strong> row, that no undeclared row appeared, and that the grand total equals
-<code>2 lint + 1 sdcard-provision + screenshots + functional</code>. Any mismatch is
+<code>3 lint + 1 sdcard-provision + screenshots + functional</code>. Any mismatch is
 reported as a <strong>harness fault</strong>, exit 2, and is explicitly not a pass.</p>
 <p>Build artifacts that rows depend on — <code>rewind_test</code> and the SDL-only <code>jnext</code> —
 are checked in the first second of the run rather than five minutes in. Running

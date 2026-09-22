@@ -122,6 +122,7 @@ BEGIN {
     M["audio_gain_preferences_test"]    = "Audio gain Preferences"
     M["present_cadence_test"]          = "Present cadence"
     M["render_policy_test"]            = "Render-skip policy"
+    M["screenshot_test"]               = "Screenshot output (PNG/.SCR)"
     M["frame_deadline_test"]           = "Frame-deadline scheduler"
     M["tick_stats_test"]               = "Tick-delivery stats"
     M["speed_report_test"]             = "Achieved-speed report"

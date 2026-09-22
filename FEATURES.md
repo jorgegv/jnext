@@ -83,10 +83,11 @@
 - Two distinct reset controls in menu and toolbar, as on real hardware: Power Reset (Alt+R/F1, cold boot) and Soft Reset (F4, back to NextZXOS without re-running the boot chain)
 - Emulator speed control (0.5×/1×/2×/4×/custom %, or `--speed`)
 - Selectable degradation policy for a host that cannot emulate in real time (`--when-slow-prefer audio|video`, or Preferences → Startup, applied live): keep the sound smooth and drop video frames, or show every frame and let the machine run slower than real time with the sound stuttering
-- PNG screenshot (Alt+S, toolbar, `--delayed-screenshot`)
+- Screenshots in PNG or `.SCR` (Alt+S, toolbar, `--delayed-screenshot`): the filename's extension picks the format. `.SCR` is the raw ULA screen memory of the displayed bank — 6912 bytes, or 12288 in a Timex hi-colour/hi-res mode — and records only the classic ULA layer
+- Quick Screenshot (Alt+K): no dialog, timestamped collision-free name, into a configurable directory (default `~/.jnext/screenshots`), in the configured default format; the status bar names the file written
 - Video recording to MP4 via FFmpeg pipe (`--record`)
 - Direct audio recording to WAV (`--wav-record`, no FFmpeg required)
-- Preferences dialog (Settings → Preferences…, Alt+P): configure startup defaults, input sources, live host audio gain and remembered paths; saved to `~/.jnext/jnext.conf` — CLI flags always override saved settings
+- Preferences dialog (Settings → Preferences…, Alt+P): configure startup defaults, input sources, live host audio gain, remembered paths and the quick-screenshot directory/format; saved to `~/.jnext/jnext.conf` — CLI flags always override saved settings
 
 ## Distribution / packaging
 - Native Linux packages via CMake CPack: TGZ, DEB, RPM; plus a Fedora `packaging/rpm/jnext.spec` and a Debian/Ubuntu `packaging/debian/` source package
