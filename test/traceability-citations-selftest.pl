@@ -92,6 +92,19 @@ sub check {
                                  defined $detail ? " — $detail" : ''); }
 }
 
+# Run $code with the refresh script's EXPECTED diagnostics for one fixture
+# swallowed, and every other warning passed straight through. Several fixtures
+# are narrow tables or cite an imaginary .vhd ON PURPOSE, and the script says
+# so on stderr; letting that reach the terminal made every run of this
+# self-test look like it had warnings to read. Matching on the exact message
+# keeps an UNEXPECTED warning from the same call visible.
+my $WIDTH_WARN = qr/^WARN: citation '[^']+' \(id=\S+\) exceeds column width \d+; keeping full text$/;
+sub quietly {
+    my ($expected, $code) = @_;
+    local $SIG{__WARN__} = sub { warn $_[0] unless $_[0] =~ $expected };
+    return $code->();
+}
+
 sub write_fixture {
     my ($rel, $body) = @_;
     my $abs = "$FIXTURE_ROOT/$rel";
@@ -684,9 +697,10 @@ my @fzlines = (
     '| FZ-MISS-01  | not asserted| fixture_b.vhd:8  | missing | missing          |',
 );
 my (@fzd, @fzk, @fzinv, @fzfrozen);
-my @fzret = refresh_section(\@fzlines, 0, 'bin/frozen_suite',
-                            'test/fixture/frozen_test.cpp', \@fzd, \@fzk,
-                            undef, undef, \@fzinv, \@fzfrozen);
+my @fzret = quietly($WIDTH_WARN, sub {
+    refresh_section(\@fzlines, 0, 'bin/frozen_suite',
+                    'test/fixture/frozen_test.cpp', \@fzd, \@fzk,
+                    undef, undef, \@fzinv, \@fzfrozen) });
 
 check('SELF-143', 'refresh_section collects exactly the two cells with no computed side, and classifies them',
       scalar(@fzfrozen) == 2
@@ -800,9 +814,10 @@ my @shlines = (
 );
 my @shbefore = @shlines;
 my (@shd, @shk, @shinv, @shfz, @shunref);
-my @shret = refresh_section(\@shlines, 0, 'bin/shape_suite',
-                            'test/fixture/shape_test.cpp', \@shd, \@shk,
-                            undef, undef, \@shinv, \@shfz, \@shunref);
+my @shret = quietly($WIDTH_WARN, sub {
+    refresh_section(\@shlines, 0, 'bin/shape_suite',
+                    'test/fixture/shape_test.cpp', \@shd, \@shk,
+                    undef, undef, \@shinv, \@shfz, \@shunref) });
 
 check('SELF-172', 'END TO END: a 4-column Extra-coverage row IS refreshed now — location and citation both recomputed',
       scalar($shlines[11] =~ m{\| test/fixture/shape_test\.cpp:3\s*\|}
@@ -876,8 +891,9 @@ check('SELF-177', 'THE REGRESSION: the row after a protected row is still refres
         '|------------|-----------------------|----------------|',
         '| SH-MAIN-01 | no VHDL column        | missing        |',
     );
-    refresh_section(\@nc, 0, 'bin/shape_suite', 'test/fixture/shape_test.cpp',
-                    [], [], undef, undef, [], [], []);
+    quietly($WIDTH_WARN, sub {
+        refresh_section(\@nc, 0, 'bin/shape_suite', 'test/fixture/shape_test.cpp',
+                        [], [], undef, undef, [], [], []) });
     my @cells = split_row_cells($nc[4]);
     check('SELF-182', 'a table with a location column but NO `VHDL file:line` refreshes the location and leaves cell 0 alone',
           scalar($cells[0] eq ''
@@ -1291,8 +1307,9 @@ my @nested = (
     $com_row,
 );
 my (@nd, @nk);
-my ($n_touched) = refresh_section(\@nested, 0, 'bin/section_suite',
-                                  'test/fixture/section_test.cpp', \@nd, \@nk, 6);
+my ($n_touched) = quietly($WIDTH_WARN, sub {
+    refresh_section(\@nested, 0, 'bin/section_suite',
+                    'test/fixture/section_test.cpp', \@nd, \@nk, 6) });
 
 check('SELF-26', 'the parent section stops at a nested companion header and leaves its rows alone',
       $nested[8] eq $com_row && $n_touched == 1,
@@ -1435,7 +1452,8 @@ void m() {
           "fixture_a.vhd:70, not_in_the_core.vhd:99");
 }
 CPP
-my $mc = grep_citations('test/fixture/multicite_test.cpp');
+my $mc = quietly(qr/^WARN: citation names 'not_in_the_core\.vhd', which is not in /,
+                 sub { grep_citations('test/fixture/multicite_test.cpp') });
 
 check('SELF-83', 'a second FILE in the same evidence is published, not dropped',
       ($mc->{'MC-01'} // '') eq 'fixture_a.vhd:10, fixture_b.vhd:20-22',
@@ -3003,10 +3021,10 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
 
     # A non-directory --fpga-src is REFUSED up front, not degraded into the
     # unvalidated mode. fatal() exits 3.
-    my ($rc_b, $err_b) = $run_capture->({}, "--fpga-src='$E2E/no-such-dir'");
+    my ($rc_dir, $err_dir) = $run_capture->({}, "--fpga-src='$E2E/no-such-dir'");
     check('SELF-200', 'GH #202: --fpga-src refuses a path that is not a directory',
-          scalar($rc_b != 0 && $err_b =~ /is not a directory/),
-          "exit $rc_b: " . (($err_b =~ /(--fpga-src.*)/)[0] // '(no message)'));
+          scalar($rc_dir != 0 && $err_dir =~ /is not a directory/),
+          "exit $rc_dir: " . (($err_dir =~ /(--fpga-src.*)/)[0] // '(no message)'));
 
     # No core anywhere: the run must SAY SO. Silence here is the whole defect —
     # an unvalidated run looks exactly like a validated one and emits different
