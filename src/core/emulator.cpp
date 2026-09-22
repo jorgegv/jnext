@@ -9713,7 +9713,16 @@ bool Emulator::ula_floating_bus_active_arm(uint8_t& out_byte) const
     //
     // Compute current position within the frame. Master clock is 28 MHz;
     // T-states at 3.5 MHz = master_cycles / 8.
-    uint64_t master_elapsed = clock_.get() - frame_cycle_;
+    //
+    // GH #265 — the position is where the CPU latches the byte, not where
+    // its instruction started: floating_bus_r reaches cpu_di through
+    // combinational logic only (zxula.vhd:573; zxnext.vhd:4513,4517,2813-2814,
+    // 2837, 1872-1873), and the T80 latches cpu_di into DI_Reg on the falling
+    // edge of the I/O cycle's T3 (t80na.vhd:214-222), 3.5 T-states into its
+    // four clocks (t80n.vhd:1781-1782). clock_ is the instruction's start —
+    // 10.5 T-states earlier for IN A,(n), 11.5 for IN A,(C).
+    static constexpr unsigned kDiRegLatchHalfT = 7;       // 3.5 T-states
+    uint64_t master_elapsed = io_read_sample_cycle(kDiRegLatchHalfT) - frame_cycle_;
     int tstates_in_frame = static_cast<int>(master_elapsed / cpu_speed_divisor(config_.cpu_speed));
 
     // Scanline timing:

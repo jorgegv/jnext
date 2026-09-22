@@ -39,7 +39,7 @@ mentions them, so a test can no longer be absent from this document.
 | IO Port Dispatch                           |   137 |  126 |    0 |    0 |      11 |          0 |
 | Input                                      |   354 |  342 |    0 |    0 |      12 |          0 |
 | Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
-| Floating Bus                               |    37 |   37 |    0 |    0 |       0 |          0 |
+| Floating Bus                               |    40 |   40 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |    65 |   62 |    0 |    0 |       3 |          0 |
 | Contention                                 |   129 |  127 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
@@ -61,9 +61,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4457 | 4205 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4460 | 4208 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4457**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4246**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7283**.
+Rows the sections above carry: **4460**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4249**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7286**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3115,22 +3115,25 @@ Notes and rationale: [FLOATING-BUS-TEST-PLAN-DESIGN.md](FLOATING-BUS-TEST-PLAN-D
 | FB-4A | 128K active capture → ULA floating bus reaches port 0xFF (0x5A) (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:814 |
 | FB-4C | Next-base active capture → port 0xFF hard-forced 0xFF (zxnext.vhd:4513) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:834 |
 | FB-06 | 48K CPU IN A,(0xFF) at border returns 0xFF via port_dispatch.set_default_read (zxnext.vhd:2713,2813) | zxnext.vhd:2713,2813 | pass | test/floating_bus/floating_bus_test.cpp:864 |
-| FB-5A | 48K CPU IN A,(0xFF) in active line 100 sees VRAM marker 0xC3 (VRAM saturated for all char_col; the IN's port sample lands inside the pixel-fetch window; zxnext.vhd:2713,2813; emulator.cpp:3090-3197) | zxnext.vhd:2713,2813 | pass | test/floating_bus/floating_bus_test.cpp:913 |
-| FB-07 | 48K NR 0x08 b2=1 + port 0xFF write 0x02 → read returns 0x02 (Timex arm wins; zxnext.vhd:2813,5180,3630) | zxnext.vhd:2813,5180,3630 | pass | test/floating_bus/floating_bus_test.cpp:953 |
-| FB-6A | 48K reset state NR 0x08 b2=0 → border read returns 0xFF (floating-bus arm wins; zxnext.vhd:1118,2813,5180) | zxnext.vhd:1118,2813,5180 | pass | test/floating_bus/floating_bus_test.cpp:969 |
-| FB-6B | 48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF (zxnext.vhd:2397,2813) | zxnext.vhd:2397,2813 | pass | test/floating_bus/floating_bus_test.cpp:988 |
-| FB-109-01 | 48K active capture: undecoded port 0x40A7 returns 0xFF, not the ULA floating bus (zxnext.vhd:1877; port_ff scope :2583) | zxnext.vhd:1877 | pass | test/floating_bus/floating_bus_test.cpp:1231 |
-| FB-109-02 | 48K active capture: port 0x40FF (LSB-only port_ff decode) returns the VRAM byte (zxnext.vhd:2571+2583,2813,4513) | zxnext.vhd:2571 | pass | test/floating_bus/floating_bus_test.cpp:1255 |
+| FB-5A | 48K CPU IN A,(0xFF) in active line 100 sees VRAM marker 0xC3 (VRAM saturated for all char_col; the IN's port sample lands inside the pixel-fetch window; zxnext.vhd:2713,2813; emulator.cpp:3090-3197) | zxnext.vhd:2713,2813 | pass | test/floating_bus/floating_bus_test.cpp:921 |
+| FB-07 | 48K NR 0x08 b2=1 + port 0xFF write 0x02 → read returns 0x02 (Timex arm wins; zxnext.vhd:2813,5180,3630) | zxnext.vhd:2813,5180,3630 | pass | test/floating_bus/floating_bus_test.cpp:961 |
+| FB-6A | 48K reset state NR 0x08 b2=0 → border read returns 0xFF (floating-bus arm wins; zxnext.vhd:1118,2813,5180) | zxnext.vhd:1118,2813,5180 | pass | test/floating_bus/floating_bus_test.cpp:977 |
+| FB-6B | 48K NR 0x08 b2=1 + NR 0x82 b0=0 → Timex arm collapses → 0xFF (zxnext.vhd:2397,2813) | zxnext.vhd:2397,2813 | pass | test/floating_bus/floating_bus_test.cpp:996 |
+| FB-109-01 | 48K active capture: undecoded port 0x40A7 returns 0xFF, not the ULA floating bus (zxnext.vhd:1877; port_ff scope :2583) | zxnext.vhd:1877 | pass | test/floating_bus/floating_bus_test.cpp:1239 |
+| FB-109-02 | 48K active capture: port 0x40FF (LSB-only port_ff decode) returns the VRAM byte (zxnext.vhd:2571+2583,2813,4513) | zxnext.vhd:2571 | pass | test/floating_bus/floating_bus_test.cpp:1263 |
+| FB-GH265-01 | 48K IN A,(0xFF) samples the floating bus at the DI_Reg latch, 3.5 T into its I/O cycle: started at T 16 it reads the T 26 pixel byte (zxula.vhd:573; zxnext.vhd:4513; t80na.vhd:214-222) | zxula.vhd:573, zxnext.vhd:4513, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1423 |
+| FB-GH265-02 | 48K IN A,(C) of port 0x00FF started at T 16 reads the T 27 attribute byte (zxula.vhd:573; zxnext.vhd:4513; t80na.vhd:214-222) | zxula.vhd:573, zxnext.vhd:4513, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1446 |
+| FB-GH265-03 | +3 IN A,(C) of port 0x0FFD started at T 16 reads the T 27 attribute byte \| 0x01 (zxula.vhd:573; zxnext.vhd:4517; t80na.vhd:214-222) | zxula.vhd:573, zxnext.vhd:4517, t80na.vhd:214-222 | pass | test/floating_bus/floating_bus_test.cpp:1465 |
 | FIX-FB-EFFLOCK-01 | +3 port 0x0FFD with paging-locked but Pentagon-1024 override drops effective_paging_locked → returns the raw border-arm latch 0x42 (NOT 0xFF) — VHDL zxnext.vhd:3769, 4517 + zxula.vhd:573 second arm; verify8 A4 / GH #112 | zxnext.vhd:3769, zxula.vhd:573 | pass | test/floating_bus/floating_bus_test.cpp:747 |
 | FB-3X | +3 port 0x0FFD dispatches to 0x0FFD handler not 0x7FFD (specificity: mask 0xF003 > 0x8003) → raw border-arm latch 0x42 (zxula.vhd:573 second arm + zxnext.vhd:4478, 4499-4508; port_dispatch.cpp most-specific-match) | zxula.vhd:573, zxnext.vhd:4478,4499-4508 | pass | test/floating_bus/floating_bus_test.cpp:784 |
-| FB-D3F-01 | Port 0x0FFD gate keys on machine_timing_ (tim_sel) per VHDL :2589 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0x0FFD returns the raw border-arm latch 0xA4 (post-fix); pre-D3F-01 returned 0x00 (config_.type != ZX_PLUS3); pre-GH#112 returned 0xA5 | zxula.vhd:573, zxnext.vhd:4478 | pass | test/floating_bus/floating_bus_test.cpp:1079 |
-| FB-D3F-02 | Port 0xBFFD AY-read alias gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:2771 — init 128K + NR 0x03 = 0xB2 (tim_sel=+3, typ_sel=128) → after run_frame() BFFD read aliases to AY reg 0 = 0x5A (post-fix); pre-fix returned 0xFF (config_.type != ZX_PLUS3) | zxnext.vhd:2771 | pass | test/floating_bus/floating_bus_test.cpp:1130 |
-| FB-D3F-03 | Port 0xFF ULA-arm gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:4513 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0xFF returns 0xFF (machine_timing_ neither 48 nor 128); pre-fix returned the VRAM byte 0x42 (config_.type == ZX48K) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:1181 |
-| FB-HARNESS-01 | set_raster_position(100, 50) lands clock at expected master cycle and current_scanline()==100 | — | pass | test/floating_bus/floating_bus_test.cpp:1287 |
-| FB-HARNESS-02 | set_raster_position_hc(64, 144) lands clock at expected master cycle and current_hc()==144 | — | pass | test/floating_bus/floating_bus_test.cpp:1313 |
-| FB-HARNESS-03 | cpu_in_a_FF executes IN A,(0xFF) on 48K at line 0 → A=0xFF (border early-return path) and PC=0x8002 | — | pass | test/floating_bus/floating_bus_test.cpp:1335 |
-| FB-HARNESS-04 | cpu_in_a_0FFD executes IN A,(C) with BC=0x0FFD; helper completes, PC advances 2 bytes, BC preserved | — | pass | test/floating_bus/floating_bus_test.cpp:1353 |
-| FB-HARNESS-05 | read_port_default(0x00FF) on fresh 48K returns 0xFF (border early-return path through port_dispatch default) | — | pass | test/floating_bus/floating_bus_test.cpp:1368 |
+| FB-D3F-01 | Port 0x0FFD gate keys on machine_timing_ (tim_sel) per VHDL :2589 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0x0FFD returns the raw border-arm latch 0xA4 (post-fix); pre-D3F-01 returned 0x00 (config_.type != ZX_PLUS3); pre-GH#112 returned 0xA5 | zxula.vhd:573, zxnext.vhd:4478 | pass | test/floating_bus/floating_bus_test.cpp:1087 |
+| FB-D3F-02 | Port 0xBFFD AY-read alias gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:2771 — init 128K + NR 0x03 = 0xB2 (tim_sel=+3, typ_sel=128) → after run_frame() BFFD read aliases to AY reg 0 = 0x5A (post-fix); pre-fix returned 0xFF (config_.type != ZX_PLUS3) | zxnext.vhd:2771 | pass | test/floating_bus/floating_bus_test.cpp:1138 |
+| FB-D3F-03 | Port 0xFF ULA-arm gate keys on machine_timing_ (tim_sel) per VHDL zxnext.vhd:4513 — init 48K + NR 0x03 = 0xB1 (tim_sel=+3, typ_sel=48) → after run_frame() port 0xFF returns 0xFF (machine_timing_ neither 48 nor 128); pre-fix returned the VRAM byte 0x42 (config_.type == ZX48K) | zxnext.vhd:4513 | pass | test/floating_bus/floating_bus_test.cpp:1189 |
+| FB-HARNESS-01 | set_raster_position(100, 50) lands clock at expected master cycle and current_scanline()==100 | — | pass | test/floating_bus/floating_bus_test.cpp:1295 |
+| FB-HARNESS-02 | set_raster_position_hc(64, 144) lands clock at expected master cycle and current_hc()==144 | — | pass | test/floating_bus/floating_bus_test.cpp:1321 |
+| FB-HARNESS-03 | cpu_in_a_FF executes IN A,(0xFF) on 48K at line 0 → A=0xFF (border early-return path) and PC=0x8002 | — | pass | test/floating_bus/floating_bus_test.cpp:1343 |
+| FB-HARNESS-04 | cpu_in_a_0FFD executes IN A,(C) with BC=0x0FFD; helper completes, PC advances 2 bytes, BC preserved | — | pass | test/floating_bus/floating_bus_test.cpp:1361 |
+| FB-HARNESS-05 | read_port_default(0x00FF) on fresh 48K returns 0xFF (border early-return path through port_dispatch default) | — | pass | test/floating_bus/floating_bus_test.cpp:1376 |
 
 ## VideoTiming — `test/videotiming/videotiming_test.cpp`
 
