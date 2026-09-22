@@ -707,17 +707,28 @@ bool NexLoader::apply(Emulator& emu) const
         // Stop copper before reset:
         nr.write(0x62, 0x00);   // copper-control HI byte: stop
         nr.write(0x61, 0x00);   // copper-control LO byte: stop
-        // Peripheral 2 — read-modify-write in tbblue (preserves bits 7+5
-        // F8/F3-enable, clears bit 4 DivMMC autopage, sets bit 3 Multiface).
-        // Reset baseline of NR 0x06 is 0xA0 (zxnext.vhd:1107-1108), so the
-        // post-modify constant is 0xA0 & ~0x10 | 0x08 = 0xA8.
-        nr.write(0x06, 0xA8);
-        // Peripheral 3 — read-modify-write in tbblue (sets bit 7 disable
-        // locked paging, bit 6 disable contention, clears bit 5 stereo→ABC,
-        // sets bits 3/2/1 specdrum/timex/turbosound, clears bit 0).
-        // Reset baseline of NR 0x08 is 0x00, so the post-modify constant is
-        // 0xCE.
-        nr.write(0x08, 0xCE);
+        // Peripherals 2 and 3 are read-modify-write in both loaders, with
+        // different masks, so each follows its own loader (measured under
+        // NextZXOS for both: the result is the formula applied to the value
+        // found, and after load_nex()'s reset that is NR 0x06=$A0, NR 0x08=$90
+        // — bit 7 "not locked", bit 4 the internal speaker's hard-reset 1).
+        const uint8_t nr06 = nr.read(0x06);
+        const uint8_t nr08 = nr.read(0x08);
+        if (is_v13()) {
+            // nexload2.asm:793-794 `or %00001001 : and %10101101`.
+            nr.write(0x06, static_cast<uint8_t>((nr06 | 0x09) & 0xAD));
+            // nexload2.asm:798-799 `or %11011110 : and %11111110` — keeps only
+            // bit 5 (ABC/ACB stereo) and forces the internal speaker on.
+            nr.write(0x08, static_cast<uint8_t>((nr08 | 0xDE) & 0xFE));
+        } else {
+            // nexload.asm:333-347 — res 4 (DivMMC NMI), set 3 (Multiface NMI);
+            // the AY-hold write in between (:345) is restored at :347.
+            nr.write(0x06, static_cast<uint8_t>((nr06 & ~0x10) | 0x08));
+            // nexload.asm:351-361 — set 7,6,3,2,1, res 5,0; bit 4, the internal
+            // speaker, is "a user preference setting, not a game setting"
+            // (its v17 changelog) and is kept.
+            nr.write(0x08, static_cast<uint8_t>((nr08 & 0x10) | 0xCE));
+        }
     }
 
     // Turbo 28 MHz (matches tbblue nexload — assumes loader-issued
@@ -727,16 +738,16 @@ bool NexLoader::apply(Emulator& emu) const
     //
     // THE TWO LOADERS DISAGREE ON THIS ONE REGISTER, so it follows the
     // loader that would really handle the file (GH #166):
-    //   - <= V1.2 is loaded by nexload.asm, whose NR 0x07 write is at
-    //     :365, INSIDE the gated block → gated.
+    //   - <= V1.2 is loaded by nexload.asm, which sets 14 MHz first thing,
+    //     unconditionally (`Set14mhz`, :260), and 28 MHz at :365, INSIDE the
+    //     gated block → 28 MHz, or 14 MHz with DONTRESETNEXTREGS set
+    //     (measured: NR 0x07 reads $22 at entry with the flag set).
     //   - V1.3 can only be loaded by nexload2.asm (the distro loader
     //     cannot parse it), and there the write is at :777, ABOVE the
     //     PRESERVENEXTREG early-return at :781-783, whose own comment
     //     says it: "next regs should be preserved, only 28MHz is set,
     //     keep others" → unconditional.
-    if (reset_nextregs || is_v13()) {
-        nr.write(0x07, 0x03);
-    }
+    nr.write(0x07, (reset_nextregs || is_v13()) ? 0x03 : 0x02);
 
     // ULANext format: 0x0F (allow flashing). Overrides Emulator init's
     // 0x07 — nexload.asm:266 writes this ABOVE the DONTRESETNEXTREGS gate
@@ -847,7 +858,38 @@ bool NexLoader::apply(Emulator& emu) const
         // block leaves the index where :269-:270 put it on the <= V1.2
         // path, and untouched on the V1.3 one — as on hardware for each.
         nr.write(0x40, 0x00);
+
+        if (nexload_prologue) {
+            // nexload.asm's reset block selects each palette in turn to sweep
+            // it and leaves the LAST one selected: `NEXTREG_nn 67,32`, the
+            // sprite first palette (:402). A palette block, if the file has
+            // one, sets NR 0x43 again in step 2. (nexload2 ends at 0, :847.)
+            // Measured: NR 0x43 reads $20 at entry.
+            nr.write(0x43, 0x20);
+        } else {
+            // nexload2.asm:924-925 (nextRegResetData) zeroes the tilemap
+            // base and pattern addresses, whose reset values are $2C/$0C
+            // (measured: both read 0 at entry). Every other register that
+            // table sets already holds its value after load_nex()'s reset
+            // (measured: no other NextREG differs), so only these two are
+            // written. A tilemode loading screen sets them again in step 2.
+            nr.write(0x6E, 0x00);
+            nr.write(0x6F, 0x00);
+        }
     }
+
+    // What NextZXOS leaves that jnext does not reproduce. A probe NEX that
+    // reads all 256 NextREGs at entry, under NextZXOS and under `--load`,
+    // differs after this step only in registers neither loader writes:
+    // firmware / config.ini settings (NR 0x02, 0x05, 0x0A, 0x11, 0x28, 0xB8,
+    // 0xB9, 0xBB, 0xD8), NextZXOS's stackless-NMI enable (NR 0xC0 bit 3, for
+    // its own NMI handler, absent here), its 48K-ROM paging (NR 0x8E: ROM 3;
+    // under `--load` the Next machine's only ROM is that same 48K ROM, in
+    // slot 0), the user settings both loaders keep in NR 0x08 (bit 5 here;
+    // bit 4 too for nexload.asm), and — with DONTRESETNEXTREGS set — whatever
+    // NextZXOS had in the registers the flag keeps. jnext has no NextZXOS
+    // behind a directly loaded program, so it leaves all of these at its own
+    // reset values.
 
     Log::emulator()->debug("NEX: machine state initialized (nexload.asm compatible, "
                            "NextREG reset {})",
@@ -1209,14 +1251,18 @@ bool NexLoader::apply(Emulator& emu) const
                                COPPER_BLOCK_SIZE);
     }
 
-    // V1.3 expansion bus (header offset 142): 0 = disable it by clearing the
-    // top four bits of NR 0x80, 1 = leave it alone (nexload2.asm:778-780).
-    // Gated on V1.3 because in a V1.0-V1.2 file offset 142 is reserved space
-    // that is zero — which would read as "disable" for every older file.
-    if (v13 && header_.expansion_bus == 0) {
+    // Expansion bus (header offset 142): 0 = disable it by clearing the top
+    // four bits of NR 0x80, 1 = leave it alone. Both loaders do it, whatever
+    // the file's version and whatever DONTRESETNEXTREGS says: nexload2.asm:
+    // 778-780 (then :936-948), and the distro nexload.asm:294-298, which
+    // since its v14 reads offset 142 of every file it loads — so the zero a
+    // V1.0-V1.2 file carries there DOES disable the bus (measured: NR 0x80
+    // $F5 -> $05 for a V1.2 file with 0 there, left at $F5 with 1). Both skip
+    // it on a core older than 3.00.05; jnext reports 3.02.03.
+    if (header_.expansion_bus == 0) {
         const uint8_t nr80 = nr.read(0x80);
         nr.write(0x80, static_cast<uint8_t>(nr80 & 0x0F));
-        Log::emulator()->debug("NEX: V1.3 expansion bus disabled (NR80 {:#04x} -> {:#04x})",
+        Log::emulator()->debug("NEX: expansion bus disabled (NR80 {:#04x} -> {:#04x})",
                                nr80, nr80 & 0x0F);
     }
 

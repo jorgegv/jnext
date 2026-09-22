@@ -162,6 +162,15 @@ the distro image's NextZXOS (`IY=$5C3A`, `I=$09`, IM 1), found identical for
 every launch path tried. Interrupts are off. NR `0xC0`'s interrupt-mode field
 is seeded to match, since no `IM` instruction runs.
 
+The NextREGs follow each loader the same way: NR `0x06` and `0x08` are
+read-modify-writes with each loader's own masks (so the internal-speaker and
+stereo bits a user set survive where that loader keeps them); the V1.0–V1.2
+loader sets 14 MHz before anything else, so a file with DONTRESETNEXTREGS set
+starts at 14 MHz, not at the speed it found; and both loaders act on the
+expansion-bus byte at header offset 142 whatever the file's version. What
+NextZXOS itself leaves in registers no loader writes (its config, its NMI
+setup) jnext does not reproduce; the list is in `apply()`.
+
 ## The esxDOS stand-in for directly loaded programs
 
 On hardware a NEX is always started by NextZXOS's `nexload`, so the program

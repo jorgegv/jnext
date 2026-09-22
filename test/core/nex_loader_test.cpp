@@ -605,9 +605,10 @@ void test_split_screen(const char* tag, uint8_t screen_flag,
 // pass because a sentinel write silently did nothing.
 //
 // NR 0x07 reads back as (actual << 4) | requested (emulator.cpp:1449),
-// so the sentinel 0x02 (14 MHz) reads 0x22 and the reset 0x03 reads
-// 0x33 — and neither is the power-on 0x00.
-constexpr uint8_t kSentinel07 = 0x02, kKeep07 = 0x22, kReset07 = 0x33;
+// so the sentinel 0x01 (7 MHz) reads 0x11, the <= V1.2 flag-set branch's
+// unconditional 14 MHz (nexload.asm:260 `Set14mhz`) reads 0x22 and the reset
+// 0x03 reads 0x33 — and none is the power-on 0x00.
+constexpr uint8_t kSentinel07 = 0x01, kKeep07 = 0x22, kReset07 = 0x33;
 constexpr uint8_t kSentinel12 = 0x0A, kReset12 = 0x09;  // nexload.asm:367
 constexpr uint8_t kSentinel13 = 0x0E, kReset13 = 0x0C;  // nexload.asm:368
 constexpr uint8_t kSentinel14 = 0x5A, kReset14 = 0xE3;  // nexload.asm:369
@@ -616,6 +617,9 @@ constexpr uint8_t kSentinel4B = 0x2C, kReset4B = 0xE3;  // nexload.asm:405
 // Always-run prologue registers (:266-:274).
 constexpr uint8_t kSentinel42 = 0x3F, kAlways42 = 0x0F;  // nexload.asm:266
 constexpr uint8_t kSentinel43 = 0x10, kAlways43 = 0x00;  // nexload.asm:267-268
+// ...and where nexload.asm's gated reset block leaves it: the last palette it
+// sweeps is the sprite first palette (`NEXTREG_nn 67,32`, :402).
+constexpr uint8_t kReset43 = 0x20;
 constexpr uint8_t kSentinel15 = 0x84, kAlways15 = 0x01;  // nexload.asm:274
 constexpr uint8_t kSentinelPal18 = 0x99, kAlwaysPal18 = 0xE3;  // nexload.asm:269-270
 // NR 0x40 (palette index) after the load.
@@ -773,9 +777,11 @@ void test_preserve_nextregs() {
             check_nr("NEXPR-ALWAYS-05", f, 0x42, kAlways42,
                      "DONTRESETNEXTREGS=0: NR 0x42 ULANext format = 0x0F",
                      "nexload.asm:266");
-            check_nr("NEXPR-ALWAYS-06", f, 0x43, kAlways43,
-                     "DONTRESETNEXTREGS=0: NR 0x43 selects the ULA first palette",
-                     "nexload.asm:267");
+            check_nr("NEXPR-ALWAYS-06", f, 0x43, kReset43,
+                     "DONTRESETNEXTREGS=0: NR 0x43 is written by the prologue AND left at "
+                     "$20 (sprite first palette) by the reset block's last palette sweep "
+                     "(measured under NextZXOS: $20 at entry)",
+                     "nexload.asm:267, :402");
             check_nr("NEXPR-ALWAYS-07", f, 0x15, kAlways15,
                      "DONTRESETNEXTREGS=0: NR 0x15 = SLU priority + sprites visible",
                      "nexload.asm:274");
@@ -797,9 +803,10 @@ void test_preserve_nextregs() {
                       "NEXPR-ALWAYS-02", "NEXPR-ALWAYS-03", "NEXPR-ALWAYS-04"});
         } else {
             check_nr("NEXPR-KEEP-01", f, 0x07, kKeep07,
-                     "DONTRESETNEXTREGS=1 on a <= V1.2 file: NR 0x07 CPU speed survives the "
-                     "load — nexload.asm writes it INSIDE the gated block (GH #166)",
-                     "nexload.asm:365");
+                     "DONTRESETNEXTREGS=1 on a <= V1.2 file: NR 0x07 is 14 MHz — the 28 MHz "
+                     "write is INSIDE the gated block (:365, GH #166) but `Set14mhz` runs "
+                     "first, unconditionally (measured under NextZXOS: $22 at entry)",
+                     "nexload.asm:260, :365");
             check_nr("NEXPR-KEEP-02", f, 0x12, kSentinel12,
                      "DONTRESETNEXTREGS=1: NR 0x12 Layer 2 bank survives the load (GH #166)",
                      "nexload.asm:323");
@@ -957,6 +964,110 @@ void test_preserve_nextregs() {
                       "V1.3 reset path)",
                       pal, kSentinelPal18));
         }
+    }
+}
+
+// ── NEXNR — read-modify-write NextREGs and nexload2's tilemap reset ────
+//
+// Peripherals 2 and 3 (NR 0x06 / 0x08) are read-modify-write in both loaders,
+// with different masks, so the value found before the load decides what is
+// left; each row seeds it (standing in for what NextZXOS had) and runs the
+// real load() + apply() without a reset, as PreserveFixture does. Oracle:
+// the loader source, and the probe NEX under NextZXOS for the measured
+// results each row names.
+struct SeededNrFixture {
+    Emulator emu;
+    bool ok = false;
+
+    SeededNrFixture(const char* version, uint8_t preserve, uint8_t nr06, uint8_t nr08,
+                    const char* tag) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+        NextReg& nr = emu.nextreg();
+        nr.write(0x06, nr06);
+        nr.write(0x08, nr08);
+        nr.write(0x6E, 0x2D);   // not the reset $2C/$0C, not 0
+        nr.write(0x6F, 0x2B);
+        const std::string path = fixture_path((std::string("nr_") + tag).c_str());
+        if (!write_preserve_nex(path, preserve, version)) return;
+        NexLoader loader;
+        if (loader.load(path)) ok = loader.apply(emu);
+        std::error_code ec;
+        std::filesystem::remove(path, ec);
+    }
+    uint8_t nr(uint8_t reg) { return emu.nextreg().read(reg); }
+    // NR 0x08 read-back with bit 6 masked: that bit reads the COMMITTED
+    // contention gate (zxnext.vhd:5906), which the write only reaches at the
+    // next CPU bus-idle cycle (:5800-5823) — and nothing runs here.
+    uint8_t nr08() { return static_cast<uint8_t>(nr(0x08) & ~0x40); }
+};
+
+void test_loader_nextregs() {
+    // Seeds: NR 0x06 = $F3 (bits 7,6,5,4,1,0), NR 0x08 = $30 (bits 5,4) and
+    // NR 0x08 = $00 (neither) — every bit either loader keeps or forces is
+    // seeded both ways across the rows.
+    {
+        SeededNrFixture f("V1.2", 0, 0xF3, 0x30, "v12_a");
+        check("NEXNR-01",
+              "<= V1.2: NR 0x08 = (found & $10) | $CE — bit 4 (internal speaker) kept, "
+              "bit 5 cleared, 7/6/3/2/1 set, 0 cleared (nexload.asm:351-361; measured "
+              "$DE from NextZXOS's $FE); read with bit 6 masked",
+              f.ok && f.nr08() == 0x9E, fmt("ok=%d NR08&BF=%02X want 9E", f.ok ? 1 : 0, f.nr08()));
+        check("NEXNR-02",
+              "<= V1.2: NR 0x06 = (found & ~$10) | $08 — bit 4 cleared, bit 3 set, the "
+              "rest kept (nexload.asm:333-347)",
+              f.ok && f.nr(0x06) == 0xEB, fmt("ok=%d NR06=%02X want EB", f.ok ? 1 : 0, f.nr(0x06)));
+    }
+    {
+        SeededNrFixture f("V1.2", 0, 0xA0, 0x00, "v12_b");
+        check("NEXNR-03",
+              "<= V1.2: a clear speaker bit stays clear — NR 0x08 = $CE from $00 "
+              "(nexload.asm:351-361); read with bit 6 masked",
+              f.ok && f.nr08() == 0x8E, fmt("ok=%d NR08&BF=%02X want 8E", f.ok ? 1 : 0, f.nr08()));
+    }
+    {
+        SeededNrFixture f("V1.3", 0, 0xF3, 0x30, "v13_a");
+        check("NEXNR-04",
+              "V1.3: NR 0x08 = (found | $DE) & $FE — bit 5 (stereo) kept, the speaker "
+              "forced on (nexload2.asm:798-799; measured $FE from NextZXOS's $FE); read "
+              "with bit 6 masked",
+              f.ok && f.nr08() == 0xBE, fmt("ok=%d NR08&BF=%02X want BE", f.ok ? 1 : 0, f.nr08()));
+        check("NEXNR-05",
+              "V1.3: NR 0x06 = (found | $09) & $AD (nexload2.asm:793-794; measured $A9 "
+              "from NextZXOS's $A8)",
+              f.ok && f.nr(0x06) == 0xA9, fmt("ok=%d NR06=%02X want A9", f.ok ? 1 : 0, f.nr(0x06)));
+        check("NEXNR-06",
+              "V1.3: nextRegResetData zeroes NR 0x6E / 0x6F, the tilemap base and pattern "
+              "addresses (nexload2.asm:924-925; measured 0/0 at entry)",
+              f.ok && f.nr(0x6E) == 0x00 && f.nr(0x6F) == 0x00,
+              fmt("ok=%d NR6E=%02X NR6F=%02X want 00 00", f.ok ? 1 : 0, f.nr(0x6E), f.nr(0x6F)));
+    }
+    {
+        SeededNrFixture f("V1.3", 0, 0xA0, 0x00, "v13_b");
+        check("NEXNR-07",
+              "V1.3: a clear speaker bit is forced on — NR 0x08 = $DE from $00 "
+              "(nexload2.asm:798-799); read with bit 6 masked",
+              f.ok && f.nr08() == 0x9E, fmt("ok=%d NR08&BF=%02X want 9E", f.ok ? 1 : 0, f.nr08()));
+    }
+    {
+        SeededNrFixture f("V1.3", 1, 0xF3, 0x30, "v13_keep");
+        check("NEXNR-08",
+              "V1.3 with PRESERVENEXTREG set: NR 0x06 / 0x08 / 0x6E / 0x6F all keep what "
+              "was found (nexload2.asm:781-783 returns before them)",
+              f.ok && f.nr(0x06) == 0xF3 && (f.nr(0x08) & 0x3F) == 0x30 &&
+              f.nr(0x6E) == 0x2D && f.nr(0x6F) == 0x2B,
+              fmt("ok=%d NR06=%02X NR08=%02X NR6E=%02X NR6F=%02X", f.ok ? 1 : 0,
+                  f.nr(0x06), f.nr(0x08), f.nr(0x6E), f.nr(0x6F)));
+    }
+    {
+        SeededNrFixture f("V1.2", 0, 0xF3, 0x30, "v12_tm");
+        check("NEXNR-09",
+              "<= V1.2: NR 0x6E / 0x6F are nexload2's to reset, not nexload.asm's — they "
+              "keep what was found",
+              f.ok && f.nr(0x6E) == 0x2D && f.nr(0x6F) == 0x2B,
+              fmt("ok=%d NR6E=%02X NR6F=%02X want 2D 2B", f.ok ? 1 : 0, f.nr(0x6E), f.nr(0x6F)));
     }
 }
 
@@ -2378,6 +2489,10 @@ int main() {
     // The register state at entry.
     set_group("NEXENT");
     test_entry_state();
+
+    // Read-modify-write NextREGs, per loader.
+    set_group("NEXNR");
+    test_loader_nextregs();
 
     // GH #228 — the experimental-V1.3 entry-point gate.
     test_v13_gate();

@@ -2044,6 +2044,14 @@ NextZXOS, which neither loader touches; jnext uses the values measured under
 the distro image's NextZXOS (<code>IY=$5C3A</code>, <code>I=$09</code>, IM 1), found identical for
 every launch path tried. Interrupts are off. NR <code>0xC0</code>'s interrupt-mode field
 is seeded to match, since no <code>IM</code> instruction runs.</p>
+<p>The NextREGs follow each loader the same way: NR <code>0x06</code> and <code>0x08</code> are
+read-modify-writes with each loader's own masks (so the internal-speaker and
+stereo bits a user set survive where that loader keeps them); the V1.0–V1.2
+loader sets 14 MHz before anything else, so a file with DONTRESETNEXTREGS set
+starts at 14 MHz, not at the speed it found; and both loaders act on the
+expansion-bus byte at header offset 142 whatever the file's version. What
+NextZXOS itself leaves in registers no loader writes (its config, its NMI
+setup) jnext does not reproduce; the list is in <code>apply()</code>.</p>
 <h2 id="the-esxdos-stand-in-for-directly-loaded-programs">The esxDOS stand-in for directly loaded programs<a class="headerlink" href="#the-esxdos-stand-in-for-directly-loaded-programs" title="Permanent link">&para;</a></h2>
 <p>On hardware a NEX is always started by NextZXOS's <code>nexload</code>, so the program
 can call the esxDOS / NextZXOS API: <code>RST $08</code> followed by a one-byte call

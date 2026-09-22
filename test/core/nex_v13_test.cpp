@@ -1517,8 +1517,11 @@ void test_expansion_bus() {
               "expansion bus byte 1 leaves NR 0x80 alone",
               f.apply_ok && nr80 == 0xF5, fmt("NR80=%#04x want 0xF5", nr80));
     }
-    // In a V1.0-V1.2 file offset 142 is reserved space holding zero, which
-    // must NOT be read as "disable the expansion bus".
+    // A V1.0-V1.2 file is run by the distro nexload.asm, which since its v14
+    // reads offset 142 of EVERY file it loads (nexload.asm:294-298): the zero
+    // an older file carries there disables the bus too. Measured under
+    // NextZXOS: NR 0x80 $F5 -> $05 for a V1.2 file with 0 at offset 142, and
+    // left at $F5 with 1 there.
     {
         V13Opts o;
         o.version = "V1.2"; o.screen_flags = 0x02; o.expansion_bus = 0;
@@ -1526,8 +1529,20 @@ void test_expansion_bus() {
         Fixture f(o, "exp3", 0xF5);
         const uint8_t nr80 = f.apply_ok ? f.emu.nextreg().read(0x80) : 0x00;
         check("NEXV13-EXP-03",
-              "the expansion bus byte is ignored for V1.0-V1.2 files, whose offset 142 is "
-              "reserved space that is zero for reasons unrelated to the expansion bus",
+              "a V1.2 file with 0 at offset 142 also clears the top four bits of NR 0x80 — "
+              "the distro loader that runs it reads that byte whatever the version "
+              "(nexload.asm:294-298)",
+              f.apply_ok && nr80 == 0x05, fmt("NR80=%#04x want 0x05", nr80));
+    }
+    {
+        V13Opts o;
+        o.version = "V1.2"; o.screen_flags = 0x02; o.expansion_bus = 1;
+        o.banks = {5};
+        Fixture f(o, "exp4", 0xF5);
+        const uint8_t nr80 = f.apply_ok ? f.emu.nextreg().read(0x80) : 0x00;
+        check("NEXV13-EXP-04",
+              "a V1.2 file with 1 at offset 142 leaves NR 0x80 alone "
+              "(nexload.asm:294 `jp nz,.noDisableBus`)",
               f.apply_ok && nr80 == 0xF5, fmt("NR80=%#04x want 0xF5", nr80));
     }
 }
