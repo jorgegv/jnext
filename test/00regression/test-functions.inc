@@ -258,6 +258,21 @@ regression_lib_init() {
     # Locate the jnext executable. Prefer gui-release (fastest), then
     # gui-debug, then the canonical build/. The first existing executable
     # wins. Override with JNEXT=... in the environment to bypass the search.
+    #
+    # MUTATION-TESTING A ROW? READ THIS FIRST. The preference above means a
+    # stale build/gui-release/jnext SHADOWS the build/jnext you just rebuilt:
+    # `cmake --build build` does not touch gui-release, so a mutation compiled
+    # into build/jnext is never executed and the row passes — which reads
+    # exactly like "this row does not discriminate". It cost a reviewer of
+    # GH #18/#19 one wrong conclusion before the re-run with an explicit
+    # JNEXT=... failed correctly. Either rebuild the binary this resolves to
+    # (`make gui-release`) or pin the one you mutated:
+    #
+    #     JNEXT=$PWD/build/jnext bash test/00regression/regression.sh <row>
+    #
+    # This is intended behaviour, not a defect: the suite wants the fastest
+    # binary, and a run must not silently depend on which build dirs happen to
+    # exist. Only the mutation workflow has to know.
     if [[ -z "${JNEXT:-}" ]]; then
         local candidate
         for candidate in "$PROJECT_DIR/build/gui-release/jnext" \

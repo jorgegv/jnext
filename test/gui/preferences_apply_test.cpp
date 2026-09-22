@@ -693,13 +693,13 @@ void test_quick_screenshot_writes_a_file()
         QAction* quick = nullptr;
         for (QAction* a : f.win.findChildren<QAction*>())
             if (a->text() == QStringLiteral("Quic&k Screenshot")) quick = a;
-        if (!quick) {
+        if (quick) {
+            quick->trigger();
+            QApplication::processEvents();
+        } else {
             check("PA-18a", "File > Quick Screenshot writes a PNG into the default directory",
                   false, "action not found");
-            return;
         }
-        quick->trigger();
-        QApplication::processEvents();
 
         const QDir shots(home.path() + QStringLiteral("/screenshots"));
         const QStringList made = shots.entryList(QDir::Files);
@@ -709,11 +709,13 @@ void test_quick_screenshot_writes_a_file()
         const bool named = made.size() == 1 && shape.match(made.first()).hasMatch();
         const qint64 size = named
             ? QFileInfo(shots.filePath(made.first())).size() : 0;
-        check("PA-18a",
-              "File > Quick Screenshot writes one timestamped PNG into the default directory",
-              named && size > 0,
-              (QStringLiteral("files=") + made.join(QLatin1Char(','))
-               + QStringLiteral(" size=") + QString::number(size)).toStdString());
+        if (quick) {
+            check("PA-18a",
+                  "File > Quick Screenshot writes one timestamped PNG into the default directory",
+                  named && size > 0,
+                  (QStringLiteral("files=") + made.join(QLatin1Char(','))
+                   + QStringLiteral(" size=") + QString::number(size)).toStdString());
+        }
     }
 
     // (b) A configuration file that asks for .SCR in a directory of its own:
@@ -748,6 +750,11 @@ void test_quick_screenshot_writes_a_file()
                + QStringLiteral(" size=") + QString::number(size)).toStdString());
     }
 
+    // UNCONDITIONAL, and that is the point: this function is the last call in
+    // main() today, so leaking JNEXT_CONFIG_DIR is harmless RIGHT NOW and would
+    // silently redirect the config of whatever test is added after it. The
+    // early `return` that used to skip this line is gone for the same reason —
+    // a missing action now records its row and falls through.
     qunsetenv("JNEXT_CONFIG_DIR");
 }
 

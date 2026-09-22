@@ -147,6 +147,43 @@ void test_format_from_extension() {
                      std::string("x") + screenshot_format_ext(ScreenshotFormat::Scr))
                      == ScreenshotFormat::Scr,
           "the extension a format names must be the one that selects it back");
+
+    // SH-04 — the LENGTH boundary: a name that is nothing but the extension.
+    //
+    // Not synthetic. The Save Screenshot dialog only appends an extension when
+    // the user typed none, so typing just ".scr" produces exactly this path,
+    // and `--delayed-screenshot .scr` is a legal command line. It is the case
+    // that separates `path.size() < n` from `path.size() <= n` in
+    // ends_with_ci(), and nothing else in this suite reaches it: every other
+    // path here is strictly longer than its extension. The shorter-than-the-
+    // extension half (".sc") is here for the same reason — it is the only
+    // input that needs the guard at all.
+    //
+    // SCOPE, measured rather than assumed: this row catches `< n` weakened to
+    // `<= n` (it fails on ".scr"). It does NOT catch the guard being DELETED —
+    // `path.size() - n` then underflows a size_t and the indexing that follows
+    // is undefined behaviour, which happened to keep every row green when it
+    // was tried. No assertion can be relied on to catch UB, so that is stated
+    // here rather than papered over with a row that passes for accidental
+    // reasons.
+    {
+        std::vector<std::string> bad;
+        struct Case { const char* path; ScreenshotFormat want; };
+        const Case cases[] = {
+            { ".scr",            ScreenshotFormat::Scr },  // length == extension
+            { ".png",            ScreenshotFormat::Png },
+            { ".SCR",            ScreenshotFormat::Scr },
+            { "/tmp/shots/.scr", ScreenshotFormat::Scr },  // basename == extension
+            { ".sc",             ScreenshotFormat::Png },  // shorter than extension
+            { "scr",             ScreenshotFormat::Png },  // no dot at all
+        };
+        for (const Case& c : cases)
+            if (screenshot_format_for_path(c.path) != c.want) bad.push_back(c.path);
+        check("SH-04",
+              "a name that is exactly its extension still selects that format",
+              bad.empty(),
+              bad.empty() ? std::string() : fmt("%zu wrong: %s", bad.size(), bad[0].c_str()));
+    }
 }
 
 // ── Group SH-1x — auto-generated names (GH #19) ──────────────────────

@@ -356,11 +356,22 @@ void Ula::apply_changes_for_line(int line)
 // ---------------------------------------------------------------------------
 //
 // Reads the same storage the ULA fetch reads (fetch_vram_bank), from the bank
-// and address window the LIVE register state selects. It is called after a
-// frame has been rendered, where `screen_mode_reg_` / `mode_` / `alt_file_`
-// have been left at the frame's last replayed value by flush_remaining_changes()
-// above — i.e. at the live port-0xFF value — so no rewind/replay bookkeeping
-// leaks into the capture.
+// and address window the LIVE register state selects.
+//
+// IT DEPENDS ON NOTHING ELSE HAVING RUN. `screen_mode_reg_` and
+// `shadow_screen_en_` are written by their setters at the moment of the port
+// write, so the two values read below are current whenever this is called:
+// after a rendered frame, between frames, mid-frame with the debugger paused,
+// or on a bare Ula in a unit test that has never rendered anything at all
+// (which is exactly what the S18 rows do). The per-scanline replay machinery
+// above — rewind_to_baseline / apply_changes_for_line / flush_remaining_changes
+// — borrows `screen_mode_reg_` for the duration of a render_frame and hands it
+// back, so it is not a precondition of this function and must not become one.
+//
+// An earlier version of this comment claimed the opposite: that correctness
+// came from flush_remaining_changes() having left the register at the frame's
+// last replayed value. That was never true, and a comment asserting a
+// dependency that does not exist is how the next person introduces one.
 //
 // Deliberately NOT routed through attr_vram_read(): AttributeMux reconstructs,
 // for one render row, what an attribute byte held EARLIER in the frame
