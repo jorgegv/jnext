@@ -1222,8 +1222,12 @@ to the screen it reopens on.
 ## MAGIC BREAKPOINT AND MAGIC PORT
 
 The magic breakpoint uses the `ED FF` (ZEsarUX) and `DD 01` (CSpect)
-opcodes to pause the debugger when enabled; they act as a NOP otherwise.
-Enable it with **--magic-breakpoint** or **Debug \> Magic Breakpoint**.
+opcodes to pause the debugger when enabled; execution then resumes right
+after the two bytes. When disabled, and on real hardware, `ED FF` is a
+two-byte NOP, but `DD 01` is not: the `DD` prefix is ignored and
+`01 nn nn` executes as `LD BC,nn`, consuming the two bytes that follow
+and overwriting `BC`. Enable it with **--magic-breakpoint** or **Debug
+\> Magic Breakpoint**.
 
 The magic debug port logs writes to a configurable port to stderr as
 hex, decimal, ASCII or line-buffered text. Enable it with

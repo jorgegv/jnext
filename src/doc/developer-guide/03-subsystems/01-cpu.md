@@ -72,8 +72,9 @@ Two encodings are checked before that table: `ED FF` and `DD 01`, the two magic
 breakpoints. A magic breakpoint is an instruction a program plants in its own
 code to stop the emulator at that exact spot and hand control to the debugger —
 the two encodings are the ones ZEsarUX and CSpect established, and JNEXT honours
-both. They only bite when `--magic-breakpoint` is given; otherwise they behave
-as the NOPs they are on real silicon.
+both. They only bite when `--magic-breakpoint` is given; otherwise they execute
+as on real silicon: `ED FF` as a two-byte NOP, `DD 01 nn nn` as `LD BC,nn`
+(the `DD` prefix ignored).
 
 Z80N instructions account for their own time rather than quoting a table
 constant. The wrapper charges the two M1 fetches via `contend_read()`,

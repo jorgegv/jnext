@@ -1483,7 +1483,11 @@ reopens on.
 .SH MAGIC BREAKPOINT AND MAGIC PORT
 The magic breakpoint uses the \f[CR]ED FF\f[R] (ZEsarUX) and
 \f[CR]DD 01\f[R] (CSpect) opcodes to pause the debugger when enabled;
-they act as a NOP otherwise.
+execution then resumes right after the two bytes.
+When disabled, and on real hardware, \f[CR]ED FF\f[R] is a two\-byte
+NOP, but \f[CR]DD 01\f[R] is not: the \f[CR]DD\f[R] prefix is ignored
+and \f[CR]01 nn nn\f[R] executes as \f[CR]LD BC,nn\f[R], consuming the
+two bytes that follow and overwriting \f[CR]BC\f[R].
 Enable it with \f[B]\-\-magic\-breakpoint\f[R] or \f[B]Debug > Magic
 Breakpoint\f[R].
 .PP

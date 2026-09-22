@@ -1906,8 +1906,9 @@ which would otherwise decode it as a NOP; a miss falls through untouched.</p>
 breakpoints. A magic breakpoint is an instruction a program plants in its own
 code to stop the emulator at that exact spot and hand control to the debugger —
 the two encodings are the ones ZEsarUX and CSpect established, and JNEXT honours
-both. They only bite when <code>--magic-breakpoint</code> is given; otherwise they behave
-as the NOPs they are on real silicon.</p>
+both. They only bite when <code>--magic-breakpoint</code> is given; otherwise they execute
+as on real silicon: <code>ED FF</code> as a two-byte NOP, <code>DD 01 nn nn</code> as <code>LD BC,nn</code>
+(the <code>DD</code> prefix ignored).</p>
 <p>Z80N instructions account for their own time rather than quoting a table
 constant. The wrapper charges the two M1 fetches via <code>contend_read()</code>,
 <code>execute_z80n()</code> charges every operand access through the same FUSE bus
