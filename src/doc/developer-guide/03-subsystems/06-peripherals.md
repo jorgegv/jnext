@@ -121,6 +121,26 @@ interrupt — sample playback rates, music drivers, timed I/O.
 at ports `0x183B`-`0x1B3B`, each a transcription of the VHDL five-state machine,
 and channel *N*'s ZC/TO output feeds channel *N*+1 so they can be cascaded.
 
+The model is exact to the CLK_28 edge, and the edges are where the surprises
+are (GH #265):
+
+- A time constant written from S_RESET_TC passes through S_TRIGGER for one
+  edge with the prescaler held at 0, so a timer's first count lands **17**
+  edges after the write at /16 (257 at /256), then every 16 (256).
+- A constant written while the channel runs does **not** touch the count: it
+  is loaded at the next ZC/TO. A stopped channel reads back its constant,
+  because `reset_soft` reloads `t_count` on every edge.
+- A ZC/TO reaches the next channel of the ring through that channel's edge
+  detector: it counts (or, waiting for a trigger, starts) **two** edges later
+  with a falling-edge trigger (control word D4 = 0), one with a rising one.
+
+`Ctc::tick()` is an event-horizon loop over those edges, and `set_time()` gives
+it the absolute edge so each ZC/TO it reports is stamped for the IM2 fabric.
+Port reads and writes bring the CTC up to their own bus timing first — a read
+takes `port_ctc_dat` as reloaded 2.5 T-states into the `IN`'s I/O cycle
+(`zxnext.vhd:4095-4100`), a write is taken on the CLK_28 edge after IORQ and
+WR assert — and the rest of the instruction is ticked after the port access.
+
 The aliased range `0x1C3B`-`0x1F3B` (A10 = 1) gets its **own** handler, which
 reads `0x00` and drops writes. That is not defensive padding: with the CTC I/O
 enable set, the VHDL asserts a read response and OR-folds zeros, so real
@@ -134,7 +154,10 @@ hardware drives `0x00` there rather than letting the bus float.
 9 bits wide because the VHDL carries a per-byte `overflow OR framing` flag.
 
 **UART 0 is the ESP, UART 1 the Raspberry Pi** (`zxnext.vhd:1611`) — the obvious
-guess is the wrong way round. A channel with nothing attached loops its TX back
+guess is the wrong way round. As with the CTC, a port access brings the UART up
+to its bus timing first (`port_uart_dat` is a CLK_CPU falling-edge register,
+`zxnext.vhd:3418-3423`), and a TX-empty or RX request is stamped with the edge
+the byte engine reports it on. A channel with nothing attached loops its TX back
 into its own RX, which matters more than it sounds; see the replay gate below.
 
 ## The ESP-01

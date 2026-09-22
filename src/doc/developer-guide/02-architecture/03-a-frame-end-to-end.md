@@ -93,13 +93,14 @@ body. It picks exactly one of four things to do:
 - If a NEX boot hold is still counting down, likewise.
 - Otherwise, execute one Z80 instruction.
 
-Around that choice it also records the trace entry, ticks `Im2Controller`,
-polls the /INT line in both IM2 and pulse modes, counts RZX instructions, ticks
-real-time tape playback, and advances the master clock. All of that is shared
-verbatim with `execute_single_instruction()`, and the sharing was not free: the
-debugger's single-step once kept its own copy of this cluster, silently lost
-`im2_.tick()` and both /INT polls, and so delivered no interrupts at all while
-you were stepping.
+Around that choice it also records the trace entry, notes what the end-of-slot
+interrupt tick will need (the instruction's T-states, its first edge, its opcode
+fetches), counts RZX instructions, ticks real-time tape playback, and advances
+the master clock. All of that is shared verbatim with
+`execute_single_instruction()`, and the sharing was not free: the debugger's
+single-step once kept its own copy of this cluster, silently lost the IM2 tick
+and both /INT polls, and so delivered no interrupts at all while you were
+stepping.
 
 **Then a data-breakpoint check**, which returns early if one fired.
 
@@ -108,15 +109,30 @@ shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed; the deferred CPU
 NextREG writes are drained, so that a same-register collision ends up holding
 the CPU's value exactly as the VHDL does; the NR 0x07 and NR 0x08 bit-6 commit
-edges are applied; CTC, UART and MD6 are ticked; the I/O-mode injectors run;
-the NMI source pipeline and the /NMI falling edge are handled; PSG ticking and
-audio integration happen; and last of all `scheduler_.run_until(clock_.get())`
-is called.
+edges are applied; CTC, UART and MD6 are ticked for whatever part of the
+instruction a port access inside it has not already brought them through; the
+I/O-mode injectors run; the NMI source pipeline and the /NMI falling edge are
+handled; PSG ticking and audio integration happen; `run_scheduled_until(clock_)`
+drains the scheduler and the separate queue that holds the ULA frame and line
+interrupt requests; and last of all `finish_slot_interrupts()` ticks the IM2
+fabric for the instruction and hands the CPU the exact /INT window for the
+next boundary.
 
-That final call is where the scheduled events actually fire, and it has a
+The scheduler drain is where the scheduled events actually fire, and it has a
 consequence worth internalising: **`on_scanline` and the interrupt callbacks
 run at instruction boundaries**, on the first instruction that carries the
 clock past their timestamp — not at the exact cycle they were scheduled for.
+
+For interrupts that is not the whole story (GH #265). Every request — frame and
+line interrupt, CTC ZC/TO, UART — carries the CLK_28 edge it happened on, and
+because the IM2 tick runs *after* the devices and the event queues, the fabric
+resolves the instruction's own requests on that timeline and the CPU takes an
+interrupt at the first boundary whose last T-state samples it (see the CPU
+page). A port read or write whose value depends on these devices — CTC, UART,
+the interrupt-status NextREGs, the tape EAR bit — first brings them up to the
+edge its bus cycle latches or commits on (`Emulator::sync_io_devices_to()`),
+so it sees what the VHDL register holds at that edge; the rest of the
+instruction is ticked afterwards, so every edge is ticked exactly once.
 
 `Emulator::on_scanline(line)` (`:9092`) renders nothing at all. What it does is
 capture the previous row's fallback colour, ULA-enable, stencil and blend mode,

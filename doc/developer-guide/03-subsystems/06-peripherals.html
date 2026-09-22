@@ -1988,6 +1988,25 @@ interrupt — sample playback rates, music drivers, timed I/O.</p>
 <p><code>ctc.{h,cpp}</code> models <code>device/ctc.vhd</code> and <code>ctc_chan.vhd</code>. The four channels sit
 at ports <code>0x183B</code>-<code>0x1B3B</code>, each a transcription of the VHDL five-state machine,
 and channel <em>N</em>'s ZC/TO output feeds channel <em>N</em>+1 so they can be cascaded.</p>
+<p>The model is exact to the CLK_28 edge, and the edges are where the surprises
+are (GH #265):</p>
+<ul>
+<li>A time constant written from S_RESET_TC passes through S_TRIGGER for one
+  edge with the prescaler held at 0, so a timer's first count lands <strong>17</strong>
+  edges after the write at /16 (257 at /256), then every 16 (256).</li>
+<li>A constant written while the channel runs does <strong>not</strong> touch the count: it
+  is loaded at the next ZC/TO. A stopped channel reads back its constant,
+  because <code>reset_soft</code> reloads <code>t_count</code> on every edge.</li>
+<li>A ZC/TO reaches the next channel of the ring through that channel's edge
+  detector: it counts (or, waiting for a trigger, starts) <strong>two</strong> edges later
+  with a falling-edge trigger (control word D4 = 0), one with a rising one.</li>
+</ul>
+<p><code>Ctc::tick()</code> is an event-horizon loop over those edges, and <code>set_time()</code> gives
+it the absolute edge so each ZC/TO it reports is stamped for the IM2 fabric.
+Port reads and writes bring the CTC up to their own bus timing first — a read
+takes <code>port_ctc_dat</code> as reloaded 2.5 T-states into the <code>IN</code>'s I/O cycle
+(<code>zxnext.vhd:4095-4100</code>), a write is taken on the CLK_28 edge after IORQ and
+WR assert — and the rest of the instruction is ticked after the port access.</p>
 <p>The aliased range <code>0x1C3B</code>-<code>0x1F3B</code> (A10 = 1) gets its <strong>own</strong> handler, which
 reads <code>0x00</code> and drops writes. That is not defensive padding: with the CTC I/O
 enable set, the VHDL asserts a read response and OR-folds zeros, so real
@@ -1998,7 +2017,10 @@ hardware drives <code>0x00</code> there rather than letting the bus float.</p>
 (framing), each with a 512-byte RX FIFO and a 64-byte TX FIFO. RX entries are
 9 bits wide because the VHDL carries a per-byte <code>overflow OR framing</code> flag.</p>
 <p><strong>UART 0 is the ESP, UART 1 the Raspberry Pi</strong> (<code>zxnext.vhd:1611</code>) — the obvious
-guess is the wrong way round. A channel with nothing attached loops its TX back
+guess is the wrong way round. As with the CTC, a port access brings the UART up
+to its bus timing first (<code>port_uart_dat</code> is a CLK_CPU falling-edge register,
+<code>zxnext.vhd:3418-3423</code>), and a TX-empty or RX request is stamped with the edge
+the byte engine reports it on. A channel with nothing attached loops its TX back
 into its own RX, which matters more than it sounds; see the replay gate below.</p>
 <h2 id="the-esp-01">The ESP-01<a class="headerlink" href="#the-esp-01" title="Permanent link">&para;</a></h2>
 <p>A real ZX Spectrum Next has an ESP-01 WiFi module soldered to it, talking to the

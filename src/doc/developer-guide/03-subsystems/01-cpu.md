@@ -145,13 +145,23 @@ before the byte is fetched through them. `on_m1_cycle` fires *after*, once per
 fetched byte of a prefix chain — including the inner byte of `DD ED xx` —
 because the IM2 opcode decoder models one event per M1.
 
-`request_interrupt()` records the T-state at which /INT was asserted, and
-`execute()` drops a pending request once the hardware pulse window has elapsed
-(32 CPU cycles on 48K/+3, 36 otherwise, per `zxnext.vhd:2033`). It does so
-unconditionally rather than gating on IFF1, because the hardware line goes high
-again regardless of whether anyone was listening. It also replicates FUSE's
-EI-grace rejection *before* calling `on_int_ack`, so the daisy chain is not
-advanced by an acknowledge cycle that never happens. The vector comes from
+`request_interrupt(vector, first, last)` gives the CPU the window of
+instruction boundaries, on the FUSE T-state counter, at which /INT is seen low.
+The T80 samples INT_n into INT_s on every CPU rising edge (`t80n.vhd:1664`) and
+decides at the end of an instruction with the INT_s taken at the *start* of its
+last T-state (`:1742-1772`), so a pulse first sampled on CPU edge E_1 and last on
+E_N is taken at a boundary in [E_1 + 1 T, E_N + 1 T] — 32 CPU cycles on 48K/+3,
+36 otherwise (`zxnext.vhd:2033`). `execute()` takes it at the first boundary
+inside the window, keeps it pending at one before (a request resolved at the end
+of an instruction can be too late for that instruction's boundary), and drops it
+once the window has passed — unconditionally rather than gating on IFF1, because
+the hardware line goes high again regardless of whether anyone was listening.
+The one-argument `request_interrupt(vector)` is the window "from now, for the
+pulse width", for callers without a timeline. `Emulator::begin_new_frame()`
+moves the window, and FUSE's EI stamp, when it rebases the counter at each frame
+(GH #265). `execute()` also replicates FUSE's EI-grace rejection *before*
+calling `on_int_ack`, so the daisy chain is not advanced by an acknowledge cycle
+that never happens. The vector comes from
 `on_int_ack()` when one is installed, and from `int_vector_` otherwise. NMI has
 a path of its own, including the Next's stackless mode (NR 0xC0 bit 3), which
 suppresses the stack writes and substitutes the live NR 0xC3:0xC2 pair on the
@@ -165,8 +175,26 @@ enable bit, unqualified one-shot, status latch — and the `im2_device.vhd`
 four-state machine `S_0 → S_REQ → S_ACK → S_ISR` with its IEI/IEO daisy chain.
 The controller additionally holds the `im2_control.vhd` decoder that recognises
 RETI/RETN and IM-mode changes out of the M1 byte stream, the legacy pulse-mode
-/INT generator, and the NR 0xCC/CD/CE DMA-delay latch. It is ticked once per
-instruction with the T-states that instruction consumed.
+/INT generator, and the NR 0xCC/CD/CE DMA-delay latch.
+
+It is ticked once per instruction, at the *end* of the instruction's slot
+(`Emulator::finish_slot_interrupts()`), after the devices and the interrupt
+events have raised that instruction's requests, and it runs on the CLK_28
+timeline (GH #265): each request carries the edge it was raised on
+(`raise_req(dev, edge)`), and the tick resolves them in edge order — the status
+and `im2_int_req` latches set on the edge after the request
+(`im2_peripheral.vhd:154-178`), the pulse falling on the CLK_28 falling edge
+after it and lasting 32/36 CPU edges (`zxnext.vhd:2017-2044`), a device
+entering S_REQ on the first CPU edge after its latch that has M1_n high
+(`im2_device.vhd:106`; M1_n is low for T1-T2 of every opcode fetch, which is why
+the tick is told how many fetches the instruction opened with).
+`latch_edges_until()` does the same part-way through an instruction, for an
+interrupt-status read or a write that must be ordered against the requests.
+A request raised while no instruction runs — a DMA burst, a NEX boot hold —
+keeps its edge for the status latch, but its pulse starts with the next
+instruction: jnext's DMA holds the bus for whole bursts, and letting a pulse
+expire unseen behind one would be a bus-arbitration model jnext does not have,
+not the VHDL.
 
 Peripherals do not call the controller directly in new code. They hold an
 `Im2Client` instead — a two-field facade binding one `DevIdx` — so a device

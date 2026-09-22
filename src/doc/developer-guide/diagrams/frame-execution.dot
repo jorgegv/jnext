@@ -50,7 +50,7 @@ digraph frame_execution {
     trapd [label="handle trap, charge fake cycles,\nrun scheduler, continue"];
 
     step [label="step_one_instruction()\nCPU executes; contention applied per access"];
-    devs [label="tick_devices_after_instruction()\nCopper, CTC, DMA, UART, audio accumulation,\nscanline boundary work"];
+    devs [label="tick_devices_after_instruction()\nCopper, CTC, DMA, UART, audio accumulation,\nscanline boundary work, then the IM2 tick\nand the /INT window for the next boundary"];
 
     endf [label="frame accounting\nlast vc/hc, frame_cycle_ = frame_end,\nfinal per-line snapshots", fillcolor="#ecdfe0"];
     // The frame is composited HERE, not scanline by scanline as it is
