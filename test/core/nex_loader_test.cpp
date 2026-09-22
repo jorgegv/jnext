@@ -157,7 +157,11 @@ uint16_t pal_expected_rgb333(int i) {
 bool write_nex_fixture(const std::string& path, uint8_t screen_flag, size_t screen_bytes,
                        bool with_palette = false) {
     const size_t pal_bytes = with_palette ? 512u : 0u;
-    std::vector<uint8_t> file(512 + pal_bytes + screen_bytes, 0x00);
+    // The header first, at its fixed 512 bytes; the blocks after it below.
+    // (Sizing the vector as 512 + pal_bytes + screen_bytes up front let GCC
+    // see a sum that could wrap below 4 and flag the memcpy with
+    // -Wstringop-overflow.)
+    std::vector<uint8_t> file(512, 0x00);
 
     std::memcpy(file.data() + 0, "Next", 4);
     std::memcpy(file.data() + 4, "V1.2", 4);
@@ -173,6 +177,7 @@ bool write_nex_fixture(const std::string& path, uint8_t screen_flag, size_t scre
     file[133] = 0;  // start_delay
     file[134] = 0;  // preserve_regs = 0
 
+    file.resize(512 + pal_bytes + screen_bytes, 0x00);
     if (with_palette) {
         for (int i = 0; i < 256; ++i) {
             file[512 + i * 2]     = pal_lo(i);
