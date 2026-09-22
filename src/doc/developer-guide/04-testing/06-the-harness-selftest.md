@@ -74,7 +74,7 @@ an entry with no CMake counterpart would make the unit harness refuse to run.
 ## The traceability self-tests
 
 ```console
-$ make traceability-selftest          # the citation extractor, 202 pinned rows
+$ make traceability-selftest          # citation extractor + dup-ID gate, 210 pinned rows
 $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 ```
 
@@ -82,10 +82,11 @@ $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 lines justify each traceability row. Its end-to-end rows build a throwaway
 repository out of the real manifest, CMakeLists and matrix, populated with stub
 sources and binaries, and then run the real refresh script against it twice, so
-that idempotence and the refusal paths are both exercised. It pins
-`$EXPECTED_ROWS = 202` in the same shape as the harness self-test, and for the
-same reason it cannot live in the unit manifest — it is a perl script with no
-CMake target.
+that idempotence and the refusal paths are both exercised. `SELF-208`..`SELF-210`
+run `test/traceability-dup-ids.pl` the same way, against a two-suite fixture in
+which one suite is `?`-prefixed (GH #243). It pins `$EXPECTED_ROWS = 210` in the
+same shape as the harness self-test, and for the same reason it cannot live in
+the unit manifest — it is a perl script with no CMake target.
 
 Both are prerequisites of `make unit-test`, and that matters more than the
 checks themselves do. Until they were wired in, nothing invoked them — not
