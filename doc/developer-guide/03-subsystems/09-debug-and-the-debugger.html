@@ -1853,8 +1853,9 @@ build — while the Qt <em>UI</em> sits above both and can be compiled out entir
 <h2 id="two-directories-and-the-split-is-the-design">Two directories, and the split is the design<a class="headerlink" href="#two-directories-and-the-split-is-the-design" title="Permanent link">&para;</a></h2>
 <p><strong><code>src/debug/</code></strong> (target <code>jnext_debug</code>) is the backend: disassembler,
 breakpoint and watchpoint sets, execution-control state, instruction trace log,
-call-stack tracker, symbol table, rewind ring buffer. It has <strong>no Qt dependency
-at all</strong>. <strong><code>src/debugger/</code></strong> (target <code>jnext_debugger</code>) is the Qt 6 UI and
+call-stack tracker, symbol table, rewind ring buffer, and the raster-state
+derivation (<code>raster_state.*</code>) behind the Video panel's beam/fetch indicator. It
+has <strong>no Qt dependency at all</strong>. <strong><code>src/debugger/</code></strong> (target <code>jnext_debugger</code>) is the Qt 6 UI and
 nothing else — panels, menus, the debugger window.</p>
 <p>Three things fall out of that. The backend is testable without a GUI:
 <code>rewind_test</code> and <code>resume_guard_test</code> link it with no Qt anywhere, while the
@@ -2086,7 +2087,7 @@ introspects:</p>
 </tr>
 <tr>
 <td>Video</td>
-<td>each layer rendered separately — composite, ULA primary and shadow, Layer 2 active and shadow, sprites, tilemap, and the NR 0x4A fallback colour</td>
+<td>the raster position in all four counter domains plus the ULA fetch phase (<code>src/debug/raster_state.*</code>), and each layer rendered separately — composite, ULA primary and shadow, Layer 2 active and shadow, sprites, tilemap, and the NR 0x4A fallback colour</td>
 </tr>
 <tr>
 <td>Sprites</td>
@@ -2109,6 +2110,15 @@ introspects:</p>
 <p>For what these look like and how to drive them, see chapter 6 of the <strong>user
 guide</strong>, <em>The debugger</em> — a UI reference written against the running product,
 and not repeated here.</p>
+<p>The Video panel's raster block is worth a note, because it is the one place a
+user sees <code>hc</code>/<code>vc</code>, <code>hc_ula</code>/<code>vc_ula</code>, <code>cvc</code> and <code>phc</code> side by side. Every
+number is labelled with the VHDL signal it mirrors, and <code>cvc</code> is labelled as
+what NR 0x1E/0x1F report — reading that register as a raw frame line is GH #16,
+and comparing a 28 MHz count against the 7 MHz <code>hc_ula</code> is GH #181. The
+derivation lives in <code>src/debug/raster_state.*</code> and takes the live <code>VideoTiming</code>
+by reference, so a machine-timing change moves the readout, the region
+classification, the fetch schedule and the frame diagram together; there is
+deliberately no second table of raster constants in <code>src/debugger/</code>.</p>
 <p>Four panels (CPU, Disassembly, Stack, Call Stack) update only while paused.
 That is a performance decision as much as a legibility one: reading the
 register file every frame while the machine runs produces a blur, at real cost.</p>

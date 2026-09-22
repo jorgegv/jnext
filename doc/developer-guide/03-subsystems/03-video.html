@@ -1884,8 +1884,13 @@ rates:</p>
 <td><code>VideoTiming</code> in <code>src/video/timing.h</code></td>
 </tr>
 <tr>
-<td><code>hc_ula</code> / <code>cvc</code> ULA pixel counters</td>
+<td><code>hc_ula</code> / <code>vc_ula</code> / <code>cvc</code> ULA pixel counters</td>
 <td>7 MHz, shifted origin</td>
+<td>derived from <code>VideoTiming</code></td>
+</tr>
+<tr>
+<td><code>phc</code> practical pixel counter</td>
+<td>7 MHz, <code>hc_ula - 12</code></td>
 <td>derived from <code>VideoTiming</code></td>
 </tr>
 </tbody>
@@ -1903,6 +1908,21 @@ that pair before stepping it. Passing the raw master-cycle offset through
 instead — wrong by a factor of four in scale <em>and</em> wrong in origin — made every
 non-trivial <code>WAIT</code> fire early. That was a real defect here, not a hypothetical
 one.</p>
+<p><code>phc</code> is a fourth origin again: the pixel actually being generated. The VHDL
+loads it with <code>-48</code> and counts up, so <code>phc == 0</code> is the first paper pixel, which
+is <code>hc_ula == 0xC</code> (<code>zxula.vhd:43-46</code>). The twelve-tick gap is the ULA's
+prefetch lead, and it is why the fetch window and the visible paper area are
+<em>not</em> the same span of a line.</p>
+<p><code>src/debug/raster_state.h</code> is the one place that spells all four out together,
+for the debugger's raster indicator (GH #22). It classifies the beam's region
+(<code>blank_n</code> from <code>zxula_timing.vhd:348-357</code>, <code>border_active</code> from
+<code>zxula.vhd:415</code>) and the ULA's fetch phase (<code>vram_a</code>/<code>vram_rd</code> on
+<code>zxula.vhd:226-263</code> — bit 1 of <code>hc_ula</code> selects bitmap vs attribute, gated by
+<code>border_active_ula</code> at <code>:416</code>). It is Qt-free and takes a <code>VideoTiming</code> by
+reference: the per-machine constants stay in the one timing model, and the
+<code>c_max_hblank</code> / <code>c_max_vblank</code> accessors were added there rather than
+duplicated in the panel. <code>raster_state_test</code> pins it per machine against the
+VHDL.</p>
 <p>NR 0x1E/0x1F read <code>cvc</code> back, and <em>when</em> they read it matters as much as the
 origin. The master clock only advances once an instruction completes, so inside
 an <code>IN</code> <code>clock_</code> is still the instruction's start.

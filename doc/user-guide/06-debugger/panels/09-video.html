@@ -1839,6 +1839,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Video
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="09-video.html" class="md-nav__link md-nav__link--active">
         
   
@@ -1855,6 +1873,47 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#where-the-beam-is-and-what-the-ula-is-doing" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Where the beam is, and what the ULA is doing
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
+  <a href="#layers-and-palette" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Layers and palette
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2756,11 +2815,71 @@
 <h1 id="video">Video<a class="headerlink" href="#video" title="Permanent link">&para;</a></h1>
 <p><img alt="Video panel" src="../../img/debugger-video.png" /></p>
 <p>The state of the whole display pipeline, and a picture of each layer on its own.</p>
-<p>The header shows the raster position (<code>HC</code> and <code>VC</code>, the raw hardware
-counters) — only while paused — and, at all times, which layers are enabled
-(green) or disabled (grey), which of the six priority orders
-<code>SLU LSU SUL LUS USL ULS</code> is selected, and the 32 reachable entries of the
-active ULA palette as swatches.</p>
+<h2 id="where-the-beam-is-and-what-the-ula-is-doing">Where the beam is, and what the ULA is doing<a class="headerlink" href="#where-the-beam-is-and-what-the-ula-is-doing" title="Permanent link">&para;</a></h2>
+<p>The header shows the raster position while paused, and it shows it in every
+coordinate system that matters, because the hardware has four of them and they
+do not agree:</p>
+<table>
+<thead>
+<tr>
+<th>Line</th>
+<th>Counter</th>
+<th>Origin</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>raw</code></td>
+<td>The frame counters <code>hc</code> / <code>vc</code></td>
+<td>Top-left of the whole frame, blanking included</td>
+</tr>
+<tr>
+<td><code>ULA</code></td>
+<td><code>hc_ula</code> / <code>vc_ula</code></td>
+<td>The ULA's own counters: both read 0 at the start of the display area</td>
+</tr>
+<tr>
+<td><code>Copper</code></td>
+<td><code>cvc</code></td>
+<td><code>vc_ula</code> plus the NR <code>0x64</code> copper offset — <strong>this is the counter NR <code>0x1E</code>/<code>0x1F</code> report</strong></td>
+</tr>
+<tr>
+<td><code>Pixel</code></td>
+<td><code>phc</code> / <code>vc_ula</code></td>
+<td>The pixel being generated: <code>0,0</code> is the top-left paper pixel</td>
+</tr>
+</tbody>
+</table>
+<p>Read the labels. <code>vc</code> 100 and <code>cvc</code> 36 can be the same instant on a 128K
+machine; a program that polls NR <code>0x1F</code> sees the second number, and comparing
+it against the first is a classic way to lose an afternoon. Pixel <code>x</code> goes
+negative in the left border, which is deliberate: <code>-12</code> means twelve pixel
+clocks before the first paper pixel of the line.</p>
+<p><strong>Region</strong> says whether the beam is in <code>Paper</code>, <code>Border</code> or <code>Blanking</code>, and the
+diagram beside the numbers shows the same thing spatially — the frame with its
+blanking (dark), border (mid) and 256×192 paper (light) areas, and a marker on
+the current scanline at the current column.</p>
+<p><strong>ULA fetch</strong> says whether the ULA is reading display memory right now, and
+what: a <code>Bitmap</code> byte, an <code>Attribute</code> byte, or <code>Idle</code>. This is the piece you
+cannot get from NR <code>0x1E</code>/<code>0x1F</code>, and it is usually the answer you want: if you
+have just broken on a write to an attribute byte, it tells you whether the ULA
+had already read that byte for this line.</p>
+<p>The two are independent, and that is not a bug in the display. The ULA runs
+twelve pixel clocks ahead of the beam, so at the start of every display line it
+is already fetching while the beam is still painting the left border, and at
+the end of the line it has stopped fetching while the last twelve pixels are
+still being shifted out. In Timex hi-colour and hi-res modes the attribute
+slots fetch a second bitmap plane instead, and the panel says <code>Bitmap</code> for
+them.</p>
+<p>All of this is derived from the emulator's own timing model, so the numbers,
+the regions and the fetch schedule follow the selected machine — 48K, 128K, +3
+and Pentagon have different line lengths, display origins and blanking windows.
+Switch to Pentagon and the diagram changes shape: its horizontal blanking is
+narrower than the other machines' and its vertical blanking is taller.</p>
+<h2 id="layers-and-palette">Layers and palette<a class="headerlink" href="#layers-and-palette" title="Permanent link">&para;</a></h2>
+<p>At all times the header also shows which layers are enabled (green) or disabled
+(grey), which of the six priority orders <code>SLU LSU SUL LUS USL ULS</code> is selected,
+and the 32 reachable entries of the active ULA palette as swatches.</p>
 <p>Below that, one tab per view:</p>
 <table>
 <thead>

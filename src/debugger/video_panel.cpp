@@ -3,6 +3,7 @@
 #include "port/nextreg.h"
 #include "video/palette.h"
 #include "video/renderer.h"
+#include "video/timing.h"
 #include "video/layer2.h"
 #include "video/sprites.h"
 #include "video/tilemap.h"
@@ -66,6 +67,116 @@ protected:
 private:
     static constexpr int CELL = 20;
     uint32_t colours_[N]{};
+};
+
+// ---------------------------------------------------------------------------
+// RasterDiagramWidget — the beam position on a map of the whole frame (GH #22).
+//
+// Three nested rectangles, all in RAW frame-counter space, all with their
+// bounds taken from the live VideoTiming (never from constants of its own):
+//
+//   blanking  the whole frame minus [c_max_hblank+1, c_max_vblank+1)
+//             (VHDL zxula_timing.vhd:348-357)
+//   paper     raw hc [c_min_hactive+1, c_min_hactive+256] x
+//             raw vc [c_min_vactive,   c_min_vactive+191]
+//             — `border_active` is `i_phc(8) or border_active_v`
+//             (zxula.vhd:414-415), and phc reads 0 at raw hc c_min_hactive+1
+//             (zxula.vhd:43-46), which is where the one-pixel offset comes from
+//   border    whatever the other two leave
+//
+// The regions really are rectangles in this space, so this is the same
+// classification RasterState makes, drawn rather than named — not a second
+// model of it.
+// ---------------------------------------------------------------------------
+
+class RasterDiagramWidget : public QWidget {
+public:
+    static constexpr int W = 200;
+    static constexpr int H = 136;
+
+    explicit RasterDiagramWidget(QWidget* parent = nullptr)
+        : QWidget(parent)
+    {
+        setFixedSize(W, H);
+        setToolTip(QObject::tr(
+            "Beam position on the frame.  Light = paper (256x192), "
+            "mid = border, dark = blanking.\n"
+            "Updated only while the emulator is paused."));
+    }
+
+    /// Per-machine frame geometry, straight from VideoTiming.
+    void set_frame(int ticks_per_line, int lines_per_frame,
+                   int max_hblank, int max_vblank,
+                   int min_hactive, int min_vactive)
+    {
+        ticks_per_line_  = ticks_per_line;
+        lines_per_frame_ = lines_per_frame;
+        max_hblank_      = max_hblank;
+        max_vblank_      = max_vblank;
+        min_hactive_     = min_hactive;
+        min_vactive_     = min_vactive;
+        update();
+    }
+
+    /// Beam position in raw frame counters; `valid` is false while running,
+    /// when the panel has no meaningful position to show.
+    void set_beam(int raw_hc, int raw_vc, bool valid)
+    {
+        beam_hc_    = raw_hc;
+        beam_vc_    = raw_vc;
+        beam_valid_ = valid;
+        update();
+    }
+
+protected:
+    void paintEvent(QPaintEvent*) override {
+        QPainter p(this);
+        const double sx = static_cast<double>(W) / ticks_per_line_;
+        const double sy = static_cast<double>(H) / lines_per_frame_;
+
+        // Blanking fills the whole frame; the visible area is painted over it.
+        p.fillRect(0, 0, W, H, QColor(0x1B, 0x1B, 0x22));
+
+        auto rect_for = [&](int hc0, int hc1, int vc0, int vc1) {
+            const int x0 = static_cast<int>(hc0 * sx);
+            const int y0 = static_cast<int>(vc0 * sy);
+            const int x1 = static_cast<int>((hc1 + 1) * sx);
+            const int y1 = static_cast<int>((vc1 + 1) * sy);
+            return QRect(x0, y0, std::max(1, x1 - x0), std::max(1, y1 - y0));
+        };
+
+        p.fillRect(rect_for(max_hblank_ + 1, ticks_per_line_ - 1,
+                            max_vblank_ + 1, lines_per_frame_ - 1),
+                   QColor(0x4A, 0x5A, 0x78));                       // border
+        p.fillRect(rect_for(min_hactive_ + 1, min_hactive_ + 256,
+                            min_vactive_,     min_vactive_ + 191),
+                   QColor(0xC8, 0xD4, 0xE8));                       // paper
+
+        p.setPen(QColor(0x80, 0x80, 0x80));
+        p.drawRect(0, 0, W - 1, H - 1);
+
+        if (!beam_valid_) return;
+
+        // The scanline the beam is on, then the beam itself.
+        const int by = static_cast<int>(beam_vc_ * sy);
+        const int bx = static_cast<int>(beam_hc_ * sx);
+        p.setPen(QColor(0xFF, 0x40, 0x40, 0x80));
+        p.drawLine(0, by, W - 1, by);
+        p.setPen(QColor(0xFF, 0x20, 0x20));
+        p.drawLine(bx, std::max(0, by - 4), bx, std::min(H - 1, by + 4));
+        p.fillRect(QRect(bx - 1, by - 1, 3, 3), QColor(0xFF, 0x20, 0x20));
+    }
+
+private:
+    int  ticks_per_line_  = 456;
+    int  lines_per_frame_ = 311;
+    int  max_hblank_      = 95;
+    int  max_vblank_      = 7;
+    int  min_hactive_     = 136;
+    int  min_vactive_     = 64;
+    int  beam_hc_         = 0;
+    int  beam_vc_         = 0;
+    bool beam_valid_      = false;
 };
 
 // ---------------------------------------------------------------------------
@@ -154,6 +265,26 @@ static void restore_checker_where_transparent(uint32_t* dst, int row, int width)
 // would inject phantom NextREG reads into the log used to diagnose NextREG traffic.
 // (None of these four handlers mutates state, so read() would be safe here — but the
 // debugger has its own read, and this is it.)
+// GH #22 — the raster/ULA-fetch answer the panel shows, without a QWidget.
+//
+// Deliberately sourced from Emulator::paused_hc()/paused_vc(), NOT from
+// VideoTiming::pos(): the latter's counters are only advanced when a debugger
+// is attached (emulator.cpp, "Task 27 C10 ... purely the debug observable"),
+// while the paused pair is derived from the master clock, which is what every
+// other raster consumer (NR 0x1E/0x1F, the Copper, contention) also uses.
+//
+// The ULA mode inputs are the live registers, because they decide WHAT is
+// being fetched: port 0xFF bits 2:0 select the Timex modes whose "attribute"
+// slots fetch a second bitmap plane instead, and the shadow-screen bit forces
+// screen_mode to "000" (zxula.vhd:191, :238-239, :248-249).
+RasterState video_panel_raster_state(Emulator& emu)
+{
+    return raster_state_at(emu.video_timing(),
+                           emu.paused_hc(), emu.paused_vc(),
+                           emu.ula().get_screen_mode_reg(),
+                           emu.ula().get_shadow_screen_en());
+}
+
 void video_panel_layer_state(Emulator& emu, bool active_out[4], int& priority_out)
 {
     const uint8_t reg15 = emu.nextreg().peek(0x15);
@@ -596,21 +727,53 @@ void VideoPanel::create_ui()
         return lbl;
     };
 
-    // ── Raster ───────────────────────────────────────────────────────────────
+    // ── Raster position + ULA fetch (GH #22) ─────────────────────────────────
+    //
+    // Four counters with four origins, each line naming the VHDL signal it
+    // shows.  The labelling is the feature: reading NR 0x1E/0x1F as a raw
+    // frame line is GH #16, and comparing a 28 MHz count against the ULA's
+    // 7 MHz hc_ula is GH #181.
     {
         auto* row = new QHBoxLayout();
-        row->setSpacing(4);
-        row->addWidget(make_bold("Raster:      "));
-        row->addWidget(make_bold("HC:"));
-        hc_label_ = make_val("---");
-        hc_label_->setFixedWidth(hc_label_->fontMetrics().horizontalAdvance("000") + 4);
-        row->addWidget(hc_label_);
-        row->addSpacing(12);
-        row->addWidget(make_bold("VC:"));
-        vc_label_ = make_val("---");
-        vc_label_->setFixedWidth(vc_label_->fontMetrics().horizontalAdvance("000") + 4);
-        row->addWidget(vc_label_);
-        row->addStretch();
+        row->setSpacing(8);
+
+        auto* col = new QVBoxLayout();
+        col->setSpacing(1);
+
+        auto* head = new QHBoxLayout();
+        head->setSpacing(4);
+        head->addWidget(make_bold("Raster:"));
+        head->addStretch();
+        col->addLayout(head);
+
+        raw_label_   = make_val("raw     hc:----  vc:----  VHDL hc / vc (frame)");
+        ula_label_   = make_val("ULA     hc:----  vc:----  o_hc_ula / o_vc_ula");
+        cvc_label_   = make_val("Copper cvc:----           NR 0x1E/0x1F read THIS");
+        pixel_label_ = make_val("Pixel    x:----   y:----  o_phc / o_vc_ula");
+        col->addWidget(raw_label_);
+        col->addWidget(ula_label_);
+        col->addWidget(cvc_label_);
+        col->addWidget(pixel_label_);
+
+        auto* state = new QHBoxLayout();
+        state->setSpacing(4);
+        state->addWidget(make_bold("Region:"));
+        region_label_ = make_val("---");
+        state->addWidget(region_label_);
+        state->addSpacing(12);
+        state->addWidget(make_bold("ULA fetch:"));
+        fetch_label_ = make_val("---");
+        state->addWidget(fetch_label_);
+        state->addStretch();
+        col->addLayout(state);
+        col->addStretch();
+
+        row->addLayout(col, 1);
+        raster_diagram_ = new RasterDiagramWidget(this);
+        // Named so the panel test can grab it and check the three regions
+        // land where the live VideoTiming puts them (GH #22).
+        raster_diagram_->setObjectName(QStringLiteral("rasterDiagram"));
+        row->addWidget(raster_diagram_, 0, Qt::AlignTop);
         layout->addLayout(row);
     }
 
@@ -799,12 +962,15 @@ void VideoPanel::refresh()
 {
     if (!emulator_) return;
 
-    // ── Raster position (only when paused) ───────────────────────────────────
+    // ── Raster position + ULA fetch — paused only (GH #22) ───────────────────
     //
-    // paused_vc() is the RAW vertical counter (0..lines_per_frame-1) — that is
-    // what the HC/VC readout must show, since it is the hardware raster
-    // counter.  The layer views, however, index FRAMEBUFFER ROWS, and since
-    // G164v2 (Task 13) the mapping is
+    // paused_vc()/paused_hc() are the RAW frame counters (VHDL hc / vc), taken
+    // from the master clock; everything else displayed here is derived from
+    // them by RasterState, against the live VideoTiming's per-machine
+    // constants.  The panels update only while paused/stepping, deliberately.
+    //
+    // The layer views, however, index FRAMEBUFFER ROWS, and since G164v2
+    // (Task 13) the mapping is
     //
     //     fb_row = raw_vc - VideoTiming::vblank_top()
     //
@@ -819,14 +985,40 @@ void VideoPanel::refresh()
     // fb_row < 0  → raster is still in the top vblank: nothing drawn yet.
     // fb_row is clamped to FB_HEIGHT-1 for the bottom border / bottom vblank.
     int vc = -1;
-    if (emulator_->debug_state().paused()) {
-        const int raw_vc = emulator_->paused_vc();
-        vc = fb_row_for_vc(raw_vc, emulator_->video_timing().vblank_top());
-        vc_label_->setText(QString::asprintf("%3d", raw_vc));
-        hc_label_->setText(QString::asprintf("%3d", emulator_->paused_hc()));
-    } else {
-        vc_label_->setText("---");
-        hc_label_->setText("---");
+    {
+        const VideoTiming& vt = emulator_->video_timing();
+        auto* diagram = static_cast<RasterDiagramWidget*>(raster_diagram_);
+        diagram->set_frame(vt.hc_max() + 1, vt.vc_max() + 1,
+                           vt.max_hblank(), vt.max_vblank(),
+                           vt.display_origin().hc, vt.display_origin().vc);
+
+        if (emulator_->debug_state().paused()) {
+            const RasterState rs = video_panel_raster_state(*emulator_);
+            vc = fb_row_for_vc(rs.raw_vc, vt.vblank_top());
+
+            raw_label_->setText(QString::asprintf(
+                "raw     hc:%4d  vc:%4d   VHDL hc / vc (frame)",
+                rs.raw_hc, rs.raw_vc));
+            ula_label_->setText(QString::asprintf(
+                "ULA     hc:%4d  vc:%4d   o_hc_ula / o_vc_ula",
+                rs.hc_ula, rs.vc_ula));
+            cvc_label_->setText(QString::asprintf(
+                "Copper cvc:%4d           NR 0x1E/0x1F read THIS", rs.cvc));
+            pixel_label_->setText(QString::asprintf(
+                "Pixel    x:%4d   y:%4d   o_phc / o_vc_ula%s",
+                rs.phc, rs.vc_ula, rs.in_paper() ? "" : "  (off paper)"));
+            region_label_->setText(raster_region_name(rs.region));
+            fetch_label_->setText(ula_fetch_name(rs.fetch));
+            diagram->set_beam(rs.raw_hc, rs.raw_vc, true);
+        } else {
+            raw_label_->setText("raw     hc:----  vc:----  VHDL hc / vc (frame)");
+            ula_label_->setText("ULA     hc:----  vc:----  o_hc_ula / o_vc_ula");
+            cvc_label_->setText("Copper cvc:----           NR 0x1E/0x1F read THIS");
+            pixel_label_->setText("Pixel    x:----   y:----  o_phc / o_vc_ula");
+            region_label_->setText("---");
+            fetch_label_->setText("---");
+            diagram->set_beam(0, 0, false);
+        }
     }
 
     // ── Layer state ──────────────────────────────────────────────────────────

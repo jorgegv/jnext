@@ -37,6 +37,8 @@ void VideoTiming::init_timing(MachineTimingMode mode, bool refresh_60hz)
             min_vactive_  = 64;             // :203
             int_h_        = 128;            // :187 (136+4-12)
             int_v_        = 1;              // :199
+            max_hblank_   = 95;             // :194 c_max_hblank
+            max_vblank_   = 7;              // :202 c_max_vblank
             break;
         case MachineTimingMode::TimingPlus3:
             // +3 50 Hz (VHDL :184-204, i_timing(0)='1' branch at :189)
@@ -46,6 +48,8 @@ void VideoTiming::init_timing(MachineTimingMode mode, bool refresh_60hz)
             min_vactive_  = 64;             // :203
             int_h_        = 126;            // :189 (136+2-12)
             int_v_        = 1;              // :199
+            max_hblank_   = 95;             // :194 c_max_hblank
+            max_vblank_   = 7;              // :202 c_max_vblank
             break;
         case MachineTimingMode::TimingPentagon:
             // Pentagon (VHDL :150-168 — no 50/60 split; i_timing(2)='1').
@@ -58,6 +62,8 @@ void VideoTiming::init_timing(MachineTimingMode mode, bool refresh_60hz)
             min_vactive_  = 80;             // :167 c_min_vactive
             int_h_        = 439;            // :155 c_int_h (448+3-12)
             int_v_        = 319;            // :163 c_int_v
+            max_hblank_   = 63;             // :158 c_max_hblank
+            max_vblank_   = 15;             // :166 c_max_vblank
             break;
         case MachineTimingMode::Timing48:
         default:
@@ -68,6 +74,8 @@ void VideoTiming::init_timing(MachineTimingMode mode, bool refresh_60hz)
             min_vactive_  = 64;             // :269
             int_h_        = 116;            // :257 (128+0-12)
             int_v_        = 0;              // :265
+            max_hblank_   = 95;             // :260 c_max_hblank
+            max_vblank_   = 7;              // :268 c_max_vblank
             break;
     }
 
@@ -77,6 +85,8 @@ void VideoTiming::init_timing(MachineTimingMode mode, bool refresh_60hz)
     // same at both refresh rates). Pentagon has no 60 Hz branch (the whole
     // i_timing(2)='1' block at :150-168 sits outside the i_50_60 split);
     // the flag is ignored there.
+    // max_hblank_ / max_vblank_ are unchanged too: the 60 Hz branches carry the
+    // identical 95 / 7 (VHDL :228,236 for 128K/+3 and :288,296 for 48K).
     refresh_60hz_ = false;
     if (refresh_60hz && mode != MachineTimingMode::TimingPentagon) {
         refresh_60hz_ = true;
@@ -157,6 +167,14 @@ void VideoTiming::advance(int tstates)
 
 bool VideoTiming::in_display() const
 {
-    return (hc_ >= DISPLAY_LEFT && hc_ < DISPLAY_LEFT + DISPLAY_W)
-        && (vc_ >= DISPLAY_TOP  && vc_ < DISPLAY_TOP  + DISPLAY_H);
+    // GH #22 — this used the FIXED constants DISPLAY_LEFT / DISPLAY_TOP
+    // (128 / 64), which are the 48K values. The active-display origin is
+    // per-machine (VHDL c_min_hactive / c_min_vactive, zxula_timing.vhd:159/167
+    // Pentagon, :195/:203 128K and +3, :261/:269 48K, :297 the 60 Hz vc
+    // override), so the old form answered for a 128K/+3 line 8 ticks off and
+    // for Pentagon 16 lines off. It had no callers, which is why nothing had
+    // caught it; it does now, and this class is the one source of raster
+    // constants the debugger's raster indicator reads.
+    return (hc_ >= min_hactive_ && hc_ < min_hactive_ + DISPLAY_W)
+        && (vc_ >= min_vactive_ && vc_ < min_vactive_ + DISPLAY_H);
 }

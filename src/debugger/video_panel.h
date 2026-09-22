@@ -4,6 +4,8 @@
 #include <QLabel>
 #include <QImage>
 
+#include "debug/raster_state.h"
+
 class Emulator;
 class QTabWidget;
 class QRadioButton;
@@ -78,6 +80,21 @@ private:
 /// Exposed so the panel's answer can be tested without a QWidget.
 void video_panel_layer_state(Emulator& emu, bool active_out[4], int& priority_out);
 
+/// The raster state the Video panel displays (GH #22).
+///
+/// Derived from the emulator's PAUSED raster snapshot — `paused_hc()` /
+/// `paused_vc()`, the clock-derived pair — and the live ULA mode registers.
+/// It deliberately does NOT read `VideoTiming::pos()`: those counters are only
+/// advanced when a debugger is attached (emulator.cpp, "Task 27 C10"), so they
+/// are a debug observable rather than the authoritative position.  VideoTiming
+/// is used here only for its per-machine CONSTANTS (line/frame length, the
+/// active-display origin, the blanking limits and the NR 0x64 copper offset),
+/// which is what keeps this indicator on the emulator's own timing model
+/// instead of a second hand-written table.
+///
+/// Exposed so the panel's answer can be tested without a QWidget.
+RasterState video_panel_raster_state(Emulator& emu);
+
 class VideoPanel : public QWidget {
     Q_OBJECT
 public:
@@ -107,9 +124,16 @@ private:
 
     Emulator* emulator_;
 
-    // Raster position
-    QLabel* hc_label_       = nullptr;
-    QLabel* vc_label_       = nullptr;
+    // Raster position + ULA fetch indicator (GH #22).  Each line names the
+    // VHDL counter it shows: the four have four different origins, and the
+    // panel is the place that has to say which is which.
+    QLabel*  raw_label_       = nullptr;   ///< VHDL hc / vc (frame counters)
+    QLabel*  ula_label_       = nullptr;   ///< VHDL o_hc_ula / o_vc_ula
+    QLabel*  cvc_label_       = nullptr;   ///< VHDL o_vc_cu — NR 0x1E/0x1F
+    QLabel*  pixel_label_     = nullptr;   ///< VHDL o_phc / o_vc_ula, paper only
+    QLabel*  region_label_    = nullptr;   ///< Blanking / Border / Paper
+    QLabel*  fetch_label_     = nullptr;   ///< Idle / Bitmap / Attribute
+    QWidget* raster_diagram_  = nullptr;   ///< beam position on a frame map
 
     // Layer flags (0=ULA, 1=Layer2, 2=Tilemap, 3=Sprites)
     QLabel* layer_flags_[4] = {};

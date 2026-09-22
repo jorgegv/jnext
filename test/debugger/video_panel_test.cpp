@@ -114,6 +114,7 @@
 #include "video/palette.h"
 #include "video/renderer.h"
 #include "video/tilemap.h"
+#include "video/timing.h"
 #include "peripheral/copper.h"
 #include "audio/i2s.h"
 #include "video/ula.h"
@@ -126,6 +127,7 @@
 #include <QImage>
 #include <QMainWindow>
 #include <QTabWidget>
+#include <QPixmap>
 
 #include <cstdarg>
 #include <cstdint>
@@ -2014,6 +2016,150 @@ static void test_composite_is_default_tab() {
               tabs->currentIndex()));
 }
 
+// ── DVP-RASTER: the raster position / ULA fetch indicator (GH #22) ────
+//
+// RasterState itself is pinned, per machine and against the VHDL, by
+// test/debug/raster_state_test.cpp.  What CANNOT be tested there is the
+// wiring: that the panel feeds it the emulator's paused raster snapshot and
+// the LIVE mode registers, and that the frame diagram takes its geometry from
+// the same VideoTiming.  A correct derivation fed the wrong inputs is exactly
+// the failure this group exists to catch.
+static void test_raster_indicator(Emulator& emu) {
+    set_group("DVP-RASTER");
+
+    emu.debug_state().set_active(true);
+    emu.run_frame();                       // settle: one clean frame
+
+    const auto& t = emu.timing();
+    const VideoTiming& vt = emu.video_timing();
+
+    // Pause well inside the paper area (raw line 100, ~1/3 across the line).
+    const uint64_t target = emu.current_frame_cycle()
+                          + 100 * t.master_cycles_per_line
+                          + 200 * 4;
+    emu.debug_state().run_to_cycle(target);
+    emu.run_frame();
+    emu.snapshot_raster();
+
+    check("DVP-RAS-01",
+          "the panel reads the emulator's PAUSED raster snapshot, not VideoTiming::pos()",
+          video_panel_raster_state(emu).raw_hc == emu.paused_hc()
+              && video_panel_raster_state(emu).raw_vc == emu.paused_vc(),
+          fmt("panel=(%d,%d) paused=(%d,%d) timing_pos=(%d,%d)",
+              video_panel_raster_state(emu).raw_hc,
+              video_panel_raster_state(emu).raw_vc,
+              emu.paused_hc(), emu.paused_vc(),
+              int(vt.pos().hc), int(vt.pos().vc)));
+
+    {
+        const RasterState rs = video_panel_raster_state(emu);
+        // The four counters have four origins (zxula_timing.vhd:423-470): a
+        // panel that wired the raw pair into every line would tie here.
+        check("DVP-RAS-02",
+              "hc_ula/vc_ula are rebased off the raw pair, not copies of it",
+              rs.hc_ula != rs.raw_hc && rs.vc_ula != rs.raw_vc,
+              fmt("raw=(%d,%d) ula=(%d,%d)", rs.raw_hc, rs.raw_vc,
+                  rs.hc_ula, rs.vc_ula));
+        check("DVP-RAS-03",
+              "cvc is NOT the raw frame line — the GH #16 trap (zxnext.vhd:5982-5986)",
+              rs.cvc == rs.vc_ula && rs.cvc != rs.raw_vc,
+              fmt("cvc=%d vc_ula=%d raw_vc=%d", rs.cvc, rs.vc_ula, rs.raw_vc));
+    }
+
+    // NR 0x64 (copper vertical offset) shifts cvc and nothing else
+    // (zxula_timing.vhd:462).  Proves the panel reads the LIVE offset.
+    {
+        const RasterState before = video_panel_raster_state(emu);
+        emu.nextreg().write(0x64, 24);
+        const RasterState after = video_panel_raster_state(emu);
+        const int lpf = vt.vc_max() + 1;
+        check("DVP-RAS-04",
+              "NR 0x64 shifts cvc only — the panel reads the live copper offset",
+              after.cvc == (before.vc_ula + 24) % lpf
+                  && after.vc_ula == before.vc_ula,
+              fmt("cvc %d -> %d, vc_ula %d -> %d", before.cvc, after.cvc,
+                  before.vc_ula, after.vc_ula));
+        emu.nextreg().write(0x64, 0);
+    }
+
+    // Step until the beam is on an ATTRIBUTE fetch tick, then prove the panel
+    // feeds the ULA's live mode registers in: in Timex hi-colour the very same
+    // tick fetches a second BITMAP plane instead (zxula.vhd:238-239), and the
+    // shadow-screen bit forces screen_mode back to "000" (zxula.vhd:191).
+    bool found = false;
+    for (int i = 0; i < 4000 && !found; ++i) {
+        emu.snapshot_raster();
+        if (video_panel_raster_state(emu).fetch == UlaFetch::Attribute) {
+            found = true;
+            break;
+        }
+        emu.execute_single_instruction();
+    }
+    check("DVP-RAS-05",
+          "an attribute fetch tick is reachable by stepping (test premise)",
+          found, fmt("stepped=%d", int(found)));
+    if (found) {
+        const uint8_t saved_ff = emu.ula().get_screen_mode_reg();
+        emu.ula().set_screen_mode(0x02);            // Timex hi-colour
+        check("DVP-RAS-06",
+              "port 0xFF hi-colour turns the attribute slot into a bitmap fetch (zxula.vhd:238-239)",
+              video_panel_raster_state(emu).fetch == UlaFetch::Bitmap,
+              fmt("fetch=%s", ula_fetch_name(video_panel_raster_state(emu).fetch)));
+        emu.ula().set_shadow_screen_en(true);
+        check("DVP-RAS-07",
+              "the shadow screen forces screen_mode \"000\" — attributes again (zxula.vhd:191)",
+              video_panel_raster_state(emu).fetch == UlaFetch::Attribute,
+              fmt("fetch=%s", ula_fetch_name(video_panel_raster_state(emu).fetch)));
+        emu.ula().set_shadow_screen_en(false);
+        emu.ula().set_screen_mode(saved_ff);
+    }
+
+    // The frame diagram: three regions, positioned from the SAME VideoTiming.
+    {
+        VideoPanel panel(&emu);
+        panel.refresh();
+        auto* diagram = panel.findChild<QWidget*>(QStringLiteral("rasterDiagram"));
+        if (!diagram) {
+            check("DVP-RAS-08", "the Video panel carries a raster frame diagram", false);
+        } else {
+            const QImage img = diagram->grab().toImage();
+            const int ppl = vt.hc_max() + 1;
+            const int lpf = vt.vc_max() + 1;
+            // Scale from the GRABBED IMAGE, not the widget: on a Hi-DPI host
+            // grab() returns a devicePixelRatio-sized pixmap, and sampling at
+            // widget coordinates would land somewhere else entirely.
+            const double sx = static_cast<double>(img.width())  / ppl;
+            const double sy = static_cast<double>(img.height()) / lpf;
+            // Paper centre: raw hc c_min_hactive+128, raw vc c_min_vactive+96.
+            const int px = static_cast<int>((vt.display_origin().hc + 128) * sx);
+            const int py = static_cast<int>((vt.display_origin().vc + 96)  * sy);
+            // Border: past c_max_hblank but left of the paper area, same row.
+            const int bx = static_cast<int>((vt.max_hblank() + 8) * sx);
+            // Blanking: inside the h-blank band on a PAPER row, and inside the
+            // v-blank band on a PAPER column.  Sampling only the corner would
+            // let either band alone account for both (it did — the corner is
+            // covered by the vertical band whatever the horizontal one does).
+            const int hb_x = static_cast<int>((vt.max_hblank() / 2) * sx);
+            const int vb_y = static_cast<int>((vt.max_vblank() / 2) * sy);
+            check("DVP-RAS-08",
+                  "the diagram paints the paper area at the position VideoTiming gives it",
+                  img.pixel(px, py) == qRgb(0xC8, 0xD4, 0xE8),
+                  fmt("(%d,%d)=0x%08X", px, py, img.pixel(px, py)));
+            check("DVP-RAS-09",
+                  "…the border between end-of-hblank and the paper area",
+                  img.pixel(bx, py) == qRgb(0x4A, 0x5A, 0x78),
+                  fmt("(%d,%d)=0x%08X", bx, py, img.pixel(bx, py)));
+            check("DVP-RAS-10",
+                  "…and blanking in BOTH blanking bands, h and v (zxula_timing.vhd:348-357)",
+                  img.pixel(hb_x, py) == qRgb(0x1B, 0x1B, 0x22)
+                      && img.pixel(px, vb_y) == qRgb(0x1B, 0x1B, 0x22),
+                  fmt("hblank(%d,%d)=0x%08X vblank(%d,%d)=0x%08X",
+                      hb_x, py, img.pixel(hb_x, py),
+                      px, vb_y, img.pixel(px, vb_y)));
+        }
+    }
+}
+
 // ── main ──────────────────────────────────────────────────────────────
 
 // ── DVP-LAYERSTATE: the "active layers" line must read the LIVE register ─────
@@ -2460,6 +2606,12 @@ int main(int argc, char** argv) {
     std::printf("  Group: DVP-BG-COPPER  — done\n");
     test_composite_is_default_tab();
     std::printf("  Group: DVP-COMP-TAB   — done\n");
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) return 1;
+        test_raster_indicator(emu);
+        std::printf("  Group: DVP-RASTER     — done\n");
+    }
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

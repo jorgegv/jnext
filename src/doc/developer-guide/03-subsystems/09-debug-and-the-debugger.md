@@ -17,8 +17,9 @@ build — while the Qt *UI* sits above both and can be compiled out entirely.
 
 **`src/debug/`** (target `jnext_debug`) is the backend: disassembler,
 breakpoint and watchpoint sets, execution-control state, instruction trace log,
-call-stack tracker, symbol table, rewind ring buffer. It has **no Qt dependency
-at all**. **`src/debugger/`** (target `jnext_debugger`) is the Qt 6 UI and
+call-stack tracker, symbol table, rewind ring buffer, and the raster-state
+derivation (`raster_state.*`) behind the Video panel's beam/fetch indicator. It
+has **no Qt dependency at all**. **`src/debugger/`** (target `jnext_debugger`) is the Qt 6 UI and
 nothing else — panels, menus, the debugger window.
 
 Three things fall out of that. The backend is testable without a GUI:
@@ -203,7 +204,7 @@ introspects:
 | Call Stack | `src/debug/call_stack.*`, a shadow stack built from SP deltas |
 | Watches | byte / word / long at user addresses |
 | Breakpoints | the contents of `BreakpointSet` |
-| Video | each layer rendered separately — composite, ULA primary and shadow, Layer 2 active and shadow, sprites, tilemap, and the NR 0x4A fallback colour |
+| Video | the raster position in all four counter domains plus the ULA fetch phase (`src/debug/raster_state.*`), and each layer rendered separately — composite, ULA primary and shadow, Layer 2 active and shadow, sprites, tilemap, and the NR 0x4A fallback colour |
 | Sprites | all 128 sprite attribute slots |
 | Copper | the decoded Copper program and its PC |
 | NextREG | the whole 256-entry register file, editable |
@@ -212,6 +213,16 @@ introspects:
 For what these look like and how to drive them, see chapter 6 of the **user
 guide**, *The debugger* — a UI reference written against the running product,
 and not repeated here.
+
+The Video panel's raster block is worth a note, because it is the one place a
+user sees `hc`/`vc`, `hc_ula`/`vc_ula`, `cvc` and `phc` side by side. Every
+number is labelled with the VHDL signal it mirrors, and `cvc` is labelled as
+what NR 0x1E/0x1F report — reading that register as a raw frame line is GH #16,
+and comparing a 28 MHz count against the 7 MHz `hc_ula` is GH #181. The
+derivation lives in `src/debug/raster_state.*` and takes the live `VideoTiming`
+by reference, so a machine-timing change moves the readout, the region
+classification, the fetch schedule and the frame diagram together; there is
+deliberately no second table of raster constants in `src/debugger/`.
 
 Four panels (CPU, Disassembly, Stack, Call Stack) update only while paused.
 That is a performance decision as much as a legibility one: reading the

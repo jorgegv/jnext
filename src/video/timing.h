@@ -36,9 +36,13 @@ public:
     static constexpr int HC_MAX_DEFAULT  = 447;  // VHDL c_max_hc (48K); period = 448 ticks/line
     static constexpr int VC_MAX_DEFAULT  = 311;  // VHDL c_max_vc (48K); period = 312 lines/frame
 
-    // Active display window (pixel addresses within 7 MHz domain)
-    static constexpr int DISPLAY_LEFT   = 128;  // hc where active pixels start
-    static constexpr int DISPLAY_TOP    = 64;   // vc where active pixels start
+    // Active display window (pixel addresses within 7 MHz domain).
+    // DISPLAY_LEFT / DISPLAY_TOP are the 48K values and are NOT the answer for
+    // another machine — 128K/+3 start at hc 136 and Pentagon at vc 80. Ask
+    // display_origin() for the live machine's origin; these two exist for the
+    // framebuffer geometry below and for the tests that pin the 48K constants.
+    static constexpr int DISPLAY_LEFT   = 128;  // hc where active pixels start (48K)
+    static constexpr int DISPLAY_TOP    = 64;   // vc where active pixels start (48K)
     static constexpr int DISPLAY_W      = 256;  // active pixel columns
     static constexpr int DISPLAY_H      = 192;  // active pixel rows
 
@@ -99,6 +103,20 @@ public:
     /// zxula_timing.vhd:147-312). Returns the (hc, vc) pixel-tick coordinates
     /// where the 256x192 active area starts for the current machine.
     RasterPos display_origin() const { return {min_hactive_, min_vactive_}; }
+
+    /// Per-machine blanking limits — VHDL c_max_hblank / c_max_vblank
+    /// (zxula_timing.vhd:158,166 Pentagon; :194,202 128K/+3 50 Hz;
+    /// :228,236 128K/+3 60 Hz; :260,268 48K 50 Hz; :288,296 48K 60 Hz).
+    ///
+    /// The display is blanked while
+    ///     (hc <= c_max_hblank) or (vc <= c_max_vblank)
+    /// (zxula_timing.vhd:348-357), and c_min_hblank / c_min_vblank are 0 on
+    /// every machine, so blanking is the CLOSED interval [0, c_max_*blank] of
+    /// the RAW frame counters. Added for the debugger's raster indicator
+    /// (GH #22), which must distinguish blanking from border; nothing else in
+    /// jnext models blanking, because rendering is per-scanline.
+    int max_hblank() const { return max_hblank_; }
+    int max_vblank() const { return max_vblank_; }
 
     /// Number of raw-VC scanlines that fall ABOVE jnext's framebuffer
     /// top border (i.e. true vblank lines that are NOT visible in the
@@ -339,6 +357,11 @@ private:
     // path in init() shifts min_vactive_ to 40 (VHDL :237/:297).
     uint16_t min_hactive_ = 128;  // VHDL c_min_hactive (48K default, :261)
     uint16_t min_vactive_ = 64;   // VHDL c_min_vactive (48K default, :269)
+
+    // Per-machine blanking limits (VHDL c_max_hblank / c_max_vblank).
+    // 48K 50 Hz defaults (zxula_timing.vhd:260,268).
+    int max_hblank_ = 95;
+    int max_vblank_ = 7;
 
     // Section 4/5 per-machine interrupt position (VHDL c_int_h / c_int_v).
     // Defaults are the 48K 50 Hz values (zxula_timing.vhd:257,265).

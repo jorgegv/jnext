@@ -34,7 +34,8 @@ rates:
 |---|---|---|
 | master cycle | 28 MHz | `Clock`, `MachineTiming` in `src/core/emulator_config.h` |
 | `hc` / `vc` raw frame counters | 7 MHz pixel clock | `VideoTiming` in `src/video/timing.h` |
-| `hc_ula` / `cvc` ULA pixel counters | 7 MHz, shifted origin | derived from `VideoTiming` |
+| `hc_ula` / `vc_ula` / `cvc` ULA pixel counters | 7 MHz, shifted origin | derived from `VideoTiming` |
+| `phc` practical pixel counter | 7 MHz, `hc_ula - 12` | derived from `VideoTiming` |
 
 One pixel tick is 4 master cycles, and one 3.5 MHz T-state is 2 pixel ticks. The
 per-machine limits — `c_max_hc`, `c_max_vc`, `c_min_hactive`, `c_min_vactive`
@@ -50,6 +51,23 @@ that pair before stepping it. Passing the raw master-cycle offset through
 instead — wrong by a factor of four in scale *and* wrong in origin — made every
 non-trivial `WAIT` fire early. That was a real defect here, not a hypothetical
 one.
+
+`phc` is a fourth origin again: the pixel actually being generated. The VHDL
+loads it with `-48` and counts up, so `phc == 0` is the first paper pixel, which
+is `hc_ula == 0xC` (`zxula.vhd:43-46`). The twelve-tick gap is the ULA's
+prefetch lead, and it is why the fetch window and the visible paper area are
+*not* the same span of a line.
+
+`src/debug/raster_state.h` is the one place that spells all four out together,
+for the debugger's raster indicator (GH #22). It classifies the beam's region
+(`blank_n` from `zxula_timing.vhd:348-357`, `border_active` from
+`zxula.vhd:415`) and the ULA's fetch phase (`vram_a`/`vram_rd` on
+`zxula.vhd:226-263` — bit 1 of `hc_ula` selects bitmap vs attribute, gated by
+`border_active_ula` at `:416`). It is Qt-free and takes a `VideoTiming` by
+reference: the per-machine constants stay in the one timing model, and the
+`c_max_hblank` / `c_max_vblank` accessors were added there rather than
+duplicated in the panel. `raster_state_test` pins it per machine against the
+VHDL.
 
 NR 0x1E/0x1F read `cvc` back, and *when* they read it matters as much as the
 origin. The master clock only advances once an instruction completes, so inside

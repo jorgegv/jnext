@@ -283,6 +283,13 @@ my @SUBSYS = (
     ['## LoRes — `test/lores/lores_test.cpp`',       'lores_test'],
     ['## SD Card — `test/sdcard/sdcard_test.cpp`',   'sdcard_test'],
     ['## NMI Source Pipeline — `test/nmi/nmi_test.cpp`', 'nmi_test'],
+    # GH #22 — the debugger's raster/ULA-fetch indicator. Its own `##` section
+    # rather than a companion of `## VideoTiming`: it derives from BOTH
+    # zxula_timing.vhd (the four counters, the blanking constants) and
+    # zxula.vhd (the display-RAM read schedule and the border gates), and
+    # merging scopes would let either vouch for the other. No plan doc — the
+    # rows were written from the VHDL directly, not from a *-TEST-PLAN-DESIGN.
+    ['## Raster State — `test/debug/raster_state_test.cpp`', 'raster_state_test'],
     # CPU-side regression suites. Separate `##` sections rather than companions
     # of `## Z80N`: that section is the data-driven FUSE runner's, its rows are
     # opcode names, and merging scopes would let one vouch for the other.
