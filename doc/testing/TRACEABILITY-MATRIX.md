@@ -45,7 +45,7 @@ mentions them, so a test can no longer be absent from this document.
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    55 |   52 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    82 |   60 |    0 |    0 |      22 |          0 |
-| Raster State                               |    68 |   68 |    0 |    0 |       0 |          0 |
+| Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   190 |  186 |    0 |    4 |       0 |          0 |
@@ -62,9 +62,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    40 |   40 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4713 | 4461 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4731 | 4479 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4713**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4445**. Rows the 107 suites declared in `test/unit-tests.conf` run live: **7714**.
+Rows the sections above carry: **4731**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4463**. Rows the 107 suites declared in `test/unit-tests.conf` run live: **7735**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -76,7 +76,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 65 suites (3457 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 65 suites (3460 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -137,7 +137,7 @@ These 65 suites (3457 live rows) have no VHDL-derived plan row to map, so they h
 | `window_scale_test` | 10 | main-window scale/fullscreen geometry (host GUI) |
 | `quit_cleanup_test` | 7 | host shutdown ordering (GUI lifecycle) |
 | `preferences_apply_test` | 46 | Preferences dialog wiring (host GUI) |
-| `debugger_video_panel_test` | 102 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
+| `debugger_video_panel_test` | 105 | debugger panel RENDERING; the hardware it displays is traced in `## Compositor`/`## Layer2`/`## ULA Video` (GUI-gated build) |
 | `debugger_audio_panel_test` | 15 | debugger panel RENDERING; the hardware it displays is traced in `## Audio` (GUI-gated build) |
 | `debugger_quit_gate_test` | 5 | debugger quit gating (host GUI lifecycle) |
 | `debugger_persistent_bp_test` | 5 | debugger window raise-on-hit (host GUI lifecycle, GH #219) |
@@ -3735,55 +3735,73 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | RS-PHC-04 | 48K phc still counting at raw hc c_min_hactive-48 = 80 (registered load, zxula_timing.vhd:513-517) | zxula_timing.vhd:513-517 | pass | test/debug/raster_state_test.cpp:119 |
 | RS-PHC-05 | 128K phc = 0 at raw hc 137 = c_min_hactive+1 (zxula_timing.vhd:195,510-522) | zxula_timing.vhd:195,510-522 | pass | test/debug/raster_state_test.cpp:121 |
 | RS-PHC-06 | 48K last paper pixel phc = 255 at raw hc 384 (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:123 |
-| RS-VCULA-01 | 48K vc_ula = 0 on raw line 64 at/after the ULA origin (zxula_timing.vhd:269,441-451) | zxula_timing.vhd:269,441-451 | pass | test/debug/raster_state_test.cpp:130 |
-| RS-VCULA-02 | 48K raw hc before the ULA origin still belongs to the previous ULA line (zxula_timing.vhd:441-451) | zxula_timing.vhd:441-451 | pass | test/debug/raster_state_test.cpp:132 |
-| RS-VCULA-03 | Pentagon vc_ula = 0 on raw line 80 (zxula_timing.vhd:167,441-451) | zxula_timing.vhd:167,441-451 | pass | test/debug/raster_state_test.cpp:134 |
-| RS-VCULA-04 | 48K 60 Hz vc_ula = 0 on raw line 40 (zxula_timing.vhd:297,441-451) | zxula_timing.vhd:297,441-451 | pass | test/debug/raster_state_test.cpp:136 |
-| RS-VCULA-05 | 48K last paper line vc_ula = 191 on raw line 255 (zxula.vhd:414) | zxula.vhd:414 | pass | test/debug/raster_state_test.cpp:138 |
-| RS-CVC-01 | cvc == vc_ula when NR 0x64 = 0 (zxula_timing.vhd:455-470) | zxula_timing.vhd:455-470 | pass | test/debug/raster_state_test.cpp:147 |
-| RS-CVC-04 | cvc is NOT the raw frame line — NR 0x1E/0x1F is paper-relative (zxnext.vhd:5982-5986) | zxnext.vhd:5982-5986 | pass | test/debug/raster_state_test.cpp:149 |
-| RS-CVC-02 | NR 0x64 offset 10 shifts cvc by 10 (zxula_timing.vhd:462) | zxula_timing.vhd:462 | pass | test/debug/raster_state_test.cpp:152 |
-| RS-CVC-03 | cvc wraps at c_max_vc: vc_ula 191 + 200 = 79 mod 312 (zxula_timing.vhd:463-466) | zxula_timing.vhd:463-466 | pass | test/debug/raster_state_test.cpp:155 |
-| RS-REG-01 | 48K raw (129,100) is Paper — first displayed pixel (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:161 |
-| RS-REG-02 | 48K raw (128,100) is Border — c_min_hactive itself, one pixel early (zxula_timing.vhd:344) | zxula_timing.vhd:344 | pass | test/debug/raster_state_test.cpp:163 |
-| RS-REG-03 | 48K raw (385,100) is Border — phc 256, i_phc(8) set (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:165 |
-| RS-REG-04 | 48K raw hc 95 is Blanking — c_max_hblank inclusive (zxula_timing.vhd:260,351) | zxula_timing.vhd:260,351 | pass | test/debug/raster_state_test.cpp:167 |
-| RS-REG-05 | 48K raw hc 96 is Border — one tick past c_max_hblank (zxula_timing.vhd:260,351) | zxula_timing.vhd:260,351 | pass | test/debug/raster_state_test.cpp:169 |
-| RS-REG-06 | 48K raw vc 7 is Blanking at any hc — c_max_vblank inclusive (zxula_timing.vhd:268,351) | zxula_timing.vhd:268,351 | pass | test/debug/raster_state_test.cpp:171 |
-| RS-REG-07 | 48K raw vc 8 is Border at raw hc 200 (zxula_timing.vhd:268,351) | zxula_timing.vhd:268,351 | pass | test/debug/raster_state_test.cpp:173 |
-| RS-REG-08 | 48K raw vc 256 is Border — vc_ula 192, border_active_v (zxula.vhd:414) | zxula.vhd:414 | pass | test/debug/raster_state_test.cpp:175 |
-| RS-REG-09 | Pentagon raw hc 80 is Border where 48K is Blanking (zxula_timing.vhd:158 vs :260) | zxula_timing.vhd:158 | pass | test/debug/raster_state_test.cpp:177 |
-| RS-REG-10 | Pentagon raw vc 10 is Blanking where 48K is Border (zxula_timing.vhd:166 vs :268) | zxula_timing.vhd:166 | pass | test/debug/raster_state_test.cpp:180 |
-| RS-REG-11 | 128K Paper starts at raw hc 137 = c_min_hactive+1 (zxula_timing.vhd:195, zxula.vhd:415) | zxula_timing.vhd:195, zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:183 |
-| RS-REG-12 | +3 Paper window matches 128K (zxula_timing.vhd:195) | zxula_timing.vhd:195 | pass | test/debug/raster_state_test.cpp:186 |
-| RS-REG-13 | Pentagon Paper starts on raw line 80, Border on 79 (zxula_timing.vhd:167) | zxula_timing.vhd:167 | pass | test/debug/raster_state_test.cpp:189 |
-| RS-REG-14 | 48K Paper starts on raw line 64, Border on 63 (zxula_timing.vhd:269) | zxula_timing.vhd:269 | pass | test/debug/raster_state_test.cpp:192 |
-| RS-REG-15 | in_paper() agrees with region == Paper (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:195 |
-| RS-FET-01 | 48K hc_ula 0 fetches a bitmap byte (zxula.vhd:234-235,270-303) | zxula.vhd:234-235,270-303 | pass | test/debug/raster_state_test.cpp:206 |
-| RS-FET-02 | 48K hc_ula 2 fetches an attribute byte (zxula.vhd:238-241,270-303) | zxula.vhd:238-241,270-303 | pass | test/debug/raster_state_test.cpp:208 |
-| RS-FET-03 | 48K hc_ula 4 fetches a bitmap byte (zxula.vhd:234-235) | zxula.vhd:234-235 | pass | test/debug/raster_state_test.cpp:210 |
-| RS-FET-04 | 48K hc_ula 6 fetches an attribute byte (zxula.vhd:238-241) | zxula.vhd:238-241 | pass | test/debug/raster_state_test.cpp:212 |
-| RS-FET-05 | 48K whole 16-tick block is BBAA x4 (zxula.vhd:226-263,270-303) | zxula.vhd:226-263,270-303 | pass | test/debug/raster_state_test.cpp:222 |
-| RS-FET-06 | 48K hc_ula 255 is the last fetching tick (zxula.vhd:416) | zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:224 |
-| RS-FET-07 | 48K hc_ula 256 is Idle — i_hc(8) sets border_active_ula (zxula.vhd:416) | zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:226 |
-| RS-FET-08 | vc_ula 192 is Idle at every hc_ula — border_active_v (zxula.vhd:414,416) | zxula.vhd:414,416 | pass | test/debug/raster_state_test.cpp:228 |
-| RS-FET-09 | the ULA fetches while the beam is still in the LEFT BORDER (zxula.vhd:415 vs :416) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:231 |
-| RS-FET-10 | the beam is still in PAPER after the fetch window closes (zxula.vhd:415 vs :416) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:234 |
-| RS-FET-11 | Timex hi-colour (port 0xFF=0x02): attribute slots fetch a 2nd bitmap plane (zxula.vhd:238-239) | zxula.vhd:238-239 | pass | test/debug/raster_state_test.cpp:237 |
-| RS-FET-12 | Timex hi-res (port 0xFF=0x06): attribute slots fetch a 2nd bitmap plane (zxula.vhd:248-249) | zxula.vhd:248-249 | pass | test/debug/raster_state_test.cpp:239 |
-| RS-FET-13 | shadow screen forces screen_mode "000" — attributes again (zxula.vhd:191) | zxula.vhd:191 | pass | test/debug/raster_state_test.cpp:241 |
-| RS-FET-14 | port 0xFF=0x01 (alternate screen) keeps attribute fetches (zxula.vhd:238-241) | zxula.vhd:238-241 | pass | test/debug/raster_state_test.cpp:243 |
-| RS-FET-15 | 128K fetch window is raw hc [125,380] (zxula_timing.vhd:195,423, zxula.vhd:416) | zxula_timing.vhd:195,423, zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:245 |
-| RS-FET-16 | Pentagon fetch window is raw hc [117,372] on paper lines 80.. (zxula_timing.vhd:159,167) | zxula_timing.vhd:159,167 | pass | test/debug/raster_state_test.cpp:250 |
-| RS-FET-17 | Timex mode bit 1 selects the plane; bit 0/2 alone do not (zxula.vhd:238-241,248-251) | zxula.vhd:238-241,248-251 | pass | test/debug/raster_state_test.cpp:255 |
-| RS-NAME-01 | "Paper" names border_active = '0' (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:261 |
-| RS-NAME-02 | "Border" names border_active = '1' inside blank_n (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:263 |
-| RS-NAME-03 | "Blanking" names blank_n = '0' (zxula_timing.vhd:348-357) | zxula_timing.vhd:348-357 | pass | test/debug/raster_state_test.cpp:265 |
-| RS-NAME-04 | "Bitmap" names a pixel-byte read cycle (zxula.vhd:234-235) | zxula.vhd:234-235 | pass | test/debug/raster_state_test.cpp:267 |
-| RS-NAME-05 | "Attribute" names an attribute-byte read cycle (zxula.vhd:240-241) | zxula.vhd:240-241 | pass | test/debug/raster_state_test.cpp:269 |
-| RS-NAME-06 | "Idle" names border_active_ula = '1' (zxula.vhd:416) | zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:271 |
-| RS-FOLD-01 | raw hc past c_max_hc folds into the line (zxula_timing.vhd:316-327) | zxula_timing.vhd:316-327 | pass | test/debug/raster_state_test.cpp:280 |
-| RS-FOLD-02 | negative raw vc folds into the frame (zxula_timing.vhd:329-341) | zxula_timing.vhd:329-341 | pass | test/debug/raster_state_test.cpp:283 |
+| RS-PHC-07 | 128K phc still counting at raw hc 88 = c_min_hactive-48 (zxula_timing.vhd:195,196,513-517) | zxula_timing.vhd:195,196,513-517 | pass | test/debug/raster_state_test.cpp:132 |
+| RS-PHC-08 | 128K phc reloads to -48 at raw hc 89, folding on c_max_hc+1 = 456 (zxula_timing.vhd:196,511-515) | zxula_timing.vhd:196,511-515 | pass | test/debug/raster_state_test.cpp:134 |
+| RS-PHC-09 | +3 shares the 128K line geometry: hc 88 -> 407, hc 89 -> -48 (zxula_timing.vhd:195,196) | zxula_timing.vhd:195,196 | pass | test/debug/raster_state_test.cpp:136 |
+| RS-PHC-10 | Pentagon folds on c_max_hc+1 = 448: hc 80 -> 399, hc 81 -> -48 (zxula_timing.vhd:159,160) | zxula_timing.vhd:159,160 | pass | test/debug/raster_state_test.cpp:138 |
+| RS-PHC-11 | 48K 60 Hz keeps c_max_hc 447, so the fold is unmoved (zxula_timing.vhd:260,262 vs :288,290) | zxula_timing.vhd:260,262 | pass | test/debug/raster_state_test.cpp:140 |
+| RS-VCULA-01 | 48K vc_ula = 0 on raw line 64 at/after the ULA origin (zxula_timing.vhd:269,441-451) | zxula_timing.vhd:269,441-451 | pass | test/debug/raster_state_test.cpp:147 |
+| RS-VCULA-02 | 48K raw hc before the ULA origin still belongs to the previous ULA line (zxula_timing.vhd:441-451) | zxula_timing.vhd:441-451 | pass | test/debug/raster_state_test.cpp:149 |
+| RS-VCULA-03 | Pentagon vc_ula = 0 on raw line 80 (zxula_timing.vhd:167,441-451) | zxula_timing.vhd:167,441-451 | pass | test/debug/raster_state_test.cpp:151 |
+| RS-VCULA-04 | 48K 60 Hz vc_ula = 0 on raw line 40 (zxula_timing.vhd:297,441-451) | zxula_timing.vhd:297,441-451 | pass | test/debug/raster_state_test.cpp:153 |
+| RS-VCULA-05 | 48K last paper line vc_ula = 191 on raw line 255 (zxula.vhd:414) | zxula.vhd:414 | pass | test/debug/raster_state_test.cpp:155 |
+| RS-VCULA-06 | 128K vc_ula above the frame top wraps on 311, not 312 (zxula_timing.vhd:203,204) | zxula_timing.vhd:203,204 | pass | test/debug/raster_state_test.cpp:162 |
+| RS-VCULA-07 | +3 wraps on 311 like 128K (zxula_timing.vhd:203,204) | zxula_timing.vhd:203,204 | pass | test/debug/raster_state_test.cpp:164 |
+| RS-VCULA-08 | Pentagon wraps on 320 (zxula_timing.vhd:167,168) | zxula_timing.vhd:167,168 | pass | test/debug/raster_state_test.cpp:166 |
+| RS-VCULA-09 | 48K 60 Hz wraps on 264 (zxula_timing.vhd:297,298) | zxula_timing.vhd:297,298 | pass | test/debug/raster_state_test.cpp:168 |
+| RS-VCULA-10 | 128K pre-origin line borrow wraps on 311 too (zxula_timing.vhd:204,441-451) | zxula_timing.vhd:204,441-451 | pass | test/debug/raster_state_test.cpp:170 |
+| RS-CVC-01 | cvc == vc_ula when NR 0x64 = 0 (zxula_timing.vhd:455-470) | zxula_timing.vhd:455-470 | pass | test/debug/raster_state_test.cpp:179 |
+| RS-CVC-04 | cvc is NOT the raw frame line — NR 0x1E/0x1F is paper-relative (zxnext.vhd:5982-5986) | zxnext.vhd:5982-5986 | pass | test/debug/raster_state_test.cpp:181 |
+| RS-CVC-02 | NR 0x64 offset 10 shifts cvc by 10 (zxula_timing.vhd:462) | zxula_timing.vhd:462 | pass | test/debug/raster_state_test.cpp:184 |
+| RS-CVC-03 | cvc wraps at c_max_vc: vc_ula 191 + 200 = 79 mod 312 (zxula_timing.vhd:463-466) | zxula_timing.vhd:463-466 | pass | test/debug/raster_state_test.cpp:187 |
+| RS-CVC-05 | 128K cvc wraps on 311: vc_ula 191 + 200 = 80 (zxula_timing.vhd:204,463-466) | zxula_timing.vhd:204,463-466 | pass | test/debug/raster_state_test.cpp:195 |
+| RS-CVC-06 | Pentagon cvc wraps on 320: vc_ula 175 + 200 = 55 (zxula_timing.vhd:168,463-466) | zxula_timing.vhd:168,463-466 | pass | test/debug/raster_state_test.cpp:201 |
+| RS-REG-01 | 48K raw (129,100) is Paper — first displayed pixel (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:207 |
+| RS-REG-02 | 48K raw (128,100) is Border — c_min_hactive itself, one pixel early (zxula_timing.vhd:344) | zxula_timing.vhd:344 | pass | test/debug/raster_state_test.cpp:209 |
+| RS-REG-03 | 48K raw (385,100) is Border — phc 256, i_phc(8) set (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:211 |
+| RS-REG-04 | 48K raw hc 95 is Blanking — c_max_hblank inclusive (zxula_timing.vhd:260,351) | zxula_timing.vhd:260,351 | pass | test/debug/raster_state_test.cpp:213 |
+| RS-REG-05 | 48K raw hc 96 is Border — one tick past c_max_hblank (zxula_timing.vhd:260,351) | zxula_timing.vhd:260,351 | pass | test/debug/raster_state_test.cpp:215 |
+| RS-REG-06 | 48K raw vc 7 is Blanking at any hc — c_max_vblank inclusive (zxula_timing.vhd:268,351) | zxula_timing.vhd:268,351 | pass | test/debug/raster_state_test.cpp:217 |
+| RS-REG-07 | 48K raw vc 8 is Border at raw hc 200 (zxula_timing.vhd:268,351) | zxula_timing.vhd:268,351 | pass | test/debug/raster_state_test.cpp:219 |
+| RS-REG-08 | 48K raw vc 256 is Border — vc_ula 192, border_active_v (zxula.vhd:414) | zxula.vhd:414 | pass | test/debug/raster_state_test.cpp:221 |
+| RS-REG-09 | Pentagon raw hc 80 is Border where 48K is Blanking (zxula_timing.vhd:158 vs :260) | zxula_timing.vhd:158 | pass | test/debug/raster_state_test.cpp:223 |
+| RS-REG-10 | Pentagon raw vc 10 is Blanking where 48K is Border (zxula_timing.vhd:166 vs :268) | zxula_timing.vhd:166 | pass | test/debug/raster_state_test.cpp:226 |
+| RS-REG-11 | 128K Paper starts at raw hc 137 = c_min_hactive+1 (zxula_timing.vhd:195, zxula.vhd:415) | zxula_timing.vhd:195, zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:229 |
+| RS-REG-12 | +3 Paper window matches 128K (zxula_timing.vhd:195) | zxula_timing.vhd:195 | pass | test/debug/raster_state_test.cpp:232 |
+| RS-REG-13 | Pentagon Paper starts on raw line 80, Border on 79 (zxula_timing.vhd:167) | zxula_timing.vhd:167 | pass | test/debug/raster_state_test.cpp:235 |
+| RS-REG-14 | 48K Paper starts on raw line 64, Border on 63 (zxula_timing.vhd:269) | zxula_timing.vhd:269 | pass | test/debug/raster_state_test.cpp:238 |
+| RS-REG-15 | in_paper() agrees with region == Paper (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:241 |
+| RS-FET-01 | 48K hc_ula 0 fetches a bitmap byte (zxula.vhd:234-235,270-303) | zxula.vhd:234-235,270-303 | pass | test/debug/raster_state_test.cpp:252 |
+| RS-FET-02 | 48K hc_ula 2 fetches an attribute byte (zxula.vhd:238-241,270-303) | zxula.vhd:238-241,270-303 | pass | test/debug/raster_state_test.cpp:254 |
+| RS-FET-03 | 48K hc_ula 4 fetches a bitmap byte (zxula.vhd:234-235) | zxula.vhd:234-235 | pass | test/debug/raster_state_test.cpp:256 |
+| RS-FET-04 | 48K hc_ula 6 fetches an attribute byte (zxula.vhd:238-241) | zxula.vhd:238-241 | pass | test/debug/raster_state_test.cpp:258 |
+| RS-FET-05 | 48K whole 16-tick block is BBAA x4 (zxula.vhd:226-263,270-303) | zxula.vhd:226-263,270-303 | pass | test/debug/raster_state_test.cpp:268 |
+| RS-FET-06 | 48K hc_ula 255 is the last fetching tick (zxula.vhd:416) | zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:270 |
+| RS-FET-07 | 48K hc_ula 256 is Idle — i_hc(8) sets border_active_ula (zxula.vhd:416) | zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:272 |
+| RS-FET-08 | vc_ula 192 is Idle at every hc_ula — border_active_v (zxula.vhd:414,416) | zxula.vhd:414,416 | pass | test/debug/raster_state_test.cpp:274 |
+| RS-FET-09 | the ULA fetches while the beam is still in the LEFT BORDER (zxula.vhd:415 vs :416) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:277 |
+| RS-FET-10 | the beam is still in PAPER after the fetch window closes (zxula.vhd:415 vs :416) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:280 |
+| RS-FET-11 | Timex hi-colour (port 0xFF=0x02): attribute slots fetch a 2nd bitmap plane (zxula.vhd:238-239) | zxula.vhd:238-239 | pass | test/debug/raster_state_test.cpp:283 |
+| RS-FET-12 | Timex hi-res (port 0xFF=0x06): attribute slots fetch a 2nd bitmap plane (zxula.vhd:248-249) | zxula.vhd:248-249 | pass | test/debug/raster_state_test.cpp:285 |
+| RS-FET-13 | shadow screen forces screen_mode "000" — attributes again (zxula.vhd:191) | zxula.vhd:191 | pass | test/debug/raster_state_test.cpp:287 |
+| RS-FET-14 | port 0xFF=0x01 (alternate screen) keeps attribute fetches (zxula.vhd:238-241) | zxula.vhd:238-241 | pass | test/debug/raster_state_test.cpp:289 |
+| RS-FET-15 | 128K fetch window is raw hc [125,380] (zxula_timing.vhd:195,423, zxula.vhd:416) | zxula_timing.vhd:195,423, zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:291 |
+| RS-FET-16 | Pentagon fetch window is raw hc [117,372] on paper lines 80.. (zxula_timing.vhd:159,167) | zxula_timing.vhd:159,167 | pass | test/debug/raster_state_test.cpp:296 |
+| RS-FET-17 | Timex mode bit 1 selects the plane; bit 0/2 alone do not (zxula.vhd:238-241,248-251) | zxula.vhd:238-241,248-251 | pass | test/debug/raster_state_test.cpp:301 |
+| RS-NAME-01 | "Paper" names border_active = '0' (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:307 |
+| RS-NAME-02 | "Border" names border_active = '1' inside blank_n (zxula.vhd:415) | zxula.vhd:415 | pass | test/debug/raster_state_test.cpp:309 |
+| RS-NAME-03 | "Blanking" names blank_n = '0' (zxula_timing.vhd:348-357) | zxula_timing.vhd:348-357 | pass | test/debug/raster_state_test.cpp:311 |
+| RS-NAME-04 | "Bitmap" names a pixel-byte read cycle (zxula.vhd:234-235) | zxula.vhd:234-235 | pass | test/debug/raster_state_test.cpp:313 |
+| RS-NAME-05 | "Attribute" names an attribute-byte read cycle (zxula.vhd:240-241) | zxula.vhd:240-241 | pass | test/debug/raster_state_test.cpp:315 |
+| RS-NAME-06 | "Idle" names border_active_ula = '1' (zxula.vhd:416) | zxula.vhd:416 | pass | test/debug/raster_state_test.cpp:317 |
+| RS-FOLD-01 | raw hc past c_max_hc folds into the line (zxula_timing.vhd:316-327) | zxula_timing.vhd:316-327 | pass | test/debug/raster_state_test.cpp:326 |
+| RS-FOLD-02 | negative raw vc folds into the frame (zxula_timing.vhd:329-341) | zxula_timing.vhd:329-341 | pass | test/debug/raster_state_test.cpp:329 |
+| RS-FOLD-03 | 128K raw hc folds on 456, not 448 (zxula_timing.vhd:196,316-327) | zxula_timing.vhd:196,316-327 | pass | test/debug/raster_state_test.cpp:335 |
+| RS-FOLD-04 | +3 raw hc folds on 456 (zxula_timing.vhd:196,316-327) | zxula_timing.vhd:196,316-327 | pass | test/debug/raster_state_test.cpp:338 |
+| RS-FOLD-05 | Pentagon raw hc folds on 448 (zxula_timing.vhd:160,316-327) | zxula_timing.vhd:160,316-327 | pass | test/debug/raster_state_test.cpp:340 |
+| RS-FOLD-06 | 128K negative raw vc folds on 311 (zxula_timing.vhd:204,329-341) | zxula_timing.vhd:204,329-341 | pass | test/debug/raster_state_test.cpp:343 |
+| RS-FOLD-07 | Pentagon negative raw vc folds on 320 (zxula_timing.vhd:168,329-341) | zxula_timing.vhd:168,329-341 | pass | test/debug/raster_state_test.cpp:345 |
+| RS-FOLD-08 | 48K 60 Hz negative raw vc folds on 264 (zxula_timing.vhd:298,329-341) | zxula_timing.vhd:298,329-341 | pass | test/debug/raster_state_test.cpp:347 |
 
 ## CPU interrupt pulse — `test/cpu/int_pulse_test.cpp`
 

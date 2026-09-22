@@ -750,6 +750,12 @@ void VideoPanel::create_ui()
         ula_label_   = make_val("ULA     hc:----  vc:----  o_hc_ula / o_vc_ula");
         cvc_label_   = make_val("Copper cvc:----           NR 0x1E/0x1F read THIS");
         pixel_label_ = make_val("Pixel    x:----   y:----  o_phc / o_vc_ula");
+        // Named so the panel test can read them back and pin the
+        // paused-only contract this block and the tooltip both state.
+        raw_label_->setObjectName(QStringLiteral("rasterRaw"));
+        ula_label_->setObjectName(QStringLiteral("rasterUla"));
+        cvc_label_->setObjectName(QStringLiteral("rasterCvc"));
+        pixel_label_->setObjectName(QStringLiteral("rasterPixel"));
         col->addWidget(raw_label_);
         col->addWidget(ula_label_);
         col->addWidget(cvc_label_);
@@ -759,10 +765,12 @@ void VideoPanel::create_ui()
         state->setSpacing(4);
         state->addWidget(make_bold("Region:"));
         region_label_ = make_val("---");
+        region_label_->setObjectName(QStringLiteral("rasterRegion"));
         state->addWidget(region_label_);
         state->addSpacing(12);
         state->addWidget(make_bold("ULA fetch:"));
         fetch_label_ = make_val("---");
+        fetch_label_->setObjectName(QStringLiteral("rasterFetch"));
         state->addWidget(fetch_label_);
         state->addStretch();
         col->addLayout(state);

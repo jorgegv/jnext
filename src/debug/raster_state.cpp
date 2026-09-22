@@ -87,6 +87,18 @@ RasterState raster_state_at(const VideoTiming& timing,
                         : RasterRegion::Border;
 
     // ── ULA fetch (zxula.vhd:226-263, 270-303, 416) ─────────────────────────
+    //
+    // NOT the same signal as the floating bus, and the two are SUPPOSED to
+    // disagree.  `Emulator::ula_floating_bus_active_arm()` models
+    // `floating_bus_r` (zxula.vhd:308-340), which is reloaded only at
+    // hc_ula(3:0) = 1/9/B/D/F and holds a stale X"FF" across 1..8; it answers
+    // "what would a CPU read of port 0xFF see".  This answers "what is the
+    // fetch hardware doing right now", and tracks the `vram_a` addressing
+    // register (:226-263), which is valid on EVERY tick.  The two agree on the
+    // pixel/attribute pairing wherever the floating bus is live (9 pixel,
+    // B attribute, D pixel, F attribute) and differ in phase elsewhere, by
+    // construction.  Do not "fix" either to match the other.
+    //
     // border_active_ula <= i_hc(8) or border_active_v       -- zxula.vhd:416
     const bool fetching = !border_v && (s.hc_ula & 0x100) == 0;
     if (!fetching) {

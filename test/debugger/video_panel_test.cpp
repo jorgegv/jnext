@@ -125,6 +125,7 @@
 
 #include <QApplication>
 #include <QImage>
+#include <QLabel>
 #include <QMainWindow>
 #include <QTabWidget>
 #include <QPixmap>
@@ -2156,6 +2157,71 @@ static void test_raster_indicator(Emulator& emu) {
                   fmt("hblank(%d,%d)=0x%08X vblank(%d,%d)=0x%08X",
                       hb_x, py, img.pixel(hb_x, py),
                       px, vb_y, img.pixel(px, vb_y)));
+        }
+    }
+
+    // ── The paused-only contract ────────────────────────────────────────
+    //
+    // "Updated only while the emulator is paused" is stated in the
+    // video_panel.h doc-comment, in the diagram's tooltip AND in the shipped
+    // user guide — and until these rows nothing enforced it.  A raster
+    // read-out that keeps updating while the machine runs is not just a
+    // performance regression: the numbers are a blur nobody can act on, and
+    // the beam marker implies a precision the reading does not have.
+    {
+        auto beam_drawn = [](QWidget* diagram) {
+            const QImage img = diagram->grab().toImage();
+            for (int y = 0; y < img.height(); ++y)
+                for (int x = 0; x < img.width(); ++x)
+                    if (img.pixel(x, y) == qRgb(0xFF, 0x20, 0x20)) return true;
+            return false;
+        };
+
+        VideoPanel panel(&emu);
+        panel.resize(panel.sizeHint());
+        auto* diagram = panel.findChild<QWidget*>(QStringLiteral("rasterDiagram"));
+        auto* region  = panel.findChild<QLabel*>(QStringLiteral("rasterRegion"));
+        auto* fetch   = panel.findChild<QLabel*>(QStringLiteral("rasterFetch"));
+        auto* raw     = panel.findChild<QLabel*>(QStringLiteral("rasterRaw"));
+
+        if (!diagram || !region || !fetch || !raw) {
+            check("DVP-RAS-11", "the raster read-out widgets are reachable by name", false);
+        } else {
+            // RUNNING: the debugger is active but not paused, exactly as it is
+            // between breakpoints.
+            emu.debug_state().resume();
+            panel.refresh();
+            check("DVP-RAS-11",
+                  "while RUNNING the raster read-out shows placeholders, not live numbers",
+                  region->text() == QStringLiteral("---")
+                      && fetch->text() == QStringLiteral("---")
+                      && raw->text().contains(QStringLiteral("----")),
+                  fmt("region='%s' fetch='%s' raw='%s'",
+                      region->text().toUtf8().constData(),
+                      fetch->text().toUtf8().constData(),
+                      raw->text().toUtf8().constData()));
+            check("DVP-RAS-12",
+                  "…and the diagram draws no beam marker while running",
+                  !beam_drawn(diagram));
+
+            // PAUSED: the same panel, the same refresh() call, real values.
+            emu.debug_state().pause();
+            emu.snapshot_raster();
+            panel.refresh();
+            const QString r = region->text();
+            check("DVP-RAS-13",
+                  "while PAUSED the same refresh() shows a real region, fetch and beam",
+                  (r == QStringLiteral("Paper") || r == QStringLiteral("Border")
+                       || r == QStringLiteral("Blanking"))
+                      && fetch->text() != QStringLiteral("---")
+                      && !raw->text().contains(QStringLiteral("----"))
+                      && beam_drawn(diagram),
+                  fmt("region='%s' fetch='%s' raw='%s' beam=%d",
+                      r.toUtf8().constData(),
+                      fetch->text().toUtf8().constData(),
+                      raw->text().toUtf8().constData(),
+                      int(beam_drawn(diagram))));
+            emu.debug_state().resume();
         }
     }
 }

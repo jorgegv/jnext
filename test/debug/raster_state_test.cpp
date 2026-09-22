@@ -123,6 +123,23 @@ int main() {
     check("RS-PHC-06", "48K last paper pixel phc = 255 at raw hc 384 (zxula.vhd:415)",
           at(t48, 384, 100).phc == 255);
 
+    // The phc reload is per-machine: it lands at raw hc `c_min_hactive - 47`
+    // and the counter it wraps against is `c_max_hc + 1`
+    // (zxula_timing.vhd:511-517 against :196 / :262 / :160).  The pair of rows
+    // per machine straddles that boundary, because a fold threshold or a
+    // subtrahend frozen at one machine's constants is invisible to a test that
+    // only ever asks that machine.
+    check("RS-PHC-07", "128K phc still counting at raw hc 88 = c_min_hactive-48 (zxula_timing.vhd:195,196,513-517)",
+          at(t128, 88, 100).phc == 407);
+    check("RS-PHC-08", "128K phc reloads to -48 at raw hc 89, folding on c_max_hc+1 = 456 (zxula_timing.vhd:196,511-515)",
+          at(t128, 89, 100).phc == -48);
+    check("RS-PHC-09", "+3 shares the 128K line geometry: hc 88 -> 407, hc 89 -> -48 (zxula_timing.vhd:195,196)",
+          at(tp3, 88, 100).phc == 407 && at(tp3, 89, 100).phc == -48);
+    check("RS-PHC-10", "Pentagon folds on c_max_hc+1 = 448: hc 80 -> 399, hc 81 -> -48 (zxula_timing.vhd:159,160)",
+          at(tpent, 80, 100).phc == 399 && at(tpent, 81, 100).phc == -48);
+    check("RS-PHC-11", "48K 60 Hz keeps c_max_hc 447, so the fold is unmoved (zxula_timing.vhd:260,262 vs :288,290)",
+          at(t48_60, 80, 100).phc == 399 && at(t48_60, 81, 100).phc == -48);
+
     // vc_ula is clocked by the SAME ula_max_hc pulse as hc_ula
     // (zxula_timing.vhd:441-451), so an ULA line starts at raw hc
     // c_min_hactive-11, not at raw hc 0.
@@ -137,6 +154,21 @@ int main() {
           at(t48_60, 117, 40).vc_ula == 0);
     check("RS-VCULA-05", "48K last paper line vc_ula = 191 on raw line 255 (zxula.vhd:414)",
           at(t48, 300, 255).vc_ula == 191);
+
+    // vc_ula wraps on the machine's own frame length, `c_max_vc + 1`
+    // (zxula_timing.vhd:204 / :270 / :168 / :298).  A raw line ABOVE
+    // c_min_vactive is where that shows: the rebase goes negative and the
+    // modulus is the only thing that decides the answer.
+    check("RS-VCULA-06", "128K vc_ula above the frame top wraps on 311, not 312 (zxula_timing.vhd:203,204)",
+          at(t128, 200, 10).vc_ula == 257);
+    check("RS-VCULA-07", "+3 wraps on 311 like 128K (zxula_timing.vhd:203,204)",
+          at(tp3, 200, 10).vc_ula == 257);
+    check("RS-VCULA-08", "Pentagon wraps on 320 (zxula_timing.vhd:167,168)",
+          at(tpent, 200, 10).vc_ula == 250);
+    check("RS-VCULA-09", "48K 60 Hz wraps on 264 (zxula_timing.vhd:297,298)",
+          at(t48_60, 200, 10).vc_ula == 234);
+    check("RS-VCULA-10", "128K pre-origin line borrow wraps on 311 too (zxula_timing.vhd:204,441-451)",
+          at(t128, 124, 64).vc_ula == 310);
 
     // cvc — the counter NR 0x1E/0x1F actually reports
     // (zxnext.vhd:5982-5986), reloaded from NR 0x64 at ula_min_vactive and
@@ -154,6 +186,20 @@ int main() {
         t.set_cu_offset(200);
         check("RS-CVC-03", "cvc wraps at c_max_vc: vc_ula 191 + 200 = 79 mod 312 (zxula_timing.vhd:463-466)",
               at(t, 300, 255).cvc == 79);
+    }
+    // ...and the wrap is on the MACHINE's c_max_vc, not 48K's
+    // (zxula_timing.vhd:463-466 against :204 / :168).
+    {
+        VideoTiming t = make_timing(MachineTimingMode::Timing128);
+        t.set_cu_offset(200);
+        check("RS-CVC-05", "128K cvc wraps on 311: vc_ula 191 + 200 = 80 (zxula_timing.vhd:204,463-466)",
+              at(t, 300, 255).cvc == 80);
+    }
+    {
+        VideoTiming t = make_timing(MachineTimingMode::TimingPentagon);
+        t.set_cu_offset(200);
+        check("RS-CVC-06", "Pentagon cvc wraps on 320: vc_ula 175 + 200 = 55 (zxula_timing.vhd:168,463-466)",
+              at(t, 300, 255).cvc == 55);
     }
 
     // ── 3. Region classification ─────────────────────────────────────────
@@ -282,6 +328,24 @@ int main() {
        && at(t48, 448 + 129, 100).raw_hc == 129);
     check("RS-FOLD-02", "negative raw vc folds into the frame (zxula_timing.vhd:329-341)",
           at(t48, 200, -1).raw_vc == 311);
+    // Both frame counters wrap on the machine's own period — c_max_hc + 1 and
+    // c_max_vc + 1 (zxula_timing.vhd:316-327 / :329-341, against the per-machine
+    // constants at :160/:168, :196/:204, :262/:270, :290/:298).  48K alone
+    // cannot see a modulus frozen at 448 / 312, because those ARE its values.
+    check("RS-FOLD-03", "128K raw hc folds on 456, not 448 (zxula_timing.vhd:196,316-327)",
+          at(t128, 456 + 137, 100).raw_hc == 137
+       && at(t128, 456 + 137, 100).region == RasterRegion::Paper);
+    check("RS-FOLD-04", "+3 raw hc folds on 456 (zxula_timing.vhd:196,316-327)",
+          at(tp3, 456 + 137, 100).raw_hc == 137);
+    check("RS-FOLD-05", "Pentagon raw hc folds on 448 (zxula_timing.vhd:160,316-327)",
+          at(tpent, 448 + 129, 100).raw_hc == 129
+       && at(tpent, 448 + 129, 100).region == RasterRegion::Paper);
+    check("RS-FOLD-06", "128K negative raw vc folds on 311 (zxula_timing.vhd:204,329-341)",
+          at(t128, 200, -1).raw_vc == 310);
+    check("RS-FOLD-07", "Pentagon negative raw vc folds on 320 (zxula_timing.vhd:168,329-341)",
+          at(tpent, 200, -1).raw_vc == 319);
+    check("RS-FOLD-08", "48K 60 Hz negative raw vc folds on 264 (zxula_timing.vhd:298,329-341)",
+          at(t48_60, 200, -1).raw_vc == 263);
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
