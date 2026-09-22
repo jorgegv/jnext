@@ -90,9 +90,15 @@ if want joy-uart-link-func; then
         if [[ "$ready" != "R" ]]; then
             fails+=("guest never announced itself on the cable (got '$ready', want 'R')")
         else
-            # Facts 3 and 4 — the round trip. `printf > fifo` returns at once
-            # because jnext is holding the read end open.
-            printf 'ABC' >"$base.rx"
+            # Facts 3 and 4 — the round trip. Opening a FIFO for writing BLOCKS
+            # until a reader is there, and jnext is that reader — so this
+            # returns at once while it is alive, and hangs forever if it died
+            # between announcing itself and now. `timeout` is what keeps an
+            # unlikely crash from wedging the whole suite instead of failing
+            # this one row.
+            if ! timeout 15 sh -c 'printf ABC > "$0"' "$base.rx"; then
+                fails+=("could not write to $base.rx — jnext is no longer reading it")
+            fi
             for _ in $(seq 1 600); do
                 [[ "$(stat -c %s "$outfile" 2>/dev/null || echo 0)" -ge 4 ]] && break
                 kill -0 "$jnext_pid" 2>/dev/null || break
