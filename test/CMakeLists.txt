@@ -1131,6 +1131,31 @@ if(ENABLE_DEBUGGER)
         ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}/test)
     add_test(NAME debugger_accel_tests COMMAND debugger_accel_test)
 
+    # Disassembly copy test (GH #21 — the disassembly panel is custom-painted,
+    # so nothing in it could be selected or copied). Drives the REAL
+    # DisasmPanel with real mouse, key and context-menu events and asserts the
+    # exact text that lands on the REAL clipboard. Needs Qt but no display: the
+    # offscreen QPA platform's clipboard is an in-process store that round-
+    # trips setText/text, which is what lets the rows assert the clipboard
+    # itself rather than only the string handed to it. The panel needs nothing
+    # from DebuggerWindow, so this suite builds one standalone and is gated on
+    # ENABLE_DEBUGGER alone.
+    # Qt::Test for QTest::keyClick: Ctrl+C / Ctrl+A are Qt::WidgetShortcut
+    # shortcuts on QActions, and QShortcutMap listens on the platform key-event
+    # entry point QTest uses — a plain sendEvent() bypasses it and would prove
+    # nothing about them. Same reason (and same already-present devel package)
+    # as debugger_accel_test above.
+    add_executable(debugger_disasm_copy_test debugger/disasm_copy_test.cpp)
+    set_target_properties(debugger_disasm_copy_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_disasm_copy_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
+        Qt${JNEXT_QT_MAJOR}::Test)
+    target_include_directories(debugger_disasm_copy_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_disasm_copy_tests COMMAND debugger_disasm_copy_test)
+
     # Debugger menu-reachability test (GH #215 — the Breakpoints menu offered
     # every breakpoint type EXCEPT Execute, and the main window's Debug menu
     # did not offer the debugger at all). Drives the real menu actions of both

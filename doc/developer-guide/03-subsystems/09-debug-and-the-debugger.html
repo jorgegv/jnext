@@ -1154,6 +1154,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#copying-out-of-a-custom-painted-panel" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Copying out of a custom-painted panel
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#rewind" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2062,7 +2073,7 @@ introspects:</p>
 </tr>
 <tr>
 <td>Disassembly</td>
-<td><code>src/debug/disasm.*</code> over <code>Mmu::read</code>, with symbol substitution and a breakpoint gutter</td>
+<td><code>src/debug/disasm.*</code> over <code>Mmu::read</code>, with symbol substitution, a breakpoint gutter, and a selection you can copy as assembly</td>
 </tr>
 <tr>
 <td>Memory</td>
@@ -2131,6 +2142,24 @@ readers: <code>load_z88dk_map()</code> for z88dk linker output, and <code>load_s
 for a plain <code>SYMBOL = $ADDR</code> list. <code>DebuggerManager</code> owns the table, and the
 disassembly, breakpoint and watch panels all consume it — which is why a
 breakpoint set on a symbol keeps its name in the breakpoint list.</p>
+<h2 id="copying-out-of-a-custom-painted-panel">Copying out of a custom-painted panel<a class="headerlink" href="#copying-out-of-a-custom-painted-panel" title="Permanent link">&para;</a></h2>
+<p>The disassembly panel paints itself, so there is no Qt text widget to inherit a
+selection from — it has to be built against the panel's own line model. Two
+choices in <code>src/debugger/disasm_panel.*</code> are worth knowing before touching it.</p>
+<p>The selection is an <strong>address range</strong>, an anchor and a cursor, not a pair of
+line indices. <code>entries_</code> is rebuilt from scratch by every scroll, every
+<code>refresh()</code> and every <code>activate_follow_pc()</code>, so an index into it survives none
+of those while an address survives all of them. That one choice is why the
+selection holds still while the view moves under it.</p>
+<p>The text is produced by <strong><code>src/debug/disasm_text.*</code></strong> — pure C++, no Qt — which
+re-disassembles the selected range from live memory rather than reusing the
+painted lines. That is what lets a selection copy in full after its lines have
+scrolled out of the view, and what makes copying work while the panel has
+stopped updating. The same file holds <code>apply_symbols()</code>, and the painter calls
+it too: the issue required the copied text to carry the MAP-file symbolic form,
+and one shared rule is what stops the two from drifting. Being Qt-free, all of
+it is assertable without a display — <code>debugger_disasm_copy_test</code> drives the
+real panel with real events and reads the real clipboard.</p>
 <h2 id="rewind">Rewind<a class="headerlink" href="#rewind" title="Permanent link">&para;</a></h2>
 <p>Rewind lets you run the machine <em>backwards</em>: step back an instruction at a
 time, jump back a whole frame, or drag a slider to somewhere earlier in the

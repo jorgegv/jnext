@@ -15,6 +15,9 @@
 #include <QVBoxLayout>
 #include <QLabel>
 #include <QFontDatabase>
+#include <QClipboard>
+#include <QGuiApplication>
+#include <QKeySequence>
 
 #include "core/emulator.h"
 #include "debug/symbol_table.h"
@@ -88,6 +91,51 @@ DisasmPanel::DisasmPanel(Emulator* emulator, QWidget* parent)
         disassemble_from(view_addr_, visible_lines());
         update();
     });
+
+    // GH #21 — the clipboard commands are real QActions ON THIS WIDGET, not
+    // keys handled in keyPressEvent. Three things follow, and all three are
+    // the reason:
+    //   * the chord is ONE object, instead of a handler and a menu label that
+    //     can drift apart;
+    //   * the context menu renders the shortcut next to the entry without
+    //     being told what it is;
+    //   * the binding is enumerable — `findChildren<QAction*>()` reaches it —
+    //     which is what lets host_hotkey_test check that a chord this project
+    //     advertises in FEATURES.md is one the product actually binds. A
+    //     keyPressEvent branch is invisible to that gate.
+    //
+    // Ctrl, not Alt. The main window puts host hotkeys on Alt because Ctrl
+    // there is the guest's Symbol Shift; the debugger is a SEPARATE top-level
+    // window (DebuggerWindow is its own QMainWindow) with no key handler and
+    // no event filter feeding Keyboard::set_key(), so nothing typed here can
+    // reach the guest and the standard clipboard chords are free.
+    //
+    // WidgetShortcut: they fire only while this panel has focus. Ctrl+C in
+    // the memory or watch panel is not this panel's to take.
+    copy_action_ = new QAction(tr("Copy"), this);
+    copy_action_->setShortcut(QKeySequence::Copy);
+    copy_action_->setShortcutContext(Qt::WidgetShortcut);
+    copy_action_->setToolTip(tr("Copy the selected lines as assembly"));
+    connect(copy_action_, &QAction::triggered, this, [this]() {
+        copy_selection(disasm_text::CopyFormat::AsmOnly);
+    });
+    addAction(copy_action_);
+
+    copy_addresses_action_ = new QAction(tr("Copy with Addresses"), this);
+    copy_addresses_action_->setToolTip(
+        tr("Copy the selected lines with their addresses and opcode bytes"));
+    connect(copy_addresses_action_, &QAction::triggered, this, [this]() {
+        copy_selection(disasm_text::CopyFormat::WithAddresses);
+    });
+    addAction(copy_addresses_action_);
+
+    select_all_action_ = new QAction(tr("Select All"), this);
+    select_all_action_->setShortcut(QKeySequence::SelectAll);
+    select_all_action_->setShortcutContext(Qt::WidgetShortcut);
+    connect(select_all_action_, &QAction::triggered, this, [this]() {
+        select_all_visible();
+    });
+    addAction(select_all_action_);
 
     // GH #220 — the gutter is driven by the set, not by whoever mutated it.
     // PcBreakpoints ONLY: the gutter paints bps.has_pc() (see paintEvent), so
@@ -268,6 +316,90 @@ int DisasmPanel::line_at_y(int y) const
     return line;
 }
 
+int DisasmPanel::line_at_y_clamped(int y) const
+{
+    if (entries_.empty()) return -1;
+    const int adjusted = y - paint_y_offset_;
+    if (adjusted < 0) return 0;                       // dragged off the top
+    const int line = adjusted / LINE_HEIGHT;
+    const int last = static_cast<int>(entries_.size()) - 1;
+    return (line > last) ? last : line;               // dragged off the bottom
+}
+
+// ---------------------------------------------------------------------------
+// GH #21 — selection and copy
+// ---------------------------------------------------------------------------
+
+void DisasmPanel::set_selection(uint16_t addr, bool extend)
+{
+    if (!extend || !has_selection_) sel_anchor_ = addr;
+    sel_cursor_    = addr;
+    has_selection_ = true;
+    update();
+}
+
+void DisasmPanel::clear_selection()
+{
+    if (!has_selection_) return;
+    has_selection_ = false;
+    update();
+}
+
+bool DisasmPanel::selection_range(uint16_t& low, uint16_t& high) const
+{
+    if (!has_selection_) return false;
+    low  = std::min(sel_anchor_, sel_cursor_);
+    high = std::max(sel_anchor_, sel_cursor_);
+    return true;
+}
+
+bool DisasmPanel::line_selected(uint16_t addr) const
+{
+    uint16_t low = 0, high = 0;
+    if (!selection_range(low, high)) return false;
+    return addr >= low && addr <= high;
+}
+
+void DisasmPanel::select_all_visible()
+{
+    if (entries_.empty()) { clear_selection(); return; }
+    sel_anchor_    = entries_.front().line.addr;
+    sel_cursor_    = entries_.back().line.addr;
+    has_selection_ = true;
+    // The caret moves with the cursor, exactly as it does for a drag or a
+    // Shift-arrow. Leaving it behind would make selected_address() report a
+    // line that is no longer where the selection ends — a desync with no
+    // symptom today, because nothing in the product calls that method, and a
+    // trap for whoever wires it to something.
+    selected_line_ = static_cast<int>(entries_.size()) - 1;
+    update();
+}
+
+QString DisasmPanel::selection_text(disasm_text::CopyFormat fmt) const
+{
+    uint16_t low = 0, high = 0;
+    if (!selection_range(low, high)) return QString();
+
+    // Live memory, not the painted lines — see the header comment. This is
+    // also why a selection made before the view scrolled away still copies in
+    // full: nothing about the copy depends on what is currently on screen.
+    auto read_fn = [this](uint16_t a) -> uint8_t {
+        return emulator_->mmu().read(a);
+    };
+
+    const auto lines = disasm_text::collect_range(low, high, read_fn, symbol_table_);
+    return QString::fromStdString(disasm_text::format_lines(lines, fmt));
+}
+
+void DisasmPanel::copy_selection(disasm_text::CopyFormat fmt)
+{
+    const QString text = selection_text(fmt);
+    // Nothing selected: leave whatever is on the clipboard alone. A copy that
+    // silently wipes the clipboard is worse than a copy that does nothing.
+    if (text.isEmpty()) return;
+    if (QClipboard* clip = QGuiApplication::clipboard()) clip->setText(text);
+}
+
 void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
 {
     QPainter painter(this);
@@ -308,7 +440,13 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
             painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
                              QColor(255, 255, 204)); // light yellow
         }
-        if (i == selected_line_) {
+        // GH #21 — the selection, as a range of addresses. Two things the
+        // fill must not destroy: it starts at GUTTER_WIDTH, so the breakpoint
+        // dot stays fully opaque, and it is semi-transparent, so the PC row's
+        // yellow tint still shows through under it and its bold black text
+        // stays readable. Same colour and alpha the single selected line has
+        // always used — this is the same highlight, over more lines.
+        if (line_selected(entry.line.addr)) {
             painter.fillRect(GUTTER_WIDTH, y, w - GUTTER_WIDTH, LINE_HEIGHT,
                              QColor(204, 221, 255, 128)); // semi-transparent light blue
         }
@@ -347,18 +485,12 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         }
         painter.setPen(QColor(0, 0, 0));
 
-        QString mnemonic_str(entry.line.mnemonic);
-        // Try to resolve 16-bit immediates to symbol names
-        if (symbol_table_) {
-            uint16_t imm = extract_immediate16(entry.line.mnemonic);
-            if (imm != 0 || std::strstr(entry.line.mnemonic, "$0000")) {
-                auto sym = symbol_table_->lookup(imm);
-                if (sym) {
-                    QString target = QString::asprintf("$%04X", imm);
-                    mnemonic_str.replace(target, QString::fromStdString(*sym));
-                }
-            }
-        }
+        // Symbol substitution lives in disasm_text::apply_symbols(), which is
+        // also what the clipboard path calls — GH #21 requires the copied text
+        // to carry the symbolic form, and one shared rule is what guarantees
+        // the two can never drift apart.
+        const QString mnemonic_str = QString::fromStdString(
+            disasm_text::apply_symbols(entry.line.mnemonic, symbol_table_));
         painter.drawText(x, text_y, mnemonic_str);
 
         if (entry.is_current_pc) {
@@ -402,10 +534,39 @@ void DisasmPanel::mousePressEvent(QMouseEvent* event)
             entries_[line].has_breakpoint = bps.has_pc(addr);
         update();
     } else {
-        // Select line
+        // Select line. GH #21: a plain click is also a one-line SELECTION —
+        // anchor and cursor on the same address — so Ctrl+C right after a
+        // click copies that line, and a drag from here extends it.
         selected_line_ = line;
+        set_selection(entries_[line].line.addr,
+                      (event->modifiers() & Qt::ShiftModifier) != 0);
+        dragging_ = true;
         update();
     }
+}
+
+void DisasmPanel::mouseMoveEvent(QMouseEvent* event)
+{
+    if (!dragging_) { QWidget::mouseMoveEvent(event); return; }
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const QPointF evpos = event->position();
+#else
+    const QPointF evpos = event->localPos();
+#endif
+    // Clamped, not line_at_y(): dragging past the top or bottom edge should
+    // keep extending to that end, not stop dead. There is deliberately no
+    // auto-scroll — this panel scrolls by re-disassembling from a heuristic
+    // address, which would move the lines under the pointer mid-drag.
+    const int line = line_at_y_clamped(static_cast<int>(evpos.y()));
+    if (line < 0) return;
+    selected_line_ = line;
+    set_selection(entries_[line].line.addr, /*extend=*/true);
+}
+
+void DisasmPanel::mouseReleaseEvent(QMouseEvent* event)
+{
+    dragging_ = false;
+    QWidget::mouseReleaseEvent(event);
 }
 
 void DisasmPanel::wheelEvent(QWheelEvent* event)
@@ -445,8 +606,20 @@ void DisasmPanel::wheelEvent(QWheelEvent* event)
 
 void DisasmPanel::keyPressEvent(QKeyEvent* event)
 {
+    // Ctrl+C and Ctrl+A are deliberately NOT handled here — they are
+    // shortcuts on copy_action_ / select_all_action_, created in the
+    // constructor. Qt's shortcut map consumes them before a key event is
+    // delivered, so a branch here would be a second, silent implementation of
+    // the same binding.
+    //
+    // Whether this key moved the selected line, and whether it should extend
+    // the selection rather than collapse it. See the sync after the switch.
+    bool       nav    = false;
+    const bool extend = (event->modifiers() & Qt::ShiftModifier) != 0;
+
     switch (event->key()) {
     case Qt::Key_Up:
+        nav = true;
         if (selected_line_ > 0) {
             --selected_line_;
             update();
@@ -465,6 +638,7 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
         break;
 
     case Qt::Key_Down:
+        nav = true;
         if (selected_line_ < static_cast<int>(entries_.size()) - 1) {
             ++selected_line_;
             update();
@@ -491,6 +665,7 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
         break;
 
     case Qt::Key_PageDown: {
+        nav = true;
         auto read_fn = [this](uint16_t a) -> uint8_t {
             return emulator_->mmu().read(a);
         };
@@ -510,6 +685,7 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
     }
 
     case Qt::Key_PageUp: {
+        nav = true;
         int bytes_back = visible_lines() * 3; // heuristic
         if (view_addr_ >= bytes_back) {
             view_addr_ -= bytes_back;
@@ -524,6 +700,7 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
     }
 
     case Qt::Key_Home:
+        nav = true;
         view_addr_ = 0;
         disassemble_from(view_addr_, visible_lines());
         selected_line_ = 0;
@@ -532,6 +709,7 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
         break;
 
     case Qt::Key_End:
+        nav = true;
         view_addr_ = 0xFF00; // near end of address space
         disassemble_from(view_addr_, visible_lines());
         selected_line_ = 0;
@@ -543,6 +721,15 @@ void DisasmPanel::keyPressEvent(QKeyEvent* event)
         QWidget::keyPressEvent(event);
         break;
     }
+
+    // GH #21 — keep the selection on the line the keyboard moved to. This is
+    // forced, not decorative: the blue highlight is painted from the
+    // SELECTION now, so without this the arrow keys would move
+    // selected_line_ and leave the highlight behind. Shift extends, exactly
+    // as Shift-click does.
+    if (nav && selected_line_ >= 0 &&
+        selected_line_ < static_cast<int>(entries_.size()))
+        set_selection(entries_[selected_line_].line.addr, extend);
 }
 
 void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
@@ -551,11 +738,30 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
     if (line < 0 || line >= static_cast<int>(entries_.size())) return;
 
     selected_line_ = line;
+
+    // GH #21 — right-clicking INSIDE the selection keeps it (that is how you
+    // copy a range you just dragged out); right-clicking outside it collapses
+    // the selection onto that one line, which is what every list widget does.
+    const uint16_t clicked_addr = entries_[line].line.addr;
+    if (!line_selected(clicked_addr))
+        set_selection(clicked_addr, /*extend=*/false);
+
     update();
 
     uint16_t addr = entries_[line].line.addr;
 
     QMenu menu(this);
+
+    // Copy first: it is the entry a reader of this panel reaches for most, and
+    // both forms are offered because they answer different questions — one
+    // pastes into a source file, the other into a bug report. These are the
+    // SAME QAction objects that carry the Ctrl+C / Ctrl+A bindings, not menu
+    // twins of them, so the menu and the keyboard cannot disagree.
+    menu.addAction(copy_action_);
+    menu.addAction(copy_addresses_action_);
+    menu.addAction(select_all_action_);
+
+    menu.addSeparator();
 
     auto* toggle_bp = menu.addAction("Toggle Breakpoint");
     connect(toggle_bp, &QAction::triggered, this, [this, addr, line]() {
@@ -685,23 +891,10 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
 
 uint16_t DisasmPanel::extract_immediate16(const char* mnemonic)
 {
-    // Scan mnemonic for a $XXXX pattern (4 hex digits after $)
-    const char* p = mnemonic;
-    while (*p) {
-        if (*p == '$') {
-            const char* start = p + 1;
-            int digits = 0;
-            while (start[digits] && std::isxdigit(static_cast<unsigned char>(start[digits])))
-                ++digits;
-            if (digits == 4) {
-                char buf[5] = {};
-                std::memcpy(buf, start, 4);
-                return static_cast<uint16_t>(std::strtoul(buf, nullptr, 16));
-            }
-        }
-        ++p;
-    }
-    return 0; // not found — 0 is ambiguous but acceptable
+    // One implementation, in debug/disasm_text.cpp. The context menu below
+    // still reaches it through this name; the copy path and the painter reach
+    // apply_symbols(), which is built on the same scan.
+    return disasm_text::extract_immediate16(mnemonic);
 }
 
 void DisasmPanel::resizeEvent(QResizeEvent* event) {

@@ -107,6 +107,7 @@
 - PC/data/read/write breakpoints with watchpoints
 - I/O port breakpoints: IO Read on an `IN`, IO Write on an `OUT`. A port address of `00`-`FF` matches any port with that low byte (`FE` catches every ULA access, whatever `OUT (254),A` left in the high byte); `0100` and up matches that exact 16-bit port (`243B`, not `253B`). The DMA's own port transfers are seen too
 - Symbol table from Z88DK MAP files; inline symbol names in disassembly
+- Disassembly select & copy: click-drag or Shift+click a line range, Ctrl+A for the whole view, Ctrl+C or the right-click menu to copy. Copies assembly only — mnemonics and operands, one per line, indented, with the address column, opcode bytes and breakpoint gutter stripped and MAP symbols kept, so it pastes into a source file and assembles. "Copy with Addresses" keeps the address and opcode columns for bug reports. The selection is a range of addresses, so scrolling, stepping and Go to PC leave it alone, and the text is disassembled from memory at the moment you copy
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
 - Backwards execution (rewind): frame snapshots ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider

@@ -1091,6 +1091,7 @@ my %NO_MATRIX_SECTION = (
     'debugger_window_grow_test' => 'debugger window geometry (host GUI)',
     'debugger_accel_test'       => 'debugger keyboard accelerators (host GUI)',
     'debugger_menu_test'        => 'debugger menu reachability (host GUI)',
+    'debugger_disasm_copy_test' => 'disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N`',
 );
 
 # The head Summary table is generated between these markers. They are HTML
