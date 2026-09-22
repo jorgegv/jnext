@@ -43,7 +43,7 @@ mentions them, so a test can no longer be absent from this document.
 | VideoTiming                                |    65 |   62 |    0 |    0 |       3 |          0 |
 | Contention                                 |   131 |  129 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    52 |   49 |    0 |    1 |       2 |          0 |
+| SD Card                                    |    53 |   50 |    0 |    1 |       2 |          0 |
 | NMI Source Pipeline                        |    81 |   59 |    0 |    0 |      22 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
@@ -60,10 +60,10 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nextreg_integration_test        |   312 |  312 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
-| Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4462 | 4210 |    0 |    5 |     247 |          0 |
+| Companion: uart_integration_test           |    38 |   38 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  4464 | 4212 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4462**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4251**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7288**.
+Rows the sections above carry: **4464**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4255**. Rows the 102 suites declared in `test/unit-tests.conf` run live: **7303**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -75,7 +75,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 60 suites (3226 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 61 suites (3240 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -109,7 +109,8 @@ These 60 suites (3226 live rows) have no VHDL-derived plan row to map, so they h
 | `video_recorder_cmd_test` | 33 | FFmpeg command-line construction (host encoder) |
 | `nex_loader_test` | 108 | NEX file-format spec (host loader), no core counterpart |
 | `nex_v13_test` | 78 | NEX V1.3 file-format spec + nexload2.asm (host loader), no core counterpart |
-| `extended_nex_test` | 36 | narrative section, ID ranges not per-row IDs |
+| `extended_nex_test` | 41 | narrative section, ID ranges not per-row IDs |
+| `tap_loader_test` | 9 | TAP container format, libspectrum TAP reader as oracle (host loader), no core counterpart |
 | `atic_atac_nmi_test` | 4 | narrative section, hand-maintained (feeds protected NR-C0-02) |
 | `inject_test` | 17 | jnext --inject entry state (host debugging aid), no core counterpart |
 | `profiler_test` | 32 | jnext profiler output format (a developer tool) |
@@ -329,8 +330,8 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BOOT-NEX-05 | start_delay honoured unconditionally before code-entry, on top of any inter-bank loading_delay total | — | pass | test/mmu/mmu_test.cpp:3629 |
 | BOOT-NEX-06 | loading_bar_colour byte is written verbatim, not a fixed default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a` | — | pass | test/mmu/mmu_test.cpp:3597 |
 | BOOT-NEX-07 | G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) before screen-format ingest, eliminating attribute-area leak from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict) | — | pass | test/mmu/mmu_test.cpp:3709 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1006 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2191 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1009 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2194 |
 | BOOT-TAPESAVE-01 | TapSaver::build_block header block: LE length prefix (payload+2), flag 0x00, payload verbatim, XOR checksum — hand-computed TAP image (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3770 |
 | BOOT-TAPESAVE-02 | TapSaver data block (non-trivial XOR checksum) + append_block file ordering: file bytes == header-block \|\| data-block, hand-computed images (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3839 |
 | BOOT-TAPESAVE-03 | TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, correct boundaries/flags, payload identity, loader checksum verification, zero parse warnings (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3887 |
@@ -2275,8 +2276,8 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | UNQ-03 | zxnext.vhd:1946-1947 NR 0x20 b6 unqualified ULA (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2759 |
 | UNQ-04 | im2_peripheral.vhd:172 int_unq bypasses i_int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:2789 |
 | UNQ-05 | im2_peripheral.vhd:160 int_unq feeds int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2804 |
-| JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | — | missing | — |
-| JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | — | missing | — |
+| CTC-JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | — | missing | — |
+| CTC-JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | — | missing | — |
 | SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1396 |
 | SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1442 |
 | SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1470 |
@@ -2421,9 +2422,9 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | GATE-01 | UART port enable gate: NR 0x83 bit 4 → ports 0x133B-0x163B; when closed reads=0xFF + writes ignored [zxnext.vhd:2420, :2392; emulator.cpp register_io_ports] | zxnext.vhd:2420,2392 | pass | test/uart/uart_integration_test.cpp:416 |
 | GATE-02 | I2C port enable gate: NR 0x83 bit 2 → ports 0x103B/0x113B; when closed reads=0xFF + writes ignored [zxnext.vhd:2418, :2392] | zxnext.vhd:2418,2392 | pass | test/uart/uart_integration_test.cpp:465 |
 | GATE-03 | NR 0x83 bits 0/2/4 independently gate DivMMC/I2C/UART [zxnext.vhd:2412, :2418, :2420, :2392; :5499-5509] | zxnext.vhd:2412,2418,2420,2392 | pass | test/uart/uart_integration_test.cpp:558 |
-| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:1936 |
-| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1965 |
-| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1996 |
+| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:1241 | pass | test/uart/uart_integration_test.cpp:2017 |
+| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2046 |
+| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2077 |
 | TX-C1-ACC-01 | single tick span across a byte boundary: bytes exactly prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,318-320]; boundaries exact to one cycle; tx_empty at end | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:2431 |
 | TX-C1-ACC-02 | one tick(4*2430) span drains 4 FIFO bytes back-to-back (starts at 0/T/2T/3T); last completion exactly at 4T [uart.vhd:297-299,318-320] | uart.vhd:297-299,318-320 | pass | test/uart/uart_test.cpp:2459 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1708 |
@@ -3449,56 +3450,57 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:171 |
-| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:179 |
-| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:205 |
-| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:249 |
-| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:257 |
-| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:265 |
-| CMD18-05 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:305 |
-| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:344 |
-| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:366 |
-| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:384 |
-| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:407 |
-| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:426 |
-| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:442 |
-| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:512 |
-| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=256 illegal (R1 bit 2 set) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:535 |
-| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:558 |
-| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:650 |
-| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:657 |
-| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:678 |
-| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:724 |
-| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:766 |
-| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:827 |
-| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:835 |
-| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:891 |
-| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:941 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1006 |
-| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1113 |
-| SD-16 | CMD16 SET_BLOCKLEN arg≠512 R1: initialized card -> 0x04 (illegal only, idle CLEAR); uninitialized card -> 0x05 (idle + illegal). Idle bit must derive from initialized_, not be hard-coded (SD spec § 4.9.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1160 |
-| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1230 |
-| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1282 |
-| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1320 |
-| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1360 |
-| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1455 |
-| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1543 |
-| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1585 |
-| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1637 |
-| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1704 |
-| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1776 |
-| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1834 |
-| SD-28 | running as root; cannot construct a read-only image | (SD SPI spec) | skip | test/sdcard/sdcard_test.cpp:1882 |
-| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2017 |
-| SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2090 |
-| SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2145 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2191 |
-| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2226 |
-| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2272 |
-| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2315 |
-| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2339 |
-| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2356 |
-| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2379 |
+| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:174 |
+| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:182 |
+| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:208 |
+| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:252 |
+| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:260 |
+| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:268 |
+| CMD18-06 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:308 |
+| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:347 |
+| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:369 |
+| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:387 |
+| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:410 |
+| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:429 |
+| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:445 |
+| CMD18-05 | open CMD18 stream survives CS deassert; next block streams on reselect without a command (esxDOS cross-call streaming) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:477 |
+| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:515 |
+| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=256 illegal (R1 bit 2 set) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:538 |
+| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:561 |
+| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:653 |
+| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:660 |
+| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:681 |
+| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:727 |
+| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:769 |
+| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:830 |
+| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:838 |
+| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:894 |
+| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:944 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1009 |
+| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1116 |
+| SD-16 | CMD16 SET_BLOCKLEN arg≠512 R1: initialized card -> 0x04 (illegal only, idle CLEAR); uninitialized card -> 0x05 (idle + illegal). Idle bit must derive from initialized_, not be hard-coded (SD spec § 4.9.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1163 |
+| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1233 |
+| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1285 |
+| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1323 |
+| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1363 |
+| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1458 |
+| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1546 |
+| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1588 |
+| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1640 |
+| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1707 |
+| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1779 |
+| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1837 |
+| SD-28 | running as root; cannot construct a read-only image | (SD SPI spec) | skip | test/sdcard/sdcard_test.cpp:1885 |
+| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2020 |
+| SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2093 |
+| SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2148 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2194 |
+| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2229 |
+| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2275 |
+| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2318 |
+| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2342 |
+| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2359 |
+| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2382 |
 | MMC-02 | CMD8 illegal-cmd response on MMC not modelled (see G41) | — | missing | — |
 | MMC-03 | MMC byte-vs-block addressing duality unsupported (see G41) | — | missing | — |
 
@@ -3870,350 +3872,350 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| AT-01 | a bare CRLF is an empty command answered ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:608 |
-| AT-02 | AT answers exactly \r\ OK\r\ | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:612 |
-| AT-03 | ATE0 answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:614 |
-| AT-03b | ...and leaves echo off | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:615 |
-| AT-04 | ATE1 is NOT echoed — echo was still off while its own bytes arrived | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:618 |
-| AT-04b | ...but echo is now really on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:621 |
-| AT-04c | so the NEXT line is echoed, terminator and all, before its reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:623 |
-| AT-04d | and ATE0 still echoes itself before switching echo off | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:626 |
-| AT-05 | AT+CIPMUX=0 answers OK (the only supported mode) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:629 |
-| AT-06 | AT+CIPMUX=1 is accepted (GH #210) — it was refused until server mode had a consumer | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:637 |
-| AT-07 | AT+CIPCLOSE with nothing open answers ERROR (nextsync loops until it sees it) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:642 |
-| AT-08 | AT+RST answers OK then the two WIFI URCs, never 'ready' | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:646 |
-| AT-09 | an unsupported command answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:649 |
-| AT-10 | a bare LF produces nothing — it is only ever the CR's partner | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:652 |
-| AT-10b | ...and is not echoed either, even with echo on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:656 |
-| AT-11 | command names match case-insensitively | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:658 |
-| AT-12 | an overlong line answers exactly one ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:670 |
-| AT-12b | ...and is REFUSED WHOLE — its truncated prefix, a valid CIPSTART, is never run | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:672 |
-| AT-13 | nextsync's baud switch is acknowledged | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:676 |
-| AT-13b | ...and the requested baud is recorded for tracing | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:677 |
-| AT-14 | the _DEF form is accepted too | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:681 |
-| AT-14b | as is the plain AT+UART form | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:683 |
-| AT-14c | syncfast's 2 Mbaud is recorded | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:684 |
-| AT-15 | a non-numeric baud answers ERROR, not a clamped number | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:686 |
-| CON-01 | AT+CIPSTART answers NOTHING until the transport settles — there is no synchronous connect to answer from | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:694 |
-| CON-01b | ...and the engine reports it is waiting | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:698 |
-| CON-02 | a settled connection answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:700 |
-| CON-02b | ...the engine is connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:701 |
-| CON-02c | ...and the transport got the parsed host and port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:702 |
-| CON-03 | a failed connect answers ERROR only — never FAIL, never CLOSED for a connection that never existed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:708 |
-| CON-03b | ...and the engine is not connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:712 |
-| CON-04 | NXtel's 4-argument CIPSTART (with keepalive) connects | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:716 |
-| CON-04b | ...with host and port parsed past the keepalive | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:718 |
-| CON-05 | SSL is still refused — it still has no consumer | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:726 |
-| CON-05b | ...and no connect was ever started | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:728 |
-| CON-06 | a second CIPSTART while connected answers ERROR, not 'ALREADY CONNECTED' | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:733 |
-| CON-06b | ...and is rejected by the ENGINE — the transport is never asked a second time | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:736 |
-| CON-07 | guest input during a connect is deferred, not answered early | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:743 |
-| CON-07b | ...then replayed in order once the connect settles | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:746 |
-| CON-08 | closing a live connection reports CLOSED then OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:752 |
-| CON-08b | ...and the transport was really closed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:754 |
-| CON-09 | port 0 answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:758 |
-| CON-04c | trailing garbage after a VALID keepalive still answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:764 |
-| CON-04d | ...and no connect was attempted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:766 |
-| CON-11 | a connect that never completes is abandoned with ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:780 |
-| CON-11b | ...and the engine stops waiting | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:782 |
-| CON-11c | ...having released the socket | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:783 |
-| CON-12 | ...and the slot is reusable afterwards | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:789 |
-| CON-12b | ...really connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:790 |
-| CON-13 | a connect inside its deadline is still awaited, not refused | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:796 |
-| CON-13b | ...and remains pending | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:798 |
-| CON-10 | a transport that refuses the request answers ERROR immediately | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:803 |
-| SEND-01 | AT+CIPSEND answers \r\ OK\r\ > — TRAILING SPACE INCLUDED; three parsers busy-wait on this with no timeout | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:812 |
-| SEND-01b | ...and 3 payload bytes are outstanding | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:816 |
-| SEND-02 | the completed payload answers \r\ SEND OK\r\ | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:824 |
-| SEND-02b | ...and exactly the payload reached the peer | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:826 |
-| SEND-03 | NXtel's 5 bytes after CIPSEND=3: 3 are payload and the trailing CRLF becomes an empty command line | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:837 |
-| SEND-03b | ...and the peer got exactly the 3 IAC bytes, not 5 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:841 |
-| SEND-04 | AT+CIPSENDEX is a distinct command with the same prompt | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:847 |
-| SEND-04b | ...and the same completion | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:850 |
-| SEND-04c | ...delivering the payload | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:851 |
-| SEND-05 | AT+CIPSEND with no connection answers ERROR — and no prompt, which would hang the guest waiting to send | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:854 |
-| SEND-06 | a zero length answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:860 |
-| SEND-06b | ...as does one over the 2048-byte ceiling | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:862 |
-| SEND-06c | ...but exactly 2048 IS accepted, prompt and all | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:867 |
-| SEND-06d | ...with the full payload outstanding | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:869 |
-| SEND-07 | the send path is 8-bit clean, NUL and ESC included | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:877 |
-| SEND-08 | a partial socket accept still answers SEND OK exactly once | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:884 |
-| SEND-08b | ...with only what the kernel took so far delivered | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:886 |
-| SEND-08c | ...and the remainder flushed by later polls | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:889 |
-| SEND-09 | payload bytes are never echoed, even with echo on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:895 |
-| IPD-01 | inbound data is framed as the unmultiplexed +IPD,<len>: form | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:904 |
-| IPD-02 | +IPD is 8-bit clean and <len> counts raw bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:910 |
-| IPD-03 | bytes trickling in while a chunk drains coalesce into ONE following chunk | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:927 |
-| IPD-04 | SEND OK then +IPD, with no stray '+' between them | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:941 |
-| IPD-04b | ...the first '+' in the stream is the +IPD's own | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:943 |
-| IPD-05 | a 3000-byte burst is split at the 2048-byte chunk ceiling | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:950 |
-| IPD-05b | ...and the remainder is a second chunk, not a dribble | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:952 |
-| IPD-05c | ...totalling exactly the payload plus two headers | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:954 |
-| IPD-07 | once the header starts, every byte-slot delivers a byte — no gap can open inside +IPD,<len>: | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:973 |
-| IPD-07b | ...and the header arrived intact | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:977 |
-| IPD-08 | a peer close is reported only AFTER its last bytes have been framed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:985 |
-| IPD-09 | no +IPD is cut while a command line is half-received | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:994 |
-| IPD-09b | ...it follows the completed command's reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:997 |
-| IPD-10 | no +IPD is cut between the '>' prompt and the payload's SEND OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1006 |
-| IPD-10b | ...it follows SEND OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1009 |
-| UDP-01 | AT+CIPSTART="UDP" answers CONNECT then OK — newt reads ONE line and demands it start with CONNECT | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1036 |
-| UDP-01c | ...and the FIRST CRLF-terminated line is CONNECT itself — no leading CRLF, or newt's one-line read sees an empty line and gives up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1046 |
-| UDP-01b | ...and the engine is connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1050 |
-| UDP-02 | ...over UDP, to the parsed host and port, with an OS-chosen local port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1051 |
-| UDP-03 | the protocol token is case-insensitive, like every command name | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1057 |
-| UDP-04 | the optional <local port> is accepted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1062 |
-| UDP-04b | ...and reaches the transport, which is what binds it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1064 |
-| UDP-05 | <mode> 0 — the fixed peer every client uses — is accepted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1069 |
-| UDP-06 | <mode> 1 (peer re-points once) is REFUSED, not accepted-and-ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1074 |
-| UDP-06b | ...and no connect was started | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1077 |
-| UDP-07 | <mode> 2 (peer re-points per datagram) is REFUSED too | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1081 |
-| UDP-08 | an unparseable <local port> answers ERROR rather than binding 0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1086 |
-| UDP-08b | ...and no connect was started | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1088 |
-| UDP-09 | AT+CIPSEND on a UDP link issues the same OK + '> ' prompt | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1093 |
-| UDP-09b | ...and the completed payload answers SEND OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1099 |
-| UDP-09c | ...having emitted EXACTLY ONE datagram of exactly 48 bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1101 |
-| UDP-10 | two queued datagrams leave as TWO datagrams, never concatenated into one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1113 |
-| UDP-11 | one received datagram is one +IPD carrying its own length | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1121 |
-| UDP-12 | two datagrams are framed as two +IPDs — merging them would hand the guest a message boundary that never existed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1128 |
-| UDP-13 | a stray byte left over from a guest that overran its own CIPSEND does NOT hold the +IPD back — it cannot become an AT command | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1143 |
-| UDP-13b | ...and only the declared 3 bytes were transmitted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1147 |
-| UDP-13c | ...while the stray byte still spoils the NEXT line, as it must | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1150 |
-| UDP-14 | a half-typed AT command still holds the +IPD back | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1161 |
-| UDP-14b | ...and it follows the completed command's reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1163 |
-| UDP-15 | AT+CIPCLOSE on a UDP link reports CLOSED then OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1174 |
-| UDP-15b | ...and drops the datagrams buffered for a connection that is gone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1176 |
-| UDP-16 | AT+RST puts the slot back to the TCP power-on default | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1181 |
-| UDP-17 | a live UDP connection reports itself as UDP | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1185 |
-| UDP-17b | ...and pending_from_peer counts buffered datagram bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1190 |
-| PACE-01 | a burst is drip-fed one byte per byte-time, never dumped into the 512-byte FIFO | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1200 |
-| PACE-02 | a 10-byte-time span releases exactly 10 bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1208 |
-| PACE-03 | sub-byte spans accumulate rather than rounding up to a byte | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1217 |
-| PACE-04 | idle time banks no credit — otherwise a quiet link would burst at unbounded speed the instant data arrived | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1226 |
-| PACE-05 | a faster byte-time delivers proportionally more bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1237 |
-| PACE-07 | a span drains the whole reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1246 |
-| PACE-07b | ...and the leftover sub-byte credit does NOT survive into the next burst | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1249 |
-| PACE-07c | ...the next byte arrives a full byte-time after the refill | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1253 |
-| PACE-06 | a zero byte-time neither divides by zero nor hangs | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1260 |
-| HOOK-01 | an idle engine lowers the tick gate | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1270 |
-| HOOK-02 | queued output raises it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1272 |
-| HOOK-02b | ...and draining lowers it again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1274 |
-| DIAG-01 | AT+CWJAP? carries NXtel's CWJAP:" SSID anchor | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1280 |
-| DIAG-01b | ...and the "," anchor that precedes the AP MAC | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1282 |
-| DIAG-01c | ...ending in an OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1284 |
-| DIAG-02 | AT+CIFSR carries the TAIP," and TAMAC," anchors | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1288 |
-| DIAG-03 | AT+CIPSTA? carries the gateway:" and netmask:" anchors | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1293 |
-| DIAG-04 | AT+GMR carries both version anchors | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1300 |
-| DIAG-04b | ...each terminated by a '(' on its OWN line, so neither field renders as garbage | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1311 |
-| DIAG-05 | AT+CIPDNS_CUR? carries the +CIPDNS_CUR: anchor twice | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1317 |
-| DIAG-06 | every diagnostic reply terminates with the exact OK framing .ESPBAUD compares | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1329 |
-| DIAG-07 | the advertised SSID is the fixed synthetic literal, never a host network | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1332 |
-| ASSOC-01 | a fresh module is associated | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1343 |
-| ASSOC-02 | ...so AT+CIFSR reports the station address | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1346 |
-| ASSOC-03 | set_associated(false) takes it off the network | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1350 |
-| ASSOC-04 | AT+CIFSR reports STAIP 0.0.0.0 while unassociated | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1358 |
-| ASSOC-05 | ...and the real address appears nowhere in the reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1360 |
-| ASSOC-06 | ...while the STAMAC line is untouched — the MAC is the radio's own | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1362 |
-| ASSOC-07 | ...and the reply still ends in the exact OK framing | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1364 |
-| ASSOC-08 | re-associating restores the SAME address — a short outage does not move it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1371 |
-| ASSOC-09 | AT+RST does NOT restore the association | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1381 |
-| ASSOC-10 | ...so AT+CIFSR still reports 0.0.0.0 after a reset | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1384 |
-| ASSOC-11 | AT+CWJAP? deliberately still reports the joined AP while unassociated | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1395 |
-| ASSOC-12 | AT+CIPSTA? deliberately still reports the configured address too | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1400 |
-| ASSOC-13 | a connection still opens while unassociated — traffic is not modelled | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1409 |
-| STAIP-01 | the default station address is the synthetic constant | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1415 |
-| STAIP-02 | AT+CIFSR reports the substituted address | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1421 |
-| STAIP-03 | ...and the default appears nowhere in the reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1423 |
-| STAIP-04 | ...with the STAMAC line and the OK framing untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1425 |
-| STAIP-05 | AT+CIPSTA? reports the substituted address too | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1436 |
-| STAIP-06 | ...while the gateway and netmask are NOT invented from it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1438 |
-| STAIP-07 | an unassociated module still reports 0.0.0.0, not the configured one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1450 |
-| STAIP-08 | ...and re-associating brings back the CONFIGURED address | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1456 |
-| STAIP-09 | AT+RST does not restore the default address | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1467 |
-| NEVER-01 | a full session emits none of the never-emit URCs | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1499 |
-| NEVER-02 | ...and AT+RST drops the connection without an unsolicited CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1500 |
-| TRACE-01 | at the default level a connection open is reported | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1535 |
-| TRACE-02 | ...and the close | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1537 |
-| TRACE-03 | ...and NOTHING else — no AT chatter, no prompt, no +IPD, no pacing | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1539 |
-| TRACE-04 | at debug every AT command received is traced | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1553 |
-| TRACE-05 | ...every response emitted is traced, escaped so framing is visible | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1555 |
-| TRACE-06 | ...the payload byte count is traced | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1557 |
-| TRACE-07 | ...and the +IPD framing decision is traced | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1559 |
-| TRACE-08 | ...but per-byte pacing is not — that is trace level | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1561 |
-| TRACE-09 | at trace the RX pacing and queue state are visible | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1570 |
-| MODE-01 | an unstarted wrapper is not running | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1597 |
-| MODE-02 | driven INLINE, receive() alone answers as the bare core does | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1603 |
-| MODE-02b | ...and a connect's reply is still deferred, not invented | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1613 |
-| MODE-02c | ...until an inline poll() settles the transport | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1617 |
-| MODE-03 | start() brings the worker up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1626 |
-| MODE-04 | the worker drains guest input without being polled | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1630 |
-| MODE-05 | driven THREADED it answers with the identical bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1631 |
-| MODE-06 | stop() joins and reports it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1634 |
-| MODE-07 | ...and stop() is idempotent | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1636 |
-| MODE-08 | a connect completes on the worker thread | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1657 |
-| MODE-09 | ...the CIPSEND prompt still comes back byte-exact | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1661 |
-| MODE-10 | ...the payload is acknowledged | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1666 |
-| MODE-11 | ...and really reached the transport | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1667 |
-| MODE-12 | unsolicited peer data is framed and paced out unprompted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1677 |
-| MODE-13 | the worker really ran while the wrapper was alive | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1703 |
-| MODE-14 | destroying a running wrapper JOINS: the destructor cannot return while the worker is still inside poll() | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1708 |
-| MODE-15 | the worker is inside a long poll() | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1734 |
-| MODE-16 | tick() returns immediately rather than waiting for it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1741 |
-| STALL-01a | nothing has been delivered yet — no tick() has run | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1775 |
-| STALL-01b | the worker is provably stalled inside the transport poll | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1780 |
-| STALL-01 | queued bytes reach the wire DURING a transport stall | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1788 |
-| STALL-01c | ...and they did so while the stall was still in progress | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1790 |
-| STALL-02a | the connect is outstanding on the worker at destruction | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1833 |
-| STALL-02 | destroying the wrapper mid-connect completes promptly, not at the next scheduled pass | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1842 |
-| STALL-03a | the worker is inside a slow send(), holding the engine lock | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1866 |
-| STALL-03 | set_output() returns without waiting for the engine lock | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1874 |
-| STALL-04a | the worker recorded the exception rather than dying on it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1910 |
-| STALL-04 | a transport that throws on the worker costs one service pass, not the process: the connect still completes afterwards | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1912 |
-| MUX-01 | the power-on default is CIPMUX=0 — no command can correct a wrong default at run time, so this is the value nextsync depends on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1929 |
-| MUX-02 | ...and AT+CIPMUX=1 really changes it, rather than being humoured | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1935 |
-| MUX-10 | a CIPMUX=0 session still sees the unmultiplexed +IPD,<len>: — the one thing GH #210 could have broken silently | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1944 |
-| MUX-11 | a CIPMUX=1 session's outbound connection sees +IPD,<id>,<len>: with id 0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1954 |
-| MUX-12 | a connection opened under CIPMUX=0 keeps the unmultiplexed +IPD even after the mode command is attempted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1967 |
-| MUX-13 | and its CLOSED stays unprefixed — NXtel matches a 5-byte 'OSED\r' window | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1975 |
-| MUX-14 | AT+CIPCLOSE on a CIPMUX=0 connection answers the v1.0 bytes exactly | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1987 |
-| MUX-15 | ...and on a CIPMUX=1 connection it carries the id, like every other CLOSED path | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1994 |
-| MUX-03 | AT+CIPMUX=2 is not a mode — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2000 |
-| MUX-04 | AT+CIPMUX with no argument — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2002 |
-| MUX-05 | AT+CIPMUX=1 is refused while a connection is open | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2010 |
-| MUX-05b | ...and the mode really did not move | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2012 |
-| MUX-06 | AT+CIPMUX=0 while a connection is open is a NO-OP, still OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2020 |
-| MUX-07 | AT+CIPMUX=0 is refused while the server is listening — a server is a promise of multiplexed framing to whoever connects next | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2025 |
-| MUX-07b | ...and the server is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2029 |
-| MUX-08 | AT+RST restores the CIPMUX=0 power-on default | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2033 |
-| SRV-01 | AT+CIPSERVER=1 without AT+CIPMUX=1 first is ERROR (ESP-AT: a server can only be created when multiple connections are activated) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2039 |
-| SRV-01b | ...and nothing was bound | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2043 |
-| SRV-02 | AT+CIPSERVER=1,<port> answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2047 |
-| SRV-02b | ...and the listener really bound that port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2048 |
-| SRV-03 | port 0 is refused although the socket layer accepts it: it means 'let the OS choose', and a guest that named no port cannot be told which it got | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2052 |
-| SRV-04 | AT+CIPSERVER=1 with no port is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2059 |
-| SRV-05 | trailing arguments are refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2063 |
-| SRV-06 | mode 2 does not exist — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2068 |
-| SRV-07 | a bind failure answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2076 |
-| SRV-07b | ...and leaves nothing listening | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2077 |
-| SRV-07c | ...having tried exactly once — no retry, no fallback port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2078 |
-| SRV-08 | a second AT+CIPSERVER=1 while one is running is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2083 |
-| SRV-08b | ...and the running server is untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2085 |
-| SRV-09 | an engine built with NO listener answers ERROR to CIPSERVER | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2096 |
-| SRV-09b | ...and reports no server | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2098 |
-| SRV-10 | AT+CIPSERVER=0 stops the server and answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2102 |
-| SRV-10b | ...and the port is released | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2104 |
-| SRV-11 | AT+CIPSERVER=0 with no server running is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2112 |
-| SRV-12 | ESP-AT's <close_all> argument is refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2117 |
-| SRV-12b | ...and the server is still running | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2119 |
-| SRV-13 | AT+RST closes the server — a listening port that outlived the module that opened it is how this leaks | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2123 |
-| SRV-14 | an accepted connection is announced as <id>,CONNECT | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2136 |
-| SRV-14b | ...and occupies one inbound slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2138 |
-| SRV-15 | its inbound data is framed with the multiplexed +IPD | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2145 |
-| SRV-16 | AT+CIPSEND=<id>,<len> issues the same prompt, byte for byte | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2152 |
-| SRV-16b | ...and the payload is acknowledged | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2155 |
-| SRV-16c | ...having reached THAT connection's transport | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2157 |
-| SRV-16d | ...and not the outbound one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2158 |
-| SRV-17 | the single-connection AT+CIPSEND=<len> form is ERROR under CIPMUX=1 — the argument list is read from the MODE, never sniffed from the text | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2164 |
-| SRV-18 | AT+CIPSEND to a link id with no connection is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2173 |
-| SRV-19 | a peer close is announced as <id>,CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2183 |
-| SRV-19b | ...and the slot is free again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2185 |
-| SRV-20 | a released slot is reused, so the next peer is id 1 again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2194 |
-| SRV-21 | four peers are accepted as ids 1..4, in order | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2204 |
-| SRV-21b | ...and the fifth is closed rather than silently held | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2206 |
-| SRV-22 | an inbound connection never takes slot 0 — AT+CIPSTART still works while a peer is connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2215 |
-| SRV-22b | ...and both connections are live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2218 |
-| SRV-23 | an established inbound connection survives AT+CIPSERVER=0 and keeps delivering | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2229 |
-| SRV-24 | slot 0's transport survives its own connection closing — a reconnect after CLOSED still works | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2246 |
-| SRV-25 | ...and survives AT+RST sweeping every slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2254 |
-| CLS-01 | AT+CIPCLOSE=<id> answers <id>,CLOSED then OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2275 |
-| CLS-01b | ...and the slot is free again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2277 |
-| CLS-01c | ...having really closed that peer's socket | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2278 |
-| CLS-01d | ...and the peer-close path does not then announce it a second time | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2281 |
-| CLS-02 | the notification carries the id that was asked for, not the first live one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2295 |
-| CLS-02b | ...and only THAT peer's socket was closed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2297 |
-| CLS-02c | ...leaving the other three connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2300 |
-| CLS-03 | the top inbound slot closes the same way | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2303 |
-| CLS-04 | ...and so does the one between them | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2306 |
-| CLS-05 | ...and the first | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2309 |
-| CLS-05b | so four wedged peers can all be freed — the exhaustion this command exists for | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2310 |
-| CLS-06 | a slot freed by AT+CIPCLOSE=<id> is reused, so the next peer is id 1 again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2324 |
-| CLS-07 | AT+CIPCLOSE to a link id with no connection is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2334 |
-| CLS-07b | ...and the connection that DOES exist is untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2338 |
-| CLS-08 | ESP-AT's close-all id 5 is refused, not honoured | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2352 |
-| CLS-08b | ...and nothing was closed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2354 |
-| CLS-09 | an id past the connection ceiling is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2359 |
-| CLS-10 | a non-numeric id is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2364 |
-| CLS-11 | AT+CIPCLOSE= with no id is ERROR, not the no-argument form | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2372 |
-| CLS-11b | ...and the outbound connection it would have closed is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2374 |
-| CLS-12 | trailing arguments are refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2381 |
-| CLS-12b | ...and the connection is still live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2383 |
-| CLS-13 | the argument form is ERROR under CIPMUX=0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2392 |
-| CLS-13b | ...and the connection is untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2394 |
-| CLS-14 | the no-argument AT+CIPCLOSE still closes the OUTBOUND slot, even with inbound connections present | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2406 |
-| CLS-14b | ...and leaves the inbound connections alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2409 |
-| CLS-15 | AT+CIPCLOSE=0 closes the outbound connection with the same bytes the bare spelling emits | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2416 |
-| CLS-15b | ...and slot 0's BORROWED transport survives it — a reconnect still works | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2419 |
-| CLS-16 | a guest close racing a peer drop emits exactly one CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2433 |
-| CLS-17 | and once the peer close HAS been announced... | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2441 |
-| CLS-17b | ...closing the same id again is ERROR — the slot is already back in the pool | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2444 |
-| CLS-18 | a command line in flight holds the +IPD back, so the peer's bytes really are buffered when the close arrives | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2463 |
-| CLS-18b | ...and they are discarded with the connection — no +IPD follows the CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2466 |
-| CLS-19 | AT+CIPSEND to a closed id is ERROR — the slot is gone, not merely idle | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2474 |
-| CLS-20 | with all four slots wedged, a fifth peer is announced to nobody | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2489 |
-| CLS-20b | ...and dropped at once | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2491 |
-| CLS-21 | ...and one AT+CIPCLOSE=<id> puts the module back in service, the next peer landing in the freed slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2495 |
-| STO-01 | AT+CIPSTO? answers the default a real module reports, with no server running | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2533 |
-| STO-02 | an in-range AT+CIPSTO=<time> answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2537 |
-| STO-02b | ...and the query reads back what was set | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2539 |
-| STO-03 | 0 — "it will never timeout" — is a legal setting, not a refusal | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2543 |
-| STO-03b | ...and reads back as 0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2546 |
-| STO-04 | the top of the documented 0~7200 range is INCLUSIVE | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2549 |
-| STO-04b | ...and really took | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2551 |
-| STO-05 | one past the range is ERROR even with a server up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2554 |
-| STO-05b | ...and a refused value changes nothing | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2557 |
-| STO-06 | a negative time is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2561 |
-| STO-06b | ...and did not wrap into a huge unsigned window | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2562 |
-| STO-07 | AT+CIPSTO= with no time is ERROR, not a reset to 0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2566 |
-| STO-07b | ...and 0 is emphatically not what it meant | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2568 |
-| STO-08 | a non-numeric time is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2572 |
-| STO-09 | a trailing argument is refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2575 |
-| STO-09b | ...and nothing was taken from the part that did parse | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2577 |
-| STO-10 | the value does not survive AT+RST — the command does not persist to flash | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2593 |
-| STO-10c | ...and the restart re-arms the refusal: the server went with the module | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2596 |
-| STO-10d | ...so nothing was set | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2598 |
-| STO-11 | a client one second short of the window is left alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2615 |
-| STO-11b | ...and is still connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2617 |
-| STO-11c | an idle client is dropped at the window, announced as <id>,CLOSED with no OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2625 |
-| STO-11d | ...having really closed the socket | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2627 |
-| STO-11e | ...and returned the slot to the pool | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2628 |
-| STO-12 | the 180 s default really governs, with no AT+CIPSTO sent at all | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2639 |
-| STO-12b | ...and fires at 180 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2643 |
-| STO-13 | AT+CIPSTO=0 does not close the client the moment it arrives | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2659 |
-| STO-13b | ...nor 100 000 seconds later — 0 really is never | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2663 |
-| STO-13c | ...and the socket was left alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2664 |
-| STO-14 | the client speaks at 20 s and is heard | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2679 |
-| STO-14b | ...which restarts the window: 40 s after connecting, but 20 s after speaking, it is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2683 |
-| STO-14c | ...and really still connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2685 |
-| STO-14d | ...and it is the SILENCE that is measured — 31 s after the last byte it goes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2688 |
-| STO-15pre | fixture: the 10 s window really took | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2707 |
-| STO-15 | the OUTBOUND connection is not subject to the server timeout | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2712 |
-| STO-15b | ...and is still live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2714 |
-| STO-16 | an in-range AT+CIPSTO=<time> on a bare module is ERROR, as hardware answers | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2726 |
-| STO-16b | ...and the refused value did not take | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2728 |
-| STO-16c | ...while the QUERY form still answers, on the same bare module | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2731 |
-| STO-17 | even the module's own default value is refused with no server — it is the precondition, not the number | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2737 |
-| STO-18 | AT+CIPMUX=1 alone does NOT unlock it — this module gates on the listener (choice, not measurement) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2747 |
-| STO-18b | ...and the server coming up is what unlocks it, in the same session — the hardware sequence exactly | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2753 |
-| STO-18c | ...with the value really taken | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2755 |
-| STO-19 | after AT+CIPSERVER=0 the setting form is refused again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2763 |
-| STO-19b | ...leaving the value the running server had set | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2765 |
-| STO-19c | ...and the query still answers with no server | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2768 |
-| STO-21 | an engine built with NO listener answers ERROR to AT+CIPSTO= | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2781 |
-| STO-21b | ...and kept its default | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2783 |
-| STO-22 | the client outlives the listener that accepted it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2796 |
-| STO-22b | ...but its window can no longer be changed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2799 |
-| STO-22c | ...so the window it already had is what still governs it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2803 |
-| STO-20 | the consumer's CIPMUX/CIPSTO/CIPSERVER order: the middle command is refused and the other two succeed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2811 |
-| STO-20b | ...so the module is left on its 180 s default, which is what hardware did for six builds | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2814 |
+| AT-01 | a bare CRLF is an empty command answered ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:685 |
+| AT-02 | AT answers exactly \r\ OK\r\ | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:689 |
+| AT-03 | ATE0 answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:691 |
+| AT-03b | ...and leaves echo off | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:692 |
+| AT-04 | ATE1 is NOT echoed — echo was still off while its own bytes arrived | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:695 |
+| AT-04b | ...but echo is now really on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:698 |
+| AT-04c | so the NEXT line is echoed, terminator and all, before its reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:700 |
+| AT-04d | and ATE0 still echoes itself before switching echo off | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:703 |
+| AT-05 | AT+CIPMUX=0 answers OK (the only supported mode) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:706 |
+| AT-06 | AT+CIPMUX=1 is accepted (GH #210) — it was refused until server mode had a consumer | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:714 |
+| AT-07 | AT+CIPCLOSE with nothing open answers ERROR (nextsync loops until it sees it) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:719 |
+| AT-08 | AT+RST answers OK then the two WIFI URCs, never 'ready' | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:723 |
+| AT-09 | an unsupported command answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:726 |
+| AT-10 | a bare LF produces nothing — it is only ever the CR's partner | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:729 |
+| AT-10b | ...and is not echoed either, even with echo on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:733 |
+| AT-11 | command names match case-insensitively | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:735 |
+| AT-12 | an overlong line answers exactly one ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:747 |
+| AT-12b | ...and is REFUSED WHOLE — its truncated prefix, a valid CIPSTART, is never run | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:749 |
+| AT-13 | nextsync's baud switch is acknowledged | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:753 |
+| AT-13b | ...and the requested baud is recorded for tracing | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:754 |
+| AT-14 | the _DEF form is accepted too | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:758 |
+| AT-14b | as is the plain AT+UART form | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:760 |
+| AT-14c | syncfast's 2 Mbaud is recorded | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:761 |
+| AT-15 | a non-numeric baud answers ERROR, not a clamped number | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:763 |
+| CON-01 | AT+CIPSTART answers NOTHING until the transport settles — there is no synchronous connect to answer from | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:771 |
+| CON-01b | ...and the engine reports it is waiting | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:775 |
+| CON-02 | a settled connection answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:777 |
+| CON-02b | ...the engine is connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:778 |
+| CON-02c | ...and the transport got the parsed host and port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:779 |
+| CON-03 | a failed connect answers ERROR only — never FAIL, never CLOSED for a connection that never existed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:785 |
+| CON-03b | ...and the engine is not connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:789 |
+| CON-04 | NXtel's 4-argument CIPSTART (with keepalive) connects | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:793 |
+| CON-04b | ...with host and port parsed past the keepalive | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:795 |
+| CON-05 | SSL is still refused — it still has no consumer | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:803 |
+| CON-05b | ...and no connect was ever started | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:805 |
+| CON-06 | a second CIPSTART while connected answers ERROR, not 'ALREADY CONNECTED' | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:810 |
+| CON-06b | ...and is rejected by the ENGINE — the transport is never asked a second time | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:813 |
+| CON-07 | guest input during a connect is deferred, not answered early | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:820 |
+| CON-07b | ...then replayed in order once the connect settles | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:823 |
+| CON-08 | closing a live connection reports CLOSED then OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:829 |
+| CON-08b | ...and the transport was really closed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:831 |
+| CON-09 | port 0 answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:835 |
+| CON-04c | trailing garbage after a VALID keepalive still answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:841 |
+| CON-04d | ...and no connect was attempted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:843 |
+| CON-11 | a connect that never completes is abandoned with ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:857 |
+| CON-11b | ...and the engine stops waiting | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:859 |
+| CON-11c | ...having released the socket | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:860 |
+| CON-12 | ...and the slot is reusable afterwards | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:866 |
+| CON-12b | ...really connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:867 |
+| CON-13 | a connect inside its deadline is still awaited, not refused | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:873 |
+| CON-13b | ...and remains pending | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:875 |
+| CON-10 | a transport that refuses the request answers ERROR immediately | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:880 |
+| SEND-01 | AT+CIPSEND answers \r\ OK\r\ > — TRAILING SPACE INCLUDED; three parsers busy-wait on this with no timeout | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:889 |
+| SEND-01b | ...and 3 payload bytes are outstanding | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:893 |
+| SEND-02 | the completed payload answers \r\ SEND OK\r\ | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:901 |
+| SEND-02b | ...and exactly the payload reached the peer | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:903 |
+| SEND-03 | NXtel's 5 bytes after CIPSEND=3: 3 are payload and the trailing CRLF becomes an empty command line | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:914 |
+| SEND-03b | ...and the peer got exactly the 3 IAC bytes, not 5 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:918 |
+| SEND-04 | AT+CIPSENDEX is a distinct command with the same prompt | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:924 |
+| SEND-04b | ...and the same completion | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:927 |
+| SEND-04c | ...delivering the payload | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:928 |
+| SEND-05 | AT+CIPSEND with no connection answers ERROR — and no prompt, which would hang the guest waiting to send | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:931 |
+| SEND-06 | a zero length answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:937 |
+| SEND-06b | ...as does one over the 2048-byte ceiling | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:939 |
+| SEND-06c | ...but exactly 2048 IS accepted, prompt and all | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:944 |
+| SEND-06d | ...with the full payload outstanding | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:946 |
+| SEND-07 | the send path is 8-bit clean, NUL and ESC included | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:954 |
+| SEND-08 | a partial socket accept still answers SEND OK exactly once | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:961 |
+| SEND-08b | ...with only what the kernel took so far delivered | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:963 |
+| SEND-08c | ...and the remainder flushed by later polls | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:966 |
+| SEND-09 | payload bytes are never echoed, even with echo on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:972 |
+| IPD-01 | inbound data is framed as the unmultiplexed +IPD,<len>: form | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:981 |
+| IPD-02 | +IPD is 8-bit clean and <len> counts raw bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:987 |
+| IPD-03 | bytes trickling in while a chunk drains coalesce into ONE following chunk | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1004 |
+| IPD-04 | SEND OK then +IPD, with no stray '+' between them | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1018 |
+| IPD-04b | ...the first '+' in the stream is the +IPD's own | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1020 |
+| IPD-05 | a 3000-byte burst is split at the 2048-byte chunk ceiling | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1027 |
+| IPD-05b | ...and the remainder is a second chunk, not a dribble | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1029 |
+| IPD-05c | ...totalling exactly the payload plus two headers | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1031 |
+| IPD-07 | once the header starts, every byte-slot delivers a byte — no gap can open inside +IPD,<len>: | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1050 |
+| IPD-07b | ...and the header arrived intact | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1054 |
+| IPD-08 | a peer close is reported only AFTER its last bytes have been framed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1062 |
+| IPD-09 | no +IPD is cut while a command line is half-received | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1071 |
+| IPD-09b | ...it follows the completed command's reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1074 |
+| IPD-10 | no +IPD is cut between the '>' prompt and the payload's SEND OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1083 |
+| IPD-10b | ...it follows SEND OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1086 |
+| UDP-01 | AT+CIPSTART="UDP" answers CONNECT then OK — newt reads ONE line and demands it start with CONNECT | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1113 |
+| UDP-01c | ...and the FIRST CRLF-terminated line is CONNECT itself — no leading CRLF, or newt's one-line read sees an empty line and gives up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1123 |
+| UDP-01b | ...and the engine is connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1127 |
+| UDP-02 | ...over UDP, to the parsed host and port, with an OS-chosen local port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1128 |
+| UDP-03 | the protocol token is case-insensitive, like every command name | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1134 |
+| UDP-04 | the optional <local port> is accepted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1139 |
+| UDP-04b | ...and reaches the transport, which is what binds it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1141 |
+| UDP-05 | <mode> 0 — the fixed peer every client uses — is accepted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1146 |
+| UDP-06 | <mode> 1 (peer re-points once) is REFUSED, not accepted-and-ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1151 |
+| UDP-06b | ...and no connect was started | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1154 |
+| UDP-07 | <mode> 2 (peer re-points per datagram) is REFUSED too | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1158 |
+| UDP-08 | an unparseable <local port> answers ERROR rather than binding 0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1163 |
+| UDP-08b | ...and no connect was started | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1165 |
+| UDP-09 | AT+CIPSEND on a UDP link issues the same OK + '> ' prompt | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1170 |
+| UDP-09b | ...and the completed payload answers SEND OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1176 |
+| UDP-09c | ...having emitted EXACTLY ONE datagram of exactly 48 bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1178 |
+| UDP-10 | two queued datagrams leave as TWO datagrams, never concatenated into one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1190 |
+| UDP-11 | one received datagram is one +IPD carrying its own length | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1198 |
+| UDP-12 | two datagrams are framed as two +IPDs — merging them would hand the guest a message boundary that never existed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1205 |
+| UDP-13 | a stray byte left over from a guest that overran its own CIPSEND does NOT hold the +IPD back — it cannot become an AT command | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1220 |
+| UDP-13b | ...and only the declared 3 bytes were transmitted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1224 |
+| UDP-13c | ...while the stray byte still spoils the NEXT line, as it must | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1227 |
+| UDP-14 | a half-typed AT command still holds the +IPD back | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1238 |
+| UDP-14b | ...and it follows the completed command's reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1240 |
+| UDP-15 | AT+CIPCLOSE on a UDP link reports CLOSED then OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1251 |
+| UDP-15b | ...and drops the datagrams buffered for a connection that is gone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1253 |
+| UDP-16 | AT+RST puts the slot back to the TCP power-on default | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1258 |
+| UDP-17 | a live UDP connection reports itself as UDP | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1262 |
+| UDP-17b | ...and pending_from_peer counts buffered datagram bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1267 |
+| PACE-01 | a burst is drip-fed one byte per byte-time, never dumped into the 512-byte FIFO | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1277 |
+| PACE-02 | a 10-byte-time span releases exactly 10 bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1285 |
+| PACE-03 | sub-byte spans accumulate rather than rounding up to a byte | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1294 |
+| PACE-04 | idle time banks no credit — otherwise a quiet link would burst at unbounded speed the instant data arrived | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1303 |
+| PACE-05 | a faster byte-time delivers proportionally more bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1314 |
+| PACE-07 | a span drains the whole reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1323 |
+| PACE-07b | ...and the leftover sub-byte credit does NOT survive into the next burst | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1326 |
+| PACE-07c | ...the next byte arrives a full byte-time after the refill | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1330 |
+| PACE-06 | a zero byte-time neither divides by zero nor hangs | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1337 |
+| HOOK-01 | an idle engine lowers the tick gate | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1347 |
+| HOOK-02 | queued output raises it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1349 |
+| HOOK-02b | ...and draining lowers it again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1351 |
+| DIAG-01 | AT+CWJAP? carries NXtel's CWJAP:" SSID anchor | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1357 |
+| DIAG-01b | ...and the "," anchor that precedes the AP MAC | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1359 |
+| DIAG-01c | ...ending in an OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1361 |
+| DIAG-02 | AT+CIFSR carries the TAIP," and TAMAC," anchors | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1365 |
+| DIAG-03 | AT+CIPSTA? carries the gateway:" and netmask:" anchors | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1370 |
+| DIAG-04 | AT+GMR carries both version anchors | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1377 |
+| DIAG-04b | ...each terminated by a '(' on its OWN line, so neither field renders as garbage | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1388 |
+| DIAG-05 | AT+CIPDNS_CUR? carries the +CIPDNS_CUR: anchor twice | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1394 |
+| DIAG-06 | every diagnostic reply terminates with the exact OK framing .ESPBAUD compares | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1406 |
+| DIAG-07 | the advertised SSID is the fixed synthetic literal, never a host network | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1409 |
+| ASSOC-01 | a fresh module is associated | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1420 |
+| ASSOC-02 | ...so AT+CIFSR reports the station address | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1423 |
+| ASSOC-03 | set_associated(false) takes it off the network | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1427 |
+| ASSOC-04 | AT+CIFSR reports STAIP 0.0.0.0 while unassociated | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1435 |
+| ASSOC-05 | ...and the real address appears nowhere in the reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1437 |
+| ASSOC-06 | ...while the STAMAC line is untouched — the MAC is the radio's own | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1439 |
+| ASSOC-07 | ...and the reply still ends in the exact OK framing | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1441 |
+| ASSOC-08 | re-associating restores the SAME address — a short outage does not move it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1448 |
+| ASSOC-09 | AT+RST does NOT restore the association | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1458 |
+| ASSOC-10 | ...so AT+CIFSR still reports 0.0.0.0 after a reset | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1461 |
+| ASSOC-11 | AT+CWJAP? deliberately still reports the joined AP while unassociated | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1472 |
+| ASSOC-12 | AT+CIPSTA? deliberately still reports the configured address too | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1477 |
+| ASSOC-13 | a connection still opens while unassociated — traffic is not modelled | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1486 |
+| STAIP-01 | the default station address is the synthetic constant | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1492 |
+| STAIP-02 | AT+CIFSR reports the substituted address | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1498 |
+| STAIP-03 | ...and the default appears nowhere in the reply | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1500 |
+| STAIP-04 | ...with the STAMAC line and the OK framing untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1502 |
+| STAIP-05 | AT+CIPSTA? reports the substituted address too | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1513 |
+| STAIP-06 | ...while the gateway and netmask are NOT invented from it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1515 |
+| STAIP-07 | an unassociated module still reports 0.0.0.0, not the configured one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1527 |
+| STAIP-08 | ...and re-associating brings back the CONFIGURED address | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1533 |
+| STAIP-09 | AT+RST does not restore the default address | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1544 |
+| NEVER-01 | a full session emits none of the never-emit URCs | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1576 |
+| NEVER-02 | ...and AT+RST drops the connection without an unsolicited CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1577 |
+| TRACE-01 | at the default level a connection open is reported | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1612 |
+| TRACE-02 | ...and the close | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1614 |
+| TRACE-03 | ...and NOTHING else — no AT chatter, no prompt, no +IPD, no pacing | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1616 |
+| TRACE-04 | at debug every AT command received is traced | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1630 |
+| TRACE-05 | ...every response emitted is traced, escaped so framing is visible | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1632 |
+| TRACE-06 | ...the payload byte count is traced | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1634 |
+| TRACE-07 | ...and the +IPD framing decision is traced | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1636 |
+| TRACE-08 | ...but per-byte pacing is not — that is trace level | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1638 |
+| TRACE-09 | at trace the RX pacing and queue state are visible | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1647 |
+| MODE-01 | an unstarted wrapper is not running | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1674 |
+| MODE-02 | driven INLINE, receive() alone answers as the bare core does | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1680 |
+| MODE-02b | ...and a connect's reply is still deferred, not invented | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1690 |
+| MODE-02c | ...until an inline poll() settles the transport | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1694 |
+| MODE-03 | start() brings the worker up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1703 |
+| MODE-04 | the worker drains guest input without being polled | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1707 |
+| MODE-05 | driven THREADED it answers with the identical bytes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1708 |
+| MODE-06 | stop() joins and reports it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1711 |
+| MODE-07 | ...and stop() is idempotent | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1713 |
+| MODE-08 | a connect completes on the worker thread | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1734 |
+| MODE-09 | ...the CIPSEND prompt still comes back byte-exact | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1738 |
+| MODE-10 | ...the payload is acknowledged | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1743 |
+| MODE-11 | ...and really reached the transport | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1744 |
+| MODE-12 | unsolicited peer data is framed and paced out unprompted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1754 |
+| MODE-13 | the worker really ran while the wrapper was alive | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1780 |
+| MODE-14 | destroying a running wrapper JOINS: the destructor cannot return while the worker is still inside poll() | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1785 |
+| MODE-15 | the worker is inside a long poll() | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1811 |
+| MODE-16 | tick() returns immediately rather than waiting for it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1818 |
+| STALL-01a | nothing has been delivered yet — no tick() has run | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1852 |
+| STALL-01b | the worker is provably stalled inside the transport poll | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1857 |
+| STALL-01 | queued bytes reach the wire DURING a transport stall | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1865 |
+| STALL-01c | ...and they did so while the stall was still in progress | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1867 |
+| STALL-02a | the connect is outstanding on the worker at destruction | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1910 |
+| STALL-02 | destroying the wrapper mid-connect completes promptly, not at the next scheduled pass | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1919 |
+| STALL-03a | the worker is inside a slow send(), holding the engine lock | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1943 |
+| STALL-03 | set_output() returns without waiting for the engine lock | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1951 |
+| STALL-04a | the worker recorded the exception rather than dying on it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1987 |
+| STALL-04 | a transport that throws on the worker costs one service pass, not the process: the connect still completes afterwards | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:1989 |
+| MUX-01 | the power-on default is CIPMUX=0 — no command can correct a wrong default at run time, so this is the value nextsync depends on | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2006 |
+| MUX-02 | ...and AT+CIPMUX=1 really changes it, rather than being humoured | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2012 |
+| MUX-10 | a CIPMUX=0 session still sees the unmultiplexed +IPD,<len>: — the one thing GH #210 could have broken silently | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2021 |
+| MUX-11 | a CIPMUX=1 session's outbound connection sees +IPD,<id>,<len>: with id 0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2031 |
+| MUX-12 | a connection opened under CIPMUX=0 keeps the unmultiplexed +IPD even after the mode command is attempted | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2044 |
+| MUX-13 | and its CLOSED stays unprefixed — NXtel matches a 5-byte 'OSED\r' window | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2052 |
+| MUX-14 | AT+CIPCLOSE on a CIPMUX=0 connection answers the v1.0 bytes exactly | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2064 |
+| MUX-15 | ...and on a CIPMUX=1 connection it carries the id, like every other CLOSED path | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2071 |
+| MUX-03 | AT+CIPMUX=2 is not a mode — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2077 |
+| MUX-04 | AT+CIPMUX with no argument — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2079 |
+| MUX-05 | AT+CIPMUX=1 is refused while a connection is open | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2087 |
+| MUX-05b | ...and the mode really did not move | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2089 |
+| MUX-06 | AT+CIPMUX=0 while a connection is open is a NO-OP, still OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2097 |
+| MUX-07 | AT+CIPMUX=0 is refused while the server is listening — a server is a promise of multiplexed framing to whoever connects next | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2102 |
+| MUX-07b | ...and the server is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2106 |
+| MUX-08 | AT+RST restores the CIPMUX=0 power-on default | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2110 |
+| SRV-01 | AT+CIPSERVER=1 without AT+CIPMUX=1 first is ERROR (ESP-AT: a server can only be created when multiple connections are activated) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2116 |
+| SRV-01b | ...and nothing was bound | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2120 |
+| SRV-02 | AT+CIPSERVER=1,<port> answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2124 |
+| SRV-02b | ...and the listener really bound that port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2125 |
+| SRV-03 | port 0 is refused although the socket layer accepts it: it means 'let the OS choose', and a guest that named no port cannot be told which it got | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2129 |
+| SRV-04 | AT+CIPSERVER=1 with no port is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2136 |
+| SRV-05 | trailing arguments are refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2140 |
+| SRV-06 | mode 2 does not exist — ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2145 |
+| SRV-07 | a bind failure answers ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2153 |
+| SRV-07b | ...and leaves nothing listening | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2154 |
+| SRV-07c | ...having tried exactly once — no retry, no fallback port | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2155 |
+| SRV-08 | a second AT+CIPSERVER=1 while one is running is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2160 |
+| SRV-08b | ...and the running server is untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2162 |
+| SRV-09 | an engine built with NO listener answers ERROR to CIPSERVER | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2173 |
+| SRV-09b | ...and reports no server | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2175 |
+| SRV-10 | AT+CIPSERVER=0 stops the server and answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2179 |
+| SRV-10b | ...and the port is released | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2181 |
+| SRV-11 | AT+CIPSERVER=0 with no server running is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2189 |
+| SRV-12 | ESP-AT's <close_all> argument is refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2194 |
+| SRV-12b | ...and the server is still running | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2196 |
+| SRV-13 | AT+RST closes the server — a listening port that outlived the module that opened it is how this leaks | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2200 |
+| SRV-14 | an accepted connection is announced as <id>,CONNECT | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2213 |
+| SRV-14b | ...and occupies one inbound slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2215 |
+| SRV-15 | its inbound data is framed with the multiplexed +IPD | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2222 |
+| SRV-16 | AT+CIPSEND=<id>,<len> issues the same prompt, byte for byte | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2229 |
+| SRV-16b | ...and the payload is acknowledged | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2232 |
+| SRV-16c | ...having reached THAT connection's transport | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2234 |
+| SRV-16d | ...and not the outbound one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2235 |
+| SRV-17 | the single-connection AT+CIPSEND=<len> form is ERROR under CIPMUX=1 — the argument list is read from the MODE, never sniffed from the text | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2241 |
+| SRV-18 | AT+CIPSEND to a link id with no connection is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2250 |
+| SRV-19 | a peer close is announced as <id>,CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2260 |
+| SRV-19b | ...and the slot is free again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2262 |
+| SRV-20 | a released slot is reused, so the next peer is id 1 again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2271 |
+| SRV-21 | four peers are accepted as ids 1..4, in order | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2283 |
+| SRV-21b | ...and the fifth is closed rather than silently held | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2285 |
+| SRV-22 | an inbound connection never takes slot 0 — AT+CIPSTART still works while a peer is connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2294 |
+| SRV-22b | ...and both connections are live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2297 |
+| SRV-23 | an established inbound connection survives AT+CIPSERVER=0 and keeps delivering | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2308 |
+| SRV-24 | slot 0's transport survives its own connection closing — a reconnect after CLOSED still works | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2325 |
+| SRV-25 | ...and survives AT+RST sweeping every slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2333 |
+| CLS-01 | AT+CIPCLOSE=<id> answers <id>,CLOSED then OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2357 |
+| CLS-01b | ...and the slot is free again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2359 |
+| CLS-01c | ...having really closed that peer's socket | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2360 |
+| CLS-01d | ...and the peer-close path does not then announce it a second time | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2362 |
+| CLS-02 | the notification carries the id that was asked for, not the first live one | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2377 |
+| CLS-02b | ...and only THAT peer's socket was closed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2379 |
+| CLS-02c | ...leaving the other three connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2381 |
+| CLS-03 | the top inbound slot closes the same way | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2384 |
+| CLS-04 | ...and so does the one between them | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2387 |
+| CLS-05 | ...and the first | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2390 |
+| CLS-05b | so four wedged peers can all be freed — the exhaustion this command exists for | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2391 |
+| CLS-06 | a slot freed by AT+CIPCLOSE=<id> is reused, so the next peer is id 1 again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2404 |
+| CLS-07 | AT+CIPCLOSE to a link id with no connection is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2414 |
+| CLS-07b | ...and the connection that DOES exist is untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2418 |
+| CLS-08 | ESP-AT's close-all id 5 is refused, not honoured | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2432 |
+| CLS-08b | ...and nothing was closed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2434 |
+| CLS-09 | an id past the connection ceiling is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2439 |
+| CLS-10 | a non-numeric id is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2444 |
+| CLS-11 | AT+CIPCLOSE= with no id is ERROR, not the no-argument form | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2452 |
+| CLS-11b | ...and the outbound connection it would have closed is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2454 |
+| CLS-12 | trailing arguments are refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2461 |
+| CLS-12b | ...and the connection is still live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2463 |
+| CLS-13 | the argument form is ERROR under CIPMUX=0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2472 |
+| CLS-13b | ...and the connection is untouched | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2474 |
+| CLS-14 | the no-argument AT+CIPCLOSE still closes the OUTBOUND slot, even with inbound connections present | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2486 |
+| CLS-14b | ...and leaves the inbound connections alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2489 |
+| CLS-15 | AT+CIPCLOSE=0 closes the outbound connection with the same bytes the bare spelling emits | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2496 |
+| CLS-15b | ...and slot 0's BORROWED transport survives it — a reconnect still works | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2499 |
+| CLS-16 | a guest close racing a peer drop emits exactly one CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2513 |
+| CLS-17 | and once the peer close HAS been announced... | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2521 |
+| CLS-17b | ...closing the same id again is ERROR — the slot is already back in the pool | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2524 |
+| CLS-18 | a command line in flight holds the +IPD back, so the peer's bytes really are buffered when the close arrives | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2543 |
+| CLS-18b | ...and they are discarded with the connection — no +IPD follows the CLOSED | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2546 |
+| CLS-19 | AT+CIPSEND to a closed id is ERROR — the slot is gone, not merely idle | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2554 |
+| CLS-20 | with all four slots wedged, a fifth peer is announced to nobody | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2571 |
+| CLS-20b | ...and dropped at once | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2573 |
+| CLS-21 | ...and one AT+CIPCLOSE=<id> puts the module back in service, the next peer landing in the freed slot | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2577 |
+| STO-01 | AT+CIPSTO? answers the default a real module reports, with no server running | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2615 |
+| STO-02 | an in-range AT+CIPSTO=<time> answers OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2619 |
+| STO-02b | ...and the query reads back what was set | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2621 |
+| STO-03 | 0 — "it will never timeout" — is a legal setting, not a refusal | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2625 |
+| STO-03b | ...and reads back as 0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2628 |
+| STO-04 | the top of the documented 0~7200 range is INCLUSIVE | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2631 |
+| STO-04b | ...and really took | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2633 |
+| STO-05 | one past the range is ERROR even with a server up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2636 |
+| STO-05b | ...and a refused value changes nothing | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2639 |
+| STO-06 | a negative time is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2643 |
+| STO-06b | ...and did not wrap into a huge unsigned window | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2644 |
+| STO-07 | AT+CIPSTO= with no time is ERROR, not a reset to 0 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2648 |
+| STO-07b | ...and 0 is emphatically not what it meant | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2650 |
+| STO-08 | a non-numeric time is ERROR | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2654 |
+| STO-09 | a trailing argument is refused, not ignored | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2657 |
+| STO-09b | ...and nothing was taken from the part that did parse | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2659 |
+| STO-10 | the value does not survive AT+RST — the command does not persist to flash | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2675 |
+| STO-10c | ...and the restart re-arms the refusal: the server went with the module | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2678 |
+| STO-10d | ...so nothing was set | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2680 |
+| STO-11 | a client one second short of the window is left alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2697 |
+| STO-11b | ...and is still connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2699 |
+| STO-11c | an idle client is dropped at the window, announced as <id>,CLOSED with no OK | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2707 |
+| STO-11d | ...having really closed the socket | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2709 |
+| STO-11e | ...and returned the slot to the pool | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2710 |
+| STO-12 | the 180 s default really governs, with no AT+CIPSTO sent at all | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2721 |
+| STO-12b | ...and fires at 180 | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2725 |
+| STO-13 | AT+CIPSTO=0 does not close the client the moment it arrives | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2741 |
+| STO-13b | ...nor 100 000 seconds later — 0 really is never | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2745 |
+| STO-13c | ...and the socket was left alone | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2746 |
+| STO-14 | the client speaks at 20 s and is heard | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2761 |
+| STO-14b | ...which restarts the window: 40 s after connecting, but 20 s after speaking, it is still up | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2765 |
+| STO-14c | ...and really still connected | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2767 |
+| STO-14d | ...and it is the SILENCE that is measured — 31 s after the last byte it goes | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2770 |
+| STO-15pre | fixture: the 10 s window really took | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2789 |
+| STO-15 | the OUTBOUND connection is not subject to the server timeout | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2794 |
+| STO-15b | ...and is still live | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2796 |
+| STO-16 | an in-range AT+CIPSTO=<time> on a bare module is ERROR, as hardware answers | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2808 |
+| STO-16b | ...and the refused value did not take | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2810 |
+| STO-16c | ...while the QUERY form still answers, on the same bare module | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2813 |
+| STO-17 | even the module's own default value is refused with no server — it is the precondition, not the number | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2819 |
+| STO-18 | AT+CIPMUX=1 alone does NOT unlock it — this module gates on the listener (choice, not measurement) | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2829 |
+| STO-18b | ...and the server coming up is what unlocks it, in the same session — the hardware sequence exactly | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2835 |
+| STO-18c | ...with the value really taken | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2837 |
+| STO-19 | after AT+CIPSERVER=0 the setting form is refused again | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2845 |
+| STO-19b | ...leaving the value the running server had set | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2847 |
+| STO-19c | ...and the query still answers with no server | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2850 |
+| STO-21 | an engine built with NO listener answers ERROR to AT+CIPSTO= | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2863 |
+| STO-21b | ...and kept its default | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2865 |
+| STO-22 | the client outlives the listener that accepted it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2878 |
+| STO-22b | ...but its window can no longer be changed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2881 |
+| STO-22c | ...so the window it already had is what still governs it | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2885 |
+| STO-20 | the consumer's CIPMUX/CIPSTO/CIPSERVER order: the middle command is refused and the other two succeed | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2893 |
+| STO-20b | ...so the module is left on its 180 s default, which is what hardware did for six builds | (ESP-AT firmware) | pass | src/esp01/test/esp_at_test.cpp:2896 |
 
 ## ESP-01 jnext UART adapter — `test/esp/esp_uart_adapter_test.cpp`
 
@@ -4243,12 +4245,12 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | ADP-15 | ...and the reply that was held back still arrives intact | — | pass | test/esp/esp_uart_adapter_test.cpp:315 |
 | ADP-16 | repeating set_inert(false) does not disturb a raised gate | — | pass | test/esp/esp_uart_adapter_test.cpp:326 |
 | ADP-17 | repeating set_inert(true) keeps the gate down | — | pass | test/esp/esp_uart_adapter_test.cpp:330 |
-| LOG-01 | Log::init() registers the esp01 logger | — | pass | test/esp/esp_uart_adapter_test.cpp:339 |
-| LOG-02 | --log-level esp01=trace reaches the logger | — | pass | test/esp/esp_uart_adapter_test.cpp:343 |
-| LOG-03 | a module log line reaches jnext's esp01 logger through the seam | — | pass | test/esp/esp_uart_adapter_test.cpp:369 |
-| LOG-04 | ...and carries the level the module chose, not a flattened one | — | pass | test/esp/esp_uart_adapter_test.cpp:371 |
-| LOG-05 | an esp01 logger at 'off' raises the module's threshold to error | — | pass | test/esp/esp_uart_adapter_test.cpp:382 |
-| LOG-06 | ...and turning it up lowers the threshold within one poll | — | pass | test/esp/esp_uart_adapter_test.cpp:386 |
+| ALOG-01 | Log::init() registers the esp01 logger | — | pass | test/esp/esp_uart_adapter_test.cpp:339 |
+| ALOG-02 | --log-level esp01=trace reaches the logger | — | pass | test/esp/esp_uart_adapter_test.cpp:343 |
+| ALOG-03 | a module log line reaches jnext's esp01 logger through the seam | — | pass | test/esp/esp_uart_adapter_test.cpp:369 |
+| ALOG-04 | ...and carries the level the module chose, not a flattened one | — | pass | test/esp/esp_uart_adapter_test.cpp:371 |
+| ALOG-05 | an esp01 logger at 'off' raises the module's threshold to error | — | pass | test/esp/esp_uart_adapter_test.cpp:382 |
+| ALOG-06 | ...and turning it up lowers the threshold within one poll | — | pass | test/esp/esp_uart_adapter_test.cpp:386 |
 
 ### Companion integration suite — `test/mmu/mmu_integration_test.cpp`
 
@@ -4883,7 +4885,8 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | JOY-09 | zxnext.vhd:3341,3344 — the joystick UART mux isolates UART 1 exactly as it isolates UART 0: with NR 0x0B bit 0 = 1 the Pi backend is neither heard nor spoken to and nothing loops back, and with the mux off both directions return | zxnext.vhd:3341,3344 | pass | test/uart/uart_integration_test.cpp:1732 |
 | JOY-10 | GH #251 — JoyUartSource's cursor rides in the emulator state stream, so a rewind puts the cable back where it was and the replayed frames deliver byte-for-byte what they delivered the first time, across a schedule that both delivers and drops | — | pass | test/uart/uart_integration_test.cpp:1829 |
 | JOY-11 | GH #251 — a rewind INTO --joy-uart-rx-delay-frames' hold restores how much of the hold had been served, so the replay stays silent for the rest of it and releases the stream in the same frame as the run it reproduces | — | pass | test/uart/uart_integration_test.cpp:1896 |
-| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:1936 |
-| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:1965 |
-| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:1996 |
+| JOY-12 | zxnext.vhd:3340-3341 — the joystick cable is paced at the byte time of the channel NR 0x0B bit 0 routes it to (each channel's receiver samples at its own prescaler, uart.vhd:404,589): with channel 1 programmed 8x slower than channel 0, routing to channel 1 delivers at channel 1's rate and routing to channel 0 at channel 0's | zxnext.vhd:3340-3341, uart.vhd:404,589 | pass | test/uart/uart_integration_test.cpp:1966 |
+| NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:2017 |
+| NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2046 |
+| NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:2077 |
 

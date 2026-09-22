@@ -1273,7 +1273,7 @@ static void test_esp_backend() {
 }
 
 // ══════════════════════════════════════════════════════════════════════
-// Section JOY — the joystick-connector UART cable (JOY-01..11), GH #251
+// Section JOY — the joystick-connector UART cable (JOY-01..12), GH #251, #254
 // ══════════════════════════════════════════════════════════════════════
 //
 // Two things that had no coverage at all before GH #251:
@@ -1904,6 +1904,87 @@ static void test_joy_uart_cable() {
                   "(want 0) step4=%zu (want >0)",
                   rewound ? 1 : 0, hold_shape ? 1 : 0, full_replay ? 1 : 0,
                   diverged, forward[3].got.size(), forward[4].got.size()));
+    }
+
+    // ── JOY-12 — the cable is PACED by the channel NR 0x0B bit 0 routes it to
+    // (GH #254). zxnext.vhd:3340-3341 hands `joy_uart_rx` to `uart0_rx` or to
+    // `uart1_rx`, and each of those is sampled by its own channel's receiver at
+    // its own prescaler (uart.vhd:404 / :589, `i_prescaler` of uart0_rx_mod /
+    // uart1_rx_mod; zxnext.vhd:3385 / :3403 wire the two pins in). So the byte
+    // rate the guest sees is the SELECTED channel's.
+    //
+    // Every other JOY row leaves both prescalers at the boot default, where the
+    // two channels' byte times are equal and the choice is invisible: hard-coding
+    // the pacing channel survived the whole suite. Here channel 1 is programmed
+    // 8x slower than channel 0 — port 0x153B with bit 4 set writes its prescaler
+    // MSB (uart.vhd:280-287), port 0x143B its LSB halves (uart.vhd:320-331) — and
+    // the cable is routed to each channel in turn, so pinning the choice either
+    // way fails one of the two runs. The expected count is the elapsed master
+    // cycles over the selected channel's byte time, ±1 for where the run's edges
+    // fall against it; the unselected channel's rate is 8x away from that.
+    {
+        TempSourceFile file("pace", cable_stream());
+
+        struct Pace {
+            std::size_t read = 0, delivered = 0, dropped = 0;
+            uint64_t    cycles = 0;
+            uint32_t    t0 = 0, t1 = 0;
+        };
+        auto pace = [&file](int channel) {
+            Pace p;
+            Emulator emu;
+            emu.init(joy_config(file.path(), /*connector=*/1, /*delay_frames=*/0));
+
+            emu.port().out(0x153B, 0x50);         // select ch 1, write MSB = 0
+            emu.port().out(0x143B, 0x18);         // LSB bits 6:0
+            emu.port().out(0x143B, 0x80 | 0x0F);  // LSB bits 13:7 -> 0x798 = 1944
+            emu.port().out(0x153B, 0x00);         // back to ch 0, MSB untouched
+
+            const uint64_t start = emu.clock().get();
+            p.read   = run_and_drain(emu, static_cast<uint8_t>(0xB0 | channel),
+                                     channel, 2).size();
+            p.cycles = emu.clock().get() - start;
+            if (const JoyUartSource* src = emu.joy_uart_source()) {
+                p.delivered = src->delivered();
+                p.dropped   = src->dropped();
+            }
+            p.t0 = emu.uart().channel(0).byte_transfer_ticks();
+            p.t1 = emu.uart().channel(1).byte_transfer_ticks();
+            return p;
+        };
+        auto paced_by = [](const Pace& p, uint32_t t) {
+            const uint64_t want = p.cycles / t;
+            return p.read == p.delivered && p.dropped == 0
+                && p.read + 1 >= want && p.read <= want + 1;
+        };
+
+        const Pace on1 = pace(1);
+        const Pace on0 = pace(0);
+        const bool programmed = on1.t0 == 2430 && on1.t1 == 19440
+                             && on0.t0 == 2430 && on0.t1 == 19440;
+
+        check("JOY-12",
+              "zxnext.vhd:3340-3341 — the joystick cable is paced at the byte "
+              "time of the channel NR 0x0B bit 0 routes it to (each channel's "
+              "receiver samples at its own prescaler, uart.vhd:404,589): with "
+              "channel 1 programmed 8x slower than channel 0, routing to "
+              "channel 1 delivers at channel 1's rate and routing to channel 0 "
+              "at channel 0's",
+              programmed && paced_by(on1, on1.t1) && paced_by(on0, on0.t0),
+              fmt("byte ticks ch0=%u ch1=%u (want 2430/19440); routed to ch1: "
+                  "read %zu (want %llu±1 at ch1, %llu at ch0) delivered=%zu "
+                  "dropped=%zu over %llu cycles; routed to ch0: read %zu (want "
+                  "%llu±1 at ch0, %llu at ch1) delivered=%zu dropped=%zu over "
+                  "%llu cycles",
+                  on1.t0, on1.t1, on1.read,
+                  static_cast<unsigned long long>(on1.cycles / 19440),
+                  static_cast<unsigned long long>(on1.cycles / 2430),
+                  on1.delivered, on1.dropped,
+                  static_cast<unsigned long long>(on1.cycles), on0.read,
+                  static_cast<unsigned long long>(on0.cycles / 2430),
+                  static_cast<unsigned long long>(on0.cycles / 19440),
+                  on0.delivered, on0.dropped,
+                  static_cast<unsigned long long>(on0.cycles)));
     }
 }
 

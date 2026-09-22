@@ -226,9 +226,14 @@ reader can see: the matrix then carried two IDs that are not rows and none of
 the six that are. Spell every ID out.
 
 **An ID is a GLOBAL name.** `make unit-test` runs `traceability-dup-ids.pl`,
-which refuses when two suites assert the same ID — that reuse is how #190's
-manufactured coverage happened. The 29 pre-existing collisions are baselined in
-`test/traceability-dup-ids.conf`; anything new fails.
+which refuses when two suites (the `?`-gated GUI ones included) assert the same
+ID — that reuse is how #190's manufactured coverage happened — when a PLANNED
+row in a `*-TEST-PLAN-DESIGN.md` carries an ID asserted by a suite the matrix
+does not read that row's status from, and when a declared suite cannot be
+resolved to its source (GH #243). The baseline file
+`test/traceability-dup-ids.conf` is EMPTY: GH #243 renamed one side of all 29
+pre-existing collisions. A new collision is fixed by renaming, never by adding
+a baseline line, and an entry that no longer collides is itself a refusal.
 
 The rendered user guide under `doc/user-guide` is also generated (from
 `src/doc/user-guide`, via `make docs-userguide`) and committed, and it IS
@@ -391,6 +396,18 @@ is loaded, and `screenshot-paused-func`'s control run takes ~55 s against a 60 s
 timeout. Raising in-suite concurrency makes the suite intermittently lie, which
 is far more expensive than the ~55 s it would save. This was measured and
 rejected in Task 39.
+
+**Those two rows are examples, not the list** (GH #245). Contention also fails
+rows that merely spawn short-lived processes — `subsystem-gain-func` failed
+under a three-agent load on 2026-08-09 and never reproduced solo — and a
+concurrent duplicate build once produced an `undefined reference to main`. So:
+a single regression FAIL on a loaded host is unconfirmed until that row is
+re-run SOLO (`bash test/00regression/regression.sh <row>`), and it is not
+dismissed either until the solo run passes — a row that also fails solo is
+real. **Always record the row name.** The harness does the bookkeeping: it
+prints the 1-minute load at the start and the end of the run, flags each FAIL
+that happened with the load at or above `nproc`, and lists every failed row by
+name after the results. It never changes a verdict.
 
 ### Headless mode
 

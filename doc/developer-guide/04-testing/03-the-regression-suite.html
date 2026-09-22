@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.166</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.166</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1321,6 +1321,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-failure-on-a-loaded-host" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A failure on a loaded host
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#no-row-script-may-install-a-trap" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1918,6 +1929,23 @@ is loaded, and <code>screenshot-paused-func</code>'s control run takes about 55 
 a 60 s timeout. Higher concurrency therefore makes the suite intermittently
 lie. The variable defaults to <code>nproc</code> when unset, so pass <code>JNEXT_TEST_JOBS=4</code>
 explicitly, exactly as CI does.</p>
+<h2 id="a-failure-on-a-loaded-host">A failure on a loaded host<a class="headerlink" href="#a-failure-on-a-loaded-host" title="Permanent link">&para;</a></h2>
+<p>Those two rows are examples, not the list. Rows that merely spawn short-lived
+processes have also failed under a parallel-agent load and never reproduced
+solo (<code>subsystem-gain-func</code>, GH #245), and a concurrent duplicate build once
+failed with <code>undefined reference to main</code>. A list of sensitive rows in a
+document is therefore the wrong tool: a reader either chases a ghost, or —
+worse — waves a genuine failure through as "probably contention" because the
+row was not on the list.</p>
+<p>So the harness says it itself. It prints the 1-minute load average at the start
+and at the end of the run, marks every FAIL that happened with the load at or
+above <code>nproc</code> on the spot, and after the results lists each failed row by name
+with the load at the moment it failed, plus a warning when the run was loaded.
+None of that changes a verdict: a FAIL is still a FAIL and the exit status is
+unchanged. What it changes is the next step — re-run the row SOLO
+(<code>bash test/00regression/regression.sh &lt;row&gt;</code>) before treating it as a
+regression, and do not dismiss it until that solo run passes. The self-test
+pins the behaviour both ways (<code>HS-50..55</code>).</p>
 <h2 id="no-row-script-may-install-a-trap">No row script may install a <code>trap</code><a class="headerlink" href="#no-row-script-may-install-a-trap" title="Permanent link">&para;</a></h2>
 <p>The driver <strong>sources</strong> every row script into its own shell, and that shell
 already holds the one <code>trap regression_cleanup EXIT/INT/TERM</code> that deletes the

@@ -21,7 +21,7 @@ with dashboard refresh at `0336c20`.
 
 - **150 plan rows total** (plan summary line says "~151" — (D) plan nit; Section 13 header says "18" but lists 17 NR-C* rows).
 - **`test/ctc/ctc_test.cpp`** runtime: **`Total:  133  Passed:  128  Failed:    0  Skipped:    5`**.
-  - Runtime total is 133 (not 150) because 17 plan rows migrated to source-level comments during Phase 0 triage rather than staying as `check()`/`skip()` calls: 5 rows were B/D/E-class unobservables merged with their neighbours; 10 rows (Section 12 ULA-INT and Section 13 NR-C* read-composition rows requiring a full `Emulator` fixture) re-home to `test/ctc_interrupts/ctc_interrupts_test.cpp`; 2 rows (JOY-01/02) re-home to the emulator/input integration layer.
+  - Runtime total is 133 (not 150) because 17 plan rows migrated to source-level comments during Phase 0 triage rather than staying as `check()`/`skip()` calls: 5 rows were B/D/E-class unobservables merged with their neighbours; 10 rows (Section 12 ULA-INT and Section 13 NR-C* read-composition rows requiring a full `Emulator` fixture) re-home to `test/ctc_interrupts/ctc_interrupts_test.cpp`; 2 rows (CTC-JOY-01/02, renamed from JOY-01/02 in GH #254 because `uart_integration_test` asserts JOY-01/02 with another meaning) re-home to the emulator/input integration layer.
   - Delta from pre-Task-3 baseline (150/44/0/106): **−101 skip, +84 pass, −17 total**.
 - **Historical Phase-3 follow-ups** (five plan items; a mix of runtime skips,
   source-level re-homes, and WONT rows):
@@ -408,8 +408,8 @@ Tests based on zxnext.vhd joystick IO mode wiring.
 
 | ID | Test | Expected |
 |----|------|----------|
-| JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | ctc_zc_to(3) toggles joy_iomode_pin7 |
-| JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | Guard condition for toggle |
+| CTC-JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | ctc_zc_to(3) toggles joy_iomode_pin7 |
+| CTC-JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | Guard condition for toggle |
 
 ### Section 18: Debugger Single-Step Interrupt Delivery (Task 60a)
 

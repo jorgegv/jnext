@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.166</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.166</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1883,13 +1883,29 @@ that were. <strong>Spell every ID out.</strong></p>
 exit 2 when two suites assert the same ID. That kind of reuse is how
 manufactured coverage happened once: a row read <code>pass</code> because an
 identically-named row in another subsystem was vouching for it. The 29
-collisions that already existed are baselined in
-<code>test/traceability-dup-ids.conf</code>, so anything new fails, and the baseline
-shrinks only by renaming one side in the plan doc and the test source together.</p>
-<p>The checker enumerates suites from <code>test/unit-tests.conf</code> — all 90 of them —
-and deliberately not from the matrix's own sections, because 49 suites are
-tombstoned and have no section at all, so a matrix-derived audit would never
-see them.</p>
+collisions that already existed when the gate was written were baselined in
+<code>test/traceability-dup-ids.conf</code>; GH #243 renamed one side of every one, so the
+baseline is now empty and meant to stay so. A new collision fails, a baseline
+entry that no longer collides fails too, and the fix is always to rename one
+side, in the plan doc and the test source together.</p>
+<p>Planned rows are IDs as well. The matrix mixes rows read from each subsystem's
+<code>*-TEST-PLAN-DESIGN.md</code> with rows read from the test sources, so a planned ID
+that some other suite asserts puts two different rows under one name — the CTC
+plan's <code>JOY-01/02</code> sat in the matrix as <code>missing</code> next to
+<code>uart_integration_test</code>'s passing <code>JOY-01/02</code>. The gate therefore also refuses a
+planned row whose ID is asserted by a suite the matrix does not read that row's
+status from (its own section's suites, its <code>###</code> companions and its declared
+status fallbacks). It gets the planned rows by asking the generator —
+<code>refresh-traceability-matrix.pl --planned-ids</code> — so there is one plan-doc
+parser, not two.</p>
+<p>The checker enumerates suites from <code>test/unit-tests.conf</code> — every one it
+declares, the <code>?</code>-prefixed GUI-gated suites included — and deliberately not
+from the matrix's own sections, because tombstoned suites have no section at
+all, so a matrix-derived audit would never see them. A declared suite it
+cannot resolve to a source file is a <strong>refusal</strong>, not a skip: until GH #243 it
+never stripped the <code>?</code> prefix, so it silently checked 79 suites of 100 while
+reporting OK, with 13 real collisions in the rest. <code>make traceability-selftest</code>
+pins both behaviours end to end.</p>
 <h2 id="the-exceptions-file">The exceptions file<a class="headerlink" href="#the-exceptions-file" title="Permanent link">&para;</a></h2>
 <p><code>test/traceability-exceptions.conf</code> is the <strong>single</strong> hand-maintained input to
 the generator: three <code>|</code>-separated fields per record, giving section, row ID and
