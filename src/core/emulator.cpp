@@ -11011,8 +11011,22 @@ void Emulator::resize_rewind_buffer(int frames)
 }
 
 
+bool Emulator::rzx_blocks_rewind(const char* what) const
+{
+    // An RZX recording replays the input of ONE continuous run; a rewind
+    // makes the machine's history non-continuous, so recording on across it
+    // gives a file that no longer replays, and a playback's position does not
+    // rewind with the machine. Refused, and said — the debugger greys the
+    // actions out too (DebuggerWindow::update_actions()).
+    if (!rzx_recorder_.is_recording() && !rzx_player_.is_playing()) return false;
+    Log::emulator()->error("{}: not while an RZX recording {} (stop it first)", what,
+                           rzx_recorder_.is_recording() ? "is being made" : "is playing");
+    return true;
+}
+
 uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 {
+    if (rzx_blocks_rewind("rewind_to_cycle")) return UINT64_MAX;
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("rewind_to_cycle: rewind buffer is empty or disabled");
         return UINT64_MAX;
@@ -11074,6 +11088,7 @@ uint64_t Emulator::rewind_to_cycle(uint64_t target_cycle)
 bool Emulator::step_back(int n)
 {
     if (n <= 0) n = 1;
+    if (rzx_blocks_rewind("step_back")) return false;
 
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("step_back: rewind buffer is empty or disabled");
@@ -11132,6 +11147,7 @@ bool Emulator::step_back(int n)
 
 bool Emulator::rewind_to_frame(uint32_t target_frame_num)
 {
+    if (rzx_blocks_rewind("rewind_to_frame")) return false;
     if (!rewind_buffer_ || rewind_buffer_->empty()) {
         Log::emulator()->warn("rewind_to_frame: rewind buffer is empty or disabled");
         return false;

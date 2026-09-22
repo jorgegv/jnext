@@ -1044,6 +1044,44 @@ int main()
         std::remove(b_path.c_str());
     }
 
+    // --- EB-43/44: no rewind while RZX records --------------------------------
+    // Contract (Emulator::rzx_blocks_rewind): a recording replays one
+    // continuous run, so a rewind in the middle of one would leave a file that
+    // no longer replays. step_back() and rewind_to_frame() refuse while RZX
+    // records (or plays), and the recording carries on untouched.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const std::string rw_path =
+            (std::filesystem::temp_directory_path() / ("jnext-eb-rw-" + stamp + ".rzx")).string();
+        EmulatorConfig rw_cfg = base_config();
+        rw_cfg.rewind_buffer_frames = 8;
+
+        // EB-43: refused during a recording, which keeps its frames.
+        {
+            Emulator emu;
+            emu.init(rw_cfg);
+            const bool started = emu.start_rzx_recording(rw_path);
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+            const bool back  = emu.step_back(1);
+            const bool frame = emu.rewind_to_frame(emu.rewind_buffer()->oldest_frame_num());
+            const std::size_t n = emu.rzx_recorder().recording().frames.size();
+            emulator_finish_rzx(emu, rw_path);
+            check("EB-43", "step_back/rewind_to_frame refuse during a recording, which goes on",
+                  started && !back && !frame && n == 3, "frames=" + std::to_string(n));
+        }
+
+        // EB-44: control — the same machine without a recording does rewind.
+        {
+            Emulator emu;
+            emu.init(rw_cfg);
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+            check("EB-44", "control: without a recording, step_back succeeds",
+                  emu.step_back(1));
+        }
+        std::remove(rw_path.c_str());
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;

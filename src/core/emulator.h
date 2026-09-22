@@ -701,6 +701,12 @@ public:
     /// Returns true on success.
     bool rewind_to_frame(uint32_t frame_num);
 
+    /// True — with the refusal logged, naming `what` — while an RZX recording
+    /// is being made or played: rewind_to_cycle(), step_back() and
+    /// rewind_to_frame() refuse then, because a recording cannot replay a
+    /// rewound history and a playback does not rewind with the machine.
+    bool rzx_blocks_rewind(const char* what) const;
+
     /// Port 0xFF read mux (VHDL zxnext.vhd:2813) — Timex register when
     /// NR 0x08 b2 + NR 0x82 b0 are set, else the ULA floating bus in
     /// 48K/128K timing (byte being fetched from VRAM at this T-state),
