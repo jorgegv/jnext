@@ -94,6 +94,8 @@ enum class OptId {
     JoyUartRx,
     JoyUartRxDelayFrames,
     JoyUartConnector,
+    JoyUartFifo,
+    JoyUartPty,
     DelayedKeypress,
     DelayedKeypressFrames,
     DelayedNmi,
@@ -272,6 +274,26 @@ inline constexpr Option OPTIONS[] = {
       "(default 2, the connector a real rig uses). NR 0x0B bit 4\n"
       "selects the connector the machine reads, so a guest that\n"
       "selects the other one hears nothing" },
+    // GH #252 — the LIVE, bidirectional form of the same cable. --joy-uart-rx
+    // above is a recording: the file is read whole at startup and clocked out,
+    // so a FIFO would block until its writer closed, a socket would not open at
+    // all and a pty would never end. These two attach a real host endpoint that
+    // jnext reads AND writes while the machine runs, which is what lets a
+    // debugger on the host hold a conversation with the guest.
+    { "--joy-uart-fifo", 1, Doc::Documented, OptId::JoyUartFifo,
+      "PATH",
+      "Attach a live bidirectional serial cable on the joystick-port\n"
+      "UART, as a pair of FIFOs named from PATH: PATH.rx carries\n"
+      "host->Next and PATH.tx carries Next->host. Either is created\n"
+      "if missing. Nothing blocks: with no peer attached, received\n"
+      "bytes are simply absent and transmitted bytes are dropped,\n"
+      "and a peer that leaves and comes back is picked up again" },
+    { "--joy-uart-pty", 0, Doc::Documented, OptId::JoyUartPty,
+      "",
+      "As --joy-uart-fifo, but allocate a pseudo-terminal and log\n"
+      "the slave device path. This is the form a serial client such\n"
+      "as DeZog opens, since it wants one serial device rather than\n"
+      "a pair of pipes. Both are POSIX-only" },
     { "--tape-realtime", 0, Doc::Documented, OptId::TapeRealtime,
       "",
       "Use real-time tape loading (simulates actual loading speed)" },

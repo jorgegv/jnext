@@ -9,6 +9,7 @@
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/joy_uart_source.h"   // read_joy_uart_source_file (GH #251)
+#include "peripheral/joy_uart_link.h"     // JoyUartEndpoint (GH #252)
 // Issue #35 — audio_pacing::WhenSlowPrefer. Header-only and dependency-free;
 // included unconditionally because the parsed value is declared alongside the
 // other options, before the frontend type is known.
@@ -243,6 +244,8 @@ int main(int argc, char* argv[]) {
     int         joy_uart_connector = 1;
     bool        joy_uart_rx_delay_frames_set = false;
     bool        joy_uart_connector_set = false;
+    std::string joy_uart_fifo;
+    bool        joy_uart_pty = false;
     bool        magic_port_enabled = false;
     uint16_t    magic_port_address = 0;
     EmulatorConfig::MagicPortMode magic_port_mode = EmulatorConfig::MagicPortMode::HEX;
@@ -652,6 +655,12 @@ int main(int argc, char* argv[]) {
             }
             case cli::OptId::JoyUartRx:
                 joy_uart_rx_file = v[0];
+                break;
+            case cli::OptId::JoyUartFifo:
+                joy_uart_fifo = v[0];
+                break;
+            case cli::OptId::JoyUartPty:
+                joy_uart_pty = true;
                 break;
             case cli::OptId::JoyUartRxDelayFrames: {
                 // Parsed here so a typo is a usage error, not a stream that
@@ -1091,6 +1100,8 @@ int main(int argc, char* argv[]) {
         cfg.joy_uart_rx_file         = joy_uart_rx_file;
         cfg.joy_uart_connector       = joy_uart_connector;
         cfg.joy_uart_rx_delay_frames = static_cast<uint32_t>(joy_uart_rx_delay_frames);
+        cfg.joy_uart_fifo            = joy_uart_fifo;
+        cfg.joy_uart_pty             = joy_uart_pty;
 
         // Task 66 — saved GUI preferences fill in fields the CLI left at
         // their default; merge_cli_precedence() (src/gui/app_config.h) always
@@ -1206,11 +1217,38 @@ int main(int argc, char* argv[]) {
         // GH #251, and the ESP family's reasoning once more: a schedule or a
         // socket number given for a cable that was never attached reads as "I
         // have configured my serial source" when there is no source at all.
-        if ((joy_uart_rx_delay_frames_set || joy_uart_connector_set)
-            && joy_uart_rx_file.empty()) {
+        const bool joy_uart_live = !joy_uart_fifo.empty() || joy_uart_pty;
+        if (joy_uart_connector_set && joy_uart_rx_file.empty() && !joy_uart_live) {
             fprintf(stderr,
-                    "--joy-uart-rx-delay-frames / --joy-uart-connector require a serial "
-                    "source to configure: give --joy-uart-rx FILE too.\n");
+                    "--joy-uart-connector requires a serial cable to configure: give "
+                    "--joy-uart-rx FILE, --joy-uart-fifo PATH or --joy-uart-pty too.\n");
+            return 1;
+        }
+        // The delay belongs to the RECORDING only. A live cable has no stream to
+        // hold back — its bytes arrive when the host sends them — so accepting the
+        // flag there would silently do nothing, which is the class of quiet
+        // no-op every refusal in this block exists to prevent.
+        if (joy_uart_rx_delay_frames_set && joy_uart_rx_file.empty()) {
+            fprintf(stderr,
+                    "--joy-uart-rx-delay-frames schedules a recorded stream and requires "
+                    "--joy-uart-rx FILE; a live cable (--joy-uart-fifo / --joy-uart-pty) "
+                    "delivers bytes when the host sends them.\n");
+            return 1;
+        }
+        // GH #252 — one cable, one socket. Two sources feeding the same pin would
+        // interleave into one byte stream that neither end could parse, and the
+        // user would have no way to tell which half they were looking at.
+        if (joy_uart_live && !joy_uart_rx_file.empty()) {
+            fprintf(stderr,
+                    "--joy-uart-rx (a recorded stream) and --joy-uart-fifo / "
+                    "--joy-uart-pty (a live cable) both attach to the same joystick "
+                    "socket; give one.\n");
+            return 1;
+        }
+        if (!joy_uart_fifo.empty() && joy_uart_pty) {
+            fprintf(stderr,
+                    "--joy-uart-fifo and --joy-uart-pty both attach a live cable to the "
+                    "same joystick socket; give one.\n");
             return 1;
         }
         // Read the file HERE, not at Emulator::init(): an unreadable or empty
@@ -1223,6 +1261,24 @@ int main(int argc, char* argv[]) {
             std::string          error;
             if (!read_joy_uart_source_file(joy_uart_rx_file, probe, error)) {
                 fprintf(stderr, "--joy-uart-rx: %s\n", error.c_str());
+                return 1;
+            }
+        }
+        // And the same refusal for the live cable: an endpoint that cannot be
+        // created (a PATH that exists and is not a FIFO, a directory that is not
+        // writable, a platform with no ptys) must be a usage error before the
+        // machine boots, not a run that looks alive and talks to nobody. The
+        // endpoint built here is CLOSED again immediately — Emulator::init()
+        // opens the one the run uses, which is what makes a cold boot re-open
+        // the cable — so this is purely the refusal.
+        if (joy_uart_live) {
+            std::string error;
+            std::unique_ptr<JoyUartEndpoint> probe =
+                joy_uart_pty ? JoyUartEndpoint::open_pty(error)
+                             : JoyUartEndpoint::open_fifo(joy_uart_fifo, error);
+            if (!probe) {
+                fprintf(stderr, "%s: %s\n",
+                        joy_uart_pty ? "--joy-uart-pty" : "--joy-uart-fifo", error.c_str());
                 return 1;
             }
         }

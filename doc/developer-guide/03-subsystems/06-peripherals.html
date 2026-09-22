@@ -1081,6 +1081,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-joystick-port-serial-cable" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The joystick-port serial cable
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#the-esp-01" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2022,6 +2033,56 @@ to its bus timing first (<code>port_uart_dat</code> is a CLK_CPU falling-edge re
 <code>zxnext.vhd:3418-3423</code>), and a TX-empty or RX request is stamped with the edge
 the byte engine reports it on. A channel with nothing attached loops its TX back
 into its own RX, which matters more than it sounds; see the replay gate below.</p>
+<h2 id="the-joystick-port-serial-cable">The joystick-port serial cable<a class="headerlink" href="#the-joystick-port-serial-cable" title="Permanent link">&para;</a></h2>
+<p><code>joy_uart_source.{h,cpp}</code> and <code>joy_uart_link.{h,cpp}</code> are the emulator's two
+stand-ins for the far end of a home-made DB9 serial cable in a joystick socket —
+the rig dezogif and DeZog use to debug a running Next. The bytes do not go
+through either UART header; they go through the NR 0x0B I/O-mode multiplexer
+(<code>zxnext.vhd:3340-3341</code>, <code>:3526-3538</code>), which the <em>guest</em> controls at run time.</p>
+<p>That is why neither of them is a <code>UartDevice</code>. A <code>UartDevice</code> is soldered to one
+channel's wire, and this cable has no channel of its own: NR 0x0B bit 0 chooses
+which channel it lands on, bit 4 chooses which socket is listened to, and bits
+7+5 decide whether the mux is on at all. Worse, a channel device is <em>muted</em>
+exactly when the joystick connector owns the channel — that is what
+<code>UartChannel::device_isolated()</code> means. So the seam is at the mux, and it has
+two halves:</p>
+<ul>
+<li><strong>receive</strong> — <code>Emulator::inject_joy_uart_rx</code> applies the enable and the
+  channel choice, and the owner's sink applies the connector;</li>
+<li><strong>transmit</strong> — <code>UartChannel::deliver_tx_byte</code>'s isolated branch hands the byte
+  to a mux-level sink installed by <code>Uart::set_joy_uart_tx_sink</code>. That branch
+  still returns <code>true</code>, which is load-bearing: falling through would loop the
+  byte into the very RX FIFO the cable is feeding.</li>
+</ul>
+<p><strong>The two directions are gated differently, and that is the VHDL's doing.</strong>
+Receive is connector-selected (<code>zxnext.vhd:3538</code>). Transmit is not: the transmit
+bit leaves the core as the single output <code>o_JOY_IO_MODE_PIN_7</code>
+(<code>zxnext.vhd:1593</code>), and the board drives it onto whichever socket <code>joysel</code>
+currently points at — which, in io mode, free-runs at 7 MHz
+(<code>md6_joystick_connector_x2.vhd:109,117</code>) while one bit at 115200 lasts 243
+CLK_28 ticks. Both sockets therefore see it. Copying the receive gate onto the
+transmit path is the obvious-looking symmetry and it is wrong.</p>
+<p><code>JoyUartSource</code> (<code>--joy-uart-rx</code>) is a recording: the file is read whole at
+startup, clocked out on a schedule, and its cursor <strong>is</strong> serialised, so a
+rewind replays the same bytes in the same frames. <code>JoyUartLink</code>
+(<code>--joy-uart-fifo</code>, <code>--joy-uart-pty</code>) is a live host endpoint and the opposite
+on both counts — nothing about it is serialised, and it is held INERT during
+replay, the <code>EspUartAdapter::set_inert</code> posture. A byte handed to a peer cannot
+be unsent, and a replayed frame that re-read the descriptor would consume host
+bytes the resumed timeline still needs.</p>
+<p>Its descriptors are touched <strong>once per frame</strong> (<code>JoyUartLink::poll</code>), never from
+the per-instruction tick, for the reason <code>UartDevice::poll</code>'s header gives: a
+<code>read()</code> per Z80 instruction is a syscall per instruction. The per-instruction
+half only paces already-buffered bytes out at <code>byte_transfer_ticks()</code>. Receive
+is paced because <code>uart_rx.vhd</code> clocks one frame per <code>prescaler * frame_bits</code> and
+the RX FIFO is 512 bytes with drop-newest overflow; transmit is not, because
+the byte-level TX engine already held the byte for a whole byte time.</p>
+<p>Everything about the endpoint is non-blocking, including its opens. The
+host→Next FIFO is <code>O_RDONLY | O_NONBLOCK</code>, which succeeds with no writer; the
+Next→host FIFO <strong>cannot</strong> be opened until something is reading it
+(<code>O_WRONLY | O_NONBLOCK</code> gives <code>ENXIO</code>), so it is opened lazily and retried on
+every flush. <code>SIGPIPE</code> is ignored when the first endpoint is created, without
+which a debugger closing its end would kill the emulator outright.</p>
 <h2 id="the-esp-01">The ESP-01<a class="headerlink" href="#the-esp-01" title="Permanent link">&para;</a></h2>
 <p>A real ZX Spectrum Next has an ESP-01 WiFi module soldered to it, talking to the
 machine over UART 0 with the AT command set that module's firmware speaks:

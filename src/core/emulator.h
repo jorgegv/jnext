@@ -80,6 +80,7 @@ class ThreadedEsp;
 class EspUartAdapter;
 class EspConnectionLog;
 class JoyUartSource;   // GH #251 — peripheral/joy_uart_source.h
+class JoyUartLink;     // GH #252 — peripheral/joy_uart_link.h
 
 /// Top-level machine class.
 ///
@@ -1006,6 +1007,12 @@ public:
     /// actually reached the guest.
     const JoyUartSource* joy_uart_source() const { return joy_uart_source_.get(); }
 
+    /// The LIVE joystick-connector cable attached by `--joy-uart-fifo` /
+    /// `--joy-uart-pty` (GH #252), or nullptr. Exposed so a bench can read back
+    /// how much of each direction actually crossed the mux.
+    const JoyUartLink* joy_uart_link() const { return joy_uart_link_.get(); }
+    JoyUartLink*       joy_uart_link()       { return joy_uart_link_.get(); }
+
 private:
     // Task 79 — recompute the Keyboard cursor-key target from joy_source_:
     // the connector (0/1) whose source is CursorKeys, or -1 for none.
@@ -1129,6 +1136,16 @@ private:
     /// none of it" warning. The silent no-op is the failure this feature has to
     /// make impossible, so exhaustion with `delivered() == 0` is reported.
     bool joy_uart_silence_reported_ = false;
+
+    // GH #252 — the LIVE bidirectional cable. Owned here for exactly the
+    // reasons joy_uart_source_ is (its sink captures `this`, and a cold boot
+    // placement-news a new Emulator at the same address), with one addition: it
+    // holds host file descriptors, so rebuilding it on a cold boot is also what
+    // re-establishes the endpoint rather than leaving a descriptor pointing at
+    // a machine that no longer exists.
+    std::unique_ptr<JoyUartLink> joy_uart_link_;
+    /// One-shot latch for the endpoint-fault warning; see JoyUartLink::faults.
+    bool joy_uart_link_fault_reported_ = false;
 
     DivMmc          divmmc_;
     Multiface       multiface_;   // Wave 1 B1 (TASK-8-MULTIFACE-PLAN.md).
@@ -1288,6 +1305,22 @@ private:
     /// per-instruction device cluster and ONLY when a source exists; the null
     /// test stays at the call site so an ordinary run pays one branch.
     void service_joy_uart_source(uint64_t master_cycles);
+
+    /// GH #252 — build the live joystick cable from `EmulatorConfig::joy_uart_*`
+    /// and bind both directions. Called from init(), so a cold boot re-opens the
+    /// endpoint; a no-op on a soft reset that finds one already built, because a
+    /// soft reset does not unplug the cable.
+    void setup_joy_uart_link();
+
+    /// GH #252 — clock the live cable's RX pacing forward. Per instruction, and
+    /// ONLY when a cable exists; the null test stays at the call site.
+    void service_joy_uart_link(uint64_t master_cycles);
+
+    /// GH #252 — the ONCE-PER-FRAME half: the replay gate, the descriptor I/O,
+    /// and the one-shot endpoint-fault report. Separate from the per-instruction
+    /// service for the reason `UartDevice::poll`'s header gives — a read()/write()
+    /// per Z80 instruction would be a syscall per instruction.
+    void service_joy_uart_link_frame();
 
     /// GH #25 — once-per-`run_frame()` ESP service, and the ONLY place jnext
     /// drives the device outside the per-instruction `tick()`.

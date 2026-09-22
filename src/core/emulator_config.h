@@ -333,6 +333,30 @@ struct EmulatorConfig {
     // is only reachable by scheduling it.
     uint32_t                 joy_uart_rx_delay_frames = 0;
 
+    // ── LIVE joystick-connector serial cable (GH #252) ─────────────────────
+    //
+    // The bidirectional form of the same cable: a host endpoint jnext reads AND
+    // writes while the machine runs, so a debugger on the host (DeZog driving
+    // dezogif_ng) can hold a conversation with the guest instead of being
+    // handed a recording. Mutually exclusive with `joy_uart_rx_file` above —
+    // one cable, one socket — and refused as such by the CLI.
+    //
+    // `joy_uart_fifo` is the BASE name of a FIFO pair: `<base>.rx` carries
+    // host → Next and `<base>.tx` carries Next → host, both named from the
+    // guest's point of view so they read the same way round as
+    // `--joy-uart-rx`. Empty means no FIFO cable.
+    std::string              joy_uart_fifo;
+    // Allocate a pseudo-terminal instead; the slave device path is logged at
+    // startup and is what a serial client opens. This is the form a real DeZog
+    // launch configuration can use, since its `serial` remote opens a serial
+    // DEVICE and cannot be pointed at a pair of pipes.
+    bool                     joy_uart_pty = false;
+    //
+    // `joy_uart_connector` above is SHARED by both forms: it says which socket
+    // the cable is in, and so whether NR 0x0B bit 4 is listening to it at all
+    // (zxnext.vhd:3538). `joy_uart_rx_delay_frames` is NOT shared — a live link
+    // has no recording to hold back — and the CLI refuses the combination.
+
     // Host capture callbacks are reattached by init() after a cold boot.
     std::function<void(const int16_t*, int)> audio_capture_callback;
     std::function<void(uint64_t, int, uint8_t)> dac_write_callback;

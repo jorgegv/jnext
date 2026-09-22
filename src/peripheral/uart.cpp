@@ -95,7 +95,18 @@ bool UartChannel::deliver_tx_byte(uint8_t byte) {
     // through to the caller's loopback either: looping it into this channel's
     // own RX FIFO would corrupt the very stream the cable is feeding in.
     // Hence `true`: heard by the connector, not by anything here.
-    if (device_isolated()) return true;
+    //
+    // GH #252 routed that "heard by the connector" somewhere instead of nowhere:
+    // the byte goes out on `joy_iomode_pin7` (zxnext.vhd:3526-3531 → :1593 →
+    // md6_joystick_connector_x2.vhd:116), so a host endpoint attached to the
+    // joystick cable gets it. With no cable attached the sink is empty and this
+    // branch behaves exactly as it did before. The `return true` is unchanged
+    // and is the load-bearing part either way: the byte must not fall through
+    // to the caller's loopback.
+    if (device_isolated()) {
+        if (joy_uart_tx_sink_) joy_uart_tx_sink_(byte);
+        return true;
+    }
 
     // An attached backend is the physical thing on the wire and wins over
     // `on_tx_byte`, which is an observer hook. Only one of them ever sees a
