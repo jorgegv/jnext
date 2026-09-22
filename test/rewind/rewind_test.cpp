@@ -1525,6 +1525,39 @@ static int test_rewind_across_soft_reset()
                       "replayed %d)", emu.mixer().available(), reset_replayed);
         CHECK(reset_replayed && emu.mixer().available() == 0, msg);
     }
+    {
+        // A snapshot is taken at the top of begin_new_frame(), before the
+        // frame edge commits a pending NR 0x03 timing (zxnext.vhd:6696-6703),
+        // so it can hold pending != effective. The pulse-mode /INT width gate
+        // decodes the EFFECTIVE timing (:2033, :5761-5776): after a restore
+        // both of its copies must show the effective 128K value, and the
+        // next frame edge must still commit +3.
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX128K;
+        cfg.rewind_buffer_frames = 10;
+        emu.init(cfg);
+        emu.mmu().write(0x8000, 0x76);    // HALT
+        rw_park(emu, 0x8000);
+        emu.run_frame();                  // frame 0
+        rw_nr(emu, 0x03, 0xB0);           // tim_sel +3, pending
+        emu.run_frame();                  // frame 1 — snapshot before commit
+        emu.run_frame();                  // frame 2
+        REQUIRE(emu.cpu().machine_timing_48_or_p3() &&
+                emu.rewind_to_frame(1),
+                "RWR fixture: +3 committed, rewind_to_frame(1) succeeds");
+        const bool cpu_rw = emu.cpu().machine_timing_48_or_p3();
+        const bool im2_rw = emu.im2().machine_timing_48_or_p3();
+        emu.run_frame();                  // frame 1 again: its edge commits
+        const bool cpu_edge = emu.cpu().machine_timing_48_or_p3();
+        char msg[200];
+        std::snprintf(msg, sizeof(msg),
+                      "RWR-16 a restore puts the /INT width gate back on the "
+                      "EFFECTIVE timing, in both copies (cpu %d im2 %d, want "
+                      "0 0; after the edge cpu %d, want 1)",
+                      cpu_rw, im2_rw, cpu_edge);
+        CHECK(!cpu_rw && !im2_rw && cpu_edge, msg);
+    }
     return 0;
 }
 

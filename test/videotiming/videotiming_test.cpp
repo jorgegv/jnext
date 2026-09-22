@@ -1416,11 +1416,15 @@ static void section12_gh237_init_from_nr03() {
     // VT-GH237-04 — soft reset. A guest moves the timing axis to +3 on a
     // 128K machine; RESET_SOFT must not put the raster back on the CLI
     // machine's arm. VHDL: no reset clause for nr_03_machine_timing
-    // (:4926-5111), and i_timing follows it (:6721).
+    // (:4926-5111). i_timing is eff_nr_03_machine_timing (:6721), loaded
+    // from it only at video_frame_sync (:6696-6703) and not reset either:
+    // the frame the reset lands in stays on the 128K arm, and the +3 arm
+    // takes over at the next frame edge (GH #263 follow-up — this row used
+    // to assert +3 straight after the reset).
     {
         Emulator   emu;
         const bool built = gh237::build_emu(emu, MachineType::ZX128K);
-        RasterPos  boot{0, 0}, post{0, 0};
+        RasterPos  boot{0, 0}, post{0, 0}, edge{0, 0};
         if (built) {
             boot = emu.video_timing().int_position();
             // bit7=1 arms the tim_sel commit (:5124), bit3=0 leaves
@@ -1429,15 +1433,20 @@ static void section12_gh237_init_from_nr03() {
             gh237::nr_write(emu, 0x03, 0xB0);   // tim_sel = "011" (+3)
             gh237::nr_write(emu, 0x02, 0x01);   // RESET_SOFT
             post = emu.video_timing().int_position();
+            emu.run_frame();                    // the next video_frame_sync
+            edge = emu.video_timing().int_position();
         }
         check("VT-GH237-04",
-              "128K + guest-selected +3 timing: RESET_SOFT keeps the "
-              "interrupt on the +3 arm (126) instead of reverting to the CLI "
-              "machine's 128 [zxnext.vhd:1099 no reset clause; "
-              "zxula_timing.vhd:189]",
-              built && boot.hc == 128 && boot.vc == 1 && post.hc == 126 &&
-                  post.vc == 1,
-              "boot_int_hc=" + std::to_string(boot.hc) + " post_reset " +
+              "128K + guest-selected +3 timing: RESET_SOFT neither reverts "
+              "the raster to the CLI machine's arm nor applies the pending "
+              "+3 early — INT stays at 128 until the next frame edge, then "
+              "moves to the +3 arm (126) [zxnext.vhd:1099 no reset clause; "
+              ":6696-6703,6721 eff_nr_03_machine_timing; zxula_timing.vhd:187,189]",
+              built && boot.hc == 128 && boot.vc == 1 && post.hc == 128 &&
+                  post.vc == 1 && edge.hc == 126 && edge.vc == 1,
+              "boot_int_hc=" + std::to_string(boot.hc) +
+                  " post_reset_int_hc=" + std::to_string(post.hc) +
+                  " post_edge " +
                   (built ? gh237::geom(emu) : std::string("init failed")));
     }
 
@@ -1493,13 +1502,22 @@ static void section12_gh237_init_from_nr03() {
     // tim_sel value whose c_max_hc/c_max_vc differ from the 128K/+3 pair, so
     // it is the case that proves VideoTiming and the master-cycle frame
     // geometry are programmed from one source and cannot disagree.
+    // GH #263 follow-up: the Pentagon constants take over at the frame edge
+    // after the reset, not at the reset (eff_nr_03_machine_timing,
+    // zxnext.vhd:6696-6703,6721); the reset frame keeps the 128K geometry.
     {
         Emulator   emu;
         const bool built = gh237::build_emu(emu, MachineType::ZX128K);
-        bool ok = false;
+        bool reset_ok = false, ok = false;
+        std::string at_reset;
         if (built) {
             gh237::nr_write(emu, 0x03, 0xC0);   // tim_sel = "100" (Pentagon)
             gh237::nr_write(emu, 0x02, 0x01);   // RESET_SOFT
+            at_reset = gh237::geom(emu);
+            reset_ok = emu.video_timing().hc_max() == 455 &&
+                       emu.video_timing().vc_max() == 310 &&
+                       emu.timing().lines_per_frame == 311;
+            emu.run_frame();                    // the next video_frame_sync
             const auto  p = emu.video_timing().int_position();
             const auto& t = emu.timing();
             ok = emu.video_timing().hc_max() == 447 &&
@@ -1508,11 +1526,15 @@ static void section12_gh237_init_from_nr03() {
                  t.lines_per_frame == 320 && t.tstates_per_frame == 224 * 320;
         }
         check("VT-GH237-07",
-              "128K + guest-selected Pentagon timing across RESET_SOFT: "
-              "VideoTiming AND the master-cycle frame both follow the "
+              "128K + guest-selected Pentagon timing across RESET_SOFT: the "
+              "reset frame keeps the 128K geometry, and from the next frame "
+              "edge VideoTiming AND the master-cycle frame both follow the "
               "preserved tim_sel (448x320, INT (439,319)) — one source, no "
-              "drift [zxula_timing.vhd:155,159,160,163,167,168]",
-              ok, built ? gh237::geom(emu) : std::string("init(128K) failed"));
+              "drift [zxnext.vhd:6696-6703,6721; "
+              "zxula_timing.vhd:155,159,160,163,167,168,196,204]",
+              reset_ok && ok,
+              built ? "at reset " + at_reset + "; after edge " + gh237::geom(emu)
+                    : std::string("init(128K) failed"));
     }
 }
 

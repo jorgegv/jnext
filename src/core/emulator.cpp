@@ -92,6 +92,11 @@ Emulator::~Emulator()
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    // The effective NR 0x03 machine timing (eff_nr_03_machine_timing) is a
+    // latch loaded only at video_frame_sync, with no reset clause
+    // (zxnext.vhd:6696-6703): a soft reset must hand it back unchanged.
+    // Captured before the subsystem resets below rebuild ContentionModel.
+    const MachineTimingMode soft_eff_tim = contention_.machine_timing();
     timing_ = machine_timing(cfg.type);
     Log::emulator()->info("Initializing emulator: machine_type={}[{}] cpu_speed={}[{}] "
                           "lines={} tstates/line={}{}",
@@ -587,10 +592,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // :5137-5145 for typ_sel). A user that writes NR 0x03 with
     // bits 6:4 != bits 2:0 will see them diverge at the next
     // video-frame edge — observably faithful to VHDL.
-    const MachineTimingMode init_tim_mode =
+    //
+    // A soft reset keeps the effective timing it found and leaves the pending
+    // NR 0x03 value pending: eff_nr_03_machine_timing loads only at
+    // video_frame_sync and has no reset clause (zxnext.vhd:6696-6703), so a
+    // guest that writes NR 0x03 and soft-resets in the same frame gets the
+    // new timing at the next frame edge, like any other NR 0x03 write
+    // (GH #263 follow-up — it used to be applied at the reset).
+    const MachineTimingMode pend_tim_mode =
         decode_nr_03_machine_timing(nextreg_.nr_03_machine_timing());
+    const MachineTimingMode init_tim_mode =
+        preserve_memory ? soft_eff_tim : pend_tim_mode;
     contention_.set_machine_timing(init_tim_mode);
     mmu_.set_machine_timing(init_tim_mode);
+    contention_.set_pending_machine_timing(pend_tim_mode);
+    mmu_.set_pending_machine_timing(pend_tim_mode);
 
     // Pulse-mode INT width gate per VHDL zxnext.vhd:2033 — 48K/+3 use 32 CPU
     // cycles (bit 5 only); 128K/Pentagon/Next use 36 (bit 5 AND bit 2).
@@ -3246,19 +3262,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
 
             // G121: VHDL zxnext.vhd:2033 — pulse_count_end gates on
-            // `machine_timing_48 OR machine_timing_p3`, both decoded from
-            // nr_03_machine_timing. When NR 0x03 changes the timing post-boot,
-            // the pulse-mode INT width must follow (32 cycles for 48K/+3, 36
-            // for 128K/Pentagon). Without this fan-out the Im2Controller's
-            // machine_48_or_p3_ flag stays stuck at the value set at
-            // reset_machine() and the pulse width is wrong after any runtime
-            // timing change.
-            const bool is_48_or_p3 = (new_timing == 0x01) || (new_timing == 0x03);
-            im2_.set_machine_timing_48_or_p3(is_48_or_p3);
-            // Mirror to Z80Cpu's /INT pulse-window gate (zxnext.vhd:2033).
-            // Same logic as im2_, distinct consumer: cpu_ uses the width to
-            // discard a pending interrupt the CPU never acknowledged.
-            cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
+            // `machine_timing_48 OR machine_timing_p3`, so the pulse-mode INT
+            // width follows a runtime NR 0x03 timing change (32 cycles for
+            // 48K/+3, 36 for 128K/Pentagon). Those two are decoded from
+            // eff_nr_03_machine_timing (:5761-5776), the copy latched at
+            // video_frame_sync (:6696-6703) — not from this write — so the
+            // Im2Controller / Z80Cpu gates follow at the frame edge, in
+            // begin_new_frame(), with contention and the raster. Setting
+            // them here applied the new width up to a frame early.
 
             // V24-MEM-01 / V25-MEM-01 fix — push the decoded
             // MachineTimingMode (tim_sel axis) into the SHADOW field of
@@ -3271,14 +3282,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // shadow) + commit_pending_machine_timing() (frame-edge
             // promotion, called from run_frame()).
             //
-            // Note: this is the SOLE consumer of the new
-            // MachineTimingMode axis at the NR 0x03 write seam — IM2 /
-            // CPU pulse-width above (the is_48_or_p3 fan-out) is the
-            // VHDL `pulse_count_end` term at :2033, which keys on
-            // `eff_nr_03_machine_timing` directly (no video-frame
-            // latch), so it commits combinationally. Our `is_48_or_p3`
-            // therefore stays immediate; the new contention/MMU axis
-            // is deferred.
+            // The IM2 / CPU pulse-width gate (VHDL `pulse_count_end`,
+            // :2033) reads the same effective latch, so it is deferred
+            // with this axis (see G121 above).
             const MachineTimingMode tim_mode = decode_nr_03_machine_timing(new_timing);
             contention_.set_pending_machine_timing(tim_mode);
             mmu_.set_pending_machine_timing(tim_mode);
@@ -7317,6 +7323,15 @@ void Emulator::begin_new_frame()
         const MachineTimingMode tim_before = contention_.machine_timing();
         contention_.commit_pending_machine_timing();
         mmu_.commit_pending_machine_timing();
+        // G121 — the pulse-mode /INT width gate (zxnext.vhd:2033) decodes
+        // the same effective latch (:5761-5776), so it moves here too.
+        if (contention_.machine_timing() != tim_before) {
+            const bool is_48_or_p3 =
+                contention_.machine_timing() == MachineTimingMode::Timing48 ||
+                contention_.machine_timing() == MachineTimingMode::TimingPlus3;
+            im2_.set_machine_timing_48_or_p3(is_48_or_p3);
+            cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
+        }
         const bool pend_60hz = (nextreg_.cached(0x05) & 0x04) != 0;
         if (contention_.machine_timing() != tim_before ||
             pend_60hz != video_timing_.refresh_60hz()) {
@@ -10403,17 +10418,9 @@ bool Emulator::load_state(StateReader& r)
     eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
     cpu_.load_state(r);
     if (!check_sentinel("cpu")) return false;
-    // Re-fan-out NR 0x03 machine_timing into Z80Cpu's /INT pulse window
-    // (zxnext.vhd:2033). The flag is intentionally not serialised in
-    // Z80Cpu::save_state (would shift all later subsystem blocks and
-    // break older saves); we re-derive it here from the just-loaded
-    // NextReg state. Im2Controller::load_state restores its own copy
-    // from the snapshot, so we don't touch im2_ here.
-    {
-        const uint8_t loaded_timing = nextreg_.nr_03_machine_timing();
-        const bool    is_48_or_p3   = (loaded_timing == 0x01) || (loaded_timing == 0x03);
-        cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
-    }
+    // Z80Cpu's /INT pulse window (zxnext.vhd:2033) is re-derived below,
+    // once the effective machine timing has been restored (GH #263
+    // follow-up); Im2Controller::load_state restores its own copy.
     im2_.load_state(r);
     if (!check_sentinel("im2")) return false;
 
@@ -10574,6 +10581,14 @@ bool Emulator::load_state(StateReader& r)
         // taken at the frame edge (begin_new_frame), where pending ==
         // effective per VHDL zxnext.vhd:6697-6700.
         repush_video_timing_from_machine_timing();
+        // Z80Cpu's /INT pulse window (zxnext.vhd:2033) decodes the
+        // EFFECTIVE timing (:5761-5776), which a snapshot can hold apart
+        // from NR 0x03's pending value (it is taken before the frame edge's
+        // commit). The flag is not serialised in Z80Cpu::save_state (it
+        // would shift every later block), so re-derive it here.
+        cpu_.set_machine_timing_48_or_p3(
+            contention_.machine_timing() == MachineTimingMode::Timing48 ||
+            contention_.machine_timing() == MachineTimingMode::TimingPlus3);
     }
 
     // Audio subsystems.

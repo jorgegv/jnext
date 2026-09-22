@@ -63,7 +63,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: uart_integration_test           |    37 |   37 |    0 |    0 |       0 |          0 |
 | **Total**                                  |  4504 | 4252 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4504**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4263**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7302**.
+Rows the sections above carry: **4504**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4263**. Rows the 101 suites declared in `test/unit-tests.conf` run live: **7303**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3168,12 +3168,12 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-T56-02 | Emulator::init(ZX128K) failed | zxnext.vhd:6697-6700, zxula_timing.vhd:199,203,204 | pass | test/videotiming/videotiming_test.cpp:1163 |
 | VT-T56-03 | Emulator::init(ZX128K) failed | zxnext.vhd:5835-5836, zxula_timing.vhd:150-168 | pass | test/videotiming/videotiming_test.cpp:1207 |
 | VT-T56-04 | Emulator::init(ZX128K) #1 failed | zxnext.vhd:6697-6700 | pass | test/videotiming/videotiming_test.cpp:1256 |
-| VT-GH257-01 | Next: line-int target 208 fires at raw (271, hc 380) = (271*456+380)*4 = 495824 master cycles, hc_ula 255 not raw hc 0 (zxula_timing.vhd:423-436,566-570,577) | zxula_timing.vhd:423-436,566-570,577 | pass | test/videotiming/videotiming_test.cpp:1544 |
-| VT-GH257-02 | 48K timing: line-int target 208 fires at raw (271, hc 372) = (271*448+372)*4 = 487120 (zxula_timing.vhd:257-270,423-436,577) | zxula_timing.vhd:257-270,423-436,577 | pass | test/videotiming/videotiming_test.cpp:1559 |
-| VT-GH257-03 | Pentagon timing: line-int target 208 fires at raw (287, hc 372) = (287*448+372)*4 = 515792 (zxula_timing.vhd:155-168,423-436,577) | zxula_timing.vhd:155-168,423-436,577 | pass | test/videotiming/videotiming_test.cpp:1573 |
-| VT-GH257-04 | Next: line-int target 0 (int_line_num = c_max_vc = 310) fires at raw (63, hc 380) = (63*456+380)*4 = 116432 (zxula_timing.vhd:566-570,577) | zxula_timing.vhd:566-570,577 | pass | test/videotiming/videotiming_test.cpp:1587 |
-| VT-GH257-05 | Emulator raises the target-208 line interrupt in the instruction crossing raw (271, hc 380), hc_ula 255 (zxula_timing.vhd:423-436,577; zxnext.vhd:6752-6758) | zxula_timing.vhd:423-436,577, zxnext.vhd:6752-6758 | pass | test/videotiming/videotiming_test.cpp:1620 |
-| VT-GH257-06 | NR 0x1E/0x1F cvc steps at hc_ula 0 (raw hc 125, master cycle 500): raw line 64 reads 310 up to cycle 499 and 0 from 500 (zxula_timing.vhd:423-436,457-470; zxnext.vhd:5982-5986) | zxula_timing.vhd:423-436,457-470, zxnext.vhd:5982-5986 | pass | test/videotiming/videotiming_test.cpp:1654 |
+| VT-GH257-01 | Next: line-int target 208 fires at raw (271, hc 380) = (271*456+380)*4 = 495824 master cycles, hc_ula 255 not raw hc 0 (zxula_timing.vhd:423-436,566-570,577) | zxula_timing.vhd:423-436,566-570,577 | pass | test/videotiming/videotiming_test.cpp:1566 |
+| VT-GH257-02 | 48K timing: line-int target 208 fires at raw (271, hc 372) = (271*448+372)*4 = 487120 (zxula_timing.vhd:257-270,423-436,577) | zxula_timing.vhd:257-270,423-436,577 | pass | test/videotiming/videotiming_test.cpp:1581 |
+| VT-GH257-03 | Pentagon timing: line-int target 208 fires at raw (287, hc 372) = (287*448+372)*4 = 515792 (zxula_timing.vhd:155-168,423-436,577) | zxula_timing.vhd:155-168,423-436,577 | pass | test/videotiming/videotiming_test.cpp:1595 |
+| VT-GH257-04 | Next: line-int target 0 (int_line_num = c_max_vc = 310) fires at raw (63, hc 380) = (63*456+380)*4 = 116432 (zxula_timing.vhd:566-570,577) | zxula_timing.vhd:566-570,577 | pass | test/videotiming/videotiming_test.cpp:1609 |
+| VT-GH257-05 | Emulator raises the target-208 line interrupt in the instruction crossing raw (271, hc 380), hc_ula 255 (zxula_timing.vhd:423-436,577; zxnext.vhd:6752-6758) | zxula_timing.vhd:423-436,577, zxnext.vhd:6752-6758 | pass | test/videotiming/videotiming_test.cpp:1642 |
+| VT-GH257-06 | NR 0x1E/0x1F cvc steps at hc_ula 0 (raw hc 125, master cycle 500): raw line 64 reads 310 up to cycle 499 and 0 from 500 (zxula_timing.vhd:423-436,457-470; zxnext.vhd:5982-5986) | zxula_timing.vhd:423-436,457-470, zxnext.vhd:5982-5986 | pass | test/videotiming/videotiming_test.cpp:1676 |
 | VT-03 | Pentagon `hc_max()`/`vc_max()` after `init(PENTAGON)` = 447, 319 (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:160/168 — `c_max_hc<=447`, `c_max_vc<=319`. No `check()` exists under the literal ID `VT-03`: the standalone `MachineType::Pentagon` enum this row's `init(PENTAGON)` API describes was dropped Wave 0.3 (2026-05-04) — but Pentagon TIMING itself is not gone, NR 0x03 tim_sel bit 2 still selects it at runtime. The identical facts are proven LIVE by `VT-T51-01` (Section 10, Task 51) via `init_timing(MachineTimingMode::TimingPentagon)`, same VHDL lines) | zxula_timing.vhd:160/168, zxula_timing.vhd:160,168 | missing | — |
 | VT-05 | Pentagon `display_origin()` = {128, 80} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:159/167 — `c_min_hactive<=128`, `c_min_vactive<=80`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:159/167, zxula_timing.vhd:159,167 | missing | — |
 | VT-12 | Pentagon `int_position()` = {439, 319} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:155/163 — `c_int_h<=448+3-12`=439, `c_int_v<=319`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:155/163, zxula_timing.vhd:155,163 | missing | — |
@@ -3216,10 +3216,10 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-GH237-01 | Next cold boot: ULA interrupt at (126, 1) — the i_timing(0)='1' arm the "011" power-on tim_sel selects, not the 128 of the 128K arm [zxnext.vhd:1099,:6721; zxula_timing.vhd:186-190,199] | zxnext.vhd:1099,6721, zxula_timing.vhd:186-190,199 | pass | test/videotiming/videotiming_test.cpp:1343 |
 | VT-GH237-02 | Next cold boot: the interrupt position tracks the NR 0x03 tim_sel register ("011") and NOT default_machine_timing_for(cfg.type), which still says 128K — the two disagree, and the register wins [zxnext.vhd:6721 i_timing <= eff_nr_03_machine_timing] | zxnext.vhd:6721 | pass | test/videotiming/videotiming_test.cpp:1373 |
 | VT-GH237-03 | Next cold boot: c_int_h is the ONLY constant that moves — c_max_hc 455, c_max_vc 310, origin (136,64) and the 456x311 master-cycle frame are shared by the 128K and +3 arms [zxula_timing.vhd:195,196,203,204, all outside the if i_timing(0) at :186-190] | zxula_timing.vhd:195,196,203,204 | pass | test/videotiming/videotiming_test.cpp:1407 |
-| VT-GH237-04 | 128K + guest-selected +3 timing: RESET_SOFT keeps the interrupt on the +3 arm (126) instead of reverting to the CLI machine's 128 [zxnext.vhd:1099 no reset clause; zxula_timing.vhd:189] | zxnext.vhd:1099, zxula_timing.vhd:189 | pass | test/videotiming/videotiming_test.cpp:1433 |
-| VT-GH237-05 | 48K RESET_SOFT with no guest NR 0x03 write stays on 48K constants: INT (116,0) and 448x312 in BOTH VideoTiming and the master-cycle frame [zxula_timing.vhd:257,261,262,265] | zxula_timing.vhd:257,261,262,265 | pass | test/videotiming/videotiming_test.cpp:1462 |
-| VT-GH237-06 | NR 0x03 tim_sel survives RESET_SOFT — it is a plain FF with an initial value only and appears nowhere in the master reset block [zxnext.vhd:1099, :4926-5111] | zxnext.vhd:1099,4926-5111 | pass | test/videotiming/videotiming_test.cpp:1482 |
-| VT-GH237-07 | 128K + guest-selected Pentagon timing across RESET_SOFT: VideoTiming AND the master-cycle frame both follow the preserved tim_sel (448x320, INT (439,319)) — one source, no drift [zxula_timing.vhd:155,159,160,163,167,168] | zxula_timing.vhd:155,159,160,163,167,168 | pass | test/videotiming/videotiming_test.cpp:1510 |
+| VT-GH237-04 | 128K + guest-selected +3 timing: RESET_SOFT neither reverts the raster to the CLI machine's arm nor applies the pending +3 early — INT stays at 128 until the next frame edge, then moves to the +3 arm (126) [zxnext.vhd:1099 no reset clause; :6696-6703,6721 eff_nr_03_machine_timing; zxula_timing.vhd:187,189] | zxnext.vhd:1099, zxula_timing.vhd:187,189 | pass | test/videotiming/videotiming_test.cpp:1439 |
+| VT-GH237-05 | 48K RESET_SOFT with no guest NR 0x03 write stays on 48K constants: INT (116,0) and 448x312 in BOTH VideoTiming and the master-cycle frame [zxula_timing.vhd:257,261,262,265] | zxula_timing.vhd:257,261,262,265 | pass | test/videotiming/videotiming_test.cpp:1471 |
+| VT-GH237-06 | NR 0x03 tim_sel survives RESET_SOFT — it is a plain FF with an initial value only and appears nowhere in the master reset block [zxnext.vhd:1099, :4926-5111] | zxnext.vhd:1099,4926-5111 | pass | test/videotiming/videotiming_test.cpp:1491 |
+| VT-GH237-07 | 128K + guest-selected Pentagon timing across RESET_SOFT: the reset frame keeps the 128K geometry, and from the next frame edge VideoTiming AND the master-cycle frame both follow the preserved tim_sel (448x320, INT (439,319)) — one source, no drift [zxnext.vhd:6696-6703,6721; zxula_timing.vhd:155,159,160,163,167,168,196,204] | zxnext.vhd:6696-6703,6721, zxula_timing.vhd:155,159,160,163,167,168,196,204 | pass | test/videotiming/videotiming_test.cpp:1528 |
 
 ## Contention — `test/contention/contention_test.cpp`
 
@@ -4291,48 +4291,48 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | GH232-01 | the NR 0x03 typ_sel commit survives a soft reset in the Mmu (no reset clause for nr_03_machine_type) [zxnext.vhd:1103, :4926-5111] | zxnext.vhd:1103,4926-5111 | pass | test/mmu/mmu_integration_test.cpp:764 |
 | GH232-02 | soft reset rebuilds the contention bank decode from the PRESERVED machine type, not the CLI one [zxnext.vhd:4490-4492 mem_contend; :2981-3008 machine_type_*] | zxnext.vhd:4490-4492 | pass | test/mmu/mmu_integration_test.cpp:778 |
 | GH232-03 | soft reset rebuilds the contention LUT with the +3 pattern the preserved machine type selects [zxula.vhd:582-583] | zxula.vhd:582-583 | pass | test/mmu/mmu_integration_test.cpp:790 |
-| GH232-04 | the pulse-mode /INT width gate follows NR 0x03 tim_sel across a soft reset, not the CLI machine type [zxnext.vhd:2033 pulse_count_end; :5761-5776 machine_timing_*] | zxnext.vhd:2033 | pass | test/mmu/mmu_integration_test.cpp:819 |
-| GH232-05 | Im2Controller's copy of that same gate stays in lock-step with Z80Cpu's across the soft reset [zxnext.vhd:2033 — one VHDL signal, two jnext consumers] | zxnext.vhd:2033 | pass | test/mmu/mmu_integration_test.cpp:829 |
-| GH232-06 | Next cold boot: the /INT pulse-width gate agrees with the NR 0x03 tim_sel it booted with (011 = +3 → 32 cycles) [zxnext.vhd:1099 initialiser; :2033 gate] | zxnext.vhd:1099 | pass | test/mmu/mmu_integration_test.cpp:853 |
-| MF-SRAM-01 | Next MF window reads external SRAM pages 0x0A (ROM half) / 0x0B (RAM half) per VHDL :3029-3036 | — | pass | test/mmu/mmu_integration_test.cpp:911 |
-| MF-SRAM-02 | Next MF RAM half writes reach SRAM page 0x0B; ROM half is read-only (page 0x0A unchanged) | — | pass | test/mmu/mmu_integration_test.cpp:916 |
-| MF-SRAM-03 | standalone (128K) MF window is unaffected by SRAM pages 0x0A/0x0B — reads the private buffer, not page 0x0A | — | pass | test/mmu/mmu_integration_test.cpp:942 |
-| MF-SRAM-04 | standalone (128K) MF RAM write stays in the private buffer, does NOT reach SRAM page 0x0B | — | pass | test/mmu/mmu_integration_test.cpp:947 |
-| G156-HOLD-01 | boot_hold_frames_remaining() reflects set_boot_hold_frames() | — | pass | test/mmu/mmu_integration_test.cpp:966 |
-| G156-HOLD-02 | boot_hold_frames_remaining() decrements by exactly 1 per run_frame() | — | pass | test/mmu/mmu_integration_test.cpp:973 |
-| G156-HOLD-03 | boot_hold_frames_remaining() reaches exactly 0 after the full hold count of run_frame() calls | — | pass | test/mmu/mmu_integration_test.cpp:983 |
-| G156-HOLD-04 | PC and R are frozen across every held frame (no instruction executed while boot_hold_frames_remaining_ > 0) | — | pass | test/mmu/mmu_integration_test.cpp:996 |
-| G156-HOLD-05 | CPU resumes real execution once the hold ends — PC/R change over post-hold frames (the hold is not permanent) | — | pass | test/mmu/mmu_integration_test.cpp:1009 |
-| G156-HOLD-06 | pre-save remaining is genuinely mid-hold (neither the initial value nor zero) | — | pass | test/mmu/mmu_integration_test.cpp:1030 |
-| G156-HOLD-07 | save_state()/load_state() round-trip preserves boot_hold_frames_remaining_ exactly | — | pass | test/mmu/mmu_integration_test.cpp:1057 |
-| G156-HOLD-08 | the restored hold correctly resumes: exactly the restored remaining count of run_frame() calls exhausts it to 0 | — | pass | test/mmu/mmu_integration_test.cpp:1065 |
-| G156-HOLD-09 | PC/R stayed frozen for the entire restored hold — no instruction executed while resuming a mid-hold snapshot | — | pass | test/mmu/mmu_integration_test.cpp:1072 |
-| SNAPSAVE-SZX-RT-00 | SzxSaver::save() returns a non-empty buffer and reports success for a supported machine (+3) | — | pass | test/mmu/mmu_integration_test.cpp:1197 |
-| SNAPSAVE-SZX-RT-01 | saved .szx bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1203 |
-| SNAPSAVE-SZX-RT-02 | Emulator::load_szx() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:1214 |
-| SNAPSAVE-SZX-RT-REGS | full register set (both AF/BC/DE/HL sets, IX/IY/SP/PC, I/R/IFF/IM/halted) round-trips through save()->file->Emulator::load_szx() | — | pass | test/mmu/mmu_integration_test.cpp:1223 |
-| SNAPSAVE-SZX-RT-PAGING | classic paging ports (0x7FFD/0x1FFD) round-trip via ZXSTSPECREGS | — | pass | test/mmu/mmu_integration_test.cpp:1231 |
-| SNAPSAVE-SZX-RT-RAM | all 8 physical RAM banks (0-7) round-trip byte-for-byte via ZXSTRAMPAGE — a +3 save now carries its full RAM, not a truncated subset | — | pass | test/mmu/mmu_integration_test.cpp:1246 |
-| SNAPSAVE-SZX-RT-BORDER | border colour round-trips via ZXSTSPECREGS.chFe | — | pass | test/mmu/mmu_integration_test.cpp:1253 |
-| SNAPSAVE-SZX-RT-REFUSED | SzxSaver::save() refuses outright for a Next machine: ok=false, no data written, a non-empty error explaining why | — | pass | test/mmu/mmu_integration_test.cpp:1277 |
-| SNAPSAVE-SZX-RT-48K-00 | SzxSaver::save() succeeds for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1319 |
-| SNAPSAVE-SZX-RT-48K-PAGESET | the SAVED FILE's ZXSTRAMPAGE chPageNo set is exactly {0,2,5} — independently scanned from raw bytes, not via SzxLoader | — | pass | test/mmu/mmu_integration_test.cpp:1328 |
-| SNAPSAVE-SZX-RT-48K-01 | saved 48K .szx bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1340 |
-| SNAPSAVE-SZX-RT-48K-02 | Emulator::load_szx() accepts the saved 48K file | — | pass | test/mmu/mmu_integration_test.cpp:1351 |
-| SNAPSAVE-SZX-RT-48K-REGS | register set round-trips through save()->file->Emulator::load_szx() for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1357 |
-| SNAPSAVE-SZX-RT-48K-RAM | banks 0/2/5 (48K's real RAM) round-trip byte-for-byte via ZXSTRAMPAGE | — | pass | test/mmu/mmu_integration_test.cpp:1370 |
-| SNAPSAVE-SZX-RT-48K-BANK1-UNTOUCHED | bank 1 (not part of a 48K's RAM) is never written by load_szx() — reads back as reset()'s all-zero fill, not the distinctive pattern emu1's physical bank 1 was seeded with | — | pass | test/mmu/mmu_integration_test.cpp:1388 |
-| SNAPSAVE-SZX-RT-48K-BORDER | border colour round-trips via ZXSTSPECREGS.chFe for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1395 |
-| SNAPSAVE-NEX-RT-00 | NexSaver::save() returns a non-empty buffer | — | pass | test/mmu/mmu_integration_test.cpp:1426 |
-| SNAPSAVE-NEX-RT-01 | saved .nex bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1431 |
-| SNAPSAVE-NEX-RT-02 | Emulator::load_nex() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:1442 |
-| SNAPSAVE-NEX-RT-PCSP | PC/SP round-trip through save()->file->Emulator::load_nex() (the only two registers NEX's header carries) | — | pass | test/mmu/mmu_integration_test.cpp:1449 |
-| SNAPSAVE-NEX-RT-RAM | bank-20 (pages 40/41) content round-trips byte-for-byte through the .nex bank payload | — | pass | test/mmu/mmu_integration_test.cpp:1462 |
-| SNAPSAVE-NEX-RT-BORDER | border colour round-trips via the .nex header | — | pass | test/mmu/mmu_integration_test.cpp:1468 |
-| SNAPSAVE-NEX-RT-ENTRYBANK | entry_bank re-establishes the CPU-executable mapping at 0xC000-0xFFFF (MMU slots 6/7) in the freshly loaded Emulator | — | pass | test/mmu/mmu_integration_test.cpp:1473 |
-| MMU-G33-TRAP-01 | handle_sa_bytes_trap: A/IX/DE -> hand-computed TAP block on file; exit state PC=popped ret, SP+=2, IX+=DE, DE=0, carry set (mirrors the LD-BYTES trap return mechanics) | — | pass | test/mmu/mmu_integration_test.cpp:1565 |
-| MMU-G33-TRAP-02 | run_frame gate positive: SA-BYTES signature in slot-0 ROM + PC=0x04C2 + armed saver -> trap fires once, block on file, CPU parked at popped return address | — | pass | test/mmu/mmu_integration_test.cpp:1600 |
-| MMU-G33-TRAP-03 | run_frame gate negative: non-48K ROM bytes at 0x04C2 with the saver armed and PC=0x04C2 -> trap does NOT fire (zero blocks, empty file, CPU executes the real ROM code) — the ungated trap corrupted a plain NextZXOS boot (Task 57 review) | — | pass | test/mmu/mmu_integration_test.cpp:1631 |
+| GH232-04 | the pulse-mode /INT width gate follows the NR 0x03 tim_sel written before a soft reset at the next frame edge — not at the write, not at the reset, and not the CLI machine type [zxnext.vhd:2033 pulse_count_end; :5761-5776 machine_timing_*; :6696-6703 eff_nr_03_machine_timing] | zxnext.vhd:2033 | pass | test/mmu/mmu_integration_test.cpp:830 |
+| GH232-05 | Im2Controller's copy of that same gate stays in lock-step with Z80Cpu's across the soft reset and the frame edge [zxnext.vhd:2033 — one VHDL signal, two jnext consumers] | zxnext.vhd:2033 | pass | test/mmu/mmu_integration_test.cpp:843 |
+| GH232-06 | Next cold boot: the /INT pulse-width gate agrees with the NR 0x03 tim_sel it booted with (011 = +3 → 32 cycles) [zxnext.vhd:1099 initialiser; :2033 gate] | zxnext.vhd:1099 | pass | test/mmu/mmu_integration_test.cpp:868 |
+| MF-SRAM-01 | Next MF window reads external SRAM pages 0x0A (ROM half) / 0x0B (RAM half) per VHDL :3029-3036 | — | pass | test/mmu/mmu_integration_test.cpp:926 |
+| MF-SRAM-02 | Next MF RAM half writes reach SRAM page 0x0B; ROM half is read-only (page 0x0A unchanged) | — | pass | test/mmu/mmu_integration_test.cpp:931 |
+| MF-SRAM-03 | standalone (128K) MF window is unaffected by SRAM pages 0x0A/0x0B — reads the private buffer, not page 0x0A | — | pass | test/mmu/mmu_integration_test.cpp:957 |
+| MF-SRAM-04 | standalone (128K) MF RAM write stays in the private buffer, does NOT reach SRAM page 0x0B | — | pass | test/mmu/mmu_integration_test.cpp:962 |
+| G156-HOLD-01 | boot_hold_frames_remaining() reflects set_boot_hold_frames() | — | pass | test/mmu/mmu_integration_test.cpp:981 |
+| G156-HOLD-02 | boot_hold_frames_remaining() decrements by exactly 1 per run_frame() | — | pass | test/mmu/mmu_integration_test.cpp:988 |
+| G156-HOLD-03 | boot_hold_frames_remaining() reaches exactly 0 after the full hold count of run_frame() calls | — | pass | test/mmu/mmu_integration_test.cpp:998 |
+| G156-HOLD-04 | PC and R are frozen across every held frame (no instruction executed while boot_hold_frames_remaining_ > 0) | — | pass | test/mmu/mmu_integration_test.cpp:1011 |
+| G156-HOLD-05 | CPU resumes real execution once the hold ends — PC/R change over post-hold frames (the hold is not permanent) | — | pass | test/mmu/mmu_integration_test.cpp:1024 |
+| G156-HOLD-06 | pre-save remaining is genuinely mid-hold (neither the initial value nor zero) | — | pass | test/mmu/mmu_integration_test.cpp:1045 |
+| G156-HOLD-07 | save_state()/load_state() round-trip preserves boot_hold_frames_remaining_ exactly | — | pass | test/mmu/mmu_integration_test.cpp:1072 |
+| G156-HOLD-08 | the restored hold correctly resumes: exactly the restored remaining count of run_frame() calls exhausts it to 0 | — | pass | test/mmu/mmu_integration_test.cpp:1080 |
+| G156-HOLD-09 | PC/R stayed frozen for the entire restored hold — no instruction executed while resuming a mid-hold snapshot | — | pass | test/mmu/mmu_integration_test.cpp:1087 |
+| SNAPSAVE-SZX-RT-00 | SzxSaver::save() returns a non-empty buffer and reports success for a supported machine (+3) | — | pass | test/mmu/mmu_integration_test.cpp:1212 |
+| SNAPSAVE-SZX-RT-01 | saved .szx bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1218 |
+| SNAPSAVE-SZX-RT-02 | Emulator::load_szx() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:1229 |
+| SNAPSAVE-SZX-RT-REGS | full register set (both AF/BC/DE/HL sets, IX/IY/SP/PC, I/R/IFF/IM/halted) round-trips through save()->file->Emulator::load_szx() | — | pass | test/mmu/mmu_integration_test.cpp:1238 |
+| SNAPSAVE-SZX-RT-PAGING | classic paging ports (0x7FFD/0x1FFD) round-trip via ZXSTSPECREGS | — | pass | test/mmu/mmu_integration_test.cpp:1246 |
+| SNAPSAVE-SZX-RT-RAM | all 8 physical RAM banks (0-7) round-trip byte-for-byte via ZXSTRAMPAGE — a +3 save now carries its full RAM, not a truncated subset | — | pass | test/mmu/mmu_integration_test.cpp:1261 |
+| SNAPSAVE-SZX-RT-BORDER | border colour round-trips via ZXSTSPECREGS.chFe | — | pass | test/mmu/mmu_integration_test.cpp:1268 |
+| SNAPSAVE-SZX-RT-REFUSED | SzxSaver::save() refuses outright for a Next machine: ok=false, no data written, a non-empty error explaining why | — | pass | test/mmu/mmu_integration_test.cpp:1292 |
+| SNAPSAVE-SZX-RT-48K-00 | SzxSaver::save() succeeds for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1334 |
+| SNAPSAVE-SZX-RT-48K-PAGESET | the SAVED FILE's ZXSTRAMPAGE chPageNo set is exactly {0,2,5} — independently scanned from raw bytes, not via SzxLoader | — | pass | test/mmu/mmu_integration_test.cpp:1343 |
+| SNAPSAVE-SZX-RT-48K-01 | saved 48K .szx bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1355 |
+| SNAPSAVE-SZX-RT-48K-02 | Emulator::load_szx() accepts the saved 48K file | — | pass | test/mmu/mmu_integration_test.cpp:1366 |
+| SNAPSAVE-SZX-RT-48K-REGS | register set round-trips through save()->file->Emulator::load_szx() for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1372 |
+| SNAPSAVE-SZX-RT-48K-RAM | banks 0/2/5 (48K's real RAM) round-trip byte-for-byte via ZXSTRAMPAGE | — | pass | test/mmu/mmu_integration_test.cpp:1385 |
+| SNAPSAVE-SZX-RT-48K-BANK1-UNTOUCHED | bank 1 (not part of a 48K's RAM) is never written by load_szx() — reads back as reset()'s all-zero fill, not the distinctive pattern emu1's physical bank 1 was seeded with | — | pass | test/mmu/mmu_integration_test.cpp:1403 |
+| SNAPSAVE-SZX-RT-48K-BORDER | border colour round-trips via ZXSTSPECREGS.chFe for 48K | — | pass | test/mmu/mmu_integration_test.cpp:1410 |
+| SNAPSAVE-NEX-RT-00 | NexSaver::save() returns a non-empty buffer | — | pass | test/mmu/mmu_integration_test.cpp:1441 |
+| SNAPSAVE-NEX-RT-01 | saved .nex bytes written to disk | — | pass | test/mmu/mmu_integration_test.cpp:1446 |
+| SNAPSAVE-NEX-RT-02 | Emulator::load_nex() accepts the saved file | — | pass | test/mmu/mmu_integration_test.cpp:1457 |
+| SNAPSAVE-NEX-RT-PCSP | PC/SP round-trip through save()->file->Emulator::load_nex() (the only two registers NEX's header carries) | — | pass | test/mmu/mmu_integration_test.cpp:1464 |
+| SNAPSAVE-NEX-RT-RAM | bank-20 (pages 40/41) content round-trips byte-for-byte through the .nex bank payload | — | pass | test/mmu/mmu_integration_test.cpp:1477 |
+| SNAPSAVE-NEX-RT-BORDER | border colour round-trips via the .nex header | — | pass | test/mmu/mmu_integration_test.cpp:1483 |
+| SNAPSAVE-NEX-RT-ENTRYBANK | entry_bank re-establishes the CPU-executable mapping at 0xC000-0xFFFF (MMU slots 6/7) in the freshly loaded Emulator | — | pass | test/mmu/mmu_integration_test.cpp:1488 |
+| MMU-G33-TRAP-01 | handle_sa_bytes_trap: A/IX/DE -> hand-computed TAP block on file; exit state PC=popped ret, SP+=2, IX+=DE, DE=0, carry set (mirrors the LD-BYTES trap return mechanics) | — | pass | test/mmu/mmu_integration_test.cpp:1580 |
+| MMU-G33-TRAP-02 | run_frame gate positive: SA-BYTES signature in slot-0 ROM + PC=0x04C2 + armed saver -> trap fires once, block on file, CPU parked at popped return address | — | pass | test/mmu/mmu_integration_test.cpp:1615 |
+| MMU-G33-TRAP-03 | run_frame gate negative: non-48K ROM bytes at 0x04C2 with the saver armed and PC=0x04C2 -> trap does NOT fire (zero blocks, empty file, CPU executes the real ROM code) — the ungated trap corrupted a plain NextZXOS boot (Task 57 review) | — | pass | test/mmu/mmu_integration_test.cpp:1646 |
 
 ### Companion integration suite — `test/ula/ula_integration_test.cpp`
 

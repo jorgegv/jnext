@@ -48,7 +48,10 @@ logs the compositor replays. The visible symptom is a frame that renders flat.
    it never has to be serialised.
 2. Commit the frame-edge NextREG latches — NR 0x03 machine timing, and NR 0x05
    for 50/60 Hz and scandouble — re-deriving every timing surface if the
-   effective mode changed.
+   effective mode changed, the pulse-mode /INT width included. This is the
+   only place an NR 0x03 timing write takes effect: not the write itself,
+   and not a soft reset, which hands the effective timing back unchanged
+   (`eff_nr_03_machine_timing`, zxnext.vhd:6696-6703).
 3. Reset the frame-relative FUSE T-state counter, from which contention derives
    its `(hc, vc)` position, after folding the outgoing frame into the monotonic
    base that real-time tape playback runs off.
