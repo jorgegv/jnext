@@ -1828,6 +1828,42 @@ static void test_srst_integration(Emulator& emu) {
               "(zxnext.vhd:6696-6703; zxula_timing.vhd:229-238)",
               ok && lines == 264, d + fmt("; lines_per_frame %d", lines));
     }
+
+    // SRST-16 — the attribute plane (G12 attribute-mux change log). The code
+    // that runs after the reset repaints attribute rows 0 and 23 green (attr
+    // 0x20, paper index 0x14). Row 0 (display lines 0..7) was drawn long
+    // before the reset and keeps red; row 23 (184..191) is drawn after the
+    // writes and shows green. The ULA fetches VRAM live (zxula.vhd:218-263),
+    // and the beam does not restart at a reset.
+    {
+        srst_fixture(emu);
+        pal8(emu, 0x00, 0x14, 0x1C);
+        nr_write_port(emu, 0x43, 0x00);
+        srst_rom(emu, {
+            0xF3,                   // DI
+            0x3E, 0x20,             // LD A,0x20
+            0x21, 0x00, 0x58,       // LD HL,0x5800
+            0x06, 0x20,             // LD B,32
+            0x77, 0x23, 0x10, 0xFC, // LD (HL),A; INC HL; DJNZ
+            0x21, 0xE0, 0x5A,       // LD HL,0x5AE0
+            0x06, 0x20,             // LD B,32
+            0x77, 0x23, 0x10, 0xFC, // LD (HL),A; INC HL; DJNZ
+            0x76,                   // HALT
+        });
+        srst_copper(emu);
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, kDispCol, Renderer::DISP_Y,
+            Renderer::DISP_Y + Renderer::DISP_H,
+            [](int r) {
+                return (r >= Renderer::DISP_Y + 184) ? P_GREEN : P_RED;
+            }, d);
+        check("SRST-16",
+              "Attribute writes made after a mid-frame soft reset land on the "
+              "rows drawn after them, not on rows drawn before the reset "
+              "(zxula.vhd:218-263; zxnext.vhd:6370)",
+              ok, d);
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────

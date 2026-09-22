@@ -118,7 +118,9 @@ log, baseline, tag and per-line array alone and appends the reset as ordinary
 log entries —
 the per-line snapshots pick the reset values up on their own from the reset
 row down. Memory with no reset port (palette RAM, sprite attribute and
-pattern RAM) is not touched by a soft reset at all. Until GH #263 the two
+pattern RAM) is not touched by a soft reset at all, and `Z80Cpu` keeps its
+frame-relative T-state count, which is the beam position the attribute mux
+tags each VRAM write with. Until GH #263 the two
 mechanisms failed in opposite directions: `PaletteManager::reset()` changed
 the live RAM without the log, so the render replayed the old palette over it,
 while the other classes wiped their history and repainted the rows above the

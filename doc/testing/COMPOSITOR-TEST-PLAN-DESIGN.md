@@ -971,7 +971,9 @@ ROM window the Z80 restarts in (SRAM page 0 on the firmware-less test machine).
 Before GH #263 the palette's change log survived the reset and `render_frame()`
 replayed it over the reset palette, while Layer 2, sprites, tilemap, ULA and
 renderer `reset()`s wiped their logs and per-line arrays and repainted the rows
-above the reset with reset values; palette and sprite RAM were cleared.
+above the reset with reset values; palette and sprite RAM were cleared; and the
+Z80 wrapper zeroed its frame-relative T-state count, so attribute writes after
+the reset were tagged at the top of the frame.
 
 | ID | Title | Stimulus | Expected | VHDL |
 |----|-------|----------|----------|------|
@@ -990,6 +992,7 @@ above the reset with reset values; palette and sprite RAM were cleared.
 | SRST-13 | Every per-line lane: pre-reset rows above, reset values from the reset row | NR 0x68 = 0x61, NR 0x14, NR 0x1A x1, NR 0x6B b7, NR 0x15 b7 (LoRes), NR 0x43 b0 (ULAnext), NR 0x4A | Stencil, blend, NR 0x14, ULA clip, tm_en, LoRes, ULAnext and fallback per-line values: written values on rows 0..131, reset values on 132..255 | zxnext.vhd:4946-5034,6767-6830 |
 | SRST-14 | Pausing right after the reset and resuming does not restart the frame | SRST-11's setup; PC breakpoint at 0x0000, run, resume | Paused at PC 0; SRST-11's split intact | zxnext.vhd:6370; zxula_timing.vhd (no reset) |
 | SRST-15 | A soft reset at 60 Hz keeps the 60 Hz frame | 60 Hz committed, then SRST-11's setup | Split at row 132 (cvc 100 = raw 140, vblank_top 8); frame still 264 lines | zxnext.vhd:6696-6703; zxula_timing.vhd:229-238 |
+| SRST-16 | Attribute writes after the reset land on the rows drawn after them | The code that runs after the reset writes attribute rows 0 and 23 green | Display lines 0..7 stay red (drawn before the reset), 184..191 green, the rest red | zxula.vhd:218-263; zxnext.vhd:6370 |
 
 ### Group UCLIP — NR 0x1A ULA clip window per-line deferral
 
@@ -1225,4 +1228,4 @@ as the fallback colour) and pass once it is present. Screenshot-level twin:
 The matrix is a generated artifact now and carries no prose of its own; it
 links here instead. These notes were written alongside the rows they explain.
 
-Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that require a full `Emulator` fixture (NR 0x68 bit 7 ULA-disable observed at the framebuffer level, including Copper mid-frame MOVE NR 0x68,0x80). GH #256 added `PSCAN-G04-02` and Group PLRS (12 rows, all recorded in their groups above); GH #264 added Group EOF255 (12 rows, recorded above); GH #263 added Group SRST (15 rows, recorded above). Runtime: `Total:   47  Passed:   47  Failed:    0  Skipped:    0`. Each row is a live pass. Only the 2 UDIS rows are listed below. Of the other 6 live rows, `PFF-G108-01/02/03` are recorded in the parent `## Compositor` table — they are Compositor plan rows re-homed here 2026-04-28, not new rows; `PFF-G108-02b` is recorded only by sub-letter aliasing under `PFF-G108-02` (the script's `ALIASED` report); and `PFF-G108-04` + `PSCAN-VBLANK-COALESCE-01` are recorded nowhere (its `UNRECORDED` report). Both reports print on every run.
+Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that require a full `Emulator` fixture (NR 0x68 bit 7 ULA-disable observed at the framebuffer level, including Copper mid-frame MOVE NR 0x68,0x80). GH #256 added `PSCAN-G04-02` and Group PLRS (12 rows, all recorded in their groups above); GH #264 added Group EOF255 (12 rows, recorded above); GH #263 added Group SRST (16 rows, recorded above). Runtime: `Total:   48  Passed:   48  Failed:    0  Skipped:    0`. Each row is a live pass. Only the 2 UDIS rows are listed below. Of the other 6 live rows, `PFF-G108-01/02/03` are recorded in the parent `## Compositor` table — they are Compositor plan rows re-homed here 2026-04-28, not new rows; `PFF-G108-02b` is recorded only by sub-letter aliasing under `PFF-G108-02` (the script's `ALIASED` report); and `PFF-G108-04` + `PSCAN-VBLANK-COALESCE-01` are recorded nowhere (its `UNRECORDED` report). Both reports print on every run.
