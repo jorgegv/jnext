@@ -787,19 +787,32 @@ static void test_group_registration() {
     // port_1f_io_en AND port_dac_mono_AD_df_io_en AND NOT port_mouse_io_en.
     // On a default-enabled Next where NR 0x83 b5 (mouse) is 1, this
     // routing is INACTIVE — the plan requires clearing mouse first.
+    //
+    // GH #262: the observable used to be `IN 0x00DF != 0xFF`, taken AFTER
+    // the mouse had been re-enabled. With the mouse enabled `port_1f` does
+    // not decode 0xDF, nothing answers the read, and it is X"FF"
+    // (zxnext.vhd:1877) — the old assertion held only because jnext's
+    // gated-off 0xDF read returned 0x00. The observables are now the plan
+    // row's own, on a private emulator: the Specdrum sink took the byte on
+    // channels A and D (port_dac_mono_AD, :2658, :2775,2778), and `port_1f`
+    // answers the read with the Kempston-1 byte (:2674, :2784).
     {
-        nr_write(emu, 0x83, 0xDF);              // clear bit 5 (mouse)
-        emu.port().out(0x00DF, 0x55);
-        nr_write(emu, 0x83, 0xFF);              // restore
-        // Observable: DAC channel 0 or 3 latch updated to 0x55. The DAC
-        // has no read-back for latched values in the test harness; we
-        // assert at minimum that the write did NOT fault and was not
-        // rejected — a handler must exist.
-        uint8_t rb = emu.port().in(0x00DF);
+        Emulator e2;
+        build_next_emulator(e2);
+        enable_dac(e2);                         // nr_08_dac_en (dac_hw_en)
+        nr_write(e2, 0x83, 0xDF);               // clear bit 5 (mouse)
+        e2.joystick().set_joy_left(0x08);       // joy0 Kempston1 (reset): up
+        e2.port().out(0x00DF, 0x55);
+        const uint16_t L  = e2.dac().pcm_left();   // chA 0x55 + chB 0x80
+        const uint16_t R  = e2.dac().pcm_right();  // chC 0x80 + chD 0x55
+        const uint8_t  rb = e2.port().in(0x00DF);
         check("REG-26",
-              "0x00DF has a handler when mouse disabled (Specdrum route)",
-              rb != 0xFF,
-              DETAIL("df=0x%02x", rb));
+              "0x00DF with mouse disabled: Specdrum write lands on DAC A+D "
+              "and port_1f answers the read with the Kempston byte "
+              "(zxnext.vhd:2658,2674,2784)",
+              L == 0x55 + 0x80 && R == 0x80 + 0x55 && rb == 0x08,
+              DETAIL("L=0x%03x R=0x%03x (want 0x0D5) df=0x%02x (want 0x08)",
+                     L, R, rb));
     }
 
     // REG-27: 0xFFDF with mouse enabled — mouse handler takes the read,
@@ -856,11 +869,10 @@ static void test_group_registration() {
         // the buttons port (A11..A8 = B / F, port_df_lsb LSB-only). The
         // identical mask fix (0xFFFF → 0x0FFF) is applied to all three —
         // V18-NMP-01 covers the discriminative case via the buttons port
-        // because the mouse X / Y default-idle values happen to coincide
-        // with the DF-alias handler's 0x00 return, masking the routing
-        // change at default idle. The fix is structurally identical;
-        // no additional discriminative test is reachable without a
-        // KempstonMouse::set_x / set_y test seam (not in scope).
+        // because, when this row was written, the mouse X / Y default-idle
+        // values coincided with the DF-alias handler's 0x00 return. (GH #262
+        // made that handler return the VHDL's X"FF" when undecoded, so the
+        // coincidence no longer holds; the row is unchanged.)
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -2505,6 +2517,144 @@ static void print_summary() {
     }
 }
 
+// ── Group L — GH #262 read side of write-only and gated decodes ───────
+//
+// A port answers an IN only when its read strobe is one of the OR-terms of
+// `port_internal_rd_response` (zxnext.vhd:2803-2806); otherwise the IORQ arm
+// of the cpu_di mux returns X"FF" (:1877, no expansion bus). These rows pin
+// the three jnext read handlers that answered when the VHDL does not, or
+// returned X"FF" when the VHDL does answer.
+
+static void test_group_gh262_read_decodes() {
+    set_group("Group L — GH #262 read decodes");
+
+    // GH262-01 — DISCRIMINATOR. 0xBF3B is write-only: `port_bf3b_wr <= iowr
+    // and port_bf3b` (zxnext.vhd:2792) is its only strobe, and it is absent
+    // from `port_internal_rd_response` (:2803-2806). With the port ENABLED
+    // (NR 0x85 b0 = 1, the reset default, :2439,2685) and a mode byte
+    // latched, the read is still X"FF" (:1877). Pre-fix: 0x00.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.port().out(0xBF3B, 0x40);           // ULA+ mode group (mode 01)
+        const uint8_t v = emu.port().in(0xBF3B);
+        check("GH262-01",
+              "port 0xBF3B is write-only: with NR 0x85 b0=1 an IN returns "
+              "0xFF (zxnext.vhd:2792,2803-2806,1877)",
+              v == 0xFF,
+              DETAIL("v=0x%02X (want 0xFF; pre-fix 0x00)", v));
+    }
+
+    // GH262-02 — DISCRIMINATOR. 0x00DF with the mouse ENABLED (NR 0x83 b5 =
+    // 1, reset default): `port_1f` needs port_mouse_io_en = '0' (:2674) and
+    // no mouse decode matches A11:8 = 0 (:2668-2670), so nothing answers —
+    // X"FF" (:1877). Every other `port_1f` gate is open (NR 0x84 b7, NR 0x82
+    // b6 reset to 1; joy0 Kempston1). Pre-fix: 0x00.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.joystick().set_joy_left(0x08);
+        const uint8_t v = emu.port().in(0x00DF);
+        check("GH262-02",
+              "0x00DF with the mouse enabled is undecoded: 0xFF "
+              "(zxnext.vhd:2668-2670,2674,1877)",
+              v == 0xFF,
+              DETAIL("v=0x%02X (want 0xFF; pre-fix 0x00)", v));
+    }
+
+    // GH262-03 — DISCRIMINATOR. Mouse disabled, Specdrum enable NR 0x84 b7
+    // cleared: `port_dac_mono_AD_df_io_en` = 0 (:2435) removes the alias
+    // term of `port_1f` (:2674) → X"FF" (:1877). Pre-fix: 0x00.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.joystick().set_joy_left(0x08);
+        nr_write(emu, 0x83, 0xDF);              // mouse off
+        nr_write(emu, 0x84, 0x7F);              // b7 = 0
+        const uint8_t v = emu.port().in(0x00DF);
+        check("GH262-03",
+              "0x00DF with NR 0x84 b7=0 is undecoded: 0xFF "
+              "(zxnext.vhd:2435,2674,1877)",
+              v == 0xFF,
+              DETAIL("v=0x%02X (want 0xFF; pre-fix 0x00)", v));
+    }
+
+    // GH262-04 — DISCRIMINATOR. Mouse disabled, Specdrum enabled, NR 0x82 b6
+    // (port_1f_io_en, :2407) cleared → `port_1f` off (:2674) → X"FF".
+    // Pre-fix: 0x00.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.joystick().set_joy_left(0x08);
+        nr_write(emu, 0x83, 0xDF);              // mouse off
+        nr_write(emu, 0x82, 0xBF);              // b6 = 0
+        const uint8_t v = emu.port().in(0x00DF);
+        check("GH262-04",
+              "0x00DF with NR 0x82 b6=0 is undecoded: 0xFF "
+              "(zxnext.vhd:2407,2674,1877)",
+              v == 0xFF,
+              DETAIL("v=0x%02X (want 0xFF; pre-fix 0x00)", v));
+    }
+
+    // GH262-05 — DISCRIMINATOR. Mouse disabled, both io_en gates open, but
+    // neither connector is Kempston1 / MD3-Left (NR 0x05 = 0x00: joy0 =
+    // joy1 = "000"), so port_1f_hw_en = 0 (:2454, :3475-3491) → X"FF".
+    // Pre-fix: 0x00.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.joystick().set_joy_left(0x08);
+        nr_write(emu, 0x83, 0xDF);              // mouse off
+        nr_write(emu, 0x05, 0x00);              // joy0 = joy1 = 000
+        const uint8_t v = emu.port().in(0x00DF);
+        check("GH262-05",
+              "0x00DF with port_1f_hw_en=0 is undecoded: 0xFF "
+              "(zxnext.vhd:2454,2674,1877)",
+              v == 0xFF,
+              DETAIL("v=0x%02X (want 0xFF; pre-fix 0x00)", v));
+    }
+
+    // GH262-06 — DISCRIMINATOR. The mouse addresses are LSB 0xDF too: with
+    // the mouse disabled their own decode drops out (:2668-2670) and the
+    // `port_1f` alias (:2674) decodes them like any 0x??DF. With the alias
+    // live all three return the Kempston-1 byte, the same one 0x001F gives.
+    // Pre-fix: 0xFF from the mouse handlers' gate.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.joystick().set_joy_left(0x08);      // up = Kempston bit 3
+        nr_write(emu, 0x83, 0xDF);              // mouse off
+        const uint8_t k  = emu.port().in(0x001F);
+        const uint8_t fa = emu.port().in(0xFADF);
+        const uint8_t fb = emu.port().in(0xFBDF);
+        const uint8_t ff = emu.port().in(0xFFDF);
+        check("GH262-06",
+              "mouse disabled: 0xFADF/0xFBDF/0xFFDF decode as the port_1f "
+              "alias and return the Kempston byte (zxnext.vhd:2668-2670,2674)",
+              k == 0x08 && fa == 0x08 && fb == 0x08 && ff == 0x08,
+              DETAIL("1F=0x%02X FADF=0x%02X FBDF=0x%02X FFDF=0x%02X "
+                     "(want 0x08 x4)", k, fa, fb, ff));
+    }
+
+    // GH262-07 — the fall-through keeps the alias's own gate: mouse disabled
+    // AND Specdrum enable cleared → no decode at 0xFADF → X"FF" (:2435,
+    // :2668, :2674, :1877). Pins that the mouse handlers do not hand the
+    // read to the joystick unconditionally.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.joystick().set_joy_left(0x08);
+        nr_write(emu, 0x83, 0xDF);              // mouse off
+        nr_write(emu, 0x84, 0x7F);              // b7 = 0
+        const uint8_t fa = emu.port().in(0xFADF);
+        check("GH262-07",
+              "mouse disabled and NR 0x84 b7=0: 0xFADF is undecoded, 0xFF "
+              "(zxnext.vhd:2435,2668,2674,1877)",
+              fa == 0xFF,
+              DETAIL("FADF=0x%02X (want 0xFF)", fa));
+    }
+}
+
 int main(int, char**) {
     test_group_libz80();
     test_group_registration();
@@ -2517,6 +2667,7 @@ int main(int, char**) {
     test_group_d3f_nits();
     test_group_gh109_undecoded_default();
     test_group_gh230_handler_lifetime();
+    test_group_gh262_read_decodes();
 
     print_summary();
     return g_fail ? 1 : 0;

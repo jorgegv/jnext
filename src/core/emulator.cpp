@@ -2773,11 +2773,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // test: 24 fixed + 6 scrolling + 2 fixed instead of 30 scrolling + 2).
     // See the line-interrupt firing math in line_int_master_cycle_offset()
     // and begin_new_frame(), which already use this exact cvc origin.
+    //
+    // GH #265 — WHEN the read samples cvc. An IN from 0x253B returns
+    // port_253b_dat_0 (zxnext.vhd:2819), a register reloaded from
+    // port_253b_dat on EVERY CLK_CPU falling edge (:5871-5876), while
+    // port_253b_dat follows cvc on CLK_28 (:5878-5882,5982-5986). The T80 latches the
+    // data bus into DI_Reg on the falling edge of the I/O cycle's T3
+    // (t80na.vhd:214-222), and with IOWait = 1 (t80na.vhd:184) that cycle is
+    // T1, TW, T2, T3 (t80n.vhd:1781-1782 holds TState at 1 for one clock), so
+    // DI_Reg takes the port_253b_dat_0 loaded on the PREVIOUS falling edge:
+    // 2.5 T-states into the I/O cycle. jnext used clock_, the START of the
+    // instruction — 10.5 T-states early for IN A,(C), 9.5 for IN A,(n) — so a
+    // loop polling for a line left it up to one iteration late.
+    static constexpr unsigned kPort253bReloadHalfT = 5;   // 2.5 T-states
     nextreg_.set_read_handler(0x1E, [this]() -> uint8_t {
-        return static_cast<uint8_t>((current_cvc() >> 8) & 0x01);
+        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadHalfT));
+        return static_cast<uint8_t>((cvc >> 8) & 0x01);
     });
     nextreg_.set_read_handler(0x1F, [this]() -> uint8_t {
-        return static_cast<uint8_t>(current_cvc() & 0xFF);
+        const int cvc = cvc_at(io_read_sample_cycle(kPort253bReloadHalfT));
+        return static_cast<uint8_t>(cvc & 0xFF);
     });
 
     // Register 0x22: Line interrupt control
@@ -4943,21 +4958,11 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //
     // When all four gates hold, the read returns the same byte the
     // Kempston-1 0x001F path delivers — i.e. joystick_.read_port_1f().
-    // Otherwise the port stays undecoded and the floating-bus default
-    // 0x00 (matching the pre-fix behaviour) is returned. (G130 closure.)
+    // Otherwise nothing decodes the read and it returns X"FF"
+    // (zxnext.vhd:1877) — see port_df_read(). (G130 closure; GH #262 —
+    // the gated-off read used to return 0x00.)
     port_.register_handler(0x00FF, 0x00DF,
-        [this](uint16_t) -> uint8_t {
-            // NR 0x84 bit 7 — Specdrum/DAC enable for 0xDF.
-            if ((effective_internal_port_enable(0x84) & 0x80) == 0) return 0x00;
-            // NR 0x83 bit 5 — port_mouse_io_en MUST be cleared.
-            if ((effective_internal_port_enable(0x83) & 0x20) != 0) return 0x00;
-            // NR 0x82 bit 6 — port_1f_io_en gate.
-            if ((effective_internal_port_enable(0x82) & 0x40) == 0) return 0x00;
-            // port_1f_hw_en: at least one connector in Kempston1 or
-            // MD3-Left (joyL_1f_en / joyR_1f_en live). VHDL zxnext.vhd:2454.
-            if (!joystick_.port_1f_hw_en()) return 0x00;
-            return joystick_.read_port_1f();
-        },
+        [this](uint16_t) -> uint8_t { return port_df_read(); },
         [this](uint16_t, uint8_t val) {
             // VHDL zxnext.vhd:2435 — port_dac_mono_AD_df_io_en =
             // internal_port_enable(23) = NR 0x84 bit 7 (G114). When the
@@ -5877,21 +5882,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // followed by IN A,(0x2ADF) would access Kempston mouse buttons on real
     // hardware but not in jnext. Fix: change masks to 0x0FFF / val 0x0ADF
     // (etc.) so the high nibble of cpu_a is ignored, matching VHDL :2668.
+    //
+    // GH #262: with the mouse disabled these addresses are still LSB 0xDF,
+    // so the `port_1f` alias (zxnext.vhd:2674) can decode them exactly as it
+    // decodes 0x??DF; the gated-off read therefore goes to port_df_read()
+    // rather than straight to X"FF".
     port_.register_handler(0x0FFF, 0x0ADF,
         [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return port_df_read();
             return mouse_.read_port_fadf();
         },
         nullptr);
     port_.register_handler(0x0FFF, 0x0BDF,
         [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return port_df_read();
             return mouse_.read_port_fbdf();
         },
         nullptr);
     port_.register_handler(0x0FFF, 0x0FDF,
         [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return 0xFF;
+            if ((effective_internal_port_enable(0x83) & 0x20) == 0) return port_df_read();
             return mouse_.read_port_ffdf();
         },
         nullptr);
@@ -5944,11 +5954,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // port_ff3b on `port_ulap_io_en = '1'`, where
     // `port_ulap_io_en <= internal_port_enable(24)` = NR 0x85 bit 0
     // (VHDL :2439). When cleared, the ports are silenced.
+    //
+    // GH #262: 0xBF3B is WRITE-ONLY. The VHDL has `port_bf3b_wr <= iowr and
+    // port_bf3b` (zxnext.vhd:2792) and no read strobe at all, and 0xBF3B is
+    // absent from `port_internal_rd_response` (:2803-2806), so an IN from it
+    // falls to `cpu_di <= X"FF"` (:1877) whether or not the port is enabled.
+    // No read callback: dispatch reaches the undecoded default. The handler
+    // used to return 0x00 whenever NR 0x85 b0 was set.
     port_.register_handler(0xFFFF, 0xBF3B,
-        [this](uint16_t) -> uint8_t {
-            if ((effective_internal_port_enable(0x85) & 0x01) == 0) return 0xFF;
-            return 0x00;
-        },
+        nullptr,
         [this](uint16_t, uint8_t v) {
             if ((effective_internal_port_enable(0x85) & 0x01) == 0) return;  // NR 0x85 b0 gate
             // VHDL zxnext.vhd:4532 — port_bf3b_ulap_mode <= cpu_do(7:6)
@@ -6897,6 +6911,27 @@ bool Emulator::load_nex(const std::string& path)
                 "NEX: delivered open file handle {} at {:#06x}",
                 handle, loader.header().file_handle);
         }
+    }
+
+    // BC when no handle travels in it (file_handle 0, or 0x4000 and above).
+    // Both loaders load BC unconditionally just before the jump, from an
+    // `ld bc,nn` whose low byte the handle-in-BC case patches, and the two
+    // default immediates differ. As for NR 0x07 (GH #166), follow the loader
+    // that would really run the file:
+    //   - V1.3: nexload2.asm:407 `.handleInBcSMC=$+1 : ld bc,255` -> BC=$00FF
+    //     ("no handle"; its v2.2 changelog, :39: "set up C to 255 in case
+    //     there's no file handle (for C projects)").
+    //   - V1.0-V1.2: the distro nexload.asm:582-585 `db 01` + `.regBCHandleSMC
+    //     db 0` + `db 0`, i.e. `ld bc,$0000` -> BC=$0000. nexload2 would give
+    //     $00FF here too, but the distro's .nexload is the loader NextZXOS
+    //     ships for these versions (it refuses V1.3, nexload.asm:291,:749).
+    //     BC is ALREADY $0000 at this point — reset() above is a hard reset,
+    //     which zeroes BC — so this half of the write changes nothing; it only
+    //     makes the distro loader's value explicit next to nexload2's.
+    if (!loader.delivers_handle_in_bc()) {
+        auto regs = cpu_.get_registers();
+        regs.BC = loader.is_v13() ? 0x00FF : 0x0000;
+        cpu_.set_registers(regs);
     }
 
     // GH #250 — the program now runs with no NextZXOS behind it, so arm the
@@ -9580,6 +9615,28 @@ void Emulator::propagate_effective_port_enables(uint8_t override_reg,
         (effective_internal_port_enable(0x83, override_reg, override_val) & 0x02) != 0);
 }
 
+uint8_t Emulator::port_df_read()
+{
+    // VHDL zxnext.vhd:2674:
+    //   port_1f <= '1' when (port_1f_lsb = '1' or (port_df_lsb = '1'
+    //                  and port_dac_mono_AD_df_io_en = '1'
+    //                  and port_mouse_io_en = '0'))
+    //                  and port_1f_io_en = '1' and port_1f_hw_en = '1'
+    // port_dac_mono_AD_df_io_en = internal_port_enable(23) = NR 0x84 b7
+    // (:2435), port_mouse_io_en = (13) = NR 0x83 b5 (:2422), port_1f_io_en =
+    // (6) = NR 0x82 b6 (:2407), port_1f_hw_en = joyL_1f_en or joyR_1f_en
+    // (:2454). The read strobe is port_1f_rd (:2784). The only other LSB-0xDF
+    // decodes are the Specdrum DAC (:2658), which has write strobes alone
+    // (:2775,2778), and the mouse (:2668-2670), which needs the mouse ENABLED.
+    // So when port_1f is off `port_internal_rd_response` stays low
+    // (:2803-2806) and the read is cpu_di's X"FF" (:1877).
+    if ((effective_internal_port_enable(0x84) & 0x80) == 0) return 0xFF;
+    if ((effective_internal_port_enable(0x83) & 0x20) != 0) return 0xFF;
+    if ((effective_internal_port_enable(0x82) & 0x40) == 0) return 0xFF;
+    if (!joystick_.port_1f_hw_en()) return 0xFF;
+    return joystick_.read_port_1f();
+}
+
 uint8_t Emulator::floating_bus_read() const
 {
     // Port 0xFF read mux per VHDL zxnext.vhd:2813:
@@ -9677,7 +9734,16 @@ bool Emulator::ula_floating_bus_active_arm(uint8_t& out_byte) const
     //
     // Compute current position within the frame. Master clock is 28 MHz;
     // T-states at 3.5 MHz = master_cycles / 8.
-    uint64_t master_elapsed = clock_.get() - frame_cycle_;
+    //
+    // GH #265 — the position is where the CPU latches the byte, not where
+    // its instruction started: floating_bus_r reaches cpu_di through
+    // combinational logic only (zxula.vhd:573; zxnext.vhd:4513,4517,2813-2814,
+    // 2837, 1872-1873), and the T80 latches cpu_di into DI_Reg on the falling
+    // edge of the I/O cycle's T3 (t80na.vhd:214-222), 3.5 T-states into its
+    // four clocks (t80n.vhd:1781-1782). clock_ is the instruction's start —
+    // 10.5 T-states earlier for IN A,(n), 11.5 for IN A,(C).
+    static constexpr unsigned kDiRegLatchHalfT = 7;       // 3.5 T-states
+    uint64_t master_elapsed = io_read_sample_cycle(kDiRegLatchHalfT) - frame_cycle_;
     int tstates_in_frame = static_cast<int>(master_elapsed / cpu_speed_divisor(config_.cpu_speed));
 
     // Scanline timing:
@@ -9915,7 +9981,27 @@ void Emulator::tick_copper_for_master_cycles(uint64_t master_cycles)
     }
 }
 
-int Emulator::current_cvc() const
+uint64_t Emulator::io_read_sample_cycle(unsigned edge_half_t) const
+{
+    // GH #265. clock_ holds the START of the instruction now executing (it is
+    // ticked once execute() returns), and the FUSE counter says how far into
+    // it the bus has got. fuse_z80_readport() charges the I/O cycle's T1
+    // before it calls the port handler, so the I/O cycle began
+    // (into - 1) T-states after the instruction did — contention and wait
+    // states already charged included.
+    const uint64_t now  = clock_.get();
+    const uint32_t into = cpu_.tstates_into_instruction();
+    if (into == 0) return now;   // not inside an instruction's bus cycle
+    const uint64_t d = clock_.cpu_divisor();
+    const uint64_t io_start = now + static_cast<uint64_t>(into - 1) * d;
+    // The edge is at io_start + edge_half_t * d / 2. The latch takes the
+    // value of the master cycle just before it: ceil(edge) - 1. At 3.5 MHz
+    // the CPU's falling edges land on master-cycle boundaries (d = 8); at
+    // 28 MHz (d = 1) a falling edge is mid-cycle and that cycle is the one.
+    return io_start + (static_cast<uint64_t>(edge_half_t) * d + 1) / 2 - 1;
+}
+
+int Emulator::cvc_at(uint64_t master_cycle) const
 {
     // cvc = (vc - c_min_vactive + cu_offset) mod (c_max_vc + 1)
     // (zxula_timing.vhd:455-472), read back by NR 0x1E/0x1F
@@ -9927,11 +10013,12 @@ int Emulator::current_cvc() const
     // hardware. The raw frame position is shifted back by that origin
     // before splitting it into lines, exactly as
     // tick_copper_for_master_cycles() does for the Copper's own cvc (GH #181).
-    // The position is the instruction's START (clock_ advances after it).
+    // The `% mcpf` also folds a position past the frame end (an IN whose
+    // sampling point lies beyond frame_end, GH #265) into the next frame.
     const uint64_t mcpf = timing_.master_cycles_per_frame;
     const uint64_t shift_mc =
         static_cast<uint64_t>(video_timing_.hc_ula_zero_raw_hc()) * 4u;
-    const uint64_t elapsed = clock_.get() - frame_cycle_;
+    const uint64_t elapsed = master_cycle - frame_cycle_;
     const uint64_t shifted = (elapsed + mcpf - shift_mc) % mcpf;
     const int raw_vc = static_cast<int>(shifted / timing_.master_cycles_per_line);
     const int lines_per_frame = video_timing_.vc_max() + 1;
