@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 #include <array>
 #include <functional>
@@ -64,11 +65,21 @@ public:
     /// Returns true if this channel has interrupts enabled.
     bool int_enabled() const { return control_int_en_; }
 
+    /// Control word D4: the CLK/TRG edge this channel reacts to is the
+    /// rising one (ctc_chan.vhd:127).
+    bool rising_edge_trigger() const { return control_edge_; }
+
     /// True when tick() would do any work: timer mode in S_RUN/S_RUN_TC
     /// (exact mirror of the guard at the top of tick()). Counter-mode
     /// channels advance only via trigger(), never via tick().
     bool timer_running() const {
         return !control_counter_ && (state_ == State::RUN || state_ == State::RUN_TC);
+    }
+
+    /// True for the one edge a timer spends in S_TRIGGER after its time
+    /// constant when it does not wait for a trigger (see State).
+    bool leaving_trigger() const {
+        return !control_counter_ && state_ == State::TRIGGER_AUTO;
     }
 
     /// Number of 28 MHz ticks until this channel's NEXT ZC/TO, assuming
@@ -97,7 +108,12 @@ public:
     }
 
 private:
-    enum class State { RESET, RESET_TC, TRIGGER, RUN, RUN_TC };
+    // TRIGGER_AUTO is S_TRIGGER entered by a time constant with nothing to
+    // wait for: ctc_chan.vhd:220-226 leaves it for S_RUN on the next edge,
+    // and while in it reset_soft holds p_count at 0 (:117, :134-139), so a
+    // timer's first prescaler period starts one edge after the constant is
+    // written. Appended last so snapshot state bytes keep their meaning.
+    enum class State { RESET, RESET_TC, TRIGGER, RUN, RUN_TC, TRIGGER_AUTO };
 
     // Control word fields (stored as bits 7:3 of control word)
     bool control_int_en_   = false;  // bit 7
@@ -143,6 +159,16 @@ public:
     /// the daisy-chain.
     void tick(uint32_t master_cycles);
 
+    /// GH #265 — the CLK_28 edge the channels are at. tick() advances it by
+    /// one for every edge it processes, so an on_interrupt / on_zc_to
+    /// callback reads the edge whose ZC/TO it reports: the edge at which
+    /// ctc_chan.vhd:173-182 sets zc_to_d, i.e. the one after which o_zc_to
+    /// (and with it i_int_req of the IM2 peripheral) is high. The caller sets
+    /// it to the last edge already ticked before each tick() span; it is
+    /// transient and not serialised.
+    void set_time(uint64_t edge) { time_ = edge; }
+    uint64_t time() const { return time_; }
+
     /// External trigger on a specific channel.
     void trigger(int channel);
 
@@ -176,11 +202,20 @@ public:
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
+    /// GH #265 — the chained triggers in flight (see tick()), for the
+    /// Emulator's appended interrupt-timing snapshot block.
+    void save_timing(class StateWriter& w) const;
+    void load_timing(class StateReader& r);
+    static constexpr std::size_t kTimingStateBytes = 4;   ///< one u8 per channel
+
 private:
     std::array<CtcChannel, 4> channels_;
+    uint64_t time_ = 0;   ///< see set_time()
+    /// Edges until a ZC/TO of the previous channel reaches each channel's
+    /// clk_trg_edge (0 = none in flight). See tick().
+    uint8_t trg_delay_[4] = {0, 0, 0, 0};
 
-    /// Handle ZC/TO output from a channel: fire interrupt callback and
-    /// trigger the next channel in the daisy-chain.  depth guards against
-    /// infinite recursion in pathological all-counter TC=1 ring configs.
-    void handle_zc_to(int channel, int depth = 0);
+    /// Handle ZC/TO output from a channel: fire the callbacks and start the
+    /// pulse on its way to the next channel of the ring.
+    void handle_zc_to(int channel);
 };

@@ -1,4 +1,5 @@
 #pragma once
+#include <cstddef>
 #include <cstdint>
 
 class StateWriter;
@@ -55,6 +56,96 @@ public:
     // (zxnext.vhd:2035-2044). NOT 28 MHz master cycles. Tests that call
     // tick(1) mean "advance one CPU clock edge".
     void tick(uint32_t tstates_for_pulse);
+
+    // ── GH #265 — exact timing (the Emulator's path) ──────────────────────
+    //
+    // tick(tstates) above resolves every request raised during an
+    // instruction when that instruction ends, and times the /INT pulse in
+    // whole instructions. The Emulator instead stamps each request with the
+    // CLK_28 edge it happened on and resolves the fabric AT an edge: inside
+    // an instruction (a status read at the IN's latch point, a NextREG
+    // write at the edge it commits on) and at the instruction's end. Times
+    // are master-cycle (CLK_28 edge) numbers on the Emulator's clock_.
+    //
+    // Pipeline modelled (all CLK_28 unless stated):
+    //   * a request raised "at edge te" has i_int_req high during the cycle
+    //     that edge starts, [te, te+1) — the edge detect int_req is high
+    //     then (im2_peripheral.vhd:90-101);
+    //   * int_status and im2_int_req are set at edge te+1 (:154-178);
+    //   * pulse_int_n falls on the CLK_28 FALLING edge te+0.5
+    //     (zxnext.vhd:2017-2031) and rises on the falling edge after
+    //     pulse_count, advanced on CPU rising edges, reaches 32/36
+    //     (:2033-2044): with E_1 the first CPU rising edge after the fall,
+    //     /INT is low for CPU edges E_1 .. E_1 + (32|36 - 1)·d;
+    //   * a device enters S_REQ on the first CPU rising edge after
+    //     im2_int_req is set (im2_device.vhd:91-107).
+    static constexpr uint64_t kNoTime = ~uint64_t{0};
+
+    /// i_int_req pulsed high during the CLK_28 cycle edge @p at starts.
+    void raise_req(DevIdx d, uint64_t at);
+    /// i_int_unq (NR 0x20) pulsed high during the cycle edge @p at starts.
+    void raise_unq(DevIdx d, uint64_t at);
+    /// i_int_status_clear applied on edge @p at_edge: a status set on that
+    /// same edge survives (int_status <= int_req OR ... OR (int_status AND
+    /// NOT clear), im2_peripheral.vhd:160).
+    void clear_status(DevIdx d, uint64_t at_edge);
+
+    /// Resolve every pending request raised on an edge <= @p edge, in edge
+    /// order: status and im2_int_req latches and the pulse. @p grid is a CPU
+    /// rising edge (the start of the instruction in progress) and @p d the
+    /// master cycles per T-state, placing the pulse's CPU edges. A request
+    /// raised before @p grid (during a DMA burst, boot hold or parked slot,
+    /// where no instruction runs) keeps its time for the status latch but
+    /// its pulse starts at @p grid: the CPU does not see a pulse it could
+    /// not have sampled, as before the exact timing (see the Emulator).
+    void latch_edges_until(uint64_t edge, uint64_t grid, uint32_t d);
+
+    /// Per-instruction tick with exact timing: latch_edges_until(slot_end),
+    /// end a pulse whose last low edge has passed, then the state machines
+    /// as tick(tstates). @p slot_start is the instruction's first edge (a
+    /// CPU rising edge), @p slot_end its last. @p m1_cycles is the number of
+    /// M1 (opcode fetch) cycles the instruction opened with, 4 T-states
+    /// each: S_0 -> S_REQ needs i_m1_n = '1' (im2_device.vhd:106), which
+    /// rules out the CPU edges ending T1 and T2 of each of them, and of the
+    /// M1 that opens the next instruction.
+    void tick(uint32_t tstates_for_pulse, uint64_t slot_start,
+              uint64_t slot_end, uint32_t d, uint32_t m1_cycles);
+
+    /// o_int_status as a CLK_28 register loaded on edge @p edge sees it:
+    /// set by a request no later than edge - 2 (status set on edge <= edge-1).
+    /// kNoTime = the latched value regardless of time.
+    bool int_status(DevIdx d, uint64_t edge) const;
+    uint8_t int_status_mask_c8(uint64_t edge) const;
+    uint8_t int_status_mask_c9(uint64_t edge) const;
+    uint8_t int_status_mask_ca(uint64_t edge) const;
+
+    /// pulse_int_n low just before rising edge @p edge — what a register
+    /// clocked on that edge (the T80's INT_s on a CPU edge, port_253b_dat
+    /// for NR 0x22 bit 7) captures.
+    bool pulse_low_before(uint64_t edge) const;
+    /// The CPU rising edges of the current (or last) timed pulse at which
+    /// INT_s is set: E_1 and E_N. Valid once a timed pulse has started.
+    uint64_t pulse_first_edge() const { return pulse_e1_; }
+    uint64_t pulse_last_edge() const  { return pulse_en_; }
+    /// True once per pulse started since the last call.
+    bool take_pulse_started() {
+        const bool s = pulse_started_;
+        pulse_started_ = false;
+        return s;
+    }
+    /// IM2 mode: the earliest CPU edge a device driving int_line_asserted()
+    /// entered S_REQ on (its o_int_n is low from then, im2_device.vhd:150).
+    /// kNoTime when the line is not asserted.
+    uint64_t int_line_low_since() const;
+
+    /// The timing fields above, for the Emulator's appended snapshot block:
+    /// five u64 per device, then the pulse's flag and three u64.
+    static constexpr std::size_t kTimingStateBytes =
+        static_cast<std::size_t>(DevIdx::COUNT) * 5 * sizeof(uint64_t)
+        + sizeof(uint8_t) + 3 * sizeof(uint64_t);
+    void save_timing(StateWriter& w) const;
+    void load_timing(StateReader& r);
+    void reset_timing();
 
     // ── Legacy API (retained as compatibility wrappers; new code should use the
     //    DevIdx-based methods below) ─────────────────────────────────────────
@@ -180,6 +271,12 @@ private:
         DevState state = DevState::S_0;
         bool dma_int_en = false;      // from NR CC/CD/CE mask
         bool exception = false;       // true only for ULA (index 11)
+        // GH #265 — exact timing (see latch_edges_until()).
+        uint64_t req_at     = kNoTime; // edge of the pending int_req pulse
+        uint64_t unq_at     = kNoTime; // edge of the pending int_unq pulse
+        uint64_t status_at  = 0;       // edge int_status was set on
+        uint64_t im2_req_at = 0;       // edge im2_int_req was set on
+        uint64_t sreq_at    = 0;       // CPU edge the device entered S_REQ on
     };
 
     static constexpr int N = static_cast<int>(DevIdx::COUNT);
@@ -207,6 +304,24 @@ private:
     // per-tick-call semantic used by ctc/nmi tests that pass tick(1).
     uint32_t pulse_count_advance_ = 1;
     bool     machine_48_or_p3_    = false;
+    // GH #265 — a pulse started by latch_edges_until() is timed: it fell on
+    // the falling edge after pulse_te_, and INT_s is set on CPU edges
+    // pulse_e1_ .. pulse_en_. pulse_count_ is then kept only as a view.
+    bool     pulse_timed_   = false;
+    uint64_t pulse_te_      = 0;
+    uint64_t pulse_e1_      = 0;
+    uint64_t pulse_en_      = 0;
+    bool     pulse_started_ = false;   // transient, see take_pulse_started()
+    // Set for the duration of a timed tick, read by step_pulse() (skipped)
+    // and the S_0 -> S_REQ transition (stamps sreq_at).
+    bool     timed_tick_      = false;
+    uint64_t tick_grid_       = 0;
+    uint64_t tick_end_        = 0;
+    uint32_t tick_d_          = 8;
+    uint32_t tick_m1_         = 0;
+    /// The first CPU edge after @p edge at which im2_device.vhd:106 lets
+    /// S_0 -> S_REQ happen (M1_n high), for the timed tick in progress.
+    uint64_t sreq_edge_after(uint64_t edge) const;
 
     // NR 0xC0 state.
     uint8_t vector_base_msb3_ = 0;

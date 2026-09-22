@@ -147,6 +147,32 @@ public:
     const Z80Registers& registers() const { return regs_; }
 
     void request_interrupt(uint8_t vector);
+    /// Request /INT with the exact window of instruction boundaries at which
+    /// the T80 sees it low, on the FUSE T-state counter (see int_first_ts_).
+    /// The CPU takes the interrupt at the first boundary `b` with
+    /// `first_ts <= b <= last_ts` (and IFF1 set, no EI just executed); at a
+    /// boundary before `first_ts` the request stays pending without being
+    /// taken, and past `last_ts` it is dropped. The single-argument form
+    /// above is `[now, now + 32/36]`, the pulse width counted from the
+    /// boundary it is called at.
+    void request_interrupt(uint8_t vector, int64_t first_ts, int64_t last_ts);
+    /// Shift everything the interrupt decision compares with the FUSE
+    /// counter by @p delta T-states, because the counter itself was moved
+    /// back by @p delta (Emulator::begin_new_frame() rebases it at every
+    /// frame): a pending request's window, and the EI-just-executed stamp
+    /// (z80.interrupts_enabled_at) that blocks acceptance at the boundary
+    /// straight after an EI (t80n.vhd:1768 `SetEI = '0'`).
+    void rebase_interrupt_window(int64_t delta);
+    int64_t int_window_first_ts() const { return int_first_ts_; }
+    int64_t int_window_last_ts() const  { return int_last_ts_; }
+    void set_int_window_for_load(int64_t first_ts, int64_t last_ts) {
+        int_first_ts_ = first_ts;
+        int_last_ts_  = last_ts;
+    }
+    bool int_pending() const { return int_pending_; }
+    /// Withdraw a pending /INT request: the line it stood for went high
+    /// without being acknowledged.
+    void cancel_interrupt() { int_pending_ = false; }
     void request_nmi();
     bool is_halted() const { return regs_.halted; }
     bool stackless_retn_active() const { return stackless_retn_active_; }
@@ -267,6 +293,13 @@ public:
     /// Transient per-call state; deliberately not serialised.
     uint32_t tstates_into_instruction() const;
 
+    /// Serial number of the execute() call now in progress (or of the last
+    /// one, between calls): incremented on every entry. Lets a caller tell
+    /// whether state it recorded during an execute() belongs to the call
+    /// still running. Transient; deliberately not serialised.
+    uint64_t execute_serial() const { return execute_serial_; }
+    bool executing() const { return executing_; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -287,7 +320,14 @@ private:
     bool             nmi_pending_ = false;
     bool             int_pending_ = false;
     uint8_t          int_vector_  = 0xFF;
-    uint32_t         int_requested_at_ = 0;  // FUSE tstates when /INT was asserted
+    // The boundaries, on the FUSE T-state counter, at which the pending
+    // /INT is seen low: the T80 samples INT_n into INT_s on every CPU rising
+    // edge (t80n.vhd:1664) and decides at the edge ending an
+    // instruction with the INT_s taken one T-state earlier, at the start of
+    // the instruction's last T-state (t80n.vhd:1742-1772). Signed: a frame
+    // rebase can move a still-pending window below zero.
+    int64_t          int_first_ts_ = 0;
+    int64_t          int_last_ts_  = 0;
     /// V20R-CPU-NIT-02 — Test-observable monotonic counter of
     /// `request_interrupt()` invocations. Reset via the public
     /// `reset_request_interrupt_count()`. Not persisted in save/load.
@@ -309,4 +349,5 @@ private:
     // value it started at. See tstates_into_instruction().
     bool             executing_ = false;
     uint32_t         exec_start_tstates_ = 0;
+    uint64_t         execute_serial_ = 0;
 };

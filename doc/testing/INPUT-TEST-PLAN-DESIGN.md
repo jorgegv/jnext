@@ -747,6 +747,8 @@ Coverage of `zxnext.vhd` 2090-2091 and NR 0x06 bits 3-4.
 | FE-03 | Write 0xFE bit 4 high (`port_fe_ear`=1), then read | bit 6 = 1 | 3459 |
 | FE-04 | NR 0x08 bit 0 = 1 (issue 2), MIC=1, EAR=0 | bit 6 reflects issue-2 MIC XOR EAR (audio block) | 5182 + audio wiring |
 | FE-05 | `expbus_eff_en=1`, `port_propagate_fe=1`, expansion bus drives D0=0 | ANDed with bus (`port_fe_dat = port_fe_dat_0 and port_fe_bus`) → bit 0 forced 0 | 3468 |
+| FE-GH265-01 | TAP real-time pilot, first edge 2168 T in; `IN A,(0xFE)` starting at 2159 / 2158 T (latches T-state 9 of the instruction: `port_fe_dat_0` is reloaded on the CLK_CPU falling edge 2.5 T into the I/O cycle, `t80na.vhd:214-222`) | bit 6 set / clear (pre-fix: the level at the instruction's start, clear / clear) | 3455-3464 |
+| FE-GH265-02 | WAV (3500 Hz, crossing 1504 T in); `IN A,(0xFE)` starting at 1495 / 1494 T | bit 6 set / clear (pre-fix: the live counter 8 T in, clear / clear) | 3455-3464 |
 
 ### 3.14 User-defined joystick keymap (JCAL-*) — NR 0x28-0x2B
 

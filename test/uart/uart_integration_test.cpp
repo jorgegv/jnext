@@ -2004,6 +2004,90 @@ static void test_nr_a0_pi_uart_routing(Emulator& emu) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
+// ══════════════════════════════════════════════════════════════════════
+// GH #265 — UART status read at the IN's latch point
+// ══════════════════════════════════════════════════════════════════════
+//
+// port_uart_dat is reloaded from uart_do on every CLK_CPU falling edge
+// (zxnext.vhd:3418-3423), and the IN latches the reload made 2.5 T-states
+// into its I/O cycle (t80na.vhd:214-222, t80n.vhd:1781-1782): for IN A,(C)
+// the UART as it stands after edge start + 83. The UART used to be ticked
+// only between instructions, so the IN saw it at its instruction's start.
+static void test_gh265_status_read() {
+    set_group("GH265-UART");
+
+    // UART-RD-GH265-01 — TX empty (0x133B bit 4) of a byte written at edge
+    // 0 outside any instruction. The byte engine starts it on edge 1 and
+    // finishes it byte_transfer_ticks() = 243 x 10 = 2430 edges later, on
+    // 2431 (the model's byte time; uart.vhd's prescaled bit clock). An IN
+    // starting at 2400 loads on 2483: empty. One starting at 2300 loads on
+    // 2383: still busy. Pre-fix the IN at 2400 saw the transmitter at
+    // 2400: busy. The margins (48 / 52 edges) keep the row about the latch
+    // point, not about the model's byte time to the edge.
+    auto status_at = [](uint64_t s) -> uint8_t {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.port().out(0x133B, 0x55);                   // TX, loops back
+        emu.mmu().write(0x8000, 0xED);
+        emu.mmu().write(0x8001, 0x78);                  // IN A,(C)
+        auto r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.BC = 0x133B;
+        emu.cpu().set_registers(r);
+        emu.uart().set_time(0);
+        emu.uart().tick(static_cast<uint32_t>(s));      // devices stand at the clock
+        emu.clock().tick(s - emu.clock().get());
+        emu.cpu().execute();
+        return static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+    };
+    const uint8_t late  = status_at(2400);
+    const uint8_t early = status_at(2300);
+    check("UART-RD-GH265-01",
+          "UART status IN latches the transmitter as of the port_uart_dat "
+          "reload 83 cycles in, not the instruction start "
+          "(zxnext.vhd:3418-3423; t80na.vhd:214-222)",
+          (late & 0x10) != 0 && (early & 0x10) == 0,
+          "s=2400: 0x" + std::to_string(late) + " s=2300: 0x"
+          + std::to_string(early) + " (want bit 4 set, clear)");
+
+    // UART-WR-GH265-01 — a TX write inside an instruction reaches the UART
+    // on its commit edge, not at the instruction's start. OUT (C),A to
+    // 0x133B starting at 5000: IORQ+WR on 5072 (t80na.vhd:148-150), taken
+    // on 5073; the byte starts on 5074 and ends 2430 edges later, on 7504.
+    // An IN whose load edge is 7470 sees it still busy, one at 7600 sees
+    // it done. Pre-fix the write landed at 5000 and the byte ended on 7431:
+    // done at 7470 already. (Margins as UART-RD-GH265-01.)
+    auto after_write = [](uint64_t sn) -> uint8_t {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.mmu().write(0x8000, 0xED);
+        emu.mmu().write(0x8001, 0x79);                  // OUT (C),A
+        emu.mmu().write(0x8002, 0xED);
+        emu.mmu().write(0x8003, 0x78);                  // IN A,(C)
+        auto r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.BC = 0x133B;
+        r.AF = static_cast<uint16_t>(0x5500 | (r.AF & 0x00FF));
+        emu.cpu().set_registers(r);
+        emu.uart().set_time(0);
+        emu.uart().tick(5000);
+        emu.clock().tick(5000 - emu.clock().get());
+        emu.execute_single_instruction();               // OUT: 5000..5096
+        const uint64_t s = sn - 83;
+        emu.uart().set_time(emu.clock().get());
+        emu.uart().tick(static_cast<uint32_t>(s - emu.clock().get()));
+        emu.clock().tick(s - emu.clock().get());
+        emu.cpu().execute();                            // IN A,(C)
+        return static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+    };
+    const uint8_t busy = after_write(7470);
+    const uint8_t done = after_write(7600);
+    check("UART-WR-GH265-01",
+          "UART TX write taken on the edge after IORQ+WR, 73 cycles into "
+          "OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423)",
+          (busy & 0x10) == 0 && (done & 0x10) != 0,
+          "Sn=7470: 0x" + std::to_string(busy) + " Sn=7600: 0x"
+          + std::to_string(done) + " (want bit 4 clear, set)");
+}
+
 int main() {
     std::printf("UART + I2C Integration Tests\n");
     std::printf("===============================================\n\n");
@@ -2040,6 +2124,9 @@ int main() {
 
     test_esp_backend();
     std::printf("  Group: ESP — done\n");
+
+    test_gh265_status_read();
+    std::printf("  Group: GH265-UART — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

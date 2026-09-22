@@ -155,7 +155,8 @@ void UartChannel::tick(uint32_t master_cycles) {
                 remaining -= tx_timer_byte_;
                 tx_timer_byte_ = 0;
             }
-            // Byte transmission complete.
+            // Byte transmission complete, on the edge the countdown hit 0.
+            event_edge_ = span_base_ + (master_cycles - remaining);
             tx_busy_ = false;
             if (!tx_fifo_.empty()) {
                 // Next byte starts in the same cycle the previous one
@@ -169,6 +170,7 @@ void UartChannel::tick(uint32_t master_cycles) {
             // Idle with data queued: the byte starts in the current
             // cycle; its countdown begins on the next one (matches the
             // old loop, where the start iteration did not decrement).
+            event_edge_ = span_base_ + (master_cycles - remaining) + 1;
             start_tx_from_fifo();
             --remaining;
         } else {
@@ -701,12 +703,17 @@ void Uart::tick(uint32_t master_cycles) {
     // what it was before this hook existed. See
     // `UartChannel::service_attached_device` for the measurements that put it
     // here rather than inside the channel.
+    // GH #265 — events inside the span are stamped from its start; a byte
+    // a backend delivers is stamped at the start of the span it arrived in.
+    channels_[0].set_span_base(time_);
+    channels_[1].set_span_base(time_);
     if (device_attached_) {
         channels_[0].service_attached_device(master_cycles);
         channels_[1].service_attached_device(master_cycles);
     }
     channels_[0].tick(master_cycles);
     channels_[1].tick(master_cycles);
+    time_ += master_cycles;
 }
 
 void Uart::write(int port_reg, uint8_t val) {

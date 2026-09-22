@@ -173,13 +173,20 @@ void test_stackless_nmi()
     // emulator has no cable attached. A THIRD append makes this row fail rather
     // than quietly stop testing what it names (which is exactly how the GH #251
     // one was caught), so add it to the count below when you add it to
-    // Emulator::save_state.
+    // Emulator::save_state. The third is GH #265's interrupt timing, which
+    // follows the cable and is not a one-bool block: the CPU's /INT window (two
+    // u64), Im2Controller::save_timing() and Ctc::save_timing(), then its
+    // sentinel.
     constexpr std::size_t kTailBlock   = sizeof(uint8_t) + sizeof(uint32_t);
     constexpr std::size_t kTailBlocks  = 2;   // stackless_nmi, joy_uart
+    constexpr std::size_t kIntTiming   = 2 * sizeof(uint64_t)
+        + Im2Controller::kTimingStateBytes + Ctc::kTimingStateBytes
+        + sizeof(uint32_t);
     Emulator old_snapshot_emu;
     fresh_emulator(old_snapshot_emu);
     old_snapshot_emu.cpu().set_stackless_retn_active_for_load(true);
-    const std::size_t old_snapshot_size = snapshot.size() - kTailBlocks * kTailBlock;
+    const std::size_t old_snapshot_size =
+        snapshot.size() - kIntTiming - kTailBlocks * kTailBlock;
     StateReader old_reader(snapshot.data(), old_snapshot_size);
     const bool old_snapshot_ok =
         old_snapshot_emu.load_state(old_reader) &&
@@ -192,7 +199,7 @@ void test_stackless_nmi()
     Emulator boundary_emu;
     fresh_emulator(boundary_emu);
     boundary_emu.cpu().set_stackless_retn_active_for_load(false);
-    StateReader boundary_reader(snapshot.data(), snapshot.size() - kTailBlock);
+    StateReader boundary_reader(snapshot.data(), snapshot.size() - kIntTiming - kTailBlock);
     const bool boundary_ok =
         boundary_emu.load_state(boundary_reader) &&
         boundary_emu.cpu().stackless_retn_active();

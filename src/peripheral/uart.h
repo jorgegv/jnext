@@ -337,6 +337,14 @@ public:
         }
     }
 
+    /// GH #265 — the CLK_28 edge at which the event now being reported
+    /// (on_tx_empty / on_rx_available) happened. Uart::tick() hands each
+    /// channel the edge its span starts after; tick() moves this to the edge
+    /// of each byte start / completion inside the span. Transient, not
+    /// serialised.
+    void set_span_base(uint64_t edge) { span_base_ = edge; event_edge_ = edge; }
+    uint64_t event_edge() const { return event_edge_; }
+
     // ── Callbacks ─────────────────────────────────────────────
 
     /// Called when a byte has been fully transmitted from the TX FIFO,
@@ -407,6 +415,8 @@ public:
     // ══ === END TEST-ONLY ACCESSORS === ═══════════════════════
 
 private:
+    uint64_t span_base_  = 0;   ///< see set_span_base()
+    uint64_t event_edge_ = 0;   ///< see event_edge()
     // FIFOs — TX is byte-only, RX widens to 9-bit elements so bit 8 carries
     // the VHDL (overflow OR framing) flag per uart.vhd:359.
     FifoBuffer<uint8_t,  TX_FIFO_SIZE> tx_fifo_;
@@ -589,6 +599,11 @@ public:
 
     // ── Interrupt callbacks ───────────────────────────────────
 
+    /// GH #265 — the last CLK_28 edge already ticked; tick() starts its
+    /// span after it and advances it by the span. Set by the caller before
+    /// each tick(); transient, not serialised.
+    void set_time(uint64_t edge) { time_ = edge; }
+
     /// Fired when a UART channel generates a TX-empty interrupt.
     std::function<void(int channel)> on_tx_interrupt;
 
@@ -607,6 +622,7 @@ public:
 private:
     std::array<UartChannel, 2> channels_;
     int select_ = 0;  // 0 = ESP (uart0), 1 = Pi (uart1)
+    uint64_t time_ = 0;   ///< see set_time()
 
     /// True while ANY channel has a backend attached. The one gate the
     /// per-instruction `tick` pays for; see `UartChannel::service_attached_device`

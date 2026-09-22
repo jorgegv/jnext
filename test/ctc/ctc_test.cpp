@@ -121,6 +121,25 @@ uint8_t cw(bool int_en, bool counter, bool prescale256,
 }
 
 void fresh(Ctc& ctc) { ctc.reset(); }
+
+// Edge convention of these rows (GH #265): ctc.write() is the CLK_28 edge a
+// port write is taken on and ctc.tick(n) the n edges after it.
+//
+//  * A time constant written to a timer in S_RESET_TC puts it in S_TRIGGER
+//    (ctc_chan.vhd:214-218), which it leaves for S_RUN on the next edge
+//    unless it waits for a trigger (:219-226); reset_soft holds p_count at 0
+//    through that edge (:117, :134-139). So p_count starts counting one edge
+//    after the constant and the first count (t_count_en = prescaler_clk,
+//    p_count(3:0) = "1111", :141-146, :150) lands on the 17th edge after the
+//    write with prescaler 16, the 257th with 256 — then every 16 / 256.
+//  * A ZC/TO reaches the next channel of the ring (zxnext.vhd:4084) as
+//    o_zc_to = zc_to_d, high for the cycle after the edge the count ran out
+//    on (ctc_chan.vhd:173-182), seen through clk_trg_d (:115-119): with the
+//    default falling-edge trigger (D4 = 0) the receiving channel counts on
+//    the SECOND edge after the ZC/TO, with a rising one (D4 = 1) the first
+//    (:121-127).
+constexpr int kTriggerEdge = 1;   // the one S_TRIGGER edge after a constant
+constexpr int kChainFalling = 2;  // ZC/TO to the next channel's count, D4 = 0
 void fresh(Im2Controller& im2) {
     im2.reset();
     // V21-IM2-01 — drive the IM2 controller's `im_mode_` shadow to 2
@@ -185,18 +204,23 @@ void section1_state_machine() {
     }
 
     // CTC-SM-04 — ctc_chan.vhd:214-227: TC write in S_RESET_TC loads
-    // time_constant_reg; timer/D3=0 goes straight to S_RUN; t_count loads
-    // the new TC (ctc_chan.vhd:158-163) and then decrements on prescaler.
+    // time_constant_reg and goes to S_TRIGGER; a timer with D3=0 leaves it
+    // for S_RUN on the next edge. t_count holds the new TC while reset_soft
+    // (ctc_chan.vhd:158-160) and then decrements on the prescaler: the first
+    // count is on the 17th edge, not the 16th (GH #265 — the 16th was the
+    // pre-fix model, which skipped the S_TRIGGER edge).
     {
         fresh(ctc);
         ctc.write(0, cw(false, false, false, false, false, true, false));
         ctc.write(0, 0x10);
         uint8_t before = ctc.read(0);
-        ctc.tick(16);  // one prescaler-16 period
+        ctc.tick(16);
+        uint8_t at16 = ctc.read(0);
+        ctc.tick(1);
         uint8_t after = ctc.read(0);
-        check("CTC-SM-04", before == 0x10 && after == 0x0F,
-              "ctc_chan.vhd:216,223-226 S_RESET_TC→S_TRIGGER→S_RUN and t_count reload+decrement",
-              fmt("before=0x%02x after=0x%02x", before, after));
+        check("CTC-SM-04", before == 0x10 && at16 == 0x10 && after == 0x0F,
+              "ctc_chan.vhd:216,223-226,117,134-139 S_RESET_TC→S_TRIGGER→S_RUN: first count on the 17th edge",
+              fmt("before=0x%02x at16=0x%02x at17=0x%02x", before, at16, after));
     }
 
     // CTC-SM-05 — ctc_chan.vhd:214-225: timer mode (D6=0), D3=1, and
@@ -219,10 +243,10 @@ void section1_state_machine() {
         fresh(ctc);
         ctc.write(0, cw(false, false, false, false, false, true, false));
         ctc.write(0, 0x10);
-        ctc.tick(16);
+        ctc.tick(kTriggerEdge + 16);
         uint8_t v = ctc.read(0);
         check("CTC-SM-06", v == 0x0F,
-              "ctc_chan.vhd:216,223-226 timer D3=0 → immediate S_RUN",
+              "ctc_chan.vhd:216,223-226 timer D3=0 → S_RUN after its one S_TRIGGER edge",
               fmt("got 0x%02x", v));
     }
 
@@ -242,49 +266,66 @@ void section1_state_machine() {
 
     // CTC-SM-08 — ctc_chan.vhd:228-233: CW with D2=1 while in S_RUN
     // transitions to S_RUN_TC. Next write is consumed as TC regardless
-    // of D0 (ctc_chan.vhd:257).
-    {
-        fresh(ctc);
-        ctc.write(0, cw(false, false, false, false, false, true, false));
-        ctc.write(0, 0x10);  // S_RUN, t_count=0x10
-        ctc.write(0, cw(false, false, false, false, false, true, false));  // → S_RUN_TC
-        ctc.write(0, 0x20);  // TC=0x20 → S_RUN
-        uint8_t v = ctc.read(0);
-        check("CTC-SM-08", v == 0x20,
-              "ctc_chan.vhd:230 S_RUN→S_RUN_TC then TC reload",
-              fmt("got 0x%02x", v));
-    }
-
-    // CTC-SM-09 — ctc_chan.vhd:234-238: S_RUN_TC + TC write → S_RUN,
-    // counter resumes counting from new TC.
+    // of D0 (ctc_chan.vhd:257) — 0x20 has D0=0 and would otherwise be a
+    // vector. A running channel's constant reaches t_count only on a ZC/TO
+    // (:161-162): the count carries on from 0x10, and the 16th count reloads
+    // 0x20, not 0x10. GH #265 — the row used to expect 0x20 straight after
+    // the write, which was jnext loading the counter on every constant.
     {
         fresh(ctc);
         ctc.write(0, cw(false, false, false, false, false, true, false));
         ctc.write(0, 0x10);
+        ctc.tick(kTriggerEdge);  // S_RUN, t_count=0x10
+        ctc.write(0, cw(false, false, false, false, false, true, false));  // → S_RUN_TC
+        ctc.write(0, 0x20);  // TC=0x20 → S_RUN
+        uint8_t running = ctc.read(0);
+        ctc.tick(16 * 16);   // the 16th count runs out and reloads
+        uint8_t reloaded = ctc.read(0);
+        check("CTC-SM-08", running == 0x10 && reloaded == 0x20,
+              "ctc_chan.vhd:230,257,161-162,278-285 S_RUN→S_RUN_TC; the constant is taken and loaded at the next ZC/TO",
+              fmt("after write 0x%02x (want 0x10), after ZC/TO 0x%02x (want 0x20)",
+                  running, reloaded));
+    }
+
+    // CTC-SM-09 — ctc_chan.vhd:234-238: S_RUN_TC + TC write → S_RUN, and
+    // the counter keeps counting from where it was (reset_soft stays '0' in
+    // S_RUN_TC, so :158-164 only ever decrement it). GH #265 — the row used
+    // to expect 0x2F, a count down from the NEW constant.
+    {
+        fresh(ctc);
+        ctc.write(0, cw(false, false, false, false, false, true, false));
+        ctc.write(0, 0x10);
+        ctc.tick(kTriggerEdge);
         ctc.write(0, cw(false, false, false, false, false, true, false));
         ctc.write(0, 0x30);
         ctc.tick(16);
         uint8_t v = ctc.read(0);
-        check("CTC-SM-09", v == 0x2F,
-              "ctc_chan.vhd:236 S_RUN_TC→S_RUN with reloaded TC, continues counting",
-              fmt("got 0x%02x", v));
+        check("CTC-SM-09", v == 0x0F,
+              "ctc_chan.vhd:236,158-164 S_RUN_TC→S_RUN keeps counting the running count",
+              fmt("got 0x%02x (want 0x0F)", v));
     }
 
     // CTC-SM-10 — ctc_chan.vhd:201-206: any state + CW with D1=1,D2=0
     // → S_RESET. p_count reset via reset_soft=1 (line 117); t_count no
-    // longer advances.
+    // longer counts: reset_soft reloads it from time_constant_reg on every
+    // edge (:158-160), so the stopped channel reads its constant back, not
+    // the count it stopped at. GH #265 — the row used to accept any frozen
+    // value (jnext kept the stopped count).
     {
         fresh(ctc);
         ctc.write(0, cw(false, false, false, false, false, true, false));
         ctc.write(0, 0x10);
-        ctc.tick(32);
+        ctc.tick(kTriggerEdge + 16);   // one count: 0x0F
+        uint8_t running = ctc.read(0);
         ctc.write(0, cw(false, false, false, false, false, false, true));
+        ctc.tick(1);
         uint8_t v1 = ctc.read(0);
         ctc.tick(256);
         uint8_t v2 = ctc.read(0);
-        check("CTC-SM-10", v1 == v2,
-              "ctc_chan.vhd:202 soft reset D1=1,D2=0 → S_RESET, counter stops",
-              fmt("v1=0x%02x v2=0x%02x", v1, v2));
+        check("CTC-SM-10", running == 0x0F && v1 == 0x10 && v2 == 0x10,
+              "ctc_chan.vhd:202,117,158-160 soft reset D1=1,D2=0 → S_RESET: stops, t_count reloads the constant",
+              fmt("running=0x%02x v1=0x%02x v2=0x%02x (want 0x0F, 0x10, 0x10)",
+                  running, v1, v2));
     }
 
     // CTC-SM-11 — ctc_chan.vhd:201-205: D1=1,D2=1 from any state → S_RESET_TC.
@@ -343,16 +384,22 @@ void section2_timer_mode() {
     Ctc ctc;
 
     // CTC-TM-01 — ctc_chan.vhd:143,146: prescale=16 fires when
-    // p_count(3:0)="1111". 16 i_CLK ticks decrement t_count by 1.
+    // p_count(3:0)="1111". Every 16 i_CLK edges decrement t_count by 1: the
+    // first on the 17th edge after the constant (the S_TRIGGER edge first),
+    // the next 16 edges later.
     {
         fresh(ctc);
         ctc.write(0, cw(false, false, false, false, false, true, false));
         ctc.write(0, 0x10);
-        ctc.tick(16);
-        uint8_t v = ctc.read(0);
-        check("CTC-TM-01", v == 0x0F,
+        ctc.tick(kTriggerEdge + 16);
+        uint8_t v1 = ctc.read(0);
+        ctc.tick(15);
+        uint8_t v15 = ctc.read(0);
+        ctc.tick(1);
+        uint8_t v16 = ctc.read(0);
+        check("CTC-TM-01", v1 == 0x0F && v15 == 0x0F && v16 == 0x0E,
               "ctc_chan.vhd:146 prescale=16 decrements every 16 clocks",
-              fmt("got 0x%02x", v));
+              fmt("got 0x%02x, +15 0x%02x, +16 0x%02x", v1, v15, v16));
     }
 
     // CTC-TM-02 — ctc_chan.vhd:144,146: prescale=256 fires only when
@@ -361,7 +408,7 @@ void section2_timer_mode() {
         fresh(ctc);
         ctc.write(0, cw(false, false, true, false, false, true, false));
         ctc.write(0, 0x10);
-        ctc.tick(256);
+        ctc.tick(kTriggerEdge + 256);
         uint8_t v = ctc.read(0);
         check("CTC-TM-02", v == 0x0F,
               "ctc_chan.vhd:146 prescale=256 decrements every 256 clocks",
@@ -376,10 +423,12 @@ void section2_timer_mode() {
         ctc.on_interrupt = [&](int) { ++zc; };
         ctc.write(0, cw(true, false, false, false, false, true, false));
         ctc.write(0, 0x01);
-        ctc.tick(16);
-        check("CTC-TM-03", zc == 1,
-              "ctc_chan.vhd:170 TC=1 → ZC/TO after one prescaler cycle",
-              fmt("zc=%d", zc));
+        ctc.tick(kTriggerEdge + 15);
+        const int before = zc;
+        ctc.tick(1);
+        check("CTC-TM-03", before == 0 && zc == 1,
+              "ctc_chan.vhd:170 TC=1 → ZC/TO after one prescaler cycle (17th edge)",
+              fmt("at 16 zc=%d, at 17 zc=%d", before, zc));
     }
 
     // CTC-TM-04 — ctc_chan.vhd:158-163: t_count <= time_constant_reg on
@@ -392,7 +441,7 @@ void section2_timer_mode() {
         ctc.on_interrupt = [&](int) { ++zc; };
         ctc.write(0, cw(true, false, false, false, false, true, false));
         ctc.write(0, 0x00);
-        ctc.tick(16 * 255);
+        ctc.tick(kTriggerEdge + 16 * 255);
         int before = zc;
         ctc.tick(16);
         check("CTC-TM-04", before == 0 && zc == 1,
@@ -411,7 +460,7 @@ void section2_timer_mode() {
         ctc.write(0, cw(false, false, false, false, false, false, true));  // soft reset
         ctc.write(0, cw(false, false, false, false, false, true, false));
         ctc.write(0, 0x10);
-        ctc.tick(16);
+        ctc.tick(kTriggerEdge + 16);
         uint8_t v = ctc.read(0);
         check("CTC-TM-05", v == 0x0F,
               "ctc_chan.vhd:136 prescaler cleared on soft reset (reset_soft)",
@@ -427,7 +476,7 @@ void section2_timer_mode() {
         ctc.on_interrupt = [&](int) { ++zc; };
         ctc.write(0, cw(true, false, false, false, false, true, false));
         ctc.write(0, 0x02);
-        ctc.tick(16 * 2);
+        ctc.tick(kTriggerEdge + 16 * 2);
         int first = zc;
         ctc.tick(16 * 2);
         check("CTC-TM-06", first == 1 && zc == 2,
@@ -444,7 +493,7 @@ void section2_timer_mode() {
         ctc.on_interrupt = [&](int) { ++zc; };
         ctc.write(0, cw(true, false, false, false, false, true, false));
         ctc.write(0, 0x01);
-        ctc.tick(16);
+        ctc.tick(kTriggerEdge + 16);
         check("CTC-TM-07", zc == 1,
               "ctc_chan.vhd:170 zc_to is a single-cycle pulse per underflow",
               fmt("zc=%d", zc));
@@ -457,7 +506,7 @@ void section2_timer_mode() {
         ctc.write(0, cw(false, false, false, false, false, true, false));
         ctc.write(0, 0x10);
         uint8_t v0 = ctc.read(0);
-        ctc.tick(16 * 3);
+        ctc.tick(kTriggerEdge + 16 * 3);
         uint8_t v1 = ctc.read(0);
         check("CTC-TM-08", v0 == 0x10 && v1 == 0x0D,
               "ctc_chan.vhd:168 port read returns t_count",
@@ -476,23 +525,29 @@ void section2_timer_mode() {
     // prescaler should still be at 8, so 8 more ticks complete the first
     // prescaler period and decrement counter from 0x05 to 0x04 — NOT from
     // 0x05 to 0x05 (which would be the buggy "fresh prescaler" outcome).
+    //
+    // GH #265 — the running count is not reloaded by the new constant either
+    // (reset_soft='0' in S_RUN_TC, so ctc_chan.vhd:158-164 only decrement
+    // it; the constant is loaded at the next ZC/TO): the period that
+    // completes decrements the RUNNING count, 0x10 → 0x0F. The row used to
+    // expect 0x04, a decrement of the new constant.
     {
         fresh(ctc);
         ctc.write(0, cw(false, false, false, false, false, true, false));  // CW timer prescale=16 tc_follows=1
-        ctc.write(0, 0x10);                                                  // TC=0x10 → S_RUN, prescaler=0
-        ctc.tick(8);                                                          // half a prescaler period (prescaler now at 8)
+        ctc.write(0, 0x10);                                                  // TC=0x10 → S_TRIGGER, prescaler=0
+        ctc.tick(kTriggerEdge + 8);                                           // S_RUN, half a prescaler period (p_count 8)
         // Reconfigure with a new TC while running.
         ctc.write(0, cw(false, false, false, false, false, true, false));   // CW tc_follows=1 → S_RUN_TC (prescaler preserved)
-        ctc.write(0, 0x05);                                                  // TC=0x05 → S_RUN, counter=0x05
+        ctc.write(0, 0x05);                                                  // TC=0x05 → S_RUN, count carries on
         // After 8 more ticks the original prescaler period completes
-        // (8 + 8 = 16 = prescale-16 boundary) and counter should
-        // decrement to 0x04. With the buggy clear-on-every-TC code,
-        // it would still be 0x05 because the prescaler restarted from 0.
+        // (8 + 8 = 16 = prescale-16 boundary) and the count decrements.
+        // With the buggy clear-on-every-TC code it would not decrement
+        // yet (the prescaler restarted from 0).
         ctc.tick(8);
         uint8_t after_reload = ctc.read(0);
-        check("CTC-TM-G120-01", after_reload == 0x04,
-              "ctc_chan.vhd:131-141 prescaler preserved on S_RUN_TC→S_RUN reload",
-              fmt("got 0x%02x (expected 0x04: residual prescaler must complete current period)",
+        check("CTC-TM-G120-01", after_reload == 0x0F,
+              "ctc_chan.vhd:131-141,158-164 prescaler and count preserved on S_RUN_TC→S_RUN reload",
+              fmt("got 0x%02x (expected 0x0F: residual prescaler completes the current period of the running count)",
                   after_reload));
     }
 }
@@ -612,11 +667,15 @@ void section4_chaining() {
         ctc.write(0, cw(false, true, false, false, false, true, false));
         ctc.write(0, 0x03);
         uint8_t before = ctc.read(0);
-        ctc.tick(16);  // ch3 fires; if wired correctly, ch0 counts one edge
+        // ch3 fires on its 17th edge; ch0 counts that pulse two edges later.
+        ctc.tick(kTriggerEdge + 16 + kChainFalling - 1);
+        uint8_t not_yet = ctc.read(0);
+        ctc.tick(1);
         uint8_t after = ctc.read(0);
-        check("CTC-CH-01", after == static_cast<uint8_t>(before - 1),
-              "zxnext.vhd:4084 ch0.clk_trg = ch3.zc_to (ring wrap)",
-              fmt("before=0x%02x after=0x%02x", before, after));
+        check("CTC-CH-01", not_yet == before && after == static_cast<uint8_t>(before - 1),
+              "zxnext.vhd:4084 ch0.clk_trg = ch3.zc_to (ring wrap), counted "
+              "through clk_trg_d two edges on (ctc_chan.vhd:115-127,173-182)",
+              fmt("before=0x%02x at18=0x%02x at19=0x%02x", before, not_yet, after));
     }
 
     // CTC-CH-02 — ch1.clk_trg = ch0.zc_to.
@@ -626,8 +685,7 @@ void section4_chaining() {
         ctc.write(0, 0x01);
         ctc.write(1, cw(false, true, false, false, false, true, false));
         ctc.write(1, 0x03);
-        ctc.tick(16);
-        ctc.tick(16);
+        ctc.tick(kTriggerEdge + 16 * 2 + kChainFalling);   // ch0 at 17, 33; ch1 at 19, 35
         uint8_t v = ctc.read(1);
         check("CTC-CH-02", v == 0x01,
               "zxnext.vhd:4084 ch1.clk_trg = ch0.zc_to",
@@ -643,8 +701,7 @@ void section4_chaining() {
         ctc.write(1, 0x01);  // TC=1 → fires each ch0 pulse
         ctc.write(2, cw(false, true, false, false, false, true, false));
         ctc.write(2, 0x03);
-        ctc.tick(16);
-        ctc.tick(16);
+        ctc.tick(kTriggerEdge + 16 * 2 + 2 * kChainFalling);   // ch2 counts at 21, 37
         uint8_t v = ctc.read(2);
         check("CTC-CH-03", v == 0x01,
               "zxnext.vhd:4084 ch2.clk_trg = ch1.zc_to",
@@ -662,8 +719,7 @@ void section4_chaining() {
         ctc.write(2, 0x01);
         ctc.write(3, cw(false, true, false, false, false, true, false));
         ctc.write(3, 0x03);
-        ctc.tick(16);
-        ctc.tick(16);
+        ctc.tick(kTriggerEdge + 16 * 2 + 3 * kChainFalling);   // ch3 counts at 23, 39
         uint8_t v = ctc.read(3);
         check("CTC-CH-04", v == 0x01,
               "zxnext.vhd:4084 ch3.clk_trg = ch2.zc_to",
@@ -682,7 +738,9 @@ void section4_chaining() {
         ctc.write(1, 0x02);
         ctc.write(2, cw(true, true, false, false, false, true, false));
         ctc.write(2, 0x02);
-        ctc.tick(16 * 4);
+        // ch0 at 17/33/49/65; ch1 counts 19, 35 (ZC/TO), 51, 67 (ZC/TO);
+        // ch2 counts 37, 69 (ZC/TO).
+        ctc.tick(kTriggerEdge + 16 * 4 + 2 * kChainFalling);
         check("CTC-CH-05", zc2 == 1,
               "zxnext.vhd:4084 3-stage cascade yields TC-product ZC/TO rate",
               fmt("zc2=%d", zc2));
@@ -705,6 +763,29 @@ void section4_chaining() {
               "ctc_chan.vhd:150 all-counter ring is dead (no source edges)",
               fmt("ch0=0x%02x ch1=0x%02x ch2=0x%02x ch3=0x%02x",
                   ctc.read(0), ctc.read(1), ctc.read(2), ctc.read(3)));
+    }
+
+    // CTC-CH-GH265-01 — the trigger edge select decides how far behind the
+    // ZC/TO the chained channel counts. o_zc_to (zc_to_d) is high for the
+    // cycle after the edge the count ran out on (ctc_chan.vhd:173-182);
+    // with D4 = 1 clk_trg_edge is `i_clk_trg and not clk_trg_d` — high in
+    // that same cycle — so a rising-edge counter counts on the FIRST edge
+    // after the ZC/TO (D4 = 0 waits for clk_trg_d, the second: CTC-CH-01).
+    // ch0 timer TC=1 fires on edge 17; ch1 counter D4=1 counts on 18.
+    // Pre-fix both counted on the ZC/TO's own edge.
+    {
+        fresh(ctc);
+        ctc.write(0, cw(false, false, false, false, false, true, false));
+        ctc.write(0, 0x01);
+        ctc.write(1, cw(false, true, false, true, false, true, false));   // counter, rising
+        ctc.write(1, 0x03);
+        ctc.tick(kTriggerEdge + 16);
+        const uint8_t at_zc = ctc.read(1);
+        ctc.tick(1);
+        const uint8_t next = ctc.read(1);
+        check("CTC-CH-GH265-01", at_zc == 0x03 && next == 0x02,
+              "ctc_chan.vhd:115-127,173-182 rising-edge trigger counts one edge after the ZC/TO",
+              fmt("at ZC/TO edge 0x%02x, one later 0x%02x (want 0x03, 0x02)", at_zc, next));
     }
 }
 
@@ -2027,7 +2108,7 @@ void section11_im2_peripheral() {
         // Drive ch0 in timer mode TC=1 → ZC/TO after one prescaler-16 period.
         ctc.write(0, cw(false, false, false, false, false, true, false));  // timer, tc_follows
         ctc.write(0, 0x01);                  // TC=1
-        ctc.tick(16);                        // one prescaler-16 period → ZC/TO
+        ctc.tick(kTriggerEdge + 16);         // S_TRIGGER edge + one prescaler-16 period → ZC/TO
 
         // Tick im2 to let the edge propagate (Phase 1 of step_devices()).
         im2.tick(1);
