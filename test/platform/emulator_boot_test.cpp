@@ -43,6 +43,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -993,6 +994,54 @@ int main()
         }
 
         std::remove(rec_path.c_str());
+    }
+
+    // --- EB-42: a recording that continues from a second snapshot -----------
+    // Contract (rzx::parse): jnext plays one snapshot and the input recorded
+    // after it. A file that goes on from a second snapshot (the RZX format
+    // allows it; FUSE writes one when a snapshot is inserted) is played up to
+    // that second snapshot — never the second machine state with the first
+    // session's input, which is what taking the LAST snapshot and every frame
+    // amounted to.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string a_path = (tmp / ("jnext-eb-seg-a-" + stamp + ".rzx")).string();
+        const std::string b_path = (tmp / ("jnext-eb-seg-b-" + stamp + ".rzx")).string();
+        constexpr uint16_t MARK_AT = 0x8800;
+        auto session = [&](uint8_t mark, int frames) {
+            RzxRecording rec;
+            rec.creator = "EBTEST";
+            rec.snapshot_data = z80_v1_image(0x1234, MARK_AT, mark);
+            rec.snapshot_ext = "z80";
+            rec.frames.resize(static_cast<std::size_t>(frames));
+            for (auto& fr : rec.frames) fr.instruction_count = 1;
+            return rec;
+        };
+        bool built = rzx::write(a_path, session(0xA1, 2)) && rzx::write(b_path, session(0xB2, 3));
+        std::vector<uint8_t> a, b;
+        if (built) {
+            std::ifstream fa(a_path, std::ios::binary), fb(b_path, std::ios::binary);
+            a.assign(std::istreambuf_iterator<char>(fa), {});
+            b.assign(std::istreambuf_iterator<char>(fb), {});
+            // Session B's blocks, minus its 10-byte header and 29-byte creator
+            // block, appended to file A: [A snapshot][A input][B snapshot][B input].
+            built = b.size() > 39;
+            if (built) a.insert(a.end(), b.begin() + 39, b.end());
+            built = built && write_bytes(a_path, a);
+        }
+        Emulator emu;
+        emu.init(base_config());
+        const bool plays = built && emu.load_rzx(a_path);
+        const std::size_t n = emu.rzx_player().recording().frames.size();
+        const uint8_t mark = emu.mmu().read(MARK_AT);
+        check("EB-42", "a file continuing from a second snapshot plays its FIRST session only",
+              plays && mark == 0xA1 && n == 2 &&
+                  emu.rzx_player().recording().later_snapshots == 1,
+              "mark=" + std::to_string(mark) + " frames=" + std::to_string(n));
+        std::remove(a_path.c_str());
+        std::remove(b_path.c_str());
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

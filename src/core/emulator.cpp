@@ -7143,6 +7143,12 @@ bool Emulator::load_rzx(const std::string& path)
     Log::emulator()->info("RZX: loaded '{}' — creator='{}' frames={} snapshot={}",
                           path, rec.creator, rec.frames.size(),
                           rec.snapshot_data.empty() ? "none" : rec.snapshot_ext);
+    if (rec.later_snapshots > 0) {
+        Log::emulator()->warn(
+            "RZX: '{}' continues from {} more snapshot(s); jnext plays only the part "
+            "before the second one ({} frames)",
+            path, rec.later_snapshots, rec.frames.size());
+    }
 
     // Playback replaces the machine and answers every IN from the file, so a
     // recording still running would record nothing from here on: write it and

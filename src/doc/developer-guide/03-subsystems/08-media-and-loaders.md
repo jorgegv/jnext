@@ -278,7 +278,10 @@ on a menu reset or on opening a file. (A reset the program asks for itself,
 through NR 0x02, replays like any other instruction and ends nothing.) jnext's
 reader and writer handle one snapshot and one input sequence per file, so
 continuing across the reset with a second snapshot block — which the RZX format
-allows — is not an option they offer.
+allows — is not an option they offer. A file from elsewhere that does continue
+from a second snapshot (FUSE writes one for an inserted snapshot) is played up
+to it: `rzx::parse()` stops there and counts the rest in
+`RzxRecording::later_snapshots`, and `load_rzx()` warns.
 
 ## Media out
 

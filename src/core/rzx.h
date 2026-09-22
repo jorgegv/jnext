@@ -24,6 +24,11 @@ struct RzxRecording {
     std::vector<RzxFrame> frames;
     uint32_t initial_tstates = 0;
     uint32_t flags = 0;
+    /// Snapshot blocks after the first. The format lets a recording continue
+    /// from a new snapshot (FUSE writes one for an inserted snapshot); jnext
+    /// plays one snapshot and its input, so parse() stops at the second
+    /// snapshot and counts it here instead of mixing the two sessions.
+    uint32_t later_snapshots = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -135,6 +140,20 @@ inline bool parse(const std::string& path, RzxRecording& rec) {
         uint8_t block_id = data[pos];
         uint32_t block_len = read_u32(data.data() + pos + 1);
         if (block_len < 5 || pos + block_len > file_size) break;
+
+        // A second snapshot starts a new session: its machine state and the
+        // input after it do not belong to the first. Taking its snapshot and
+        // appending its frames to the first session's (what this loop used
+        // to do) replays neither.
+        if (block_id == BLOCK_SNAPSHOT && (!rec.snapshot_data.empty() || !rec.frames.empty())) {
+            for (size_t p = pos; p + 5 <= file_size;) {
+                const uint32_t len = read_u32(data.data() + p + 1);
+                if (len < 5 || p + len > file_size) break;
+                if (data[p] == BLOCK_SNAPSHOT) ++rec.later_snapshots;
+                p += len;
+            }
+            break;
+        }
 
         if (block_id == BLOCK_CREATOR) {
             // Creator block: id(1) + len(4) + creator_string(20) + major(2) + minor(2)
