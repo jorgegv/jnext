@@ -1,18 +1,44 @@
 # ChangeLog
 
-## Unreleased (2026-08-13)
+## Unreleased (2026-09-22)
 
 ### Developer Features
 - New `--joy-uart-rx` puts a serial byte source on the joystick-port UART, with connector and start-delay options
 - Emulated ESP-01 gains a schedulable WiFi outage, so a bench can run the guest code that handles one
 - New `--esp-ip-address` sets the station address the module reports, and `--esp-ip-address-after` changes it across an outage
+- A program that fails to load now makes jnext exit non-zero, in every format and every frontend
+- Debug > Magic Breakpoint no longer resets the running machine when toggled
 
 ### Bug Fixes
+- `--load` of a NEX no longer hangs on esxDOS calls; Warhawk and most games on the SD image now start
+- NEX programs start with the registers, NextREGs and clip windows the Next's own loaders leave
+- Extended NEX files such as Spectron2084 load as the Next's loader does; kept-open handles start after the last bank
+- A malformed or truncated `.tap` or `.tzx` file is refused with an error; valid rare TZX blocks now load
+- Every GUI load path reports a failed load, and loading a tape replaces the one already inserted
+- Snapshots restore their interrupt mode into the Next's interrupt-status register
+- RZX playback and recording work in every frontend; failed writes exit non-zero and recordings of loaded programs replay
+- The SDL build honours `--speed` and `--tape-realtime`, and refuses options it cannot apply
+- A soft reset keeps memory, palettes and the picture already drawn, as on hardware; the border resets to black
+- Floating bus, I/O contention, raster and interrupt reads happen at the right cycle, matching FUSE and the hardware
+- Interrupts are taken, and CTC and interrupt-status reads sampled, on the exact cycle the hardware uses
+- Mid-frame Copper changes to tilemap, sprite, ULA and palette registers now show on the rows they target
+- Line interrupts, NR 0x1E/0x1F and Copper tilemap splits now land on the same rows as on hardware
+- Writes below the display no longer change the last visible row at 50 Hz
+- Turning off the 128K shadow screen restores the Timex screen mode
+- ULA+ palette writes through port 0xFF3B now take effect; write-only ports read 0xFF
+- A reset now restores the tilemap clip window
+- Rewinding in the debugger no longer leaves the machine running with a later frame's registers
+- Settings > Preferences has a shortcut again, Alt+P; Qt 6.11 had left it without one
 - The UART select register reports the channel in bit 6, as the hardware does; a read-then-write-back no longer switches channel
 - The joystick-port UART multiplexer now honours NR 0x0B in both directions, and needs both its enable bits
 - `--inject` no longer leaves the displaced program's HALT latch set, which delayed the injected program's first interrupt
 - `--help` now lists every flag jnext accepts, three of which were missing, and is generated from the option table
 - The emulated ESP-01 refuses `AT+CIPSTO` when no server is running, as the real module does
+
+### Internal JNEXT Development
+- The duplicate test-ID gate now checks every suite and planned row, with no exemptions left
+- The regression harness flags failures on a loaded host and names every failed row
+- Hard-reset tests now go through the real cold boot, which exposed and fixed four reset bugs
 
 ## v0.99.144 (2026-08-09)
 
