@@ -204,7 +204,7 @@ struct Fixture {
         win.setCentralWidget(panel);
         win.resize(700, PAINT_Y + VIS_LINES * LINE_H);
         win.show();
-        QApplication::setActiveWindow(&win);
+        win.activateWindow();
         panel->resize(700, PAINT_Y + VIS_LINES * LINE_H);
         panel->setFocus();
         QApplication::processEvents();
@@ -820,12 +820,12 @@ void test_painter_symbols() {
     release_mouse(fx.panel, 0);
     const QString copied =
         fx.panel->selection_text(disasm_text::CopyFormat::AsmOnly).trimmed();
-    const QImage painted  = mnemonic_cell(render_panel(fx.panel), 0);
     const QImage expected = reference_cell(copied);
 
-    // press_line() selected the row, so the cell now carries the selection
-    // tint; compare against the same text on the same tinted background by
-    // clearing the selection first.
+    // reference_cell() draws on a plain white background, so the panel's cell
+    // has to be untinted to match: press_line() above selected the row to make
+    // a selection to copy, and the render has to happen after that tint is
+    // gone. Hence the clear, and hence rendering only once, here.
     fx.panel->clear_selection();
     QApplication::processEvents();
     const QImage painted_plain = mnemonic_cell(render_panel(fx.panel), 0);
@@ -835,7 +835,6 @@ void test_painter_symbols() {
           fmt("copied=%s painted%s match reference",
               shown(copied).c_str(),
               painted_plain == expected ? "es" : " does NOT"));
-    (void)painted;
 }
 
 // ── Group EDGE — the branches nothing else reaches ───────────────────
@@ -856,10 +855,23 @@ void test_edge_cases() {
                 .arg(QCoreApplication::applicationPid()));
         {
             QFile f(path);
-            f.open(QIODevice::WriteOnly | QIODevice::Text);
+            if (!f.open(QIODevice::WriteOnly | QIODevice::Text)) {
+                check("GH21-30", "a literal $0000 immediate is substituted "
+                                 "and a bare NOP is not",
+                      false, "could not write the fixture MAP file");
+                return;
+            }
             f.write("reset_vector = $0000\n");
         }
-        syms.load_simple_map(path.toStdString());
+        // An empty table would make this row fail for a reason that has
+        // nothing to do with substitution, so say so instead.
+        if (syms.load_simple_map(path.toStdString()) != 1) {
+            QFile::remove(path);
+            check("GH21-30", "a literal $0000 immediate is substituted "
+                             "and a bare NOP is not",
+                  false, "the fixture MAP file did not load one symbol");
+            return;
+        }
         QFile::remove(path);
 
         //  $0000: 21 00 00   LD HL,$0000   -> the real $0000, substituted
