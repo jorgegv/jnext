@@ -38,7 +38,6 @@ public:
     // Callers:
     //   * Emulator::init(cfg, preserve_memory=false)  → reset(true)  [hard]
     //   * Emulator::init(cfg, preserve_memory=true)   → reset(false) [soft]
-    //   * Emulator::reset()                            → reset(true)  [hard]
     void reset(bool hard);
     // Backwards-compatible overload: defaults to hard reset (power-on
     // semantics). Callers that have not yet been threaded through the

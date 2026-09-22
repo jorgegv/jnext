@@ -223,7 +223,12 @@ bool CtcChannel::count_step() {
     if (counter_ == 0) {
         // ZC/TO: reload from time constant
         counter_ = time_constant_;
-        ctc_log()->trace("ZC/TO! reload={:#04x}", time_constant_);
+        // Guarded, like every per-event and per-port-read log call in this
+        // file, for the should_log() reason given in PortDispatch::read
+        // (src/port/port_dispatch.cpp): unguarded, a call with arguments is
+        // an out-of-line call per ZC/TO or read with the level off (GH #244).
+        if (ctc_log()->should_log(spdlog::level::trace))
+            ctc_log()->trace("ZC/TO! reload={:#04x}", time_constant_);
         return true;
     }
     return false;
@@ -252,7 +257,8 @@ void Ctc::write(int channel, uint8_t val) {
 uint8_t Ctc::read(int channel) const {
     if (channel < 0 || channel > 3) return 0xFF;
     uint8_t val = channels_[channel].read();
-    ctc_log()->trace("read ch{} = {:#04x}", channel, val);
+    if (ctc_log()->should_log(spdlog::level::trace))
+        ctc_log()->trace("read ch{} = {:#04x}", channel, val);
     return val;
 }
 
@@ -330,7 +336,8 @@ void Ctc::tick_events(uint32_t master_cycles) {
 
 void Ctc::trigger(int channel) {
     if (channel < 0 || channel > 3) return;
-    ctc_log()->trace("external trigger ch{}", channel);
+    if (ctc_log()->should_log(spdlog::level::trace))
+        ctc_log()->trace("external trigger ch{}", channel);
     if (channels_[channel].trigger()) {
         handle_zc_to(channel);
     }
@@ -373,7 +380,8 @@ void Ctc::handle_zc_to(int channel) {
     // UART RX/TX pattern at uart.cpp:621-630). Without this, flipping int_en
     // between two ZC/TO pulses loses the prior pulse race-the-edge.
     if (on_interrupt) {
-        ctc_log()->debug("ch{} ZC/TO -> interrupt (unconditional, IM2 gates int_en)", channel);
+        if (ctc_log()->should_log(spdlog::level::debug))
+            ctc_log()->debug("ch{} ZC/TO -> interrupt (unconditional, IM2 gates int_en)", channel);
         on_interrupt(channel);
     }
 
@@ -383,8 +391,9 @@ void Ctc::handle_zc_to(int channel) {
     // ch0←ch3, ch1←ch0, ch2←ch1, ch3←ch2.
     const int next = (channel + 1) & 3;
     trg_delay_[next] = channels_[next].rising_edge_trigger() ? 1 : 2;
-    ctc_log()->trace("ch{} ZC/TO -> trigger ch{} in {} edge(s)", channel, next,
-                     static_cast<int>(trg_delay_[next]));
+    if (ctc_log()->should_log(spdlog::level::trace))
+        ctc_log()->trace("ch{} ZC/TO -> trigger ch{} in {} edge(s)", channel, next,
+                         static_cast<int>(trg_delay_[next]));
 }
 
 void CtcChannel::save_state(StateWriter& w) const

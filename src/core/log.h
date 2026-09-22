@@ -45,7 +45,8 @@
 ///
 ///   trace    Per-instruction / per-scanline firehose.
 ///
-/// Two mechanical rules that stop log spam at the source:
+/// Three mechanical rules: 1-2 stop log spam at the source, 3 keeps a silent
+/// log free.
 ///
 ///   1. NOTHING above `debug` in a per-frame or per-port-write path, and
 ///      nothing above `trace` in a per-instruction path.
@@ -54,6 +55,18 @@
 ///      on every write. Programs rewrite the same register every frame; without
 ///      this even `debug` is unusable. (This is what made NR 0x07 CPU-speed
 ///      writes flood the console at info — the original Task 24 complaint.)
+///
+///   3. A trace() WITH ARGUMENTS on a guest-driven path, and a debug() with
+///      arguments that fires per data byte or per timer event rather than per
+///      state change, is wrapped in `if (logger->should_log(level))` — these
+///      run per instruction, port access, byte or Copper cycle. spdlog tests the
+///      level at the call site only for the plain-string form; with arguments
+///      it marshals them and makes an out-of-line call first: 22-50 retired
+///      instructions per call measured with the level off (v0.99.146, GH #244;
+///      rationale at PortDispatch::read). The guard is exact only because
+///      jnext never calls enable_backtrace(): spdlog's own test is
+///      `should_log(lvl) || tracer_.enabled()`. If that ever changes, every
+///      such guard must gain the tracer term.
 /// ---------------------------------------------------------------------------
 
 #include <memory>

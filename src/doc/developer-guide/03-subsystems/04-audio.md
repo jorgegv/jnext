@@ -123,7 +123,8 @@ frames' worth, which drops the oldest sample on overrun. Two optional callbacks
 tap the same samples, one for `--record` video muxing and one for `--wav-record`
 (`AudioRecorder`). Per-source gains and the debugger's mute mask are host
 settings rather than machine state, so they are excluded from `reset()` and from
-snapshots.
+snapshots, and the cold boot of a hard reset carries both across (the gains in
+the boot config, the mask in `emulator_cold_boot()`).
 
 ## Getting samples to the host
 

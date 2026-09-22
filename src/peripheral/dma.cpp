@@ -311,7 +311,12 @@ void Dma::write(uint8_t val, bool z80_compat) {
             break;
         }
 
-        dma_log()->trace("DMA wr_seq sub-byte: val={:#04x} next_seq={}", val, static_cast<int>(wr_seq_));
+        // Guarded — as every per-port-access trace in this file — for the
+        // should_log() reason given in PortDispatch::read
+        // (src/port/port_dispatch.cpp): unguarded, a trace() with arguments
+        // is an out-of-line call per DMA port byte with tracing off (GH #244).
+        if (dma_log()->should_log(spdlog::level::trace))
+            dma_log()->trace("DMA wr_seq sub-byte: val={:#04x} next_seq={}", val, static_cast<int>(wr_seq_));
         return;
     }
 
@@ -427,7 +432,8 @@ void Dma::write(uint8_t val, bool z80_compat) {
         return;
     }
 
-    dma_log()->trace("DMA write: unrecognized base byte {:#04x}", val);
+    if (dma_log()->should_log(spdlog::level::trace))
+        dma_log()->trace("DMA write: unrecognized base byte {:#04x}", val);
 }
 
 // ─── R6 command processing ───────────────────────────────────────────
@@ -535,7 +541,8 @@ void Dma::process_r6_command(uint8_t val) {
         break;
 
     default:
-        dma_log()->trace("R6: unhandled command {:#04x}", val);
+        if (dma_log()->should_log(spdlog::level::trace))
+            dma_log()->trace("R6: unhandled command {:#04x}", val);
         break;
     }
 }
@@ -587,7 +594,8 @@ uint8_t Dma::read() {
     // Advance to next read field based on read mask
     advance_read_seq(static_cast<int>(rd_seq_));
 
-    dma_log()->trace("DMA read: {:#04x}", result);
+    if (dma_log()->should_log(spdlog::level::trace))
+        dma_log()->trace("DMA read: {:#04x}", result);
     return result;
 }
 

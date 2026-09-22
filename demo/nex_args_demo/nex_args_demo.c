@@ -11,8 +11,8 @@
  * The buffer address and size are the ones the patched header declares
  * (see make-v13.py: 0xBF00, 32 bytes) — a compile-time constant here,
  * because the C runtime clobbers DE long before main() could read it.
- * The loader sets DE to the same address; that half is proven by the
- * NEXV13-CLI-01/04 unit rows, which can read DE at the instant of entry.
+ * The loader leaves DE one past the buffer (0xBF20 here, nexload2's ldir);
+ * the NEXV13-CLI-01/04 unit rows read DE at the instant of entry.
  *
  * Text is drawn with the ROM character set at $3D00, the same route
  * demo/rom_charset_test uses (available under --load since Task 20).

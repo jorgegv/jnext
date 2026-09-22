@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.166</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.166</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1943,6 +1943,12 @@ header</strong> — <code>z80_loader.h</code>, <code>tap_loader.h</code>, <code>
 one specific reason: it lets test tiers that cannot link <code>jnext_core</code> exercise
 the real parser rather than a copy of it. See
 <a href="../04-testing/index.html">chapter 4</a>.</p>
+<p>A loader that puts the CPU straight into an interrupt mode (<code>.sna</code>, <code>.z80</code>,
+<code>.szx</code>, and a NEX entering at IM 1) executes no <code>IM</code> instruction, and the latch
+behind NR <code>0xC0</code> bits 2:1 is fed only by the ones the CPU decodes
+(<code>im2_control.vhd:218-229</code>). So <code>Emulator::load_sna()</code>/<code>load_z80()</code>/<code>load_szx()</code>
+and <code>NexLoader::apply()</code> seed it with <code>Im2Controller::set_im_mode()</code> from the
+restored CPU.</p>
 <h2 id="tapes-two-completely-different-mechanisms">Tapes: two completely different mechanisms<a class="headerlink" href="#tapes-two-completely-different-mechanisms" title="Permanent link">&para;</a></h2>
 <p>Loading from tape is the one place where the emulator offers you a choice
 between fidelity and speed, so it is worth being clear about what the choice
@@ -1981,9 +1987,22 @@ file exactly — a block whose declared length runs past the end, or one stray
 byte where a length field should start — the two cases FUSE's libspectrum TAP
 reader rejects. A bad checksum or flag byte inside a complete block is not a
 container error: the tape loads, and the ROM reports "R Tape loading error"
-when it reads that block. <code>.tzx</code> gets no such check:
-ZOT's <code>tzx_load()</code> accepts any file of two bytes or more, taking one without
-the TZX signature as TAP data.</p>
+when it reads that block. <code>TzxLoader::validate()</code> does the same for a <code>.tzx</code>
+against libspectrum's TZX reader: the <code>ZXTape!</code> signature, then every block
+walked with that reader's length rules, so a block that runs past the end or a
+header with no block after it refuses the whole tape. ZOT's own <code>tzx_load()</code>
+checks none of this — it took any file of two bytes or more, and one without
+the signature as TAP data — so the check runs first and ZOT only ever sees a
+validated TZX.</p>
+<p>Where jnext deliberately accepts more than libspectrum is the block IDs that
+library does not implement and refuses outright. The TZX specification gives
+each of <code>$16</code>, <code>$17</code>, <code>$18</code>, <code>$26</code>, <code>$27</code>, <code>$34</code> and <code>$40</code> a length formula, and
+every later ID one through its General Extension Rule (a DWORD length after
+the ID), so such a block is valid when its length fields fit the file.
+<code>spec_skip_body()</code> holds those formulas; the validator, the fast-load scanner
+and ZOT (a local patch in <code>third_party/zot/tzx.c</code>) all skip these blocks by
+them, and <code>$19</code>, which ZOT cannot play either, the same way — the blocks after
+still load. <code>load()</code> warns about each skipped block that carried content.</p>
 <h2 id="nex">NEX<a class="headerlink" href="#nex" title="Permanent link">&para;</a></h2>
 <p><code>.nex</code> is the Next's native program container, and the most involved loader
 here: four header versions, optional Layer 2 / LoRes / tilemode loading
@@ -2019,7 +2038,8 @@ handle goes: 1 to <code>$3FFF</code> in <code>BC</code> (<code>B</code>=0, <code
 written to that address (<code>delivers_handle_in_bc()</code>; <code>nexload2.asm:397-407</code>,
 <code>nexload.asm:560-570</code> and <code>:606-609</code>). <code>Emulator::load_nex()</code> then opens the
 host file behind the handle — the extended-NEX host bridge in the stand-in
-below — and the program streams them. With 0, both loaders read the declared
+below — at <code>payload_offset()</code>, just after the last bank, where both loaders
+hand their own handle over (GH #267), and the program streams them. With 0, both loaders read the declared
 banks and close the file, with no size check at all (<code>nexload2.asm:390-395</code>,
 <code>nexload.asm:547-551</code>), so the bytes are dead. jnext matches that: the program
 loads and runs, and more than 16 KB of dead bytes logs a warning (GH #250,
@@ -2031,6 +2051,26 @@ the in-memory file.</p>
 loaders disagree on what <code>BC</code> holds at entry, and <code>load_nex()</code> follows the one
 that really runs the file: <code>$00FF</code> ("no handle") for V1.3 (<code>nexload2.asm:407</code>),
 <code>$0000</code> for V1.0–V1.2 (<code>nexload.asm:582-585</code>).</p>
+<p>The rest of the entry state is <code>NexLoader::apply()</code>'s, and the comment there
+tabulates it. Both loaders jump through the NextZXOS DivMMC ROM's <code>RST $20</code>,
+which leaves <code>AF=$0044</code>, <code>HL</code> = PC, and the entry PC in the word just below
+<code>SP</code> (its <code>push hl : ret</code>; <code>load_nex()</code> writes it). <code>DE</code> and <code>IX</code> are what each loader's
+own last instructions leave: for V1.0–V1.2, <code>DE=$6Fxx</code> from the bank loop and
+<code>IX</code> = the address of the last block read; for V1.3, <code>DE</code> = the CLI buffer
+address plus its size (not the address, whatever the format's notes say) and
+<code>IX</code> = 0, 1 or <code>$C000</code>. <code>IY</code>, <code>I</code>, <code>IM</code> and the alternate set belong to
+NextZXOS, which neither loader touches; jnext uses the values measured under
+the distro image's NextZXOS (<code>IY=$5C3A</code>, <code>I=$09</code>, IM 1), found identical for
+every launch path tried. Interrupts are off. NR <code>0xC0</code>'s interrupt-mode field
+is seeded to match, since no <code>IM</code> instruction runs.</p>
+<p>The NextREGs follow each loader the same way: NR <code>0x06</code> and <code>0x08</code> are
+read-modify-writes with each loader's own masks (so the internal-speaker and
+stereo bits a user set survive where that loader keeps them); the V1.0–V1.2
+loader sets 14 MHz before anything else, so a file with DONTRESETNEXTREGS set
+starts at 14 MHz, not at the speed it found; and both loaders act on the
+expansion-bus byte at header offset 142 whatever the file's version. What
+NextZXOS itself leaves in registers no loader writes (its config, its NMI
+setup) jnext does not reproduce; the list is in <code>apply()</code>.</p>
 <h2 id="the-esxdos-stand-in-for-directly-loaded-programs">The esxDOS stand-in for directly loaded programs<a class="headerlink" href="#the-esxdos-stand-in-for-directly-loaded-programs" title="Permanent link">&para;</a></h2>
 <p>On hardware a NEX is always started by NextZXOS's <code>nexload</code>, so the program
 can call the esxDOS / NextZXOS API: <code>RST $08</code> followed by a one-byte call
@@ -2054,15 +2094,17 @@ loaded from the GUI after start-up.</p>
 <p><strong>When it answers.</strong> Three things arm it:</p>
 <ul>
 <li><code>direct_nex_esxdos_</code> — set by <code>Emulator::load_nex()</code> for every NEX it loads,
-  cleared by <code>reset()</code> and <code>soft_reset()</code>. <code>load_sna()</code>, <code>load_szx()</code> and
-  <code>load_z80()</code> reset, and RZX playback goes through <code>load_sna()</code>, so a snapshot
-  clears it. <code>load_tap()</code>, <code>load_tzx()</code> and <code>load_wav()</code> deliberately do not:
-  they attach tape media to the running machine, so a NEX still running keeps
-  its stand-in.</li>
+  cleared by <code>init()</code>, so by a soft reset, and gone after a hard reset, which
+  reconstructs the emulator. <code>load_sna()</code>, <code>load_szx()</code> and <code>load_z80()</code>
+  re-run <code>init()</code> before applying the file, and RZX playback goes through
+  <code>load_sna()</code>, so a snapshot clears it. <code>load_tap()</code>, <code>load_tzx()</code> and
+  <code>load_wav()</code> deliberately do not: they attach tape media to the running
+  machine, so a NEX still running keeps its stand-in.</li>
 <li><code>EmulatorConfig::esxdos_stub</code> (<code>--esxdos-stub</code>), for the whole session.</li>
 <li>The extended-NEX host bridge (<code>extended_nex_host_</code>), open when the NEX
   header's <code>file_handle</code> is non-zero. Only <code>load_nex()</code> opens it, so it never
-  exists without <code>direct_nex_esxdos_</code>; reset and soft reset close it.</li>
+  exists without <code>direct_nex_esxdos_</code>; <code>init()</code> closes it, so both resets and
+  every re-initialising load do.</li>
 </ul>
 <p><strong>The ROM gate.</strong> Whatever armed it, the handler answers nothing unless NR
 <code>$50</code> reads <code>$FF</code>, i.e. ROM is paged in at <code>$0000</code>. That is the hardware's own
@@ -2172,11 +2214,8 @@ the regression rows <code>extended-nex-stream-func</code> and <code>esxdos-chain
 real programs.</p>
 <p><strong>Known gaps.</strong> A directly loaded program cannot reach host files other than
 the kept-open NEX and its siblings; a host directory for it is
-<a href="https://github.com/jorgegv/jnext/issues/31">#31</a>, not implemented. The
-kept-open handle starts at file position 0 rather than after the last bank, as
-<code>nexload</code> leaves it
-(<a href="https://github.com/jorgegv/jnext/issues/267">#267</a>). There is one
-in-memory file, with no <code>F_SEEK</code>. <code>M_DOSVERSION</code> reports 1.94 without the host
+<a href="https://github.com/jorgegv/jnext/issues/31">#31</a>, not implemented. There is
+one in-memory file, with no <code>F_SEEK</code>. <code>M_DOSVERSION</code> reports 1.94 without the host
 bridge.</p>
 <h2 id="rzx">RZX<a class="headerlink" href="#rzx" title="Permanent link">&para;</a></h2>
 <p>RZX records a <em>session</em>, and it does so by recording inputs rather than

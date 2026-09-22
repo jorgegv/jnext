@@ -11,6 +11,7 @@
 #include "core/extended_nex_host.h"
 #include "core/nex_loader.h"
 #include "peripheral/sd_card.h"
+#include "platform/emulator_boot.h"
 #include "core/log.h"
 
 #include <spdlog/sinks/ostream_sink.h>
@@ -487,28 +488,43 @@ int main() {
     regs = {};
     const bool rearmed_after_soft =
         reload_after_soft && esx(gui_emu, 0x88, regs) && !carry(regs);
-    gui_emu.reset();
+    // GH #239 — the production hard reset (F1, Machine > Power Reset, a
+    // guest's NR 0x02 bit 1): the frontend cold boot, with no file to load.
+    // That boot attaches the RST $08 hook only for --esxdos-stub or with the
+    // esxdos logger at trace; with no hook, "not answered" would hold by
+    // absence. So the reset runs with esxdos at trace (as
+    // `--log-level esxdos=trace` then F1 does) and the row REQUIRES the hook,
+    // whose answer is then the evidence that the bridge was disarmed.
+    const auto esx_level = Log::esxdos()->level();
+    Log::esxdos()->set_level(spdlog::level::trace);
+    emulator_frontend_cold_boot(gui_emu, gui_emu.config(), std::string(),
+                                ColdBootHooks{});
     regs = {};
-    const bool hard_bridge_gone = !esx(gui_emu, 0x88, regs);
-    check("XNEX-26", "hard reset disarms a reloaded host bridge",
-          rearmed_after_soft && hard_bridge_gone &&
+    const bool hard_hook = static_cast<bool>(gui_emu.cpu().on_esxdos_call);
+    const bool hard_bridge_gone = hard_hook && !esx(gui_emu, 0x88, regs);
+    Log::esxdos()->set_level(esx_level);
+    check("XNEX-26", "hard reset (frontend cold boot) disarms a reloaded host bridge: "
+          "with the hook present (esxdos tracing on) M_DOSVERSION is no longer "
+          "answered and the SD read overlay is gone",
+          rearmed_after_soft && hard_hook && hard_bridge_gone &&
           !gui_emu.sd_card().has_read_overlay());
 
-    // A command-line load reattaches the dormant hook during reset because
-    // config_.load_file remains a NEX path. The hook must nevertheless decline
-    // the call once reset has cleared the host path, allowing the real ROM's
-    // RST $08 handler to run.
+    // A command-line load reattaches the dormant hook on a SOFT reset, because
+    // init() re-runs with config_.load_file still a NEX path. (A hard reset
+    // cold-boots with the load file cleared, so it attaches no hook at all.)
+    // The hook must nevertheless decline the call once the reset has cleared
+    // the host path, allowing the real ROM's RST $08 handler to run.
     Emulator cli_emu;
     EmulatorConfig cli_cfg = cfg;
     const bool cli_loaded =
         cli_emu.init(cli_cfg) &&
         cli_emu.load_nex(register_path.string());
-    cli_emu.reset();
+    cli_emu.soft_reset();
     regs = {};
     const bool cli_hook_present =
         static_cast<bool>(cli_emu.cpu().on_esxdos_call);
     const bool cli_bridge_gone = !esx(cli_emu, 0x88, regs);
-    check("XNEX-27", "CLI reset keeps a dormant hook without servicing host calls",
+    check("XNEX-27", "CLI soft reset keeps a dormant hook without servicing host calls",
           cli_loaded && cli_hook_present && cli_bridge_gone &&
           !cli_emu.sd_card().has_read_overlay());
 
@@ -554,9 +570,14 @@ int main() {
     closed_cfg.load_file = closed_ext_path.string();
     const bool closed_loaded = closed_emu.init(closed_cfg) &&
                                closed_emu.load_nex(closed_ext_path.string());
+    // The whole bank is the file's 0x5A except the word just below the entry
+    // SP ($FF00, write_nex()): the NextZXOS RST $20 both loaders leave through
+    // pushes the entry PC ($C000) there (NEXENT-19).
     bool bank_ok = closed_loaded;
-    for (uint32_t a = 0xC000; a <= 0xFFFF && bank_ok; ++a)
-        bank_ok = closed_emu.mmu().read(static_cast<uint16_t>(a)) == 0x5A;
+    for (uint32_t a = 0xC000; a <= 0xFFFF && bank_ok; ++a) {
+        const uint8_t want = a == 0xFEFE ? 0x00 : a == 0xFEFF ? 0xC0 : 0x5A;
+        bank_ok = closed_emu.mmu().read(static_cast<uint16_t>(a)) == want;
+    }
     const uint8_t* sram = closed_emu.ram().page_ptr(0);
     const std::string marker = "GH250-TRAILING";
     const bool payload_in_ram =
@@ -679,8 +700,9 @@ int main() {
     // XNEX-37/38 are the regression rows for the load_nex() BC write: without
     // it, V1.3 enters with BC=$0000. XNEX-39 guards the handle-in-BC case
     // against that write. XNEX-40/41 are NOT regression rows for it — BC is
-    // already $0000 after load_nex()'s hard reset, so they pass with the
-    // write removed. They pin V1.0-V1.2 to the distro loader's $0000 against
+    // already $0000 after load_nex()'s init(config_) re-initialisation, so
+    // they pass with the write removed. They pin V1.0-V1.2 to the distro
+    // loader's $0000 against
     // a "use nexload2's 255 for every version" change, which they do catch.
     struct BcLoad { bool ok = false; uint16_t bc = 0; uint8_t at_4000 = 0; };
     auto load_bc = [&](const char* name, const char* version, uint16_t file_handle) {
@@ -725,6 +747,77 @@ int main() {
           "(nexload.asm:560-585; version pin, not a regression row)",
           v12_mem.ok && v12_mem.at_4000 == ExtendedNexHost::kHandle &&
           v12_mem.bc == 0x0000, bc_detail(v12_mem));
+
+    // GH #267 — the kept-open handle starts where the loader's bank loading
+    // left it, just after the last bank: nexload2.asm:390-407
+    // (.passHandleToApp) and nexload.asm:547-570 pass it on without a seek,
+    // so the first bare F_READ returns the appended payload. Measured under
+    // NextZXOS: a probe NEX doing a bare 4-byte F_READ on its handle gets the
+    // payload's first bytes, and F_FGETPOS then says payload + 4. The rows
+    // before these all seek first, so none looked at what a bare read gets.
+    struct BareRead { bool ok = false; std::string bytes; uint32_t pos = 0; };
+    auto bare_read = [&](const std::filesystem::path& path, uint16_t file_handle) {
+        BareRead r;
+        auto emu_ptr = std::make_unique<Emulator>();
+        EmulatorConfig bare_cfg = cfg;
+        bare_cfg.load_file = path.string();
+        const bool loaded = write_nex(path, file_handle, payload) &&
+                            emu_ptr->init(bare_cfg) && emu_ptr->load_nex(path.string());
+        Z80Registers rr{};
+        rr.AF = static_cast<uint16_t>(ExtendedNexHost::kHandle << 8);
+        rr.IX = 0x9000;
+        rr.BC = 4;
+        const bool read_ok = loaded && esx(*emu_ptr, 0x9D, rr) && !carry(rr) && rr.BC == 4;
+        for (uint16_t i = 0; i < 4; ++i)
+            r.bytes.push_back(static_cast<char>(emu_ptr->mmu().read(0x9000 + i)));
+        rr = {};
+        rr.AF = static_cast<uint16_t>(ExtendedNexHost::kHandle << 8);
+        const bool pos_ok = read_ok && esx(*emu_ptr, 0xA0, rr) && !carry(rr);
+        r.pos = (static_cast<uint32_t>(rr.BC) << 16) | rr.DE;
+        r.ok = pos_ok;
+        return r;
+    };
+    const BareRead bare_bc = bare_read(root / "bare-bc.nex", 0x0001);
+    check("XNEX-42",
+          "file_handle=1: a bare F_READ (no seek) returns the first payload bytes, and "
+          "F_FGETPOS then reports payload offset + 4 (GH #267)",
+          bare_bc.ok && bare_bc.bytes == "PAY!" && bare_bc.pos == 512 + 16384 + 4,
+          "bytes=" + bare_bc.bytes + " pos=" + std::to_string(bare_bc.pos));
+    const BareRead bare_mem = bare_read(root / "bare-mem.nex", 0xBFFE);
+    check("XNEX-43",
+          "file_handle=$BFFE (handle written to memory): a bare F_READ also starts at the "
+          "payload (GH #267)",
+          bare_mem.ok && bare_mem.bytes == "PAY!" && bare_mem.pos == 512 + 16384 + 4,
+          "bytes=" + bare_mem.bytes + " pos=" + std::to_string(bare_mem.pos));
+    {
+        // Control: the program's OWN F_OPEN of its file is a fresh open, at 0.
+        auto emu_ptr = std::make_unique<Emulator>();
+        const auto path = root / "reopen.nex";
+        EmulatorConfig reopen_cfg = cfg;
+        reopen_cfg.load_file = path.string();
+        const bool loaded = write_nex(path, 0x0001, payload) &&
+                            emu_ptr->init(reopen_cfg) && emu_ptr->load_nex(path.string());
+        Z80Registers rr{};
+        if (loaded) write_zstr(*emu_ptr, 0x9100, "reopen.nex");
+        rr.AF = static_cast<uint16_t>('*' << 8);
+        rr.BC = 0x0100;   // B = FA_READ
+        rr.IX = 0x9100;
+        const bool open_ok = loaded && esx(*emu_ptr, 0x9A, rr) && !carry(rr);
+        const uint8_t h = reg_a(rr);
+        rr = {};
+        rr.AF = static_cast<uint16_t>(h << 8);
+        rr.IX = 0x9000;
+        rr.BC = 4;
+        const bool read_ok = open_ok && esx(*emu_ptr, 0x9D, rr) && !carry(rr);
+        std::string bytes;
+        for (uint16_t i = 0; i < 4; ++i)
+            bytes.push_back(static_cast<char>(emu_ptr->mmu().read(0x9000 + i)));
+        check("XNEX-44",
+              "control: the program's own F_OPEN of its file starts at 0 — a bare F_READ "
+              "then returns the header's \"Next\"",
+              read_ok && h == ExtendedNexHost::kHandle && bytes == "Next",
+              "handle=" + std::to_string(h) + " bytes=" + bytes);
+    }
 
     Log::emulator()->sinks().pop_back();
 

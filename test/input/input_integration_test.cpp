@@ -45,6 +45,7 @@
 #include "input/joystick_dispatcher.h"
 #include "input/membrane_stick.h"
 #include "input/emu_fnkeys.h"
+#include "platform/emulator_boot.h"
 #include "port/nextreg.h"
 
 #include <cstdio>
@@ -996,10 +997,10 @@ static void test_hotkey(Emulator& emu) {
 // restarts the ROM, so keystrokes aimed at the pre-reset machine must not
 // be delivered to the post-reset one.
 //
-// `phantom_typist_.reset()` used to be called only from
-// `Emulator::reset()`. A soft reset never goes through that function —
-// it routes through `init(preserve_memory=true)` — so an armed typist
-// survived it and typed into the freshly reset machine.
+// `phantom_typist_.reset()` used to be called only from the in-place
+// `Emulator::reset()` (since removed, GH #239). A soft reset never went
+// through that function — it routes through `init(preserve_memory=true)` —
+// so an armed typist survived it and typed into the freshly reset machine.
 //
 // These rows drive the REAL port path (`IN A,(0xFE)` per row) and the
 // real guest reset (NR 0x02 bit 0), so they exercise the same wiring a
@@ -1069,34 +1070,33 @@ static void test_gh233_phantom_typist_reset(Emulator& emu) {
                      emu.keyboard().auto_typing() ? 1 : 0));
     }
 
-    // GH233-04 — Emulator::reset(), the in-place reinit method, still
-    // cancels. It called phantom_typist_.reset() directly before the fix
-    // and now reaches it twice (once itself, once via init()); the two
-    // calls must remain idempotent.
-    //
-    // This row pins THAT METHOD and nothing more. It is NOT a test of the
-    // hard reset a user performs: `Emulator::reset()` has no callers in
-    // src/ at all. F1, Machine > Power Reset and a guest's NR 0x02 bit 1
-    // all go request_hard_reset() -> emulator_cold_boot()
-    // (platform/emulator_boot.h:85-95), which runs `emu.~Emulator(); new
-    // (&emu) Emulator(); emu.init(cfg);` — the typist is a freshly
-    // constructed, INACTIVE object before init() is even entered, so the
-    // GH #233 defect was unreachable on that path by construction. Soft
-    // reset was the only way to hit it, which is why GH233-01/02/03 are
-    // the rows that discriminate the fix.
+    // GH233-04 — the HARD reset a user performs (F1, Machine > Power Reset,
+    // a guest's NR 0x02 bit 1) also leaves no autostart pending. That path
+    // is the frontend cold boot (platform/emulator_boot.h), which runs
+    // `emu.~Emulator(); new (&emu) Emulator(); emu.init(cfg);` — the typist
+    // is a freshly constructed, INACTIVE object before init() is entered, so
+    // the GH #233 defect was unreachable here by construction; soft reset was
+    // the only way to hit it, which is why GH233-01/02/03 are the rows that
+    // discriminate the fix. This row pins the production hard reset (GH #239:
+    // it used to exercise the in-place Emulator::reset(), which no user reset
+    // ever reached) — it fails if the cold boot ever starts carrying the
+    // typist across, the way it carries the debugger's breakpoints.
     {
         fresh(emu);
         emu.phantom_typist().arm(MachineType::ZX48K);
         const bool armed = emu.phantom_typist().is_active();
-        emu.reset();                      // the in-place reinit method
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
+        for (uint8_t row : kRows) (void)read_fe(emu, row);
+        for (int f = 0; f < 64; ++f) emu.phantom_typist().tick_frame();
         check("GH233-04",
-              "Emulator::reset() (the in-place reinit method, no production "
-              "callers) also disarms a pending TAP autostart — its own call "
-              "and init()'s stay idempotent",
-              armed && !emu.phantom_typist().is_active(),
-              detail("armed=%d after_reset=%d (want 1 then 0)",
+              "a hard reset (frontend cold boot) also disarms a pending TAP "
+              "autostart — a full ROM keyboard scan afterwards queues no keystrokes",
+              armed && !emu.phantom_typist().is_active() &&
+                  !emu.keyboard().auto_typing(),
+              detail("armed=%d after_reset active|auto_typing=%d (want 1, 0)",
                      armed ? 1 : 0,
-                     emu.phantom_typist().is_active() ? 1 : 0));
+                     (emu.phantom_typist().is_active() ||
+                      emu.keyboard().auto_typing()) ? 1 : 0));
     }
 
     // GH233-05 — the ordering guard. `arm()` has exactly one caller

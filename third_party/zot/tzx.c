@@ -506,7 +506,29 @@ static int tzx_parse_next_block(TZXPlayer *p) {
                 case 0x33: if (remaining >= 1) body_size = 1 + b[0] * 3; break;
                 case 0x35: if (remaining >= 20) body_size = 20 + (int)r32(b + 16); break;
                 case 0x5A: body_size = 9; break;
-                default: break;
+                /* jnext: the blocks ZOT cannot play are SKIPPED by their
+                 * TZX-spec length instead of ending playback, so the blocks
+                 * after them still play (jnext's TzxLoader::validate() has
+                 * checked every length against the file first).
+                 *   $16/$17 C64 data   [00..03], the WHOLE block incl. itself
+                 *   $18 CSW, $19 GDB   [00..03]+04
+                 *   $34 emulation info 08
+                 *   $40 snapshot       [01..03]+04
+                 *   any other ID       the General Extension Rule: a DWORD
+                 *                      length after the ID, excluding itself */
+                case 0x16: case 0x17:
+                    if (remaining >= 4 && r32(b) >= 4 && r32(b) <= (uint32_t)remaining)
+                        body_size = (int)r32(b);
+                    break;
+                case 0x34: body_size = 8; break;
+                case 0x40:
+                    if (remaining >= 4 && r24(b + 1) <= (uint32_t)remaining - 4)
+                        body_size = 4 + (int)r24(b + 1);
+                    break;
+                default:   /* $18, $19 and unknown IDs */
+                    if (remaining >= 4 && r32(b) <= (uint32_t)remaining - 4)
+                        body_size = 4 + (int)r32(b);
+                    break;
             }
             if (body_size >= 0 && 1 + body_size <= p->len - p->offset) {
                 /* printf("TZX: Skipping block 0x%02X (%d bytes)\n",

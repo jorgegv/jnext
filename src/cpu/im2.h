@@ -231,6 +231,11 @@ public:
     uint8_t ack_vector();                // called by Z80 at IntAck; latches device to S_ACK
     void on_m1_cycle(uint16_t pc, uint8_t opcode);  // drives RETI/RETN decoder
     uint8_t im_mode() const;             // 0/1/2 latch, VHDL im2_control.vhd:229
+    /// Seed the IM latch for a loader that puts the CPU in an interrupt mode
+    /// without executing an IM instruction (the decoder above is the latch's
+    /// only other writer), so NR 0xC0 bits 2:1 and the IM2 gates agree with
+    /// the CPU. Values above 2 are ignored.
+    void set_im_mode(uint8_t mode);
 
     // ── RETI/RETN decoder observers (test + emulator forwarder) ───────────
     //

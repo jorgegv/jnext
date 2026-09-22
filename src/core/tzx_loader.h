@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <utility>
 #include <vector>
 
 class Emulator;
@@ -27,8 +28,34 @@ public:
     TzxLoader(TzxLoader&& other) noexcept;
     TzxLoader& operator=(TzxLoader&& other) noexcept;
 
-    /// Load a TZX (or TAP) file.  Returns true on success.
+    /// Load a TZX file.  Returns true on success. A file that is not a
+    /// well-formed TZX (see validate()) is refused with an error log line,
+    /// and the loader is left exactly as it was.
     bool load(const std::string& path);
+
+    /// True when `data` is a structurally sound TZX file with at least one
+    /// block. Otherwise false, with the reason in `error`.
+    ///
+    /// Structure is checked as libspectrum 1.5.0 — the tape library FUSE
+    /// loads tapes with — checks it (internal_tzx_read(), tzx_read.c): the
+    /// 10-byte header and its "ZXTape!\x1A" signature, then every block
+    /// walked with that library's length rules, so a block that runs past
+    /// the end of the file, or a fragment too short for its own fields,
+    /// refuses the whole tape. A header with no block after it is refused
+    /// too (libspectrum reads it but finds no tape present, TapLoader's
+    /// verdict on an empty .tap). A bad checksum inside a complete block is
+    /// not a container error.
+    ///
+    /// Where jnext deliberately ACCEPTS MORE than libspectrum: the block IDs
+    /// that library does not implement ("For now, don't handle anything
+    /// else"). The TZX specification defines $16, $17, $18, $26, $27, $34 and
+    /// $40 with a length formula each, and gives every later ID a length by
+    /// its General Extension Rule; such a block is accepted when its length
+    /// fields fit the file, and the tape player skips it. `unplayed`, when
+    /// given, receives (block index, ID) of each block the player skips
+    /// without playing its content.
+    static bool validate(const std::vector<uint8_t>& data, std::string& error,
+                         std::vector<std::pair<size_t, uint8_t>>* unplayed = nullptr);
 
     /// True if a file is loaded.
     bool is_loaded() const { return loaded_; }

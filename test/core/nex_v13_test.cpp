@@ -1517,8 +1517,11 @@ void test_expansion_bus() {
               "expansion bus byte 1 leaves NR 0x80 alone",
               f.apply_ok && nr80 == 0xF5, fmt("NR80=%#04x want 0xF5", nr80));
     }
-    // In a V1.0-V1.2 file offset 142 is reserved space holding zero, which
-    // must NOT be read as "disable the expansion bus".
+    // A V1.0-V1.2 file is run by the distro nexload.asm, which since its v14
+    // reads offset 142 of EVERY file it loads (nexload.asm:294-298): the zero
+    // an older file carries there disables the bus too. Measured under
+    // NextZXOS: NR 0x80 $F5 -> $05 for a V1.2 file with 0 at offset 142, and
+    // left at $F5 with 1 there.
     {
         V13Opts o;
         o.version = "V1.2"; o.screen_flags = 0x02; o.expansion_bus = 0;
@@ -1526,8 +1529,20 @@ void test_expansion_bus() {
         Fixture f(o, "exp3", 0xF5);
         const uint8_t nr80 = f.apply_ok ? f.emu.nextreg().read(0x80) : 0x00;
         check("NEXV13-EXP-03",
-              "the expansion bus byte is ignored for V1.0-V1.2 files, whose offset 142 is "
-              "reserved space that is zero for reasons unrelated to the expansion bus",
+              "a V1.2 file with 0 at offset 142 also clears the top four bits of NR 0x80 — "
+              "the distro loader that runs it reads that byte whatever the version "
+              "(nexload.asm:294-298)",
+              f.apply_ok && nr80 == 0x05, fmt("NR80=%#04x want 0x05", nr80));
+    }
+    {
+        V13Opts o;
+        o.version = "V1.2"; o.screen_flags = 0x02; o.expansion_bus = 1;
+        o.banks = {5};
+        Fixture f(o, "exp4", 0xF5);
+        const uint8_t nr80 = f.apply_ok ? f.emu.nextreg().read(0x80) : 0x00;
+        check("NEXV13-EXP-04",
+              "a V1.2 file with 1 at offset 142 leaves NR 0x80 alone "
+              "(nexload.asm:294 `jp nz,.noDisableBus`)",
               f.apply_ok && nr80 == 0xF5, fmt("NR80=%#04x want 0xF5", nr80));
     }
 }
@@ -1544,9 +1559,10 @@ void test_cli_buffer() {
         Fixture f(o, "cli1");
         const auto regs = f.emu.cpu().get_registers();
         check("NEXV13-CLI-01",
-              "a CLI buffer address and size set DE to the buffer address "
-              "(nexload2.asm:376-389)",
-              f.apply_ok && regs.DE == 0xC000, fmt("DE=%#06x want 0xC000", regs.DE));
+              "a CLI buffer address and size leave DE = address + size, where the copy's "
+              "ldir stops (nexload2.asm:379-388; measured under NextZXOS: $A000/16 enters "
+              "with $A010) — not the address the header comment (:126) promises",
+              f.apply_ok && regs.DE == 0xC100, fmt("DE=%#06x want 0xC100", regs.DE));
 
         check("NEXV13-CLI-02",
               "the CLI buffer receives a zero-terminated (here empty) argument line, so a "
@@ -1603,8 +1619,8 @@ void test_cli_args() {
             mmu.read(0xC004) == 'o' && mmu.read(0xC005) == 0x00;
         check("NEXV13-CLI-04",
               "--nex-args lands verbatim and zero-terminated at the header's declared "
-              "buffer address, with DE pointing at it (nexload2.asm:379-388)",
-              text_ok && regs.DE == 0xC000,
+              "buffer address, with DE one past the buffer (nexload2.asm:379-388)",
+              text_ok && regs.DE == 0xC100,
               fmt("[C000..C005]=%02x %02x %02x %02x %02x %02x DE=%#06x",
                   mmu.read(0xC000), mmu.read(0xC001), mmu.read(0xC002),
                   mmu.read(0xC003), mmu.read(0xC004), mmu.read(0xC005), regs.DE));

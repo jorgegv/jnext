@@ -23,6 +23,7 @@
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
+#include "platform/emulator_boot.h"
 
 #include <cstdarg>
 #include <cstdio>
@@ -490,10 +491,11 @@ static void g_host_hotkey()
     }
 
     // HK-09-INT — F1 dispatcher end-to-end. Hard reset is NOT gated by
-    // config_mode (VHDL:6371). Verify the dispatcher drives the full
-    // Emulator::reset() path: Z80 PC clamped to 0x0000 AND NmiSource
-    // gate state cleared (mf_enable, set pre-call, must be cleared
-    // post-reset per VHDL:1109-1110 power-on '0' defaults).
+    // config_mode (VHDL:6371). Verify the dispatcher's request, serviced the
+    // way every frontend services it, lands on power-on state: Z80 PC
+    // clamped to 0x0000 AND NmiSource gate state cleared (mf_enable, set
+    // pre-call, must be cleared post-reset per VHDL:1109-1110 power-on '0'
+    // defaults).
     {
         Emulator emu;
         fresh_cpu_at_c000(emu);
@@ -502,20 +504,21 @@ static void g_host_hotkey()
         const uint16_t pc_pre  = emu.cpu().get_registers().PC;
         emu.on_hotkey_f1_hard_reset();                 // dispatcher seam -> request
         const bool     requested = emu.take_hard_reset_request();
-        // Since Task 70 the hard reset is a HOST cold boot (reconstruct + init).
-        // A stack-local Emulator can't be reconstructed here, so drive the
-        // in-place reinit (emu.reset()) to observe the power-on effects init()
-        // produces (PC=0, mf_enable cleared). This is NOT the cold-boot path
-        // itself (which reconstructs) — the end-to-end cold boot is covered by
-        // the reset-to-nextzxos-func regression row.
-        emu.reset();
+        // Since Task 70 the hard reset is a HOST cold boot (reconstruct + init):
+        // the frontend polls take_hard_reset_request() between frames and runs
+        // the shared cold boot with no file to load. Do exactly that (GH #239 —
+        // this row used to drive the in-place Emulator::reset() instead, which
+        // no frontend ever called). Placement-new works on a stack Emulator.
+        if (requested)
+            emulator_frontend_cold_boot(emu, emu.config(), std::string(),
+                                        ColdBootHooks{});
         const bool     mf_post = emu.nmi_source().mf_enable();
         const uint16_t pc_post = emu.cpu().get_registers().PC;
         const auto     fsm     = emu.nmi_source().state();
 
         check("HK-09-INT",
-              "F1 dispatcher requests a host cold boot (deferred); its reinit "
-              "path → CPU PC=0x0000, NmiSource mf_enable cleared, FSM idle "
+              "F1 dispatcher requests a host cold boot (deferred); the frontend "
+              "cold boot → CPU PC=0x0000, NmiSource mf_enable cleared, FSM idle "
               // :2154-2155 is `if reset = '1' then nmi_state <= S_NMI_IDLE`,
               // the FSM-idle-on-reset evidence this row asserts. It used to
               // cite :2120, which is only the next-state process's sensitivity
