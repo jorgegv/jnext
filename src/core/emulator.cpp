@@ -6702,8 +6702,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     renderer_.lores().set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
     tilemap_.set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
 
-    // Default border: white (ZX colour index 7).
-    renderer_.ula().set_border(7);
+    // The border resets to black with port_fe_reg (zxnext.vhd:3587-3593),
+    // in Ula::reset() above. It used to be forced to white here, a phase-1
+    // placeholder with no hardware basis: the frames before a ROM or OS
+    // first writes port 0xFE showed a white border the machine never has.
 
     // Compositor per-pixel trace (debug; configured via
     // --compositor-trace / --compositor-trace-frame). Empty path disables.

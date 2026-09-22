@@ -66,9 +66,11 @@ public:
     void reset(bool hard = true) {
         ula_enabled_ = true;
         clip_x1_ = 0; clip_x2_ = 255; clip_y1_ = 0; clip_y2_ = 191;
-        border_colour_ = 7;
+        // Border = port_fe_reg(2:0), which every reset clears
+        // (zxnext.vhd:3587-3593, 3601-3605): black, on hard and soft reset.
+        border_colour_ = 0;
         if (hard)
-            border_per_line_.fill(7);
+            border_per_line_.fill(0);
         // The flash counter has no reset: zxula.vhd:474-480 only ever
         // increments flash_cnt, once a frame, and the zxula entity has no
         // reset input at all. A soft reset leaves the flash phase running.

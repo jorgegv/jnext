@@ -1670,8 +1670,9 @@ static void test_srst_integration(Emulator& emu) {
     }
 
     // SRST-10 — the border (per-line snapshot). Rows above the reset keep
-    // border 2; rows from it show the border register as the reset left it
-    // (port_fe_reg, zxnext.vhd:3587-3605).
+    // border 2; rows from it show border 0, black: the reset clears
+    // port_fe_reg (zxnext.vhd:3587-3593, 3601-3605). The border is the
+    // std-ULA paper pixel 0x10 | colour (zxula.vhd:543-553).
     {
         srst_fixture(emu);
         emu.port().out(0x00FE, 0x02);
@@ -1687,13 +1688,17 @@ static void test_srst_integration(Emulator& emu) {
             const uint8_t want = r < kResetRow ? 0x02 : emu.ula().get_border();
             if (emu.ula().border_for_line(r) != want) ++bad;
         }
+        const bool colours =
+            pre  == emu.palette().ula_colour(false, 0x12) &&
+            post == emu.palette().ula_colour(false, 0x10);
         check("SRST-10",
               "The border colour of the rows drawn before a mid-frame soft "
-              "reset survives it; the rows from the reset row carry the reset "
-              "register (zxnext.vhd:3587-3605,6370)",
-              px && pre != post && bad == 0 && emu.ula().get_border() != 0x02,
-              d + fmt("; per-line mismatches %d, live border %u", bad,
-                      emu.ula().get_border()));
+              "reset survives it; from the reset row the border is black, "
+              "port_fe_reg's reset value (zxnext.vhd:3587-3605,6370)",
+              px && colours && bad == 0 && emu.ula().get_border() == 0x00,
+              d + fmt("; per-line mismatches %d, live border %u (exp 0), "
+                      "pre 0x%08X post 0x%08X", bad, emu.ula().get_border(),
+                      pre, post));
     }
 
     // SRST-11 — NR 0x4A fallback and NR 0x68 b7 (per-line snapshots). ULA

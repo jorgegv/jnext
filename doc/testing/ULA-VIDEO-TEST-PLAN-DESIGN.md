@@ -31,6 +31,8 @@ Update (2026-07-25, GH #104): `ula_test.cpp` is **122 pass / 0 fail / 0 skip**. 
 
 Update (2026-09-21, GH #258): `ula_integration_test.cpp` gains INT-ULAPLUS-06/07 (16 rows) — port 0xFF3B palette-mode writes, end to end through a CPU program and `run_frame`; see §7.
 
+Update (2026-09-22, GH #263 follow-up): `ula_integration_test.cpp` gains INT-BORDER-RST-01 (17 rows) — the border after power-on and a hard reset is black; see §3.
+
 See `doc/testing/audits/task3-ula-phase4.md` for full per-wave critic verdicts and backlog items.
 
 ## Scope
@@ -218,6 +220,18 @@ border area (lines 443-449).
 | 6 | Timex border, port_ff(5:3)=0 | - | 0x70 |
 | 7 | Timex border, port_ff(5:3)=7 | - | 0x47 |
 | 8 | Border active region boundaries | - | verify at vc=191/192, phc=255/256 |
+
+### Integration row — the border after a reset
+
+`port_fe_reg` is cleared by the core's one `reset` wire (zxnext.vhd:3587-3593)
+and drives `port_fe_border` (:3601-3605), so every reset — power-on, hard and
+soft — leaves a black border until software writes port 0xFE. jnext forced it
+to white from its phase-1 skeleton (a placeholder with no hardware basis) until
+the GH #263 follow-up. The soft-reset case is SRST-10 in the compositor plan.
+
+| ID | Title | Stimulus | Expected | VHDL |
+|----|-------|----------|----------|------|
+| INT-BORDER-RST-01 | Power-on and a hard reset leave the border black | Fresh Next, CPU parked on DI; HALT, one frame; OUT (0xFE) 5, one frame; `Emulator::reset()`, parked again, one frame | Border register 0 and column 0 black on every row after power-on and after the hard reset; cyan after the OUT | zxnext.vhd:3587-3593,3601-3605; zxula.vhd:543-553 |
 
 ## Section 4: Flash Timing
 
