@@ -961,20 +961,22 @@ int main()
                   "early=" + std::to_string(early) + " late=" + std::to_string(late));
         }
 
-        // EB-40: it starts once — a later call (or a later load) does not
-        // restart, and so cannot discard, the running recording.
+        // EB-40: it starts once — a later call (every frontend makes one per
+        // frame) neither restarts nor tries to restart the running recording,
+        // and reports success: a refused second start would fail the run.
         {
             Emulator emu;
             emu.init(base_config());
             bool started = false;
-            emulator_start_rzx_record_when_loaded(emu, rec_path, started, false);
+            const bool first = emulator_start_rzx_record_when_loaded(emu, rec_path, started, false);
             emu.run_frame();
-            emulator_start_rzx_record_when_loaded(emu, rec_path, started, false);
+            const bool again = emulator_start_rzx_record_when_loaded(emu, rec_path, started, false);
             emu.run_frame();
             const std::size_t frames = emu.rzx_recorder().recording().frames.size();
             emulator_finish_rzx(emu, rec_path);
-            check("EB-40", "the recording starts once; a second call leaves it running",
-                  started && frames == 2, "frames=" + std::to_string(frames));
+            check("EB-40", "the recording starts once; a later call succeeds and leaves it running",
+                  first && again && started && frames == 2,
+                  "again=" + std::to_string(again) + " frames=" + std::to_string(frames));
         }
 
         // EB-41: the embedded snapshot carries the border the machine shows —
