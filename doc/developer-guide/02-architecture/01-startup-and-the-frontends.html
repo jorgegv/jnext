@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.169</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.169</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1894,14 +1894,26 @@ request in <code>run()</code> or in its frame loop, and never read the value bac
 The command-line RZX requests are now started by one shared helper,
 <code>emulator_start_rzx()</code> in <code>src/platform/rzx_startup.h</code>, which all three
 frontends call at the top of <code>run()</code>; <code>rzx-frontends-func</code> checks every
-spelling of them in every frontend.</p>
+spelling of them in every frontend. Its twin <code>emulator_finish_rzx()</code>, called
+from every <code>shutdown()</code>, writes a recording still running and reports whether
+the command-line one reached the disk — at exit or at any earlier point, since
+<code>Emulator::stop_rzx_recording()</code> latches a failed path
+(<code>Emulator::rzx_output_failed()</code>), as <code>VideoRecorder::output_failed()</code> does for
+<code>--record</code> — so a lost recording exits non-zero (<code>rzx-record-status-func</code>).
+<code>QtApp</code> calls it before an automatic exit's <code>quit()</code> too: <code>quit()</code> closes the
+main window, and <code>MainWindow::closeEvent()</code> reports a recording it has to stop
+in a modal dialog that an unattended run would wait on forever.</p>
 <ul>
 <li><strong><code>QtApp</code></strong> (<code>src/gui/qt_app.h</code>) owns a <code>QApplication</code> and a <code>MainWindow</code>
   whose central widget is an <code>EmulatorWidget</code>. A <code>QTimer</code> drives the machine,
   paced from <code>Emulator::frame_period_ms()</code> and the current speed multiplier.
   SDL is still linked into this build, but only to get audio out.</li>
 <li><strong><code>SdlApp</code></strong> (<code>src/platform/sdl_app.h</code>) owns an <code>SdlDisplay</code>, an <code>SdlInput</code>
-  and an <code>SdlAudio</code>, and runs its own event and pacing loop.</li>
+  and an <code>SdlAudio</code>, and runs its own event and pacing loop. Its speed
+  multiplier (<code>--speed</code>, <code>SdlApp::set_speed_percent()</code>) scales the whole-ms
+  sleep, switches off audio pacing away from 1x and, above it, presents at most
+  every <code>frame_sequencer::RENDER_INTERVAL_MS</code> — the same three things
+  <code>QtApp</code> does, done inline because this loop does not use the sequencer.</li>
 <li><strong><code>HeadlessApp</code></strong> (<code>src/platform/headless_app.h</code>) owns nothing but the
   <code>Emulator</code>. Its <code>run()</code> is a bare <code>run_frame()</code> loop with no sleep in it.</li>
 </ul>
@@ -1950,7 +1962,11 @@ measuring the frame timer rather than the emulator.</p>
 <code>--delayed-screenshot</code>, <code>--delayed-snapshot</code>, <code>--delayed-keypress</code> and
 <code>--delayed-automatic-exit</code> family lets a script boot the machine, wait a
 defined amount of emulated time, press keys and capture the screen without any
-human present — which is how the project's own screenshot regression suite
+human present (<code>--delayed-snapshot</code>, <code>--delayed-keypress</code> and <code>--delayed-nmi</code>
+are headless-only: only <code>HeadlessApp</code> reads them, so <code>main.cpp</code> refuses them
+without <code>--headless</code> rather than let a windowed frontend ignore them — the same
+up-front refusal it gives an option that only qualifies one that is absent,
+such as <code>--inject-pc</code> without <code>--inject</code>) — which is how the project's own screenshot regression suite
 drives the emulator. The delays are counted in emulated frames rather than
 wall-clock seconds precisely so that a loaded machine produces the same bytes
 as an idle one. And a capture that was requested but never taken makes the

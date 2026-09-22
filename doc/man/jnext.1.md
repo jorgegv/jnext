@@ -102,7 +102,8 @@ debugger ones.
 
 **\--speed** *PERCENT*
 :   Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x. Clamped to
-    10..1000.
+    10..1000. Works in the GUI and the SDL-only build; **\--headless** runs
+    uncapped, so there it has no effect, and **jnext** warns.
 
 **\--when-slow-prefer** *WHAT*
 :   What to sacrifice on a host that cannot emulate in real time: `audio`
@@ -178,7 +179,9 @@ debugger ones.
 **\--tape-save** *FILE*
 :   Append blocks SAVEd through the 48K ROM SA-BYTES routine to *FILE* (`.tap`).
     Trap-based: it fires when the ROM save routine at 0x04C2 runs with ROM
-    paged at slot 0. Without this option no SAVE capture happens.
+    paged at slot 0. Without this option no SAVE capture happens. Cannot be
+    combined with RZX recording or playback: the trap skips the ROM routine,
+    which a recording cannot replay.
 
 **\--esxdos-stub**
 :   Answer a few `RST $08` esxDOS calls for any program, for the whole session:
@@ -203,14 +206,17 @@ debugger ones.
 :   Load a raw binary into RAM.
 
 **\--inject-org** *ADDR*
-:   Load address for **\--inject** (hex, default `8000`).
+:   Load address for **\--inject** (hex, default `8000`). Requires
+    **\--inject**.
 
 **\--inject-pc** *ADDR*
 :   Entry point for **\--inject** (hex, default: same as **\--inject-org**).
+    Requires **\--inject**.
 
 **\--inject-delay** *N*
 :   Wait *N* frames before injecting (default 0). Use around 100 if the binary
-    calls ROM routines that need the system variables set up first.
+    calls ROM routines that need the system variables set up first. Requires
+    **\--inject**.
 
 ## Networking (ESP-01 WiFi)
 
@@ -319,12 +325,30 @@ debugger ones.
 **\--rzx-play** *FILE*
 :   Play back an RZX recording from the start of the run. Works the same in the
     GUI, the SDL-only build and under **\--headless**. A recording that fails
-    to load is logged, and **jnext** then exits non-zero.
+    to load is logged, and **jnext** then exits non-zero. The machine starts
+    exactly as it does for **\--load** *FILE*, so the two spellings replay
+    identically, and so do **File > Open** and **File > Play RZX Recording** in
+    the GUI. The recording brings its own snapshot of the machine, so it cannot be combined with
+    **\--rzx-record**, with **\--load** or **\--inject** of another program,
+    or with a second RZX file.
 
 **\--rzx-record** *FILE*
-:   Record input to an RZX file from the start of the run. The file is written
-    when **jnext** exits (or, in the GUI, at **File > Stop RZX Recording**).
-    Works the same in the GUI, the SDL-only build and under **\--headless**.
+:   Record input to an RZX file from the start of the run — or, with **\--load**
+    or **\--inject**, from the moment that program is in the machine, so the
+    snapshot the file carries is the program, and playback replays it. The
+    file is written when **jnext** exits (or, in the GUI, at **File > Stop RZX
+    Recording**). Works the same in the GUI, the SDL-only build and under
+    **\--headless**. While recording, a tape loads in real time: a fast load
+    skips the ROM loader, which a recording cannot replay. The snapshot is an
+    SZX on the 128K and +3 and a 48K SNA otherwise, which cannot hold the Next's
+    own video and memory state, so a program that uses Layer 2, the tilemap,
+    sprites or its palettes may not replay correctly.
+    A *FILE* that cannot be written is refused before the machine starts, and
+    a recording that cannot be saved when it is written is logged; either way
+    **jnext** exits non-zero. A reset ends the recording: a hard reset (the
+    Reset button, F1, or the program's own), loading another program from the
+    GUI, changing the machine type, or F4 writes the file there, and nothing
+    after it is recorded — a recording cannot replay a reset.
 
 **\--rewind-buffer-size** *N*
 :   Frame-snapshot ring buffer for backwards execution. Opt-in; default 0 =
@@ -355,10 +379,11 @@ debugger ones.
 :   Save a PNG screenshot after a delay.
 
 **\--delayed-screenshot-time** *N*
-:   Delay in seconds (default 10).
+:   Delay in seconds (default 10). Requires **\--delayed-screenshot**.
 
 **\--delayed-screenshot-frames** *N*
-:   Delay in frames. Overrides **\--delayed-screenshot-time**.
+:   Delay in frames. Overrides **\--delayed-screenshot-time**. Requires
+    **\--delayed-screenshot**.
 
 **\--delayed-screenshot-layers** *LIST*
 :   Layers to compose into the screenshot: a comma-separated list of `ula`,
@@ -371,22 +396,27 @@ debugger ones.
 :   Exit after *N* frames. Overrides **\--delayed-automatic-exit**.
 
 **\--delayed-snapshot** *FILE*
-:   Headless only. Save a snapshot after a delay in frames. The format is
-    chosen by the extension of *FILE*: `.szx`, `.nex`, anything else `.sna`.
+:   Headless only: requires **\--headless**. Save a snapshot after a delay in
+    frames. The format is chosen by the extension of *FILE*: `.szx`, `.nex`,
+    anything else `.sna`.
 
 **\--delayed-snapshot-frames** *N*
-:   Delay in frames for **\--delayed-snapshot** (default 0).
+:   Delay in frames for **\--delayed-snapshot** (default 0). Requires
+    **\--delayed-snapshot**.
 
 **\--delayed-keypress** *SECS* *KEY*
-:   Press *KEY* after *SECS* seconds. Headless only, repeatable.
+:   Press *KEY* after *SECS* seconds. Headless only (requires **\--headless**),
+    repeatable.
 
 **\--delayed-keypress-frames** *N* *KEY*
 :   Press *KEY* after *N* emulated frames. This is the frames-unit spelling of
     **\--delayed-keypress**, not an override of it: both forms queue into the
-    same list, so giving both schedules two keypresses.
+    same list, so giving both schedules two keypresses. Requires
+    **\--headless**.
 
 **\--delayed-nmi** *SECS* *BUTTON*
-:   Press an NMI *BUTTON* after *SECS* seconds. Headless only, repeatable.
+:   Press an NMI *BUTTON* after *SECS* seconds. Headless only (requires
+    **\--headless**), repeatable.
     *BUTTON* is case-insensitive and names which button to press, spelled as
     the label on a real Next's case. Of its three buttons, two raise an NMI:
     `nmi` (aliases `mf`, `m1`) is the **NMI** button, wired to the Multiface;
@@ -401,13 +431,14 @@ debugger ones.
 **\--delayed-nmi-frames** *N* *BUTTON*
 :   Press *BUTTON* after *N* emulated frames. This is the frames-unit spelling
     of **\--delayed-nmi**, not an override of it: both forms queue into the
-    same list, so giving both schedules two presses.
+    same list, so giving both schedules two presses. Requires **\--headless**.
 
 **\--compositor-trace** *FILE*
 :   Dump a per-pixel compositor trace (CSV) for one frame.
 
 **\--compositor-trace-frame** *N*
-:   Target frame for **\--compositor-trace** (default 250).
+:   Target frame for **\--compositor-trace** (default 250). Requires
+    **\--compositor-trace**.
 
 *KEY* is case-insensitive and is one of: a single character (`a`-`z`, `0`-`9`,
 `.`, `,`, `;`, `:`), one of the symbolic names `ENTER`, `RETURN`, `SPACE`,
@@ -434,7 +465,8 @@ debugger ones.
 :   Enable the magic debug port at *PORT* (hex, for example `0x00FF`).
 
 **\--magic-port-mode** *MODE*
-:   Magic-port output mode: `hex` (default), `dec`, `ascii`, `line`.
+:   Magic-port output mode: `hex` (default), `dec`, `ascii`, `line`. Requires
+    **\--magic-port**.
 
 **\--profile**
 :   Enable the CPU T-state profiler. It allocates an mmap'd histogram and
@@ -442,7 +474,8 @@ debugger ones.
     written to **\--profile-output**.
 
 **\--profile-output** *FILE*
-:   Output path for **\--profile** (default `profile.dat`).
+:   Output path for **\--profile** (default `profile.dat`). Requires
+    **\--profile**.
 
 **\--log-level** *SPEC*
 :   Set per-subsystem log levels; see **LOGGING**.

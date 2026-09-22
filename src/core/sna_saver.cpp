@@ -82,7 +82,10 @@ std::vector<uint8_t> SnaSaver::save(Emulator& emu) {
     put_u16(data.data() + 21, regs.AF);
     put_u16(data.data() + 23, sp);
     data[25] = regs.IM;
-    data[26] = 0;  // border (we could read it but 0 is fine for RZX)
+    // The border the machine is showing. It used to be written as 0 ("fine for
+    // RZX"), but it is not: an RZX embeds this snapshot, and a program that
+    // set its border once and never again then replayed with a black one.
+    data[26] = static_cast<uint8_t>(emu.ula().get_border() & 0x07);
 
     // Read RAM: Bank 5 (pages 10,11), Bank 2 (pages 4,5), Bank 0 (pages 0,1)
     read_from_ram(mmu, 10, 0, data.data() + HEADER_SIZE, 16384);

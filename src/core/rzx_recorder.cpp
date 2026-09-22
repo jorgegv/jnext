@@ -1,7 +1,34 @@
 #include "core/rzx_recorder.h"
 #include "core/log.h"
 
-void RzxRecorder::start(const std::string& output_path) {
+#include <cerrno>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
+#include <system_error>
+
+bool RzxRecorder::can_write(const std::string& path, std::string& why) {
+    std::error_code ec;
+    const bool existed = std::filesystem::exists(path, ec);
+    errno = 0;
+    {
+        // Append mode: probing must not truncate a file that is already there.
+        std::ofstream f(path, std::ios::binary | std::ios::app);
+        if (!f) {
+            why = errno ? std::strerror(errno) : "cannot be opened for writing";
+            return false;
+        }
+    }
+    if (!existed) std::filesystem::remove(path, ec);
+    return true;
+}
+
+bool RzxRecorder::start(const std::string& output_path) {
+    std::string why;
+    if (!can_write(output_path, why)) {
+        Log::emulator()->error("RZX: cannot record to '{}': {}", output_path, why);
+        return false;
+    }
     output_path_ = output_path;
     rec_ = RzxRecording{};
     rec_.creator = "JNEXT";
@@ -11,6 +38,7 @@ void RzxRecorder::start(const std::string& output_path) {
     recording_ = true;
     frame_started_ = false;
     Log::emulator()->info("RZX: recording started — output: {}", output_path);
+    return true;
 }
 
 bool RzxRecorder::stop() {

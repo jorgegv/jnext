@@ -170,9 +170,6 @@ bool SzxLoader::parse_ramp(const uint8_t* data, uint32_t size)
 bool SzxLoader::load(const std::string& path)
 {
     loaded_ = false;
-    have_z80r_ = false;
-    have_spcr_ = false;
-    ram_pages_.clear();
 
     std::ifstream f(path, std::ios::binary | std::ios::ate);
     if (!f) {
@@ -180,16 +177,30 @@ bool SzxLoader::load(const std::string& path)
         return false;
     }
 
+    // Read entire file
     auto file_size = static_cast<size_t>(f.tellg());
+    std::vector<uint8_t> buf(file_size);
+    f.seekg(0);
+    f.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(file_size));
+    if (!f) {
+        Log::emulator()->error("SZX: cannot read '{}'", path);
+        return false;
+    }
+    return load_from_buffer(buf, path);
+}
+
+bool SzxLoader::load_from_buffer(const std::vector<uint8_t>& buf, const std::string& path)
+{
+    loaded_ = false;
+    have_z80r_ = false;
+    have_spcr_ = false;
+    ram_pages_.clear();
+
+    const size_t file_size = buf.size();
     if (file_size < 8) {
         Log::emulator()->error("SZX: file '{}' too small ({} bytes, need >= 8)", path, file_size);
         return false;
     }
-
-    // Read entire file
-    std::vector<uint8_t> buf(file_size);
-    f.seekg(0);
-    f.read(reinterpret_cast<char*>(buf.data()), static_cast<std::streamsize>(file_size));
 
     // Validate magic "ZXST"
     if (std::memcmp(buf.data(), "ZXST", 4) != 0) {

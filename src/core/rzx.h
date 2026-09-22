@@ -24,6 +24,11 @@ struct RzxRecording {
     std::vector<RzxFrame> frames;
     uint32_t initial_tstates = 0;
     uint32_t flags = 0;
+    /// Snapshot blocks after the first. The format lets a recording continue
+    /// from a new snapshot (FUSE writes one for an inserted snapshot); jnext
+    /// plays one snapshot and its input, so parse() stops at the second
+    /// snapshot and counts it here instead of mixing the two sessions.
+    uint32_t later_snapshots = 0;
 };
 
 // ---------------------------------------------------------------------------
@@ -136,6 +141,20 @@ inline bool parse(const std::string& path, RzxRecording& rec) {
         uint32_t block_len = read_u32(data.data() + pos + 1);
         if (block_len < 5 || pos + block_len > file_size) break;
 
+        // A second snapshot starts a new session: its machine state and the
+        // input after it do not belong to the first. Taking its snapshot and
+        // appending its frames to the first session's (what this loop used
+        // to do) replays neither.
+        if (block_id == BLOCK_SNAPSHOT && (!rec.snapshot_data.empty() || !rec.frames.empty())) {
+            for (size_t p = pos; p + 5 <= file_size;) {
+                const uint32_t len = read_u32(data.data() + p + 1);
+                if (len < 5 || p + len > file_size) break;
+                if (data[p] == BLOCK_SNAPSHOT) ++rec.later_snapshots;
+                p += len;
+            }
+            break;
+        }
+
         if (block_id == BLOCK_CREATOR) {
             // Creator block: id(1) + len(4) + creator_string(20) + major(2) + minor(2)
             if (block_len >= 29) {
@@ -231,6 +250,29 @@ inline bool parse(const std::string& path, RzxRecording& rec) {
     return true;
 }
 
+/// The embedded-snapshot types jnext can load (Emulator::load_snapshot_from_memory).
+inline bool snapshot_type_supported(const std::string& ext) {
+    return ext == "sna" || ext == "szx" || ext == "z80";
+}
+
+/// Whether `path` is an RZX recording jnext can play: it parses, and its
+/// embedded snapshot, if any, is of a supported type. `why` says what is
+/// wrong otherwise. The GUI asks this BEFORE it cold-boots the machine to
+/// play a file, so an unplayable one is refused with the machine untouched.
+inline bool playable(const std::string& path, std::string& why) {
+    RzxRecording rec;
+    if (!parse(path, rec)) {
+        why = "it is not an RZX recording, or it cannot be read";
+        return false;
+    }
+    if (!rec.snapshot_data.empty() && !snapshot_type_supported(rec.snapshot_ext)) {
+        why = "its embedded snapshot is of an unsupported type ('" + rec.snapshot_ext +
+              "'; supported: sna, szx, z80)";
+        return false;
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // Write RZX file
 // ---------------------------------------------------------------------------
@@ -312,7 +354,12 @@ inline bool write(const std::string& path, const RzxRecording& rec) {
         f.write(reinterpret_cast<const char*>(blk.data()), static_cast<std::streamsize>(block_size));
     }
 
-    return f.good();
+    // Close before judging: the stream buffers, so for a small recording
+    // every byte can still be in memory here and a full disk only shows up
+    // when the buffer is flushed. good() before close() reported success
+    // for a file that never reached the disk.
+    f.close();
+    return !f.fail();
 }
 
 }  // namespace rzx

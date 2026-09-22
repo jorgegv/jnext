@@ -34,6 +34,8 @@
 #include "platform/emulator_boot.h"
 #include "platform/rzx_startup.h"
 #include "core/saveable.h"
+#include "core/sna_saver.h"
+#include "core/rzx.h"
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/uart.h"
 
@@ -42,8 +44,16 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <string>
 #include <vector>
+
+#ifndef _WIN32
+#include <csignal>
+#include <sys/resource.h>
+#include <sys/wait.h>
+#include <unistd.h>
+#endif
 
 namespace {
 
@@ -127,6 +137,42 @@ void dirty(Emulator& emu)
     for (int i = 0; i < 3; ++i) emu.run_frame();
     for (uint16_t a = 0x8000; a < 0x8100; ++a)
         emu.mmu().write(a, static_cast<uint8_t>(0xA5 ^ a));
+}
+
+/// Write `bytes` to `path`; false if any part of that fails.
+bool write_bytes(const std::string& path, const std::vector<uint8_t>& bytes)
+{
+    std::ofstream f(path, std::ios::binary);
+    f.write(reinterpret_cast<const char*>(bytes.data()),
+            static_cast<std::streamsize>(bytes.size()));
+    return static_cast<bool>(f);
+}
+
+/// A version-1, uncompressed 48K `.z80` image (canonical .z80 layout: 30-byte
+/// header, PC at offset 6 non-zero => v1, byte 12 bit 5 clear => uncompressed,
+/// then 0x4000-0xFFFF verbatim) with `marker` at `marker_addr`.
+std::vector<uint8_t> z80_v1_image(uint16_t pc, uint16_t marker_addr, uint8_t marker)
+{
+    std::vector<uint8_t> img(30 + 49152, 0);
+    img[6] = static_cast<uint8_t>(pc);
+    img[7] = static_cast<uint8_t>(pc >> 8);
+    img[8] = 0x00; img[9] = 0xFF;          // SP = 0xFF00
+    img[12] = 0x02;                        // border 1, uncompressed
+    img[29] = 0x01;                        // IM 1
+    img[30 + (marker_addr - 0x4000)] = marker;
+    return img;
+}
+
+/// An RZX file holding `snapshot` (typed `ext`) and two empty input frames.
+bool write_rzx(const std::string& path, std::vector<uint8_t> snapshot, const std::string& ext)
+{
+    RzxRecording rec;
+    rec.creator       = "EBTEST";
+    rec.snapshot_data = std::move(snapshot);
+    rec.snapshot_ext  = ext;
+    rec.frames.resize(2);
+    for (auto& fr : rec.frames) fr.instruction_count = 1;
+    return rzx::write(path, rec);
 }
 
 }  // namespace
@@ -556,7 +602,7 @@ int main()
             check("EB-21a", "--rzx-record: returns true and the recorder is running",
                   ok && emu.rzx_recorder().is_recording());
             for (int i = 0; i < 3; ++i) emu.run_frame();
-            emulator_finish_rzx(emu);
+            emulator_finish_rzx(emu, rec);
             recorded_frames = emu.rzx_recorder().recording().frames.size();
             check("EB-21b", "finishing stops the recorder and writes an RZX! file",
                   !emu.rzx_recorder().is_recording() && magic(rec) == "RZX!" &&
@@ -595,7 +641,7 @@ int main()
             emu.init(base_config());
             const bool ok = emulator_start_rzx(emu, bad, rec2);
             emu.run_frame();
-            emulator_finish_rzx(emu);
+            emulator_finish_rzx(emu, rec2);
             check("EB-24", "failed playback + --rzx-record: returns false, still records",
                   !ok && magic(rec2) == "RZX!", "magic='" + magic(rec2) + "'");
         }
@@ -603,6 +649,505 @@ int main()
         std::remove(rec.c_str());
         std::remove(rec2.c_str());
         std::remove(bad.c_str());
+    }
+
+    // --- EB-25..EB-27: an RZX file's embedded snapshot ----------------------
+    // Contract (Emulator::load_rzx / load_snapshot_from_memory): the snapshot
+    // an RZX file carries is loaded from MEMORY — nothing is written to disk,
+    // so two instances cannot race on a shared temporary file and the load
+    // works where /tmp does not exist (Windows); every type jnext can load as
+    // a file (sna, szx, z80) is accepted; a type it cannot load is a FAILURE,
+    // because playing the input against a machine it was not recorded on
+    // reproduces nothing.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string sna_rzx = (tmp / ("jnext-eb-snap-sna-" + stamp + ".rzx")).string();
+        const std::string z80_rzx = (tmp / ("jnext-eb-snap-z80-" + stamp + ".rzx")).string();
+        const std::string odd_rzx = (tmp / ("jnext-eb-snap-odd-" + stamp + ".rzx")).string();
+        constexpr uint16_t MARK_AT = 0x8000;
+        constexpr uint8_t  MARK    = 0x5A;
+
+        // A 48K SNA of a machine carrying the marker (the saver the recorder
+        // itself embeds).
+        std::vector<uint8_t> sna;
+        {
+            Emulator src;
+            src.init(base_config());
+            src.mmu().write(MARK_AT, MARK);
+            sna = SnaSaver::save(src);
+        }
+        const bool fixtures_ok =
+            !sna.empty() && write_rzx(sna_rzx, sna, "sna") &&
+            write_rzx(z80_rzx, z80_v1_image(0x1234, MARK_AT, MARK), "z80") &&
+            write_rzx(odd_rzx, z80_v1_image(0x1234, MARK_AT, MARK), "tzx");
+
+        // EB-25: loads with the process UNABLE to create or grow any file
+        // (RLIMIT_FSIZE 0, in a child so the limit dies with it). A snapshot
+        // routed through a temporary file cannot load there.
+        bool eb25 = false;
+        std::string eb25_detail = fixtures_ok ? "" : "fixtures not written";
+        if (fixtures_ok) {
+#ifndef _WIN32
+            std::fflush(stdout);
+            std::fflush(stderr);
+            const pid_t pid = fork();
+            if (pid == 0) {
+                // stdout/stderr may be redirected to a regular file, which the
+                // limit would also stop: send them to a character device.
+                std::freopen("/dev/null", "w", stdout);
+                std::freopen("/dev/null", "w", stderr);
+                Emulator emu;
+                emu.init(base_config());
+                const bool clean = emu.mmu().read(MARK_AT) != MARK;
+                std::signal(SIGXFSZ, SIG_IGN);
+                struct rlimit none{0, 0};
+                setrlimit(RLIMIT_FSIZE, &none);
+                const bool ok = clean && emu.load_rzx(sna_rzx) &&
+                                emu.rzx_player().is_playing() &&
+                                emu.mmu().read(MARK_AT) == MARK;
+                std::_Exit(ok ? 0 : 1);
+            }
+            int status = 0;
+            eb25 = pid > 0 && waitpid(pid, &status, 0) == pid && WIFEXITED(status) &&
+                   WEXITSTATUS(status) == 0;
+            eb25_detail = "child status=" + std::to_string(status);
+#else
+            Emulator emu;
+            emu.init(base_config());
+            eb25 = emu.load_rzx(sna_rzx) && emu.rzx_player().is_playing() &&
+                   emu.mmu().read(MARK_AT) == MARK;
+#endif
+        }
+        check("EB-25", "an embedded SNA loads from memory, even when no file can be written",
+              eb25, eb25_detail);
+
+        // EB-26: an embedded .z80 snapshot is applied (registers AND memory),
+        // not skipped with playback running against the current machine.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = fixtures_ok && emu.load_rzx(z80_rzx);
+            check("EB-26", "an embedded .z80 snapshot is loaded: its PC and memory",
+                  ok && emu.rzx_player().is_playing() && emu.cpu().pc() == 0x1234 &&
+                      emu.mmu().read(MARK_AT) == MARK,
+                  "ok=" + std::to_string(ok) + " pc=" + std::to_string(emu.cpu().pc()));
+        }
+
+        // EB-27: a snapshot type jnext cannot load fails the load outright.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emu.load_rzx(odd_rzx);
+            check("EB-27", "an unsupported embedded snapshot type fails, and nothing plays",
+                  fixtures_ok && !ok && !emu.rzx_player().is_playing());
+        }
+
+        std::remove(sna_rzx.c_str());
+        std::remove(z80_rzx.c_str());
+        std::remove(odd_rzx.c_str());
+    }
+
+    // --- EB-28..EB-32: a recording that cannot be written is an error --------
+    // Contract (Emulator::start_rzx_recording / stop_rzx_recording,
+    // emulator_start_rzx / emulator_finish_rzx): a path that cannot be written
+    // is refused at the start; a write that fails when the file is saved is
+    // reported and latched per path; either way the frontend is told, so the
+    // run exits non-zero. A running recording is never silently replaced.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string nodir =
+            (tmp / ("jnext-eb-nodir-" + stamp) / "sub" / "out.rzx").string();
+        const std::string ok_path = (tmp / ("jnext-eb-ok-" + stamp + ".rzx")).string();
+        const std::string ok2_path = (tmp / ("jnext-eb-ok2-" + stamp + ".rzx")).string();
+        const std::string full = "/dev/full";   // opens; every flush fails ENOSPC
+
+        // EB-28: an unwritable path is refused up front.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emu.start_rzx_recording(nodir);
+            std::error_code ec;
+            check("EB-28", "start_rzx_recording to an unwritable path: false, not recording",
+                  !ok && !emu.rzx_recorder().is_recording() &&
+                      !std::filesystem::exists(nodir, ec));
+        }
+
+        // EB-29: ...and the command-line helper reports it, so the frontend
+        // exits non-zero.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool ok = emulator_start_rzx(emu, "", nodir);
+            check("EB-29", "emulator_start_rzx with an unwritable --rzx-record: returns false",
+                  !ok && !emu.rzx_recorder().is_recording());
+        }
+
+        // EB-30: a write that fails when the file is saved (a full disk) is
+        // reported by stop, latched for that path, and makes the exit-time
+        // helper fail — also when the stop happened earlier (the GUI's Stop).
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording(full);
+            emu.run_frame();
+            const bool stopped = emu.stop_rzx_recording();
+            const bool finish = emulator_finish_rzx(emu, full);
+            check("EB-30", "a failed write: stop false, latched, emulator_finish_rzx false",
+                  started && !stopped && emu.rzx_output_failed(full) && !finish,
+                  "started=" + std::to_string(started) + " stopped=" +
+                      std::to_string(stopped) + " finish=" + std::to_string(finish));
+        }
+
+        // EB-31: starting a recording over a running one is refused; the
+        // running recording keeps going and is written in full.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool first = emu.start_rzx_recording(ok_path);
+            emu.run_frame();
+            const bool second = emu.start_rzx_recording(ok2_path);
+            emu.run_frame();
+            const std::size_t frames = emu.rzx_recorder().recording().frames.size();
+            const bool finish = emulator_finish_rzx(emu, ok_path);
+            std::error_code ec;
+            check("EB-31", "a second start is refused; the first recording keeps all its frames",
+                  first && !second && frames == 2 && finish &&
+                      std::filesystem::exists(ok_path, ec) &&
+                      !std::filesystem::exists(ok2_path, ec),
+                  "frames=" + std::to_string(frames));
+        }
+
+        // EB-32: control — a recording that was written leaves nothing latched
+        // and the exit-time helper succeeds.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording(ok2_path);
+            emu.run_frame();
+            const bool finish = emulator_finish_rzx(emu, ok2_path);
+            check("EB-32", "control: a written recording finishes true and latches nothing",
+                  started && finish && !emu.rzx_output_failed(ok2_path));
+        }
+
+        // EB-33: no recording during playback — every IN is answered from the
+        // file being played and never reaches the recorder, so it would hold
+        // no input at all.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            bool playing = false;
+            if (emu.start_rzx_recording(ok_path)) {
+                emu.run_frame();
+                playing = emu.stop_rzx_recording() && emu.load_rzx(ok_path);
+            }
+            const bool ok = emu.start_rzx_recording(ok2_path);
+            check("EB-33", "start_rzx_recording during playback: refused, nothing records",
+                  playing && !ok && !emu.rzx_recorder().is_recording());
+        }
+
+        std::remove(ok_path.c_str());
+        std::remove(ok2_path.c_str());
+    }
+
+    // --- EB-34..EB-37: a reset the host performs ends a recording ------------
+    // Contract (emulator_cold_boot, Emulator::end_rzx_at_reset): the power-on
+    // cold boot and the host's F4 soft reset WRITE a running recording and end
+    // it there — recorded input cannot replay a reset — instead of destroying
+    // it unwritten; a failed write stays latched across the boot. A soft
+    // reset the program itself asks for replays by itself and ends nothing.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string cb_path = (tmp / ("jnext-eb-cb-" + stamp + ".rzx")).string();
+        const std::string f4_path = (tmp / ("jnext-eb-f4-" + stamp + ".rzx")).string();
+        const std::string sr_path = (tmp / ("jnext-eb-sr-" + stamp + ".rzx")).string();
+        auto magic = [](const std::string& path) {
+            std::ifstream f(path, std::ios::binary);
+            char m[4] = {0, 0, 0, 0};
+            f.read(m, 4);
+            return f.gcount() == 4 ? std::string(m, 4) : std::string();
+        };
+
+        // EB-34: the cold boot writes the recording — every frame of it — and
+        // the file plays back.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording(cb_path);
+            for (int i = 0; i < 4; ++i) emu.run_frame();
+            emulator_cold_boot(emu, base_config());
+            Emulator player;
+            player.init(base_config());
+            const bool plays = player.load_rzx(cb_path);
+            const std::size_t n = player.rzx_player().recording().frames.size();
+            check("EB-34", "a cold boot writes the running recording (all 4 frames), ends it, "
+                  "and the file plays back",
+                  started && !emu.rzx_recorder().is_recording() && magic(cb_path) == "RZX!" &&
+                      plays && n == 4 && !emu.rzx_output_failed(cb_path),
+                  "frames=" + std::to_string(n));
+        }
+
+        // EB-35: a write that fails at the cold boot stays latched across it,
+        // so the exit-time helper still reports it.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording("/dev/full");
+            emu.run_frame();
+            emulator_cold_boot(emu, base_config());
+            check("EB-35", "a write failed at the cold boot is still latched after it",
+                  started && emu.rzx_output_failed("/dev/full") &&
+                      !emulator_finish_rzx(emu, "/dev/full"));
+        }
+
+        // EB-36: the host's F4 soft reset writes and ends the recording too.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording(f4_path);
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+            emu.on_hotkey_f4_soft_reset();
+            check("EB-36", "the F4 soft reset writes the running recording and ends it",
+                  started && !emu.rzx_recorder().is_recording() && magic(f4_path) == "RZX!");
+        }
+
+        // EB-37: control — a soft reset the program performs (NR 0x02 bit 0
+        // reaches Emulator::soft_reset()) is replayable, and ends nothing.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            const bool started = emu.start_rzx_recording(sr_path);
+            emu.run_frame();
+            emu.soft_reset();
+            emu.run_frame();
+            const bool still = emu.rzx_recorder().is_recording();
+            const std::size_t frames = emu.rzx_recorder().recording().frames.size();
+            emulator_finish_rzx(emu, sr_path);
+            check("EB-37", "control: a program's own soft reset leaves the recording running",
+                  started && still && frames == 2, "frames=" + std::to_string(frames));
+        }
+
+        // EB-38: starting a playback ends a running recording by writing it
+        // (it would otherwise run on, recording nothing: every IN now comes
+        // from the file being played).
+        {
+            Emulator emu;
+            emu.init(base_config());
+            bool ready = emu.start_rzx_recording(f4_path);   // any finished RZX to play
+            emu.run_frame();
+            ready = ready && emu.stop_rzx_recording();
+            const bool started = ready && emu.start_rzx_recording(sr_path);
+            emu.run_frame();
+            emu.run_frame();
+            const bool plays = started && emu.load_rzx(f4_path);
+            Emulator check_emu;
+            check_emu.init(base_config());
+            const bool saved = check_emu.load_rzx(sr_path) &&
+                               check_emu.rzx_player().recording().frames.size() == 2;
+            check("EB-38", "playing an RZX writes and ends the running recording",
+                  plays && !emu.rzx_recorder().is_recording() && emu.rzx_player().is_playing() &&
+                      saved);
+        }
+
+        std::remove(cb_path.c_str());
+        std::remove(f4_path.c_str());
+        std::remove(sr_path.c_str());
+    }
+
+    // --- EB-39..EB-41: the recording starts once the program is loaded -------
+    // Contract (emulator_start_rzx_record_when_loaded): the command-line
+    // recording starts only once nothing the command line puts into the
+    // machine is pending, so the snapshot it embeds is the machine the recorded
+    // input belongs to — the loaded program, not the one before the load.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string rec_path = (tmp / ("jnext-eb-late-" + stamp + ".rzx")).string();
+        constexpr uint16_t MARK_AT = 0x9000;
+        constexpr uint8_t  MARK    = 0xC3;
+
+        // EB-39: while a load is pending nothing records; once it is in, the
+        // recording starts, and its snapshot holds what the load put there.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            bool started = false;
+            const bool ok1 = emulator_start_rzx_record_when_loaded(emu, rec_path, started, true);
+            const bool early = emu.rzx_recorder().is_recording();
+            emu.mmu().write(MARK_AT, MARK);          // the load lands
+            const bool ok2 = emulator_start_rzx_record_when_loaded(emu, rec_path, started, false);
+            const bool late = emu.rzx_recorder().is_recording();
+            emu.run_frame();
+            emulator_finish_rzx(emu, rec_path);
+            Emulator player;
+            player.init(base_config());
+            const bool plays = player.load_rzx(rec_path);
+            check("EB-39", "the recording waits for the pending load, and its snapshot holds it",
+                  ok1 && !early && ok2 && late && plays && player.mmu().read(MARK_AT) == MARK,
+                  "early=" + std::to_string(early) + " late=" + std::to_string(late));
+        }
+
+        // EB-40: it starts once — a later call (every frontend makes one per
+        // frame) neither restarts nor tries to restart the running recording,
+        // and reports success: a refused second start would fail the run.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            bool started = false;
+            const bool first = emulator_start_rzx_record_when_loaded(emu, rec_path, started, false);
+            emu.run_frame();
+            const bool again = emulator_start_rzx_record_when_loaded(emu, rec_path, started, false);
+            emu.run_frame();
+            const std::size_t frames = emu.rzx_recorder().recording().frames.size();
+            emulator_finish_rzx(emu, rec_path);
+            check("EB-40", "the recording starts once; a later call succeeds and leaves it running",
+                  first && again && started && frames == 2,
+                  "again=" + std::to_string(again) + " frames=" + std::to_string(frames));
+        }
+
+        // EB-41: the embedded snapshot carries the border the machine shows —
+        // it was written as 0, so a program that set its border once replayed
+        // with a black one.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            emu.port().out(0x00FE, 0x05);
+            const std::vector<uint8_t> sna = SnaSaver::save(emu);
+            Emulator back;
+            back.init(base_config());
+            const bool loaded = back.load_snapshot_from_memory(sna, "sna", "EB-41");
+            check("EB-41", "the SNA an RZX embeds records the border (5), and it loads back",
+                  sna.size() > 26 && sna[26] == 5 && loaded && back.ula().get_border() == 5,
+                  "byte26=" + std::to_string(sna.size() > 26 ? sna[26] : -1));
+        }
+
+        std::remove(rec_path.c_str());
+    }
+
+    // --- EB-42: a recording that continues from a second snapshot -----------
+    // Contract (rzx::parse): jnext plays one snapshot and the input recorded
+    // after it. A file that goes on from a second snapshot (the RZX format
+    // allows it; FUSE writes one when a snapshot is inserted) is played up to
+    // that second snapshot — never the second machine state with the first
+    // session's input, which is what taking the LAST snapshot and every frame
+    // amounted to.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string a_path = (tmp / ("jnext-eb-seg-a-" + stamp + ".rzx")).string();
+        const std::string b_path = (tmp / ("jnext-eb-seg-b-" + stamp + ".rzx")).string();
+        constexpr uint16_t MARK_AT = 0x8800;
+        auto session = [&](uint8_t mark, int frames) {
+            RzxRecording rec;
+            rec.creator = "EBTEST";
+            rec.snapshot_data = z80_v1_image(0x1234, MARK_AT, mark);
+            rec.snapshot_ext = "z80";
+            rec.frames.resize(static_cast<std::size_t>(frames));
+            for (auto& fr : rec.frames) fr.instruction_count = 1;
+            return rec;
+        };
+        bool built = rzx::write(a_path, session(0xA1, 2)) && rzx::write(b_path, session(0xB2, 3));
+        std::vector<uint8_t> a, b;
+        if (built) {
+            std::ifstream fa(a_path, std::ios::binary), fb(b_path, std::ios::binary);
+            a.assign(std::istreambuf_iterator<char>(fa), {});
+            b.assign(std::istreambuf_iterator<char>(fb), {});
+            // Session B's blocks, minus its 10-byte header and 29-byte creator
+            // block, appended to file A: [A snapshot][A input][B snapshot][B input].
+            built = b.size() > 39;
+            if (built) a.insert(a.end(), b.begin() + 39, b.end());
+            built = built && write_bytes(a_path, a);
+        }
+        Emulator emu;
+        emu.init(base_config());
+        const bool plays = built && emu.load_rzx(a_path);
+        const std::size_t n = emu.rzx_player().recording().frames.size();
+        const uint8_t mark = emu.mmu().read(MARK_AT);
+        check("EB-42", "a file continuing from a second snapshot plays its FIRST session only",
+              plays && mark == 0xA1 && n == 2 &&
+                  emu.rzx_player().recording().later_snapshots == 1,
+              "mark=" + std::to_string(mark) + " frames=" + std::to_string(n));
+        std::remove(a_path.c_str());
+        std::remove(b_path.c_str());
+    }
+
+    // --- EB-43/44: no rewind while RZX records --------------------------------
+    // Contract (Emulator::rzx_blocks_rewind): a recording replays one
+    // continuous run, so a rewind in the middle of one would leave a file that
+    // no longer replays. step_back() and rewind_to_frame() refuse while RZX
+    // records (or plays), and the recording carries on untouched.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const std::string rw_path =
+            (std::filesystem::temp_directory_path() / ("jnext-eb-rw-" + stamp + ".rzx")).string();
+        EmulatorConfig rw_cfg = base_config();
+        rw_cfg.rewind_buffer_frames = 8;
+
+        // EB-43: refused during a recording, which keeps its frames.
+        {
+            Emulator emu;
+            emu.init(rw_cfg);
+            const bool started = emu.start_rzx_recording(rw_path);
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+            const bool back  = emu.step_back(1);
+            const bool frame = emu.rewind_to_frame(emu.rewind_buffer()->oldest_frame_num());
+            const std::size_t n = emu.rzx_recorder().recording().frames.size();
+            emulator_finish_rzx(emu, rw_path);
+            check("EB-43", "step_back/rewind_to_frame refuse during a recording, which goes on",
+                  started && !back && !frame && n == 3, "frames=" + std::to_string(n));
+        }
+
+        // EB-44: control — the same machine without a recording does rewind.
+        {
+            Emulator emu;
+            emu.init(rw_cfg);
+            for (int i = 0; i < 3; ++i) emu.run_frame();
+            check("EB-44", "control: without a recording, step_back succeeds",
+                  emu.step_back(1));
+        }
+        std::remove(rw_path.c_str());
+    }
+
+    // --- EB-45: no RZX while --tape-save is armed -----------------------------
+    // Contract (Emulator::rzx_refused_by_tape_save): the SAVE trap skips the
+    // ROM routine a recording would have to replay, so start_rzx_recording()
+    // and load_rzx() both refuse while --tape-save is armed — the backstop
+    // under the command line's and the GUI's own refusals.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string ok_rzx = (tmp / ("jnext-eb-ts-ok-" + stamp + ".rzx")).string();
+        const std::string out    = (tmp / ("jnext-eb-ts-out-" + stamp + ".rzx")).string();
+        EmulatorConfig ts_cfg = base_config();
+        ts_cfg.tape_save_file = (tmp / ("jnext-eb-ts-" + stamp + ".tap")).string();
+        bool made = false;
+        {
+            Emulator src;
+            src.init(base_config());
+            made = src.start_rzx_recording(ok_rzx);
+            src.run_frame();
+            made = made && src.stop_rzx_recording();
+        }
+        Emulator emu;
+        emu.init(ts_cfg);
+        const bool armed = emu.tap_saver().active();
+        const bool rec   = emu.start_rzx_recording(out);
+        const bool play  = emu.load_rzx(ok_rzx);
+        check("EB-45", "--tape-save armed: start_rzx_recording and load_rzx both refuse",
+              made && armed && !rec && !play && !emu.rzx_recorder().is_recording() &&
+                  !emu.rzx_player().is_playing());
+        std::remove(ok_rzx.c_str());
+        std::remove(out.c_str());
+        std::remove(ts_cfg.tape_save_file.c_str());
     }
 
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",

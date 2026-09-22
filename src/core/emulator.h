@@ -299,11 +299,55 @@ public:
     /// Load an RZX file and start playback.  Returns true on success.
     bool load_rzx(const std::string& path);
 
-    /// Start recording RZX input to the given file path.
+    /// Load a snapshot held in memory — `ext` is "sna", "szx" or "z80" (an RZX
+    /// file's embedded snapshot). Nothing touches the filesystem. `name`
+    /// identifies the data in log messages. Returns false, leaving the machine
+    /// untouched, when the data does not parse or the type is unsupported.
+    bool load_snapshot_from_memory(const std::vector<uint8_t>& data,
+                                   const std::string& ext, const std::string& name);
+
+    /// Start recording RZX input to the given file path. Returns false, with
+    /// the reason logged, when `path` cannot be written, when a recording is
+    /// already running (it is never silently replaced), or during playback.
     bool start_rzx_recording(const std::string& path);
 
-    /// Stop RZX recording and write the file.
-    void stop_rzx_recording();
+    /// Stop RZX recording and write the file. Returns false when the file
+    /// could not be written; that path is then latched, see
+    /// rzx_output_failed(). Returns true when no recording was running.
+    bool stop_rzx_recording();
+
+    /// Whether writing a recording to `path` has failed at any point in this
+    /// session — the per-path latch a frontend reads at exit, so a failure
+    /// reported and cleared mid-session (the GUI's Stop, a cold boot) still
+    /// makes the run exit non-zero. Mirrors VideoRecorder::output_failed().
+    bool rzx_output_failed(const std::string& path) const;
+
+    /// A reset the host performs — the power-on cold boot (emulator_cold_boot)
+    /// or the F4 soft reset — ends RZX recording and playback: the recording
+    /// is WRITTEN (never discarded) with a warning naming `what`, and ends
+    /// there, because recorded input cannot replay a reset. load_rzx() does
+    /// the same before it replaces the machine. Returns false when that write
+    /// failed (latched, see rzx_output_failed()).
+    bool end_rzx_at_reset(const char* what);
+
+    /// Called as a recording starts: the tape ROM traps stand down while RZX
+    /// records or plays (a trapped load cannot be replayed), so a fast-load
+    /// tape already attached is switched to real-time loading, whose EAR edges
+    /// ARE recorded.
+    void rzx_suspend_tape_traps();
+
+    /// True — with the refusal logged — while --tape-save is armed: an RZX
+    /// cannot be recorded or played then (`verb` is "record" or "play"),
+    /// because the SAVE trap skips the ROM routine a recording would need.
+    /// start_rzx_recording() and load_rzx() refuse on it.
+    bool rzx_refused_by_tape_save(const char* verb) const;
+
+    /// The rzx_output_failed() latch, carried across the power-on cold boot by
+    /// emulator_cold_boot() like the host debugger's breakpoints.
+    const std::vector<std::string>& rzx_failed_outputs() const { return rzx_failed_outputs_; }
+    void restore_rzx_failed_outputs(std::vector<std::string> failed) {
+        rzx_failed_outputs_ = std::move(failed);
+    }
 
     /// Access the RZX player/recorder.
     RzxPlayer& rzx_player() { return rzx_player_; }
@@ -682,6 +726,12 @@ public:
     /// Rewind to the start of frame frame_num (must be in the rewind buffer).
     /// Returns true on success.
     bool rewind_to_frame(uint32_t frame_num);
+
+    /// True — with the refusal logged, naming `what` — while an RZX recording
+    /// is being made or played: rewind_to_cycle(), step_back() and
+    /// rewind_to_frame() refuse then, because a recording cannot replay a
+    /// rewound history and a playback does not rewind with the machine.
+    bool rzx_blocks_rewind(const char* what) const;
 
     /// Port 0xFF read mux (VHDL zxnext.vhd:2813) — Timex register when
     /// NR 0x08 b2 + NR 0x82 b0 are set, else the ULA floating bus in
@@ -1165,6 +1215,7 @@ private:
     VideoRecorder   video_recorder_;
     RzxPlayer       rzx_player_;
     RzxRecorder     rzx_recorder_;
+    std::vector<std::string> rzx_failed_outputs_;   // see rzx_output_failed()
     uint32_t        rzx_frame_instruction_count_ = 0;
 
     /// Rewind snapshot buffer (null when disabled).

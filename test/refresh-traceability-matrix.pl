@@ -1015,6 +1015,13 @@ my %NO_MATRIX_SECTION = (
     'nex_v13_dialog_test' => 'experimental NEX V1.3 warning dialog (GUI), no core counterpart',
     'load_error_test' => 'GUI load-failure reporting and Tape menu (GUI), no core counterpart',
 
+    # ── RZX File-menu dialogs ────────────────────────────────────────
+    # The GUI's error dialogs for RZX recording and playback. RZX is a host
+    # file format — the FPGA core has no recorder, no player and no dialog —
+    # so the oracle is the contract on MainWindow::handle_rzx_*() and
+    # Emulator::start/stop_rzx_recording().
+    'rzx_menu_test' => 'RZX File-menu error dialogs (GUI), no core counterpart',
+
     # ── --inject entry state ─────────────────────────────────────────
     # GH #248 — `--inject` has no counterpart on a Next: nothing on real
     # hardware forces a program and an entry point into a running machine, so

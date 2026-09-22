@@ -8,11 +8,24 @@
 /// Records RZX input data: captures every IN port read per frame.
 class RzxRecorder {
 public:
-    /// Start recording to the given output file path.
-    void start(const std::string& output_path);
+    /// Start recording to the given output file path. Returns false — and
+    /// does not start — when the path cannot be written (see can_write()),
+    /// so a recording that is going to be lost is refused up front rather
+    /// than discovered when it is saved.
+    bool start(const std::string& output_path);
 
-    /// Stop recording and write the RZX file.
+    /// Stop recording and write the RZX file. Returns true only when the
+    /// whole file reached the disk; false (logged) when it did not, or when
+    /// no recording was running.
     bool stop();
+
+    /// The file the running (or last) recording is written to.
+    const std::string& output_path() const { return output_path_; }
+
+    /// Whether `path` can be opened for writing. Leaves an existing file
+    /// untouched and removes a file it had to create. On failure `why` says
+    /// what the system reported.
+    static bool can_write(const std::string& path, std::string& why);
 
     /// Whether recording is active.
     bool is_recording() const { return recording_; }

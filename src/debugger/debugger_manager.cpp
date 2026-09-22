@@ -549,6 +549,8 @@ void DebuggerManager::on_run_to_eosl() {
 void DebuggerManager::on_step_back() {
     if (!enabled_) return;
     if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
+    // Refused, not failed: must not reach warn_state_corrupt() below.
+    if (emulator_->rzx_blocks_rewind("Step Back")) return;
 
     bool ok = emulator_->step_back(1);
     if (!ok) {
@@ -578,6 +580,8 @@ void DebuggerManager::on_step_back() {
 void DebuggerManager::on_rewind_to_frame(uint32_t frame_num) {
     if (!enabled_) return;
     if (!emulator_->rewind_buffer() || emulator_->rewind_buffer()->empty()) return;
+    // Refused, not failed: must not reach warn_state_corrupt() below.
+    if (emulator_->rzx_blocks_rewind("Rewind To Frame")) return;
 
     bool ok = emulator_->rewind_to_frame(frame_num);
     if (!ok) {

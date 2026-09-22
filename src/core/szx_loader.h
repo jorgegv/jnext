@@ -20,6 +20,11 @@ public:
     /// Returns true on success.
     bool load(const std::string& path);
 
+    /// Parse and validate SZX bytes already in memory (an RZX file's embedded
+    /// snapshot). `name` identifies the data in log messages only.
+    /// Returns true on success.
+    bool load_from_buffer(const std::vector<uint8_t>& buf, const std::string& name);
+
     /// Apply the loaded snapshot to the emulator: set registers, paging,
     /// border, and load RAM pages.
     bool apply(Emulator& emu) const;

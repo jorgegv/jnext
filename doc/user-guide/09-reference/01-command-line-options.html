@@ -200,7 +200,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.169</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -281,7 +281,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.169</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2934,7 +2934,9 @@ with the SD write-error token rather than silently discarded. Use it
 when a run must not disturb an image other runs share.</dd>
 <dt><strong>--speed</strong> <em>PERCENT</em></dt>
 <dd>Emulator throttle: 50 = half, 100 = normal, 200 = 2x, 400 = 4x.
-Clamped to 10..1000.</dd>
+Clamped to 10..1000. Works in the GUI and the SDL-only build;
+<strong>--headless</strong> runs uncapped, so there it has no effect, and
+<strong>jnext</strong> warns.</dd>
 <dt><strong>--when-slow-prefer</strong> <em>WHAT</em></dt>
 <dd>
 <p>What to sacrifice on a host that cannot emulate in real time:
@@ -3008,7 +3010,8 @@ fast load.</dd>
 <dd>Append blocks SAVEd through the 48K ROM SA-BYTES routine to <em>FILE</em>
 (<code>.tap</code>). Trap-based: it fires when the ROM save routine at 0x04C2
 runs with ROM paged at slot 0. Without this option no SAVE capture
-happens.</dd>
+happens. Cannot be combined with RZX recording or playback: the trap
+skips the ROM routine, which a recording cannot replay.</dd>
 <dt><strong>--esxdos-stub</strong></dt>
 <dd>Answer a few <code>RST $08</code> esxDOS calls for any program, for the whole
 session: the version query, one in-memory file and <code>run sibling.nex</code>
@@ -3030,14 +3033,15 @@ CPU-bound runs. Tape loading (EAR input) is unaffected.</dd>
 <dt><strong>--inject</strong> <em>FILE</em></dt>
 <dd>Load a raw binary into RAM.</dd>
 <dt><strong>--inject-org</strong> <em>ADDR</em></dt>
-<dd>Load address for <strong>--inject</strong> (hex, default <code>8000</code>).</dd>
+<dd>Load address for <strong>--inject</strong> (hex, default <code>8000</code>). Requires
+<strong>--inject</strong>.</dd>
 <dt><strong>--inject-pc</strong> <em>ADDR</em></dt>
 <dd>Entry point for <strong>--inject</strong> (hex, default: same as
-<strong>--inject-org</strong>).</dd>
+<strong>--inject-org</strong>). Requires <strong>--inject</strong>.</dd>
 <dt><strong>--inject-delay</strong> <em>N</em></dt>
 <dd>Wait <em>N</em> frames before injecting (default 0). Use around 100 if the
 binary calls ROM routines that need the system variables set up
-first.</dd>
+first. Requires <strong>--inject</strong>.</dd>
 </dl>
 <h2 id="networking-esp-01-wifi">Networking (ESP-01 WiFi)<a class="headerlink" href="#networking-esp-01-wifi" title="Permanent link">&para;</a></h2>
 <dl>
@@ -3140,12 +3144,32 @@ dB to +24 dB.</dd>
 <dt><strong>--rzx-play</strong> <em>FILE</em></dt>
 <dd>Play back an RZX recording from the start of the run. Works the same
 in the GUI, the SDL-only build and under <strong>--headless</strong>. A recording
-that fails to load is logged, and <strong>jnext</strong> then exits non-zero.</dd>
+that fails to load is logged, and <strong>jnext</strong> then exits non-zero. The
+machine starts exactly as it does for <strong>--load</strong> <em>FILE</em>, so the two
+spellings replay identically, and so do <strong>File &gt; Open</strong> and <strong>File
+&gt; Play RZX Recording</strong> in the GUI. The recording brings its own
+snapshot of the machine, so it cannot be combined with
+<strong>--rzx-record</strong>, with <strong>--load</strong> or <strong>--inject</strong> of another
+program, or with a second RZX file.</dd>
 <dt><strong>--rzx-record</strong> <em>FILE</em></dt>
-<dd>Record input to an RZX file from the start of the run. The file is
-written when <strong>jnext</strong> exits (or, in the GUI, at <strong>File &gt; Stop RZX
-Recording</strong>). Works the same in the GUI, the SDL-only build and
-under <strong>--headless</strong>.</dd>
+<dd>Record input to an RZX file from the start of the run — or, with
+<strong>--load</strong> or <strong>--inject</strong>, from the moment that program is in the
+machine, so the snapshot the file carries is the program, and
+playback replays it. The file is written when <strong>jnext</strong> exits (or,
+in the GUI, at <strong>File &gt; Stop RZX Recording</strong>). Works the same in
+the GUI, the SDL-only build and under <strong>--headless</strong>. While
+recording, a tape loads in real time: a fast load skips the ROM
+loader, which a recording cannot replay. The snapshot is an SZX on
+the 128K and +3 and a 48K SNA otherwise, which cannot hold the
+Next’s own video and memory state, so a program that uses Layer 2,
+the tilemap, sprites or its palettes may not replay correctly. A
+<em>FILE</em> that cannot be written is refused before the machine starts,
+and a recording that cannot be saved when it is written is logged;
+either way <strong>jnext</strong> exits non-zero. A reset ends the recording: a
+hard reset (the Reset button, F1, or the program’s own), loading
+another program from the GUI, changing the machine type, or F4
+writes the file there, and nothing after it is recorded — a
+recording cannot replay a reset.</dd>
 <dt><strong>--rewind-buffer-size</strong> <em>N</em></dt>
 <dd>Frame-snapshot ring buffer for backwards execution. Opt-in; default
 0 = off.</dd>
@@ -3171,9 +3195,10 @@ the <code>BENCH</code> line is space-delimited.</dd>
 <dt><strong>--delayed-screenshot</strong> <em>FILE</em></dt>
 <dd>Save a PNG screenshot after a delay.</dd>
 <dt><strong>--delayed-screenshot-time</strong> <em>N</em></dt>
-<dd>Delay in seconds (default 10).</dd>
+<dd>Delay in seconds (default 10). Requires <strong>--delayed-screenshot</strong>.</dd>
 <dt><strong>--delayed-screenshot-frames</strong> <em>N</em></dt>
-<dd>Delay in frames. Overrides <strong>--delayed-screenshot-time</strong>.</dd>
+<dd>Delay in frames. Overrides <strong>--delayed-screenshot-time</strong>. Requires
+<strong>--delayed-screenshot</strong>.</dd>
 <dt><strong>--delayed-screenshot-layers</strong> <em>LIST</em></dt>
 <dd>Layers to compose into the screenshot: a comma-separated list of
 <code>ula</code>, <code>layer2</code>, <code>sprites</code>, <code>tiles</code>, <code>all</code> (default <code>all</code>).</dd>
@@ -3182,39 +3207,43 @@ the <code>BENCH</code> line is space-delimited.</dd>
 <dt><strong>--delayed-automatic-exit-frames</strong> <em>N</em></dt>
 <dd>Exit after <em>N</em> frames. Overrides <strong>--delayed-automatic-exit</strong>.</dd>
 <dt><strong>--delayed-snapshot</strong> <em>FILE</em></dt>
-<dd>Headless only. Save a snapshot after a delay in frames. The format
-is chosen by the extension of <em>FILE</em>: <code>.szx</code>, <code>.nex</code>, anything else
-<code>.sna</code>.</dd>
+<dd>Headless only: requires <strong>--headless</strong>. Save a snapshot after a
+delay in frames. The format is chosen by the extension of <em>FILE</em>:
+<code>.szx</code>, <code>.nex</code>, anything else <code>.sna</code>.</dd>
 <dt><strong>--delayed-snapshot-frames</strong> <em>N</em></dt>
-<dd>Delay in frames for <strong>--delayed-snapshot</strong> (default 0).</dd>
+<dd>Delay in frames for <strong>--delayed-snapshot</strong> (default 0). Requires
+<strong>--delayed-snapshot</strong>.</dd>
 <dt><strong>--delayed-keypress</strong> <em>SECS</em> <em>KEY</em></dt>
-<dd>Press <em>KEY</em> after <em>SECS</em> seconds. Headless only, repeatable.</dd>
+<dd>Press <em>KEY</em> after <em>SECS</em> seconds. Headless only (requires
+<strong>--headless</strong>), repeatable.</dd>
 <dt><strong>--delayed-keypress-frames</strong> <em>N</em> <em>KEY</em></dt>
 <dd>Press <em>KEY</em> after <em>N</em> emulated frames. This is the frames-unit
 spelling of <strong>--delayed-keypress</strong>, not an override of it: both
 forms queue into the same list, so giving both schedules two
-keypresses.</dd>
+keypresses. Requires <strong>--headless</strong>.</dd>
 <dt><strong>--delayed-nmi</strong> <em>SECS</em> <em>BUTTON</em></dt>
-<dd>Press an NMI <em>BUTTON</em> after <em>SECS</em> seconds. Headless only,
-repeatable. <em>BUTTON</em> is case-insensitive and names which button to
-press, spelled as the label on a real Next’s case. Of its three
-buttons, two raise an NMI: <code>nmi</code> (aliases <code>mf</code>, <code>m1</code>) is the <strong>NMI</strong>
-button, wired to the Multiface; <code>drive</code> (alias <code>divmmc</code>) is the
-<strong>DRIVE</strong> button, wired to the DivMMC. <strong>RESET</strong> is not an NMI
-button and is not accepted here. The press goes through the same
-path as the host F9 / F10 hotkeys, so it is subject to the same
-enable gates — NextREG 0x06 bit 3 for the Multiface, bit 4 plus
+<dd>Press an NMI <em>BUTTON</em> after <em>SECS</em> seconds. Headless only (requires
+<strong>--headless</strong>), repeatable. <em>BUTTON</em> is case-insensitive and names
+which button to press, spelled as the label on a real Next’s case.
+Of its three buttons, two raise an NMI: <code>nmi</code> (aliases <code>mf</code>, <code>m1</code>)
+is the <strong>NMI</strong> button, wired to the Multiface; <code>drive</code> (alias
+<code>divmmc</code>) is the <strong>DRIVE</strong> button, wired to the DivMMC. <strong>RESET</strong> is
+not an NMI button and is not accepted here. The press goes through
+the same path as the host F9 / F10 hotkeys, so it is subject to the
+same enable gates — NextREG 0x06 bit 3 for the Multiface, bit 4 plus
 NextREG 0x83 bit 0 for the DivMMC — and a press with its gate closed
 does nothing, exactly as on hardware. One press generates one NMI,
 not a repeating one.</dd>
 <dt><strong>--delayed-nmi-frames</strong> <em>N</em> <em>BUTTON</em></dt>
 <dd>Press <em>BUTTON</em> after <em>N</em> emulated frames. This is the frames-unit
 spelling of <strong>--delayed-nmi</strong>, not an override of it: both forms
-queue into the same list, so giving both schedules two presses.</dd>
+queue into the same list, so giving both schedules two presses.
+Requires <strong>--headless</strong>.</dd>
 <dt><strong>--compositor-trace</strong> <em>FILE</em></dt>
 <dd>Dump a per-pixel compositor trace (CSV) for one frame.</dd>
 <dt><strong>--compositor-trace-frame</strong> <em>N</em></dt>
-<dd>Target frame for <strong>--compositor-trace</strong> (default 250).</dd>
+<dd>Target frame for <strong>--compositor-trace</strong> (default 250). Requires
+<strong>--compositor-trace</strong>.</dd>
 </dl>
 <p><em>KEY</em> is case-insensitive and is one of: a single character (<code>a</code>-<code>z</code>,
 <code>0</code>-<code>9</code>, <code>.</code>, <code>,</code>, <code>;</code>, <code>:</code>), one of the symbolic names <code>ENTER</code>,
@@ -3237,13 +3266,15 @@ debugger can set a breakpoint.</dd>
 <dt><strong>--magic-port</strong> <em>PORT</em></dt>
 <dd>Enable the magic debug port at <em>PORT</em> (hex, for example <code>0x00FF</code>).</dd>
 <dt><strong>--magic-port-mode</strong> <em>MODE</em></dt>
-<dd>Magic-port output mode: <code>hex</code> (default), <code>dec</code>, <code>ascii</code>, <code>line</code>.</dd>
+<dd>Magic-port output mode: <code>hex</code> (default), <code>dec</code>, <code>ascii</code>, <code>line</code>.
+Requires <strong>--magic-port</strong>.</dd>
 <dt><strong>--profile</strong></dt>
 <dd>Enable the CPU T-state profiler. It allocates an mmap’d histogram
 and accumulates one entry per executed instruction; on exit the
 histogram is written to <strong>--profile-output</strong>.</dd>
 <dt><strong>--profile-output</strong> <em>FILE</em></dt>
-<dd>Output path for <strong>--profile</strong> (default <code>profile.dat</code>).</dd>
+<dd>Output path for <strong>--profile</strong> (default <code>profile.dat</code>). Requires
+<strong>--profile</strong>.</dd>
 <dt><strong>--log-level</strong> <em>SPEC</em></dt>
 <dd>Set per-subsystem log levels; see <a href="https://github.com/jorgegv/jnext/blob/main/USAGE.md#logging">the LOGGING section of the man
 page</a>.</dd>
