@@ -480,6 +480,38 @@ target_link_libraries(extended_nex_test PRIVATE
 target_include_directories(extended_nex_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME extended_nex_tests COMMAND extended_nex_test)
 
+# TAP container validation. Runtime-generated fixtures drive the real
+# TapLoader::load() and Emulator::load_tap(); what counts as malformed is
+# libspectrum's TAP reader (the one FUSE uses).
+add_executable(tap_loader_test core/tap_loader_test.cpp)
+target_link_libraries(tap_loader_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(tap_loader_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tap_loader_tests COMMAND tap_loader_test)
+
+# TZX container validation. Runtime-generated fixtures drive the real
+# TzxLoader::load() and Emulator::load_tzx(); what counts as malformed is
+# libspectrum's TZX reader (the one FUSE uses).
+add_executable(tzx_loader_test core/tzx_loader_test.cpp)
+target_link_libraries(tzx_loader_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(tzx_loader_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME tzx_loader_tests COMMAND tzx_loader_test)
+
+# A loaded snapshot's interrupt mode reaches the IM latch behind NR 0xC0
+# (.sna, .z80, .szx through the real Emulator::load_* paths).
+add_executable(snapshot_im_test core/snapshot_im_test.cpp)
+target_link_libraries(snapshot_im_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(snapshot_im_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME snapshot_im_tests COMMAND snapshot_im_test)
+
 # CLI option table / man page alignment (issue #43). Header-only table under
 # test (src/core/cli_options.h) — no emulator core needed. The three paths are
 # baked in at configure time so the suite works from any working directory
@@ -845,6 +877,16 @@ if(ENABLE_QT_UI)
     target_link_libraries(esp_status_test PRIVATE jnext_gui)
     target_include_directories(esp_status_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME esp_status_tests COMMAND esp_status_test)
+
+    # GUI load paths report a failed load (Tape > Open, File > Open via the
+    # frontend's load_finished(), File > Play RZX), Tape > Open follows the
+    # Fast Load toggle, and a WAV tape reaches the status bar and Eject.
+    # Drives the REAL post-picker halves and QMessageBox, offscreen.
+    add_executable(load_error_test gui/load_error_test.cpp)
+    set_target_properties(load_error_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(load_error_test PRIVATE jnext_gui)
+    target_include_directories(load_error_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME load_error_tests COMMAND load_error_test)
 
     # GH #228 — the experimental-NEX-V1.3 warning dialog's wiring: Proceed
     # loads with the opt-in, Cancel/Escape abort, Cancel is the default, a

@@ -129,10 +129,12 @@ KB of ignored bytes also logs a warning.
 **--nex-args** *LINE*  
 Argument line for a NEX **V1.3** program. *LINE* is placed, verbatim and
 zero-terminated, in the CLI buffer the file’s header declares (its
-address and size), and `DE` points at it when the program starts. A line
-as long as or longer than that buffer is truncated to the buffer’s size
-with no terminator - which is what the reference V1.3 loader does. Quote
-*LINE* to pass more than one word:
+address and size). When the program starts, `DE` holds that address plus
+the size - one past the buffer - which is where the reference V1.3
+loader leaves it (the V1.3 header comment says the address itself). A
+line as long as or longer than that buffer is truncated to the buffer’s
+size with no terminator - which is what the reference V1.3 loader does.
+Quote *LINE* to pass more than one word:
 `jnext --load game.nex --nex-args "level 3"`. Only V1.3 declares a CLI
 buffer, so the option is inert - with a warning - for a `V1.0`-`V1.2`
 file, or a V1.3 file whose header declares no buffer.
@@ -642,7 +644,12 @@ v1/v2/v3, 48K and 128K, RLE-compressed or raw pages.
 Fast load via a ROM trap; `LOAD ""` is auto-typed.
 
 `.tzx`  
-Full block support; fast load or real-time.
+Fast load or real-time. The tape player plays the standard, turbo, tone,
+pulse, pure-data and direct-recording blocks; a valid block it cannot
+play (CSW, generalised data, the deprecated C64, emulation-info and
+snapshot blocks, or an ID a later TZX revision adds) is skipped with a
+warning, and the blocks after it still load. A file that is not a
+well-formed TZX is refused.
 
 `.wav`  
 RIFF/PCM EAR-bit playback (8/16-bit, mono/stereo).

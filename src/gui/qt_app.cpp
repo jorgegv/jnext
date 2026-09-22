@@ -513,10 +513,14 @@ bool QtApp::TickEffects::pre_frames() {
     // Apply pending load when countdown reaches zero (auto-detect format).
     if (a.load_countdown_ == 0) {
         // Shared format dispatch (incl. .rzx) — see platform/emulator_boot.h.
-        if (!emulator_apply_load(a.emulator_, a.load_file_, a.tape_realtime_)) {
+        const bool loaded = emulator_apply_load(a.emulator_, a.load_file_, a.tape_realtime_);
+        if (!loaded) {
             Log::platform()->error("load: failed to load '{}'", a.load_file_);
             a.exit_code_ = 1;   // a failed load exits non-zero (as headless)
         }
+        // A File > Open load that failed gets its dialog (deferred to the
+        // event loop by the window; this is inside the frame tick).
+        if (a.main_window_) a.main_window_->load_finished(a.load_file_, loaded);
         a.load_countdown_ = -1;
     } else if (a.load_countdown_ > 0) {
         --a.load_countdown_;

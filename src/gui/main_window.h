@@ -140,6 +140,23 @@ public:
     void set_unattended(bool unattended) { unattended_ = unattended; }
     bool unattended() const { return unattended_; }
 
+    // The post-picker half of Tape > Open Tape File, split out for the same
+    // reason (load_error_test drives it): attaches the tape in the mode the
+    // Fast Load toggle shows, and reports a file the loader refuses.
+    void handle_tape_path(const QString& path);
+
+    // A load that failed: one warning dialog naming the file (the loader's
+    // log line says why). Shown now — callers inside the frame tick use
+    // load_finished(), which defers it.
+    void report_load_failure(const QString& path);
+
+    // The frontend calls this once the load a cold boot scheduled has run.
+    // A load handle_load_path() asked for that failed is reported, from the
+    // event loop rather than from inside the frame tick this is called from;
+    // any other load (--load, a guest's M_EXECCMD) is not the window's to
+    // report — the log and the exit status already carry it.
+    void load_finished(const std::string& file, bool ok);
+
     // Issue #40 — a machine-type change is a power cycle, and it must take the
     // ONE canonical cold-boot path (platform/emulator_boot.h) like every other
     // reboot. MainWindow therefore requests it from the frontend instead of
@@ -305,6 +322,9 @@ private:
     SpeedCallback    speed_callback_;
     WhenSlowPreferCallback when_slow_prefer_callback_;
     LoadFileCallback load_file_callback_;
+    // The file handle_load_path() last handed to load_file_callback_, until
+    // load_finished() reports on it.
+    std::string menu_load_pending_;
     RebootCallback   reboot_callback_;
     ConfirmRestartCallback confirm_restart_callback_;
     EspConfigCallback esp_config_callback_;

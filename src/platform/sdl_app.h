@@ -117,7 +117,7 @@ private:
     /// the Qt frontend drop keystrokes, and for the identical reason.
     ///
     /// BOTH the policy and the DISPATCH live in platform/host_key_latch.h, and
-    /// both are unit-tested (host_key_latch_test, rows HK-* and RT-*). SdlApp
+    /// both are unit-tested (host_key_latch_test, rows HKL-* and RT-*). SdlApp
     /// supplies only the three call sites: on_host_key() in the input_.on_key
     /// callback, on_tick_end() after the frame loop in run(), and attach() in
     /// init() plus cold_boot()'s rewire_host hook.

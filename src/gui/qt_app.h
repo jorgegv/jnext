@@ -232,7 +232,7 @@ private:
     // the key. The router holds such a release until a frame has looked.
     //
     // BOTH the policy and the DISPATCH live in platform/host_key_latch.h, and
-    // both are unit-tested (host_key_latch_test, rows HK-* and RT-*). QtApp
+    // both are unit-tested (host_key_latch_test, rows HKL-* and RT-*). QtApp
     // keeps only the three call sites — the key callback, the end-of-tick hook
     // in TickEffects::post_frames(), and attach() in wire_gamepad_and_sources()
     // — each a single forwarding statement. That split is deliberate: see the

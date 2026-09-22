@@ -18,7 +18,7 @@ class Emulator;
 ///    BC, DE, HL, IX, IY, the alternate register set, I, R, IFF1/2, IM,
 ///    or the CPU's tstate-in-frame counter. None of those survive a
 ///    save→reload cycle, by construction of the format.
-///  * `Emulator::load_nex()` unconditionally calls reset() before
+///  * `Emulator::load_nex()` unconditionally re-runs init() before
 ///    NexLoader::apply(), so even the header's `preserve_regs` flag
 ///    (which this saver sets to 1, "preserve") only preserves whatever
 ///    the *reset* register state happens to be — not the state that was

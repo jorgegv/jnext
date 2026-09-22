@@ -59,8 +59,10 @@ More than 16 KB of ignored bytes also logs a warning.
 \f[B]\-\-nex\-args\f[R] \f[I]LINE\f[R]
 Argument line for a NEX \f[B]V1.3\f[R] program.
 \f[I]LINE\f[R] is placed, verbatim and zero\-terminated, in the CLI
-buffer the file\(cqs header declares (its address and size), and
-\f[CR]DE\f[R] points at it when the program starts.
+buffer the file\(cqs header declares (its address and size).
+When the program starts, \f[CR]DE\f[R] holds that address plus the size
+\- one past the buffer \- which is where the reference V1.3 loader
+leaves it (the V1.3 header comment says the address itself).
 A line as long as or longer than that buffer is truncated to the
 buffer\(cqs size with no terminator \- which is what the reference V1.3
 loader does.
@@ -647,7 +649,13 @@ v1/v2/v3, 48K and 128K, RLE\-compressed or raw pages.
 Fast load via a ROM trap; \f[CR]LOAD \(dq\(dq\f[R] is auto\-typed.
 .TP
 \f[CR].tzx\f[R]
-Full block support; fast load or real\-time.
+Fast load or real\-time.
+The tape player plays the standard, turbo, tone, pulse, pure\-data and
+direct\-recording blocks; a valid block it cannot play (CSW, generalised
+data, the deprecated C64, emulation\-info and snapshot blocks, or an ID
+a later TZX revision adds) is skipped with a warning, and the blocks
+after it still load.
+A file that is not a well\-formed TZX is refused.
 .TP
 \f[CR].wav\f[R]
 RIFF/PCM EAR\-bit playback (8/16\-bit, mono/stereo).

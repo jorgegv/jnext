@@ -55,11 +55,15 @@ offending row script fails the whole regression preflight rather than just the
 lint. The rest cover cleanup, checking that every SD-clone cleanup script
 handles INT and TERM as well as EXIT, that each handler **exits** rather than
 resuming, and that the three real cleanup bodies are bounded and remove only
-their own run directory.
+their own run directory. Finally `HS-50`..`HS-55` pin the regression suite's
+host-load bookkeeping (GH #245): the real suite library, sourced against a fake
+`/proc/loadavg`, must flag a FAIL on a loaded host and must not flag the same
+FAIL on an idle one, must name every failed row at the end, must never change
+the count — and the driver must still call it.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 45` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 51` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is
@@ -74,7 +78,7 @@ an entry with no CMake counterpart would make the unit harness refuse to run.
 ## The traceability self-tests
 
 ```console
-$ make traceability-selftest          # the citation extractor, 202 pinned rows
+$ make traceability-selftest          # citation extractor + dup-ID gate, 215 pinned rows
 $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 ```
 
@@ -82,10 +86,12 @@ $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 lines justify each traceability row. Its end-to-end rows build a throwaway
 repository out of the real manifest, CMakeLists and matrix, populated with stub
 sources and binaries, and then run the real refresh script against it twice, so
-that idempotence and the refusal paths are both exercised. It pins
-`$EXPECTED_ROWS = 202` in the same shape as the harness self-test, and for the
-same reason it cannot live in the unit manifest — it is a perl script with no
-CMake target.
+that idempotence and the refusal paths are both exercised. `SELF-208`..`SELF-215`
+run `test/traceability-dup-ids.pl` and the generator's `--planned-ids` the same
+way, planting colliding IDs in `?`-prefixed suites, in one-row plan docs and in
+the baseline (GH #243). It pins `$EXPECTED_ROWS = 215` in the
+same shape as the harness self-test, and for the same reason it cannot live in
+the unit manifest — it is a perl script with no CMake target.
 
 Both are prerequisites of `make unit-test`, and that matters more than the
 checks themselves do. Until they were wired in, nothing invoked them — not

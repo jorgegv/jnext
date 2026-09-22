@@ -729,18 +729,38 @@ int main() {
                   " handled=" + std::to_string(b2_handled));
         }
 
-        // After reset() no directly-loaded program is running any more: the
-        // machine is back on its own ROM, so the stand-in must stand down
-        // (the same lifetime as the host-file bridge, XNEX-25..27).
-        e250.reset();
+        // After a hard reset no directly-loaded program is running any more:
+        // the machine is back on its own ROM, so the stand-in must stand down
+        // (the same lifetime as the host-file bridge, XNEX-25..27). Driven
+        // through the production hard reset (GH #239): the frontend cold boot,
+        // which reconstructs the Emulator and clears the load file.
+        //
+        // That boot attaches the RST $08 hook only when something asks for it
+        // — --esxdos-stub, or the esxdos logger at trace (Emulator::init()) —
+        // and with no hook "not serviced" holds by absence, which is ESXT-21's
+        // row, not this one. So the reset runs with esxdos at trace, as
+        // `--log-level esxdos=trace` then F1 does, and the row REQUIRES the
+        // hook: only a present hook's answer says whether the stand-in was
+        // disarmed.
+        const auto esx_level = Log::esxdos()->level();
+        Log::esxdos()->set_level(spdlog::level::trace);
+        emulator_frontend_cold_boot(e250, e250.config(), std::string(),
+                                    ColdBootHooks{});
         Z80Registers after_reset{};
+        after_reset.AF = 0x1234; after_reset.BC = 0x5678;
+        const Z80Registers reset_before = after_reset;
         const bool hook_present = static_cast<bool>(e250.cpu().on_esxdos_call);
         const bool serviced = hook_present &&
                               e250.cpu().on_esxdos_call(0x89, after_reset);
+        Log::esxdos()->set_level(esx_level);
         check("ESXN-08",
-              "reset() disarms the direct-NEX esxDOS stand-in: M_GETSETDRV is "
-              "no longer answered and $0008 runs the machine's own code",
-              loaded && hook_present && !serviced,
+              "a hard reset (frontend cold boot) disarms the direct-NEX esxDOS "
+              "stand-in: with the hook present (esxdos tracing on), M_GETSETDRV "
+              "is no longer answered, no register is touched, and $0008 runs "
+              "the machine's own code",
+              loaded && hook_present && !serviced &&
+                  after_reset.AF == reset_before.AF &&
+                  after_reset.BC == reset_before.BC,
               "hook=" + std::to_string(hook_present) +
               " serviced=" + std::to_string(serviced));
 

@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1951,6 +1951,13 @@ against <code>i_hc</code>/<code>i_vc</code>, which reset at the start of the act
 than at the start of the frame, so feeding it raw coordinates would contend the
 top border while missing the bottom 64 display lines. The runtime is installed
 by <code>z80_set_contention_runtime()</code>; with it null, all seven sites are inert.</p>
+<p><code>fuse_z80_readport</code> charges the I/O cycle's stretch <em>before</em> it calls the port
+handler, because the T80 latches the data bus only on the falling edge of T3,
+after the stretch; <code>fuse_z80_writeport</code> calls the handler first, because a
+write strobe acts as soon as IORQ and WR go low. The order matters to any read
+whose value depends on time — the floating bus, NR 0x1E/0x1F, the tape EAR bit
+— and to <code>Z80Cpu::tstates_into_instruction()</code>, which those reads use to find
+where in the instruction the bus is (GH #265).</p>
 <p>A separate stretch is the 28 MHz SRAM read wait (<code>zxnext.vhd:3171-3181</code>): at CPU
 speed 3, every memory <em>read</em> cycle that reaches external SRAM costs one extra
 T-state, qualified per target by <code>Mmu::sram_read_wait28()</code>.</p>

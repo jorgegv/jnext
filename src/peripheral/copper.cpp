@@ -154,8 +154,13 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
         if (cvc_effective == vpos && hc >= hthresh) {
             // Condition met — advance past this WAIT
             pc_ = (pc_ + 1) & 0x3FF;
-            Log::copper()->trace("WAIT satisfied at cvc={} (vc={} off={}) hc={}, PC now {}",
-                                 cvc_effective, vc, offset_, hc, pc_);
+            // Guarded, like every per-instruction and per-upload-word trace in
+            // this file: see the should_log() rationale in PortDispatch::read
+            // (src/port/port_dispatch.cpp) — unguarded, each is an
+            // out-of-line call with tracing off (GH #244).
+            if (Log::copper()->should_log(spdlog::level::trace))
+                Log::copper()->trace("WAIT satisfied at cvc={} (vc={} off={}) hc={}, PC now {}",
+                                     cvc_effective, vc, offset_, hc, pc_);
         }
         // Otherwise stall (do nothing, stay at this instruction)
 
@@ -168,7 +173,8 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
             // NOP check: reg==0 means no write pulse (VHDL: copper_list_data_i(14 downto 8) /= "0000000")
             nextreg.write(reg, val);
             move_pending_ = true;
-            Log::copper()->trace("MOVE nextreg[{:#04x}] = {:#04x}, PC={}", reg, val, pc_);
+            if (Log::copper()->should_log(spdlog::level::trace))
+                Log::copper()->trace("MOVE nextreg[{:#04x}] = {:#04x}, PC={}", reg, val, pc_);
         }
 
         pc_ = (pc_ + 1) & 0x3FF;
@@ -210,12 +216,14 @@ void Copper::write_reg_0x60(uint8_t val) {
         write_data_stored_ = val;
         // Write MSB immediately
         instructions_[word_addr] = (instructions_[word_addr] & 0x00FF) | (static_cast<uint16_t>(val) << 8);
-        Log::copper()->trace("reg 0x60: write MSB [{:#05x}] = {:#04x}", word_addr, val);
+        if (Log::copper()->should_log(spdlog::level::trace))
+            Log::copper()->trace("reg 0x60: write MSB [{:#05x}] = {:#04x}", word_addr, val);
     } else {
         // Odd byte address: write LSB
         // VHDL: addr[0]=1 => copper_lsb_we=1, copper_lsb_dat=nr_wr_dat
         instructions_[word_addr] = (instructions_[word_addr] & 0xFF00) | val;
-        Log::copper()->trace("reg 0x60: write LSB [{:#05x}] = {:#04x}", word_addr, val);
+        if (Log::copper()->should_log(spdlog::level::trace))
+            Log::copper()->trace("reg 0x60: write LSB [{:#05x}] = {:#04x}", word_addr, val);
     }
 
     write_addr_ = (write_addr_ + 1) & 0x7FF;
@@ -224,7 +232,8 @@ void Copper::write_reg_0x60(uint8_t val) {
 void Copper::write_reg_0x61(uint8_t val) {
     // Set write address low 8 bits
     write_addr_ = (write_addr_ & 0x700) | val;
-    Log::copper()->trace("reg 0x61: write_addr low = {:#04x}, addr now {:#05x}", val, write_addr_);
+    if (Log::copper()->should_log(spdlog::level::trace))
+        Log::copper()->trace("reg 0x61: write_addr low = {:#04x}, addr now {:#05x}", val, write_addr_);
 }
 
 void Copper::write_reg_0x62(uint8_t val) {
@@ -243,14 +252,16 @@ void Copper::write_reg_0x63(uint8_t val) {
     if (!addr_bit0) {
         // Even byte address: store data for later MSB write
         write_data_stored_ = val;
-        Log::copper()->trace("reg 0x63: stored data = {:#04x}", val);
+        if (Log::copper()->should_log(spdlog::level::trace))
+            Log::copper()->trace("reg 0x63: stored data = {:#04x}", val);
     } else {
         // Odd byte address: write stored data as MSB + this byte as LSB
         // VHDL: write_8=0 AND addr[0]=1 => copper_msb_we=1, copper_msb_dat=nr_copper_data_stored
         // Also: copper_lsb_we=1, copper_lsb_dat=nr_wr_dat
         instructions_[word_addr] = (static_cast<uint16_t>(write_data_stored_) << 8) | val;
-        Log::copper()->trace("reg 0x63: write word [{:#05x}] = {:#06x}",
-                             word_addr, instructions_[word_addr]);
+        if (Log::copper()->should_log(spdlog::level::trace))
+            Log::copper()->trace("reg 0x63: write word [{:#05x}] = {:#06x}",
+                                 word_addr, instructions_[word_addr]);
     }
 
     write_addr_ = (write_addr_ + 1) & 0x7FF;

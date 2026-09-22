@@ -26,9 +26,77 @@ RESET='\033[0m'
 # pass_row/fail_row/skip_row <text> — print the coloured verdict followed by
 # <text> and bump the one matching counter. Keeps verdict text and row
 # accounting in lockstep at every reporting site.
+#
+# fail_row also records WHICH row failed and the host load at that moment, and
+# flags the failure on the spot when the host was loaded (GH #245). The verdict
+# and the counter are untouched: a FAIL under load is still a FAIL.
 pass_row() { echo -e "${GREEN}PASS${RESET}${1-}"; pass=$((pass + 1)); }
-fail_row() { echo -e "${RED}FAIL${RESET}${1-}"; fail=$((fail + 1)); }
+fail_row() {
+    echo -e "${RED}FAIL${RESET}${1-}"; fail=$((fail + 1))
+    local load
+    load=$(host_load1)
+    FAILED_ROWS+=("${CURRENT_ROW:-unnamed row} (1-min load ${load:-unknown})")
+    if host_load_high "$load"; then
+        LOADED_FAILS=$((LOADED_FAILS + 1))
+        echo -e "        ${YELLOW}^ host load ${load} on ${HOST_CPUS} CPUs when this row failed — re-run it SOLO before calling it real or dismissing it (GH #245)${RESET}"
+    fi
+}
 skip_row() { echo -e "${YELLOW}SKIP${RESET}${1-}"; skip=$((skip + 1)); }
+
+# ── Host load (GH #245) ──────────────────────────────────────────────────
+#
+# Under concurrent load some rows fail spuriously, and the class is wider than
+# the real-time-paced rows: rows that merely spawn short-lived processes have
+# failed and not reproduced solo. Which rows are sensitive used to be left to
+# the reader's memory of a list in CLAUDE.md, so the harness now says it
+# itself: it prints the load at the start and the end of the run, flags each
+# FAIL that happened with the 1-minute load at or above the CPU count, and
+# lists every failed row by name at the end.
+#
+# JNEXT_REGRESSION_LOADAVG_FILE / JNEXT_REGRESSION_NPROC override the two
+# inputs, for the self-test (test/harness-selftest.sh HS-50..55).
+
+# host_load1 — the 1-minute load average, or nothing if it cannot be read.
+host_load1() {
+    local l _rest
+    { read -r l _rest < "$LOADAVG_FILE"; } 2>/dev/null || return 0
+    [[ "$l" =~ ^[0-9]+([.][0-9]+)?$ ]] && echo "$l"
+    return 0
+}
+
+# host_load_high <load> — true when <load> is at least one runnable task per CPU.
+host_load_high() {
+    [[ -n "${1:-}" ]] || return 1
+    awk -v l="$1" -v n="$HOST_CPUS" 'BEGIN { exit !(l + 0 >= n + 0) }'
+}
+
+# load_report <start|end> — print (and remember) the load at that point.
+load_report() {
+    local load
+    load=$(host_load1)
+    if [[ "$1" == start ]]; then LOAD_START=$load; else LOAD_END=$load; fi
+    echo -e "  host load at $1: ${load:-unknown} (1-min) on ${HOST_CPUS} CPUs"
+}
+
+# load_summary — after the results line: every failed row by name, and a
+# warning when any of them failed on a loaded host. Prints nothing on a clean
+# run; never changes the verdict.
+load_summary() {
+    [[ "$fail" -gt 0 ]] || return 0
+    echo -e "  ${BOLD}Failed rows:${RESET}"
+    local row
+    for row in "${FAILED_ROWS[@]+"${FAILED_ROWS[@]}"}"; do echo "    $row"; done
+    if [[ "$LOADED_FAILS" -gt 0 ]] || host_load_high "${LOAD_START:-}" \
+       || host_load_high "${LOAD_END:-}"; then
+        echo -e "  ${YELLOW}${BOLD}WARNING: this run was on a loaded host${RESET}${YELLOW} (load ${LOAD_START:-?} at start, ${LOAD_END:-?} at end, ${HOST_CPUS} CPUs; ${LOADED_FAILS} FAIL(s) at or above that)."
+        echo -e "  Rows that pace against real time or spawn short-lived processes can fail"
+        echo -e "  spuriously under contention. Re-run each failed row SOLO, on a quieter host"
+        echo -e "  (bash test/00regression/regression.sh <row>), before treating it as a"
+        echo -e "  regression — and before dismissing it: a row that also fails solo is real."
+        echo -e "  The FAIL verdict above stands either way.${RESET}"
+    fi
+    return 0
+}
 
 # A harness fault is not a test failure: it means the suite cannot be trusted to
 # have run what it claims. Exit 2, loudly, and run nothing further.
@@ -97,6 +165,7 @@ want() {
 # begin_func <name> — register the row and print its label.
 begin_func() {
     REPORTED_FUNC+=("$1")
+    CURRENT_ROW=$1
     printf "  %-25s " "[$1]"
 }
 
@@ -105,6 +174,8 @@ begin_func() {
 standalone_summary() {
     echo ""
     echo -e "  ${GREEN}Pass: $pass${RESET}  ${RED}Fail: $fail${RESET}  ${YELLOW}Skip: $skip${RESET}"
+    load_report end
+    load_summary
     [[ "$fail" -eq 0 ]] || exit 1
 }
 
@@ -305,6 +376,15 @@ regression_lib_init() {
     pass=0
     fail=0
     skip=0
+
+    # Host-load bookkeeping (GH #245) — see host_load1 above.
+    LOADAVG_FILE="${JNEXT_REGRESSION_LOADAVG_FILE:-/proc/loadavg}"
+    HOST_CPUS="${JNEXT_REGRESSION_NPROC:-$(nproc 2>/dev/null || echo 1)}"
+    LOAD_START=""
+    LOAD_END=""
+    LOADED_FAILS=0
+    FAILED_ROWS=()
+    CURRENT_ROW=""
 
     # ImageMagick availability. Detected here (silently) so every consumer can
     # test $HAS_COMPARE; the driver prints the user-facing warning when false.

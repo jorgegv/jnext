@@ -96,6 +96,12 @@ New failures vs baseline: <list or "none">
 - `JNEXT_TEST_JOBS=4` on every invocation, never raised for speed
   (`feedback_jnext_test_jobs`) — `audio-underrun-func` and
   `screenshot-paused-func` are real-time-bounded.
+- Those two are examples, not the list (GH #245): rows that spawn short-lived
+  processes have also failed under load and passed solo. A FAIL on a loaded
+  host is unconfirmed until re-run SOLO (`bash test/00regression/regression.sh
+  <row>`), and is not dismissed until that solo run passes. Always report the
+  row name. The harness prints the load at start and end, marks each FAIL that
+  happened with load ≥ `nproc`, and lists the failed rows after the results.
 - Run in the branch worktree, not on main (`feedback_regression_in_branches`).
 
 ## When to escalate to the `regression-runner` subagent

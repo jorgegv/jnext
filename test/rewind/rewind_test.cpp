@@ -691,6 +691,19 @@ static int test_state_sentinels()
         emu.load_state(r2);
     }
 
+    // Task 60e: the GUI tells the user to reset out of a corrupt restore, so a
+    // reset must clear the flag. The soft reset re-runs init() in place, which
+    // owns that clear since GH #239 (it used to be duplicated in soft_reset()
+    // and the since-removed in-place Emulator::reset()). The hard reset needs
+    // no row of its own: its cold boot reconstructs the Emulator.
+    {
+        StateReader r(buf.data(), snap / 2);
+        const bool failed = !emu.load_state(r) && !emu.last_state_error().empty();
+        emu.soft_reset();
+        CHECK(failed && emu.last_state_error().empty(),
+              "SENT-RESET-01 a soft reset clears the failed-restore corruption flag");
+    }
+
     return 0;
 }
 

@@ -48,14 +48,26 @@ public:
     /// on the file contents. Defined inline here (not in tap_loader.cpp)
     /// so suites that cannot link jnext_core (mmu_test — BOOT-TAPESAVE-03
     /// round-trips TapSaver output through the real loader parse path)
-    /// can call it. Same precedent as z80_loader.h. Anomalies (zero-length
-    /// block, truncated block, checksum mismatch) are reported through the
+    /// can call it. Same precedent as z80_loader.h. Non-fatal anomalies
+    /// (zero-length block, checksum mismatch) are reported through the
     /// optional `warn` callback — load() routes them to Log::emulator()
     /// (this header cannot include core/log.h: spdlog's `namespace fmt`
     /// collides with test-local fmt() helpers in TUs including emulator.h).
-    static void parse_blocks(const std::vector<uint8_t>& file_data,
+    ///
+    /// Returns false — `blocks` emptied, the reason in `*error` — when the
+    /// bytes are not a well-formed TAP container, i.e. not a sequence of
+    /// [2-byte LE length][that many bytes]: a block whose declared length
+    /// runs past the end of the data, or a 1-byte fragment left where a
+    /// length field should start. Oracle: libspectrum's TAP reader (the one
+    /// FUSE loads tapes with), which rejects exactly those two cases with
+    /// LIBSPECTRUM_ERROR_CORRUPT, "not enough data in buffer", and discards
+    /// the whole tape. A bad checksum or flag byte inside a complete block is
+    /// NOT a container error — libspectrum loads such a tape, and the ROM
+    /// reports "R Tape loading error" when it reads that block.
+    static bool parse_blocks(const std::vector<uint8_t>& file_data,
                              std::vector<TapBlock>& blocks,
-                             const std::function<void(const std::string&)>& warn = {}) {
+                             const std::function<void(const std::string&)>& warn = {},
+                             std::string* error = nullptr) {
         char msg[128];
         // Parse TAP blocks: each block is [2-byte LE length][length bytes of data]
         // The data bytes are: [flag][payload...][checksum]
@@ -76,13 +88,12 @@ public:
             }
 
             if (pos + block_len > file_data.size()) {
-                if (warn) {
-                    snprintf(msg, sizeof(msg),
-                             "TAP: truncated block at offset %zu (need %u bytes, have %zu)",
-                             pos, block_len, file_data.size() - pos);
-                    warn(msg);
-                }
-                break;
+                snprintf(msg, sizeof(msg),
+                         "block %zu at offset %zu declares %u bytes but only %zu remain",
+                         blocks.size(), pos - 2, block_len, file_data.size() - pos);
+                if (error) *error = msg;
+                blocks.clear();
+                return false;
             }
 
             TapBlock block;
@@ -106,6 +117,16 @@ public:
             blocks.push_back(std::move(block));
             pos += block_len;
         }
+
+        if (pos != file_data.size()) {
+            snprintf(msg, sizeof(msg),
+                     "1 stray byte at offset %zu, too short for a block length",
+                     pos);
+            if (error) *error = msg;
+            blocks.clear();
+            return false;
+        }
+        return true;
     }
 
     /// Number of blocks in the tape.

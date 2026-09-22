@@ -114,6 +114,30 @@ public:
     /// ROM-from-disk loading / boot-ROM reload / SRAM-from-rom seeding.
     /// Used by soft_reset() to keep tbblue-loaded NextZXOS content in SRAM
     /// across a RESET_SOFT (VHDL: SRAM is not in the reset domain).
+    ///
+    /// GH #239 — this is an IN-PLACE (re)initialisation, NOT the machine's
+    /// hard reset. A hard reset (F1, Machine > Power Reset, a guest's NR 0x02
+    /// bit 1) reloads the FPGA (zxnext_top_issue2.vhd `zxn_reset_hard` ->
+    /// flashboot), which jnext models as a power-on COLD BOOT:
+    /// platform/emulator_boot.h::emulator_cold_boot() reconstructs the
+    /// Emulator in place and only then calls init(). Members init() does not
+    /// touch keep their values across an in-place init() but not across a
+    /// cold boot, so a test that wants "a hard reset" must use
+    /// emulator_cold_boot(), and one that wants the `reset` flip-flop domain
+    /// must use soft_reset().
+    ///
+    /// The in-place callers are: startup (once, on a freshly constructed
+    /// Emulator), emulator_cold_boot() (same), soft_reset() (with
+    /// preserve_memory=true), and the snapshot/NEX loaders (load_nex,
+    /// load_sna, load_szx, load_z80), which must re-initialise a possibly
+    /// RUNNING machine before applying the file and cannot cold-boot
+    /// themselves: reconstructing `*this` from inside a member function
+    /// would also drop the host wiring the frontend re-installs only after
+    /// its own cold boot (see ColdBootHooks::rewire_host). So a loaded file
+    /// starts from init()'s state, not a cold boot's: RAM and the reset
+    /// flip-flops are fresh, but what survives a reset in NextReg::reset()
+    /// (NR 0x80's low nibble, NR 0x82-0x89 per their reset_type bits, the
+    /// initial-only NR fields) is carried over from the running machine.
     bool init(const EmulatorConfig& cfg, bool preserve_memory = false);
 
     /// Advance emulation by exactly one video frame.
@@ -124,19 +148,6 @@ public:
     ///   - At each scanline boundary: renders the scanline, accumulates
     ///     audio samples, checks interrupts.
     void run_frame();
-
-    /// In-place hard reinit: reinitialize all subsystems, clear RAM, reload ROM
-    /// (calls init(config_)). NOTE (Task 70): this is NOT the machine's
-    /// power-on "reset button" behaviour. A booted Next reset in place does not
-    /// re-engage the FPGA boot ROM (config_mode is preserved), so it does NOT
-    /// re-boot NextZXOS — it would fall through to 48K BASIC. The physical reset
-    /// button / F1 / a program's NR 0x02 bit 1 are modelled as a power-on COLD
-    /// BOOT the host frontend performs by RECONSTRUCTING the emulator and
-    /// re-running init() (platform/emulator_boot.h::emulator_cold_boot). This
-    /// method survives only as the reinit used by the file loaders
-    /// (load_nex/load_sna/...) on a fresh-at-startup machine and by unit-test
-    /// setup. Do not call it expecting a NextZXOS re-boot.
-    void reset();
 
     /// Perform a soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
     /// Resets flip-flops (CPU, MMU, peripherals, NextReg) but preserves
@@ -208,8 +219,8 @@ public:
     /// OS keeps running its idle loop (interrupts, FLASH, keyboard scan),
     /// which a parked jnext does not.
     ///
-    /// Cleared by init(), hence by both reset() and soft_reset(), and by
-    /// resume_from_park() below.
+    /// Cleared by init(), hence by soft_reset(), by a cold boot and by the
+    /// loaders that re-initialise first, and by resume_from_park() below.
     void set_cpu_parked(bool parked) { cpu_parked_ = parked; }
     bool cpu_parked() const { return cpu_parked_; }
 
@@ -254,8 +265,9 @@ public:
     ///      Debugger RUN deliberately does NOT resume: unlike Step it
     ///      promises nothing about advancing, so staying parked is correct.
     ///
-    /// Loads that reset first (load_nex/sna/szx/z80, RZX-with-snapshot) need
-    /// no call: reset() re-runs init(), which clears the flag.
+    /// Loads that re-initialise first (load_nex/sna/szx/z80,
+    /// RZX-with-snapshot) need no call: they re-run init(), which clears the
+    /// flag.
     void resume_from_park(const char* reason);
 
     /// Load a TAP file and attach it as the virtual tape.
@@ -558,6 +570,14 @@ public:
     DebugState& debug_state() { return debug_state_; }
     const DebugState& debug_state() const { return debug_state_; }
 
+    /// Arm or disarm the magic breakpoint (ED FF / DD 01 pause the debugger)
+    /// on the RUNNING machine, and record it in config() so a cold boot built
+    /// from that config keeps it. A debugger facility, not machine state: it
+    /// touches nothing else. (The Debug menu used to re-run init() for this,
+    /// which re-initialised a booted machine into 48K BASIC and never
+    /// disarmed the hook — GH #239.)
+    void set_magic_breakpoint(bool enabled);
+
     /// Current scanline (0..LINES_PER_FRAME-1) within the frame.
     int current_scanline() const;
 
@@ -819,8 +839,9 @@ public:
     /// `nr_03_config_mode`; we honour that gate here.
     void on_hotkey_f4_soft_reset();
 
-    /// F1 — VHDL `hotkey_hard_reset` edge pulse. Triggers full
-    /// `Emulator::reset()` per VHDL:6371. (No config_mode gate — hard
+    /// F1 — VHDL `hotkey_hard_reset` edge pulse (VHDL:6371). Records a
+    /// hard-reset request (request_hard_reset()); the frontend performs it
+    /// as a power-on cold boot between frames. (No config_mode gate — hard
     /// reset is unconditional.)
     void on_hotkey_f1_hard_reset();
 
@@ -1006,7 +1027,8 @@ private:
     std::function<bool(uint8_t, Z80Registers&)> esxdos_bridge_handler_;
     // GH #250 — a directly loaded NEX is running: answer its RST $08 esxDOS
     // calls even without --esxdos-stub. Set by load_nex(), cleared by
-    // reset()/soft_reset(). load_tap()/load_tzx()/load_wav() deliberately
+    // init() (so by soft_reset() and every re-initialising load too).
+    // load_tap()/load_tzx()/load_wav() deliberately
     // leave it alone: they attach tape media to the running machine without
     // resetting it, so a NEX still running keeps its stand-in.
     bool direct_nex_esxdos_ = false;
@@ -1143,10 +1165,12 @@ private:
     // and surfaced verbatim on NR 0x02 readback bit 7. Drives the FPGA's
     // `o_RESET_PERIPHERAL` output (line 1579) — peripheral / ESP / expansion-
     // bus reset signal not modelled in jnext. The signal has NO reset clause
-    // anywhere in zxnext.vhd, so the latch survives both hard and soft reset
-    // — only the signal initializer at line 1095 (FPGA power-on) sets it
-    // to '0'. The C++ member initializer here handles power-on; reset()
-    // intentionally does NOT clear it (mirrors VHDL).
+    // anywhere in zxnext.vhd, so the latch survives the `reset` flip-flop
+    // domain (a soft reset) — only the signal initializer at line 1095 sets
+    // it to '0', at FPGA power-on and so on a hard reset, which reloads the
+    // FPGA. The C++ member initializer here handles both (the hard reset is a
+    // cold boot that reconstructs the Emulator); init() intentionally does
+    // NOT clear it (mirrors VHDL).
     // Pass-3 verify-audit (Task 2): added so NR 0x02 readback bit 7 reflects
     // the last firmware write, not a hard-coded zero.
     bool    nr_02_bus_reset_ = false;
@@ -1650,11 +1674,32 @@ private:
     /// Schedule a full frame's worth of SCANLINE events into the scheduler.
     void schedule_frame_events();
 
-    /// Current VHDL `cvc` counter (o_vc_cu) at the present master cycle:
-    /// the copper-offset raster line, origin = first paper line, wrapping at
-    /// c_max_vc, shifted by NR 0x64 cu_offset (zxula_timing.vhd:455-472).
-    /// Read back by NR 0x1E/0x1F and used by the line-interrupt comparator.
-    int current_cvc() const;
+    /// The VHDL `cvc` counter (o_vc_cu) during master cycle @p master_cycle
+    /// (clock_'s timeline, same frame as frame_cycle_): the copper-offset
+    /// raster line, origin = first paper line, wrapping at c_max_vc, shifted
+    /// by NR 0x64 cu_offset (zxula_timing.vhd:455-472). Read back by NR
+    /// 0x1E/0x1F at io_read_sample_cycle() (GH #265).
+    int cvc_at(uint64_t master_cycle) const;
+
+    /// GH #265 — the master cycle whose value a port read sees, when the
+    /// VHDL latches that value on the CLK_CPU falling edge @p edge_half_t
+    /// half-T-states after the start of the I/O machine cycle of the IN
+    /// now executing: the last master cycle before that edge, since a
+    /// latch takes the value its input held just before it. clock_ only
+    /// advances when an instruction completes, so without this every read
+    /// would see the position at the instruction's START. Outside an
+    /// instruction (test harness, debugger, DMA) it is clock_.get().
+    uint64_t io_read_sample_cycle(unsigned edge_half_t) const;
+
+    /// GH #262 — an IN from a port with LSB 0xDF that the mouse decode does
+    /// not claim. VHDL zxnext.vhd:2674 decodes it as `port_1f` (Kempston 1)
+    /// only when port_dac_mono_AD_df_io_en (NR 0x84 b7) AND NOT
+    /// port_mouse_io_en (NR 0x83 b5) AND port_1f_io_en (NR 0x82 b6) AND
+    /// port_1f_hw_en all hold; otherwise no decode answers the read, which
+    /// returns cpu_di's X"FF" (:1877). Shared by the LSB-0xDF handler and
+    /// the three mouse handlers, whose own decode (:2668-2670) drops out
+    /// when the mouse is disabled.
+    uint8_t port_df_read();
 
     /// Called by the SCANLINE event handler for scanline `line`.
     void on_scanline(int line);

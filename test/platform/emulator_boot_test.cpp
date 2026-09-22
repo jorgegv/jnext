@@ -5,11 +5,12 @@
 // emulator_frontend_cold_boot() (src/platform/emulator_boot.h):
 //
 //   1. the load file goes into the config the machine is rebuilt with;
-//   2. the LIVE per-connector joystick sources and the LIVE host output gain
-//      are carried across, because they are host-side settings, not machine
-//      state — a source picked from the Input menu or a gain set in
-//      Preferences must survive a boot, so carrying the STARTUP config's
-//      values would silently revert them;
+//   2. the LIVE per-connector joystick sources, the LIVE host output gain and
+//      the LIVE magic-breakpoint toggle are carried across, because they are
+//      host-side settings, not machine state — a source picked from the Input
+//      menu, a gain set in Preferences or Magic Breakpoint ticked in the Debug
+//      menu must survive a boot, so carrying the STARTUP config's values
+//      would silently revert them;
 //   3. the machine is reconstructed (power-on defaults restored);
 //   4. the frontend re-binds / re-wires / re-enumerates its host adapters;
 //   5. stale pending work is dropped BEFORE new work is scheduled;
@@ -470,6 +471,37 @@ int main()
         check("EB-17b", "the booted machine's mixer runs at the live gain",
               emu.mixer().output_gain_db() == 6.0f,
               "got " + std::to_string(emu.mixer().output_gain_db()));
+    }
+
+    // --- EB-25: the LIVE magic-breakpoint toggle is carried across (GH #239) --
+    // Debug > Magic Breakpoint is a debugger toggle, a host-side setting like
+    // EB-10's joystick sources and EB-17's gain. It arms the RUNNING machine
+    // (Emulator::set_magic_breakpoint) and records itself in config(); the
+    // frontends cold-boot from their STARTUP config, so carrying that value
+    // instead would silently disarm it on every hard reset while the menu
+    // still showed it ticked.
+    {
+        Emulator emu;
+        emu.init(base_config());                   // startup: magic BP off
+        emu.set_magic_breakpoint(true);            // live Debug-menu tick
+        EmulatorConfig startup = base_config();
+        startup.magic_breakpoint = false;          // stale startup value
+        FakeFrontend fe;
+        emulator_frontend_cold_boot(emu, startup, "", fe.hooks());
+        // Behaviour, not just the flag: ED FF at PC must pause the debugger.
+        emu.mmu().write(0x8000, 0xED);
+        emu.mmu().write(0x8001, 0xFF);
+        Z80Registers r = emu.cpu().get_registers();
+        r.PC = 0x8000;
+        emu.cpu().set_registers(r);
+        (void)emu.cpu().execute();
+        check("EB-25a", "the live magic-breakpoint toggle is carried, not the startup one",
+              fe.rewire_seen && fe.rewire_cfg.magic_breakpoint &&
+                  emu.config().magic_breakpoint,
+              std::string("rewire_cfg=") + (fe.rewire_cfg.magic_breakpoint ? "1" : "0") +
+                  " config=" + (emu.config().magic_breakpoint ? "1" : "0"));
+        check("EB-25b", "...and the booted machine's ED FF really pauses the debugger",
+              emu.debug_state().paused());
     }
 
     // --- EB-18: a LIVE emulated ESP survives the cold boot ------------------

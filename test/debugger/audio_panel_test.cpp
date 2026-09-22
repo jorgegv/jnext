@@ -19,7 +19,7 @@
 // test/audio/audio_nextreg_test.cpp already pin as VHDL-faithful, instead
 // of re-decoding a raw NextREG byte inside the panel.
 //
-// Rows AP-02/AP-03 and AP-05/AP-06 are the discriminative ones: they plant
+// Rows DAP-02/DAP-03 and DAP-05/DAP-06 are the discriminative ones: they plant
 // the "wrong bit" value the old code actually read (internal-speaker-en for
 // stereo, drive-button-NMI-en for AY/YM) while leaving the TRUE field at its
 // opposite value, so a reversion of the fix flips the checked label text.
@@ -33,6 +33,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "debugger/audio_panel.h"
+#include "platform/emulator_boot.h"
 
 #include <QApplication>
 #include <QCheckBox>
@@ -99,7 +100,7 @@ bool build_next_emulator(Emulator& emu) {
     // survives init() and reset() (see audio/audio_mute.h — otherwise the
     // panel's tick-marks would start lying after a reset). This suite reuses one
     // Emulator across rows, so that deliberate persistence would leak a mute
-    // from one row into the next. Clear it explicitly here. AP-07 asserts the
+    // from one row into the next. Clear it explicitly here. DAP-07 asserts the
     // genuine power-on default on its own fresh Emulator, so this reset cannot
     // paper over a bad default.
     emu.set_audio_mute_mask(AudioMute::NONE);
@@ -182,49 +183,49 @@ void mixer_sample(Emulator& emu, int16_t& L, int16_t& R) {
 
 } // namespace
 
-// ── AP-STEREO: NR 0x08 bit 5 is a single bit, not bits 5:4 ────────────
+// ── DAP-STEREO: NR 0x08 bit 5 is a single bit, not bits 5:4 ────────────
 
 static void test_stereo_mode(Emulator& emu) {
-    set_group("AP-STEREO");
+    set_group("DAP-STEREO");
 
-    // AP-01 — bit 5 = 0 (ABC), all other bits clear.
+    // DAP-01 — bit 5 = 0 (ABC), all other bits clear.
     {
-        if (!build_next_emulator(emu)) { check("AP-01", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-01", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x00);
         AudioPanel panel(&emu);
         panel.refresh();
         const QString got = label_text(panel, "Stereo:");
-        check("AP-01", "NR 0x08 = 0x00 (bit5=0) shows Stereo: ABC "
+        check("DAP-01", "NR 0x08 = 0x00 (bit5=0) shows Stereo: ABC "
               "[zxnext.vhd:5177, turbosound.vhd:45]",
               got == "Stereo: ABC",
               fmt("got=\"%s\"", got.toUtf8().constData()));
     }
 
-    // AP-02 — bit 5 = 1 (ACB), all other bits clear.
+    // DAP-02 — bit 5 = 1 (ACB), all other bits clear.
     {
-        if (!build_next_emulator(emu)) { check("AP-02", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-02", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x20);
         AudioPanel panel(&emu);
         panel.refresh();
         const QString got = label_text(panel, "Stereo:");
-        check("AP-02", "NR 0x08 = 0x20 (bit5=1) shows Stereo: ACB "
+        check("DAP-02", "NR 0x08 = 0x20 (bit5=1) shows Stereo: ACB "
               "[zxnext.vhd:5177, turbosound.vhd:45]",
               got == "Stereo: ACB",
               fmt("got=\"%s\"", got.toUtf8().constData()));
     }
 
-    // AP-03 — the discriminative row: bit 4 (internal_speaker_en) set,
+    // DAP-03 — the discriminative row: bit 4 (internal_speaker_en) set,
     // bit 5 (stereo) clear. The pre-fix panel read bits 5:4 as a single
     // field and stereo_bits=(reg08>>4)&3=1 → displayed "ACB" (wrongly, from
     // the speaker bit). VHDL says bit 4 is unrelated to stereo mode
     // (zxnext.vhd:5178), so the correct display is still ABC.
     {
-        if (!build_next_emulator(emu)) { check("AP-03", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-03", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x10);   // bit4=1 (speaker), bit5=0 (stereo=ABC)
         AudioPanel panel(&emu);
         panel.refresh();
         const QString got = label_text(panel, "Stereo:");
-        check("AP-03", "NR 0x08 bit 4 (internal speaker) does not affect the "
+        check("DAP-03", "NR 0x08 bit 4 (internal speaker) does not affect the "
               "displayed stereo mode [zxnext.vhd:5177 vs :5178 are independent bits]",
               got == "Stereo: ABC",
               fmt("got=\"%s\" (bit4 must not leak into stereo decode)",
@@ -232,48 +233,48 @@ static void test_stereo_mode(Emulator& emu) {
     }
 }
 
-// ── AP-AYMODE: NR 0x06 bit 0 selects AY/YM, not bit 4 ──────────────────
+// ── DAP-AYMODE: NR 0x06 bit 0 selects AY/YM, not bit 4 ──────────────────
 
 static void test_ay_ym_mode(Emulator& emu) {
-    set_group("AP-AYMODE");
+    set_group("DAP-AYMODE");
 
-    // AP-04 — psg_mode bit 0 = 1 (AY).
+    // DAP-04 — psg_mode bit 0 = 1 (AY).
     {
-        if (!build_next_emulator(emu)) { check("AP-04", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-04", "emulator init", false); return; }
         nr_write(emu, 0x06, 0x01);
         AudioPanel panel(&emu);
         panel.refresh();
         const QString got = label_text(panel, "Mode:");
-        check("AP-04", "NR 0x06 = 0x01 (psg_mode bit0=1) shows Mode: AY "
+        check("DAP-04", "NR 0x06 = 0x01 (psg_mode bit0=1) shows Mode: AY "
               "[zxnext.vhd:6389, ym2149.vhd:86]",
               got == "Mode: AY",
               fmt("got=\"%s\"", got.toUtf8().constData()));
     }
 
-    // AP-05 — psg_mode bit 0 = 0 (YM).
+    // DAP-05 — psg_mode bit 0 = 0 (YM).
     {
-        if (!build_next_emulator(emu)) { check("AP-05", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-05", "emulator init", false); return; }
         nr_write(emu, 0x06, 0x00);
         AudioPanel panel(&emu);
         panel.refresh();
         const QString got = label_text(panel, "Mode:");
-        check("AP-05", "NR 0x06 = 0x00 (psg_mode bit0=0) shows Mode: YM "
+        check("DAP-05", "NR 0x06 = 0x00 (psg_mode bit0=0) shows Mode: YM "
               "[zxnext.vhd:6389, ym2149.vhd:86]",
               got == "Mode: YM",
               fmt("got=\"%s\"", got.toUtf8().constData()));
     }
 
-    // AP-06 — the discriminative row: bit 4 ("Enable divmmc nmi by DRIVE
+    // DAP-06 — the discriminative row: bit 4 ("Enable divmmc nmi by DRIVE
     // button", nextreg.txt) set, psg_mode bit 0 clear (YM). The pre-fix
     // panel read `reg06 & 0x10` as "1=AY" — an unrelated bit — so this
     // would have wrongly shown AY. Correct display is still YM.
     {
-        if (!build_next_emulator(emu)) { check("AP-06", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-06", "emulator init", false); return; }
         nr_write(emu, 0x06, 0x10);   // bit4=1 (drive-button NMI en), psg_mode=00 (YM)
         AudioPanel panel(&emu);
         panel.refresh();
         const QString got = label_text(panel, "Mode:");
-        check("AP-06", "NR 0x06 bit 4 (drive-button NMI enable) does not "
+        check("DAP-06", "NR 0x06 bit 4 (drive-button NMI enable) does not "
               "affect the displayed AY/YM mode [nextreg.txt 0x06 bit4 vs "
               "bits1:0 are independent fields]",
               got == "Mode: YM",
@@ -282,7 +283,7 @@ static void test_ay_ym_mode(Emulator& emu) {
     }
 }
 
-// ── AP-MUTE: the five source checkboxes actually mute (Task 48) ────────
+// ── DAP-MUTE: the five source checkboxes actually mute (Task 48) ────────
 //
 // Before Task 48 the checkboxes were pure decoration: there was not a single
 // connect() on any of them anywhere in the tree, and nothing ever called
@@ -293,18 +294,18 @@ static void test_ay_ym_mode(Emulator& emu) {
 // in the loop, and then asserts on the REAL audio output.
 //
 // Mutation-tested: commenting out the connect() in audio_panel.cpp (i.e.
-// restoring the original bug) fails AP-08/09/10/11/12/13 — the clicks land, the
+// restoring the original bug) fails DAP-08/09/10/11/12/13 — the clicks land, the
 // mask stays 0x00 and the sound keeps playing. Muting the DAC to 0 instead of to
-// its midpoint fails AP-12 (muted reads -2048, not silence).
+// its midpoint fails DAP-12 (muted reads -2048, not silence).
 //
 // There is no VHDL for any of this — the Next has no per-source mute — so the
 // spec these rows encode is the one property such a facility MUST have: it may
-// silence the output stage and NOTHING else. AP-14/AP-15 pin that.
+// silence the output stage and NOTHING else. DAP-14/DAP-15 pin that.
 
 static void test_source_mutes(Emulator& emu) {
-    set_group("AP-MUTE");
+    set_group("DAP-MUTE");
 
-    // AP-07 — a fresh machine mutes nothing, and the panel says so. Uses its OWN
+    // DAP-07 — a fresh machine mutes nothing, and the panel says so. Uses its OWN
     // Emulator (not the shared fixture, which force-clears the mask) so this
     // genuinely pins the power-on default.
     {
@@ -312,7 +313,7 @@ static void test_source_mutes(Emulator& emu) {
         EmulatorConfig cfg;
         cfg.type = MachineType::ZXN_ISSUE2;
         cfg.rewind_buffer_frames = 0;
-        if (!fresh.init(cfg)) { check("AP-07", "emulator init", false); return; }
+        if (!fresh.init(cfg)) { check("DAP-07", "emulator init", false); return; }
         Emulator& emu = fresh;
 
         AudioPanel panel(&emu);
@@ -322,15 +323,15 @@ static void test_source_mutes(Emulator& emu) {
             source_box(panel, "AY #2")->isChecked() &&
             source_box(panel, "DAC")->isChecked() &&
             source_box(panel, "Beeper")->isChecked();
-        check("AP-07", "default: nothing muted, all five source boxes checked",
+        check("DAP-07", "default: nothing muted, all five source boxes checked",
               all_checked && emu.audio_mute_mask() == AudioMute::NONE,
               fmt("mask=0x%02X all_checked=%d", emu.audio_mute_mask(), all_checked));
     }
 
-    // AP-08 — THE bug. Untick "AY #1" and AY#1 must go silent. Only AY#1 is
+    // DAP-08 — THE bug. Untick "AY #1" and AY#1 must go silent. Only AY#1 is
     // programmed to make sound, so the whole PSG sum must collapse to zero.
     {
-        if (!build_next_emulator(emu)) { check("AP-08", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-08", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x02);           // turbosound_en (b1) — all 3 chips live
         program_ay_dc(emu, 1);               // AY#1 sounds; AY#0/#2 stay at volume 0
         AudioPanel panel(&emu);
@@ -339,17 +340,17 @@ static void test_source_mutes(Emulator& emu) {
         source_box(panel, "AY #1")->click();   // a real user click
         const uint32_t after = ay_level(emu);
 
-        check("AP-08", "unticking \"AY #1\" silences AY#1 (its contribution to the "
+        check("DAP-08", "unticking \"AY #1\" silences AY#1 (its contribution to the "
               "3-PSG sum goes to zero)",
               before != 0 && after == 0,
               fmt("level before=%u after=%u mask=0x%02X (before must be >0, "
                   "after must be 0)", before, after, emu.audio_mute_mask()));
     }
 
-    // AP-09 — re-ticking restores it, bit-exactly (the chip kept ticking while
+    // DAP-09 — re-ticking restores it, bit-exactly (the chip kept ticking while
     // muted, and its registers were never touched).
     {
-        if (!build_next_emulator(emu)) { check("AP-09", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-09", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x02);
         program_ay_dc(emu, 1);
         AudioPanel panel(&emu);
@@ -360,15 +361,15 @@ static void test_source_mutes(Emulator& emu) {
         source_box(panel, "AY #1")->click();   // click again — back to audible
         const uint32_t after = ay_level(emu);
 
-        check("AP-09", "re-ticking \"AY #1\" restores its exact level",
+        check("DAP-09", "re-ticking \"AY #1\" restores its exact level",
               before != 0 && muted == 0 && after == before,
               fmt("before=%u muted=%u after=%u", before, muted, after));
     }
 
-    // AP-10 — the mute is per-source, not a blanket kill. With AY#0 and AY#1
+    // DAP-10 — the mute is per-source, not a blanket kill. With AY#0 and AY#1
     // both sounding, muting AY#1 must leave exactly AY#0's contribution.
     {
-        if (!build_next_emulator(emu)) { check("AP-10", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-10", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x02);
         program_ay_dc(emu, 0);
         const uint32_t ay0_only = ay_level(emu);   // AY#0 alone
@@ -379,18 +380,18 @@ static void test_source_mutes(Emulator& emu) {
         source_box(panel, "AY #1")->click();   // a real user click
         const uint32_t ay1_muted = ay_level(emu);
 
-        check("AP-10", "muting \"AY #1\" leaves AY#0 audible and untouched "
+        check("DAP-10", "muting \"AY #1\" leaves AY#0 audible and untouched "
               "(per-source, not a blanket mute)",
               ay0_only != 0 && both > ay0_only && ay1_muted == ay0_only,
               fmt("ay0_only=%u both=%u ay1_muted=%u (ay1_muted must == ay0_only)",
                   ay0_only, both, ay1_muted));
     }
 
-    // AP-11 — Beeper. EAR high is a 512-per-channel term (audio_mixer.vhd);
+    // DAP-11 — Beeper. EAR high is a 512-per-channel term (audio_mixer.vhd);
     // muting it must land on the SAME sample as EAR genuinely low, i.e. real
     // silence, not merely "a different number".
     {
-        if (!build_next_emulator(emu)) { check("AP-11", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-11", "emulator init", false); return; }
         int16_t sL, sR;
 
         emu.port().out(0x00FE, 0x00);            // EAR low — the silence reference
@@ -406,20 +407,20 @@ static void test_source_mutes(Emulator& emu) {
         mixer_sample(emu, sL, sR);
         const int16_t muted_L = sL;
 
-        check("AP-11", "unticking \"Beeper\" removes the EAR term from the mix "
+        check("DAP-11", "unticking \"Beeper\" removes the EAR term from the mix "
               "(muted == genuinely-silent)",
               loud_L != quiet_L && muted_L == quiet_L,
               fmt("quiet=%d loud=%d muted=%d (muted must == quiet)",
                   quiet_L, loud_L, muted_L));
     }
 
-    // AP-12 — DAC. The trap row. The DAC's silence is its MIDPOINT (0x80/ch,
+    // DAP-12 — DAC. The trap row. The DAC's silence is its MIDPOINT (0x80/ch,
     // soundrive.vhd), not zero, and emit_sample() subtracts that midpoint as the
     // mix's DC reference. A mute implemented as "dac_term = 0" would therefore
     // not silence the DAC, it would pin the output at a large negative DC offset.
     // So: assert the muted sample equals the IDLE-DAC sample exactly.
     {
-        if (!build_next_emulator(emu)) { check("AP-12", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-12", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x08);               // nr_08_dac_en (b3)
         int16_t sL, sR;
 
@@ -436,7 +437,7 @@ static void test_source_mutes(Emulator& emu) {
         mixer_sample(emu, sL, sR);
         const int16_t muted_L = sL;
 
-        check("AP-12", "unticking \"DAC\" mutes it to its 0x80 midpoint, not to "
+        check("DAP-12", "unticking \"DAC\" mutes it to its 0x80 midpoint, not to "
               "zero (muted sample == idle-DAC sample)",
               loud_L != idle_L && muted_L == idle_L,
               fmt("idle=%d loud=%d muted=%d (muted must == idle; a zeroed DAC "
@@ -445,16 +446,16 @@ static void test_source_mutes(Emulator& emu) {
     }
 }
 
-// ── AP-INVIS: a debugger mute must be invisible to the emulated machine ─
+// ── DAP-INVIS: a debugger mute must be invisible to the emulated machine ─
 
 static void test_mute_is_not_machine_state(Emulator& emu) {
-    set_group("AP-INVIS");
+    set_group("DAP-INVIS");
 
-    // AP-13 — a muted AY still reads back its register file over the real port
+    // DAP-13 — a muted AY still reads back its register file over the real port
     // path (0xFFFD select / 0xBFFD data). The mute gates the mixer sum, never
     // the registers: a Z80 program cannot detect it.
     {
-        if (!build_next_emulator(emu)) { check("AP-13", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-13", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x02);
         program_ay_dc(emu, 1);                   // leaves AY#1 selected
 
@@ -469,18 +470,25 @@ static void test_mute_is_not_machine_state(Emulator& emu) {
         emu.port().out(0xFFFD, 8);
         const uint8_t got = emu.port().in(0xFFFD);
 
-        check("AP-13", "muting AY#1 silences it yet does not alter what the Z80 "
+        check("DAP-13", "muting AY#1 silences it yet does not alter what the Z80 "
               "reads from its register file (R8 still 0x0F) — CPU-invisible",
               audible != 0 && silenced == 0 && got == 0x0F,
               fmt("audible=%u silenced=%u R8=0x%02X (expected >0, 0, 0x0F)",
                   audible, silenced, got));
     }
 
-    // AP-14 — the mute is NOT machine state: a reset must not silently un-mute.
+    // DAP-14 — the mute is NOT machine state: a reset must not silently un-mute.
     // If it did, the panel's tick-marks (which are never re-pushed) would start
     // lying about what is audible.
+    //
+    // GH #239: the reset is the production HARD reset (F1, Machine > Power
+    // Reset), i.e. the frontend cold boot, which destroys and reconstructs the
+    // Emulator — the debugger's panels survive it (MainWindow::set_emulator()
+    // keeps the DebuggerManager). This row used to call the in-place
+    // Emulator::reset(), which never touched the mask, so it passed while the
+    // real reset reconstructed the mask to NONE under an unticked box.
     {
-        if (!build_next_emulator(emu)) { check("AP-14", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-14", "emulator init", false); return; }
         nr_write(emu, 0x08, 0x02);
         program_ay_dc(emu, 1);
 
@@ -488,10 +496,10 @@ static void test_mute_is_not_machine_state(Emulator& emu) {
         source_box(panel, "AY #1")->click();   // a real user click
         const uint8_t before = emu.audio_mute_mask();
 
-        emu.reset();
+        emulator_frontend_cold_boot(emu, emu.config(), std::string(), ColdBootHooks{});
 
-        check("AP-14", "a machine reset does not clear the debugger mute mask "
-              "(host facility, not machine state)",
+        check("DAP-14", "a hard reset (frontend cold boot) does not clear the debugger "
+              "mute mask (host facility, not machine state)",
               before == AudioMute::AY1 && emu.audio_mute_mask() == AudioMute::AY1 &&
                   emu.turbosound().chip_mute_mask() == AudioMute::AY1,
               fmt("mask before reset=0x%02X after=0x%02X ts=0x%02X",
@@ -499,16 +507,16 @@ static void test_mute_is_not_machine_state(Emulator& emu) {
                   emu.turbosound().chip_mute_mask()));
     }
 
-    // AP-15 — a panel rebuilt against an already-muted machine comes up with the
+    // DAP-15 — a panel rebuilt against an already-muted machine comes up with the
     // muted box UNTICKED. (The debugger re-creates its panels; seeding the boxes
     // from the live mask is what stops the UI from claiming AY#1 is audible when
     // it is not.)
     {
-        if (!build_next_emulator(emu)) { check("AP-15", "emulator init", false); return; }
+        if (!build_next_emulator(emu)) { check("DAP-15", "emulator init", false); return; }
         emu.set_audio_mute_mask(AudioMute::AY1 | AudioMute::BEEPER);
 
         AudioPanel panel(&emu);
-        check("AP-15", "a freshly-created panel reflects the machine's existing "
+        check("DAP-15", "a freshly-created panel reflects the machine's existing "
               "mute mask instead of claiming everything is audible",
               source_box(panel, "AY #0")->isChecked() &&
                   !source_box(panel, "AY #1")->isChecked() &&
@@ -531,13 +539,13 @@ int main(int argc, char** argv) {
 
     Emulator emu;
     test_stereo_mode(emu);
-    std::printf("  Group: AP-STEREO      — done\n");
+    std::printf("  Group: DAP-STEREO     — done\n");
     test_ay_ym_mode(emu);
-    std::printf("  Group: AP-AYMODE      — done\n");
+    std::printf("  Group: DAP-AYMODE     — done\n");
     test_source_mutes(emu);
-    std::printf("  Group: AP-MUTE        — done\n");
+    std::printf("  Group: DAP-MUTE       — done\n");
     test_mute_is_not_machine_state(emu);
-    std::printf("  Group: AP-INVIS       — done\n");
+    std::printf("  Group: DAP-INVIS      — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

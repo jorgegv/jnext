@@ -856,9 +856,10 @@ void MainWindow::create_menus() {
     if (emulator_) magic_bp_action_->setChecked(emulator_->config().magic_breakpoint);
     connect(magic_bp_action_, &QAction::triggered, this, [this](bool checked) {
         if (!emulator_) return;
-        EmulatorConfig cfg = emulator_->config();
-        cfg.magic_breakpoint = checked;
-        emulator_->init(cfg);
+        // Arm/disarm on the running machine. This used to re-run init() with
+        // the flag changed, which re-initialised a booted NextZXOS machine
+        // into 48K BASIC and never disarmed the hook (GH #239).
+        emulator_->set_magic_breakpoint(checked);
     });
 
     // --- View menu ---
@@ -1175,9 +1176,25 @@ void MainWindow::handle_load_path(const QString& path) {
     // then load and run). QtApp performs the reconstruct+init+load; the
     // per-format loader dispatch lives in the shared startup path.
     if (load_file_callback_) {
+        menu_load_pending_ = file;
         load_file_callback_(file, allow_experimental_nex_v13);
     }
     emit load_nex_requested(path);
+}
+
+void MainWindow::load_finished(const std::string& file, bool ok) {
+    const bool from_menu = !menu_load_pending_.empty() && file == menu_load_pending_;
+    menu_load_pending_.clear();
+    update_tape_status();
+    if (ok || !from_menu) return;
+    const QString path = QString::fromStdString(file);
+    QTimer::singleShot(0, this, [this, path]() { report_load_failure(path); });
+}
+
+void MainWindow::report_load_failure(const QString& path) {
+    QMessageBox::warning(this, tr("Load Failed"),
+        tr("Could not load:\n%1\n\nThe file is missing, unreadable or not a valid "
+           "file of its type; the log has the details.").arg(path));
 }
 
 void MainWindow::on_mount_sd() {
@@ -1299,21 +1316,34 @@ void MainWindow::on_tape_open() {
 
     app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
     app_config_.save();
+    handle_tape_path(path);
+}
 
+void MainWindow::handle_tape_path(const QString& path) {
+    if (!emulator_) return;
+    // The Tape menu's own toggle decides the mode: "Turn [real time] on with
+    // Tape > Fast Load (uncheck it)" (user guide 5.5). WAV is always real time.
+    const bool fast = !tape_fast_action_ || tape_fast_action_->isChecked();
+    const std::string file = path.toStdString();
+    bool ok = false;
     if (path.toLower().endsWith(".tzx")) {
-        emulator_->load_tzx(path.toStdString());
+        ok = emulator_->load_tzx(file, fast);
     } else if (path.toLower().endsWith(".wav")) {
-        emulator_->load_wav(path.toStdString());
+        ok = emulator_->load_wav(file);
     } else {
-        emulator_->load_tap(path.toStdString());
+        ok = emulator_->load_tap(file, fast);
     }
+    // A refused file leaves the tape that was in (the loaders build the new
+    // one aside and only swap it in on success).
     update_tape_status();
+    if (!ok) report_load_failure(path);
 }
 
 void MainWindow::on_tape_eject() {
     if (!emulator_) return;
     emulator_->tape().eject();
     emulator_->tzx_tape().eject();
+    emulator_->wav_tape().eject();
     update_tape_status();
 }
 
@@ -1321,6 +1351,9 @@ void MainWindow::on_tape_rewind() {
     if (!emulator_) return;
     if (emulator_->tzx_tape().is_loaded()) {
         emulator_->tzx_tape().rewind();
+    } else if (emulator_->wav_tape().is_loaded()) {
+        // A WAV is always playing in real time: rewinding restarts it.
+        emulator_->wav_tape().start_playback(emulator_->monotonic_tstates());
     } else {
         emulator_->tape().rewind();
     }
@@ -1338,10 +1371,13 @@ void MainWindow::update_tape_status() {
 
     const auto& tap = emulator_->tape();
     const auto& tzx = emulator_->tzx_tape();
+    const auto& wav = emulator_->wav_tape();
 
     if (tzx.is_loaded()) {
         QString name = QString::fromStdString(tzx.filename());
         tape_label_->setText(tr("Tape: %1").arg(name));
+    } else if (wav.is_loaded()) {
+        tape_label_->setText(tr("Tape: %1").arg(QString::fromStdString(wav.filename())));
     } else if (tap.is_loaded()) {
         QString name = QString::fromStdString(tap.filename());
         tape_label_->setText(tr("Tape: %1 [%2/%3]")
@@ -1353,7 +1389,7 @@ void MainWindow::update_tape_status() {
     }
 
     // Enable/disable menu actions
-    bool has_tape = tap.is_loaded() || tzx.is_loaded();
+    bool has_tape = tap.is_loaded() || tzx.is_loaded() || wav.is_loaded();
     if (tape_eject_action_)  tape_eject_action_->setEnabled(has_tape);
     if (tape_rewind_action_) tape_rewind_action_->setEnabled(has_tape);
 }

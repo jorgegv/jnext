@@ -100,7 +100,11 @@ both frontends.
 `JNEXT_TEST_JOBS=4` caps the screenshot launcher's parallelism, and it is worth
 keeping. The cap is not politeness towards the machine: `audio-underrun-func`
 and `screenshot-paused-func` are bounded by real-time pacing and start failing
-under CPU contention, so raising it makes the suite intermittently lie. Note
+under CPU contention, so raising it makes the suite intermittently lie. They
+are examples rather than the whole class — rows that merely spawn short-lived
+processes have failed under load too — which is why the suite itself flags a
+FAIL that happened on a loaded host (see
+[The regression suite](03-the-regression-suite.md)). Note
 also that the cap is a caller convention rather than a default — the launcher
 falls back to `nproc` when the variable is unset, so `make regression` on its
 own is uncapped. CI sets it explicitly.

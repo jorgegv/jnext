@@ -4306,6 +4306,87 @@ static void test_gh183_hc_origin_phase(void) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
+// ── CT-GH265 — a port READ happens after the I/O cycle's contention ───
+//
+// The ULA stretches the CPU clock inside the I/O cycle (o_cpu_contend,
+// zxula.vhd:587-595) and the T80 latches the data bus only on the falling
+// edge of T3 (t80na.vhd:214-222), after the stretch. fuse_z80_readport()
+// used to call the port handler BEFORE charging the stretch, so a
+// time-dependent read (floating bus, NR 0x1E/0x1F, the tape EAR bit) was
+// sampled up to the stretch early, and the stretch was invisible to
+// Z80Cpu::tstates_into_instruction() — the offset GH #265's I/O-cycle
+// sampling is built on.
+//
+// Observable: a test read handler on port 0x0012 — even, so `port_contend`
+// holds (not cpu_a(0), zxnext.vhd:4496) and the I/O cycle is contended in the
+// display on 48K; A1:0 = 10, so no port_fd decode — records
+// tstates_into_instruction(). IN A,(C) ends 3 T after its handler runs, so a
+// handler that runs after the stretch sees `total - 3`; before it,
+// `total - 3 - stretch`. (The test handler, mask 0xFFFF, out-ranks the ULA's
+// any-even-port read decode for this one address.)
+
+static int gh265_in_a_c_handler_into(Emulator& emu, uint32_t start_ts,
+                                     int& total) {
+    int into = -1;
+    emu.port().register_handler(0xFFFF, 0x0012,
+        [&emu, &into](uint16_t) -> uint8_t {
+            into = static_cast<int>(emu.cpu().tstates_into_instruction());
+            return 0x5A;
+        },
+        nullptr);
+    emu.mmu().write(0x8000, 0xED);
+    emu.mmu().write(0x8001, 0x78);                  // IN A,(C)
+    auto regs = emu.cpu().get_registers();
+    regs.PC = 0x8000;                               // bank 2: uncontended M1s
+    regs.BC = 0x0012;
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+    *fuse_z80_tstates_ptr() = start_ts;
+    total = emu.cpu().execute();
+    return into;
+}
+
+static void test_gh265_port_read_after_stretch(void) {
+    set_group("CT-GH265");
+
+    // CT-GH265-01 — started 2 T after the ULA counter origin of the first
+    // display line: the I/O cycle's T1 ends in a contended phase, the IN
+    // takes more than its 12 T, and the handler runs after the stretch.
+    {
+        Emulator emu;
+        int total = 0, into = -1;
+        const bool ok = make_emu(emu, MachineType::ZX48K);
+        if (ok) {
+            seek_to_display_window(emu);
+            into = gh265_in_a_c_handler_into(emu, *fuse_z80_tstates_ptr() + 2,
+                                             total);
+        }
+        check("CT-GH265-01",
+              "48K port-contended IN A,(C): the port handler runs after the "
+              "I/O cycle's stretch, 3 T before the end (zxnext.vhd:4496; "
+              "zxula.vhd:587-595; t80na.vhd:214-222)",
+              ok && total > 12 && into == total - 3,
+              "total=" + std::to_string(total) + " into="
+              + std::to_string(into) + " (want total>12, into=total-3)");
+    }
+
+    // CT-GH265-02 — control: the same IN in the top border (no stretch)
+    // takes exactly 12 T and its handler sees 9 (two M1s + T1).
+    {
+        Emulator emu;
+        int total = 0, into = -1;
+        const bool ok = make_emu(emu, MachineType::ZX48K);
+        if (ok) into = gh265_in_a_c_handler_into(emu, 0, total);
+        check("CT-GH265-02",
+              "48K IN A,(C) in the top border: no stretch, 12 T, handler at "
+              "9 T (zxula.vhd:414,583)",
+              ok && total == 12 && into == 9,
+              "total=" + std::to_string(total) + " into="
+              + std::to_string(into) + " (want 12, 9)");
+    }
+}
+
 int main() {
     std::printf("Contention Model Compliance Tests\n");
     std::printf("=================================\n\n");
@@ -4386,6 +4467,10 @@ int main() {
     // 423-451; zxula.vhd:582-583).
     test_gh183_hc_origin_phase();
     std::printf("  Group: CT-GH183       — done\n");
+
+    // GH #265 — port reads sample the bus after the I/O-cycle stretch.
+    test_gh265_port_read_after_stretch();
+    std::printf("  Group: CT-GH265       — done\n");
 
     std::printf("\n=================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

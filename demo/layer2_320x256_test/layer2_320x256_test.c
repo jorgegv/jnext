@@ -39,6 +39,18 @@ int main(void) {
     /* Set Layer 2 resolution to 320x256 8bpp (NextREG 0x70 bits 5:4 = 01) */
     nr_write(0x70, 0x10);
 
+    /* Layer 2 clip window = the whole 320x256 area. The NEX loader leaves it
+     * at 0,255,0,191 (the 256x192 screen), which would cut this mode off
+     * below row 191. In the 320/640 modes the X coordinates are doubled
+     * (layer2.vhd:132-134), so X2=159 reaches x=319 (640: 639); Y2=255 is
+     * the last row. NR 0x1C bit 0 resets the Layer 2 clip index, then
+     * NR 0x18 takes X1, X2, Y1, Y2. */
+    nr_write(0x1C, 0x01);
+    nr_write(0x18, 0);
+    nr_write(0x18, 159);
+    nr_write(0x18, 0);
+    nr_write(0x18, 255);
+
     /* Layer 2 bank = 8 (default), pages 16-25 */
     nr_write(0x12, 8);
 

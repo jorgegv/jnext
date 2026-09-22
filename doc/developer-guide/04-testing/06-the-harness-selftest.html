@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.163</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1863,9 +1863,13 @@ offending row script fails the whole regression preflight rather than just the
 lint. The rest cover cleanup, checking that every SD-clone cleanup script
 handles INT and TERM as well as EXIT, that each handler <strong>exits</strong> rather than
 resuming, and that the three real cleanup bodies are bounded and remove only
-their own run directory.</p>
+their own run directory. Finally <code>HS-50</code>..<code>HS-55</code> pin the regression suite's
+host-load bookkeeping (GH #245): the real suite library, sourced against a fake
+<code>/proc/loadavg</code>, must flag a FAIL on a loaded host and must not flag the same
+FAIL on an idle one, must name every failed row at the end, must never change
+the count — and the driver must still call it.</p>
 <h2 id="it-pins-its-own-count">It pins its own count<a class="headerlink" href="#it-pins-its-own-count" title="Permanent link">&para;</a></h2>
-<p><code>EXPECTED_TOTAL = 45</code> sits in the script, right next to the rows it counts, and
+<p><code>EXPECTED_TOTAL = 51</code> sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is
@@ -1876,17 +1880,19 @@ deliberately.</p>
 cross-checked against CMake's <code>add_test()</code> registrations in both directions, so
 an entry with no CMake counterpart would make the unit harness refuse to run.</p>
 <h2 id="the-traceability-self-tests">The traceability self-tests<a class="headerlink" href="#the-traceability-self-tests" title="Permanent link">&para;</a></h2>
-<pre><code class="language-console">$ make traceability-selftest          # the citation extractor, 202 pinned rows
+<pre><code class="language-console">$ make traceability-selftest          # citation extractor + dup-ID gate, 215 pinned rows
 $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 </code></pre>
 <p><code>test/traceability-citations-selftest.pl</code> pins the tool that decides which VHDL
 lines justify each traceability row. Its end-to-end rows build a throwaway
 repository out of the real manifest, CMakeLists and matrix, populated with stub
 sources and binaries, and then run the real refresh script against it twice, so
-that idempotence and the refusal paths are both exercised. It pins
-<code>$EXPECTED_ROWS = 202</code> in the same shape as the harness self-test, and for the
-same reason it cannot live in the unit manifest — it is a perl script with no
-CMake target.</p>
+that idempotence and the refusal paths are both exercised. <code>SELF-208</code>..<code>SELF-215</code>
+run <code>test/traceability-dup-ids.pl</code> and the generator's <code>--planned-ids</code> the same
+way, planting colliding IDs in <code>?</code>-prefixed suites, in one-row plan docs and in
+the baseline (GH #243). It pins <code>$EXPECTED_ROWS = 215</code> in the
+same shape as the harness self-test, and for the same reason it cannot live in
+the unit manifest — it is a perl script with no CMake target.</p>
 <p>Both are prerequisites of <code>make unit-test</code>, and that matters more than the
 checks themselves do. Until they were wired in, nothing invoked them — not
 <code>unit-test</code>, not <code>regression</code>, not CI — and they were the only thing standing

@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=45
+EXPECTED_TOTAL=51
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -949,6 +949,66 @@ check "HS-43b" "REAL bench_cleanup body: bounded, removes only its run dir (GH #
 out=$(cleanup_body_probe "$PROJECT_DIR/test/00regression/test-functions.inc" regression_cleanup RUN_DIR TMP_DIR)
 check "HS-43c" "REAL regression_cleanup body: bounded, removes its dirs (GH #79)" 0 0 \
     "$out" "rc=0 fast=y gone=y sibling=y"
+
+# ------------------------------------------------ host load (GH #245)
+# The regression suite flags a FAIL that happened on a loaded host and names
+# every failed row at the end, so whether a red row might be contention is
+# answered by the harness rather than by a reader's memory of which rows are
+# sensitive. These rows drive the REAL suite library (sourced whole, in a child
+# shell with a fake $HOME so no SD clone is made) against a fake /proc/loadavg,
+# and pin both halves: the warning appears on a loaded host and NOT on an idle
+# one, and in neither case does the verdict change.
+load_probe() {   # load_probe <1-min load> <cpus> <bash snippet>
+    local fh="$T/loadfix"
+    rm -rf "$fh"; mkdir -p "$fh"
+    printf '%s 0.00 0.00 1/100 12345\n' "$1" > "$T/loadavg"
+    HOME="$fh" JNEXT_REGRESSION_LOADAVG_FILE="$T/loadavg" JNEXT_REGRESSION_NPROC="$2" \
+        timeout --kill-after=3s 10s bash -c \
+        "set -euo pipefail; source '$PROJECT_DIR/test/00regression/test-functions.inc'; $3" 2>&1
+}
+# How many lines of <text> match <fixed string> — for the ABSENCE halves, which
+# check() (patterns must be present) cannot express on its own.
+count_of() { grep -cF -- "$2" <<<"$1" || true; }
+
+out=$(load_probe 12.5 12 'CURRENT_ROW=fake-func; fail_row " (boom)"; echo "fail=$fail"'); rc=$?
+check "HS-50" "a FAIL on a loaded host is flagged on the spot, and still counts as a FAIL (GH #245)" 0 $rc "$out" \
+    "FAIL" " (boom)" "^ host load 12.5 on 12 CPUs when this row failed" "re-run it SOLO" "fail=1"
+
+out=$(load_probe 3.0 12 'CURRENT_ROW=fake-func; fail_row " (boom)"; echo "fail=$fail"'); rc=$?
+out+=$'\n'"warned=$(count_of "$out" "when this row failed")"
+check "HS-51" "the control: the same FAIL on an idle host is NOT flagged, and still counts (GH #245)" 0 $rc "$out" \
+    "FAIL" " (boom)" "fail=1" "warned=0"
+
+loaded_run='load_report start; begin_func a-func; fail_row; begin_func b-func; pass_row; load_report end; load_summary'
+out=$(load_probe 12.5 12 "$loaded_run"); rc=$?
+out+=$'\n'"passed-row-listed=$(count_of "$out" "b-func (")"
+check "HS-52" "a loaded run records the load at start and end, names every failed row, and warns (GH #245)" 0 $rc "$out" \
+    "host load at start: 12.5 (1-min) on 12 CPUs" "host load at end: 12.5" "Failed rows:" \
+    "a-func (1-min load 12.5)" "WARNING: this run was on a loaded host" \
+    "The FAIL verdict above stands" "passed-row-listed=0"
+
+out=$(load_probe 3.0 12 "$loaded_run"); rc=$?
+out+=$'\n'"warned=$(count_of "$out" "loaded host")"
+check "HS-53" "the control: an idle run still names its failed rows, but does NOT warn (GH #245)" 0 $rc "$out" \
+    "Failed rows:" "a-func (1-min load 3.0)" "warned=0"
+
+# No load average to read (not Linux, or /proc not mounted): say "unknown",
+# never flag, never print the shell's own error, and still count the FAIL.
+out=$(load_probe 12.5 12 "LOADAVG_FILE=$T/no-such-loadavg; $loaded_run; echo \"fail=\$fail\""); rc=$?
+out+=$'\n'"warned=$(count_of "$out" "loaded host") noise=$(count_of "$out" "No such file")"
+check "HS-55" "an unreadable load average reads 'unknown', is never flagged, and the FAIL still counts (GH #245)" 0 $rc "$out" \
+    "host load at start: unknown" "a-func (1-min load unknown)" "fail=1" "warned=0 noise=0"
+
+# The library is only half of it: the driver must call it, and the screenshot
+# rows must name themselves (they report through fail_row without begin_func).
+# Source-scan, like HS-30/HS-40 — a harness that quietly stopped calling the
+# summary would leave HS-50..53 green.
+reg="$PROJECT_DIR/test/00regression/regression.sh"
+out="start=$(grep -cE '^load_report start$' "$reg") end=$(grep -cE '^load_report end$' "$reg")"
+out+=" summary=$(grep -cE '^load_summary$' "$reg")"
+out+=" shots=$(grep -cE '^[[:space:]]*CURRENT_ROW=\$test_name$' "$PROJECT_DIR/test/00regression/scripts/screenshots.sh")"
+check "HS-54" "regression.sh reports the load at start and end and prints the summary; screenshot rows name themselves (GH #245)" 0 0 \
+    "$out" "start=1 end=1 summary=1 shots=1"
 
 echo ""
 echo "====================================="

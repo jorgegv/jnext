@@ -98,6 +98,26 @@ a 60 s timeout. Higher concurrency therefore makes the suite intermittently
 lie. The variable defaults to `nproc` when unset, so pass `JNEXT_TEST_JOBS=4`
 explicitly, exactly as CI does.
 
+## A failure on a loaded host
+
+Those two rows are examples, not the list. Rows that merely spawn short-lived
+processes have also failed under a parallel-agent load and never reproduced
+solo (`subsystem-gain-func`, GH #245), and a concurrent duplicate build once
+failed with `undefined reference to main`. A list of sensitive rows in a
+document is therefore the wrong tool: a reader either chases a ghost, or —
+worse — waves a genuine failure through as "probably contention" because the
+row was not on the list.
+
+So the harness says it itself. It prints the 1-minute load average at the start
+and at the end of the run, marks every FAIL that happened with the load at or
+above `nproc` on the spot, and after the results lists each failed row by name
+with the load at the moment it failed, plus a warning when the run was loaded.
+None of that changes a verdict: a FAIL is still a FAIL and the exit status is
+unchanged. What it changes is the next step — re-run the row SOLO
+(`bash test/00regression/regression.sh <row>`) before treating it as a
+regression, and do not dismiss it until that solo run passes. The self-test
+pins the behaviour both ways (`HS-50..55`).
+
 ## No row script may install a `trap`
 
 The driver **sources** every row script into its own shell, and that shell

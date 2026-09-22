@@ -19,8 +19,10 @@ fills it:
 jnext --load game.nex --nex-args "level 3"
 ```
 
-The program finds that text with `DE` pointing at it, zero-terminated, exactly
-as it would when launched with arguments from NextZXOS. A line longer than the
+The program finds that text zero-terminated at the address the file declares,
+exactly as it would when launched with arguments from NextZXOS; `DE` then holds
+that address plus the buffer's size, which is where the Next's V1.3 loader
+leaves it (not the address itself, as the format's notes say). A line longer than the
 buffer the file declares is truncated to fit. Only V1.3 files have the buffer,
 so with anything else the option warns and is ignored.
 
@@ -39,7 +41,10 @@ the program. More than 16 KB of ignored data is reported with a warning.
 In the window, **File > Load NEX File…** (Alt+O) opens the same loader and
 accepts every one of those formats despite its name. Tapes have their own
 entry, **Tape > Open Tape File…** (Alt+T), covered in
-[5.5](05-recording-and-playback.md).
+[5.5](05-recording-and-playback.md). A file that cannot be loaded — missing,
+truncated, or not the format its extension says — gets a warning dialog naming
+it, from either menu and from **File > Play RZX Recording…**; the log says
+what was wrong with it.
 
 ![JNEXT running, with NextZXOS booted](../img/gui-main-window.png)
 
