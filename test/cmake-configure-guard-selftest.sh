@@ -14,9 +14,21 @@
 #
 # Fast: no jnext build, no Qt/SDL — a 3-line throwaway CMakeLists.txt project
 # configures against real gcc/g++ in ~1s per call, 4 calls total.
+#
+# Phase 6 covers a SEPARATE #141-review finding: gui-release/sdl-release's
+# own `-D...` arguments after the "--" (not this script's assertions, which
+# were always quoted) were passed unquoted in the Makefile, so a compiler
+# path containing a space would word-split before cmake ever saw it as one
+# argument. Fixed by quoting each "-Dkey=value" as its own shell word. That
+# defect lives in the MAKEFILE RECIPE TEXT, not in this script (which always
+# received its cmake_args as a correctly-quoted bash array — `"$@"` never
+# word-splits), so phase 6 checks the Makefile directly via `make -n`
+# (prints the exact recipe text Make would hand to the shell; no cmake
+# invoked, no build dir touched) rather than re-testing this script.
 set -euo pipefail
 
 SELFTEST_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
+REPO_ROOT=$(cd "$SELFTEST_DIR/.." && pwd)
 GUARD="$SELFTEST_DIR/cmake-configure-guard.sh"
 
 FAIL=0
@@ -109,6 +121,15 @@ echo "  -- 5: no-op after recovery must also skip cmake --"
 : > "$WORK/cmake.out"
 configure "$REAL_CXX"
 check "no-op after recovery: cmake was not invoked" "$(cat "$WORK/cmake.out")" ""
+
+echo "  -- 6: gui-release/sdl-release's own -D args stay one shell word each (space-safe) --"
+SPACE_CXX="a weird/path with spaces/g++"
+for target in gui-release sdl-release; do
+	recipe=$(cd "$REPO_ROOT" && LANG=C make -n "CXX=$SPACE_CXX" "$target" 2>&1)
+	check "$target: -DCMAKE_CXX_COMPILER is one quoted shell word" \
+		"$(printf '%s\n' "$recipe" | grep -cF "\"-DCMAKE_CXX_COMPILER=$SPACE_CXX\"")" \
+		"1"
+done
 
 if [ "$FAIL" -eq 1 ]; then
 	echo "cmake-configure-guard-selftest: FAILED"

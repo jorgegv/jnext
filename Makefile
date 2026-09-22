@@ -193,12 +193,12 @@ sdl-release:
 		"ENABLE_QT_UI=OFF" \
 		"ENABLE_TESTS=OFF" \
 		-- \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_C_COMPILER=$(CC) \
-		-DCMAKE_CXX_COMPILER=$(CXX) \
-		-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
-		-DENABLE_QT_UI=OFF \
-		-DENABLE_TESTS=OFF
+		"-DCMAKE_BUILD_TYPE=Release" \
+		"-DCMAKE_C_COMPILER=$(CC)" \
+		"-DCMAKE_CXX_COMPILER=$(CXX)" \
+		"-DCMAKE_CXX_FLAGS=-O2 -DNDEBUG" \
+		"-DENABLE_QT_UI=OFF" \
+		"-DENABLE_TESTS=OFF"
 	$(CMAKE) --build $(BUILD_DIR_SDL_RELEASE) -j$(JOBS)
 
 # Run the emulator (SDL-only release build)
@@ -246,12 +246,12 @@ gui-release:
 		"ENABLE_QT_UI=ON" \
 		"ENABLE_TESTS=OFF" \
 		-- \
-		-DCMAKE_BUILD_TYPE=Release \
-		-DCMAKE_C_COMPILER=$(CC) \
-		-DCMAKE_CXX_COMPILER=$(CXX) \
-		-DCMAKE_CXX_FLAGS="-O2 -DNDEBUG" \
-		-DENABLE_QT_UI=ON \
-		-DENABLE_TESTS=OFF
+		"-DCMAKE_BUILD_TYPE=Release" \
+		"-DCMAKE_C_COMPILER=$(CC)" \
+		"-DCMAKE_CXX_COMPILER=$(CXX)" \
+		"-DCMAKE_CXX_FLAGS=-O2 -DNDEBUG" \
+		"-DENABLE_QT_UI=ON" \
+		"-DENABLE_TESTS=OFF"
 	$(CMAKE) --build $(BUILD_DIR_GUI_RELEASE) -j$(JOBS)
 
 # Cross-compile ONLY the Windows jnext.exe (Fedora MinGW; no packaging)
