@@ -36,7 +36,9 @@
 
 #include <atomic>
 #include <chrono>
+#include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <deque>
 #include <functional>
@@ -47,6 +49,19 @@
 #include <vector>
 
 using namespace esp;
+
+// Whether AddressSanitizer is watching this build — see FakeTransport's
+// `operator delete`. GCC announces it with a macro, Clang with a feature test.
+#if defined(__SANITIZE_ADDRESS__)
+#define ESP_AT_TEST_ASAN 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define ESP_AT_TEST_ASAN 1
+#endif
+#endif
+#ifndef ESP_AT_TEST_ASAN
+#define ESP_AT_TEST_ASAN 0
+#endif
 
 // ── Tiny test harness (matches esp_socket_test.cpp style) ─────────────────
 
@@ -216,16 +231,22 @@ public:
         if (state_ != TransportState::Idle) state_ = TransportState::Closed;
     }
 
-    // Test-side stimulus.
+    // Test-side stimulus. Each one refuses to drive a deleted transport (see
+    // `operator delete`): a write through a stale pointer is otherwise silent.
     void queue_from_peer(const std::string& s) {
+        require_live();
         for (unsigned char c : s) inbox.push_back(c);
     }
     /// One whole datagram from the peer. Separate from `queue_from_peer` on
     /// purpose: the boundary is the thing under test.
     void queue_datagram_from_peer(const std::string& s) {
+        require_live();
         datagram_inbox.emplace_back(s.begin(), s.end());
     }
-    void peer_closes() { state_ = TransportState::Closed; }
+    void peer_closes() {
+        require_live();
+        state_ = TransportState::Closed;
+    }
 
     /// Start life already connected, the way a transport handed over by a
     /// listener does (`SocketTransport::adopt_connected`). An inbound
@@ -233,7 +254,63 @@ public:
     /// only reach `Connected` through it could not model one at all.
     void arrive_connected() { state_ = TransportState::Connected; }
 
+    /// POISONED ON DELETE, AND NEVER REUSED (GH #241).
+    ///
+    /// The engine owns every ACCEPTED transport and deletes it synchronously
+    /// inside the very dispatch that retires the connection — `AT+CIPCLOSE`,
+    /// a peer close, `AT+CIPSTO`, a turned-away fifth peer. A row that keeps
+    /// the borrowed `add_inbound` pointer and reads it afterwards is reading
+    /// freed memory, and with a plain `delete` that read usually still finds
+    /// the old value: five rows passed that way, asserting `close_calls == 1`
+    /// out of an object that no longer existed.
+    ///
+    /// So the storage is overwritten with 0xCD — `close_calls` then reads
+    /// 0xCDCDCDCD and a string member points nowhere — and is held back from
+    /// the allocator until exit, so no later allocation can land on it and
+    /// happen to restore a plausible value. Any such read now FAILS the row or
+    /// crashes the suite, every run, whatever the allocator does.
+    ///
+    /// Observe a retired peer through something that outlives it instead:
+    /// `close_tally`.
+    ///
+    /// Compiled out under AddressSanitizer, which does the same job strictly
+    /// better — it catches ANY write through a stale pointer, where poison
+    /// catches only the stimulus methods' `require_live()` — but only if it
+    /// sees the real free.
+#if !ESP_AT_TEST_ASAN
+    static void operator delete(void* p, std::size_t size) {
+        std::memset(p, 0xCD, size);
+        quarantine().held.push_back(p);
+    }
+#endif
+
 private:
+    /// Overwritten with 0xCD by `operator delete`, so a poisoned object can no
+    /// longer claim to be one.
+    static constexpr std::uint32_t LIVE = 0x4C495645;  // "LIVE"
+    std::uint32_t live_ = LIVE;
+
+    void require_live() const {
+        if (live_ == LIVE) return;
+        std::fprintf(stderr, "FATAL: a row drove a FakeTransport the engine has already "
+                             "deleted — observe it through close_tally (GH #241)\n");
+        std::abort();
+    }
+
+#if !ESP_AT_TEST_ASAN
+    /// Freed-and-poisoned FakeTransports, released only when the process ends.
+    struct Quarantine {
+        std::vector<void*> held;
+        ~Quarantine() {
+            for (void* p : held) ::operator delete(p);
+        }
+    };
+    static Quarantine& quarantine() {
+        static Quarantine q;
+        return q;
+    }
+#endif
+
     TransportState state_ = TransportState::Idle;
     std::string    error_;
     IpAddress      peer_ = ipv4(192, 0, 2, 1);
@@ -2198,13 +2275,15 @@ int main() {
         // left open on its own side and invisible on ours.
         Rig r;
         r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
-        std::vector<FakeTransport*> peers;
-        for (int i = 0; i < 5; ++i) peers.push_back(add_inbound(r.lsn));
+        // Counted through `close_tally`: the fifth peer is deleted in the same
+        // pass that closes it (GH #241).
+        int closes[5] = {};
+        for (int i = 0; i < 5; ++i) add_inbound(r.lsn)->close_tally = &closes[i];
         for (int i = 0; i < 8; ++i) r.settle();
         check_eq("SRV-21", "four peers are accepted as ids 1..4, in order", r.take(),
                  "\r\n1,CONNECT\r\n\r\n2,CONNECT\r\n\r\n3,CONNECT\r\n\r\n4,CONNECT\r\n");
         check("SRV-21b", "...and the fifth is closed rather than silently held",
-              r.eng.inbound_connections() == 4 && peers[4]->close_calls == 1); }
+              r.eng.inbound_connections() == 4 && closes[4] == 1); }
     {   // The reason for 8a, asserted rather than asserted about: accepting a
         // peer must not cost the guest the connection slot it dials out on.
         Rig r;
@@ -2267,7 +2346,10 @@ int main() {
 
     {   Rig r;
         r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
-        FakeTransport* peer = add_inbound(r.lsn);
+        // The engine deletes the peer inside the close it answers, so the close
+        // is counted somewhere that outlives it (GH #241).
+        int closes = 0;
+        add_inbound(r.lsn)->close_tally = &closes;
         r.settle(); r.take();
         r.send("AT+CIPCLOSE=1\r\n"); r.settle();
         // `[<conn_id>,]CLOSED` then the result code, exactly as the bare
@@ -2275,8 +2357,7 @@ int main() {
         check_eq("CLS-01", "AT+CIPCLOSE=<id> answers <id>,CLOSED then OK", r.take(),
                  "\r\n1,CLOSED\r\n\r\nOK\r\n");
         check("CLS-01b", "...and the slot is free again", r.eng.inbound_connections() == 0);
-        check("CLS-01c", "...having really closed that peer's socket",
-              peer->close_calls == 1);
+        check("CLS-01c", "...having really closed that peer's socket", closes == 1);
         r.settle();
         check_eq("CLS-01d",
                  "...and the peer-close path does not then announce it a second time",
@@ -2287,16 +2368,16 @@ int main() {
         // one" would pass a 1,2,3,4 sweep.
         Rig r;
         r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
-        std::vector<FakeTransport*> peers;
-        for (int i = 0; i < 4; ++i) peers.push_back(add_inbound(r.lsn));
+        // One tally per peer, each outliving its transport (GH #241).
+        int closes[4] = {};
+        for (int i = 0; i < 4; ++i) add_inbound(r.lsn)->close_tally = &closes[i];
         for (int i = 0; i < 8; ++i) r.settle();
         r.take();
         r.send("AT+CIPCLOSE=2\r\n"); r.settle();
         check_eq("CLS-02", "the notification carries the id that was asked for, not the "
                  "first live one", r.take(), "\r\n2,CLOSED\r\n\r\nOK\r\n");
         check("CLS-02b", "...and only THAT peer's socket was closed",
-              peers[1]->close_calls == 1 && peers[0]->close_calls == 0 &&
-              peers[2]->close_calls == 0 && peers[3]->close_calls == 0);
+              closes[1] == 1 && closes[0] == 0 && closes[2] == 0 && closes[3] == 0);
         check("CLS-02c", "...leaving the other three connected",
               r.eng.inbound_connections() == 3);
         r.send("AT+CIPCLOSE=4\r\n"); r.settle();
@@ -2309,8 +2390,7 @@ int main() {
         check_eq("CLS-05", "...and the first", r.take(), "\r\n1,CLOSED\r\n\r\nOK\r\n");
         check("CLS-05b", "so four wedged peers can all be freed — the exhaustion this "
               "command exists for", r.eng.inbound_connections() == 0 &&
-              peers[0]->close_calls == 1 && peers[1]->close_calls == 1 &&
-              peers[2]->close_calls == 1 && peers[3]->close_calls == 1); }
+              closes[0] == 1 && closes[1] == 1 && closes[2] == 1 && closes[3] == 1); }
 
     {   // THE SLOT IS REALLY BACK IN THE POOL, not merely marked not-open: the
         // next peer is given the same id.
@@ -2484,11 +2564,13 @@ int main() {
         for (int i = 0; i < 4; ++i) add_inbound(r.lsn);
         for (int i = 0; i < 8; ++i) r.settle();
         r.take();
-        FakeTransport* turned_away = add_inbound(r.lsn);
+        // Turned away and deleted in the same accept pass (GH #241).
+        int turned_away_closes = 0;
+        add_inbound(r.lsn)->close_tally = &turned_away_closes;
         for (int i = 0; i < 2; ++i) r.settle();
         check_eq("CLS-20", "with all four slots wedged, a fifth peer is announced to "
                  "nobody", r.take(), "");
-        check("CLS-20b", "...and dropped at once", turned_away->close_calls == 1);
+        check("CLS-20b", "...and dropped at once", turned_away_closes == 1);
         r.send("AT+CIPCLOSE=2\r\n"); r.settle(); r.take();
         add_inbound(r.lsn);
         for (int i = 0; i < 2; ++i) r.settle();

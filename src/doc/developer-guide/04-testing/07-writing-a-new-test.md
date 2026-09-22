@@ -64,7 +64,8 @@ Four rules govern the ID:
 - **It must be a string literal.** An ID assembled at run time is invisible to
   every reader of the source and vanishes from the traceability matrix.
 - **It must be globally unique.** `traceability-dup-ids.pl` refuses when two
-  suites assert the same ID.
+  suites assert the same ID, or when it names a planned row in another
+  subsystem's plan doc.
 - The description is what the matrix publishes to everyone else, so write one
   worth reading.
 - **Cite the VHDL in the same call**, with file and line range. A citation

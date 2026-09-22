@@ -67,25 +67,25 @@ int main()
 
     constexpr int CX = 320, CY = 256;
 
-    // PC-01: steady-state motion is forwarded as the delta from the centre,
+    // PCAP-01: steady-state motion is forwarded as the delta from the centre,
     // and the pointer is re-centred so the next delta is measured afresh.
     {
         auto p = settled(CX, CY);
         const auto m = p.on_motion(CX + 7, CY - 3, CX, CY);
-        check("PC-01", "delta measured from the centre, then re-centre",
+        check("PCAP-01", "delta measured from the centre, then re-centre",
               m.forward && m.dx == 7 && m.dy == -3 && m.recentre, fmt(m));
     }
 
-    // PC-02: the warp echo — an event exactly AT the centre — is not motion
+    // PCAP-02: the warp echo — an event exactly AT the centre — is not motion
     // and must not provoke another warp.
     {
         auto p = settled(CX, CY);
         const auto m = p.on_motion(CX, CY, CX, CY);
-        check("PC-02", "event at the centre is the warp echo: no forward, no re-centre",
+        check("PCAP-02", "event at the centre is the warp echo: no forward, no re-centre",
               !m.forward && !m.recentre, fmt(m));
     }
 
-    // PC-03: THE issue-#37 regression row. Capture starting with the pointer
+    // PCAP-03: THE issue-#37 regression row. Capture starting with the pointer
     // far from the centre must not hurl the guest pointer across the screen:
     // that first delta is the distance from the pre-warp position, not user
     // motion. It is dropped — but the pointer is still re-centred.
@@ -93,75 +93,75 @@ int main()
         pointer_capture::Policy p;
         p.begin();
         const auto m = p.on_motion(CX + 400, CY - 250, CX, CY);
-        check("PC-03", "first event after capture is discarded, but still re-centres",
+        check("PCAP-03", "first event after capture is discarded, but still re-centres",
               !m.forward && m.recentre, fmt(m));
     }
 
-    // PC-04: and only the FIRST one is discarded — real motion right after
+    // PCAP-04: and only the FIRST one is discarded — real motion right after
     // capture must get through, or the mouse would feel dead on capture.
     {
         pointer_capture::Policy p;
         p.begin();
         p.on_motion(CX + 400, CY - 250, CX, CY);      // discarded
         const auto m = p.on_motion(CX - 5, CY + 9, CX, CY);
-        check("PC-04", "the second event after capture is forwarded normally",
+        check("PCAP-04", "the second event after capture is forwarded normally",
               m.forward && m.dx == -5 && m.dy == 9 && m.recentre, fmt(m));
     }
 
-    // PC-05: the discard is armed by begin(), not by construction — a policy
+    // PCAP-05: the discard is armed by begin(), not by construction — a policy
     // that was never told a capture started has nothing to drop.
     {
         pointer_capture::Policy p;
-        check("PC-05a", "fresh policy has no discard armed", !p.discard_armed());
+        check("PCAP-05a", "fresh policy has no discard armed", !p.discard_armed());
         p.begin();
-        check("PC-05b", "begin() arms the discard", p.discard_armed());
+        check("PCAP-05b", "begin() arms the discard", p.discard_armed());
         p.on_motion(CX + 2, CY, CX, CY);
-        check("PC-05c", "the discard disarms after one event", !p.discard_armed());
+        check("PCAP-05c", "the discard disarms after one event", !p.discard_armed());
     }
 
-    // PC-06: re-capturing re-arms. Each capture starts from an arbitrary
+    // PCAP-06: re-capturing re-arms. Each capture starts from an arbitrary
     // pointer position, so every one needs its own stale first delta dropped
     // — not just the first capture of the session.
     {
         auto p = settled(CX, CY);
         p.begin();                                     // captured again
         const auto m = p.on_motion(CX + 300, CY + 300, CX, CY);
-        check("PC-06", "each capture re-arms the discard",
+        check("PCAP-06", "each capture re-arms the discard",
               !m.forward && m.recentre, fmt(m));
     }
 
-    // PC-07: a zero-delta event that is NOT the warp echo cannot occur (the
+    // PCAP-07: a zero-delta event that is NOT the warp echo cannot occur (the
     // echo is the only way to land on the centre), so the centre check and
     // the zero-delta check must not be conflated: an off-centre event with a
     // zero component still forwards.
     {
         auto p = settled(CX, CY);
         const auto m = p.on_motion(CX + 4, CY, CX, CY);
-        check("PC-07", "motion along one axis only is still forwarded",
+        check("PCAP-07", "motion along one axis only is still forwarded",
               m.forward && m.dx == 4 && m.dy == 0, fmt(m));
     }
 
-    // PC-08: negative travel in both axes — guards against an unsigned or
+    // PCAP-08: negative travel in both axes — guards against an unsigned or
     // absolute-value slip, which would break up/left movement only.
     {
         auto p = settled(CX, CY);
         const auto m = p.on_motion(CX - 11, CY - 13, CX, CY);
-        check("PC-08", "negative deltas are preserved with sign",
+        check("PCAP-08", "negative deltas are preserved with sign",
               m.forward && m.dx == -11 && m.dy == -13, fmt(m));
     }
 
-    // PC-09: the centre is a parameter, not a constant — the viewport moves
+    // PCAP-09: the centre is a parameter, not a constant — the viewport moves
     // when the window is moved or rescaled, and the delta must follow it.
     {
         pointer_capture::Policy p;
         p.begin();
         p.on_motion(50, 50, 40, 60);                   // discarded
         const auto m = p.on_motion(46, 63, 40, 60);
-        check("PC-09", "delta is relative to the supplied centre, not a fixed one",
+        check("PCAP-09", "delta is relative to the supplied centre, not a fixed one",
               m.forward && m.dx == 6 && m.dy == 3, fmt(m));
     }
 
-    // PC-10: the echo check must compare BOTH axes. PC-07 covers horizontal
+    // PCAP-10: the echo check must compare BOTH axes. PCAP-07 covers horizontal
     // motion at the vertical centre; this is its mirror — vertical motion
     // while x happens to equal the centre's x. Without it, an echo check that
     // tested only x would treat every such event as the warp echo and drop
@@ -170,7 +170,7 @@ int main()
     {
         auto p = settled(CX, CY);
         const auto m = p.on_motion(CX, CY - 6, CX, CY);
-        check("PC-10", "vertical motion at the centre's x is real motion, not the echo",
+        check("PCAP-10", "vertical motion at the centre's x is real motion, not the echo",
               m.forward && m.dx == 0 && m.dy == -6 && m.recentre, fmt(m));
     }
 

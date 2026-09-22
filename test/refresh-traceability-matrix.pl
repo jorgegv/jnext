@@ -127,6 +127,7 @@
 # Usage:
 #     perl test/refresh-traceability-matrix.pl                  # full refresh
 #     perl test/refresh-traceability-matrix.pl --check-accounting
+#     perl test/refresh-traceability-matrix.pl --planned-ids      # for the dup-ID gate
 #
 # Exit status:
 #     0  clean
@@ -193,6 +194,7 @@ my $MATRIX = "$ROOT/doc/testing/TRACEABILITY-MATRIX.md";
 # arguments and exit before a single row ran.
 my $CHECK_ONLY = 0;
 my $DUMP_DESC  = 0;
+my $PLANNED_IDS = 0;
 my $EMIT_SECTION;
 my $EMIT_TO;
 # --fpga-src=PATH (GH #202). Declared HERE, with the other option variables,
@@ -202,6 +204,11 @@ my $FPGA_SRC_OPT;
 sub parse_args {
     for my $arg (@_) {
         if ($arg eq '--check-accounting') { $CHECK_ONLY = 1; next; }
+        # GH #243 — print every PLANNED row the matrix will carry, with the
+        # suites it reads that row's status from, for test/traceability-dup-ids.pl.
+        # Plan docs are read by THIS script's parser and nobody else's, so the
+        # gate asks it rather than keeping a second reader that could drift.
+        if ($arg eq '--planned-ids') { $PLANNED_IDS = 1; next; }
         # GH #196 phase 2 — print, for every traced source, the description
         # row_descriptions() derives and the ones it cannot. Reads nothing but
         # the test sources and writes nothing, so it is safe to run against a
@@ -229,7 +236,7 @@ sub parse_args {
         }
         fatal("unknown option '$arg'\n"
             . "usage: refresh-traceability-matrix.pl [--check-accounting] "
-            . "[--dump-descriptions] [--fpga-src=PATH]");
+            . "[--planned-ids] [--dump-descriptions] [--fpga-src=PATH]");
     }
 }
 
@@ -3888,6 +3895,84 @@ sub check_accounting {
     return (2, undef, undef);
 }
 
+# Which extra sources (and binaries) each section consults for the STATUS of a
+# row its own sources do not assert: its `###` companions and its declared
+# %EXTRA_STATUS_FALLBACK suites. Keyed by section header. One computation, used
+# by emit_matrix() and by planned_row_owners() below, so the dup-ID gate's idea
+# of "this planned row's own suites" cannot drift from the matrix's.
+sub section_fallbacks {
+    my ($subsys) = @_;
+    my (%comp_srcs, %comp_bins);
+    # Attached by SHARED PLAN DOC, not by position. @SUBSYS lists every
+    # `##` parent first and the `###` companions afterwards, so walking the
+    # list and remembering the last parent seen hangs all eleven companions
+    # off whichever parent happens to be last — which is what it did, and
+    # the GH #121 fallback then fired for exactly one section.
+    # plan_doc_path() is the real relationship: a companion resolves to the
+    # same *-TEST-PLAN-DESIGN.md as its parent, which is also why the
+    # companion must not re-list that plan.
+    my %parent_of_doc;
+    for my $entry (@$subsys) {
+        my ($header, $bins, $srcs) = @$entry;
+        next unless $header =~ /^##[^#]/;
+        my $doc = plan_doc_path((as_list($srcs))[0]) or next;
+        $parent_of_doc{$doc} //= $header;
+    }
+    for my $entry (@$subsys) {
+        my ($header, $bins, $srcs) = @$entry;
+        next unless $header =~ /^###/;
+        my $doc = plan_doc_path((as_list($srcs))[0]) or next;
+        my $parent = $parent_of_doc{$doc} or next;
+        push @{ $comp_srcs{$parent} }, as_list($srcs);
+        push @{ $comp_bins{$parent} }, as_list($bins);
+    }
+    # The declared cross-plan-doc fallbacks, merged in beside them.
+    my $src_of = cmake_sources();
+    for my $entry (@$subsys) {
+        my ($header) = @$entry;
+        my ($label) = $header =~ /^#+\s*([^—]+?)\s*—/ or next;
+        for my $suite (@{ $EXTRA_STATUS_FALLBACK{$label} || [] }) {
+            my $src = $src_of->{$suite}
+                or fatal("%EXTRA_STATUS_FALLBACK names '$suite', which "
+                       . "CMake does not build");
+            push @{ $comp_srcs{$header} }, as_list($src);
+            push @{ $comp_bins{$header} }, "build/test/$suite";
+        }
+    }
+    return (\%comp_srcs, \%comp_bins);
+}
+
+# Every PLANNED row the matrix carries (GH #243), as
+# [id, plan doc, [suites that answer for it]].
+#
+# Exactly the rows emit_matrix() lists from a plan doc: those of a `##`
+# section, never a `###` companion (which does not re-list its parent's plan).
+# The suites are the ones the matrix reads that row's status from — the
+# section's own, its companions, its %EXTRA_STATUS_FALLBACK — so a planned row
+# asserted by any of them is the ordinary planned-then-implemented row, and
+# the same ID asserted ANYWHERE ELSE is a different row wearing its name.
+sub planned_row_owners {
+    my ($subsys) = @_;
+    my ($comp_srcs) = section_fallbacks($subsys);
+    my %suite_of = reverse %{ cmake_sources() };
+    my @out;
+    for my $entry (@$subsys) {
+        my ($header, undef, $srcs) = @$entry;
+        next unless $header =~ /^##[^#]/;
+        my @own = as_list($srcs);
+        my $doc = plan_doc_path($own[0]) or next;
+        my %owners;
+        for my $src (@own, @{ $comp_srcs->{$header} || [] }) {
+            my $suite = $suite_of{$src}
+                or fatal("planned_row_owners: no suite builds '$src'");
+            $owners{$suite} = 1;
+        }
+        my @owners = sort keys %owners;
+        push @out, [$_, $doc, \@owners] for @{ plan_rows($own[0]) };
+    }
+    return \@out;
+}
+
 # ── The emitter (GH #196 phase 2.1) ──────────────────────────────────
 #
 # Builds ONE section's rows from the sources, with no reference whatsoever to
@@ -4143,45 +4228,9 @@ sub emit_matrix {
     # in BOTH directions — the companion must not re-list the parent's plan,
     # and the parent must consult the companion before calling a row missing
     # (GH #121).
-    my (%comp_srcs, %comp_bins);
-    {
-        # Attached by SHARED PLAN DOC, not by position. @SUBSYS lists every
-        # `##` parent first and the `###` companions afterwards, so walking the
-        # list and remembering the last parent seen hangs all eleven companions
-        # off whichever parent happens to be last — which is what it did, and
-        # the GH #121 fallback then fired for exactly one section.
-        # plan_doc_path() is the real relationship: a companion resolves to the
-        # same *-TEST-PLAN-DESIGN.md as its parent, which is also why the
-        # companion must not re-list that plan.
-        my %parent_of_doc;
-        for my $entry (@$subsys) {
-            my ($header, $bins, $srcs) = @$entry;
-            next unless $header =~ /^##[^#]/;
-            my $doc = plan_doc_path((as_list($srcs))[0]) or next;
-            $parent_of_doc{$doc} //= $header;
-        }
-        for my $entry (@$subsys) {
-            my ($header, $bins, $srcs) = @$entry;
-            next unless $header =~ /^###/;
-            my $doc = plan_doc_path((as_list($srcs))[0]) or next;
-            my $parent = $parent_of_doc{$doc} or next;
-            push @{ $comp_srcs{$parent} }, as_list($srcs);
-            push @{ $comp_bins{$parent} }, as_list($bins);
-        }
-        # The declared cross-plan-doc fallbacks, merged in beside them.
-        my $src_of = cmake_sources();
-        for my $entry (@$subsys) {
-            my ($header) = @$entry;
-            my ($label) = $header =~ /^#+\s*([^—]+?)\s*—/ or next;
-            for my $suite (@{ $EXTRA_STATUS_FALLBACK{$label} || [] }) {
-                my $src = $src_of->{$suite}
-                    or fatal("%EXTRA_STATUS_FALLBACK names '$suite', which "
-                           . "CMake does not build");
-                push @{ $comp_srcs{$header} }, as_list($src);
-                push @{ $comp_bins{$header} }, "build/test/$suite";
-            }
-        }
-    }
+    my ($comp_srcs_r, $comp_bins_r) = section_fallbacks($subsys);
+    my %comp_srcs = %$comp_srcs_r;
+    my %comp_bins = %$comp_bins_r;
 
     for my $entry (@$subsys) {
         # Entries arrive from check_accounting() already resolved to
@@ -4253,7 +4302,7 @@ sub main_body {
     # 2 without opening the matrix at all.
     my ($rc, $subsys, $declared) = check_accounting();
     if ($rc) {
-        print STDERR "\nThe matrix was NOT rewritten.\n" unless $CHECK_ONLY;
+        print STDERR "\nThe matrix was NOT rewritten.\n" unless $CHECK_ONLY || $PLANNED_IDS;
         return $rc;
     }
     # Resolve the core HERE, before any emitting, so "I cannot validate
@@ -4270,7 +4319,7 @@ sub main_body {
     # --dump-descriptions, which is documented as reading nothing but the
     # test sources: it resolves no citation, so warning it about the core
     # is a diagnostic about a thing it does not do (found in review).
-    vhdl_files() unless $CHECK_ONLY || $DUMP_DESC;
+    vhdl_files() unless $CHECK_ONLY || $DUMP_DESC || $PLANNED_IDS;
     if (defined $EMIT_TO) {
         # emit_matrix() returns TWO array refs, (\@out, \@report) — so a plain
         # `my @doc = emit_matrix(...)` collects the REFS, and join() stringified
@@ -4358,6 +4407,14 @@ sub main_body {
                $tot, $with, $tot ? 100 * $with / $tot : 0, $tot - $with);
         printf("distinct declared helper shapes across traced suites: %d\n",
                scalar keys %shape);
+        return 0;
+    }
+    if ($PLANNED_IDS) {
+        # One line per planned row: ID, plan doc, and the comma-separated
+        # suites that answer for it. Tab-separated, for a machine reader.
+        for my $r (@{ planned_row_owners($subsys) }) {
+            printf("%s\t%s\t%s\n", $r->[0], $r->[1], join(',', @{ $r->[2] }));
+        }
         return 0;
     }
     if ($CHECK_ONLY) {

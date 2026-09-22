@@ -83,7 +83,7 @@ inline int emulator_load_delay_frames(const std::string& file) {
 /// audio mute mask is preserved for the same reason: it is not machine state
 /// (Emulator::set_audio_mute_mask()), and the Audio panel that set it survives
 /// the boot without re-pushing it, so dropping it would leave a muted source
-/// audible under an unticked box (GH #239, AP-14). The transient run/step state
+/// audible under an unticked box (GH #239, DAP-14). The transient run/step state
 /// (paused, step mode, trace log) is intentionally not restored — the machine
 /// starts fresh and running.
 inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
