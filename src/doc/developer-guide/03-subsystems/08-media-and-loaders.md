@@ -332,7 +332,7 @@ from the file's bytes by `Emulator::load_snapshot_from_memory()`, using the
 playback reaches `load_rzx()` on a freshly initialised machine whose
 `EmulatorConfig::load_file` is the recording — `--rzx-play` sets it as
 `--load` does, and the GUI's Play RZX item goes through
-`MainWindow::handle_load_path()` and the frontend cold boot like File > Open —
+`MainWindow::handle_load_path()` and the frontend cold boot like File > Load NEX File… —
 because that field changes the machine `init()` builds (on the Next it decides
 the boot-ROM overlay), and so how the recording replays. Any other snapshot type fails
 the load: input replayed against a machine it was not recorded on reproduces
