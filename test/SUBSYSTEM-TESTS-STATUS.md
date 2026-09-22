@@ -41,10 +41,10 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Compositor (int)      |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video             |      124 |      124 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ULA Video (int)       |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Floating Bus          |       37 |       37 |      0 |       0 |    100% | 🟢 All tests pass. |
-| VideoTiming           |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Contention            |      127 |      127 |      0 |       0 |    100% | 🟢 All tests pass. |
-| I/O Port Dispatch     |      118 |      118 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Floating Bus          |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
+| VideoTiming           |       62 |       62 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Contention            |      129 |      129 |      0 |       0 |    100% | 🟢 All tests pass. |
+| I/O Port Dispatch     |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -55,7 +55,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Audio (subsystem gains) |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Present cadence       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Render-skip policy    |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Emulator Boot         |       31 |       31 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Emulator Boot         |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
 | GUI Preferences (Apply Policy) |       20 |       20 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Window Attach |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Pointer Capture       |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -107,6 +107,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7263** | **7263** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7288** | **7288** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
