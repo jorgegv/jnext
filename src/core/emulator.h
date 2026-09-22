@@ -1704,6 +1704,15 @@ private:
     /// Called by the SCANLINE event handler for scanline `line`.
     void on_scanline(int line);
 
+    /// Capture every end-of-row per-line render lane (fallback, ULA enable,
+    /// stencil, blend, NR 0x6B b7, NR 0x14, ULA clip, LoRes, border, sprite
+    /// and ULA controls, tilemap scroll/fetch/output) for framebuffer row
+    /// `fb_row` from the live registers. The one list both callers use —
+    /// on_scanline() at the end of each displayed raw line and
+    /// end_of_frame() for row 255 at 60 Hz — so the two cannot disagree
+    /// about which lanes a row carries (GH #264).
+    void snapshot_row_render_state(int fb_row);
+
     /// Called by the VSYNC event handler.
     void on_vsync();
 

@@ -57,8 +57,16 @@ public:
 
     PaletteManager();
 
-    /// Reset all palettes to power-on defaults.
-    void reset();
+    /// Reset to power-on defaults (`hard`), or apply the soft reset
+    /// (NR 0x02 bit 0 / F4, `hard` = false). A soft reset returns only the
+    /// flip-flops to their reset values (zxnext.vhd:4926-5111: palette index,
+    /// NR 0x43, stored value, NR 0x14/0x4B/0x4C); the palette RAM is a
+    /// `dpram2` with no reset port (zxnext.vhd:6960-6965, 7013-7024), so its
+    /// contents survive — as the Copper's RAM and the bank-5/7 BRAMs already
+    /// do. The per-scanline change log and its baseline are render history and
+    /// are left alone either way: a soft reset can land mid-frame, and the
+    /// rows drawn before it keep the palette they showed (GH #263).
+    void reset(bool hard = true);
 
     // -----------------------------------------------------------------
     // NextREG 0x43 — Palette Control

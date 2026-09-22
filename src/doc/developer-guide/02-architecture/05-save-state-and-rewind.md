@@ -93,6 +93,12 @@ Snapshots are taken from `Emulator::begin_new_frame()`, which is to say at a
 frame boundary — and that is precisely why the scheduler queue never has to be
 serialised, because it is empty at that instant.
 
+The ring is host state, so only a hard reset rebuilds it. A soft reset
+(NR 0x02 bit 0, F4) re-runs `init()` too, but leaves the ring, its size and
+`replay_mode_` alone: the reset is one more event in the history, and a rewind
+that re-executes it stays a replay. Until the GH #263 audit every soft reset
+discarded all snapshots and put back the command-line size.
+
 **This is also why every serialised field must be constant-width.**
 `take_snapshot()` refuses to publish a slot whose `save_state` did not write
 exactly `snapshot_bytes`. That refusal is the correct behaviour, but it was

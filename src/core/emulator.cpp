@@ -93,6 +93,11 @@ Emulator::~Emulator()
 bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 {
     config_ = cfg;
+    // The effective NR 0x03 machine timing (eff_nr_03_machine_timing) is a
+    // latch loaded only at video_frame_sync, with no reset clause
+    // (zxnext.vhd:6696-6703): a soft reset must hand it back unchanged.
+    // Captured before the subsystem resets below rebuild ContentionModel.
+    const MachineTimingMode soft_eff_tim = contention_.machine_timing();
     timing_ = machine_timing(cfg.type);
     Log::emulator()->info("Initializing emulator: machine_type={}[{}] cpu_speed={}[{}] "
                           "lines={} tstates/line={}{}",
@@ -116,8 +121,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     clock_.set_cpu_speed(cfg.cpu_speed);
 
-    // Allocate the framebuffer and fill with black (ARGB: 0xFF000000).
-    framebuffer_.assign(FRAMEBUFFER_PIXELS, 0xFF000000u);
+    // Allocate the framebuffer and fill with black (ARGB: 0xFF000000) — but
+    // not on a soft reset, which does not interrupt the video output: the
+    // frame on screen stays there until the next one is drawn (GH #263
+    // follow-up; with the debugger paused, F4 used to show black).
+    if (!preserve_memory || framebuffer_.size() != FRAMEBUFFER_PIXELS)
+        framebuffer_.assign(FRAMEBUFFER_PIXELS, 0xFF000000u);
 
     // Clear any stale scheduler events. Preserved across soft reset so
     // events scheduled before the reset (e.g. the current frame's ULA
@@ -128,9 +137,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         scheduler_.reset();
         frame_cycle_ = 0;
         frame_num_   = 0;
+        // No frame is in flight after a hard reset. A soft reset keeps the
+        // clock, the scheduler and frame_cycle_, so the frame it lands in
+        // goes on to its end: clearing the flag made the next run_frame()
+        // after a mid-frame debugger pause run begin_new_frame() in the
+        // middle of it, wiping the render history rows already drawn had
+        // left and re-scheduling the frame's events (GH #263).
+        frame_in_progress_ = false;
+        // Host-side, like the flag above: a guest soft reset that a rewind
+        // re-executes must not end the replay, or the rest of it renders,
+        // mixes audio, re-sends ESP traffic and pushes rewind snapshots.
+        replay_mode_ = false;
     }
-    frame_in_progress_ = false;   // no frame is in flight after a reset
-    replay_mode_ = false;
     boot_hold_frames_remaining_ = 0;  // G156
     cpu_parked_ = false;              // GH #164
 
@@ -172,10 +190,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // 3646-3648.
     mmu_.reset(/*hard=*/!preserve_memory);
     nextreg_.reset();
-    palette_.reset();
-    layer2_.reset();
-    sprites_.reset();
-    tilemap_.reset();
+    // GH #263 — the video owners take the same hard/soft split. A soft reset
+    // keeps the BRAMs (palette RAM, sprite attribute and pattern RAM — no
+    // reset port, like the bank-5/7 BRAMs above) and, because it can land
+    // mid-frame, keeps each owner's per-scanline render history and records
+    // the register reset in it at the current line. A hard reset happens only
+    // between frames, and the next begin_new_frame() rebuilds that history.
+    palette_.reset(/*hard=*/!preserve_memory);
+    layer2_.reset(/*hard=*/!preserve_memory);
+    sprites_.reset(/*hard=*/!preserve_memory);
+    tilemap_.reset(/*hard=*/!preserve_memory);
     copper_.reset();
     cpu_.reset(/*hard=*/!preserve_memory);
     im2_.reset();
@@ -300,7 +324,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         sd_card_.reset();
     }
 
-    renderer_.reset();
+    renderer_.reset(/*hard=*/!preserve_memory);   // GH #263, see palette_ above
 
     psg_accum_ = 0;
     sample_accum_ = 0;
@@ -576,10 +600,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // :5137-5145 for typ_sel). A user that writes NR 0x03 with
     // bits 6:4 != bits 2:0 will see them diverge at the next
     // video-frame edge — observably faithful to VHDL.
-    const MachineTimingMode init_tim_mode =
+    //
+    // A soft reset keeps the effective timing it found and leaves the pending
+    // NR 0x03 value pending: eff_nr_03_machine_timing loads only at
+    // video_frame_sync and has no reset clause (zxnext.vhd:6696-6703), so a
+    // guest that writes NR 0x03 and soft-resets in the same frame gets the
+    // new timing at the next frame edge, like any other NR 0x03 write
+    // (GH #263 follow-up — it used to be applied at the reset).
+    const MachineTimingMode pend_tim_mode =
         decode_nr_03_machine_timing(nextreg_.nr_03_machine_timing());
+    const MachineTimingMode init_tim_mode =
+        preserve_memory ? soft_eff_tim : pend_tim_mode;
     contention_.set_machine_timing(init_tim_mode);
     mmu_.set_machine_timing(init_tim_mode);
+    contention_.set_pending_machine_timing(pend_tim_mode);
+    mmu_.set_pending_machine_timing(pend_tim_mode);
 
     // Pulse-mode INT width gate per VHDL zxnext.vhd:2033 — 48K/+3 use 32 CPU
     // cycles (bit 5 only); 128K/Pentagon/Next use 36 (bit 5 AND bit 2).
@@ -679,7 +714,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // init() has always seeded 50 Hz, and begin_new_frame() already
     // re-pushes 60 Hz on the first frame edge when the pending bit says so
     // (`pend_60hz != video_timing_.refresh_60hz()`). Out of scope for #237.
-    apply_video_timing(init_tim_mode, /*refresh_60hz=*/false);
+    //
+    // GH #263 — except on a soft reset, which keeps the effective 50/60 Hz
+    // selection it found: `eff_nr_05_5060` has no reset clause and is only
+    // loaded at video_frame_sync (zxnext.vhd:6696-6703), and zxula_timing
+    // has no reset at all, so a reset mid-frame does not change the frame
+    // being drawn. Seeding 50 Hz there switched a 60 Hz frame's geometry
+    // (vblank_top 8 -> 32) under its remaining scanline events, misplacing
+    // every row from the reset to the frame's end.
+    apply_video_timing(init_tim_mode,
+                       preserve_memory ? video_timing_.refresh_60hz() : false);
 
     // Clear all port dispatch handlers before re-registering them.
     // Without this, a second init() (a soft reset, a re-initialising load)
@@ -3244,19 +3288,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             }
 
             // G121: VHDL zxnext.vhd:2033 — pulse_count_end gates on
-            // `machine_timing_48 OR machine_timing_p3`, both decoded from
-            // nr_03_machine_timing. When NR 0x03 changes the timing post-boot,
-            // the pulse-mode INT width must follow (32 cycles for 48K/+3, 36
-            // for 128K/Pentagon). Without this fan-out the Im2Controller's
-            // machine_48_or_p3_ flag stays stuck at the value set at
-            // reset_machine() and the pulse width is wrong after any runtime
-            // timing change.
-            const bool is_48_or_p3 = (new_timing == 0x01) || (new_timing == 0x03);
-            im2_.set_machine_timing_48_or_p3(is_48_or_p3);
-            // Mirror to Z80Cpu's /INT pulse-window gate (zxnext.vhd:2033).
-            // Same logic as im2_, distinct consumer: cpu_ uses the width to
-            // discard a pending interrupt the CPU never acknowledged.
-            cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
+            // `machine_timing_48 OR machine_timing_p3`, so the pulse-mode INT
+            // width follows a runtime NR 0x03 timing change (32 cycles for
+            // 48K/+3, 36 for 128K/Pentagon). Those two are decoded from
+            // eff_nr_03_machine_timing (:5761-5776), the copy latched at
+            // video_frame_sync (:6696-6703) — not from this write — so the
+            // Im2Controller / Z80Cpu gates follow at the frame edge, in
+            // begin_new_frame(), with contention and the raster. Setting
+            // them here applied the new width up to a frame early.
 
             // V24-MEM-01 / V25-MEM-01 fix — push the decoded
             // MachineTimingMode (tim_sel axis) into the SHADOW field of
@@ -3269,14 +3308,9 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // shadow) + commit_pending_machine_timing() (frame-edge
             // promotion, called from run_frame()).
             //
-            // Note: this is the SOLE consumer of the new
-            // MachineTimingMode axis at the NR 0x03 write seam — IM2 /
-            // CPU pulse-width above (the is_48_or_p3 fan-out) is the
-            // VHDL `pulse_count_end` term at :2033, which keys on
-            // `eff_nr_03_machine_timing` directly (no video-frame
-            // latch), so it commits combinationally. Our `is_48_or_p3`
-            // therefore stays immediate; the new contention/MMU axis
-            // is deferred.
+            // The IM2 / CPU pulse-width gate (VHDL `pulse_count_end`,
+            // :2033) reads the same effective latch, so it is deferred
+            // with this axis (see G121 above).
             const MachineTimingMode tim_mode = decode_nr_03_machine_timing(new_timing);
             contention_.set_pending_machine_timing(tim_mode);
             mmu_.set_pending_machine_timing(tim_mode);
@@ -6710,8 +6744,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     renderer_.lores().set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
     tilemap_.set_bank5_vram(next_machine ? mmu_.bank5_vram() : nullptr);
 
-    // Default border: white (ZX colour index 7).
-    renderer_.ula().set_border(7);
+    // The border resets to black with port_fe_reg (zxnext.vhd:3587-3593),
+    // in Ula::reset() above. It used to be forced to white here, a phase-1
+    // placeholder with no hardware basis: the frames before a ROM or OS
+    // first writes port 0xFE showed a white border the machine never has.
 
     // Compositor per-pixel trace (debug; configured via
     // --compositor-trace / --compositor-trace-frame). Empty path disables.
@@ -6720,7 +6756,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Initialise rewind buffer.
     // Measure snapshot size by doing a dry-run in measure mode (buf=nullptr).
-    if (cfg.rewind_buffer_frames > 0) {
+    //
+    // Hard reset only. The rewind history, its size (the debugger resizes it
+    // live) and on/off state are the host's; a soft reset (NR 0x02 bit 0,
+    // F4) is an event IN that history, not the start of a new one. Rebuilding
+    // it here discarded every snapshot at each soft reset (a NextZXOS boot
+    // performs one) and put back the command-line size (GH #263 audit).
+    if (preserve_memory) {
+        // keep rewind_buffer_ / rewind_enabled_ as they are
+    } else if (cfg.rewind_buffer_frames > 0) {
         StateWriter measure;
         save_state(measure);
         size_t snap_bytes = measure.position();
@@ -7546,6 +7590,15 @@ void Emulator::begin_new_frame()
         const MachineTimingMode tim_before = contention_.machine_timing();
         contention_.commit_pending_machine_timing();
         mmu_.commit_pending_machine_timing();
+        // G121 — the pulse-mode /INT width gate (zxnext.vhd:2033) decodes
+        // the same effective latch (:5761-5776), so it moves here too.
+        if (contention_.machine_timing() != tim_before) {
+            const bool is_48_or_p3 =
+                contention_.machine_timing() == MachineTimingMode::Timing48 ||
+                contention_.machine_timing() == MachineTimingMode::TimingPlus3;
+            im2_.set_machine_timing_48_or_p3(is_48_or_p3);
+            cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
+        }
         const bool pend_60hz = (nextreg_.cached(0x05) & 0x04) != 0;
         if (contention_.machine_timing() != tim_before ||
             pend_60hz != video_timing_.refresh_60hz()) {
@@ -8344,37 +8397,19 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // same un-re-executable side effect the ESP replay gate exists for.
     if (joy_uart_source_) joy_uart_source_->end_frame();
 
-    // Snapshot the fallback/border/ULA-enable colour for the last visible
-    // framebuffer row. G164v2 — these arrays are indexed by fb_row in
-    // [0, FB_HEIGHT), so the end-of-frame snapshot must use FB_HEIGHT-1
-    // (=255), not the raw last VC line.
-    //
-    // The tilemap lane takes it only when no on_scanline() event followed
-    // row 255's raw line — i.e. when that line is the frame's last (60 Hz:
-    // vblank_top 8 + 256 = 264 lines). Otherwise on_scanline() has already
-    // captured row 255 at the end of its raw line, and re-snapshotting here
-    // would overwrite it with the frame's FINAL value, leaking a HUD-zone
-    // re-scroll written in the bottom vblank onto the last visible row
-    // (GH #16).
+    // Snapshot the last visible framebuffer row (FB_HEIGHT-1 = 255 — G164v2:
+    // these arrays are indexed by fb_row, not by raw VC) — but ONLY when no
+    // on_scanline() event followed row 255's raw line, i.e. when that line is
+    // the frame's last (60 Hz: vblank_top 8 + 256 = 264 lines). Otherwise
+    // on_scanline() has already captured row 255 at the end of its raw line,
+    // and re-snapshotting here would overwrite it with the frame's FINAL
+    // value: at 50 Hz a write in the undisplayed raw lines 288-310
+    // (zxula_timing.vhd:195-204, c_max_vc 310) would repaint row 255. The
+    // tilemap lane was guarded for GH #16/#257; every lane is now (GH #264).
     if (video_timing_.vblank_top() + Renderer::FB_HEIGHT
             >= timing_.lines_per_frame) {
-        tilemap_.snapshot_scroll_for_line(Renderer::FB_HEIGHT - 1);
-        tilemap_.snapshot_fetch_for_line(Renderer::FB_HEIGHT - 1);
-        tilemap_.snapshot_output_for_line(Renderer::FB_HEIGHT - 1,
-                                          palette_.tilemap_transparency());
+        snapshot_row_render_state(Renderer::FB_HEIGHT - 1);
     }
-    renderer_.snapshot_fallback_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_ula_enabled_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_stencil_mode_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_blend_mode_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_tm_enabled_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_transparent_rgb_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.snapshot_ula_clip_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.lores().snapshot_for_line(Renderer::FB_HEIGHT - 1);
-    renderer_.ula().snapshot_border_for_line(Renderer::FB_HEIGHT - 1);
-    sprites_.snapshot_control_for_line(Renderer::FB_HEIGHT - 1,
-                                       palette_.sprite_transparency());
-    renderer_.ula().snapshot_control_for_line(Renderer::FB_HEIGHT - 1);
 
     // Render the completed frame into the ARGB8888 framebuffer.
     // Suppressed in replay mode (fast-forward rewind path).
@@ -9519,8 +9554,11 @@ void Emulator::soft_reset()
 
     Log::emulator()->debug("Soft reset (NR 0x02 bit 0): preserving SRAM");
 
-    // Clear framebuffer to black (not part of emulated state).
-    std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);
+    // The framebuffer is NOT cleared: the soft reset does not touch the
+    // video timing (zxula_timing.vhd has no reset input) or its output, so
+    // what is on screen stays until the next frame is drawn. It used to be
+    // blanked here (copied from reset()), which showed black while the
+    // debugger held the machine after a reset (GH #263 follow-up).
 
     // Re-run init with preserve_memory=true: skip RAM/ROM reinit and the
     // SRAM-from-rom seed so the ROM window keeps whatever tbblue.fw just
@@ -10191,37 +10229,7 @@ void Emulator::on_scanline(int line)
     {
         const int prev_fb_row = (line - 1) - video_timing_.vblank_top();
         if (prev_fb_row >= 0 && prev_fb_row < Renderer::FB_HEIGHT) {
-            renderer_.snapshot_fallback_for_line(prev_fb_row);
-            renderer_.snapshot_ula_enabled_for_line(prev_fb_row);
-            renderer_.snapshot_stencil_mode_for_line(prev_fb_row);
-            renderer_.snapshot_blend_mode_for_line(prev_fb_row);
-            renderer_.snapshot_tm_enabled_for_line(prev_fb_row);
-            renderer_.snapshot_transparent_rgb_for_line(prev_fb_row);
-            renderer_.snapshot_ula_clip_for_line(prev_fb_row);
-            renderer_.lores().snapshot_for_line(prev_fb_row);
-            renderer_.ula().snapshot_border_for_line(prev_fb_row);
-            // GH #256 — sprite clip / NR 0x15 b6,b5,b1 / NR 0x4B index, and
-            // the ULA's ULA+ / ULAnext / shadow-bank state.
-            sprites_.snapshot_control_for_line(prev_fb_row,
-                                               palette_.sprite_transparency());
-            renderer_.ula().snapshot_control_for_line(prev_fb_row);
-            // Tilemap scroll (GH #16), fetch bases (GH #53) and output-stage
-            // NR 0x1B clip / NR 0x4C index (GH #256), all at the one point so
-            // a Copper split of several of them switches on one row. GH #257 —
-            // these used to be taken at the START of the raw line (a write in
-            // line N showed from row N+1), which was one row late for a Copper
-            // WAIT(n,0) + MOVE: that completes at hc_ula 12 = whc 32, the
-            // start of the paper (copper.vhd:94, zxula_timing.vhd:423-436,
-            // :474-490), and the tilemap re-reads the live registers at every
-            // character's S_IDLE (tilemap.vhd:309,345-350) and compares NR 0x4C
-            // per pixel (:427), so hardware changes row n from x~35. The start-
-            // of-line latch had been right for GH #16 only because the line
-            // interrupt fired ~380 pixels early (fixed in
-            // VideoTiming::line_int_master_cycle_offset()).
-            tilemap_.snapshot_scroll_for_line(prev_fb_row);
-            tilemap_.snapshot_fetch_for_line(prev_fb_row);
-            tilemap_.snapshot_output_for_line(prev_fb_row,
-                                              palette_.tilemap_transparency());
+            snapshot_row_render_state(prev_fb_row);
         }
     }
     // G164v2 — convert raw VC scanline to framebuffer-row before tagging
@@ -10268,6 +10276,38 @@ void Emulator::on_scanline(int line)
     mmu_.attr_mux_set_current_line(tag);
     // G02 — tag subsequent NR 0x15 writes (layer priority / sprite enable).
     renderer_.set_current_line_nr15(tag);
+}
+
+void Emulator::snapshot_row_render_state(int fb_row)
+{
+    renderer_.snapshot_fallback_for_line(fb_row);
+    renderer_.snapshot_ula_enabled_for_line(fb_row);
+    renderer_.snapshot_stencil_mode_for_line(fb_row);
+    renderer_.snapshot_blend_mode_for_line(fb_row);
+    renderer_.snapshot_tm_enabled_for_line(fb_row);
+    renderer_.snapshot_transparent_rgb_for_line(fb_row);
+    renderer_.snapshot_ula_clip_for_line(fb_row);
+    renderer_.lores().snapshot_for_line(fb_row);
+    renderer_.ula().snapshot_border_for_line(fb_row);
+    // GH #256 — sprite clip / NR 0x15 b6,b5,b1 / NR 0x4B index, and the
+    // ULA's ULA+ / ULAnext / shadow-bank state.
+    sprites_.snapshot_control_for_line(fb_row, palette_.sprite_transparency());
+    renderer_.ula().snapshot_control_for_line(fb_row);
+    // Tilemap scroll (GH #16), fetch bases (GH #53) and output-stage NR 0x1B
+    // clip / NR 0x4C index (GH #256), all at the one point so a Copper split
+    // of several of them switches on one row. GH #257 — these used to be
+    // taken at the START of the raw line (a write in line N showed from row
+    // N+1), which was one row late for a Copper WAIT(n,0) + MOVE: that
+    // completes at hc_ula 12 = whc 32, the start of the paper (copper.vhd:94,
+    // zxula_timing.vhd:423-436, :474-490), and the tilemap re-reads the live
+    // registers at every character's S_IDLE (tilemap.vhd:309,345-350) and
+    // compares NR 0x4C per pixel (:427), so hardware changes row n from x~35.
+    // The start-of-line latch had been right for GH #16 only because the
+    // line interrupt fired ~380 pixels early (fixed in
+    // VideoTiming::line_int_master_cycle_offset()).
+    tilemap_.snapshot_scroll_for_line(fb_row);
+    tilemap_.snapshot_fetch_for_line(fb_row);
+    tilemap_.snapshot_output_for_line(fb_row, palette_.tilemap_transparency());
 }
 
 void Emulator::on_vsync()
@@ -10616,17 +10656,9 @@ bool Emulator::load_state(StateReader& r)
     eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
     cpu_.load_state(r);
     if (!check_sentinel("cpu")) return false;
-    // Re-fan-out NR 0x03 machine_timing into Z80Cpu's /INT pulse window
-    // (zxnext.vhd:2033). The flag is intentionally not serialised in
-    // Z80Cpu::save_state (would shift all later subsystem blocks and
-    // break older saves); we re-derive it here from the just-loaded
-    // NextReg state. Im2Controller::load_state restores its own copy
-    // from the snapshot, so we don't touch im2_ here.
-    {
-        const uint8_t loaded_timing = nextreg_.nr_03_machine_timing();
-        const bool    is_48_or_p3   = (loaded_timing == 0x01) || (loaded_timing == 0x03);
-        cpu_.set_machine_timing_48_or_p3(is_48_or_p3);
-    }
+    // Z80Cpu's /INT pulse window (zxnext.vhd:2033) is re-derived below,
+    // once the effective machine timing has been restored (GH #263
+    // follow-up); Im2Controller::load_state restores its own copy.
     im2_.load_state(r);
     if (!check_sentinel("im2")) return false;
 
@@ -10787,6 +10819,14 @@ bool Emulator::load_state(StateReader& r)
         // taken at the frame edge (begin_new_frame), where pending ==
         // effective per VHDL zxnext.vhd:6697-6700.
         repush_video_timing_from_machine_timing();
+        // Z80Cpu's /INT pulse window (zxnext.vhd:2033) decodes the
+        // EFFECTIVE timing (:5761-5776), which a snapshot can hold apart
+        // from NR 0x03's pending value (it is taken before the frame edge's
+        // commit). The flag is not serialised in Z80Cpu::save_state (it
+        // would shift every later block), so re-derive it here.
+        cpu_.set_machine_timing_48_or_p3(
+            contention_.machine_timing() == MachineTimingMode::Timing48 ||
+            contention_.machine_timing() == MachineTimingMode::TimingPlus3);
     }
 
     // Audio subsystems.

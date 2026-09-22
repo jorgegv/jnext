@@ -20,12 +20,16 @@ int SpriteEngine::SpriteAttr::y() const
 // Reset
 // ---------------------------------------------------------------------------
 
-void SpriteEngine::reset()
+void SpriteEngine::reset(bool hard)
 {
-    for (auto& s : sprites_) {
-        s.byte0 = s.byte1 = s.byte2 = s.byte3 = s.byte4 = 0;
+    // GH #263 — the attribute and pattern RAMs are BRAM with no reset port:
+    // only a hard (power-on) reset clears them.
+    if (hard) {
+        for (auto& s : sprites_) {
+            s.byte0 = s.byte1 = s.byte2 = s.byte3 = s.byte4 = 0;
+        }
+        std::memset(pattern_ram_, 0, sizeof(pattern_ram_));
     }
-    std::memset(pattern_ram_, 0, sizeof(pattern_ram_));
 
     attr_slot_        = 0;
     attr_byte_        = 0;
@@ -47,10 +51,16 @@ void SpriteEngine::reset()
     clip_x2_          = 255;
     clip_y1_          = 0;
     clip_y2_          = 0xBF;  // VHDL default: 191
-    control_per_line_active_ = false;
 
     collision_        = false;
     max_sprites_      = false;
+
+    // GH #263 — a soft reset keeps the render history (see the header); the
+    // per-line control snapshot picks the reset values up from this row on.
+    if (!hard)
+        return;
+
+    control_per_line_active_ = false;
 
     // Per-scanline change log: clear baseline (zero state) and reset
     // counters. start_frame() will re-snapshot from the live values at

@@ -17,6 +17,9 @@
 #include "debug/debug_state.h"
 #include "memory/attribute_mux.h"
 #include "memory/mmu.h"
+#include "memory/ram.h"
+#include "audio/mixer.h"
+#include "cpu/z80_cpu.h"
 #include "video/layer2.h"
 #include "video/lores.h"
 #include "video/palette.h"
@@ -1077,6 +1080,43 @@ static void rw_build_s0(Emulator& emu, int rewind_frames)
     emu.mmu().write(0x8000, 0x76);   // HALT
     rw_park(emu, 0x8000);
 
+    // GH #266 — the tilemap is ON in S0, so RWR-11's pixel comparison covers
+    // it: map at bank 5 0x2000 (NR 0x6E 0x20), tiles at 0x3000 (NR 0x6F
+    // 0x30), clear of the ULA screen. Tile t, row r, pixel x holds index
+    // 1 + (3t + x + r) % 14 (never 0x0F, the NR 0x4C transparency index), the
+    // map cell (x, y) holds tile (x + 2y) % 4, and the two tilemap palettes
+    // differ at every one of those indices — so a stale scroll, NR 0x6B mode
+    // or NR 0x6B b4 palette select in the rewound render moves pixels. S0
+    // selects tilemap palette 1 because the history rewound over ends on
+    // palette 0 (S2's NR 0x6B = 0xC1): a stale selector cannot match S0.
+    {
+        uint8_t* bank5 = emu.mmu().bank5_vram();
+        for (int y = 0; y < 32; ++y)
+            for (int x = 0; x < 40; ++x) {
+                bank5[0x2000 + (y * 40 + x) * 2]     =
+                    static_cast<uint8_t>((x + 2 * y) % 4);
+                bank5[0x2000 + (y * 40 + x) * 2 + 1] = 0x00;
+            }
+        for (int t = 0; t < 4; ++t)
+            for (int r = 0; r < 8; ++r)
+                for (int b = 0; b < 4; ++b) {
+                    const int hi = 1 + (3 * t + 2 * b + r) % 14;
+                    const int lo = 1 + (3 * t + 2 * b + 1 + r) % 14;
+                    bank5[0x3000 + t * 32 + r * 4 + b] =
+                        static_cast<uint8_t>((hi << 4) | lo);
+                }
+        for (int i = 1; i <= 14; ++i) {
+            rw_nr(emu, 0x43, 0x30);      // write tilemap palette 0
+            rw_nr(emu, 0x40, static_cast<uint8_t>(i));
+            rw_nr(emu, 0x41, static_cast<uint8_t>(i * 17));
+            rw_nr(emu, 0x43, 0x70);      // write tilemap palette 1
+            rw_nr(emu, 0x40, static_cast<uint8_t>(i));
+            rw_nr(emu, 0x41, static_cast<uint8_t>(0xFF - i * 17));
+        }
+        rw_nr(emu, 0x6E, 0x20);
+        rw_nr(emu, 0x6F, 0x30);
+        rw_nr(emu, 0x6B, 0x90);          // tilemap on, 40x32, attributes, palette 1
+    }
     // Layer 2 shows entry 0x30 (index 0, NR 0x70 offset 3 on the high
     // nibble); make the two banks differ there, so a render with a stale L2
     // selector shows.
@@ -1319,6 +1359,12 @@ static int test_rewind_restores_render_state()
     twin.renderer().render_frame(twin.get_framebuffer(), twin.mmu(), twin.ram(),
                                  twin.palette(), twin.layer2(), &twin.sprites(),
                                  &twin.tilemap());
+    // GH #266 — the compared frame must show the tilemap, or RWR-11 is blind
+    // to it. Top-left pixel, in the border (no Layer 2, no sprite): scroll
+    // (5, 6) puts it on map cell (0, 0) = tile 0, row 6, pixel 5 = index
+    // 1 + (5 + 6) % 14 = 12, tilemap palette 1.
+    REQUIRE(twin.get_framebuffer()[0] == twin.palette().tilemap_colour(true, 12),
+            "RWR fixture: the snapshot-instant frame shows the S0 tilemap");
     const size_t px = static_cast<size_t>(emu.get_framebuffer_width()) *
                       static_cast<size_t>(emu.get_framebuffer_height());
     size_t diff = 0;
@@ -1352,7 +1398,8 @@ static int test_rewind_callers_render_state()
 
     {
         Emulator emu;
-        rw_build_s0(emu, 10);        // selectors all 0 here
+        rw_build_s0(emu, 10);
+        rw_nr(emu, 0x6B, 0x80);      // S0 selects TM palette 1 (GH #266): all selectors 0 here
         emu.run_frame();             // frame 1 — the target snapshot
         rw_nr(emu, 0x43, 0x1E);
         rw_nr(emu, 0x6B, 0x10);
@@ -1406,6 +1453,127 @@ static int test_rewind_callers_render_state()
     return 0;
 }
 
+// ── Test 15: a guest soft reset inside the rewind history (GH #263 audit) ──
+//
+// A soft reset (NR 0x02 bit 0, zxnext.vhd:6370) re-runs Emulator::init(),
+// which used to rebuild the rewind buffer from the command-line size and
+// clear replay_mode_ — both host state, not machine state. The history is
+// the host's record of the machine; a reset is one more event in it.
+
+// ZXN, CPU parked on a HALT, DI; HALT in the ROM window the Z80 restarts in
+// (SRAM page 0), frame 0 run, then a Copper program that resets the machine
+// at cvc 100 of every frame until the reset stops it.
+static void rw_soft_reset_fixture(Emulator& emu, int rewind_frames)
+{
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = rewind_frames;
+    emu.init(cfg);
+    emu.mmu().write(0x8000, 0x76);    // HALT
+    rw_park(emu, 0x8000);
+    emu.ram().write(0, 0xF3);         // DI
+    emu.ram().write(1, 0x76);         // HALT
+    emu.run_frame();                  // frame 0
+    rw_nr(emu, 0x61, 0x00);
+    rw_nr(emu, 0x62, 0x00);
+    for (uint16_t w : {static_cast<uint16_t>(0x8000u | 100u),
+                       static_cast<uint16_t>((0x02u << 8) | 0x01u),
+                       static_cast<uint16_t>(0x8000u | 511u)}) {
+        rw_nr(emu, 0x60, static_cast<uint8_t>(w >> 8));
+        rw_nr(emu, 0x60, static_cast<uint8_t>(w));
+    }
+    rw_nr(emu, 0x62, 0xC0);
+}
+
+static int test_rewind_across_soft_reset()
+{
+    printf("\n--- Test 15: rewind across a guest soft reset (GH #263) ---\n");
+
+    {
+        // The history before the reset survives it (frames 0 and 1 are
+        // still there after frame 1 reset the machine), and so does a size
+        // set live from the debugger (2, not the command line's 10).
+        Emulator emu;
+        rw_soft_reset_fixture(emu, 10);
+        emu.run_frame();                  // frame 1 — resets at cvc 100
+        emu.run_frame();                  // frame 2
+        const RewindBuffer* rb = emu.rewind_buffer();
+        const bool kept = rb && rb->depth() == 3 &&
+                          rb->frame_cycle_for(1) != UINT64_MAX;
+        const size_t depth = rb ? rb->depth() : 0;
+
+        Emulator sized;
+        rw_soft_reset_fixture(sized, 10);
+        sized.resize_rewind_buffer(2);
+        for (int i = 0; i < 4; ++i) sized.run_frame();   // reset in the 1st
+        const size_t sized_depth =
+            sized.rewind_buffer() ? sized.rewind_buffer()->depth() : 0;
+        char msg[200];
+        std::snprintf(msg, sizeof(msg),
+                      "RWR-14 a guest soft reset keeps the rewind history and "
+                      "its live size (depth %zu want 3, frame 1 kept %d; "
+                      "resized depth %zu want 2)", depth, kept, sized_depth);
+        CHECK(kept && sized_depth == 2, msg);
+    }
+    {
+        // A replay that re-executes the reset stays a replay: rewind into
+        // frame 1 past the cvc-100 reset, to raw line 250, mixes no audio.
+        Emulator emu;
+        rw_soft_reset_fixture(emu, 10);
+        emu.run_frame();                  // frame 1 — resets at cvc 100
+        emu.run_frame();                  // frame 2
+        int16_t drain[1024];
+        while (emu.mixer().read_samples(drain, 512) > 0) {}
+        const uint64_t f1 = emu.rewind_buffer()->frame_cycle_for(1);
+        REQUIRE(f1 != UINT64_MAX, "RWR fixture: frame 1 is in the history");
+        const uint64_t target = f1 + 250u * emu.timing().master_cycles_per_line;
+        REQUIRE(emu.rewind_to_cycle(target) != UINT64_MAX,
+                "RWR fixture: rewind_to_cycle into frame 1");
+        const bool reset_replayed =
+            emu.cpu().get_registers().PC == 0x0001 && emu.cpu().is_halted();
+        char msg[200];
+        std::snprintf(msg, sizeof(msg),
+                      "RWR-15 a guest soft reset replayed by rewind_to_cycle does "
+                      "not end the replay (%d samples mixed, want 0; reset "
+                      "replayed %d)", emu.mixer().available(), reset_replayed);
+        CHECK(reset_replayed && emu.mixer().available() == 0, msg);
+    }
+    {
+        // A snapshot is taken at the top of begin_new_frame(), before the
+        // frame edge commits a pending NR 0x03 timing (zxnext.vhd:6696-6703),
+        // so it can hold pending != effective. The pulse-mode /INT width gate
+        // decodes the EFFECTIVE timing (:2033, :5761-5776): after a restore
+        // both of its copies must show the effective 128K value, and the
+        // next frame edge must still commit +3.
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZX128K;
+        cfg.rewind_buffer_frames = 10;
+        emu.init(cfg);
+        emu.mmu().write(0x8000, 0x76);    // HALT
+        rw_park(emu, 0x8000);
+        emu.run_frame();                  // frame 0
+        rw_nr(emu, 0x03, 0xB0);           // tim_sel +3, pending
+        emu.run_frame();                  // frame 1 — snapshot before commit
+        emu.run_frame();                  // frame 2
+        REQUIRE(emu.cpu().machine_timing_48_or_p3() &&
+                emu.rewind_to_frame(1),
+                "RWR fixture: +3 committed, rewind_to_frame(1) succeeds");
+        const bool cpu_rw = emu.cpu().machine_timing_48_or_p3();
+        const bool im2_rw = emu.im2().machine_timing_48_or_p3();
+        emu.run_frame();                  // frame 1 again: its edge commits
+        const bool cpu_edge = emu.cpu().machine_timing_48_or_p3();
+        char msg[200];
+        std::snprintf(msg, sizeof(msg),
+                      "RWR-16 a restore puts the /INT width gate back on the "
+                      "EFFECTIVE timing, in both copies (cpu %d im2 %d, want "
+                      "0 0; after the edge cpu %d, want 1)",
+                      cpu_rw, im2_rw, cpu_edge);
+        CHECK(!cpu_rw && !im2_rw && cpu_edge, msg);
+    }
+    return 0;
+}
+
 // SS-VER-01..07 (G66) removed 2026-07-15 — reclassified as a Phase 11
 // future enhancement (see comment above test_monotonic_tape_clock_roundtrip).
 // RB-FRAME-01..03 (G67) became real rows in Test 11 (Task 60b).
@@ -1433,6 +1601,7 @@ int main()
     test_rewind_chain_corrupted_slot();
     test_rewind_restores_render_state();
     test_rewind_callers_render_state();
+    test_rewind_across_soft_reset();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),
