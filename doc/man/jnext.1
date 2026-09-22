@@ -382,9 +382,19 @@ Recording\f[R] in the GUI.
 The recording brings its own snapshot of the machine, so it cannot be
 combined with \f[B]\-\-rzx\-record\f[R], with \f[B]\-\-load\f[R] or
 \f[B]\-\-inject\f[R] of another program, or with a second RZX file.
-It does not choose the machine type, though: play it on the machine it
-was recorded on (\f[B]\-\-machine\f[R], or \f[B]Machine > Machine
-Type\f[R] in the GUI), or it goes out of step.
+It plays on the machine it was recorded on, whatever machine is
+configured: a recording \f[B]jnext\f[R] makes names its machine, and one
+from another emulator is judged by its embedded snapshot (an SNA\(cqs
+size, an SZX\(cqs machine ID, a \f[CR].z80\f[R]\(cqs hardware mode).
+A recording that names none \(em one \f[B]jnext\f[R] 1.0.0 or earlier
+made with an SNA snapshot, or one whose snapshot is of a machine
+\f[B]jnext\f[R] does not emulate \(em plays on the configured machine.
+An explicit \f[B]\-\-machine\f[R] given with the recording wins, and
+\f[B]jnext\f[R] warns when it disagrees with the recording, which then
+goes out of step; a recording played from the GUI\(cqs menus always gets
+its own machine.
+The recording\(cqs machine stays selected afterwards, in the GUI\(cqs
+\f[B]Machine > Machine Type\f[R] too, as if chosen there.
 .TP
 \f[B]\-\-rzx\-record\f[R] \f[I]FILE\f[R]
 Record input to an RZX file from the start of the run \(em or, with
@@ -401,6 +411,8 @@ The snapshot is an SZX on the 128K and +3 and a 48K SNA otherwise, which
 cannot hold the Next\(cqs own video and memory state, so a program that
 uses Layer 2, the tilemap, sprites or its palettes may not replay
 correctly.
+The file names the machine it was recorded on, which
+\f[B]\-\-rzx\-play\f[R] then uses.
 A \f[I]FILE\f[R] that cannot be written is refused before the machine
 starts, and a recording that cannot be saved when it is written is
 logged; either way \f[B]jnext\f[R] exits non\-zero.

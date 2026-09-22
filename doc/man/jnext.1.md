@@ -331,9 +331,17 @@ debugger ones.
     identically, and so do **File > Load NEX File...** and **File > Play RZX
     Recording** in the GUI. The recording brings its own snapshot of the machine, so it cannot be combined with
     **\--rzx-record**, with **\--load** or **\--inject** of another program,
-    or with a second RZX file. It does not choose the machine type, though:
-    play it on the machine it was recorded on (**\--machine**, or **Machine >
-    Machine Type** in the GUI), or it goes out of step.
+    or with a second RZX file. It plays on the machine it was recorded on, whatever
+    machine is configured: a recording **jnext** makes names its machine, and
+    one from another emulator is judged by its embedded snapshot (an SNA's
+    size, an SZX's machine ID, a `.z80`'s hardware mode). A recording that
+    names none — one **jnext** 1.0.0 or earlier made with an SNA snapshot, or one whose
+    snapshot is of a machine **jnext** does not emulate — plays on the
+    configured machine. An explicit **\--machine** given with the recording
+    wins, and **jnext** warns when it disagrees with the recording, which then
+    goes out of step; a recording played from the GUI's menus always gets its
+    own machine. The recording's machine stays selected afterwards, in the
+    GUI's **Machine > Machine Type** too, as if chosen there.
 
 **\--rzx-record** *FILE*
 :   Record input to an RZX file from the start of the run — or, with **\--load**
@@ -345,7 +353,8 @@ debugger ones.
     skips the ROM loader, which a recording cannot replay. The snapshot is an
     SZX on the 128K and +3 and a 48K SNA otherwise, which cannot hold the Next's
     own video and memory state, so a program that uses Layer 2, the tilemap,
-    sprites or its palettes may not replay correctly.
+    sprites or its palettes may not replay correctly. The file names the
+    machine it was recorded on, which **\--rzx-play** then uses.
     A *FILE* that cannot be written is refused before the machine starts, and
     a recording that cannot be saved when it is written is logged; either way
     **jnext** exits non-zero. A reset ends the recording: a hard reset (the

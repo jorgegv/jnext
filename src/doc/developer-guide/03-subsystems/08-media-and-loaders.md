@@ -338,6 +338,21 @@ the boot-ROM overlay), and so how the recording replays. Any other snapshot type
 the load: input replayed against a machine it was not recorded on reproduces
 nothing.
 
+For the same reason a playback builds the machine the recording was made on.
+The recorder names it in the RZX creator block's custom data
+(`rzx::set_recorded_machine()`, `machine=48k` — a `--machine` value), because
+the snapshot cannot: a Next recording embeds a 48K SNA. `rzx::recorded_machine()`
+reads that marker first and otherwise judges a recording by its snapshot
+(`rzx::snapshot_machine()`: SNA size, SZX machine ID, `.z80` version and
+hardware mode); a pre-marker jnext recording with an SNA names no machine.
+`emulator_boot_machine()` turns that into the machine a boot builds, and every
+boot that plays a recording asks it: `main.cpp` for the command line (unless
+`--machine` was given explicitly — `load_rzx()` then warns on a mismatch) and
+`emulator_cold_boot()` for every cold boot, which is the GUI's route. The
+frontends read the booted type back into their own config, so the recording's
+machine stays selected for later boots, and `MainWindow::set_emulator()` shows
+it.
+
 A recording cannot replay a reset the host performs, so none is ever carried
 across one. The power-on cold boot, the host's F4 soft reset and starting a
 playback all go through `Emulator::end_rzx_at_reset()`, which **writes** the

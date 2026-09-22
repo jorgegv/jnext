@@ -91,9 +91,17 @@ video — but it only replays correctly in an emulator that models the machine
 the same way. It also only replays what its snapshot holds: on the 128K and +3
 that is the whole machine, but on the Next it is the classic 48K part only, so
 a program that uses the Next's own graphics (Layer 2, the tilemap, sprites,
-palettes) may not replay correctly. Nor does it choose the machine type: play
-it on the machine it was recorded on — the same `--machine`, or **Machine >
-Machine Type** before **Play RZX Recording…** — or it goes out of step.
+palettes) may not replay correctly.
+
+A recording plays on the machine it was recorded on, whatever machine you have
+selected: JNEXT writes the machine into every recording it makes, and for one
+made elsewhere it reads the machine from the embedded snapshot. Playing it
+switches to that machine, and **Machine > Machine Type** shows it — it stays
+selected afterwards, as if you had picked it there. For a recording given on
+the command line, an explicit `--machine` wins over the recording; JNEXT warns
+when the two disagree, because the playback then goes out of step. A recording that does not say —
+one made by JNEXT 1.0.0 or earlier on a 48K SNA snapshot, or one of a machine
+JNEXT does not emulate — plays on the machine you have selected.
 
 ---
 

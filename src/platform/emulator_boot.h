@@ -73,6 +73,20 @@ inline bool emulator_load_routes_to_rzx(const std::string& file) {
     return ext == ".rzx";
 }
 
+/// The machine a boot that loads `load_file` must build. An RZX recording
+/// replays only on the machine it was made on, so for one that names it
+/// (rzx::recorded_machine()) that machine; otherwise `configured`. Every boot
+/// that plays a recording asks this: the command-line startup (main.cpp, where
+/// an explicit --machine wins) and every cold boot (emulator_cold_boot()), the
+/// route of the GUI's File > Play RZX Recording and File > Load NEX File....
+inline MachineType emulator_boot_machine(const std::string& load_file, MachineType configured) {
+    if (!emulator_load_routes_to_rzx(load_file)) return configured;
+    RzxRecording rec;
+    MachineType  recorded = configured;
+    if (rzx::parse(load_file, rec) && rzx::recorded_machine(rec, recorded)) return recorded;
+    return configured;
+}
+
 /// The per-format boot delay the CLI startup uses (main.cpp): tape formats that
 /// still key through BASIC need the machine at its prompt first; everything else
 /// loads immediately. Kept here so cold_boot schedules the load identically.
@@ -89,7 +103,10 @@ inline int emulator_load_delay_frames(const std::string& file) {
 
 /// Power-on cold boot: reconstruct the emulator in place (placement-new keeps
 /// `&emu` stable, so host holders bound to the address / its sub-objects stay
-/// valid) and re-run init(cfg) — the proven startup path.
+/// valid) and re-run init(cfg) — the proven startup path. A `cfg.load_file`
+/// that is an RZX recording boots the machine it was made on
+/// (emulator_boot_machine()); the frontend keeps that machine for its later
+/// boots by reading `emu.config().type` back.
 ///
 /// An RZX recording is finalised first (written, and ended — see
 /// Emulator::end_rzx_at_reset()), and the per-path record of failed RZX writes
@@ -117,9 +134,12 @@ inline void emulator_cold_boot(Emulator& emu, const EmulatorConfig& cfg) {
     const uint8_t saved_mute   = emu.audio_mute_mask();
     auto saved_esxdos_state    = emu.esxdos_stub_state();
 
+    EmulatorConfig boot_cfg = cfg;
+    boot_cfg.type = emulator_boot_machine(cfg.load_file, cfg.type);
+
     emu.~Emulator();
     new (&emu) Emulator();
-    emu.init(cfg);
+    emu.init(boot_cfg);
 
     emu.debug_state().breakpoints() = std::move(saved_bps);
     emu.debug_state().set_active(saved_active);

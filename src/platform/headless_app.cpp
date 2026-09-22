@@ -491,6 +491,7 @@ void HeadlessApp::run() {
         EmulatorConfig cfg = config_;
         cfg.load_file = load_file;
         emulator_cold_boot(emulator_, cfg);
+        config_.type = emulator_.config().type;   // a recording's machine stays
         inject_countdown_ = -1;
         load_countdown_   = -1;
         if (!load_file.empty()) {

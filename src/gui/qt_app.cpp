@@ -451,6 +451,10 @@ void QtApp::cold_boot(const std::string& load_file, bool allow_experimental_nex_
     const bool        rzx_was_recording = emulator_.rzx_recorder().is_recording();
     const std::string rzx_path          = emulator_.rzx_recorder().output_path();
     emulator_frontend_cold_boot(emulator_, std::move(boot_cfg), load_file, hooks);
+    // A recording boots the machine it was made on, which stays selected for
+    // later boots, as Machine > Machine Type would (emulator_cold_boot()); the
+    // window shows it (MainWindow::set_emulator()).
+    config_.type = emulator_.config().type;
     if (rzx_was_recording && main_window_) {
         main_window_->rzx_recording_ended_by_reset(
             QString::fromStdString(rzx_path), !emulator_.rzx_output_failed(rzx_path));

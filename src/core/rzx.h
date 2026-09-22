@@ -8,6 +8,8 @@
 #include <cstring>
 #include <zlib.h>
 
+#include "core/emulator_config.h"   // MachineType, parse_machine_type
+
 /// A single frame of RZX input recording.
 struct RzxFrame {
     uint16_t instruction_count;
@@ -19,6 +21,10 @@ struct RzxRecording {
     std::string creator;
     uint16_t    creator_major = 0;
     uint16_t    creator_minor = 0;
+    /// The creator block's custom data (the bytes after its 29-byte fixed
+    /// part), which the format leaves to the creator. jnext keeps the machine
+    /// a recording was made on there — see rzx::set_recorded_machine().
+    std::vector<uint8_t> creator_data;
     std::vector<uint8_t> snapshot_data;
     std::string snapshot_ext;  // "sna", "szx", "z80"
     std::vector<RzxFrame> frames;
@@ -163,6 +169,7 @@ inline bool parse(const std::string& path, RzxRecording& rec) {
                 rec.creator = creator;
                 rec.creator_major = read_u16(data.data() + pos + 25);
                 rec.creator_minor = read_u16(data.data() + pos + 27);
+                rec.creator_data.assign(data.data() + pos + 29, data.data() + pos + block_len);
             }
         } else if (block_id == BLOCK_SNAPSHOT) {
             // Snapshot block: id(1) + len(4) + flags(4) + ext(4) + uncompressed_len(4)
@@ -274,6 +281,84 @@ inline bool playable(const std::string& path, std::string& why) {
 }
 
 // ---------------------------------------------------------------------------
+// The machine a recording was made on
+// ---------------------------------------------------------------------------
+
+/// jnext's creator ID, and the key in its creator-block custom data that names
+/// the machine a recording was made on ("machine=48k" — a --machine value).
+static constexpr const char JNEXT_CREATOR[] = "JNEXT";
+static constexpr const char MACHINE_KEY[]   = "machine=";
+
+/// Name `t` as --machine spells it (parse_machine_type() reads it back).
+inline const char* machine_marker_name(MachineType t) {
+    switch (t) {
+        case MachineType::ZX48K:      return "48k";
+        case MachineType::ZX128K:     return "128k";
+        case MachineType::ZX_PLUS3:   return "plus3";
+        case MachineType::ZXN_ISSUE2: return "next";
+    }
+    return "next";
+}
+
+/// Record in `rec` that it is made on machine `t` (the creator's custom data).
+inline void set_recorded_machine(RzxRecording& rec, MachineType t) {
+    const std::string s = std::string(MACHINE_KEY) + machine_marker_name(t);
+    rec.creator_data.assign(s.begin(), s.end());
+}
+
+/// The machine an embedded snapshot says it holds, from its own header: an SNA
+/// by its size (48K, or 128K when longer), an SZX by its machine ID, a .z80 by
+/// its version and hardware mode. False when it names none jnext emulates
+/// (Pentagon, Timex...) or cannot be read.
+inline bool snapshot_machine(const std::vector<uint8_t>& snap, const std::string& ext,
+                             MachineType& out) {
+    const size_t n = snap.size();
+    if (ext == "sna") {
+        if (n < 49179) return false;
+        out = n > 49179 ? MachineType::ZX128K : MachineType::ZX48K;
+        return true;
+    }
+    if (ext == "szx") {
+        if (n < 8 || std::memcmp(snap.data(), "ZXST", 4) != 0) return false;
+        switch (snap[6]) {   // ZXSTMID_*
+            case 0: case 1: case 15: out = MachineType::ZX48K;    return true;  // 16K 48K NTSC48K
+            case 2: case 3: case 16: out = MachineType::ZX128K;   return true;  // 128K +2 128Ke
+            case 4: case 5: case 6:  out = MachineType::ZX_PLUS3; return true;  // +2A +3 +3e
+            default:                 return false;
+        }
+    }
+    if (ext == "z80") {
+        if (n < 30) return false;
+        if (read_u16(snap.data() + 6) != 0) { out = MachineType::ZX48K; return true; }  // v1
+        if (n < 35) return false;
+        const bool    v2 = read_u16(snap.data() + 30) == 23;
+        const uint8_t hw = snap[34];
+        if (hw <= 2 || (hw == 3 && !v2))           { out = MachineType::ZX48K;    return true; }
+        if (hw == 3 || hw == 4 || (hw <= 6 && !v2) || hw == 12)
+                                                   { out = MachineType::ZX128K;   return true; }
+        if (hw == 7 || hw == 8 || hw == 13)        { out = MachineType::ZX_PLUS3; return true; }
+        return false;
+    }
+    return false;
+}
+
+/// The machine `rec` was made on. A jnext recording names it in its creator
+/// data (set_recorded_machine()); any other recording is judged by its
+/// embedded snapshot (snapshot_machine()). A jnext recording from before the
+/// marker existed (up to v1.0.0) with an SNA snapshot names NO machine: jnext
+/// embedded that 48K SNA on the 48K and on the Next alike. False when no
+/// machine can be told — the recording then plays on the configured machine.
+inline bool recorded_machine(const RzxRecording& rec, MachineType& out) {
+    if (rec.creator == JNEXT_CREATOR) {
+        const std::string data(rec.creator_data.begin(), rec.creator_data.end());
+        if (data.rfind(MACHINE_KEY, 0) == 0)
+            return parse_machine_type(data.substr(sizeof(MACHINE_KEY) - 1), out);
+        if (rec.snapshot_ext == "sna") return false;
+    }
+    return snapshot_machine(rec.snapshot_data, rec.snapshot_ext, out);
+}
+
+// ---------------------------------------------------------------------------
 // Write RZX file
 // ---------------------------------------------------------------------------
 
@@ -289,17 +374,19 @@ inline bool write(const std::string& path, const RzxRecording& rec) {
     write_u32(header + 6, rec.flags);
     f.write(reinterpret_cast<const char*>(header), 10);
 
-    // --- Creator block (29 bytes) ---
+    // --- Creator block (29 bytes + the creator's custom data) ---
     {
-        uint8_t blk[29] = {};
+        std::vector<uint8_t> blk(29 + rec.creator_data.size());
         blk[0] = BLOCK_CREATOR;
-        write_u32(blk + 1, 29);
+        write_u32(blk.data() + 1, static_cast<uint32_t>(blk.size()));
         // Creator string (20 bytes, padded with zeros)
         size_t len = std::min(rec.creator.size(), size_t(20));
-        std::memcpy(blk + 5, rec.creator.c_str(), len);
-        write_u16(blk + 25, rec.creator_major);
-        write_u16(blk + 27, rec.creator_minor);
-        f.write(reinterpret_cast<const char*>(blk), 29);
+        std::memcpy(blk.data() + 5, rec.creator.c_str(), len);
+        write_u16(blk.data() + 25, rec.creator_major);
+        write_u16(blk.data() + 27, rec.creator_minor);
+        if (!rec.creator_data.empty())
+            std::memcpy(blk.data() + 29, rec.creator_data.data(), rec.creator_data.size());
+        f.write(reinterpret_cast<const char*>(blk.data()), static_cast<std::streamsize>(blk.size()));
     }
 
     // --- Snapshot block (if present) ---

@@ -231,6 +231,9 @@ void SdlApp::cold_boot(const std::string& load_file) {
     };
     emulator_frontend_cold_boot(emulator_, config_set_ ? config_ : EmulatorConfig{},
                                 load_file, hooks);
+    // A recording boots the machine it was made on, which stays selected for
+    // later boots (emulator_cold_boot()).
+    config_.type = emulator_.config().type;
 }
 
 void SdlApp::set_delayed_screenshot(const std::string& file, int delay_frames,

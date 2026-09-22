@@ -32,6 +32,7 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QLabel>
 #include <QMessageBox>
 #include <QString>
 #include <QTimer>
@@ -449,6 +450,35 @@ static void test_rzx_reset_notice() {
         std::filesystem::remove(tap, ec);
         std::filesystem::remove(src, ec);
         std::filesystem::remove(out, ec);
+    }
+
+    // RZXGUI-15 — the window shows the machine the emulator runs: the status
+    // bar and the Machine > Machine Type checkmark. set_emulator() is what the
+    // frontend calls at startup (a --machine) and after every cold boot (the
+    // machine an RZX playback switches to, emulator_boot_machine()).
+    {
+        Fixture f;   // a 48K machine
+        auto shown = [&f](MachineType t, const char* label) {
+            bool checked = false, labelled = false;
+            for (QAction* a : f.win.findChildren<QAction*>())
+                if (a->isCheckable() && a->isChecked() && a->text().contains("ZX ") &&
+                    a->data().toInt() == static_cast<int>(t))
+                    checked = true;
+            for (QLabel* l : f.win.findChildren<QLabel*>())
+                if (l->text() == label) labelled = true;
+            return checked && labelled;
+        };
+        const bool on_48k = f.ok && shown(MachineType::ZX48K, "48K");
+        EmulatorConfig cfg;
+        cfg.type                 = MachineType::ZX128K;
+        cfg.rewind_buffer_frames = 0;
+        const bool rebooted = f.emu.init(cfg);
+        f.win.set_emulator(&f.emu);
+        const bool on_128k = rebooted && shown(MachineType::ZX128K, "128K");
+        check("RZXGUI-15",
+              "the status bar and Machine Type checkmark show the running machine "
+              "(48K at start, 128K after a boot to it)",
+              on_48k && on_128k, fmt("48k=%d 128k=%d", on_48k ? 1 : 0, on_128k ? 1 : 0));
     }
 }
 

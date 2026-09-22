@@ -13,6 +13,7 @@
 // included unconditionally because the parsed value is declared alongside the
 // other options, before the frontend type is known.
 #include "platform/audio_pacing.h"
+#include "platform/emulator_boot.h"   // emulator_boot_machine (RZX playback)
 #include "video/renderer.h"
 #include "version.h"
 #include <cctype>
@@ -1127,6 +1128,12 @@ int main(int argc, char* argv[]) {
                 gui_app_config.data().esp_allowed_hosts);
         }
 #endif
+        // An RZX recording replays only on the machine it was made on, so a
+        // playback boots that machine (emulator_boot_machine()) — the same
+        // rule every cold boot applies. An explicit --machine wins, and
+        // Emulator::load_rzx() warns when it disagrees with the recording.
+        if (!machine_type_set) cfg.type = emulator_boot_machine(cfg.load_file, cfg.type);
+
         // An allowlist with nothing to restrict is a user error worth naming:
         // it reads as "I have restricted the ESP" when in fact the ESP is off.
         if (esp_allow_set && !cfg.esp_enabled) {
