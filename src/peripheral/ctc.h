@@ -157,7 +157,21 @@ public:
     /// Advance all timer-mode channels by the given number of 28 MHz ticks.
     /// For each tick, prescalers count and underflows propagate through
     /// the daisy-chain.
-    void tick(uint32_t master_cycles);
+    ///
+    /// Called for every instruction, so the common case — no timer running
+    /// or leaving S_TRIGGER, no chained trigger in flight, where the span
+    /// only moves time_ on — is decided here, inline; tick_events() is the
+    /// same span with something to do.
+    void tick(uint32_t master_cycles) {
+        for (int ch = 0; ch < 4; ++ch) {
+            if (channels_[ch].timer_running() || channels_[ch].leaving_trigger()
+                    || trg_delay_[ch]) {
+                tick_events(master_cycles);
+                return;
+            }
+        }
+        time_ += master_cycles;
+    }
 
     /// GH #265 — the CLK_28 edge the channels are at. tick() advances it by
     /// one for every edge it processes, so an on_interrupt / on_zc_to
@@ -214,6 +228,9 @@ private:
     /// Edges until a ZC/TO of the previous channel reaches each channel's
     /// clk_trg_edge (0 = none in flight). See tick().
     uint8_t trg_delay_[4] = {0, 0, 0, 0};
+
+    /// tick() for a span in which a channel has something to do.
+    void tick_events(uint32_t master_cycles);
 
     /// Handle ZC/TO output from a channel: fire the callbacks and start the
     /// pulse on its way to the next channel of the ring.

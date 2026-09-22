@@ -256,7 +256,7 @@ uint8_t Ctc::read(int channel) const {
     return val;
 }
 
-void Ctc::tick(uint32_t master_cycles) {
+void Ctc::tick_events(uint32_t master_cycles) {
     // Task 27 C1: event-horizon loop, O(events) instead of
     // O(master_cycles * 4). Between events the only state change is
     // prescaler_ accumulation + counter_ decrement per prescaler wrap of the

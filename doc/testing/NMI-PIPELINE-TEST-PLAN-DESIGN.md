@@ -298,13 +298,14 @@ dispatcher.
 | EXPBUS-02 | `expbus_nmi_n = 0` with `expbus_nmi_debounce_disable = 1` → immediate assert | zxnext.vhd:2091, 1222 | pulse pin; NR 0x81 bit 5 = 1; expect latch set |
 | EXPBUS-03 | `expbus_nmi_n = 0` without debounce-disable → delayed assert (debounce path stubbed) | zxnext.vhd:2091 | pulse pin; NR 0x81 bit 5 = 0; assert after debounce window |
 
-### Group DMA — NMI-activated → im2_dma_delay (Wave E) (3 rows)
+### Group DMA — NMI-activated → im2_dma_delay (Wave E) (4 rows)
 
 | ID | Description | VHDL cite | Stimulus summary |
 |---|---|---|---|
 | NMI-DMA-01 | `is_activated()` = true while any latch set | zxnext.vhd:2007 | strobe producer; FSM in FETCH; expect `is_activated() = 1` |
 | NMI-DMA-02 | `im2_dma_delay` latches on `is_activated() AND nr_cc_dma_int_en_0_7` | zxnext.vhd:2007 | NR 0xCC bit 7 = 1; strobe NMI; expect `dma_delay` asserts |
 | NMI-DMA-03 | NR 0xCC bit 7 = 0 blocks the NMI-activated contribution | zxnext.vhd:2007 | NR 0xCC bit 7 = 0; strobe NMI; expect `dma_delay` unchanged by NMI |
+| NMI-INT-GH265-01 | End to end (`nmi_integration_test`): the NMI's `nmi_activated` reaches the latch through the Emulator's end-of-instruction IM2 tick while the fabric is otherwise idle in pulse mode — the case GH #265's per-instruction fast path skips the fabric tick for | zxnext.vhd:2001-2010, 2093 | NR 0xCC = 0x80; MF software NMI (NR 0x02 bit 3, NR 0x06 bit 3 set); two instructions; expect `dma_delay` clear before, set after |
 
 ### Group Z80 — Z80 drive + integration (Wave A/B) (4 rows)
 
@@ -404,10 +405,10 @@ bash test/regression.sh
 | FSM — State transitions | 6 | IDLE / FETCH / HOLD / END transitions |
 | ARB — Priority arbitration | 4 | MF > DivMMC > ExpBus + mf_is_active |
 | EXPBUS — ExpBus pin | 3 | Stubbed default inactive + debounce-disable |
-| DMA — NMI-activated → im2_dma_delay | 3 | Wave E wiring + NR 0xCC bit 7 gate |
+| DMA — NMI-activated → im2_dma_delay | 4 | Wave E wiring + NR 0xCC bit 7 gate (+ GH #265 end-to-end row) |
 | Z80 — Z80 drive + integration | 3 | request_nmi, PC=0x0066, reset-clear (Z80-04 RE-HOMED to CTC plan 2026-04-28) |
 | MF — G162 parked rows | 2 | iotrap → MF assert; port 0x2FFD/3FFD trap-decode |
-| **Total** | **58** | |
+| **Total** | **59** | |
 
 > **Note: NMI plan additions 2026-04-27** — NMI-RST-04, NR02-07/08, HK-06..09,
 > Z80-04, MF-G162-01/02 added 2026-04-27 to cover G88 / G152 / G153 / G162

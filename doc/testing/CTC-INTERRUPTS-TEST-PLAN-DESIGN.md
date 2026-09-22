@@ -614,7 +614,7 @@ timeline the rows pin:
   trigger, one with a rising one (`:115-127, 173-182`).
 
 Rows in `test/ctc_interrupts/ctc_interrupts_test.cpp` (groups GH265-INT,
-GH265-ISC, GH265-CTC) and `test/ctc/ctc_test.cpp` (CTC-CH-GH265-01):
+GH265-ISC, GH265-CTC) and `test/ctc/ctc_test.cpp` (CTC-CH-GH265-01/02):
 
 | ID | Test | Expected |
 |----|------|----------|
@@ -639,6 +639,7 @@ GH265-ISC, GH265-CTC) and `test/ctc/ctc_test.cpp` (CTC-CH-GH265-01):
 | CTC-RD-GH265-02 | channel programmed outside, IN A,(C) with load edge on a count edge (817) / one before (816) | 0x4D / 0x4E (pre-fix 0x5B) |
 | CTC-WR-GH265-01 | OUT of TC=8 at start 5000: commit 5073, ZC/TO 5202, status set 5203; NR 0xC9 read loading at 5204 / 5203 | bit 0 set / clear |
 | CTC-CH-GH265-01 | ch0 timer TC=1 fires on edge 17; ch1 counter with a rising-edge trigger (D4=1) | ch1 counts on 18 (falling edge: 19, CTC-CH-01) |
+| CTC-CH-GH265-02 | ch0 timer TC=1 fires on edge 17 and is soft-reset straight after; ch1 counter, falling-edge trigger (`zc_to_d` is cleared only by `reset_hard`, `ctc_chan.vhd:173-182`) | ch1 still counts on 19 (0x03 on 18, 0x02 on 19) |
 
 Existing rows re-derived to the same edges (the old expectations were the
 per-cycle model's, not the VHDL's): `CTC-SM-04`, `CTC-SM-06`, `CTC-TM-01`..
@@ -757,8 +758,8 @@ bash test/regression.sh
 | 15. DMA Interrupt | 6 | DMA delay, NMI interaction |
 | 16. Unqualified Int | 5 | Bypass enable, NextREG 0x20 |
 | 17. Joystick IO Mode | 2 | CTC ch3 ZC/TO toggle |
-| GH #265 timing | 21 | INT sampling, status/pulse reads, ordered writes, CTC port and chain edges |
-| **Total** | **~184** | |
+| GH #265 timing | 22 | INT sampling, status/pulse reads, ordered writes, CTC port and chain edges |
+| **Total** | **~185** | |
 
 ## Planned rows carried over from the traceability matrix (GH #196)
 
@@ -781,5 +782,5 @@ which is what they are.
 The matrix is a generated artifact now and carries no prose of its own; it
 links here instead. These notes were written alongside the rows they explain.
 
-Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5. `ctc_test.cpp` moved from `150/44/0/106` to `133/128/0/5` **as of that merge**; it runs at `133 / 133 pass / 0 fail / 0 skip` today (GH #265 added CTC-CH-GH265-01). 17 rows migrated from `check()`/`skip()` to source-level re-home or category-merge comments. NR-C0-02 was subsequently closed by GH #84 and now passes in `atic_atac_nmi_test` ATIC-NMI-02. See `doc/testing/audits/task3-ctc-phase5.md` for the historical row-by-row rationale.
+Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5. `ctc_test.cpp` moved from `150/44/0/106` to `133/128/0/5` **as of that merge**; it runs at `134 / 134 pass / 0 fail / 0 skip` today (GH #265 added CTC-CH-GH265-01/02). 17 rows migrated from `check()`/`skip()` to source-level re-home or category-merge comments. NR-C0-02 was subsequently closed by GH #84 and now passes in `atic_atac_nmi_test` ATIC-NMI-02. See `doc/testing/audits/task3-ctc-phase5.md` for the historical row-by-row rationale.
 Created 2026-04-21 (commit `87fb998`) to host the 10 integration-tier re-home targets from `ctc_test.cpp` that require a full `Emulator` fixture (port 0xFF / NR 0x22 / NR 0xC0-0xCA read-path composition). Runtime: `Total:   48  Passed:   48  Failed:    0  Skipped:    0`. The suite has grown well past those original 10: the 10 rows listed below are only the ones recorded here, 16 more that it asserts are recorded in the parent `## CTC+Interrupts` table above (`ULA-INT-01..06`, `NR-C0-04`, `NR-C2-01`, `NR-C3-01`, `NR-C4-02/03`, `NR-C6-02`, `ISC-09/10`, `IM2C-G87-01/02`), and the rest are reported `unrecorded` on every run. Each entry below cross-references the CTC+Interrupts plan row.

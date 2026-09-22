@@ -8777,6 +8777,23 @@ void Emulator::finish_slot_interrupts()
     if (!slot_ran_instruction_) return;
     slot_ran_instruction_ = false;
 
+    // Nearly every instruction: pulse mode, nothing pending in the fabric,
+    // the pulse high (Im2Controller::slot_idle()) — all the full path below
+    // would do is withdraw a leftover IM2-mode request and note the pulse
+    // as high, so do exactly that.
+    if (im2_.slot_idle(slot_nmi_activated_)) {
+        if (cpu_.int_pending() && cpu_.int_window_last_ts() == INT64_MAX)
+            cpu_.cancel_interrupt();
+        prev_pulse_int_n_ = true;
+        return;
+    }
+    finish_slot_interrupts_full();
+}
+
+// Kept out of line so the fast path above — run for nearly every
+// instruction — does not pay this path's stack frame.
+[[gnu::noinline]] void Emulator::finish_slot_interrupts_full()
+{
     // Advance the IM2 controller one tick per instruction. The device
     // state-machine transitions (S_0→S_REQ→S_ACK→S_ISR→S_0) react to
     // per-M1 signals and are modeled one-per-instruction (coarse, by

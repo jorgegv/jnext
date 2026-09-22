@@ -787,6 +787,30 @@ void section4_chaining() {
               "ctc_chan.vhd:115-127,173-182 rising-edge trigger counts one edge after the ZC/TO",
               fmt("at ZC/TO edge 0x%02x, one later 0x%02x (want 0x03, 0x02)", at_zc, next));
     }
+
+    // CTC-CH-GH265-02 — a ZC/TO already on its way to the next channel still
+    // arrives when its source is stopped in between: zc_to_d is cleared only
+    // by reset_hard (ctc_chan.vhd:173-182), not by the soft reset a control
+    // word puts the channel in (:117), and the receiving channel's clk_trg_d
+    // takes it regardless (:115-127). ch0 timer TC=1 fires on edge 17 and is
+    // stopped right after it; ch1 (counter, falling) still counts that pulse
+    // on edge 19 — with no channel running any more.
+    {
+        fresh(ctc);
+        ctc.write(0, cw(false, false, false, false, false, true, false));
+        ctc.write(0, 0x01);
+        ctc.write(1, cw(false, true, false, false, false, true, false));
+        ctc.write(1, 0x03);
+        ctc.tick(kTriggerEdge + 16);                                   // ZC/TO on 17
+        ctc.write(0, cw(false, false, false, false, false, false, true));   // stop ch0
+        ctc.tick(kChainFalling - 1);
+        const uint8_t not_yet = ctc.read(1);
+        ctc.tick(1);
+        const uint8_t after = ctc.read(1);
+        check("CTC-CH-GH265-02", not_yet == 0x03 && after == 0x02,
+              "ctc_chan.vhd:115-127,173-182 a ZC/TO in flight reaches the next channel after its source stops",
+              fmt("edge 18 0x%02x, edge 19 0x%02x (want 0x03, 0x02)", not_yet, after));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════

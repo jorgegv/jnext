@@ -319,6 +319,37 @@ static void test_int_rows() {
               fmt("took_nmi=%d mf_latched=%d final_pc=0x%04x steps=%d",
                   r.took_nmi, mf_latched, r.final_pc, r.steps));
     }
+
+    // NMI-INT-GH265-01 — nmi_activated reaches im2_dma_delay through the
+    // Emulator's end-of-instruction IM2 tick. im2_dma_delay is a CLK_CPU
+    // register fed by `nmi_activated and nr_cc_dma_int_en_0_7`
+    // (zxnext.vhd:2001-2010), nmi_activated = nmi_mf or nmi_divmmc or
+    // nmi_expbus (:2093), whatever the rest of the fabric is doing. Here it
+    // is idle in pulse mode — the case the per-instruction fast path
+    // (GH #265) skips the fabric tick for — so the NMI's arrival has to
+    // take the full tick. VHDL latches it within a T-state of the MF
+    // request; jnext hands the tick the previous instruction's
+    // nmi_activated (Wave E), so two instructions are the bound.
+    {
+        Emulator emu;
+        fresh_cpu_at_c000(emu);
+        emu.nextreg().write(0xCC, 0x80);               // nr_cc_dma_int_en_0_7
+        emu.execute_single_instruction();
+        const bool before = emu.im2().dma_delay();
+        emu.nmi_source().set_mf_enable(true);          // NR 0x06 bit 3 = 1
+        emu.port().out(0x243B, 0x02);
+        emu.port().out(0x253B, 0x08);                  // NR 0x02 bit 3: MF NMI
+        emu.execute_single_instruction();
+        emu.execute_single_instruction();
+        const bool activated = emu.nmi_source().is_activated();
+        const bool after = emu.im2().dma_delay();
+
+        check("NMI-INT-GH265-01",
+              "MF NMI with NR 0xCC bit 7 set latches im2_dma_delay while the "
+              "IM2 fabric is otherwise idle (VHDL zxnext.vhd:2001-2010, :2093)",
+              !before && activated && after,
+              fmt("before=%d activated=%d after=%d", before, activated, after));
+    }
 }
 
 // ── Group HOST-HK — Host F-key dispatch end-to-end (G152) ──────────────

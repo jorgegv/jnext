@@ -695,7 +695,7 @@ void Uart::hard_reset() {
     uart_log()->debug("UART hard reset");
 }
 
-void Uart::tick(uint32_t master_cycles) {
+void Uart::tick_active(uint32_t master_cycles) {
     // The ONE gate the per-instruction path pays for an attached backend
     // (GH #25 branch 3). False in every path until something is attached, so
     // it is a single predicted-not-taken branch for the whole UART — and it

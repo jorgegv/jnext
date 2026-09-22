@@ -127,6 +127,19 @@ public:
     /// INT_s is set: E_1 and E_N. Valid once a timed pulse has started.
     uint64_t pulse_first_edge() const { return pulse_e1_; }
     uint64_t pulse_last_edge() const  { return pulse_en_; }
+    /// GH #265 — true when the end-of-instruction work has nothing to do: in
+    /// pulse mode (no IM2-mode /INT line can be asserted), tick() would take
+    /// its quiescent early-out (Task 27 C-IM2) even after
+    /// set_nmi_activated(@p nmi_activated). Quiescent also means the pulse
+    /// is high (compute_quiescent()) and no pulse start is waiting for
+    /// take_pulse_started(): latch_edges_until() starts one only while
+    /// resolving a request, and clears quiescent_ when it does. Emulator's
+    /// per-instruction fast path; the tick it skips only stores intra-tick
+    /// scratch (pulse_count_advance_, read solely by step_pulse() in tick()).
+    bool slot_idle(bool nmi_activated) const {
+        return quiescent_ && !reti_seen_pulse_ && !im2_mode_
+            && nmi_activated == nmi_activated_;
+    }
     /// True once per pulse started since the last call.
     bool take_pulse_started() {
         const bool s = pulse_started_;

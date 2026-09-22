@@ -1707,6 +1707,7 @@ private:
     /// tick_devices_after_instruction() (and by run_frame()'s data-breakpoint
     /// exit, which skips the device ticks).
     void finish_slot_interrupts();
+    void finish_slot_interrupts_full();   ///< its path with work to do
 
     /// GH #262 — an IN from a port with LSB 0xDF that the mouse decode does
     /// not claim. VHDL zxnext.vhd:2674 decodes it as `port_1f` (Kempston 1)
