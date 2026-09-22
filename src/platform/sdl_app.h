@@ -137,6 +137,7 @@ private:
     // Pending --rzx-play / --rzx-record, started at the top of run().
     std::string rzx_play_file_;
     std::string rzx_record_file_;
+    bool        rzx_record_started_ = false;
 
     // Emulator config (set via set_config() before init())
     EmulatorConfig config_;

@@ -318,6 +318,12 @@ public:
     /// failed (latched, see rzx_output_failed()).
     bool end_rzx_at_reset(const char* what);
 
+    /// Called as a recording starts: the tape ROM traps stand down while RZX
+    /// records or plays (a trapped load or save cannot be replayed), so a
+    /// fast-load tape already attached is switched to real-time loading, whose
+    /// EAR edges ARE recorded; --tape-save is warned that it captures nothing.
+    void rzx_suspend_tape_traps();
+
     /// The rzx_output_failed() latch, carried across the power-on cold boot by
     /// emulator_cold_boot() like the host debugger's breakpoints.
     const std::vector<std::string>& rzx_failed_outputs() const { return rzx_failed_outputs_; }

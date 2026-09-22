@@ -43,8 +43,9 @@ of the machine. Replaying it reproduces the session exactly, keystroke for
 keystroke — a walkthrough, a bug report, or a speedrun that stays honest.
 
 - **File > Record RZX…**, or `--rzx-record FILE`; **Stop RZX** to finish.
-  From the command line the recording starts with the machine, and the file is
-  written when JNEXT exits.
+  From the command line the recording starts with the machine — or, when you
+  also `--load` a program, as soon as it is loaded, so the recording holds it
+  — and the file is written when JNEXT exits.
 - **File > Play RZX Recording…**, or `--rzx-play FILE`. Loading a `.rzx` with
   `--load`, or naming it as the file to run (`jnext session.rzx`), plays it too.
 
@@ -66,9 +67,16 @@ play an RZX saves the recording at that point and stops it, with a note on the
 status bar: a recording replays your input, and a reset is not input, so it
 could not be replayed. Start a new recording afterwards if you want the rest.
 
+While a recording runs, tapes load in real time, at their true speed: a fast
+load skips the ROM's own loader, and a recording can only replay what the
+machine actually did.
+
 Because it stores input rather than pixels, an RZX is tiny compared with a
 video — but it only replays correctly in an emulator that models the machine
-the same way.
+the same way. It also only replays what its snapshot holds: on the 128K and +3
+that is the whole machine, but on the Next it is the classic 48K part only, so
+a program that uses the Next's own graphics (Layer 2, the tilemap, sprites,
+palettes) may not replay correctly.
 
 ---
 

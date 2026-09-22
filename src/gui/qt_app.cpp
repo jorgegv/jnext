@@ -359,7 +359,9 @@ int QtApp::run() {
     // main.cpp sets them after init(), which is why reading them there made
     // --rzx-play and --rzx-record silent no-ops — see emulator_start_rzx().
     // No frame has run yet: the frame timer only fires inside exec().
-    if (!emulator_start_rzx(emulator_, rzx_play_file_, rzx_record_file_))
+    // The recording starts later, once the command-line load is in: see
+    // emulator_start_rzx_record_when_loaded() in TickEffects::pre_frames().
+    if (!emulator_start_rzx(emulator_, rzx_play_file_, ""))
         exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
     return qapp_->exec();
 }
@@ -515,6 +517,12 @@ bool QtApp::TickEffects::pre_frames() {
     } else if (a.load_countdown_ > 0) {
         --a.load_countdown_;
     }
+
+    // --rzx-record, once the load/inject above is in the machine.
+    if (!emulator_start_rzx_record_when_loaded(
+            a.emulator_, a.rzx_record_file_, a.rzx_record_started_,
+            a.load_countdown_ >= 0 || a.inject_countdown_ >= 0))
+        a.exit_code_ = 1;
 
     // --delayed-screenshot-layers: arm the compositor layer mask for the frames
     // rendered in this tick — the last of them is the one the screenshot below

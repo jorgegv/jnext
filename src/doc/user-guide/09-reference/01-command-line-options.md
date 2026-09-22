@@ -175,7 +175,8 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 :   Append blocks SAVEd through the 48K ROM SA-BYTES routine to *FILE*
     (`.tap`). Trap-based: it fires when the ROM save routine at 0x04C2
     runs with ROM paged at slot 0. Without this option no SAVE capture
-    happens.
+    happens. Cannot be combined with RZX recording or playback: the trap
+    skips the ROM routine, which a recording cannot replay.
 
 **--esxdos-stub**
 :   Answer a few `RST $08` esxDOS calls for any program, for the whole
@@ -330,19 +331,30 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 **--rzx-play** *FILE*
 :   Play back an RZX recording from the start of the run. Works the same
     in the GUI, the SDL-only build and under **--headless**. A recording
-    that fails to load is logged, and **jnext** then exits non-zero.
+    that fails to load is logged, and **jnext** then exits non-zero. The
+    recording brings its own snapshot of the machine, so it cannot be
+    combined with **--rzx-record**, with **--load** or **--inject** of
+    another program, or with a second RZX file.
 
 **--rzx-record** *FILE*
-:   Record input to an RZX file from the start of the run. The file is
-    written when **jnext** exits (or, in the GUI, at **File \> Stop RZX
-    Recording**). Works the same in the GUI, the SDL-only build and
-    under **--headless**. A *FILE* that cannot be written is refused
-    before the machine starts, and a recording that cannot be saved when
-    it is written is logged; either way **jnext** exits non-zero. A
-    reset ends the recording: a hard reset (the Reset button, F1, or the
-    program’s own), loading another program from the GUI, changing the
-    machine type, or F4 writes the file there, and nothing after it is
-    recorded — a recording cannot replay a reset.
+:   Record input to an RZX file from the start of the run — or, with
+    **--load** or **--inject**, from the moment that program is in the
+    machine, so the snapshot the file carries is the program, and
+    playback replays it. The file is written when **jnext** exits (or,
+    in the GUI, at **File \> Stop RZX Recording**). Works the same in
+    the GUI, the SDL-only build and under **--headless**. While
+    recording, a tape loads in real time: a fast load skips the ROM
+    loader, which a recording cannot replay. The snapshot is an SZX on
+    the 128K and +3 and a 48K SNA otherwise, which cannot hold the
+    Next’s own video and memory state, so a program that uses Layer 2,
+    the tilemap, sprites or its palettes may not replay correctly. A
+    *FILE* that cannot be written is refused before the machine starts,
+    and a recording that cannot be saved when it is written is logged;
+    either way **jnext** exits non-zero. A reset ends the recording: a
+    hard reset (the Reset button, F1, or the program’s own), loading
+    another program from the GUI, changing the machine type, or F4
+    writes the file there, and nothing after it is recorded — a
+    recording cannot replay a reset.
 
 **--rewind-buffer-size** *N*
 :   Frame-snapshot ring buffer for backwards execution. Opt-in; default

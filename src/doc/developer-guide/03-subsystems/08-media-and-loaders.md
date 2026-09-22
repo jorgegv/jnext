@@ -255,8 +255,15 @@ and why it only works at all if the emulator executes the same instructions in
 the same order both times.
 
 `rzx.h` holds the format, `rzx_player.*` and `rzx_recorder.*` the two
-directions. jnext embeds a 48K SNA, which is the reason `SnaSaver` exists at
-all. On playback the embedded snapshot — SNA, SZX or Z80 — is parsed straight
+directions. The snapshot a recording embeds is an SZX on the 128K and +3
+(`SzxSaver` — all eight banks and the paging ports) and a 48K SNA otherwise
+(`SnaSaver`, which exists for this): neither `.szx` nor `.sna` can hold the
+Next's own state, so a Next program replays only as far as its 48K part does.
+A command-line recording starts once the `--load`/`--inject` is in the
+machine (`emulator_start_rzx_record_when_loaded()`), so that snapshot is the
+loaded program. The tape ROM traps stand down while RZX records or plays —
+see the trap block in `run_frame()` — and a fast-load tape already attached is
+switched to real-time loading (`Emulator::rzx_suspend_tape_traps()`). On playback the embedded snapshot — SNA, SZX or Z80 — is parsed straight
 from the file's bytes by `Emulator::load_snapshot_from_memory()`, using the
 `load_from_buffer()` entry each of those loaders has beside its file-path
 `load()`; nothing is written to a temporary file. Any other snapshot type fails

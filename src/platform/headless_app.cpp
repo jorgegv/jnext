@@ -378,7 +378,9 @@ void HeadlessApp::run() {
 
     // Command-line RZX play/record — shared with QtApp/SdlApp, and applied
     // here in run() for the reason given at emulator_start_rzx().
-    if (!emulator_start_rzx(emulator_, rzx_play_file_, rzx_record_file_))
+    // The recording starts later, once the command-line load is in: see
+    // emulator_start_rzx_record_when_loaded() in the frame loop.
+    if (!emulator_start_rzx(emulator_, rzx_play_file_, ""))
         exit_code_ = 1;   // same contract as a failed --load
 
     // --benchmark timing (Task 27 T1): the clock brackets exactly the
@@ -543,6 +545,12 @@ void HeadlessApp::run() {
         } else if (load_countdown_ > 0) {
             --load_countdown_;
         }
+
+        // --rzx-record, once the load/inject above is in the machine.
+        if (!emulator_start_rzx_record_when_loaded(
+                emulator_, rzx_record_file_, rzx_record_started_,
+                load_countdown_ >= 0 || inject_countdown_ >= 0))
+            exit_code_ = 1;
 
         // Delayed keypresses. Matrix positions were resolved at schedule
         // time (unknown names are rejected there, never dropped here).

@@ -926,6 +926,75 @@ int main()
         std::remove(sr_path.c_str());
     }
 
+    // --- EB-39..EB-41: the recording starts once the program is loaded -------
+    // Contract (emulator_start_rzx_record_when_loaded): the command-line
+    // recording starts only once nothing the command line puts into the
+    // machine is pending, so the snapshot it embeds is the machine the recorded
+    // input belongs to — the loaded program, not the one before the load.
+    {
+        const auto stamp = std::to_string(
+            std::chrono::high_resolution_clock::now().time_since_epoch().count());
+        const auto tmp = std::filesystem::temp_directory_path();
+        const std::string rec_path = (tmp / ("jnext-eb-late-" + stamp + ".rzx")).string();
+        constexpr uint16_t MARK_AT = 0x9000;
+        constexpr uint8_t  MARK    = 0xC3;
+
+        // EB-39: while a load is pending nothing records; once it is in, the
+        // recording starts, and its snapshot holds what the load put there.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            bool started = false;
+            const bool ok1 = emulator_start_rzx_record_when_loaded(emu, rec_path, started, true);
+            const bool early = emu.rzx_recorder().is_recording();
+            emu.mmu().write(MARK_AT, MARK);          // the load lands
+            const bool ok2 = emulator_start_rzx_record_when_loaded(emu, rec_path, started, false);
+            const bool late = emu.rzx_recorder().is_recording();
+            emu.run_frame();
+            emulator_finish_rzx(emu, rec_path);
+            Emulator player;
+            player.init(base_config());
+            const bool plays = player.load_rzx(rec_path);
+            check("EB-39", "the recording waits for the pending load, and its snapshot holds it",
+                  ok1 && !early && ok2 && late && plays && player.mmu().read(MARK_AT) == MARK,
+                  "early=" + std::to_string(early) + " late=" + std::to_string(late));
+        }
+
+        // EB-40: it starts once — a later call (or a later load) does not
+        // restart, and so cannot discard, the running recording.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            bool started = false;
+            emulator_start_rzx_record_when_loaded(emu, rec_path, started, false);
+            emu.run_frame();
+            emulator_start_rzx_record_when_loaded(emu, rec_path, started, false);
+            emu.run_frame();
+            const std::size_t frames = emu.rzx_recorder().recording().frames.size();
+            emulator_finish_rzx(emu, rec_path);
+            check("EB-40", "the recording starts once; a second call leaves it running",
+                  started && frames == 2, "frames=" + std::to_string(frames));
+        }
+
+        // EB-41: the embedded snapshot carries the border the machine shows —
+        // it was written as 0, so a program that set its border once replayed
+        // with a black one.
+        {
+            Emulator emu;
+            emu.init(base_config());
+            emu.port().out(0x00FE, 0x05);
+            const std::vector<uint8_t> sna = SnaSaver::save(emu);
+            Emulator back;
+            back.init(base_config());
+            const bool loaded = back.load_snapshot_from_memory(sna, "sna", "EB-41");
+            check("EB-41", "the SNA an RZX embeds records the border (5), and it loads back",
+                  sna.size() > 26 && sna[26] == 5 && loaded && back.ula().get_border() == 5,
+                  "byte26=" + std::to_string(sna.size() > 26 ? sna[26] : -1));
+        }
+
+        std::remove(rec_path.c_str());
+    }
+
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
                 g_pass + g_fail, g_pass, g_fail, 0);
     return g_fail ? 1 : 0;

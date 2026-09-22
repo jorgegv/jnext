@@ -6,6 +6,7 @@
 #include "core/nex_loader.h"
 #include "core/sd_rom_extractor.h"
 #include "core/sna_saver.h"
+#include "core/szx_saver.h"
 #include "core/saveable.h"
 #include "esp01/esp_threaded.h"
 #include "peripheral/esp_host_policy.h"
@@ -6956,6 +6957,12 @@ bool Emulator::load_tap(const std::string& path, bool fast_load)
     TapLoader loader;
     if (!loader.load(path)) return false;
 
+    // A fast (trapped) load cannot be recorded — see the trap block in run_frame.
+    if (fast_load && rzx_recorder_.is_recording()) {
+        Log::emulator()->info("TAP: loading in real time: an RZX recording is running");
+        fast_load = false;
+    }
+
     // GH #164 — see resume_from_park(). Neither the ROM LD-BYTES trap nor
     // the phantom typist can fire while the CPU is parked.
     resume_from_park("a TAP tape was attached");
@@ -7007,6 +7014,12 @@ bool Emulator::load_tzx(const std::string& path, bool fast_load)
 {
     TzxLoader loader;
     if (!loader.load(path)) return false;
+
+    // A fast (trapped) load cannot be recorded — see the trap block in run_frame.
+    if (fast_load && rzx_recorder_.is_recording()) {
+        Log::emulator()->info("TZX: loading in real time: an RZX recording is running");
+        fast_load = false;
+    }
 
     // GH #164 — see resume_from_park().
     resume_from_park("a TZX tape was attached");
@@ -7181,12 +7194,28 @@ bool Emulator::start_rzx_recording(const std::string& path)
     }
 
     if (!rzx_recorder_.start(path)) return false;
+    rzx_suspend_tape_traps();
 
-    // Save current state as SNA snapshot for embedding.
-    auto sna_data = SnaSaver::save(*this);
-    if (!sna_data.empty()) {
-        rzx_recorder_.set_snapshot(std::move(sna_data), "sna");
+    // Embed the machine the recording starts from. A 48K SNA holds 48K of RAM
+    // and no paging, so on the 128K and +3 — where a program's 7FFD/1FFD
+    // paging and its other five banks are part of that machine — an SZX is
+    // embedded instead; a 48K SNA of a paged 128K program replayed against the
+    // wrong banks. SzxSaver refuses what .szx cannot represent (the Next), and
+    // the 48K SNA remains the fallback there.
+    std::vector<uint8_t> snap;
+    std::string          snap_ext;
+    if (config_.type == MachineType::ZX128K || config_.type == MachineType::ZX_PLUS3) {
+        SzxSaver::SaveResult szx = SzxSaver::save(*this);
+        if (szx.ok) {
+            snap     = std::move(szx.data);
+            snap_ext = "szx";
+        }
     }
+    if (snap.empty()) {
+        snap     = SnaSaver::save(*this);
+        snap_ext = "sna";
+    }
+    if (!snap.empty()) rzx_recorder_.set_snapshot(std::move(snap), snap_ext);
     rzx_recorder_.set_initial_tstates(*fuse_z80_tstates_ptr());
 
     // Wire up port recording hook.
@@ -7205,6 +7234,29 @@ bool Emulator::stop_rzx_recording()
     const bool ok = rzx_recorder_.stop();
     if (!ok) rzx_failed_outputs_.push_back(path);
     return ok;
+}
+
+void Emulator::rzx_suspend_tape_traps()
+{
+    // The tape traps stand down while a recording runs (see the trap block in
+    // run_frame). A fast-load tape would then never load — nothing drives its
+    // EAR edges — so it is switched to real-time loading from where it is.
+    if (tape_.is_loaded() && tape_.fast_load() && !tape_.at_end()) {
+        tape_.set_fast_load(false);
+        tape_.start_realtime_playback();
+        Log::emulator()->info("TAP: switched to real-time loading: an RZX recording "
+                              "cannot capture a fast (trapped) load");
+    }
+    if (tzx_tape_.is_loaded() && tzx_tape_.fast_load() && !tzx_tape_.at_end()) {
+        tzx_tape_.set_fast_load(false);
+        tzx_tape_.start_playback(monotonic_tstates());
+        Log::emulator()->info("TZX: switched to real-time loading: an RZX recording "
+                              "cannot capture a fast (trapped) load");
+    }
+    if (tap_saver_.active()) {
+        Log::emulator()->warn("--tape-save: SAVEs are not captured while an RZX recording "
+                              "runs (the SAVE trap cannot be replayed)");
+    }
 }
 
 bool Emulator::end_rzx_at_reset(const char* what)
@@ -8023,8 +8075,15 @@ void Emulator::run_frame()
             }
         }
 
-        // Tape ROM traps — only when ROM is paged in at slot 0.
-        if (mmu_.is_slot_rom(0)) {
+        // Tape ROM traps — only when ROM is paged in at slot 0, and never
+        // while RZX records or plays: a trap does the ROM routine's work
+        // without executing it, so no recording can replay it (the file holds
+        // the INs the routine did not make), and a playback would skip the INs
+        // the recording holds. FUSE disables its tape traps for RZX for the
+        // same reason; a tape attached then loads in real time, and its
+        // edges are recorded like any other input (see rzx_suspend_tape_traps()).
+        if (mmu_.is_slot_rom(0) && !rzx_recorder_.is_recording() &&
+            !rzx_player_.is_playing()) {
             uint16_t pc = cpu_.pc();
 
             // Fast-load: intercept LD-BYTES when tape is loaded and in fast mode.

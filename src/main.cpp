@@ -771,6 +771,45 @@ int main(int argc, char* argv[]) {
         load_file = positional_file;
     }
 
+    // RZX combinations that cannot do what they say. Each used to be accepted
+    // and to do something else without a word: the second RZX silently won,
+    // the loaded program was wiped by the recording's own snapshot, and a
+    // recording made during playback held no input at all.
+    {
+        std::string load_ext;
+        if (auto dot = load_file.rfind('.'); dot != std::string::npos) {
+            load_ext = load_file.substr(dot);
+            for (auto& c : load_ext)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        }
+        const bool load_is_rzx = (load_ext == ".rzx");   // --load x.rzx plays it
+        const bool plays       = load_is_rzx || !rzx_play_file.empty();
+        if (load_is_rzx && !rzx_play_file.empty()) {
+            fprintf(stderr, "--load %s and --rzx-play %s: only one RZX recording can play.\n",
+                    load_file.c_str(), rzx_play_file.c_str());
+            return 1;
+        }
+        if (plays && !rzx_record_file.empty()) {
+            fprintf(stderr,
+                    "--rzx-record cannot record during RZX playback: every IN is answered "
+                    "from the file being played, so the recording would hold no input.\n");
+            return 1;
+        }
+        if (plays && ((!load_file.empty() && !load_is_rzx) || !inject_file.empty())) {
+            fprintf(stderr,
+                    "RZX playback cannot be combined with %s: the recording replaces the "
+                    "machine with its own snapshot.\n",
+                    !inject_file.empty() ? "--inject" : "--load");
+            return 1;
+        }
+        if ((plays || !rzx_record_file.empty()) && !tape_save_file.empty()) {
+            fprintf(stderr,
+                    "--tape-save cannot be combined with RZX recording or playback: its SAVE "
+                    "trap skips the ROM routine, which a recording cannot replay.\n");
+            return 1;
+        }
+    }
+
     // --delayed-screenshot-layers only means anything with a screenshot to
     // apply it to. Say so instead of quietly doing nothing.
     if (screenshot_layers_set && screenshot_file.empty()) {

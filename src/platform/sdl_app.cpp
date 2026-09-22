@@ -251,7 +251,9 @@ void SdlApp::set_delayed_exit(int delay_frames) {
 void SdlApp::run() {
     // Command-line RZX play/record — shared with the other two frontends, and
     // applied here in run() for the reason given at emulator_start_rzx().
-    if (!emulator_start_rzx(emulator_, rzx_play_file_, rzx_record_file_))
+    // The recording starts later, once the command-line load is in: see
+    // emulator_start_rzx_record_when_loaded() in the loop.
+    if (!emulator_start_rzx(emulator_, rzx_play_file_, ""))
         exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
 
     while (running_) {
@@ -279,6 +281,12 @@ void SdlApp::run() {
         } else if (load_countdown_ > 0) {
             --load_countdown_;
         }
+
+        // --rzx-record, once the load/inject above is in the machine.
+        if (!emulator_start_rzx_record_when_loaded(
+                emulator_, rzx_record_file_, rzx_record_started_,
+                load_countdown_ >= 0 || inject_countdown_ >= 0))
+            exit_code_ = 1;
 
         // Pace emulation against the sound card, not the wall clock: the 20 ms
         // frame delay runs the emulator at 50.00 frames/s while a 48K frame is
