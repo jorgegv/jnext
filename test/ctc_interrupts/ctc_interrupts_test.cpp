@@ -2864,6 +2864,59 @@ static void test_gh265_int_timing() {
               ok && d2 == 1 && t2 && !h2 && !t10 && h10, d);
     }
 
+    // INT-GH265-12 — INT-GH265-07's EI, the last instruction of the frame,
+    // then a snapshot there, restored into another machine: the grace
+    // (t80n.vhd:1768, no interrupt at the boundary straight after EI) must
+    // survive — the NOP after EI runs, the IntAck comes one instruction
+    // later. FUSE's EI stamp used to be saved as a counter value, and a
+    // load re-seeds the counter, so the restored boundary took the pending
+    // interrupt at once.
+    {
+        Emulator emu;
+        bool ok = build(emu, MachineType::ZX48K);
+        install_im2_table(emu, false);
+        for (int a = 0x8000; a < 0x9000; ++a) emu.mmu().write(static_cast<uint16_t>(a), 0x00);
+        emu.mmu().write(0x7000, 0xFB);            // EI
+        emu.mmu().write(0x7001, 0x00);
+        set_pc_im2(emu, 0x8000, false);
+        nr_write(emu, 0xC5, 0x01);
+        const uint64_t frame = 69888ULL * 8;
+        uint16_t pc_next = 0, pc_second = 0;
+        if (ok) {
+            while (emu.clock().get() < frame - 20 * 8) emu.debugger_step();
+            emu.im2().raise_req(Im2Controller::DevIdx::CTC0, emu.clock().get());
+            while (emu.clock().get() < frame - 4 * 8) emu.debugger_step();
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x7000;
+            emu.cpu().set_registers(r);
+            emu.debugger_step();                  // EI, the frame's last instruction
+            ok = ok && emu.clock().get() >= frame;
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> buf(measure.position(), 0);
+            StateWriter w(buf.data(), buf.size());
+            emu.save_state(w);
+            Emulator emu2;
+            ok = ok && build(emu2, MachineType::ZX48K);
+            // A running machine, as a rewind restores into: its counter is
+            // not at 0 when the snapshot is loaded.
+            for (int n = 0; n < 100; ++n) emu2.debugger_step();
+            StateReader rd(buf.data(), buf.size());
+            ok = ok && emu2.load_state(rd);
+            emu2.debugger_step();                 // NOP (grace)
+            pc_next = emu2.cpu().pc();
+            emu2.debugger_step();                 // IntAck
+            pc_second = emu2.cpu().pc();
+        }
+        char d[120];
+        std::snprintf(d, sizeof d, "restored: pc after 1 step = 0x%04X (want 0x7002), "
+                      "after 2 = 0x%04X (want 0xFDFD)", pc_next, pc_second);
+        check("INT-GH265-12",
+              "EI grace survives a snapshot taken straight after the EI "
+              "(t80n.vhd:1768 SetEI = '0')",
+              ok && pc_next == 0x7002 && pc_second == 0xFDFD, d);
+    }
+
     // INT-GH265-07 — EI as the last instruction of a frame keeps its grace:
     // t80n.vhd:1768 takes no interrupt at the boundary straight after EI
     // (SetEI = '1'), even though that boundary is the first of a new frame.

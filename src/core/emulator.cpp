@@ -11178,6 +11178,9 @@ bool Emulator::load_state(StateReader& r)
     // same amount out of the base — monotonic_tstates() stays the saved
     // value, and contention sees the restored raster position.
     tstates_frame_base_ = r.read_u64();
+    // GH #265 — what the CPU block restored against the counter (the /INT
+    // window, the EI stamp) moves with it.
+    cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));
     *fuse_z80_tstates_ptr() = 0;
     frame_num_        = r.read_u32();
     boot_hold_frames_remaining_ = r.read_u32();  // G156

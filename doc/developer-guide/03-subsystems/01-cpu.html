@@ -1997,7 +1997,8 @@ the window, and FUSE's EI stamp, with the counter whenever it re-bases it — at
 each frame, and at a CPU-speed change, where the window keeps its distance in
 CPU T-states because the pulse counts CPU clock edges (the IM2 fabric re-places
 its own pulse edges, <code>Im2Controller::set_cpu_divisor()</code>) (GH #265). A snapshot
-stores the window relative to the counter, which a load re-seeds. <code>execute()</code> also replicates FUSE's EI-grace rejection <em>before</em>
+stores the window relative to the counter, which a load re-seeds, and the EI
+stamp as whether its grace is pending at the saved boundary. <code>execute()</code> also replicates FUSE's EI-grace rejection <em>before</em>
 calling <code>on_int_ack</code>, so the daisy chain is not advanced by an acknowledge cycle
 that never happens. The vector comes from
 <code>on_int_ack()</code> when one is installed, and from <code>int_vector_</code> otherwise. NMI has

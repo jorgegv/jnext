@@ -1388,7 +1388,17 @@ void Z80Cpu::save_state(StateWriter& w) const
     //     stored by the LD) gets cleared. Without persistence, a snapshot
     //     taken between LD A,I and an immediately-pending INT would skip
     //     the quirk on restore.
-    w.write_i32(z80.interrupts_enabled_at);
+    //
+    // GH #265 — the stamp is only ever compared with the counter for
+    // equality at the boundary straight after the EI, and the counter is not
+    // restored as such (Emulator::load_state() re-seeds it). So what is
+    // saved is whether that grace is pending HERE: 0 when the stamp is this
+    // boundary's counter value, -1 otherwise (a stamp in the past can never
+    // match again). An older snapshot's absolute stamp reads as "none"
+    // unless it happens to be 0.
+    w.write_i32(z80.interrupts_enabled_at >= 0
+                && static_cast<libspectrum_dword>(z80.interrupts_enabled_at) == tstates
+                    ? 0 : -1);
     w.write_u8(static_cast<uint8_t>(z80.iff2_read ? 1 : 0));
     // Interrupt state
     w.write_bool(nmi_pending_);
@@ -1419,7 +1429,10 @@ void Z80Cpu::load_state(StateReader& r)
     // Pass-4 fix: restore FUSE-internal interrupts_enabled_at + iff2_read.
     // Push directly into the global z80 struct; sync_fuse_from_regs() does
     // NOT touch these fields (they have no Z80Registers mirror).
-    z80.interrupts_enabled_at = static_cast<libspectrum_signed_dword>(r.read_i32());
+    // GH #265 — 0 means the grace is pending at this boundary: stamp it
+    // with the counter as it stands (see save_state).
+    z80.interrupts_enabled_at = (r.read_i32() == 0)
+        ? static_cast<libspectrum_signed_dword>(tstates) : -1;
     z80.iff2_read = (r.read_u8() != 0) ? 1 : 0;
     nmi_pending_ = r.read_bool();
     int_pending_ = r.read_bool();
