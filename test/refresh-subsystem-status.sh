@@ -144,6 +144,7 @@ BEGIN {
     M["nex_v13_test"]                  = "NEX loader (V1.3)"
     M["extended_nex_test"]             = "Extended NEX streaming"
     M["tap_loader_test"]               = "TAP loader (container)"
+    M["tzx_loader_test"]               = "TZX loader (container)"
     M["dma_test"]                      = "DMA"
     M["tilemap_test"]                  = "Tilemap"
     M["tilemap_fetch_split_test"]      = "Tilemap raster splits"
