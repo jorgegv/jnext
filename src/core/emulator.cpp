@@ -120,8 +120,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     }
     clock_.set_cpu_speed(cfg.cpu_speed);
 
-    // Allocate the framebuffer and fill with black (ARGB: 0xFF000000).
-    framebuffer_.assign(FRAMEBUFFER_PIXELS, 0xFF000000u);
+    // Allocate the framebuffer and fill with black (ARGB: 0xFF000000) — but
+    // not on a soft reset, which does not interrupt the video output: the
+    // frame on screen stays there until the next one is drawn (GH #263
+    // follow-up; with the debugger paused, F4 used to show black).
+    if (!preserve_memory || framebuffer_.size() != FRAMEBUFFER_PIXELS)
+        framebuffer_.assign(FRAMEBUFFER_PIXELS, 0xFF000000u);
 
     // Clear any stale scheduler events. Preserved across soft reset so
     // events scheduled before the reset (e.g. the current frame's ULA
@@ -9375,8 +9379,11 @@ void Emulator::soft_reset()
 
     Log::emulator()->debug("Soft reset (NR 0x02 bit 0): preserving SRAM");
 
-    // Clear framebuffer to black (not part of emulated state).
-    std::fill(framebuffer_.begin(), framebuffer_.end(), 0xFF000000u);
+    // The framebuffer is NOT cleared: the soft reset does not touch the
+    // video timing (zxula_timing.vhd has no reset input) or its output, so
+    // what is on screen stays until the next frame is drawn. It used to be
+    // blanked here (copied from reset()), which showed black while the
+    // debugger held the machine after a reset (GH #263 follow-up).
 
     // Re-run init with preserve_memory=true: skip RAM/ROM reinit and the
     // SRAM-from-rom seed so the ROM window keeps whatever tbblue.fw just

@@ -1901,6 +1901,49 @@ static void test_srst_integration(Emulator& emu) {
               fmt("frame 19 swapped=%d; %d wrong frames of 20..32, first %d",
                   pre, bad, first_bad));
     }
+
+    // SRST-18 — a soft reset does not blank the picture. The video output
+    // runs on through it (zxula_timing.vhd has no reset input; zxnext.vhd:
+    // 6370 resets only flip-flops), so what the screen shows is the last
+    // frame drawn until the next one is. jnext's display while the debugger
+    // holds the machine mid-frame is the last rendered frame; a guest reset
+    // (Copper, cvc 100) with a break at PC 0, and then a host soft reset
+    // (F4) while paused, must both leave it in place.
+    {
+        srst_fixture(emu);
+        emu.run_frame();                  // frame 0: red paper
+        const uint32_t* fb = emu.get_framebuffer();
+        const size_t n = static_cast<size_t>(emu.get_framebuffer_width()) *
+                         Renderer::FB_HEIGHT;
+        const std::vector<uint32_t> shown(fb, fb + n);
+        srst_copper(emu);
+        emu.debug_state().set_active(true);
+        emu.debug_state().breakpoints().add_pc(0x0000);
+        emu.run_frame();                  // frame 1: resets at cvc 100, breaks
+        const bool paused = emu.debug_state().paused() &&
+                            emu.cpu().get_registers().PC == 0x0000;
+        size_t diff_guest = 0;
+        for (size_t i = 0; i < n; ++i)
+            if (emu.get_framebuffer()[i] != shown[i]) ++diff_guest;
+        emu.soft_reset();                 // F4 while paused
+        size_t diff_host = 0;
+        for (size_t i = 0; i < n; ++i)
+            if (emu.get_framebuffer()[i] != shown[i]) ++diff_host;
+        emu.debug_state().breakpoints().clear_all_pc();
+        emu.debug_state().resume();
+        emu.debug_state().set_active(false);
+        const bool not_black = shown[static_cast<size_t>(kResetRow) *
+                                     emu.get_framebuffer_width() + kDispCol] == P_RED;
+        check("SRST-18",
+              "A soft reset does not blank the picture: after a guest reset "
+              "the debugger stops on, and after F4 while paused, the screen "
+              "still shows the last frame drawn (zxnext.vhd:6370; "
+              "zxula_timing.vhd — no reset)",
+              paused && not_black && diff_guest == 0 && diff_host == 0,
+              fmt("paused at PC 0 %d; shown frame red %d; pixels changed: "
+                  "%zu after the guest reset, %zu after F4", paused,
+                  not_black, diff_guest, diff_host));
+    }
 }
 
 // ── Main ──────────────────────────────────────────────────────────────
