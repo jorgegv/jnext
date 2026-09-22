@@ -2763,8 +2763,11 @@ recognises both conventions:</p>
 </ul>
 <p>Enable it with <code>--magic-breakpoint</code>, or <strong>Debug ▸ Magic Breakpoint</strong> in the
 emulator window. When one executes, the machine pauses and the debugger opens
-itself if it was closed. When the feature is disabled — and on real hardware —
-both sequences behave as two-byte no-ops, so you can leave them in the source.</p>
+itself if it was closed; execution then carries on right after its two bytes.</p>
+<p>When the feature is disabled — and on real hardware — the two forms differ.
+<code>ED FF</code> is a two-byte no-op, so you can leave it in the source. <code>DD 01</code> is not:
+the <code>DD</code> prefix is ignored and <code>01 nn nn</code> runs as <code>LD BC,nn</code>, which takes the
+two bytes after it as its operand and overwrites <code>BC</code>.</p>
 <p>In C with z88dk:</p>
 <pre><code class="language-c">#define MAGIC_BP()  __asm__(&quot;defb 0xED, 0xFF&quot;)
 </code></pre>

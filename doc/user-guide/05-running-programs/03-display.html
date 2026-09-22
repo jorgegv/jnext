@@ -2767,7 +2767,8 @@ simply what you see.</p>
 <p>You can, however, pull them apart, which is useful when something looks wrong
 and you want to know which layer is responsible:</p>
 <pre><code>jnext --headless demo.nex --delayed-screenshot l2.png \
-    --delayed-screenshot-layers layer2
+    --delayed-screenshot-layers layer2 \
+    --delayed-screenshot-frames 200 --delayed-automatic-exit-frames 250
 </code></pre>
 <p><img alt="Layer 2 only" src="../img/layers-layer2.png" /> <img alt="Sprites only" src="../img/layers-sprites.png" /></p>
 <p><em>The same frame with only Layer 2, and with only the sprites.</em> Excluded layers

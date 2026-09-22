@@ -10,8 +10,12 @@ recognises both conventions:
 
 Enable it with `--magic-breakpoint`, or **Debug ▸ Magic Breakpoint** in the
 emulator window. When one executes, the machine pauses and the debugger opens
-itself if it was closed. When the feature is disabled — and on real hardware —
-both sequences behave as two-byte no-ops, so you can leave them in the source.
+itself if it was closed; execution then carries on right after its two bytes.
+
+When the feature is disabled — and on real hardware — the two forms differ.
+`ED FF` is a two-byte no-op, so you can leave it in the source. `DD 01` is not:
+the `DD` prefix is ignored and `01 nn nn` runs as `LD BC,nn`, which takes the
+two bytes after it as its operand and overwrites `BC`.
 
 In C with z88dk:
 

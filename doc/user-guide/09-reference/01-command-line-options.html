@@ -2997,12 +2997,12 @@ is lost, jnext says so with a warning rather than finishing quietly.</p>
 first byte arrives (default 0, i.e. from the first instruction).
 This is how a byte is made to land while the program is already
 running — the asynchronous-break case — rather than being spent
-before the program has set NR 0x0B up.</dd>
+before the program has set NR 0x0B up. Requires <strong>--joy-uart-rx</strong>.</dd>
 <dt><strong>--joy-uart-connector</strong> <em>N</em></dt>
 <dd>Which joystick socket the <strong>--joy-uart-rx</strong> cable is in: <code>1</code> or <code>2</code>
 (default <code>2</code>, the connector a real rig uses). NR 0x0B bit 4 selects
 the connector the machine reads, so a guest that selects the other
-one hears nothing at all.</dd>
+one hears nothing at all. Requires <strong>--joy-uart-rx</strong>.</dd>
 <dt><strong>--tape-realtime</strong></dt>
 <dd>Real-time tape loading, at the speed of an actual tape, instead of
 fast load.</dd>
@@ -3146,11 +3146,14 @@ dB to +24 dB.</dd>
 in the GUI, the SDL-only build and under <strong>--headless</strong>. A recording
 that fails to load is logged, and <strong>jnext</strong> then exits non-zero. The
 machine starts exactly as it does for <strong>--load</strong> <em>FILE</em>, so the two
-spellings replay identically, and so do <strong>File &gt; Open</strong> and <strong>File
-&gt; Play RZX Recording</strong> in the GUI. The recording brings its own
-snapshot of the machine, so it cannot be combined with
+spellings replay identically, and so do <strong>File &gt; Load NEX File…</strong>
+and <strong>File &gt; Play RZX Recording</strong> in the GUI. The recording brings
+its own snapshot of the machine, so it cannot be combined with
 <strong>--rzx-record</strong>, with <strong>--load</strong> or <strong>--inject</strong> of another
-program, or with a second RZX file.</dd>
+program, or with a second RZX file. It does not choose the machine
+type, though: play it on the machine it was recorded on
+(<strong>--machine</strong>, or <strong>Machine &gt; Machine Type</strong> in the GUI), or it
+goes out of step.</dd>
 <dt><strong>--rzx-record</strong> <em>FILE</em></dt>
 <dd>Record input to an RZX file from the start of the run — or, with
 <strong>--load</strong> or <strong>--inject</strong>, from the moment that program is in the
@@ -3191,7 +3194,7 @@ summary to stdout, then exit. Used by <code>make bench</code>
 <dt><strong>--benchmark-label</strong> <em>NAME</em></dt>
 <dd>Workload label printed verbatim in the <code>BENCH</code> line (default: the
 loaded file’s basename, or <code>boot-&lt;machine&gt;</code>). No whitespace, since
-the <code>BENCH</code> line is space-delimited.</dd>
+the <code>BENCH</code> line is space-delimited. Requires <strong>--benchmark</strong>.</dd>
 <dt><strong>--delayed-screenshot</strong> <em>FILE</em></dt>
 <dd>Save a PNG screenshot after a delay.</dd>
 <dt><strong>--delayed-screenshot-time</strong> <em>N</em></dt>
@@ -3201,7 +3204,8 @@ the <code>BENCH</code> line is space-delimited.</dd>
 <strong>--delayed-screenshot</strong>.</dd>
 <dt><strong>--delayed-screenshot-layers</strong> <em>LIST</em></dt>
 <dd>Layers to compose into the screenshot: a comma-separated list of
-<code>ula</code>, <code>layer2</code>, <code>sprites</code>, <code>tiles</code>, <code>all</code> (default <code>all</code>).</dd>
+<code>ula</code>, <code>layer2</code>, <code>sprites</code>, <code>tiles</code>, <code>all</code> (default <code>all</code>). Requires
+<strong>--delayed-screenshot</strong>.</dd>
 <dt><strong>--delayed-automatic-exit</strong> <em>N</em></dt>
 <dd>Exit the emulator after <em>N</em> seconds.</dd>
 <dt><strong>--delayed-automatic-exit-frames</strong> <em>N</em></dt>

@@ -45,12 +45,13 @@ An RZX file records your *input* rather than the screen, alongside a snapshot
 of the machine. Replaying it reproduces the session exactly, keystroke for
 keystroke — a walkthrough, a bug report, or a speedrun that stays honest.
 
-- **File > Record RZX…**, or `--rzx-record FILE`; **Stop RZX** to finish.
+- **File > Record RZX…**, or `--rzx-record FILE`; **File > Stop RZX
+  Recording** to finish.
   From the command line the recording starts with the machine — or, when you
   also `--load` a program, as soon as it is loaded, so the recording holds it
   — and the file is written when JNEXT exits.
 - **File > Play RZX Recording…**, or `--rzx-play FILE`. Opening a `.rzx` with
-  **File > Open**, loading it with `--load`, or naming it as the file to run
+  **File > Load NEX File…**, loading it with `--load`, or naming it as the file to run
   (`jnext session.rzx`) plays it too. Every one of these starts the machine
   afresh, the way loading a program does, so a recording replays the same
   whichever you use. A file that cannot be played is refused before anything
@@ -90,7 +91,9 @@ video — but it only replays correctly in an emulator that models the machine
 the same way. It also only replays what its snapshot holds: on the 128K and +3
 that is the whole machine, but on the Next it is the classic 48K part only, so
 a program that uses the Next's own graphics (Layer 2, the tilemap, sprites,
-palettes) may not replay correctly.
+palettes) may not replay correctly. Nor does it choose the machine type: play
+it on the machine it was recorded on — the same `--machine`, or **Machine >
+Machine Type** before **Play RZX Recording…** — or it goes out of step.
 
 ---
 

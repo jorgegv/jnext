@@ -164,13 +164,13 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     first byte arrives (default 0, i.e. from the first instruction).
     This is how a byte is made to land while the program is already
     running — the asynchronous-break case — rather than being spent
-    before the program has set NR 0x0B up.
+    before the program has set NR 0x0B up. Requires **--joy-uart-rx**.
 
 **--joy-uart-connector** *N*
 :   Which joystick socket the **--joy-uart-rx** cable is in: `1` or `2`
     (default `2`, the connector a real rig uses). NR 0x0B bit 4 selects
     the connector the machine reads, so a guest that selects the other
-    one hears nothing at all.
+    one hears nothing at all. Requires **--joy-uart-rx**.
 
 **--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of
@@ -339,11 +339,14 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     in the GUI, the SDL-only build and under **--headless**. A recording
     that fails to load is logged, and **jnext** then exits non-zero. The
     machine starts exactly as it does for **--load** *FILE*, so the two
-    spellings replay identically, and so do **File \> Open** and **File
-    \> Play RZX Recording** in the GUI. The recording brings its own
-    snapshot of the machine, so it cannot be combined with
+    spellings replay identically, and so do **File \> Load NEX File…**
+    and **File \> Play RZX Recording** in the GUI. The recording brings
+    its own snapshot of the machine, so it cannot be combined with
     **--rzx-record**, with **--load** or **--inject** of another
-    program, or with a second RZX file.
+    program, or with a second RZX file. It does not choose the machine
+    type, though: play it on the machine it was recorded on
+    (**--machine**, or **Machine \> Machine Type** in the GUI), or it
+    goes out of step.
 
 **--rzx-record** *FILE*
 :   Record input to an RZX file from the start of the run — or, with
@@ -389,7 +392,7 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 **--benchmark-label** *NAME*
 :   Workload label printed verbatim in the `BENCH` line (default: the
     loaded file’s basename, or `boot-<machine>`). No whitespace, since
-    the `BENCH` line is space-delimited.
+    the `BENCH` line is space-delimited. Requires **--benchmark**.
 
 **--delayed-screenshot** *FILE*
 :   Save a PNG screenshot after a delay.
@@ -403,7 +406,8 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 
 **--delayed-screenshot-layers** *LIST*
 :   Layers to compose into the screenshot: a comma-separated list of
-    `ula`, `layer2`, `sprites`, `tiles`, `all` (default `all`).
+    `ula`, `layer2`, `sprites`, `tiles`, `all` (default `all`). Requires
+    **--delayed-screenshot**.
 
 **--delayed-automatic-exit** *N*
 :   Exit the emulator after *N* seconds.

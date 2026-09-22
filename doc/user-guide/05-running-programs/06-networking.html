@@ -3203,7 +3203,8 @@ never off it. Two options schedule an outage, counted in emulated frames, so an
 automated run can execute that code path:</p>
 <pre><code class="language-bash">jnext --headless --esp stub.nex \
     --esp-delayed-disassociate-frames 300 \
-    --esp-delayed-associate-frames 900
+    --esp-delayed-associate-frames 900 \
+    --delayed-automatic-exit-frames 1200
 </code></pre>
 <p>At frame 300 the module loses its association and <code>AT+CIFSR</code> — the command a
 program asks for its own address — starts answering <code>+CIFSR:STAIP,"0.0.0.0"</code>
@@ -3216,7 +3217,8 @@ nothing to rejoin), and its frame number has to be the larger of the two.</p>
 <code>AT+CIFSR</code> reports once the outage ends:</p>
 <pre><code class="language-bash">jnext --headless --esp stub.nex \
     --esp-ip-address 192.168.1.50 --esp-ip-address-after 192.168.1.77 \
-    --esp-delayed-disassociate-frames 300 --esp-delayed-associate-frames 900
+    --esp-delayed-disassociate-frames 300 --esp-delayed-associate-frames 900 \
+    --delayed-automatic-exit-frames 1200
 </code></pre>
 <p>That is what makes a program's stale-address handling testable at all. Across an
 outage that returns the <em>same</em> address, a program that reads its address once at

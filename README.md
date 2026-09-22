@@ -60,11 +60,15 @@ under CI.
 - **Audio** — 3 × AY-3-8910 (TurboSound), DAC, beeper
 - **Storage and peripherals** — DivMMC, Multiface, DMA, UART, CTC,
   SPI / I²C / RTC, keyboard and USB gamepads, ESP01 Wifi subsystem
-- **Formats** — NEX, SNA, SZX, TAP, TZX, WAV, RZX
+- **Formats** — NEX, SNA, SZX, Z80, TAP, TZX, WAV, RZX
 
-**Status: Beta** — Extreme cycle-exactness is explicitly
-*not* a goal; "good enough to develop games on" is. Some things are still
-rough or missing; they are listed, not hidden:
+**Status: 1.0, not finished** — fixes are still pending and many features are
+on the roadmap. It works well enough for its author, and hopefully for you; the
+1.0 release is meant to bring more users and more bug reports, so please report
+what you find at [GitHub issues](https://github.com/jorgegv/jnext/issues).
+Extreme cycle-exactness is explicitly *not* a goal; "good enough to develop
+games on" is. Some things are still rough or missing; they are listed, not
+hidden:
 
 - [GitHub issues](https://github.com/jorgegv/jnext/issues) — known issues and pending features
 - [KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md](doc/issues/KNOWN-FUNCTIONALITY-GAPS-AND-PLAN.md)

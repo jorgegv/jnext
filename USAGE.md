@@ -232,13 +232,13 @@ Hold the **--joy-uart-rx** stream for *N* complete frames before its
 first byte arrives (default 0, i.e. from the first instruction). This is
 how a byte is made to land while the program is already running — the
 asynchronous-break case — rather than being spent before the program has
-set NR 0x0B up.
+set NR 0x0B up. Requires **--joy-uart-rx**.
 
 **--joy-uart-connector** *N*  
 Which joystick socket the **--joy-uart-rx** cable is in: `1` or `2`
 (default `2`, the connector a real rig uses). NR 0x0B bit 4 selects the
 connector the machine reads, so a guest that selects the other one hears
-nothing at all.
+nothing at all. Requires **--joy-uart-rx**.
 
 **--tape-realtime**  
 Real-time tape loading, at the speed of an actual tape, instead of fast
@@ -399,10 +399,13 @@ Play back an RZX recording from the start of the run. Works the same in
 the GUI, the SDL-only build and under **--headless**. A recording that
 fails to load is logged, and **jnext** then exits non-zero. The machine
 starts exactly as it does for **--load** *FILE*, so the two spellings
-replay identically, and so do **File \> Open** and **File \> Play RZX
-Recording** in the GUI. The recording brings its own snapshot of the
-machine, so it cannot be combined with **--rzx-record**, with **--load**
-or **--inject** of another program, or with a second RZX file.
+replay identically, and so do **File \> Load NEX File…** and **File \>
+Play RZX Recording** in the GUI. The recording brings its own snapshot
+of the machine, so it cannot be combined with **--rzx-record**, with
+**--load** or **--inject** of another program, or with a second RZX
+file. It does not choose the machine type, though: play it on the
+machine it was recorded on (**--machine**, or **Machine \> Machine
+Type** in the GUI), or it goes out of step.
 
 **--rzx-record** *FILE*  
 Record input to an RZX file from the start of the run — or, with
@@ -446,7 +449,7 @@ to stdout, then exit. Used by `make bench` (`test/bench/bench.sh`).
 **--benchmark-label** *NAME*  
 Workload label printed verbatim in the `BENCH` line (default: the loaded
 file’s basename, or `boot-<machine>`). No whitespace, since the `BENCH`
-line is space-delimited.
+line is space-delimited. Requires **--benchmark**.
 
 **--delayed-screenshot** *FILE*  
 Save a PNG screenshot after a delay.
@@ -460,7 +463,8 @@ Delay in frames. Overrides **--delayed-screenshot-time**. Requires
 
 **--delayed-screenshot-layers** *LIST*  
 Layers to compose into the screenshot: a comma-separated list of `ula`,
-`layer2`, `sprites`, `tiles`, `all` (default `all`).
+`layer2`, `sprites`, `tiles`, `all` (default `all`). Requires
+**--delayed-screenshot**.
 
 **--delayed-automatic-exit** *N*  
 Exit the emulator after *N* seconds.
@@ -892,7 +896,8 @@ outage, in frames, so a headless run can execute that code path:
 
     jnext --headless --esp stub.nex \
         --esp-delayed-disassociate-frames 300 \
-        --esp-delayed-associate-frames 900
+        --esp-delayed-associate-frames 900 \
+        --delayed-automatic-exit-frames 1200
 
 At frame 300 the module loses its association and `AT+CIFSR` starts
 reporting `+CIFSR:STAIP,"0.0.0.0"`; at frame 900 it is back, with the
@@ -1014,7 +1019,7 @@ Symbol Shift, so a Ctrl shortcut would eat a key the guest needs (see
 **THE KEYBOARD** below).
 
 **File**  
-Load a program (Alt+O - NEX/SNA/SZX/TAP/TZX/WAV/RZX), Mount SD Card
+Load a program (Alt+O - NEX/SNA/SZX/Z80/TAP/TZX/WAV/RZX), Mount SD Card
 Image, Record MPEG4 Video (Ctrl+F5) / Stop (Ctrl+F6), Play RZX / Record
 RZX / Stop RZX, Save Screenshot (Alt+S), Save Snapshot (Alt+Shift+S),
 Quit (Alt+Q).
@@ -1039,7 +1044,8 @@ pointer so the Kempston mouse can move freely (Ctrl+Alt releases it).
 Open Tape File (Alt+T), Eject, Rewind, Fast Load (toggle).
 
 **Debug**  
-Magic Breakpoint (toggle).
+Magic Breakpoint (toggle), Debugger (Alt+D - the same entry as in
+**View**).
 
 **View**  
 Scale 1x / 2x / 3x, Fullscreen (F11, letterboxed), CRT Filter, Debugger
@@ -1216,8 +1222,12 @@ to the screen it reopens on.
 ## MAGIC BREAKPOINT AND MAGIC PORT
 
 The magic breakpoint uses the `ED FF` (ZEsarUX) and `DD 01` (CSpect)
-opcodes to pause the debugger when enabled; they act as a NOP otherwise.
-Enable it with **--magic-breakpoint** or **Debug \> Magic Breakpoint**.
+opcodes to pause the debugger when enabled; execution then resumes right
+after the two bytes. When disabled, and on real hardware, `ED FF` is a
+two-byte NOP, but `DD 01` is not: the `DD` prefix is ignored and
+`01 nn nn` executes as `LD BC,nn`, consuming the two bytes that follow
+and overwriting `BC`. Enable it with **--magic-breakpoint** or **Debug
+\> Magic Breakpoint**.
 
 The magic debug port logs writes to a configurable port to stderr as
 hex, decimal, ASCII or line-buffered text. Enable it with
@@ -1265,9 +1275,11 @@ capturing anything (**--sdcard-download-confirm** is the alternative).
 Capture Layer 2 on its own, then the ULA and sprites together:
 
     jnext --headless game.nex --delayed-screenshot l2.png \
-        --delayed-screenshot-layers layer2
+        --delayed-screenshot-layers layer2 \
+        --delayed-screenshot-frames 200 --delayed-automatic-exit-frames 250
     jnext --headless game.nex --delayed-screenshot us.png \
-        --delayed-screenshot-layers ula,sprites
+        --delayed-screenshot-layers ula,sprites \
+        --delayed-screenshot-frames 200 --delayed-automatic-exit-frames 250
 
 ## FILES
 

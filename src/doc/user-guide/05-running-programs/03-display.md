@@ -22,7 +22,8 @@ and you want to know which layer is responsible:
 
 ```
 jnext --headless demo.nex --delayed-screenshot l2.png \
-    --delayed-screenshot-layers layer2
+    --delayed-screenshot-layers layer2 \
+    --delayed-screenshot-frames 200 --delayed-automatic-exit-frames 250
 ```
 
 ![Layer 2 only](../img/layers-layer2.png) ![Sprites only](../img/layers-sprites.png)
