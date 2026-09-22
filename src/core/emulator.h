@@ -1036,6 +1036,12 @@ private:
     MachineTiming  timing_;          // per-machine timing from VHDL
     Clock          clock_;
     Scheduler      scheduler_;
+    // GH #265 — the ULA frame and line interrupt requests, kept apart from
+    // scheduler_ so a read or write inside an instruction can fire the ones
+    // due by its bus cycle (sync_io_devices_to()) without also running the
+    // SCANLINE/VSYNC rendering events. Drained together with scheduler_
+    // (run_scheduled_until()).
+    Scheduler      irq_scheduler_;
 
     // Subsystem members — declaration order matters for initializer list:
     // ram_ and rom_ must come before mmu_, and mmu_+port_ before cpu_.
@@ -1676,7 +1682,43 @@ private:
     // G65 — deferred CPU NR-write queue (see public method docs).
     // -----------------------------------------------------------------------
     bool                                     defer_cpu_nr_writes_ = false;
-    std::vector<std::pair<uint8_t, uint8_t>> pending_cpu_nr_writes_;
+    // GH #265 — each deferred write carries the CLK_28 edge it commits on
+    // (cpu_req + 1, zxnext.vhd:4758-4777), which the interrupt-status
+    // handlers use; see nr_write_edge_.
+    struct PendingNrWrite { uint8_t reg; uint8_t val; uint64_t edge; };
+    std::vector<PendingNrWrite>              pending_cpu_nr_writes_;
+    // The commit edge of the NextREG write being applied right now, for the
+    // handlers whose effect is timed against interrupt requests (NR 0x20,
+    // 0xC8-0xCA). Im2Controller::kNoTime outside a CPU write: the write is
+    // then untimed (the debugger, a test harness, the Copper).
+    uint64_t                                 nr_write_edge_ = ~uint64_t{0};
+
+    // GH #265 — devices ticked between instructions (CTC, UART, MD6, the
+    // frame/line interrupt requests and the IM2 latches) brought forward to
+    // an edge INSIDE the instruction running, by a read or write that has to
+    // see or order against them there. io_sync_edge_ is the last edge they
+    // were ticked through, valid only for the execute() call whose serial is
+    // io_sync_serial_; tick_devices_after_instruction() then ticks only the
+    // rest of the instruction.
+    bool     io_sync_valid_  = false;
+    uint64_t io_sync_serial_ = 0;
+    uint64_t io_sync_edge_   = 0;
+    // The same for the TAP real-time player, in T-states into the
+    // instruction (tap_ear_for_port_read()).
+    bool     tap_sync_valid_  = false;
+    uint64_t tap_sync_serial_ = 0;
+    uint32_t tap_sync_ts_     = 0;
+
+    // GH #265 — the instruction slot just run, for finish_slot_interrupts():
+    // the IM2 fabric is ticked once the slot's devices have raised their
+    // requests, so a request raised during an instruction is resolved at
+    // its end, not one instruction later.
+    bool     slot_ran_instruction_ = false;
+    uint32_t slot_tstates_         = 0;
+    uint64_t slot_start_           = 0;
+    uint32_t slot_d_               = 8;
+    bool     slot_nmi_activated_   = false;
+    uint32_t slot_m1_count_        = 0;   // opcode fetches (cpu_.on_m1_cycle)
 
     // Canonical ED 45 was decoded during the current instruction.
     // Multiface remains mapped while RETN executes, then unmaps at the
@@ -1708,6 +1750,57 @@ private:
     /// the position at the instruction's START. Outside an instruction (test
     /// harness, debugger, DMA) it is clock_.get().
     uint64_t io_read_sample_cycle(unsigned io_clock) const;
+
+    /// GH #265 — the CPU rising edge at which the bus request of the
+    /// instruction now executing asserts: IORQ and WR of a port write
+    /// (t80na.vhd:148-150, the second clock of the I/O cycle — the port
+    /// write callback runs once T1 is charged) or Z80N_dout of a NEXTREG
+    /// opcode (t80n_mcode.vhd:1683-1684,1703-1704, the start of the machine
+    /// cycle the opcode write is called at). clock_ outside an instruction.
+    uint64_t io_request_edge() const;
+
+    /// GH #265 — tick the devices normally ticked between instructions
+    /// through CLK_28 edge @p device_edge and resolve the IM2 requests
+    /// raised through @p im2_edge (<= device_edge). No-op outside an
+    /// instruction, or for an edge already reached in this one.
+    void sync_io_devices_to(uint64_t device_edge, uint64_t im2_edge);
+
+    /// GH #265 — drain scheduler_ and irq_scheduler_ through @p cycle.
+    void run_scheduled_until(uint64_t cycle);
+
+    /// GH #265 — sync_io_devices_to() for a port read / port write in
+    /// progress: the read's CLK_CPU-falling-edge data register load, or
+    /// the CLK_28 edge a write strobe is taken on. No-op outside execute().
+    void sync_for_port_read();
+    void sync_for_port_write();
+
+    /// GH #265 — the tape level a port 0xFE read inside an instruction
+    /// latches: T-states from the instruction's start to the port_fe_dat_0
+    /// load (tape_sample_offset()), the monotonic T-state that is
+    /// (tape_sample_tstates(), for TZX/WAV) and the TAP player brought up to
+    /// it (tap_ear_for_port_read(); step_one_instruction() then plays only
+    /// the rest of the instruction).
+    uint32_t tape_sample_offset() const;
+    uint64_t tape_sample_tstates() const;
+    uint8_t  tap_ear_for_port_read();
+
+    /// GH #265 — for an interrupt-status NextREG read (NR 0x20, 0xC8-0xCA):
+    /// inside an instruction, bring the interrupt sources up to the IN's
+    /// port_253b_dat load edge and return it (Im2Controller::int_status()
+    /// then counts the latches set before it); outside, kNoTime — the
+    /// latches as they stand.
+    uint64_t im2_status_read_edge();
+
+    /// GH #265 — clear an interrupt status bit from an NR 0xC8-0xCA write,
+    /// on the edge the write commits on when it came from the CPU.
+    void clear_im2_status(Im2Controller::DevIdx d);
+
+    /// GH #265 — tick the IM2 fabric for the instruction slot just run and
+    /// set the CPU's /INT window for the next boundary. Called at the end of
+    /// tick_devices_after_instruction() (and by run_frame()'s data-breakpoint
+    /// exit, which skips the device ticks).
+    void finish_slot_interrupts();
+    void finish_slot_interrupts_full();   ///< its path with work to do
 
     /// GH #262 — an IN from a port with LSB 0xDF that the mouse decode does
     /// not claim. VHDL zxnext.vhd:2674 decodes it as `port_1f` (Kempston 1)

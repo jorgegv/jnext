@@ -458,6 +458,24 @@ timer==remaining missed via `>=`) were run and are caught.
 | TX-C1-ACC-01 | Single tick span crossing a byte boundary; subsequent boundaries probed to the single cycle | byte 2 emitted inside the span; byte 3 exactly at 2T; on_tx_empty exactly at 3T; tx_empty status bit set at end |
 | TX-C1-ACC-02 | One tick(4T) span drains 4 queued FIFO bytes | 4 on_tx_byte inside the span (starts 0/T/2T/3T), still busy at 4T-1; completion + on_tx_empty exactly at 4T |
 
+### Group 16: GH #265 — UART port accesses at their bus timing (2026-09-22)
+
+`port_uart_dat` is reloaded from `uart_do` on every CLK_CPU falling edge
+(`zxnext.vhd:3418-3423`), and an IN latches the reload made 2.5 T-states into
+its I/O cycle (`t80na.vhd:214-222`): for IN A,(C) the UART after edge
+start + 83. A write is taken on the CLK_28 edge after IORQ+WR assert
+(`t80na.vhd:148-150`), start + 73 for OUT (C),A. The UART used to be ticked
+only between instructions, so both saw it at the instruction's start. Rows
+live in `test/uart/uart_integration_test.cpp` (group GH265-UART). The byte
+time is the model's (243 × 10 = 2430 master cycles); the probes sit 48 / 52
+cycles either side of the byte's end, so the rows pin the latch point, not the
+byte time to the edge.
+
+| ID | Test | Expected |
+|----|------|----------|
+| UART-RD-GH265-01 | byte written at edge 0 outside (ends on 2431); IN A,(C) of 0x133B starting at 2400 / 2300 | TX empty (bit 4) set / clear (pre-fix clear / clear) |
+| UART-WR-GH265-01 | OUT (C),A to 0x133B starting at 5000 (taken on 5073, byte ends 7504); status IN loading at 7470 / 7600 | bit 4 clear / set (pre-fix set at 7470) |
+
 ## Special Handling
 
 ### FIFO Edge-Triggered Semantics
@@ -614,7 +632,8 @@ bash test/regression.sh
 | IM2 Interrupt Integration | 7 | RX/TX interrupt sources, enable control (+G134) |
 | Port Enable Gating | 3 | NextREG 0x82-0x85 port disable |
 | NR 0xA0 Pi Peripheral Enable | 3 | UART1/I2C1 Pi GPIO routing (G135) |
-| **Total** | **~112** | |
+| GH #265 port timing | 2 | Status read and TX write at their bus cycle |
+| **Total** | **~114** | |
 
 ## Coverage notes (moved from the traceability matrix, GH #196)
 

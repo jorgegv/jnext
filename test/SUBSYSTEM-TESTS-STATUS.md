@@ -19,13 +19,13 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | NextREG (integration) |      324 |      324 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |       64 |       64 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      334 |      334 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Input (integration)   |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Input (integration)   |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CTC + Interrupts      |      132 |      132 |      0 |       0 |    100% | 🟢 All tests pass. |
-| CTC (integration)     |       58 |       58 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CTC + Interrupts      |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
+| CTC (integration)     |       81 |       81 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
-| UART (integration)    |       38 |       38 |      0 |       0 |    100% | 🟢 All tests pass. |
+| UART (integration)    |       40 |       40 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      188 |      188 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 AT command engine |      344 |      344 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -80,7 +80,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | LoRes                 |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes (integration)   |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI Source Pipeline   |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NMI (integration)     |        9 |        9 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NMI (integration)     |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Atic Atac NMI         |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raw binary --inject   |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Profiler              |       32 |       32 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -112,6 +112,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Window Growing |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       28 |       28 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **7596** | **7596** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **7626** | **7626** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

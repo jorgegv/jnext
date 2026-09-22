@@ -1980,13 +1980,27 @@ window all decide what memory the CPU is about to see, and must be settled
 before the byte is fetched through them. <code>on_m1_cycle</code> fires <em>after</em>, once per
 fetched byte of a prefix chain — including the inner byte of <code>DD ED xx</code> —
 because the IM2 opcode decoder models one event per M1.</p>
-<p><code>request_interrupt()</code> records the T-state at which /INT was asserted, and
-<code>execute()</code> drops a pending request once the hardware pulse window has elapsed
-(32 CPU cycles on 48K/+3, 36 otherwise, per <code>zxnext.vhd:2033</code>). It does so
-unconditionally rather than gating on IFF1, because the hardware line goes high
-again regardless of whether anyone was listening. It also replicates FUSE's
-EI-grace rejection <em>before</em> calling <code>on_int_ack</code>, so the daisy chain is not
-advanced by an acknowledge cycle that never happens. The vector comes from
+<p><code>request_interrupt(vector, first, last)</code> gives the CPU the window of
+instruction boundaries, on the FUSE T-state counter, at which /INT is seen low.
+The T80 samples INT_n into INT_s on every CPU rising edge (<code>t80n.vhd:1664</code>) and
+decides at the end of an instruction with the INT_s taken at the <em>start</em> of its
+last T-state (<code>:1742-1772</code>), so a pulse first sampled on CPU edge E_1 and last on
+E_N is taken at a boundary in [E_1 + 1 T, E_N + 1 T] — 32 CPU cycles on 48K/+3,
+36 otherwise (<code>zxnext.vhd:2033</code>). <code>execute()</code> takes it at the first boundary
+inside the window, keeps it pending at one before (a request resolved at the end
+of an instruction can be too late for that instruction's boundary), and drops it
+once the window has passed — unconditionally rather than gating on IFF1, because
+the hardware line goes high again regardless of whether anyone was listening.
+The one-argument <code>request_interrupt(vector)</code> is the window "from now, for the
+pulse width", for callers without a timeline. <code>rebase_fuse_tstates_()</code> moves
+the window, and FUSE's EI stamp, with the counter whenever it re-bases it — at
+each frame, and at a CPU-speed change, where the window keeps its distance in
+CPU T-states because the pulse counts CPU clock edges (the IM2 fabric re-places
+its own pulse edges, <code>Im2Controller::set_cpu_divisor()</code>) (GH #265). A snapshot
+stores the window relative to the counter, which a load re-seeds, and the EI
+stamp as whether its grace is pending at the saved boundary. <code>execute()</code> also replicates FUSE's EI-grace rejection <em>before</em>
+calling <code>on_int_ack</code>, so the daisy chain is not advanced by an acknowledge cycle
+that never happens. The vector comes from
 <code>on_int_ack()</code> when one is installed, and from <code>int_vector_</code> otherwise. NMI has
 a path of its own, including the Next's stackless mode (NR 0xC0 bit 3), which
 suppresses the stack writes and substitutes the live NR 0xC3:0xC2 pair on the
@@ -1998,8 +2012,25 @@ enable bit, unqualified one-shot, status latch — and the <code>im2_device.vhd<
 four-state machine <code>S_0 → S_REQ → S_ACK → S_ISR</code> with its IEI/IEO daisy chain.
 The controller additionally holds the <code>im2_control.vhd</code> decoder that recognises
 RETI/RETN and IM-mode changes out of the M1 byte stream, the legacy pulse-mode
-/INT generator, and the NR 0xCC/CD/CE DMA-delay latch. It is ticked once per
-instruction with the T-states that instruction consumed.</p>
+/INT generator, and the NR 0xCC/CD/CE DMA-delay latch.</p>
+<p>It is ticked once per instruction, at the <em>end</em> of the instruction's slot
+(<code>Emulator::finish_slot_interrupts()</code>), after the devices and the interrupt
+events have raised that instruction's requests, and it runs on the CLK_28
+timeline (GH #265): each request carries the edge it was raised on
+(<code>raise_req(dev, edge)</code>), and the tick resolves them in edge order — the status
+and <code>im2_int_req</code> latches set on the edge after the request
+(<code>im2_peripheral.vhd:154-178</code>), the pulse falling on the CLK_28 falling edge
+after it and lasting 32/36 CPU edges (<code>zxnext.vhd:2017-2044</code>), a device
+entering S_REQ on the first CPU edge after its latch that has M1_n high
+(<code>im2_device.vhd:106</code>; M1_n is low for T1-T2 of every opcode fetch, which is why
+the tick is told how many fetches the instruction opened with).
+<code>latch_edges_until()</code> does the same part-way through an instruction, for an
+interrupt-status read or a write that must be ordered against the requests.
+A request raised while no instruction runs — a DMA burst, a NEX boot hold —
+keeps its edge for the status latch, but its pulse starts with the next
+instruction: jnext's DMA holds the bus for whole bursts, and letting a pulse
+expire unseen behind one would be a bus-arbitration model jnext does not have,
+not the VHDL.</p>
 <p>Peripherals do not call the controller directly in new code. They hold an
 <code>Im2Client</code> instead — a two-field facade binding one <code>DevIdx</code> — so a device
 needs to know its own priority slot and nothing else about the fabric.</p>

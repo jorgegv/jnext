@@ -2009,10 +2009,12 @@ void test_c1_ctc_accumulator() {
 
     // CTC-C1-ACC-01 — one tick(150) span crossing three ZC/TO events,
     // and prescaler-phase continuity across the closed-form jump.
-    // Timer mode, prescaler 16, TC=3: prescaler_clk every 16 ticks
-    // (ctc_chan.vhd:143-146), ZC/TO on every 3rd count step (:162-170)
-    // → events at ticks 48, 96, 144; the 4th lands at 192, exactly 42
-    // ticks after the 150-span (phase 150 mod 16 = 6 must survive).
+    // Timer mode, prescaler 16, TC=3: one S_TRIGGER edge after the constant
+    // (ctc_chan.vhd:214-226), then prescaler_clk every 16 ticks (:143-146),
+    // ZC/TO on every 3rd count step (:162-170) → events at ticks 49, 97,
+    // 145; the 4th lands at 193, exactly 43 ticks after the 150-span (the
+    // prescaler phase must survive the jump). GH #265 — 48/96/144/192 was
+    // the pre-fix model, which had no S_TRIGGER edge.
     {
         Ctc ctc;
         std::vector<int> seq;
@@ -2021,10 +2023,10 @@ void test_c1_ctc_accumulator() {
 
         ctc.tick(150);                            // one span, 3 events
         const size_t after_span     = seq.size();
-        const uint8_t counter_after = ctc.read(0);  // reloaded to 3 at 144
-        ctc.tick(41);                             // ticks 151..191: none
+        const uint8_t counter_after = ctc.read(0);  // reloaded to 3 at 145
+        ctc.tick(42);                             // ticks 151..192: none
         const size_t before_edge    = seq.size();
-        ctc.tick(1);                              // tick 192: 4th ZC/TO
+        ctc.tick(1);                              // tick 193: 4th ZC/TO
         const size_t at_edge        = seq.size();
 
         char detail[160];
@@ -2033,18 +2035,20 @@ void test_c1_ctc_accumulator() {
                       after_span, counter_after, before_edge, at_edge);
         check("CTC-C1-ACC-01",
               "timer /16 TC=3: single tick(150) span fires exactly the 3 "
-              "ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; "
+              "ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; "
               "prescaler phase survives the closed-form jump (4th ZC/TO "
-              "exactly at 192)",
+              "exactly at 193)",
               after_span == 3 && counter_after == 3
                   && before_edge == 3 && at_edge == 4,
               detail);
     }
 
     // CTC-C1-ACC-02 — daisy-chain inside one span + span-splitting
-    // invariance. ch0 timer /16 TC=3 (ZC/TO at 48/96/144/192); ch1
+    // invariance. ch0 timer /16 TC=3 (ZC/TO at 49/97/145/193); ch1
     // counter mode TC=2 fed by the ch0→ch1 daisy-chain (zxnext.vhd:4084)
-    // → ch1 fires on every 2nd ch0 pulse (96, 192). One tick(200) call
+    // counts each pulse two edges later through clk_trg_d
+    // (ctc_chan.vhd:115-127) → ch1 fires on every 2nd ch0 pulse, at 99 and
+    // 195 (GH #265; 96 and 192 before). One tick(200) call
     // and 200 tick(1) calls on identically-programmed instances must
     // produce the same absolute callback sequence 0,0,1,0,0,1 and the
     // same final counter values.
@@ -2071,8 +2075,8 @@ void test_c1_ctc_accumulator() {
         const bool split_ok    = (seq_step == expected);
         const bool counters_ok = ctc_span.read(0) == ctc_step.read(0)
                               && ctc_span.read(1) == ctc_step.read(1)
-                              && ctc_span.read(0) == 3    // reloaded at 192
-                              && ctc_span.read(1) == 2;   // reloaded at 192
+                              && ctc_span.read(0) == 3    // reloaded at 193
+                              && ctc_span.read(1) == 2;   // reloaded at 195
 
         char detail[200];
         std::snprintf(detail, sizeof(detail),
@@ -2089,51 +2093,50 @@ void test_c1_ctc_accumulator() {
               detail);
     }
 
-    // CTC-C1-ACC-03 — mid-span TRIGGER→RUN activation ordering. ch0
-    // timer /16 TC=1 auto-start (ZC/TO at 16/32/...); ch1 timer /16
-    // TC=1 with D3=1 (waits for CLK/TRG — ctc_chan.vhd S_TRIGGER). The
-    // ch0 pulse at tick 16 starts ch1 via the daisy-chain with its
-    // prescaler cleared, and ch1 (index > firing channel) still counts
-    // that same cycle — established per-cycle model semantics — so
-    // ch1's first ZC/TO lands at tick 31, one BEFORE ch0's at 32. The
-    // event-horizon loop must reproduce this exactly, and the stepped
+    // CTC-C1-ACC-03 — mid-span TRIGGER→RUN activation. ch0 timer /16
+    // TC=1 auto-start (ZC/TO at 17/33/49/...); ch1 timer /16 TC=1 with
+    // D3=1 (waits for CLK/TRG — ctc_chan.vhd S_TRIGGER, :219-224). ch0's
+    // pulse at 17 reaches ch1's clk_trg_edge two edges later (clk_trg_d,
+    // :115-127), so ch1 starts on edge 19 with p_count held at 0 on it
+    // (reset_soft, :117,:134-139) and its first ZC/TO lands 16 edges on, at
+    // 35 — after ch0's second at 33. GH #265 — the per-cycle model started
+    // ch1 on ch0's own edge AND counted that edge, firing it at 31. The
+    // event-horizon loop must reproduce the exact edge, and the stepped
     // twin must agree.
     {
-        const auto run = [&](Ctc& ctc, std::vector<int>& seq, bool stepped) {
+        const auto run = [&](Ctc& ctc, std::vector<int>& seq, bool stepped,
+                             int ticks) {
             ctc.on_zc_to = [&seq](int ch) { seq.push_back(ch); };
             prog(ctc, 0, 0x07, 1);   // timer, /16, auto-start, TC=1
             prog(ctc, 1, 0x0F, 1);   // timer, /16, CLK/TRG-start, TC=1
             if (stepped) {
-                for (int i = 0; i < 31; ++i) ctc.tick(1);
+                for (int i = 0; i < ticks; ++i) ctc.tick(1);
             } else {
-                ctc.tick(31);
+                ctc.tick(ticks);
             }
         };
 
-        Ctc ctc_span, ctc_step;
-        std::vector<int> seq_span, seq_step;
-        run(ctc_span, seq_span, false);
-        run(ctc_step, seq_step, true);
+        Ctc ctc_span, ctc_step, ctc_early;
+        std::vector<int> seq_span, seq_step, seq_early;
+        run(ctc_span, seq_span, false, 35);
+        run(ctc_step, seq_step, true, 35);
+        run(ctc_early, seq_early, false, 34);
 
-        const std::vector<int> expected = {0, 1};  // ch0@16, ch1@31
-        const bool span_ok = (seq_span == expected);
-        const bool step_ok = (seq_step == expected);
-
-        // One more tick: ch0's second ZC/TO at 32 (ch1's next is at 47).
-        seq_span.clear();
-        ctc_span.tick(1);
-        const bool edge_ok = (seq_span == std::vector<int>{0});
+        const std::vector<int> expected = {0, 0, 1};  // ch0@17, ch0@33, ch1@35
+        const bool span_ok  = (seq_span == expected);
+        const bool step_ok  = (seq_step == expected);
+        const bool early_ok = (seq_early == std::vector<int>{0, 0});
 
         char detail[160];
         std::snprintf(detail, sizeof(detail),
-                      "span=[%s] step=[%s] edge_ok=%d",
-                      span_ok ? "0,1" : "?", step_ok ? "0,1" : "?", edge_ok);
+                      "span=[%s] step=[%s] at34=[%s]",
+                      span_ok ? "0,0,1" : "?", step_ok ? "0,0,1" : "?",
+                      early_ok ? "0,0" : "?");
         check("CTC-C1-ACC-03",
-              "timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO "
-              "at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires "
-              "at 31: activation cycle still ticks the newly-RUN channel; "
-              "tick(31) == 31x tick(1)",
-              span_ok && step_ok && edge_ok,
+              "timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through "
+              "clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; "
+              "zxnext.vhd:4084]; tick(35) == 35x tick(1)",
+              span_ok && step_ok && early_ok,
               detail);
     }
 }
@@ -2485,6 +2488,909 @@ static void test_ctc_control_word_int_en(Emulator& emu) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
+// ── GH #265 — interrupt timing inside and at the end of an instruction ──
+//
+// The IM2 fabric used to be ticked straight after each CPU instruction,
+// BEFORE the devices (CTC, UART) and the frame/line interrupt events were
+// ticked for that instruction. Every request raised during an instruction
+// therefore reached the fabric one instruction late, the CPU took it one
+// instruction after that, and an interrupt-status read (NR 0x20, 0xC8-0xCA)
+// or pulse read (NR 0x22 bit 7) inside an instruction saw the fabric as of
+// the previous one. These rows pin the VHDL timeline:
+//
+//   * a request raised "at edge te" has int_req high during the CLK_28
+//     cycle [te, te+1) (im2_peripheral.vhd:90-101); int_status and
+//     im2_int_req are set on edge te+1 (:154-178); pulse_int_n falls on the
+//     CLK_28 FALLING edge te+0.5 (zxnext.vhd:2017-2031) and is released
+//     after pulse_count, advanced on CPU rising edges, reaches 32 (48K/+3)
+//     or 36 (:2033-2044);
+//   * the ULA frame interrupt int_ula is registered on CLK_7 at
+//     hc == c_int_h (zxula_timing.vhd:548-557): high for the pixel after,
+//     te = c_int_h*4 + 4 master cycles into the frame (48K: 116*4+4 = 468;
+//     128K: (456+128)*4+4 = 2340);
+//   * the T80 samples INT_n into INT_s on every CPU rising edge (t80n.vhd:
+//     1664) and takes the interrupt at the edge ending an instruction with
+//     the INT_s taken on the edge before, i.e. at the start of the
+//     instruction's last T-state (:1742-1772). At 3.5 MHz the CPU rising
+//     edges are the master cycles that are multiples of 8 (the clock is
+//     hc_ula(0) = 0 -> rising, zxnext.vhd:1575, zxnext_top_issue2.vhd:
+//     1028-1036; hc_ula is odd on even raw pixels);
+//   * so a pulse whose first sampled edge is E_1 is taken at a boundary B
+//     with E_1 + 8 <= B <= E_1 + 32*8 (48K) / 36*8 (128K).
+//     48K: E_1 = 472 -> B in [60 T, 91 T]; 128K: E_1 = 2344 -> [294, 329].
+//   * in IM2 hardware mode a device enters S_REQ on the first CPU rising
+//     edge after im2_int_req is set with i_m1_n = '1' (im2_device.vhd:
+//     91-107; M1_n is low for T1-T2 of each opcode fetch, t80n.vhd:1729-1731,
+//     1761, 1788), its o_int_n is low from then (:150), INT_s one edge
+//     later: taken at B >= E_req + 16.
+namespace gh265 {
+
+bool build(Emulator& emu, MachineType type) {
+    EmulatorConfig cfg;
+    cfg.type = type;
+    cfg.rewind_buffer_frames = 0;
+    return emu.init(cfg);
+}
+
+// IM 2 table at 0xFD00-0xFE00 (I = 0xFD): every vector reads 0xFDFD.
+void install_im2_table(Emulator& emu, bool reti) {
+    for (int a = 0xFD00; a <= 0xFE00; ++a)
+        emu.mmu().write(static_cast<uint16_t>(a), 0xFD);
+    if (reti) {
+        emu.mmu().write(0xFDFD, 0xED);
+        emu.mmu().write(0xFDFE, 0x4D);
+    } else {
+        emu.mmu().write(0xFDFD, 0xC9);
+    }
+}
+
+void write_code(Emulator& emu, uint16_t at, std::initializer_list<uint8_t> bytes) {
+    for (uint8_t b : bytes) emu.mmu().write(at++, b);
+}
+
+void set_pc_im2(Emulator& emu, uint16_t pc, bool iff1) {
+    auto r = emu.cpu().get_registers();
+    r.PC = pc;
+    r.SP = 0xFFF0;
+    r.I  = 0xFD;
+    r.IM = 2;
+    r.IFF1 = r.IFF2 = iff1 ? 1 : 0;
+    emu.cpu().set_registers(r);
+}
+
+// Step the machine (debugger_step(): frames begin and end as in run_frame())
+// until PC reaches the ISR, or the clock passes @p limit_t T-states. Returns
+// the ISR entry position in T-states from the start of the frame it is in,
+// or -1.
+long run_to_isr(Emulator& emu, long limit_t) {
+    for (int guard = 0; guard < 200000; ++guard) {
+        if (emu.cpu().pc() == 0xFDFD)
+            return static_cast<long>((emu.clock().get()
+                                      - emu.current_frame_cycle()) / 8);
+        if (static_cast<long>(emu.clock().get() / 8) > limit_t) return -1;
+        emu.debugger_step();
+    }
+    return -1;
+}
+
+// IM 2 (ED 5E, 8 T), EI (4 T), j x LD A,0 (7 T), HALT, from the start of the
+// first frame: the HALT's M1 cycles end at 12 + 7j + 4k T, a phase of
+// (3j mod 4). Returns the ISR entry, T-states from the frame start.
+long halt_isr_entry(MachineType type, int j, bool im2_hw) {
+    Emulator emu;
+    if (!build(emu, type)) return -2;
+    install_im2_table(emu, im2_hw);
+    if (im2_hw) nr_write(emu, 0xC0, 0x01);   // hardware IM2 mode
+    uint16_t pc = 0x8000;
+    write_code(emu, pc, {0xED, 0x5E, 0xFB});
+    pc += 3;
+    for (int i = 0; i < j; ++i) { write_code(emu, pc, {0x3E, 0x00}); pc += 2; }
+    write_code(emu, pc, {0x76});
+    set_pc_im2(emu, 0x8000, false);
+    return run_to_isr(emu, 2000);
+}
+
+// j x LD A,0 then n x NOP, EI, NOP, then NOPs: interrupts disabled until the
+// boundary after the NOP that follows EI, at 7j + 4n + 8 T.
+long ei_window_isr_entry(MachineType type, int j, int n) {
+    Emulator emu;
+    if (!build(emu, type)) return -2;
+    install_im2_table(emu, false);
+    uint16_t pc = 0x8000;
+    for (int i = 0; i < j; ++i) { write_code(emu, pc, {0x3E, 0x00}); pc += 2; }
+    for (int i = 0; i < n; ++i) write_code(emu, pc++, {0x00});
+    write_code(emu, pc++, {0xFB});
+    for (int i = 0; i < 400; ++i) write_code(emu, pc++, {0x00});
+    set_pc_im2(emu, 0x8000, false);
+    return run_to_isr(emu, 2000);
+}
+
+// One instruction at 0x8000 run by Z80Cpu::execute() alone, starting at
+// master cycle @p start on a machine no frame has begun on (so nothing but
+// what the row raises is pending). Returns A.
+uint8_t in_nr_direct(Emulator& emu, uint8_t reg, uint64_t start,
+                     void (*raise)(Emulator&)) {
+    emu.port().out(0x243B, reg);                 // select, outside the IN
+    write_code(emu, 0x8000, {0xED, 0x78});        // IN A,(C)
+    auto r = emu.cpu().get_registers();
+    r.PC = 0x8000;
+    r.BC = 0x253B;
+    emu.cpu().set_registers(r);
+    emu.clock().tick(start - emu.clock().get());
+    if (raise) raise(emu);
+    emu.cpu().execute();
+    return static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+}
+
+}  // namespace gh265
+
+static void test_gh265_int_timing() {
+    set_group("GH265-INT");
+    using namespace gh265;
+
+    // INT-GH265-01 — 48K pulse mode, ISR entry after HALT for the four HALT
+    // phases. VHDL window [60, 91] T: taken at the first HALT boundary >= 60
+    // (phases 0,3,2,1 -> 60,63,62,61), entry 19 T later (IM 2 acknowledge).
+    // Pre-fix: the second boundary at or after the frame interrupt's compare
+    // position 58 (entries 83,82,81,84).
+    {
+        const long want[4] = {79, 82, 81, 80};
+        long got[4];
+        bool ok = true;
+        for (int j = 0; j < 4; ++j) {
+            got[j] = halt_isr_entry(MachineType::ZX48K, j, false);
+            ok = ok && got[j] == want[j];
+        }
+        char d[160];
+        std::snprintf(d, sizeof d, "entries %ld %ld %ld %ld (want 79 82 81 80)",
+                      got[0], got[1], got[2], got[3]);
+        check("INT-GH265-01",
+              "48K pulse-mode INT taken at the first boundary whose last "
+              "T-state starts on a CPU edge that samples the pulse low "
+              "(zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; "
+              "zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772)",
+              ok, d);
+    }
+
+    // INT-GH265-02 — the same for 128K: compare (128, 1), te = 2340,
+    // E_1 = 2344, window from 294 T: phases 0,3,2,1 -> 296,295,294,297,
+    // entries 315,314,313,316. Pre-fix 315,318,317,316.
+    {
+        const long want[4] = {315, 314, 313, 316};
+        long got[4];
+        bool ok = true;
+        for (int j = 0; j < 4; ++j) {
+            got[j] = halt_isr_entry(MachineType::ZX128K, j, false);
+            ok = ok && got[j] == want[j];
+        }
+        char d[160];
+        std::snprintf(d, sizeof d, "entries %ld %ld %ld %ld (want 315 314 313 316)",
+                      got[0], got[1], got[2], got[3]);
+        check("INT-GH265-02",
+              "128K pulse-mode INT taken at the first boundary >= 294 T "
+              "(zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; "
+              "t80n.vhd:1664,1742-1772)",
+              ok, d);
+    }
+
+    // INT-GH265-03 — hardware IM2 mode (NR 0xC0 = 1), 48K. im2_int_req is
+    // set on edge 469; S_REQ on the first CPU edge after it whose preceding
+    // T-state had M1_n high: the HALT's M1 cycles hold M1_n low for T1-T2,
+    // so phase 2 (M1 cycle 58-62) cannot take edges 59/60 and waits for 61.
+    // Taken at B >= E_req + 16: phases 0,3,2,1 -> 64,63,66,65, entries
+    // 83,82,85,84. Pre-fix (and without the M1 gate, phase 2) 83,82,81,84.
+    {
+        const long want[4] = {83, 82, 85, 84};
+        long got[4];
+        bool ok = true;
+        for (int j = 0; j < 4; ++j) {
+            got[j] = halt_isr_entry(MachineType::ZX48K, j, true);
+            ok = ok && got[j] == want[j];
+        }
+        char d[160];
+        std::snprintf(d, sizeof d, "entries %ld %ld %ld %ld (want 83 82 85 84)",
+                      got[0], got[1], got[2], got[3]);
+        check("INT-GH265-03",
+              "hardware-IM2 INT: S_REQ on the first CPU edge after "
+              "im2_int_req with M1_n high, INT_s one edge later "
+              "(im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; "
+              "t80n.vhd:1729-1731,1761,1788)",
+              ok, d);
+    }
+
+    // INT-GH265-04 — the end of the 48K window: EI then NOP, so the first
+    // boundary interrupts are enabled at is 7j + 4n + 8 T. At 91 T (j=1,
+    // n=19) it is the last one INT_s is set for (E_N = 472 + 31*8 = 720,
+    // B - 8 = 720): taken, entry 110. At 92 T (j=0, n=21) the pulse has gone.
+    // Pre-fix the window was [63, 95]: taken at 92 as well.
+    {
+        const long in_window  = ei_window_isr_entry(MachineType::ZX48K, 1, 19);
+        const long past_end   = ei_window_isr_entry(MachineType::ZX48K, 0, 21);
+        char d[120];
+        std::snprintf(d, sizeof d, "last=%ld (want 110) past=%ld (want -1)",
+                      in_window, past_end);
+        check("INT-GH265-04",
+              "48K pulse: 32 CPU edges sample it low, the last at "
+              "E_1 + 31*8; the boundary after that edge is the last taken "
+              "(zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772)",
+              in_window == 110 && past_end == -1, d);
+    }
+
+    // INT-GH265-05 — the same end for 128K (36 edges): last boundary
+    // 2344 + 36*8 = 2632 = 329 T (j=3, n=75: entry 348), 330 T (j=2, n=77)
+    // is past it. Pre-fix the window ended at 298 + 36 = 334 T.
+    {
+        const long in_window = ei_window_isr_entry(MachineType::ZX128K, 3, 75);
+        const long past_end  = ei_window_isr_entry(MachineType::ZX128K, 2, 77);
+        char d[120];
+        std::snprintf(d, sizeof d, "last=%ld (want 348) past=%ld (want -1)",
+                      in_window, past_end);
+        check("INT-GH265-05",
+              "128K pulse: 36 CPU edges, last boundary E_1 + 36*8 "
+              "(zxnext.vhd:2033 pulse_count(5) and pulse_count(2))",
+              in_window == 348 && past_end == -1, d);
+    }
+
+    // INT-GH265-06 — an interrupt still pending when the frame ends is
+    // taken in the next frame. The pulse knows nothing of frames
+    // (zxnext.vhd:2017-2044); jnext restarts its T-state counter at every
+    // frame, and a request made before the restart used to be dropped at
+    // the first boundary after it as "expired". A CTC0 ZC/TO (pulse mode,
+    // NR 0xC5 = 1) is raised with interrupts disabled 20 T before the end
+    // of the frame, the clock is run past the frame end, and interrupts
+    // are enabled 1 T-state... at the next boundary: the IntAck follows.
+    {
+        Emulator emu;
+        bool ok = build(emu, MachineType::ZX48K);
+        install_im2_table(emu, false);
+        for (int a = 0x8000; a < 0x9000; ++a) emu.mmu().write(static_cast<uint16_t>(a), 0x00);
+        set_pc_im2(emu, 0x8000, false);
+        nr_write(emu, 0xC5, 0x01);
+        const uint64_t frame = 69888ULL * 8;
+        long taken_at = -1;
+        uint64_t raised_at = 0;
+        if (ok) {
+            while (emu.clock().get() < frame - 20 * 8) emu.debugger_step();
+            raised_at = emu.clock().get();
+            emu.im2().raise_req(Im2Controller::DevIdx::CTC0, raised_at);
+            while (emu.clock().get() < frame) emu.debugger_step();
+            auto r = emu.cpu().get_registers();
+            r.IFF1 = r.IFF2 = 1;
+            emu.cpu().set_registers(r);
+            emu.debugger_step();
+            if (emu.cpu().pc() == 0xFDFD)
+                taken_at = static_cast<long>(emu.clock().get() / 8);
+        }
+        char d[120];
+        std::snprintf(d, sizeof d, "raised at %llu, ISR entered at %ld T (want > %llu)",
+                      static_cast<unsigned long long>(raised_at / 8), taken_at,
+                      static_cast<unsigned long long>(frame / 8));
+        check("INT-GH265-06",
+              "a pulse straddling the frame edge is still taken after it "
+              "(zxnext.vhd:2017-2044 has no frame term)",
+              ok && taken_at > static_cast<long>(frame / 8), d);
+    }
+
+    // INT-GH265-10 — the same straddling pulse through a snapshot taken at
+    // the frame edge. The pulse is a timeline, not a counter
+    // (zxnext.vhd:2017-2044): restored into another machine it must still be
+    // taken at the first enabled boundary after the edge. The window lives
+    // on jnext's per-frame T-state counter, which a load does not restore
+    // (it is re-seeded at the next frame start); written absolute, a
+    // restored window sat a whole frame ahead of the new counter.
+    {
+        Emulator emu;
+        bool ok = build(emu, MachineType::ZX48K);
+        install_im2_table(emu, false);
+        for (int a = 0x8000; a < 0x9000; ++a) emu.mmu().write(static_cast<uint16_t>(a), 0x00);
+        set_pc_im2(emu, 0x8000, false);
+        nr_write(emu, 0xC5, 0x01);
+        const uint64_t frame = 69888ULL * 8;
+        long taken_at = -1;
+        if (ok) {
+            while (emu.clock().get() < frame - 20 * 8) emu.debugger_step();
+            emu.im2().raise_req(Im2Controller::DevIdx::CTC0, emu.clock().get());
+            while (emu.clock().get() < frame) emu.debugger_step();
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> buf(measure.position(), 0);
+            StateWriter w(buf.data(), buf.size());
+            emu.save_state(w);
+            Emulator emu2;
+            ok = build(emu2, MachineType::ZX48K);
+            StateReader r(buf.data(), buf.size());
+            ok = ok && emu2.load_state(r);
+            auto regs = emu2.cpu().get_registers();
+            regs.IFF1 = regs.IFF2 = 1;
+            emu2.cpu().set_registers(regs);
+            emu2.debugger_step();
+            if (emu2.cpu().pc() == 0xFDFD)
+                taken_at = static_cast<long>(emu2.clock().get() / 8);
+        }
+        char d[120];
+        std::snprintf(d, sizeof d, "restored machine entered the ISR at %ld T (want > %llu)",
+                      taken_at, static_cast<unsigned long long>(frame / 8));
+        check("INT-GH265-10",
+              "a pulse straddling the frame edge survives a snapshot taken there "
+              "(zxnext.vhd:2017-2044)",
+              ok && taken_at > static_cast<long>(frame / 8), d);
+    }
+
+    // INT-GH265-11 — a pulse pending across a CPU-speed change. The pulse
+    // counts CPU clock edges (zxnext.vhd:2035-2044): whatever the speed, it
+    // is low for 36 of them (Next timing), so the edges still to come after
+    // a change arrive at the new rate. jnext's /INT window is on its T-state
+    // counter, which NR 0x07 (committed at the next bus-idle boundary)
+    // re-bases in the new unit, and the fabric's pulse edges are CLK_28
+    // edges. A CTC0 pulse is raised with interrupts off at 3.5 MHz (first
+    // CPU edge 8 cycles on); NR 0x07 = 3 (28 MHz) is committed at the end of
+    // the next instruction, 8 edges into the pulse, so 28 remain and the last
+    // boundary that takes it is 29 T-states on. Interrupts are enabled
+    // after k more NOPs (4 T each at 28 MHz): taken for k = 2 (8 T), not
+    // for k = 10 (40 T), when the pulse is over — pulse_int_n high again.
+    {
+        auto run = [&](int k, bool& taken, bool& pulse_high, int& divisor) {
+            Emulator emu;
+            if (!build(emu, MachineType::ZXN_ISSUE2)) return false;
+            install_im2_table(emu, false);
+            for (int a = 0x8000; a < 0x9000; ++a) emu.mmu().write(static_cast<uint16_t>(a), 0x00);
+            set_pc_im2(emu, 0x8000, false);
+            nr_write(emu, 0xC5, 0x01);
+            while (emu.clock().get() < 20000ULL * 8) emu.debugger_step();
+            emu.im2().raise_req(Im2Controller::DevIdx::CTC0, emu.clock().get());
+            emu.debugger_step();                 // the pulse starts, its window is set
+            nr_write(emu, 0x07, 0x03);           // 28 MHz from the next boundary
+            emu.debugger_step();
+            divisor = static_cast<int>(emu.clock().cpu_divisor());
+            for (int n = 0; n < k; ++n) emu.debugger_step();
+            pulse_high = emu.im2().pulse_int_n();
+            auto r = emu.cpu().get_registers();
+            r.IFF1 = r.IFF2 = 1;
+            emu.cpu().set_registers(r);
+            emu.debugger_step();
+            taken = emu.cpu().pc() == 0xFDFD;
+            return true;
+        };
+        bool t2 = false, h2 = true, t10 = true, h10 = false;
+        int d2 = -1, d10 = -1;
+        const bool ok = run(2, t2, h2, d2) && run(10, t10, h10, d10);
+        char d[160];
+        std::snprintf(d, sizeof d, "k=2: divisor %d taken %d pulse_int_n %d; "
+                      "k=10: taken %d pulse_int_n %d (want 1 1 0; 0 1)",
+                      d2, t2 ? 1 : 0, h2 ? 1 : 0, t10 ? 1 : 0, h10 ? 1 : 0);
+        check("INT-GH265-11",
+              "a pulse pending across a CPU-speed change lasts its remaining "
+              "CPU edges at the new speed (zxnext.vhd:2035-2044)",
+              ok && d2 == 1 && t2 && !h2 && !t10 && h10, d);
+    }
+
+    // INT-GH265-12 — INT-GH265-07's EI, the last instruction of the frame,
+    // then a snapshot there, restored into another machine: the grace
+    // (t80n.vhd:1768, no interrupt at the boundary straight after EI) must
+    // survive — the NOP after EI runs, the IntAck comes one instruction
+    // later. FUSE's EI stamp used to be saved as a counter value, and a
+    // load re-seeds the counter, so the restored boundary took the pending
+    // interrupt at once.
+    {
+        Emulator emu;
+        bool ok = build(emu, MachineType::ZX48K);
+        install_im2_table(emu, false);
+        for (int a = 0x8000; a < 0x9000; ++a) emu.mmu().write(static_cast<uint16_t>(a), 0x00);
+        emu.mmu().write(0x7000, 0xFB);            // EI
+        emu.mmu().write(0x7001, 0x00);
+        set_pc_im2(emu, 0x8000, false);
+        nr_write(emu, 0xC5, 0x01);
+        const uint64_t frame = 69888ULL * 8;
+        uint16_t pc_next = 0, pc_second = 0;
+        if (ok) {
+            while (emu.clock().get() < frame - 20 * 8) emu.debugger_step();
+            emu.im2().raise_req(Im2Controller::DevIdx::CTC0, emu.clock().get());
+            while (emu.clock().get() < frame - 4 * 8) emu.debugger_step();
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x7000;
+            emu.cpu().set_registers(r);
+            emu.debugger_step();                  // EI, the frame's last instruction
+            ok = ok && emu.clock().get() >= frame;
+            StateWriter measure;
+            emu.save_state(measure);
+            std::vector<uint8_t> buf(measure.position(), 0);
+            StateWriter w(buf.data(), buf.size());
+            emu.save_state(w);
+            Emulator emu2;
+            ok = ok && build(emu2, MachineType::ZX48K);
+            // A running machine, as a rewind restores into: its counter is
+            // not at 0 when the snapshot is loaded.
+            for (int n = 0; n < 100; ++n) emu2.debugger_step();
+            StateReader rd(buf.data(), buf.size());
+            ok = ok && emu2.load_state(rd);
+            emu2.debugger_step();                 // NOP (grace)
+            pc_next = emu2.cpu().pc();
+            emu2.debugger_step();                 // IntAck
+            pc_second = emu2.cpu().pc();
+        }
+        char d[120];
+        std::snprintf(d, sizeof d, "restored: pc after 1 step = 0x%04X (want 0x7002), "
+                      "after 2 = 0x%04X (want 0xFDFD)", pc_next, pc_second);
+        check("INT-GH265-12",
+              "EI grace survives a snapshot taken straight after the EI "
+              "(t80n.vhd:1768 SetEI = '0')",
+              ok && pc_next == 0x7002 && pc_second == 0xFDFD, d);
+    }
+
+    // INT-GH265-07 — EI as the last instruction of a frame keeps its grace:
+    // t80n.vhd:1768 takes no interrupt at the boundary straight after EI
+    // (SetEI = '1'), even though that boundary is the first of a new frame.
+    // A CTC0 pulse is pending across the edge; EI is placed so it ends on or
+    // after it. The next step must run the NOP after EI, the one after that
+    // the IntAck.
+    {
+        Emulator emu;
+        bool ok = build(emu, MachineType::ZX48K);
+        install_im2_table(emu, false);
+        for (int a = 0x8000; a < 0x9000; ++a) emu.mmu().write(static_cast<uint16_t>(a), 0x00);
+        // EI and the NOP after it at 0x7000: the NOPs run from 0x8000 cover
+        // 17472 bytes in a frame and never reach it.
+        emu.mmu().write(0x7000, 0xFB);            // EI
+        emu.mmu().write(0x7001, 0x00);
+        set_pc_im2(emu, 0x8000, false);
+        nr_write(emu, 0xC5, 0x01);
+        const uint64_t frame = 69888ULL * 8;
+        uint16_t pc_after_ei_next = 0, pc_after_second = 0;
+        if (ok) {
+            while (emu.clock().get() < frame - 20 * 8) emu.debugger_step();
+            emu.im2().raise_req(Im2Controller::DevIdx::CTC0, emu.clock().get());
+            while (emu.clock().get() < frame - 4 * 8) emu.debugger_step();
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x7000;
+            emu.cpu().set_registers(r);
+            emu.debugger_step();                  // EI, ends at/after frame end
+            ok = ok && emu.clock().get() >= frame;
+            emu.debugger_step();                  // NOP (grace)
+            pc_after_ei_next = emu.cpu().pc();
+            emu.debugger_step();                  // IntAck
+            pc_after_second = emu.cpu().pc();
+        }
+        char d[120];
+        std::snprintf(d, sizeof d, "pc after EI+1 = 0x%04X (want 0x7002), "
+                      "after EI+2 = 0x%04X (want 0xFDFD)",
+                      pc_after_ei_next, pc_after_second);
+        check("INT-GH265-07",
+              "EI grace across the frame edge (t80n.vhd:1768 SetEI = '0')",
+              ok && pc_after_ei_next == 0x7002 && pc_after_second == 0xFDFD, d);
+    }
+
+    // INT-GH265-08 — in hardware IM2 mode the ULA is the one device that
+    // still pulses when the CPU is not in IM 2 (im2_peripheral.vhd:192,
+    // EXCEPTION = '1'), and that pulse reaches the CPU through the same
+    // AND as any other (zxnext.vhd:1840). NR 0xC0 = 1, CPU in IM 1 with
+    // interrupts enabled, ULA request: the CPU restarts at 0x0038.
+    // Pre-fix the pulse was only ever requested in pulse mode.
+    {
+        Emulator emu;
+        bool ok = build(emu, MachineType::ZX48K);
+        nr_write(emu, 0xC0, 0x01);
+        for (int a = 0x8000; a < 0x8100; ++a) emu.mmu().write(static_cast<uint16_t>(a), 0x00);
+        auto r = emu.cpu().get_registers();
+        r.PC = 0x8000; r.SP = 0xFFF0; r.IM = 1; r.IFF1 = r.IFF2 = 1;
+        emu.cpu().set_registers(r);
+        emu.im2().raise_req(Im2Controller::DevIdx::ULA, emu.clock().get());
+        bool rst38 = false;
+        for (int i = 0; i < 4 && ok; ++i) {
+            emu.execute_single_instruction();
+            if (emu.cpu().pc() == 0x0038) rst38 = true;
+        }
+        check("INT-GH265-08",
+              "IM2 hardware mode, CPU in IM 1: the ULA's exception pulse "
+              "is taken (im2_peripheral.vhd:192; zxnext.vhd:1840)",
+              ok && rst38,
+              "pc=" + std::to_string(emu.cpu().pc()));
+    }
+
+    // INT-GH265-09 — NR 0x20 (unqualified ULA request) written by OUT (C),A
+    // interrupts at the boundary right after the OUT. OUT (C),A = ED 79:
+    // I/O cycle at 8 T; IORQ+WR from the edge 9 T in; cpu_req on the next
+    // CLK_28 edge; nr_20_we (so int_unq) high for the cycle that starts
+    // (zxnext.vhd:4747-4777,1946-1947): te = start + 73, pulse falls at
+    // start + 73.5, first CPU edge after it start + 80, taken at a boundary
+    // >= start + 88 — the OUT ends at start + 96. Pre-fix: one instruction
+    // later.
+    {
+        Emulator emu;
+        bool ok = build(emu, MachineType::ZX48K);
+        install_im2_table(emu, false);
+        emu.port().out(0x243B, 0x20);
+        write_code(emu, 0x8000, {0xED, 0x79, 0x00, 0x00});   // OUT (C),A; NOP; NOP
+        set_pc_im2(emu, 0x8000, true);
+        auto r = emu.cpu().get_registers();
+        r.BC = 0x253B;
+        r.AF = static_cast<uint16_t>(0x4000 | (r.AF & 0x00FF));
+        emu.cpu().set_registers(r);
+        emu.execute_single_instruction();          // OUT
+        emu.execute_single_instruction();          // IntAck (pre-fix: NOP)
+        check("INT-GH265-09",
+              "NR 0x20 unqualified request taken at the boundary after the "
+              "OUT that writes it (zxnext.vhd:1946-1947,4747-4777; "
+              "t80n.vhd:1664,1742-1772)",
+              ok && emu.cpu().pc() == 0xFDFD,
+              "pc=" + std::to_string(emu.cpu().pc()) + " (want 0xFDFD)");
+    }
+}
+
+// ── GH #265 — interrupt status and pulse reads at the IN's latch point ──
+//
+// An IN from 0x253B returns port_253b_dat_0, reloaded from port_253b_dat on
+// every CLK_CPU falling edge; port_253b_dat takes im2_int_status /
+// NOT pulse_int_n on CLK_28 (zxnext.vhd:5871-5882, 5991-5992, 6247-6254).
+// The IN latches the reload made 2.5 T-states into its I/O cycle, so for
+// IN A,(C) (I/O cycle at 8 T) the port_253b_dat load edge is Sn =
+// start + 64 + 19 = start + 83 and it sees im2_int_status as it was before
+// that edge: a status set on edge te+1 is seen iff te + 2 <= Sn, pulse_int_n
+// (low from te+0.5) iff te + 1 <= Sn.
+static void test_gh265_status_reads() {
+    set_group("GH265-ISC");
+    using namespace gh265;
+
+    // ISC-GH265-01 — NR 0xC8 bit 0 (ULA) at the latch edge. Raised at
+    // te = Sn - 2: set on Sn - 1, seen. Raised at te = Sn - 1: set on Sn
+    // itself, not seen. Pre-fix neither: the request reached the fabric
+    // only after the instruction.
+    {
+        constexpr uint64_t start = 5000;
+        constexpr uint64_t sn    = start + 83;
+        static uint64_t te;
+        auto raise = [](Emulator& e) {
+            e.im2().raise_req(Im2Controller::DevIdx::ULA, te);
+        };
+        Emulator a, b;
+        bool ok = build(a, MachineType::ZX48K) && build(b, MachineType::ZX48K);
+        te = sn - 2;
+        const uint8_t seen = in_nr_direct(a, 0xC8, start, raise);
+        te = sn - 1;
+        const uint8_t unseen = in_nr_direct(b, 0xC8, start, raise);
+        check("ISC-GH265-01",
+              "NR 0xC8 read by IN A,(C) sees a status set before the "
+              "port_253b_dat load 83 cycles in, not one set on it "
+              "(zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162)",
+              ok && seen == 0x01 && unseen == 0x00,
+              "seen=" + hex2(seen) + " unseen=" + hex2(unseen) + " (want 0x01, 0x00)");
+    }
+
+    // ISC-GH265-02 — end to end on a running 48K: the frame interrupt
+    // (te = 468) polled by `IN A,(C) / AND 1 / JR Z` from the frame start.
+    // Prologue LD BC,0x243B / LD A,0xC8 / OUT (C),A / INC B = 33 T, then a
+    // pad puts the first IN at 48 T or 49 T. The status is seen when
+    // start*8 + 83 >= 470: the IN at 49 T (Sn 475) sees it, the one at 48 T
+    // (Sn 467) does not and the loop runs one more 31-T turn.
+    // Pre-fix the IN at 49 T missed it too (the event was raised after it).
+    {
+        auto ins_until_seen = [](int pad_nops_then_ld) -> int {
+            Emulator emu;
+            if (!build(emu, MachineType::ZX48K)) return -1;
+            uint16_t pc = 0x8000;
+            write_code(emu, pc, {0x01, 0x3B, 0x24, 0x3E, 0xC8, 0xED, 0x79, 0x04});
+            pc += 8;
+            if (pad_nops_then_ld == 15) {          // 15 T: NOP NOP LD D,0
+                write_code(emu, pc, {0x00, 0x00, 0x16, 0x00}); pc += 4;
+            } else {                               // 16 T: 4 x NOP
+                write_code(emu, pc, {0x00, 0x00, 0x00, 0x00}); pc += 4;
+            }
+            const uint16_t loop = pc;
+            write_code(emu, pc, {0xED, 0x78, 0xE6, 0x01, 0x28, 0xFA, 0x76});
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.IFF1 = r.IFF2 = 0;
+            emu.cpu().set_registers(r);
+            int ins = 0;
+            for (int g = 0; g < 2000; ++g) {
+                if (emu.cpu().pc() == loop + 6) return ins;   // reached HALT
+                if (emu.cpu().pc() == loop) ++ins;
+                emu.debugger_step();
+            }
+            return -1;
+        };
+        const int at48 = ins_until_seen(15);
+        const int at49 = ins_until_seen(16);
+        check("ISC-GH265-02",
+              "polling NR 0xC8 for the frame interrupt: an IN starting at "
+              "49 T sees it, one at 48 T does not "
+              "(zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; "
+              "zxnext.vhd:5871-5882,6247-6248)",
+              at48 == 2 && at49 == 1,
+              "INs at 48 T: " + std::to_string(at48) + " (want 2), at 49 T: "
+              + std::to_string(at49) + " (want 1)");
+    }
+
+    // ISC-GH265-03 — NR 0x22 bit 7 = NOT pulse_int_n, pulse start. Pulse
+    // mode, ULA raised at te: pulse_int_n falls at te + 0.5, so the load on
+    // edge Sn captures it low iff te + 1 <= Sn: te = Sn - 1 reads bit 7,
+    // te = Sn does not.
+    {
+        constexpr uint64_t start = 5000;
+        constexpr uint64_t sn    = start + 83;
+        static uint64_t te;
+        auto raise = [](Emulator& e) {
+            e.im2().raise_req(Im2Controller::DevIdx::ULA, te);
+        };
+        Emulator a, b;
+        bool ok = build(a, MachineType::ZX48K) && build(b, MachineType::ZX48K);
+        te = sn - 1;
+        const uint8_t low = in_nr_direct(a, 0x22, start, raise);
+        te = sn;
+        const uint8_t high = in_nr_direct(b, 0x22, start, raise);
+        check("ISC-GH265-03",
+              "NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling "
+              "edge after the request (zxnext.vhd:2017-2031,5991-5992)",
+              ok && (low & 0x80) != 0 && (high & 0x80) == 0,
+              "te=Sn-1: " + hex2(low) + " te=Sn: " + hex2(high));
+    }
+
+    // ISC-GH265-04 — NR 0x22 bit 7, pulse end. The pulse is started by an
+    // instruction (a NOP whose first edge is 5000, raised at 5000: E_1 =
+    // 5008), so its last low edge is E_N = 5008 + 31*8 = 5256 (48K): an IN
+    // whose load edge Sn is 5256 reads bit 7 set, one at 5257 reads it clear
+    // (pulse_int_n rises at 5256.5). Pre-fix the bit was the pulse state at
+    // the end of the last instruction.
+    {
+        auto read_at = [](uint64_t sn) -> uint8_t {
+            Emulator emu;
+            if (!build(emu, MachineType::ZX48K)) return 0xEE;
+            emu.mmu().write(0x7000, 0x00);                 // NOP
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x7000;
+            emu.cpu().set_registers(r);
+            emu.clock().tick(5000 - emu.clock().get());
+            emu.im2().raise_req(Im2Controller::DevIdx::ULA, 5000);
+            emu.execute_single_instruction();              // starts the pulse
+            return in_nr_direct(emu, 0x22, sn - 83, nullptr);
+        };
+        const uint8_t last  = read_at(5256);
+        const uint8_t after = read_at(5257);
+        check("ISC-GH265-04",
+              "NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge "
+              "of the pulse (zxnext.vhd:2033-2044,5991-5992)",
+              (last & 0x80) != 0 && (after & 0x80) == 0,
+              "Sn=E_N: " + hex2(last) + " Sn=E_N+1: " + hex2(after));
+    }
+
+    // ISC-GH265-05 — NR 0xC8 clear against a request on the same edge. OUT
+    // (C),A of 0x01 to NR 0xC8: the clear commits on edge start + 74
+    // (IORQ+WR at 72, cpu_req 73, nr_c8_we during [73,74) — zxnext.vhd:
+    // 4747-4777,1952-1955). A request raised at 72 set the status on 73 and
+    // is cleared; one raised at 73 sets it on 74, where im2_peripheral.vhd:160
+    // gives the request priority, and survives. Pre-fix both were cleared
+    // (the request met the fabric before the deferred clear).
+    {
+        auto after_clear = [](uint64_t te_off) -> uint8_t {
+            Emulator emu;
+            if (!build(emu, MachineType::ZX48K)) return 0xEE;
+            emu.port().out(0x243B, 0xC8);
+            write_code(emu, 0x8000, {0xED, 0x79});        // OUT (C),A
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.BC = 0x253B;
+            r.AF = static_cast<uint16_t>(0x0100 | (r.AF & 0x00FF));
+            emu.cpu().set_registers(r);
+            emu.clock().tick(5000 - emu.clock().get());
+            emu.im2().raise_req(Im2Controller::DevIdx::ULA, 5000 + te_off);
+            emu.execute_single_instruction();
+            return nr_read(emu, 0xC8);
+        };
+        const uint8_t before_edge = after_clear(72);
+        const uint8_t on_edge     = after_clear(73);
+        check("ISC-GH265-05",
+              "NR 0xC8 clear commits on its edge: a request set before it "
+              "is cleared, one set on it survives (im2_peripheral.vhd:160; "
+              "zxnext.vhd:1952-1955,4747-4777)",
+              before_edge == 0x00 && on_edge == 0x01,
+              "te=72: " + hex2(before_edge) + " te=73: " + hex2(on_edge)
+              + " (want 0x00, 0x01)");
+    }
+
+    // ISC-GH265-06 — NR 0xC5 CTC interrupt enable against a ZC/TO, hardware
+    // IM2 mode. The enable commits on start + 74 (as above); the request edge
+    // is qualified with i_int_en as it is during its own cycle
+    // (im2_peripheral.vhd:167-178): raised at 73 it meets the old (disabled)
+    // enable and CTC0 stays S_0, raised at 74 it meets the new one and CTC0
+    // reaches S_REQ. Pre-fix both met the new enable.
+    {
+        auto state_after = [](uint64_t te_off) -> int {
+            Emulator emu;
+            if (!build(emu, MachineType::ZX48K)) return -1;
+            nr_write(emu, 0xC0, 0x01);
+            nr_write(emu, 0xC5, 0x00);
+            emu.im2().on_m1_cycle(0x0000, 0xED);   // decoder: IM 2
+            emu.im2().on_m1_cycle(0x0001, 0x5E);
+            emu.port().out(0x243B, 0xC5);
+            write_code(emu, 0x8000, {0xED, 0x79});        // OUT (C),A
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.BC = 0x253B; r.IFF1 = r.IFF2 = 0;
+            r.AF = static_cast<uint16_t>(0x0100 | (r.AF & 0x00FF));
+            emu.cpu().set_registers(r);
+            emu.clock().tick(5000 - emu.clock().get());
+            emu.im2().raise_req(Im2Controller::DevIdx::CTC0, 5000 + te_off);
+            emu.execute_single_instruction();
+            return static_cast<int>(emu.im2().state(Im2Controller::DevIdx::CTC0));
+        };
+        const int before_edge = state_after(73);
+        const int on_edge     = state_after(74);
+        check("ISC-GH265-06",
+              "NR 0xC5 enable commits on its edge: a ZC/TO before it is "
+              "not latched, one on it is (im2_peripheral.vhd:167-178; "
+              "zxnext.vhd:1949,4747-4777)",
+              before_edge == 0 && on_edge == 1,
+              "te=73: " + std::to_string(before_edge) + " te=74: "
+              + std::to_string(on_edge) + " (want S_0=0, S_REQ=1)");
+    }
+
+    // ISC-GH265-07 — the line interrupt (NR 0xC8 bit 1) on the same
+    // pipeline. 48K, NR 0x23 = 10 (int_line_num = 9, zxula_timing.vhd:
+    // 566-570) enabled by NR 0x22 bit 1: the compare cvc = 9 at hc_ula = 255
+    // (:574-583) is raw line 9 + 64 (cvc origin c_min_vactive, :455-472),
+    // raw pixel 117 + 255 = 372 (hc_ula resets at c_min_hactive - 12, one
+    // pixel late, :423-436): master cycle (73*448 + 372)*4 = 132304.
+    // int_line is registered, so int_req is high from 132308; the status is
+    // set on 132309 and an IN A,(C) loading on 132310 (start 132227) sees
+    // it, one loading on 132309 (start 132226) does not.
+    {
+        auto seen_at = [](uint64_t start) -> uint8_t {
+            Emulator emu;
+            if (!build(emu, MachineType::ZX48K)) return 0xEE;
+            nr_write(emu, 0x23, 10);
+            nr_write(emu, 0x22, 0x02);
+            return in_nr_direct(emu, 0xC8, start, nullptr);
+        };
+        const uint8_t seen   = seen_at(132227);
+        const uint8_t unseen = seen_at(132226);
+        check("ISC-GH265-07",
+              "NR 0xC8 bit 1 sees the line interrupt from its registered "
+              "int_line, one pixel after the hc_ula = 255 compare "
+              "(zxula_timing.vhd:423-436,455-472,566-583; "
+              "im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882)",
+              (seen & 0x02) != 0 && (unseen & 0x02) == 0,
+              "start 132227: " + hex2(seen) + " start 132226: " + hex2(unseen));
+    }
+
+    // ISC-GH265-08 — a request while the pulse is still low starts no new
+    // one (zxnext.vhd:2023-2031 only lets pulse_en in while pulse_int_n =
+    // '1'). A ULA pulse from an instruction starting at 5000 (raised at
+    // 5000: E_1 = 5008, last low edge E_N = 5256, pulse_int_n high from
+    // 5256.5). A CTC0 request at 5256 falls on the falling edge 5256.5, when
+    // pulse_int_n is still '0': ignored, NR 0x22 bit 7 reads clear at 5300.
+    // At 5257 pulse_int_n is '1': a new pulse, bit 7 set.
+    {
+        auto bit7_after = [](uint64_t te2) -> uint8_t {
+            Emulator emu;
+            if (!build(emu, MachineType::ZX48K)) return 0xEE;
+            nr_write(emu, 0xC5, 0x01);
+            emu.mmu().write(0x7000, 0x00);
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x7000;
+            emu.cpu().set_registers(r);
+            emu.clock().tick(5000 - emu.clock().get());
+            emu.im2().raise_req(Im2Controller::DevIdx::ULA, 5000);
+            emu.execute_single_instruction();
+            emu.im2().raise_req(Im2Controller::DevIdx::CTC0, te2);
+            return in_nr_direct(emu, 0x22, 5300 - 83, nullptr);
+        };
+        const uint8_t ignored = bit7_after(5256);
+        const uint8_t started = bit7_after(5257);
+        check("ISC-GH265-08",
+              "a request reaching the pulse fabric before pulse_int_n has "
+              "returned to '1' is lost; one after it starts a new pulse "
+              "(zxnext.vhd:2017-2044,5991-5992)",
+              (ignored & 0x80) == 0 && (started & 0x80) != 0,
+              "te2=5256: " + hex2(ignored) + " te2=5257: " + hex2(started));
+    }
+}
+
+// ── GH #265 — CTC port reads and writes at their bus timing ──────────
+//
+// port_ctc_dat is reloaded from the channel's t_count on every CLK_CPU
+// falling edge (zxnext.vhd:4095-4100) and the IN latches the reload made
+// 2.5 T-states into its I/O cycle (t80na.vhd:214-222, t80n.vhd:1781-1782):
+// for IN A,(C) that is the count after edge start + 83. A write reaches the
+// channel as iowr from the CPU edge IORQ+WR assert on — the second clock of
+// the I/O cycle (t80na.vhd:148-150) — and is taken on the CLK_28 edge after
+// (ctc_chan.vhd:246-254). The CTC used to be ticked only between
+// instructions, so a read saw the count at the instruction's START (~5
+// counts high at /16) and a write took effect there.
+static void test_gh265_ctc_ports() {
+    set_group("GH265-CTC");
+    using namespace gh265;
+
+    // CTC-RD-GH265-01 — a real program: LD BC,0x183B; LD A,0x05 (timer
+    // /16, constant follows); OUT (C),A; LD A,0x80; OUT (C),A; LD D,0;
+    // IN A,(C). The constant's OUT has its I/O cycle at 44 T: taken on edge
+    // 45*8+1 = 361, one S_TRIGGER edge (ctc_chan.vhd:214-226), counts on
+    // 378 + 16k. The IN starts at 55 T: load edge 55*8+83 = 523, after ten
+    // counts (378..522): 0x80 - 10 = 0x76. Pre-fix 0x77 (the write took
+    // effect at its instruction's start and the read saw the count there).
+    {
+        Emulator emu;
+        bool ok = build(emu, MachineType::ZX48K);
+        write_code(emu, 0x8000, {0x01, 0x3B, 0x18, 0x3E, 0x05, 0xED, 0x79,
+                                 0x3E, 0x80, 0xED, 0x79, 0x16, 0x00,
+                                 0xED, 0x78, 0x76});
+        auto r = emu.cpu().get_registers();
+        r.PC = 0x8000;
+        emu.cpu().set_registers(r);
+        for (int i = 0; i < 7 && ok; ++i) emu.execute_single_instruction();
+        const uint8_t v = static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+        check("CTC-RD-GH265-01",
+              "CTC programmed and read by OUT/IN: written on its commit edge, "
+              "read at the port_ctc_dat reload (zxnext.vhd:4095-4100; "
+              "ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222)",
+              ok && v == 0x76, "A=" + hex2(v) + " (want 0x76)");
+    }
+
+    // CTC-RD-GH265-02 — the read edge exactly. The channel is programmed
+    // outside any instruction (constant 0x80 on edge 0: counts on 17 + 16k)
+    // and IN A,(C) of 0x183B starts at @p s; its load edge s + 83 counts
+    // the count ON it. s = 734: edge 817 = 17 + 16*50, 51 counts, 0x4D.
+    // s = 733: edge 816, 50 counts, 0x4E. Pre-fix both read the count at
+    // s: 45 counts, 0x5B.
+    {
+        auto read_at = [](uint64_t s) -> uint8_t {
+            Emulator emu;
+            if (!build(emu, MachineType::ZX48K)) return 0xEE;
+            emu.port().out(0x183B, 0x05);
+            emu.port().out(0x183B, 0x80);
+            write_code(emu, 0x8000, {0xED, 0x78});
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.BC = 0x183B;
+            emu.cpu().set_registers(r);
+            emu.ctc().tick(static_cast<uint32_t>(s));   // devices stand at the clock
+            emu.clock().tick(s - emu.clock().get());
+            emu.cpu().execute();
+            return static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+        };
+        const uint8_t on_count = read_at(734);
+        const uint8_t before   = read_at(733);
+        check("CTC-RD-GH265-02",
+              "IN of a CTC port latches t_count as of the edge before the "
+              "port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100)",
+              on_count == 0x4D && before == 0x4E,
+              "s=734: " + hex2(on_count) + " s=733: " + hex2(before)
+              + " (want 0x4D, 0x4E)");
+    }
+
+    // CTC-WR-GH265-01 — a write inside an instruction takes effect on its
+    // commit edge, and the ZC/TO it leads to is stamped with its own edge.
+    // Program ch0 (int on, timer /16, TC follows) outside, then OUT (C),A
+    // of TC=8 at start 5000: commit edge 5000 + 9*8 + 1 = 5073, S_TRIGGER
+    // until 5074, eighth count and ZC/TO on 5074 + 8*16 = 5202, status set
+    // on 5203 (im2_peripheral.vhd:154-162) — an NR 0xC9 IN whose load edge
+    // is 5204 sees it, one at 5203 does not. Pre-fix the constant took
+    // effect at 5000 and the ZC/TO landed on 5128.
+    {
+        auto status_seen = [](uint64_t sn) -> uint8_t {
+            Emulator emu;
+            if (!build(emu, MachineType::ZX48K)) return 0xEE;
+            emu.port().out(0x183B, 0x85);            // int on, timer, TC follows
+            write_code(emu, 0x8000, {0xED, 0x79});    // OUT (C),A
+            auto r = emu.cpu().get_registers();
+            r.PC = 0x8000; r.BC = 0x183B;
+            r.AF = static_cast<uint16_t>(0x0800 | (r.AF & 0x00FF));
+            emu.cpu().set_registers(r);
+            emu.ctc().tick(5000);
+            emu.clock().tick(5000 - emu.clock().get());
+            emu.execute_single_instruction();          // OUT: 5000..5096
+            // Bring the CTC to the IN's start, then read NR 0xC9.
+            const uint64_t s = sn - 83;
+            emu.ctc().set_time(emu.clock().get());
+            emu.ctc().tick(static_cast<uint32_t>(s - emu.clock().get()));
+            return in_nr_direct(emu, 0xC9, s, nullptr);
+        };
+        const uint8_t seen   = status_seen(5204);
+        const uint8_t unseen = status_seen(5203);
+        check("CTC-WR-GH265-01",
+              "a CTC constant written by OUT is taken on its commit edge: "
+              "its first count 17 edges on, its ZC/TO 16 per count after "
+              "(ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; "
+              "im2_peripheral.vhd:154-162)",
+              (seen & 0x01) != 0 && (unseen & 0x01) == 0,
+              "Sn=5204: " + hex2(seen) + " Sn=5203: " + hex2(unseen));
+    }
+}
+
 int main() {
     std::printf("CTC + Interrupt Controller Integration Tests\n");
     std::printf("===============================================\n\n");
@@ -2522,6 +3428,15 @@ int main() {
 
     test_ctc_control_word_int_en(emu);
     std::printf("  Group: CTC-CW-INTEN — done\n");
+
+    test_gh265_int_timing();
+    std::printf("  Group: GH265-INT — done\n");
+
+    test_gh265_status_reads();
+    std::printf("  Group: GH265-ISC — done\n");
+
+    test_gh265_ctc_ports();
+    std::printf("  Group: GH265-CTC — done\n");
 
     std::printf("\n===============================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

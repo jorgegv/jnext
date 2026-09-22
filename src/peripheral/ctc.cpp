@@ -1,4 +1,7 @@
 #include "peripheral/ctc.h"
+
+#include <algorithm>
+#include <cstdint>
 #include "core/log.h"
 #include "core/saveable.h"
 
@@ -35,9 +38,14 @@ void CtcChannel::write(uint8_t val) {
     bool waiting_tc = (state_ == State::RESET_TC || state_ == State::RUN_TC);
 
     if (waiting_tc) {
-        // This write is a time constant
+        // This write is a time constant (ctc_chan.vhd:278-285). It reaches
+        // t_count only through reset_soft (S_RESET_TC -> S_TRIGGER, :158-160)
+        // or a ZC/TO reload (:161-162): written while the channel runs
+        // (S_RUN_TC) the count carries on and the new constant is loaded at
+        // the next ZC/TO — the Z80 CTC's documented "new time constant takes
+        // effect at the next zero count".
         time_constant_ = val;
-        counter_ = val;
+        if (state_ == State::RESET_TC) counter_ = val;
 
         // G120: prescaler clearing follows VHDL device/ctc_chan.vhd:131-141
         // — p_count is cleared only when reset_soft='1', and reset_soft is
@@ -54,10 +62,18 @@ void CtcChannel::write(uint8_t val) {
         ctc_log()->debug("time constant = {:#04x} ({})", val, val == 0 ? 256 : val);
 
         if (state_ == State::RESET_TC) {
-            // After loading TC from reset: check if we need to wait for trigger
+            // After loading TC from reset: S_RESET_TC always goes to S_TRIGGER
+            // (ctc_chan.vhd:214-218), where a timer with D3=1 waits for its
+            // trigger (:219-224) and anything else leaves for S_RUN on the
+            // next edge (:225-226). A counter goes straight to RUN here: the
+            // one edge it would spend in S_TRIGGER only matters for a trigger
+            // arriving on exactly that edge.
             if (!control_counter_ && control_trigger_) {
                 state_ = State::TRIGGER;
                 ctc_log()->trace("state -> TRIGGER (waiting for CLK/TRG edge)");
+            } else if (!control_counter_) {
+                state_ = State::TRIGGER_AUTO;
+                ctc_log()->trace("state -> TRIGGER (auto-start on the next edge)");
             } else {
                 state_ = State::RUN;
                 ctc_log()->trace("state -> RUN (auto-start)");
@@ -94,7 +110,11 @@ void CtcChannel::write(uint8_t val) {
                          control_trigger_, soft_reset, tc_follows);
 
         if (soft_reset) {
-            // Soft reset: stop counting
+            // Soft reset: stop counting. Out of S_RUN/S_RUN_TC reset_soft
+            // holds p_count at 0 and reloads t_count from time_constant_reg on
+            // every edge (ctc_chan.vhd:117, 134-139, 158-160): a stopped
+            // channel reads back its time constant, not the count it stopped
+            // at.
             if (tc_follows) {
                 state_ = State::RESET_TC;
                 ctc_log()->trace("state -> RESET_TC (soft reset + TC follows)");
@@ -103,6 +123,7 @@ void CtcChannel::write(uint8_t val) {
                 ctc_log()->trace("state -> RESET (soft reset, no TC)");
             }
             prescaler_ = 0;
+            counter_   = time_constant_;
             return;
         }
 
@@ -114,7 +135,7 @@ void CtcChannel::write(uint8_t val) {
             } else if (state_ == State::RUN) {
                 state_ = State::RUN_TC;
                 ctc_log()->trace("state -> RUN_TC (TC follows while running)");
-            } else if (state_ == State::TRIGGER) {
+            } else if (state_ == State::TRIGGER || state_ == State::TRIGGER_AUTO) {
                 state_ = State::RESET_TC;
                 ctc_log()->trace("state -> RESET_TC (TC follows from TRIGGER)");
             }
@@ -146,6 +167,15 @@ uint8_t CtcChannel::read() const {
 bool CtcChannel::tick() {
     // Timer mode only; counter mode uses trigger()
     if (control_counter_) return false;
+    if (state_ == State::TRIGGER_AUTO) {
+        // S_TRIGGER -> S_RUN (ctc_chan.vhd:225-226). reset_soft was still
+        // '1' before this edge, so p_count is 0 after it and t_count holds
+        // the constant (:134-139, :158-160).
+        state_     = State::RUN;
+        prescaler_ = 0;
+        counter_   = time_constant_;
+        return false;
+    }
     if (state_ != State::RUN && state_ != State::RUN_TC) return false;
 
     // Advance prescaler (counts up, matches VHDL p_count)
@@ -214,6 +244,7 @@ void Ctc::reset() {
     for (auto& ch : channels_) {
         ch.reset();
     }
+    for (auto& t : trg_delay_) t = 0;
     ctc_log()->debug("CTC reset");
 }
 
@@ -231,62 +262,75 @@ uint8_t Ctc::read(int channel) const {
     return val;
 }
 
-void Ctc::tick(uint32_t master_cycles) {
-    // Task 27 C1: event-horizon loop, O(ZC/TO events) instead of
-    // O(master_cycles * 4). Semantics are identical to the original
-    // per-cycle loop (`for cycle { for ch { tick() } }`):
-    //   - only timer-mode channels in S_RUN/S_RUN_TC do work in tick()
-    //     (ctc_chan.vhd:117,136-138: reset_soft holds p_count at 0
-    //     outside S_RUN/S_RUN_TC; :150 t_count_en comes from clk_trg_edge,
-    //     not the prescaler, in counter mode) — if none is running the
-    //     whole span is a no-op;
-    //   - between ZC/TO events the only state change is prescaler_
-    //     accumulation + counter_ decrement per prescaler wrap, which
-    //     CtcChannel::advance() applies in closed form;
-    //   - the cycle in which the earliest ZC/TO fires is executed with
-    //     the ORIGINAL exact inner loop, so daisy-chain effects keep
-    //     their per-cycle ordering: handle_zc_to() may TRIGGER->RUN a
-    //     later channel (trigger() on a timer waiting for CLK/TRG),
-    //     which must still receive that same cycle's tick when its
-    //     index is higher than the firing channel's — the inner loop
-    //     provides exactly that, as before.
+void Ctc::tick_events(uint32_t master_cycles) {
+    // Task 27 C1: event-horizon loop, O(events) instead of
+    // O(master_cycles * 4). Between events the only state change is
+    // prescaler_ accumulation + counter_ decrement per prescaler wrap of the
+    // running timers, which CtcChannel::advance() applies in closed form;
+    // the edge an event happens on is run exactly. An event is:
+    //   - a running timer's ZC/TO (ctc_chan.vhd:143-146 prescaler_clk,
+    //     :162-170 zc_to);
+    //   - a timer leaving its one S_TRIGGER edge (:220-226);
+    //   - a chained trigger arriving (GH #265, below).
+    //
+    // GH #265 — a ZC/TO reaches the next channel of the ring
+    // (zxnext.vhd:4084) through that channel's edge detector: o_zc_to is
+    // zc_to_d, high for the cycle after the edge the count ran out on
+    // (ctc_chan.vhd:173-182); clk_trg_d delays it one more edge, and
+    // clk_trg_edge is `clk_trg_d and not i_clk_trg` (falling, D4=0) or
+    // `i_clk_trg and not clk_trg_d` (rising, D4=1) (:121-127). The receiving
+    // channel therefore counts (or, waiting in S_TRIGGER, starts) on the
+    // second edge after the ZC/TO with a falling-edge trigger, the first
+    // with a rising one — not on the same edge, as the per-cycle model did.
     uint32_t remaining = master_cycles;
     while (remaining > 0) {
-        // Earliest possible ZC/TO among running timer channels.
-        uint32_t d = 0;
-        bool any_running = false;
-        for (const auto& ch : channels_) {
-            if (!ch.timer_running()) continue;
-            const uint32_t c = ch.cycles_to_zc();
-            if (!any_running || c < d) d = c;
-            any_running = true;
+        uint32_t d = UINT32_MAX;
+        for (int ch = 0; ch < 4; ++ch) {
+            const CtcChannel& c = channels_[ch];
+            if (c.leaving_trigger()) d = 1;
+            else if (c.timer_running()) d = std::min(d, c.cycles_to_zc());
+            if (trg_delay_[ch]) d = std::min<uint32_t>(d, trg_delay_[ch]);
         }
-        if (!any_running) return;  // idle CTC: nothing can happen this span
-
-        if (d > remaining) {
-            // No ZC/TO can occur within the span: closed-form advance.
-            for (auto& ch : channels_) {
-                if (ch.timer_running()) ch.advance(remaining);
-            }
+        if (d == UINT32_MAX) {  // idle CTC: nothing can happen this span
+            time_ += remaining;
             return;
         }
-
-        // Jump to one cycle before the earliest event (no ZC/TO in the
+        if (d > remaining) {
+            // Nothing happens within the span: closed-form advance.
+            for (int ch = 0; ch < 4; ++ch) {
+                if (channels_[ch].timer_running()) channels_[ch].advance(remaining);
+                if (trg_delay_[ch]) trg_delay_[ch] -= static_cast<uint8_t>(remaining);
+            }
+            time_ += remaining;
+            return;
+        }
+        // Jump to one edge before the earliest event (nothing happens in the
         // gap for ANY channel, since d is the minimum over all)...
         if (d > 1) {
-            for (auto& ch : channels_) {
-                if (ch.timer_running()) ch.advance(d - 1);
+            for (int ch = 0; ch < 4; ++ch) {
+                if (channels_[ch].timer_running()) channels_[ch].advance(d - 1);
+                if (trg_delay_[ch]) trg_delay_[ch] -= static_cast<uint8_t>(d - 1);
             }
             remaining -= d - 1;
+            time_ += d - 1;
         }
-
-        // ...then execute the event cycle exactly as before.
+        // ...then run the event edge. Every channel's register update on an
+        // edge uses the values from before it, so the prescaler edges come
+        // first and the chained triggers after (a timer a trigger starts on
+        // this edge holds p_count at 0 on it, :134-139), and only then are
+        // the edge's ZC/TOs passed on.
+        ++time_;
+        --remaining;
+        bool fired[4] = {false, false, false, false};
+        for (int ch = 0; ch < 4; ++ch) fired[ch] = channels_[ch].tick();
         for (int ch = 0; ch < 4; ++ch) {
-            if (channels_[ch].tick()) {
-                handle_zc_to(ch);
+            if (trg_delay_[ch] && --trg_delay_[ch] == 0) {
+                if (channels_[ch].trigger()) fired[ch] = true;
             }
         }
-        --remaining;
+        for (int ch = 0; ch < 4; ++ch) {
+            if (fired[ch]) handle_zc_to(ch);
+        }
     }
 }
 
@@ -316,13 +360,7 @@ uint8_t Ctc::get_int_enable() const {
     return mask;
 }
 
-void Ctc::handle_zc_to(int channel, int depth) {
-    // Guard: max one full pass around the 4-channel ring.  VHDL uses
-    // edge detection with one-cycle delay so cascading beyond 4 channels
-    // is physically impossible; this prevents stack overflow if a
-    // pathological all-counter TC=1 ring is configured.
-    if (depth >= 4) return;
-
+void Ctc::handle_zc_to(int channel) {
     // Unconditional ZC/TO callback — fires for every pulse regardless of
     // channel IRQ enable. Consumers: joy_iomode pin-7 toggle on ch3.
     // Kept separate from on_interrupt because hardware uses ctc_zc_to(3)
@@ -347,17 +385,15 @@ void Ctc::handle_zc_to(int channel, int depth) {
         on_interrupt(channel);
     }
 
-    // Daisy-chain: trigger the next channel (ring topology).
-    // VHDL zxnext.vhd:4084: i_clk_trg <= ctc_zc_to(2 downto 0) & ctc_zc_to(3)
+    // Daisy-chain: the next channel of the ring sees this pulse through its
+    // edge detector (see tick()): VHDL zxnext.vhd:4084
+    // i_clk_trg <= ctc_zc_to(2 downto 0) & ctc_zc_to(3),
     // ch0←ch3, ch1←ch0, ch2←ch1, ch3←ch2.
-    {
-        int next = (channel + 1) & 3;
-        if (ctc_log()->should_log(spdlog::level::trace))
-            ctc_log()->trace("ch{} ZC/TO -> trigger ch{}", channel, next);
-        if (channels_[next].trigger()) {
-            handle_zc_to(next, depth + 1);
-        }
-    }
+    const int next = (channel + 1) & 3;
+    trg_delay_[next] = channels_[next].rising_edge_trigger() ? 1 : 2;
+    if (ctc_log()->should_log(spdlog::level::trace))
+        ctc_log()->trace("ch{} ZC/TO -> trigger ch{} in {} edge(s)", channel, next,
+                         static_cast<int>(trg_delay_[next]));
 }
 
 void CtcChannel::save_state(StateWriter& w) const
@@ -396,4 +432,17 @@ void Ctc::save_state(StateWriter& w) const
 void Ctc::load_state(StateReader& r)
 {
     for (auto& ch : channels_) ch.load_state(r);
+    // The pending chained triggers travel in the Emulator's appended
+    // interrupt-timing block (save_timing / load_timing).
+    for (auto& t : trg_delay_) t = 0;
+}
+
+void Ctc::save_timing(StateWriter& w) const
+{
+    for (uint8_t t : trg_delay_) w.write_u8(t);
+}
+
+void Ctc::load_timing(StateReader& r)
+{
+    for (auto& t : trg_delay_) t = r.read_u8();
 }

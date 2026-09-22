@@ -79,7 +79,11 @@ NextZXOS boot.
 **Real-time playback** (`--tape-realtime`) is the honest one. The loader drives
 the EAR bit per T-state and the ROM's own loading routine decodes it, so the
 border stripes and the timing are produced by the same code that produces them
-on hardware. All three tape formats support it. The EAR signal is also routed
+on hardware. All three tape formats support it. An `IN` from port 0xFE sees the
+tape level of the T-state its `port_fe_dat_0` reload falls in — in the I/O
+cycle's third clock, 2.5 T-states in after its contention stretches
+(`zxnext.vhd:3455-3464`), so T-state 9 of an uncontended `IN A,(n)` — not the
+level at the instruction's start (GH #265). The EAR signal is also routed
 into the audio mixer, which is why you hear the loader as well as see it.
 
 Getting BASIC to *start* loading is a third mechanism again. The phantom typist

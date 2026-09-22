@@ -50,8 +50,13 @@
 
 #include <cstdio>
 #include <cstdint>
+#include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <string>
 #include <vector>
+
+#include <unistd.h>
 
 #include <SDL2/SDL.h>
 
@@ -1117,6 +1122,127 @@ static void test_gh233_phantom_typist_reset(Emulator& emu) {
 
 // ── Main ──────────────────────────────────────────────────────────────
 
+// ══════════════════════════════════════════════════════════════════════
+// GH #265 — the tape level port 0xFE latches
+// ══════════════════════════════════════════════════════════════════════
+//
+// port_fe_dat_0 is reloaded on every CLK_CPU falling edge from
+// `'1' & (i_AUDIO_EAR or port_fe_ear) & '1' & i_KBD_COL`
+// (zxnext.vhd:3455-3464), and the IN latches the reload made 2.5 T-states
+// into its I/O cycle (t80na.vhd:214-222, t80n.vhd:1781-1782): IN A,(n) has
+// its I/O cycle at 7 T, so it sees the tape level of T-state 9 of the
+// instruction. The TAP player used to be read as it stood at the
+// instruction's start; TZX/WAV at the live counter, 8 T in.
+namespace gh265_tape {
+
+std::string temp_path(const char* tag, const char* ext) {
+    return (std::filesystem::temp_directory_path() /
+            ("jnext_gh265_" + std::string(tag) + "_" + std::to_string(::getpid())
+             + ext)).string();
+}
+
+// One 19-byte header block: the real-time player starts its pilot at once.
+bool write_tap(const std::string& path) {
+    std::vector<uint8_t> hdr(19, 0);
+    hdr[1] = 3;
+    std::memcpy(&hdr[2], "probe     ", 10);
+    uint8_t p = 0;
+    for (int i = 0; i < 18; ++i) p ^= hdr[i];
+    hdr[18] = p;
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    const uint8_t len[2] = {19, 0};
+    f.write(reinterpret_cast<const char*>(len), 2);
+    f.write(reinterpret_cast<const char*>(hdr.data()), 19);
+    return static_cast<bool>(f);
+}
+
+// 8-bit mono at 3500 Hz — one sample per 1000 T-states — low for two
+// samples, then high: the interpolated crossing (WavLoader::get_ear_bit,
+// threshold at the centre) is 1504 T in.
+bool write_wav(const std::string& path) {
+    std::vector<uint8_t> w;
+    auto u32 = [&](uint32_t v) { for (int i = 0; i < 4; ++i) w.push_back((v >> (8 * i)) & 0xFF); };
+    auto u16 = [&](uint16_t v) { for (int i = 0; i < 2; ++i) w.push_back((v >> (8 * i)) & 0xFF); };
+    const uint8_t samples[10] = {0x00, 0x00, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+    for (char c : std::string("RIFF")) w.push_back(static_cast<uint8_t>(c));
+    u32(36 + 10);
+    for (char c : std::string("WAVEfmt ")) w.push_back(static_cast<uint8_t>(c));
+    u32(16); u16(1); u16(1); u32(3500); u32(3500); u16(1); u16(8);
+    for (char c : std::string("data")) w.push_back(static_cast<uint8_t>(c));
+    u32(10);
+    w.insert(w.end(), samples, samples + 10);
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    f.write(reinterpret_cast<const char*>(w.data()), static_cast<std::streamsize>(w.size()));
+    return static_cast<bool>(f);
+}
+
+// LD A,0xFF; @p nops x NOP; @p lds x LD D,0; IN A,(0xFE) — the IN starts at
+// 7 + 4*nops + 7*lds T-states. Runs it from a fresh machine with the tape
+// attached at T-state 0 and returns A.
+uint8_t in_fe_after(bool wav, const std::string& path, int nops, int lds) {
+    Emulator emu;
+    EmulatorConfig cfg;
+    cfg.type = MachineType::ZX48K;
+    cfg.rewind_buffer_frames = 0;
+    if (!emu.init(cfg)) return 0xEE;
+    const bool loaded = wav ? emu.load_wav(path) : emu.load_tap(path, false);
+    if (!loaded) return 0xEE;
+    uint16_t pc = 0x8000;
+    emu.mmu().write(pc++, 0x3E);
+    emu.mmu().write(pc++, 0xFF);
+    for (int i = 0; i < nops; ++i) emu.mmu().write(pc++, 0x00);
+    for (int i = 0; i < lds; ++i) { emu.mmu().write(pc++, 0x16); emu.mmu().write(pc++, 0x00); }
+    emu.mmu().write(pc++, 0xDB);
+    emu.mmu().write(pc++, 0xFE);
+    auto r = emu.cpu().get_registers();
+    r.PC = 0x8000;
+    emu.cpu().set_registers(r);
+    for (int i = 0; i < 1 + nops + lds + 1; ++i) emu.execute_single_instruction();
+    return static_cast<uint8_t>(emu.cpu().get_registers().AF >> 8);
+}
+
+}  // namespace gh265_tape
+
+static void test_gh265_tape_sample() {
+    set_group("GH265-TAPE");
+    using namespace gh265_tape;
+
+    // FE-GH265-01 — TAP real-time pilot: the first edge (EAR 0 -> 1) is
+    // 2168 T-states in (TapLoader::PILOT_PULSE). An IN starting at 2159
+    // latches T-state 2168: bit 6 set. One starting at 2158 latches 2167:
+    // clear. Pre-fix the IN at 2159 read the level at 2159: clear.
+    {
+        const std::string tap = temp_path("fe", ".tap");
+        const bool ok = write_tap(tap);
+        const uint8_t on_edge = in_fe_after(false, tap, 538, 0);   // IN at 2159
+        const uint8_t before  = in_fe_after(false, tap, 536, 1);   // IN at 2158
+        std::filesystem::remove(tap);
+        check("FE-GH265-01",
+              "port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 "
+              "reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; "
+              "t80na.vhd:214-222)",
+              ok && (on_edge & 0x40) != 0 && (before & 0x40) == 0,
+              "IN at 2159: " + hex2(on_edge) + " at 2158: " + hex2(before));
+    }
+
+    // FE-GH265-02 — WAV: the crossing is 1504 T in. An IN starting at 1495
+    // latches T-state 1504: bit 6 set; at 1494, T-state 1503: clear.
+    // Pre-fix the WAV was read at the live counter, 8 T into the IN
+    // (1503): clear.
+    {
+        const std::string wav = temp_path("fe", ".wav");
+        const bool ok = write_wav(wav);
+        const uint8_t on_edge = in_fe_after(true, wav, 372, 0);   // IN at 1495
+        const uint8_t before  = in_fe_after(true, wav, 370, 1);   // IN at 1494
+        std::filesystem::remove(wav);
+        check("FE-GH265-02",
+              "port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 "
+              "reload (zxnext.vhd:3455-3464; t80na.vhd:214-222)",
+              ok && (on_edge & 0x40) != 0 && (before & 0x40) == 0,
+              "IN at 1495: " + hex2(on_edge) + " at 1494: " + hex2(before));
+    }
+}
+
 int main() {
     std::printf("Input Subsystem Integration Tests (port 0xFE assembly)\n");
     std::printf("======================================================\n\n");
@@ -1145,6 +1271,9 @@ int main() {
 
     test_gh233_phantom_typist_reset(emu);
     std::printf("  Group: GH233-PHANTOM-RESET — done\n");
+
+    test_gh265_tape_sample();
+    std::printf("  Group: GH265-TAPE — done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

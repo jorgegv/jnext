@@ -50,6 +50,8 @@ void Im2Controller::reset() {
     last_acked_  = -1;
     legacy_mask_ = 0xFFFF;
 
+    reset_timing();
+
     // C-IM2: conservative — the first tick after reset runs in full and
     // recomputes the cache.
     quiescent_ = false;
@@ -240,6 +242,253 @@ void Im2Controller::tick(uint32_t tstates_for_pulse) {
     // Task 27 C-IM2 — after a full tick, decide whether the fabric has
     // settled into a state where subsequent ticks are no-ops.
     quiescent_ = compute_quiescent();
+}
+
+// -----------------------------------------------------------------------------
+// GH #265 — exact timing. See the header block above raise_req(DevIdx,
+// uint64_t) for the VHDL pipeline these functions resolve.
+// -----------------------------------------------------------------------------
+
+namespace {
+
+// The first CPU rising edge strictly after @p t, on the grid of CPU edges
+// through @p grid spaced @p d apart. Strictly: pulse_int_n falls on the
+// CLK_28 falling edge t + 0.5, so a CPU edge at t itself samples it high.
+uint64_t first_cpu_edge_after(uint64_t t, uint64_t grid, uint32_t d) {
+    if (t >= grid) return grid + ((t - grid) / d + 1) * d;
+    return grid - ((grid - t - 1) / d) * d;
+}
+
+}  // namespace
+
+void Im2Controller::latch_edges_until(uint64_t edge, uint64_t grid, uint32_t d) {
+    if (d == 0) d = 1;
+    struct Ev { uint64_t te; int dev; bool unq; };
+    Ev ev[2 * N];
+    int n = 0;
+    for (int i = 0; i < N; ++i) {
+        const Device& dv = dev_[i];
+        // An untimed request (raise_req(d) / raise_unq(d)) is taken as raised
+        // on the instruction's first edge.
+        if (dv.int_req && !dv.int_req_d) {
+            const uint64_t te = (dv.req_at == kNoTime) ? grid : dv.req_at;
+            if (te <= edge) ev[n++] = Ev{te, i, false};
+        }
+        if (dv.int_unq) {
+            const uint64_t te = (dv.unq_at == kNoTime) ? grid : dv.unq_at;
+            if (te <= edge) ev[n++] = Ev{te, i, true};
+        }
+    }
+    if (n == 0) return;
+    // Edge order; equal edges keep priority order (stable insertion sort).
+    for (int a = 1; a < n; ++a) {
+        const Ev x = ev[a];
+        int b = a - 1;
+        while (b >= 0 && ev[b].te > x.te) { ev[b + 1] = ev[b]; --b; }
+        ev[b + 1] = x;
+    }
+    const uint64_t width = machine_48_or_p3_ ? 32u : 36u;   // zxnext.vhd:2033
+    for (int k = 0; k < n; ++k) {
+        const Ev& e = ev[k];
+        Device& dv = dev_[e.dev];
+
+        // Pulse fabric (zxnext.vhd:2017-2031): a pulse whose count has ended
+        // by this edge's falling edge has returned pulse_int_n to '1'.
+        const uint64_t pulse_te = e.te < grid ? grid : e.te;
+        if (!pulse_int_n_ && pulse_timed_ && pulse_te >= pulse_en_ + 1) {
+            pulse_int_n_ = true;
+            pulse_count_ = 0;
+        }
+
+        // Wrapper (im2_peripheral.vhd:154-178): the status bit on any edge
+        // or unq; im2_int_req on an enabled edge or unq, held low in pulse
+        // mode (im2_reset_n, :105).
+        const bool qualified = e.unq || dv.int_en;
+        dv.int_status = true;
+        dv.status_at  = e.te + 1;
+        if (im2_mode_ && qualified) {
+            dv.im2_int_req = true;
+            dv.im2_req_at  = e.te + 1;
+        }
+
+        // o_pulse_en (im2_peripheral.vhd:184-194), taken only while
+        // pulse_int_n is '1' (zxnext.vhd:2023-2026).
+        bool pulse_en = false;
+        if (qualified) {
+            pulse_en = dv.exception ? (!im2_mode_ || im_mode_ != 2) : !im2_mode_;
+        }
+        if (pulse_en && pulse_int_n_) {
+            pulse_int_n_   = false;
+            pulse_count_   = 0;
+            pulse_timed_   = true;
+            pulse_te_      = pulse_te;
+            pulse_e1_      = first_cpu_edge_after(pulse_te, grid, d);
+            pulse_en_      = pulse_e1_ + (width - 1) * d;
+            pulse_d_       = d;
+            pulse_started_ = true;
+        }
+
+        // Consumed: the one-cycle pulse has passed through the edge detect.
+        if (e.unq) {
+            dv.int_unq = false;
+            dv.unq_at  = kNoTime;
+        } else {
+            dv.int_req   = false;
+            dv.int_req_d = false;
+            dv.req_at    = kNoTime;
+        }
+    }
+    quiescent_ = false;
+}
+
+void Im2Controller::tick(uint32_t tstates_for_pulse, uint64_t slot_start,
+                         uint64_t slot_end, uint32_t d, uint32_t m1_cycles) {
+    // Task 27 C-IM2 — the same early-out as tick(tstates): quiescent means
+    // no request pending, no pulse low and nothing for the state machines,
+    // so there is nothing to resolve on any timeline either.
+    if (quiescent_ && !reti_seen_pulse_) {
+        pulse_count_advance_ = tstates_for_pulse;
+        return;
+    }
+    if (d == 0) d = 1;
+    const uint64_t width = machine_48_or_p3_ ? 32u : 36u;
+    // A pulse started by the counting tick (a snapshot from before the exact
+    // timing) is placed on the timeline: pulse_count_ CPU edges counted, the
+    // last of them at this instruction's start.
+    if (!pulse_int_n_ && !pulse_timed_) {
+        const uint64_t counted = pulse_count_ ? pulse_count_ - 1u : 0u;
+        pulse_e1_    = slot_start >= counted * d ? slot_start - counted * d : 0;
+        pulse_te_    = pulse_e1_ ? pulse_e1_ - 1 : 0;
+        pulse_en_    = pulse_e1_ + (width - 1) * d;
+        pulse_d_     = d;
+        pulse_timed_ = true;
+    }
+    latch_edges_until(slot_end, slot_start, d);
+    // pulse_int_n rises on the falling edge after edge pulse_en_; seen from
+    // the edge ending this instruction it is high once that has passed.
+    if (!pulse_int_n_ && pulse_timed_) {
+        if (slot_end >= pulse_en_ + 1) {
+            pulse_int_n_ = true;
+            pulse_count_ = 0;
+        } else if (slot_end >= pulse_e1_) {
+            pulse_count_ = static_cast<uint8_t>((slot_end - pulse_e1_) / d + 1);
+        }
+    }
+    timed_tick_ = true;
+    tick_grid_  = slot_start;
+    tick_end_   = slot_end;
+    tick_d_     = d;
+    tick_m1_    = m1_cycles;
+    tick(tstates_for_pulse);
+    timed_tick_ = false;
+}
+
+uint64_t Im2Controller::sreq_edge_after(uint64_t edge) const {
+    const uint64_t d = tick_d_;
+    // The first CPU edge of the instruction at the earliest: a latch older
+    // than it met a device that was not in S_0 until now.
+    uint64_t e = tick_grid_ + d;
+    if (edge >= tick_grid_) {
+        const uint64_t after = tick_grid_ + ((edge - tick_grid_) / d + 1) * d;
+        if (after > e) e = after;
+    }
+    // M1_n is low for T1 and T2 of an opcode fetch (t80n.vhd:1761,
+    // 1788 set it low from the edge starting T1, :1729-1731 high again on
+    // the edge ending T2): the state machine sees i_m1_n = '0' before the edges
+    // ending those two T-states.
+    for (;;) {
+        bool blocked = false;
+        if (e > tick_grid_ && e <= tick_end_) {
+            const uint64_t t = (e - tick_grid_) / d;      // edge ends T-state t-1
+            const uint64_t k = (t - 1) / 4;
+            blocked = k < tick_m1_ && ((t - 1) % 4) < 2;
+        } else if (e > tick_end_ && e <= tick_end_ + 2 * d) {
+            blocked = true;                               // the next opcode fetch
+        }
+        if (!blocked) return e;
+        e += d;
+    }
+}
+
+void Im2Controller::set_cpu_divisor(uint64_t now, uint32_t d) {
+    if (pulse_int_n_ || !pulse_timed_ || d == 0 || pulse_d_ == 0 || pulse_d_ == d)
+        return;
+    // Every edge still to come stays the same number of CPU edges away.
+    auto re_place = [&](uint64_t e) {
+        if (e <= now) return e;
+        return now + ((e - now + pulse_d_ - 1) / pulse_d_) * d;
+    };
+    pulse_e1_ = re_place(pulse_e1_);
+    pulse_en_ = re_place(pulse_en_);
+    pulse_d_  = d;
+}
+
+bool Im2Controller::pulse_low_before(uint64_t edge) const {
+    if (!pulse_timed_) return !pulse_int_n_;
+    // Low on (pulse_te_ + 0.5, pulse_en_ + 0.5): a register clocked on
+    // `edge` captures it low for pulse_te_ + 1 <= edge <= pulse_en_.
+    return pulse_te_ + 1 <= edge && edge <= pulse_en_;
+}
+
+uint64_t Im2Controller::int_line_low_since() const {
+    if (!im2_mode_ || im_mode_ != 2) return kNoTime;
+    uint64_t since = kNoTime;
+    for (int i = 0; i < N; ++i) {
+        if (dev_[i].state != DevState::S_REQ) continue;
+        const bool iei = (i == 0) ? true : device_ieo(i - 1);
+        if (iei && dev_[i].sreq_at < since) since = dev_[i].sreq_at;
+    }
+    return since;
+}
+
+void Im2Controller::reset_timing() {
+    for (int i = 0; i < N; ++i) {
+        Device& dv = dev_[i];
+        dv.req_at     = kNoTime;
+        dv.unq_at     = kNoTime;
+        dv.status_at  = 0;
+        dv.im2_req_at = 0;
+        dv.sreq_at    = 0;
+    }
+    pulse_timed_   = false;
+    pulse_te_      = 0;
+    pulse_e1_      = 0;
+    pulse_en_      = 0;
+    pulse_d_       = 0;
+    pulse_started_ = false;
+}
+
+void Im2Controller::save_timing(StateWriter& w) const {
+    for (int i = 0; i < N; ++i) {
+        const Device& dv = dev_[i];
+        w.write_u64(dv.req_at);
+        w.write_u64(dv.unq_at);
+        w.write_u64(dv.status_at);
+        w.write_u64(dv.im2_req_at);
+        w.write_u64(dv.sreq_at);
+    }
+    w.write_bool(pulse_timed_);
+    w.write_u64(pulse_te_);
+    w.write_u64(pulse_e1_);
+    w.write_u64(pulse_en_);
+    w.write_u32(pulse_d_);
+}
+
+void Im2Controller::load_timing(StateReader& r) {
+    for (int i = 0; i < N; ++i) {
+        Device& dv = dev_[i];
+        dv.req_at     = r.read_u64();
+        dv.unq_at     = r.read_u64();
+        dv.status_at  = r.read_u64();
+        dv.im2_req_at = r.read_u64();
+        dv.sreq_at    = r.read_u64();
+    }
+    pulse_timed_ = r.read_bool();
+    pulse_te_    = r.read_u64();
+    pulse_e1_    = r.read_u64();
+    pulse_en_    = r.read_u64();
+    pulse_d_     = r.read_u32();
+    quiescent_   = false;
 }
 
 // -----------------------------------------------------------------------------
@@ -532,8 +781,19 @@ void Im2Controller::on_retn() {
 // edge-detected pulse "int_req" (line 101), which means the set happens in the
 // wrapper step, not immediately on input assertion. See step_devices().
 void Im2Controller::raise_req(DevIdx d) {
-    dev_[static_cast<int>(d)].int_req = true;
+    Device& dv = dev_[static_cast<int>(d)];
+    if (!dv.int_req) dv.req_at = kNoTime;   // untimed: resolved at the tick
+    dv.int_req = true;
     quiescent_ = false;   // C-IM2 mutator invalidation
+}
+
+// GH #265 — timed raise. Two raises before the edge is resolved are one
+// int_req edge; the earlier time is the one the fabric reacts to.
+void Im2Controller::raise_req(DevIdx d, uint64_t at) {
+    Device& dv = dev_[static_cast<int>(d)];
+    if (!dv.int_req || dv.req_at == kNoTime || at < dv.req_at) dv.req_at = at;
+    dv.int_req = true;
+    quiescent_ = false;
 }
 
 // clear_req(): peripheral deasserts i_int_req. Normally paired with isr_serviced.
@@ -556,7 +816,21 @@ void Im2Controller::raise_unq(DevIdx d) {
     dv.int_unq     = true;    // one-shot latch
     dv.int_status  = true;    // vhdl:160  int_status <= (int_req or i_int_unq) | ...
     dv.im2_int_req = true;    // vhdl:172  bypasses i_int_en
+    dv.unq_at      = kNoTime;
+    dv.status_at   = 0;
+    dv.im2_req_at  = 0;
     quiescent_ = false;       // C-IM2 mutator invalidation
+}
+
+// GH #265 — timed unqualified pulse: nr_20_we is high during the cycle edge
+// @p at starts (zxnext.vhd:1946-1947), so the status and im2_int_req latches
+// set on edge at+1 and the pulse falls on the falling edge at+0.5.
+void Im2Controller::raise_unq(DevIdx d, uint64_t at) {
+    raise_unq(d);
+    Device& dv = dev_[static_cast<int>(d)];
+    dv.unq_at     = at;
+    dv.status_at  = at + 1;
+    dv.im2_req_at = at + 1;
 }
 
 // clear_status(): i_int_status_clear one-shot from NR 0xC8/C9/CA writes.
@@ -571,12 +845,30 @@ void Im2Controller::clear_status(DevIdx d) {
     quiescent_ = false;   // C-IM2 mutator invalidation
 }
 
+// GH #265 — timed clear on edge @p at_edge. VHDL :160 gives a request that
+// sets the status on that same edge priority over the clear.
+void Im2Controller::clear_status(DevIdx d, uint64_t at_edge) {
+    Device& dv = dev_[static_cast<int>(d)];
+    if (dv.status_at < at_edge) dv.int_status = false;
+    quiescent_ = false;
+}
+
 // int_status(): o_int_status composite per VHDL im2_peripheral.vhd:180
 // (o_int_status <= int_status OR im2_int_req). This is the bit exposed to
 // software via NR 0xC8/C9/CA reads.
 bool Im2Controller::int_status(DevIdx d) const {
     const Device& dv = dev_[static_cast<int>(d)];
     return dv.int_status || dv.im2_int_req;
+}
+
+// GH #265 — o_int_status as a register clocked on edge @p edge captures it:
+// the value during the cycle before that edge, so a latch set on edge
+// `edge` itself is not seen yet.
+bool Im2Controller::int_status(DevIdx d, uint64_t edge) const {
+    if (edge == kNoTime) return int_status(d);
+    const Device& dv = dev_[static_cast<int>(d)];
+    return (dv.int_status  && dv.status_at  < edge)
+        || (dv.im2_int_req && dv.im2_req_at < edge);
 }
 
 // -----------------------------------------------------------------------------
@@ -587,9 +879,12 @@ bool Im2Controller::int_status(DevIdx d) const {
 // established at zxnext.vhd:1941-1944).
 // -----------------------------------------------------------------------------
 uint8_t Im2Controller::int_status_mask_c8() const {
+    return int_status_mask_c8(kNoTime);
+}
+uint8_t Im2Controller::int_status_mask_c8(uint64_t edge) const {
     uint8_t v = 0;
-    if (int_status(DevIdx::LINE)) v |= 0x02;   // bit 1 = LINE
-    if (int_status(DevIdx::ULA))  v |= 0x01;   // bit 0 = ULA
+    if (int_status(DevIdx::LINE, edge)) v |= 0x02;   // bit 1 = LINE
+    if (int_status(DevIdx::ULA, edge))  v |= 0x01;   // bit 0 = ULA
     return v;
 }
 
@@ -601,15 +896,18 @@ uint8_t Im2Controller::int_status_mask_c8() const {
 // (zxnext.vhd:4092) so bits 4..7 of the byte are always 0 in practice.
 // -----------------------------------------------------------------------------
 uint8_t Im2Controller::int_status_mask_c9() const {
+    return int_status_mask_c9(kNoTime);
+}
+uint8_t Im2Controller::int_status_mask_c9(uint64_t edge) const {
     uint8_t v = 0;
-    if (int_status(DevIdx::CTC0)) v |= 0x01;
-    if (int_status(DevIdx::CTC1)) v |= 0x02;
-    if (int_status(DevIdx::CTC2)) v |= 0x04;
-    if (int_status(DevIdx::CTC3)) v |= 0x08;
-    if (int_status(DevIdx::CTC4)) v |= 0x10;
-    if (int_status(DevIdx::CTC5)) v |= 0x20;
-    if (int_status(DevIdx::CTC6)) v |= 0x40;
-    if (int_status(DevIdx::CTC7)) v |= 0x80;
+    if (int_status(DevIdx::CTC0, edge)) v |= 0x01;
+    if (int_status(DevIdx::CTC1, edge)) v |= 0x02;
+    if (int_status(DevIdx::CTC2, edge)) v |= 0x04;
+    if (int_status(DevIdx::CTC3, edge)) v |= 0x08;
+    if (int_status(DevIdx::CTC4, edge)) v |= 0x10;
+    if (int_status(DevIdx::CTC5, edge)) v |= 0x20;
+    if (int_status(DevIdx::CTC6, edge)) v |= 0x40;
+    if (int_status(DevIdx::CTC7, edge)) v |= 0x80;
     return v;
 }
 
@@ -624,10 +922,13 @@ uint8_t Im2Controller::int_status_mask_c9() const {
 // AND 0). We mirror that exact pattern.
 // -----------------------------------------------------------------------------
 uint8_t Im2Controller::int_status_mask_ca() const {
-    const bool u1tx = int_status(DevIdx::UART1_TX);
-    const bool u1rx = int_status(DevIdx::UART1_RX);
-    const bool u0tx = int_status(DevIdx::UART0_TX);
-    const bool u0rx = int_status(DevIdx::UART0_RX);
+    return int_status_mask_ca(kNoTime);
+}
+uint8_t Im2Controller::int_status_mask_ca(uint64_t edge) const {
+    const bool u1tx = int_status(DevIdx::UART1_TX, edge);
+    const bool u1rx = int_status(DevIdx::UART1_RX, edge);
+    const bool u0tx = int_status(DevIdx::UART0_TX, edge);
+    const bool u0rx = int_status(DevIdx::UART0_RX, edge);
     uint8_t v = 0;
     if (u1tx) v |= 0x40;   // bit 6 = UART1 TX
     if (u1rx) v |= 0x30;   // bits 5,4 = UART1 RX (duplicated per VHDL)
@@ -1219,6 +1520,16 @@ void Im2Controller::step_state_machine_with_iei(int i, bool iei) {
             // (Agent D), driven true by int_unq OR (int_req AND int_en).
             if (d.im2_int_req) {
                 d.state = DevState::S_REQ;
+                // GH #265 — the CPU rising edge it happens on: the first one
+                // after im2_int_req was set (a CLK_CPU register sees the
+                // CLK_28 latch only once it has settled). A latch older than
+                // this instruction (the device was not in S_0 then) is taken
+                // on the instruction's first edge.
+                if (timed_tick_) {
+                    d.sreq_at = sreq_edge_after(d.im2_req_at);
+                } else {
+                    d.sreq_at = 0;
+                }
             }
             break;
 
@@ -1311,6 +1622,11 @@ void Im2Controller::step_state_machine_with_iei(int i, bool iei) {
 // documents this hand-off ("cleared by the pulse fabric (Agent C, Wave 2)").
 // -----------------------------------------------------------------------------
 void Im2Controller::step_pulse() {
+    // GH #265 — in a timed tick every request was already resolved, pulse
+    // included, by latch_edges_until(), and the pulse ends on its own
+    // timeline (tick(tstates, slot_start, slot_end, d)).
+    if (timed_tick_) return;
+
     // Compute pulse_int_en = OR-reduction of per-device o_pulse_en.
     bool pulse_en = false;
     for (int i = 0; i < N; ++i) {
@@ -1567,6 +1883,11 @@ void Im2Controller::load_state(StateReader& r) {
 
     last_acked_  = r.read_i32();
     legacy_mask_ = r.read_u16();
+
+    // GH #265 — the timing fields travel in a block appended at the end of
+    // the Emulator stream (Emulator::load_state reads it when present);
+    // an older snapshot leaves them at their untimed defaults.
+    reset_timing();
 
     // C-IM2: derived cache, not part of the schema — recomputed by the
     // first post-load tick.

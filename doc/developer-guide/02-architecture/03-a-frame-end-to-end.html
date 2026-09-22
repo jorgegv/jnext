@@ -1898,27 +1898,42 @@ body. It picks exactly one of four things to do:</p>
 <li>If a NEX boot hold is still counting down, likewise.</li>
 <li>Otherwise, execute one Z80 instruction.</li>
 </ul>
-<p>Around that choice it also records the trace entry, ticks <code>Im2Controller</code>,
-polls the /INT line in both IM2 and pulse modes, counts RZX instructions, ticks
-real-time tape playback, and advances the master clock. All of that is shared
-verbatim with <code>execute_single_instruction()</code>, and the sharing was not free: the
-debugger's single-step once kept its own copy of this cluster, silently lost
-<code>im2_.tick()</code> and both /INT polls, and so delivered no interrupts at all while
-you were stepping.</p>
+<p>Around that choice it also records the trace entry, notes what the end-of-slot
+interrupt tick will need (the instruction's T-states, its first edge, its opcode
+fetches), counts RZX instructions, ticks real-time tape playback, and advances
+the master clock. All of that is shared verbatim with
+<code>execute_single_instruction()</code>, and the sharing was not free: the debugger's
+single-step once kept its own copy of this cluster, silently lost the IM2 tick
+and both /INT polls, and so delivered no interrupts at all while you were
+stepping.</p>
 <p><strong>Then a data-breakpoint check</strong>, which returns early if one fired.</p>
 <p><strong>Finally <code>tick_devices_after_instruction(master_cycles)</code></strong> (<code>:8045</code>), the
 shared post-instruction cluster. Its order matters: the Copper is stepped at
 28 MHz granularity across the window the instruction consumed; the deferred CPU
 NextREG writes are drained, so that a same-register collision ends up holding
 the CPU's value exactly as the VHDL does; the NR 0x07 and NR 0x08 bit-6 commit
-edges are applied; CTC, UART and MD6 are ticked; the I/O-mode injectors run;
-the NMI source pipeline and the /NMI falling edge are handled; PSG ticking and
-audio integration happen; and last of all <code>scheduler_.run_until(clock_.get())</code>
-is called.</p>
-<p>That final call is where the scheduled events actually fire, and it has a
+edges are applied; CTC, UART and MD6 are ticked for whatever part of the
+instruction a port access inside it has not already brought them through; the
+I/O-mode injectors run; the NMI source pipeline and the /NMI falling edge are
+handled; PSG ticking and audio integration happen; <code>run_scheduled_until(clock_)</code>
+drains the scheduler and the separate queue that holds the ULA frame and line
+interrupt requests; and last of all <code>finish_slot_interrupts()</code> ticks the IM2
+fabric for the instruction and hands the CPU the exact /INT window for the
+next boundary.</p>
+<p>The scheduler drain is where the scheduled events actually fire, and it has a
 consequence worth internalising: <strong><code>on_scanline</code> and the interrupt callbacks
 run at instruction boundaries</strong>, on the first instruction that carries the
 clock past their timestamp — not at the exact cycle they were scheduled for.</p>
+<p>For interrupts that is not the whole story (GH #265). Every request — frame and
+line interrupt, CTC ZC/TO, UART — carries the CLK_28 edge it happened on, and
+because the IM2 tick runs <em>after</em> the devices and the event queues, the fabric
+resolves the instruction's own requests on that timeline and the CPU takes an
+interrupt at the first boundary whose last T-state samples it (see the CPU
+page). A port read or write whose value depends on these devices — CTC, UART,
+the interrupt-status NextREGs, the tape EAR bit — first brings them up to the
+edge its bus cycle latches or commits on (<code>Emulator::sync_io_devices_to()</code>),
+so it sees what the VHDL register holds at that edge; the rest of the
+instruction is ticked afterwards, so every edge is ticked exactly once.</p>
 <p><code>Emulator::on_scanline(line)</code> (<code>:9092</code>) renders nothing at all. What it does is
 capture the previous row's per-line render state through
 <code>snapshot_row_render_state()</code> — fallback colour, ULA-enable, stencil and blend

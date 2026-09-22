@@ -53,7 +53,14 @@ public:
     /// Drain and execute all events whose cycle <= target_cycle.
     /// Events are executed in cycle order; multiple events at the same
     /// cycle are processed in FIFO insertion order (stable).
-    void run_until(uint64_t target_cycle);
+    ///
+    /// Inline because the Emulator drains its queues after every
+    /// instruction, and nearly always finds nothing due.
+    void run_until(uint64_t target_cycle) {
+        while (!queue_.empty() && queue_.top().cycle <= target_cycle) {
+            run_top();
+        }
+    }
 
     /// Remove all pending events.
     void reset();
@@ -65,6 +72,9 @@ public:
     uint64_t next_cycle() const { return queue_.top().cycle; }
 
 private:
+    /// Pop the earliest event and run its callback.
+    void run_top();
+
     using MinHeap = std::priority_queue<Event, std::vector<Event>, std::greater<Event>>;
     MinHeap queue_;
 };

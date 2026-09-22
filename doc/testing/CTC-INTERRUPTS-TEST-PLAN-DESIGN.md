@@ -570,6 +570,89 @@ architecturally dead — nothing can raise them (`:4092` ties
 `ctc_zc_to(7 downto 4)` low too). `CTC-CW-INTEN-03` pins CTC7 as a
 negative control rather than as live support.
 
+## GH #265 — interrupt and CTC timing inside an instruction (2026-09-22)
+
+The IM2 fabric used to be ticked straight after each CPU instruction, before
+the devices (CTC, UART) and the frame/line interrupt events were ticked for
+it, so a request raised during an instruction reached the fabric one
+instruction late and the CPU took it one instruction after that; an
+interrupt-status or pulse read inside an instruction saw the fabric, and a CTC
+read the counter, as of the instruction's start. Now every request carries the
+CLK_28 edge it happened on, the fabric is ticked after the devices and resolves
+requests on that timeline, and a port access that depends on these devices
+first brings them up to the edge its bus cycle latches or commits on. The
+timeline the rows pin:
+
+- a request raised at edge te has int_req high for [te, te+1)
+  (`im2_peripheral.vhd:90-101`); int_status and im2_int_req set on te+1
+  (`:154-178`); pulse_int_n falls on the CLK_28 falling edge te+0.5 and rises
+  after pulse_count, advanced on CPU rising edges, reaches 32/36
+  (`zxnext.vhd:2017-2044`); a new request only starts a pulse once
+  pulse_int_n is back at '1';
+- the ULA frame interrupt int_ula and the line interrupt int_line are
+  registered on CLK_7 (`zxula_timing.vhd:548-557, 574-583`): te = compare
+  position + 4 master cycles;
+- the T80 samples INT_n into INT_s on every CPU rising edge (`t80n.vhd:1664`)
+  and takes the interrupt at the edge ending an instruction with the INT_s from
+  the start of its last T-state (`:1742-1772`, not straight after EI: `:1768`);
+- in hardware IM2 mode a device enters S_REQ on the first CPU edge after its
+  latch with M1_n high (`im2_device.vhd:91-107`; M1_n low for T1-T2 of each
+  opcode fetch, `t80n.vhd:1729-1731, 1761, 1788`), o_int_n low from then
+  (`:150`);
+- an IN from 0x253B latches port_253b_dat_0 as reloaded 2.5 T-states into its
+  I/O cycle, which took port_253b_dat on the CLK_28 edge before
+  (`zxnext.vhd:5871-5882`); an IN from a CTC port latches port_ctc_dat, reloaded
+  from t_count on the same CLK_CPU falling edge (`:4095-4100`);
+- a port write is taken on the CLK_28 edge after IORQ+WR assert
+  (`t80na.vhd:148-150`; `ctc_chan.vhd:246-254`), a NextREG write one edge
+  later (cpu_req, `zxnext.vhd:4747-4777`);
+- CTC channel edges: one S_TRIGGER edge after a constant from S_RESET_TC
+  (`ctc_chan.vhd:214-226`, p_count held at 0, `:117, 134-139`), a running
+  channel's constant loaded only at the next ZC/TO (`:158-164`), a stopped
+  channel reloading its constant every edge (`:158-160`), and a ZC/TO reaching
+  the next channel through clk_trg_d — two edges later with a falling-edge
+  trigger, one with a rising one (`:115-127, 173-182`).
+
+Rows in `test/ctc_interrupts/ctc_interrupts_test.cpp` (groups GH265-INT,
+GH265-ISC, GH265-CTC) and `test/ctc/ctc_test.cpp` (CTC-CH-GH265-01/02):
+
+| ID | Test | Expected |
+|----|------|----------|
+| INT-GH265-01 | 48K pulse mode, ISR entry after HALT for the four HALT phases (window from 60 T: te = 468, E_1 = 472) | entries 79, 82, 81, 80 T (pre-fix 83, 82, 81, 84) |
+| INT-GH265-02 | 128K pulse mode, same sweep (te = 2340, E_1 = 2344, window from 294 T) | entries 315, 314, 313, 316 (pre-fix 315, 318, 317, 316) |
+| INT-GH265-03 | hardware IM2 mode, 48K, same sweep: S_REQ on the first M1_n-high CPU edge after edge 469, taken at B >= E_req + 16 | entries 83, 82, 85, 84 (pre-fix and without the M1 gate 83, 82, 81, 84) |
+| INT-GH265-04 | 48K window end: EI; NOP puts the first enabled boundary at 91 T / 92 T | taken at 91 (entry 110), not at 92 (pre-fix both) |
+| INT-GH265-05 | 128K window end (36 CPU edges): boundary 329 T / 330 T | taken at 329 (entry 348), not at 330 |
+| INT-GH265-06 | CTC0 pulse raised 20 T before the frame end with interrupts off, enabled after the frame edge | taken after the edge (pre-fix dropped) |
+| INT-GH265-10 | the INT-GH265-06 pulse saved at the frame edge and loaded into another 48K machine, interrupts enabled after the load | taken at its first boundary (window written absolute: a frame late) |
+| INT-GH265-11 | Next, CTC0 pulse raised at 3.5 MHz with interrupts off; NR 0x07 = 3 committed 8 CPU edges into the pulse (28 remain, last boundary 29 T on); interrupts enabled after k NOPs at 28 MHz | k = 2: taken, pulse still low; k = 10: not taken, pulse_int_n high (`zxnext.vhd:2035-2044` counts CPU edges) |
+| INT-GH265-12 | INT-GH265-07's EI as the frame's last instruction, snapshot saved there and loaded into another 48K machine | the NOP after EI runs, the IntAck follows (EI stamp saved as a counter value: taken at once) |
+| INT-GH265-07 | EI ending on the frame edge with a pulse pending | the next instruction runs (EI grace), the one after is the IntAck |
+| INT-GH265-08 | hardware IM2 mode, CPU in IM 1, ULA request (EXCEPTION pulse) | CPU restarts at 0x0038 (pre-fix never) |
+| INT-GH265-09 | OUT (C),A of NR 0x20 = 0x40 (unqualified ULA request) | taken at the boundary after the OUT (pre-fix one instruction later) |
+| ISC-GH265-01 | NR 0xC8 IN A,(C) with the ULA request at Sn-2 / Sn-1 (Sn = start + 83) | 0x01 / 0x00 (pre-fix 0x00 / 0x00) |
+| ISC-GH265-02 | 48K frame interrupt polled by IN A,(C) of NR 0xC8 from the frame start, first IN at 48 T / 49 T | 2 INs / 1 IN (pre-fix 2 / 2) |
+| ISC-GH265-03 | NR 0x22 bit 7 with the ULA request at Sn-1 / Sn (pulse falls at te+0.5) | set / clear |
+| ISC-GH265-04 | NR 0x22 bit 7 at the pulse's last low edge E_N / E_N+1 | set / clear |
+| ISC-GH265-05 | OUT of 0x01 to NR 0xC8 (commit edge start+74) against a ULA request at 72 / 73 | cleared / survives (pre-fix both cleared) |
+| ISC-GH265-06 | OUT of 0x01 to NR 0xC5 (commit start+74), hardware IM2 mode, CTC0 request at 73 / 74 | CTC0 S_0 / S_REQ (pre-fix both S_REQ) |
+| ISC-GH265-07 | 48K line interrupt NR 0x23 = 10: compare at (73*448+372)*4, int_line from +4; NR 0xC8 IN starting 132227 / 132226 | bit 1 set / clear |
+| ISC-GH265-08 | CTC0 request on the pulse's last low edge E_N / E_N+1 | no new pulse / a new pulse (NR 0x22 bit 7 clear / set at 5300) |
+| CTC-RD-GH265-01 | OUT-programmed timer /16 TC=0x80 read by IN A,(C) 55 T in (commit edge 361, counts 378+16k, load edge 523) | 0x76 (pre-fix 0x77) |
+| CTC-RD-GH265-02 | channel programmed outside, IN A,(C) with load edge on a count edge (817) / one before (816) | 0x4D / 0x4E (pre-fix 0x5B) |
+| CTC-WR-GH265-01 | OUT of TC=8 at start 5000: commit 5073, ZC/TO 5202, status set 5203; NR 0xC9 read loading at 5204 / 5203 | bit 0 set / clear |
+| CTC-CH-GH265-01 | ch0 timer TC=1 fires on edge 17; ch1 counter with a rising-edge trigger (D4=1) | ch1 counts on 18 (falling edge: 19, CTC-CH-01) |
+| CTC-CH-GH265-02 | ch0 timer TC=1 fires on edge 17 and is soft-reset straight after; ch1 counter, falling-edge trigger (`zc_to_d` is cleared only by `reset_hard`, and the receiver's `clk_trg_d` takes it: `ctc_chan.vhd:115-127,173-182`) | ch1 still counts on 19 (0x03 on 18, 0x02 on 19) |
+
+Existing rows re-derived to the same edges (the old expectations were the
+per-cycle model's, not the VHDL's): `CTC-SM-04`, `CTC-SM-06`, `CTC-TM-01`..
+`CTC-TM-08`, `CTC-TM-G120-01`, `IM2W-G119-01`, `CTC-C1-ACC-01` gain the
+S_TRIGGER edge (first count on edge 17, not 16); `CTC-CH-01`..`CTC-CH-05` and
+`CTC-C1-ACC-02/03` the two-edge chain delay; `CTC-SM-08`, `CTC-SM-09` and
+`CTC-TM-G120-01` expect the running count to carry on after a constant written
+in S_RUN_TC (the new constant loads at the next ZC/TO); `CTC-SM-10` expects a
+stopped channel to read back its constant.
+
 ## Special Handling
 
 ### Clock domain crossing
@@ -584,7 +667,10 @@ correctly under various CPU clock speeds (3.5 MHz, 7 MHz, 14 MHz, 28 MHz).
 
 The CTC prescaler runs on the 28 MHz clock. Prescaler = 16 means the counter
 decrements every 16 system clocks (571.4 ns). Prescaler = 256 means every
-256 system clocks (9.14 us). Tests must use cycle-accurate counting.
+256 system clocks (9.14 us). Tests must use cycle-accurate counting — and
+count the one S_TRIGGER edge after a time constant written from S_RESET_TC,
+which puts a timer's first count on the 17th (/16) or 257th (/256) edge after
+the write (GH #265, `ctc_chan.vhd:214-226`).
 
 ### Edge detection on write signals
 
@@ -596,7 +682,9 @@ writes. Tests must verify this single-pulse behaviour.
 
 The CTC data output is latched on the falling edge of CLK_CPU:
 `port_ctc_dat <= ctc_do` on `falling_edge(i_CLK_CPU)`. Tests reading CTC
-ports must account for this half-cycle delay.
+ports must account for this half-cycle delay: an IN latches the reload made
+2.5 T-states into its I/O cycle, so IN A,(C) reads the count after edge
+start + 83 at 3.5 MHz (GH #265, CTC-RD-GH265-01/02).
 
 ## File Layout
 
@@ -673,7 +761,8 @@ bash test/regression.sh
 | 15. DMA Interrupt | 6 | DMA delay, NMI interaction |
 | 16. Unqualified Int | 5 | Bypass enable, NextREG 0x20 |
 | 17. Joystick IO Mode | 2 | CTC ch3 ZC/TO toggle |
-| **Total** | **~163** | |
+| GH #265 timing | 25 | INT sampling, status/pulse reads, ordered writes, CTC port and chain edges |
+| **Total** | **~188** | |
 
 ## Planned rows carried over from the traceability matrix (GH #196)
 
@@ -696,5 +785,5 @@ which is what they are.
 The matrix is a generated artifact now and carries no prose of its own; it
 links here instead. These notes were written alongside the rows they explain.
 
-Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5. `ctc_test.cpp` moved from `150/44/0/106` to `133/128/0/5` **as of that merge**; it runs at `132 / 132 pass / 0 fail / 0 skip` today. 17 rows migrated from `check()`/`skip()` to source-level re-home or category-merge comments. NR-C0-02 was subsequently closed by GH #84 and now passes in `atic_atac_nmi_test` ATIC-NMI-02. See `doc/testing/audits/task3-ctc-phase5.md` for the historical row-by-row rationale.
+Task 3 SKIP-reduction plan (`doc/design/TASK3-CTC-INTERRUPTS-SKIP-REDUCTION-PLAN.md`) landed 2026-04-21 Phase 0 → 5. `ctc_test.cpp` moved from `150/44/0/106` to `133/128/0/5` **as of that merge**; it runs at `134 / 134 pass / 0 fail / 0 skip` today (GH #265 added CTC-CH-GH265-01/02). 17 rows migrated from `check()`/`skip()` to source-level re-home or category-merge comments. NR-C0-02 was subsequently closed by GH #84 and now passes in `atic_atac_nmi_test` ATIC-NMI-02. See `doc/testing/audits/task3-ctc-phase5.md` for the historical row-by-row rationale.
 Created 2026-04-21 (commit `87fb998`) to host the 10 integration-tier re-home targets from `ctc_test.cpp` that require a full `Emulator` fixture (port 0xFF / NR 0x22 / NR 0xC0-0xCA read-path composition). Runtime: `Total:   48  Passed:   48  Failed:    0  Skipped:    0`. The suite has grown well past those original 10: the 10 rows listed below are only the ones recorded here, 16 more that it asserts are recorded in the parent `## CTC+Interrupts` table above (`ULA-INT-01..06`, `NR-C0-04`, `NR-C2-01`, `NR-C3-01`, `NR-C4-02/03`, `NR-C6-02`, `ISC-09/10`, `IM2C-G87-01/02`), and the rest are reported `unrecorded` on every run. Each entry below cross-references the CTC+Interrupts plan row.

@@ -33,18 +33,18 @@ mentions them, so a test can no longer be absent from this document.
 | DMA                                        |   168 |  160 |    0 |    0 |       8 |          0 |
 | DivMMC+SPI                                 |   176 |  148 |    0 |    0 |      28 |          0 |
 | Multiface                                  |    55 |   55 |    0 |    0 |       0 |          0 |
-| CTC+Interrupts                             |   185 |  170 |    0 |    0 |      15 |          0 |
-| UART+I2C/RTC                               |   121 |  118 |    0 |    0 |       3 |          0 |
+| CTC+Interrupts                             |   210 |  195 |    0 |    0 |      15 |          0 |
+| UART+I2C/RTC                               |   123 |  120 |    0 |    0 |       3 |          0 |
 | NextREG                                    |   119 |   71 |    0 |    0 |      48 |          0 |
 | IO Port Dispatch                           |   137 |  126 |    0 |    0 |      11 |          0 |
-| Input                                      |   354 |  342 |    0 |    0 |      12 |          0 |
+| Input                                      |   356 |  344 |    0 |    0 |      12 |          0 |
 | Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |    65 |   62 |    0 |    0 |       3 |          0 |
 | Contention                                 |   160 |  158 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    55 |   52 |    0 |    1 |       2 |          0 |
-| NMI Source Pipeline                        |    81 |   59 |    0 |    0 |      22 |          0 |
+| NMI Source Pipeline                        |    82 |   60 |    0 |    0 |      22 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
 | ESP-01 socket transport                    |   190 |  186 |    0 |    4 |       0 |          0 |
@@ -56,14 +56,14 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: copper_integration_test         |     7 |    7 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
-| Companion: ctc_interrupts_test             |    58 |   58 |    0 |    0 |       0 |          0 |
+| Companion: ctc_interrupts_test             |    81 |   81 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   316 |  316 |    0 |    0 |       0 |          0 |
-| Companion: nmi_integration_test            |     9 |    9 |    0 |    0 |       0 |          0 |
-| Companion: input_integration_test          |    22 |   22 |    0 |    0 |       0 |          0 |
-| Companion: uart_integration_test           |    38 |   38 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4584 | 4332 |    0 |    5 |     247 |          0 |
+| Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
+| Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
+| Companion: uart_integration_test           |    40 |   40 |    0 |    0 |       0 |          0 |
+| **Total**                                  |  4642 | 4390 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4584**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4344**. Rows the 106 suites declared in `test/unit-tests.conf` run live: **7596**.
+Rows the sections above carry: **4642**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4374**. Rows the 106 suites declared in `test/unit-tests.conf` run live: **7626**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -2152,166 +2152,166 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| CTC-SM-01 | ctc_chan.vhd:189 S_RESET entry; time_constant_reg=0 after hard reset | ctc_chan.vhd:189 | pass | test/ctc/ctc_test.cpp:156 |
-| CTC-SM-02 | ctc_chan.vhd:212 S_RESET stays on CW with D2=0; no count | ctc_chan.vhd:212 | pass | test/ctc/ctc_test.cpp:169 |
-| CTC-SM-03 | ctc_chan.vhd:210 S_RESET_TC awaits TC; no count | ctc_chan.vhd:210 | pass | test/ctc/ctc_test.cpp:182 |
-| CTC-SM-04 | ctc_chan.vhd:216,223-226 S_RESET_TC→S_TRIGGER→S_RUN and t_count reload+decrement | ctc_chan.vhd:216,223-226 | pass | test/ctc/ctc_test.cpp:197 |
-| CTC-SM-05 | ctc_chan.vhd:216,224 timer D3=1 waits in S_TRIGGER | ctc_chan.vhd:216,224 | pass | test/ctc/ctc_test.cpp:211 |
-| CTC-SM-06 | ctc_chan.vhd:216,223-226 timer D3=0 → immediate S_RUN | ctc_chan.vhd:216,223-226 | pass | test/ctc/ctc_test.cpp:224 |
-| CTC-SM-07 | ctc_chan.vhd:226 counter mode → S_RUN; trigger decrements | ctc_chan.vhd:226 | pass | test/ctc/ctc_test.cpp:238 |
-| CTC-SM-08 | ctc_chan.vhd:230 S_RUN→S_RUN_TC then TC reload | ctc_chan.vhd:230 | pass | test/ctc/ctc_test.cpp:253 |
-| CTC-SM-09 | ctc_chan.vhd:236 S_RUN_TC→S_RUN with reloaded TC, continues counting | ctc_chan.vhd:236 | pass | test/ctc/ctc_test.cpp:268 |
-| CTC-SM-10 | ctc_chan.vhd:202 soft reset D1=1,D2=0 → S_RESET, counter stops | ctc_chan.vhd:202 | pass | test/ctc/ctc_test.cpp:285 |
-| CTC-SM-11 | ctc_chan.vhd:204 soft reset D1=1,D2=1 → S_RESET_TC | ctc_chan.vhd:204 | pass | test/ctc/ctc_test.cpp:299 |
-| CTC-SM-12 | ctc_chan.vhd:257 S_RESET_TC: any write is TC, raw byte latched | ctc_chan.vhd:257 | pass | test/ctc/ctc_test.cpp:313 |
-| CTC-SM-13 | ctc_chan.vhd:232 CW update in S_RUN keeps counting with new prescaler | ctc_chan.vhd:232 | pass | test/ctc/ctc_test.cpp:331 |
-| CTC-TM-01 | ctc_chan.vhd:146 prescale=16 decrements every 16 clocks | ctc_chan.vhd:146 | pass | test/ctc/ctc_test.cpp:353 |
-| CTC-TM-02 | ctc_chan.vhd:146 prescale=256 decrements every 256 clocks | ctc_chan.vhd:146 | pass | test/ctc/ctc_test.cpp:366 |
-| CTC-TM-03 | ctc_chan.vhd:170 TC=1 → ZC/TO after one prescaler cycle | ctc_chan.vhd:170 | pass | test/ctc/ctc_test.cpp:380 |
-| CTC-TM-04 | ctc_chan.vhd:158 TC=0 ≡ 256 decrements before first ZC/TO | ctc_chan.vhd:158 | pass | test/ctc/ctc_test.cpp:398 |
-| CTC-TM-05 | ctc_chan.vhd:136 prescaler cleared on soft reset (reset_soft) | ctc_chan.vhd:136 | pass | test/ctc/ctc_test.cpp:416 |
-| CTC-TM-06 | ctc_chan.vhd:170 ZC/TO auto-reloads TC and continues | ctc_chan.vhd:170 | pass | test/ctc/ctc_test.cpp:433 |
-| CTC-TM-07 | ctc_chan.vhd:170 zc_to is a single-cycle pulse per underflow | ctc_chan.vhd:170 | pass | test/ctc/ctc_test.cpp:448 |
-| CTC-TM-08 | ctc_chan.vhd:168 port read returns t_count | ctc_chan.vhd:168 | pass | test/ctc/ctc_test.cpp:462 |
-| CTC-TM-G120-01 | ctc_chan.vhd:131-141 prescaler preserved on S_RUN_TC→S_RUN reload | ctc_chan.vhd:131-141 | pass | test/ctc/ctc_test.cpp:493 |
-| CTC-CM-01 | ctc_chan.vhd:128 falling-edge counter mode: trigger decrements | ctc_chan.vhd:128 | pass | test/ctc/ctc_test.cpp:520 |
-| CTC-CM-02 | ctc_chan.vhd:128 rising-edge counter mode: trigger decrements | ctc_chan.vhd:128 | pass | test/ctc/ctc_test.cpp:534 |
-| CTC-CM-03 | ctc_chan.vhd:170 counter mode ZC/TO after TC edges | ctc_chan.vhd:170 | pass | test/ctc/ctc_test.cpp:550 |
-| CTC-CM-04 | ctc_chan.vhd:158 counter-mode auto-reload after ZC/TO | ctc_chan.vhd:158 | pass | test/ctc/ctc_test.cpp:568 |
-| CTC-CM-05 | ctc_chan.vhd:289 edge-select change is a counted clk_trg_edge | ctc_chan.vhd:289 | pass | test/ctc/ctc_test.cpp:584 |
-| CTC-CH-01 | zxnext.vhd:4084 ch0.clk_trg = ch3.zc_to (ring wrap) | zxnext.vhd:4084 | pass | test/ctc/ctc_test.cpp:617 |
-| CTC-CH-02 | zxnext.vhd:4084 ch1.clk_trg = ch0.zc_to | zxnext.vhd:4084 | pass | test/ctc/ctc_test.cpp:632 |
-| CTC-CH-03 | zxnext.vhd:4084 ch2.clk_trg = ch1.zc_to | zxnext.vhd:4084 | pass | test/ctc/ctc_test.cpp:649 |
-| CTC-CH-04 | zxnext.vhd:4084 ch3.clk_trg = ch2.zc_to | zxnext.vhd:4084 | pass | test/ctc/ctc_test.cpp:668 |
-| CTC-CH-05 | zxnext.vhd:4084 3-stage cascade yields TC-product ZC/TO rate | zxnext.vhd:4084 | pass | test/ctc/ctc_test.cpp:686 |
-| CTC-CH-06 | ctc_chan.vhd:150 all-counter ring is dead (no source edges) | ctc_chan.vhd:150 | pass | test/ctc/ctc_test.cpp:704 |
-| CTC-CW-01 | ctc_chan.vhd:269 control_reg<=i_cpu_d(7:3); D7 → o_int_en | ctc_chan.vhd:269 | pass | test/ctc/ctc_test.cpp:725 |
-| CTC-CW-02 | ctc.vhd:150 o_vector_wr = iowr_vc(0); ch0 accepts vector then resumes | ctc.vhd:150 | pass | test/ctc/ctc_test.cpp:742 |
-| CTC-CW-03 | ctc.vhd:150 ch1-3 consume vector writes without o_vector_wr | ctc.vhd:150 | pass | test/ctc/ctc_test.cpp:759 |
-| CTC-CW-04 | ctc_chan.vhd:257 TC-follows: next write is time constant | ctc_chan.vhd:257 | pass | test/ctc/ctc_test.cpp:771 |
-| CTC-CW-05 | ctc_chan.vhd:257 S_RESET_TC: CW-shaped byte still latched as TC | ctc_chan.vhd:257 | pass | test/ctc/ctc_test.cpp:784 |
-| CTC-CW-06 | ctc_chan.vhd:276 o_int_en=control_reg(7-3); D7=1 enables | ctc_chan.vhd:276 | pass | test/ctc/ctc_test.cpp:794 |
-| CTC-CW-07 | ctc_chan.vhd:269 D7=0 clears control_reg(7-3) | ctc_chan.vhd:269 | pass | test/ctc/ctc_test.cpp:805 |
-| CTC-CW-08 | ctc_chan.vhd:271 i_int_en_wr overrides D7 of control_reg | ctc_chan.vhd:271 | pass | test/ctc/ctc_test.cpp:817 |
-| CTC-CW-09 | ctc_chan.vhd:267 hard reset clears control_reg | ctc_chan.vhd:267 | pass | test/ctc/ctc_test.cpp:828 |
-| CTC-CW-10 | ctc_chan.vhd:281 hard reset clears time_constant_reg | ctc_chan.vhd:281 | pass | test/ctc/ctc_test.cpp:841 |
+| CTC-SM-01 | ctc_chan.vhd:189 S_RESET entry; time_constant_reg=0 after hard reset | ctc_chan.vhd:189 | pass | test/ctc/ctc_test.cpp:175 |
+| CTC-SM-02 | ctc_chan.vhd:212 S_RESET stays on CW with D2=0; no count | ctc_chan.vhd:212 | pass | test/ctc/ctc_test.cpp:188 |
+| CTC-SM-03 | ctc_chan.vhd:210 S_RESET_TC awaits TC; no count | ctc_chan.vhd:210 | pass | test/ctc/ctc_test.cpp:201 |
+| CTC-SM-04 | ctc_chan.vhd:216,223-226,117,134-139 S_RESET_TC→S_TRIGGER→S_RUN: first count on the 17th edge | ctc_chan.vhd:216,223-226,117,134-139 | pass | test/ctc/ctc_test.cpp:221 |
+| CTC-SM-05 | ctc_chan.vhd:216,224 timer D3=1 waits in S_TRIGGER | ctc_chan.vhd:216,224 | pass | test/ctc/ctc_test.cpp:235 |
+| CTC-SM-06 | ctc_chan.vhd:216,223-226 timer D3=0 → S_RUN after its one S_TRIGGER edge | ctc_chan.vhd:216,223-226 | pass | test/ctc/ctc_test.cpp:248 |
+| CTC-SM-07 | ctc_chan.vhd:226 counter mode → S_RUN; trigger decrements | ctc_chan.vhd:226 | pass | test/ctc/ctc_test.cpp:262 |
+| CTC-SM-08 | ctc_chan.vhd:230,257,161-162,278-285 S_RUN→S_RUN_TC; the constant is taken and loaded at the next ZC/TO | ctc_chan.vhd:230,257,161-162,278-285 | pass | test/ctc/ctc_test.cpp:284 |
+| CTC-SM-09 | ctc_chan.vhd:236,158-164 S_RUN_TC→S_RUN keeps counting the running count | ctc_chan.vhd:236,158-164 | pass | test/ctc/ctc_test.cpp:303 |
+| CTC-SM-10 | ctc_chan.vhd:202,117,158-160 soft reset D1=1,D2=0 → S_RESET: stops, t_count reloads the constant | ctc_chan.vhd:202,117,158-160 | pass | test/ctc/ctc_test.cpp:325 |
+| CTC-SM-11 | ctc_chan.vhd:204 soft reset D1=1,D2=1 → S_RESET_TC | ctc_chan.vhd:204 | pass | test/ctc/ctc_test.cpp:340 |
+| CTC-SM-12 | ctc_chan.vhd:257 S_RESET_TC: any write is TC, raw byte latched | ctc_chan.vhd:257 | pass | test/ctc/ctc_test.cpp:354 |
+| CTC-SM-13 | ctc_chan.vhd:232 CW update in S_RUN keeps counting with new prescaler | ctc_chan.vhd:232 | pass | test/ctc/ctc_test.cpp:372 |
+| CTC-TM-01 | ctc_chan.vhd:146 prescale=16 decrements every 16 clocks | ctc_chan.vhd:146 | pass | test/ctc/ctc_test.cpp:400 |
+| CTC-TM-02 | ctc_chan.vhd:146 prescale=256 decrements every 256 clocks | ctc_chan.vhd:146 | pass | test/ctc/ctc_test.cpp:413 |
+| CTC-TM-03 | ctc_chan.vhd:170 TC=1 → ZC/TO after one prescaler cycle (17th edge) | ctc_chan.vhd:170 | pass | test/ctc/ctc_test.cpp:429 |
+| CTC-TM-04 | ctc_chan.vhd:158 TC=0 ≡ 256 decrements before first ZC/TO | ctc_chan.vhd:158 | pass | test/ctc/ctc_test.cpp:447 |
+| CTC-TM-05 | ctc_chan.vhd:136 prescaler cleared on soft reset (reset_soft) | ctc_chan.vhd:136 | pass | test/ctc/ctc_test.cpp:465 |
+| CTC-TM-06 | ctc_chan.vhd:170 ZC/TO auto-reloads TC and continues | ctc_chan.vhd:170 | pass | test/ctc/ctc_test.cpp:482 |
+| CTC-TM-07 | ctc_chan.vhd:170 zc_to is a single-cycle pulse per underflow | ctc_chan.vhd:170 | pass | test/ctc/ctc_test.cpp:497 |
+| CTC-TM-08 | ctc_chan.vhd:168 port read returns t_count | ctc_chan.vhd:168 | pass | test/ctc/ctc_test.cpp:511 |
+| CTC-TM-G120-01 | ctc_chan.vhd:131-141,158-164 prescaler and count preserved on S_RUN_TC→S_RUN reload | ctc_chan.vhd:131-141,158-164 | pass | test/ctc/ctc_test.cpp:548 |
+| CTC-CM-01 | ctc_chan.vhd:128 falling-edge counter mode: trigger decrements | ctc_chan.vhd:128 | pass | test/ctc/ctc_test.cpp:575 |
+| CTC-CM-02 | ctc_chan.vhd:128 rising-edge counter mode: trigger decrements | ctc_chan.vhd:128 | pass | test/ctc/ctc_test.cpp:589 |
+| CTC-CM-03 | ctc_chan.vhd:170 counter mode ZC/TO after TC edges | ctc_chan.vhd:170 | pass | test/ctc/ctc_test.cpp:605 |
+| CTC-CM-04 | ctc_chan.vhd:158 counter-mode auto-reload after ZC/TO | ctc_chan.vhd:158 | pass | test/ctc/ctc_test.cpp:623 |
+| CTC-CM-05 | ctc_chan.vhd:289 edge-select change is a counted clk_trg_edge | ctc_chan.vhd:289 | pass | test/ctc/ctc_test.cpp:639 |
+| CTC-CH-01 | zxnext.vhd:4084 ch0.clk_trg = ch3.zc_to (ring wrap), counted through clk_trg_d two edges on (ctc_chan.vhd:115-127,173-182) | zxnext.vhd:4084, ctc_chan.vhd:115-127,173-182 | pass | test/ctc/ctc_test.cpp:675 |
+| CTC-CH-02 | zxnext.vhd:4084 ch1.clk_trg = ch0.zc_to | zxnext.vhd:4084 | pass | test/ctc/ctc_test.cpp:690 |
+| CTC-CH-03 | zxnext.vhd:4084 ch2.clk_trg = ch1.zc_to | zxnext.vhd:4084 | pass | test/ctc/ctc_test.cpp:706 |
+| CTC-CH-04 | zxnext.vhd:4084 ch3.clk_trg = ch2.zc_to | zxnext.vhd:4084 | pass | test/ctc/ctc_test.cpp:724 |
+| CTC-CH-05 | zxnext.vhd:4084 3-stage cascade yields TC-product ZC/TO rate | zxnext.vhd:4084 | pass | test/ctc/ctc_test.cpp:744 |
+| CTC-CH-06 | ctc_chan.vhd:150 all-counter ring is dead (no source edges) | ctc_chan.vhd:150 | pass | test/ctc/ctc_test.cpp:762 |
+| CTC-CW-01 | ctc_chan.vhd:269 control_reg<=i_cpu_d(7:3); D7 → o_int_en | ctc_chan.vhd:269 | pass | test/ctc/ctc_test.cpp:830 |
+| CTC-CW-02 | ctc.vhd:150 o_vector_wr = iowr_vc(0); ch0 accepts vector then resumes | ctc.vhd:150 | pass | test/ctc/ctc_test.cpp:847 |
+| CTC-CW-03 | ctc.vhd:150 ch1-3 consume vector writes without o_vector_wr | ctc.vhd:150 | pass | test/ctc/ctc_test.cpp:864 |
+| CTC-CW-04 | ctc_chan.vhd:257 TC-follows: next write is time constant | ctc_chan.vhd:257 | pass | test/ctc/ctc_test.cpp:876 |
+| CTC-CW-05 | ctc_chan.vhd:257 S_RESET_TC: CW-shaped byte still latched as TC | ctc_chan.vhd:257 | pass | test/ctc/ctc_test.cpp:889 |
+| CTC-CW-06 | ctc_chan.vhd:276 o_int_en=control_reg(7-3); D7=1 enables | ctc_chan.vhd:276 | pass | test/ctc/ctc_test.cpp:899 |
+| CTC-CW-07 | ctc_chan.vhd:269 D7=0 clears control_reg(7-3) | ctc_chan.vhd:269 | pass | test/ctc/ctc_test.cpp:910 |
+| CTC-CW-08 | ctc_chan.vhd:271 i_int_en_wr overrides D7 of control_reg | ctc_chan.vhd:271 | pass | test/ctc/ctc_test.cpp:922 |
+| CTC-CW-09 | ctc_chan.vhd:267 hard reset clears control_reg | ctc_chan.vhd:267 | pass | test/ctc/ctc_test.cpp:933 |
+| CTC-CW-10 | ctc_chan.vhd:281 hard reset clears time_constant_reg | ctc_chan.vhd:281 | pass | test/ctc/ctc_test.cpp:946 |
 | CTC-CW-11 | Write edge: iowr is rising-edge detected (i_iowr AND NOT iowr_d) | — | missing | — |
-| CTC-NR-01 | ctc_chan.vhd:271 NR 0xC5 write routes bits to per-channel i_int_en | ctc_chan.vhd:271 | pass | test/ctc/ctc_test.cpp:875 |
-| CTC-NR-02 | zxnext.vhd:4078 NR 0xC5 read returns ctc_int_en[7:0] | zxnext.vhd:4078 | pass | test/ctc/ctc_test.cpp:890 |
-| CTC-NR-03 | ctc_chan.vhd:269-271 both CW D7 and i_int_en_wr reach control_reg(7-3) | ctc_chan.vhd:269-271 | pass | test/ctc/ctc_test.cpp:902 |
+| CTC-NR-01 | ctc_chan.vhd:271 NR 0xC5 write routes bits to per-channel i_int_en | ctc_chan.vhd:271 | pass | test/ctc/ctc_test.cpp:980 |
+| CTC-NR-02 | zxnext.vhd:4078 NR 0xC5 read returns ctc_int_en[7:0] | zxnext.vhd:4078 | pass | test/ctc/ctc_test.cpp:995 |
+| CTC-NR-03 | ctc_chan.vhd:269-271 both CW D7 and i_int_en_wr reach control_reg(7-3) | ctc_chan.vhd:269-271 | pass | test/ctc/ctc_test.cpp:1007 |
 | CTC-NR-04 | NextREG 0xC5 write does not overlap with port CTC write | — | missing | — |
-| IM2C-01 | im2_control.vhd:163 S_0 + ED → S_ED_T4 (o_reti_decode=1) | im2_control.vhd:163 | pass | test/ctc/ctc_test.cpp:945 |
-| IM2C-02 | im2_control.vhd:234 reti_seen = 1 for the one cycle state_next=S_ED4D_T4 | im2_control.vhd:234 | pass | test/ctc/ctc_test.cpp:959 |
-| IM2C-03 | im2_control.vhd:236 retn_seen = 1 for the one cycle state_next=S_ED45_T4 | im2_control.vhd:236 | pass | test/ctc/ctc_test.cpp:972 |
-| IM2C-04 | im2_control.vhd:171-180 ED + non-4D/45 non-IM → S_0, no pulse | im2_control.vhd:171-180 | pass | test/ctc/ctc_test.cpp:985 |
-| IM2C-05 | im2_control.vhd:233 o_reti_decode high only while state=S_ED_T4 | im2_control.vhd:233 | pass | test/ctc/ctc_test.cpp:1004 |
-| IM2C-06 | im2_control.vhd:193 CB → S_CB_T4; never asserts reti_seen/retn_seen | im2_control.vhd:193 | pass | test/ctc/ctc_test.cpp:1015 |
-| IM2C-07 | im2_control.vhd:199-206 DD/FD chain stays in S_DDFD_T4 | im2_control.vhd:199-206 | pass | test/ctc/ctc_test.cpp:1032 |
-| IM2C-08 | im2_control.vhd:238 o_dma_delay covers S_ED_T4 / S_ED4D_T4 / S_SRL_T1/T2 | im2_control.vhd:238 | pass | test/ctc/ctc_test.cpp:1056 |
-| IM2C-09 | im2_control.vhd:186-192 SRL_T1/T2 extend dma_delay beyond RETN | im2_control.vhd:186-192 | pass | test/ctc/ctc_test.cpp:1075 |
-| IM2C-10 | im2_control.vhd:224 ED 46 → im_mode = 00 (IM 0) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1085 |
-| IM2C-11 | im2_control.vhd:224 ED 56 → im_mode = 01 (IM 1) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1096 |
-| IM2C-12 | im2_control.vhd:224 ED 5E → im_mode = 10 (IM 2) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1107 |
+| IM2C-01 | im2_control.vhd:163 S_0 + ED → S_ED_T4 (o_reti_decode=1) | im2_control.vhd:163 | pass | test/ctc/ctc_test.cpp:1050 |
+| IM2C-02 | im2_control.vhd:234 reti_seen = 1 for the one cycle state_next=S_ED4D_T4 | im2_control.vhd:234 | pass | test/ctc/ctc_test.cpp:1064 |
+| IM2C-03 | im2_control.vhd:236 retn_seen = 1 for the one cycle state_next=S_ED45_T4 | im2_control.vhd:236 | pass | test/ctc/ctc_test.cpp:1077 |
+| IM2C-04 | im2_control.vhd:171-180 ED + non-4D/45 non-IM → S_0, no pulse | im2_control.vhd:171-180 | pass | test/ctc/ctc_test.cpp:1090 |
+| IM2C-05 | im2_control.vhd:233 o_reti_decode high only while state=S_ED_T4 | im2_control.vhd:233 | pass | test/ctc/ctc_test.cpp:1109 |
+| IM2C-06 | im2_control.vhd:193 CB → S_CB_T4; never asserts reti_seen/retn_seen | im2_control.vhd:193 | pass | test/ctc/ctc_test.cpp:1120 |
+| IM2C-07 | im2_control.vhd:199-206 DD/FD chain stays in S_DDFD_T4 | im2_control.vhd:199-206 | pass | test/ctc/ctc_test.cpp:1137 |
+| IM2C-08 | im2_control.vhd:238 o_dma_delay covers S_ED_T4 / S_ED4D_T4 / S_SRL_T1/T2 | im2_control.vhd:238 | pass | test/ctc/ctc_test.cpp:1161 |
+| IM2C-09 | im2_control.vhd:186-192 SRL_T1/T2 extend dma_delay beyond RETN | im2_control.vhd:186-192 | pass | test/ctc/ctc_test.cpp:1180 |
+| IM2C-10 | im2_control.vhd:224 ED 46 → im_mode = 00 (IM 0) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1190 |
+| IM2C-11 | im2_control.vhd:224 ED 56 → im_mode = 01 (IM 1) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1201 |
+| IM2C-12 | im2_control.vhd:224 ED 5E → im_mode = 10 (IM 2) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1212 |
 | IM2C-13 | IM mode updates on falling edge of CLK_CPU | — | missing | — |
-| IM2C-14 | im2_control.vhd:222 im_mode defaults to 00 on reset | im2_control.vhd:222 | pass | test/ctc/ctc_test.cpp:1126 |
+| IM2C-14 | im2_control.vhd:222 im_mode defaults to 00 on reset | im2_control.vhd:222 | pass | test/ctc/ctc_test.cpp:1231 |
 | IM2C-G87-01 | RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen [VHDL im2_control.vhd:158-209,234] | im2_control.vhd:158-209,234 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1031 |
 | IM2C-G87-02 | RETN (ED 45) advances IM2 FSM and pulses o_retn_seen [VHDL im2_control.vhd:233-238] | im2_control.vhd:233-238 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1055 |
-| IM2D-01 | im2_device.vhd:106 S_0 → S_REQ on i_int_req=1 | im2_device.vhd:106 | pass | test/ctc/ctc_test.cpp:1144 |
-| IM2D-02 | im2_device.vhd:150 o_int_n=0 in S_REQ with IEI=1 and im2_mode=1 | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1158 |
-| IM2D-03 | im2_device.vhd:150 o_int_n stays high when IEI=0 (CTC0 S_ACK blocks chain) | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1180 |
-| IM2D-04 | im2_device.vhd:150 o_int_n disabled when im2_mode=0 | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1195 |
-| IM2D-05 | im2_device.vhd:112 S_REQ → S_ACK on IntAck (M1=0,IORQ=0,IEI=1) | im2_device.vhd:112 | pass | test/ctc/ctc_test.cpp:1212 |
-| IM2D-06 | im2_device.vhd:119 S_ACK → S_ISR on next cycle | im2_device.vhd:119 | pass | test/ctc/ctc_test.cpp:1227 |
-| IM2D-07 | im2_device.vhd:125 S_ISR → S_0 on reti_seen with IEI=1 | im2_device.vhd:125 | pass | test/ctc/ctc_test.cpp:1246 |
-| IM2D-08 | im2_device.vhd:123-128 S_ISR holds until RETI seen | im2_device.vhd:123-128 | pass | test/ctc/ctc_test.cpp:1261 |
-| IM2D-09 | im2_device.vhd:155 + zxnext.vhd:1999 vector = msb3<<5 \| idx<<1 | im2_device.vhd:155, zxnext.vhd:1999 | pass | test/ctc/ctc_test.cpp:1278 |
-| IM2D-10 | im2_device.vhd:155 no device in S_ACK → vector OR = 0 (0xFF sentinel) | im2_device.vhd:155 | pass | test/ctc/ctc_test.cpp:1291 |
-| IM2D-11 | im2_device.vhd:159 o_isr_serviced pulse clears im2_int_req latch | im2_device.vhd:159 | pass | test/ctc/ctc_test.cpp:1319 |
-| IM2D-12 | im2_device.vhd:151 o_dma_int = 1 when state /= S_0 AND dma_int_en=1 | im2_device.vhd:151 | pass | test/ctc/ctc_test.cpp:1338 |
-| IM2P-01 | im2_device.vhd:139-140 S_0 IEO = IEI (device 0 IEI hardwired 1) | im2_device.vhd:139-140 | pass | test/ctc/ctc_test.cpp:1354 |
-| IM2P-02 | im2_device.vhd:141-142 S_REQ IEO = IEI AND reti_decode | im2_device.vhd:141-142 | pass | test/ctc/ctc_test.cpp:1372 |
-| IM2P-03 | im2_device.vhd:143-144 S_ACK / S_ISR hold IEO=0 | im2_device.vhd:143-144 | pass | test/ctc/ctc_test.cpp:1389 |
-| IM2P-04 | peripherals.vhd:82 + zxnext.vhd:1984 chain-head IEI hardwired 1 | peripherals.vhd:82, zxnext.vhd:1984 | pass | test/ctc/ctc_test.cpp:1401 |
-| IM2P-05 | peripherals.vhd:86-128 IntAck resolves to higher-priority device (LINE over CTC3) | peripherals.vhd:86-128 | pass | test/ctc/ctc_test.cpp:1422 |
-| IM2P-06 | im2_device.vhd:143-144 lower-priority S_REQ waits while LINE S_ISR blocks chain | im2_device.vhd:143-144 | pass | test/ctc/ctc_test.cpp:1450 |
-| IM2P-07 | im2_device.vhd:123-128 + chain: post-RETI lower-priority proceeds | im2_device.vhd:123-128 | pass | test/ctc/ctc_test.cpp:1476 |
-| IM2P-08 | peripherals.vhd generate: 3-way chain — LINE wins first ack | peripherals.vhd | pass | test/ctc/ctc_test.cpp:1495 |
-| IM2P-09 | peripherals.vhd:146-156 AND-reduction: any S_REQ device asserts aggregate | peripherals.vhd:146-156 | pass | test/ctc/ctc_test.cpp:1512 |
-| IM2P-10 | peripherals.vhd:134-144 vector OR-reduction selects S_ACK device | peripherals.vhd:134-144 | pass | test/ctc/ctc_test.cpp:1528 |
-| PULSE-01 | im2_peripheral.vhd:186 pulse_en → pulse_int_n drops on edge | im2_peripheral.vhd:186 | pass | test/ctc/ctc_test.cpp:1550 |
-| PULSE-02 | im2_peripheral.vhd:186 non-exception pulse suppressed in IM2 mode | im2_peripheral.vhd:186 | pass | test/ctc/ctc_test.cpp:1565 |
-| PULSE-03 | im2_peripheral.vhd:192 ULA EXCEPTION fires even in IM2 mode (CPU not in IM 2) | im2_peripheral.vhd:192 | pass | test/ctc/ctc_test.cpp:1590 |
-| PULSE-04 | zxnext.vhd:2017-2031 pulse_int_n stays low during pulse window | zxnext.vhd:2017-2031 | pass | test/ctc/ctc_test.cpp:1610 |
-| PULSE-05 | zxnext.vhd:2033 48K/+3 pulse width ~ 32 cycles (bit5 terminator) | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1636 |
-| PULSE-06 | zxnext.vhd:2033 128K/Pentagon pulse width ~ 36 cycles (bit5 AND bit2) | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1658 |
-| PULSE-07 | zxnext.vhd:2036-2044 pulse counter reset while pulse_int_n=1 | zxnext.vhd:2036-2044 | pass | test/ctc/ctc_test.cpp:1694 |
-| PULSE-08 | zxnext.vhd:1840 INT_n = pulse_int_n AND im2_int_n; im2_int_n high in pulse mode | zxnext.vhd:1840 | pass | test/ctc/ctc_test.cpp:1715 |
+| IM2D-01 | im2_device.vhd:106 S_0 → S_REQ on i_int_req=1 | im2_device.vhd:106 | pass | test/ctc/ctc_test.cpp:1249 |
+| IM2D-02 | im2_device.vhd:150 o_int_n=0 in S_REQ with IEI=1 and im2_mode=1 | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1263 |
+| IM2D-03 | im2_device.vhd:150 o_int_n stays high when IEI=0 (CTC0 S_ACK blocks chain) | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1285 |
+| IM2D-04 | im2_device.vhd:150 o_int_n disabled when im2_mode=0 | im2_device.vhd:150 | pass | test/ctc/ctc_test.cpp:1300 |
+| IM2D-05 | im2_device.vhd:112 S_REQ → S_ACK on IntAck (M1=0,IORQ=0,IEI=1) | im2_device.vhd:112 | pass | test/ctc/ctc_test.cpp:1317 |
+| IM2D-06 | im2_device.vhd:119 S_ACK → S_ISR on next cycle | im2_device.vhd:119 | pass | test/ctc/ctc_test.cpp:1332 |
+| IM2D-07 | im2_device.vhd:125 S_ISR → S_0 on reti_seen with IEI=1 | im2_device.vhd:125 | pass | test/ctc/ctc_test.cpp:1351 |
+| IM2D-08 | im2_device.vhd:123-128 S_ISR holds until RETI seen | im2_device.vhd:123-128 | pass | test/ctc/ctc_test.cpp:1366 |
+| IM2D-09 | im2_device.vhd:155 + zxnext.vhd:1999 vector = msb3<<5 \| idx<<1 | im2_device.vhd:155, zxnext.vhd:1999 | pass | test/ctc/ctc_test.cpp:1383 |
+| IM2D-10 | im2_device.vhd:155 no device in S_ACK → vector OR = 0 (0xFF sentinel) | im2_device.vhd:155 | pass | test/ctc/ctc_test.cpp:1396 |
+| IM2D-11 | im2_device.vhd:159 o_isr_serviced pulse clears im2_int_req latch | im2_device.vhd:159 | pass | test/ctc/ctc_test.cpp:1424 |
+| IM2D-12 | im2_device.vhd:151 o_dma_int = 1 when state /= S_0 AND dma_int_en=1 | im2_device.vhd:151 | pass | test/ctc/ctc_test.cpp:1443 |
+| IM2P-01 | im2_device.vhd:139-140 S_0 IEO = IEI (device 0 IEI hardwired 1) | im2_device.vhd:139-140 | pass | test/ctc/ctc_test.cpp:1459 |
+| IM2P-02 | im2_device.vhd:141-142 S_REQ IEO = IEI AND reti_decode | im2_device.vhd:141-142 | pass | test/ctc/ctc_test.cpp:1477 |
+| IM2P-03 | im2_device.vhd:143-144 S_ACK / S_ISR hold IEO=0 | im2_device.vhd:143-144 | pass | test/ctc/ctc_test.cpp:1494 |
+| IM2P-04 | peripherals.vhd:82 + zxnext.vhd:1984 chain-head IEI hardwired 1 | peripherals.vhd:82, zxnext.vhd:1984 | pass | test/ctc/ctc_test.cpp:1506 |
+| IM2P-05 | peripherals.vhd:86-128 IntAck resolves to higher-priority device (LINE over CTC3) | peripherals.vhd:86-128 | pass | test/ctc/ctc_test.cpp:1527 |
+| IM2P-06 | im2_device.vhd:143-144 lower-priority S_REQ waits while LINE S_ISR blocks chain | im2_device.vhd:143-144 | pass | test/ctc/ctc_test.cpp:1555 |
+| IM2P-07 | im2_device.vhd:123-128 + chain: post-RETI lower-priority proceeds | im2_device.vhd:123-128 | pass | test/ctc/ctc_test.cpp:1581 |
+| IM2P-08 | peripherals.vhd generate: 3-way chain — LINE wins first ack | peripherals.vhd | pass | test/ctc/ctc_test.cpp:1600 |
+| IM2P-09 | peripherals.vhd:146-156 AND-reduction: any S_REQ device asserts aggregate | peripherals.vhd:146-156 | pass | test/ctc/ctc_test.cpp:1617 |
+| IM2P-10 | peripherals.vhd:134-144 vector OR-reduction selects S_ACK device | peripherals.vhd:134-144 | pass | test/ctc/ctc_test.cpp:1633 |
+| PULSE-01 | im2_peripheral.vhd:186 pulse_en → pulse_int_n drops on edge | im2_peripheral.vhd:186 | pass | test/ctc/ctc_test.cpp:1655 |
+| PULSE-02 | im2_peripheral.vhd:186 non-exception pulse suppressed in IM2 mode | im2_peripheral.vhd:186 | pass | test/ctc/ctc_test.cpp:1670 |
+| PULSE-03 | im2_peripheral.vhd:192 ULA EXCEPTION fires even in IM2 mode (CPU not in IM 2) | im2_peripheral.vhd:192 | pass | test/ctc/ctc_test.cpp:1695 |
+| PULSE-04 | zxnext.vhd:2017-2031 pulse_int_n stays low during pulse window | zxnext.vhd:2017-2031 | pass | test/ctc/ctc_test.cpp:1715 |
+| PULSE-05 | zxnext.vhd:2033 48K/+3 pulse width ~ 32 cycles (bit5 terminator) | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1741 |
+| PULSE-06 | zxnext.vhd:2033 128K/Pentagon pulse width ~ 36 cycles (bit5 AND bit2) | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1763 |
+| PULSE-07 | zxnext.vhd:2036-2044 pulse counter reset while pulse_int_n=1 | zxnext.vhd:2036-2044 | pass | test/ctc/ctc_test.cpp:1799 |
+| PULSE-08 | zxnext.vhd:1840 INT_n = pulse_int_n AND im2_int_n; im2_int_n high in pulse mode | zxnext.vhd:1840 | pass | test/ctc/ctc_test.cpp:1820 |
 | PULSE-09 | External bus INT: o_BUS_INT_n = pulse_int_n AND im2_int_n | — | missing | — |
 | PULSE-G89-01 | LDIRX (ED B4) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2095-2138] | t80n_mcode.vhd:2095-2138 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1143 |
 | PULSE-G89-02 | LDDRX (ED BC) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256] | t80n_mcode.vhd:2230-2256 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1184 |
 | PULSE-G89-03 | LDPIRX (ED B7) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991] | t80n_mcode.vhd:1953-1991 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1225 |
 | PULSE-G89-04 | LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226] | t80n_mcode.vhd:2188-2226 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1264 |
 | PULSE-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | — | missing | — |
-| PULSE-G121-01 | zxnext.vhd:2033 pulse_count_end follows runtime NR 0x03 timing change | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1766 |
-| IM2W-01 | im2_peripheral.vhd:90-101 int_req edge detect fires once per rising edge | im2_peripheral.vhd:90-101 | pass | test/ctc/ctc_test.cpp:1803 |
-| IM2W-02 | im2_peripheral.vhd:167-178 im2_int_req latched on qualified edge | im2_peripheral.vhd:167-178 | pass | test/ctc/ctc_test.cpp:1818 |
-| IM2W-03 | im2_peripheral.vhd:148,175 im2_isr_serviced clears im2_int_req latch | im2_peripheral.vhd:148,175 | pass | test/ctc/ctc_test.cpp:1842 |
-| IM2W-04 | im2_peripheral.vhd:160 int_status set on int_req edge | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:1855 |
-| IM2W-05 | im2_peripheral.vhd:160 NR 0xC8/C9/CA write clears int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:1911 |
-| IM2W-06 | im2_peripheral.vhd:180 o_int_status = int_status OR im2_int_req | im2_peripheral.vhd:180 | pass | test/ctc/ctc_test.cpp:1930 |
-| IM2W-07 | im2_peripheral.vhd:105 im2_reset_n composite gates state transitions | im2_peripheral.vhd:105 | pass | test/ctc/ctc_test.cpp:1966 |
-| IM2W-08 | im2_peripheral.vhd:172 int_unq latches im2_int_req without int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:1982 |
+| PULSE-G121-01 | zxnext.vhd:2033 pulse_count_end follows runtime NR 0x03 timing change | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1871 |
+| IM2W-01 | im2_peripheral.vhd:90-101 int_req edge detect fires once per rising edge | im2_peripheral.vhd:90-101 | pass | test/ctc/ctc_test.cpp:1908 |
+| IM2W-02 | im2_peripheral.vhd:167-178 im2_int_req latched on qualified edge | im2_peripheral.vhd:167-178 | pass | test/ctc/ctc_test.cpp:1923 |
+| IM2W-03 | im2_peripheral.vhd:148,175 im2_isr_serviced clears im2_int_req latch | im2_peripheral.vhd:148,175 | pass | test/ctc/ctc_test.cpp:1947 |
+| IM2W-04 | im2_peripheral.vhd:160 int_status set on int_req edge | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:1960 |
+| IM2W-05 | im2_peripheral.vhd:160 NR 0xC8/C9/CA write clears int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2016 |
+| IM2W-06 | im2_peripheral.vhd:180 o_int_status = int_status OR im2_int_req | im2_peripheral.vhd:180 | pass | test/ctc/ctc_test.cpp:2035 |
+| IM2W-07 | im2_peripheral.vhd:105 im2_reset_n composite gates state transitions | im2_peripheral.vhd:105 | pass | test/ctc/ctc_test.cpp:2071 |
+| IM2W-08 | im2_peripheral.vhd:172 int_unq latches im2_int_req without int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:2087 |
 | IM2W-09 | isr_serviced edge detection across clock domains | — | missing | — |
-| IM2W-G119-01 | zxnext.vhd:1941 ZC/TO must reach IM2 unconditionally; int_en gates at fabric | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2036 |
+| IM2W-G119-01 | zxnext.vhd:1941 ZC/TO must reach IM2 unconditionally; int_en gates at fabric | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2141 |
 | ULA-INT-01 | ULA HC/VC interrupt fires at int_h/int_v → NR 0xC8 bit 0 set [zxnext.vhd:1937,1941; emulator.cpp:1988-1998; im2.cpp:264-266] | zxnext.vhd:1937,1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:144 |
 | ULA-INT-02 | ULA int suppressed when port_ff(6)/NR 0x22[2] set → NR 0xC8 bit 0 clear [zxnext.vhd:3619-3620, :3635, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3619-3620,3635,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:174 |
 | ULA-INT-03 | NR 0xC4 read bit 0 = NOT port_ff_interrupt_disable [zxnext.vhd:6239, :6711; emulator.cpp:802] | zxnext.vhd:6239,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:198 |
 | ULA-INT-04 | Line interrupt fires at cvc match (int_line pulse → NR 0xC8 bit 1) [zxula_timing.vhd:577-582; zxnext.vhd:1941; emulator.cpp:2392-2402] | zxula_timing.vhd:577-582, zxnext.vhd:1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:254 |
 | ULA-INT-05 | NR 0x22 bit 1 drives line_interrupt_en, visible on NR 0xC4 read bit 1 [zxnext.vhd:5297, :6239; emulator.cpp:542-546, :801] | zxnext.vhd:5297,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:222 |
 | ULA-INT-06 | Line interrupt value 0 still fires within frame (VHDL: wraps to c_max_vc) [zxula_timing.vhd:566-570; emulator.cpp:2392-2402] | zxula_timing.vhd:566-570 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:281 |
-| ULA-INT-07 | zxnext.vhd:1941 priority idx11 (ULA) below LINE (idx0) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2078 |
-| ULA-INT-08 | zxnext.vhd:1941 LINE at priority idx0 (chain head) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2098 |
-| ULA-INT-09 | zxnext.vhd:1964 EXCEPTION=1 only for ULA (IM2-mode pulse fires) | zxnext.vhd:1964 | pass | test/ctc/ctc_test.cpp:2133 |
-| NR-C0-01 | zxnext.vhd:5597/1999 NR 0xC0 stores im2_vector_base[2:0] | zxnext.vhd:5597/1999 | pass | test/ctc/ctc_test.cpp:2150 |
+| ULA-INT-07 | zxnext.vhd:1941 priority idx11 (ULA) below LINE (idx0) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2183 |
+| ULA-INT-08 | zxnext.vhd:1941 LINE at priority idx0 (chain head) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2203 |
+| ULA-INT-09 | zxnext.vhd:1964 EXCEPTION=1 only for ULA (IM2-mode pulse fires) | zxnext.vhd:1964 | pass | test/ctc/ctc_test.cpp:2238 |
+| NR-C0-01 | zxnext.vhd:5597/1999 NR 0xC0 stores im2_vector_base[2:0] | zxnext.vhd:5597/1999 | pass | test/ctc/ctc_test.cpp:2255 |
 | NR-C0-02 | Write NextREG 0xC0: bit [3] = stackless NMI | — | missing | — |
-| NR-C0-03 | zxnext.vhd:5599/1975 NR 0xC0 bit 0 toggles pulse/IM2 mode | zxnext.vhd:5599/1975 | pass | test/ctc/ctc_test.cpp:2178 |
+| NR-C0-03 | zxnext.vhd:5599/1975 NR 0xC0 bit 0 toggles pulse/IM2 mode | zxnext.vhd:5599/1975 | pass | test/ctc/ctc_test.cpp:2283 |
 | NR-C0-04 | NR 0xC0 read composes VVV_0_S_MM_I (vector + stackless + im_mode + int_mode) [zxnext.vhd:6229-6230; emulator.cpp:771-778] | zxnext.vhd:6229-6230 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:837 |
-| NR-C4-01 | zxnext.vhd NR 0xC4 bit1 enables LINE interrupt fan-out | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2196 |
+| NR-C4-01 | zxnext.vhd NR 0xC4 bit1 enables LINE interrupt fan-out | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2301 |
 | NR-C4-02 | NR 0xC4 bit 1 write drives line_interrupt_en (read bit 1 round-trip) [zxnext.vhd:5607-5610, :6239; emulator.cpp:792] | zxnext.vhd:5607-5610,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:858 |
 | NR-C4-03 | NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) [zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804] | zxnext.vhd:6239/3621-3622/3635/6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:890 |
-| NR-C5-01 | zxnext.vhd:4078/1949 NR 0xC5 fans out CTC int_en bits 0..7 | zxnext.vhd:4078/1949 | pass | test/ctc/ctc_test.cpp:2216 |
+| NR-C5-01 | zxnext.vhd:4078/1949 NR 0xC5 fans out CTC int_en bits 0..7 | zxnext.vhd:4078/1949 | pass | test/ctc/ctc_test.cpp:2321 |
 | NR-C5-02 | Read NextREG 0xC5: returns ctc_int_en[7:0] | — | missing | — |
-| NR-C6-01 | zxnext.vhd NR 0xC6/1949 UART1_TX int_en enables fabric path | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2235 |
+| NR-C6-01 | zxnext.vhd NR 0xC6/1949 UART1_TX int_en enables fabric path | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2340 |
 | NR-C6-02 | NR 0xC6 read format 0_654_0_210 (bits 7 and 3 read as 0) [zxnext.vhd:6244-6245; emulator.cpp:828-831] | zxnext.vhd:6244-6245 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:906 |
-| NR-C8-01 | zxnext.vhd:6247 NR 0xC8 read {LINE,ULA} → bits 1:0 | zxnext.vhd:6247 | pass | test/ctc/ctc_test.cpp:2255 |
-| NR-C9-01 | zxnext.vhd:6250 NR 0xC9 read CTC7..0 packs int_status bits | zxnext.vhd:6250 | pass | test/ctc/ctc_test.cpp:2271 |
-| NR-CA-01 | zxnext.vhd:6253 NR 0xCA read packs UART int_status | zxnext.vhd:6253 | pass | test/ctc/ctc_test.cpp:2289 |
-| NR-CC-01 | zxnext.vhd:5629-5630/1957-1958 NR 0xCC DMA int enable bit routes through mask | zxnext.vhd:5629-5630/1957-1958 | pass | test/ctc/ctc_test.cpp:2306 |
-| NR-CD-01 | zxnext.vhd:5633/1957 NR 0xCD DMA int enable bit routes through mask | zxnext.vhd:5633/1957 | pass | test/ctc/ctc_test.cpp:2324 |
-| NR-CE-01 | zxnext.vhd:5636-5637/1957-1958 NR 0xCE DMA int enable bit routes through mask | zxnext.vhd:5636-5637/1957-1958 | pass | test/ctc/ctc_test.cpp:2339 |
+| NR-C8-01 | zxnext.vhd:6247 NR 0xC8 read {LINE,ULA} → bits 1:0 | zxnext.vhd:6247 | pass | test/ctc/ctc_test.cpp:2360 |
+| NR-C9-01 | zxnext.vhd:6250 NR 0xC9 read CTC7..0 packs int_status bits | zxnext.vhd:6250 | pass | test/ctc/ctc_test.cpp:2376 |
+| NR-CA-01 | zxnext.vhd:6253 NR 0xCA read packs UART int_status | zxnext.vhd:6253 | pass | test/ctc/ctc_test.cpp:2394 |
+| NR-CC-01 | zxnext.vhd:5629-5630/1957-1958 NR 0xCC DMA int enable bit routes through mask | zxnext.vhd:5629-5630/1957-1958 | pass | test/ctc/ctc_test.cpp:2411 |
+| NR-CD-01 | zxnext.vhd:5633/1957 NR 0xCD DMA int enable bit routes through mask | zxnext.vhd:5633/1957 | pass | test/ctc/ctc_test.cpp:2429 |
+| NR-CE-01 | zxnext.vhd:5636-5637/1957-1958 NR 0xCE DMA int enable bit routes through mask | zxnext.vhd:5636-5637/1957-1958 | pass | test/ctc/ctc_test.cpp:2444 |
 | NR-C2-01 | NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6232] | zxnext.vhd:2050-2085,6232 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1089 |
 | NR-C3-01 | NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6236] | zxnext.vhd:2050-2085,6236 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1094 |
-| ISC-01 | zxnext.vhd:1955 NR 0xC8 b1 clears LINE int_status | zxnext.vhd:1955 | pass | test/ctc/ctc_test.cpp:2397 |
-| ISC-02 | zxnext.vhd:1952 NR 0xC8 b0 clears ULA int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2418 |
-| ISC-03 | zxnext.vhd:1953 NR 0xC9 bit clears CTC0 int_status | zxnext.vhd:1953 | pass | test/ctc/ctc_test.cpp:2440 |
-| ISC-04 | zxnext.vhd:1952 NR 0xCA b6 clears UART1_TX int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2461 |
-| ISC-05 | zxnext.vhd:1952 NR 0xCA b2 clears UART0_TX int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2482 |
-| ISC-06 | zxnext.vhd:1954 NR 0xCA bits 5\|4 clear UART1_RX int_status | zxnext.vhd:1954 | pass | test/ctc/ctc_test.cpp:2503 |
-| ISC-07 | zxnext.vhd:1954 NR 0xCA bits 1\|0 clear UART0_RX int_status | zxnext.vhd:1954 | pass | test/ctc/ctc_test.cpp:2524 |
-| ISC-08 | im2_peripheral.vhd:160 new int_req edge re-sets int_status during clear | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2562 |
+| ISC-01 | zxnext.vhd:1955 NR 0xC8 b1 clears LINE int_status | zxnext.vhd:1955 | pass | test/ctc/ctc_test.cpp:2502 |
+| ISC-02 | zxnext.vhd:1952 NR 0xC8 b0 clears ULA int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2523 |
+| ISC-03 | zxnext.vhd:1953 NR 0xC9 bit clears CTC0 int_status | zxnext.vhd:1953 | pass | test/ctc/ctc_test.cpp:2545 |
+| ISC-04 | zxnext.vhd:1952 NR 0xCA b6 clears UART1_TX int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2566 |
+| ISC-05 | zxnext.vhd:1952 NR 0xCA b2 clears UART0_TX int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2587 |
+| ISC-06 | zxnext.vhd:1954 NR 0xCA bits 5\|4 clear UART1_RX int_status | zxnext.vhd:1954 | pass | test/ctc/ctc_test.cpp:2608 |
+| ISC-07 | zxnext.vhd:1954 NR 0xCA bits 1\|0 clear UART0_RX int_status | zxnext.vhd:1954 | pass | test/ctc/ctc_test.cpp:2629 |
+| ISC-08 | im2_peripheral.vhd:160 new int_req edge re-sets int_status during clear | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2667 |
 | ISC-09 | NR 0x20 read = LINE_ULA_00_CTC3..CTC0 mixed status [zxnext.vhd:5988-5989; emulator.cpp:917-926] | zxnext.vhd:5988-5989 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:946 |
 | ISC-10 | NR 0x22 read bit 7 = NOT pulse_int_n (reset: 0x00) [zxnext.vhd:5991-5992 — NR 0x22 read_handler missing in jnext; reset-state invariant only] | zxnext.vhd:5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:976 |
-| DMA-01 | peripherals.vhd:174-184 im2_dma_int OR-reduction across devices | peripherals.vhd:174-184 | pass | test/ctc/ctc_test.cpp:2589 |
-| DMA-02 | zxnext.vhd:2001-2010 im2_dma_delay latches on im2_dma_int | zxnext.vhd:2001-2010 | pass | test/ctc/ctc_test.cpp:2604 |
-| DMA-03 | zxnext.vhd:2007 im2_dma_delay self-holds during RETI SRL window | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2632 |
-| DMA-04 | zxnext.vhd:2007 NMI-activated DMA delay (nmi_activated AND nr_cc_dma_int_en_0_7) | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2667 |
-| DMA-05 | zxnext.vhd:2004-2005 reset clears im2_dma_delay latch | zxnext.vhd:2004-2005 | pass | test/ctc/ctc_test.cpp:2687 |
-| DMA-06 | zxnext.vhd:1957-1958 per-device dma_int_en fan-out via mask | zxnext.vhd:1957-1958 | pass | test/ctc/ctc_test.cpp:2709 |
-| UNQ-01 | zxnext.vhd:1946-1947 NR 0x20 b7 unqualified LINE int (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2727 |
-| UNQ-02 | zxnext.vhd:1946-1947 NR 0x20 b0 unqualified CTC0 (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2743 |
-| UNQ-03 | zxnext.vhd:1946-1947 NR 0x20 b6 unqualified ULA (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2759 |
-| UNQ-04 | im2_peripheral.vhd:172 int_unq bypasses i_int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:2789 |
-| UNQ-05 | im2_peripheral.vhd:160 int_unq feeds int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2804 |
+| DMA-01 | peripherals.vhd:174-184 im2_dma_int OR-reduction across devices | peripherals.vhd:174-184 | pass | test/ctc/ctc_test.cpp:2694 |
+| DMA-02 | zxnext.vhd:2001-2010 im2_dma_delay latches on im2_dma_int | zxnext.vhd:2001-2010 | pass | test/ctc/ctc_test.cpp:2709 |
+| DMA-03 | zxnext.vhd:2007 im2_dma_delay self-holds during RETI SRL window | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2737 |
+| DMA-04 | zxnext.vhd:2007 NMI-activated DMA delay (nmi_activated AND nr_cc_dma_int_en_0_7) | zxnext.vhd:2007 | pass | test/ctc/ctc_test.cpp:2772 |
+| DMA-05 | zxnext.vhd:2004-2005 reset clears im2_dma_delay latch | zxnext.vhd:2004-2005 | pass | test/ctc/ctc_test.cpp:2792 |
+| DMA-06 | zxnext.vhd:1957-1958 per-device dma_int_en fan-out via mask | zxnext.vhd:1957-1958 | pass | test/ctc/ctc_test.cpp:2814 |
+| UNQ-01 | zxnext.vhd:1946-1947 NR 0x20 b7 unqualified LINE int (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2832 |
+| UNQ-02 | zxnext.vhd:1946-1947 NR 0x20 b0 unqualified CTC0 (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2848 |
+| UNQ-03 | zxnext.vhd:1946-1947 NR 0x20 b6 unqualified ULA (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2864 |
+| UNQ-04 | im2_peripheral.vhd:172 int_unq bypasses i_int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:2894 |
+| UNQ-05 | im2_peripheral.vhd:160 int_unq feeds int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2909 |
 | CTC-JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | — | missing | — |
 | CTC-JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | — | missing | — |
 | SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1396 |
@@ -2326,12 +2326,37 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot and leaves the machine rewindable [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1816 |
 | CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101,154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1907 |
 | CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1978 |
-| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 192) | ctc_chan.vhd:143-146 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2034 |
-| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2084 |
-| CTC-C1-ACC-03 | timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires at 31: activation cycle still ticks the newly-RUN channel; tick(31) == 31x tick(1) | ctc_chan.vhd, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2131 |
-| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2395 |
-| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2428 |
-| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | zxnext.vhd:4067 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2474 |
+| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 193) | ctc_chan.vhd:143-146 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2036 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2088 |
+| CTC-C1-ACC-03 | timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; zxnext.vhd:4084]; tick(35) == 35x tick(1) | ctc_chan.vhd:115-127,219-226,134-139, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2135 |
+| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2398 |
+| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2431 |
+| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | zxnext.vhd:4067 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2477 |
+| INT-GH265-01 | 48K pulse-mode INT taken at the first boundary whose last T-state starts on a CPU edge that samples the pulse low (zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:548-557, im2_peripheral.vhd:90-101,184-194, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2647 |
+| INT-GH265-02 | 128K pulse-mode INT taken at the first boundary >= 294 T (zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:187,199,548-557, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2669 |
+| INT-GH265-03 | hardware-IM2 INT: S_REQ on the first CPU edge after im2_int_req with M1_n high, INT_s one edge later (im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; t80n.vhd:1729-1731,1761,1788) | im2_peripheral.vhd:167-178, im2_device.vhd:91-107,150, t80n.vhd:1729-1731,1761,1788 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2693 |
+| INT-GH265-04 | 48K pulse: 32 CPU edges sample it low, the last at E_1 + 31*8; the boundary after that edge is the last taken (zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772) | zxnext.vhd:2033-2044, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2712 |
+| INT-GH265-05 | 128K pulse: 36 CPU edges, last boundary E_1 + 36*8 (zxnext.vhd:2033 pulse_count(5) and pulse_count(2)) | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2728 |
+| INT-GH265-06 | a pulse straddling the frame edge is still taken after it (zxnext.vhd:2017-2044 has no frame term) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2768 |
+| INT-GH265-10 | a pulse straddling the frame edge survives a snapshot taken there (zxnext.vhd:2017-2044) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2813 |
+| INT-GH265-11 | a pulse pending across a CPU-speed change lasts its remaining CPU edges at the new speed (zxnext.vhd:2035-2044) | zxnext.vhd:2035-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2861 |
+| INT-GH265-12 | EI grace survives a snapshot taken straight after the EI (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2914 |
+| INT-GH265-07 | EI grace across the frame edge (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2957 |
+| INT-GH265-08 | IM2 hardware mode, CPU in IM 1: the ULA's exception pulse is taken (im2_peripheral.vhd:192; zxnext.vhd:1840) | im2_peripheral.vhd:192, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2982 |
+| INT-GH265-09 | NR 0x20 unqualified request taken at the boundary after the OUT that writes it (zxnext.vhd:1946-1947,4747-4777; t80n.vhd:1664,1742-1772) | zxnext.vhd:1946-1947,4747-4777, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3010 |
+| ISC-GH265-01 | NR 0xC8 read by IN A,(C) sees a status set before the port_253b_dat load 83 cycles in, not one set on it (zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162) | zxnext.vhd:5871-5882,6247-6248, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3050 |
+| ISC-GH265-02 | polling NR 0xC8 for the frame interrupt: an IN starting at 49 T sees it, one at 48 T does not (zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882,6247-6248) | zxula_timing.vhd:548-557, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882,6247-6248 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3092 |
+| ISC-GH265-03 | NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling edge after the request (zxnext.vhd:2017-2031,5991-5992) | zxnext.vhd:2017-2031,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3119 |
+| ISC-GH265-04 | NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge of the pulse (zxnext.vhd:2033-2044,5991-5992) | zxnext.vhd:2033-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3147 |
+| ISC-GH265-05 | NR 0xC8 clear commits on its edge: a request set before it is cleared, one set on it survives (im2_peripheral.vhd:160; zxnext.vhd:1952-1955,4747-4777) | im2_peripheral.vhd:160, zxnext.vhd:1952-1955,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3178 |
+| ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3214 |
+| ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3242 |
+| ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3275 |
+| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3317 |
+| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3347 |
+| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3384 |
+| CTC-CH-GH265-01 | ctc_chan.vhd:115-127,173-182 rising-edge trigger counts one edge after the ZC/TO | ctc_chan.vhd:115-127,173-182 | pass | test/ctc/ctc_test.cpp:786 |
+| CTC-CH-GH265-02 | ctc_chan.vhd:115-127,173-182 a ZC/TO in flight reaches the next channel after its source stops | ctc_chan.vhd:115-127,173-182 | pass | test/ctc/ctc_test.cpp:810 |
 | IM2-G89-01 | LDIRX samples INT/NMI between iterations | — | missing | — |
 | IM2-G89-02 | LDDRX samples INT/NMI between iterations | — | missing | — |
 | IM2-G89-03 | LDPIRX samples INT/NMI between iterations | — | missing | — |
@@ -2463,6 +2488,8 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2077 |
 | TX-C1-ACC-01 | single tick span across a byte boundary: bytes exactly prescaler*frame_bits=2430 cycles apart [uart.vhd:297-299,318-320]; boundaries exact to one cycle; tx_empty at end | uart.vhd:297-299 | pass | test/uart/uart_test.cpp:2431 |
 | TX-C1-ACC-02 | one tick(4*2430) span drains 4 FIFO bytes back-to-back (starts at 0/T/2T/3T); last completion exactly at 4T [uart.vhd:297-299,318-320] | uart.vhd:297-299,318-320 | pass | test/uart/uart_test.cpp:2459 |
+| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:2125 |
+| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:2164 |
 | I2C-P05a | DS1307 - restart + read address 0xD1 returns ACK=0 | — | pass | test/uart/uart_test.cpp:1708 |
 | I2C-P05b | DS1307 - seconds register is valid BCD (upper<=5, lower<=9) | — | pass | test/uart/uart_test.cpp:1712 |
 
@@ -2763,8 +2790,8 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | KBD-19 | CS+SYM, rows 0,7 AND = 0x1C | membrane.vhd:251 | pass | test/input/input_test.cpp:308 |
 | KBD-20 | no rows selected = 0x1F | membrane.vhd:242-251 | pass | test/input/input_test.cpp:317 |
 | KBD-21 | all rows, single Z = 0x1D | membrane.vhd:251 | pass | test/input/input_test.cpp:327 |
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:171 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:195 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:176 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:200 |
 | KBDHYS-01 | CS held one extra scan after release (membrane.vhd:178, 188-191, 232) | membrane.vhd:178,188-191,232 | pass | test/input/input_test.cpp:371 |
 | KBDHYS-02 | CS pressed across 3 scans reads pressed each scan (membrane.vhd:190) | membrane.vhd:190 | pass | test/input/input_test.cpp:392 |
 | KBDHYS-03 | the cancel bit does NOT clear the NR 0xB0/0xB1 raw readback (membrane.vhd:253 vs :183-186) | membrane.vhd:253 | pass | test/input/input_test.cpp:425 |
@@ -2914,17 +2941,19 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 | NMI-05 | NR 0x06 bit3=1 + nmi_sw_gen_mf → nmi_assert_mf=1 | zxnext.vhd:2090 | pass | test/input/input_test.cpp:2870 |
 | NMI-06 | NR 0x06 bit4=1 + nmi_sw_gen_divmmc → nmi_assert_divmmc=1 | — | pass | test/input/input_test.cpp:2888 |
 | NMI-07 | NR 0x06 bits 3+4=1 + both hotkeys → both gates assert | — | pass | test/input/input_test.cpp:2906 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:220 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:241 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:260 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:324 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:225 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:246 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:265 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:329 |
 | FE-05 | expbus_eff_en=1`, `port_propagate_fe=1`, expansion bus drives D0=0 | — | missing | — |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1220 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1238 |
 | JCAL-01 | NR 0x28 keymap_sel write handler routes bit 7 + bit 0 | membrane_stick.vhd | pass | test/input/input_test.cpp:2980 |
 | JCAL-02 | NR 0x29 addr-low + NR 0x2B data write + auto-inc | zxnext.vhd:6304-6308, membrane_stick.vhd:182 | pass | test/input/input_test.cpp:3019 |
 | JCAL-03 | NR 0x05=111 + UDK[16]=(4,3) + bit0 press → row4 col3 low | membrane_stick.vhd:172-183 | pass | test/input/input_test.cpp:3063 |
 | FNK-01 | F8 press increments NR 0x07 cpu_speed (VHDL :5789-5791) | input/membrane/emu_fnkeys.vhd:53-202 | pass | test/input/input_test.cpp:3103 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:977 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:632 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5790-5791,6342-6347 | pass | test/input/input_integration_test.cpp:982 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | membrane_stick.vhd:124-131 | pass | test/input/input_integration_test.cpp:637 |
 | FNK-02 | F3 press toggles NR 0x05 bit 2 (5060), readable after the frame edge only (VHDL :5839-5841; eff latch :6697-6700) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3136 |
 | FNK-03 | F2 press toggles NR 0x05 bit 0 (scandouble), readable after the frame edge only (VHDL :5849-5852; eff latch :6702) | zxnext.vhd:5897 | pass | test/input/input_test.cpp:3164 |
 | KBDHYS-05 | Keyboard::tick_scan()` cancels extended entries when `i_cancel_extended_entries` asserted (prod) | membrane.vhd:178-191 | missing | — |
@@ -3650,6 +3679,7 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | NMI-DMA-01 | is_activated() true while any NMI latch is set | zxnext.vhd:2107 | pass | test/nmi/nmi_test.cpp:1857 |
 | NMI-DMA-02 | im2_dma_delay latches when is_activated() AND nr_cc_dma_int_en_0_7 | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:1881 |
 | NMI-DMA-03 | NR 0xCC bit 7 = 0 (or nmi_activated=0) blocks NMI-driven DMA delay | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:1910 |
+| NMI-INT-GH265-01 | MF NMI with NR 0xCC bit 7 set latches im2_dma_delay while the IM2 fabric is otherwise idle (VHDL zxnext.vhd:2001-2010, :2093) | zxnext.vhd:2001-2010,2093 | pass | test/nmi/nmi_integration_test.cpp:348 |
 | Z80-01 | FSM producing `/NMI` edge calls `Z80Cpu::request_nmi() | zxnext.vhd:1841,2164-2170 | missing | — |
 | Z80-02 | Z80 accepts NMI, PC vectors to 0x0066 | zxnext.vhd:2135-2138 | missing | — |
 | Z80-03 | Reset clears both NmiSource state and Z80 NMI line | zxnext.vhd:2120,2149 | missing | — |
@@ -3704,56 +3734,56 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | Z80N-Q-HYGIENE-SWAPNIB-SCF | pass4 z80n q hygiene clears q at dispatch [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:318 |
 | Z80N-IFF2-READ-HYGIENE-AT-DISPATCH | pass4 z80n iff2 read hygiene at dispatch [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:411 |
 | Z80N-ADD-HL-NN-MEMPTR | pass4 add nn memptr [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:443 |
-| CPU-SAVELOAD-IFF2-READ-AND-IE-AT-BEHAVIOR | pass4 save load iff2 read interrupts enabled at behavior [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:521 |
-| Z80N-TSTATES-MUL | pass5 pass6 z80n tstates via fuse counter [65b5918+86128d5] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:556 |
-| Z80N-TSTATES-PUSH-NN | pass5 pass6 z80n tstates via fuse counter [65b5918+b4af634] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:574 |
-| Z80N-TSTATES-JP-C-12T | pass5 pass6 z80n tstates via fuse counter [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:595 |
-| Z80N-M1-CONTENTION-STRETCH | pass5 z80n m1 contention stretch [cb8daf7] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:680 |
-| Z80N-LDIX-TOTAL-16T-FROM-PASS-1-AND-6 | pass1 pass6 ldix terminal total tstates [65b5918+b4af634] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:729 |
-| Z80N-LDIX-INTERNAL-IDLE-CONTENTION-STRETCH | pass7 ldix internal idle contention stretch [07ed205] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:859 |
-| Z80N-LDIX-SKIP-WRITE-CONTENTION-STRETCH | pass9 ldix skip contention stretch [b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1000 |
-| IM2-ACK-VECTOR-EI-GRACE | pass8 im2 ack vector ei grace [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1098 |
-| CPU-CHAINED-PREFIX-DD-ED-WALKS | pass9 chained prefix dd ed walks [b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1162 |
-| CPU-CB-INNER-BYTE-M1-CALLBACK | pass8 cb inner byte m1 callback [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1205 |
-| Z80N-PUSH-NN-WZ-LO-ONLY | pass8 push nn wz lo only [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1240 |
-| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-TAKEN | pass9 ldws incdecz after djnz [was Pass-9 b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1303 |
-| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-NOT-TAKEN | v13 cpu 01 ldws incdecz after djnz not taken | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1361 |
-| Z80N-LDPIRX-FLAGS-FIXTURE-PRESENT | pass10 ldpirx flags present [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1373 |
-| Z80N-ADD-HL-A-FORCE-FC-ZERO | pass10 add hl a force carry zero [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1406 |
-| IM2-RETI-DECODE-SIMULTANEITY-NESTED-ISR | pass10 im2 reti decode simultaneity [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1451 |
-| V11-CPU-01-IM2-DDFD-ED-NO-RETI | v11 cpu 01 im2 ddfd ed no reti | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1522 |
-| V11-CPU-02-Z80N-PIXELDN-BAND3-WRAP-PRESERVES-H-HIGH | v11 cpu 02 pixeldn band3 wrap preserves h high | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1587 |
-| V11-CPU-02-Z80N-PIXELDN-ROW191-WRAP-UNCHANGED | v11 cpu 02 pixeldn row191 wrap unchanged [guard] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1619 |
-| V12-CPU-NIT-02-Z80N-OUTINB-EXTENDED-M1-CONTEND-NO-MREQ | v12 cpu nit 02 outinb extended m1 contend no mreq | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1747 |
-| V14-CPU-01-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu 01 inc bc updates incdecz for ldws | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1843 |
-| V14-CPU-01-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu 01 dec bc updates incdecz for ldws | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1902 |
-| V14-CPU-01-INC-HL-MUST-NOT-UPDATE-INCDECZ | v14 cpu 01 inc hl does not update incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1971 |
-| V14-CPU-NIT-01-A-DD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 dd inc bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2059 |
-| V14-CPU-NIT-01-B-FD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 fd inc bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2120 |
-| V14-CPU-NIT-01-C-DD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 dd dec bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2169 |
-| V14-CPU-NIT-01-D-FD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 fd dec bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2216 |
-| V14-CPU-NIT-01-E-DD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | v14 cpu nit 01 dd djnz updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2281 |
-| V14-CPU-NIT-01-F-FD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | v14 cpu nit 01 fd djnz updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2330 |
-| V17-CPU-01-IM2-INT-REQ-HELD-IN-PULSE-MODE-VHDL-170 | v17 cpu 01 im2 int req held in pulse mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2399 |
-| V17-Z80N-01a-BSRF-UB-FREE-VHDL-1006-1014 | v17 z80n 01 bsrf shift ge 16 fills ones | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2461 |
-| V17-Z80N-01b-BSLA-UB-FREE-VHDL-992 | v17 z80n 01 bsla shift ge 16 zero | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2502 |
-| V17-CPU-NIT-04-BSRA-UB-FREE-VHDL-1006-1014 | v17 cpu nit 04 bsra shift ge 16 sign fill | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2590 |
-| V18R-CPU-NIT-01-LDPIRX-MEMPTR-LO-STROBE | v18r cpu nit 01 ldpirx memptr lo strobe | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2643 |
-| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-CTC7 | v18r cpu 02 dma raise no pollute ctc7 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2696 |
-| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-ULA | v18r cpu 02 dma raise no pollute ula | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2727 |
-| V19-IM2-03-INT-UNQ-ONE-SHOT-AFTER-ISR | v19 im2 03 int unq one shot after isr | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2820 |
-| V19R-CPU-01-INT-REQ-PULSE-SYNTHESIS-MULTI-FRAME-VHDL-101 | v19r cpu 01 int req pulse synthesis multi frame | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2933 |
-| V21-IM2-01-INT-LINE-GATED-ON-IM-MODE-VHDL-150-1974 | v21 im2 01 int line gated on im mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3032 |
-| CPU-SOFTRESET-01 | soft reset preserves BC/DE/HL | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3136 |
-| CPU-SOFTRESET-02 | soft reset preserves the shadow set BC'/DE'/HL' | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3139 |
-| CPU-SOFTRESET-03 | soft reset preserves IX/IY | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3142 |
-| CPU-SOFTRESET-04 | soft reset sets the t80n reset state: PC=0 SP=FFFF AF=FFFF I=0 IFF/IM=0 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3145 |
-| CPU-HARDRESET-01 | hard reset zeroes the register file (power-on model) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3156 |
-| PERF-SLNMI-01-ENABLE-CB-NOT-POLLED-WHILE-LATCH-CLEAR | stackless-NMI enable callback is not polled per instruction while the RETN latch is clear (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3219 |
-| PERF-SLNMI-02-ENABLE-CB-POLLED-WHILE-LATCH-SET | stackless-NMI enable callback is polled once per instruction while the RETN latch is set (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3263 |
-| PERF-SLNMI-03-CLEARING-ENABLE-MIDHANDLER-ABANDONS-LATCH | clearing NR 0xC0 bit 3 during the handler abandons the RETN latch and the RETN pops the real stack (zxnext.vhd:2074-2075) | zxnext.vhd:2074-2075 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3315 |
-| PERF-SLNMI-04-STATE-LOAD-CLEARING-LATCH-DISARMS-FUSE | a state load that clears the RETN latch also disarms the FUSE-side latch, so the next RETN is an ordinary stack return (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3364 |
-| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175 | v22 im2 01 on reti clears im2 int req latch | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3436 |
+| CPU-SAVELOAD-IFF2-READ-AND-IE-AT-BEHAVIOR | pass4 save load iff2 read interrupts enabled at behavior [c84f9ea] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:527 |
+| Z80N-TSTATES-MUL | pass5 pass6 z80n tstates via fuse counter [65b5918+86128d5] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:562 |
+| Z80N-TSTATES-PUSH-NN | pass5 pass6 z80n tstates via fuse counter [65b5918+b4af634] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:580 |
+| Z80N-TSTATES-JP-C-12T | pass5 pass6 z80n tstates via fuse counter [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:601 |
+| Z80N-M1-CONTENTION-STRETCH | pass5 z80n m1 contention stretch [cb8daf7] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:686 |
+| Z80N-LDIX-TOTAL-16T-FROM-PASS-1-AND-6 | pass1 pass6 ldix terminal total tstates [65b5918+b4af634] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:735 |
+| Z80N-LDIX-INTERNAL-IDLE-CONTENTION-STRETCH | pass7 ldix internal idle contention stretch [07ed205] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:865 |
+| Z80N-LDIX-SKIP-WRITE-CONTENTION-STRETCH | pass9 ldix skip contention stretch [b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1006 |
+| IM2-ACK-VECTOR-EI-GRACE | pass8 im2 ack vector ei grace [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1104 |
+| CPU-CHAINED-PREFIX-DD-ED-WALKS | pass9 chained prefix dd ed walks [b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1168 |
+| CPU-CB-INNER-BYTE-M1-CALLBACK | pass8 cb inner byte m1 callback [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1211 |
+| Z80N-PUSH-NN-WZ-LO-ONLY | pass8 push nn wz lo only [948f221] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1246 |
+| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-TAKEN | pass9 ldws incdecz after djnz [was Pass-9 b40af13] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1309 |
+| V13-CPU-01-Z80N-LDWS-INCDECZ-FROM-DJNZ-NOT-TAKEN | v13 cpu 01 ldws incdecz after djnz not taken | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1367 |
+| Z80N-LDPIRX-FLAGS-FIXTURE-PRESENT | pass10 ldpirx flags present [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1379 |
+| Z80N-ADD-HL-A-FORCE-FC-ZERO | pass10 add hl a force carry zero [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1412 |
+| IM2-RETI-DECODE-SIMULTANEITY-NESTED-ISR | pass10 im2 reti decode simultaneity [c526aa4] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1457 |
+| V11-CPU-01-IM2-DDFD-ED-NO-RETI | v11 cpu 01 im2 ddfd ed no reti | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1528 |
+| V11-CPU-02-Z80N-PIXELDN-BAND3-WRAP-PRESERVES-H-HIGH | v11 cpu 02 pixeldn band3 wrap preserves h high | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1593 |
+| V11-CPU-02-Z80N-PIXELDN-ROW191-WRAP-UNCHANGED | v11 cpu 02 pixeldn row191 wrap unchanged [guard] | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1625 |
+| V12-CPU-NIT-02-Z80N-OUTINB-EXTENDED-M1-CONTEND-NO-MREQ | v12 cpu nit 02 outinb extended m1 contend no mreq | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1753 |
+| V14-CPU-01-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu 01 inc bc updates incdecz for ldws | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1849 |
+| V14-CPU-01-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu 01 dec bc updates incdecz for ldws | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1908 |
+| V14-CPU-01-INC-HL-MUST-NOT-UPDATE-INCDECZ | v14 cpu 01 inc hl does not update incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:1977 |
+| V14-CPU-NIT-01-A-DD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 dd inc bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2065 |
+| V14-CPU-NIT-01-B-FD-INC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 fd inc bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2126 |
+| V14-CPU-NIT-01-C-DD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 dd dec bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2175 |
+| V14-CPU-NIT-01-D-FD-DEC-BC-UPDATES-INCDECZ-VHDL-1361 | v14 cpu nit 01 fd dec bc updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2222 |
+| V14-CPU-NIT-01-E-DD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | v14 cpu nit 01 dd djnz updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2287 |
+| V14-CPU-NIT-01-F-FD-DJNZ-UPDATES-INCDECZ-VHDL-1359 | v14 cpu nit 01 fd djnz updates incdecz | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2336 |
+| V17-CPU-01-IM2-INT-REQ-HELD-IN-PULSE-MODE-VHDL-170 | v17 cpu 01 im2 int req held in pulse mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2405 |
+| V17-Z80N-01a-BSRF-UB-FREE-VHDL-1006-1014 | v17 z80n 01 bsrf shift ge 16 fills ones | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2467 |
+| V17-Z80N-01b-BSLA-UB-FREE-VHDL-992 | v17 z80n 01 bsla shift ge 16 zero | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2508 |
+| V17-CPU-NIT-04-BSRA-UB-FREE-VHDL-1006-1014 | v17 cpu nit 04 bsra shift ge 16 sign fill | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2596 |
+| V18R-CPU-NIT-01-LDPIRX-MEMPTR-LO-STROBE | v18r cpu nit 01 ldpirx memptr lo strobe | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2649 |
+| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-CTC7 | v18r cpu 02 dma raise no pollute ctc7 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2702 |
+| V18R-CPU-02-DMA-RAISE-NO-POLLUTE-ULA | v18r cpu 02 dma raise no pollute ula | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2733 |
+| V19-IM2-03-INT-UNQ-ONE-SHOT-AFTER-ISR | v19 im2 03 int unq one shot after isr | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2826 |
+| V19R-CPU-01-INT-REQ-PULSE-SYNTHESIS-MULTI-FRAME-VHDL-101 | v19r cpu 01 int req pulse synthesis multi frame | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:2939 |
+| V21-IM2-01-INT-LINE-GATED-ON-IM-MODE-VHDL-150-1974 | v21 im2 01 int line gated on im mode | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3038 |
+| CPU-SOFTRESET-01 | soft reset preserves BC/DE/HL | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3142 |
+| CPU-SOFTRESET-02 | soft reset preserves the shadow set BC'/DE'/HL' | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3145 |
+| CPU-SOFTRESET-03 | soft reset preserves IX/IY | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3148 |
+| CPU-SOFTRESET-04 | soft reset sets the t80n reset state: PC=0 SP=FFFF AF=FFFF I=0 IFF/IM=0 | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3151 |
+| CPU-HARDRESET-01 | hard reset zeroes the register file (power-on model) | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3162 |
+| PERF-SLNMI-01-ENABLE-CB-NOT-POLLED-WHILE-LATCH-CLEAR | stackless-NMI enable callback is not polled per instruction while the RETN latch is clear (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3225 |
+| PERF-SLNMI-02-ENABLE-CB-POLLED-WHILE-LATCH-SET | stackless-NMI enable callback is polled once per instruction while the RETN latch is set (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3269 |
+| PERF-SLNMI-03-CLEARING-ENABLE-MIDHANDLER-ABANDONS-LATCH | clearing NR 0xC0 bit 3 during the handler abandons the RETN latch and the RETN pops the real stack (zxnext.vhd:2074-2075) | zxnext.vhd:2074-2075 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3321 |
+| PERF-SLNMI-04-STATE-LOAD-CLEARING-LATCH-DISARMS-FUSE | a state load that clears the RETN latch also disarms the FUSE-side latch, so the next RETN is an ordinary stack return (zxnext.vhd:2072-2081) | zxnext.vhd:2072-2081 | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3370 |
+| V22-IM2-01-ON-RETI-CLEARS-IM2-INT-REQ-LATCH-VHDL-175 | v22 im2 01 on reti clears im2 int req latch | — | pass | test/cpu/cpu_z80n_im2_regressions_test.cpp:3442 |
 
 ## ESP-01 socket transport — `src/esp01/test/esp_socket_test.cpp`
 
@@ -4584,22 +4614,45 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot and leaves the machine rewindable [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1816 |
 | CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1907 |
 | CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1978 |
-| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 48/96/144 [ctc_chan.vhd:143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 192) | ctc_chan.vhd:143-146,162-170 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2034 |
-| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2084 |
-| CTC-C1-ACC-03 | timer ch1 armed by D3=1 starts mid-span from ch0's ZC/TO at 16 [ctc_chan.vhd S_TRIGGER; zxnext.vhd:4084] and fires at 31: activation cycle still ticks the newly-RUN channel; tick(31) == 31x tick(1) | ctc_chan.vhd, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2131 |
-| PW-48K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2248 |
-| PW-48K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2248 |
-| PW-48K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2248 |
-| PW-NEXT-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2250 |
-| PW-NEXT-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2250 |
-| PW-NEXT-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2250 |
-| PW-128K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2257 |
-| PW-128K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2257 |
-| PW-128K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2257 |
-| PW-GH237-128K-SOFT | 128K keeps the 36-cycle /INT pulse width across RESET_SOFT — tim_sel "010" survives the reset, so machine_timing_128 is still the one-hot and the terminal still needs pulse_count(2) [zxnext.vhd:2033; :1099 + :4926-5111 no reset clause] | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2314 |
-| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2395 |
-| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2428 |
-| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | ctc_chan.vhd:269,276, zxnext.vhd:4067,4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2474 |
+| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 193) | ctc_chan.vhd:214-226,143-146,162-170 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2036 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2088 |
+| CTC-C1-ACC-03 | timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; zxnext.vhd:4084]; tick(35) == 35x tick(1) | ctc_chan.vhd:115-127,219-226,134-139, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2135 |
+| PW-48K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2251 |
+| PW-48K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2251 |
+| PW-48K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2251 |
+| PW-NEXT-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2253 |
+| PW-NEXT-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2253 |
+| PW-NEXT-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2253 |
+| PW-128K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2260 |
+| PW-128K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2260 |
+| PW-128K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2260 |
+| PW-GH237-128K-SOFT | 128K keeps the 36-cycle /INT pulse width across RESET_SOFT — tim_sel "010" survives the reset, so machine_timing_128 is still the one-hot and the terminal still needs pulse_count(2) [zxnext.vhd:2033; :1099 + :4926-5111 no reset clause] | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2317 |
+| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2398 |
+| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2431 |
+| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | ctc_chan.vhd:269,276, zxnext.vhd:4067,4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2477 |
+| INT-GH265-01 | 48K pulse-mode INT taken at the first boundary whose last T-state starts on a CPU edge that samples the pulse low (zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:548-557, im2_peripheral.vhd:90-101,184-194, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2647 |
+| INT-GH265-02 | 128K pulse-mode INT taken at the first boundary >= 294 T (zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:187,199,548-557, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2669 |
+| INT-GH265-03 | hardware-IM2 INT: S_REQ on the first CPU edge after im2_int_req with M1_n high, INT_s one edge later (im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; t80n.vhd:1729-1731,1761,1788) | im2_peripheral.vhd:167-178, im2_device.vhd:91-107,150, t80n.vhd:1729-1731,1761,1788 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2693 |
+| INT-GH265-04 | 48K pulse: 32 CPU edges sample it low, the last at E_1 + 31*8; the boundary after that edge is the last taken (zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772) | zxnext.vhd:2033-2044, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2712 |
+| INT-GH265-05 | 128K pulse: 36 CPU edges, last boundary E_1 + 36*8 (zxnext.vhd:2033 pulse_count(5) and pulse_count(2)) | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2728 |
+| INT-GH265-06 | a pulse straddling the frame edge is still taken after it (zxnext.vhd:2017-2044 has no frame term) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2768 |
+| INT-GH265-10 | a pulse straddling the frame edge survives a snapshot taken there (zxnext.vhd:2017-2044) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2813 |
+| INT-GH265-11 | a pulse pending across a CPU-speed change lasts its remaining CPU edges at the new speed (zxnext.vhd:2035-2044) | zxnext.vhd:2035-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2861 |
+| INT-GH265-12 | EI grace survives a snapshot taken straight after the EI (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2914 |
+| INT-GH265-07 | EI grace across the frame edge (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2957 |
+| INT-GH265-08 | IM2 hardware mode, CPU in IM 1: the ULA's exception pulse is taken (im2_peripheral.vhd:192; zxnext.vhd:1840) | im2_peripheral.vhd:192, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2982 |
+| INT-GH265-09 | NR 0x20 unqualified request taken at the boundary after the OUT that writes it (zxnext.vhd:1946-1947,4747-4777; t80n.vhd:1664,1742-1772) | zxnext.vhd:1946-1947,4747-4777, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3010 |
+| ISC-GH265-01 | NR 0xC8 read by IN A,(C) sees a status set before the port_253b_dat load 83 cycles in, not one set on it (zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162) | zxnext.vhd:5871-5882,6247-6248, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3050 |
+| ISC-GH265-02 | polling NR 0xC8 for the frame interrupt: an IN starting at 49 T sees it, one at 48 T does not (zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882,6247-6248) | zxula_timing.vhd:548-557, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882,6247-6248 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3092 |
+| ISC-GH265-03 | NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling edge after the request (zxnext.vhd:2017-2031,5991-5992) | zxnext.vhd:2017-2031,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3119 |
+| ISC-GH265-04 | NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge of the pulse (zxnext.vhd:2033-2044,5991-5992) | zxnext.vhd:2033-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3147 |
+| ISC-GH265-05 | NR 0xC8 clear commits on its edge: a request set before it is cleared, one set on it survives (im2_peripheral.vhd:160; zxnext.vhd:1952-1955,4747-4777) | im2_peripheral.vhd:160, zxnext.vhd:1952-1955,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3178 |
+| ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3214 |
+| ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3242 |
+| ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3275 |
+| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3317 |
+| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3347 |
+| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3384 |
 
 ### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`
 
@@ -4935,10 +4988,11 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | NMI-INT-03 | RETN (ED 45) clears DivMmc button_nmi_ (VHDL divmmc.vhd:108 i_retn_seen branch) | divmmc.vhd:108 | pass | test/nmi/nmi_integration_test.cpp:263 |
 | NMI-INT-04 | NR 0x02 bit 2 write via OUT 0x253B → NMI → PC=0x0066 (VHDL zxnext.vhd:3833, :3838, :2091, :2095-2170, :1841) | zxnext.vhd:3833,3838,2091,2095-2170,1841 | pass | test/nmi/nmi_integration_test.cpp:287 |
 | NMI-INT-05 | NR 0x02 bit 3 (MF sw-NMI) with NR 0x06 bit 3 set → MF latches, /NMI falls, Z80 PC=0x0066 (VHDL zxnext.vhd:2090, :2095-2170, :1841; MF consumer feedback stubbed → Task 8) | zxnext.vhd:2090 | pass | test/nmi/nmi_integration_test.cpp:314 |
-| HK-06-INT | F9 dispatcher → NmiSource MF latch → /NMI → Z80 PC=0x0066 end-to-end (VHDL zxnext.vhd:6348, :2090, :2095-2170, :1841) | zxnext.vhd:6348,2090,2095-2170,1841 | pass | test/nmi/nmi_integration_test.cpp:363 |
-| HK-07-INT | F10 dispatcher → NmiSource DivMMC latch → /NMI → Z80 PC=0x0066 end-to-end (VHDL zxnext.vhd:6349, :2091, :2095-2170, :1841) | zxnext.vhd:6349,2091,2095-2170,1841 | pass | test/nmi/nmi_integration_test.cpp:390 |
-| HK-08-INT | F4 dispatcher honours nr_03_config_mode gate; when open, advances reset_type FSM AND drives soft_reset() → PC=0x0000 (VHDL zxnext.vhd:6370, :1732-1739, :1102) | zxnext.vhd:6370,1732-1739,1102 | pass | test/nmi/nmi_integration_test.cpp:451 |
-| HK-09-INT | F1 dispatcher requests a host cold boot (deferred); the frontend cold boot → CPU PC=0x0000, NmiSource mf_enable cleared, FSM idle (no config_mode gate) [Task 70; VHDL zxnext.vhd:6371, :1109-1110, :2154-2155] | zxnext.vhd:6371,1109-1110,2154-2155 | pass | test/nmi/nmi_integration_test.cpp:488 |
+| NMI-INT-GH265-01 | MF NMI with NR 0xCC bit 7 set latches im2_dma_delay while the IM2 fabric is otherwise idle (VHDL zxnext.vhd:2001-2010, :2093) | zxnext.vhd:2001-2010,2093 | pass | test/nmi/nmi_integration_test.cpp:348 |
+| HK-06-INT | F9 dispatcher → NmiSource MF latch → /NMI → Z80 PC=0x0066 end-to-end (VHDL zxnext.vhd:6348, :2090, :2095-2170, :1841) | zxnext.vhd:6348,2090,2095-2170,1841 | pass | test/nmi/nmi_integration_test.cpp:394 |
+| HK-07-INT | F10 dispatcher → NmiSource DivMMC latch → /NMI → Z80 PC=0x0066 end-to-end (VHDL zxnext.vhd:6349, :2091, :2095-2170, :1841) | zxnext.vhd:6349,2091,2095-2170,1841 | pass | test/nmi/nmi_integration_test.cpp:421 |
+| HK-08-INT | F4 dispatcher honours nr_03_config_mode gate; when open, advances reset_type FSM AND drives soft_reset() → PC=0x0000 (VHDL zxnext.vhd:6370, :1732-1739, :1102) | zxnext.vhd:6370,1732-1739,1102 | pass | test/nmi/nmi_integration_test.cpp:482 |
+| HK-09-INT | F1 dispatcher requests a host cold boot (deferred); the frontend cold boot → CPU PC=0x0000, NmiSource mf_enable cleared, FSM idle (no config_mode gate) [Task 70; VHDL zxnext.vhd:6371, :1109-1110, :2154-2155] | zxnext.vhd:6371,1109-1110,2154-2155 | pass | test/nmi/nmi_integration_test.cpp:519 |
 
 ### Companion integration suite — `test/input/input_integration_test.cpp`
 
@@ -4946,28 +5000,30 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:171 |
-| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:195 |
-| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:220 |
-| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:241 |
-| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:260 |
-| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:324 |
-| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:448 |
-| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:467 |
-| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:500 |
-| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:540 |
-| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:572 |
-| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:632 |
-| JOY-WIRE-02 | SDL_CONTROLLERBUTTON* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:687 |
-| JOY-WIRE-03 | SDL_CONTROLLERAXISMOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:745 |
-| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:801 |
-| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:858 |
-| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:977 |
-| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1017 |
-| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1037 |
-| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1058 |
-| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1086 |
-| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1109 |
+| KBD-22 | port 0xFE no key, EAR idle → bits 7/5 = 1, bit 6 = 0, cols = 0x1F (= 0xBF) (zxnext.vhd:3459 + top_issue2.vhd:662-676) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:176 |
+| KBD-23 | port 0xFE CS pressed → cols = 0x1E (bit 0 clear), full byte = 0xBE idle (zxnext.vhd:3459 + membrane.vhd:236, 242) | zxnext.vhd:3459, membrane.vhd:236,242 | pass | test/input/input_integration_test.cpp:200 |
+| FE-01 | port 0xFE no keys, EAR idle → 0xBF (idle bit 6 = 0) (zxnext.vhd:3459 — duplicate of KBD-22) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:225 |
+| FE-02 | i_AUDIO_EAR driven high (issue-2 MIC relaxation) → port 0xFE bit 6 = 1 (zxnext.vhd:3459 + :1636 + top_issue2.vhd:674-675) | zxnext.vhd:3459,1636 | pass | test/input/input_integration_test.cpp:246 |
+| FE-03 | OUT 0xFE bit 4=1 then IN 0xFE → bit 6 = 1 (zxnext.vhd:3459 OR-term + :3598 port_fe_ear latch) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:265 |
+| FE-04 | NR 0x08 bit 0 = 1 (issue-2) → port 0xFE bit 6 tracks MIC (OUT bit 3); bit 0 = 0 (issue-3) → no leak (zxnext.vhd:5182 + :1636 + :3459; steady-state symmetric_relaxation per top_issue2.vhd:662) | zxnext.vhd:5182,1636,3459 | pass | test/input/input_integration_test.cpp:329 |
+| BP-04 | port 0xFE READ — border bits [2:0] NOT exposed across 0/5/7 sweep (zxnext.vhd:3459+3604; emulator.cpp:1163-1185) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:453 |
+| BP-20 | port 0xFE READ — bit 6 = i_AUDIO_EAR OR port_fe_ear: 0 idle, 1 after OUT 0xFE bit 4 (zxnext.vhd:3459 + :3598) | zxnext.vhd:3459,3598 | pass | test/input/input_integration_test.cpp:472 |
+| BP-21 | port 0xFE READ — bit 5 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:505 |
+| BP-22 | port 0xFE READ — bits [4:0] = keyboard column mux for A[15:8] (zxnext.vhd:3463-3468 + membrane.vhd:251; Keyboard::read_rows) | zxnext.vhd:3463-3468, membrane.vhd:251 | pass | test/input/input_integration_test.cpp:545 |
+| BP-23 | port 0xFE READ — bit 7 fixed-high across idle/key/OUT (zxnext.vhd:3459 literal '1'; emulator.cpp:1166 0xE0 base) | zxnext.vhd:3459 | pass | test/input/input_integration_test.cpp:577 |
+| JOY-WIRE-01 | OUT 0x253B[NR 0x05] propagates to MembraneStick (G126; zxnext.vhd:5157-5158 + membrane_stick.vhd:117-149) | zxnext.vhd:5157-5158, membrane_stick.vhd:117-149 | pass | test/input/input_integration_test.cpp:637 |
+| JOY-WIRE-02 | SDL_CONTROLLERBUTTON* → Joystick port 0x1F (K1 mode) (zxnext.vhd:3441-3442 + :3470-3479; G42) | zxnext.vhd:3441-3442,3470-3479 | pass | test/input/input_integration_test.cpp:692 |
+| JOY-WIRE-03 | SDL_CONTROLLERAXISMOTION → digital U/D/L/R threshold (symmetric ±AXIS_THRESHOLD=16384; G42) | — | pass | test/input/input_integration_test.cpp:750 |
+| JOY-WIRE-04 | SDL idx 0/1 → joy_left / joy_right; idx >= 2 ignored (JOY-WIRE-04 routing policy; G42) | — | pass | test/input/input_integration_test.cpp:806 |
+| JOY-WIRE-04-SDL | handle_sdl_event resolves SDL_JoystickID → slot via map; ignores unmapped + non-controller events (G42) | — | pass | test/input/input_integration_test.cpp:863 |
+| HOTKEY-01 | F8/F3/F7 dispatch via simulate_mf_fkey_press → NR side-effects; F5/F6 strobes latched (G147 + G132) | zxnext.vhd:5839-5841, zxnext.vhd:6343, zxnext.vhd:6345, zxnext.vhd:5861-5863, zxnext.vhd:5789-5791, zxnext.vhd:1107-1108 | pass | test/input/input_integration_test.cpp:982 |
+| GH233-01 | NR 0x02 bit 0 (RESET_SOFT) disarms a pending TAP autostart | — | pass | test/input/input_integration_test.cpp:1022 |
+| GH233-02 | after a soft reset a full ROM keyboard scan queues no keystrokes — the cancelled autostart cannot type into the machine that came up after the reset | — | pass | test/input/input_integration_test.cpp:1042 |
+| GH233-03 | a mid-scan soft reset cancels the autostart outright (the pre-reset row accumulator cannot complete afterwards) | — | pass | test/input/input_integration_test.cpp:1063 |
+| GH233-04 | a hard reset (frontend cold boot) also disarms a pending TAP autostart — a full ROM keyboard scan afterwards queues no keystrokes | — | pass | test/input/input_integration_test.cpp:1091 |
+| GH233-05 | arming AFTER a reset still fires — the reset-on-init does not cancel a legitimate autostart (load always follows init) | — | pass | test/input/input_integration_test.cpp:1114 |
+| FE-GH265-01 | port 0xFE bit 6 is the TAP level of the IN's port_fe_dat_0 reload, 9 T-states into IN A,(n) (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1220 |
+| FE-GH265-02 | port 0xFE bit 6 is the WAV level of the IN's port_fe_dat_0 reload (zxnext.vhd:3455-3464; t80na.vhd:214-222) | zxnext.vhd:3455-3464, t80na.vhd:214-222 | pass | test/input/input_integration_test.cpp:1238 |
 
 ### Companion integration suite — `test/uart/uart_integration_test.cpp`
 
@@ -5013,4 +5069,6 @@ Notes and rationale: [UART-I2C-TEST-PLAN-DESIGN.md](UART-I2C-TEST-PLAN-DESIGN.md
 | NR_A0-01 | NR 0xA0 write/read handler: reset 0x00 + mask 0x39 per zxnext.vhd:5080, :6188-6189 | zxnext.vhd:5080,6188-6189 | pass | test/uart/uart_integration_test.cpp:2017 |
 | NR_A0-02 | NR 0xA0 bit fan-out: pi_uart_rxtx (b5), pi_uart_en (b4), pi_i2c1_en (b3), pi_spi0_en (b0) per zxnext.vhd:2278-2281 | zxnext.vhd:2278-2281 | pass | test/uart/uart_integration_test.cpp:2046 |
 | NR_A0-03 | NR 0xA0 bit 3 (pi_i2c1_en) gates I2C1 wired-AND read path per zxnext.vhd:2280, 2317-2318 (G135 + G138) | zxnext.vhd:2280,2317-2318 | pass | test/uart/uart_integration_test.cpp:2077 |
+| UART-RD-GH265-01 | UART status IN latches the transmitter as of the port_uart_dat reload 83 cycles in, not the instruction start (zxnext.vhd:3418-3423; t80na.vhd:214-222) | zxnext.vhd:3418-3423, t80na.vhd:214-222 | pass | test/uart/uart_integration_test.cpp:2125 |
+| UART-WR-GH265-01 | UART TX write taken on the edge after IORQ+WR, 73 cycles into OUT (C),A (t80na.vhd:148-150; zxnext.vhd:3418-3423) | t80na.vhd:148-150, zxnext.vhd:3418-3423 | pass | test/uart/uart_integration_test.cpp:2164 |
 

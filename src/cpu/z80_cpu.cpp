@@ -659,6 +659,7 @@ int Z80Cpu::execute() {
     } executing_guard{executing_};
     exec_start_tstates_ = static_cast<uint32_t>(tstates);
     executing_ = true;
+    ++execute_serial_;
 
     // Cleared here and set only at the real opcode fetch below, so a caller
     // can tell a completed instruction from an NMI/INT acknowledge or an
@@ -713,8 +714,8 @@ int Z80Cpu::execute() {
     // → 48K/+3 release /INT after 32 cycles (bit 5 alone fires the gate);
     //   128K/Pentagon/Next-default need bit 5 AND bit 2 → 36 cycles.
     // machine_48_or_p3_ is set by Emulator from the active MachineType and
-    // is also re-fanned-out from runtime NR 0x03 machine_timing writes.
-    const uint32_t int_pulse_tstates = machine_48_or_p3_ ? 32u : 36u;
+    // is also re-fanned-out from runtime NR 0x03 machine_timing writes; the
+    // single-argument request_interrupt() sizes its window from it.
     if (int_pending_) {
         // V18R-CPU-01 fix: the drop arm must be UNCONDITIONAL on IFF1.
         // VHDL zxnext.vhd:2017-2033 — `pulse_int_n` returns to '1' as soon
@@ -730,11 +731,19 @@ int Z80Cpu::execute() {
         // accept arm fires, dispatching a spurious INT that real hardware
         // would have already dropped. Boot-realistic in NextZXOS supervisor
         // paths that bracket bank-flip sections with DI/EI.
-        if (tstates - int_requested_at_ > int_pulse_tstates) {
+        //
+        // The window is [int_first_ts_, int_last_ts_], inclusive. A boundary
+        // BEFORE it is one whose last T-state started before /INT fell: the
+        // request stays pending but is not taken there — the Emulator
+        // processes a whole instruction's interrupt sources when it ends, so
+        // a source that fired in the instruction's last T-state is known
+        // before the boundary it is too late for.
+        const int64_t now_ts = static_cast<int64_t>(tstates);
+        if (now_ts > int_last_ts_) {
             // Pulse expired — /INT line went high in hardware; drop the
             // pending request regardless of IFF1.
             int_pending_ = false;
-        } else if (z80.iff1) {
+        } else if (now_ts >= int_first_ts_ && z80.iff1) {
             // Pass-8 fix: gate EI-grace BEFORE invoking on_int_ack().
             //
             // FUSE's fuse_z80_interrupt() rejects the interrupt if
@@ -1304,12 +1313,31 @@ int Z80Cpu::execute() {
 }
 
 void Z80Cpu::request_interrupt(uint8_t vector) {
+    const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+    request_interrupt(vector, now_ts,
+                      now_ts + (machine_48_or_p3_ ? 32 : 36));
+}
+
+void Z80Cpu::request_interrupt(uint8_t vector, int64_t first_ts, int64_t last_ts) {
     int_pending_ = true;
     int_vector_  = vector;
-    int_requested_at_ = *fuse_z80_tstates_ptr();
+    int_first_ts_ = first_ts;
+    int_last_ts_  = last_ts;
     // V20R-CPU-NIT-02 test observable — monotonic counter; not
     // persisted in save/load (would shift schema layout).
     ++request_interrupt_count_;
+}
+
+void Z80Cpu::rebase_interrupt_window(int64_t delta) {
+    int_first_ts_ -= delta;
+    if (int_last_ts_ != INT64_MAX) int_last_ts_ -= delta;   // open-ended stays so
+    // -1 is FUSE's "no EI pending" value (fuse_z80_core.c:120); an EI stamp
+    // that the rebase takes below zero is one no boundary can equal again.
+    if (z80.interrupts_enabled_at >= 0) {
+        const int64_t v = static_cast<int64_t>(z80.interrupts_enabled_at) - delta;
+        z80.interrupts_enabled_at =
+            static_cast<libspectrum_signed_dword>(v < 0 ? -1 : v);
+    }
 }
 
 void Z80Cpu::request_nmi() {
@@ -1360,13 +1388,27 @@ void Z80Cpu::save_state(StateWriter& w) const
     //     stored by the LD) gets cleared. Without persistence, a snapshot
     //     taken between LD A,I and an immediately-pending INT would skip
     //     the quirk on restore.
-    w.write_i32(z80.interrupts_enabled_at);
+    //
+    // GH #265 — the stamp is only ever compared with the counter for
+    // equality at the boundary straight after the EI, and the counter is not
+    // restored as such (Emulator::load_state() re-seeds it). So what is
+    // saved is whether that grace is pending HERE: 0 when the stamp is this
+    // boundary's counter value, -1 otherwise (a stamp in the past can never
+    // match again). An older snapshot's absolute stamp reads as "none"
+    // unless it happens to be 0.
+    w.write_i32(z80.interrupts_enabled_at >= 0
+                && static_cast<libspectrum_dword>(z80.interrupts_enabled_at) == tstates
+                    ? 0 : -1);
     w.write_u8(static_cast<uint8_t>(z80.iff2_read ? 1 : 0));
     // Interrupt state
     w.write_bool(nmi_pending_);
     w.write_bool(int_pending_);
     w.write_u8(int_vector_);
-    w.write_u32(int_requested_at_);
+    // The window's first boundary, in the u32 slot the single-stamp window
+    // used, relative to the T-state counter (which Emulator::load_state()
+    // re-seeds rather than restores); the exact pair is appended at the end
+    // of the Emulator stream (see Emulator::save_state, "int_timing").
+    w.write_u32(static_cast<uint32_t>(int_first_ts_ - static_cast<int64_t>(tstates)));
 }
 
 void Z80Cpu::load_state(StateReader& r)
@@ -1387,12 +1429,20 @@ void Z80Cpu::load_state(StateReader& r)
     // Pass-4 fix: restore FUSE-internal interrupts_enabled_at + iff2_read.
     // Push directly into the global z80 struct; sync_fuse_from_regs() does
     // NOT touch these fields (they have no Z80Registers mirror).
-    z80.interrupts_enabled_at = static_cast<libspectrum_signed_dword>(r.read_i32());
+    // GH #265 — 0 means the grace is pending at this boundary: stamp it
+    // with the counter as it stands (see save_state).
+    z80.interrupts_enabled_at = (r.read_i32() == 0)
+        ? static_cast<libspectrum_signed_dword>(tstates) : -1;
     z80.iff2_read = (r.read_u8() != 0) ? 1 : 0;
     nmi_pending_ = r.read_bool();
     int_pending_ = r.read_bool();
     int_vector_  = r.read_u8();
-    int_requested_at_ = r.read_u32();
+    // An older snapshot carries only the stamp: its window was the pulse
+    // width from there. Emulator::load_state() replaces both from the
+    // appended "int_timing" block when the snapshot has one.
+    int_first_ts_ = static_cast<int64_t>(static_cast<int32_t>(r.read_u32()))
+                  + static_cast<int64_t>(tstates);
+    int_last_ts_  = int_first_ts_ + (machine_48_or_p3_ ? 32 : 36);
     // FUSE global z80 struct is synced on the next execute() call via
     // sync_fuse_from_regs(regs_) — no explicit sync needed here.
 }

@@ -475,10 +475,14 @@ void test_pass4_save_load_iff2_read_interrupts_enabled_at_behavior(Result& res) 
     prep_cpu(cpu, mem);
 
     // Set distinctive non-default values for the FUSE-internal fields.
-    // After EI, interrupts_enabled_at = post-EI tstates. We set explicit
-    // canary values via direct z80 access — equivalent to "we saved
-    // mid-frame at exactly this tstate".
-    z80.interrupts_enabled_at = 0x12345678;    // canary
+    // After EI, interrupts_enabled_at = post-EI tstates: "we saved at the
+    // boundary straight after an EI", the one state of the stamp that
+    // matters (it is only ever compared with the counter for equality).
+    // GH #265: the stamp survives as that grace, on whatever counter the
+    // restored machine has — an absolute canary pinned the old encoding,
+    // which a snapshot restore (the counter is re-seeded) broke.
+    *fuse_z80_tstates_ptr() = 0x1234;
+    z80.interrupts_enabled_at = 0x1234;        // EI just executed here
     z80.iff2_read             = 1;             // canary
 
     auto regs = cpu.get_registers();
@@ -502,7 +506,9 @@ void test_pass4_save_load_iff2_read_interrupts_enabled_at_behavior(Result& res) 
     StateReader rd(buf, saved_bytes);
     cpu.load_state(rd);
 
-    bool ie_at_restored  = z80.interrupts_enabled_at == 0x12345678;
+    // cpu.reset() (hard) put the counter at 0: the grace is at 0 now.
+    bool ie_at_restored  = z80.interrupts_enabled_at == 0
+                        && *fuse_z80_tstates_ptr() == 0;
     bool iff2_r_restored = z80.iff2_read == 1;
     auto out = cpu.get_registers();
     bool reg_state_ok    = out.AF == 0xABCD && out.PC == 0x9999
@@ -511,7 +517,7 @@ void test_pass4_save_load_iff2_read_interrupts_enabled_at_behavior(Result& res) 
     char detail[280];
     std::snprintf(detail, sizeof(detail),
                   "saved=%zu bytes; reset clears ie_at=%d iff2_r=%d; "
-                  "after load ie_at=0x%lx (exp 0x12345678) iff2_r=%d "
+                  "after load ie_at=0x%lx (exp 0, the counter) iff2_r=%d "
                   "(exp 1); regs round-trip ok=%d",
                   saved_bytes,
                   reset_clears_ie_at ? 1 : 0, reset_clears_iff2_r ? 1 : 0,

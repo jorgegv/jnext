@@ -135,6 +135,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // comment above.
     if (!preserve_memory) {
         scheduler_.reset();
+        irq_scheduler_.reset();
         frame_cycle_ = 0;
         frame_num_   = 0;
         // No frame is in flight after a hard reset. A soft reset keeps the
@@ -1037,6 +1038,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   proper fix would be to widen im2_control.vhd:236 — see
     //   doc/issues/NEXTZXOS-BOOT-INVESTIGATION.md for context).
     cpu_.on_m1_cycle = [this](uint16_t pc, uint8_t opcode) {
+        ++slot_m1_count_;   // GH #265 — see Im2Controller::tick(..., m1_cycles)
         im2_.on_m1_cycle(pc, opcode);
         if (im2_.reti_seen_this_cycle()) {
             im2_.on_reti();
@@ -2921,9 +2923,23 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // mode (1) middle nibble bits 6:3 leak the input rather than reading
     // 0; (2) port-0xFF writes mutate port_ff_reg(6) without updating the
     // regs_[] cache, so bit 2 read-back diverges from VHDL contract.
+    //
+    // GH #265 — bit 7 as the IN sees it: port_253b_dat takes NOT
+    // pulse_int_n on the CLK_28 edge before the port_253b_dat_0 reload
+    // (zxnext.vhd:5871-5882, :5991-5992) — the edge io_read_sample_cycle()
+    // returns — and pulse_int_n changes on CLK_28 FALLING edges
+    // (:2017-2031). The pulse state used to be the one at the end of the
+    // previous instruction.
     nextreg_.set_read_handler(0x22, [this]() -> uint8_t {
-        const bool pulse_n = im2_.pulse_int_n();
-        const uint8_t bit7 = pulse_n ? 0x00 : 0x80;
+        bool pulse_low;
+        if (cpu_.executing()) {
+            const uint64_t k = io_read_sample_cycle(kPort253bReloadClock);
+            sync_io_devices_to(k, k);
+            pulse_low = im2_.pulse_low_before(k);
+        } else {
+            pulse_low = !im2_.pulse_int_n();
+        }
+        const uint8_t bit7 = pulse_low ? 0x80 : 0x00;
         const uint8_t bit2 = (port_ff_reg_ >> 4) & 0x04;       // port_ff_reg(6) → bit 2
         const uint8_t bit1 = video_timing_.line_interrupt_enable() ? 0x02 : 0x00;
         const uint8_t bit0 = static_cast<uint8_t>(
@@ -3979,13 +3995,21 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // VHDL zxnext.vhd:1952-1955 (status-clear composition) + :6247-6254 (read).
     //
     // NR 0xC8 — LINE (bit 1) + ULA (bit 0).
+    //
+    // GH #265 — both directions are timed against the interrupt requests.
+    // A read returns im2_int_status as port_253b_dat took it on the edge
+    // before the port_253b_dat_0 reload (zxnext.vhd:5871-5882, 6247-6254):
+    // the requests raised by then are resolved first (they used to reach
+    // the fabric only after the instruction). A write clears on the edge it
+    // commits on (nr_write_edge_), after the requests raised before it and
+    // losing to one raised on that same edge (im2_peripheral.vhd:160).
     nextreg_.set_write_handler(0xC8, [this](uint8_t v) -> uint8_t {
-        if (v & 0x02) im2_.clear_status(Im2Controller::DevIdx::LINE);
-        if (v & 0x01) im2_.clear_status(Im2Controller::DevIdx::ULA);
+        if (v & 0x02) clear_im2_status(Im2Controller::DevIdx::LINE);
+        if (v & 0x01) clear_im2_status(Im2Controller::DevIdx::ULA);
         return v;
     });
     nextreg_.set_read_handler(0xC8, [this]() -> uint8_t {
-        return im2_.int_status_mask_c8();
+        return im2_.int_status_mask_c8(im2_status_read_edge());
     });
 
     // NR 0xC9 — CTC 7..0 (each bit clears the corresponding CTC status).
@@ -3994,18 +4018,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // honoured here (even though those devices are hardwired 0 upstream)
     // to match VHDL literal decode.
     nextreg_.set_write_handler(0xC9, [this](uint8_t v) -> uint8_t {
-        if (v & 0x01) im2_.clear_status(Im2Controller::DevIdx::CTC0);
-        if (v & 0x02) im2_.clear_status(Im2Controller::DevIdx::CTC1);
-        if (v & 0x04) im2_.clear_status(Im2Controller::DevIdx::CTC2);
-        if (v & 0x08) im2_.clear_status(Im2Controller::DevIdx::CTC3);
-        if (v & 0x10) im2_.clear_status(Im2Controller::DevIdx::CTC4);
-        if (v & 0x20) im2_.clear_status(Im2Controller::DevIdx::CTC5);
-        if (v & 0x40) im2_.clear_status(Im2Controller::DevIdx::CTC6);
-        if (v & 0x80) im2_.clear_status(Im2Controller::DevIdx::CTC7);
+        if (v & 0x01) clear_im2_status(Im2Controller::DevIdx::CTC0);
+        if (v & 0x02) clear_im2_status(Im2Controller::DevIdx::CTC1);
+        if (v & 0x04) clear_im2_status(Im2Controller::DevIdx::CTC2);
+        if (v & 0x08) clear_im2_status(Im2Controller::DevIdx::CTC3);
+        if (v & 0x10) clear_im2_status(Im2Controller::DevIdx::CTC4);
+        if (v & 0x20) clear_im2_status(Im2Controller::DevIdx::CTC5);
+        if (v & 0x40) clear_im2_status(Im2Controller::DevIdx::CTC6);
+        if (v & 0x80) clear_im2_status(Im2Controller::DevIdx::CTC7);
         return v;
     });
     nextreg_.set_read_handler(0xC9, [this]() -> uint8_t {
-        return im2_.int_status_mask_c9();
+        return im2_.int_status_mask_c9(im2_status_read_edge());
     });
 
     // NR 0xCA — UART (per VHDL :1952,:1954).
@@ -4014,14 +4038,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bit 2       = clear UART0 TX
     //   bit 1 | b0  = clear UART0 RX (OR, either bit clears)
     nextreg_.set_write_handler(0xCA, [this](uint8_t v) -> uint8_t {
-        if (v & 0x40)          im2_.clear_status(Im2Controller::DevIdx::UART1_TX);
-        if (v & 0x30)          im2_.clear_status(Im2Controller::DevIdx::UART1_RX);
-        if (v & 0x04)          im2_.clear_status(Im2Controller::DevIdx::UART0_TX);
-        if (v & 0x03)          im2_.clear_status(Im2Controller::DevIdx::UART0_RX);
+        if (v & 0x40)          clear_im2_status(Im2Controller::DevIdx::UART1_TX);
+        if (v & 0x30)          clear_im2_status(Im2Controller::DevIdx::UART1_RX);
+        if (v & 0x04)          clear_im2_status(Im2Controller::DevIdx::UART0_TX);
+        if (v & 0x03)          clear_im2_status(Im2Controller::DevIdx::UART0_RX);
         return v;
     });
     nextreg_.set_read_handler(0xCA, [this]() -> uint8_t {
-        return im2_.int_status_mask_ca();
+        return im2_.int_status_mask_ca(im2_status_read_edge());
     });
 
     // Registers 0xCC/0xCD/0xCE: IM2 DMA delay enables
@@ -4069,26 +4093,36 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   bits 3:0 = unq CTC 3..0  (VHDL "ctc3 & ctc2 & ctc1 & ctc0" AND nr_wr_dat(3..0))
     //
     // Read returns currently-asserted int_status of the same set.
+    //
+    // GH #265 — timed like NR 0xC8-0xCA (see there): the read sees the
+    // requests raised by the IN's sample edge, and a write's unqualified
+    // request is raised on the cycle nr_20_we is high, the one before the
+    // commit edge (zxnext.vhd:1946-1947).
     nextreg_.set_read_handler(0x20, [this]() -> uint8_t {
+        const uint64_t k = im2_status_read_edge();
         uint8_t v = 0;
-        if (im2_.int_status(Im2Controller::DevIdx::LINE)) v |= 0x80;  // bit 7 = LINE
-        if (im2_.int_status(Im2Controller::DevIdx::ULA))  v |= 0x40;  // bit 6 = ULA
-        if (im2_.int_status(Im2Controller::DevIdx::CTC0)) v |= 0x01;
-        if (im2_.int_status(Im2Controller::DevIdx::CTC1)) v |= 0x02;
-        if (im2_.int_status(Im2Controller::DevIdx::CTC2)) v |= 0x04;
-        if (im2_.int_status(Im2Controller::DevIdx::CTC3)) v |= 0x08;
+        if (im2_.int_status(Im2Controller::DevIdx::LINE, k)) v |= 0x80;  // bit 7 = LINE
+        if (im2_.int_status(Im2Controller::DevIdx::ULA, k))  v |= 0x40;  // bit 6 = ULA
+        if (im2_.int_status(Im2Controller::DevIdx::CTC0, k)) v |= 0x01;
+        if (im2_.int_status(Im2Controller::DevIdx::CTC1, k)) v |= 0x02;
+        if (im2_.int_status(Im2Controller::DevIdx::CTC2, k)) v |= 0x04;
+        if (im2_.int_status(Im2Controller::DevIdx::CTC3, k)) v |= 0x08;
         return v;
     });
     nextreg_.set_write_handler(0x20, [this](uint8_t v) -> uint8_t {
         // Per VHDL: each set bit drives int_unq for the matching device.
         // raise_unq() is a one-shot: sets int_status + im2_int_req bypassing
         // int_en, exactly matching UNQ-04 / UNQ-05 invariants.
-        if (v & 0x80) im2_.raise_unq(Im2Controller::DevIdx::LINE);
-        if (v & 0x40) im2_.raise_unq(Im2Controller::DevIdx::ULA);
-        if (v & 0x01) im2_.raise_unq(Im2Controller::DevIdx::CTC0);
-        if (v & 0x02) im2_.raise_unq(Im2Controller::DevIdx::CTC1);
-        if (v & 0x04) im2_.raise_unq(Im2Controller::DevIdx::CTC2);
-        if (v & 0x08) im2_.raise_unq(Im2Controller::DevIdx::CTC3);
+        auto unq = [this](Im2Controller::DevIdx d) {
+            if (nr_write_edge_ == Im2Controller::kNoTime) im2_.raise_unq(d);
+            else im2_.raise_unq(d, nr_write_edge_ - 1);
+        };
+        if (v & 0x80) unq(Im2Controller::DevIdx::LINE);
+        if (v & 0x40) unq(Im2Controller::DevIdx::ULA);
+        if (v & 0x01) unq(Im2Controller::DevIdx::CTC0);
+        if (v & 0x02) unq(Im2Controller::DevIdx::CTC1);
+        if (v & 0x04) unq(Im2Controller::DevIdx::CTC2);
+        if (v & 0x08) unq(Im2Controller::DevIdx::CTC3);
         return v;
     });
 
@@ -4482,15 +4516,22 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // Default `audio_ear_eff = 0` — the relaxed steady state of
             // `ear_relax` when issue-2 keyboard mode is off. Tape playback
             // overrides it; issue-2 feedback substitutes MIC.
+            //
+            // GH #265 — the tape level is the one port_fe_dat_0 takes on
+            // the CLK_CPU falling edge 2.5 T-states into the IN's I/O cycle
+            // (zxnext.vhd:3455-3464), the T-state tape_sample_offset()
+            // names: the TAP player (ticked between instructions) is
+            // brought up to it, TZX/WAV evaluated at it. It used to be the
+            // level at the instruction's start (TAP) or one T-state before
+            // the I/O cycle's data latch (TZX/WAV, the live FUSE counter).
             uint8_t audio_ear_eff = 0;
             if (tape_.is_playing()) {
-                audio_ear_eff = tape_.tick_realtime(0);
+                audio_ear_eff = tap_ear_for_port_read();
             } else if (tzx_tape_.is_playing()) {
-                // Monotonic live T-state clock (advances mid-instruction
-                // during I/O; never resets across frames — G36).
-                audio_ear_eff = tzx_tape_.update(monotonic_tstates());
+                // Monotonic T-state clock (never resets across frames — G36).
+                audio_ear_eff = tzx_tape_.update(tape_sample_tstates());
             } else if (wav_tape_.is_playing()) {
-                audio_ear_eff = wav_tape_.get_ear_bit(monotonic_tstates());
+                audio_ear_eff = wav_tape_.get_ear_bit(tape_sample_tstates());
             } else if ((nr_08_stored_low_ & 0x01) != 0) {
                 // Issue-2 MIC→EAR feedback (VHDL zxnext.vhd:1636, :3459):
                 // i_AUDIO_EAR steady-state = port_fe_mic AND nr_08_keyboard_issue2.
@@ -5626,13 +5667,26 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // Class-(c) inert divergence in practice (no software writes
     // 0x1C3B-0x1F3B), but the readback / write-drop contract is part
     // of the VHDL surface.
+    //
+    // GH #265 — both directions at their bus timing, not at the instruction
+    // start the CTC was last ticked to. A read returns port_ctc_dat, reloaded
+    // from the channel's t_count on every CLK_CPU falling edge
+    // (zxnext.vhd:4095-4100): the IN latches the one loaded 2.5 T-states into
+    // its I/O cycle, i.e. t_count after the CLK_28 edge before that reload
+    // (sync_for_port_read()). A write reaches the channel as iowr, high from
+    // the CPU edge IORQ and WR assert on, and its registers take it on the
+    // CLK_28 edge after (ctc_chan.vhd:246-254,262-285) — after the counter
+    // has made its move for that edge with the old settings; the IM2 fabric
+    // meets the old interrupt enable for every ZC/TO up to the edge before.
     port_.register_handler(0xFCFF, 0x183B,
         [this](uint16_t p) -> uint8_t {
             if ((effective_internal_port_enable(0x85) & 0x08) == 0) return 0xFF;
+            sync_for_port_read();
             return ctc_.read((p >> 8) & 3);
         },
         [this](uint16_t p, uint8_t val) {
             if ((effective_internal_port_enable(0x85) & 0x08) == 0) return;  // NR 0x85 b3 gate
+            sync_for_port_write();
             ctc_.write((p >> 8) & 3, val);
             // GH #47/#48 — a CTC control word carries the channel's
             // interrupt-enable bit, and hardware feeds THAT bit to the
@@ -5812,37 +5866,45 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     port_.register_handler(0xFFFF, 0x133B,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
+            sync_for_port_read();    // GH #265 — port_uart_dat, zxnext.vhd:3418-3423
             return uart_.read(3);
         },
         [this](uint16_t, uint8_t val) {
             if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
+            sync_for_port_write();   // GH #265
             uart_.write(3, val);
         });
     port_.register_handler(0xFFFF, 0x143B,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
+            sync_for_port_read();    // GH #265 — port_uart_dat, zxnext.vhd:3418-3423
             return uart_.read(0);
         },
         [this](uint16_t, uint8_t val) {
             if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
+            sync_for_port_write();   // GH #265
             uart_.write(0, val);
         });
     port_.register_handler(0xFFFF, 0x153B,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
+            sync_for_port_read();    // GH #265 — port_uart_dat, zxnext.vhd:3418-3423
             return uart_.read(1);
         },
         [this](uint16_t, uint8_t val) {
             if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
+            sync_for_port_write();   // GH #265
             uart_.write(1, val);
         });
     port_.register_handler(0xFFFF, 0x163B,
         [this](uint16_t) -> uint8_t {
             if ((effective_internal_port_enable(0x83) & 0x10) == 0) return 0xFF;
+            sync_for_port_read();    // GH #265 — port_uart_dat, zxnext.vhd:3418-3423
             return uart_.read(2);
         },
         [this](uint16_t, uint8_t val) {
             if ((effective_internal_port_enable(0x83) & 0x10) == 0) return;
+            sync_for_port_write();   // GH #265
             uart_.write(2, val);
         });
 
@@ -6142,9 +6204,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         // Agent E: route CTC ZC/TO through the DevIdx-based IM2 fabric so
         // the wrapper/edge-detect layer (Agent D) and device state machine
         // (Agent B) see the interrupt request properly.
+        //
+        // GH #265 — stamped with the edge the ZC/TO happened on: o_zc_to
+        // (zc_to_d, ctc_chan.vhd:173-182) is high for the cycle that edge
+        // starts, which is when i_int_req is (zxnext.vhd:1941).
         if (channel >= 0 && channel < 4) {
             im2_.raise_req(static_cast<Im2Controller::DevIdx>(
-                static_cast<int>(Im2Controller::DevIdx::CTC0) + channel));
+                static_cast<int>(Im2Controller::DevIdx::CTC0) + channel),
+                ctc_.time());
         }
     };
 
@@ -6187,9 +6254,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         (void)this;
     };
 
+    // GH #265 — both UART requests are stamped with the edge the channel
+    // reports the event on (UartChannel::event_edge()).
     uart_.on_tx_interrupt = [this](int channel) {
         im2_.raise_req(channel == 0 ? Im2Controller::DevIdx::UART0_TX
-                                    : Im2Controller::DevIdx::UART1_TX);
+                                    : Im2Controller::DevIdx::UART1_TX,
+                       uart_.channel(channel).event_edge());
     };
 
     uart_.on_rx_interrupt = [this](int channel) {
@@ -6207,7 +6277,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             return;  // request shape suppressed: avail blocked, near-full not yet
         }
         im2_.raise_req(channel == 0 ? Im2Controller::DevIdx::UART0_RX
-                                    : Im2Controller::DevIdx::UART1_RX);
+                                    : Im2Controller::DevIdx::UART1_RX,
+                       uart_.channel(channel).event_edge());
     };
 
     // --- Phase 5 DivMMC overlay + I2C RTC + SD card ---
@@ -7155,11 +7226,22 @@ void Emulator::rebase_fuse_tstates_()
     // See the declaration. (clock_ - frame_cycle_) is the position in the
     // current frame; at the frame start it is the previous frame's overshoot.
     uint32_t& live = *fuse_z80_tstates_ptr();
+    const uint32_t old = live;
     const uint32_t want = static_cast<uint32_t>(
         (clock_.get() - frame_cycle_) / static_cast<uint64_t>(clock_.cpu_divisor()));
     tstates_frame_base_ += live;
     tstates_frame_base_ -= want;
     live = want;
+    // GH #265 — a pending /INT window and FUSE's EI-just-executed stamp are
+    // positions on this counter: move them with it. Without this an
+    // interrupt still pending when a frame ends (a pulse straddling the frame
+    // edge: Pentagon's frame interrupt, a CTC or UART request) was dropped as
+    // expired at the first boundary of the new frame, and an EI in a frame's
+    // last instruction lost its grace. At a CPU-speed change the window keeps
+    // its distance in CPU T-states, as the pulse counts CPU clock edges
+    // (zxnext.vhd:2035-2044); the IM2 fabric re-places its own pulse edges
+    // (Im2Controller::set_cpu_divisor()).
+    cpu_.rebase_interrupt_window(static_cast<int64_t>(old) - static_cast<int64_t>(want));
 }
 
 void Emulator::advance_fuse_tstates_(uint64_t master_cycles)
@@ -7173,10 +7255,11 @@ void Emulator::skip_trap_cycles_(uint64_t master_cycles)
 {
     // A tape ROM trap replaced a ROM routine: charge its nominal time to the
     // clock AND to the FUSE counter (GH #265 follow-up, finding 4), then let
-    // the scheduler catch up.
+    // both event queues catch up (the frame and line interrupt requests live
+    // in the second one, GH #265).
     clock_.tick(master_cycles);
     advance_fuse_tstates_(master_cycles);
-    scheduler_.run_until(clock_.get());
+    run_scheduled_until(clock_.get());
 }
 
 uint64_t Emulator::monotonic_tstates() const
@@ -7663,7 +7746,9 @@ void Emulator::begin_new_frame()
     // observable. Reset its hc/vc at frame start so test queries
     // mid-frame match the (hc, vc) the contention path is using.
     // G36/G37: rebase_fuse_tstates_() folds the outgoing frame's T-states
-    // into the monotonic base, so monotonic_tstates() stays continuous.
+    // into the monotonic base, so monotonic_tstates() stays continuous. It
+    // also moves the pending /INT window and FUSE's EI stamp with the counter
+    // (GH #265).
     rebase_fuse_tstates_();
     frame_ts_start_ = 0;
     video_timing_.reset();
@@ -7684,11 +7769,18 @@ void Emulator::begin_new_frame()
     // Z80 INT is asserted through `Im2Controller::int_line_asserted()`
     // instead, so we must NOT also fire the legacy request in that case
     // (would cause a double-fire).
+    //
+    // GH #265 — the request is raised at the edge int_ula goes high: the
+    // compare above is registered on CLK_7 (zxula_timing.vhd:548-557), so
+    // int_ula is high for the pixel AFTER hc == c_int_h — 4 master cycles
+    // (one 7 MHz pixel) after frame_int_master_cycle_offset(). It lives in
+    // irq_scheduler_ so a status read inside an instruction can fire it.
     if (!ula_int_disabled_) {
         const uint64_t int_fire_offset = video_timing_.frame_int_master_cycle_offset();
-        scheduler_.schedule(frame_cycle_ + int_fire_offset, EventType::CPU_INT,
-            [this]() {
-                im2_.raise_req(Im2Controller::DevIdx::ULA);
+        const uint64_t int_req_edge    = frame_cycle_ + int_fire_offset + 4;
+        irq_scheduler_.schedule(int_req_edge, EventType::CPU_INT,
+            [this, int_req_edge]() {
+                im2_.raise_req(Im2Controller::DevIdx::ULA, int_req_edge);
                 // V20R-CPU-NIT-02 — pulse-mode CPU /INT now driven solely
                 // by the post-im2_.tick() falling-edge poll at line ~5791.
                 // The legacy `cpu_.request_interrupt(0xFF)` here was a
@@ -8348,6 +8440,10 @@ void Emulator::run_frame()
         if (debug_state_.armed() && debug_state_.data_bp_hit()) {
             debug_state_.pause();
             debug_state_.set_data_bp_hit(false);
+            // GH #265 — the IM2 tick moved into the device cluster this exit
+            // skips; the instruction's own fabric effects (an IntAck's
+            // S_ACK -> S_ISR, a RETI) still belong to this slot.
+            finish_slot_interrupts();
             return;
         }
 
@@ -8594,6 +8690,12 @@ uint64_t Emulator::step_one_instruction()
     uint64_t master_cycles;
     bool dma_stalled_cpu_this_step = false;
     bool cpu_executed = false;   // GH #265 follow-up (finding 4) — see below
+    // GH #265 — per-slot state of the in-instruction device sync and the
+    // end-of-slot IM2 tick; only the instruction branch below sets them.
+    io_sync_valid_        = false;
+    tap_sync_valid_       = false;
+    slot_ran_instruction_ = false;
+    slot_m1_count_        = 0;
 
     // GH #102 session 4 — resample the LIVE im2_.dma_delay() latch every
     // instruction, not once per video frame. VHDL zxnext.vhd:2001-2010
@@ -8928,150 +9030,30 @@ uint64_t Emulator::step_one_instruction()
         // advance and the CTC / UART / md6 / nmi device ticks below.
         master_cycles = static_cast<uint64_t>(tstates) * clock_.cpu_divisor();
 
-        // Advance the IM2 controller one tick per instruction. The device
-        // state-machine transitions (S_0→S_REQ→S_ACK→S_ISR→S_0) react to
-        // per-M1 signals and are modeled one-per-instruction (coarse, by
-        // design — see Im2Controller::step_devices()).
-        //
-        // Task 60d — the pulse-fabric counter MUST be advanced by the CPU
-        // T-state count (`tstates`), NOT by `master_cycles` (= tstates ×
-        // cpu_divisor, the 28 MHz-domain figure). Per VHDL zxnext.vhd:
-        // 2035-2044 the pulse counter increments on each
-        // `rising_edge(i_CLK_CPU)` — one increment per CPU T-state at the
-        // active CPU speed — and the pulse lasts 32 (48K/+3) or 36 (128K/
-        // Pentagon/Next) CPU cycles (zxnext.vhd:2014-2015,2033). i_CLK_CPU
-        // is the CPU clock, not the 28 MHz master clock, so the pulse width
-        // is speed-INVARIANT in T-states. Passing `master_cycles` here made
-        // the counter run cpu_divisor× too fast (8× at 3.5 MHz), collapsing
-        // the pulse to a single instruction below 28 MHz. tick() stashes
-        // this argument into pulse_count_advance_, consumed only by
-        // step_pulse(); the state-machine half ignores it.
-        //
-        // Wave E: push the current NMI-activated sample into
-        // Im2Controller before its tick so step_dma_delay() can evaluate
-        // VHDL:2007's second OR term (nmi_activated AND nr_cc_dma_int_en_0_7).
-        // NmiSource's own tick runs a few lines below (after the CTC /
-        // UART / Md6 cluster) — so this read-samples last tick's
-        // latched state, matching the VHDL synchronous-update rule where
-        // im2_dma_delay and nmi_activated both settle on the same rising
-        // edge of CLK_CPU.
-        im2_.set_nmi_activated(nmi_source_.is_activated());
-        im2_.tick(static_cast<uint32_t>(tstates));
-
-        // V19-IM2-04 fix: poll IM2 fabric INT line and assert CPU
-        // /INT request when an IM2 daisy-chain device has reached
-        // S_REQ with IEI=1.
-        //
-        // VHDL: zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
-        // im2_int_n) OR NOT expbus_disable_int) AND ...` — the Z80
-        // /INT pin is the AND of pulse_int_n (legacy pulse mode) and
-        // im2_int_n (IM2 hardware-priority mode). Either pulled low
-        // asserts the interrupt.
-        //
-        // Pre-fix jnext only called cpu_.request_interrupt(0xFF) for
-        // the legacy pulse-mode path (see FRAME / LINE / CTC scheduler
-        // callbacks). In IM2 mode (NR 0xC0 bit 0 = 1) the comment said
-        // the fabric's `int_line_asserted()` would drive the Z80 INT,
-        // but no code ever READ it. Result: in IM2 mode raise_req()
-        // entered the daisy chain correctly (im2_int_req latched →
-        // S_0 → S_REQ → int_line_asserted=true), but the CPU never
-        // saw the request — int_pending_ stayed false, on_int_ack was
-        // never called, and the IM2 priority chain remained latched
-        // forever (no RETI ever cleared S_REQ).
-        //
-        // Poll AFTER im2_.tick() so the wrapper edge-detect + state
-        // machine has had a chance to advance from S_0 → S_REQ since
-        // the most recent raise_req(). Idempotent: when int_pending_
-        // is already set, request_interrupt() simply re-stamps the
-        // pulse start time + vector — no double-fire.
-        //
-        // The vector returned at IntAck time is computed by
-        // im2_.ack_vector() via the on_int_ack callback (Emulator::init
-        // line 716), so the placeholder 0xFE here is a don't-care:
-        // ack_vector walks the priority chain, advances winning device
-        // S_REQ → S_ACK, and returns the composed VHDL vector
-        // `nr_c0_im2_vector & im2_vec & '0'` (zxnext.vhd:1999).
-        if (im2_.is_im2_mode() && im2_.int_line_asserted()) {
-            cpu_.request_interrupt(0xFE);  // vector replaced by on_int_ack
-        }
-
-        // V20-IM2-01 fix: pulse-mode CPU /INT polling.
-        //
-        // VHDL zxnext.vhd:1840 — `z80_int_n <= ((pulse_int_n AND
-        // im2_int_n) OR NOT expbus_disable_int) AND ...`. In the
-        // default scenario (expbus_disable_int='1', the power-on
-        // value with no expansion bus), this simplifies to
-        // `z80_int_n <= pulse_int_n AND im2_int_n`. So when
-        // pulse_int_n drops low (any device's pulse_en fires via
-        // im2_peripheral.vhd:186-194), the Z80 /INT pin is asserted
-        // and the CPU should accept on the next instruction
-        // boundary (subject to iff1).
-        //
-        // Pre-fix jnext only called `cpu_.request_interrupt(0xFF)`
-        // from the ULA frame-INT scheduler callback (line 5443) and
-        // the LINE-INT scheduler callback (line 6655) — and only in
-        // pulse mode. CTC ZC/TO (ctc_.on_interrupt at line 4668),
-        // UART TX-empty (uart_.on_tx_interrupt at 4717), and UART
-        // RX-avail/near-full (uart_.on_rx_interrupt at 4722) all
-        // routed solely through `im2_.raise_req(DevIdx)`, which
-        // drives the fabric's pulse_int_n latch correctly via
-        // step_pulse() but never notified the CPU. Result: in pulse
-        // mode (the power-on default for NextZXOS / 48K / 128K boot
-        // ROMs), CTC and UART interrupts were SILENTLY DROPPED —
-        // the IM2 fabric's pulse_int_n dropped to 0 for 32/36
-        // cycles per VHDL, but the Z80 /INT pin was never wired.
-        //
-        // Fix: poll pulse_int_n() in pulse mode and request the CPU
-        // INT each tick the line is asserted. The 32/36-cycle
-        // window self-expires via Im2Controller::step_pulse()'s
-        // pulse_count_end gate, matching VHDL zxnext.vhd:2033.
-        //
-        // Symmetric with the IM2-mode poll above. After
-        // V20R-CPU-NIT-02 (reviewer-recommended cleanup) the
-        // legacy `cpu_.request_interrupt(0xFF)` calls in the ULA
-        // FRAME-INT scheduler (line ~5443) and LINE-INT scheduler
-        // (`reschedule_line_interrupt()` at line ~6716) have been
-        // removed; this poll is now the SOLE driver of pulse-mode
-        // /INT — symmetric with the V19 IM2-mode poll above. That
-        // eliminates the latent double-INT trap where the legacy
-        // callback stamped `int_requested_at_=T0` at end of instr
-        // N, and this poll re-stamped `=T1` at end of instr N+1
-        // (T1 > T0 by tstates(N+1)); an ISR that did fast `EI`
-        // within the re-stamped window could accept a second INT
-        // that real hardware would not.
-        //
-        // The vector 0xFF is the standard pulse-mode bus-floating
-        // vector. VHDL zxnext.vhd:1871 routes `im2_vector` (= IM2
-        // mode vector) to the data bus during IntAck; for pulse-
-        // mode the bus is floating and the CPU reads 0xFF
-        // canonically. Real hardware behavior may differ (TBD per
-        // observed silicon), but 0xFF matches the existing
-        // ULA/LINE callback convention and is what real 48K boot
-        // ROMs expect.
-        //
-        // Edge detection on pulse_int_n: assert CPU /INT exactly
-        // ONCE per pulse, on the falling edge. Calling
-        // `request_interrupt` every tick during the pulse window
-        // would re-stamp `int_requested_at_` to the current
-        // tstates each tick, extending the effective 32/36-cycle
-        // window indefinitely and producing extra INT acceptances
-        // (observable by the contention regression test which
-        // depends on precise interrupt timing). The 32/36-cycle
-        // expiry in `Z80Cpu::execute()` then naturally drops the
-        // pending request — matching VHDL's pulse_count_end gate.
-        const bool cur_pulse_int_n = im2_.pulse_int_n();
-        if (!im2_.is_im2_mode()
-            && !cur_pulse_int_n && prev_pulse_int_n_) {
-            cpu_.request_interrupt(0xFF);
-        }
-        prev_pulse_int_n_ = cur_pulse_int_n;
+        // GH #265 — the IM2 fabric is no longer ticked here but at the end of
+        // the slot (finish_slot_interrupts()), after the devices and the
+        // scheduler have raised this instruction's requests. Record what that
+        // tick needs. The NMI-activated sample is taken HERE, before this
+        // slot's NmiSource tick, exactly where it was read before (Wave E:
+        // VHDL :2007 im2_dma_delay and nmi_activated settle on the same CPU
+        // edge, so the latch sees the previous tick's value).
+        slot_ran_instruction_ = true;
+        slot_tstates_         = static_cast<uint32_t>(tstates);
+        slot_start_           = clock_.get();
+        slot_d_               = static_cast<uint32_t>(clock_.cpu_divisor());
+        slot_nmi_activated_   = nmi_source_.is_activated();
 
         // Count instructions for RZX recording.
         if (rzx_recorder_.is_recording()) ++rzx_frame_instruction_count_;
 
         // Tick real-time tape playback (advances EAR bit state machine).
         if (tape_.is_playing()) {
-            tape_.tick_realtime(static_cast<uint64_t>(tstates));
+            // GH #265 — minus what a port 0xFE read inside the instruction
+            // already advanced it by (tap_ear_for_port_read()).
+            const uint32_t done =
+                (tap_sync_valid_ && tap_sync_serial_ == cpu_.execute_serial())
+                    ? tap_sync_ts_ : 0u;
+            tape_.tick_realtime(static_cast<uint64_t>(tstates) - done);
             beeper_.set_tape_ear(tape_.tick_realtime(0) != 0);
         } else if (tzx_tape_.is_playing()) {
             // TZX real-time: ZOT models an absolute tape timeline, so
@@ -9094,6 +9076,107 @@ uint64_t Emulator::step_one_instruction()
     dma_.tick_burst_wait(master_cycles);
 
     return master_cycles;
+}
+
+void Emulator::finish_slot_interrupts()
+{
+    if (!slot_ran_instruction_) return;
+    slot_ran_instruction_ = false;
+
+    // Nearly every instruction: pulse mode, nothing pending in the fabric,
+    // the pulse high (Im2Controller::slot_idle()) — all the full path below
+    // would do is withdraw a leftover IM2-mode request and note the pulse
+    // as high, so do exactly that.
+    if (im2_.slot_idle(slot_nmi_activated_)) {
+        if (cpu_.int_pending() && cpu_.int_window_last_ts() == INT64_MAX)
+            cpu_.cancel_interrupt();
+        prev_pulse_int_n_ = true;
+        return;
+    }
+    finish_slot_interrupts_full();
+}
+
+// Kept out of line so the fast path above — run for nearly every
+// instruction — does not pay this path's stack frame.
+[[gnu::noinline]] void Emulator::finish_slot_interrupts_full()
+{
+    // Advance the IM2 controller one tick per instruction. The device
+    // state-machine transitions (S_0→S_REQ→S_ACK→S_ISR→S_0) react to
+    // per-M1 signals and are modeled one-per-instruction (coarse, by
+    // design — see Im2Controller::step_devices()). The T-state count is the
+    // pulse fabric's CPU-edge count (Task 60d: zxnext.vhd:2035-2044 counts
+    // i_CLK_CPU rising edges, not 28 MHz master cycles).
+    //
+    // GH #265 — this runs once the slot's devices (CTC, UART) and the
+    // frame/line interrupt events have raised their requests, each stamped
+    // with the CLK_28 edge it happened on, and the timed tick resolves them
+    // on that timeline. It used to run straight after the CPU instruction,
+    // BEFORE the devices were ticked for it, so every request raised during
+    // an instruction reached the fabric one instruction late — and the CPU
+    // could only take it after the instruction after that.
+    const uint32_t d   = slot_d_;
+    const uint64_t now = clock_.get();
+    im2_.set_nmi_activated(slot_nmi_activated_);
+    im2_.tick(slot_tstates_, slot_start_, now, d, slot_m1_count_);
+    // A CPU-speed change committed at this boundary: a pulse this tick
+    // started is on the old divisor's edges (Im2Controller::set_cpu_divisor()).
+    const uint32_t dn = static_cast<uint32_t>(clock_.cpu_divisor());
+    im2_.set_cpu_divisor(now, dn);
+
+    // /INT windows on the FUSE T-state counter, which stands at `now`. The
+    // T80 samples INT_n into INT_s on every CPU rising edge and decides at
+    // the edge ending an instruction with the INT_s taken on the edge
+    // before, at the start of the instruction's last T-state (t80n.vhd:
+    // 1664, 1742-1772): a line first sampled low on CPU edge E is
+    // taken at a boundary B >= E + d.
+    // From here on the CPU edges are those of the divisor now in force, dn:
+    // a CPU-speed change committed at this boundary has already re-based the
+    // counter (rebase_fuse_tstates_()).
+    const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+    auto ts_at = [&](uint64_t edge) -> int64_t {
+        return now_ts + (static_cast<int64_t>(edge) - static_cast<int64_t>(now))
+                        / static_cast<int64_t>(dn);
+    };
+
+    // V19-IM2-04: the IM2 fabric's line. VHDL zxnext.vhd:1840 —
+    // `z80_int_n <= ((pulse_int_n AND im2_int_n) OR NOT expbus_disable_int)
+    // AND ...` — the Z80 /INT pin is the AND of pulse_int_n and im2_int_n.
+    // A device's o_int_n is low from the CPU edge it entered S_REQ on
+    // (im2_device.vhd:150), so INT_s is set one edge later and the request
+    // is taken from the boundary after that. It stays low until the IntAck
+    // moves the device on, so the window is open-ended; if the line has
+    // gone high without an acknowledge (NR 0xC0 back to pulse mode, the CPU
+    // leaving IM 2), the request it made is withdrawn — the line is a
+    // level. The vector is supplied by on_int_ack → ack_vector()
+    // (`nr_c0_im2_vector & im2_vec & '0'`, zxnext.vhd:1999).
+    if (im2_.is_im2_mode() && im2_.int_line_asserted()) {
+        const uint64_t since = im2_.int_line_low_since();
+        const int64_t first = (since == Im2Controller::kNoTime)
+            ? now_ts : ts_at(since + 2ull * dn);
+        cpu_.request_interrupt(0xFE, first, INT64_MAX);
+    } else if (cpu_.int_pending() && cpu_.int_window_last_ts() == INT64_MAX) {
+        cpu_.cancel_interrupt();
+    }
+
+    // V20-IM2-01: the pulse. pulse_int_n drops for a qualified request in
+    // pulse mode (im2_peripheral.vhd:186-194), or for the ULA — the one
+    // "exception" device — in IM2 mode while the CPU is not in IM 2
+    // (:192). Either way it reaches the pin through the same AND, so it is
+    // requested in both modes. INT_s is set on the pulse's CPU edges
+    // E_1..E_N (Im2Controller::pulse_first_edge/last_edge): the request is
+    // taken at a boundary in [E_1 + d, E_N + d]. Requested once per pulse:
+    // on the tick that started it (take_pulse_started(), which also sees a
+    // pulse that ended and restarted inside one slot), or on a falling edge
+    // of pulse_int_n between ticks (a pulse restored by load_state()). The
+    // vector 0xFF is the floating-bus byte of a pulse-mode IntAck.
+    const bool started = im2_.take_pulse_started();
+    const bool cur_pulse_int_n = im2_.pulse_int_n();
+    if (started || (!cur_pulse_int_n && prev_pulse_int_n_)) {
+        cpu_.request_interrupt(0xFF,
+                               ts_at(im2_.pulse_first_edge() + dn),
+                               ts_at(im2_.pulse_last_edge() + dn));
+    }
+    prev_pulse_int_n_ = cur_pulse_int_n;
 }
 
 void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
@@ -9151,12 +9234,29 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     contention_.commit_pending_cpu_speed_on_bus_idle(bus_idle, dma_holds_bus);
     // GH #265 follow-up (finding 4): the FUSE counter counts CPU T-states,
     // so its unit changes with the divisor; re-derive it from the clock.
-    if (clock_.cpu_divisor() != divisor_before) rebase_fuse_tstates_();
+    if (clock_.cpu_divisor() != divisor_before) {
+        rebase_fuse_tstates_();
+        im2_.set_cpu_divisor(clock_.get(), static_cast<uint32_t>(clock_.cpu_divisor()));
+    }
 
-    // Tick CTC and UART at 28 MHz rate.
-    ctc_.tick(static_cast<uint32_t>(master_cycles));
-    uart_.tick(static_cast<uint32_t>(master_cycles));
-    md6_.tick(static_cast<uint32_t>(master_cycles));
+    // Tick CTC and UART at 28 MHz rate — GH #265: only the part of the
+    // instruction a read or write inside it has not already ticked them
+    // through (sync_io_devices_to()), so every edge is ticked exactly once.
+    {
+        const uint64_t slot_begin = clock_.get() - master_cycles;
+        uint64_t ticked = slot_begin;
+        if (io_sync_valid_ && io_sync_edge_ > slot_begin
+                && io_sync_edge_ <= clock_.get()) {
+            ticked = io_sync_edge_;
+        }
+        io_sync_valid_ = false;
+        const uint32_t rest = static_cast<uint32_t>(clock_.get() - ticked);
+        ctc_.set_time(ticked);
+        ctc_.tick(rest);
+        uart_.set_time(ticked);
+        uart_.tick(rest);
+        md6_.tick(rest);
+    }
 
     // G72 closure — per-tick injector callback feeding IoMode from
     // the live UART TX lines. VHDL zxnext.vhd:3526-3531 wires
@@ -9293,7 +9393,11 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     }
 
     // Drain any scheduler events that have become due.
-    scheduler_.run_until(clock_.get());
+    run_scheduled_until(clock_.get());
+
+    // GH #265 — the IM2 fabric sees this instruction's requests now, at its
+    // end, instead of one instruction later.
+    finish_slot_interrupts();
 }
 
 uint64_t Emulator::step_frame_slot()
@@ -10049,7 +10153,27 @@ bool Emulator::ula_floating_bus_active_arm(uint8_t& out_byte) const
 
 void Emulator::enqueue_cpu_nr_write(uint8_t reg, uint8_t val)
 {
-    pending_cpu_nr_writes_.emplace_back(reg, val);
+    // GH #265 — the edge the write commits on. The CPU's request (IORQ+WR
+    // on 0x253B, or a NEXTREG opcode's Z80N_dout) is edge-detected into
+    // cpu_req on the next CLK_28 edge, nr_*_we is high during the cycle that
+    // edge starts, and the registers take the write on the edge after
+    // (zxnext.vhd:4739-4777, 4786-4840).
+    const uint64_t edge = io_request_edge() + 2;
+    switch (reg) {
+        // The registers whose write is ordered against interrupt requests:
+        // NR 0x20 raises unqualified ones, NR 0x22 / 0xC4-0xC6 / 0xC0 change
+        // which requests qualify, NR 0xC8-0xCA clear the status bits. Every
+        // request raised before the commit edge must meet the old value
+        // (im2_peripheral.vhd:154-178 sample i_int_en / i_int_status_clear
+        // on the same edge as the request).
+        case 0x20: case 0x22: case 0xC0: case 0xC4: case 0xC5: case 0xC6:
+        case 0xC8: case 0xC9: case 0xCA:
+            sync_io_devices_to(edge - 1, edge - 1);
+            break;
+        default:
+            break;
+    }
+    pending_cpu_nr_writes_.push_back(PendingNrWrite{reg, val, edge});
 }
 
 void Emulator::flush_pending_cpu_nr_writes()
@@ -10059,10 +10183,126 @@ void Emulator::flush_pending_cpu_nr_writes()
     // NextReg::write path so write_handlers fire (any side effect
     // landing here is the same as if the CPU had written directly,
     // just shifted later by the per-instruction Copper window).
-    for (auto& [reg, val] : pending_cpu_nr_writes_) {
-        nextreg_.write(reg, val);
+    for (const auto& w : pending_cpu_nr_writes_) {
+        nr_write_edge_ = w.edge;
+        nextreg_.write(w.reg, w.val);
     }
+    nr_write_edge_ = Im2Controller::kNoTime;
     pending_cpu_nr_writes_.clear();
+}
+
+uint64_t Emulator::io_request_edge() const
+{
+    const uint32_t into = cpu_.tstates_into_instruction();
+    if (into == 0) return clock_.get();
+    return clock_.get() + static_cast<uint64_t>(into) * clock_.cpu_divisor();
+}
+
+void Emulator::sync_io_devices_to(uint64_t device_edge, uint64_t im2_edge)
+{
+    // Only a bus cycle of the instruction in progress can be ahead of the
+    // devices: outside execute() they already stand at clock_.
+    if (!cpu_.executing()) return;
+    const uint64_t start  = clock_.get();   // the instruction's first edge
+    const uint64_t serial = cpu_.execute_serial();
+    if (!io_sync_valid_ || io_sync_serial_ != serial) {
+        io_sync_valid_  = true;
+        io_sync_serial_ = serial;
+        io_sync_edge_   = start;
+    }
+    if (device_edge > io_sync_edge_) {
+        const uint32_t n = static_cast<uint32_t>(device_edge - io_sync_edge_);
+        ctc_.set_time(io_sync_edge_);
+        ctc_.tick(n);
+        uart_.set_time(io_sync_edge_);
+        uart_.tick(n);
+        md6_.tick(n);
+        io_sync_edge_ = device_edge;
+    }
+    irq_scheduler_.run_until(device_edge);
+    im2_.latch_edges_until(im2_edge, start, clock_.cpu_divisor());
+}
+
+void Emulator::run_scheduled_until(uint64_t cycle)
+{
+    irq_scheduler_.run_until(cycle);
+    scheduler_.run_until(cycle);
+}
+
+uint32_t Emulator::tape_sample_offset() const
+{
+    // T-states from the instruction's start to the port_fe_dat_0 load: the
+    // CLK_CPU falling edge in the I/O cycle's third clock (2.5 T-states in,
+    // after the cycle's contention stretches) takes the level of the T-state
+    // it falls in.
+    static constexpr unsigned kCpuFallingReloadClock = 2;
+    const uint64_t k = io_read_sample_cycle(kCpuFallingReloadClock);
+    return static_cast<uint32_t>((k - clock_.get()) / clock_.cpu_divisor());
+}
+
+uint64_t Emulator::tape_sample_tstates() const
+{
+    if (!cpu_.executing()) return monotonic_tstates();
+    return monotonic_tstates() - cpu_.tstates_into_instruction()
+         + tape_sample_offset();
+}
+
+uint8_t Emulator::tap_ear_for_port_read()
+{
+    if (!cpu_.executing()) return tape_.tick_realtime(0);
+    if (!tap_sync_valid_ || tap_sync_serial_ != cpu_.execute_serial()) {
+        tap_sync_valid_  = true;
+        tap_sync_serial_ = cpu_.execute_serial();
+        tap_sync_ts_     = 0;
+    }
+    const uint32_t off = tape_sample_offset();
+    if (off > tap_sync_ts_) {
+        tape_.tick_realtime(off - tap_sync_ts_);
+        tap_sync_ts_ = off;
+    }
+    return tape_.tick_realtime(0);
+}
+
+void Emulator::sync_for_port_read()
+{
+    // A port whose data register is reloaded on every CLK_CPU falling edge
+    // (port_ctc_dat, port_uart_dat, port_fe_dat_0): the IN latches the one
+    // loaded in its I/O cycle's third clock (2.5 T-states in, after the
+    // cycle's contention stretches), so the device state it holds is the one
+    // after the CLK_28 edge before that reload.
+    if (!cpu_.executing()) return;
+    static constexpr unsigned kCpuFallingReloadClock = 2;
+    const uint64_t k = io_read_sample_cycle(kCpuFallingReloadClock);
+    sync_io_devices_to(k, k);
+}
+
+void Emulator::sync_for_port_write()
+{
+    // A port write reaches the device as a strobe high from the CPU edge
+    // IORQ and WR assert on; the device's CLK_28 registers take it on the
+    // edge after (ctc_chan.vhd:246-254 edge-detects iowr on CLK_28). That
+    // edge still counts with the old settings, and the IM2 fabric meets the
+    // old settings for every request up to the edge before.
+    if (!cpu_.executing()) return;
+    const uint64_t w = io_request_edge() + 1;
+    sync_io_devices_to(w, w - 1);
+}
+
+uint64_t Emulator::im2_status_read_edge()
+{
+    if (!cpu_.executing()) return Im2Controller::kNoTime;
+    // The port_253b_dat_0 reload edge, in the third clock of the IN's I/O
+    // cycle (zxnext.vhd:5871-5876) — the same edge NR 0x1E/0x1F sample at.
+    static constexpr unsigned kPort253bReloadClock = 2;
+    const uint64_t k = io_read_sample_cycle(kPort253bReloadClock);
+    sync_io_devices_to(k, k);
+    return k;
+}
+
+void Emulator::clear_im2_status(Im2Controller::DevIdx d)
+{
+    if (nr_write_edge_ == Im2Controller::kNoTime) im2_.clear_status(d);
+    else im2_.clear_status(d, nr_write_edge_);
 }
 
 // ---------------------------------------------------------------------------
@@ -10117,12 +10357,16 @@ void Emulator::reschedule_line_interrupt()
         fire_cycle += timing_.master_cycles_per_frame;
     }
 
+    // GH #265 — raised at the edge int_line goes high: the compare is
+    // registered on CLK_7 (zxula_timing.vhd:574-583), one pixel (4 master
+    // cycles) after the compare position above.
+    const uint64_t int_req_edge = fire_cycle + 4;
     ++line_int_schedule_gen_;
     const uint64_t my_gen = line_int_schedule_gen_;
-    scheduler_.schedule(fire_cycle, EventType::CPU_INT,
-        [this, my_gen]() {
+    irq_scheduler_.schedule(int_req_edge, EventType::CPU_INT,
+        [this, my_gen, int_req_edge]() {
             if (my_gen != line_int_schedule_gen_) return;  // superseded
-            im2_.raise_req(Im2Controller::DevIdx::LINE);
+            im2_.raise_req(Im2Controller::DevIdx::LINE, int_req_edge);
             // V20R-CPU-NIT-02 — pulse-mode CPU /INT now driven solely
             // by the post-im2_.tick() falling-edge poll at line ~5791.
             // Symmetric with the FRAME-INT scheduler at line ~5443
@@ -10657,6 +10901,24 @@ void Emulator::save_state(StateWriter& w) const
     if (joy_uart_source_) joy_uart_source_->save_state(w);
     put_sentinel();   // "joy_uart"
 
+    // GH #265 — the exact interrupt timing: the CPU's /INT window (the CPU
+    // block above carries only its first boundary, in the u32 the one-stamp
+    // window used), the IM2 fabric's request / pulse timeline and the CTC's
+    // chained triggers in flight. Appended last; an older snapshot ends
+    // before it and keeps the one-stamp window and untimed defaults. The
+    // window is written relative to the FUSE counter, which load_state()
+    // does not restore (it re-seeds it at the next frame start); an
+    // open-ended window's INT64_MAX end is written as is.
+    {
+        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t last   = cpu_.int_window_last_ts();
+        w.write_u64(static_cast<uint64_t>(cpu_.int_window_first_ts() - now_ts));
+        w.write_u64(static_cast<uint64_t>(last == INT64_MAX ? last : last - now_ts));
+    }
+    im2_.save_timing(w);
+    ctc_.save_timing(w);
+    put_sentinel();   // "int_timing"
+
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
     // StateWriter now suppresses the write and latches a sticky flag.
@@ -10916,6 +11178,9 @@ bool Emulator::load_state(StateReader& r)
     // same amount out of the base — monotonic_tstates() stays the saved
     // value, and contention sees the restored raster position.
     tstates_frame_base_ = r.read_u64();
+    // GH #265 — what the CPU block restored against the counter (the /INT
+    // window, the EI stamp) moves with it.
+    cpu_.rebase_interrupt_window(static_cast<int64_t>(*fuse_z80_tstates_ptr()));
     *fuse_z80_tstates_ptr() = 0;
     frame_num_        = r.read_u32();
     boot_hold_frames_remaining_ = r.read_u32();  // G156
@@ -11104,6 +11369,20 @@ bool Emulator::load_state(StateReader& r)
             }
         }
         if (!check_sentinel("joy_uart")) return false;
+    }
+
+    // GH #265 — exact interrupt timing (see save_state). The window comes
+    // relative to the FUSE counter; put it on the counter as re-seeded
+    // above, so the next frame start's rebase moves it with the counter.
+    if (!r.eof()) {
+        const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+        const int64_t first  = static_cast<int64_t>(r.read_u64()) + now_ts;
+        int64_t last         = static_cast<int64_t>(r.read_u64());
+        if (last != INT64_MAX) last += now_ts;
+        cpu_.set_int_window_for_load(first, last);
+        im2_.load_timing(r);
+        ctc_.load_timing(r);
+        if (!check_sentinel("int_timing")) return false;
     }
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS
