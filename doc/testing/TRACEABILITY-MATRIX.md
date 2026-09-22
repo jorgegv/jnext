@@ -23,7 +23,7 @@ mentions them, so a test can no longer be absent from this document.
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
 | Memory/MMU                                 |   262 |  256 |    0 |    0 |       6 |          0 |
-| ULA Video                                  |   138 |  134 |    0 |    0 |       4 |          0 |
+| ULA Video                                  |   142 |  138 |    0 |    0 |       4 |          0 |
 | Layer2                                     |   209 |  201 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   221 |  214 |    0 |    0 |       7 |          0 |
 | Tilemap                                    |   102 |   84 |    0 |    0 |      18 |          0 |
@@ -62,9 +62,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    40 |   40 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4737 | 4485 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4741 | 4489 |    0 |    5 |     247 |          0 |
 
-Rows the sections above carry: **4737**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4469**. Rows the 110 suites declared in `test/unit-tests.conf` run live: **7850**.
+Rows the sections above carry: **4741**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4473**. Rows the 110 suites declared in `test/unit-tests.conf` run live: **7854**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -450,20 +450,20 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | S5-PSL.05 | zxnext.vhd:3613-3616 + zxula.vhd:191/209 — port_ff_reg is genuine persistent hardware state (cleared only by global reset); Ula::save_state + load_state round-trips the port-0xFF change log: rendering the same scanline through replay produces byte-equal output before and after | zxnext.vhd:3613-3616, zxula.vhd:191/209 | pass | test/ula/ula_test.cpp:1605 |
 | INT-ULAPLUS-06 | port 0xFF3B write in palette mode is an NR 0xFF write of the GGGRRRBB byte reordered to RRRGGGBB, at the latched 0xBF3B index with no auto-increment and the NextREG select latch untouched; each write shows from its own row (zxnext.vhd:4532-4535,4597-4598,4741-4745,4919,6957-6958) | zxnext.vhd:4532-4535,4597-4598,4741-4745,4919,6957-6958 | pass | test/ula/ula_integration_test.cpp:956 |
 | INT-ULAPLUS-07 | port 0xFF3B writes reach the palette only in mode 00 and only while NR 0x85 b0 decodes the port; mode 01 loads the enable, modes 10/11 do nothing; a palette-mode IN reads the written GGGRRRBB byte back (zxnext.vhd:2439,2686,4548-4549,4563,4741-4745) | zxnext.vhd:2439,2686,4548-4549,4563,4741-4745 | pass | test/ula/ula_integration_test.cpp:1029 |
-| S9-PSL.01 | zxnext.vhd:5304/5307,5449 — three setter calls append three log entries | zxnext.vhd:5304/5307,5449 | pass | test/ula/ula_test.cpp:2906 |
-| S9-PSL.02 | zxula.vhd:192,206 — NR 0x27 mid-frame split: line32→row0(white) line33→row2(black) | zxula.vhd:192,206 | pass | test/ula/ula_test.cpp:2954 |
-| S9-PSL.03 | zxula.vhd:199 — NR 0x68 b2 fine_scroll mid-frame flip per line | zxula.vhd:199 | pass | test/ula/ula_test.cpp:2994 |
-| S9-PSL.04 | zxula.vhd:193-207 — start_frame_scroll clears log and snapshots baseline | zxula.vhd:193-207 | pass | test/ula/ula_test.cpp:3025 |
-| S17.01 | zxnext.vhd:5391-5393 — NR 0x43 b1-3 selector change-log captures per-line snapshots | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3538 |
-| S17.02 | zxnext.vhd:5462 + :6826 — NR 0x6B b4 mid-frame flip lands on the correct scanline | zxnext.vhd:5462,6826 | pass | test/ula/ula_test.cpp:3568 |
-| S17.03 | zxnext.vhd:5391-5393 vs :5462 — NR 0x43 / NR 0x6B b4 are independent change-streams | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3610 |
-| S17.04 | zxnext.vhd:5391-5393 + :5462 — palsel_start_frame clears logs and snapshots baseline from live state | zxnext.vhd:5391-5393,5462 | pass | test/ula/ula_test.cpp:3650 |
-| S18.01 | zxula.vhd:191 — STANDARD dump is 6912 bytes: 6144 pixels @ +0x0000 then 768 attrs @ +0x1800 | zxula.vhd:191 | pass | test/ula/ula_test.cpp:3238 |
-| S18.02 | zxula.vhd:218 — port 0xFF mode 001 dumps the alt file: 6912 bytes from +0x2000 / +0x3800 | zxula.vhd:218 | pass | test/ula/ula_test.cpp:3261 |
-| S18.03 | zxula.vhd:235/245 — hi-colour dumps both fetched planes: 12288 bytes, +0x0000 then +0x2000 | zxula.vhd:235/245 | pass | test/ula/ula_test.cpp:3284 |
-| S18.04 | zxula.vhd:389 — hi-res dumps the even and odd pixel planes: 12288 bytes, +0x0000 then +0x2000 | zxula.vhd:389 | pass | test/ula/ula_test.cpp:3305 |
-| S18.05 | zxnext.vhd:6649-6656 — the 0x7FFD b3 shadow bit alone moves the dump to bank 7 | zxnext.vhd:6649-6656 | pass | test/ula/ula_test.cpp:3326 |
-| S18.06 | zxula.vhd:191 — i_ula_shadow_en forces screen_mode to "000", so a shadow dump is 6912 bytes even in hi-colour | zxula.vhd:191 | pass | test/ula/ula_test.cpp:3350 |
+| S9-PSL.01 | zxnext.vhd:5304/5307,5449 — three setter calls append three log entries | zxnext.vhd:5304/5307,5449 | pass | test/ula/ula_test.cpp:3130 |
+| S9-PSL.02 | zxula.vhd:192,206 — NR 0x27 mid-frame split: line32→row0(white) line33→row2(black) | zxula.vhd:192,206 | pass | test/ula/ula_test.cpp:3178 |
+| S9-PSL.03 | zxula.vhd:199 — NR 0x68 b2 fine_scroll mid-frame flip per line | zxula.vhd:199 | pass | test/ula/ula_test.cpp:3218 |
+| S9-PSL.04 | zxula.vhd:193-207 — start_frame_scroll clears log and snapshots baseline | zxula.vhd:193-207 | pass | test/ula/ula_test.cpp:3249 |
+| S17.01 | zxnext.vhd:5391-5393 — NR 0x43 b1-3 selector change-log captures per-line snapshots | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3762 |
+| S17.02 | zxnext.vhd:5462 + :6826 — NR 0x6B b4 mid-frame flip lands on the correct scanline | zxnext.vhd:5462,6826 | pass | test/ula/ula_test.cpp:3792 |
+| S17.03 | zxnext.vhd:5391-5393 vs :5462 — NR 0x43 / NR 0x6B b4 are independent change-streams | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3834 |
+| S17.04 | zxnext.vhd:5391-5393 + :5462 — palsel_start_frame clears logs and snapshots baseline from live state | zxnext.vhd:5391-5393,5462 | pass | test/ula/ula_test.cpp:3874 |
+| S18.01 | zxula.vhd:191 — STANDARD dump is 6912 bytes: 6144 pixels @ +0x0000 then 768 attrs @ +0x1800 | zxula.vhd:191 | pass | test/ula/ula_test.cpp:3462 |
+| S18.02 | zxula.vhd:218 — port 0xFF mode 001 dumps the alt file: 6912 bytes from +0x2000 / +0x3800 | zxula.vhd:218 | pass | test/ula/ula_test.cpp:3485 |
+| S18.03 | zxula.vhd:235/245 — hi-colour dumps both fetched planes: 12288 bytes, +0x0000 then +0x2000 | zxula.vhd:235/245 | pass | test/ula/ula_test.cpp:3508 |
+| S18.04 | zxula.vhd:389 — hi-res dumps the even and odd pixel planes: 12288 bytes, +0x0000 then +0x2000 | zxula.vhd:389 | pass | test/ula/ula_test.cpp:3529 |
+| S18.05 | zxnext.vhd:6649-6656 — the 0x7FFD b3 shadow bit alone moves the dump to bank 7 | zxnext.vhd:6649-6656 | pass | test/ula/ula_test.cpp:3550 |
+| S18.06 | zxula.vhd:191 — i_ula_shadow_en forces screen_mode to "000", so a shadow dump is 6912 bytes even in hi-colour | zxula.vhd:191 | pass | test/ula/ula_test.cpp:3574 |
 | S13.03 | Pentagon frame length | — | missing | — |
 | S14.04 | Interrupt disabled | — | missing | — |
 | S14.05 | Line interrupt fires | — | missing | — |
@@ -537,49 +537,53 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | S6.12 | zxula.vhd:525 — non-standard paper format (0x42) → ula_select_bgnd (transparent paper) | zxula.vhd:525 | pass | test/ula/ula_test.cpp:1813 |
 | S6.14 | post-firmware palette convention — ULA palette indices 0x20..0xFF repeat the 16 std-ULA colours (entry i == entry i & 0x0F) in both banks, matching what tbblue.fw writes. The VHDL power-on is all-zero (zxnext.vhd:6960-6965 + dpram2.vhd:41-46,63-80) and is deliberately NOT modelled here: --load never runs the firmware (main.cpp:748) | zxnext.vhd:6960-6965, dpram2.vhd:41-46,63-80 | pass | test/ula/ula_test.cpp:1859 |
 | S6.15 | zxula.vhd:520 + post-firmware palette convention — unwritten ULAnext paper (0x89) and border (0x81) indices render as colours 9 and 1 of the 16-colour repeat, not as RRRGGGBB ramp entries (NextSIDplayer.nex launch-path colour divergence) | zxula.vhd:520 | pass | test/ula/ula_test.cpp:1924 |
-| S6.16 | zxula.vhd:494-504 — STANDARD display-row border strips under ULAnext index ULA palette entry 0x80\|border (0x83), not std paper 0x10\|border (GH #96) | zxula.vhd:494-504 | pass | test/ula/ula_test.cpp:1982 |
-| S6.17 | zxula.vhd:500-502 + zxnext.vhd:6987-6991 — STANDARD display-row border strips under ULAnext format 0xFF take the NR $4A fallback (GH #96) | zxula.vhd:500-502, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2008 |
-| S6.18 | zxula.vhd:494-504 — HI_COLOUR display-row border strips under ULAnext index entry 0x80\|border (0x85), not std paper 0x15 (GH #96) | zxula.vhd:494-504 | pass | test/ula/ula_test.cpp:2038 |
-| S6.19 | zxula.vhd:500-502 + zxnext.vhd:6987-6991 — HI_COLOUR display-row border strips under ULAnext format 0xFF take the NR $4A fallback (GH #96) | zxula.vhd:500-502, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2064 |
-| S6.20 | zxula.vhd:525 + zxnext.vhd:6987-6991 — scrolled-path ULAnext paper with non-list format 0x05 takes the NR $4A fallback (scroll_x=8 forces the per-pixel path) (GH #97) | zxula.vhd:525, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2092 |
-| S6.21 | zxula.vhd:525 + zxnext.vhd:6987-6991 — HI_COLOUR ULAnext paper with non-list format 0x05 takes the NR $4A fallback (GH #97) | zxula.vhd:525, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2117 |
-| S6.22 | zxula.vhd:525 + zxnext.vhd:6987-6991 — HI_RES ULAnext paper with non-list format 0x05 takes the NR $4A fallback (GH #97) | zxula.vhd:525, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2145 |
-| S6.23 | zxula.vhd:500-502 + zxnext.vhd:6987-6991 — TMX border row (HI_RES) under ULAnext format 0xFF takes the NR $4A fallback across the full row (GH #97) | zxula.vhd:500-502, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2173 |
-| S6.24 | zxula.vhd:494-504,:414-415 — STANDARD full top-border row under ULAnext indexes ULA palette entry 0x80\|border (0x83), not std paper 0x10\|border (GH #103) | zxula.vhd:494-504,414-415 | pass | test/ula/ula_test.cpp:2222 |
-| S6.25 | zxula.vhd:500-502 + zxnext.vhd:6987-6991 — STANDARD full bottom-border row under ULAnext format 0xFF takes the NR $4A fallback across the full row (GH #103) | zxula.vhd:500-502, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2250 |
-| S6.26 | zxula.vhd:494-504,:414-415,:426 — HI_COLOUR full top-border row under ULAnext indexes entry 0x80\|border (0x85), not std paper 0x15 (GH #103) | zxula.vhd:494-504,414-415,426 | pass | test/ula/ula_test.cpp:2283 |
-| S7.01 | zxnext.vhd:4547-4554 — port_ff3b_ulap_en latch gated by ulap_mode="01" | zxnext.vhd:4547-4554 | pass | test/ula/ula_test.cpp:2318 |
-| S7.02 | zxula.vhd:531 — paper encoding bit 3 = NOT pixel_en | zxula.vhd:531 | pass | test/ula/ula_test.cpp:2334 |
-| S7.03 | zxula.vhd:531 — ula_pixel(5:4) = attr(7:6) (palette-group select) | zxula.vhd:531 | pass | test/ula/ula_test.cpp:2359 |
-| S7.04 | zxula.vhd:531-541 — paper path palette group 3: 0xF8 \| attr(5:3) | zxula.vhd:531-541 | pass | test/ula/ula_test.cpp:2383 |
-| S7.05 | zxula.vhd:531 — screen_mode(2)=1 ORs into ula_pixel(3) | zxula.vhd:531 | pass | test/ula/ula_test.cpp:2399 |
-| S7.06 | zxula.vhd:531 — attr(7) reinterpreted as palette-group bit in ULA+ | zxula.vhd:531 | pass | test/ula/ula_test.cpp:2429 |
-| S7.07 | zxula.vhd:535-540,:418 — STANDARD display-row border strips under ULA+ index slot 0x08\|border (0x0B), not std paper 0x10\|border (GH #104) | zxula.vhd:535-540,418 | pass | test/ula/ula_test.cpp:2472 |
-| S7.08 | zxula.vhd:535-540,:418 — HI_COLOUR display-row border strips under ULA+ index slot 0x08\|border (0x0D), not std paper 0x15 (GH #104) | zxula.vhd:535-540,418 | pass | test/ula/ula_test.cpp:2500 |
-| S7.09 | zxula.vhd:535-540,:414-415,:418 — full top-border row under ULA+ indexes slot 0x08\|border (0x0E), not std paper 0x16 (GH #104) | zxula.vhd:535-540,414-415,418 | pass | test/ula/ula_test.cpp:2529 |
-| S8.01 | zxula.vhd:562 / zxnext.vhd:6779 — reset x1=0 | zxula.vhd:562, zxnext.vhd:6779 | pass | test/ula/ula_test.cpp:2549 |
-| S8.02 | zxula.vhd:562 / zxnext.vhd:6779 — reset x2=255 | zxula.vhd:562, zxnext.vhd:6779 | pass | test/ula/ula_test.cpp:2553 |
-| S8.03 | zxula.vhd:562 / zxnext.vhd:6779 — reset y1=0 | zxula.vhd:562, zxnext.vhd:6779 | pass | test/ula/ula_test.cpp:2557 |
-| S8.04 | zxula.vhd:562 / zxnext.vhd:6779 — reset y2=191 (0xBF) | zxula.vhd:562, zxnext.vhd:6779 | pass | test/ula/ula_test.cpp:2561 |
-| S8.05 | zxula.vhd:562 — clip latches store (64,192,32,160) after 4-write sequence | zxula.vhd:562 | pass | test/ula/ula_test.cpp:2571 |
-| S8.08 | zxnext.vhd:6779-6783 — y2 top-two-bits = '11' (>= 0xC0) clamps the consumer-facing value to 0xBF; raw byte still stored (read-time clamp, render-site equivalent via getter) | zxnext.vhd:6779-6783 | pass | test/ula/ula_test.cpp:2602 |
-| S9.02 | zxula.vhd:192,206 — scroll_y=1 + vc=0 → py=1 (passthrough else branch) | zxula.vhd:192,206 | pass | test/ula/ula_test.cpp:2670 |
-| S9.03 | zxula.vhd:203-204 — scroll_y=191 + vc=1 → py=0 (cross-third wrap) | zxula.vhd:203-204 | pass | test/ula/ula_test.cpp:2688 |
-| S9.04 | zxula.vhd:203-204 — scroll_y=192 + vc=0 → py=0 (modulo-192 boundary) | zxula.vhd:203-204 | pass | test/ula/ula_test.cpp:2707 |
-| S9.05 | zxula.vhd:199 — NR 0x26=8 → 8-pixel shift (scroll_x(7:3)=1, (2:0)=0) | zxula.vhd:199 | pass | test/ula/ula_test.cpp:2738 |
-| S9.06 | zxula.vhd:199,216 — fine_scroll_x=1 → 1-pixel source offset | zxula.vhd:199,216 | pass | test/ula/ula_test.cpp:2763 |
-| S9.07 | zxula.vhd:199 — NR 0x26=0xFF → 255-pixel shift (wraps mod 256) | zxula.vhd:199 | pass | test/ula/ula_test.cpp:2790 |
-| S9.08 | zxula.vhd:199 — fine_scroll_x=0 leaves px(8)=0 (no 1-pixel offset) | zxula.vhd:199 | pass | test/ula/ula_test.cpp:2817 |
-| S9.09 | zxula.vhd:193-216 — scroll_y=2 + NR 0x26=16 + fine=1 compose | zxula.vhd:193-216 | pass | test/ula/ula_test.cpp:2846 |
-| S9.10 | zxula.vhd:206,223 — scroll_y=64 → py=64 (third-0→third-1 swap) | zxula.vhd:206,223 | pass | test/ula/ula_test.cpp:2868 |
-| S12.01 | zxnext.vhd:5445 — reset default nr_68_ula_en=1 (ULA enabled) | zxnext.vhd:5445 | pass | test/ula/ula_test.cpp:3079 |
-| S13.01 | zxula_timing.vhd — 48K c_max_hc=447, c_max_vc=311 → 448*312/2 = 69888 T-states | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3111 |
-| S13.02 | zxula_timing.vhd — 128K c_max_hc=455, c_max_vc=310 → 456*311/2 = 70908 T-states | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3121 |
-| S13.04 | zxula_timing.vhd — 48K min_hactive=128, min_vactive=64 → display origin (128,64) 256x192 | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3132 |
-| S13.14 | zxula_timing.vhd — frame_done flips exactly at 69888 T-states (48K) | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3161 |
-| S15.01 | zxnext.vhd:4453 — primary render reads bank 5 (page 10) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3373 |
-| S15.02 | zxnext.vhd:4453 — i_ula_shadow_en selects bank 7 (page 14) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3392 |
-| S16.01 | zxnext.vhd:6957-6958/4919 — NR 0xFF poke at (bank=NR0x43b6, idx=bf3b[5:0]) commits RRRGGGBBB(B0=B1\|B0) | zxnext.vhd:6957-6958/4919 | pass | test/ula/ula_test.cpp:3479 |
+| S6.27 | GH #70 — reset() seeds the 16 std-ULA colours to the table NextZXOS (enNextZX.rom @0x1626) and nexload.asm:728-730 write, widened per zxnext.vhd:4919 (B0 = B1 or B0): the six non-bright chromatics are RGB333 level 5, not the conventional emulator level 6. Both banks, ink 0x00..0x0F and paper mirrors 0x10..0x1F | zxnext.vhd:4919 | pass | test/ula/ula_test.cpp:2007 |
+| S6.28 | GH #70 — reset()'s ULA seeding is bit-identical to replaying the boot chain's 16 bytes through NR 0x41 across all 256 entries of both banks (zxnext.vhd:4919 expansion; enNextZX.rom's writer reloads the table on its 0xAA sentinel, so the 16 colours repeat 16 times per bank) | zxnext.vhd:4919 | pass | test/ula/ula_test.cpp:2055 |
+| S6.29 | GH #70 — the rendered ULA default colours are the firmware's: non-bright white is level 5 (0xFFB6B6B6), not the level 6 (0xFFDBDBDB) jnext seeded; bright magenta is 0x1CF (0xE7, G=1) not 0x1C7, because 0xE3 is the default NR 0x14 global transparency index; and no ULA palette entry carries a level-6 component at all | — | pass | test/ula/ula_test.cpp:2104 |
+| S6.30 | GH #70 — no default ULA palette entry collides with the reset global transparency index: zxnext.vhd:7100 compares ula_rgb_2(8 downto 1) against NR 0x14 (reset 0xE3, zxnext.vhd:4946), so an entry whose source byte is 0xE3 would render TRANSPARENT. That is why the boot chain writes 0xE7 for bright magenta and why jnext's old 0x1C7 was wrong twice over | zxnext.vhd:7100, zxnext.vhd:4946 | pass | test/ula/ula_test.cpp:2149 |
+| S6.16 | zxula.vhd:494-504 — STANDARD display-row border strips under ULAnext index ULA palette entry 0x80\|border (0x83), not std paper 0x10\|border (GH #96) | zxula.vhd:494-504 | pass | test/ula/ula_test.cpp:2206 |
+| S6.17 | zxula.vhd:500-502 + zxnext.vhd:6987-6991 — STANDARD display-row border strips under ULAnext format 0xFF take the NR $4A fallback (GH #96) | zxula.vhd:500-502, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2232 |
+| S6.18 | zxula.vhd:494-504 — HI_COLOUR display-row border strips under ULAnext index entry 0x80\|border (0x85), not std paper 0x15 (GH #96) | zxula.vhd:494-504 | pass | test/ula/ula_test.cpp:2262 |
+| S6.19 | zxula.vhd:500-502 + zxnext.vhd:6987-6991 — HI_COLOUR display-row border strips under ULAnext format 0xFF take the NR $4A fallback (GH #96) | zxula.vhd:500-502, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2288 |
+| S6.20 | zxula.vhd:525 + zxnext.vhd:6987-6991 — scrolled-path ULAnext paper with non-list format 0x05 takes the NR $4A fallback (scroll_x=8 forces the per-pixel path) (GH #97) | zxula.vhd:525, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2316 |
+| S6.21 | zxula.vhd:525 + zxnext.vhd:6987-6991 — HI_COLOUR ULAnext paper with non-list format 0x05 takes the NR $4A fallback (GH #97) | zxula.vhd:525, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2341 |
+| S6.22 | zxula.vhd:525 + zxnext.vhd:6987-6991 — HI_RES ULAnext paper with non-list format 0x05 takes the NR $4A fallback (GH #97) | zxula.vhd:525, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2369 |
+| S6.23 | zxula.vhd:500-502 + zxnext.vhd:6987-6991 — TMX border row (HI_RES) under ULAnext format 0xFF takes the NR $4A fallback across the full row (GH #97) | zxula.vhd:500-502, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2397 |
+| S6.24 | zxula.vhd:494-504,:414-415 — STANDARD full top-border row under ULAnext indexes ULA palette entry 0x80\|border (0x83), not std paper 0x10\|border (GH #103) | zxula.vhd:494-504,414-415 | pass | test/ula/ula_test.cpp:2446 |
+| S6.25 | zxula.vhd:500-502 + zxnext.vhd:6987-6991 — STANDARD full bottom-border row under ULAnext format 0xFF takes the NR $4A fallback across the full row (GH #103) | zxula.vhd:500-502, zxnext.vhd:6987-6991 | pass | test/ula/ula_test.cpp:2474 |
+| S6.26 | zxula.vhd:494-504,:414-415,:426 — HI_COLOUR full top-border row under ULAnext indexes entry 0x80\|border (0x85), not std paper 0x15 (GH #103) | zxula.vhd:494-504,414-415,426 | pass | test/ula/ula_test.cpp:2507 |
+| S7.01 | zxnext.vhd:4547-4554 — port_ff3b_ulap_en latch gated by ulap_mode="01" | zxnext.vhd:4547-4554 | pass | test/ula/ula_test.cpp:2542 |
+| S7.02 | zxula.vhd:531 — paper encoding bit 3 = NOT pixel_en | zxula.vhd:531 | pass | test/ula/ula_test.cpp:2558 |
+| S7.03 | zxula.vhd:531 — ula_pixel(5:4) = attr(7:6) (palette-group select) | zxula.vhd:531 | pass | test/ula/ula_test.cpp:2583 |
+| S7.04 | zxula.vhd:531-541 — paper path palette group 3: 0xF8 \| attr(5:3) | zxula.vhd:531-541 | pass | test/ula/ula_test.cpp:2607 |
+| S7.05 | zxula.vhd:531 — screen_mode(2)=1 ORs into ula_pixel(3) | zxula.vhd:531 | pass | test/ula/ula_test.cpp:2623 |
+| S7.06 | zxula.vhd:531 — attr(7) reinterpreted as palette-group bit in ULA+ | zxula.vhd:531 | pass | test/ula/ula_test.cpp:2653 |
+| S7.07 | zxula.vhd:535-540,:418 — STANDARD display-row border strips under ULA+ index slot 0x08\|border (0x0B), not std paper 0x10\|border (GH #104) | zxula.vhd:535-540,418 | pass | test/ula/ula_test.cpp:2696 |
+| S7.08 | zxula.vhd:535-540,:418 — HI_COLOUR display-row border strips under ULA+ index slot 0x08\|border (0x0D), not std paper 0x15 (GH #104) | zxula.vhd:535-540,418 | pass | test/ula/ula_test.cpp:2724 |
+| S7.09 | zxula.vhd:535-540,:414-415,:418 — full top-border row under ULA+ indexes slot 0x08\|border (0x0E), not std paper 0x16 (GH #104) | zxula.vhd:535-540,414-415,418 | pass | test/ula/ula_test.cpp:2753 |
+| S8.01 | zxula.vhd:562 / zxnext.vhd:6779 — reset x1=0 | zxula.vhd:562, zxnext.vhd:6779 | pass | test/ula/ula_test.cpp:2773 |
+| S8.02 | zxula.vhd:562 / zxnext.vhd:6779 — reset x2=255 | zxula.vhd:562, zxnext.vhd:6779 | pass | test/ula/ula_test.cpp:2777 |
+| S8.03 | zxula.vhd:562 / zxnext.vhd:6779 — reset y1=0 | zxula.vhd:562, zxnext.vhd:6779 | pass | test/ula/ula_test.cpp:2781 |
+| S8.04 | zxula.vhd:562 / zxnext.vhd:6779 — reset y2=191 (0xBF) | zxula.vhd:562, zxnext.vhd:6779 | pass | test/ula/ula_test.cpp:2785 |
+| S8.05 | zxula.vhd:562 — clip latches store (64,192,32,160) after 4-write sequence | zxula.vhd:562 | pass | test/ula/ula_test.cpp:2795 |
+| S8.08 | zxnext.vhd:6779-6783 — y2 top-two-bits = '11' (>= 0xC0) clamps the consumer-facing value to 0xBF; raw byte still stored (read-time clamp, render-site equivalent via getter) | zxnext.vhd:6779-6783 | pass | test/ula/ula_test.cpp:2826 |
+| S9.02 | zxula.vhd:192,206 — scroll_y=1 + vc=0 → py=1 (passthrough else branch) | zxula.vhd:192,206 | pass | test/ula/ula_test.cpp:2894 |
+| S9.03 | zxula.vhd:203-204 — scroll_y=191 + vc=1 → py=0 (cross-third wrap) | zxula.vhd:203-204 | pass | test/ula/ula_test.cpp:2912 |
+| S9.04 | zxula.vhd:203-204 — scroll_y=192 + vc=0 → py=0 (modulo-192 boundary) | zxula.vhd:203-204 | pass | test/ula/ula_test.cpp:2931 |
+| S9.05 | zxula.vhd:199 — NR 0x26=8 → 8-pixel shift (scroll_x(7:3)=1, (2:0)=0) | zxula.vhd:199 | pass | test/ula/ula_test.cpp:2962 |
+| S9.06 | zxula.vhd:199,216 — fine_scroll_x=1 → 1-pixel source offset | zxula.vhd:199,216 | pass | test/ula/ula_test.cpp:2987 |
+| S9.07 | zxula.vhd:199 — NR 0x26=0xFF → 255-pixel shift (wraps mod 256) | zxula.vhd:199 | pass | test/ula/ula_test.cpp:3014 |
+| S9.08 | zxula.vhd:199 — fine_scroll_x=0 leaves px(8)=0 (no 1-pixel offset) | zxula.vhd:199 | pass | test/ula/ula_test.cpp:3041 |
+| S9.09 | zxula.vhd:193-216 — scroll_y=2 + NR 0x26=16 + fine=1 compose | zxula.vhd:193-216 | pass | test/ula/ula_test.cpp:3070 |
+| S9.10 | zxula.vhd:206,223 — scroll_y=64 → py=64 (third-0→third-1 swap) | zxula.vhd:206,223 | pass | test/ula/ula_test.cpp:3092 |
+| S12.01 | zxnext.vhd:5445 — reset default nr_68_ula_en=1 (ULA enabled) | zxnext.vhd:5445 | pass | test/ula/ula_test.cpp:3303 |
+| S13.01 | zxula_timing.vhd — 48K c_max_hc=447, c_max_vc=311 → 448*312/2 = 69888 T-states | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3335 |
+| S13.02 | zxula_timing.vhd — 128K c_max_hc=455, c_max_vc=310 → 456*311/2 = 70908 T-states | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3345 |
+| S13.04 | zxula_timing.vhd — 48K min_hactive=128, min_vactive=64 → display origin (128,64) 256x192 | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3356 |
+| S13.14 | zxula_timing.vhd — frame_done flips exactly at 69888 T-states (48K) | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3385 |
+| S15.01 | zxnext.vhd:4453 — primary render reads bank 5 (page 10) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3597 |
+| S15.02 | zxnext.vhd:4453 — i_ula_shadow_en selects bank 7 (page 14) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3616 |
+| S16.01 | zxnext.vhd:6957-6958/4919 — NR 0xFF poke at (bank=NR0x43b6, idx=bf3b[5:0]) commits RRRGGGBBB(B0=B1\|B0) | zxnext.vhd:6957-6958/4919 | pass | test/ula/ula_test.cpp:3703 |
 
 ## Layer2 — `test/layer2/layer2_test.cpp`
 

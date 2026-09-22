@@ -22,33 +22,76 @@ uint32_t rgb333_to_argb8888(uint8_t r3, uint8_t g3, uint8_t b3)
 }
 
 // ---------------------------------------------------------------------------
-// Default ULA palette as RGB333 values — the 16 hardware-defined boot
-// defaults of the 256-entry palette.  Used ONLY by reset() to seed the
-// std-ULA encoder slots (0x00..0x0F ink, 0x10..0x1F paper).  Not exposed
-// outside this translation unit: the hardware has a single 256-entry
-// palette and no narrower colour table.
+// Default ULA palette — the 16 ZX colours, held as the 8-bit RRRGGGBB bytes
+// the boot chain actually programs.  Used ONLY by reset() to seed the
+// std-ULA encoder slots (0x00..0x0F ink, 0x10..0x1F paper), plus the
+// 0x20..0xFF repeat.  Not exposed outside this translation unit: the
+// hardware has a single 256-entry palette and no narrower colour table.
+//
+// ORACLE (GH #70).  There is NO hardware default to copy: `palette_utm`
+// (zxnext.vhd:6960-6965) is a `dpram2` instantiated without init_file_g, so
+// the palette RAM powers up all-zero (dpram2.vhd:41-46,63-80).  Every real
+// ZX Next therefore gets its ULA palette from software, and the software
+// writes exactly these bytes:
+//
+//   * NextZXOS (`enNextZX.rom`) holds this 16-byte table at bank offset
+//     0x1626, 0xAA-terminated, and at boot streams it through NR 0x41 into
+//     all 256 entries of BOTH ULA banks (the writer loop reloads the table
+//     on the 0xAA sentinel, so the 16 colours repeat 16 times, then repeats
+//     the whole pass for NR 0x43 = 0x40).
+//   * `nexload.asm:728-730` `DefaultPalette` is the same 16 bytes.
+//   * `nexload2.asm:929-933` `ulaClassicPalette` likewise — and jnext
+//     already carried that copy, as `kUlaClassicPalette` in
+//     nex_loader.cpp, for the V1.3 tilemap-palette seeding.  The two
+//     copies are deliberately separate: they model different loaders'
+//     behaviour and answer to different oracles.  If one is ever
+//     edited, check the other.
+//
+// Stored as the 8-bit bytes, not as RGB333, so the table is byte-comparable
+// to those two sources and so the 8 -> 9 bit widening is done by the single
+// helper that models the VHDL rule (`rrrgggbb_to_rgb333`, zxnext.vhd:4919:
+// `nr_palette_value <= nr_wr_dat & (nr_wr_dat(1) or nr_wr_dat(0))` — the
+// blue LSB is B1 or B0, so 0x02 -> 0x005 and 0x03 -> 0x007).
+//
+// jnext used to hard-code RGB333 level 6 for the six non-bright chromatics
+// (and 0x1C7 for bright magenta): the conventional emulator ZX palette, one
+// RGB333 step brighter than the machine's on every one of those eight
+// entries.  GH #70 replaced it with the measured firmware table.
+//
+// HONEST LIMIT — this is closer to hardware, not fully faithful to it.
+// A NEX of version <= V1.2 sees NEITHER table on real hardware:
+// `nexload.asm:396-399` repaints all 256 ULA entries from its own
+// `DefaultPalette` before handing control to the program, and jnext models
+// no such sweep (see nex_loader.cpp).  Because the two tables are the same
+// 16 bytes the seeded COLOURS now agree, but the sweep's other effects —
+// it overwrites whatever the guest's loading screen put there — are still
+// not modelled.  "Matches the firmware" must not be read as "matches
+// hardware for NEX programs".
 // ---------------------------------------------------------------------------
 
-static const uint16_t kDefaultUlaRgb333[16] = {
-    // RGB333 packed: (R << 6) | (G << 3) | B
-    // Normal (indices 0-7)
-    (0 << 6) | (0 << 3) | 0,   // 0 Black
-    (0 << 6) | (0 << 3) | 6,   // 1 Blue
-    (6 << 6) | (0 << 3) | 0,   // 2 Red
-    (6 << 6) | (0 << 3) | 6,   // 3 Magenta
-    (0 << 6) | (6 << 3) | 0,   // 4 Green
-    (0 << 6) | (6 << 3) | 6,   // 5 Cyan
-    (6 << 6) | (6 << 3) | 0,   // 6 Yellow
-    (6 << 6) | (6 << 3) | 6,   // 7 White
-    // Bright (indices 8-15)
-    (0 << 6) | (0 << 3) | 0,   // 8  Bright Black
-    (0 << 6) | (0 << 3) | 7,   // 9  Bright Blue
-    (7 << 6) | (0 << 3) | 0,   // 10 Bright Red
-    (7 << 6) | (0 << 3) | 7,   // 11 Bright Magenta
-    (0 << 6) | (7 << 3) | 0,   // 12 Bright Green
-    (0 << 6) | (7 << 3) | 7,   // 13 Bright Cyan
-    (7 << 6) | (7 << 3) | 0,   // 14 Bright Yellow
-    (7 << 6) | (7 << 3) | 7,   // 15 Bright White
+static const uint8_t kDefaultUlaRrrgggbb[16] = {
+    // 8-bit RRRGGGBB; the RGB333 each expands to is noted alongside.
+    // Normal (indices 0-7) — chromatic components at level 5, not 6.
+    0x00,   // 0 Black          000 000 00 -> 0x000
+    0x02,   // 1 Blue           000 000 10 -> 0x005
+    0xA0,   // 2 Red            101 000 00 -> 0x140
+    0xA2,   // 3 Magenta        101 000 10 -> 0x145
+    0x14,   // 4 Green          000 101 00 -> 0x028
+    0x16,   // 5 Cyan           000 101 10 -> 0x02D
+    0xB4,   // 6 Yellow         101 101 00 -> 0x168
+    0xB6,   // 7 White          101 101 10 -> 0x16D
+    // Bright (indices 8-15) — level 7, except entry 11's green.
+    0x00,   // 8  Bright Black  000 000 00 -> 0x000
+    0x03,   // 9  Bright Blue   000 000 11 -> 0x007
+    0xE0,   // 10 Bright Red    111 000 00 -> 0x1C0
+    0xE7,   // 11 Bright Magenta 111 001 11 -> 0x1CF.  G=1, not the G=0 that
+            //    would make this 0xE3 — which is the default global
+            //    transparency index (NR 0x14, `global_transparency_` below),
+            //    so a pure bright magenta would render transparent.
+    0x1C,   // 12 Bright Green  000 111 00 -> 0x038
+    0x1F,   // 13 Bright Cyan   000 111 11 -> 0x03F
+    0xFC,   // 14 Bright Yellow 111 111 00 -> 0x1F8
+    0xFF,   // 15 Bright White  111 111 11 -> 0x1FF
 };
 
 // ---------------------------------------------------------------------------
@@ -141,16 +184,20 @@ void PaletteManager::reset(bool hard)
     // `--load`, correctly dark when launched from the NextZXOS browser.
     for (int p = 0; p < 2; ++p) {
         for (int i = 0; i < 16; ++i) {
-            ula_rgb333_[p][i]      = kDefaultUlaRgb333[i];
-            ula_argb_[p][i]        = rgb333_to_argb(kDefaultUlaRgb333[i]);
+            // Widened by the same helper the live NR 0x41 path uses, because
+            // NR 0x41 is how the firmware writes these very bytes.
+            const uint16_t rgb333 = rrrgggbb_to_rgb333(kDefaultUlaRrrgggbb[i]);
+            ula_rgb333_[p][i]      = rgb333;
+            ula_argb_[p][i]        = rgb333_to_argb(rgb333);
             // Mirror at 0x10..0x1F (paper variants of the 0x00..0x0F ink
             // values; same colour, different encoder branch).
-            ula_rgb333_[p][i + 16] = kDefaultUlaRgb333[i];
-            ula_argb_[p][i + 16]   = rgb333_to_argb(kDefaultUlaRgb333[i]);
+            ula_rgb333_[p][i + 16] = rgb333;
+            ula_argb_[p][i + 16]   = rgb333_to_argb(rgb333);
         }
         // 0x20..0xFF — reachable only from the ULAnext / LoRes encoders.
         for (int i = 32; i < FULL_SIZE; ++i) {
-            const uint16_t rgb333 = kDefaultUlaRgb333[i & 0x0F];
+            const uint16_t rgb333 =
+                rrrgggbb_to_rgb333(kDefaultUlaRrrgggbb[i & 0x0F]);
             ula_rgb333_[p][i] = rgb333;
             ula_argb_[p][i]   = rgb333_to_argb(rgb333);
         }

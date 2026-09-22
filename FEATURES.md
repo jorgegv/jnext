@@ -33,6 +33,12 @@
 ## Palettes
 - 8 palettes (ULA/Layer2/Sprite/Tilemap × first/second), 256 entries each
 - 9-bit RGB colour (512 possible colours), full NextREG palette control
+- Default ULA colours are the boot chain's own — the 16-byte table NextZXOS
+  and the NEX loader write — so a program loaded with `--load`, and the
+  48K/128K/+3 machine types (which never run the firmware), show the same
+  shades a real machine does rather than a brighter emulator approximation.
+  This also restores bright magenta, which previously collided with the
+  default transparency colour and was drawn see-through
 
 ## Audio
 - AY-3-8910 / YM2149 × 3 (TurboSound), with tone, noise, envelope, and stereo panning
