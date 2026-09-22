@@ -1398,8 +1398,9 @@ bool NexLoader::apply(Emulator& emu) const
     //
     //   PC, HL   header PC           both loaders' `ld hl,(PC)`, then `ret`
     //   MEMPTR   header PC           set by that `ret`
-    //   SP       header SP           (the handler's `push hl` leaves PC in
-    //                                the 2 bytes below SP; not modelled)
+    //   SP       header SP           the handler's `push hl` leaves PC in
+    //                                the 2 bytes below SP: written by
+    //                                Emulator::load_nex(), after the handle
     //   AF       $0044               the handler's `xor a` (A=0, Z and P/V):
     //                                it replaces the loaders' `ld a,h : or l`
     //   IFF1/2   0                   both loaders `di`, nothing re-enables

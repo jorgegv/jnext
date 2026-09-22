@@ -554,9 +554,14 @@ int main() {
     closed_cfg.load_file = closed_ext_path.string();
     const bool closed_loaded = closed_emu.init(closed_cfg) &&
                                closed_emu.load_nex(closed_ext_path.string());
+    // The whole bank is the file's 0x5A except the word just below the entry
+    // SP ($FF00, write_nex()): the NextZXOS RST $20 both loaders leave through
+    // pushes the entry PC ($C000) there (NEXENT-19).
     bool bank_ok = closed_loaded;
-    for (uint32_t a = 0xC000; a <= 0xFFFF && bank_ok; ++a)
-        bank_ok = closed_emu.mmu().read(static_cast<uint16_t>(a)) == 0x5A;
+    for (uint32_t a = 0xC000; a <= 0xFFFF && bank_ok; ++a) {
+        const uint8_t want = a == 0xFEFE ? 0x00 : a == 0xFEFF ? 0xC0 : 0x5A;
+        bank_ok = closed_emu.mmu().read(static_cast<uint16_t>(a)) == want;
+    }
     const uint8_t* sram = closed_emu.ram().page_ptr(0);
     const std::string marker = "GH250-TRAILING";
     const bool payload_in_ram =

@@ -160,7 +160,8 @@ that really runs the file: `$00FF` ("no handle") for V1.3 (`nexload2.asm:407`),
 
 The rest of the entry state is `NexLoader::apply()`'s, and the comment there
 tabulates it. Both loaders jump through the NextZXOS DivMMC ROM's `RST $20`,
-which leaves `AF=$0044` and `HL` = PC. `DE` and `IX` are what each loader's
+which leaves `AF=$0044`, `HL` = PC, and the entry PC in the word just below
+`SP` (its `push hl : ret`; `load_nex()` writes it). `DE` and `IX` are what each loader's
 own last instructions leave: for V1.0–V1.2, `DE=$6Fxx` from the bank loop and
 `IX` = the address of the last block read; for V1.3, `DE` = the CLI buffer
 address plus its size (not the address, whatever the format's notes say) and

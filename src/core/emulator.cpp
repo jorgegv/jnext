@@ -6928,6 +6928,20 @@ bool Emulator::load_nex(const std::string& path)
         cpu_.set_registers(regs);
     }
 
+    // The last thing either loader does is `rst $20` with SP already at the
+    // header SP, and the NextZXOS DivMMC ROM's handler reaches the program
+    // through `push hl : ... : ret` ($0071 then $1FF9), with HL = PC: so the
+    // word just below the entry SP holds the entry PC, and no other byte
+    // there is touched. Measured under NextZXOS with a probe NEX whose stack
+    // area was filled with $A5: SP-2..SP-1 = PC, SP-8..SP-3 still $A5. After
+    // the handle write above, as in both loaders. A load-only file (PC 0)
+    // never gets there.
+    if (loader.header().pc != 0) {
+        const uint16_t sp = loader.header().sp;
+        mmu_.write(static_cast<uint16_t>(sp - 2), static_cast<uint8_t>(loader.header().pc));
+        mmu_.write(static_cast<uint16_t>(sp - 1), static_cast<uint8_t>(loader.header().pc >> 8));
+    }
+
     // GH #250 — the program now runs with no NextZXOS behind it, so arm the
     // esxDOS answers nexload's OS would have provided (see the handler in
     // init()). Disarmed by reset()/soft_reset(), like the host bridge.

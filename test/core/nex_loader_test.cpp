@@ -1108,6 +1108,7 @@ struct EntryResult {
     bool ok = false;
     Z80Registers r{};
     uint8_t nr_c0 = 0;
+    uint8_t below_sp[3] = {0, 0, 0};   // bytes at SP-3, SP-2, SP-1
 };
 
 EntryResult load_entry(const EntryOpts& o, const char* tag) {
@@ -1155,6 +1156,8 @@ EntryResult load_entry(const EntryOpts& o, const char* tag) {
     res.ok = emu->init(cfg) && emu->load_nex(path);
     res.r = emu->cpu().get_registers();
     res.nr_c0 = emu->nextreg().read(0xC0);
+    for (int i = 0; i < 3; ++i)
+        res.below_sp[i] = emu->mmu().read(static_cast<uint16_t>(o.sp - 3 + i));
     std::error_code ec;
     std::filesystem::remove(path, ec);
     return res;
@@ -1204,6 +1207,14 @@ void test_entry_state() {
           "V1.2 IX=$8000: the last fread was bank 2's, `ld ix,$8000` (nexload.asm:529) "
           "(probe r12a)",
           a.ok && a.r.IX == 0x8000, entry_detail(a));
+
+    check("NEXENT-19",
+          "V1.2: the word below the entry SP holds PC — the RST $20 handler's "
+          "`push hl` then `ret` (enNxtmmc.rom $0071, $1FF9) — and the byte below it "
+          "keeps the bank's data (measured: SP-2..SP-1 = PC, SP-8..SP-3 untouched)",
+          a.ok && a.below_sp[1] == 0x00 && a.below_sp[2] == 0x80 && a.below_sp[0] == 0x42,
+          fmt("ok=%d [SP-3..SP-1]=%02X %02X %02X want 42 00 80", a.ok ? 1 : 0,
+              a.below_sp[0], a.below_sp[1], a.below_sp[2]));
 
     {   // Probe r12i: loading bar on, colour $2A, no start delay.
         EntryOpts o; o.loading_bar = 1;
@@ -1272,6 +1283,16 @@ void test_entry_state() {
               "nexload2.asm:379) and IX=0 (the F_CLOSE's `push hl : pop ix` with "
               "HL = FILEHANDLERET = 0, :391-395, :227) (probe r13a)",
               e.ok && e.r.DE == 0x0000 && e.r.IX == 0x0000, entry_detail(e));
+    }
+    {   // Probe r13e's layout: PC $4000, SP $7FF0, V1.3.
+        EntryOpts o; o.version = "V1.3"; o.pc = 0x4000; o.sp = 0x7FF0; o.banks = {5};
+        const EntryResult e = load_entry(o, "ent_sp13");
+        check("NEXENT-20",
+              "V1.3 through the same RST $20: PC $4000 is left at SP-2..SP-1 (probe r13e: "
+              "00 40 below SP $7FF0), SP-3 keeps bank 5's data",
+              e.ok && e.below_sp[1] == 0x00 && e.below_sp[2] == 0x40 && e.below_sp[0] == 0x45,
+              fmt("ok=%d [SP-3..SP-1]=%02X %02X %02X want 45 00 40", e.ok ? 1 : 0,
+                  e.below_sp[0], e.below_sp[1], e.below_sp[2]));
     }
     {   // Probe r13b: CLI buffer $A000, 16 bytes.
         EntryOpts o; o.version = "V1.3"; o.cli_addr = 0xA000; o.cli_size = 16;
