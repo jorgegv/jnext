@@ -950,6 +950,47 @@ end-of-frame snapshot is the only one it gets.
 | EOF255-11 | NR 0x43 b0 (ULAnext, ULA control lane) below the display | `MOVE 0x43,0x01` at cvc 230 | `ulanext_en_for_line(255)` = 0; live b0 = 1 | zxnext.vhd:6816; zxula_timing.vhd:195-204 |
 | EOF255-12 | 60 Hz: row 255's only snapshot is the end-of-frame one | 60 Hz; Copper at cvc 100 writes NR 0x4A, 0x68 (0xE1), 0x6B, 0x14, 0x1A, 0x32, 0x15 (over border), 0x43; CPU writes border 5 at cvc 100; zeroed tiles made transparent (NR 0x4C = 0) | Row 255 carries every new value: accessors for fallback, stencil, blend, tm_en, NR 0x14, clip, LoRes, border, ULAnext; pixels for ULA hidden (column 0 = NR 0x4A red) and the border sprite (column 20 red) | zxula_timing.vhd:229-238; zxnext.vhd:6767-6830 |
 
+### Group SRST — A soft reset in the middle of a frame (GH #263)
+
+Companion suite `test/compositor/compositor_integration_test.cpp`. NR 0x02 bit 0
+pulses the core's one `reset` wire (zxnext.vhd:6370, :1730; `reset_hard or
+reset_soft`, zxnext_top_issue2.vhd:840). It returns the flip-flops of the master
+reset block (zxnext.vhd:4926-5111) and of the port, sprite and ULA processes to
+their reset values and touches nothing else: memory has no reset port (the
+palette RAMs are `dpram2`, zxnext.vhd:6960-6965, 7013-7024; the sprite attribute
+and pattern RAMs, sprites.vhd:327-449, 561-572), and the video timing has no
+reset at all (zxula_timing.vhd; `eff_nr_05_5060` loads only at
+video_frame_sync, zxnext.vhd:6696-6703), so the frame goes on. The pipeline
+gathers every per-row register from the live NextREGs once per pixel
+(zxnext.vhd:6767-6830): rows drawn before the reset keep what they showed, rows
+after it show the reset values. In jnext's row model a reset in the raw line of
+cvc N applies from framebuffer row N + DISP_Y. Each row resets through a Copper
+`MOVE NR 0x02,0x01` at cvc 100 (the Copper drives the same NextREG write port,
+zxnext.vhd:4775-4777, 4839), so the split is row 132, and parks DI; HALT in the
+ROM window the Z80 restarts in (SRAM page 0 on the firmware-less test machine).
+Before GH #263 the palette's change log survived the reset and `render_frame()`
+replayed it over the reset palette, while Layer 2, sprites, tilemap, ULA and
+renderer `reset()`s wiped their logs and per-line arrays and repainted the rows
+above the reset with reset values; palette and sprite RAM were cleared.
+
+| ID | Title | Stimulus | Expected | VHDL |
+|----|-------|----------|----------|------|
+| SRST-01 | Palette RAM survives a soft reset in the same frame (the issue's scenario) | Copper writes L2 palette entry 5 = 0xFF at cvc 50, resets at cvc 100; the restarted code reads it back through NR 0x41 | NR 0x41 reads 0xFF after the reset; L2[5] = 0xFFFFFFFF after the frame | zxnext.vhd:6370,7013-7024; dpram2.vhd:41-46 |
+| SRST-02 | Host soft reset keeps all palette RAM, resets the palette flip-flops | One entry in each of the eight palettes, an L2 9-bit entry with priority, NR 0x43/0x40/0x14/0x4B/0x4C set; `soft_reset()` | Every entry reads back through NR 0x41, NR 0x44 keeps b7/b0; NR 0x43 = 0, NR 0x40 = 0, NR 0x14/0x4B = 0xE3, NR 0x4C = 0x0F, actives 0 | zxnext.vhd:4946,4999-5018,6960-6965,7013-7024 |
+| SRST-03 | Layer 2 above the reset, off from it | L2 on, every pixel index 5 = green, over red ULA paper | Display column green above row 132, red from it; L2 disabled after | zxnext.vhd:3906-3913,6370 |
+| SRST-04 | A sprite above the reset, none from it | Sprite on rows 40..167, NR 0x15 = 0x01 | Red on rows 40..131, no sprite pixel on 132..167 | zxnext.vhd:4948-4953,6370; sprites.vhd:327-449 |
+| SRST-05 | Sprite attribute and pattern RAM survive a (host) soft reset | Sprite placed, frame run, `soft_reset()`, sprites turned back on | Sprite 0 shows with its pattern on rows 40..167; attribute X and pattern byte read back | sprites.vhd:327-449,561-572 |
+| SRST-06 | Tilemap above the reset, off from it | Map at bank 5 0x2000 all tile 1 = green, NR 0x6B = 0x80 | Green above row 132, red ULA from it | zxnext.vhd:5036-5045,6370 |
+| SRST-07 | Port 0xFF alternate file above the reset, primary from it | Alternate attributes 0x20 (green), port 0xFF = 0x01 | Green above row 132, red from it | zxnext.vhd:3613-3614,6370; zxula.vhd:191,218 |
+| SRST-08 | ULA X scroll above the reset, 0 from it | Attribute column 0 red, the rest green; NR 0x26 = 8 | Left paper column green above row 132, red from it | zxnext.vhd:4987,6370; zxula.vhd:199 |
+| SRST-09 | NR 0x43 ULA palette select above the reset, first palette from it | ULA palette 1 [0x17] green, NR 0x43 = 0x02 | Green above row 132, red from it | zxnext.vhd:5008,6825,6370 |
+| SRST-10 | Border colour of the rows above the reset survives it | Border 2 | Rows 0..131 border 2 (pixel and per-line), rows 132..255 the border register as the reset left it | zxnext.vhd:3587-3605,6370 |
+| SRST-11 | NR 0x4A / NR 0x68 b7 above the reset, reset values from it | ULA hidden, NR 0x4A blue | Fallback blue above row 132, red ULA paper from it | zxnext.vhd:5014,5026,6809,6823,6370 |
+| SRST-12 | NR 0x15 layer priority above the reset | L2 green, ULA red, NR 0x15 = 0x14 (ULS) | Red above row 132 (ULA over L2) and from it; NR 0x15 reads 0 after the frame | zxnext.vhd:4948-4953,6799,6370 |
+| SRST-13 | Every per-line lane: pre-reset rows above, reset values from the reset row | NR 0x68 = 0x61, NR 0x14, NR 0x1A x1, NR 0x6B b7, NR 0x15 b7 (LoRes), NR 0x43 b0 (ULAnext), NR 0x4A | Stencil, blend, NR 0x14, ULA clip, tm_en, LoRes, ULAnext and fallback per-line values: written values on rows 0..131, reset values on 132..255 | zxnext.vhd:4946-5034,6767-6830 |
+| SRST-14 | Pausing right after the reset and resuming does not restart the frame | SRST-11's setup; PC breakpoint at 0x0000, run, resume | Paused at PC 0; SRST-11's split intact | zxnext.vhd:6370; zxula_timing.vhd (no reset) |
+| SRST-15 | A soft reset at 60 Hz keeps the 60 Hz frame | 60 Hz committed, then SRST-11's setup | Split at row 132 (cvc 100 = raw 140, vblank_top 8); frame still 264 lines | zxnext.vhd:6696-6703; zxula_timing.vhd:229-238 |
+
 ### Group UCLIP — NR 0x1A ULA clip window per-line deferral
 
 The last instance of the Task 43/45/46 per-line-deferral bug class.
@@ -1184,4 +1225,4 @@ as the fallback colour) and pass once it is present. Screenshot-level twin:
 The matrix is a generated artifact now and carries no prose of its own; it
 links here instead. These notes were written alongside the rows they explain.
 
-Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that require a full `Emulator` fixture (NR 0x68 bit 7 ULA-disable observed at the framebuffer level, including Copper mid-frame MOVE NR 0x68,0x80). GH #256 added `PSCAN-G04-02` and Group PLRS (12 rows, all recorded in their groups above); GH #264 added Group EOF255 (12 rows, recorded above). Runtime: `Total:   32  Passed:   32  Failed:    0  Skipped:    0`. Each row is a live pass. Only the 2 UDIS rows are listed below. Of the other 6 live rows, `PFF-G108-01/02/03` are recorded in the parent `## Compositor` table — they are Compositor plan rows re-homed here 2026-04-28, not new rows; `PFF-G108-02b` is recorded only by sub-letter aliasing under `PFF-G108-02` (the script's `ALIASED` report); and `PFF-G108-04` + `PSCAN-VBLANK-COALESCE-01` are recorded nowhere (its `UNRECORDED` report). Both reports print on every run.
+Created 2026-04-24 (UDIS plan closure) to host end-to-end UDIS-class rows that require a full `Emulator` fixture (NR 0x68 bit 7 ULA-disable observed at the framebuffer level, including Copper mid-frame MOVE NR 0x68,0x80). GH #256 added `PSCAN-G04-02` and Group PLRS (12 rows, all recorded in their groups above); GH #264 added Group EOF255 (12 rows, recorded above); GH #263 added Group SRST (15 rows, recorded above). Runtime: `Total:   47  Passed:   47  Failed:    0  Skipped:    0`. Each row is a live pass. Only the 2 UDIS rows are listed below. Of the other 6 live rows, `PFF-G108-01/02/03` are recorded in the parent `## Compositor` table — they are Compositor plan rows re-homed here 2026-04-28, not new rows; `PFF-G108-02b` is recorded only by sub-letter aliasing under `PFF-G108-02` (the script's `ALIASED` report); and `PFF-G108-04` + `PSCAN-VBLANK-COALESCE-01` are recorded nowhere (its `UNRECORDED` report). Both reports print on every run.

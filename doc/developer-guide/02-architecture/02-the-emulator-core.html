@@ -1891,7 +1891,7 @@ make.</p>
 <tbody>
 <tr>
 <td><code>soft_reset()</code></td>
-<td>Re-runs <code>init(config_, preserve_memory=true)</code>. Clears flip-flop state but keeps RAM, the ROM-in-SRAM window, the boot-ROM overlay and the free-running clock and scheduler. Models tbblue's <code>RESET_SOFT</code> / NR 0x02 bit 0.</td>
+<td>Re-runs <code>init(config_, preserve_memory=true)</code>. Clears flip-flop state but keeps RAM, the ROM-in-SRAM window, the boot-ROM overlay, the other memories with no reset port (palette, sprite attribute and pattern RAM, Copper RAM, the bank-5/7 BRAMs) and the free-running clock and scheduler. It can land mid-frame, so it also keeps that frame going: its 50/60 Hz geometry, and each video subsystem's per-scanline render history, into which it records the register reset at the current line (GH #263). Models tbblue's <code>RESET_SOFT</code> / NR 0x02 bit 0.</td>
 <td>NR 0x02 bit 0, F4</td>
 </tr>
 <tr>

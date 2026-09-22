@@ -58,11 +58,17 @@ public:
     static constexpr int DISP_H     = 192;
 
     /// Reset ULA state to power-on defaults (preserves palette/RAM pointers).
-    void reset() {
+    /// `hard` also clears the per-scanline change logs and per-line
+    /// snapshots. A soft reset (`hard` = false, NR 0x02 bit 0 / F4) can land
+    /// mid-frame, so it keeps them and records the port 0xFF, scroll and
+    /// palette-selector resets in the logs at the current line — rows drawn
+    /// before it keep what they showed (GH #263).
+    void reset(bool hard = true) {
         ula_enabled_ = true;
         clip_x1_ = 0; clip_x2_ = 255; clip_y1_ = 0; clip_y2_ = 191;
         border_colour_ = 7;
-        border_per_line_.fill(7);
+        if (hard)
+            border_per_line_.fill(7);
         flash_counter_ = 0;
         flash_phase_ = false;
         screen_mode_reg_ = 0;
@@ -98,6 +104,24 @@ public:
         set_shadow_screen_en(false);
         border_clr_tmx_src_  = false; // hi-res/tmx border route selector (Wave D)
 
+        // Active-palette selectors (NR 0x43 b1-3, NR 0x6B b4 — zxnext.vhd:
+        // 5004-5009, 5036-5037), mirrored from the PaletteManager.
+        active_ula_palette_  = false;
+        active_l2_palette_   = false;
+        active_spr_palette_  = false;
+        active_tm_palette_   = false;
+
+        // GH #263 — a soft reset records port 0xFF (zxnext.vhd:3613-3614),
+        // the scroll (:4987-4989, :5029) and the selectors in their logs at
+        // the current line, and keeps every log and per-line snapshot.
+        if (!hard) {
+            log_port_ff_change();
+            log_scroll_change();
+            log_palsel43_change();
+            log_palsel6b_change();
+            return;
+        }
+
         // Per-scanline port-0xFF change-log (G07).
         port_ff_count_           = 0;
         current_line_            = 0;
@@ -113,10 +137,6 @@ public:
         baseline_scroll_y_         = 0;
         baseline_fine_scroll_x_    = 0;
         // Per-scanline active-palette selectors (G10).
-        active_ula_palette_  = false;
-        active_l2_palette_   = false;
-        active_spr_palette_  = false;
-        active_tm_palette_   = false;
         palsel43_change_count_     = 0;
         palsel43_render_cursor_    = 0;
         palsel43_overflow_warned_  = false;

@@ -33,7 +33,9 @@
 #include "memory/ram.h"
 #include "port/nextreg.h"
 #include "video/palette.h"
+#include "video/layer2.h"
 #include "video/renderer.h"
+#include "video/sprites.h"
 #include "video/ula.h"
 
 #include <array>
@@ -1331,6 +1333,503 @@ static void test_eof255_integration(Emulator& emu) {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Group SRST-INT — a soft reset in the middle of a frame (GH #263)
+//
+// NR 0x02 bit 0 pulses the core's one `reset` wire (zxnext.vhd:6370, :1730,
+// reset_hard or reset_soft at zxnext_top_issue2.vhd:840). It returns the
+// flip-flops of the master reset block (zxnext.vhd:4926-5111) and of the
+// port/sprite/ULA processes to their reset values, and it touches nothing
+// else:
+//   * memory has no reset port — the palette RAMs (dpram2, zxnext.vhd:
+//     6960-6965, 7013-7024), the sprite attribute and pattern RAMs
+//     (sprites.vhd:327-449, 561-572), the Copper RAM and VRAM keep their
+//     contents;
+//   * the video timing has no reset at all (zxula_timing.vhd has no reset
+//     input; eff_nr_05_5060 and eff_nr_03_machine_timing load only at
+//     video_frame_sync, zxnext.vhd:6696-6703), so the frame goes on;
+//   * the pipeline gathers every per-row register from the live NextREGs
+//     once per pixel (zxnext.vhd:6767-6830): rows drawn before the reset
+//     keep what they showed, rows after it show the reset values.
+// jnext draws a whole row at a time; a write (and so a reset) landing in the
+// raw line of cvc N applies from framebuffer row N + DISP_Y, the row every
+// change log tags it with. Each row resets through a Copper MOVE NR 0x02,
+// 0x01 at cvc 100 (the Copper drives the same NextREG write port,
+// zxnext.vhd:4775-4777, 4839) and keeps DI; HALT in the ROM window the Z80
+// restarts in (SRAM page 0 on this firmware-less machine), so nothing but
+// what a row puts there runs after the reset.
+//
+// Before GH #263 the render history went wrong in both directions: the
+// palette's log survived the reset and render_frame() replayed it over the
+// reset palette, while Layer 2, sprites, tilemap, ULA and renderer reset()s
+// wiped their logs and per-line arrays, repainting the rows above the reset
+// with reset values.
+// ══════════════════════════════════════════════════════════════════════
+
+namespace {
+constexpr int kResetCvc = 100;
+constexpr int kResetRow = kResetCvc + Renderer::DISP_Y;   // 132
+constexpr int kDispCol  = Renderer::DISP_X + 20;          // inside the paper
+constexpr uint32_t P_BLACK = 0xFF000000u;
+} // namespace
+
+// DI; HALT at the start of the ROM window a soft reset jumps into, or the
+// `prog` bytes when a row needs the program that runs after the reset.
+static void srst_rom(Emulator& emu, std::initializer_list<uint8_t> prog = {0xF3, 0x76}) {
+    uint32_t a = 0;
+    for (uint8_t b : prog) emu.ram().write(a++, b);
+}
+
+// Fresh machine at 50 Hz, CPU parked, ULA paper index 0x17 (attr 0x38)
+// painted red in ULA palette 0, ROM window parked. NR 0x05 has no reset
+// clause (zxnext.vhd:1302-1303), so re-init keeps an earlier row's 60 Hz: put
+// back the power-on 0x41, committed at the first frame edge.
+static void srst_fixture(Emulator& emu) {
+    ula_fixture(emu, 0x38);
+    nr_write_port(emu, 0x05, 0x41);
+    pal8(emu, 0x00, 0x17, 0xE0);
+    nr_write_port(emu, 0x43, 0x00);
+    srst_rom(emu);
+}
+
+// The Copper program that resets the machine at cvc 100, after `pre` MOVEs.
+static void srst_copper(Emulator& emu, std::initializer_list<uint16_t> pre = {}) {
+    std::vector<uint16_t> w(pre);
+    w.push_back(cu_wait(kResetCvc));
+    w.push_back(cu_move(0x02, 0x01));
+    w.push_back(CU_HALT);
+    nr_write_port(emu, 0x61, 0x00);
+    nr_write_port(emu, 0x62, 0x00);
+    for (uint16_t x : w) {
+        nr_write_port(emu, 0x60, static_cast<uint8_t>(x >> 8));
+        nr_write_port(emu, 0x60, static_cast<uint8_t>(x & 0xFF));
+    }
+    nr_write_port(emu, 0x62, 0xC0);
+}
+
+// Column `col` of display rows [DISP_Y, DISP_Y + DISP_H): `above` before the
+// reset row, `below` from it.
+static bool srst_split(Emulator& emu, int col, uint32_t above, uint32_t below,
+                       std::string& d) {
+    return column_ok(emu, col, Renderer::DISP_Y,
+                     Renderer::DISP_Y + Renderer::DISP_H,
+                     [&](int r) { return r < kResetRow ? above : below; }, d);
+}
+
+static void test_srst_integration(Emulator& emu) {
+    set_group("SRST-INT");
+
+    // SRST-01 — the issue's scenario, observed by the program that runs
+    // after the reset: L2 palette entry 5 is written in the frame, the frame
+    // resets, and the restarted code reads it back through NR 0x41.
+    {
+        srst_fixture(emu);
+        srst_rom(emu, {
+            0xF3,                   // DI
+            0x01, 0x3B, 0x24,       // LD BC,0x243B
+            0x3E, 0x43, 0xED, 0x79, // NR select 0x43
+            0x04, 0x3E, 0x10, 0xED, 0x79,   // NR 0x43 = 0x10 (L2 palette 0)
+            0x05, 0x3E, 0x40, 0xED, 0x79,   // NR select 0x40
+            0x04, 0x3E, 0x05, 0xED, 0x79,   // NR 0x40 = 5
+            0x05, 0x3E, 0x41, 0xED, 0x79,   // NR select 0x41
+            0x04, 0xED, 0x78,       // IN A,(C) — NR 0x41 read
+            0x32, 0x00, 0x90,       // LD (0x9000),A
+            0x76,                   // HALT
+        });
+        emu.mmu().write(0x9000, 0x00);
+        srst_copper(emu, {cu_wait(50), cu_move(0x43, 0x10),
+                          cu_move(0x40, 0x05), cu_move(0x41, 0xFF)});
+        emu.run_frame();
+        const uint8_t seen = emu.mmu().read(0x9000);
+        const uint32_t live = emu.palette().layer2_colour(false, 5);
+        check("SRST-01",
+              "L2 palette entry written in the frame survives a soft reset in "
+              "the same frame: the restarted program reads it back, and it "
+              "holds after the render (zxnext.vhd:6370,7013-7024; "
+              "dpram2.vhd:41-46)",
+              seen == 0xFF && live == 0xFFFFFFFFu,
+              fmt("NR41 read after reset=0x%02X (exp 0xFF) L2[5]=0x%08X "
+                  "(exp 0xFFFFFFFF)", seen, live));
+    }
+
+    // SRST-02 — a host soft reset between frames (F4 path): every palette
+    // RAM keeps its contents, the palette flip-flops go to their reset values.
+    {
+        fresh(emu);
+        park_cpu_at_halt(emu);
+        pal8(emu, 0x00, 0x21, 0x11);      // ULA palette 0
+        pal8(emu, 0x40, 0x22, 0x22);      // ULA palette 1
+        pal8(emu, 0x10, 0x23, 0x33);      // L2 palette 0
+        nr_write_port(emu, 0x44, 0x44);   // L2 palette 0 [0x24], 9-bit...
+        nr_write_port(emu, 0x44, 0x81);   // ...priority bit set, blue LSB 1
+        pal8(emu, 0x50, 0x25, 0x55);      // L2 palette 1
+        pal8(emu, 0x20, 0x26, 0x66);      // sprite palette 0
+        pal8(emu, 0x60, 0x27, 0x77);      // sprite palette 1
+        pal8(emu, 0x30, 0x08, 0x88);      // tilemap palette 0
+        pal8(emu, 0x70, 0x09, 0x99);      // tilemap palette 1
+        nr_write_port(emu, 0x43, 0x5E);   // write select L2/1, actives 1, ULAnext
+        nr_write_port(emu, 0x40, 0x77);
+        nr_write_port(emu, 0x14, 0x12);
+        nr_write_port(emu, 0x4B, 0x34);
+        nr_write_port(emu, 0x4C, 0x05);
+        emu.soft_reset();
+        const PaletteManager& p = emu.palette();
+        // Flip-flops first, before the read-back below writes NR 0x43/0x40.
+        const bool ffs_reset =
+            nr_read_port(emu, 0x43) == 0x00 && nr_read_port(emu, 0x40) == 0x00 &&
+            nr_read_port(emu, 0x14) == 0xE3 && nr_read_port(emu, 0x4B) == 0xE3 &&
+            nr_read_port(emu, 0x4C) == 0x0F && !p.active_layer2_palette() &&
+            !p.active_ula_palette() && !p.active_sprite_palette();
+        // NR 0x41 reads back the RRRGGGBB byte written (zxnext.vhd:6038-6039).
+        struct Entry { uint8_t nr43, idx, val; };
+        const Entry entries[] = {
+            {0x00, 0x21, 0x11}, {0x40, 0x22, 0x22}, {0x10, 0x23, 0x33},
+            {0x50, 0x25, 0x55}, {0x20, 0x26, 0x66}, {0x60, 0x27, 0x77},
+            {0x30, 0x08, 0x88}, {0x70, 0x09, 0x99},
+        };
+        int lost = 0;
+        for (const Entry& e : entries) {
+            nr_write_port(emu, 0x43, e.nr43);
+            nr_write_port(emu, 0x40, e.idx);
+            if (nr_read_port(emu, 0x41) != e.val) ++lost;
+        }
+        // NR 0x44 read-back of the 9-bit L2 entry: priority b7, blue LSB b0.
+        nr_write_port(emu, 0x43, 0x10);
+        nr_write_port(emu, 0x40, 0x24);
+        const uint8_t nr44 = nr_read_port(emu, 0x44);
+        nr_write_port(emu, 0x43, 0x00);
+        check("SRST-02",
+              "A soft reset keeps all eight palette RAMs and the L2 priority "
+              "bit, and resets the palette flip-flops "
+              "(zxnext.vhd:4946,4999-5018,6960-6965,7013-7024)",
+              lost == 0 && (nr44 & 0x81) == 0x81 && ffs_reset,
+              fmt("entries lost %d (exp 0) NR44=0x%02X (exp b7,b0 set) "
+                  "ffs_reset=%d", lost, nr44, ffs_reset));
+    }
+
+    // SRST-03 — Layer 2 (change-log owner). L2 on, every pixel index 5 =
+    // green, over the red ULA paper; port_123b_layer2_en resets to 0
+    // (zxnext.vhd:3906-3913).
+    {
+        srst_fixture(emu);
+        pal8(emu, 0x10, 0x05, 0x1C);
+        nr_write_port(emu, 0x43, 0x00);
+        // NR 0x12 bank 8 lives at SRAM 16K bank 8 + 16 (layer2.vhd:172).
+        for (uint32_t a = 0; a < 3u * 16384u; ++a)
+            emu.ram().write(24u * 16384u + a, 0x05);
+        nr_write_port(emu, 0x69, 0x80);   // Layer 2 on
+        srst_copper(emu);
+        emu.run_frame();
+        std::string d;
+        const bool ok = srst_split(emu, kDispCol, P_GREEN, P_RED, d);
+        check("SRST-03",
+              "Layer 2 shows on the rows drawn before a mid-frame soft reset "
+              "and is off from the reset row (zxnext.vhd:3906-3913,6370)",
+              ok && !emu.layer2().enabled(), d);
+    }
+
+    // SRST-04 — sprites (attribute/pattern change logs, NR 0x15 b0). The
+    // sprite spans rows 40..167; NR 0x15 resets to 0 (zxnext.vhd:4948-4953).
+    {
+        sprite_fixture(emu);
+        nr_write_port(emu, 0x05, 0x41);
+        sprite_place(emu, 0, 64, 40, 0);
+        srst_rom(emu);
+        srst_copper(emu);
+        emu.run_frame();
+        const int SC = 140;
+        std::string above, below;
+        const bool ok_above = column_ok(emu, SC, 40, kResetRow,
+            [](int) { return P_RED; }, above);
+        int shown_below = 0;
+        for (int r = kResetRow; r < 168; ++r)
+            if (fb_pixel(emu, r, SC) == P_RED) ++shown_below;
+        check("SRST-04",
+              "A sprite shows on the rows drawn before a mid-frame soft reset "
+              "and not from the reset row (zxnext.vhd:4948-4953,6370; "
+              "sprites.vhd:327-449)",
+              ok_above && shown_below == 0,
+              above + fmt("; sprite rows at/after the reset: %d (exp 0)",
+                          shown_below));
+    }
+
+    // SRST-05 — a host soft reset between frames (where no render history
+    // can mask it): the attribute and pattern RAMs come through it, so
+    // turning sprites back on shows sprite 0 with the pattern it had.
+    {
+        const int SC = 140;
+        sprite_fixture(emu);
+        nr_write_port(emu, 0x05, 0x41);
+        sprite_place(emu, 0, 64, 40, 0);
+        emu.run_frame();
+        emu.soft_reset();
+        park_cpu_at_halt(emu);
+        nr_write_port(emu, 0x68, 0x80);
+        nr_write_port(emu, 0x4A, 0x03);
+        nr_write_port(emu, 0x15, 0x01);
+        emu.run_frame();
+        std::string d;
+        const bool ok = column_ok(emu, SC, 0, Renderer::FB_HEIGHT,
+            [](int r) { return (r >= 40 && r < 168) ? P_RED : FALLBACK; }, d);
+        check("SRST-05",
+              "Sprite attribute and pattern RAM survive a soft reset "
+              "(sprites.vhd:327-449,561-572 — no reset port)",
+              ok && emu.sprites().read_attr_byte(0, 0) == 64 &&
+                  emu.sprites().read_pattern_byte(0) == 0xE0,
+              d + fmt("; attr0=%u pat0=0x%02X",
+                      emu.sprites().read_attr_byte(0, 0),
+                      emu.sprites().read_pattern_byte(0)));
+    }
+
+    // SRST-06 — tilemap (NR 0x6B change log, fetch per-line snapshot). Map
+    // at bank 5 0x2000 all tile 1, tile 1 = index 1 = green; NR 0x6B/0x6E/
+    // 0x6F reset (zxnext.vhd:5036-5045).
+    {
+        srst_fixture(emu);
+        uint8_t* bank5 = emu.mmu().bank5_vram();
+        for (int e = 0; e < 40 * 32; ++e) {
+            bank5[0x2000 + e * 2]     = 1;
+            bank5[0x2000 + e * 2 + 1] = 0;
+        }
+        for (int i = 0; i < 32; ++i) bank5[0x3000 + 32 + i] = 0x11;
+        pal8(emu, 0x30, 0x01, 0x1C);
+        nr_write_port(emu, 0x43, 0x00);
+        nr_write_port(emu, 0x6E, 0x20);
+        nr_write_port(emu, 0x6F, 0x30);
+        nr_write_port(emu, 0x6B, 0x80);
+        srst_copper(emu);
+        emu.run_frame();
+        std::string d;
+        const bool ok = srst_split(emu, kDispCol, P_GREEN, P_RED, d);
+        check("SRST-06",
+              "The tilemap shows on the rows drawn before a mid-frame soft "
+              "reset and is off from the reset row (zxnext.vhd:5036-5045,6370)",
+              ok, d);
+    }
+
+    // SRST-07 — port 0xFF (Timex screen mode change log). The alternate
+    // display file (attr 0x20, paper index 0x14 = green) above the reset,
+    // the primary (red) from it; port_ff_reg resets to 0 (zxnext.vhd:
+    // 3613-3614).
+    {
+        srst_fixture(emu);
+        uint8_t* bank5 = emu.mmu().bank5_vram();
+        for (int i = 0x3800; i < 0x3B00; ++i) bank5[i] = 0x20;
+        pal8(emu, 0x00, 0x14, 0x1C);
+        nr_write_port(emu, 0x43, 0x00);
+        emu.port().out(0x00FF, 0x01);
+        srst_copper(emu);
+        emu.run_frame();
+        std::string d;
+        const bool ok = srst_split(emu, kDispCol, P_GREEN, P_RED, d);
+        check("SRST-07",
+              "Port 0xFF's alternate display file shows above a mid-frame "
+              "soft reset and the primary one from the reset row "
+              "(zxnext.vhd:3613-3614,6370; zxula.vhd:191,218)",
+              ok, d);
+    }
+
+    // SRST-08 — ULA scroll (NR 0x26 change log). Attribute column 0 red,
+    // the rest green (index 0x14); NR 0x26 = 8 shows column 1 at the left
+    // edge until NR 0x26 resets to 0 (zxnext.vhd:4987).
+    {
+        srst_fixture(emu);
+        for (int row = 0; row < 24; ++row)
+            for (int col = 1; col < 32; ++col)
+                poke_bank5(emu, static_cast<uint16_t>(0x5800 + row * 32 + col),
+                           0x20);
+        pal8(emu, 0x00, 0x14, 0x1C);
+        nr_write_port(emu, 0x43, 0x00);
+        nr_write_port(emu, 0x26, 0x08);
+        srst_copper(emu);
+        emu.run_frame();
+        std::string d;
+        const bool ok = srst_split(emu, Renderer::DISP_X, P_GREEN, P_RED, d);
+        check("SRST-08",
+              "The ULA X scroll holds on the rows drawn before a mid-frame "
+              "soft reset and is 0 from the reset row (zxnext.vhd:4987,6370; "
+              "zxula.vhd:199)",
+              ok, d);
+    }
+
+    // SRST-09 — NR 0x43 b1 active ULA palette (selector change log): ULA
+    // palette 1 has index 0x17 green; NR 0x43 resets to 0 (zxnext.vhd:5008).
+    {
+        srst_fixture(emu);
+        pal8(emu, 0x40, 0x17, 0x1C);
+        nr_write_port(emu, 0x43, 0x02);   // display ULA palette 1
+        srst_copper(emu);
+        emu.run_frame();
+        std::string d;
+        const bool ok = srst_split(emu, kDispCol, P_GREEN, P_RED, d);
+        check("SRST-09",
+              "The NR 0x43 ULA palette select holds on the rows drawn before a "
+              "mid-frame soft reset and reverts from the reset row "
+              "(zxnext.vhd:5008,6825,6370)",
+              ok, d);
+    }
+
+    // SRST-10 — the border (per-line snapshot). Rows above the reset keep
+    // border 2; rows from it show the border register as the reset left it
+    // (port_fe_reg, zxnext.vhd:3587-3605).
+    {
+        srst_fixture(emu);
+        emu.port().out(0x00FE, 0x02);
+        srst_copper(emu);
+        emu.run_frame();
+        const uint32_t pre = fb_pixel(emu, 0, 0);
+        const uint32_t post = fb_pixel(emu, Renderer::FB_HEIGHT - 1, 0);
+        std::string d;
+        const bool px = column_ok(emu, 0, 0, Renderer::FB_HEIGHT,
+            [&](int r) { return r < kResetRow ? pre : post; }, d);
+        int bad = 0;
+        for (int r = 0; r < Renderer::FB_HEIGHT; ++r) {
+            const uint8_t want = r < kResetRow ? 0x02 : emu.ula().get_border();
+            if (emu.ula().border_for_line(r) != want) ++bad;
+        }
+        check("SRST-10",
+              "The border colour of the rows drawn before a mid-frame soft "
+              "reset survives it; the rows from the reset row carry the reset "
+              "register (zxnext.vhd:3587-3605,6370)",
+              px && pre != post && bad == 0 && emu.ula().get_border() != 0x02,
+              d + fmt("; per-line mismatches %d, live border %u", bad,
+                      emu.ula().get_border()));
+    }
+
+    // SRST-11 — NR 0x4A fallback and NR 0x68 b7 (per-line snapshots). ULA
+    // hidden above the reset shows fallback blue; ula_en resets to 1 and
+    // NR 0x4A to 0xE3 (zxnext.vhd:5014,5026), so the ULA shows from it.
+    {
+        srst_fixture(emu);
+        nr_write_port(emu, 0x68, 0x80);
+        nr_write_port(emu, 0x4A, 0x03);
+        srst_copper(emu);
+        emu.run_frame();
+        std::string d;
+        const bool ok = srst_split(emu, kDispCol, FALLBACK, P_RED, d);
+        check("SRST-11",
+              "NR 0x4A / NR 0x68 b7 hold on the rows drawn before a mid-frame "
+              "soft reset and take their reset values from the reset row "
+              "(zxnext.vhd:5014,5026,6809,6823,6370)",
+              ok, d);
+    }
+
+    // SRST-12 — NR 0x15 layer priority (change log). ULS puts the red ULA
+    // paper over green Layer 2 above the reset; NR 0x15 and port 0x123B
+    // reset (zxnext.vhd:4948-4953, 3906-3913), so the ULA shows from it too.
+    {
+        srst_fixture(emu);
+        pal8(emu, 0x10, 0x05, 0x1C);
+        nr_write_port(emu, 0x43, 0x00);
+        // NR 0x12 bank 8 lives at SRAM 16K bank 8 + 16 (layer2.vhd:172).
+        for (uint32_t a = 0; a < 3u * 16384u; ++a)
+            emu.ram().write(24u * 16384u + a, 0x05);
+        nr_write_port(emu, 0x69, 0x80);   // Layer 2 on
+        nr_write_port(emu, 0x15, 0x14);   // priority 101: U over L over S
+        srst_copper(emu);
+        emu.run_frame();
+        std::string d;
+        const bool ok = srst_split(emu, kDispCol, P_RED, P_RED, d);
+        // The render replays NR 0x15's history into the live register; the
+        // reset must be part of it, or NR 0x15 reads back its old value.
+        const uint8_t nr15 = nr_read_port(emu, 0x15);
+        check("SRST-12",
+              "The NR 0x15 layer priority holds on the rows drawn before a "
+              "mid-frame soft reset, and reads back its reset value after "
+              "the frame (zxnext.vhd:4948-4953,6799,6370)",
+              ok && nr15 == 0x00, d + fmt("; NR15 after the frame 0x%02X", nr15));
+    }
+
+    // SRST-13 — every per-line lane: rows before the reset carry the values
+    // written before the frame, rows from it the reset values
+    // (zxnext.vhd:4946-5034).
+    {
+        srst_fixture(emu);
+        nr_write_port(emu, 0x68, 0x61);   // stencil, blend 11, ULA on
+        nr_write_port(emu, 0x14, 0x12);
+        nr_write_port(emu, 0x1C, 0x04);
+        nr_write_port(emu, 0x1A, 0x40);   // ULA clip x1
+        nr_write_port(emu, 0x6B, 0x80);   // tilemap on (stencil gate)
+        nr_write_port(emu, 0x15, 0x80);   // LoRes on
+        nr_write_port(emu, 0x43, 0x01);   // ULAnext on
+        nr_write_port(emu, 0x4A, 0x03);
+        srst_copper(emu);
+        emu.run_frame();
+        Renderer& r = emu.renderer();
+        int bad_pre = 0, bad_post = 0;
+        for (int row = 0; row < Renderer::FB_HEIGHT; ++row) {
+            const bool pre = row < kResetRow;
+            const bool ok_row =
+                r.stencil_mode_for_line(row) == pre &&
+                r.blend_mode_for_line(row) == (pre ? 3 : 0) &&
+                r.transparent_rgb_for_line(row) == (pre ? 0x12 : 0xE3) &&
+                r.ula_clip_for_line(row).x1 == (pre ? 0x40 : 0x00) &&
+                r.tm_enabled_for_line(row) == pre &&
+                r.lores().state_for_line(row).enabled == pre &&
+                emu.ula().ulanext_en_for_line(row) == pre &&
+                r.fallback_for_line(row) == (pre ? 0x03 : 0xE3);
+            if (!ok_row) ++(pre ? bad_pre : bad_post);
+        }
+        check("SRST-13",
+              "Every per-line lane keeps its pre-reset value on the rows drawn "
+              "before a mid-frame soft reset and its reset value from the "
+              "reset row (zxnext.vhd:4946-5034,6767-6830)",
+              bad_pre == 0 && bad_post == 0,
+              fmt("wrong rows: %d before, %d from the reset row",
+                  bad_pre, bad_post));
+    }
+
+    // SRST-14 — the debugger stops right after the reset (PC 0) and is
+    // resumed: the frame the reset landed in goes on to its end, so SRST-11's
+    // split survives. A soft reset keeps the clock and the scheduler; the
+    // frame is still in flight (zxula_timing.vhd has no reset).
+    {
+        srst_fixture(emu);
+        nr_write_port(emu, 0x68, 0x80);
+        nr_write_port(emu, 0x4A, 0x03);
+        srst_copper(emu);
+        emu.debug_state().set_active(true);
+        emu.debug_state().breakpoints().add_pc(0x0000);
+        emu.run_frame();
+        const bool paused = emu.debug_state().paused() &&
+                            emu.cpu().get_registers().PC == 0x0000;
+        emu.debug_state().breakpoints().clear_all_pc();
+        emu.debug_state().resume();
+        emu.run_frame();
+        emu.debug_state().set_active(false);
+        std::string d;
+        const bool ok = srst_split(emu, kDispCol, FALLBACK, P_RED, d);
+        check("SRST-14",
+              "Pausing right after a mid-frame soft reset and resuming does not "
+              "restart the frame: the rows above the reset keep their history "
+              "(zxnext.vhd:6370; zxula_timing.vhd — no reset)",
+              paused && ok, d + fmt("; paused at PC 0: %d", paused));
+    }
+
+    // SRST-15 — at 60 Hz: the reset leaves the 50/60 Hz selection and the
+    // frame geometry alone (eff_nr_05_5060 loads only at video_frame_sync,
+    // zxnext.vhd:6696-6703), so SRST-11's split lands on the same row —
+    // cvc 100 is raw 140 = row 132 with vblank_top 8 (zxula_timing.vhd:
+    // 229-238) — and the frame stays 264 lines.
+    {
+        srst_fixture(emu);
+        nr_write_port(emu, 0x05, 0x04);   // 60 Hz, committed at the frame edge
+        emu.run_frame();
+        nr_write_port(emu, 0x68, 0x80);
+        nr_write_port(emu, 0x4A, 0x03);
+        srst_copper(emu);
+        emu.run_frame();
+        const int lines = emu.timing().lines_per_frame;
+        std::string d;
+        const bool ok = srst_split(emu, kDispCol, FALLBACK, P_RED, d);
+        check("SRST-15",
+              "A mid-frame soft reset at 60 Hz keeps the 60 Hz geometry: the "
+              "split lands on the reset row and the frame stays 264 lines "
+              "(zxnext.vhd:6696-6703; zxula_timing.vhd:229-238)",
+              ok && lines == 264, d + fmt("; lines_per_frame %d", lines));
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -1355,6 +1854,9 @@ int main() {
 
     test_eof255_integration(emu);
     std::printf("  Group: EOF255-INT — done\n");
+
+    test_srst_integration(emu);
+    std::printf("  Group: SRST-INT — done\n");
 
     std::printf("\n=======================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

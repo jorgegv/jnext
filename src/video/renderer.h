@@ -105,8 +105,13 @@ public:
     static constexpr int DISP_W = 512;  // active display width
     static constexpr int DISP_H = 192;  // active display height
 
-    /// Reset renderer state to power-on defaults.
-    void reset() {
+    /// Reset renderer state to power-on defaults. `hard` also clears the
+    /// per-line snapshots and the NR 0x15 change log. A soft reset (`hard` =
+    /// false, NR 0x02 bit 0 / F4) can land mid-frame, so it keeps them — the
+    /// rows from the reset on snapshot the reset registers — and records
+    /// NR 0x15 in its log at the current line: rows drawn before it keep
+    /// what they showed (GH #263).
+    void reset(bool hard = true) {
         layer_priority_ = 0;        // SLU
         fallback_colour_ = 0xE3;    // default transparent index
         transparent_rgb_ = 0xE3;    // NR 0x14 default
@@ -115,7 +120,12 @@ public:
         blend_mode_ = 0;            // NR 0x68 bits 6:5 default (VHDL: 00)
         tm_enabled_ = false;        // NR 0x6B bit 7 default (VHDL: 0)
         nr15_raw_ = 0;
-        lores_.reset();             // NR $15 b7 / $32 / $33 / $6A (VHDL 4948, 4995, 4997, 5032-5034)
+        lores_.reset(hard);         // NR $15 b7 / $32 / $33 / $6A (VHDL 4948, 4995, 4997, 5032-5034)
+        if (!hard) {
+            ula_.reset(false);
+            write_nr15(0);          // NR 0x15 reset (zxnext.vhd:4948-4953)
+            return;
+        }
         fallback_per_line_.fill(0xE3);
         ula_enabled_per_line_.fill(true);   // Ula::reset() leaves ula_enabled_ = true
         // G04 / G11 — per-scanline arrays mirror the scalar reset values.

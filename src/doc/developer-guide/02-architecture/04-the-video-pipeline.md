@@ -81,8 +81,8 @@ transparency index), the sprite engine's render controls (the NR 0x19 clip,
 NR 0x15 bits 6, 5 and 1, and the NR 0x4B transparency index), the ULA's ULA+ and
 ULAnext enables, the NR 0x42 ULAnext format and the shadow-screen bank, and the
 NR 0x6B bit 7 copy the compositor's stencil gate reads. The newer snapshots
-carry an "active" flag that `init_*_per_line()` sets at frame start and
-`reset()` / `load_state()` clear, so until the first frame of a run they fall
+carry an "active" flag that `init_*_per_line()` sets at frame start and a
+hard `reset()` / `load_state()` clear, so until the first frame of a run they fall
 back to the live registers — which is also what a unit test that renders one
 row directly sees. The older arrays have no flag; `load_state()` refills them
 from the registers it has just loaded instead (GH #261). The NR 0x4A fallback
@@ -102,11 +102,27 @@ that implements it:
 | Rewind | `rewind_to_baseline()` | top of `Renderer::render_frame()` |
 | Replay | `apply_changes_for_line(row)` | before each `render_row(row)` |
 | Drain | `flush_remaining_changes()` | end of `render_frame()` |
+| Reset | a soft `reset(false)` records the register reset in the log at the current tag; a hard `reset()` may clear it | `Emulator::init()` |
 
 The classes that carry one are `PaletteManager`, `Layer2` (scroll and bank),
 `SpriteEngine` (attributes), `Ula` (Timex screen mode, scroll, active-palette
 select), `Tilemap` (NR 0x6B), `Mmu`'s `AttributeMux` (Nirvana-class mid-frame
 attribute writes), and `Renderer` itself (NR 0x15 priority and sprite enable).
+
+A soft reset (NR 0x02 bit 0, F4) can land in the middle of a frame, and the
+hardware draws the rows above it with the old registers and the rows below with
+the reset ones. So each class's `reset(bool hard)` treats the two differently:
+a hard reset only ever happens between frames and may wipe the history, which
+the next `begin_new_frame()` rebuilds anyway, while a soft one leaves every
+log, baseline, tag and per-line array alone and appends the reset as ordinary
+log entries —
+the per-line snapshots pick the reset values up on their own from the reset
+row down. Memory with no reset port (palette RAM, sprite attribute and
+pattern RAM) is not touched by a soft reset at all. Until GH #263 the two
+mechanisms failed in opposite directions: `PaletteManager::reset()` changed
+the live RAM without the log, so the render replayed the old palette over it,
+while the other classes wiped their history and repainted the rows above the
+reset with reset values.
 
 Five details reliably bite newcomers:
 

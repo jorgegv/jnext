@@ -127,8 +127,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         scheduler_.reset();
         frame_cycle_ = 0;
         frame_num_   = 0;
+        // No frame is in flight after a hard reset. A soft reset keeps the
+        // clock, the scheduler and frame_cycle_, so the frame it lands in
+        // goes on to its end: clearing the flag made the next run_frame()
+        // after a mid-frame debugger pause run begin_new_frame() in the
+        // middle of it, wiping the render history rows already drawn had
+        // left and re-scheduling the frame's events (GH #263).
+        frame_in_progress_ = false;
     }
-    frame_in_progress_ = false;   // no frame is in flight after a reset
     replay_mode_ = false;
     boot_hold_frames_remaining_ = 0;  // G156
     cpu_parked_ = false;              // GH #164
@@ -150,10 +156,15 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // 3646-3648.
     mmu_.reset(/*hard=*/!preserve_memory);
     nextreg_.reset();
-    palette_.reset();
-    layer2_.reset();
-    sprites_.reset();
-    tilemap_.reset();
+    // GH #263 — the video owners take the same hard/soft split. A soft reset
+    // keeps the BRAMs (palette RAM, sprite attribute and pattern RAM — no
+    // reset port, like the bank-5/7 BRAMs above) and, because it can land
+    // mid-frame, keeps each owner's per-scanline render history and records
+    // the register reset in it at the current line; a hard reset clears it.
+    palette_.reset(/*hard=*/!preserve_memory);
+    layer2_.reset(/*hard=*/!preserve_memory);
+    sprites_.reset(/*hard=*/!preserve_memory);
+    tilemap_.reset(/*hard=*/!preserve_memory);
     copper_.reset();
     cpu_.reset(/*hard=*/!preserve_memory);
     im2_.reset();
@@ -278,7 +289,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         sd_card_.reset();
     }
 
-    renderer_.reset();
+    renderer_.reset(/*hard=*/!preserve_memory);   // GH #263, see palette_ above
 
     psg_accum_ = 0;
     sample_accum_ = 0;
@@ -675,7 +686,16 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // init() has always seeded 50 Hz, and begin_new_frame() already
     // re-pushes 60 Hz on the first frame edge when the pending bit says so
     // (`pend_60hz != video_timing_.refresh_60hz()`). Out of scope for #237.
-    apply_video_timing(init_tim_mode, /*refresh_60hz=*/false);
+    //
+    // GH #263 — except on a soft reset, which keeps the effective 50/60 Hz
+    // selection it found: `eff_nr_05_5060` has no reset clause and is only
+    // loaded at video_frame_sync (zxnext.vhd:6696-6703), and zxula_timing
+    // has no reset at all, so a reset mid-frame does not change the frame
+    // being drawn. Seeding 50 Hz there switched a 60 Hz frame's geometry
+    // (vblank_top 8 -> 32) under its remaining scanline events, misplacing
+    // every row from the reset to the frame's end.
+    apply_video_timing(init_tim_mode,
+                       preserve_memory ? video_timing_.refresh_60hz() : false);
 
     // Clear all port dispatch handlers before re-registering them.
     // Without this, reset() → init() would duplicate every handler, causing

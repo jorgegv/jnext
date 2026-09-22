@@ -191,9 +191,13 @@ public:
         uint8_t nr6a     = 0;       ///< NR $6A (zxnext.vhd:5032-5034 reset 0x00)
     };
 
-    void reset() {
+    /// `hard` also clears the per-line snapshot. A soft reset (`hard` =
+    /// false, NR 0x02 bit 0 / F4) can land mid-frame: it resets only the
+    /// registers, and the rows from the reset on snapshot them (GH #263).
+    void reset(bool hard = true) {
         live_ = LineState{};
-        per_line_.fill(LineState{});
+        if (hard)
+            per_line_.fill(LineState{});
     }
 
     /// NR $15 bit 7 — `nr_15_lores_en` (zxnext.vhd:5229).
