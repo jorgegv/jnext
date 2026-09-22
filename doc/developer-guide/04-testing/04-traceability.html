@@ -1882,10 +1882,21 @@ that were. <strong>Spell every ID out.</strong></p>
 <p><code>make unit-test</code> runs <code>test/traceability-dup-ids.pl</code>, which <strong>refuses</strong> with
 exit 2 when two suites assert the same ID. That kind of reuse is how
 manufactured coverage happened once: a row read <code>pass</code> because an
-identically-named row in another subsystem was vouching for it. The 29
-collisions that already existed are baselined in
-<code>test/traceability-dup-ids.conf</code>, so anything new fails, and the baseline
-shrinks only by renaming one side in the plan doc and the test source together.</p>
+identically-named row in another subsystem was vouching for it. Of the 29
+collisions that already existed when the gate was written, 12 remain, baselined
+in <code>test/traceability-dup-ids.conf</code>: anything new fails, a baseline entry that
+no longer collides fails too, and the baseline shrinks only by renaming one side
+in the plan doc and the test source together.</p>
+<p>Planned rows are IDs as well. The matrix mixes rows read from each subsystem's
+<code>*-TEST-PLAN-DESIGN.md</code> with rows read from the test sources, so a planned ID
+that some other suite asserts puts two different rows under one name — the CTC
+plan's <code>JOY-01/02</code> sat in the matrix as <code>missing</code> next to
+<code>uart_integration_test</code>'s passing <code>JOY-01/02</code>. The gate therefore also refuses a
+planned row whose ID is asserted by a suite the matrix does not read that row's
+status from (its own section's suites, its <code>###</code> companions and its declared
+status fallbacks). It gets the planned rows by asking the generator —
+<code>refresh-traceability-matrix.pl --planned-ids</code> — so there is one plan-doc
+parser, not two.</p>
 <p>The checker enumerates suites from <code>test/unit-tests.conf</code> — every one it
 declares, the <code>?</code>-prefixed GUI-gated suites included — and deliberately not
 from the matrix's own sections, because tombstoned suites have no section at

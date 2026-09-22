@@ -1,5 +1,6 @@
 #!/usr/bin/env perl
-# Refuse when one test row ID is asserted by two different suites.
+# Refuse when one test row ID is asserted by two different suites, or when a
+# PLANNED row's ID is asserted by a suite that does not answer for it.
 #
 # GH #196 phase 3.2. An ID is a GLOBAL name in this project: the traceability
 # matrix, the plan docs and every report key on it, and #190's manufactured
@@ -19,11 +20,23 @@
 # the gate is not checking, and saying OK over it is the failure this file
 # exists to prevent.
 #
-# The baseline in test/traceability-dup-ids.conf holds the 29 collisions that
-# already existed when this gate was written (measured 2026-08-01, by this
-# script). Anything NOT in it is a refusal. The baseline shrinks by renaming
-# one side of a pair, which means changing its plan doc and its test source
-# together.
+# PLANNED ROWS ARE IDs TOO (GH #243). The matrix mixes rows read from the
+# subsystem plan docs with rows read from the test sources, so a planned ID
+# that another suite asserts puts two different rows under one name: the CTC
+# plan's JOY-01/02 sat in the matrix as `missing` beside uart_integration_test's
+# passing JOY-01/02. The plan docs are read by refresh-traceability-matrix.pl
+# and by nothing else, so this gate asks it (`--planned-ids`) rather than
+# keeping a second parser that could drift from the first. A planned row
+# asserted by one of the suites the matrix reads its status from — its own
+# section's, its companions, its declared status fallbacks — is the ordinary
+# planned-then-implemented row and is fine. Asserted anywhere else, it is a
+# collision, and there is no baseline for that kind.
+#
+# The baseline in test/traceability-dup-ids.conf holds the asserted-vs-asserted
+# collisions that already existed when this gate was written (29, measured
+# 2026-08-01, by this script; 12 remain). Anything NOT in it is a refusal. The
+# baseline shrinks by renaming one side of a pair, which means changing its
+# plan doc and its test source together.
 use strict;
 use warnings;
 use FindBin qw($RealBin);
@@ -109,6 +122,16 @@ for my $id (sort keys %where) {
     push @dups, "$id: $sig";
 }
 
+# A baseline entry that no longer describes a live collision is an amnesty
+# waiting for its collision to come back. Refused, so the list shrinks on
+# purpose and not by leaving dead entries behind (GH #243).
+my @stale;
+for my $id (sort keys %ALLOW) {
+    my $live = join(', ', sort keys %{ $where{$id} || {} });
+    push @stale, "$id: $ALLOW{$id}   (live: " . ($live eq '' ? 'none' : $live) . ")"
+        unless $live eq $ALLOW{$id};
+}
+
 if (@unresolved) {
     printf STDERR "traceability-dup-ids: REFUSING — %d declared suite(s) could "
                 . "not be read.\nA suite this gate cannot read is a suite it is "
@@ -119,6 +142,37 @@ if (@unresolved) {
     exit 2;
 }
 
+# Planned rows, from the matrix generator's own plan-doc reader.
+my (@planned_clash, $planned);
+{
+    my $gen = "$RealBin/refresh-traceability-matrix.pl";
+    open(my $ph, '-|', $^X, $gen, '--planned-ids')
+        or die "traceability-dup-ids: cannot run $gen: $!\n";
+    my @lines = <$ph>;
+    if (!close $ph) {
+        printf STDERR "traceability-dup-ids: REFUSING — %s --planned-ids "
+                    . "failed (exit %d), so the planned rows could not be "
+                    . "checked.\n", $gen, $? >> 8;
+        exit 2;
+    }
+    for my $l (@lines) {
+        chomp $l;
+        my ($id, $doc, $owners) = split /\t/, $l;
+        if (!defined $owners || $owners eq '') {
+            print STDERR "traceability-dup-ids: REFUSING — unreadable "
+                       . "--planned-ids line: '$l'\n";
+            exit 2;
+        }
+        $planned++;
+        my %own = map { $_ => 1 } split /,/, $owners;
+        my @foreign = grep { !$own{$_} } sort keys %{ $where{$id} || {} };
+        (my $plan = $doc) =~ s{.*/}{};
+        push @planned_clash, "$id: planned in $plan (answered by $owners), "
+                           . "asserted by " . join(', ', @foreign)
+            if @foreign;
+    }
+}
+
 if (@dups) {
     printf STDERR "traceability-dup-ids: REFUSING — %d test ID(s) asserted by "
                 . "more than one suite.\nAn ID is a global name here; a duplicate "
@@ -126,8 +180,28 @@ if (@dups) {
                 . "one side, or add it to test/traceability-dup-ids.conf.\n\n",
            scalar @dups;
     print STDERR "  $_\n" for @dups;
-    exit 2;
 }
-printf("traceability-dup-ids: OK — %d ids across %d suites, no collisions\n",
-       scalar keys %where, scalar @suites);
+if (@planned_clash) {
+    print STDERR "\n" if @dups;
+    printf STDERR "traceability-dup-ids: REFUSING — %d PLANNED row ID(s) "
+                . "asserted by a suite that does not\nanswer for them. The matrix "
+                . "would carry two different rows under one name\n(GH #243). "
+                . "Rename one side: the plan-doc row or the asserting suite's "
+                . "row.\nThere is no baseline for this kind.\n\n",
+           scalar @planned_clash;
+    print STDERR "  $_\n" for @planned_clash;
+}
+if (@stale) {
+    print STDERR "\n" if @dups || @planned_clash;
+    printf STDERR "traceability-dup-ids: REFUSING — %d baseline entr%s in "
+                . "test/traceability-dup-ids.conf no longer\nmatch%s a live "
+                . "collision. Delete %s: a dead entry would silently re-admit\n"
+                . "exactly that collision if it came back.\n\n",
+           scalar @stale, @stale == 1 ? 'y' : 'ies', @stale == 1 ? 'es' : '',
+           @stale == 1 ? 'it' : 'them';
+    print STDERR "  $_\n" for @stale;
+}
+exit 2 if @dups || @planned_clash || @stale;
+printf("traceability-dup-ids: OK — %d ids across %d suites and %d planned rows, "
+     . "no collisions\n", scalar keys %where, scalar @suites, $planned // 0);
 exit 0;

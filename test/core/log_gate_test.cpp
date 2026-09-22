@@ -87,7 +87,7 @@ int main()
 
     char detail[192];
 
-    // --- GATE-01: rewriting the SAME speed logs once, not once per write -------
+    // --- LGATE-01: rewriting the SAME speed logs once, not once per write ------
     nr_write(emu, 0x07, 0x03);                                // 3.5 -> 28 MHz
     const int after_change = speed_lines();
     for (int i = 0; i < 20; i++) nr_write(emu, 0x07, 0x03);   // same value, x20
@@ -95,15 +95,15 @@ int main()
     std::snprintf(detail, sizeof(detail),
                   "lines after the change=%d (want 1), after 20 identical rewrites=%d "
                   "(want 1; ungated gives 21)", after_change, after_repeats);
-    check("GATE-01", "20 rewrites of the SAME CPU speed log only once",
+    check("LGATE-01", "20 rewrites of the SAME CPU speed log only once",
           after_change == 1 && after_repeats == 1, detail);
 
-    // --- GATE-02: a genuine change still logs ----------------------------------
+    // --- LGATE-02: a genuine change still logs ---------------------------------
     nr_write(emu, 0x07, 0x01);                                // 28 -> 7 MHz
     std::snprintf(detail, sizeof(detail), "lines=%d want 2", speed_lines());
-    check("GATE-02", "an actual change of CPU speed does log", speed_lines() == 2, detail);
+    check("LGATE-02", "an actual change of CPU speed does log", speed_lines() == 2, detail);
 
-    // --- GATE-03: the gate clears on reset -------------------------------------
+    // --- LGATE-03: the gate clears on reset ------------------------------------
     // NR 0x07 returns to its power-on 3.5 MHz across a reset, so a write back to
     // the pre-reset speed is a REAL change and must log. If the gate is not
     // cleared, that line is swallowed as "unchanged".
@@ -115,7 +115,7 @@ int main()
                   "lines before reset=%d, after the post-reset write=%d "
                   "(want %d; a swallowed write leaves it at %d)",
                   before_reset, speed_lines(), before_reset + 1, before_reset);
-    check("GATE-03", "the gate clears on reset, so the first post-reset write logs",
+    check("LGATE-03", "the gate clears on reset, so the first post-reset write logs",
           before_reset == 3 && speed_lines() == 4, detail);
 
     logger->sinks().pop_back();

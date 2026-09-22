@@ -227,9 +227,12 @@ the six that are. Spell every ID out.
 
 **An ID is a GLOBAL name.** `make unit-test` runs `traceability-dup-ids.pl`,
 which refuses when two suites (the `?`-gated GUI ones included) assert the same
-ID — that reuse is how #190's manufactured coverage happened — and when a
-declared suite cannot be resolved to its source (GH #243). The 29 pre-existing
-collisions are baselined in `test/traceability-dup-ids.conf`; anything new fails.
+ID — that reuse is how #190's manufactured coverage happened — when a PLANNED
+row in a `*-TEST-PLAN-DESIGN.md` carries an ID asserted by a suite the matrix
+does not read that row's status from, and when a declared suite cannot be
+resolved to its source (GH #243). The 12 remaining pre-existing asserted-ID
+collisions are baselined in `test/traceability-dup-ids.conf`; anything new
+fails, and so does a baseline entry that no longer collides.
 
 The rendered user guide under `doc/user-guide` is also generated (from
 `src/doc/user-guide`, via `make docs-userguide`) and committed, and it IS

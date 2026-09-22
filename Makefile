@@ -443,8 +443,9 @@ traceability-dup-check:
 	@# suite, `?`-gated GUI ones included (GH #243) — and NOT from the matrix's
 	@# sections: tombstoned suites have no section, so a matrix-derived audit
 	@# cannot see them at all. A declared suite it cannot resolve to a source is a
-	@# refusal, never a skip. The 29 known collisions are baselined in
-	@# test/traceability-dup-ids.conf.
+	@# refusal, never a skip. Planned plan-doc rows are checked too, read through
+	@# refresh-traceability-matrix.pl --planned-ids (its parser, not a copy). The
+	@# 12 remaining known collisions are baselined in test/traceability-dup-ids.conf.
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
@@ -566,7 +567,7 @@ traceability-selftest:
 	@#
 	@# ~5 s, no build prerequisite: the end-to-end rows run the real refresh
 	@# script twice against a throwaway repository built from the real manifest,
-	@# CMakeLists and matrix, with stub sources and binaries. SELF-208..210 run
+	@# CMakeLists and matrix, with stub sources and binaries. SELF-208..215 run
 	@# test/traceability-dup-ids.pl the same way (GH #243): it had no self-test
 	@# of its own, and shipped skipping every `?`-prefixed suite.
 	@perl test/traceability-citations-selftest.pl

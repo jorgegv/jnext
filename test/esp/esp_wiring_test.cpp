@@ -12,7 +12,7 @@
 //
 //   POL-*    the hostname allowlist, as a pure value type
 //   ELOG-*   the connection-event log (bounded, thread-safe)
-//   GATE-*   EspGatedTransport: refusal, forwarding, event emission
+//   EGATE-*  EspGatedTransport: refusal, forwarding, event emission
 //   AT-*     the refusal really is what the GUEST sees, through the real engine
 //   FAULT-*  a throwing transport is surfaced exactly once
 //   WIRE-*   Emulator: off by default, attached when on, inert under replay,
@@ -325,28 +325,28 @@ int main() {
         EspConnectionLog log;
         EspGatedTransport gated{std::move(raw), policy, log};
 
-        check("GATE-01", "an allowed host reaches the wrapped transport",
+        check("EGATE-01", "an allowed host reaches the wrapped transport",
               gated.begin_connect("allowed.test", 2048, Protocol::Tcp, 0) &&
                   tr->begin_calls == 1 &&
                   tr->last_host == "allowed.test" && tr->last_port == 2048);
 
         const bool accepted = gated.begin_connect("evil.test", 80, Protocol::Tcp, 0);
-        check("GATE-02", "a refused host NEVER reaches the wrapped transport",
+        check("EGATE-02", "a refused host NEVER reaches the wrapped transport",
               tr->begin_calls == 1);
-        check("GATE-03", "a refusal returns false — the 'request rejected' contract",
+        check("EGATE-03", "a refusal returns false — the 'request rejected' contract",
               !accepted);
-        check("GATE-04", "a refusal is recorded as an event naming host and port",
+        check("EGATE-04", "a refusal is recorded as an event naming host and port",
               log.sequence() == 1 && log.snapshot().back().kind == EspEvent::Kind::Refused &&
                   log.snapshot().back().host == "evil.test" &&
                   log.snapshot().back().port == 80);
-        check("GATE-05", "a refusal is counted", gated.refusals() == 1);
+        check("EGATE-05", "a refusal is counted", gated.refusals() == 1);
     }
     {
         auto  raw = std::make_unique<ScriptedTransport>();
         auto* tr  = raw.get();
         EspConnectionLog log;
         EspGatedTransport gated{std::move(raw), EspHostPolicy{}, log};
-        check("GATE-06", "an empty allowlist forwards every host",
+        check("EGATE-06", "an empty allowlist forwards every host",
               gated.begin_connect("anything.test", 1, Protocol::Tcp, 0) && tr->begin_calls == 1 &&
                   gated.refusals() == 0);
     }
@@ -364,10 +364,10 @@ int main() {
         EspConnectionLog log;
         EspGatedTransport gated{std::move(raw), policy, log};
 
-        check("GATE-16", "the allowlist refuses a UDP connect exactly as it refuses TCP",
+        check("EGATE-16", "the allowlist refuses a UDP connect exactly as it refuses TCP",
               !gated.begin_connect("evil.test", 123, Protocol::Udp, 0) &&
                   tr->begin_calls == 0 && gated.refusals() == 1);
-        check("GATE-17", "an allowed UDP host reaches the transport with protocol and "
+        check("EGATE-17", "an allowed UDP host reaches the transport with protocol and "
                          "local port unchanged",
               gated.begin_connect("time.test", 123, Protocol::Udp, 4567) &&
                   tr->last_protocol == Protocol::Udp && tr->last_port == 123 &&
@@ -381,16 +381,16 @@ int main() {
         gated.begin_connect("peer.test", 23281, Protocol::Tcp, 0);
         tr->set_state(TransportState::Connected);
         gated.poll();
-        check("GATE-07", "Connecting -> Connected reports one Opened event",
+        check("EGATE-07", "Connecting -> Connected reports one Opened event",
               log.sequence() == 1 && log.snapshot().back().kind == EspEvent::Kind::Opened &&
                   log.snapshot().back().host == "peer.test");
         gated.poll();
         gated.poll();
-        check("GATE-08", "...and not again while it stays connected", log.sequence() == 1);
+        check("EGATE-08", "...and not again while it stays connected", log.sequence() == 1);
 
         tr->set_state(TransportState::Closed);
         gated.poll();
-        check("GATE-10", "Connected -> Closed reports a Closed event",
+        check("EGATE-10", "Connected -> Closed reports a Closed event",
               log.sequence() == 2 && log.snapshot().back().kind == EspEvent::Kind::Closed);
     }
     {
@@ -402,7 +402,7 @@ int main() {
         tr->set_error("name resolution failed");
         tr->set_state(TransportState::Failed);
         gated.poll();
-        check("GATE-09", "a failure reports a Failed event carrying last_error()",
+        check("EGATE-09", "a failure reports a Failed event carrying last_error()",
               log.sequence() == 1 && log.snapshot().back().kind == EspEvent::Kind::Failed &&
                   log.snapshot().back().detail == "name resolution failed");
     }
@@ -416,7 +416,7 @@ int main() {
         gated.begin_connect("peer.test", 1, Protocol::Tcp, 0);
         tr->set_state(TransportState::Closed);
         gated.poll();
-        check("GATE-11", "a never-connected attempt that closes reports nothing",
+        check("EGATE-11", "a never-connected attempt that closes reports nothing",
               log.sequence() == 0);
     }
     {
@@ -433,7 +433,7 @@ int main() {
             gated.peer_address() == ipv4(192, 0, 2, 1);
         gated.poll();
         gated.close();
-        check("GATE-12", "every other method forwards to the wrapped transport",
+        check("EGATE-12", "every other method forwards to the wrapped transport",
               forwarded && tr->poll_calls == 1 && tr->closed);
     }
     {
@@ -454,14 +454,14 @@ int main() {
             tr->set_state(TransportState::Closed);
             gated.poll();
         });
-        check("GATE-13", "a refusal is logged, saying WHY (the engine cannot)",
+        check("EGATE-13", "a refusal is logged, saying WHY (the engine cannot)",
               refusal_log.find("REFUSED") != std::string::npos &&
                   refusal_log.find("evil.test:80") != std::string::npos &&
                   refusal_log.find("esp-allow") != std::string::npos);
-        check("GATE-14", "...at warn, so it survives the default log level",
+        check("EGATE-14", "...at warn, so it survives the default log level",
               refusal_log.find("warning") != std::string::npos ||
                   refusal_log.find("warn") != std::string::npos);
-        check("GATE-15", "the decorator does NOT duplicate the engine's own lines",
+        check("EGATE-15", "the decorator does NOT duplicate the engine's own lines",
               refusal_log.find("opened") == std::string::npos &&
                   refusal_log.find("closed") == std::string::npos);
     }

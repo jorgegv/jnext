@@ -1880,16 +1880,17 @@ deliberately.</p>
 cross-checked against CMake's <code>add_test()</code> registrations in both directions, so
 an entry with no CMake counterpart would make the unit harness refuse to run.</p>
 <h2 id="the-traceability-self-tests">The traceability self-tests<a class="headerlink" href="#the-traceability-self-tests" title="Permanent link">&para;</a></h2>
-<pre><code class="language-console">$ make traceability-selftest          # citation extractor + dup-ID gate, 210 pinned rows
+<pre><code class="language-console">$ make traceability-selftest          # citation extractor + dup-ID gate, 215 pinned rows
 $ make traceability-accounting-check  # the suite-accounting gate, ~0.01 s
 </code></pre>
 <p><code>test/traceability-citations-selftest.pl</code> pins the tool that decides which VHDL
 lines justify each traceability row. Its end-to-end rows build a throwaway
 repository out of the real manifest, CMakeLists and matrix, populated with stub
 sources and binaries, and then run the real refresh script against it twice, so
-that idempotence and the refusal paths are both exercised. <code>SELF-208</code>..<code>SELF-210</code>
-run <code>test/traceability-dup-ids.pl</code> the same way, against a two-suite fixture in
-which one suite is <code>?</code>-prefixed (GH #243). It pins <code>$EXPECTED_ROWS = 210</code> in the
+that idempotence and the refusal paths are both exercised. <code>SELF-208</code>..<code>SELF-215</code>
+run <code>test/traceability-dup-ids.pl</code> and the generator's <code>--planned-ids</code> the same
+way, planting colliding IDs in <code>?</code>-prefixed suites, in one-row plan docs and in
+the baseline (GH #243). It pins <code>$EXPECTED_ROWS = 215</code> in the
 same shape as the harness self-test, and for the same reason it cannot live in
 the unit manifest — it is a perl script with no CMake target.</p>
 <p>Both are prerequisites of <code>make unit-test</code>, and that matters more than the

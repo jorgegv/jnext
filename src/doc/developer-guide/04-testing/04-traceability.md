@@ -62,10 +62,22 @@ that were. **Spell every ID out.**
 `make unit-test` runs `test/traceability-dup-ids.pl`, which **refuses** with
 exit 2 when two suites assert the same ID. That kind of reuse is how
 manufactured coverage happened once: a row read `pass` because an
-identically-named row in another subsystem was vouching for it. The 29
-collisions that already existed are baselined in
-`test/traceability-dup-ids.conf`, so anything new fails, and the baseline
-shrinks only by renaming one side in the plan doc and the test source together.
+identically-named row in another subsystem was vouching for it. Of the 29
+collisions that already existed when the gate was written, 12 remain, baselined
+in `test/traceability-dup-ids.conf`: anything new fails, a baseline entry that
+no longer collides fails too, and the baseline shrinks only by renaming one side
+in the plan doc and the test source together.
+
+Planned rows are IDs as well. The matrix mixes rows read from each subsystem's
+`*-TEST-PLAN-DESIGN.md` with rows read from the test sources, so a planned ID
+that some other suite asserts puts two different rows under one name — the CTC
+plan's `JOY-01/02` sat in the matrix as `missing` next to
+`uart_integration_test`'s passing `JOY-01/02`. The gate therefore also refuses a
+planned row whose ID is asserted by a suite the matrix does not read that row's
+status from (its own section's suites, its `###` companions and its declared
+status fallbacks). It gets the planned rows by asking the generator —
+`refresh-traceability-matrix.pl --planned-ids` — so there is one plan-doc
+parser, not two.
 
 The checker enumerates suites from `test/unit-tests.conf` — every one it
 declares, the `?`-prefixed GUI-gated suites included — and deliberately not
