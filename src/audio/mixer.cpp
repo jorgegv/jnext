@@ -43,7 +43,7 @@ void Mixer::reset()
     count_ = 0;
     // VHDL audio_mixer.vhd: exc_i is a combinational input that follows
     // beep_spkr_excl (zxnext.vhd:6504). Default both NR 0x06 b6 and NR 0x08
-    // b4 cleared at power-on means exc_i='0'. Emulator::reset() restores it
+    // b4 cleared at power-on means exc_i='0'. Emulator::init() restores it
     // via set_exc_i(beep_spkr_excl()) once NR 0x08 has settled to 0x10.
     exc_i_ = false;
     acc_l_ = acc_r_ = acc_cycles_ = 0;

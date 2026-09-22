@@ -870,9 +870,10 @@ void MainWindow::create_menus() {
     if (emulator_) magic_bp_action_->setChecked(emulator_->config().magic_breakpoint);
     connect(magic_bp_action_, &QAction::triggered, this, [this](bool checked) {
         if (!emulator_) return;
-        EmulatorConfig cfg = emulator_->config();
-        cfg.magic_breakpoint = checked;
-        emulator_->init(cfg);
+        // Arm/disarm on the running machine. This used to re-run init() with
+        // the flag changed, which re-initialised a booted NextZXOS machine
+        // into 48K BASIC and never disarmed the hook (GH #239).
+        emulator_->set_magic_breakpoint(checked);
     });
 
     // --- View menu ---

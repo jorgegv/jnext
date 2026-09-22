@@ -828,7 +828,7 @@ bool NexLoader::apply(Emulator& emu) const
     //    jnext models no sweep here either, and does not need to at this
     //    entry: $00 is already what PaletteManager::reset() seeds ULA
     //    0x18 with (palette.cpp kDefaultUlaRgb333[8], bright black), and
-    //    Emulator::load_nex() calls reset() before apply(). So leaving
+    //    Emulator::load_nex() re-runs init() before apply(). So leaving
     //    the entry alone lands on the oracle's value for a machine whose
     //    guest has not repainted it. Row NEXPR-V13R-03.
     //

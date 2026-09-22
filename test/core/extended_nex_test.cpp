@@ -11,6 +11,7 @@
 #include "core/extended_nex_host.h"
 #include "core/nex_loader.h"
 #include "peripheral/sd_card.h"
+#include "platform/emulator_boot.h"
 #include "core/log.h"
 
 #include <spdlog/sinks/ostream_sink.h>
@@ -487,28 +488,43 @@ int main() {
     regs = {};
     const bool rearmed_after_soft =
         reload_after_soft && esx(gui_emu, 0x88, regs) && !carry(regs);
-    gui_emu.reset();
+    // GH #239 — the production hard reset (F1, Machine > Power Reset, a
+    // guest's NR 0x02 bit 1): the frontend cold boot, with no file to load.
+    // That boot attaches the RST $08 hook only for --esxdos-stub or with the
+    // esxdos logger at trace; with no hook, "not answered" would hold by
+    // absence. So the reset runs with esxdos at trace (as
+    // `--log-level esxdos=trace` then F1 does) and the row REQUIRES the hook,
+    // whose answer is then the evidence that the bridge was disarmed.
+    const auto esx_level = Log::esxdos()->level();
+    Log::esxdos()->set_level(spdlog::level::trace);
+    emulator_frontend_cold_boot(gui_emu, gui_emu.config(), std::string(),
+                                ColdBootHooks{});
     regs = {};
-    const bool hard_bridge_gone = !esx(gui_emu, 0x88, regs);
-    check("XNEX-26", "hard reset disarms a reloaded host bridge",
-          rearmed_after_soft && hard_bridge_gone &&
+    const bool hard_hook = static_cast<bool>(gui_emu.cpu().on_esxdos_call);
+    const bool hard_bridge_gone = hard_hook && !esx(gui_emu, 0x88, regs);
+    Log::esxdos()->set_level(esx_level);
+    check("XNEX-26", "hard reset (frontend cold boot) disarms a reloaded host bridge: "
+          "with the hook present (esxdos tracing on) M_DOSVERSION is no longer "
+          "answered and the SD read overlay is gone",
+          rearmed_after_soft && hard_hook && hard_bridge_gone &&
           !gui_emu.sd_card().has_read_overlay());
 
-    // A command-line load reattaches the dormant hook during reset because
-    // config_.load_file remains a NEX path. The hook must nevertheless decline
-    // the call once reset has cleared the host path, allowing the real ROM's
-    // RST $08 handler to run.
+    // A command-line load reattaches the dormant hook on a SOFT reset, because
+    // init() re-runs with config_.load_file still a NEX path. (A hard reset
+    // cold-boots with the load file cleared, so it attaches no hook at all.)
+    // The hook must nevertheless decline the call once the reset has cleared
+    // the host path, allowing the real ROM's RST $08 handler to run.
     Emulator cli_emu;
     EmulatorConfig cli_cfg = cfg;
     const bool cli_loaded =
         cli_emu.init(cli_cfg) &&
         cli_emu.load_nex(register_path.string());
-    cli_emu.reset();
+    cli_emu.soft_reset();
     regs = {};
     const bool cli_hook_present =
         static_cast<bool>(cli_emu.cpu().on_esxdos_call);
     const bool cli_bridge_gone = !esx(cli_emu, 0x88, regs);
-    check("XNEX-27", "CLI reset keeps a dormant hook without servicing host calls",
+    check("XNEX-27", "CLI soft reset keeps a dormant hook without servicing host calls",
           cli_loaded && cli_hook_present && cli_bridge_gone &&
           !cli_emu.sd_card().has_read_overlay());
 

@@ -1499,6 +1499,96 @@ static void test_run_guard()
     }
 }
 
+// ── MBP: Debug ▸ Magic Breakpoint toggles on the RUNNING machine ─────
+//
+// GH #239 (found while auditing every in-place Emulator::init() call once the
+// in-place Emulator::reset() was removed). The menu's handler used to copy
+// config(), flip magic_breakpoint and call init(cfg) — a full in-place
+// re-initialisation of the machine being debugged: RAM cleared, ROM re-seeded
+// and, on a booted NextZXOS machine, a drop into 48K BASIC (the Task 70
+// symptom; reproduced by driving that exact sequence headless). And because
+// init() only ever INSTALLED the hook, unticking it never disarmed it.
+//
+// Oracle: the menu's own promise — a checkable debugger toggle that enables
+// "magic breakpoints (ED FF / DD 01)". Toggling a debugger facility must not
+// touch the machine; the tick must mean what the CPU does.
+//
+// Witnesses that a re-initialisation happened: a RAM byte (init() zero-fills
+// RAM) and NR 0x07 (init() resets the NextREG file to 3.5 MHz).
+
+namespace {
+
+/// Put ED FF at 0x8000, point PC at it and execute one instruction. True when
+/// that paused the debugger — i.e. the magic breakpoint is armed.
+bool ed_ff_pauses(Emulator& emu) {
+    emu.debug_state().resume();
+    emu.mmu().write(0x8000, 0xED);
+    emu.mmu().write(0x8001, 0xFF);
+    Z80Registers r = emu.cpu().get_registers();
+    r.PC = 0x8000;
+    emu.cpu().set_registers(r);
+    (void)emu.cpu().execute();
+    const bool paused = emu.debug_state().paused();
+    emu.debug_state().resume();
+    return paused;
+}
+
+}  // namespace
+
+static void test_magic_breakpoint_menu()
+{
+    set_group("MBP");
+
+    MainWindowFixture fx;
+    if (!fx.ok) {
+        check("MBP-01", "ticking Magic Breakpoint arms it without re-initialising the machine",
+              false, "fixture failed");
+        check("MBP-02", "unticking Magic Breakpoint disarms it, again without a re-init",
+              false, "fixture failed");
+        return;
+    }
+
+    QMenu* debug_menu = menu_named(fx.win.menuBar(), QStringLiteral("Debug"));
+    QAction* item = item_named(debug_menu, QStringLiteral("Magic Breakpoint"));
+
+    // Witnesses that init() did NOT run: a RAM byte clear of the ED FF probe,
+    // and NR 0x07 at 28 MHz (init() returns it to 3.5 MHz).
+    fx.emu.port().out(0x243B, 0x07);    // NR 0x07 = 28 MHz, via the guest's port path
+    fx.emu.port().out(0x253B, 0x03);
+    fx.emu.mmu().write(0x9000, 0x5A);
+    const bool armed_before = ed_ff_pauses(fx.emu);
+
+    // MBP-01 — tick it. trigger() toggles a checkable action itself.
+    if (item) { item->trigger(); QApplication::processEvents(); }
+    const bool armed_after_tick = ed_ff_pauses(fx.emu);
+    const uint8_t ram_tick = fx.emu.mmu().read(0x9000);
+    const uint8_t nr07_tick = fx.emu.nextreg().read(0x07) & 0x03;
+    check("MBP-01", "ticking Magic Breakpoint arms it without re-initialising the machine",
+          item != nullptr && item->isCheckable() && !armed_before &&
+              item->isChecked() && armed_after_tick &&
+              fx.emu.config().magic_breakpoint &&
+              ram_tick == 0x5A && nr07_tick == 0x03,
+          fmt("item=%d armed_before=%d checked=%d armed=%d config=%d "
+              "RAM[9000]=0x%02X (want 0x5A) NR07=%u (want 3)",
+              item ? 1 : 0, armed_before ? 1 : 0,
+              (item && item->isChecked()) ? 1 : 0, armed_after_tick ? 1 : 0,
+              fx.emu.config().magic_breakpoint ? 1 : 0, ram_tick, nr07_tick));
+
+    // MBP-02 — untick it: the hook must actually go away.
+    if (item) { item->trigger(); QApplication::processEvents(); }
+    const bool armed_after_untick = ed_ff_pauses(fx.emu);
+    const uint8_t ram_untick = fx.emu.mmu().read(0x9000);
+    const uint8_t nr07_untick = fx.emu.nextreg().read(0x07) & 0x03;
+    check("MBP-02", "unticking Magic Breakpoint disarms it, again without a re-init",
+          item != nullptr && !item->isChecked() && !armed_after_untick &&
+              !fx.emu.config().magic_breakpoint &&
+              ram_untick == 0x5A && nr07_untick == 0x03,
+          fmt("checked=%d armed=%d config=%d RAM[9000]=0x%02X (want 0x5A) "
+              "NR07=%u (want 3)",
+              (item && item->isChecked()) ? 1 : 0, armed_after_untick ? 1 : 0,
+              fx.emu.config().magic_breakpoint ? 1 : 0, ram_untick, nr07_untick));
+}
+
 int main(int argc, char** argv)
 {
     // Both windows own QWidgets, so a QApplication is required — but not a
@@ -1534,6 +1624,8 @@ int main(int argc, char** argv)
     std::printf("  Group: DBG            — done\n");
     test_run_guard();
     std::printf("  Group: F5R            — done\n");
+    test_magic_breakpoint_menu();
+    std::printf("  Group: MBP            — done\n");
 
     std::printf("\n=====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",

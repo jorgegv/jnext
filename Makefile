@@ -139,7 +139,7 @@ default:
 	awk 'BEGIN {FS = ":.*?"} /^# / {helpMessage = substr($$0, 3); next} /^[a-zA-Z0-9_-]+:/ {if (helpMessage) {printf "  $(CYAN)$(BOLD)%-34s$(RESET)$(RESET) %s\n", $$1, helpMessage}; helpMessage = ""}' $(MAKEFILE_LIST)
 	printf "\n"
 
-# Configure and build the SDL-only frontend in Debug mode (sanitizers + debug symbols)
+# Configure and build the SDL-only frontend in Debug mode (debug symbols, frame pointers)
 sdl-debug:
 	$(CMAKE) -B $(BUILD_DIR_SDL_DEBUG) \
 		-DCMAKE_BUILD_TYPE=Debug \
@@ -157,7 +157,7 @@ sdl-debug-run: sdl-debug
 sdl-debug-clean:
 	rm -rf $(BUILD_DIR_SDL_DEBUG)
 
-# Configure and build the SDL-only frontend in Release mode (optimized, no sanitizers)
+# Configure and build the SDL-only frontend in Release mode (optimized)
 sdl-release:
 	$(CMAKE) -B $(BUILD_DIR_SDL_RELEASE) \
 		-DCMAKE_BUILD_TYPE=Release \

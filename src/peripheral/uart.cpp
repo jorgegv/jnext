@@ -178,12 +178,18 @@ void UartChannel::tick(uint32_t master_cycles) {
 }
 
 void UartChannel::write_tx(uint8_t val) {
+    // Every log call on the per-byte and per-port-read paths in this file is
+    // guarded, for the should_log() reason given in PortDispatch::read
+    // (src/port/port_dispatch.cpp): unguarded, a call with arguments is an
+    // out-of-line call per byte or status poll with the level off (GH #244).
     if (tx_fifo_.full()) {
-        uart_log()->debug("TX FIFO full, byte {:#04x} dropped", val);
+        if (uart_log()->should_log(spdlog::level::debug))
+            uart_log()->debug("TX FIFO full, byte {:#04x} dropped", val);
         return;
     }
     tx_fifo_.push(val);
-    uart_log()->trace("TX write {:#04x}, FIFO size={}", val, tx_fifo_.size());
+    if (uart_log()->should_log(spdlog::level::trace))
+        uart_log()->trace("TX write {:#04x}, FIFO size={}", val, tx_fifo_.size());
 }
 
 uint8_t UartChannel::read_rx() {
@@ -193,7 +199,8 @@ uint8_t UartChannel::read_rx() {
     }
     uint16_t entry = rx_fifo_.pop();
     uint8_t val = static_cast<uint8_t>(entry & 0xFF);
-    uart_log()->trace("RX read {:#04x}, FIFO size={}", val, rx_fifo_.size());
+    if (uart_log()->should_log(spdlog::level::trace))
+        uart_log()->trace("RX read {:#04x}, FIFO size={}", val, rx_fifo_.size());
     return val;
 }
 
@@ -287,13 +294,15 @@ void UartChannel::inject_rx_bit_frame(uint8_t byte, bool framing_err, bool parit
 void UartChannel::push_rx_with_flag(uint8_t byte, bool err_bit) {
     if (rx_fifo_.full()) {
         err_overflow_ = true;
-        uart_log()->debug("RX FIFO overflow, byte {:#04x} dropped", byte);
+        if (uart_log()->should_log(spdlog::level::debug))
+            uart_log()->debug("RX FIFO overflow, byte {:#04x} dropped", byte);
         return;
     }
     uint16_t entry = static_cast<uint16_t>(byte) | (err_bit ? 0x0100u : 0u);
     rx_fifo_.push(entry);
-    uart_log()->trace("RX inject {:#04x} (err={}), FIFO size={}",
-                      byte, err_bit ? 1 : 0, rx_fifo_.size());
+    if (uart_log()->should_log(spdlog::level::trace))
+        uart_log()->trace("RX inject {:#04x} (err={}), FIFO size={}",
+                          byte, err_bit ? 1 : 0, rx_fifo_.size());
 
     if (err_bit) err_framing_ = true;
 
@@ -740,7 +749,8 @@ void Uart::write(int port_reg, uint8_t val) {
         case 3: {
             // 0x133B Tx port write — send byte
             channels_[select_].write_tx(val);
-            uart_log()->debug("ch{} TX write {:#04x}", select_, val);
+            if (uart_log()->should_log(spdlog::level::debug))
+                uart_log()->debug("ch{} TX write {:#04x}", select_, val);
             break;
         }
     }
@@ -751,7 +761,8 @@ uint8_t Uart::read(int port_reg) {
         case 0: {
             // 0x143B Rx port read — read byte from RX FIFO
             uint8_t val = channels_[select_].read_rx();
-            uart_log()->trace("ch{} RX read {:#04x}", select_, val);
+            if (uart_log()->should_log(spdlog::level::trace))
+                uart_log()->trace("ch{} RX read {:#04x}", select_, val);
             return val;
         }
         case 1: {
@@ -775,13 +786,15 @@ uint8_t Uart::read(int port_reg) {
             // the rows five hours later. The suite certified the defect for four
             // months. The VHDL is the oracle; a test is not.
             uint8_t val = (select_ ? 0x40 : 0x00) | channels_[select_].read_prescaler_msb();
-            uart_log()->trace("ch{} select read {:#04x}", select_, val);
+            if (uart_log()->should_log(spdlog::level::trace))
+                uart_log()->trace("ch{} select read {:#04x}", select_, val);
             return val;
         }
         case 2: {
             // 0x163B Frame port read
             uint8_t val = channels_[select_].read_frame();
-            uart_log()->trace("ch{} frame read {:#04x}", select_, val);
+            if (uart_log()->should_log(spdlog::level::trace))
+                uart_log()->trace("ch{} frame read {:#04x}", select_, val);
             return val;
         }
         case 3: {
@@ -789,7 +802,8 @@ uint8_t Uart::read(int port_reg) {
             uint8_t val = channels_[select_].read_status();
             // Reading the status clears sticky error flags (from VHDL: uart0_tx_rd_fe)
             channels_[select_].clear_errors();
-            uart_log()->trace("ch{} status read {:#04x}", select_, val);
+            if (uart_log()->should_log(spdlog::level::trace))
+                uart_log()->trace("ch{} status read {:#04x}", select_, val);
             return val;
         }
     }

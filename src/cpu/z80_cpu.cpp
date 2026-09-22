@@ -892,7 +892,12 @@ int Z80Cpu::execute() {
         }
 
         if (kZ80NOpcodeTable[ext]) {
-            Log::cpu()->trace("Z80N opcode ED {:#04x} at PC={:#06x}", ext, pc);
+            // Guarded: see the should_log() rationale in PortDispatch::read
+            // (src/port/port_dispatch.cpp). An unguarded trace() with
+            // arguments costs an out-of-line call on every Z80N opcode with
+            // tracing off (GH #244).
+            if (Log::cpu()->should_log(spdlog::level::trace))
+                Log::cpu()->trace("Z80N opcode ED {:#04x} at PC={:#06x}", ext, pc);
             // G87: fire M1 callback on BOTH bytes of the ED-prefix opcode so
             // the IM2 RETI/RETN/IM-mode decoder FSM (im2_control.vhd:158-209)
             // advances S_0 → S_ED_T4 → ... — the FSM models per-fetched-byte

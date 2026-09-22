@@ -1951,7 +1951,8 @@ frames' worth, which drops the oldest sample on overrun. Two optional callbacks
 tap the same samples, one for <code>--record</code> video muxing and one for <code>--wav-record</code>
 (<code>AudioRecorder</code>). Per-source gains and the debugger's mute mask are host
 settings rather than machine state, so they are excluded from <code>reset()</code> and from
-snapshots.</p>
+snapshots, and the cold boot of a hard reset carries both across (the gains in
+the boot config, the mask in <code>emulator_cold_boot()</code>).</p>
 <h2 id="getting-samples-to-the-host">Getting samples to the host<a class="headerlink" href="#getting-samples-to-the-host" title="Permanent link">&para;</a></h2>
 <p><code>src/platform/sdl_audio.*</code> is the only place SDL audio appears. The device is
 opened in <em>callback</em> mode (GH #208): SDL's audio thread pulls samples from a

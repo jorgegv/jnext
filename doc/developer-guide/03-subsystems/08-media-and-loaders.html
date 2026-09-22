@@ -2051,15 +2051,17 @@ loaded from the GUI after start-up.</p>
 <p><strong>When it answers.</strong> Three things arm it:</p>
 <ul>
 <li><code>direct_nex_esxdos_</code> — set by <code>Emulator::load_nex()</code> for every NEX it loads,
-  cleared by <code>reset()</code> and <code>soft_reset()</code>. <code>load_sna()</code>, <code>load_szx()</code> and
-  <code>load_z80()</code> reset, and RZX playback goes through <code>load_sna()</code>, so a snapshot
-  clears it. <code>load_tap()</code>, <code>load_tzx()</code> and <code>load_wav()</code> deliberately do not:
-  they attach tape media to the running machine, so a NEX still running keeps
-  its stand-in.</li>
+  cleared by <code>init()</code>, so by a soft reset, and gone after a hard reset, which
+  reconstructs the emulator. <code>load_sna()</code>, <code>load_szx()</code> and <code>load_z80()</code>
+  re-run <code>init()</code> before applying the file, and RZX playback goes through
+  <code>load_sna()</code>, so a snapshot clears it. <code>load_tap()</code>, <code>load_tzx()</code> and
+  <code>load_wav()</code> deliberately do not: they attach tape media to the running
+  machine, so a NEX still running keeps its stand-in.</li>
 <li><code>EmulatorConfig::esxdos_stub</code> (<code>--esxdos-stub</code>), for the whole session.</li>
 <li>The extended-NEX host bridge (<code>extended_nex_host_</code>), open when the NEX
   header's <code>file_handle</code> is non-zero. Only <code>load_nex()</code> opens it, so it never
-  exists without <code>direct_nex_esxdos_</code>; reset and soft reset close it.</li>
+  exists without <code>direct_nex_esxdos_</code>; <code>init()</code> closes it, so both resets and
+  every re-initialising load do.</li>
 </ul>
 <p><strong>The ROM gate.</strong> Whatever armed it, the handler answers nothing unless NR
 <code>$50</code> reads <code>$FF</code>, i.e. ROM is paged in at <code>$0000</code>. That is the hardware's own

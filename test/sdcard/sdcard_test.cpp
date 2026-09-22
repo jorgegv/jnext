@@ -38,6 +38,9 @@
 // so the Makefile aggregator picks it up.
 
 #include "peripheral/sd_card.h"
+#include "core/log.h"
+
+#include <spdlog/sinks/ringbuffer_sink.h>
 
 #include <cstdio>
 #include <fstream>
@@ -2389,6 +2392,53 @@ static void test_task26_data_block_crc() {
           " expected=0x" + [&]{ char b[8]; std::snprintf(b,sizeof(b),"%04X",expected); return std::string(b); }());
 }
 
+// SD-LOGHOT-01/02 — GH #244. The CMD18 per-block trace is wrapped in a
+// should_log() guard (the PortDispatch::read rationale: spdlog does not gate
+// the level at the call site for a format string with arguments, so the call
+// cost an out-of-line call per streamed block with tracing off). The row that
+// matters is the enabled one: with sdcard at trace, streaming into a second
+// block must still log it. Mutation-tested in the suppressing direction.
+static void test_sd_loghot(SdCardDevice& sd) {
+    auto lg = Log::sdcard();
+    auto ring = std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(512);
+    const auto saved = lg->level();
+    lg->sinks().push_back(ring);
+    auto count = [&](const char* needle) {
+        int n = 0;
+        for (const auto& line : ring->last_formatted())
+            if (line.find(needle) != std::string::npos) ++n;
+        return n;
+    };
+    auto stream_two_blocks = [&]() {
+        sd.reset();
+        init_card(sd);
+        (void)send_cmd_r1(sd, 18, 3);
+        uint8_t buf[512];
+        if (wait_token(sd)) read_block(sd, buf);
+        if (wait_token(sd, 32)) read_block(sd, buf);   // advances to sector 4
+        (void)send_cmd_r1(sd, 12, 0);
+        sd.deselect();
+    };
+
+    lg->set_level(spdlog::level::trace);
+    stream_two_blocks();
+    const int on = count("CMD18 next block sector=4");
+    check("SD-LOGHOT-01",
+          "streaming into the next CMD18 block logs its trace line with sdcard at trace",
+          on == 1, "lines=" + std::to_string(on) + " want 1");
+
+    const size_t before = ring->last_formatted().size();
+    lg->set_level(spdlog::level::info);
+    stream_two_blocks();
+    const size_t after = ring->last_formatted().size();
+    check("SD-LOGHOT-02",
+          "no CMD18 next-block trace line is emitted with the level off",
+          after == before, "ring grew by " + std::to_string(after - before));
+
+    lg->set_level(saved);
+    lg->sinks().pop_back();
+}
+
 int main() {
     std::printf("SD card compliance tests\n");
     std::printf("====================================\n\n");
@@ -2403,6 +2453,7 @@ int main() {
     }
 
     test_init(sd);
+    test_sd_loghot(sd);              // SD-LOGHOT-01/02 (GH #244)
     test_cmd17_read(sd);
     test_cmd18_stream(sd);
     test_nac_gap(sd);                // SD-NAC-01..05 (GH #84, GH #98)
