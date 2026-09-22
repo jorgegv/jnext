@@ -14,6 +14,9 @@
 #
 # So each case below pins one tier, and the last two pin the *refusals*.
 #
+# The duplicate-ID gate (`test/traceability-dup-ids.pl`) is pinned here too,
+# end to end, by SELF-208..215 near the bottom (GH #243).
+#
 # Usage:
 #     perl test/traceability-citations-selftest.pl
 #
@@ -87,6 +90,19 @@ sub check {
     if ($ok) { $passed++; printf("  PASS %s: %s\n", $id, $desc); }
     else     { $failed++; printf("  FAIL %s: %s%s\n", $id, $desc,
                                  defined $detail ? " — $detail" : ''); }
+}
+
+# Run $code with the refresh script's EXPECTED diagnostics for one fixture
+# swallowed, and every other warning passed straight through. Several fixtures
+# are narrow tables or cite an imaginary .vhd ON PURPOSE, and the script says
+# so on stderr; letting that reach the terminal made every run of this
+# self-test look like it had warnings to read. Matching on the exact message
+# keeps an UNEXPECTED warning from the same call visible.
+my $WIDTH_WARN = qr/^WARN: citation '[^']+' \(id=\S+\) exceeds column width \d+; keeping full text$/;
+sub quietly {
+    my ($expected, $code) = @_;
+    local $SIG{__WARN__} = sub { warn $_[0] unless $_[0] =~ $expected };
+    return $code->();
 }
 
 sub write_fixture {
@@ -681,9 +697,10 @@ my @fzlines = (
     '| FZ-MISS-01  | not asserted| fixture_b.vhd:8  | missing | missing          |',
 );
 my (@fzd, @fzk, @fzinv, @fzfrozen);
-my @fzret = refresh_section(\@fzlines, 0, 'bin/frozen_suite',
-                            'test/fixture/frozen_test.cpp', \@fzd, \@fzk,
-                            undef, undef, \@fzinv, \@fzfrozen);
+my @fzret = quietly($WIDTH_WARN, sub {
+    refresh_section(\@fzlines, 0, 'bin/frozen_suite',
+                    'test/fixture/frozen_test.cpp', \@fzd, \@fzk,
+                    undef, undef, \@fzinv, \@fzfrozen) });
 
 check('SELF-143', 'refresh_section collects exactly the two cells with no computed side, and classifies them',
       scalar(@fzfrozen) == 2
@@ -797,9 +814,10 @@ my @shlines = (
 );
 my @shbefore = @shlines;
 my (@shd, @shk, @shinv, @shfz, @shunref);
-my @shret = refresh_section(\@shlines, 0, 'bin/shape_suite',
-                            'test/fixture/shape_test.cpp', \@shd, \@shk,
-                            undef, undef, \@shinv, \@shfz, \@shunref);
+my @shret = quietly($WIDTH_WARN, sub {
+    refresh_section(\@shlines, 0, 'bin/shape_suite',
+                    'test/fixture/shape_test.cpp', \@shd, \@shk,
+                    undef, undef, \@shinv, \@shfz, \@shunref) });
 
 check('SELF-172', 'END TO END: a 4-column Extra-coverage row IS refreshed now — location and citation both recomputed',
       scalar($shlines[11] =~ m{\| test/fixture/shape_test\.cpp:3\s*\|}
@@ -873,8 +891,9 @@ check('SELF-177', 'THE REGRESSION: the row after a protected row is still refres
         '|------------|-----------------------|----------------|',
         '| SH-MAIN-01 | no VHDL column        | missing        |',
     );
-    refresh_section(\@nc, 0, 'bin/shape_suite', 'test/fixture/shape_test.cpp',
-                    [], [], undef, undef, [], [], []);
+    quietly($WIDTH_WARN, sub {
+        refresh_section(\@nc, 0, 'bin/shape_suite', 'test/fixture/shape_test.cpp',
+                        [], [], undef, undef, [], [], []) });
     my @cells = split_row_cells($nc[4]);
     check('SELF-182', 'a table with a location column but NO `VHDL file:line` refreshes the location and leaves cell 0 alone',
           scalar($cells[0] eq ''
@@ -1288,8 +1307,9 @@ my @nested = (
     $com_row,
 );
 my (@nd, @nk);
-my ($n_touched) = refresh_section(\@nested, 0, 'bin/section_suite',
-                                  'test/fixture/section_test.cpp', \@nd, \@nk, 6);
+my ($n_touched) = quietly($WIDTH_WARN, sub {
+    refresh_section(\@nested, 0, 'bin/section_suite',
+                    'test/fixture/section_test.cpp', \@nd, \@nk, 6) });
 
 check('SELF-26', 'the parent section stops at a nested companion header and leaves its rows alone',
       $nested[8] eq $com_row && $n_touched == 1,
@@ -1432,7 +1452,8 @@ void m() {
           "fixture_a.vhd:70, not_in_the_core.vhd:99");
 }
 CPP
-my $mc = grep_citations('test/fixture/multicite_test.cpp');
+my $mc = quietly(qr/^WARN: citation names 'not_in_the_core\.vhd', which is not in /,
+                 sub { grep_citations('test/fixture/multicite_test.cpp') });
 
 check('SELF-83', 'a second FILE in the same evidence is published, not dropped',
       ($mc->{'MC-01'} // '') eq 'fixture_a.vhd:10, fixture_b.vhd:20-22',
@@ -3000,10 +3021,10 @@ check('SELF-161', 'the control: that later shared assertion still answers for it
 
     # A non-directory --fpga-src is REFUSED up front, not degraded into the
     # unvalidated mode. fatal() exits 3.
-    my ($rc_b, $err_b) = $run_capture->({}, "--fpga-src='$E2E/no-such-dir'");
+    my ($rc_dir, $err_dir) = $run_capture->({}, "--fpga-src='$E2E/no-such-dir'");
     check('SELF-200', 'GH #202: --fpga-src refuses a path that is not a directory',
-          scalar($rc_b != 0 && $err_b =~ /is not a directory/),
-          "exit $rc_b: " . (($err_b =~ /(--fpga-src.*)/)[0] // '(no message)'));
+          scalar($rc_dir != 0 && $err_dir =~ /is not a directory/),
+          "exit $rc_dir: " . (($err_dir =~ /(--fpga-src.*)/)[0] // '(no message)'));
 
     # No core anywhere: the run must SAY SO. Silence here is the whole defect —
     # an unvalidated run looks exactly like a validated one and emits different
@@ -3315,6 +3336,154 @@ check('SELF-195', 'a suite may be a fallback elsewhere AND own its section: it p
       "lender section rows = " . join(' ', sort keys %$lend)
       . " status=" . ($lend->{'FBK-LEND-01'}{status} // '(absent)'));
 
+# ── The duplicate-ID gate, end to end (GH #243) ───────────────────────
+#
+# `test/traceability-dup-ids.pl` is the other half of the traceability tooling
+# and had no self-test at all, which is how it shipped skipping every
+# `?`-prefixed suite: it never stripped the prefix, so `$src{"?x_test"}` never
+# resolved, and an unresolved suite was a silent `next`. It reported OK over
+# 79 of 100 suites for as long as it existed, with 13 real collisions in the
+# other 21.
+#
+# So these rows run the REAL script as a REAL process against a throwaway tree
+# (it resolves its root from its own location, so a copy under a fixture's
+# `test/` reads only that fixture). It asks the REAL matrix generator for the
+# planned rows (`--planned-ids`), and that script carries @SUBSYS baked in, so
+# the fixture is built the way the e2e rows above build theirs: the real
+# manifest and CMakeLists, an EMPTY stub for every suite's source, and then the
+# handful of files each row needs — a stub that asserts an ID, or a one-row
+# plan doc.
+{
+    my $DUP = "$FIXTURE_ROOT/dupids";
+    my (%src_of, $declared);
+    {
+        open(my $fh, '<', "$REAL_ROOT/test/unit-tests.conf")
+            or die "dupids: open unit-tests.conf: $!";
+        while (my $l = <$fh>) { $declared++ unless $l =~ /^\s*#/ || $l !~ /\S/; }
+        close $fh;
+        for my $rel ('test/CMakeLists.txt', 'src/esp01/CMakeLists.txt') {
+            (my $dir = $rel) =~ s{/CMakeLists\.txt$}{};
+            open(my $cf, '<', "$REAL_ROOT/$rel") or die "dupids: open $rel: $!";
+            while (my $l = <$cf>) {
+                next if $l =~ /^\s*#/;
+                next unless $l =~ /\badd_executable\s*\(\s*([A-Za-z0-9_]+)\s+([^\s()]+)/;
+                next if $2 =~ /^\$\{/;
+                $src_of{$1} = "$dir/$2";
+            }
+            close $cf;
+        }
+    }
+    my $put = sub {
+        my ($rel, $body) = @_;
+        (my $d = "$DUP/$rel") =~ s{/[^/]+$}{};
+        system('mkdir', '-p', $d) == 0 or die "dupids: mkdir $d: $?";
+        open(my $fh, '>', "$DUP/$rel") or die "dupids: write $rel: $!";
+        print $fh $body;
+        close $fh;
+    };
+    my $assert = sub { join('', map { "check(\"$_\", \"fixture row\", ok);\n" } @_) };
+    # build_dup(src => {suite => [ids]}, plan => {stem => [ids]},
+    #           baseline => text, ghost => 1)
+    my $build_dup = sub {
+        my (%o) = @_;
+        system('rm', '-rf', $DUP) == 0 or die "dupids: rm -rf: $?";
+        for my $f ('test/unit-tests.conf', 'test/CMakeLists.txt',
+                   'src/esp01/CMakeLists.txt', 'test/traceability-dup-ids.pl',
+                   'test/refresh-traceability-matrix.pl') {
+            open(my $in, '<', "$REAL_ROOT/$f") or die "dupids: open $f: $!";
+            my $body = do { local $/; <$in> };
+            close $in;
+            $body .= "?ghost_test 1\n" if $o{ghost} && $f eq 'test/unit-tests.conf';
+            # A suite CMake builds and the manifest declares, but the matrix
+            # generator neither traces nor tombstones: it resolves here, and
+            # makes the generator's accounting gate refuse.
+            $body .= "orphan_test 1\n" if $o{orphan} && $f eq 'test/unit-tests.conf';
+            $body .= "add_executable(orphan_test orphan/orphan_test.cpp)\n"
+                if $o{orphan} && $f eq 'test/CMakeLists.txt';
+            $put->($f, $body);
+        }
+        $put->($_, '') for values %src_of;
+        $put->('test/orphan/orphan_test.cpp', '') if $o{orphan};
+        $put->('test/traceability-dup-ids.conf', $o{baseline} // "# fixture\n");
+        for my $suite (keys %{ $o{src} || {} }) {
+            $put->($src_of{$suite}, $assert->(@{ $o{src}{$suite} }));
+        }
+        for my $stem (keys %{ $o{plan} || {} }) {
+            $put->("doc/testing/$stem-TEST-PLAN-DESIGN.md",
+                   "| ID | Test |\n|----|------|\n"
+                 . join('', map { "| $_ | a planned row |\n" } @{ $o{plan}{$stem} }));
+        }
+    };
+    my $run_dup = sub {
+        my $out = "$DUP/out.txt";
+        my $rc  = system("perl '$DUP/test/traceability-dup-ids.pl' >'$out' 2>&1") >> 8;
+        my $body = '';
+        if (open(my $h, '<', $out)) { local $/; $body = <$h>; close $h; }
+        return ($rc, $body);
+    };
+
+    $build_dup->(src => { layer2_test => ['FIX-01'], window_scale_test => ['FIX-01'] });
+    my ($rc_c, $out_c) = $run_dup->();
+    check('SELF-208', 'DUP-IDS: an ID shared with a `?`-prefixed (GUI-gated) suite is REFUSED, naming both suites (GH #243)',
+          scalar($rc_c == 2 && $out_c =~ /FIX-01: layer2_test, window_scale_test/),
+          "exit $rc_c; output: $out_c");
+
+    $build_dup->(src => { layer2_test => ['FIX-01'], window_scale_test => ['FIX-02'] });
+    my ($rc_ok, $out_ok) = $run_dup->();
+    check('SELF-209', 'DUP-IDS: THE CONTROL — the same tree with distinct IDs passes, and counts EVERY declared suite',
+          scalar($rc_ok == 0 && $out_ok =~ /OK — 2 ids across \Q$declared\E suites and 0 planned rows/),
+          "exit $rc_ok; want 2 ids across $declared suites; output: $out_ok");
+
+    $build_dup->(ghost => 1);
+    my ($rc_g, $out_g) = $run_dup->();
+    check('SELF-210', 'DUP-IDS: a declared suite with no CMake source is REFUSED by name, not skipped (GH #243)',
+          scalar($rc_g == 2 && $out_g =~ /ghost_test: no add_executable/),
+          "exit $rc_g; output: $out_g");
+
+    # PLANNED rows (GH #243, JOY-01/02). The Layer2 plan lists PLN-01 and
+    # sprites_test — a suite the Layer2 section never reads status from —
+    # asserts it.
+    $build_dup->(plan => { LAYER2 => ['PLN-01'] }, src => { sprites_test => ['PLN-01'] });
+    my ($rc_p, $out_p) = $run_dup->();
+    check('SELF-211', 'DUP-IDS: a PLANNED row asserted by a suite that does not answer for it is REFUSED, naming plan and suite (GH #243)',
+          scalar($rc_p == 2 && $out_p =~ /PLN-01: planned in LAYER2-TEST-PLAN-DESIGN\.md \(answered by layer2_test\), asserted by sprites_test/),
+          "exit $rc_p; output: $out_p");
+
+    # THE CONTROL: planned then implemented, in its own suite — the normal row.
+    $build_dup->(plan => { LAYER2 => ['PLN-01'] }, src => { layer2_test => ['PLN-01'] });
+    my ($rc_o, $out_o) = $run_dup->();
+    check('SELF-212', 'DUP-IDS: THE CONTROL — a planned row asserted by its OWN suite passes, and is counted',
+          scalar($rc_o == 0 && $out_o =~ /OK — 1 ids across \Q$declared\E suites and 1 planned rows/),
+          "exit $rc_o; output: $out_o");
+
+    # "Its own suite" is what the MATRIX reads that row's status from: the
+    # section's companions and its declared %EXTRA_STATUS_FALLBACK suites too.
+    # mmu_integration_test is Memory/MMU's companion, sdcard_test one of its
+    # declared fallbacks; a gate that knew only mmu_test would refuse both.
+    $build_dup->(plan => { 'MEMORY-MMU' => ['PLN-02', 'PLN-03'] },
+                 src  => { mmu_integration_test => ['PLN-02'], sdcard_test => ['PLN-03'] });
+    my ($rc_f, $out_f) = $run_dup->();
+    check('SELF-213', 'DUP-IDS: a planned row asserted by a COMPANION or a declared status FALLBACK passes, exactly as the matrix treats it',
+          scalar($rc_f == 0 && $out_f =~ /and 2 planned rows, no collisions/),
+          "exit $rc_f; output: $out_f");
+
+    # A baseline entry nothing collides on any more would re-admit exactly that
+    # collision if it came back.
+    $build_dup->(baseline => "STALE-01: layer2_test, sprites_test\n");
+    my ($rc_s, $out_s) = $run_dup->();
+    check('SELF-214', 'DUP-IDS: a baseline entry that no longer matches a live collision is REFUSED (GH #243)',
+          scalar($rc_s == 2 && $out_s =~ /STALE-01: layer2_test, sprites_test\s+\(live: none\)/),
+          "exit $rc_s; output: $out_s");
+
+    # The planned rows come from ANOTHER process. If it refuses, the gate has
+    # no planned rows to check, and reading that as "none collide" would be
+    # the silent skip GH #243 was filed about, one level down.
+    $build_dup->(orphan => 1);
+    my ($rc_x, $out_x) = $run_dup->();
+    check('SELF-215', 'DUP-IDS: when the generator cannot list the planned rows, the gate REFUSES rather than checking none (GH #243)',
+          scalar($rc_x == 2 && $out_x =~ /--planned-ids failed \(exit 2\)/),
+          "exit $rc_x; output: $out_x");
+}
 
 printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
        $total, $passed, $failed, 0);
@@ -3338,7 +3507,7 @@ printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n",
 # script refuses in the same shape and for the same reason.
 #
 # ADDING OR REMOVING A ROW MEANS EDITING THIS NUMBER. That edit is the point.
-my $EXPECTED_ROWS = 207;
+my $EXPECTED_ROWS = 215;
 if ($total != $EXPECTED_ROWS) {
     printf STDERR
         "\ntraceability-citations-selftest: REFUSING — ran %d rows, but this\n"

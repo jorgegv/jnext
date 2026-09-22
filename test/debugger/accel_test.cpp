@@ -36,33 +36,33 @@
 //     namespace.
 //
 // Groups:
-//   AC  walks the REAL DebuggerWindow's accelerators and asserts uniqueness in
-//       each of those namespaces. This is the guard the defect class never had
-//       — Alt+W was one instance of it, and nothing would have caught the next.
-//   AK  presses the keys, through the real platform key path, and asserts the
-//       menu that opens is the one asked for and the SAME one every time.
+//   DACC  walks the REAL DebuggerWindow's accelerators and asserts uniqueness in
+//         each of those namespaces. This is the guard the defect class never had
+//         — Alt+W was one instance of it, and nothing would have caught the next.
+//   AK    presses the keys, through the real platform key path, and asserts the
+//         menu that opens is the one asked for and the SAME one every time.
 //
 // Discriminative — each row was mutation-tested against the product, one
 // mutation at a time:
-//   AC-01  "&Window" put back on Alt+W  -> fails, naming both claimants
-//   AC-02  each of the four in-menu collisions put back, separately -> fails
-//   AC-03  a second action given F2                                 -> fails
-//          ... and an action given a colliding ALTERNATE sequence via
-//          setShortcuts({F3, F5}) -> fails too. That second mutation is the
-//          reason the harvest reads shortcuts() rather than shortcut(): run
-//          against the singular harvest it PASSES, silently, because F3 is
-//          still the primary. Both directions were run.
-//   AC-04  a bottom-bar QPushButton given "&Map"                    -> fails
-//   AC-05  one extra menu item added                                -> fails
+//   DACC-01  "&Window" put back on Alt+W  -> fails, naming both claimants
+//   DACC-02  each of the four in-menu collisions put back, separately -> fails
+//   DACC-03  a second action given F2                                 -> fails
+//            ... and an action given a colliding ALTERNATE sequence via
+//            setShortcuts({F3, F5}) -> fails too. That second mutation is the
+//            reason the harvest reads shortcuts() rather than shortcut(): run
+//            against the singular harvest it PASSES, silently, because F3 is
+//            still the primary. Both directions were run.
+//   DACC-04  a bottom-bar QPushButton given "&Map"                    -> fails
+//   DACC-05  one extra menu item added                                -> fails
 //   AK-02  "&Window" put back on Alt+W -> fails with the round-robin in the
 //          detail: "four presses opened: Watches, Window, Watches, Window"
 //   AK-03  same mutation -> Alt+N opens "<none>"
 //   AK-01  Alt+W handed to Window and Alt+A to Watches (a collision-FREE
-//          swap, so AC-01 stays green) -> fails
+//          swap, so DACC-01 stays green) -> fails
 // Note AK-01 is not a #124 regression row: the broken code opened Watches on
 // an odd press too. It is recorded as one rather than quietly counted, and
 // earns its place by pinning WHICH of the two menus keeps W — the mutation
-// above is a change AC-01 alone would wave through.
+// above is a change DACC-01 alone would wave through.
 //
 // Debugger-scoped: src/gui/main_window.cpp has its own menu bar in its own
 // window. Nothing here reads or constrains that file — GH #217 gave it a guard
@@ -215,18 +215,18 @@ QString alt_press(QWindow* wh, QMenuBar* bar, Qt::Key key) {
 
 } // namespace
 
-// ── AC: no two accelerators share a namespace ─────────────────────────
+// ── DACC: no two accelerators share a namespace ───────────────────────
 
 static void test_accelerators(Fixture& fx)
 {
-    set_group("AC");
+    set_group("DACC");
 
     if (!fx.ok) {
-        check("AC-01", "the menu bar's own mnemonics are unique", false, "fixture failed");
-        check("AC-02", "no menu reuses a mnemonic among its own items", false, "fixture failed");
-        check("AC-03", "no two actions share a key-sequence shortcut", false, "fixture failed");
-        check("AC-04", "no widget mnemonic collides in the window-wide Alt namespace", false, "fixture failed");
-        check("AC-05", "the walk covers the whole menu tree", false, "fixture failed");
+        check("DACC-01", "the menu bar's own mnemonics are unique", false, "fixture failed");
+        check("DACC-02", "no menu reuses a mnemonic among its own items", false, "fixture failed");
+        check("DACC-03", "no two actions share a key-sequence shortcut", false, "fixture failed");
+        check("DACC-04", "no widget mnemonic collides in the window-wide Alt namespace", false, "fixture failed");
+        check("DACC-05", "the walk covers the whole menu tree", false, "fixture failed");
         return;
     }
 
@@ -236,23 +236,23 @@ static void test_accelerators(Fixture& fx)
     std::set<QString>  popup_scopes;
     accel::harvest_menu_bar(bar, menu_accels, popup_scopes);
 
-    // AC-01 — THE issue-#124 row. Alt+W was on both "&Watches" and "&Window",
+    // DACC-01 — THE issue-#124 row. Alt+W was on both "&Watches" and "&Window",
     // and Qt answered by alternating between them.
     {
         const std::vector<Accel> top = only_scope(menu_accels, kMenuBar);
         const std::string dups = collisions(top);
-        check("AC-01", "the menu bar's own mnemonics are unique",
+        check("DACC-01", "the menu bar's own mnemonics are unique",
               dups.empty(),
               dups.empty() ? fmt("%zu top-level mnemonics, all distinct", top.size()) : dups);
     }
 
-    // AC-02 — the same rule one level down. A popup's items share a namespace
+    // DACC-02 — the same rule one level down. A popup's items share a namespace
     // while the popup is open, so a repeat there is the identical defect: the
     // sweep found it three more times in Debug and once in Breakpoints.
     {
         const std::vector<Accel> items = except_scope(menu_accels, kMenuBar);
         const std::string dups = collisions(items);
-        check("AC-02", "no menu reuses a mnemonic among its own items",
+        check("DACC-02", "no menu reuses a mnemonic among its own items",
               dups.empty(),
               dups.empty() ? fmt("%zu item mnemonics across %zu popups, all distinct",
                                  items.size(), popup_scopes.size())
@@ -269,18 +269,18 @@ static void test_accelerators(Fixture& fx)
     // the thing that catches the NEXT Alt+W.
     const std::vector<Accel> key_accels = accel::harvest_shortcuts(fx.dbg);
 
-    // AC-03 — clean today, and it is the check being absent, not the collision
+    // DACC-03 — clean today, and it is the check being absent, not the collision
     // being present, that this suite exists to fix.
     {
         const std::string dups = collisions(key_accels);
-        check("AC-03", "no two actions share a key-sequence shortcut",
+        check("DACC-03", "no two actions share a key-sequence shortcut",
               dups.empty(),
               dups.empty() ? fmt("%zu shortcuts, all distinct", key_accels.size())
                            : dups);
     }
 
-    // AC-04 — the cross-mechanism row, and the reason it is separate from
-    // AC-01: a QPushButton labelled "&Watch" or a buddy QLabel takes Alt+W out
+    // DACC-04 — the cross-mechanism row, and the reason it is separate from
+    // DACC-01: a QPushButton labelled "&Watch" or a buddy QLabel takes Alt+W out
     // of the SAME window-wide namespace as the menu bar, from a completely
     // different call site. Nothing today carries one; this is the row that
     // notices when something does.
@@ -289,22 +289,22 @@ static void test_accelerators(Fixture& fx)
         const std::vector<Accel> top     = only_scope(menu_accels, kMenuBar);
         const std::string bad = accel::widget_alt_conflicts(widgets, top);
 
-        check("AC-04", "no widget mnemonic collides in the window-wide Alt namespace",
+        check("DACC-04", "no widget mnemonic collides in the window-wide Alt namespace",
               bad.empty(),
               bad.empty() ? fmt("%zu widget mnemonics vs %zu menu-bar mnemonics",
                                 widgets.size(), top.size())
                           : bad);
     }
 
-    // AC-05 — the denominator. Every row above passes trivially against an
+    // DACC-05 — the denominator. Every row above passes trivially against an
     // empty harvest, so the shape of the walk is pinned: five menus, eight
     // popups (Debug + its Trace and Rewind submenus, Map + Load MAP File,
     // Breakpoints, Watches, Window), thirty-one mnemonics, nine shortcuts.
     // (Thirty until GH #215 added "Add &Execute Breakpoint...", whose E is
-    // free in the Breakpoints popup — AC-02 is what proves that.) Adding
+    // free in the Breakpoints popup — DACC-02 is what proves that.) Adding
     // or removing a menu entry means updating these numbers, and that edit is
     // the point — it is the claim about how much of the menu tree is checked.
-    // It counts the SAME vector AC-03 checks, not a second walk that could
+    // It counts the SAME vector DACC-03 checks, not a second walk that could
     // drift from it: the denominator has to describe the harvest it vouches
     // for, or it vouches for nothing.
     {
@@ -319,7 +319,7 @@ static void test_accelerators(Fixture& fx)
         // "the walk covers the whole tree", which would claim a completeness
         // four size checks cannot establish (add one menu and delete another
         // and the counts still agree).
-        check("AC-05", "the harvest matches the pinned shape of the menu tree",
+        check("DACC-05", "the harvest matches the pinned shape of the menu tree",
               as_expected,
               fmt("menus=%zu (want 5), popups=%zu (want 8), mnemonics=%zu (want 31), "
                   "shortcuts=%zu (want 9)",
@@ -414,7 +414,7 @@ int main(int argc, char** argv)
 
     Fixture fx;
     test_accelerators(fx);
-    std::printf("  Group: AC             — done\n");
+    std::printf("  Group: DACC           — done\n");
     test_keystrokes(fx);
     std::printf("  Group: AK             — done\n");
 

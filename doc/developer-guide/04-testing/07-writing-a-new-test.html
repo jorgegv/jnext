@@ -1889,7 +1889,8 @@ counters</strong>. Every suite ends with the line the unit harness parses:</p>
 <li><strong>It must be a string literal.</strong> An ID assembled at run time is invisible to
   every reader of the source and vanishes from the traceability matrix.</li>
 <li><strong>It must be globally unique.</strong> <code>traceability-dup-ids.pl</code> refuses when two
-  suites assert the same ID.</li>
+  suites assert the same ID, or when it names a planned row in another
+  subsystem's plan doc.</li>
 <li>The description is what the matrix publishes to everyone else, so write one
   worth reading.</li>
 <li><strong>Cite the VHDL in the same call</strong>, with file and line range. A citation
