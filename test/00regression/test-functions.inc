@@ -54,12 +54,12 @@ skip_row() { echo -e "${YELLOW}SKIP${RESET}${1-}"; skip=$((skip + 1)); }
 # lists every failed row by name at the end.
 #
 # JNEXT_REGRESSION_LOADAVG_FILE / JNEXT_REGRESSION_NPROC override the two
-# inputs, for the self-test (test/harness-selftest.sh HS-50..53).
+# inputs, for the self-test (test/harness-selftest.sh HS-50..55).
 
 # host_load1 — the 1-minute load average, or nothing if it cannot be read.
 host_load1() {
     local l _rest
-    read -r l _rest < "$LOADAVG_FILE" 2>/dev/null || return 0
+    { read -r l _rest < "$LOADAVG_FILE"; } 2>/dev/null || return 0
     [[ "$l" =~ ^[0-9]+([.][0-9]+)?$ ]] && echo "$l"
     return 0
 }

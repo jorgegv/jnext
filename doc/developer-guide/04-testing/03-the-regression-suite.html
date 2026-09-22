@@ -1945,7 +1945,7 @@ None of that changes a verdict: a FAIL is still a FAIL and the exit status is
 unchanged. What it changes is the next step — re-run the row SOLO
 (<code>bash test/00regression/regression.sh &lt;row&gt;</code>) before treating it as a
 regression, and do not dismiss it until that solo run passes. The self-test
-pins the behaviour both ways (<code>HS-50..54</code>).</p>
+pins the behaviour both ways (<code>HS-50..55</code>).</p>
 <h2 id="no-row-script-may-install-a-trap">No row script may install a <code>trap</code><a class="headerlink" href="#no-row-script-may-install-a-trap" title="Permanent link">&para;</a></h2>
 <p>The driver <strong>sources</strong> every row script into its own shell, and that shell
 already holds the one <code>trap regression_cleanup EXIT/INT/TERM</code> that deletes the

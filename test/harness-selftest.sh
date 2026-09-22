@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=50
+EXPECTED_TOTAL=51
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -991,6 +991,13 @@ out=$(load_probe 3.0 12 "$loaded_run"); rc=$?
 out+=$'\n'"warned=$(count_of "$out" "loaded host")"
 check "HS-53" "the control: an idle run still names its failed rows, but does NOT warn (GH #245)" 0 $rc "$out" \
     "Failed rows:" "a-func (1-min load 3.0)" "warned=0"
+
+# No load average to read (not Linux, or /proc not mounted): say "unknown",
+# never flag, never print the shell's own error, and still count the FAIL.
+out=$(load_probe 12.5 12 "LOADAVG_FILE=$T/no-such-loadavg; $loaded_run; echo \"fail=\$fail\""); rc=$?
+out+=$'\n'"warned=$(count_of "$out" "loaded host") noise=$(count_of "$out" "No such file")"
+check "HS-55" "an unreadable load average reads 'unknown', is never flagged, and the FAIL still counts (GH #245)" 0 $rc "$out" \
+    "host load at start: unknown" "a-func (1-min load unknown)" "fail=1" "warned=0 noise=0"
 
 # The library is only half of it: the driver must call it, and the screenshot
 # rows must name themselves (they report through fail_row without begin_func).

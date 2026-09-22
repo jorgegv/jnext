@@ -55,7 +55,7 @@ offending row script fails the whole regression preflight rather than just the
 lint. The rest cover cleanup, checking that every SD-clone cleanup script
 handles INT and TERM as well as EXIT, that each handler **exits** rather than
 resuming, and that the three real cleanup bodies are bounded and remove only
-their own run directory. Finally `HS-50`..`HS-54` pin the regression suite's
+their own run directory. Finally `HS-50`..`HS-55` pin the regression suite's
 host-load bookkeeping (GH #245): the real suite library, sourced against a fake
 `/proc/loadavg`, must flag a FAIL on a loaded host and must not flag the same
 FAIL on an idle one, must name every failed row at the end, must never change
@@ -63,7 +63,7 @@ the count — and the driver must still call it.
 
 ## It pins its own count
 
-`EXPECTED_TOTAL = 50` sits in the script, right next to the rows it counts, and
+`EXPECTED_TOTAL = 51` sits in the script, right next to the rows it counts, and
 running a different number of checks is exit 2 with an explicit refusal
 message. The reasoning is the project's usual one: without the pin, deleting a
 check shrinks the declared side and the reported side in lockstep, which is

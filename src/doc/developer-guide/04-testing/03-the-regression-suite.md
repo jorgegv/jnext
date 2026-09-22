@@ -116,7 +116,7 @@ None of that changes a verdict: a FAIL is still a FAIL and the exit status is
 unchanged. What it changes is the next step — re-run the row SOLO
 (`bash test/00regression/regression.sh <row>`) before treating it as a
 regression, and do not dismiss it until that solo run passes. The self-test
-pins the behaviour both ways (`HS-50..54`).
+pins the behaviour both ways (`HS-50..55`).
 
 ## No row script may install a `trap`
 
