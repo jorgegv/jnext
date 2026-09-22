@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.170</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.170</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -2093,10 +2093,11 @@ loaded from the GUI after start-up.</p>
 <li><code>direct_nex_esxdos_</code> — set by <code>Emulator::load_nex()</code> for every NEX it loads,
   cleared by <code>init()</code>, so by a soft reset, and gone after a hard reset, which
   reconstructs the emulator. <code>load_sna()</code>, <code>load_szx()</code> and <code>load_z80()</code>
-  re-run <code>init()</code> before applying the file, and RZX playback goes through
-  <code>load_sna()</code>, so a snapshot clears it. <code>load_tap()</code>, <code>load_tzx()</code> and
-  <code>load_wav()</code> deliberately do not: they attach tape media to the running
-  machine, so a NEX still running keeps its stand-in.</li>
+  re-run <code>init()</code> before applying the file, and RZX playback does the same for
+  its embedded snapshot (<code>load_snapshot_from_memory()</code>), so a snapshot clears
+  it. <code>load_tap()</code>, <code>load_tzx()</code> and <code>load_wav()</code> deliberately do not: they
+  attach tape media to the running machine, so a NEX still running keeps its
+  stand-in.</li>
 <li><code>EmulatorConfig::esxdos_stub</code> (<code>--esxdos-stub</code>), for the whole session.</li>
 <li>The extended-NEX host bridge (<code>extended_nex_host_</code>), open when the NEX
   header's <code>file_handle</code> is non-zero. Only <code>load_nex()</code> opens it, so it never
@@ -2226,8 +2227,38 @@ of showing you a video of it — which is also why an RZX is a good bug report,
 and why it only works at all if the emulator executes the same instructions in
 the same order both times.</p>
 <p><code>rzx.h</code> holds the format, <code>rzx_player.*</code> and <code>rzx_recorder.*</code> the two
-directions. jnext embeds a 48K SNA, which is the reason <code>SnaSaver</code> exists at
-all.</p>
+directions. The snapshot a recording embeds is an SZX on the 128K and +3
+(<code>SzxSaver</code> — all eight banks and the paging ports) and a 48K SNA otherwise
+(<code>SnaSaver</code>, which exists for this): neither <code>.szx</code> nor <code>.sna</code> can hold the
+Next's own state, so a Next program replays only as far as its 48K part does.
+A command-line recording starts once the <code>--load</code>/<code>--inject</code> is in the
+machine (<code>emulator_start_rzx_record_when_loaded()</code>), so that snapshot is the
+loaded program. The tape ROM traps stand down while RZX records or plays —
+see the trap block in <code>run_frame()</code> — and a fast-load tape already attached is
+switched to real-time loading (<code>Emulator::rzx_suspend_tape_traps()</code>). On playback the embedded snapshot — SNA, SZX or Z80 — is parsed straight
+from the file's bytes by <code>Emulator::load_snapshot_from_memory()</code>, using the
+<code>load_from_buffer()</code> entry each of those loaders has beside its file-path
+<code>load()</code>; nothing is written to a temporary file. Every way of starting a
+playback reaches <code>load_rzx()</code> on a freshly initialised machine whose
+<code>EmulatorConfig::load_file</code> is the recording — <code>--rzx-play</code> sets it as
+<code>--load</code> does, and the GUI's Play RZX item goes through
+<code>MainWindow::handle_load_path()</code> and the frontend cold boot like File &gt; Open —
+because that field changes the machine <code>init()</code> builds (on the Next it decides
+the boot-ROM overlay), and so how the recording replays. Any other snapshot type fails
+the load: input replayed against a machine it was not recorded on reproduces
+nothing.</p>
+<p>A recording cannot replay a reset the host performs, so none is ever carried
+across one. The power-on cold boot, the host's F4 soft reset and starting a
+playback all go through <code>Emulator::end_rzx_at_reset()</code>, which <strong>writes</strong> the
+running recording and ends it there, with a warning — the choice FUSE makes
+on a menu reset or on opening a file. (A reset the program asks for itself,
+through NR 0x02, replays like any other instruction and ends nothing.) jnext's
+reader and writer handle one snapshot and one input sequence per file, so
+continuing across the reset with a second snapshot block — which the RZX format
+allows — is not an option they offer. A file from elsewhere that does continue
+from a second snapshot (FUSE writes one for an inserted snapshot) is played up
+to it: <code>rzx::parse()</code> stops there and counts the rest in
+<code>RzxRecording::later_snapshots</code>, and <code>load_rzx()</code> warns.</p>
 <h2 id="media-out">Media out<a class="headerlink" href="#media-out" title="Permanent link">&para;</a></h2>
 <table>
 <thead>

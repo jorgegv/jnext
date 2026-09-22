@@ -202,7 +202,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.170</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -283,7 +283,7 @@
   <div class="md-source__repository">
     GitHub
     <ul class="md-source__facts jnext-facts">
-      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.168</li>
+      <li class="md-source__fact" title="the jnext version this guide was rendered from">This version: v0.99.170</li>
       <li class="md-source__fact" id="jnext-latest-fact" title="version.yaml on GitHub main, fetched live and uncached">Latest version: &mdash;</li>
     </ul>
   </div>
@@ -1891,7 +1891,7 @@ three is an easy mistake to make.</p>
 <tbody>
 <tr>
 <td><code>soft_reset()</code></td>
-<td>Re-runs <code>init(config_, preserve_memory=true)</code>. Clears flip-flop state but keeps RAM, the ROM-in-SRAM window, the boot-ROM overlay and the free-running clock and scheduler. Models tbblue's <code>RESET_SOFT</code> / NR 0x02 bit 0.</td>
+<td>Re-runs <code>init(config_, preserve_memory=true)</code>. Clears flip-flop state but keeps RAM, the ROM-in-SRAM window, the boot-ROM overlay, the other memories with no reset port (palette, sprite attribute and pattern RAM, Copper RAM, the bank-5/7 BRAMs) and the free-running clock and scheduler. It can land mid-frame, so it also keeps that frame going: its 50/60 Hz geometry and effective machine timing (a pending NR 0x03 timing still waits for the frame edge), the picture on screen, and each video subsystem's per-scanline render history, into which it records the register reset at the current line (GH #263). Models tbblue's <code>RESET_SOFT</code> / NR 0x02 bit 0.</td>
 <td>NR 0x02 bit 0, F4</td>
 </tr>
 <tr>
@@ -1914,7 +1914,11 @@ it had no caller outside the file loaders, rows that called it tested neither
 reset, and it was removed (GH #239).</p>
 <p>Reconstructing in place, at a stable address, is the point of the cold boot:
 host code that is holding <code>&amp;emu</code>, or a reference to something inside it, stays
-valid across a cold boot. The same trick is why a live worker thread inside the
+valid across a cold boot. What lives <em>inside</em> the object does not survive it,
+so <code>emulator_cold_boot()</code> carries across what belongs to the host — the
+debugger's breakpoints, the esxDOS stub's file, the record of RZX files that
+failed to write — and first ends an RZX recording by writing it
+(<code>Emulator::end_rzx_at_reset()</code>), which would otherwise be destroyed unwritten. The same trick is why a live worker thread inside the
 object would be a silent-corruption hazard rather than an obvious crash, and it
 is why the emulated ESP is owned here rather than by a frontend.</p>
 <p>One consequence is worth spelling out. A program running on the emulated

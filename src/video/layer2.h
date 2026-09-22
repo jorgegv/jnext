@@ -27,7 +27,13 @@ class Layer2 {
 public:
     Layer2() = default;
 
-    void reset();
+    /// Reset the registers to their VHDL reset values (zxnext.vhd:4943-4963,
+    /// 5047-5050, 3906-3913). `hard` also clears the per-scanline change logs and
+    /// re-baselines them to those values. A soft reset (`hard` = false,
+    /// NR 0x02 bit 0 / F4) can land mid-frame, so it keeps the logs and
+    /// instead records the reset in them at the current line — rows drawn
+    /// before it keep what they showed (GH #263).
+    void reset(bool hard = true);
 
     // -----------------------------------------------------------------
     // NextREG configuration

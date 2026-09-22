@@ -9,7 +9,7 @@
 // Reset
 // ---------------------------------------------------------------------------
 
-void Tilemap::reset()
+void Tilemap::reset(bool hard)
 {
     control_raw_   = 0;
     enabled_       = false;
@@ -36,6 +36,14 @@ void Tilemap::reset()
     clip_x2_       = 0x9F;
     clip_y1_       = 0x00;
     clip_y2_       = 0xFF;
+
+    // GH #263 — a soft reset records NR 0x6B at the current line and keeps
+    // the per-line snapshots (see the header).
+    if (!hard) {
+        log_nr6b_change();
+        return;
+    }
+
     fetch_per_line_active_ = false;
     output_per_line_active_ = false;
 

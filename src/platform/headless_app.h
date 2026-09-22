@@ -164,6 +164,7 @@ private:
     bool           tape_realtime_ = false;
     std::string    rzx_play_file_;
     std::string    rzx_record_file_;
+    bool           rzx_record_started_ = false;
 
     // Pending --delayed-keypress state. Key names are parsed to matrix
     // positions up-front (set_delayed_keypress rejects unknown names);

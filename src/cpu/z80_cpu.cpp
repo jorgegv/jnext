@@ -610,7 +610,17 @@ void Z80Cpu::reset(bool hard) {
     fuse_z80_reset(hard ? 1 : 0);  // NextZXOS-boot fix 2026-07-09: soft
     // reset must preserve the Z80 register file per t80n.vhd:1493-1498
     // (NextZXOS dereferences (IX+$1F) immediately after its staging reset)
-    tstates = 0;
+
+    // `tstates` is the frame-relative T-state count derive_hc_vc() turns
+    // into the beam position, for contention and for the G12 attribute-mux
+    // write tags. A soft reset lands mid-frame and the beam does not stop
+    // (zxula_timing.vhd has no reset; Emulator::init keeps clock_ and the
+    // scheduler), so only a hard reset — which restarts the frame — may zero
+    // it. Zeroing it on a soft reset placed the rest of the frame's writes
+    // at its top, where the render replayed them over rows already drawn
+    // (GH #263).
+    if (hard)
+        tstates = 0;
 
     nmi_pending_ = false;
     int_pending_ = false;

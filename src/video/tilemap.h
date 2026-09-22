@@ -29,7 +29,13 @@ public:
 public:
     Tilemap() = default;
 
-    void reset();
+    /// Reset the registers to their VHDL reset values (zxnext.vhd:4977-4981,
+    /// 4991-4993, 5036-5045). `hard` also clears the NR 0x6B change log and
+    /// deactivates the per-line snapshots. A soft reset (`hard` = false,
+    /// NR 0x02 bit 0 / F4) can land mid-frame, so it keeps both and records
+    /// NR 0x6B in the log at the current line — rows drawn before it keep
+    /// what they showed (GH #263).
+    void reset(bool hard = true);
 
     // -----------------------------------------------------------------
     // NextREG configuration

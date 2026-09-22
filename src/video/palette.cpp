@@ -77,7 +77,7 @@ PaletteManager::PaletteManager()
     reset();
 }
 
-void PaletteManager::reset()
+void PaletteManager::reset(bool hard)
 {
     control_ = 0;
     index_ = 0;
@@ -93,6 +93,12 @@ void PaletteManager::reset()
     global_transparency_ = 0xE3;
     sprite_transparency_ = 0xE3;
     tilemap_transparency_ = 0x0F;
+
+    // GH #263 — a soft reset stops here: the palette RAM (dpram2, no reset
+    // port) keeps what the program or the firmware wrote, and the change log
+    // keeps the frame's history (see the header).
+    if (!hard)
+        return;
 
     // G102 — Initialize the single 256-entry × 2-bank ULA palette store.
     //
