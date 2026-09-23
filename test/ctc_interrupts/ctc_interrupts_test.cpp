@@ -1269,21 +1269,50 @@ static void test_im2_decoder_gaps(Emulator& emu) {
               + " iter3=" + std::to_string(ok3) + " mem=" + std::to_string(mem_ok));
     }
 
-    // ── PULSE-G89-INT — inter-iteration INT sampling: a frame INT raised
-    //    mid-LDIRX is taken at the very next execute() (between iterations)
-    //    instead of being silently dropped at the end of the loop. This is
-    //    the actual user-visible fix: long block transfers no longer block
-    //    IM2 music drivers / vblank schedulers.
+    // ── PULSE-G89-INT / -INT-02 / -INT-03 / -INT-04 — inter-iteration INT
+    //    sampling, once per opcode. A frame INT raised mid-block must be
+    //    taken at the very next execute() (between iterations) instead of
+    //    being silently dropped at the end of the loop. This is the actual
+    //    user-visible fix: long block transfers no longer block IM2 music
+    //    drivers / vblank schedulers.
     //
-    //    Strategy: BC=10 LDIRX, IM=1, IFF1=1 — run one iteration (BC=9,
-    //    PC=0xC000), then request_interrupt(0xFF). Next execute() must
-    //    service the INT (push PC, jump to 0x0038, IFF1=0) and BC must
-    //    remain 9 (no further iteration ran inside the same call).
-    {
+    //    One probe, four opcodes (GH #201 review). PULSE-G89-01..04 above
+    //    prove only the PC-rewind SHAPE; the INT sample is a separate claim,
+    //    and until this review it was measured for LDIRX alone while the
+    //    other three rested on the inference that they share the /INT check
+    //    at the top of Z80Cpu::execute(). They do share it — but each opcode
+    //    is a SEPARATELY hand-written case block in src/cpu/z80n_ext.cpp,
+    //    not a shared helper, so a copy-paste divergence in one of them is
+    //    not structurally excluded and the inference is not evidence. Each
+    //    opcode now runs the stimulus for itself.
+    //
+    //    Strategy: BC=10, IM=1, IFF1=1 — run one iteration (BC=9, PC rewound
+    //    to 0xC000), then request_interrupt(0xFF). The next execute() must
+    //    service the INT (push PC, jump to the IM 1 vector 0x0038, IFF1=0)
+    //    and BC must STILL be 9 — no further iteration ran inside that call.
+    //    The pushed return address must be 0xC000, the rewound PC the block
+    //    op resumes from after RETI.
+    struct IntSampleProbe {
+        bool     iter1_ok;
+        bool     int_taken;
+        bool     no_extra_iter;
+        bool     return_pc_ok;
+        uint16_t bc;
+        uint16_t pc;
+        uint16_t return_pc;
+    };
+    // Memory window wide enough for every addressing shape these four use:
+    // LDIRX/LDIRSCALE walk HL up from 0xC100, LDDRX walks it down, LDPIRX
+    // holds it fixed at (HL & 0xFFF8) | (E & 7). None of the fill bytes is
+    // 0xFF, so with A=0xFF no iteration takes the transparency path.
+    const auto int_sample_probe = [&emu](uint8_t opcode) -> IntSampleProbe {
         fresh(emu);
-        for (int i = 0; i < 10; ++i) emu.mmu().write(0xC100 + i, 0xA0 + i);
-        for (int i = 0; i < 10; ++i) emu.mmu().write(0xC200 + i, 0x00);
-        park_cpu_with_program(emu, 0xC000, {0xED, 0xB4});  // LDIRX
+        for (int i = 0; i < 32; ++i)
+            emu.mmu().write(static_cast<uint16_t>(0xC0F0 + i),
+                            static_cast<uint8_t>(0xA0 + (i & 0x1F)));
+        for (int i = 0; i < 16; ++i)
+            emu.mmu().write(static_cast<uint16_t>(0xC200 + i), 0x00);
+        park_cpu_with_program(emu, 0xC000, {0xED, opcode});
         auto regs = emu.cpu().get_registers();
         regs.AF = 0xFF00; regs.HL = 0xC100; regs.DE = 0xC200; regs.BC = 0x000A;
         regs.IFF1 = 1; regs.IFF2 = 1; regs.IM = 1;
@@ -1292,40 +1321,69 @@ static void test_im2_decoder_gaps(Emulator& emu) {
 
         emu.cpu().execute();  // iteration 1: BC 10->9, PC rewound to 0xC000
         regs = emu.cpu().get_registers();
-        const bool iter1_ok = (regs.BC == 0x0009) && (regs.PC == 0xC000)
-                           && (regs.IFF1 == 1);
+        IntSampleProbe p{};
+        p.iter1_ok = (regs.BC == 0x0009) && (regs.PC == 0xC000)
+                  && (regs.IFF1 == 1);
 
-        // Request a frame INT. With IFF1=1 and pulse just started, the next
-        // execute() MUST service it before running another LDIRX iteration.
+        // Request a frame INT. With IFF1=1 and the pulse just started, the
+        // next execute() MUST service it before running another iteration.
         emu.cpu().request_interrupt(0xFF);
 
-        emu.cpu().execute();  // INT serviced first; LDIRX iteration NOT run
+        emu.cpu().execute();  // INT serviced first; the block op does NOT step
         regs = emu.cpu().get_registers();
-
-        // INT serviced => IFF1=0, PC at IM 1 vector 0x0038, return PC pushed.
-        const bool int_taken = (regs.IFF1 == 0) && (regs.PC == 0x0038);
-        // Critical invariant: BC unchanged from iter1 — no further LDIRX
-        // iteration ran inside this execute() call. This is the inter-iter
-        // INT-sample property that pre-G89 violated by atomically running
-        // all 10 iterations.
-        const bool no_extra_iter = (regs.BC == 0x0009);
-        // Return-stack should hold 0xC000 (the rewound PC where LDIRX would
-        // resume after RETI).
-        const uint16_t pushed_lo = emu.mmu().read(0xFFFC);
-        const uint16_t pushed_hi = emu.mmu().read(0xFFFD);
-        const uint16_t return_pc = (pushed_hi << 8) | pushed_lo;
-        const bool return_pc_ok = (return_pc == 0xC000);
-
+        p.bc            = regs.BC;
+        p.pc            = regs.PC;
+        p.int_taken     = (regs.IFF1 == 0) && (regs.PC == 0x0038);
+        p.no_extra_iter = (regs.BC == 0x0009);
+        p.return_pc     = static_cast<uint16_t>(
+                              (emu.mmu().read(0xFFFD) << 8) | emu.mmu().read(0xFFFC));
+        p.return_pc_ok  = (p.return_pc == 0xC000);
+        return p;
+    };
+    const auto probe_detail = [](const IntSampleProbe& p) {
+        char buf[176];
+        std::snprintf(buf, sizeof(buf),
+                      "iter1=%d int_taken=%d BC=0x%04X (expect 0x0009) "
+                      "PC=0x%04X (expect 0x0038) return_pc=0x%04X (expect 0xC000)",
+                      static_cast<int>(p.iter1_ok), static_cast<int>(p.int_taken),
+                      p.bc, p.pc, p.return_pc);
+        return std::string(buf);
+    };
+    {
+        const IntSampleProbe p = int_sample_probe(0xB4);
         check("PULSE-G89-INT",
               "LDIRX inter-iteration INT sampling: pending /INT serviced "
               "between iterations (BC unchanged across the INT) "
               "[VHDL t80n_mcode.vhd:2095-2138 + zxnext.vhd INT path]",
-              iter1_ok && int_taken && no_extra_iter && return_pc_ok,
-              "iter1=" + std::to_string(iter1_ok)
-              + " int_taken=" + std::to_string(int_taken)
-              + " BC=0x" + hex2(regs.BC & 0xFF) + " (low) PC=0x"
-              + hex2((regs.PC >> 8) & 0xFF) + hex2(regs.PC & 0xFF)
-              + " return_pc_ok=" + std::to_string(return_pc_ok));
+              p.iter1_ok && p.int_taken && p.no_extra_iter && p.return_pc_ok,
+              probe_detail(p));
+    }
+    {
+        const IntSampleProbe p = int_sample_probe(0xBC);
+        check("PULSE-G89-INT-02",
+              "LDDRX inter-iteration INT sampling: pending /INT serviced "
+              "between iterations (BC unchanged across the INT) "
+              "[VHDL t80n_mcode.vhd:2230-2256 + zxnext.vhd INT path]",
+              p.iter1_ok && p.int_taken && p.no_extra_iter && p.return_pc_ok,
+              probe_detail(p));
+    }
+    {
+        const IntSampleProbe p = int_sample_probe(0xB7);
+        check("PULSE-G89-INT-03",
+              "LDPIRX inter-iteration INT sampling: pending /INT serviced "
+              "between iterations (BC unchanged across the INT) "
+              "[VHDL t80n_mcode.vhd:1953-1991 + zxnext.vhd INT path]",
+              p.iter1_ok && p.int_taken && p.no_extra_iter && p.return_pc_ok,
+              probe_detail(p));
+    }
+    {
+        const IntSampleProbe p = int_sample_probe(0xB6);
+        check("PULSE-G89-INT-04",
+              "LDIRSCALE inter-iteration INT sampling: pending /INT serviced "
+              "between iterations (BC unchanged across the INT) "
+              "[VHDL t80n_mcode.vhd:2188-2226 + zxnext.vhd INT path]",
+              p.iter1_ok && p.int_taken && p.no_extra_iter && p.return_pc_ok,
+              probe_detail(p));
     }
 
     // RE-HOME PULSE-G90-01 → contention plan (NEW-CONT-3): 28 MHz SRAM-read

@@ -821,15 +821,33 @@ static void g_z80_drive()
     // SP drops by two and PC becomes 0x0066. RETN then restores IFF1 from
     // IFF2 (t80n.vhd:1716-1718) and returns.
     //
-    // IFF2 is deliberately NOT asserted: t80n.vhd:1765-1767 writes only
-    // IntE_FF1 on an NMI, so with IFF1 = IFF2 = 1 as the stimulus the
-    // "copy IFF1 into IFF2" reading and the "leave IFF2 alone" reading
-    // are indistinguishable — pinning one would pin a coincidence.
+    // Note what :1765-1767 does NOT do: it writes IntE_FF1 alone, leaving
+    // IFF2 untouched (the classic-Z80 "copy IFF1 into IFF2 on NMI" is
+    // absent from T80N, and FUSE's fuse_z80_nmi() agrees — there is no
+    // divergence here, only a shape worth pinning). Two stimuli are run so
+    // that neither reading of the acknowledge survives:
+    //
+    //   IFF1=1, IFF2=1 — the acknowledge must CLEAR IFF1 (an acknowledge
+    //                    that left it set fails), and RETN must restore it.
+    //   IFF1=0, IFF2=1 — IFF2 must SURVIVE the acknowledge (one that
+    //                    cleared both flags would zero it, and the RETN
+    //                    restore would then leave IFF1 at 0).
+    //
+    // A single IFF1=IFF2=1 run cannot separate those two defects, because
+    // the correct and the clear-both answers agree on every register it
+    // looks at.
     //
     // NMI-INT-01/04/05 already reach PC = 0x0066 through this chain; what
     // is new here is everything the acknowledge does BESIDES moving PC,
     // none of which any row pinned.
-    {
+    struct NmiAckProbe {
+        bool     took;
+        int      steps;
+        uint16_t entry_pc, entry_sp, back_pc, back_sp;
+        uint8_t  stack_lo, stack_hi;
+        unsigned entry_iff1, entry_iff2, back_iff1;
+    };
+    const auto nmi_ack_probe = [](unsigned iff1, unsigned iff2) -> NmiAckProbe {
         Emulator emu;
         build_next_emulator(emu);
         emu.port().out(0x243B, 0x03);       // leave config mode, or
@@ -842,35 +860,64 @@ static void g_z80_drive()
         emu.mmu().write(0xFFFD, 0x5A);
         z80_park_self_jump(emu);
         auto r0 = emu.cpu().get_registers();
-        r0.IFF1 = 1;
-        r0.IFF2 = 1;
+        r0.IFF1 = iff1;
+        r0.IFF2 = iff2;
         emu.cpu().set_registers(r0);
 
         emu.nmi_source().set_divmmc_enable(true);   // NR 0x06 bit 4
         emu.nmi_source().strobe_divmmc_button();
 
-        int steps = 0;
-        const bool took = z80_step_to_nmi(emu, steps);
+        NmiAckProbe p{};
+        p.took = z80_step_to_nmi(emu, p.steps);
         const auto at = emu.cpu().get_registers();
-        const uint8_t stack_lo = emu.mmu().read(0xFFFC);
-        const uint8_t stack_hi = emu.mmu().read(0xFFFD);
+        p.entry_pc   = at.PC;
+        p.entry_sp   = at.SP;
+        p.entry_iff1 = at.IFF1;
+        p.entry_iff2 = at.IFF2;
+        p.stack_lo   = emu.mmu().read(0xFFFC);
+        p.stack_hi   = emu.mmu().read(0xFFFD);
         emu.execute_single_instruction();           // the RETN at 0x0066
         const auto back = emu.cpu().get_registers();
+        p.back_pc   = back.PC;
+        p.back_sp   = back.SP;
+        p.back_iff1 = back.IFF1;
+        return p;
+    };
+    {
+        // Stimulus 1 — IFF1 set: the acknowledge clears it, RETN restores it.
+        const NmiAckProbe a = nmi_ack_probe(1, 1);
+        const bool ack_ok =
+            a.took && a.entry_pc == 0x0066 && a.entry_sp == 0xFFFC
+            && a.stack_lo == 0x00 && a.stack_hi == 0xC0
+            && a.entry_iff1 == 0
+            && a.back_pc == 0xC000 && a.back_sp == 0xFFFE && a.back_iff1 == 1;
+
+        // Stimulus 2 — IFF1 already clear, IFF2 set: the acknowledge must
+        // leave IFF2 alone, which the RETN restore then makes visible.
+        const NmiAckProbe b = nmi_ack_probe(0, 1);
+        const bool iff2_ok =
+            b.took && b.entry_pc == 0x0066 && b.entry_sp == 0xFFFC
+            && b.stack_lo == 0x00 && b.stack_hi == 0xC0
+            && b.entry_iff1 == 0 && b.entry_iff2 == 1
+            && b.back_pc == 0xC000 && b.back_sp == 0xFFFE && b.back_iff1 == 1;
 
         check("Z80-02",
               "the pipeline's /NMI is accepted by the Z80: PC vectors to "
-              "0x0066, the interrupted PC is pushed, SP drops by two and "
-              "IFF1 clears; RETN restores IFF1 and returns",
-              took && at.PC == 0x0066 && at.SP == 0xFFFC
-                  && stack_lo == 0x00 && stack_hi == 0xC0
-                  && at.IFF1 == 0
-                  && back.PC == 0xC000 && back.SP == 0xFFFE
-                  && back.IFF1 == 1,
+              "0x0066, the interrupted PC is pushed and SP drops by two; the "
+              "acknowledge clears IFF1 and leaves IFF2 standing, and RETN "
+              "restores IFF1 from it and returns",
+              ack_ok && iff2_ok,
               z80_detail("zxnext.vhd:1841, :2168; t80n.vhd:1716-1718, "
-                         "1765-1767; took=%d steps=%d entry=%04x/%04x "
-                         "stack=%02x%02x iff1=%u return=%04x/%04x iff1=%u",
-                         took, steps, at.PC, at.SP, stack_hi, stack_lo,
-                         at.IFF1, back.PC, back.SP, back.IFF1));
+                         "1765-1767; [IFF1=1,IFF2=1] took=%d steps=%d "
+                         "entry=%04x/%04x stack=%02x%02x iff1=%u "
+                         "return=%04x/%04x iff1=%u | [IFF1=0,IFF2=1] "
+                         "took=%d entry=%04x/%04x iff1=%u iff2=%u "
+                         "return=%04x/%04x iff1=%u",
+                         a.took, a.steps, a.entry_pc, a.entry_sp,
+                         a.stack_hi, a.stack_lo, a.entry_iff1,
+                         a.back_pc, a.back_sp, a.back_iff1,
+                         b.took, b.entry_pc, b.entry_sp, b.entry_iff1,
+                         b.entry_iff2, b.back_pc, b.back_sp, b.back_iff1));
     }
 
     // ── Z80-03 — reset drops the pipeline AND the CPU's pending NMI ────
