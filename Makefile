@@ -487,6 +487,25 @@ traceability-check: unit-test-build
 	 [ $$rc -eq 0 ] && printf "$(BADGE_PASS) OK $(RESET) traceability matrix is up to date\n"; \
 	 rm -rf $$tmp; exit $$rc
 
+# Fail when an independent ZIP reader rejects a .jns the writer produced
+snapshot-zip-check: unit-test-build
+	@# The second half of the GH #27 stage-S1 exit gate. `snapshot_test` is our
+	@# writer checked by our reader, and that pairing cannot find a framing error
+	@# both sides agree on — which is exactly how the `.szx` defect survived a
+	@# green, discriminative, mutation-tested suite (libspectrum rejects RAM pages
+	@# > 63; jnext's own loader did not, so every file it wrote was unreadable in
+	@# real FUSE and nothing in the suite could see it).
+	@#
+	@# So every archive the writer produces is handed to info-zip's `unzip -t` and
+	@# to CPython's `zipfile` — two implementations that are not ours. That
+	@# removes the container-framing class of error, which is where that bug
+	@# actually lived, and it is the reason ZIP was chosen over a first-party
+	@# chunked binary. See doc/design/NEXT-SNAPSHOT-FORMAT.md §13.2(2).
+	@#
+	@# Skip/fail posture is docs-check's, verbatim: skip when the tools are absent
+	@# locally, HARD-FAIL in CI. A check that silently skips in CI reads as a pass.
+	@bash test/snapshot/verify-external-zip.sh
+
 # Fail when one test ID is asserted by two different suites
 traceability-dup-check:
 	@# GH #196 phase 3.2. Enumerated from test/unit-tests.conf — EVERY declared
@@ -499,7 +518,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check package-contract-test
+unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check snapshot-zip-check package-contract-test
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —

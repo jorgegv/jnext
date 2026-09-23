@@ -975,6 +975,7 @@ my %NO_MATRIX_SECTION = (
     'sd_rom_extractor_test'   => 'FAT32 + TBBlue SD path layout (host ROM extraction)',
     'fat32_image_test'        => 'FAT32 on-disk format (host image reader)',
     'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',
+    'snapshot_test'           => 'the .jns snapshot CONTAINER (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity. A jnext-internal on-disk format; the FPGA core never sees a file',
     'video_recorder_cmd_test' => 'FFmpeg command-line construction (host encoder)',
 
     # ── Guest-firmware surfaces jnext stands in for ──────────────────

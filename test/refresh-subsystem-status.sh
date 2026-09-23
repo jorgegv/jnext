@@ -102,6 +102,7 @@ BEGIN {
     M["fat32_image_test"]              = "FAT32 Image"
     M["sdcard_provisioner_test"]       = "SD Card Provisioner"
     M["warm_start_test"]               = "Warm start (GH #234)"
+    M["snapshot_test"]                 = "Snapshot container (.jns, GH #27)"
     M["sprites_test"]                  = "Sprites"
     M["compositor_test"]               = "Compositor"
     M["compositor_integration_test"]   = "Compositor (int)"
