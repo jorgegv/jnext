@@ -67,8 +67,8 @@ here — mentioning it, not doing it.
 
 ### 1.2 Per-subsystem call sites
 
-Distinct SDL identifiers in `src` (excluding `src/doc`): **~190 distinct symbols,
-~500 occurrences**. By owner:
+Distinct SDL identifiers in `src` (excluding `src/doc`): **197 distinct symbols,
+527 occurrences**. By owner:
 
 | Subsystem | Files | Role | Migration weight |
 |---|---|---|---|
@@ -482,7 +482,7 @@ All verified installable on Fedora 44 except the Ubuntu 24.04 case (§5.5).
 
 **This is the highest-value finding in this note after the audio measurement.**
 
-19 test scripts set SDL driver env vars. SDL3 renamed them. Tested empirically
+16 test scripts set SDL driver env vars. SDL3 renamed them. Tested empirically
 against the installed SDL3 3.4.16 rather than assumed:
 
 | Env var | Honoured by SDL3? | Evidence |
@@ -492,7 +492,7 @@ against the installed SDL3 3.4.16 rather than assumed:
 | `SDL_DISKAUDIOFILE` | **NO** | absent from `libSDL3.so.0`; probe wrote **no file at all**, and no stray default file either |
 | `SDL_DISKAUDIODELAY` | **NO** | absent; SDL3's analogue is `SDL_AUDIO_DISK_TIMESCALE` — **different semantics** (a rate multiplier, not a delay) |
 
-So 17 of the 19 scripts need **no change**. Two do:
+So 14 of the 16 scripts need **no change**. Two do:
 
 - `test/00regression/scripts/audio-underrun-func.sh:44`
 - `test/00regression/scripts/silent-func.sh:34,40`
@@ -627,8 +627,8 @@ But this changes a **shipped artifact**, so it is yours, not mine.
 
 §7.1 argues a single cut is the only technically available option and that an
 in-tree shim would re-create the layer being removed. The consequence to accept
-is a large single branch: ~30 source files, ~500 SDL identifier occurrences, 7
-test files, 4 packaging targets, 2 CI workflows. **Recommend: single cut**, with
+is a large single branch: ~30 source files, 527 SDL identifier occurrences, 7
+test files, 16 regression scripts, 4 packaging targets, 2 CI workflows. **Recommend: single cut**, with
 the readable commit series of §7.2 so review is per-subsystem even though the
 branch lands at once. Confirm you are content with a branch that size before I
 start.
