@@ -2606,6 +2606,92 @@ static void test_joy_uart_cable() {
                   slave.c_str(), opened ? 1 : 0, bytes_hex(to_guest).c_str(),
                   bytes_hex(to_host).c_str()));
     }
+
+    // ── JOY-22 — the peer-loss discard throws away the RECEIVE queue too, and
+    // that half is invisible from outside unless a row puts bytes in it.
+    //
+    // `flush_tx()` clears BOTH queues when a write reports EPIPE, because both
+    // hold half of an exchange with a process that has exited. JOY-19 covers
+    // the transmit half — it is the one the counters show. The receive half is
+    // host bytes already pulled off the descriptor and not yet clocked into the
+    // guest, and nothing about them is visible at the moment they are dropped:
+    // deleting `rx_queue_.clear()` left the whole suite green, so that half of
+    // the documented decision lived only in a comment.
+    //
+    // The shape that makes it observable is a burst BIGGER than one frame's
+    // worth of pacing. 2000 bytes at the 115200 default is ~230 per frame, so
+    // after one frame ~1770 are still queued when the peer goes away — and if
+    // they were kept, the frames after it would go on delivering them.
+    {
+        TempFifoCable cable("rxdiscard");
+        Emulator emu;
+        emu.init(link_config(cable.base(), /*connector=*/1));
+        const bool attached = cable.attach();
+
+        std::vector<uint8_t> burst(2000);
+        for (std::size_t i = 0; i < burst.size(); ++i)
+            burst[i] = static_cast<uint8_t>((i * 5 + 9) & 0xFF);
+        const std::size_t offered = cable.send(burst);
+
+        // One frame: the whole burst comes off the descriptor into the queue,
+        // and only a frame's worth of it reaches the guest. The guest also
+        // TRANSMITS here, and that is not decoration — the Next->host FIFO is
+        // opened lazily, so until a byte has actually gone out jnext holds no
+        // write descriptor and a peer closing is indistinguishable from one
+        // that never attached (JOY-18's case, where nothing is discarded
+        // because nothing was lost). Writing the row without this step made it
+        // fail against correct code, which is how the distinction was found.
+        std::vector<uint8_t> before;
+        guest_transmit_frame(emu, 0xB0, 0, 0xA1);
+        emu.port().out(0x153B, 0x00);
+        while (!emu.uart().channel(0).rx_empty())
+            before.push_back(emu.port().in(0x143B));
+        const bool peer_was_attached = cable.drain() == std::vector<uint8_t>{0xA1};
+
+        // NOW the peer goes away, and the guest's next transmitted byte is what
+        // discovers it (EPIPE). Everything still queued dies with it.
+        cable.close_host_tx_reader();
+        guest_transmit_frame(emu, 0xB0, 0, 0xA2);
+
+        const JoyUartLink* link = emu.joy_uart_link();
+        const std::size_t delivered_at_loss = link ? link->delivered() : 0;
+        // Bytes that came off the descriptor and never reached the sink: the
+        // remainder that was in the queue at the instant of the loss. If this
+        // is 0 the row is asserting nothing.
+        const std::size_t abandoned = link
+            ? link->received() - link->delivered() - link->dropped() : 0;
+
+        // ...and now nothing more may arrive, however long the machine runs.
+        std::vector<uint8_t> after;
+        for (int f = 0; f < 3; ++f) {
+            emu.nextreg().write(0x0B, 0xB0);
+            emu.run_frame();
+            emu.port().out(0x153B, 0x00);
+            while (!emu.uart().channel(0).rx_empty())
+                after.push_back(emu.port().in(0x143B));
+        }
+
+        // `dropped() == 0` throughout, so "nothing arrived" cannot be the mux
+        // having stopped routing rather than the queue having been discarded.
+        const bool still_routed = link && link->dropped() == 0;
+
+        check("JOY-22",
+              "GH #252 — a peer lost mid-session takes the RECEIVE queue with "
+              "it as well as the transmit one: host bytes already read off the "
+              "descriptor but not yet clocked into the guest are discarded, so "
+              "the next peer's session does not begin with the tail of the "
+              "previous one's message",
+              attached && peer_was_attached && offered >= burst.size()
+                  && !before.empty() && abandoned > 0 && after.empty()
+                  && link->delivered() == delivered_at_loss && still_routed,
+              fmt("attached=%d peer_was_attached=%d offered=%zu (want 2000); "
+                  "before the loss the guest read %zu byte(s) (want >0) and %zu "
+                  "were left queued (want >0); after it read %zu (want 0); "
+                  "delivered %zu -> %zu (want unchanged); dropped=%zu (want 0)",
+                  attached ? 1 : 0, peer_was_attached ? 1 : 0, offered,
+                  before.size(), abandoned, after.size(), delivered_at_loss,
+                  link ? link->delivered() : 0, link ? link->dropped() : 0));
+    }
 }
 
 static void test_nr_a0_pi_uart_routing(Emulator& emu) {

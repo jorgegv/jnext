@@ -256,7 +256,12 @@ std::size_t JoyUartLink::faults() const { return endpoint_->faults(); }
 const std::string& JoyUartLink::last_error() const { return endpoint_->last_error(); }
 
 void JoyUartLink::poll() {
-    if (inert_) return;   // replay: neither read nor written — see the header
+    // THE REPLAY GATE for the descriptor half, and the only copy of it: the
+    // owner raises `inert_` and leaves the enforcing to the three places that
+    // actually touch something — here, `tick()` and `send_to_host()`. Reading
+    // the endpoint during a replayed frame would CONSUME host bytes the
+    // resumed timeline still needs; see the class comment.
+    if (inert_) return;
 
     flush_tx();
 

@@ -36,7 +36,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #      'BCD'. A plain echo would be 'ABC' and is exactly what a loopback bug in
 #      UartChannel::deliver_tx_byte would produce, so this is the assertion that
 #      distinguishes the feature from the defect it is built next to.
-#   5. The refusals: two cables at once, a live cable plus a recorded stream, a
+#   5. --joy-uart-connector is ACCEPTED alongside a live cable, and reaches it.
+#      That flag used to require --joy-uart-rx and now takes any of the three
+#      sources, which is a real behaviour change and not a reworded message:
+#      restoring the old combined condition refuses this invocation, and every
+#      other row in the whole triplet stays green while it does.
+#   6. The refusals: two cables at once, a live cable plus a recorded stream, a
 #      delay that only a recorded stream can honour, and a path that exists and
 #      is not a FIFO. Every one of them is a run that would otherwise proceed
 #      looking alive while half of it did nothing.
@@ -125,7 +130,26 @@ if want joy-uart-link-func; then
         wait "$cat_pid" 2>/dev/null || true
     fi
 
-    # Fact 5 — the refusals. Both the exit status AND the message are asserted:
+    # Fact 5 — the acceptance. Asserted by its EFFECTS, not by an exit status
+    # alone: the run must complete, both FIFOs must exist afterwards, and the
+    # cable must say it is in joy 1 — which is the socket the flag named and
+    # not the default, so the value reached the emulator rather than merely
+    # being tolerated by the parser.
+    acc_base="$TMP_DIR/joy-uart-accept"
+    rm -f "$acc_base.rx" "$acc_base.tx"
+    acc_rc=0
+    acc_out=$(timeout --foreground --kill-after=5s 30s "$JNEXT" --headless \
+        "${SD_CARD_ARGS[@]}" --delayed-automatic-exit-frames 2 \
+        --joy-uart-fifo "$acc_base" --joy-uart-connector 1 2>&1) || acc_rc=$?
+    if [[ $acc_rc -ne 0 ]]; then
+        fails+=("--joy-uart-fifo with --joy-uart-connector 1 was refused (rc=$acc_rc): $(tr -d '\n' <<<"$acc_out" | tail -c 200)")
+    fi
+    [[ -p "$acc_base.rx" && -p "$acc_base.tx" ]] \
+        || fails+=("--joy-uart-fifo with --joy-uart-connector 1 created no FIFOs")
+    grep -q 'joystick serial cable attached to joy 1' <<<"$acc_out" \
+        || fails+=("--joy-uart-connector 1 did not reach the live cable")
+
+    # Fact 6 — the refusals. Both the exit status AND the message are asserted:
     # exiting 1 with some other complaint would satisfy the status alone.
     link_refuse() {
         local why=$1 want=$2; shift 2
@@ -153,7 +177,7 @@ if want joy-uart-link-func; then
         --joy-uart-fifo "$plain"
 
     if [[ ${#fails[@]} -eq 0 ]]; then
-        pass_row " (FIFO pair created, guest readiness byte received with no reader attached, ABC -> BCD round trip through the Z80, 4 refusals verified)"
+        pass_row " (FIFO pair created, guest readiness byte received with no reader attached, ABC -> BCD round trip through the Z80, --joy-uart-connector accepted and honoured on a live cable, 4 refusals verified)"
     else
         fail_row " (${fails[*]})"
     fi

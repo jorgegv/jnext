@@ -8232,9 +8232,15 @@ void Emulator::service_joy_uart_link_frame()
     // timeline still needs. Inert means neither, so the host's bytes simply wait
     // in the pipe. See JoyUartLink's header for why this is a gate, not a
     // teardown.
-    const bool inert = replay_mode_ || rzx_player_.is_playing();
-    joy_uart_link_->set_inert(inert);
-    if (inert) return;
+    //
+    // THE GATE IS RAISED HERE AND ENFORCED IN THE LINK, not tested twice. An
+    // early `return` here as well would be belt-and-braces over the check
+    // `JoyUartLink::poll()` already makes, and a second copy of a rule is a
+    // second thing that can be wrong while every test still passes: reverting
+    // one of the two changes nothing, so neither is covered. One gate, in the
+    // class that owns the descriptors and already gates `tick()` and
+    // `send_to_host()` the same way.
+    joy_uart_link_->set_inert(replay_mode_ || rzx_player_.is_playing());
 
     joy_uart_link_->poll();
 
