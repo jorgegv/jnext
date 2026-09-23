@@ -7858,7 +7858,7 @@ static void test_g56_cr_plan_rows(Emulator& emu) {
 //     elsif port_memory_change_dly = '1'      -> :4619-4684 port rebuild
 //                                                (MMU6/7 <= port_7ffd_bank
 //                                                 & '0' / & '1' at :4677-4680)
-//     elsif nr_mmu_we = '1'                   -> :4685-4696 MMU<n> <= nr_wr_dat
+//     elsif nr_mmu_we = '1'                   -> :4686-4696 MMU<n> <= nr_wr_dat
 //
 // Because all three arms drive the SAME register, whichever arm fires on
 // the later clock edge is the value that survives: a port 0x7FFD write
@@ -7903,7 +7903,7 @@ static void test_nr_mmu_arbitration(Emulator& emu) {
     check("NR-MMU-04",
           "MMU6/7 take the value of whichever writer ran last: port 0x7FFD "
           "bank 3 -> 0x06/0x07, then NR 0x56 <- 0x20 wins, then port 0x7FFD "
-          "bank 1 -> 0x02/0x03 [zxnext.vhd:4619,4677-4680,4685-4696, :3813]",
+          "bank 1 -> 0x02/0x03 [zxnext.vhd:4619,4677-4680,4686-4696, :3813]",
           port1_56 == 0x06 && port1_57 == 0x07 &&
           nr_56 == 0x20 && nr_57 == 0x07 &&
           port2_56 == 0x02 && port2_57 == 0x03,
