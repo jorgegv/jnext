@@ -696,6 +696,17 @@ void SdCardDevice::cmd1_send_op_cond() {
 void SdCardDevice::cmd0_go_idle() {
     sd_log()->debug("CMD0 GO_IDLE_STATE → card reset");
     initialized_ = false;
+    // GH #94 round-2 review: CMD0 is the software reset that returns the card
+    // to the idle state, so it returns the block length to its power-up value
+    // as well — the CSD default of 2^READ_BL_LEN (§ 4.3.2), which is what a
+    // host is entitled to assume before it has issued any CMD16. Answering
+    // the reviewer's question directly: yes, CMD0 should reset it too, and
+    // not only for tidiness — the class's own reset() already calls kBlockLen
+    // "the power-up block length", and a software reset that left a stale
+    // CMD16 length behind would make that comment false on the CMD0 path.
+    // It is belt-and-braces next to the ACMD41 reset above (every init
+    // sequence reaches ACMD41), which is exactly why it is cheap.
+    block_len_ = kBlockLen;
     queue_r1(0x01);  // R1: in idle state
     // Pass-9 verify-audit (2026-05-09): keep persistent_response_byte_ at
     // ZEsarUX-style $01 to match the upstream boot trace. SD Physical Layer
@@ -1406,6 +1417,21 @@ void SdCardDevice::acmd41_sd_send_op_cond() {
     // boot path (TBBlue / NextZXOS / FatFs always set HCS=1).
     const uint32_t arg = cmd_arg();
     host_supports_sdhc_ = (arg & 0x40000000u) != 0;  // bit 30 = HCS
+    // GH #94 round-2 review: completing ACMD41 puts the card in its defined
+    // post-initialization state, and the block length that state carries is
+    // the CSD default, 2^READ_BL_LEN = kBlockLen (§ 4.3.2). Resetting it here
+    // is what makes "block_addressed() ⟹ block_len_ == kBlockLen" TRUE rather
+    // than merely usual: for a card that has just negotiated high capacity
+    // the 512 is definitional — § 4.3.2 says a High Capacity card "always"
+    // uses a 512-byte fixed block length — and without this line the
+    // sequence
+    //     ACMD41(HCS=0) → CMD16(256) → ACMD41(HCS=1) → CMD18
+    // re-enters block-addressed mode still carrying a 256-byte stride, so a
+    // block-addressed stream walks onto addresses that are not block
+    // boundaries. cmd16_set_blocklen() only ever assigns while the card is
+    // byte-addressed, so this is the one place the stale value could survive
+    // a change of capacity class.
+    block_len_ = kBlockLen;
     sd_log()->debug("ACMD41 SD_SEND_OP_COND arg={:#010x} HCS={} → card initialized, ready",
                     arg, host_supports_sdhc_ ? 1 : 0);
     initialized_ = true;  // Card is now initialized
@@ -1448,14 +1474,20 @@ bool SdCardDevice::is_overlay_addr(uint64_t byte_addr) const {
     // nothing to do with that numbering, so the overlay answers only a
     // block-addressed card — this is the guard SDSC-OVL-01 pins.
     //
-    // No alignment test is needed alongside it: while the card is
-    // block-addressed, every address reaching here is a multiple of
-    // kBlockLen by construction. arg_to_byte_addr() multiplies the argument
-    // by kBlockLen, and the CMD18 stride is block_len_, which CMD16 cannot
-    // move off kBlockLen in this mode (§ 4.3.2). An earlier version tested
-    // the alignment as well; it could not fail, so it was code no row could
-    // reach.
+    // The alignment test below is DEFENCE IN DEPTH, deliberately kept even
+    // though acmd41_sd_send_op_cond() and cmd0_go_idle() now hold the
+    // invariant that makes every block-addressed address a multiple of
+    // kBlockLen. It is here because the failure it prevents is silent: an
+    // address that merely DIVIDES into an overlaid sector is not that sector,
+    // and serving the overlay for it hands the host 512 bytes of the wrong
+    // file with no error anywhere. A round-2 review probe demonstrated
+    // exactly that against a build where this line had been deleted on the
+    // strength of the invariant — which at the time nothing enforced. The
+    // invariant is enforced now; the guard stays, because the cost is one
+    // comparison and the thing on the other side of it is a wrong-data bug
+    // that no caller can detect.
     if (!block_addressed()) return false;
+    if (byte_addr % kBlockLen != 0) return false;
     const uint64_t sector = byte_addr / kBlockLen;
     if (sector > 0xFFFFFFFFull) return false;
     return is_overlay_sector(static_cast<uint32_t>(sector));

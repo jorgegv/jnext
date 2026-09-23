@@ -3083,6 +3083,137 @@ static void test_sdsc_overlay_guards() {
           " overlay_served=" + (overlay_served ? "1" : "0"));
 }
 
+// SDSC-CMD16-07 — a card that re-negotiates its capacity class mid-session
+// must not carry a standard-capacity block length into block-addressed mode.
+//
+// § 4.3.2 is unambiguous that a High Capacity card "always" transfers 512
+// bytes, so the moment ACMD41 comes back with HCS=1 the block length is 512
+// by definition, whatever CMD16 made it while the card was standard capacity.
+// The sequence that finds it out is
+//
+//     CMD0 → CMD8 → ACMD41(HCS=0) → CMD16(256) → ACMD41(HCS=1) → CMD18
+//
+// — legal commands in a legal order, just not an order any real host issues.
+// Without the reset in acmd41_sd_send_op_cond(), the stream starts on a block
+// boundary and then strides by the stale 256, so a BLOCK-addressed stream
+// walks onto byte 768: an address that is not a sector boundary at all. That
+// is the root defect. Its nastiest symptom is in the read overlay, where an
+// address that merely divides into an overlaid sector would be served that
+// sector's contents — a round-2 review probe demonstrated exactly that — but
+// the symptom is downstream of this, and this is what the row pins: with a
+// block-addressed card the stream transfers 512 bytes per block and advances
+// 512 between them, so no non-boundary address is ever formed to begin with.
+//
+// Each block's CRC is checked, so the data-field length is pinned alongside
+// the stride (§ 7.2.4).
+static void test_sdsc_recapacity_block_len() {
+    const std::string img = make_image(16);
+    SdCardDevice card;
+    const bool mounted = card.mount(img);
+
+    card.reset();
+    (void)send_cmd_r1(card, 0, 0);            // CMD0 GO_IDLE
+    (void)send_cmd_r1(card, 8, 0x1AA);        // CMD8 SEND_IF_COND
+    (void)send_cmd_r1(card, 55, 0);
+    (void)send_cmd_r1(card, 41, 0x00000000);  // ACMD41 HCS=0 → byte-addressed
+    const uint8_t r1_16 = send_cmd_r1(card, 16, 256);   // legal for SDSC
+    (void)send_cmd_r1(card, 55, 0);
+    (void)send_cmd_r1(card, 41, 0x40000000);  // ACMD41 HCS=1 → block-addressed
+    (void)send_cmd_r1(card, 58, 0);           // CMD58 READ_OCR
+    const uint8_t r1_18 = send_cmd_r1(card, 18, 2);     // BLOCK address 2
+
+    uint8_t blk[3][512] = {};
+    bool tok[3] = {};
+    bool crc[3] = {};
+    for (int i = 0; i < 3; ++i) {
+        tok[i] = wait_token(card, 32);
+        if (tok[i]) crc[i] = read_block_len(card, blk[i], 512);
+    }
+    (void)send_cmd_r1(card, 12, 0);
+    card.deselect();
+    card.unmount();
+    std::remove(img.c_str());
+
+    // Blocks are sectors 2, 3 and 4 — byte 1024, 1536, 2048. A stale 256
+    // stride would deliver 256-byte blocks at 1024, 1280 and 1536 instead,
+    // which fails both the content comparison and the 512-byte CRC.
+    bool blocks_ok = tok[0] && tok[1] && tok[2] && crc[0] && crc[1] && crc[2];
+    for (int i = 0; i < 512 && blocks_ok; ++i) {
+        if (blk[0][i] != fixture_byte(1024 + i)) blocks_ok = false;
+        if (blk[1][i] != fixture_byte(1536 + i)) blocks_ok = false;
+        if (blk[2][i] != fixture_byte(2048 + i)) blocks_ok = false;
+    }
+
+    check("SDSC-CMD16-07",
+          "re-negotiating HCS=1 after a standard-capacity CMD16 restores the "
+          "512-byte block length (§ 4.3.2): the CMD18 stream transfers 512 "
+          "bytes per block and strides 512, so a block-addressed card never "
+          "forms an address that is not a block boundary",
+          mounted && r1_16 == 0x00 && r1_18 == 0x00 && blocks_ok,
+          "mounted=" + std::string(mounted ? "1" : "0") +
+          " r1_16=" + std::to_string(r1_16) +
+          " r1_18=" + std::to_string(r1_18) +
+          " blocks_ok=" + (blocks_ok ? "1" : "0"));
+}
+
+// SDSC-CMD16-08 — CMD0 GO_IDLE_STATE returns the block length to its power-up
+// value, and there is a real flow that observes it without ACMD41 in between.
+//
+// CMD0 is the software reset: it puts the card back in the idle state, where
+// a host has issued no CMD16 and the block length is the CSD default
+// (§ 4.3.2). Every SD init sequence then runs ACMD41, which resets the length
+// as well — so on its own that reset would be belt-and-braces. The MMC
+// fallback is the exception: FatFs's disk_initialize() gives up on ACMD41 and
+// switches to CMD1 when the card does not answer as an SD card, and CMD1
+// carries no capacity negotiation and resets nothing. So
+//
+//     ACMD41(HCS=0) → CMD16(256) → CMD0 → CMD1 → CMD17
+//
+// reaches a working, initialized card with CMD0 as the last thing that could
+// have restored the length. The row asserts the following read is a full
+// 512-byte block, which is only true if CMD0 restored it.
+static void test_sdsc_cmd0_restores_block_len() {
+    const std::string img = make_image(16);
+    SdCardDevice card;
+    const bool mounted = card.mount(img);
+
+    card.reset();
+    (void)send_cmd_r1(card, 0, 0);
+    (void)send_cmd_r1(card, 8, 0x1AA);
+    (void)send_cmd_r1(card, 55, 0);
+    (void)send_cmd_r1(card, 41, 0x00000000);   // SDSC
+    const uint8_t r1_16 = send_cmd_r1(card, 16, 256);
+    const uint8_t r1_0  = send_cmd_r1(card, 0, 0);   // software reset
+    const uint8_t r1_1  = send_cmd_r1(card, 1, 0);   // legacy MMC init
+    // Still byte-addressed (CMD1 negotiates no capacity class), so the
+    // argument is a byte address.
+    const uint8_t r1_17 = send_cmd_r1(card, 17, 2 * 512);
+    const bool tok = wait_token(card);
+    uint8_t blk[512] = {};
+    const bool crc = tok && read_block_len(card, blk, 512);
+    card.deselect();
+    card.unmount();
+    std::remove(img.c_str());
+
+    bool content_ok = tok && crc;
+    for (int i = 0; i < 512 && content_ok; ++i)
+        if (blk[i] != fixture_byte(1024 + i)) content_ok = false;
+
+    check("SDSC-CMD16-08",
+          "CMD0 restores the power-up block length (§ 4.3.2): after "
+          "CMD16 256, a CMD0 + legacy-MMC CMD1 init — the one flow that "
+          "initialises without ACMD41 — leaves the next read a full 512-byte "
+          "block",
+          mounted && r1_16 == 0x00 && r1_0 == 0x01 && r1_1 == 0x00 &&
+              r1_17 == 0x00 && content_ok,
+          "mounted=" + std::string(mounted ? "1" : "0") +
+          " r1_16=" + std::to_string(r1_16) +
+          " r1_0=" + std::to_string(r1_0) +
+          " r1_1=" + std::to_string(r1_1) +
+          " r1_17=" + std::to_string(r1_17) +
+          " content=" + (content_ok ? "1" : "0"));
+}
+
 static void test_sdsc_csd() {
     // The CSD rows use their own images: SDSC-CSD-03 needs a capacity that
     // forces a different C_SIZE_MULT than the 8 KB fixture does.
@@ -3332,6 +3463,8 @@ int main() {
     test_sdsc_write(sd);        // SDSC-ADDR-05/06
     test_sdsc_cmd16(sd);        // SDSC-CMD16-01..06
     test_sdsc_overlay_guards(); // SDSC-OVL-01
+    test_sdsc_recapacity_block_len();  // SDSC-CMD16-07
+    test_sdsc_cmd0_restores_block_len();  // SDSC-CMD16-08
     test_sdsc_csd();            // SDSC-CSD-01..04
 
     // ─── WONT / RE-HOME rows (no skip()) ───────────────────────────────
