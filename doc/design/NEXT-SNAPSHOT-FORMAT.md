@@ -8,12 +8,16 @@
 > §18.2 lists what is still open, §18.3 the defects this design found in shipped
 > code.
 >
-> **Revision 2** (2026-09-23) after an independent review. Every number in §4
-> is now measured per block rather than derived, which corrected the scalar
-> residual by a factor of ~16 and *strengthened* the container argument; four
-> flat buffers, three per-scanline histories and two 64-bit-overflowing fields
-> that revision 1 missed are now in the design. Each correction is marked in
-> place rather than quietly overwritten.
+> **Revision 3** (2026-09-23), after two rounds of independent review.
+> Revision 2 replaced every derived number in §4 with a per-block measurement,
+> correcting the scalar residual by a factor of ~16 and *strengthening* the
+> container argument, and added four flat buffers, three per-scanline histories
+> and two 64-bit-overflowing fields that revision 1 had missed. Revision 3 splits
+> the history primitive in two (the two layouts differ in three ways the
+> byte-identity gate tests), states the buffer-classification rule as three cases
+> with an owned size threshold, gates the declared defaults against `reset()`,
+> adds stage S5b, and follows the owner's decision on mid-frame saves. Each
+> correction is marked in place rather than quietly overwritten.
 >
 > Working name for the format: **JNS** (`.jns`), *jnext snapshot*.
 
@@ -267,7 +271,7 @@ sentinel-delimited blocks**:
 | 15 | `i2c` | 13 | 32 | *esxdos hostfs* | 4 |
 | 16 | `rtc` | 69 | | **33 sentinels × 4** | **132** |
 
-### 4.1 The flat buffers — twelve, not eight
+### 4.1 The flat buffers — fourteen rows, not eight
 
 The buffers inside those blocks, exactly (constants, cross-checked against the
 measured block sizes):
@@ -552,24 +556,52 @@ Rules:
   path.
 - **ZIP64 is not written and is refused on read.** No member can approach 4 GB;
   writing ZIP64 would add a second framing to test for no reachable benefit.
+- **The reader accepts only the exact ZIP subset the writer emits; any other
+  feature is a refusal.** This is a rule rather than a list, and it is deliberate:
+  ZIP has a long tail — a local header whose CRC or sizes disagree with the
+  central-directory entry for the same member, a member carrying a data
+  descriptor (general-purpose flag bit 3), encryption, multi-disk spanning,
+  compression methods other than 0 and 8 — and enumerating it invites the next
+  feature to arrive undecided. A `.jns` is not a general archive and there is no
+  interoperability to preserve (settled points 1 and 2), so the permissive
+  direction has nothing to buy and a silently-differing interpretation to lose.
 
 ### 6.1 What goes in JSON, and what goes in a blob
 
-The rule is about **what the bytes are**, not only how many:
+**Three cases, and the middle one has an honest size threshold.**
 
-> **Guest-writable memory goes in a blob, whatever its size. Hardware register
-> files, FSM state and per-frame history go in JSON, whatever their size.**
+> 1. **Guest memory in the CPU address space → a BLOB**, whatever its size.
+> 2. **Guest memory that ALIASES another blob → a REFERENCE**, stored once.
+> 3. **Peripheral stores reachable only through ports or NextREG → JSON below
+>    8 KB, a blob at or above it.** For this class **size is the operative
+>    criterion**, not a tie-breaker.
+>
+> Everything else — register files, FSM state, per-frame history — is JSON
+> whatever its size.
 
-Size is only a tie-breaker (a fixed array above ~8 KB that is *not* guest memory
-would still be reconsidered). Stating it this way removes an ambiguity an
-earlier draft left open: `Mmu::bank7_bram_` is **exactly** 8 192 bytes, so a
-pure size threshold gave no answer. It is guest RAM, so it is a blob — and so is
-`bank5_vram_`, which the earlier layout omitted altogether.
+| Buffer | Case | Result |
+|---|---|---|
+| `Ram`, `Mmu::bank5_vram_`, `Mmu::bank7_bram_` | 1 | blob |
+| `Multiface` private RAM (48K/128K/+3) | 1 | blob, machine-conditional |
+| DivMMC RAM (a window onto `Ram` page 16) | **2** | **reference** |
+| `SpriteEngine::pattern_ram_` 16 384 B (port `0x5B`) | 3, ≥ 8 KB | blob |
+| `Copper::instructions_` 2 048 B (NR `0x60`-`0x63`) | 3, < 8 KB | JSON |
+| `PaletteManager` 4 608 B (NR `0x40`-`0x44`) | 3, < 8 KB | JSON |
+| `NextReg::regs_` 256 B | 3, < 8 KB | JSON |
 
-By that rule: `Ram`, `bank5_vram_`, `bank7_bram_`, the sprite pattern RAM and
-the standalone Multiface RAM are blobs. The NextREG file, the palettes, the
-Copper instruction RAM, the UART FIFOs, the port-0xFF log and the two per-line
-arrays are JSON.
+An earlier draft stated only "guest-writable memory is a blob, size is a
+tie-breaker", **and that rule cannot decide two of the fourteen buffers**: the
+Copper instruction RAM and the sprite pattern RAM are the same class — peripheral
+stores outside the CPU address space, written by the guest only through ports —
+yet §6 correctly puts one in JSON and the other in a blob. The only thing
+separating them *is* size, so the threshold is now stated rather than disowned.
+It also missed the reference case entirely, although §4.3(1) depends on it.
+
+The 8 KB line is a judgement, and the reason to draw it there: below it a hex
+string still diffs usefully and its exact length is checkable *by the schema*;
+above it the text doubles a buffer nobody reads. `Mmu::bank7_bram_` is exactly
+8 192 and would sit on the line — but it is case 1, in the CPU address space, so
+the threshold never applies to it.
 
 ### 6.2 Encoding rules inside the JSON
 
@@ -593,15 +625,31 @@ calls** today — `Clock::cpu_divisor_`, `Im2Controller::last_acked_`,
 encoding table with no signed type would have forced every one of them through
 an unsigned reinterpretation, which is precisely the defect §7.4 describes.
 
-**The count-prefixed-history primitive.** Five buffers (§4.1) are written
-`count`-first and then **padded to full capacity**, because `RewindBuffer`
-requires every snapshot to be exactly the width it measured at construction:
-`Ula::port_ff_log_`, the UART's four FIFOs, and (by the same requirement) any
-future in-flight log. The binary encoding **must** stay padded; the JSON
-encoding **must not** be, or a snapshot's text would carry 1 024 entries to
-express three. One declaration therefore has to produce two different shapes,
-which is an explicit primitive rather than something a plain array descriptor
-can express — see §9.4.
+**The count-prefixed-history primitives — `d.log()` and `d.fifo()`, not one
+`d.history()`.** Five buffers (§4.1) are written `count`-first and then **padded
+to full capacity**, because `RewindBuffer` requires every snapshot to be exactly
+the width it measured at construction. The binary encoding **must** stay padded;
+the JSON encoding **must not** be, or a snapshot's text would carry 1 024 entries
+to express three.
+
+A single signature cannot reproduce both byte layouts, and the byte-identity gate
+(§17.1) tests every one of the differences:
+
+| | `Ula::port_ff_log_` (`ula.cpp:1586-1590`) | UART `FifoBuffer` (`uart.h:53-57`) |
+|---|---|---|
+| Count width | **`u16`** | **`u64`** |
+| Element | struct: `u16 line` + `u8 value` = 3 B, unpadded | scalar via `write_elem` → `u8` (TX) / `u16` (RX) |
+| Order | **raw array order**, `port_ff_log_[i]` | **ring-normalised**, `buf_[(tail_+i) % Capacity]`, oldest first |
+| Padding past `count` | whatever was there — **stale entries**, ignored on load | **`T{0}`** |
+
+So there are two primitives, each pinning its own layout:
+`d.log(name, array, count, Capacity, elem_desc)` — `u16` count, raw order, stale
+tail — and `d.fifo(name, ring, count, tail, Capacity)` — `u64` count,
+ring-normalised, zero-padded. Both emit exactly `count` items in JSON. A single
+parameterised `d.history(count_type, elem, pad_policy, ring_or_raw)` would work
+equally well and is the alternative if a third shape ever appears; two named
+primitives are preferred while there are exactly two shapes, because the
+parameter set would otherwise be a vocabulary nobody can read at a call site.
 
 The hazard behind that requirement is on record: `AttributeMux`
 (`src/memory/attribute_mux.h:216-235`) documents that serialising its
@@ -914,11 +962,21 @@ to avoid, and because the two cases are each unconditionally true today:
   `mem/multiface-ram.bin` rather than 8 KB of zeros.
 
 The static claim is then **asserted at run time** so it cannot go stale: a
-`ram_window` declaration checks `ram_ext_ != nullptr` at save time and fails
-loudly if it is null, and a `blob` declaration on a buffer whose owner has a
-non-null backing pointer is a build-time review question. A comment claiming
-"always" with nothing checking it is how the earlier draft of §4 came to state
-the Multiface case backwards.
+`ram_window` declaration checks `ram_ext_ != nullptr` and fails loudly if it is
+null. A comment claiming "always" with nothing checking it is how an earlier
+draft of §4 came to state the Multiface case backwards.
+
+**Scope that assertion to machine-level saves, or it breaks a shipped test.**
+Row `DA-09` in `divmmc_test.cpp:1184-1191` builds a `DivMmc` from the suite's
+`make_divmmc()` helper — which calls `reset()`, `set_enabled()`,
+`set_nr_0a_4_enable()` and `set_entry_timing_0()`, and **never
+`set_ram_backing()`** — then calls `save_state` on it directly. A bare null-check
+inside the descriptor fires on that row. Round-tripping a subsystem standalone is
+a legitimate and useful thing for a unit test to do, so the assertion belongs to
+the **`Emulator`-driven** realisation of the descriptor, where `init()` has
+provably run, and not to the declaration itself. (`multiface_test.cpp:419-422`
+does the same thing and is unaffected: Multiface is declared `blob`, not
+`ram_window`.)
 
 `StateDesc` is an interface with several realisations over the *same*
 declaration:
@@ -1004,7 +1062,9 @@ realisation, not of any declaration.
 An earlier draft named three of these. All eight, from the classification:
 
 1. **Count-prefixed-and-padded history** — `Ula::port_ff_log_` and the UART's
-   four FIFOs (§4.1, §6.2). The binary form must stay padded to capacity because
+   four FIFOs (§4.1, §6.2). **Two primitives, `d.log()` and `d.fifo()`**, because
+   the two layouts differ in count width, element form and padding policy
+   (§6.2's table) and the byte-identity gate tests all three. The binary form must stay padded to capacity because
    `RewindBuffer` requires constant width; the JSON form must carry exactly
    `count` items. **One declaration, two shapes**, so this is an explicit
    primitive — `d.history("port_ff_log", log_, count_, MAX_CHANGES_PER_FRAME)` —
@@ -1093,7 +1153,7 @@ JNS re-expresses it through the descriptor and does not add state.
 | **P4** | **Tape state.** `tape_`/`tzx_tape_`/`wav_tape_` are excluded by design (tape position is independent of CPU rewind). A snapshot taken *during* a tape load restores a machine waiting for a tape that is not playing. | Medium | Record `media.tape` = (path, sha256, position in T-states, realtime flag) and reopen on restore — the esxDOS-handle shape. If the file is absent, warn and restore without it. |
 | **P5** | **Framebuffer.** Regenerated by the next render, so a snapshot restored *paused* shows the previous frame until the user steps. | Low | `meta/preview.png` doubles as the restore-time paused image. Free — jnext already writes PNG. |
 | **P6** | **Mixer integration accumulator.** Deliberately not snapshotted; the first sample after a restore averages a short window. | Negligible | Keep the existing decision; document it. |
-| **P7** | **Scheduler queue — and the mid-frame pause it forbids.** `emulator.cpp:11871` states snapshots "are only ever taken at a frame boundary (`begin_new_frame()`), so a restored machine has no frame in flight". The queue is empty exactly there and nowhere else. **But the debugger breaks MID-frame**, so a paused machine is normally not at a boundary — and that is precisely when a developer reaches for File ▸ Save Snapshot. The bug that proves the stakes is on record at `emulator.cpp:9144` (Task 40, `beast.nex`): stepping a machine past a mid-frame point cleared the per-scanline change logs and the Copper's palette gradient vanished, rendering a flat sky. | **High** — it is the *debugging* save that is most likely to hit it | **Two rules, not one.** (a) **Running**: File ▸ Save Snapshot queues the write to the next `begin_new_frame()` — at most 16 ms, invisible, and required anyway because the GUI cannot serialise from inside `run_frame()`. (b) **Paused mid-frame**: **refuse**, with the menu item greyed and a tooltip saying why. Advancing to the next boundary would move the machine past the moment the user asked to keep, and the exact-mid-frame moment is the rewind buffer's job, not a file's. See §15.2; flagged in §18 as a decision the owner may overturn. |
+| **P7** | **Scheduler queue — and the mid-frame pause it forbids.** `emulator.cpp:11871` states snapshots "are only ever taken at a frame boundary (`begin_new_frame()`), so a restored machine has no frame in flight". The queue is empty exactly there and nowhere else. **But the debugger breaks MID-frame**, so a paused machine is normally not at a boundary — and that is precisely when a developer reaches for File ▸ Save Snapshot. The bug that proves the stakes is on record at `emulator.cpp:9144` (Task 40, `beast.nex`): stepping a machine past a mid-frame point cleared the per-scanline change logs and the Copper's palette gradient vanished, rendering a flat sky. | **High** — it is the *debugging* save that is most likely to hit it | **One rule — always advance to the next frame boundary; never refuse** (owner decision, 2026-09-23). A **running** machine's save is queued to the next `begin_new_frame()`, which is required anyway because the GUI cannot serialise from inside `run_frame()`. A machine **paused mid-frame is advanced** to the next `begin_new_frame()` and saved there. There is no refusal path, no unavailable menu item and no failure mode. **The consequence, stated plainly: the restored machine is up to one frame past the moment the user paused at.** That is the accepted trade — a save that always works beats one that is sometimes unavailable, and a developer who needs the exact mid-frame instant has the rewind buffer, which exists for precisely that. §15.2 carries the implementation note that makes the advance safe. |
 | **P13** | **`Multiface::mf_type_` is knowingly lossy.** `multiface.cpp:383-400` rebuilds it from three mode booleans and its own comment states a session running `mf_type=10` "will lose the bit". | Medium — a **G1 violation**, silent | Serialise the 2-bit value directly. A rewind can absorb a lost bit; a save the user expects to resume cannot. Cheap, and it makes §9.5(6) a fix rather than an exception. |
 | **P8** | **Host input dispatchers.** Platform-owned, hold their own shadow of the connector/wheel/button vector that would stomp a restore. | — | Keep the `on_input_state_restored` callback. |
 | **P9** | **Debug state**: breakpoints, watches, trace log, call stack, rewind ring. | Low | **Out of scope.** Not machine state. Worth an explicit sentence in the user guide, because "my breakpoints vanished" is a predictable support question. |
@@ -1282,6 +1342,29 @@ So `d.u8("bank", bank_, /*default=*/0x00)` carries the default in the
 declaration, the schema generator writes it as `"default"`, and a field with no
 honest default is declared required instead. The reader never calls `reset()`.
 
+**That creates a second copy of every power-on value, and it must be gated.**
+The value now exists twice — in `reset()`, where it carries its VHDL citation,
+and in `describe_state` — with nothing comparing them. If a future VHDL audit
+corrects a `reset()` value, the declared default silently keeps the old one and
+every snapshot missing that key restores the pre-audit machine. That is
+`feedback_single_source_means_every_consumer`, and it is the exact shape of the
+`--help` defect (GH #246): a source of truth is only one if every consumer reads
+it.
+
+The gate is a `JNSX` row asserting, per field, **declared default == the value
+`reset()` leaves**, with the exemptions declared **in the table itself** and
+never as a checker exclusion:
+
+| Exempt field | Why |
+|---|---|
+| `NextReg::nr_03_config_mode` | no reset clause in the VHDL (`zxnext.vhd:1102`); `reset()` faithfully **preserves** it, so there is no "value reset establishes" to compare against |
+| `NextReg` machine type / machine timing | same class — preserved across reset, not established by it |
+| `Multiface` RAM | `reset(bool hard)` **wipes** it; running the comparison would destroy state, and the buffer has no scalar default anyway |
+
+The row runs only where `reset()` is non-destructive and value-establishing,
+which is the large majority; anything else is listed above, in the table a
+reviewer reads.
+
 ### 12.3 Retired names
 
 Checked **before** the ignore-unknown rule, against the committed
@@ -1309,6 +1392,7 @@ not listed here is a gap in this document, not a licence to improvise.
 | Snapshot had **no** card, one is mounted now | **Restore, with a warning.** The machine did not depend on it; a card that appeared is not a reason to refuse, but it is a reason the run may diverge. |
 | `media.sdcard.read_only` differs from the current mount | **Warn.** A snapshot taken read-only restoring onto a writable mount is legal and common; the reverse means writes the snapshot's program made were never persisted. Named in the warning, not refused. |
 | `model.ram_kb` is a size this build cannot construct | **Refuse** (§8 — never assume 2048). |
+| *(no row)* A save attempted while paused mid-frame | **Not a refusal condition.** The writer advances to the next frame boundary (§10.2 P7), so no file and no reader ever sees this state. Listed as absent so the omission is deliberate rather than overlooked. |
 | `format_version` unknown / `state_model_revision` mismatch / machine mismatch | §7.3. |
 
 ### 12.5 What is and is not promised
@@ -1356,8 +1440,26 @@ oracle: `/usr/bin/fuse` with `--debugger-command`, driven under Xvfb, located
 Tasks 50 and 54 (`technique_fuse_headless_oracle`). So the row is:
 
 > Write a `.jns` **and** a `.szx` at the same instant on a 48K or 128K machine.
-> Load the `.szx` in **real FUSE**, dump registers, RAM and paging through its
+> Load the `.szx` in **real FUSE**, extract registers, RAM and paging through its
 > debugger. Assert the independent reader's extraction from the `.jns` agrees.
+
+Three mechanics an implementer needs, all verified on this box (FUSE 1.6.0):
+
+- **`--debugger-command` is real but is NOT in `--help`** — it is in
+  `man fuse` (checked: 0 hits in `--help`, 2 in the man page). Cite the man page,
+  or the next reader concludes the option was removed. It is also the only way
+  to pass multi-line debugger input.
+- **It runs BEFORE emulator startup**, so a straight "dump state" does nothing
+  useful. The idiom is a breakpoint plus an explicit output channel:
+  `break`, then `commands N` / `print` / `continue` / `end`, with the output
+  captured from the process. `fuse` on this box is a shell function wrapping
+  `/usr/bin/fuse`; call the binary and set `GDK_BACKEND=x11` under `Xvfb`.
+- **The row MUST assert it received non-empty output from FUSE before
+  comparing.** A FUSE invocation that produces nothing — wrong option, X not up,
+  a breakpoint never hit — would otherwise compare an empty extraction against an
+  empty expectation and **pass vacuously**, in the strongest substitute this
+  design has. That is the failure mode most worth pinning, because it converts
+  the best evidence in §13.2 into the most confident lie.
 
 That is a foreign implementation adjudicating jnext's state for the CPU, the
 64 KB address space and the 128K paging — the part of a Next snapshot most
@@ -1430,6 +1532,14 @@ majority of the machine, (2), (3) and (4) reduce the risk to *semantic* errors
 that survive an external structural check, and (5) puts a human in front of
 every one of them. **That is narrower than "we have a foreign reader", and this
 document should not be read as claiming otherwise.**
+
+**And the `.szx` in that comparison is written by jnext.** `SzxSaver` and the
+JNS writer read the same `Emulator` accessors, so an error *shared* between them
+— an accessor that returns the wrong thing — produces a `.szx` and a `.jns` that
+agree with each other, and FUSE confirms the agreement. Substitute (1) is a
+foreign reader for the *format*, not for the *state*. What it does catch, and
+what nothing else catches, is JNS mis-encoding a value `SzxSaver` gets right —
+which is the whole class of writer bug this format could introduce.
 
 **Validation is not restoration.** "The file validates" and "the snapshot
 works" are different claims. Whether the restored machine *is* the machine that
@@ -1525,8 +1635,9 @@ Listed in §18.
 | Surface | Change |
 |---|---|
 | **File ▸ Save Snapshot…** (`main_window.cpp:1763`, Alt+Shift+S) | Add `.jns` to the filter, **make it the default suffix on the Next**, keep `.sna` as the default on classic machines. The existing extension dispatch gains one arm. |
-| **File ▸ Save Snapshot…, while the machine is RUNNING** | The write is **queued to the next `begin_new_frame()`** — at most 16 ms, invisible to the user, and required regardless: the GUI cannot serialise from inside `run_frame()`, and §10.2 P7 forbids a mid-frame capture. |
-| **File ▸ Save Snapshot…, while PAUSED mid-frame** | **Greyed out**, with a tooltip: *"A snapshot can only be taken at a frame boundary. Run to the end of the frame (Run to EOF), or use Rewind to keep this exact moment."* Not a silent failure and not a silent advance — advancing to the next boundary would move the machine past the moment the user asked to keep. This is the state a developer is most often in when they reach for the menu, so it must answer rather than misbehave. §18 flags it as owner-overturnable. |
+| **File ▸ Save Snapshot…, while the machine is RUNNING** | The write is **queued to the next `begin_new_frame()`** — under one frame (20 ms at 50 Hz), invisible to the user, and required regardless: the GUI cannot serialise from inside `run_frame()`, and §10.2 P7 rules out a mid-frame capture. |
+| **File ▸ Save Snapshot…, while PAUSED mid-frame** | **Advance to the next `begin_new_frame()` and save there.** Always available, never refused (owner decision). The machine is left at that boundary, i.e. up to one frame past where the user paused — a status-bar line says so once, rather than the move being silent. |
+| **What makes the advance safe** | It must complete the in-flight frame through the ordinary path, **not** re-run `begin_new_frame()` on a frame already in progress. That is exactly the Task 40 defect (`emulator.cpp:9144`, `beast.nex`): re-entering frame start mid-frame cleared the per-scanline change logs and the Copper's palette gradient vanished, rendering a flat sky. The `if (!frame_in_progress_)` guard there is the fix, and the snapshot advance rides on it rather than reimplementing it. **A row must pin this**, because a save that quietly wipes a frame's raster history is worse than one that refuses. |
 | **File ▸ Load…** | Add `*.jns` to the file dialog's filter string (`main_window.cpp:1137`). |
 | **Status bar** | On restore: the one-line provenance note when `state_model_revision` or the SD `content_stamp` differ (§7.3, §11.3). It must be visible, not log-only — a user who ignores a mismatch should have had to ignore it. |
 | **Error reporting** | Refusals go through the existing `QMessageBox::warning` path `on_save_snapshot()` already uses for `SzxSaver`'s machine refusal, with the reader's reason string verbatim. |
@@ -1581,7 +1692,7 @@ a silent skip): `test/unit-tests.conf` (with the **exact** pinned row count),
 | **Encoding** | `JNSE-01…` | Hex strings exactly the declared length; every `u64`/`i64` emits a **string**; a negative `i64` round-trips (**the `/INT` window with its real measured value, −564 933**, §7.4); `INT64_MAX` emits `"open"` and round-trips; `i32` round-trips negative; enums emit names, and an unknown name on read **refuses** rather than defaulting — a wrong FSM state is not a safe default. |
 | **History primitive** | `JNSH-01…` | The binary encoding of `port_ff_log_` and the UART's four FIFOs is **padded to capacity** (constant width, per `RewindBuffer`); the JSON encoding carries exactly `count` items; a round-trip through JSON with 3 in-flight entries restores 3, not 1 024; **an in-flight port-0xFF log survives save→restore and the replayed frame is pixel-identical** (the §10.3 defect, pinned). |
 | **Descriptor** | `JNSD-01…` | For every subsystem: the JSON and binary encodings, fed the same machine, restore to identical machines. |
-| **Completeness** | `JNSX-01…` | **See below — this is the row group that JNSD cannot be.** |
+| **Completeness** | `JNSX-01…` | **See below — this is the row group that JNSD cannot be.** Plus the §12.2 gate: **declared default == post-`reset()` value**, per field, with the three exemptions read from the declared table (never from a checker exclusion). |
 | **Blob framing** | `JNSB-01…` | `mem/ram.bin` is exactly `ram_kb * 1024`; `bank5-vram` 16 384; `bank7-bram` 8 192; a short blob refuses; a long blob refuses; declared CRC == actual CRC; `mem/multiface-ram.bin` present **iff** the machine is not the Next (§4.3(2)). |
 | **Refusal messages** | `JNSM-01…` | Every refusal names the offending thing. A refusal that says only "invalid snapshot" is a **failing** row: G9 is a testable property, not a slogan. |
 
@@ -1596,6 +1707,10 @@ outside the descriptor, and it is nearly free:
 - **A golden byte image.** Capture the *pre-migration* stream once and `cmp`
   against it (§17's S2-S5 gate). A field silently dropped, reordered or
   re-typed fails immediately.
+- **After S5b, the re-baselined lengths are pinned**: `JNSX` asserts
+  **2 153 701** on the Next and **2 161 893** on 48K/128K/+3, so the one
+  deliberate change to the stream is a number in a test rather than a fact in a
+  commit message.
 
 Every row is mutation-tested by its author before review: revert the
 behavioural branch the row exists for and confirm the row fails.
@@ -1605,11 +1720,11 @@ behavioural branch the row exists for and confirm the row fails.
 | Row | What |
 |---|---|
 | `snapshot-roundtrip-func` | Save at frame N, restart with `--load out.jns`, run M more frames, screenshot, compare **pixel-exact** against one uninterrupted run of N+M frames. **Named workloads, because a quiescent 48K boot passes for a neighbouring reason**: `beast.nex` (per-scanline change logs + Copper gradient — the §10.3 class), `copper-demo` (Copper PC mid-list), and a run captured **mid-CMD18 SD stream** (P1). A pass on any one of those means something; a pass on a BASIC prompt does not. |
-| `snapshot-foreign-fuse-func` | §13.2(1): on a **128K** machine, write `.jns` and `.szx` at the same instant; load the `.szx` in **real FUSE** headless (`/usr/bin/fuse` + Xvfb + `--debugger-command`); assert the spec-written Python reader's extraction from the `.jns` agrees with FUSE on registers, paging and sampled RAM. Skips without FUSE/Xvfb locally; hard-fails in CI. |
+| `snapshot-foreign-fuse-func` | §13.2(1): on a **128K** machine, write `.jns` and `.szx` at the same instant; load the `.szx` in **real FUSE** headless (`/usr/bin/fuse` + Xvfb + `--debugger-command`, which is documented in `man fuse`, not `--help`); assert the spec-written Python reader's extraction from the `.jns` agrees with FUSE on registers, paging and sampled RAM. **The row FAILS if FUSE produced no output** — asserted before any comparison, because an empty-vs-empty comparison would pass vacuously. Skips without FUSE/Xvfb locally; hard-fails in CI. |
 | `snapshot-schema-func` | Validate the written file with Python `jsonschema` against the committed schema **plus the constraint overlay**, and `unzip -t` it. Skips if the tools are absent; hard-fails in CI. |
 | `snapshot-uncompressed-func` | The same round-trip with `--snapshot-uncompressed`; assert every member is `STORED` (read by `zipfile`, not by us) and the restore is pixel-identical to the compressed one. |
 | `snapshot-sdcard-mismatch-func` | Save; mutate a sector of a **copy** of the card; restore → assert the Tier-2 warning and that the run proceeds. Then mutate `BS_VolID` → assert the Tier-1 refusal and a non-zero exit. Then mutate **only** `BS_VolLab` → assert **no** warning and **no** refusal (§11.3). |
-| `snapshot-paused-refusal-func` | Pause mid-frame in the debugger, attempt a save, assert it is refused with the §15.2 message and that **the machine is unchanged** — not advanced to the next boundary. |
+| `snapshot-paused-advance-func` | Pause mid-frame in the debugger (on `beast.nex`, which has a live per-scanline Copper gradient), save, and assert three things: the save **succeeds**; the restored machine replays the frame **pixel-identically** — i.e. the advance did not wipe the change logs, the Task 40 defect (§15.2); and the live machine is left at the following frame boundary. The workload is `beast.nex` specifically because a quiescent screen cannot distinguish a preserved raster history from a destroyed one. |
 
 `JNEXT_TEST_JOBS=4` on every regression invocation, as always.
 
@@ -1642,14 +1757,53 @@ agent that did not write it, on its own branch and worktree.
 | **S3 — Migration, group 1** | Core: clock, RAM, MMU (incl. both blobs), NextREG, CPU, IM2 (+ timing) | **S–M** (1.5–2.5) | byte-identity holds after each subsystem |
 | **S4 — Migration, group 2** | Video: palette, layer2, sprites, tilemap, lores, ULA (incl. the three histories), renderer, copper | **S–M** (1.5–2.5) | as above |
 | **S5 — Migration, group 3** | Peripherals + audio + input: ctc, dma, spi, i2c, rtc, uart (FIFOs), divmmc, multiface, nmi, beeper, turbosound, dac, i2s, and the six input classes | **S–M** (1.5–2.5) | as above |
+| **S5b — Remove the duplicated RAM** | D3 + D4: the DivMMC window becomes a *reference* and the Multiface private array is dropped on the Next. Golden re-baselined **once**, with the diff explained field by field. | **XS** (~0.5) | New golden pinned by a `JNSX` row (below) |
 | **S6 — The gaps** | P1 `SdCardDevice`; P13 `mf_type_`; P3 ROM digests; P4 tape identity; P5 preview; P7's two save rules; `Emulator`'s own scalars | **M** (2–3) | P1 proven by a mid-CMD18 save/restore row; P7 by `snapshot-paused-refusal-func` |
 | **S7 — SD identity** | Tier 1 from MBR + BPB `BS_VolID` (a new exported entry point in `sd_rom_extractor`), Tier 2 reuse, the refusal/warning matrix, `JNSI` rows | **S** (1) | `snapshot-sdcard-mismatch-func`, all three legs |
 | **S8 — Integration** | CLI table + man page + `cli-check`; the three load-dispatch sites; GUI save/load/filter/status bar/grey-out; user guide; developer guide chapter; FEATURES; ChangeLog | **S** (1–2) | `make cli-check`, `docs-check`, full triplet |
 | **S9 — Validation** | The spec-written Python reader; **the FUSE foreign-reader row**; the constraint overlay; the full functional set; CI tool install | **S** (1–2) | All §16.2 rows green in CI |
 
-**Total: 14–22 focused sessions; S2–S5 is 7–10 of them.**
+**Total: 14–23 focused sessions; S2–S5 is 7–10 of them, S5b about half of one.**
 
-> An earlier draft of this document said 20–30 total and 13–18 for S2–S5. The
+### 17.0 Why S5b exists, and why it is not deferred
+
+D3 and D4 (§18.3) put **131 072 + 8 192 = 139 264 bytes** into every snapshot
+that do not need to be there — **6.1 % of every rewind slot**, so a 300-frame
+ring carries about 41 MB of duplicated DivMMC RAM. Revision 2 of this document
+said they were "not worth a separate change to the binary stream, because S2's
+byte-identity gate requires that stream to stay exactly as it is."
+
+**That was wrong, and in an instructive way.** The gate is a *migration
+scaffold*. It is true and load-bearing while it is doing its job — proving a
+transcription changed nothing — and treating it as a permanent contract is the
+same error §9.1 rejects when it refuses `legacy.bin`: a temporary mechanism
+quietly becoming the reason a defect cannot be fixed.
+
+The moment immediately after S5 is the **safest this will ever be**: every field
+is named, so a golden diff is explainable field by field rather than as an opaque
+byte shift. Re-baselining once, there, costs about half a session.
+
+Post-S5b stream lengths, derived from §4's measurement:
+
+| Machine | Length | Why |
+|---|---|---|
+| Next | **2 153 701** | −131 072 (DivMMC window) −8 192 (Multiface dead zeros) |
+| 48K / 128K / +3 | **2 161 893** | −131 072 only; the Multiface array is genuine private state there (§4.3(2)) |
+
+**The length becomes machine-dependent for the first time, and that is fine.**
+`RewindBuffer` measures its slot width once at construction and needs it constant
+only *within* a run — and the width already varies between runs today: the
+`joy_uart` block is one byte with no cable attached (measured, §4) and larger
+with one. A `JNSX` row pins both numbers so the re-baselined golden is itself
+gated rather than merely recorded.
+
+**If the owner prefers not to touch the stream**, the allowed alternative is to
+commit the pre-S5b golden as a permanent fixture with a `JNSX` row pinning it.
+**Doing neither must not ship**: without one or the other, `ram_window`'s binary
+realisation exists solely to reproduce a known defect, with nothing pinning the
+bytes it is reproducing.
+
+> Earlier drafts said 20–30 total and 13–18 for S2–S5. The
 > re-estimate follows the call-site classification in §9.4, which did not exist
 > when the first number was written: **404 of 532 sites (76 %) are a bare member
 > variable** — one mechanical line each — the 29 loop sites *collapse* into 5
@@ -1717,43 +1871,36 @@ mentions `.jns` is the one that freezes it.
 | JSON dependency | **nlohmann/json, vendored.** Proceed. |
 | Decoupling scope | **Full** — the field descriptor across all subsystems. The narrower "scalars only" reading is declined. |
 | SD card | **The two-tier identity of §11.3**, with the §11.3 refusal/warning matrix. |
-| Effort | Re-measured from the §9.4 call-site classification: **S2–S5 is 7–10 sessions, whole project 14–22**. §17 updated. |
+| Effort | Re-measured from the §9.4 call-site classification: **S2–S5 is 7–10 sessions**. §17 updated (whole project 14–23, incl. S5b). |
+| **Mid-frame save** | **Always advance to the next frame boundary; never refuse.** This overruled the recommendation in revision 2, which was to refuse while paused. §10.2 P7, §15.2 and §16.2 follow the decision; the cost — the machine ends up to one frame past where the user paused — is documented rather than hidden. |
 
 ### 18.2 Still open
 
-1. **The mid-frame pause policy (§10.2 P7, §15.2).** Recommendation: **refuse**
-   while paused mid-frame, with the menu item greyed and a tooltip pointing at
-   Run-to-EOF or Rewind; queue silently to the next boundary while running. The
-   alternative — advance to the next boundary and save there — is simpler and
-   costs the user the exact moment they asked to keep, without telling them.
-   **This is the one recommendation in this document most likely to be wrong for
-   real use**, because the developer save is the mid-frame one.
-
-2. **File extension**: `.jns`? Alternatives considered: `.jnx` (too close to
+1. **File extension**: `.jns`? Alternatives considered: `.jnx` (too close to
    `.nex`), `.nxs`, `.jsnap`. The warm-start cache uses `.jwss`, so `.jns` is
    consistent with it.
 
-3. **CLI surface**: five flags, or collapse `--snapshot-strict` /
+2. **CLI surface**: five flags, or collapse `--snapshot-strict` /
    `--snapshot-force-sdcard` into one `--snapshot-mode strict|normal|force`
    (§15.1)?
 
-4. **Debugger state (§10.2 P9)**: confirm breakpoints, watches and the rewind
+3. **Debugger state (§10.2 P9)**: confirm breakpoints, watches and the rewind
    ring do **not** travel. A case can be made for breakpoints — cheap, and a
    user resuming a debugging session would want them — but they are not machine
    state, and mixing them in weakens the format's definition. Note that
    `AudioMute` is already settled the same way, in the code and for the same
    reason (§10.1).
 
-5. **Copy-on-write SD mounting** (out of scope here, §11.2): it would make the
+4. **Copy-on-write SD mounting** (out of scope here, §11.2): it would make the
    rejected "delta against a base image" option viable and change the whole SD
    question. Worth its own issue, or not worth raising?
 
-6. **Does the warm-start cache migrate onto this?** §3.2 notes the descriptor
+5. **Does the warm-start cache migrate onto this?** §3.2 notes the descriptor
    layer would let `kFormatVersion` be derived rather than hand-bumped, retiring
    the "a field repurposed is invisible" hazard there too. Out of scope for #27;
    follow-up issue, or deliberately left alone?
 
-7. **Priority.** The issue records "priority stays low". At 14–22 sessions this
+6. **Priority.** The issue records "priority stays low". At 14–23 sessions this
    is still one of the larger remaining v1.1 items — confirm it is wanted now,
    at that cost, against the other open features.
 
@@ -1770,10 +1917,21 @@ and listed together so none is lost:
 | D4 | 8 192 bytes of dead zeros (the Multiface private array) are serialised on every Next snapshot | §4.3(2) |
 | D5 | The CPU `/INT` window is written as a signed delta reinterpreted as `uint64_t`, and `INT64_MAX` as a bare sentinel | §7.4 |
 
-D1 and D2 are correctness defects and are fixed in S6. D3–D5 are representation
-defects that JNS removes by construction; none is worth a separate change to the
-binary stream, because S2's byte-identity gate requires that stream to stay
-exactly as it is.
+Disposition:
+
+- **D1, D2** — correctness defects, fixed in **S6**.
+- **D3, D4** — fixed in **S5b** (§17.0), immediately after the migration, when a
+  golden diff is still explainable field by field. Together they are 6.1 % of
+  every rewind slot, which is too much to leave behind a scaffold.
+- **D5 — deferred permanently, by design.** The same eight bytes round-trip:
+  `save_state` casts `int64_t`→`uint64_t` and `load_state` casts straight back
+  (`emulator.cpp:12287-12289`), so the binary stream has **no observable
+  defect** and there is nothing to fix there. It is recorded because it is a
+  defect of **legibility and external validation** — no human or external
+  validator reading `18446744073708986683` can tell it means −564 933 — and JNS
+  removes it by emitting the signed value (§7.4). Stated as "permanently, by
+  design" rather than "not worth changing", which invites someone to revisit it
+  and change the one stream the gate depends on.
 
 ---
 
