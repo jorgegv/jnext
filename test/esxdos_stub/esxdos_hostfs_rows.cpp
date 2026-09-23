@@ -153,6 +153,10 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
     const bool have_symlinks = !ln_ec;
     fs::create_directory_symlink(outside, root / "link-dir", ln_ec);
     fs::create_symlink(root / "hello.txt", root / "link-in", ln_ec);
+    // A link whose target is INSIDE the root. Containment cannot object to it,
+    // so it is the only input that isolates the symlink POLICY from the
+    // canonical back-stop. One per call surface, below.
+    fs::create_directory_symlink(root / "sub", root / "link-sub", ln_ec);
 
     // A fixed mtime so the packed DOS date/time is the same on every run.
     // 2026-07-10 08:55:00 local — the same instant the boot rows pin.
@@ -239,6 +243,50 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
                    "a symlink pointing INSIDE the root is refused too: the "
                    "policy is no traversal at all, not 'only escaping links'",
                    hfs.stat("link-in", st) == EsxdosHostFs::kEacces);
+
+            // HFS-90..92 — the same policy input, once per REMAINING call
+            // surface. An inside-pointing link is the only case containment
+            // cannot catch, so these are what go red if open(), opendir() or
+            // chdir() stops refusing links at all. See the layering note in
+            // esxdos_hostfs.cpp for why no row can isolate a SINGLE check.
+            // Each pairs the refusal with a control proving the TARGET is
+            // reachable by its real name, so the row cannot pass merely
+            // because something is broken.
+            uint8_t link_h = 0;
+            const uint8_t open_link = hfs.open("link-in",
+                                               EsxdosHostFs::kModeRead, link_h);
+            uint8_t real_h = 0;
+            const uint8_t open_real = hfs.open("hello.txt",
+                                               EsxdosHostFs::kModeRead, real_h);
+            hfs.close(real_h);
+            hcheck("HFS-90",
+                   "F_OPEN refuses an inside-pointing symlink (esx_eacces) "
+                   "while opening its target by the real name succeeds",
+                   open_link == EsxdosHostFs::kEacces &&
+                       open_real == EsxdosHostFs::kOk,
+                   "link=" + hex2(open_link) + " real=" + hex2(open_real));
+
+            uint8_t dir_link_h = 0;
+            const uint8_t od_link = hfs.opendir("link-sub",
+                                                EsxdosHostFs::kDirLfnOnly,
+                                                dir_link_h);
+            uint8_t dir_real_h = 0;
+            const uint8_t od_real = hfs.opendir("sub", EsxdosHostFs::kDirLfnOnly,
+                                                dir_real_h);
+            hfs.close(dir_real_h);
+            hcheck("HFS-91",
+                   "F_OPENDIR refuses a symlinked directory inside the root "
+                   "while the real directory opens",
+                   od_link == EsxdosHostFs::kEacces && od_real == EsxdosHostFs::kOk,
+                   "link=" + hex2(od_link) + " real=" + hex2(od_real));
+
+            const uint8_t cd_link = hfs.chdir("link-sub");
+            const uint8_t cd_real = hfs.chdir("sub");
+            hfs.chdir("/");
+            hcheck("HFS-92",
+                   "F_CHDIR refuses it too, and the real directory still works",
+                   cd_link == EsxdosHostFs::kEacces && cd_real == EsxdosHostFs::kOk,
+                   "link=" + hex2(cd_link) + " real=" + hex2(cd_real));
         } else {
             hcheck("HFS-10", "symlink fixtures unavailable on this host", false,
                    "create_symlink failed");
@@ -257,6 +305,24 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
                hfs.stat("CON", st) == EsxdosHostFs::kEacces);
         hcheck("HFS-16", "'COM1.TXT' is reserved too — the stem is what counts",
                hfs.stat("COM1.TXT", st) == EsxdosHostFs::kEacces);
+
+        hcheck("HFS-93",
+               "'\\\\' separates components as well as '/', because the guest "
+               "writes FAT paths where a backslash cannot be part of a name",
+               hfs.stat("sub\\\\inner.bin", st) == EsxdosHostFs::kOk &&
+                   st.size == 5,
+               "err=" + hex2(hfs.stat("sub\\\\inner.bin", st)));
+        hcheck("HFS-94",
+               "so a backslash cannot smuggle a '..' past the LEXICAL walk on "
+               "any host — this refusal must not depend on whether "
+               "std::filesystem::path re-splits it, which differs by platform",
+               hfs.stat("a\\\\..\\\\..\\\\outside\\\\secret.txt", st) ==
+                   EsxdosHostFs::kEpath,
+               "err=" + hex2(hfs.stat("a\\\\..\\\\..\\\\outside\\\\secret.txt", st)));
+        hcheck("HFS-95",
+               "and a mixed-separator escape is refused as well",
+               hfs.stat("sub/..\\\\../outside/secret.txt", st) ==
+                   EsxdosHostFs::kEpath);
 
         hcheck("HFS-17",
                "a SUBDIRECTORY is reachable — the precedent resolve_sibling() "
@@ -980,6 +1046,119 @@ void run_esxdos_hostfs_rows(int& passed, int& failed)
         Z80Registers home{};
         home.IX = kName;
         esx(emu, 0xA9, home);
+    }
+
+    // ── The drive-qualified filespec, through the MARSHALLING layer ──────
+    //
+    // WHY THESE ROWS EXIST, AND WHY THE SUITE NEEDED THEM.
+    //
+    // HFS-06..09 already assert that resolve() maps '*:', '$:' and 'c:' inside
+    // the root — but they call the CLASS, so they never touch the code that
+    // reads the filespec out of guest memory. Every Tier-2 row went through the
+    // real dispatcher, which is the point of Tier 2, but every one of them used
+    // a filename with no colon in it. So the one input class that proves the
+    // two tiers agree was the one class neither tested, and a marshalling
+    // helper that truncated the filespec at ':' (it terminated on NUL, CR and
+    // ':', the dot-command COMMAND-TAIL convention, wrongly applied to a
+    // filespec) passed 147 green rows while handing resolve() the single byte
+    // "c". Found in review, GH #31. These rows close that seam for all four
+    // path-keyed calls, which share the one reader.
+    {
+        uint8_t e = 0;
+        const uint8_t h = do_open(emu, "c:/hello.txt", EsxdosHostFs::kModeRead, e);
+        Z80Registers r{};
+        r.AF = static_cast<uint16_t>(h << 8);
+        r.IX = kBuf;
+        r.BC = 5;
+        const bool read_ok = e == 0 && esx(emu, 0x9D, r) && !cy(r);
+        std::string got;
+        for (int i = 0; i < 5; ++i)
+            got.push_back(static_cast<char>(emu.mmu().read(kBuf + i)));
+        hcheck("HFS-84",
+               "F_OPEN of a DRIVE-QUALIFIED filespec 'c:/hello.txt' reaches the "
+               "file: the marshalling layer must not stop the filespec at ':', "
+               "which is the form asm_esx_f_open.asm documents ('overridden if "
+               "filespec includes a drive') and NextZXOS's own ROM literals use",
+               e == 0 && read_ok && got == "HELLO",
+               "err=" + hex2(e) + " got='" + got + "'");
+        Z80Registers c{};
+        c.AF = static_cast<uint16_t>(h << 8);
+        esx(emu, 0x9B, c);
+
+        uint8_t e2 = 0, e3 = 0;
+        const uint8_t h2 = do_open(emu, "*:/hello.txt", EsxdosHostFs::kModeRead, e2);
+        Z80Registers c2{};
+        c2.AF = static_cast<uint16_t>(h2 << 8);
+        esx(emu, 0x9B, c2);
+        const uint8_t h3 = do_open(emu, "$:/hello.txt", EsxdosHostFs::kModeRead, e3);
+        Z80Registers c3{};
+        c3.AF = static_cast<uint16_t>(h3 << 8);
+        esx(emu, 0x9B, c3);
+        hcheck("HFS-85",
+               "the esxDOS drive letters esx_drive_current '*' and "
+               "esx_drive_system '$' (esxapi.def:129-130) survive marshalling "
+               "too, not just the 'c:' form",
+               e2 == 0 && e3 == 0,
+               "star=" + hex2(e2) + " dollar=" + hex2(e3));
+    }
+    {
+        poke_str(emu, kName, "c:/hello.txt");
+        Z80Registers r{};
+        r.IX = kName;
+        r.DE = kStat;
+        const bool ok = esx(emu, 0xAC, r) && !cy(r);
+        hcheck("HFS-86",
+               "F_STAT takes a drive-qualified filespec through the dispatcher",
+               ok && emu.mmu().read(kStat + 7) == 12,
+               "A=" + hex2(rega(r)));
+    }
+    {
+        poke_str(emu, kName, "c:/sub");
+        Z80Registers r{};
+        r.IX = kName;
+        r.BC = static_cast<uint16_t>(EsxdosHostFs::kDirLfnOnly << 8);
+        const bool ok = esx(emu, 0xA3, r) && !cy(r);
+        const uint8_t dh = rega(r);
+        hcheck("HFS-87", "F_OPENDIR does as well",
+               ok && EsxdosHostFs::is_dir_handle(dh), "A=" + hex2(dh));
+        Z80Registers c{};
+        c.AF = static_cast<uint16_t>(dh << 8);
+        esx(emu, 0x9B, c);
+    }
+    {
+        poke_str(emu, kName, "c:/sub");
+        Z80Registers r{};
+        r.IX = kName;
+        const bool ok = esx(emu, 0xA9, r) && !cy(r);
+        Z80Registers g{};
+        g.IX = kBuf;
+        esx(emu, 0xA8, g);
+        uint16_t end = 0;
+        const std::string cwd = peek_str(emu, kBuf, end);
+        hcheck("HFS-88",
+               "and so does F_CHDIR — all four path-keyed calls share the one "
+               "filespec reader, so all four are pinned",
+               ok && cwd == "/sub", "A=" + hex2(rega(r)) + " cwd='" + cwd + "'");
+        poke_str(emu, kName, "/");
+        Z80Registers home{};
+        home.IX = kName;
+        esx(emu, 0xA9, home);
+    }
+    {
+        // The deliberately DIFFERENT caller. M_EXECCMD is handed a dot-command
+        // COMMAND TAIL, which readdir.asm:78-79 documents as terminated by
+        // $00, $0d or ':' — so it keeps the colon-splitting a filespec must not
+        // have. Pinned so the split above cannot be "tidied" into one reader.
+        poke_str(emu, kName, "RUN next.nex:REM trailing basic");
+        Z80Registers r{};
+        r.IX = kName;
+        const bool handled = esx(emu, 0x8F, r);
+        hcheck("HFS-89",
+               "M_EXECCMD still ends the COMMAND TAIL at ':' — that terminator "
+               "set belongs to the command line, and is exactly what must not "
+               "be applied to a filespec",
+               handled && !cy(r),
+               "handled=" + std::to_string(handled) + " A=" + hex2(rega(r)));
     }
 
     // ── Rewind: handles travel as (path, offset, mode) ────────────────────

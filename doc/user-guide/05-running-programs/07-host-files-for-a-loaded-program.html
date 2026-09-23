@@ -2897,6 +2897,8 @@ on the real files in that directory, including files in subdirectories. Edit a
 file on the host, re-run, and the program reads the new version — nothing to
 copy.</p>
 <p>It is read-only unless you also pass <code>--esxdos-stub-writable</code>.</p>
+<p>If the directory does not exist, JNEXT says so and stops, rather than starting
+up with the option quietly doing nothing.</p>
 <h2 id="what-sees-it-and-what-does-not">What sees it, and what does not<a class="headerlink" href="#what-sees-it-and-what-does-not" title="Permanent link">&para;</a></h2>
 <p>This is the part worth reading twice, because the name invites a reasonable
 assumption that is wrong.</p>
@@ -2937,9 +2939,11 @@ the SD-card image.</p>
 <h2 id="paths-as-the-program-sees-them">Paths, as the program sees them<a class="headerlink" href="#paths-as-the-program-sees-them" title="Permanent link">&para;</a></h2>
 <p>Inside the directory, paths behave like FAT paths rather than host paths:</p>
 <ul>
-<li><code>/</code> separates components, and a leading <code>/</code> means the top of <em>your</em>
-  directory — <code>/data/level1.bin</code> is <code>&lt;your directory&gt;/data/level1.bin</code>, never
-  the host's <code>/data</code></li>
+<li><code>/</code> and <code>\</code> both separate components, and a leading separator means the top
+  of <em>your</em> directory — <code>/data/level1.bin</code> is
+  <code>&lt;your directory&gt;/data/level1.bin</code>, never the host's <code>/data</code>. (A host file
+  whose name contains a backslash is therefore unreachable. FAT cannot name one
+  either, so no program that expects a FAT card can ask for it.)</li>
 <li>lookup ignores case, so a program asking for <code>LEVEL1.BIN</code> finds <code>level1.bin</code></li>
 <li>the esxDOS drive prefixes <code>*:</code>, <code>$:</code> and <code>c:</code> all mean the same directory</li>
 <li>long names get a synthesised 8.3 short name, the way FAT does, for programs

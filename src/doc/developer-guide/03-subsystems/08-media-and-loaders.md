@@ -393,17 +393,51 @@ worth knowing: with a root configured, the extended-NEX bridge's *sibling*
 lookup is skipped, so only the NEX's own filename still resolves beside the
 NEX — otherwise one name could mean two files.
 
+**Reading the filespec.** Two readers, and the distinction is load-bearing. A
+dot command's COMMAND TAIL is "terminated by `$00`, `$0d` or `':'`"
+(`readdir.asm:78-79`), so `M_EXECCMD` uses `read_cmdline`. A FILESPEC is
+NUL-terminated and nothing else — every esxDOS header block says so in those
+words — so the four path-keyed calls plus the two pre-existing `F_OPEN` sites
+use `read_filespec`. Applying the command-tail terminator set to a filespec
+truncates exactly the drive-qualified form the API is built around: F_OPEN is
+documented as "A=drive specifier (overridden if filespec includes a drive)",
+`esxapi.def:129-130` assigns `'*'` and `'$'` as drive letters, and NextZXOS's
+ROM carries literals like `"c:/nextzxos/autoexec.1st"`. That bug shipped into
+review: one shared helper split on `':'`, so `"c:/hello.txt"` reached
+`resolve()` as the single byte `"c"` and every drive-qualified open returned
+`ENOENT`. `HFS-84..88` pin all four calls through the dispatcher and `HFS-89`
+pins that `M_EXECCMD` still splits.
+
+**A bad root is fatal.** `EsxdosHostFs::validate_root()` is called from
+`main.cpp` beside the `--rzx-record` start-up check, and a root that does not
+exist or is not a directory exits non-zero. It has to: parsing the flag also
+sets `esxdos_stub`, so continuing would quietly serve the in-memory file and a
+typo in a CI script would go green with the feature off. `configure()` calls
+the same function, so the two cannot disagree.
+
 **Containment.** Primary confinement is LEXICAL and consults nothing: the guest
 path is split, `.` dropped, `..` popped, and a pop that would leave the root
 refused with `esx_epath`. An escaping path is therefore never constructed. A
-guest absolute path is absolute *within* the root. The drive qualifiers `*:`,
+guest absolute path is absolute *within* the root. Both `/` and `\` separate
+components, on every host: FAT forbids a backslash inside a name, and treating
+it as an ordinary character would leave `std::filesystem::path` re-splitting it
+on a Windows build but not a POSIX one, so the lexical walk would enforce
+different things per platform. The drive qualifiers `*:`,
 `$:` and `c:` (`esxapi.def:129-130`) all map to the root. On top of that, every
 existing component is checked with `symlink_status()` and refused if it is a
 link, the result is canonicalised and re-checked against the canonical root,
 and an open re-checks once more afterwards. Those layers are genuinely
-independent — mutation testing found that disabling any one of them left the
-escape rows green, and only removing the root mechanism (`symlink_status` →
-`status`) turned them red. The residual TOCTOU window is documented in the
+independent, and that has a consequence worth stating plainly: **no row can
+prove any single symlink check is load-bearing**, because neutralising one does
+not change the answer. A reviewer measured it — all seven neutralised at once
+still gave a green suite. What the rows pin instead is that no call surface has
+lost *all* its protection, once per surface, using a link whose target is
+INSIDE the root (the only case containment cannot catch): `HFS-12` stat,
+`HFS-90` open, `HFS-91` opendir, `HFS-92` chdir. For `open` and `stat` the
+discriminating mutation is `symlink_status` → `status`, because their
+`is_regular_file` gate implicitly refuses a link too; for `opendir` and `chdir`
+deleting the explicit check is enough. The full note is in
+`esxdos_hostfs.cpp`. The residual TOCTOU window is documented in the
 `.cpp`: closing it needs an `openat(O_NOFOLLOW)` walk with no portable form
 across the Linux, macOS and MinGW builds.
 
@@ -443,7 +477,7 @@ volume at the block layer, which the project declined
 `--help`, the man page and the user guide because the flag's name invites the
 opposite assumption.
 
-**Tests.** `HFS-01..83` in `test/esxdos_stub/esxdos_hostfs_rows.cpp` (linked
+**Tests.** `HFS-01..95` in `test/esxdos_stub/esxdos_hostfs_rows.cpp` (linked
 into `esxdos_stub_test`): the sandbox and the 8.3/timestamp synthesis against
 the class, every register convention through the real dispatcher. The
 regression row `esxdos-hostfs-func` runs a real guest program that opens, seeks

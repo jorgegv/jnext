@@ -17,6 +17,9 @@ copy.
 
 It is read-only unless you also pass `--esxdos-stub-writable`.
 
+If the directory does not exist, JNEXT says so and stops, rather than starting
+up with the option quietly doing nothing.
+
 ## What sees it, and what does not
 
 This is the part worth reading twice, because the name invites a reasonable
@@ -66,9 +69,11 @@ the SD-card image.
 
 Inside the directory, paths behave like FAT paths rather than host paths:
 
-- `/` separates components, and a leading `/` means the top of *your*
-  directory — `/data/level1.bin` is `<your directory>/data/level1.bin`, never
-  the host's `/data`
+- `/` and `\` both separate components, and a leading separator means the top
+  of *your* directory — `/data/level1.bin` is
+  `<your directory>/data/level1.bin`, never the host's `/data`. (A host file
+  whose name contains a backslash is therefore unreachable. FAT cannot name one
+  either, so no program that expects a FAT card can ask for it.)
 - lookup ignores case, so a program asking for `LEVEL1.BIN` finds `level1.bin`
 - the esxDOS drive prefixes `*:`, `$:` and `c:` all mean the same directory
 - long names get a synthesised 8.3 short name, the way FAT does, for programs

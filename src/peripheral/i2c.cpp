@@ -101,8 +101,15 @@ uint8_t I2cRtc::to_bcd(int val) {
 }
 
 bool I2cRtc::current_time(std::tm& out) const {
-    // Same two sources, same order, as snapshot_time() below. Kept beside it
-    // deliberately: if one grows a third source the other must too.
+    // Mirrors snapshot_time()'s two REAL sources, in its order: the pinned
+    // --rtc value, else the host clock. It deliberately does NOT mirror that
+    // function's third early return, `!use_real_time_`: that flag is a
+    // TEST-ONLY freeze (see its accessor's banner in i2c.h) which exists so a
+    // suite can seed BCD registers by hand, and it has no meaning for a guest
+    // asking M_GETDATE what time it is. The CH (oscillator-halt) return above
+    // IS mirrored, because that one is real DS1307 behaviour the guest can
+    // cause. Kept beside snapshot_time(): if either grows a real source, both
+    // must.
     if (osc_halt_) return false;
     if (has_fixed_time_) { out = fixed_tm_; return true; }
     std::time_t now = std::time(nullptr);

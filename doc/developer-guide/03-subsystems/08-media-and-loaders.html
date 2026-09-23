@@ -2315,17 +2315,49 @@ outright, since with a root there is exactly one volume. The one interaction
 worth knowing: with a root configured, the extended-NEX bridge's <em>sibling</em>
 lookup is skipped, so only the NEX's own filename still resolves beside the
 NEX — otherwise one name could mean two files.</p>
+<p><strong>Reading the filespec.</strong> Two readers, and the distinction is load-bearing. A
+dot command's COMMAND TAIL is "terminated by <code>$00</code>, <code>$0d</code> or <code>':'</code>"
+(<code>readdir.asm:78-79</code>), so <code>M_EXECCMD</code> uses <code>read_cmdline</code>. A FILESPEC is
+NUL-terminated and nothing else — every esxDOS header block says so in those
+words — so the four path-keyed calls plus the two pre-existing <code>F_OPEN</code> sites
+use <code>read_filespec</code>. Applying the command-tail terminator set to a filespec
+truncates exactly the drive-qualified form the API is built around: F_OPEN is
+documented as "A=drive specifier (overridden if filespec includes a drive)",
+<code>esxapi.def:129-130</code> assigns <code>'*'</code> and <code>'$'</code> as drive letters, and NextZXOS's
+ROM carries literals like <code>"c:/nextzxos/autoexec.1st"</code>. That bug shipped into
+review: one shared helper split on <code>':'</code>, so <code>"c:/hello.txt"</code> reached
+<code>resolve()</code> as the single byte <code>"c"</code> and every drive-qualified open returned
+<code>ENOENT</code>. <code>HFS-84..88</code> pin all four calls through the dispatcher and <code>HFS-89</code>
+pins that <code>M_EXECCMD</code> still splits.</p>
+<p><strong>A bad root is fatal.</strong> <code>EsxdosHostFs::validate_root()</code> is called from
+<code>main.cpp</code> beside the <code>--rzx-record</code> start-up check, and a root that does not
+exist or is not a directory exits non-zero. It has to: parsing the flag also
+sets <code>esxdos_stub</code>, so continuing would quietly serve the in-memory file and a
+typo in a CI script would go green with the feature off. <code>configure()</code> calls
+the same function, so the two cannot disagree.</p>
 <p><strong>Containment.</strong> Primary confinement is LEXICAL and consults nothing: the guest
 path is split, <code>.</code> dropped, <code>..</code> popped, and a pop that would leave the root
 refused with <code>esx_epath</code>. An escaping path is therefore never constructed. A
-guest absolute path is absolute <em>within</em> the root. The drive qualifiers <code>*:</code>,
+guest absolute path is absolute <em>within</em> the root. Both <code>/</code> and <code>\</code> separate
+components, on every host: FAT forbids a backslash inside a name, and treating
+it as an ordinary character would leave <code>std::filesystem::path</code> re-splitting it
+on a Windows build but not a POSIX one, so the lexical walk would enforce
+different things per platform. The drive qualifiers <code>*:</code>,
 <code>$:</code> and <code>c:</code> (<code>esxapi.def:129-130</code>) all map to the root. On top of that, every
 existing component is checked with <code>symlink_status()</code> and refused if it is a
 link, the result is canonicalised and re-checked against the canonical root,
 and an open re-checks once more afterwards. Those layers are genuinely
-independent — mutation testing found that disabling any one of them left the
-escape rows green, and only removing the root mechanism (<code>symlink_status</code> →
-<code>status</code>) turned them red. The residual TOCTOU window is documented in the
+independent, and that has a consequence worth stating plainly: <strong>no row can
+prove any single symlink check is load-bearing</strong>, because neutralising one does
+not change the answer. A reviewer measured it — all seven neutralised at once
+still gave a green suite. What the rows pin instead is that no call surface has
+lost <em>all</em> its protection, once per surface, using a link whose target is
+INSIDE the root (the only case containment cannot catch): <code>HFS-12</code> stat,
+<code>HFS-90</code> open, <code>HFS-91</code> opendir, <code>HFS-92</code> chdir. For <code>open</code> and <code>stat</code> the
+discriminating mutation is <code>symlink_status</code> → <code>status</code>, because their
+<code>is_regular_file</code> gate implicitly refuses a link too; for <code>opendir</code> and <code>chdir</code>
+deleting the explicit check is enough. The full note is in
+<code>esxdos_hostfs.cpp</code>. The residual TOCTOU window is documented in the
 <code>.cpp</code>: closing it needs an <code>openat(O_NOFOLLOW)</code> walk with no portable form
 across the Linux, macOS and MinGW builds.</p>
 <p><strong>Rewind.</strong> An open <code>std::fstream</code> is not snapshottable, so <code>save_state</code> writes
@@ -2373,7 +2405,7 @@ volume at the block layer, which the project declined
 (<code>doc/design/TASK89-ESXDOS-HOST-FILESYSTEM.md</code> §0.1 decision 5). The boundary is permanent, and the user-facing docs say so in
 <code>--help</code>, the man page and the user guide because the flag's name invites the
 opposite assumption.</p>
-<p><strong>Tests.</strong> <code>HFS-01..83</code> in <code>test/esxdos_stub/esxdos_hostfs_rows.cpp</code> (linked
+<p><strong>Tests.</strong> <code>HFS-01..95</code> in <code>test/esxdos_stub/esxdos_hostfs_rows.cpp</code> (linked
 into <code>esxdos_stub_test</code>): the sandbox and the 8.3/timestamp synthesis against
 the class, every register convention through the real dispatcher. The
 regression row <code>esxdos-hostfs-func</code> runs a real guest program that opens, seeks

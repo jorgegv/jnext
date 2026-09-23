@@ -146,6 +146,12 @@ public:
     /// closes every handle.
     bool configure(const std::string& root, bool writable, std::string& error);
 
+    /// Check a candidate root WITHOUT configuring anything, so the CLI can
+    /// refuse at start-up instead of degrading silently to the in-memory
+    /// stub. configure() calls it, so the two can never disagree.
+    static bool validate_root(const std::string& root, std::string& error,
+                              std::filesystem::path* canonical = nullptr);
+
     bool active() const { return active_; }
     bool writable() const { return writable_; }
     const std::filesystem::path& root() const { return root_; }

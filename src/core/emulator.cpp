@@ -1184,12 +1184,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 if (carry_set) f |= 0x01; else f &= 0xFE;
                 r.AF = static_cast<uint16_t>((static_cast<uint16_t>(a) << 8) | f);
             };
-            auto read_zstr = [this](uint16_t address) {
+            // A dot command's COMMAND TAIL is "terminated by $00, $0d or ':'"
+            // (tbblue src/asm/readdir/readdir.asm:78-79, describing the entry
+            // convention every dot command is given). That triple belongs to
+            // the command line and to nothing else.
+            auto read_cmdline = [this](uint16_t address) {
                 std::string value;
                 for (int i = 0; i < 255; ++i) {
                     const char ch = static_cast<char>(mmu_.read(
                         static_cast<uint16_t>(address + i)));
                     if (ch == '\0' || ch == '\r' || ch == ':') break;
+                    value.push_back(ch);
+                }
+                return value;
+            };
+            // A FILESPEC is NUL-terminated and nothing else — every esxDOS
+            // header block says so in those words ("IX=filespec,
+            // null-terminated", asm_esx_f_open.asm; likewise F_STAT, F_OPENDIR
+            // and F_CHDIR). Splitting one on ':' truncates exactly the
+            // drive-qualified form the API is built around: F_OPEN is
+            // documented as "A=drive specifier (overridden if filespec
+            // includes a drive)", so "c:/game/data.bin" is a normal argument,
+            // and esxapi.def:129-130 assigns '*' and '$' as drive letters for
+            // the same purpose. NextZXOS's own ROM carries literals of that
+            // shape ("c:/nextzxos/autoexec.1st"). Reading a filespec with the
+            // command-tail terminator set handed resolve() the single byte "c"
+            // and every drive-qualified open failed ENOENT (GH #31 review).
+            auto read_filespec = [this](uint16_t address) {
+                std::string value;
+                for (int i = 0; i < 255; ++i) {
+                    const char ch = static_cast<char>(mmu_.read(
+                        static_cast<uint16_t>(address + i)));
+                    if (ch == '\0') break;
                     value.push_back(ch);
                 }
                 return value;
@@ -1285,7 +1311,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         return true;
                     }
                     case 0x9A: { // F_OPEN — active NEX or safe sibling, read-only
-                        const std::string filename = read_zstr(r.IX);
+                        const std::string filename = read_filespec(r.IX);
                         Log::emulator()->debug(
                             "extended NEX F_OPEN: '{}' mode={:#04x}",
                             filename, static_cast<uint8_t>(r.BC >> 8));
@@ -1495,7 +1521,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     case 0x9A: {  // F_OPEN — A=drive, IX=filespec, B=mode
                         uint8_t h = 0;
                         const uint8_t err = esxdos_hostfs_.open(
-                            read_zstr(r.IX), static_cast<uint8_t>(r.BC >> 8), h);
+                            read_filespec(r.IX), static_cast<uint8_t>(r.BC >> 8), h);
                         if (err) { r.HL = 0xFFFF; return fail(err); }
                         return done(h);
                     }
@@ -1572,7 +1598,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     case 0xAC: {  // F_STAT — A=drive, IX=filespec, DE=11 bytes
                         EsxdosHostFs::StatInfo st;
                         const uint8_t err =
-                            esxdos_hostfs_.stat(read_zstr(r.IX), st);
+                            esxdos_hostfs_.stat(read_filespec(r.IX), st);
                         if (err) return fail(err);
                         put_stat(r.DE, st);
                         return done(0x00);
@@ -1580,7 +1606,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     case 0xA3: {  // F_OPENDIR — A=drive, IX=path, B=mode
                         uint8_t h = 0;
                         const uint8_t err = esxdos_hostfs_.opendir(
-                            read_zstr(r.IX), static_cast<uint8_t>(r.BC >> 8), h);
+                            read_filespec(r.IX), static_cast<uint8_t>(r.BC >> 8), h);
                         if (err) return fail(err);
                         return done(h);
                     }
@@ -1646,7 +1672,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     }
                     case 0xA9:    // F_CHDIR — A=drive, IX=path
                         if (const uint8_t err =
-                                esxdos_hostfs_.chdir(read_zstr(r.IX)))
+                                esxdos_hostfs_.chdir(read_filespec(r.IX)))
                             return fail(err);
                         return done(0x00);
                     case 0xB1:    // F_GETFREE — A=drive; BCDE = 512-byte blocks
@@ -1707,7 +1733,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     return true;
                 }
                 case 0x8F: { // M_EXECCMD — support .RUN sibling.nex
-                    std::string command = read_zstr(r.IX);
+                    std::string command = read_cmdline(r.IX);
                     while (!command.empty() && command.front() == ' ') command.erase(0, 1);
                     if (command.size() < 4 ||
                         (command[0] != 'r' && command[0] != 'R') ||
@@ -1731,7 +1757,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     return true;
                 }
                 case 0x9A: { // F_OPEN — one in-memory file, persistent across NEX reset
-                    const std::string filename = read_zstr(r.IX);
+                    const std::string filename = read_filespec(r.IX);
                     const uint8_t mode = static_cast<uint8_t>(r.BC >> 8);
                     if ((mode & 0x02) != 0) {
                         esxdos_stub_filename_ = filename;

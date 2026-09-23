@@ -66,6 +66,24 @@ bool fits_8_3(const std::string& name) {
 
 // ── Configuration ────────────────────────────────────────────────────────
 
+bool EsxdosHostFs::validate_root(const std::string& root, std::string& error,
+                                 fs::path* canonical)
+{
+    if (root.empty()) { error = "empty directory name"; return false; }
+    std::error_code ec;
+    const fs::path resolved = fs::canonical(fs::path(root), ec);
+    if (ec) {
+        error = "cannot resolve '" + root + "': " + ec.message();
+        return false;
+    }
+    if (!fs::is_directory(resolved, ec) || ec) {
+        error = "'" + root + "' is not a directory";
+        return false;
+    }
+    if (canonical) *canonical = resolved;
+    return true;
+}
+
 bool EsxdosHostFs::configure(const std::string& root, bool writable,
                              std::string& error)
 {
@@ -76,18 +94,8 @@ bool EsxdosHostFs::configure(const std::string& root, bool writable,
     writable_ = false;
     root_.clear();
 
-    if (root.empty()) { error = "empty directory name"; return false; }
-
-    std::error_code ec;
-    fs::path canonical = fs::canonical(fs::path(root), ec);
-    if (ec) {
-        error = "cannot resolve '" + root + "': " + ec.message();
-        return false;
-    }
-    if (!fs::is_directory(canonical, ec) || ec) {
-        error = "'" + root + "' is not a directory";
-        return false;
-    }
+    fs::path canonical;
+    if (!validate_root(root, error, &canonical)) return false;
     root_ = canonical;
     writable_ = writable;
     active_ = true;
@@ -119,6 +127,43 @@ bool EsxdosHostFs::configure(const std::string& root, bool writable,
 // write access to the directory the USER chose to serve — jnext is not a
 // privileged service and runs as the user whose files these are. This is an
 // accepted bound, not an oversight.
+//
+// WHAT THE TESTS CAN AND CANNOT PIN — read this before "simplifying" a check.
+//
+// The symlink refusals are deliberately REDUNDANT, and redundancy is exactly
+// what makes an individual one impossible to pin behaviourally: neutralise any
+// single `symlink_status()` here and the observable answer does not change,
+// because another layer refuses the same input. A reviewer measured that
+// (GH #31): all seven neutralised at once still gave 147/147 green, and only a
+// coordinated two-site swap reddens a row. So there is NO row that proves any
+// one of these calls is load-bearing, and none is claimed to.
+//
+// What the rows do pin, per call surface, is that the surface has not lost ALL
+// of its protection:
+//
+//   * the escaping case (a link whose target is outside the root) is caught by
+//     contained() below whatever any stat believed, because weakly_canonical()
+//     resolves links — that is the real backstop, and HFS-10/HFS-11 pin it;
+//   * the policy case (a link whose target is INSIDE the root) has no backstop
+//     — containment cannot object to it — so it is pinned once per call:
+//     HFS-12 for stat(), HFS-90 for open(), HFS-91 for opendir(), HFS-92 for
+//     chdir(). Those are the rows that go red if a call surface stops refusing
+//     links altogether.
+//
+// One measured subtlety, so nobody re-derives it from scratch. open() and
+// stat() carry a THIRD, implicit refusal: they ask symlink_status(), which
+// never reports a link as a regular file, so their is_regular_file/type gate
+// rejects one even with the explicit check deleted. Deleting that check alone
+// therefore changes nothing observable, and the mutation that reddens HFS-90
+// and HFS-12 is the realistic mistake — swapping symlink_status() for
+// status(), so the link looks like its target. opendir() and chdir() have no
+// such implicit gate (a link to a directory IS a directory through status()),
+// so deleting their explicit check alone does redden HFS-91 and HFS-92.
+//
+// The consequence to accept: a single-site regression is invisible to the test
+// suite BY CONSTRUCTION, and the system still refuses the input. If you delete
+// a check here because "no test covers it", you are removing a layer, not dead
+// code — and the per-call rows above will keep passing until the last one goes.
 
 bool EsxdosHostFs::contained(const fs::path& p) const
 {
@@ -148,15 +193,28 @@ uint8_t EsxdosHostFs::resolve(const std::string& guest_path, fs::path& out,
         s = s.substr(2);
     if (s.empty()) s = ".";
 
-    // '/' is the only separator. A backslash is a legal byte in a POSIX file
-    // name, so treating it as a separator would make some host files
-    // unreachable; esxDOS paths use '/'.
-    const bool absolute = s.front() == '/';
+    // BOTH '/' and '\\' separate components, on every host.
+    //
+    // The guest is writing FAT paths, and FAT forbids '\\' inside a name while
+    // accepting it as a separator, so a program that sends one means a
+    // separator. Honouring that is also what keeps this routine
+    // PLATFORM-INDEPENDENT: if '\\' were an ordinary character, then
+    // "a\\..\\..\\etc\\passwd" would stay one component here and be re-split by
+    // std::filesystem::path on a Windows build but not on a POSIX one, so the
+    // lexical walk below — the part that cannot be defeated — would enforce
+    // different things on different platforms and only the canonical
+    // back-stop would agree. The cost is that a host file whose name really
+    // contains a backslash is unreachable; FAT cannot name such a file, so no
+    // FAT-expecting guest can ask for one.
+    auto is_sep = [](char c) { return c == '/' || c == '\\'; };
+    const bool absolute = is_sep(s.front());
     std::vector<std::string> comps = absolute ? std::vector<std::string>{} : cwd_;
 
     std::size_t i = 0;
     while (i <= s.size()) {
-        const std::size_t next = s.find('/', i);
+        std::size_t next = std::string::npos;
+        for (std::size_t j = i; j < s.size(); ++j)
+            if (is_sep(s[j])) { next = j; break; }
         const std::string part =
             s.substr(i, next == std::string::npos ? std::string::npos : next - i);
         i = (next == std::string::npos) ? s.size() + 1 : next + 1;
@@ -570,6 +628,12 @@ uint8_t EsxdosHostFs::opendir(const std::string& guest_path, uint8_t mode,
     if (fs::is_symlink(st)) return kEacces;
     if (!fs::is_directory(st)) return kEnotdir;
 
+    // Re-check containment here as open() does. resolve()'s own trailing check
+    // already covers this path, so this is defence in depth, not the barrier —
+    // but having one of the two entry points re-check and the other not was an
+    // inconsistency a reader would have to resolve by guessing (GH #31 review).
+    if (!contained(host)) return kEacces;
+
     int slot = -1;
     for (int i = 0; i < kDirHandles; ++i)
         if (!dirs_[i].open) { slot = i; break; }
@@ -756,11 +820,16 @@ uint32_t EsxdosHostFs::free_blocks() const
     const fs::space_info si = fs::space(root_, ec);
     const uint64_t bytes = ec ? 0 : si.available;
     uint64_t blocks = bytes / 512;
-    // F_GETFREE hands the guest a 32-bit block count in BCDE. A host answering
-    // in terabytes overflows guests that multiply it back into bytes, so clamp
-    // to the free space the largest plausible FAT32 volume could report
-    // (2 TiB / 512 = 0xFFFFFFFF blocks is the 32-bit ceiling itself; 4 GiB of
-    // free space is a figure any FAT-expecting guest handles).
+    // F_GETFREE hands the guest a 32-bit block count in BCDE
+    // (asm_esx_f_getfree.asm). The count itself cannot overflow — a 512-byte
+    // block count fits 32 bits up to 2 TiB — but a GUEST that multiplies it
+    // back into a byte figure overflows its own 32-bit arithmetic above 4 GiB,
+    // and a Z80 program's "free space" arithmetic is routinely 32-bit or less.
+    // So the bound is chosen for the CONSUMER, not for the field: report at
+    // most 4 GiB worth of blocks, the largest free figure whose byte value
+    // still fits the register width a guest is likely to compute it in. A host
+    // with terabytes free reports this ceiling instead of a true number, which
+    // is the honest trade for a value no FAT-era program can use anyway.
     constexpr uint64_t kMaxBlocks = 4ULL * 1024 * 1024 * 1024 / 512;  // 8388608
     if (blocks > kMaxBlocks) blocks = kMaxBlocks;
     return static_cast<uint32_t>(blocks);

@@ -230,13 +230,15 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     put a file where NextZXOS can see it, copy it into the SD-card
     image.**
 
-    Inside *DIR*, paths behave as FAT paths: `/` separates components
-    and is the root of *DIR* rather than the host’s root, lookup ignores
-    case, and the drive letters `*:`, `$:` and `c:` all mean *DIR*. A
-    path that would leave *DIR*, and any symbolic link, is refused;
-    symbolic links are not listed either. Where two host files differ
-    only in case and the guest’s spelling matches neither exactly, the
-    first in byte order is taken.
+    Inside *DIR*, paths behave as FAT paths: `/` and `\` both separate
+    components, a leading separator is the root of *DIR* rather than the
+    host’s root, lookup ignores case, and the drive letters `*:`, `$:`
+    and `c:` all mean *DIR*. A path that would leave *DIR*, and any
+    symbolic link, is refused; symbolic links are not listed either.
+    Because `\` is a separator, a host file whose name contains one
+    cannot be reached — FAT cannot name such a file either. Where two
+    host files differ only in case and the guest’s spelling matches
+    neither exactly, the first in byte order is taken.
 
     Directory entries carry the host file’s modification time.
     `M_GETDATE` answers from the emulated clock instead, so it follows

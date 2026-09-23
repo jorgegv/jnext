@@ -25,6 +25,14 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 # pass proves the content came from the directory this flag named, rather than
 # from the NEX, the SD card, or anywhere else.
 #
+# THE FILESPEC IS DRIVE-QUALIFIED ("c:/data.txt"), not a bare name. That form
+# is what real esxDOS software writes — asm_esx_f_open.asm documents "A=drive
+# specifier (overridden if filespec includes a drive)" and NextZXOS's own ROM
+# carries literals like "c:/nextzxos/autoexec.1st" — and it is the form that
+# exposed a marshalling helper truncating the filespec at ':' (GH #31 review).
+# A unit row cannot stand in for this one: the bug lived between guest memory
+# and the sandbox, so only a real guest handing over a real filespec crosses it.
+#
 # THIRD ASSERTION — the sandbox, from inside the guest. After reading its
 # file, the program tries to open "../escape.txt", which really does exist one
 # level above the root. It must be refused (Fc=1), and the guest says which
@@ -183,7 +191,7 @@ bank2[0:len(out)] = out
 def put(addr, raw):
     off = addr - 0x8000
     bank2[off:off + len(raw)] = raw
-put(DATA["fname"],   b"data.txt\0")
+put(DATA["fname"],   b"c:/data.txt\0")   # DRIVE-QUALIFIED on purpose
 put(DATA["escname"], b"../escape.txt\0")
 put(DATA["m_ok"],    b"SANDBOX-OK\r\0")
 put(DATA["m_bad"],   b"SANDBOX-ESCAPED\r\0")
@@ -212,6 +220,16 @@ PY
         --esxdos-stub --load "$hf_nex" \
         --delayed-automatic-exit-frames 120 2>&1) || true
 
+    # FOURTH ASSERTION — a root that cannot be served is FATAL. Parsing the flag
+    # also turns the stub on, so continuing would quietly serve the in-memory
+    # file instead and a typo in a CI script would go green with the feature
+    # silently off. Same contract --rzx-record's start-up check has.
+    bad_rc=0
+    bad_out=$("$JNEXT" --headless --machine 48k \
+        --esxdos-stub-root "$TMP_DIR/definitely-not-here" \
+        --delayed-automatic-exit-frames 5 2>&1) || bad_rc=$?
+    bad_msg=$(echo "$bad_out" | grep -cF -- "--esxdos-stub-root:" || true)
+
     # "6789AB" is bytes 6..11 of the 16-byte host file — only a working
     # F_OPEN + F_SEEK + F_READ produces it.
     hf_slice=$(echo "$hf_out" | grep -cxF "6789AB" || true)
@@ -223,10 +241,11 @@ PY
 
     if [[ "$hf_rc" -eq 0 && "$hf_slice" -ge 1 && "$hf_sandbox" -ge 1 \
           && "$hf_escaped" -eq 0 && "$hf_err" -eq 0 \
-          && "$ctl_slice" -eq 0 && "$ctl_err" -ge 1 ]]; then
-        pass_row " (guest read host bytes 6..11 via F_OPEN/F_SEEK/F_READ, escape refused; no root = no content)"
+          && "$ctl_slice" -eq 0 && "$ctl_err" -ge 1 \
+          && "$bad_rc" -ne 0 && "$bad_msg" -ge 1 ]]; then
+        pass_row " (drive-qualified c:/data.txt read at offset 6 via RST \$08; escape refused; no root = no content; bad root fatal)"
     else
-        fail_row " (rc=$hf_rc want0, slice=$hf_slice want>=1, sandbox_ok=$hf_sandbox want>=1, escaped=$hf_escaped want0, err=$hf_err want0, ctl_slice=$ctl_slice want0, ctl_err=$ctl_err want>=1)"
+        fail_row " (rc=$hf_rc want0, slice=$hf_slice want>=1, sandbox_ok=$hf_sandbox want>=1, escaped=$hf_escaped want0, err=$hf_err want0, ctl_slice=$ctl_slice want0, ctl_err=$ctl_err want>=1, bad_rc=$bad_rc want!=0, bad_msg=$bad_msg want>=1)"
     fi
 fi
 

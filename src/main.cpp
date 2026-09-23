@@ -3,6 +3,7 @@
 #include "core/cli_options.h"
 #include "core/log.h"
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
+#include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
@@ -843,6 +844,19 @@ int main(int argc, char* argv[]) {
             fprintf(stderr,
                     "--tape-save cannot be combined with RZX recording or playback: its SAVE "
                     "trap skips the ROM routine, which a recording cannot replay.\n");
+            return 1;
+        }
+    }
+
+    // GH #31 review — a --esxdos-stub-root that cannot be served is FATAL, not
+    // a warning. Parsing the flag also sets esxdos_stub, so carrying on would
+    // quietly serve the single in-memory file instead: a typo in a CI script
+    // would go green with the feature silently off, which is the failure mode
+    // --rzx-record's start-up check above exists to prevent.
+    if (!esxdos_stub_root.empty()) {
+        std::string why;
+        if (!EsxdosHostFs::validate_root(esxdos_stub_root, why)) {
+            fprintf(stderr, "--esxdos-stub-root: %s\n", why.c_str());
             return 1;
         }
     }
