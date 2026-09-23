@@ -759,6 +759,175 @@ static void g_nmiack_pc_capture()
 }
 
 // =====================================================================
+// Group Z80 (drive) — the Z80 end of the NMI pipeline (GH #201)
+//
+// Z80-01 (in the FSM group) stops at `nmi_generate_n`. These two rows
+// carry on from there: what the CPU does with the line, and what a reset
+// does to a pipeline that is already holding it low. Both were listed in
+// doc/testing/NMI-PIPELINE-TEST-PLAN-DESIGN.md and asserted nowhere.
+// =====================================================================
+
+// Printf-style detail string for the two rows below (this suite otherwise
+// builds details by concatenation, which these rows' register dumps make
+// unreadable).
+static std::string z80_detail(const char* format, ...)
+{
+    char buffer[320];
+    va_list args;
+    va_start(args, format);
+    std::vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+    return buffer;
+}
+
+// Park the CPU at 0xC000 on a `JP 0xC000` so every instruction boundary
+// is the SAME PC — the value an NMI acknowledge must push is then exact
+// rather than a function of how many steps the strobe took to arrive.
+static void z80_park_self_jump(Emulator& emu)
+{
+    emu.mmu().write(0xC000, 0xC3);
+    emu.mmu().write(0xC001, 0x00);
+    emu.mmu().write(0xC002, 0xC0);
+    auto r = emu.cpu().get_registers();
+    r.PC = 0xC000;
+    r.SP = 0xFFFE;
+    emu.cpu().set_registers(r);
+}
+
+// Step until the CPU is at the NMI vector, or give up. The tick cluster
+// inside execute_single_instruction raises request_nmi() on the falling
+// edge of nmi_generate_n and the NEXT execute takes it, so a handful of
+// steps are needed; the bound only stops a pathological case hanging.
+static bool z80_step_to_nmi(Emulator& emu, int& steps_out)
+{
+    for (int s = 1; s <= 64; ++s) {
+        emu.execute_single_instruction();
+        const uint16_t pc = emu.cpu().get_registers().PC;
+        if (pc >= 0x0066 && pc <= 0x006F) { steps_out = s; return true; }
+    }
+    steps_out = 64;
+    return false;
+}
+
+static void g_z80_drive()
+{
+    set_group("Z80");
+
+    // ── Z80-02 — the CPU accepts /NMI and vectors to 0x0066 ────────────
+    // zxnext.vhd:1841 wires nmi_generate_n (:2168) to the T80N's /NMI.
+    // The core answers it at the next instruction boundary with
+    // `NMICycle <= '1'; IntE_FF1 <= '0'` (t80n.vhd:1765-1767) and runs the
+    // RST-shaped acknowledge: the interrupted PC is written to the stack,
+    // SP drops by two and PC becomes 0x0066. RETN then restores IFF1 from
+    // IFF2 (t80n.vhd:1716-1718) and returns.
+    //
+    // IFF2 is deliberately NOT asserted: t80n.vhd:1765-1767 writes only
+    // IntE_FF1 on an NMI, so with IFF1 = IFF2 = 1 as the stimulus the
+    // "copy IFF1 into IFF2" reading and the "leave IFF2 alone" reading
+    // are indistinguishable — pinning one would pin a coincidence.
+    //
+    // NMI-INT-01/04/05 already reach PC = 0x0066 through this chain; what
+    // is new here is everything the acknowledge does BESIDES moving PC,
+    // none of which any row pinned.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.port().out(0x243B, 0x03);       // leave config mode, or
+        emu.port().out(0x253B, 0x01);       // zxnext.vhd:2156 pins the FSM
+        emu.port().out(0x243B, 0x50);       // slot 0 -> RAM page 0x20 so the
+        emu.port().out(0x253B, 0x20);       // 0x0066 vector is ours to write
+        emu.mmu().write(0x0066, 0xED);      // RETN
+        emu.mmu().write(0x0067, 0x45);
+        emu.mmu().write(0xFFFC, 0xA5);      // stack markers
+        emu.mmu().write(0xFFFD, 0x5A);
+        z80_park_self_jump(emu);
+        auto r0 = emu.cpu().get_registers();
+        r0.IFF1 = 1;
+        r0.IFF2 = 1;
+        emu.cpu().set_registers(r0);
+
+        emu.nmi_source().set_divmmc_enable(true);   // NR 0x06 bit 4
+        emu.nmi_source().strobe_divmmc_button();
+
+        int steps = 0;
+        const bool took = z80_step_to_nmi(emu, steps);
+        const auto at = emu.cpu().get_registers();
+        const uint8_t stack_lo = emu.mmu().read(0xFFFC);
+        const uint8_t stack_hi = emu.mmu().read(0xFFFD);
+        emu.execute_single_instruction();           // the RETN at 0x0066
+        const auto back = emu.cpu().get_registers();
+
+        check("Z80-02",
+              "the pipeline's /NMI is accepted by the Z80: PC vectors to "
+              "0x0066, the interrupted PC is pushed, SP drops by two and "
+              "IFF1 clears; RETN restores IFF1 and returns",
+              took && at.PC == 0x0066 && at.SP == 0xFFFC
+                  && stack_lo == 0x00 && stack_hi == 0xC0
+                  && at.IFF1 == 0
+                  && back.PC == 0xC000 && back.SP == 0xFFFE
+                  && back.IFF1 == 1,
+              z80_detail("zxnext.vhd:1841, :2168; t80n.vhd:1716-1718, "
+                         "1765-1767; took=%d steps=%d entry=%04x/%04x "
+                         "stack=%02x%02x iff1=%u return=%04x/%04x iff1=%u",
+                         took, steps, at.PC, at.SP, stack_hi, stack_lo,
+                         at.IFF1, back.PC, back.SP, back.IFF1));
+    }
+
+    // ── Z80-03 — reset drops the pipeline AND the CPU's pending NMI ────
+    // zxnext.vhd:2098-2101 clears the three request latches on `reset`
+    // and :2154-2155 forces nmi_state back to S_NMI_IDLE, so :2168's
+    // first two terms go false and /NMI is released. The reset is a
+    // machine-wide one, so the CPU's own acknowledge-pending state has to
+    // go with it — a request already handed over must not be serviced
+    // after the reset, which is the half a NmiSource-only check cannot
+    // see (NMI-RST-02 covers the latches alone).
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        emu.port().out(0x243B, 0x03);
+        emu.port().out(0x253B, 0x01);
+        emu.port().out(0x243B, 0x50);
+        emu.port().out(0x253B, 0x20);
+        emu.mmu().write(0x0066, 0x00);      // NOP: reaching here at all fails the row
+
+        emu.nmi_source().set_divmmc_enable(true);
+        emu.nmi_source().strobe_divmmc_button();
+        emu.nmi_source().tick(1);           // latch set, FSM IDLE -> FETCH
+        const bool armed  = emu.nmi_source().is_activated()
+                            && !emu.nmi_source().nmi_generate_n()
+                            && emu.nmi_source().state() != NmiSource::State::Idle;
+        emu.cpu().request_nmi();            // and the CPU is now holding one
+
+        emu.soft_reset();
+
+        const bool idle_after  = emu.nmi_source().state() == NmiSource::State::Idle;
+        const bool line_high   = emu.nmi_source().nmi_generate_n();
+        const bool latches_off = !emu.nmi_source().nmi_mf()
+                                 && !emu.nmi_source().nmi_divmmc()
+                                 && !emu.nmi_source().nmi_expbus()
+                                 && !emu.nmi_source().is_activated();
+
+        // soft_reset() re-runs init(), so re-park and re-arm the vector.
+        emu.port().out(0x243B, 0x50);
+        emu.port().out(0x253B, 0x20);
+        emu.mmu().write(0x0066, 0x00);
+        z80_park_self_jump(emu);
+        int steps = 0;
+        const bool fired = z80_step_to_nmi(emu, steps);
+
+        check("Z80-03",
+              "a reset returns the NMI pipeline to IDLE with every request "
+              "latch clear and nmi_generate_n released, and the CPU does not "
+              "service an NMI it was handed before the reset",
+              armed && idle_after && line_high && latches_off && !fired,
+              z80_detail("zxnext.vhd:2098-2101, :2154-2155, :2168; armed=%d "
+                         "idle=%d line_high=%d latches_off=%d "
+                         "nmi_after_reset=%d",
+                         armed, idle_after, line_high, latches_off, fired));
+    }
+}
+
+// =====================================================================
 // Group MF (G162-parked rows; future migration to MULTIFACE-TEST-PLAN-DESIGN.md
 // when it's authored)
 // =====================================================================
@@ -2390,6 +2559,7 @@ int main() {
     g_dma_group();         std::printf("  DMA  NMI-activated delay -- done\n");
     g_testcov_nmi_regressions(); std::printf("  TC   verify-pass regressions -- done\n");
     g_nmiack_pc_capture(); std::printf("  Z80  NMIACK PC capture -- RE-HOMED to CTC plan (G88)\n");
+    g_z80_drive();         std::printf("  Z80  CPU drive         -- done\n");
     g_mf_g162_skips();     std::printf("  MF   G162 parked rows  -- done\n");
     g_mf_int_wiring();     std::printf("  MF-INT F-gate live wiring -- done\n");
     g_boot_skips();        std::printf("  BOOT NextZXOS+bypass   -- done\n");

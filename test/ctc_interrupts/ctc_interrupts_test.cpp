@@ -2486,6 +2486,224 @@ static void test_ctc_control_word_int_en(Emulator& emu) {
     }
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// Section GH201 — CTC+Interrupts plan rows that nothing asserted
+//
+// Four rows of doc/testing/CTC-INTERRUPTS-TEST-PLAN-DESIGN.md were listed
+// in the plan and asserted nowhere, so the generated traceability matrix
+// published them as `missing`. All four need the full Emulator fixture:
+// the NextREG read path (NR-C0-02, NR-C5-02) and the CTC-ZC/TO-to-
+// joystick-pin-7 wiring (CTC-JOY-01/02) only exist once NextReg, Ctc and
+// IoMode have been wired together by Emulator::init().
+// ══════════════════════════════════════════════════════════════════════
+
+static void test_gh201_plan_rows(Emulator& emu) {
+    set_group("GH201");
+
+    // ── NR-C0-02 — NR 0xC0 bit 3 is the stackless-NMI enable ───────────
+    // VHDL zxnext.vhd:5598 `nr_c0_stackless_nmi <= nr_wr_dat(3)`, consumed
+    // at :2075-2085: while the bit is set the NMI acknowledge substitutes
+    // the NR 0xC3:0xC2 pair for the stack, so `cpu_mreq_n` stays high for
+    // both acknowledge write cycles and RAM is never touched — while the
+    // T80N still runs those cycles and still decrements SP (t80n.vhd:
+    // 1765-1767 + the I_RST/NMI microcode).
+    //
+    // NR-C0-04 above pins the bit's READBACK and atic_atac_nmi_test's
+    // ATIC-NMI-02 pins the ENABLED behaviour end to end. Neither pins the
+    // DISABLED arm, which is what makes bit 3 a control bit rather than a
+    // constant: with it clear the acknowledge is a conventional one and
+    // the interrupted PC really is written to the stack. Both arms run
+    // the same stimulus here, so an emulator that ignored the bit in
+    // either direction fails this row.
+    const auto nmi_stack_probe = [](Emulator& e, uint8_t nr_c0,
+                                    uint16_t& sp_out, uint8_t& lo_out,
+                                    uint8_t& hi_out, uint16_t& pc_out,
+                                    bool& latch_out) {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        e.init(cfg);
+        nr_write(e, 0x03, 0x01);          // leave config mode (zxnext.vhd:5147)
+        nr_write(e, 0x50, 0x20);          // slot 0 -> RAM page 0x20: 0x0066 is ours
+        e.mmu().write(0x0066, 0x00);      // NOP handler; this row stops at entry
+        e.mmu().write(0xC000, 0x00);
+        e.mmu().write(0xFFFC, 0xA5);      // stack markers
+        e.mmu().write(0xFFFD, 0x5A);
+        nr_write(e, 0xC0, nr_c0);
+        auto r = e.cpu().get_registers();
+        r.PC = 0xC000;
+        r.SP = 0xFFFE;
+        r.IFF1 = 1;
+        r.IFF2 = 1;
+        e.cpu().set_registers(r);
+        e.cpu().request_nmi();
+        e.execute_single_instruction();
+        const auto at = e.cpu().get_registers();
+        sp_out    = at.SP;
+        pc_out    = at.PC;
+        lo_out    = e.mmu().read(0xFFFC);
+        hi_out    = e.mmu().read(0xFFFD);
+        latch_out = e.cpu().stackless_retn_active();
+    };
+    {
+        Emulator on_emu;
+        uint16_t on_sp = 0, on_pc = 0;
+        uint8_t  on_lo = 0, on_hi = 0;
+        bool     on_latch = false;
+        nmi_stack_probe(on_emu, 0x08, on_sp, on_lo, on_hi, on_pc, on_latch);
+
+        Emulator off_emu;
+        uint16_t off_sp = 0, off_pc = 0;
+        uint8_t  off_lo = 0, off_hi = 0;
+        bool     off_latch = false;
+        nmi_stack_probe(off_emu, 0x00, off_sp, off_lo, off_hi, off_pc, off_latch);
+
+        char detail[240];
+        std::snprintf(detail, sizeof(detail),
+                      "bit3=1: pc=0x%04X sp=0x%04X mem=%s/%s latch=%d | "
+                      "bit3=0: pc=0x%04X sp=0x%04X mem=%s/%s latch=%d",
+                      on_pc, on_sp, hex2(on_lo).c_str(), hex2(on_hi).c_str(),
+                      static_cast<int>(on_latch),
+                      off_pc, off_sp, hex2(off_lo).c_str(), hex2(off_hi).c_str(),
+                      static_cast<int>(off_latch));
+        check("NR-C0-02",
+              "NR 0xC0 bit 3 selects the stackless NMI acknowledge: set, the "
+              "two acknowledge writes leave RAM untouched and arm the RETN "
+              "substitution; clear, the interrupted PC is written to the "
+              "stack and no substitution is armed (SP -= 2 either way) "
+              "[zxnext.vhd:5598, :2075-2085; t80n.vhd:1765-1767]",
+              on_pc == 0x0066 && on_sp == 0xFFFC
+                  && on_lo == 0xA5 && on_hi == 0x5A && on_latch
+                  && off_pc == 0x0066 && off_sp == 0xFFFC
+                  && off_lo == 0x00 && off_hi == 0xC0 && !off_latch,
+              detail);
+    }
+
+    // ── NR-C5-02 — NR 0xC5 read returns the LIVE ctc_int_en[7:0] ───────
+    // VHDL zxnext.vhd:6242 `port_253b_dat <= ctc_int_en`, where
+    // ctc_int_en(3:0) is the CTC's exported `o_int_en` (:4089 ->
+    // ctc_chan.vhd:276 `o_int_en <= control_reg(7-3)`) and
+    // ctc_int_en(7:4) is hardwired "0000" (:4093). Two consequences the
+    // read must show and that no other row asserts:
+    //
+    //   * a WRITE only reaches four bits — :4079 feeds the CTC
+    //     `i_int_en <= nr_wr_dat(3 downto 0)` — so NR 0xC5 <- 0xFA reads
+    //     back as 0x0A, not 0xFA. A handler that cached the written byte
+    //     and replayed it would return 0xFA.
+    //   * the value is the channels' live enable, not an NR shadow: a CTC
+    //     control word with D7=1 (ctc_chan.vhd:269) changes it with no
+    //     NR 0xC5 write in between.
+    {
+        fresh(emu);
+        nr_write(emu, 0xC5, 0xFA);          // ch1 + ch3 enabled; 0xF0 must not stick
+        const uint8_t after_write = nr_read(emu, 0xC5);
+        emu.port().out(0x1A3B, 0x85);       // ch2 control word, D7=1
+        emu.port().out(0x1A3B, 0x40);       // ch2 time constant
+        const uint8_t after_cw = nr_read(emu, 0xC5);
+        emu.port().out(0x193B, 0x05);       // ch1 control word, D7=0 -> disables ch1
+        emu.port().out(0x193B, 0x40);       // ch1 time constant
+        const uint8_t after_clear = nr_read(emu, 0xC5);
+
+        char detail[180];
+        std::snprintf(detail, sizeof(detail),
+                      "NR 0xC5<-0xFA reads %s (expect 0x0a); after ch2 CW D7=1 "
+                      "%s (expect 0x0e); after ch1 CW D7=0 %s (expect 0x0c)",
+                      hex2(after_write).c_str(), hex2(after_cw).c_str(),
+                      hex2(after_clear).c_str());
+        check("NR-C5-02",
+              "NR 0xC5 read returns the live per-channel ctc_int_en with bits "
+              "7:4 hardwired 0 — only nr_wr_dat(3:0) reaches the CTC on a "
+              "write, and a control word's D7 moves the same bit "
+              "[zxnext.vhd:6242, :4079, :4089, :4093; ctc_chan.vhd:269,276]",
+              after_write == 0x0A && after_cw == 0x0E && after_clear == 0x0C,
+              detail);
+    }
+
+    // ── CTC-JOY-01 — ctc_zc_to(3) drives the joystick pin-7 mux ────────
+    // VHDL zxnext.vhd:3518-3524: with NR 0x0B bits 5:4 = "01" the pin-7
+    // register toggles on each `ctc_zc_to(3)` pulse. Element 3 of that
+    // vector is CTC channel 3 alone (:4088 `o_zc_to => ctc_zc_to(3 downto
+    // 0)`), and the toggle is gated on the RAW ZC/TO, not on the
+    // channel's interrupt-enable bit — so the CTC works here as a plain
+    // clock source with its IRQ off, which is why the control words below
+    // carry D7=0.
+    //
+    // Channel 3 is programmed as a COUNTER (control word D6=1,
+    // ctc_chan.vhd:150) with time constant 1, so one external CLK/TRG
+    // edge is exactly one ZC/TO (:152-153, :170) and the pulse count is
+    // exact instead of a function of how long the row happens to run.
+    {
+        fresh(emu);
+        nr_write(emu, 0x0B, 0x91);          // en=1, iomode="01", iomode_0=1
+        const bool p_reset = emu.iomode().pin7();   // '1' per zxnext.vhd:3516
+        emu.port().out(0x1B3B, 0x45);       // ch3 CW: counter, TC follows, D7=0
+        emu.port().out(0x1B3B, 0x01);       // ch3 time constant = 1
+        emu.ctc().trigger(3);
+        const bool p1 = emu.iomode().pin7();
+        emu.ctc().trigger(3);
+        const bool p2 = emu.iomode().pin7();
+        // Channels 0..2 are not wired to this mux at all.
+        emu.port().out(0x183B, 0x45);
+        emu.port().out(0x183B, 0x01);
+        emu.ctc().trigger(0);
+        const bool p_ch0 = emu.iomode().pin7();
+
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "pin7 reset=%d, after ch3 ZC/TO #1=%d #2=%d, "
+                      "after a ch0 ZC/TO=%d (expect 1,0,1,1)",
+                      static_cast<int>(p_reset), static_cast<int>(p1),
+                      static_cast<int>(p2), static_cast<int>(p_ch0));
+        check("CTC-JOY-01",
+              "in NR 0x0B iomode \"01\" each CTC channel-3 ZC/TO toggles "
+              "joy_iomode_pin7, and a channel-0 ZC/TO does not "
+              "[zxnext.vhd:3518-3524, :4088]",
+              p_reset && !p1 && p2 && p_ch0 == p2, detail);
+    }
+
+    // ── CTC-JOY-02 — the toggle's guard term ───────────────────────────
+    // VHDL zxnext.vhd:3522 gates the toggle on
+    //   (nr_0b_joy_iomode_0 = '1' OR joy_iomode_pin7 = '0')
+    // so with NR 0x0B bit 0 clear the pin can only ever move TOWARDS '1'
+    // and then stops: a ZC/TO arriving while pin7 is already '1' does
+    // nothing. CTC-JOY-01 exercises the bit-0 = 1 arm (free-running
+    // toggle); this row exercises the other one, in both of its states.
+    //
+    // pin7 is taken low through iomode "00", whose continuous assignment
+    // is `joy_iomode_pin7 <= nr_0b_joy_iomode_0` (:3519-3520) — the one
+    // path that can set the register without a ZC/TO.
+    {
+        fresh(emu);
+        nr_write(emu, 0x0B, 0x90);          // en=1, iomode="01", iomode_0=0
+        emu.port().out(0x1B3B, 0x45);       // ch3 counter, TC follows
+        emu.port().out(0x1B3B, 0x01);
+        emu.ctc().trigger(3);
+        const bool blocked = emu.iomode().pin7();   // guard false -> still '1'
+
+        nr_write(emu, 0x0B, 0x80);          // iomode "00", iomode_0=0 -> pin7 = 0
+        const bool low = emu.iomode().pin7();
+        nr_write(emu, 0x0B, 0x90);          // back to "01", iomode_0 still 0
+        emu.ctc().trigger(3);
+        const bool released = emu.iomode().pin7();  // pin7='0' satisfied the guard
+        emu.ctc().trigger(3);
+        const bool stuck = emu.iomode().pin7();     // guard false again -> holds
+
+        char detail[190];
+        std::snprintf(detail, sizeof(detail),
+                      "iomode_0=0: ZC/TO with pin7=1 leaves %d (expect 1); "
+                      "iomode \"00\" drives pin7 to %d (expect 0); ZC/TO then "
+                      "gives %d (expect 1); a further ZC/TO gives %d (expect 1)",
+                      static_cast<int>(blocked), static_cast<int>(low),
+                      static_cast<int>(released), static_cast<int>(stuck));
+        check("CTC-JOY-02",
+              "the pin-7 toggle is conditioned on (nr_0b_joy_iomode_0='1' OR "
+              "joy_iomode_pin7='0'): with NR 0x0B bit 0 clear a ZC/TO moves "
+              "pin7 only from '0' to '1' and never back "
+              "[zxnext.vhd:3519-3524]",
+              blocked && !low && released && stuck, detail);
+    }
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 // ── GH #265 — interrupt timing inside and at the end of an instruction ──
@@ -3428,6 +3646,9 @@ int main() {
 
     test_ctc_control_word_int_en(emu);
     std::printf("  Group: CTC-CW-INTEN — done\n");
+
+    test_gh201_plan_rows(emu);
+    std::printf("  Group: GH201 — done\n");
 
     test_gh265_int_timing();
     std::printf("  Group: GH265-INT — done\n");
