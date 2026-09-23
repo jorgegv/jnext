@@ -76,6 +76,8 @@ enum class OptId {
     MagicBreakpoint,
     PersistentBreakpoints,
     EsxdosStub,
+    EsxdosStubRoot,
+    EsxdosStubWritable,
     MagicPort,
     MagicPortMode,
     Record,
@@ -298,6 +300,23 @@ inline constexpr Option OPTIONS[] = {
       "Answer a few RST $08 esxDOS calls (version, one in-memory\n"
       "file, .RUN sibling NEX) for any program; a directly loaded\n"
       "NEX gets more automatically. Not for use with NextZXOS" },
+    { "--esxdos-stub-root", 1, Doc::Documented, OptId::EsxdosStubRoot,
+      "DIR",
+      "Serve host directory DIR to the guest through the esxDOS\n"
+      "file and directory calls, instead of the single in-memory\n"
+      "file. Implies --esxdos-stub. Read-only unless\n"
+      "--esxdos-stub-writable is also given.\n"
+      "SEEN BY: a NEX loaded with --load, and dot commands.\n"
+      "NOT SEEN BY: NextZXOS - its Browser, file selector, BASIC\n"
+      "and loader read the SD-card image directly and never reach\n"
+      "the RST $08 hook, so none of them can see DIR. This is\n"
+      "permanent, not a current limitation. To put a file where\n"
+      "NextZXOS can see it, copy it into the SD-card image." },
+    { "--esxdos-stub-writable", 0, Doc::Documented, OptId::EsxdosStubWritable,
+      "",
+      "Allow the guest to create, truncate and write files under\n"
+      "--esxdos-stub-root. Off by default: a guest write is a real\n"
+      "host side effect, and rewinding the emulator cannot undo it" },
     { "--rtc", 1, Doc::Documented, OptId::Rtc,
       "\"YYYY-MM-DD HH:MM:SS\"",
       "Pin the RTC to a fixed date/time (frozen clock)\n"

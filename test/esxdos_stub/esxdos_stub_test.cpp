@@ -18,6 +18,8 @@
 
 #include <unistd.h>   // getpid() — per-process fixture paths
 
+void run_esxdos_hostfs_rows(int& passed, int& failed);
+
 namespace {
 
 int passed = 0;
@@ -965,6 +967,12 @@ int main() {
         std::filesystem::remove(br_own_path, ec);
         std::filesystem::remove(br_ctl_path, ec);
     }
+
+    // GH #31 — --esxdos-stub-root rows live in their own translation unit
+    // (esxdos_hostfs_rows.cpp) and report into the same two counters, so the
+    // suite still prints one Total: line and the manifest still pins one
+    // number for it.
+    run_esxdos_hostfs_rows(passed, failed);
 
     const int total = passed + failed;
     std::printf("Total: %d Passed: %d Failed: %d Skipped: 0\n", total, passed, failed);

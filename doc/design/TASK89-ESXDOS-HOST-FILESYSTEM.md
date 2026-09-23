@@ -1,6 +1,8 @@
 # Task 89 — Feasibility: full esxdos/NextZXOS emulation redirected to a host filesystem
 
-**Status:** investigation only. No emulator code was written.
+**Status:** investigation; its gating experiment was RUN on 2026-09-23 and its
+Phases 1-2 implemented (GH #31). See §0.2 for the experiment's result — it is
+the part of this document that had never been verified.
 **Date:** 2026-07-18
 **Branch:** `task89-esxdos-hostfs` (off `main` @ `895c1958`)
 
@@ -89,6 +91,83 @@ is struck. **The §2.3 verification step still gates the work** — boot NextZXO
 `esxdos` trace channel (#30, merged 2026-07-18 in v0.98.40) at TRACE, drive the Browser,
 and confirm no `RST $08` traffic appears. Decision 4 is drawn on an *inference* until that
 experiment is run; running it is cheap and it is the load-bearing claim.
+
+---
+
+## 0.2 THE GATING EXPERIMENT — RUN, 2026-09-23. Result: §2.3 CONFIRMED.
+
+§0.1's consequence note and §2.3 both made decision 4 conditional on one
+experiment that had never been run: *boot NextZXOS with the `esxdos` trace
+channel at TRACE, drive the Browser, and see whether any `RST $08` traffic
+appears.* §9 item 1 listed the Browser's undisassembled state as the document's
+first unverified claim. It has now been run, on branch
+`feat/31-esxdos-stub-root` (off `main` @ `6e0fc5eb`, v1.0.6), and the answer is
+the one the inference predicted.
+
+**Method.** Four headless runs of the same build against private reflink clones
+of the pristine `cspect-next-1gb-fixed.img`, all with
+`--rtc 2026-07-10T08:55:00 --log-level esxdos=trace`. The trace hook installs
+independently of `--esxdos-stub` and services nothing, so every run is pure
+observation. Key schedules come from the existing regression rows
+(`soft-reset-shadow-screen-func` for the Browser, `boot-nextzxos-dotls` for the
+command line), so the Browser really was being driven the way that row drives
+it.
+
+**Result.** Trapped calls, counted by hook code:
+
+| Run | `RST $08` traps with hook byte ≥ `$80` | of those, in the esxDOS range `$85..$B1` |
+|---|---|---|
+| A1 — boot, SPACE, ENTER (Browser open at `C:/`), capture at frame 620 | 2 (`$F5`, `$FF`) | **0** |
+| A2 — as A1, then DOWN ×2 + ENTER into `C:/DEMOS/`, DOWN ×4, capture at 900 | 2 (`$F5`, `$FF`) | **0** |
+| B — **positive control**: boot, Command Line, type `.ls`, ENTER | 92 | **76** |
+| C — control: boot only, no keypresses, 920 frames | 1 (`$F5`) | **0** |
+
+The A1 and A2 screenshots confirm the Browser was genuinely open and genuinely
+navigating: A1 shows the real FAT32 root listing (APPS, CONTRIBUTING.md, DEMOS,
+DOCS, DOT, EXTRAS, GAMES, HOME, LICENSE.MD, MACHINES, NEXTZXOS, README.MD, SRC,
+SYS, TBBLUE.FW, TBBLUE.TBU, TMP) and A2 shows `C:/DEMOS/` with its 16 entries,
+highlight on "Colour Schemes". Both listings were read from the card during the
+window being traced.
+
+**Why the control matters.** A null result alone proves nothing — it is equally
+consistent with a broken instrument. Run B does, on the same card, the *same
+job* the Browser does (list a directory) through the dot-command path, and the
+trace shows exactly the calls that job needs: `F_OPENDIR` ($A3) ×2,
+`F_READDIR` ($A4) ×35, `F_GETCWD` ($A8) ×2, `F_OPEN` ($9A), `F_READ` ($9D) ×6,
+`F_SEEK` ($9F), `F_CLOSE` ($9B) ×3, `M_GETDATE` ($8E), `M_GETHANDLE` ($8D),
+`M_DOSVERSION` ($88), `M_ERRH` ($95), and `M_P3DOS` ($94) ×22. So the hook sees
+directory traffic when directory traffic exists. The Browser produced none.
+
+The two residual traps are `$F5` and `$FF`, both **above** `$B1` and therefore
+not esxDOS hook codes at all (`esxapi.def` assigns `$85..$B1`; the code at
+`z80_cpu.cpp` already documents that NextZXOS raises a BASIC error report for
+higher bytes). `$F5` appears in the boot-only run C as well, and both carry
+byte-identical register sets in A1, A2 and B, so they are boot-sequence
+artefacts and not browser activity.
+
+**Conclusion.** §2.3's point 2 — "the Browser's I/O never reaches `$0008`" — is
+no longer an inference. Decision 4 stands on measurement. The `RST $08` layer
+is the right layer for Phases 1-2, and it is **incapable** of serving NextZXOS
+no matter how far it is widened. §9 item 1 is closed; the Browser still was not
+disassembled, but its observable behaviour now settles the question the
+disassembly was wanted for.
+
+**Consequence for the shipped feature.** Because the boundary is invisible from
+outside, decision 6 (documentation as a deliverable) is honoured in three
+places a user actually looks: `--help`, `jnext(1)` and user-guide §5.7, each
+naming what sees the directory and what cannot.
+
+**Implementation note.** Phases 1 and 2 were both implemented on that branch as
+`EsxdosHostFs` (`src/core/esxdos_hostfs.*`) behind `--esxdos-stub-root DIR`,
+with `--esxdos-stub-writable` for writes. §6's rewind problem was resolved the
+way that section called workable: the snapshot carries only
+`(path, offset, mode)` per open handle and reopens lazily, so reads rewind
+exactly; writes remain unrecoverable, which is why they need the second flag.
+§6's open timestamp question was decided explicitly — directory entries and
+`F_STAT` report host mtime, `M_GETDATE` answers from the emulated RTC so it
+follows `--rtc`. §5's requirements 1-7 are all implemented; the residual
+TOCTOU window §5.3 implies is documented in the source rather than claimed
+closed.
 
 ---
 

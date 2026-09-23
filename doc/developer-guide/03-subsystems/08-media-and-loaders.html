@@ -1126,6 +1126,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#a-host-directory-esxdos-stub-root-gh-31" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A host directory: --esxdos-stub-root (GH #31)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#rzx" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2246,13 +2257,11 @@ precondition: the DivMMC automap that takes <code>$0008</code> to NextZXOS needs
 <td>carry set, <code>A</code>=<code>$02</code> (<code>esx_enonsense</code>)</td>
 <td>falls through</td>
 </tr>
-<tr>
-<td><code>$B2</code> and above</td>
-<td>falls through</td>
-<td>falls through</td>
-</tr>
 </tbody>
 </table>
+<p>With <code>--esxdos-stub-root</code> the file and directory calls are served from a real
+host directory instead; see the section below.
+| <code>$B2</code> and above | falls through | falls through |</p>
 <p>The in-memory file (<code>esxdos_stub_file_</code>) is one anonymous buffer: opening for
 write creates it empty under the given name, and opening for read succeeds only
 under that same name. <code>emulator_cold_boot()</code> carries it across a power reset,
@@ -2290,11 +2299,91 @@ reset, the ROM gate for all three sources, the <code>$B1</code>/<code>$B2</code>
 bridge has its own suite, <code>test/core/extended_nex_test.cpp</code> (<code>XNEX-*</code>), and
 the regression rows <code>extended-nex-stream-func</code> and <code>esxdos-chain-*-func</code> run
 real programs.</p>
-<p><strong>Known gaps.</strong> A directly loaded program cannot reach host files other than
-the kept-open NEX and its siblings; a host directory for it is
-<a href="https://github.com/jorgegv/jnext/issues/31">#31</a>, not implemented. There is
-one in-memory file, with no <code>F_SEEK</code>. <code>M_DOSVERSION</code> reports 1.94 without the host
-bridge.</p>
+<h2 id="a-host-directory-esxdos-stub-root-gh-31">A host directory: <code>--esxdos-stub-root</code> (GH #31)<a class="headerlink" href="#a-host-directory-esxdos-stub-root-gh-31" title="Permanent link">&para;</a></h2>
+<p><code>--esxdos-stub-root DIR</code> replaces the single in-memory buffer with a real host
+directory. It implies <code>--esxdos-stub</code>, and <code>--esxdos-stub-writable</code> is the
+separate opt-in for writes. <code>EsxdosHostFs</code> (<code>src/core/esxdos_hostfs.*</code>) owns
+the sandbox, the handle table and the 8.3/timestamp synthesis; the dispatcher
+block sits in <code>handle_esxdos</code> between the extended-NEX bridge and the legacy
+in-memory switch.</p>
+<p><strong>Handle spaces.</strong> 1 is the in-memory file, 2 and 3 are <code>ExtendedNexHost</code>, and
+<code>EsxdosHostFs</code> owns <code>$04..$0B</code> for files and <code>$84..$87</code> for directories. The
+dispatcher claims a handle-keyed call only for handles in its own range, so the
+three back ends never contend; path-keyed calls (<code>F_OPEN</code>, <code>F_STAT</code>,
+<code>F_OPENDIR</code>, <code>F_CHDIR</code>, <code>F_GETCWD</code>, <code>F_GETFREE</code>, <code>M_GETDATE</code>) it claims
+outright, since with a root there is exactly one volume. The one interaction
+worth knowing: with a root configured, the extended-NEX bridge's <em>sibling</em>
+lookup is skipped, so only the NEX's own filename still resolves beside the
+NEX — otherwise one name could mean two files.</p>
+<p><strong>Containment.</strong> Primary confinement is LEXICAL and consults nothing: the guest
+path is split, <code>.</code> dropped, <code>..</code> popped, and a pop that would leave the root
+refused with <code>esx_epath</code>. An escaping path is therefore never constructed. A
+guest absolute path is absolute <em>within</em> the root. The drive qualifiers <code>*:</code>,
+<code>$:</code> and <code>c:</code> (<code>esxapi.def:129-130</code>) all map to the root. On top of that, every
+existing component is checked with <code>symlink_status()</code> and refused if it is a
+link, the result is canonicalised and re-checked against the canonical root,
+and an open re-checks once more afterwards. Those layers are genuinely
+independent — mutation testing found that disabling any one of them left the
+escape rows green, and only removing the root mechanism (<code>symlink_status</code> →
+<code>status</code>) turned them red. The residual TOCTOU window is documented in the
+<code>.cpp</code>: closing it needs an <code>openat(O_NOFOLLOW)</code> walk with no portable form
+across the Linux, macOS and MinGW builds.</p>
+<p><strong>Rewind.</strong> An open <code>std::fstream</code> is not snapshottable, so <code>save_state</code> writes
+only <code>(handle, is_dir, mode, position, path)</code> per open handle plus the guest
+CWD, and <code>load_state</code> reopens from that. Reads therefore rewind exactly.
+Writes cannot — the host side effect already happened — which is the whole
+reason writes are behind a second flag.</p>
+<p><strong>Refusals rather than approximations.</strong> <code>esx_mode_use_wildcards</code>,
+<code>esx_mode_sf_enable</code> and <code>esx_mode_use_header</code> return <code>esx_enosys</code>: each
+changes what the entry stream contains, and a caller that asked for a filtered
+or sorted listing and silently got neither is worse off than one told no. The
+two modes real software was measured to use (<code>.ls</code> asks for
+<code>esx_mode_lfn_only</code> and <code>esx_mode_short_only</code>, no other bits) are served.
+<code>M_P3DOS</code> is not answered: it bridges into NextZXOS ROM entry points including
+<code>IDE_SECTOR_READ</code>, and a directory has no sectors.</p>
+<p><strong>SCOPE, and the measurement behind it.</strong> This serves programs that reach the
+filesystem through <code>RST $08</code> — a directly loaded NEX, and dot commands. It does
+NOT serve NextZXOS's Browser, file selector, BASIC or loader. That was the
+load-bearing assumption of the whole design, and it was settled experimentally
+before any of this was built (2026-09-23), not inferred:</p>
+<table>
+<thead>
+<tr>
+<th>Run (same build, same image, <code>--log-level esxdos=trace</code>)</th>
+<th>calls in <code>$85..$B1</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Browser opened at <code>C:/</code>, descended into <code>C:/DEMOS/</code>, scrolled</td>
+<td><strong>0</strong></td>
+</tr>
+<tr>
+<td><code>.ls</code> from the NextZXOS command line</td>
+<td><strong>76</strong></td>
+</tr>
+</tbody>
+</table>
+<p>The <code>.ls</code> run is the positive control — it is <code>F_OPENDIR</code> ×2, <code>F_READDIR</code> ×35,
+<code>F_GETCWD</code> ×2, <code>F_READ</code> ×6, <code>M_P3DOS</code> ×22 and more — so the instrument plainly
+can see directory traffic. The Browser, listing a directory on screen, produced
+none of it. NextZXOS carries its own SD/SPI driver and FAT code in
+<code>enNextZX.rom</code> and never asks <code>$0008</code>. Reaching it would need a synthetic FAT32
+volume at the block layer, which the project declined
+(<code>doc/design/TASK89-ESXDOS-HOST-FILESYSTEM.md</code> §0.1 decision 5). The boundary is permanent, and the user-facing docs say so in
+<code>--help</code>, the man page and the user guide because the flag's name invites the
+opposite assumption.</p>
+<p><strong>Tests.</strong> <code>HFS-01..83</code> in <code>test/esxdos_stub/esxdos_hostfs_rows.cpp</code> (linked
+into <code>esxdos_stub_test</code>): the sandbox and the 8.3/timestamp synthesis against
+the class, every register convention through the real dispatcher. The
+regression row <code>esxdos-hostfs-func</code> runs a real guest program that opens, seeks
+to offset 6, reads and prints a real host file through <code>RST $08</code>, then probes
+the sandbox from inside the guest — with a control run, no root, that must not
+produce the content.</p>
+<p><strong>Known gaps.</strong> Without <code>--esxdos-stub-root</code> a directly loaded program still
+cannot reach host files other than the kept-open NEX and its siblings, and the
+in-memory file still has no <code>F_SEEK</code>. <code>M_DOSVERSION</code> reports 1.94 without the
+host bridge. <code>M_GETERR</code> is not implemented in either back end.</p>
 <h2 id="rzx">RZX<a class="headerlink" href="#rzx" title="Permanent link">&para;</a></h2>
 <p>RZX records a <em>session</em>, and it does so by recording inputs rather than
 pictures. The file holds an embedded snapshot of the machine at the start plus,

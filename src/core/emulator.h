@@ -10,6 +10,7 @@
 #include "audio/audio_mute.h"
 #include "core/clock.h"
 #include "core/emulator_config.h"
+#include "core/esxdos_hostfs.h"
 #include "core/extended_nex_host.h"
 #include "core/scheduler.h"
 #include "cpu/z80_cpu.h"
@@ -1087,6 +1088,8 @@ private:
     // resetting it, so a NEX still running keeps its stand-in.
     bool direct_nex_esxdos_ = false;
     ExtendedNexHost extended_nex_host_;
+    // GH #31 — --esxdos-stub-root. Inactive unless a root was configured.
+    EsxdosHostFs    esxdos_hostfs_;
     MachineTiming  timing_;          // per-machine timing from VHDL
     Clock          clock_;
     Scheduler      scheduler_;

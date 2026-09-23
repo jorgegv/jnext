@@ -215,6 +215,8 @@ int main(int argc, char* argv[]) {
     bool        magic_breakpoint = false;
     bool        persistent_breakpoints = false;
     bool        esxdos_stub = false;
+    std::string esxdos_stub_root;
+    bool        esxdos_stub_writable = false;
     // GH #25 — emulated ESP-01. `esp_enabled_set` is what makes --no-esp mean
     // something: without it the saved GUI preference could not be told apart
     // from "the user did not ask", and the negation would be unrepresentable.
@@ -449,6 +451,13 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::EsxdosStub:
                 esxdos_stub = true;
+                break;
+            case cli::OptId::EsxdosStubRoot:
+                esxdos_stub_root = v[0];
+                esxdos_stub = true;   // the root IS the stub, served properly
+                break;
+            case cli::OptId::EsxdosStubWritable:
+                esxdos_stub_writable = true;
                 break;
             // --esp / --no-esp: last one wins, like any other repeated flag.
             case cli::OptId::Esp:
@@ -1090,6 +1099,8 @@ int main(int argc, char* argv[]) {
         cfg.magic_breakpoint = magic_breakpoint;
         cfg.persistent_breakpoints = persistent_breakpoints;
         cfg.esxdos_stub = esxdos_stub;
+        cfg.esxdos_stub_root = esxdos_stub_root;
+        cfg.esxdos_stub_writable = esxdos_stub_writable;
         cfg.tape_save_file = tape_save_file;
         cfg.magic_port_enabled = magic_port_enabled;
         cfg.magic_port_address = magic_port_address;

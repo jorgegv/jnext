@@ -64,6 +64,15 @@ public:
     void set_fixed_time(const std::tm& t);
     bool has_fixed_time() const { return has_fixed_time_; }
 
+    /// The wall-clock time this RTC would report right now, as broken-down
+    /// local time. GH #31 — M_GETDATE ($8e) answers the guest with the
+    /// MACHINE's clock, and that is this one, so it must honour --rtc exactly
+    /// as snapshot_time() does rather than reading the host clock a second
+    /// time and disagreeing with every screenshot. Returns false when the
+    /// oscillator is halted (DS1307 CH=1), which is M_GETDATE's documented
+    /// "no RTC / invalid date" case (Fc=1, BC=DE=0).
+    bool current_time(std::tm& out) const;
+
     // ══ === TEST-ONLY ACCESSORS === ═══════════════════════════════════
     //
     // Wave-E of the UART+I2C plan seeds BCD register values directly and

@@ -238,6 +238,49 @@ set automatically (see \f[B]LOADING PROGRAMS\f[R]).
 With NextZXOS booted it answers in front of NextZXOS\(cqs own esxDOS for
 those calls, and NextZXOS\(cqs file commands stop working.
 .TP
+\f[B]\-\-esxdos\-stub\-root\f[R] \f[I]DIR\f[R]
+Serve the host directory \f[I]DIR\f[R] to the guest through the esxDOS
+file and directory calls, instead of the single in\-memory file.
+Implies \f[B]\-\-esxdos\-stub\f[R].
+Read\-only unless \f[B]\-\-esxdos\-stub\-writable\f[R] is also given.
+.RS
+.PP
+\f[B]Which programs see \f[BI]DIR\f[B], and which do not.\f[R] A NEX
+loaded with \f[B]\-\-load\f[R] sees it, and so do dot commands: those
+reach the filesystem through \f[CR]RST $08\f[R], which is what jnext
+intercepts.
+\f[B]NextZXOS does not see it\f[R] \(em not its Browser, not its file
+selector, not BASIC\(cqs \f[CR]LOAD\f[R], not its loader.
+NextZXOS carries its own SD\-card driver and its own FAT code in ROM and
+reaches the card directly, without ever executing an \f[CR]RST $08\f[R],
+so there is no point at which jnext could answer for it.
+That boundary is permanent and deliberate; it is not a limitation that a
+later version lifts.
+\f[B]To put a file where NextZXOS can see it, copy it into the SD\-card
+image.\f[R]
+.PP
+Inside \f[I]DIR\f[R], paths behave as FAT paths: \f[CR]/\f[R] separates
+components and is the root of \f[I]DIR\f[R] rather than the host\(cqs
+root, lookup ignores case, and the drive letters \f[CR]*:\f[R],
+\f[CR]$:\f[R] and \f[CR]c:\f[R] all mean \f[I]DIR\f[R].
+A path that would leave \f[I]DIR\f[R], and any symbolic link, is
+refused; symbolic links are not listed either.
+Where two host files differ only in case and the guest\(cqs spelling
+matches neither exactly, the first in byte order is taken.
+.PP
+Directory entries carry the host file\(cqs modification time.
+\f[CR]M_GETDATE\f[R] answers from the emulated clock instead, so it
+follows \f[B]\-\-rtc\f[R].
+.RE
+.TP
+\f[B]\-\-esxdos\-stub\-writable\f[R]
+Allow the guest to create, truncate and write files under
+\f[B]\-\-esxdos\-stub\-root\f[R].
+Off by default, and deliberately a separate flag: a guest write changes
+a real file on the host immediately, and rewinding the emulator cannot
+undo it.
+Reads are fully rewindable; writes are not.
+.TP
 \f[B]\-\-rtc\f[R] \f[I]\(lqYYYY\-MM\-DD HH:MM:SS\(rq\f[R]
 Pin the RTC to a fixed date and time (a frozen clock) instead of
 following the host clock, which makes boot screenshots deterministic.
@@ -774,11 +817,51 @@ message.
 Codes above \f[CR]$B1\f[R] are not esxDOS calls and go to the code at
 \f[CR]$0008\f[R].
 .PP
-This is not a filesystem.
+Without \f[B]\-\-esxdos\-stub\-root\f[R] this is not a filesystem.
 Apart from the kept\-open case above the program cannot see files on the
 host or on the SD card, so a program that needs data files has to be
 copied to the SD card with them and started from NextZXOS.
-Giving a directly loaded program a host directory is not implemented.
+.SS A host directory for directly loaded programs
+\f[B]\-\-esxdos\-stub\-root\f[R] \f[I]DIR\f[R] replaces the single
+in\-memory file with the real host directory \f[I]DIR\f[R].
+\f[CR]F_OPEN\f[R], \f[CR]F_CLOSE\f[R], \f[CR]F_READ\f[R],
+\f[CR]F_WRITE\f[R], \f[CR]F_SEEK\f[R], \f[CR]F_FGETPOS\f[R],
+\f[CR]F_FSTAT\f[R], \f[CR]F_STAT\f[R] and \f[CR]F_SYNC\f[R] then work on
+real files, and \f[CR]F_OPENDIR\f[R], \f[CR]F_READDIR\f[R],
+\f[CR]F_TELLDIR\f[R], \f[CR]F_SEEKDIR\f[R], \f[CR]F_REWINDDIR\f[R],
+\f[CR]F_GETCWD\f[R], \f[CR]F_CHDIR\f[R], \f[CR]F_GETFREE\f[R] and
+\f[CR]M_GETDATE\f[R] work as well.
+It is meant for developing a program that reads data files: edit them in
+place and re\-run, instead of copying them into the SD\-card image each
+time.
+.PP
+\f[B]It does not make the host directory the SD card.\f[R] Only programs
+that reach the filesystem through \f[CR]RST $08\f[R] can see it \(em a
+directly loaded NEX, and dot commands.
+NextZXOS cannot: its Browser, file selector, BASIC and loader use its
+own in\-ROM SD\-card driver and its own FAT code, and never execute an
+\f[CR]RST $08\f[R] at all, so booting NextZXOS and looking for
+\f[I]DIR\f[R] in the Browser will show nothing.
+This was measured, not assumed, and it is a permanent boundary rather
+than an unfinished feature.
+Files that NextZXOS must see still go into the SD\-card image.
+.PP
+Some things it deliberately does not do.
+Writes need the separate \f[B]\-\-esxdos\-stub\-writable\f[R] flag,
+because a guest write is a real and irreversible change to a host file
+that rewinding cannot take back.
+Wildcard, sorted and filtered directory listings, and the
+\f[CR]+3DOS\f[R] header modes, are refused rather than answered
+approximately.
+\f[CR]M_P3DOS\f[R], which lets a program call NextZXOS ROM routines
+directly \(em including raw sector reads \(em is not answered either: a
+host directory cannot supply sectors.
+.PP
+Paths are confined to \f[I]DIR\f[R].
+A path that climbs out of it is refused, a guest absolute path such as
+\f[CR]/data/x.bin\f[R] means \f[CR]DIR/data/x.bin\f[R] and never the
+host\(cqs own \f[CR]/data\f[R], and symbolic links are refused rather
+than followed.
 .PP
 jnext answers only while ROM is paged in at \f[CR]$0000\f[R], as on a
 real Next, where NextZXOS is reached through the DivMMC, which only
@@ -791,7 +874,8 @@ kept\-open file.
 \f[B]\-\-esxdos\-stub\f[R] answers a smaller set for programs loaded any
 other way (a snapshot, a tape, \f[B]\-\-inject\f[R]) and for the whole
 session: the version query, the in\-memory file and
-\f[CR]run NAME.nex\f[R].
+\f[CR]run NAME.nex\f[R] \(em or, with \f[B]\-\-esxdos\-stub\-root\f[R],
+the host directory described above.
 Every other call goes to the code at \f[CR]$0008\f[R] as usual.
 It is meant for programs run without NextZXOS: with NextZXOS booted, it
 answers those calls in front of NextZXOS\(cqs own esxDOS, and

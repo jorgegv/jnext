@@ -209,6 +209,39 @@ debugger ones.
     PROGRAMS**). With NextZXOS booted it answers in front of NextZXOS's own
     esxDOS for those calls, and NextZXOS's file commands stop working.
 
+**\--esxdos-stub-root** *DIR*
+:   Serve the host directory *DIR* to the guest through the esxDOS file and
+    directory calls, instead of the single in-memory file. Implies
+    **\--esxdos-stub**. Read-only unless **\--esxdos-stub-writable** is also
+    given.
+
+    **Which programs see *DIR*, and which do not.** A NEX loaded with
+    **\--load** sees it, and so do dot commands: those reach the filesystem
+    through `RST $08`, which is what jnext intercepts. **NextZXOS does not see
+    it** — not its Browser, not its file selector, not BASIC's `LOAD`, not its
+    loader. NextZXOS carries its own SD-card driver and its own FAT code in
+    ROM and reaches the card directly, without ever executing an `RST $08`, so
+    there is no point at which jnext could answer for it. That boundary is
+    permanent and deliberate; it is not a limitation that a later version
+    lifts. **To put a file where NextZXOS can see it, copy it into the SD-card
+    image.**
+
+    Inside *DIR*, paths behave as FAT paths: `/` separates components and is
+    the root of *DIR* rather than the host's root, lookup ignores case, and the
+    drive letters `*:`, `$:` and `c:` all mean *DIR*. A path that would leave
+    *DIR*, and any symbolic link, is refused; symbolic links are not listed
+    either. Where two host files differ only in case and the guest's spelling
+    matches neither exactly, the first in byte order is taken.
+
+    Directory entries carry the host file's modification time. `M_GETDATE`
+    answers from the emulated clock instead, so it follows **\--rtc**.
+
+**\--esxdos-stub-writable**
+:   Allow the guest to create, truncate and write files under
+    **\--esxdos-stub-root**. Off by default, and deliberately a separate flag:
+    a guest write changes a real file on the host immediately, and rewinding
+    the emulator cannot undo it. Reads are fully rewindable; writes are not.
+
 **\--rtc** *"YYYY-MM-DD HH:MM:SS"*
 :   Pin the RTC to a fixed date and time (a frozen clock) instead of following
     the host clock, which makes boot screenshots deterministic. The ISO
@@ -665,10 +698,41 @@ directory, listing a directory or reading the date. A program that needs one of
 those usually stops with its own error message. Codes above `$B1` are not
 esxDOS calls and go to the code at `$0008`.
 
-This is not a filesystem. Apart from the kept-open case above the program
-cannot see files on the host or on the SD card, so a program that needs data
-files has to be copied to the SD card with them and started from NextZXOS.
-Giving a directly loaded program a host directory is not implemented.
+Without **\--esxdos-stub-root** this is not a filesystem. Apart from the
+kept-open case above the program cannot see files on the host or on the SD
+card, so a program that needs data files has to be copied to the SD card with
+them and started from NextZXOS.
+
+## A host directory for directly loaded programs
+
+**\--esxdos-stub-root** *DIR* replaces the single in-memory file with the real
+host directory *DIR*. `F_OPEN`, `F_CLOSE`, `F_READ`, `F_WRITE`, `F_SEEK`,
+`F_FGETPOS`, `F_FSTAT`, `F_STAT` and `F_SYNC` then work on real files, and
+`F_OPENDIR`, `F_READDIR`, `F_TELLDIR`, `F_SEEKDIR`, `F_REWINDDIR`, `F_GETCWD`,
+`F_CHDIR`, `F_GETFREE` and `M_GETDATE` work as well. It is meant for developing
+a program that reads data files: edit them in place and re-run, instead of
+copying them into the SD-card image each time.
+
+**It does not make the host directory the SD card.** Only programs that reach
+the filesystem through `RST $08` can see it — a directly loaded NEX, and dot
+commands. NextZXOS cannot: its Browser, file selector, BASIC and loader use its
+own in-ROM SD-card driver and its own FAT code, and never execute an `RST $08`
+at all, so booting NextZXOS and looking for *DIR* in the Browser will show
+nothing. This was measured, not assumed, and it is a permanent boundary rather
+than an unfinished feature. Files that NextZXOS must see still go into the
+SD-card image.
+
+Some things it deliberately does not do. Writes need the separate
+**\--esxdos-stub-writable** flag, because a guest write is a real and
+irreversible change to a host file that rewinding cannot take back. Wildcard,
+sorted and filtered directory listings, and the `+3DOS` header modes, are
+refused rather than answered approximately. `M_P3DOS`, which lets a program
+call NextZXOS ROM routines directly — including raw sector reads — is not
+answered either: a host directory cannot supply sectors.
+
+Paths are confined to *DIR*. A path that climbs out of it is refused, a guest
+absolute path such as `/data/x.bin` means `DIR/data/x.bin` and never the
+host's own `/data`, and symbolic links are refused rather than followed.
 
 jnext answers only while ROM is paged in at `$0000`, as on a real Next, where
 NextZXOS is reached through the DivMMC, which only takes over from the ROM. A
@@ -677,7 +741,8 @@ rule also applies to **\--esxdos-stub** and to the kept-open file.
 
 **\--esxdos-stub** answers a smaller set for programs loaded any other way (a
 snapshot, a tape, **\--inject**) and for the whole session: the version query,
-the in-memory file and `run NAME.nex`. Every other call goes to the code at
+the in-memory file and `run NAME.nex` — or, with **\--esxdos-stub-root**, the
+host directory described above. Every other call goes to the code at
 `$0008` as usual. It is meant for programs run without NextZXOS: with
 NextZXOS booted, it answers those calls in front of NextZXOS's own esxDOS, and
 NextZXOS's file commands stop working.

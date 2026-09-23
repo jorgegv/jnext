@@ -176,17 +176,24 @@ void test_stackless_nmi()
     // Emulator::save_state. The third is GH #265's interrupt timing, which
     // follows the cable and is not a one-bool block: the CPU's /INT window (two
     // u64), Im2Controller::save_timing() and Ctc::save_timing(), then its
-    // sentinel.
+    // sentinel. The FOURTH is GH #31's --esxdos-stub-root open handles, which
+    // is last and is also not a one-bool block.
     constexpr std::size_t kTailBlock   = sizeof(uint8_t) + sizeof(uint32_t);
     constexpr std::size_t kTailBlocks  = 2;   // stackless_nmi, joy_uart
     constexpr std::size_t kIntTiming   = 2 * sizeof(uint64_t)
         + Im2Controller::kTimingStateBytes + Ctc::kTimingStateBytes
         + sizeof(uint32_t);
+    // GH #31 — the host-directory block. This emulator has no
+    // --esxdos-stub-root, so it is its EMPTY form: a u16 handle count of 0, a
+    // u16 length prefix of 0 for the guest CWD, then the sentinel. A snapshot
+    // taken with a root and open handles is longer, which is why this row
+    // builds its own emulator rather than reusing one that might have any.
+    constexpr std::size_t kHostFs      = 2 * sizeof(uint16_t) + sizeof(uint32_t);
     Emulator old_snapshot_emu;
     fresh_emulator(old_snapshot_emu);
     old_snapshot_emu.cpu().set_stackless_retn_active_for_load(true);
     const std::size_t old_snapshot_size =
-        snapshot.size() - kIntTiming - kTailBlocks * kTailBlock;
+        snapshot.size() - kHostFs - kIntTiming - kTailBlocks * kTailBlock;
     StateReader old_reader(snapshot.data(), old_snapshot_size);
     const bool old_snapshot_ok =
         old_snapshot_emu.load_state(old_reader) &&
@@ -199,7 +206,8 @@ void test_stackless_nmi()
     Emulator boundary_emu;
     fresh_emulator(boundary_emu);
     boundary_emu.cpu().set_stackless_retn_active_for_load(false);
-    StateReader boundary_reader(snapshot.data(), snapshot.size() - kIntTiming - kTailBlock);
+    StateReader boundary_reader(snapshot.data(),
+                                snapshot.size() - kHostFs - kIntTiming - kTailBlock);
     const bool boundary_ok =
         boundary_emu.load_state(boundary_reader) &&
         boundary_emu.cpu().stackless_retn_active();

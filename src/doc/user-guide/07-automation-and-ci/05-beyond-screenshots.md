@@ -15,5 +15,9 @@ Screenshots are the general-purpose check, but they are not the only one.
   change can be regression-tested too.
 - **RZX** (`--rzx-record` / `--rzx-play`) replays a whole recorded session
   input-for-input.
+- **`--esxdos-stub-root`** gives a directly loaded NEX a real host directory
+  to read its data files from, so a test fixture does not have to be copied
+  into the SD-card image first (see [5.7](../05-running-programs/07-host-files-for-a-loaded-program.md);
+  note NextZXOS itself cannot see that directory).
 
 The full option list is in [`jnext(1)`](https://github.com/jorgegv/jnext/blob/main/USAGE.md).

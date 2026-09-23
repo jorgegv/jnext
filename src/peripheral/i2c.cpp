@@ -100,6 +100,18 @@ uint8_t I2cRtc::to_bcd(int val) {
     return static_cast<uint8_t>(((val / 10) << 4) | (val % 10));
 }
 
+bool I2cRtc::current_time(std::tm& out) const {
+    // Same two sources, same order, as snapshot_time() below. Kept beside it
+    // deliberately: if one grows a third source the other must too.
+    if (osc_halt_) return false;
+    if (has_fixed_time_) { out = fixed_tm_; return true; }
+    std::time_t now = std::time(nullptr);
+    std::tm* t = std::localtime(&now);
+    if (!t) return false;
+    out = *t;
+    return true;
+}
+
 void I2cRtc::snapshot_time() {
     // Oscillator halted or deterministic mode → leave regs_[0..6] alone.
     // DS1307 datasheet §Clock Halt: when CH=1 the on-chip oscillator
