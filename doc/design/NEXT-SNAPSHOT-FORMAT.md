@@ -1,10 +1,19 @@
 # Next-Specific Snapshot Save/Load Format — design
 
-> Status: **design only, not implemented**. Tracking issue:
+> Status: **design approved, not implemented**. Tracking issue:
 > [#27](https://github.com/jorgegv/jnext/issues/27). Milestone v1.1.
 >
-> This document is a proposal for the owner to review before any code is
-> written. §18 lists the questions it cannot answer on its own.
+> The owner approved the container (Option C), the vendored JSON dependency,
+> full-scope decoupling and the two-tier SD identity on 2026-09-23 — §18.1.
+> §18.2 lists what is still open, §18.3 the defects this design found in shipped
+> code.
+>
+> **Revision 2** (2026-09-23) after an independent review. Every number in §4
+> is now measured per block rather than derived, which corrected the scalar
+> residual by a factor of ~16 and *strengthened* the container argument; four
+> flat buffers, three per-scanline histories and two 64-bit-overflowing fields
+> that revision 1 missed are now in the design. Each correction is marked in
+> place rather than quietly overwritten.
 >
 > Working name for the format: **JNS** (`.jns`), *jnext snapshot*.
 
@@ -126,10 +135,12 @@ concrete helpers and a convention:
 - Each subsystem simply *has* `save_state(StateWriter&) const` and
   `load_state(StateReader&)`.
 
-`Emulator::save_state()` calls the subsystems in a fixed order — **32 blocks,
-covering 34 classes**, since `Renderer` carries `Ula` and `LoRes` — and writes a
+`Emulator::save_state()` calls the subsystems in a fixed order and writes a
 `u32` sentinel (`kStateSentinelMagic ^ ordinal`) after each block, so a desync
-is reported by name rather than silently deserialised.
+is reported by name rather than silently deserialised. **Measured on this tree
+(§4): 33 sentinel-delimited blocks, ordinals 0-32** — 27 of them a single
+subsystem's `save_state` call, and 6 `Emulator`-owned groupings (the scalar
+block, `nextreg_appends`, `tail`, `input`, `int_timing`, `esxdos_hostfs`).
 
 **This is the foundation, and it is good at what it was built for.** It was
 built for the rewind ring: an in-process, same-build, fixed-width, maximally
@@ -203,8 +214,13 @@ lost.
 `szx_loader`, `szx_saver`, `z80_loader`, `tap_*`, `tzx_loader`, `wav_loader`,
 `rzx_*`. Integration points JNS inherits for free:
 
-- **Load by extension**: `Emulator::init()` lower-cases
-  `std::filesystem::path::extension()` and dispatches (`emulator.cpp:1153`).
+- **Load by extension**: there are **three** dispatch sites, and a new format
+  must be added to each — `src/main.cpp:1490` (the CLI `--load` arm that routes
+  `.sna`/`.szx`/`.z80`), `Emulator::load_snapshot_buffer()`
+  (`emulator.cpp:8060`, the RZX-embedded-snapshot path, which does
+  `init(config_)` then `apply()`), and the GUI dialog's filter. The
+  `extension()` call at `emulator.cpp:1153` is **not** the dispatcher — it only
+  pre-detects `.nex` to arm `direct_nex_load`.
 - **Save by extension**: `MainWindow::on_save_snapshot()`
   (`main_window.cpp:1763`) picks `SzxSaver` / `NexSaver` / `SnaSaver` from the
   chosen suffix, defaulting to `.sna`.
@@ -221,53 +237,123 @@ refuse, symmetrically, anything it cannot represent faithfully.
 
 ## 4. The state, measured
 
-Numbers matter here, because they decide §5. Measured against **this tree**
-(`main` @ `15430513`) on 2026-09-23, by running `StateWriter` in measure mode
-over `Emulator::save_state` — which is what `rewind_test` already prints as
-`Snapshot size:` — and cross-checked against the `plain_bytes` header of the
-warm-start cache on this box:
+Numbers matter here, because they decide §5. Everything below is **measured
+against this tree** (`main` @ `15430513`) on 2026-09-23, not estimated: a
+temporary `fprintf` in `Emulator::save_state`'s `put_sentinel` lambda printed
+`w.position()` deltas per block, `rewind_test` was rebuilt and run, and the
+instrumentation was then reverted from a `cp` backup. The blocks sum, with the
+sentinels, to exactly the size `rewind_test` prints.
 
-**The full `Emulator::save_state` stream is 2 292 965 bytes.**
+**The full `Emulator::save_state` stream is 2 292 965 bytes**, in **33
+sentinel-delimited blocks**:
 
-Of that, the flat buffers are exactly (constants, not estimates):
+| # | Block | Bytes | # | Block | Bytes |
+|---|---|---|---|---|---|
+| 0 | `clock` | 12 | 17 | `uart` | **2 330** |
+| 1 | `ram` | **2 097 160** | 18 | `divmmc` | **131 089** |
+| 2 | `mmu` | **24 634** | 19 | `beeper` | 3 |
+| 3 | `nextreg` | 262 | 20 | `turbosound` (+3 × `AyChip`) | 152 |
+| 4 | `cpu` | 45 | 21 | `dac` | 4 |
+| 5 | `im2` | 149 | 22 | *emulator scalars* | 72 |
+| 6 | `palette` | **4 622** | 23 | `i2s` | 4 |
+| 7 | `layer2` | 12 | 24 | `nmi_source` | 29 |
+| 8 | `sprites` | **17 039** | 25 | *nextreg appends* | 8 |
+| 9 | `tilemap` | 26 | 26 | `multiface` | **8 201** |
+| 10 | `renderer` (+`Ula`, +`LoRes`) | **3 688** | 27 | *tail* | 2 |
+| 11 | `copper` | **2 057** | 28 | *input* (6 classes) | 450 |
+| 12 | `ctc` | 40 | 29 | *stackless NMI* | 1 |
+| 13 | `dma` | 43 | 30 | `joy_uart` | 1 |
+| 14 | `spi` | 3 | 31 | *int timing* | 609 |
+| 15 | `i2c` | 13 | 32 | *esxdos hostfs* | 4 |
+| 16 | `rtc` | 69 | | **33 sentinels × 4** | **132** |
+
+### 4.1 The flat buffers — twelve, not eight
+
+The buffers inside those blocks, exactly (constants, cross-checked against the
+measured block sizes):
 
 | Buffer | Declared size | Bytes |
 |---|---|---|
 | `Ram::data_` | `2048 * 1024` + 8-byte count prefix | 2 097 160 |
 | `DivMmc` RAM | `kRamSize` = 128 KB | 131 072 |
-| `SpriteEngine::pattern_ram_` | `PATTERN_RAM_SZ` = 16 384 | 16 384 |
+| `Mmu::bank5_vram_` | 16 KB bank-5 VRAM (`mmu.cpp:983`) | 16 384 |
+| `SpriteEngine::pattern_ram_` | `PATTERN_RAM_SZ` | 16 384 |
+| `Mmu::bank7_bram_` | 8 KB bank-7 BRAM (`mmu.cpp:980`) | 8 192 |
 | `Multiface` RAM | `kRamSize` = 0x2000 | 8 192 |
 | `PaletteManager` | 4 palettes × 2 banks × 256 × `u16` + 2 × 256 priority | 4 608 |
+| `Ula::port_ff_log_` | `MAX_CHANGES_PER_FRAME` 1024 × (`u16`+`u8`) | 3 072 |
+| UART FIFOs | 2 ch × (RX 512 × `u16` + TX 64 × `u8`), padded to capacity | 2 208 |
 | `Copper::instructions_` | 1024 × `u16` | 2 048 |
 | `SpriteEngine` attributes | 128 × 5 | 640 |
+| `Renderer::fallback_per_line_` | 320 × `u8` | 320 |
 | `NextReg::regs_` | 256 | 256 |
-| **Total flat buffers** | | **2 260 360** |
+| `Ula::border_per_line_` | `FB_HEIGHT` 256 × `u8` | 256 |
+| **Total flat buffers** | | **2 290 792** |
 
-**Residual — every register, latch, FSM state, counter and flag in all 34
-subsystems plus `Emulator`'s own scalars — is 32 605 bytes, 1.42 % of the
-stream.** The eight buffers above are the other 98.58 %.
+Four of those rows are **per-scanline / in-flight history**, not static memory,
+and they split into two shapes that must not be conflated:
 
-Two findings fall out of this, both worth acting on:
+- **Count-prefixed and padded to full capacity** — `Ula::port_ff_log_` and the
+  UART's four `FifoBuffer`s (2 channels × RX + TX), five buffers in all. The
+  padding exists because `RewindBuffer` requires a constant width; the count
+  says how much of it is live. This shape needs its own descriptor primitive
+  (§6.2, §9.5(1)).
+- **Plain fixed arrays** — `Ula::border_per_line_` and
+  `Renderer::fallback_per_line_` are written with a bare `write_bytes` of the
+  whole array, no count. Ordinary declarations; they are listed here only
+  because they are *history* and §10.3 corrects a claim that they do not travel.
 
-1. **≈ 139 KB of the stream is stored twice.** `Emulator::init()` does
-   `divmmc_.set_ram_backing(ram_.page_ptr(16))` (emulator.cpp:279) and, on the
-   machines that have one, `multiface_.set_ram_backing(ram_.page_ptr(0x0B))`
-   (:301). Both subsystems then serialise through `ram_data()`, which returns
-   the *external* pointer — i.e. a window into the same 2 MB `Ram` already
-   written. The duplication is harmless in a ring buffer and free after deflate,
-   but a named format must not inherit it: JNS references the RAM pages instead
-   of copying them. (**To be verified during implementation** — the DivMMC
-   backing looks unconditional, the Multiface one is machine-type gated.)
-2. **The interesting state is small.** 32 KB of scalars is what a human,
-   a schema, a diff and a validator actually want to look at. Encoding *that*
-   as JSON costs a few hundred KB of text and is trivially affordable. Encoding
-   the 2.26 MB of opaque guest memory as JSON is not, and buys nothing — a JSON
-   Schema has nothing to say about the contents of RAM beyond "2 097 152 numbers
-   in 0…255".
+### 4.2 The three-way split
 
-That asymmetry is the whole argument of §5.
+| Part | Bytes | Share |
+|---|---|---|
+| Flat buffers (the 14 rows above, across 11 owners) | 2 290 792 | 99.904 % |
+| Framing sentinels (33 × 4) | 132 | 0.006 % |
+| **Genuine scalar/register/FSM state, all 34 classes** | **2 041** | **0.089 %** |
 
----
+**Two thousand and forty-one bytes.** That is every register, latch, FSM state,
+counter and flag in the whole machine outside a flat buffer.
+
+> An earlier draft of this document put the residual at 32 605 bytes / 1.42 %.
+> That was wrong by a factor of ~16: it omitted the four buffers above the
+> earlier table missed (30 432 bytes) and folded the 132 sentinel bytes into the
+> residual. Both numbers are now derived from the per-block measurement, and
+> 2 290 792 + 132 + 2 041 = 2 292 965 exactly.
+
+The correction makes the Option C argument in §5 **stronger, not weaker**: the
+part worth naming, typing, diffing and schema-validating is not 1.4 % of the
+stream, it is 0.09 % of it. There is no size argument against encoding 2 KB of
+scalars as JSON, and no verification argument for encoding 2.29 MB of opaque
+buffers that way.
+
+### 4.3 Three findings, all measured
+
+1. **131 072 bytes are stored twice, on every machine.**
+   `Emulator::init()` does `divmmc_.set_ram_backing(ram_.page_ptr(16))`
+   (`emulator.cpp:279`) **unconditionally**, and `DivMmc::save_state` writes
+   `ram_data()` (`divmmc.cpp:643`), which returns the external pointer — a
+   window into the same 2 MB `Ram` already written. Free after deflate, harmless
+   in a ring buffer, but JNS must reference the RAM pages rather than copy them.
+
+2. **The Multiface is the opposite case, and an earlier draft of this document
+   got it backwards.** `multiface_.set_ram_backing(ram_.page_ptr(0x0B))` is
+   gated on `cfg.type == MachineType::ZXN_ISSUE2` (`emulator.cpp:301`) — but
+   `Multiface::save_state` writes `ram_.data()` (`multiface.cpp:373`), the
+   **private** array, not `ram_data()`. So on the **Next** the private array is
+   never written by the machine and those 8 192 bytes are **dead zeros** in
+   every snapshot (the live MF RAM is page 0x0B, already inside `mem/ram.bin`);
+   on **48K/128K/+3** there is no backing and the same 8 192 bytes are
+   **genuine private state JNS must carry**. The consequence for §6 and §10: the
+   Multiface RAM member is **machine-type conditional**, present only on the
+   standalone machines, and absent (not zero-filled) on the Next.
+
+3. **`Multiface::mf_type_` is knowingly lossy — a direct G1 violation.**
+   `Multiface::load_state` (`multiface.cpp:383-400`) reconstructs `mf_type_`
+   from three mode booleans, and its own comment states that "save state from a
+   session running `mf_type=10` will lose the bit", accepted at the time rather
+   than bumping the schema. A rewind can absorb that; a snapshot the user
+   expects to resume cannot. §10.2 carries it as a gap JNS must close by
+   serialising the 2-bit value.
 
 ## 5. The container decision
 
@@ -288,7 +374,7 @@ That asymmetry is the whole argument of §5.
 
 **Option B — pure JSON (whole state), ZIP- or gzip-compressed.**
 
-- *Against, decisively*: the 2.26 MB of flat buffers become ~3.0 MB as base64 or
+- *Against, decisively*: the 2.29 MB of flat buffers become ~3.1 MB as base64 or
   ~6–7 MB as decimal arrays, before compression, and cost a parse of every one
   of two million values on load. The gain over Option C for those bytes is
   **zero**, because a schema cannot say anything useful about them. Paying
@@ -300,11 +386,15 @@ That asymmetry is the whole argument of §5.
 **Option C — ZIP container: JSON manifest + JSON per-subsystem state + binary
 blob members for the flat buffers.** ← **recommended**
 
-- *Size*: the 1.42 % that is scalars becomes ~200–400 KB of JSON text; the
-  98.58 % stays binary. Both are deflated by the ZIP itself. Expected file:
-  **~150–250 KB** for a full 2 MB-RAM Next snapshot, against the 126 KB the
-  warm-start cache measures for the same machine as one opaque deflate stream.
-  The delta is the price of the text, and it is a price worth paying.
+- *Size*: the **0.089 %** that is genuine scalars (2 041 bytes, §4.2) becomes
+  roughly **15–30 KB** of JSON text — key names dominate, not values. The
+  99.9 % stays binary. Both are deflated by the ZIP itself. Expected file:
+  **~130–140 KB** for a full 2 MB-RAM Next snapshot, against the **128 657
+  bytes** the warm-start cache measures for the same machine as one opaque
+  deflate stream. **The text costs single-digit kilobytes, not the 1.5–2× an
+  earlier draft of this document estimated from the wrong residual.** Two of
+  the padded-to-capacity history buffers (§4.1) shrink rather than grow in JSON,
+  because JSON carries `count` entries where the binary carries `capacity`.
 - *Speed*: one deflate pass over the same bytes, plus a parse of a few hundred
   KB of JSON. Sub-100 ms, against a ~2.3 MB serialise that is already
   milliseconds.
@@ -336,18 +426,22 @@ A wearing a ZIP.
 
 ### 5.2 Recommendation
 
-**Option C.** The deciding argument is §4: the state divides cleanly, and
-almost perfectly, into a tiny part that benefits enormously from being named,
-typed and externally validatable, and a huge part that benefits not at all. A
-hybrid is not a compromise here — it is the shape of the data.
+**Option C** — confirmed by the owner, 2026-09-23. The deciding argument is
+§4: the state divides cleanly, and almost perfectly, into a tiny part that
+benefits enormously from being named, typed and externally validatable
+(**0.089 %**), and a huge part that benefits not at all (**99.9 %**). A hybrid
+is not a compromise here — it is the shape of the data, and the measurement is
+far more lopsided than it first appeared.
 
-The trade-off, stated plainly: **a `.jns` is roughly 1.5–2× the size of the
-smallest possible binary encoding of the same machine, and JNS carries ~600
-lines of container code plus one vendored JSON header that a first-party chunk
-format would not need.** In exchange, a snapshot is something a user can open
-with tools they already have, a test can validate with an implementation we did
-not write, and a reviewer can read in a diff. For a local save-state measured in
-hundreds of kilobytes, that is not a close call.
+The trade-off, stated plainly, and **smaller than an earlier draft claimed**:
+size is essentially a wash — ~130–140 KB against the 128 657 bytes an opaque
+deflate of the same machine measures, because JSON is carrying two kilobytes of
+scalars, not thirty-two. **The real cost is code and dependency: ~600 lines of
+first-party container code plus one vendored JSON header that Option A would
+not need.** In exchange, a snapshot is something a user can open with tools they
+already have, a test can validate with an implementation we did not write, and a
+reviewer can read in a diff. At a few kilobytes of overhead, that is not a close
+call.
 
 ### 5.3 What the schema can and cannot do
 
@@ -386,29 +480,29 @@ A `.jns` is a ZIP archive. Members, in write order:
 
 ```
 snapshot.jns
-├── manifest.json               REQUIRED, first member, always DEFLATE or STORED
+├── manifest.json               REQUIRED, first member
 ├── state/clock.json            one per subsystem, named for the subsystem
-├── state/mmu.json
-├── state/nextreg.json
+├── state/mmu.json              (slots + ports; its two RAM buffers are blobs)
+├── state/nextreg.json          (256 registers as hex + the shadow scalars)
 ├── state/cpu.json
-├── state/im2.json
-├── state/palette.json
+├── state/im2.json              (+ the int_timing block, §9.4)
+├── state/palette.json          (4 × 2 × 256 entries — JSON, not a blob)
 ├── state/layer2.json
 ├── state/sprites.json          (attributes + registers; patterns are a blob)
 ├── state/tilemap.json
-├── state/renderer.json
-├── state/ula.json
+├── state/renderer.json         (+ fallback_per_line)
+├── state/ula.json              (+ border_per_line + the port-0xFF change log)
 ├── state/lores.json
 ├── state/copper.json           (registers + the 1K instruction RAM as hex)
-├── state/ctc.json
+├── state/ctc.json              (+ its chained-trigger timing, §9.4)
 ├── state/dma.json
 ├── state/spi.json
-├── state/sdcard.json           NEW — see §11
+├── state/sdcard.json           NEW — the SPI FSM, §10.2 P1
 ├── state/i2c.json
 ├── state/rtc.json
-├── state/uart.json
-├── state/divmmc.json           (registers only; its RAM is a RAM window, §4)
-├── state/multiface.json
+├── state/uart.json             (FIFOs as count-length arrays, not padded)
+├── state/divmmc.json           (registers only; its RAM is a RAM window, §4.3)
+├── state/multiface.json        (registers + mf_type; RAM only when private)
 ├── state/nmi_source.json
 ├── state/beeper.json
 ├── state/turbosound.json       (3 × AY inside)
@@ -420,11 +514,14 @@ snapshot.jns
 ├── state/md6.json
 ├── state/membrane_stick.json
 ├── state/iomode.json
-├── state/joy_uart.json         (present only when a cable is attached)
-├── state/esxdos_hostfs.json    (handles + cwd + root)
-├── state/emulator.json         (Emulator's own scalars, §10)
-├── mem/ram.bin                 2 MB (or the configured size)
-├── mem/sprite-patterns.bin     16 KB
+├── state/joy_uart.json         present only when a cable is attached
+├── state/esxdos_hostfs.json    handles + cwd + root
+├── state/emulator.json         Emulator's own scalars, §10
+├── mem/ram.bin                 2 097 152 B
+├── mem/bank5-vram.bin          16 384 B  (Mmu::bank5_vram_)
+├── mem/sprite-patterns.bin     16 384 B
+├── mem/bank7-bram.bin           8 192 B  (Mmu::bank7_bram_)
+├── mem/multiface-ram.bin        8 192 B  — 48K/128K/+3 ONLY, see §4.3(2)
 ├── meta/preview.png            OPTIONAL — the framebuffer at capture time
 └── meta/README.txt             OPTIONAL — human-readable "do not share" notice
 ```
@@ -437,36 +534,80 @@ Rules:
   `jnext-snapshot format=1`, so `unzip -z snapshot.jns` identifies the file and
   its grammar without a JSON parse, and a truncated file is still classifiable.
 - **Member paths are lower-case, `/`-separated, no leading `/`, no `..`.** A
-  reader refuses any archive containing a member path that does not match
-  `^[a-z0-9][a-z0-9._/-]*$` — a snapshot is not an extraction target, and zip-slip
-  is not a hazard we accept even in a private format.
+  reader refuses any archive containing a path that does not match
+  `^[a-z0-9][a-z0-9._/-]*$`. A snapshot is not an extraction target, and
+  zip-slip is not a hazard we accept even in a private format.
+- **Duplicate member names are a REFUSAL.** ZIP permits them and real readers
+  disagree about which one wins — some take the first central-directory entry,
+  some the last, some the last *local* header. That is the `.szx` failure shape
+  exactly: a file our reader resolves one way and an external tool resolves
+  another, with both believing they succeeded. The writer never emits one and
+  the reader refuses the archive outright rather than picking.
 - **Order is the write order above, but a reader must not depend on it.** It is
   chosen so `unzip -l` reads sensibly and so `manifest.json` is first.
 - **Members may be `STORED` or `DEFLATE`.** Default `DEFLATE` level 9 (the
   warm-start cache's reasoning applies: written once, read often).
-  `--snapshot-uncompressed` writes everything `STORED`, which is the settled
-  point-6 debugging mode and also makes `.jns` files `zipdetails`-friendly.
+  `--snapshot-uncompressed` writes everything `STORED` — the settled point-6
+  debugging mode, and one flag on the member writer rather than a second code
+  path.
 - **ZIP64 is not written and is refused on read.** No member can approach 4 GB;
   writing ZIP64 would add a second framing to test for no reachable benefit.
-  Rejecting it is one check.
 
-### 6.1 Encoding rules inside the JSON
+### 6.1 What goes in JSON, and what goes in a blob
+
+The rule is about **what the bytes are**, not only how many:
+
+> **Guest-writable memory goes in a blob, whatever its size. Hardware register
+> files, FSM state and per-frame history go in JSON, whatever their size.**
+
+Size is only a tie-breaker (a fixed array above ~8 KB that is *not* guest memory
+would still be reconsidered). Stating it this way removes an ambiguity an
+earlier draft left open: `Mmu::bank7_bram_` is **exactly** 8 192 bytes, so a
+pure size threshold gave no answer. It is guest RAM, so it is a blob — and so is
+`bank5_vram_`, which the earlier layout omitted altogether.
+
+By that rule: `Ram`, `bank5_vram_`, `bank7_bram_`, the sprite pattern RAM and
+the standalone Multiface RAM are blobs. The NextREG file, the palettes, the
+Copper instruction RAM, the UART FIFOs, the port-0xFF log and the two per-line
+arrays are JSON.
+
+### 6.2 Encoding rules inside the JSON
 
 | Kind | Encoding | Schema can check |
 |---|---|---|
 | Boolean flag | `true` / `false` | type |
-| Register / counter ≤ 32 bits | JSON number, decimal | type, `minimum`, `maximum` |
-| Counter that may exceed 2^53 | JSON **string**, decimal digits | `pattern: "^[0-9]+$"` — see §7.4 |
-| Enum / FSM state | JSON string from a closed set | `enum` — this is worth a lot: an FSM renumbering becomes a *name* change, visible in a diff |
-| Fixed array ≤ 8 KB | one lower-case hex string, no separators | `pattern: "^[0-9a-f]{N}$"` with N literal — **exact length checked by the schema** |
+| Unsigned ≤ 32 bits | JSON number, decimal | type, `minimum`, `maximum` |
+| **Signed 32-bit (`i32`)** | JSON number, may be negative | `minimum: -2147483648` |
+| **`u64` / `i64`** | JSON **string** of decimal digits, sign allowed | `pattern: "^-?[0-9]+$"` — see §7.4 |
+| **Open-ended sentinel** (`INT64_MAX`) | the JSON string `"open"` | `enum` alongside the numeric pattern |
+| Enum / FSM state | JSON string from a closed set | `enum` — an FSM renumbering becomes a *name* change, visible in a diff |
+| Fixed array, not guest memory | one lower-case hex string, no separators | `pattern: "^[0-9a-f]{N}$"` with N literal — **exact length checked by the schema** |
+| **Count-prefixed history** (see below) | JSON array of exactly `count` items | `maxItems` = the binary capacity |
 | Variable-length list | JSON array of objects | `items`, `minItems`/`maxItems` |
-| Opaque buffer > 8 KB | ZIP member, declared in `manifest.members` | the *declaration*, not the bytes (§5.3) |
+| Guest memory | ZIP member, declared in `manifest.members` | the *declaration*, not the bytes (§5.3) |
 
-The 8 KB threshold is a judgement, not a law: below it the hex string is small
-enough to be diffed and schema-length-checked, above it the text doubles a
-buffer nobody will read. `NextReg::regs_` (256 B), `Copper::instructions_`
-(2 KB as 4096 hex chars), the palettes (4.6 KB) and the DivMMC/Multiface
-register sets all land in JSON; `Ram` and the sprite pattern RAM are blobs.
+**`i32` and `i64` are not optional additions.** The tree makes **11 `write_i32`
+calls** today — `Clock::cpu_divisor_`, `Im2Controller::last_acked_`,
+`Uart::select_`, `Ula::flash_counter_`, `Z80Cpu`'s
+`interrupts_enabled_at`, and six in `Keyboard`'s auto-type queue — and an
+encoding table with no signed type would have forced every one of them through
+an unsigned reinterpretation, which is precisely the defect §7.4 describes.
+
+**The count-prefixed-history primitive.** Five buffers (§4.1) are written
+`count`-first and then **padded to full capacity**, because `RewindBuffer`
+requires every snapshot to be exactly the width it measured at construction:
+`Ula::port_ff_log_`, the UART's four FIFOs, and (by the same requirement) any
+future in-flight log. The binary encoding **must** stay padded; the JSON
+encoding **must not** be, or a snapshot's text would carry 1 024 entries to
+express three. One declaration therefore has to produce two different shapes,
+which is an explicit primitive rather than something a plain array descriptor
+can express — see §9.4.
+
+The hazard behind that requirement is on record: `AttributeMux`
+(`src/memory/attribute_mux.h:216-235`) documents that serialising its
+variable-length log "was tried first and was the actual bug behind a
+`free(): invalid size` heap-corruption crash", because slot width varied frame
+to frame. The padding is load-bearing, not stylistic.
 
 A worked example — `state/copper.json`:
 
@@ -482,16 +623,16 @@ A worked example — `state/copper.json`:
 }
 ```
 
-and its manifest declaration of the one blob it does not hold:
+and the manifest's declaration of the blobs it does not hold:
 
 ```json
 "members": {
   "mem/ram.bin":             { "bytes": 2097152, "crc32": "8f3a21bd" },
-  "mem/sprite-patterns.bin": { "bytes": 16384,   "crc32": "0c19ee40" }
+  "mem/bank5-vram.bin":      { "bytes": 16384,   "crc32": "5511aa02" },
+  "mem/sprite-patterns.bin": { "bytes": 16384,   "crc32": "0c19ee40" },
+  "mem/bank7-bram.bin":      { "bytes": 8192,    "crc32": "77c3b118" }
 }
 ```
-
----
 
 ## 7. The version field and its rules
 
@@ -536,6 +677,26 @@ meaning changes, it gets a new name and the old one is retired. That converts
 almost every conceivable change into the "does NOT bump" column, which is what
 makes a frozen version honest rather than aspirational.
 
+**And that rule has a cost that must be paid in the same design, or it becomes
+a data-loss machine.** Renaming is now the *routine* way to change a field —
+while §12's reader rule is "ignore unknown keys, default missing ones". Compose
+the two and every rename is a silent, total loss of that field: the old file's
+key is unknown to the new reader, the new reader's key is missing from the old
+file, and nothing anywhere reports it. The fix is cheap and must be committed
+alongside the schema:
+
+> **`doc/formats/jns-retired-names.json`** — a table mapping every retired key
+> to either its successor (`{"old": "state/uart.sel", "new": "state/uart.select"}`)
+> or an explicit tombstone (`{"old": "state/ula.armed", "new": null,
+> "reason": "removed Task 8 round 3; no successor"}`).
+
+The reader consults it before applying §12's ignore-unknown rule: a key in the
+retired table is **migrated**, not ignored, and a tombstoned key is ignored
+*deliberately and silently*. A key in neither table is what "unknown" then
+actually means. The file is generated-adjacent but **hand-written**, because
+only a human knows whether a rename was a rename or a replacement — and it is
+therefore reviewed, which is the point.
+
 ### 7.2 `state_model_revision` — the moving one
 
 ```json
@@ -563,7 +724,7 @@ file. What remains are genuine model changes, which is what the number is for.
 | `format_version` **<** this build's, and a reader for it is compiled in | Read it under that grammar's rules. |
 | `format_version` **<** this build's, reader removed | **Refuse**, naming the version and the release that dropped it. |
 | A **required** member or key (per the schema) is missing | **Refuse**, naming it. |
-| `model.machine` ≠ the machine this build would construct | **Refuse** unless the user asked for it — a snapshot is restored onto the machine it was taken on, and jnext reconfigures itself to `model.machine` rather than requiring the user to get `--machine` right. |
+| `model.machine` ≠ the machine currently constructed | **Reconfigure and restore.** The reader calls `init()` with `model.machine` and then applies — exactly what `Emulator::load_snapshot_buffer` already does for `.sna`/`.szx`/`.z80` (`emulator.cpp:8066-8083`, GH #239). The user must not have to get `--machine` right to reload their own save. (An earlier draft of this row said "Refuse" while justifying reconfiguration in the same sentence, and contradicted §8; the refusal is deleted.) |
 | `model.state_model_revision` ≠ this build's | **Restore, loudly.** One log line and a GUI status-bar note naming both revisions and both jnext versions. `--snapshot-strict` turns this into a refusal. |
 | An **unknown** member or key | Ignore it, and log one line per subsystem that had any (§12). |
 
@@ -573,25 +734,54 @@ its eventual removal is a ChangeLog line under *User Features*. This is the
 "better than MAME, but no promise" posture settled point 5 asks for, stated as a
 rule rather than an intention.
 
-### 7.4 The 2^53 rule
+### 7.4 The 2^53 rule — and the fields that already break it
 
 JSON has one number type. `nlohmann/json` round-trips `uint64_t` exactly, and so
 does Python's `json` (arbitrary-precision ints) — but a JavaScript validator
-(`ajv`) silently rounds above 2^53, which would make an external validation pass
+(`ajv`) silently rounds above 2^53, which would let an external validation pass
 on a file a JavaScript reader had already corrupted.
 
-**Rule: any field whose value can exceed 2^53 is encoded as a decimal
-*string*,** with `"pattern": "^[0-9]+$"` in the schema.
+**Rule: any `u64` or `i64` field is encoded as a decimal *string*,** with
+`"pattern": "^-?[0-9]+$"` in the schema. Not "any field that might one day be
+large" — every 64-bit field, unconditionally, because the alternative is a
+per-field judgement that goes stale.
 
-Which fields qualify today: **none.** The largest counters are
-`monotonic_tstates()` and `Clock::cycle_`, which at 28 MHz reach 2^53 after
-about ten years of continuous emulation. The rule exists so a *future* field
-does not break external validation silently, and so the choice is recorded
-rather than rediscovered. The descriptor layer (§9) is where it is enforced: a
-`u64` declared through it is emitted as a string, full stop, and the schema
-generator writes the pattern.
+> An earlier draft of this document asserted that **no field qualifies today**,
+> reasoning that `monotonic_tstates()` and `Clock::cycle_` need about ten years
+> of continuous emulation to reach 2^53. That reasoning was correct and the
+> conclusion was **false**, because it only considered fields that *count up*.
 
----
+**Measured, in every snapshot this build writes.** `emulator.cpp:11794-11798`
+writes the CPU's `/INT` window as **signed deltas reinterpreted as `uint64_t`**:
+
+```cpp
+const int64_t now_ts = static_cast<int64_t>(*fuse_z80_tstates_ptr());
+const int64_t last   = cpu_.int_window_last_ts();
+w.write_u64(static_cast<uint64_t>(cpu_.int_window_first_ts() - now_ts));
+w.write_u64(static_cast<uint64_t>(last == INT64_MAX ? last : last - now_ts));
+```
+
+A window that opened in the past is a **negative** delta, and the cast makes it
+a value just under 2^64. Real values from the live stream: `int_window_first =
+18446744073708986683` (= -564 933 signed) and `int_window_last =
+18446744073708986714`. Both are roughly **2 000× above 2^53**, in *every*
+snapshot, not in some rare future one.
+
+Three consequences, all now in §6.2:
+
+1. **Signed types are first-class.** `i32` and `i64` exist in the encoding
+   table. The `/INT` window is `i64` and emits `"-564933"`, which is both
+   correct and legible — the unsigned reinterpretation exists only because the
+   binary stream had no signed 64-bit primitive, and a named format has no
+   reason to inherit it.
+2. **`INT64_MAX` gets a name.** It is written verbatim as an open-ended-window
+   sentinel, and as a 19-digit string it is indistinguishable from a real value
+   to every reader including a human. In JSON it is the string **`"open"`**, and
+   the schema accepts `"open"` or the decimal pattern. A sentinel that looks
+   like data is a bug waiting for someone to do arithmetic on it.
+3. **The rule is enforced by the descriptor, not by discipline.** A `u64` or
+   `i64` declared through §9's `StateDesc` emits a string and the schema
+   generator writes the pattern. There is no site where a developer chooses.
 
 ## 8. Identity and provenance
 
@@ -618,8 +808,7 @@ generator writes the pattern.
 
   "capture": {
     "frame": 41291,
-    "frame_boundary": true,
-    "paused": true
+    "frame_boundary": true
   },
 
   "media": {
@@ -645,8 +834,22 @@ Notes on the parts that carry weight:
 - **`producer`** is provenance only: a mismatch is never itself a refusal. It is
   what turns "this snapshot behaves oddly" into a bisectable fact.
 - **`model.machine` drives reconstruction**, not validation. Restoring a `.jns`
-  reconfigures the emulator to the machine the snapshot was taken on, the same
-  way loading a `.szx` does. The user should not have to remember `--machine`.
+  calls `init()` with it and then applies, the same way
+  `Emulator::load_snapshot_buffer` already does for `.sna`/`.szx`/`.z80`
+  (`emulator.cpp:8066-8083`). The user should not have to remember `--machine`.
+- **`model.ram_kb` is always 2048 today, and the key exists anyway.** There is
+  no configurable RAM size: `Ram ram_;` (`emulator.h:1126`) takes the
+  `2048 * 1024` default and no CLI flag or `EmulatorConfig` field changes it.
+  The key is written because it is what makes `mem/ram.bin`'s declared length
+  *checkable* by an external validator (§13's constraint overlay asserts
+  `ram_kb * 1024 == members["mem/ram.bin"].bytes`), and because the hardware's
+  768K/2048K distinction means a future flag is plausible. A reader refuses any
+  value it cannot construct rather than assuming 2048.
+- **`capture.frame_boundary` is always `true`, or the file was not written.**
+  It is recorded as a fact a reader can check, not as a mode. There is
+  deliberately **no `"paused"` key**: see §10.2 P7 — a mid-frame pause is a
+  state a `.jns` cannot be written from at all, so a flag saying so would
+  describe a file that does not exist.
 - **`media.roms`** closes a real gap. For `--machine 48k/128k/plus3` the ROM
   lives in the separate `Rom rom_` object, which is **not serialised** — so a
   snapshot restored against a different `48.rom` runs different code with no
@@ -691,6 +894,31 @@ void DivMmc::describe_state(StateDesc& d) {
     // …
 }
 ```
+
+**`ram_window` vs `blob` is a STATIC declaration, and that is a decision, not
+an oversight.** The property it describes — whether a buffer is a window into
+main RAM or a private array — is established at run time by `init()`
+(`emulator.cpp:279`, `:301`), so a descriptor could in principle be asked to
+express "window when `ram_ext_ != nullptr`, blob otherwise". **It is not**,
+because a run-time-shaped field list is the complexity this whole layer exists
+to avoid, and because the two cases are each unconditionally true today:
+
+- **DivMMC is always a window.** `set_ram_backing` is unconditional and
+  `save_state` writes `ram_data()`. Declared `ram_window`, always.
+- **Multiface is always private *in the stream*.** `save_state` writes
+  `ram_.data()` regardless of backing (§4.3(2)). On the Next that array is dead
+  zeros and the live 8 KB already travels inside `mem/ram.bin`; on
+  48K/128K/+3 it is the real thing. Declared `blob`, and **emitted only on the
+  machines where it is live** — the manifest's `subsystems` list already
+  expresses a conditionally-present member, so the Next simply has no
+  `mem/multiface-ram.bin` rather than 8 KB of zeros.
+
+The static claim is then **asserted at run time** so it cannot go stale: a
+`ram_window` declaration checks `ram_ext_ != nullptr` at save time and fails
+loudly if it is null, and a `blob` declaration on a buffer whose owner has a
+non-null backing pointer is a build-time review question. A comment claiming
+"always" with nothing checking it is how the earlier draft of §4 came to state
+the Multiface case backwards.
 
 `StateDesc` is an interface with several realisations over the *same*
 declaration:
@@ -743,26 +971,79 @@ still worth having: it catches encoding faults — wrong type, malformed JSON, a
 hex string of the wrong length, a value outside a register's range, a duplicate
 key — using an implementation we did not write. §13 says what else is needed.
 
-### 9.4 Where the descriptor does not fit
+### 9.4 How much of the tree the descriptor actually covers
 
-Not every subsystem is a flat bag of scalars, and pretending otherwise would
-produce a descriptor with an escape hatch used everywhere. Three kinds get
-hand-written `to_json`/`from_json` beside the descriptor:
+The migration was sized by classifying **all 532 `StateWriter` call sites** in
+the tree, not by sampling:
 
-- **Variable-length lists** — the esxDOS host-FS handle table (path, offset,
-  mode per open handle) and the joystick-cable cursor.
-- **Fields written relative to something the stream does not carry** — the CPU's
-  `/INT` window, written as a delta against the FUSE T-state counter that
-  `load_state` re-seeds at the next frame start.
-- **Cross-subsystem re-syncs** — the `Ula`'s copies of the palette-bank
-  selectors and the attribute mux, rebuilt from `PaletteManager` and VRAM after
-  a load (GH #261). These are *derived*, so they belong in neither encoding;
-  they are recomputed, and the rule is that a derived field is never written.
+| Class | Sites | Treatment |
+|---|---|---|
+| A bare member variable | **404 (76 %)** | one `d.<type>("name", member_)` line, mechanical |
+| Fixed arrays | ~30 | `d.bytes(...)` / `d.blob(...)` |
+| Array elements inside loops | 29 sites in 25 loops | **collapse** — `palette.cpp`'s 10 loops become 5 declarations |
+| Enum casts | 23 sites over ~20 enums | one `d.enum8(...)` each, plus a name table per enum |
+| Accessor calls (no member to bind) | 7 | a get/set descriptor pair |
+| **Framing sentinels** | **33** | **not fields at all** — see below |
+| Genuinely non-descriptor | ~20 sites in 8 places | hand-written, §9.5 |
 
-Each such case is named in the subsystem's doc-comment, so "hand-written" is a
-declared exception rather than a habit.
+Three consequences the estimate in §17 rests on: three quarters of the work is
+a mechanical one-line-per-field transcription; the loop sites *reduce* the
+declaration count rather than adding to it; and the enum sites are the only ones
+that need net-new artefacts (a name table apiece), which is also where the
+format gains the most — an FSM renumbering becomes a visible name change.
 
----
+**The 33 sentinels are the one class that cannot be a declaration.** They are
+framing, not state: they must *survive* in the binary encoding (where they are
+the only thing that localises a desync) and must *vanish* in JSON (where member
+and key names do that job structurally). So `BinWriteDesc` emits a sentinel at
+each block boundary and `JsonWriteDesc` emits nothing — a property of the
+realisation, not of any declaration.
+
+### 9.5 Where the descriptor does not fit — all eight places
+
+An earlier draft named three of these. All eight, from the classification:
+
+1. **Count-prefixed-and-padded history** — `Ula::port_ff_log_` and the UART's
+   four FIFOs (§4.1, §6.2). The binary form must stay padded to capacity because
+   `RewindBuffer` requires constant width; the JSON form must carry exactly
+   `count` items. **One declaration, two shapes**, so this is an explicit
+   primitive — `d.history("port_ff_log", log_, count_, MAX_CHANGES_PER_FRAME)` —
+   not something a plain array descriptor can express. The hazard is on record:
+   serialising a variable-length log "was tried first and was the actual bug
+   behind a `free(): invalid size` heap-corruption crash"
+   (`src/memory/attribute_mux.h:216-235`).
+2. **A second serialisation entry point per subsystem.**
+   `Im2Controller::save_timing` and `Ctc::save_timing` are called from a
+   *different block* than those subsystems' own — block 31, `int_timing`, at the
+   very end of the stream (GH #265), not blocks 5 and 12. One `describe_state`
+   cannot put its fields in two blocks, and S2's byte-identity gate (§17)
+   forbids moving them. **Answer: two describe methods**, `describe_state` and
+   `describe_timing`, each bound to its own block, with the JSON side free to
+   merge `describe_timing`'s keys into `state/im2.json` and `state/ctc.json`
+   where they belong logically.
+3. **Values written relative to something the stream does not carry** — the
+   CPU's `/INT` window, a delta against the FUSE T-state counter that
+   `load_state` re-seeds at the next frame start (§7.4).
+4. **Variable-length lists** — the esxDOS host-FS handle table (path, offset,
+   mode per open handle) and the joystick-cable cursor.
+5. **Presence-flag-gated optional blocks** — `joy_uart` writes a `bool` and then
+   a whole subsystem only when a cable is attached. In JSON this is simply an
+   absent member, so the flag itself does not travel.
+6. **Reconstructed-on-load fields** — `Multiface::mf_type_`, today rebuilt from
+   three booleans and knowingly lossy (§4.3(3)). JNS serialises the 2-bit value
+   directly, which makes this a *fix* rather than an exception, and the three
+   booleans stay as ordinary declarations.
+7. **Cross-subsystem re-syncs** — the `Ula`'s copies of the palette-bank
+   selectors and the attribute mux, rebuilt from `PaletteManager` and VRAM after
+   a load (GH #261). These are *derived*: a derived field is never written, in
+   either encoding.
+8. **Rebuilt-every-frame state that is deliberately absent** — `AttributeMux`'s
+   log/baseline/current, rebuilt by `start_frame()` before any CPU execution.
+   Not a descriptor exception so much as a documented non-participant, recorded
+   here so "complete" in §10 is true.
+
+Each is named in its subsystem's doc-comment, so "hand-written" stays a declared
+exception rather than a habit.
 
 ## 10. The complete state inventory
 
@@ -776,7 +1057,7 @@ JNS re-expresses it through the descriptor and does not add state.
 |---|---|---|
 | Clock | `Clock` | scalars |
 | RAM | `Ram` | → `mem/ram.bin` blob; size from `model.ram_kb` |
-| MMU | `Mmu` | 8 slot page numbers + 128K/+3 port shadows |
+| MMU | `Mmu` | 8 slot page numbers + 128K/+3 port shadows + the attribute-mux scanline cursor. **Plus two guest-RAM buffers an earlier draft missed entirely**: `bank5_vram_` (16 KB) and `bank7_bram_` (8 KB), both blob members (§6.1). |
 | NextREG | `NextReg` | all 256 registers as one hex string + the shadow scalars |
 | CPU | `Z80Cpu` | registers, IFF, IM, halt, the stackless-RETN latch, the `/INT` window (§9.4) |
 | Interrupts | `Im2Controller` | + `save_timing` (GH #265) |
@@ -785,20 +1066,21 @@ JNS re-expresses it through the descriptor and does not add state.
 | Sprites | `SpriteEngine` | 128 × 5 attribute bytes in JSON; 16 KB pattern RAM → blob |
 | Tilemap | `Tilemap` | registers + clip window |
 | LoRes | `LoRes` | registers |
-| ULA / renderer | `Ula`, `Renderer` | the per-scanline change logs are **not** written — `load_state` rebuilds them from the restored registers (GH #261). JNS keeps that rule. |
+| ULA / renderer | `Ula`, `Renderer` | **Three per-scanline histories ARE written and must travel**: `Ula::port_ff_log_` (count + 1024 padded entries, 3 072 B), `Ula::border_per_line_` (256 B) and `Renderer::fallback_per_line_` (320 B). Everything else in the render history — the change logs with their frame-start baselines and the per-line snapshot arrays — is rebuilt by `load_state` from the restored registers (GH #261). An earlier draft of this row asserted the blanket "not written" rule and was wrong; see §10.3. |
 | Copper | `Copper` | 1K instruction RAM as hex + PC/mode |
 | CTC | `Ctc` | 4 channels + `save_timing` |
 | DMA | `Dma` | FSM + registers |
 | SPI | `Spi` | master FSM |
 | I2C + RTC | `I2c`, `I2cRtc` | bit-bang state + RTC registers |
-| UART | `Uart` | FIFOs + prescaler |
-| DivMMC | `DivMmc` | registers; its 128 KB RAM is a **window into `Ram`** (§4) — JNS references, does not copy |
-| Multiface | `Multiface` | FFs; its 8 KB RAM is likewise a RAM window on the machines that back it externally |
+| UART | `Uart` | prescaler + the two FIFOs per channel, written count-prefixed and **padded to capacity** (2 208 B) — the `history` primitive of §9.5(1) |
+| DivMMC | `DivMmc` | registers; its 128 KB RAM is a **window into `Ram`** (§4.3(1)), unconditionally — JNS references, does not copy |
+| Multiface | `Multiface` | FFs + the mode booleans. Its 8 KB RAM is **private, not a window**, in the stream (§4.3(2)): dead zeros on the Next, real state on 48K/128K/+3, so the blob member is machine-conditional. `mf_type_` must become a real field (§10.2 P13). |
 | NMI | `NmiSource` | + `prev_nmi_generate_n_` |
 | Audio | `Beeper`, `TurboSound` (3 × `AyChip`), `Dac`, `I2s` | chip registers, envelope/LFSR phase |
 | Input | `Keyboard`, `Joystick`, `KempstonMouse`, `Md6ConnectorX2`, `MembraneStick`, `IoMode` | Task 60c. Host-side `JoystickDispatcher`/`MouseDispatcher` are platform-owned and re-seeded by the `on_input_state_restored` callback — JNS keeps that. |
 | Joystick cable | `JoyUartSource` | optional; present only when attached (GH #251) |
 | esxDOS host FS | hand-rolled in `Emulator` | (path, offset, mode) per handle + cwd. **The precedent for §11**: an external resource is recorded by reopenable identity, not copied. |
+| **Deliberately excluded, documented in place** | `AudioMute` (`src/audio/audio_mute.h:20-26`), `AttributeMux` (`src/memory/attribute_mux.h:216-235`) | Named here so "complete" is true. `AudioMute` is the user's volume knob, not machine state — "a rewind must not silently un-mute", **and that reasoning transfers verbatim to a file snapshot**: restoring somebody's save must not move their mute settings. `AttributeMux` is rebuilt from live RAM by `start_frame()` before any CPU execution; serialising its log caused a heap-corruption crash (§9.5(1)). Neither travels in a `.jns`. |
 | `Emulator` scalars | ~40 fields | `frame_cycle_`, monotonic T-states, `frame_num_`, `boot_hold_frames_remaining_`, `esp_frames_`, `cpu_parked_`, the PSG/sample Bresenham phases, the IM2 enable/status/DMA-delay registers, the four clip-window write indices, `port_ff_reg_`, `nr_10_coreid_`, the G55 IO-trap trio, `nr_2d_i2s_sample_`, `nr_a0/a2`, `nr_02_bus_reset_`, `prev_pulse_int_n_`. In JNS these are **named keys**, so the append-order chronology they carry today disappears. |
 
 ### 10.2 Gaps a snapshot must close
@@ -811,16 +1093,42 @@ JNS re-expresses it through the descriptor and does not add state.
 | **P4** | **Tape state.** `tape_`/`tzx_tape_`/`wav_tape_` are excluded by design (tape position is independent of CPU rewind). A snapshot taken *during* a tape load restores a machine waiting for a tape that is not playing. | Medium | Record `media.tape` = (path, sha256, position in T-states, realtime flag) and reopen on restore — the esxDOS-handle shape. If the file is absent, warn and restore without it. |
 | **P5** | **Framebuffer.** Regenerated by the next render, so a snapshot restored *paused* shows the previous frame until the user steps. | Low | `meta/preview.png` doubles as the restore-time paused image. Free — jnext already writes PNG. |
 | **P6** | **Mixer integration accumulator.** Deliberately not snapshotted; the first sample after a restore averages a short window. | Negligible | Keep the existing decision; document it. |
-| **P7** | **Scheduler queue.** Empty at a frame boundary, which is why it is never serialised. | — | **Constraint, not a gap**: a `.jns` may only be written at a frame boundary. `capture.frame_boundary` records it; a writer that finds itself elsewhere refuses. |
+| **P7** | **Scheduler queue — and the mid-frame pause it forbids.** `emulator.cpp:11871` states snapshots "are only ever taken at a frame boundary (`begin_new_frame()`), so a restored machine has no frame in flight". The queue is empty exactly there and nowhere else. **But the debugger breaks MID-frame**, so a paused machine is normally not at a boundary — and that is precisely when a developer reaches for File ▸ Save Snapshot. The bug that proves the stakes is on record at `emulator.cpp:9144` (Task 40, `beast.nex`): stepping a machine past a mid-frame point cleared the per-scanline change logs and the Copper's palette gradient vanished, rendering a flat sky. | **High** — it is the *debugging* save that is most likely to hit it | **Two rules, not one.** (a) **Running**: File ▸ Save Snapshot queues the write to the next `begin_new_frame()` — at most 16 ms, invisible, and required anyway because the GUI cannot serialise from inside `run_frame()`. (b) **Paused mid-frame**: **refuse**, with the menu item greyed and a tooltip saying why. Advancing to the next boundary would move the machine past the moment the user asked to keep, and the exact-mid-frame moment is the rewind buffer's job, not a file's. See §15.2; flagged in §18 as a decision the owner may overturn. |
+| **P13** | **`Multiface::mf_type_` is knowingly lossy.** `multiface.cpp:383-400` rebuilds it from three mode booleans and its own comment states a session running `mf_type=10` "will lose the bit". | Medium — a **G1 violation**, silent | Serialise the 2-bit value directly. A rewind can absorb a lost bit; a save the user expects to resume cannot. Cheap, and it makes §9.5(6) a fix rather than an exception. |
 | **P8** | **Host input dispatchers.** Platform-owned, hold their own shadow of the connector/wheel/button vector that would stomp a restore. | — | Keep the `on_input_state_restored` callback. |
 | **P9** | **Debug state**: breakpoints, watches, trace log, call stack, rewind ring. | Low | **Out of scope.** Not machine state. Worth an explicit sentence in the user guide, because "my breakpoints vanished" is a predictable support question. |
 | **P10** | **RZX / video recorder.** | — | Out of scope; a recording in progress is a host activity. A `.jns` written during one records nothing about it. |
 | **P11** | **`contention_`, `port_`.** Rebuilt from `model.machine` and by `init()`. | — | Not written. |
 | **P12** | **ESP-01 / network.** `esp_frames_` travels; the socket does not. | Low | Document: a restored snapshot has a fresh ESP association. |
 
-P1 is the one that must not be deferred: it is the difference between "resume my
-program" working and working *except* for programs that stream from the card,
-which is most of them on a Next.
+P1 and P7 are the two that must not be deferred. P1 is the difference between
+"resume my program" working and working *except* for programs that stream from
+the card, which is most of them on a Next. P7 decides whether the menu item a
+developer reaches for is safe or silently destroys a frame's raster history.
+
+### 10.3 The per-scanline histories — a correction
+
+An earlier draft of §10.1 stated that "the per-scanline change logs are **not**
+written — `load_state` rebuilds them from the restored registers (GH #261)", and
+built the JNS rule on it. **That is false for three of them**, and the developer
+guide already said so: the render history is out of the stream *"bar the NR 0x4A
+fallback, the border and the port 0xFF log"*
+(`src/doc/developer-guide/02-architecture/05-save-state-and-rewind.md`).
+
+Measured, all three are present in every snapshot:
+
+| History | Owner | Bytes | Why it is in the stream |
+|---|---|---|---|
+| Port-0xFF change log (count + padded) | `Ula::port_ff_log_` | 3 072 | S5-PSL.05 / issue #42 require a round-trip that preserves the **in-flight** log |
+| Border colour per line | `Ula::border_per_line_` | 256 | replayed by the compositor |
+| NR 0x4A fallback per line | `Renderer::fallback_per_line_` | 320 | replayed by the compositor |
+
+A JNS built on the blanket rule would **silently lose mid-frame port-0xFF raster
+splits on restore** — the exact defect class GH #261 and Task 40 exist to
+prevent, reintroduced by a format that believed its own simplification. The
+three histories are ordinary declared state in JNS, through the `history`
+primitive of §9.5(1), which is also what keeps the JSON from carrying 1 024
+entries to express three.
 
 ---
 
@@ -874,8 +1182,10 @@ identity split in two so it can be both stable and informative.
       "image_bytes": 1073741824,
       "mbr_sha256": "…",
       "fat32_volume_id": "1a2b3c4d",
-      "fat32_volume_label": "NEXT       ",
       "partition_lba": 2048
+    },
+    "informational": {
+      "fat32_bs_vollab": "NEXT       "
     },
 
     "content_stamp": {
@@ -888,10 +1198,25 @@ identity split in two so it can be both stable and informative.
 
 **Tier 1 — `identity`: "is this the same card?"** Derived from fields a file
 write does not touch: the image size, the MBR partition table, and the FAT32
-boot sector's volume serial (`BS_VolID`, BPB offset 0x43) and label
-(`BS_VolLab`, 0x47). jnext already parses the MBR and BPB host-side in
-`src/core/sd_rom_extractor.cpp` (`find_fat32_partition_lba`, `parse_bpb`), so
-this is a two-field addition, not new machinery.
+boot sector's **volume serial** (`BS_VolID`, BPB offset 0x43).
+
+**`BS_VolLab` is deliberately NOT part of the refusal test**, although an
+earlier draft put it there. It is a *stale copy*: the authoritative FAT32 volume
+label is the root-directory entry carrying `ATTR_VOLUME_ID`, which jnext's own
+FAT walk explicitly skips (`sd_rom_extractor.cpp:292`). The two disagree
+routinely — a label set through the directory entry leaves `BS_VolLab`
+untouched (harmless: same card, no false refusal), but a tool that rewrites
+`BS_VolLab` (several do, writing both) would produce a **false refusal on the
+same physical card**. That is the cries-wolf failure §11.1 exists to avoid, so
+the label is carried as `informational` and never compared. `BS_VolID` is the
+genuinely stable identifier and is what the refusal rests on.
+
+**Cost, stated accurately.** jnext already parses the MBR and BPB host-side in
+`src/core/sd_rom_extractor.cpp` (`find_fat32_partition_lba:75`, `parse_bpb:103`)
+— but both live inside an **anonymous namespace** (`:17`-`:328`), so this is
+*two fields plus a new exported entry point*, not a pure two-field addition. A
+small, honest difference worth writing down, because "already parses it" and
+"already exposes it" are not the same claim.
 
 **Tier 2 — `content_stamp`: "has it changed since?"** The whole-image SHA-256
 and mtime, the warm-start cache's existing mechanism reused verbatim.
@@ -901,7 +1226,8 @@ and mtime, the warm-start cache's existing mechanism reused verbatim.
 | Condition | Behaviour |
 |---|---|
 | No card mounted now, snapshot had one | **Refuse.** Naming the path and the volume label. |
-| `identity` differs | **Refuse.** This is the silently-wrong case settled point 4 demands be caught. `--snapshot-force-sdcard` overrides, with a warning that names both identities. |
+| `identity` differs (size, MBR or `BS_VolID`) | **Refuse.** This is the silently-wrong case settled point 4 demands be caught. `--snapshot-force-sdcard` overrides, with a warning that names both identities. |
+| Only `informational.fat32_bs_vollab` differs | **Nothing.** Not compared, not warned on. See above. |
 | `identity` matches, `content_stamp` differs | **Restore, with one warning line** naming the snapshot's digest and the current one. Legitimate and common — the card drifts. |
 | Both match | Silent. |
 | The SD FSM (P1) was mid-transfer at capture | Restore it (P1), and additionally require `content_stamp` to match — a half-finished sector read against changed bytes is exactly the "streams garbage" failure. Mismatch here is a **refusal**, not a warning. |
@@ -922,40 +1248,80 @@ FSM was mid-transfer. Recommend shipping it eager and measuring.
 ## 12. Compatibility rules and the unknown-member rule
 
 SZX's convention (settled point 7) is "unknown chunk types must be ignored". ZIP
-member names express the same rule with more room, and the rule is stated at two
-levels:
+member names express the same rule with more room, and it needs to be stated at
+three levels, not one.
 
-**Members.** A reader **ignores any member whose path it does not recognise**,
-including whole unknown directory prefixes. It logs one line listing them, at
-`debug` level, so a newer file read by an older jnext says what it dropped. The
-one exception is `manifest.json`, whose absence is a refusal.
+### 12.1 Members
 
-**Keys.** Within a `state/*.json` object, a reader **ignores unknown keys** and
-**defaults missing keys to the value the subsystem's `reset()` establishes**. It
-logs one line per subsystem that had either. Required keys — those the schema
-marks `required` — are a refusal when missing, and the schema marks a key
-required only when no honest default exists.
+A reader **ignores any member whose path it does not recognise**, including
+whole unknown directory prefixes, and logs one `debug` line listing them, so a
+newer file read by an older jnext says what it dropped. `manifest.json` is the
+only member whose absence is a refusal.
 
-**Why this is stricter than it looks.** "Default the missing key" is safe only
-because the default is `reset()`'s value, which is the power-on state the VHDL
-specifies. It is never a zero chosen for convenience. A subsystem whose
-power-on state is not expressible (an FSM with no idle state) must mark its
-fields required instead.
+### 12.2 Keys — and where the default comes from
+
+Within a `state/*.json` object a reader **ignores unknown keys** and **supplies
+a declared default for missing ones**, logging one line per subsystem that had
+either. Required keys — those the schema marks `required` — are a refusal when
+missing, and a key is marked required only when no honest default exists.
+
+**The default is a per-field constant in the descriptor, NOT the result of
+calling `reset()`.** An earlier draft said "default to the value `reset()`
+establishes", which reads well and is unimplementable:
+
+- **`Emulator::load_state` does not reset anything.** It reads into live
+  objects. Introducing a reset pass would be a behaviour change to the rewind
+  path, which S2's byte-identity gate (§17) exists to forbid.
+- **Some resets are destructive.** `Multiface::reset(bool hard)` wipes its RAM;
+  a hard reset of the machine is not what "this key was absent" should mean.
+- **Reset values are not always power-on values.** `NextReg::reset()` faithfully
+  *preserves* `nr_03_config_mode` (no reset clause in `zxnext.vhd:1102`), so
+  "the value reset() establishes" is not even a well-defined constant for it.
+
+So `d.u8("bank", bank_, /*default=*/0x00)` carries the default in the
+declaration, the schema generator writes it as `"default"`, and a field with no
+honest default is declared required instead. The reader never calls `reset()`.
+
+### 12.3 Retired names
+
+Checked **before** the ignore-unknown rule, against the committed
+`doc/formats/jns-retired-names.json` (§7.1): a key listed there is **migrated**
+to its successor, or ignored *deliberately* if tombstoned. Only a key in neither
+the current schema nor the retired table is "unknown". Without this, §7.1's
+never-re-mean-a-name rule and §12.2's ignore-unknown rule compose into silent
+total data loss on every rename.
+
+### 12.4 The full reader-rule table
+
+Every condition an implementer will actually meet, with its verdict. Anything
+not listed here is a gap in this document, not a licence to improvise.
+
+| Condition | Verdict |
+|---|---|
+| Duplicate member names in the archive | **Refuse.** ZIP permits them, readers disagree which wins (§6). |
+| Manifest `members[p].crc32` disagrees with the ZIP's own CRC for `p` | **Refuse**, naming both. The ZIP CRC is authoritative for *integrity*; a disagreement means the manifest and the archive were not written together, which is a torn file however it happened. |
+| Blob declared in `members` but the member is absent | **Refuse**, naming the path. |
+| Blob member present but absent from `members` | **Refuse.** An undeclared blob has no length or CRC to check, so it is not covered by §5.3's chain. This is stricter than the ignore-unknown rule on purpose: `mem/` is a closed namespace. |
+| A subsystem listed in `manifest.subsystems` whose member is absent | **Refuse.** The list exists exactly to separate "deliberately not saved" from "missing or corrupt". |
+| A `state/` member present but absent from `subsystems` | Ignore (§12.1), and log it. |
+| Inflated length ≠ declared `bytes` | **Refuse**, naming the member — the warm-start cache's exact-length rule (§3.2). |
+| Snapshot had a card, none mounted now | **Refuse** (§11.3). |
+| Snapshot had **no** card, one is mounted now | **Restore, with a warning.** The machine did not depend on it; a card that appeared is not a reason to refuse, but it is a reason the run may diverge. |
+| `media.sdcard.read_only` differs from the current mount | **Warn.** A snapshot taken read-only restoring onto a writable mount is legal and common; the reverse means writes the snapshot's program made were never persisted. Named in the warning, not refused. |
+| `model.ram_kb` is a size this build cannot construct | **Refuse** (§8 — never assume 2048). |
+| `format_version` unknown / `state_model_revision` mismatch / machine mismatch | §7.3. |
+
+### 12.5 What is and is not promised
 
 **Forward compatibility** (old jnext reads new file): works for additive
-changes, which §7.1 makes the common case. Refuses cleanly on a
-`format_version` bump.
+changes, which §7.1 makes the common case; refuses cleanly on a
+`format_version` bump. **Backward compatibility** (new jnext reads old file):
+works for additive changes and for renames covered by the retired-name table; a
+`state_model_revision` mismatch restores with a warning, or refuses under
+`--snapshot-strict`.
 
-**Backward compatibility** (new jnext reads old file): works for additive
-changes. A `state_model_revision` mismatch restores with a warning, or refuses
-under `--snapshot-strict`. This is the whole of what is promised, and it is
-deliberately less than "forever" (settled point 5).
-
-**What is explicitly NOT promised:** that a snapshot taken by jnext 1.1 restores
-correctly in jnext 2.0. The stamp exists so that when it does not, the failure is
-legible.
-
----
+**Not promised:** that a snapshot taken by jnext 1.1 restores correctly in jnext
+2.0. The stamp exists so that when it does not, the failure is legible.
 
 ## 13. Validation: what substitutes for a foreign reader
 
@@ -970,62 +1336,106 @@ the blind spot, which made the defect *structurally invisible* to the suite as
 written. It was caught only because a reviewer's brief demanded proof
 independent of jnext's loader, and the reviewer installed FUSE.
 
-For a private format there is no foreign reader **by definition**. So the design
-must name what replaces one. Five things do, and they are ordered by how much of
-the blind spot each removes.
+For a private format there is no foreign reader for the *whole* machine. But
+"private format" is not the same as "no foreign reader at all" — an earlier
+draft of this document conceded too much there, and §13.2(1) recovers most of
+what it gave away. Seven things stand in, ordered by how much of the blind spot
+each actually removes.
 
-### 13.2 The five substitutes
+### 13.2 The substitutes
 
-**(1) An independent ZIP reader, on every written file.** `unzip -t` and
+For a private format there is no foreign reader by definition — but that is not
+a licence to call a process control a technical one. Ordered by how much of the
+blind spot each actually removes.
+
+**(1) A REAL foreign reader, for the core of the machine — via FUSE.** This is
+the strongest one available and an earlier draft of this document missed it.
+**A `.jns` of a 48K/128K machine expresses a strict superset of what `.szx`
+expresses**, and this project already uses real FUSE headless as a proven
+oracle: `/usr/bin/fuse` with `--debugger-command`, driven under Xvfb, located
+Tasks 50 and 54 (`technique_fuse_headless_oracle`). So the row is:
+
+> Write a `.jns` **and** a `.szx` at the same instant on a 48K or 128K machine.
+> Load the `.szx` in **real FUSE**, dump registers, RAM and paging through its
+> debugger. Assert the independent reader's extraction from the `.jns` agrees.
+
+That is a foreign implementation adjudicating jnext's state for the CPU, the
+64 KB address space and the 128K paging — the part of a Next snapshot most
+software actually depends on. It does not reach Layer 2, sprites, the Copper or
+the NextREG file, because `.szx` cannot express them; nothing can, and §13.3
+says so plainly instead of implying otherwise.
+
+**(2) An independent ZIP reader, on every written file.** `unzip -t` and
 Python's `zipfile.testzip()` verify the central directory, the local headers,
-the sizes and the per-member CRC-32 — none of it our code. This removes the
-entire *container framing* class, which is where the `.szx` bug lived (a
-structural field our own reader was too permissive about).
+the sizes and every per-member CRC-32 — none of it our code. This removes the
+whole *container framing* class, which is where the `.szx` bug lived: a
+structural field our own reader was too permissive about.
 
-**(2) An independent JSON Schema validator, on every written file.**
-`check-jsonschema` / Python `jsonschema` reading the committed
+**(3) An independent JSON Schema validator, on every written file.**
+`check-jsonschema` / Python `jsonschema` against the committed
 `jns-snapshot.schema.json`. Removes the *encoding* class: wrong type, missing
-required key, hex string of the wrong length, register value out of range,
-duplicate key, malformed UTF-8. This is the strongest single argument for the
-owner's suggestion, and it is why the schema must be a real, committed,
-independently-consumable artefact rather than documentation.
+required key, hex string of the wrong length, register out of range, duplicate
+key, malformed UTF-8.
 
-Its limit is §9.3's: the schema is generated from the same declarations the
-writer uses, so it cannot catch a *semantic* error both sides share. Which is
-why:
+**(4) A hand-written constraint overlay, merged into the generated schema.**
+This is what stops (3) being circular. The generated half cannot express an
+invariant the generator does not know; the overlay is **external knowledge**,
+written by a human from this document, and merged in at generation time:
 
-**(3) The schema is committed and staleness-gated.** `make schema-check`
-regenerates and byte-diffs, exactly as `docs-check` does for the man page. Every
-field-declaration change therefore surfaces as a schema diff in the commit, and a
-human reviewer reads it. This is the mechanism that turns the generated schema
-from self-consistency theatre into a review surface.
+- `ram_kb * 1024 == members["mem/ram.bin"].bytes`
+- `members["mem/bank5-vram.bin"].bytes == 16384` and
+  `members["mem/bank7-bram.bin"].bytes == 8192` — literals, so a descriptor that
+  silently resized a buffer fails validation rather than re-describing itself
+- `mem/multiface-ram.bin` present **iff** `model.machine != "next"` (§4.3(2))
+- cross-field register invariants (e.g. a sprite's `pattern` index against the
+  4-bit/8-bit mode bit; the MMU slot map against `model.ram_kb`)
+- `capture.frame_boundary == true`, always (§8)
 
-**(4) A second reader, written from the specification.** A small Python script
-in `test/` that opens a `.jns` and reconstructs a handful of named values —
-PC, SP, the NR 0x15 layer priority, the MMU slot map, three bytes of RAM at
-known addresses — **written from this document, not from the C++ writer**, and
-compared against those same values read out of the emulator by a different path
-(the debugger interface / `--delayed-snapshot` of a `.sna` of the same moment).
-It is not a full foreign reader, but it is a genuinely independent one for the
-fields that matter most, and it is the closest thing a private format can have.
+External knowledge is the only kind that catches a blind spot the writer and the
+generated schema share. The overlay is small, committed, and reviewed; it is the
+technical answer where (5) is only a procedural one.
 
-**(5) Byte-level assertions against this document, not against our loader.** The
-memo's rule, applied: tests assert that member 0 is named `manifest.json`, that
-the archive comment is `jnext-snapshot format=1`, that `mem/ram.bin` is exactly
-`ram_kb * 1024` bytes, that no member path escapes the archive. These are
+**(5) The schema is committed and staleness-gated.** `make schema-check`
+regenerates and byte-diffs, exactly as `docs-check` does for the man page, so
+every field-declaration change surfaces as a schema diff a human reviews. **This
+is a process control, not a technical one**, and it is listed after the overlay
+for that reason. It makes a semantic error *visible*; it does not make one
+*detectable*.
+
+**(6) A second reader, written from the specification.** A Python script in
+`test/` that opens a `.jns` and reconstructs named values — PC, SP, NR 0x15, the
+MMU slot map, known RAM bytes — **written from this document, not from the C++
+writer**. It is the reader (1) uses to compare against FUSE, and on a Next
+machine it is the only independent extraction there is. Its honest limit: it is
+one reader over a few dozen of ~2 000 fields, so it is a spot check, not
+coverage.
+
+**(7) Byte-level assertions against this document, not against our loader.** The
+memo's rule, applied: member 0 is named `manifest.json`; the archive comment is
+exactly `jnext-snapshot format=1`; `mem/ram.bin` is exactly `ram_kb * 1024`
+bytes; no member path escapes the archive; no duplicate member names. These are
 assertions about the *spec*, and they survive a misreading shared by writer and
 reader.
 
-### 13.3 What none of them prove
+### 13.3 What none of this proves — the hole is NARROWED, not closed
 
-That the restored machine is the machine that was saved. That is a **semantic
-round-trip** question and it is answered by the tests of §16 — save, restore,
-run N frames, compare the framebuffer against a run that never saved — not by
-any format mechanism. The distinction is worth keeping sharp, because "the file
-validates" and "the snapshot works" are different claims and this document
-should not be read as conflating them.
+Two limits, stated rather than implied.
 
----
+**The `.szx` hole is not closed for Next state.** Substitute (1) is a genuine
+foreign reader for the CPU, the 64 KB map and 128K paging. Nothing external can
+adjudicate Layer 2, the sprite engine, the Copper, the tilemap, the NextREG file
+or the SD FSM, because no foreign implementation reads a Next snapshot — that is
+settled point 1, and it is the price of the format being emulator-only. For that
+majority of the machine, (2), (3) and (4) reduce the risk to *semantic* errors
+that survive an external structural check, and (5) puts a human in front of
+every one of them. **That is narrower than "we have a foreign reader", and this
+document should not be read as claiming otherwise.**
+
+**Validation is not restoration.** "The file validates" and "the snapshot
+works" are different claims. Whether the restored machine *is* the machine that
+was saved is a semantic round-trip question, answered by §16's tests — save,
+restore, run N frames, compare the framebuffer against a run that never saved —
+and by nothing in the format itself.
 
 ## 14. Dependencies
 
@@ -1042,8 +1452,8 @@ Stated plainly, because the project is conservative about them and should be.
 | 5 | **SHA-256** | `sha256_file()` / `sha256_hex()` in `src/core/sdcard_provisioner.h` | Already present, already cross-platform |
 | 6 | **PNG** (optional preview) | `src/platform/screenshot.cpp` | Already present |
 
-**Justifying #1.** A JSON library is a real new dependency and the project
-should be asked to accept it explicitly. In favour: the repo already vendors
+**Justifying #1 — accepted by the owner, 2026-09-23.** Recorded anyway, because
+the reasoning outlives the decision. In favour: the repo already vendors
 four third-party trees (`spdlog`, `fatfs`, `fuse-z80`, `zot`), of which spdlog
 is far larger; nlohmann is a single MIT header with no build system to fight;
 and it round-trips `uint64_t` exactly, which a naive parser does not. Against:
@@ -1074,13 +1484,14 @@ back end for less reason. Write the ZIP code.
 |---|---|---|---|
 | 7 | **Independent JSON Schema validation** | `python3-jsonschema` (Fedora) / `python3-jsonschema` (Debian) | **Skip if absent locally; hard-fail in CI** — the exact posture `docs-check` uses for pandoc and mkdocs |
 | 8 | **Independent ZIP verification** | `unzip`, and Python's stdlib `zipfile` | Same |
+| 9 | **Foreign snapshot reader** (§13.2(1)) | **real FUSE** — `/usr/bin/fuse` + `Xvfb`, the `technique_fuse_headless_oracle` recipe | Same. Already the project's oracle for timing and rendering disputes; `fuse` and `xorg-x11-server-Xvfb` join the CI container's install list. |
 
 Neither adds a runtime dependency, a `Requires:` line or a package. CI already
 runs in `fedora:44` and already installs pandoc, mkdocs-material and graphviz for
 exactly this class of check; `python3-jsonschema` and `unzip` join that list.
 
-**Net: one new vendored header at runtime, two packaged tools at test time, zero
-new package dependencies.**
+**Net: one new vendored header at runtime, three packaged tools at test time,
+zero new package dependencies.**
 
 ---
 
@@ -1114,6 +1525,8 @@ Listed in §18.
 | Surface | Change |
 |---|---|
 | **File ▸ Save Snapshot…** (`main_window.cpp:1763`, Alt+Shift+S) | Add `.jns` to the filter, **make it the default suffix on the Next**, keep `.sna` as the default on classic machines. The existing extension dispatch gains one arm. |
+| **File ▸ Save Snapshot…, while the machine is RUNNING** | The write is **queued to the next `begin_new_frame()`** — at most 16 ms, invisible to the user, and required regardless: the GUI cannot serialise from inside `run_frame()`, and §10.2 P7 forbids a mid-frame capture. |
+| **File ▸ Save Snapshot…, while PAUSED mid-frame** | **Greyed out**, with a tooltip: *"A snapshot can only be taken at a frame boundary. Run to the end of the frame (Run to EOF), or use Rewind to keep this exact moment."* Not a silent failure and not a silent advance — advancing to the next boundary would move the machine past the moment the user asked to keep. This is the state a developer is most often in when they reach for the menu, so it must answer rather than misbehave. §18 flags it as owner-overturnable. |
 | **File ▸ Load…** | Add `*.jns` to the file dialog's filter string (`main_window.cpp:1137`). |
 | **Status bar** | On restore: the one-line provenance note when `state_model_revision` or the SD `content_stamp` differ (§7.3, §11.3). It must be visible, not log-only — a user who ignores a mismatch should have had to ignore it. |
 | **Error reporting** | Refusals go through the existing `QMessageBox::warning` path `on_save_snapshot()` already uses for `SzxSaver`'s machine refusal, with the reader's reason string verbatim. |
@@ -1150,53 +1563,70 @@ note that must be handled up front:
 > (`(jnext-internal)`, `(SD SPI spec)`) and their planned rows live in
 > `test/traceability-exceptions.conf`. **`snapshot_test` needs the same
 > treatment, added in the same change**, or `make traceability-check` will
-> refuse. The tombstone should read `(jnext-internal)` and cite this document as
-> its specification.
+> refuse. The tombstone reads `(jnext-internal)` and cites this document.
 
 Manifests to update in the same change (a missing test is a loud failure, never
-a silent skip):
-
-- `test/unit-tests.conf` — `snapshot_test` with its **exact** pinned row count.
-- `test/00regression/functional_tests.conf` — the functional rows below.
-- `test/traceability-exceptions.conf` — the tombstone and any planned rows.
+a silent skip): `test/unit-tests.conf` (with the **exact** pinned row count),
+`test/00regression/functional_tests.conf`, `test/traceability-exceptions.conf`.
 
 ### 16.1 Unit rows — `test/snapshot/snapshot_test.cpp`
 
 | Group | IDs | What |
 |---|---|---|
-| **Container** | `JNSC-01…` | ZIP round-trip through our writer and reader; `manifest.json` is member 0; archive comment is exact; `STORED` and `DEFLATE` both read; member-path grammar refusals (absolute, `..`, upper case, empty); ZIP64 refused; truncated archive refused; a member whose CRC-32 disagrees refused. |
-| **Version** | `JNSV-01…` | Every row of §7.3's table, both directions: `format_version` too new → refuse with both numbers in the message; too old with reader present → reads; too old with reader absent → refuse; missing → refuse; non-integer → refuse. |
-| **Unknown-member / unknown-key** | `JNSU-01…` | An added unknown member is ignored and logged; an added unknown key is ignored; a missing optional key takes the `reset()` default (asserted *against* `reset()`, not against a literal); a missing **required** key refuses. |
-| **Identity** | `JNSI-01…` | SD Tier-1 mismatch refuses; Tier-2 mismatch warns and restores; Tier-2 mismatch **with the SD FSM mid-transfer** refuses; no card mounted refuses; ROM digest mismatch warns / refuses under strict; tape file absent warns. |
-| **Encoding** | `JNSE-01…` | Hex strings are exactly the declared length; a `u64` declared through the descriptor emits a string; enum fields emit names, and an unknown name on read refuses rather than defaulting (a wrong FSM state is not a safe default). |
-| **Descriptor** | `JNSD-01…` | For every subsystem: the JSON encoding and the binary encoding, fed the same machine, restore to identical machines. **Each encoding is the other's oracle for content** — this is the cross-check that makes §9's "one field list" claim testable. |
-| **Blob framing** | `JNSB-01…` | `mem/ram.bin` is exactly `ram_kb * 1024`; a short blob refuses; a long blob refuses; the declared CRC is the actual CRC. |
-| **Refusal messages** | `JNSM-01…` | Every refusal names the offending thing. A refusal that says only "invalid snapshot" is a failing row: G9 is a testable property, not a slogan. |
+| **Container** | `JNSC-01…` | ZIP round-trip; `manifest.json` is member 0; archive comment exact; `STORED` and `DEFLATE` both read; **duplicate member names refused**; member-path grammar refusals (absolute, `..`, upper case, empty); ZIP64 refused; truncated archive refused; a member whose CRC-32 disagrees refused. |
+| **Version** | `JNSV-01…` | Every row of §7.3, both directions: `format_version` too new → refuse naming both numbers; too old with reader present → reads; too old with reader absent → refuse; missing → refuse; non-integer → refuse. |
+| **Reader rules** | `JNSR-01…` | **One row per line of §12.4** — that table is the row list. Blob declared but absent; blob present but undeclared; manifest CRC vs ZIP CRC disagreement; subsystem listed but member absent; member present but unlisted; inflated length ≠ declared; card-present/absent both directions; `read_only` mismatch; unconstructible `ram_kb`. |
+| **Unknown / retired names** | `JNSU-01…` | Unknown member ignored + logged; unknown key ignored; missing optional key takes its **declared default** (asserted against the declaration, never against a literal, and never against `reset()` — §12.2); missing required key refuses; a **retired** key is migrated to its successor, not ignored; a tombstoned key is ignored deliberately; a key in neither table is "unknown". |
+| **Identity** | `JNSI-01…` | SD Tier-1 mismatch refuses; Tier-2 mismatch warns and restores; Tier-2 mismatch **with the SD FSM mid-transfer** refuses; `BS_VolLab` differing alone changes **nothing** (§11.3); no card mounted refuses; ROM digest mismatch warns / refuses under strict; tape file absent warns. |
+| **Encoding** | `JNSE-01…` | Hex strings exactly the declared length; every `u64`/`i64` emits a **string**; a negative `i64` round-trips (**the `/INT` window with its real measured value, −564 933**, §7.4); `INT64_MAX` emits `"open"` and round-trips; `i32` round-trips negative; enums emit names, and an unknown name on read **refuses** rather than defaulting — a wrong FSM state is not a safe default. |
+| **History primitive** | `JNSH-01…` | The binary encoding of `port_ff_log_` and the UART's four FIFOs is **padded to capacity** (constant width, per `RewindBuffer`); the JSON encoding carries exactly `count` items; a round-trip through JSON with 3 in-flight entries restores 3, not 1 024; **an in-flight port-0xFF log survives save→restore and the replayed frame is pixel-identical** (the §10.3 defect, pinned). |
+| **Descriptor** | `JNSD-01…` | For every subsystem: the JSON and binary encodings, fed the same machine, restore to identical machines. |
+| **Completeness** | `JNSX-01…` | **See below — this is the row group that JNSD cannot be.** |
+| **Blob framing** | `JNSB-01…` | `mem/ram.bin` is exactly `ram_kb * 1024`; `bank5-vram` 16 384; `bank7-bram` 8 192; a short blob refuses; a long blob refuses; declared CRC == actual CRC; `mem/multiface-ram.bin` present **iff** the machine is not the Next (§4.3(2)). |
+| **Refusal messages** | `JNSM-01…` | Every refusal names the offending thing. A refusal that says only "invalid snapshot" is a **failing** row: G9 is a testable property, not a slogan. |
 
-Every row is mutation-tested by its author before review
-(`feedback_mutate_the_branch_not_the_helper`): revert the behavioural branch the
-row exists for and confirm the row fails.
+**Why `JNSD` is not a completeness oracle.** "Each encoding is the other's
+oracle" is a real cross-check for *content*, and **circular for omissions**: a
+field left out of `describe_state` is absent from the JSON *and* from the
+binary, and every `JNSD` row passes. The completeness oracle has to come from
+outside the descriptor, and it is nearly free:
+
+- **Stream length.** The migrated `BinWriteDesc` must still measure exactly
+  **2 292 965** bytes. Any dropped field changes it.
+- **A golden byte image.** Capture the *pre-migration* stream once and `cmp`
+  against it (§17's S2-S5 gate). A field silently dropped, reordered or
+  re-typed fails immediately.
+
+Every row is mutation-tested by its author before review: revert the
+behavioural branch the row exists for and confirm the row fails.
 
 ### 16.2 Functional / regression rows — `test/00regression/`
 
 | Row | What |
 |---|---|
-| `snapshot-roundtrip-func` | Headless: boot, run to frame N, `--delayed-snapshot out.jns`; restart with `--load out.jns`, run M more frames, screenshot; compare **pixel-exact** against a single uninterrupted run of N+M frames. This is the semantic round-trip §13.3 says nothing else proves. |
-| `snapshot-schema-func` | Validate the written file with `python3 -m jsonschema` against the committed schema, and `unzip -t` it. **Skips if the tools are absent; hard-fails in CI** — the `docs-check` posture. |
-| `snapshot-foreign-read-func` | The §13.2(4) spec-written Python reader: extract PC, SP, NR 0x15, the MMU slot map and three known RAM bytes from the `.jns`, and compare against the same values obtained by a different path. |
+| `snapshot-roundtrip-func` | Save at frame N, restart with `--load out.jns`, run M more frames, screenshot, compare **pixel-exact** against one uninterrupted run of N+M frames. **Named workloads, because a quiescent 48K boot passes for a neighbouring reason**: `beast.nex` (per-scanline change logs + Copper gradient — the §10.3 class), `copper-demo` (Copper PC mid-list), and a run captured **mid-CMD18 SD stream** (P1). A pass on any one of those means something; a pass on a BASIC prompt does not. |
+| `snapshot-foreign-fuse-func` | §13.2(1): on a **128K** machine, write `.jns` and `.szx` at the same instant; load the `.szx` in **real FUSE** headless (`/usr/bin/fuse` + Xvfb + `--debugger-command`); assert the spec-written Python reader's extraction from the `.jns` agrees with FUSE on registers, paging and sampled RAM. Skips without FUSE/Xvfb locally; hard-fails in CI. |
+| `snapshot-schema-func` | Validate the written file with Python `jsonschema` against the committed schema **plus the constraint overlay**, and `unzip -t` it. Skips if the tools are absent; hard-fails in CI. |
 | `snapshot-uncompressed-func` | The same round-trip with `--snapshot-uncompressed`; assert every member is `STORED` (read by `zipfile`, not by us) and the restore is pixel-identical to the compressed one. |
-| `snapshot-sdcard-mismatch-func` | Save, mutate a sector of a *copy* of the card, restore against it: assert the Tier-2 warning appears and the run proceeds; then mutate the volume label and assert the Tier-1 refusal and a non-zero exit. |
+| `snapshot-sdcard-mismatch-func` | Save; mutate a sector of a **copy** of the card; restore → assert the Tier-2 warning and that the run proceeds. Then mutate `BS_VolID` → assert the Tier-1 refusal and a non-zero exit. Then mutate **only** `BS_VolLab` → assert **no** warning and **no** refusal (§11.3). |
+| `snapshot-paused-refusal-func` | Pause mid-frame in the debugger, attempt a save, assert it is refused with the §15.2 message and that **the machine is unchanged** — not advanced to the next boundary. |
 
 `JNEXT_TEST_JOBS=4` on every regression invocation, as always.
 
-### 16.3 Staleness gate
+### 16.3 The staleness gate, specified
 
-`make schema-check` — regenerate `doc/formats/jns-snapshot.schema.json` and
-byte-diff it against the committed copy. Wire it as a prerequisite of
-`make unit-test` beside `docs-check` and `traceability-check`, and as a declared
-suite so a missing gate is loud.
+`make schema-check` regenerates `doc/formats/jns-snapshot.schema.json` and
+byte-diffs it against the committed copy, as a prerequisite of `make unit-test`
+beside `docs-check` and `traceability-check`.
 
----
+**The generator output must be deterministic, and that is a requirement on the
+generator, not a hope.** Stable key order (sorted, not hash order), no
+timestamp, no absolute path, no build id, no jnext version, fixed float
+formatting, `\n` line endings. `docs-check` learned this the hard way when
+mkdocs stamped `sitemap.xml.gz` with the build date and the gate went red on an
+unchanged tree. Produced by a dedicated `tools/gen-snapshot-schema` target
+running `SchemaDesc` over every subsystem and merging the hand-written overlay
+(§13.2(4)), so exactly one command produces the committed artefact.
 
 ## 17. Staged implementation plan and effort
 
@@ -1206,83 +1636,144 @@ agent that did not write it, on its own branch and worktree.
 
 | Stage | Content | Effort | Gate to the next |
 |---|---|---|---|
-| **S0 — Owner review of this document** | §18's questions answered; container and SD decisions confirmed | — | Written answers |
-| **S1 — Container** | First-party ZIP reader/writer over zlib; `manifest.json` grammar; `format_version` rules; member-path refusals; the §16.1 `JNSC`/`JNSV` rows; `unzip -t` in the suite | **M** (2–3) | All container rows green **and** an independent ZIP reader accepting every file we write |
-| **S2 — Descriptor layer** | `StateDesc` + the binary/JSON/schema realisations; **`kFormatVersion` behaviour preserved byte-for-byte** for the rewind ring; the schema generator + `schema-check` gate | **L** (4–6) | `rewind_test` unchanged and green; the generated binary stream byte-identical to today's for an unchanged build |
-| **S3 — Subsystem migration, group 1** | Core: clock, RAM, MMU, NextREG, CPU, IM2 (+ `save_timing`) | **M** (3–4) | `JNSD` cross-encoding rows for these subsystems |
-| **S4 — Subsystem migration, group 2** | Video: palette, layer2, sprites, tilemap, lores, ULA, renderer, copper | **M** (3–4) | as above |
-| **S5 — Subsystem migration, group 3** | Peripherals + audio + input: ctc, dma, spi, i2c, rtc, uart, divmmc, multiface, nmi, beeper, turbosound, dac, i2s, and the six input classes | **M** (3–4) | as above |
-| **S6 — The gaps** | P1 `SdCardDevice` serialisation (the enumerated field list); P3 ROM digests; P4 tape identity; P5 preview; `Emulator`'s own scalars | **M** (2–3) | P1 proven by a mid-CMD18 save/restore row |
-| **S7 — SD identity** | Tier-1 from MBR+BPB (extend `sd_rom_extractor`), Tier-2 reuse, the refusal/warning matrix, `JNSI` rows | **S** (1–2) | `snapshot-sdcard-mismatch-func` |
-| **S8 — Integration** | CLI table + man page + `cli-check`; GUI save/load/filter/status bar; user guide; developer guide chapter; FEATURES; ChangeLog | **S** (1–2) | `make cli-check`, `docs-check`, full triplet |
-| **S9 — Validation** | The spec-written Python reader; the schema validation row; the full functional set; **CI tool install** | **S** (1–2) | All §16.2 rows green in CI |
+| **S0 — Owner review** | §18's questions answered | — | Written answers (container, JSON dependency, decoupling scope and the SD scheme are **answered**, 2026-09-23) |
+| **S1 — Container** | First-party ZIP reader/writer over zlib; `manifest.json` grammar; `format_version` rules; the §12.4 reader rules; `JNSC`/`JNSV`/`JNSR` rows | **M** (2–3) | All container rows green **and** an independent ZIP reader accepting every file we write |
+| **S2 — Descriptor layer** | `StateDesc` + the binary/JSON/schema realisations; the `history` and `enum` primitives; two describe methods (§9.5(2)); schema generator + `schema-check` | **M** (2–3) | **The byte-identity gate, below** |
+| **S3 — Migration, group 1** | Core: clock, RAM, MMU (incl. both blobs), NextREG, CPU, IM2 (+ timing) | **S–M** (1.5–2.5) | byte-identity holds after each subsystem |
+| **S4 — Migration, group 2** | Video: palette, layer2, sprites, tilemap, lores, ULA (incl. the three histories), renderer, copper | **S–M** (1.5–2.5) | as above |
+| **S5 — Migration, group 3** | Peripherals + audio + input: ctc, dma, spi, i2c, rtc, uart (FIFOs), divmmc, multiface, nmi, beeper, turbosound, dac, i2s, and the six input classes | **S–M** (1.5–2.5) | as above |
+| **S6 — The gaps** | P1 `SdCardDevice`; P13 `mf_type_`; P3 ROM digests; P4 tape identity; P5 preview; P7's two save rules; `Emulator`'s own scalars | **M** (2–3) | P1 proven by a mid-CMD18 save/restore row; P7 by `snapshot-paused-refusal-func` |
+| **S7 — SD identity** | Tier 1 from MBR + BPB `BS_VolID` (a new exported entry point in `sd_rom_extractor`), Tier 2 reuse, the refusal/warning matrix, `JNSI` rows | **S** (1) | `snapshot-sdcard-mismatch-func`, all three legs |
+| **S8 — Integration** | CLI table + man page + `cli-check`; the three load-dispatch sites; GUI save/load/filter/status bar/grey-out; user guide; developer guide chapter; FEATURES; ChangeLog | **S** (1–2) | `make cli-check`, `docs-check`, full triplet |
+| **S9 — Validation** | The spec-written Python reader; **the FUSE foreign-reader row**; the constraint overlay; the full functional set; CI tool install | **S** (1–2) | All §16.2 rows green in CI |
 
-**Total: roughly 20–30 focused sessions.** The bulk is S2–S5, and that is the
-price of firm requirement F2. It should be understood as such: **most of this
-project is not the file format, it is removing the coupling between the file and
-the structs.** A `legacy.bin` shortcut would cut it to about a quarter — and
-would deliver the thing the owner asked not to have (§9.1).
+**Total: 14–22 focused sessions; S2–S5 is 7–10 of them.**
 
-**Shipping posture.** There is no partial-restore value: a snapshot that
-restores half a machine is not a snapshot. So `.jns` stays behind the
-`--snapshot-*` flags and out of the GUI's default suffix until S6 lands, and the
-`format_version` is not frozen — i.e. not promised — until S9 is green. The
-first public release that mentions `.jns` is the one that freezes it.
+> An earlier draft of this document said 20–30 total and 13–18 for S2–S5. The
+> re-estimate follows the call-site classification in §9.4, which did not exist
+> when the first number was written: **404 of 532 sites (76 %) are a bare member
+> variable** — one mechanical line each — the 29 loop sites *collapse* into 5
+> declarations rather than 29, and the 33 sentinel sites are not fields at all.
+> The migration is a transcription with a byte-exact oracle, not a redesign.
+> Only ~20 sites in 8 places (§9.5) need judgement.
 
----
+### 17.1 The byte-identity gate — and why `rewind_test` is not it
+
+S2–S5 rest on one property: **the migrated `BinWriteDesc` produces the same
+bytes as today's hand-written `save_state`.** Get that, and the rewind ring is
+provably untouched and the migration cannot have silently dropped or reordered a
+field.
+
+**`rewind_test` does not prove it, and an earlier report of this design said it
+did.** `rewind_test.cpp:241-263` measures the size, saves to `buf1`, loads,
+saves to `buf2`, and `memcmp`s **`buf1` against `buf2`**. That is
+save→load→save **idempotence**, plus a size assertion. A migration that
+*consistently* reordered two fields — writing and reading them in the same new
+order — passes every row: the size is unchanged, and both passes agree with each
+other because they share the new layout. The oracle has to be a byte image
+captured **before** the migration.
+
+That image is nearly free, because the machine already writes one:
+
+```bash
+# BEFORE the migration, on a build of current main:
+jnext --headless --machine next --warm-start-regenerate ... # records the cache
+# JNEXTWS2 (current): 96-byte plain header, then a DEFLATE payload.
+python3 -c "import zlib,sys; d=open(sys.argv[1],'rb').read(); \
+            sys.stdout.buffer.write(zlib.decompress(d[96:]))" \
+        ~/.jnext/warm-start/warm-start-m0.jwss > golden-savestate.bin
+# AFTER each migrated subsystem:
+#   re-record, inflate the same way, and `cmp` against golden-savestate.bin
+```
+
+Two notes an implementer needs. The header is **96 bytes, plain**, and its
+`plain_bytes` field (offset 16, u64 LE) states the exact expected length — check
+it. And a **`JNEXTWS1`** file (pre-compression, as still found on this box) has
+the payload *uncompressed*, so `d[96:]` is already the stream; check the magic
+rather than assuming. Because the cache is regenerable and machine-keyed, the
+golden should be **copied somewhere stable** before the migration starts, not
+left in `~/.jnext` where the next run replaces it.
+
+The gate is then: `cmp` clean at every step, and the stream length still exactly
+**2 292 965**. Both are cheap enough to run per subsystem, which is what turns
+S3–S5 into a transcription with immediate feedback rather than a big-bang
+rewrite.
+
+### 17.2 Shipping posture
+
+There is no partial-restore value: a snapshot that restores half a machine is
+not a snapshot. So `.jns` stays behind the `--snapshot-*` flags and out of the
+GUI's default suffix until **S6** lands, and `format_version` is not frozen —
+i.e. not promised — until **S9** is green. The first public release that
+mentions `.jns` is the one that freezes it.
 
 ## 18. Open questions for the owner
 
-1. **Container: confirm Option C** (ZIP + JSON manifest/state + binary blobs) over
-   Option A (first-party chunked binary, zero new dependencies, ~1/4 the
-   container effort, and no external inspectability)? §5 recommends C; A is a
-   defensible answer if the dependency and the ~600 lines of ZIP code are
-   unwelcome.
+### 18.1 Answered — 2026-09-23, do not reopen
 
-2. **nlohmann/json as a vendored header** — accepted? If not: picojson (smaller,
-   BSD-2) or a first-party writer plus a first-party parser (§14.1 argues
-   against the last one).
+| Q | Answer |
+|---|---|
+| Container | **Option C** — ZIP + JSON manifest/state + binary blobs. Proceed. |
+| JSON dependency | **nlohmann/json, vendored.** Proceed. |
+| Decoupling scope | **Full** — the field descriptor across all subsystems. The narrower "scalars only" reading is declined. |
+| SD card | **The two-tier identity of §11.3**, with the §11.3 refusal/warning matrix. |
+| Effort | Re-measured from the §9.4 call-site classification: **S2–S5 is 7–10 sessions, whole project 14–22**. §17 updated. |
 
-3. **The decoupling cost.** S2–S5 is ~13–18 sessions of migrating 34 subsystems
-   to a descriptor. Confirm that is the intended scope of F2, rather than a
-   narrower reading (e.g. named keys only for the ~32 KB of scalars, with the
-   flat buffers going straight to blobs and no descriptor at all — which would
-   cut S2–S5 roughly in half and still satisfy "not a struct dump" for
-   everything a human would ever look at).
+### 18.2 Still open
 
-4. **File extension**: `.jns`? Alternatives considered: `.jnx` (too close to
+1. **The mid-frame pause policy (§10.2 P7, §15.2).** Recommendation: **refuse**
+   while paused mid-frame, with the menu item greyed and a tooltip pointing at
+   Run-to-EOF or Rewind; queue silently to the next boundary while running. The
+   alternative — advance to the next boundary and save there — is simpler and
+   costs the user the exact moment they asked to keep, without telling them.
+   **This is the one recommendation in this document most likely to be wrong for
+   real use**, because the developer save is the mid-frame one.
+
+2. **File extension**: `.jns`? Alternatives considered: `.jnx` (too close to
    `.nex`), `.nxs`, `.jsnap`. The warm-start cache uses `.jwss`, so `.jns` is
    consistent with it.
 
-5. **CLI surface**: five flags, or collapse `--snapshot-strict` /
+3. **CLI surface**: five flags, or collapse `--snapshot-strict` /
    `--snapshot-force-sdcard` into one `--snapshot-mode strict|normal|force`
    (§15.1)?
 
-6. **SD card**: confirm the two-tier identity of §11.3, and specifically the
-   asymmetry — a *content* drift warns normally but **refuses** when the SD FSM
-   was mid-transfer. The alternative is to warn in both cases and let the user
-   find out, which is simpler and less safe.
+4. **Debugger state (§10.2 P9)**: confirm breakpoints, watches and the rewind
+   ring do **not** travel. A case can be made for breakpoints — cheap, and a
+   user resuming a debugging session would want them — but they are not machine
+   state, and mixing them in weakens the format's definition. Note that
+   `AudioMute` is already settled the same way, in the code and for the same
+   reason (§10.1).
 
-7. **Copy-on-write card mounting** (out of scope here, noted in §11.2): if jnext
-   ever mounts the SD image copy-on-write, the rejected "delta against a base
-   image" option becomes viable and the whole SD question changes shape. Worth
-   its own issue, or not worth raising?
+5. **Copy-on-write SD mounting** (out of scope here, §11.2): it would make the
+   rejected "delta against a base image" option viable and change the whole SD
+   question. Worth its own issue, or not worth raising?
 
-8. **Debugger state (P9)**: confirm breakpoints, watches and the rewind ring do
-   **not** travel in a snapshot. A case can be made for breakpoints — they are
-   cheap and a user resuming a debugging session would want them — but they are
-   not machine state and mixing them in weakens the format's definition.
+6. **Does the warm-start cache migrate onto this?** §3.2 notes the descriptor
+   layer would let `kFormatVersion` be derived rather than hand-bumped, retiring
+   the "a field repurposed is invisible" hazard there too. Out of scope for #27;
+   follow-up issue, or deliberately left alone?
 
-9. **Does the warm-start cache eventually migrate onto this?** §3.2 notes that
-   the descriptor layer would let `kFormatVersion` be derived rather than
-   hand-bumped, retiring the "a field repurposed is invisible" hazard there too.
-   Out of scope for #27; worth a follow-up issue, or deliberately left alone?
+7. **Priority.** The issue records "priority stays low". At 14–22 sessions this
+   is still one of the larger remaining v1.1 items — confirm it is wanted now,
+   at that cost, against the other open features.
 
-10. **Priority.** The issue itself records "priority stays low: the debugging
-    value is already shipped as backward execution, and Next software commonly
-    provides its own state preservation." At ~20–30 sessions this is one of the
-    larger remaining v1.1 items. Confirm it is wanted now, at this cost, against
-    the other open features.
+### 18.3 Defects this design surfaced in shipped code
+
+Not questions — findings, to be fixed inside this work per the no-deferral rule,
+and listed together so none is lost:
+
+| # | Defect | Where |
+|---|---|---|
+| D1 | `SdCardDevice` has no `save_state` at all; a snapshot or rewind taken mid-CMD18 restores a card that is not streaming | §10.2 P1 |
+| D2 | `Multiface::mf_type_` is knowingly lossy — rebuilt from three booleans, and `mf_type=10` loses a bit | §4.3(3), §10.2 P13 |
+| D3 | 131 072 bytes (the DivMMC RAM window) are serialised twice in every snapshot | §4.3(1) |
+| D4 | 8 192 bytes of dead zeros (the Multiface private array) are serialised on every Next snapshot | §4.3(2) |
+| D5 | The CPU `/INT` window is written as a signed delta reinterpreted as `uint64_t`, and `INT64_MAX` as a bare sentinel | §7.4 |
+
+D1 and D2 are correctness defects and are fixed in S6. D3–D5 are representation
+defects that JNS removes by construction; none is worth a separate change to the
+binary stream, because S2's byte-identity gate requires that stream to stay
+exactly as it is.
 
 ---
 
