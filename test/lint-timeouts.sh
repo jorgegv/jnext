@@ -517,8 +517,9 @@ scan_files() {
 #
 # MUTATION-TESTED, and the table below is what the mutations shaped. Each rule
 # in the scanner was reverted in turn and the self-test had to name the loss:
-# 19 of 20 mutations killed. Two of them found real holes rather than merely
-# confirming rules:
+# 22 of 23 mutations killed. Three of them found real holes rather than merely
+# confirming rules, and one caught a FIXTURE that was passing for the wrong
+# reason:
 #
 #   * reverting the comment stripper changed NOTHING, because every comment
 #     fixture was inert for a second reason as well. N27/N28 (a comment
@@ -530,6 +531,18 @@ scan_files() {
 #     this was an INTERACTION between two correct rules that nobody had put
 #     together. Continuation had only ever been tested without a comment, and
 #     comments only ever without a continuation.
+#   * deleting the end-of-input flush left EVERY case green. A file that stops
+#     mid-continuation then loses its last logical line in silence — a false
+#     negative at exactly the place nobody looks. P31/P33 and the two
+#     flush-site assertions close it (review).
+#
+# And the fixture warning, because it happened right here: the first P31 and
+# P33 were written with TWO trailing backslashes, so they were not
+# continuations at all. The self-test passed — the lines WERE flagged, just by
+# the ordinary path instead of by the flush — and nothing showed it except the
+# flush mutations SURVIVING. A must-flag case that is green for the wrong
+# reason pins nothing. If a mutation you expect to kill a case survives,
+# suspect the case before you suspect the code.
 #
 # THE ONE SURVIVOR, stated rather than papered over: dropping the per-file
 # `FNR == 1` state reset kills no case. It is hygiene, not a matching rule —
@@ -539,7 +552,9 @@ scan_files() {
 # does not parse as bash, so the leak has no way into a working tree. It stays
 # because file-order-dependent behaviour is worse than an unpinned line.
 #
-# CASES — 30 must flag, 31 must not (61 total).
+# CASES — 33 must flag, 31 must not (64 total), plus the two flush-site
+# assertions at the end of self_test(), which are about POSITION rather than
+# about a line of code and so cannot be one more fixture.
 # CASES-TABLE-BEGIN — every ID below is cross-checked against the fixture files
 # at the end of self_test(); the two cannot drift apart.
 #
@@ -584,6 +599,17 @@ scan_files() {
 #   short token as -k's argument, so both of these are "invalid time interval"
 #   (measured: exit 125) and bound nothing:
 #   P29 `-k=5s`                          P30 `-ks5s`
+#
+#   END OF INPUT, where a miss is a false negative in SILENCE. Review found the
+#   flush unpinned: deleting it left every case above green.
+#   P31 the file stops mid-continuation — its last logical line is still owed,
+#       and which of the two flush sites pays depends on whether anything
+#       FOLLOWS the file, so P31 is additionally driven in both positions at
+#       the end of self_test()
+#   P32 no trailing newline at all. Pins that the last line is not lost; it
+#       needs NEITHER flush (awk yields it as an ordinary record), and it is
+#       here because "the tool dropped my last line" is one bug, not two
+#   P33 both at once: no trailing newline AND mid-continuation
 #
 #   ---- and the other direction ----
 #
@@ -636,7 +662,7 @@ self_test() {
     bad="$dir/bad"; good="$dir/good"
     mkdir -p "$bad" "$good"
 
-    # --- 30 cases that MUST be flagged, one file each -----------------------
+    # --- 33 cases that MUST be flagged, one file each -----------------------
     printf '%s\n' 'timeout 60 "$JNEXT" --headless'                       >"$bad/P01.sh"
     printf '%s\n' '    timeout 60 "$JNEXT" --headless'                   >"$bad/P02.sh"
     printf '%s\n' 'rm -f "$log"; timeout 60 "$JNEXT"'                    >"$bad/P03.sh"
@@ -673,6 +699,13 @@ self_test() {
     # these is a valid interval and neither bounds anything.
     printf '%s\n' 'timeout -k=5s 60 "$JNEXT"'                           >"$bad/P29.sh"
     printf '%s\n' 'timeout -ks5s 60 "$JNEXT"'                           >"$bad/P30.sh"
+    # END-OF-INPUT. A file that stops mid-continuation still owes its last
+    # logical line, and a last line with no newline after it is still a line.
+    # Dropping either is a FALSE NEGATIVE AT EOF -- the invocation vanishes in
+    # silence, which is the one outcome this lint exists to prevent.
+    printf '%s\n' 'echo setup' 'timeout 5 "$JNEXT" \'                   >"$bad/P31.sh"
+    { printf '%s\n' 'echo setup'; printf '%s' 'timeout 5 "$JNEXT"'; }   >"$bad/P32.sh"
+    { printf '%s\n' 'echo setup'; printf '%s' 'timeout 5 "$JNEXT" \'; }  >"$bad/P33.sh"
 
     # --- 31 shapes that MUST NOT be flagged ---------------------------------
     # A hit here is a false positive that would block a row an author may write.
@@ -734,6 +767,32 @@ self_test() {
         printf '%s\n' "$out" >&2
         failed=1
     fi
+
+    # --- the two end-of-input flush SITES, pinned by position ---------------
+    # There are TWO places that can pay a file's dangling last logical line:
+    # END (the file was last on the command line) and the FNR == 1 reset
+    # (another file follows). The per-case loops above cannot tell them apart,
+    # because which fixture happens to be last is an accident of glob order --
+    # add a case and it silently moves. Measured, with P31 in each position:
+    #
+    #     deleting END      loses it only when it is LAST
+    #     deleting FNR == 1 loses it only when something FOLLOWS it
+    #
+    # so a single ordering pins at most one of them. Both are driven here.
+    # Found in review: deleting the flush left the whole self-test green.
+    local eof_last eof_first
+    eof_last=$(scan_files "$good/N01.sh" "$bad/P31.sh")
+    grep -q "/P31\.sh:" <<<"$eof_last" || {
+        echo "ERROR: self-test: a file ending mid-continuation LAST on the command line" >&2
+        echo "       lost its final logical line (the END flush is gone)." >&2
+        failed=1
+    }
+    eof_first=$(scan_files "$bad/P31.sh" "$good/N01.sh")
+    grep -q "/P31\.sh:" <<<"$eof_first" || {
+        echo "ERROR: self-test: a file ending mid-continuation with another file AFTER it" >&2
+        echo "       lost its final logical line (the FNR == 1 flush is gone)." >&2
+        failed=1
+    }
 
     # --- the prose CASES table must list exactly the fixtures that exist -----
     # Same drift class as every pinned count in this project: a table nothing

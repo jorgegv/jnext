@@ -118,10 +118,10 @@ verdict on the real tree is trusted at all:
   whereas with one file per case the lost case is named. It also cross-checks
   its own prose case table against the fixture files that exist, in both
   directions, so that the documentation and the fixtures cannot drift apart.
-- `test/lint-timeouts.sh` carries **61 pinned cases: 30 that must flag and 31
+- `test/lint-timeouts.sh` carries **64 pinned cases: 33 that must flag and 31
   that must not**, in the same one-file-per-case shape and with the same
   table-versus-fixtures cross-check. Its rules were mutation-tested one at a
-  time; the run killed 19 of 20 mutations and found a real hole — reverting the
+  time; the run killed 22 of 23 mutations and found a real hole — reverting the
   comment stripper changed nothing, because every comment fixture was inert for
   a second reason as well. The two cases that close it exist because of the
   mutation, not because anyone thought of them first.
