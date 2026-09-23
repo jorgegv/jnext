@@ -126,14 +126,5 @@ verdict on the real tree is trusted at all:
   a second reason as well. The two cases that close it exist because of the
   mutation, not because anyone thought of them first.
 
-  Mutation testing has a shape it cannot see, though, and review found it here:
-  per-rule mutation regresses the rules you **wrote**, so it can never surface
-  an *interaction* between two correct rules that nobody put together. The
-  blocker in this lint was exactly that — continuation lines were joined before
-  comments were stripped, and a backslash is inert inside a `#` comment, so the
-  statement below such a comment was swallowed whole. Every continuation case
-  had been written without a comment and every comment case without a
-  continuation.
-
 Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.

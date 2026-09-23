@@ -1997,10 +1997,10 @@ has nothing to do with being sourced: a process a packaging test leaves behind
 costs the same as one a regression row leaves behind. The rule has <strong>no
 exception list</strong>, deliberately: whether a given program handles <code>SIGTERM</code> is
 not statically decidable, and "this one is fine" is the reasoning that put the
-bare <code>timeout</code> there in the first place. A hand sweep fixed five call sites in
-two files and left <strong>three</strong> behind elsewhere — one of them seven weeks old, in
-<code>test/packaging/packaging-test.sh</code>, which only a whole-tree scope finds. That is
-the argument for the gate: a sweep fixes what it is pointed at.</p>
+bare <code>timeout</code> there in the first place. A sweep fixes only what it is pointed
+at: the hand pass before the lint fixed five call sites in two files and left
+<strong>three</strong> behind elsewhere, one of them seven weeks old in
+<code>test/packaging/packaging-test.sh</code> — which is the case for a whole-tree scope.</p>
 <h2 id="regenerating-reference-screenshots">Regenerating reference screenshots<a class="headerlink" href="#regenerating-reference-screenshots" title="Permanent link">&para;</a></h2>
 <pre><code class="language-console">$ bash test/00regression/generate-references.sh [test_name...]
 </code></pre>
