@@ -100,6 +100,7 @@ void check(const char* id, const char* desc, bool cond,
         std::printf("  FAIL %s: %s", id, desc);
         if (!detail.empty()) std::printf(" [%s]", detail.c_str());
         std::printf("\n");
+        std::fflush(stdout);
     }
 }
 
@@ -1276,6 +1277,129 @@ int main(int argc, char** argv) {
               opened && refused_naming("JNSC-REF-38", read, rw, "inflates to") &&
                   rw.find("2048") != std::string::npos && got.empty(),
               det("open=%d read=%d %s", opened, read, rw.c_str()));
+    }
+
+    {
+        // THE UNBOUNDED-ALLOCATION REFUSAL. A ZIP's uncompressed-size field is
+        // a bare 32-bit number in the central directory and NOTHING in the
+        // archive's structure relates it to the compressed bytes actually
+        // present. Measured on this branch before the ceiling existed: a
+        // 161-byte archive declaring 0xFFFFFFF0 drove a 4 198 256 KB
+        // allocation (1 048 798 minor faults) before failing; with the
+        // ceiling it is refused at open() at 4 424 KB.
+        //
+        // Both headers are patched, consistently, so the local-vs-central
+        // disagreement check cannot fire first and let this row pass for the
+        // wrong reason.
+        jnext::zip::Writer wr{jnext::jns::kArchiveComment};
+        std::vector<uint8_t> payload(4096, 0xA5);
+        wr.add("mem/x.bin", payload.data(), payload.size(),
+               jnext::zip::Method::Deflate, why);
+        std::vector<uint8_t> z;
+        wr.finish(z, why);
+        const Layout L = layout_of(z);
+        wr32(z, L.cdh[0] + 24, 0xFFFFFFF0u);
+        wr32(z, L.lfh[0] + 22, 0xFFFFFFF0u);
+
+        jnext::zip::Reader r;
+        const bool opened = r.open(z.data(), z.size(), why);
+        check("JNSC-REF-39",
+              "a member DECLARING more uncompressed bytes than the ceiling is "
+              "refused AT OPEN, naming the member and both sizes — before a "
+              "byte is inflated and before anything can size an allocation "
+              "from the declaration. An uncaught bad_alloc would terminate "
+              "jnext on a hostile file, which is the inversion of G9",
+              refused_naming("JNSC-REF-39", opened, why, "4294967280") &&
+                  why.find("'mem/x.bin'") != std::string::npos &&
+                  why.find("67108864") != std::string::npos &&
+                  r.entries().empty(),
+              why);
+    }
+    {
+        jnext::zip::Writer wr{jnext::jns::kArchiveComment};
+        std::vector<uint8_t> payload(4096, 0x5A);
+        wr.add("mem/x.bin", payload.data(), payload.size(),
+               jnext::zip::Method::Deflate, why);
+        std::vector<uint8_t> z;
+        wr.finish(z, why);
+        const Layout L = layout_of(z);
+        wr32(z, L.cdh[0] + 20, 0x08000000u);   // 128 MB compressed
+        wr32(z, L.lfh[0] + 18, 0x08000000u);
+
+        jnext::zip::Reader r;
+        const bool opened = r.open(z.data(), z.size(), why);
+        check("JNSC-REF-40",
+              "the ceiling binds the COMPRESSED size too. It is bounded again "
+              "by the data-extent check further on, but a ceiling that caught "
+              "one declared size and missed the other would be half a rule",
+              refused_naming("JNSC-REF-40", opened, why, "134217728") &&
+                  why.find("'mem/x.bin'") != std::string::npos &&
+                  // The LIMIT value appears only in the ceiling's own
+                  // message. Without this the row passes on the data-extent
+                  // refusal, which names the same declared size — and a
+                  // ceiling that had silently dropped its compressed half
+                  // would go unnoticed.
+                  why.find("67108864") != std::string::npos,
+              why);
+    }
+    {
+        // The writer must not be able to emit what the reader refuses, or
+        // jnext would produce files it cannot reopen. Checked before any copy
+        // of the payload is made.
+        std::vector<uint8_t> big(jnext::zip::kMaxMemberBytes + 1, 0);
+        jnext::zip::Writer wr{jnext::jns::kArchiveComment};
+        const bool added = wr.add("mem/huge.bin", big.data(), big.size(),
+                                  jnext::zip::Method::Stored, why);
+        check("JNSC-15",
+              "the WRITER refuses a member over the same ceiling, naming it — "
+              "a writer able to emit what its own reader refuses would produce "
+              "snapshots jnext cannot reopen, a worse failure than declining "
+              "to write one",
+              refused_naming("JNSC-15", added, why, "67108864") &&
+                  why.find("'mem/huge.bin'") != std::string::npos &&
+                  wr.member_count() == 0,
+              why);
+    }
+    {
+        // A refusal that lands AFTER the central-directory walk: `entries_` is
+        // populated by then, but `data_` is committed only at the very end.
+        // Without the clearing wrapper the reader would be left with entries
+        // and a null buffer, and a caller that skipped the return value would
+        // dereference it. jnext's own call site checks correctly today; the
+        // stages after this one add many more.
+        std::vector<uint8_t> z = build_good("");
+        const Layout L = layout_of(z);
+        wr32(z, L.lfh[0], 0x04034b51u);   // corrupt a LOCAL header signature
+
+        jnext::zip::Reader r;
+        const bool opened = r.open(z.data(), z.size(), why);
+
+        // Asserted BEFORE the read below, deliberately. This is the
+        // OBSERVABLE half of the invariant; the read is the half that is
+        // undefined behaviour when the invariant is broken, and a crash
+        // cannot be reported as a row. Checking the observable half first
+        // means a reader that stopped clearing is named here — check()
+        // flushes — even though the process then dies on the next line.
+        check("JNSC-16",
+              "a FAILED open leaves the reader EMPTY — no entries, no comment "
+              "— although this particular refusal fires after the "
+              "central-directory walk has already filled the entry list. That "
+              "window is exactly what the invariant covers: entries present "
+              "while the buffer pointer is still null",
+              !opened && r.entries().empty() && r.comment().empty(),
+              det("opened=%d entries=%zu comment=%zu", opened,
+                  r.entries().size(), r.comment().size()));
+
+        std::vector<uint8_t> out{0xFF};
+        std::string rw;
+        const bool read = r.read("manifest.json", out, rw);
+        check("JNSC-17",
+              "…and a read against that failed reader is refused, naming the "
+              "member, rather than dereferencing a null buffer. jnext's own "
+              "call site checks open()'s return value; the stages after this "
+              "one add many more that might not",
+              !read && !rw.empty() && out.empty(),
+              det("read=%d why='%s' n=%zu", read, rw.c_str(), out.size()));
     }
 
     // ─────────────────────────────────────────────────────────────────────
