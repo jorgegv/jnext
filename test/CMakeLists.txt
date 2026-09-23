@@ -337,6 +337,21 @@ target_link_libraries(warm_start_test PRIVATE jnext_core)
 target_include_directories(warm_start_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME warm_start_tests COMMAND warm_start_test)
 
+# `.jns` snapshot CONTAINER test (GH #27 stage S1). The ZIP framing, the
+# manifest.json grammar, the two version fields, the SD identity and the
+# reader-rule table of doc/design/NEXT-SNAPSHOT-FORMAT.md §12.4. No subsystem
+# state is involved — that is stage S2 onward — so it links jnext_save alone
+# and runs offline with no SD image, no ROMs and no emulator.
+#
+# It also EMITS the corpus that `make snapshot-zip-check` hands to info-zip's
+# `unzip -t` and CPython's `zipfile`: two implementations that are not ours,
+# which is what removes the container-framing class of error this suite cannot
+# remove by itself (§13.2(2)).
+add_executable(snapshot_test snapshot/snapshot_test.cpp)
+target_link_libraries(snapshot_test PRIVATE jnext_save)
+target_include_directories(snapshot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME snapshot_tests COMMAND snapshot_test)
+
 # Sprites subsystem compliance test
 add_executable(sprites_test sprites/sprites_test.cpp)
 target_link_libraries(sprites_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
