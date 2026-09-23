@@ -1219,6 +1219,8 @@
       
         
       
+        
+      
     
     
     
@@ -1451,6 +1453,34 @@
     
   
     5.7 The joystick-port serial cable
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../05-running-programs/08-host-files-for-a-loaded-program.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    5.8 Host files for a directly loaded program
   
 
     
@@ -3109,6 +3139,47 @@ automatically (see <a href="../05-running-programs/index.html#programs-that-need
 NextZXOS</a>).
 With NextZXOS booted it answers in front of NextZXOS’s own esxDOS
 for those calls, and NextZXOS’s file commands stop working.</dd>
+<dt><strong>--esxdos-stub-root</strong> <em>DIR</em></dt>
+<dd>
+<p>Serve the host directory <em>DIR</em> to the guest through the esxDOS file
+and directory calls, instead of the single in-memory file. Implies
+<strong>--esxdos-stub</strong>. Read-only unless <strong>--esxdos-stub-writable</strong> is
+also given.</p>
+<p><strong>Which programs see <em>DIR</em>, and which do not.</strong> A NEX loaded with
+<strong>--load</strong> sees it, and so do dot commands: those reach the
+filesystem through <code>RST $08</code>, which is what jnext intercepts.
+<strong>NextZXOS does not see it</strong> — not its Browser, not its file
+selector, not BASIC’s <code>LOAD</code>, not its loader. NextZXOS carries its
+own SD-card driver and its own FAT code in ROM and reaches the card
+directly, without ever executing an <code>RST $08</code>, so there is no point
+at which jnext could answer for it. That boundary is permanent and
+deliberate; it is not a limitation that a later version lifts. <strong>To
+put a file where NextZXOS can see it, copy it into the SD-card
+image.</strong></p>
+<p>Inside <em>DIR</em>, paths behave as FAT paths: <code>/</code> and <code>\</code> both separate
+components, a leading separator is the root of <em>DIR</em> rather than the
+host’s root, lookup ignores case, and the drive letters <code>*:</code>, <code>$:</code>
+and <code>c:</code> all mean <em>DIR</em>. A path that would leave <em>DIR</em>, and any
+symbolic link, is refused; symbolic links are not listed either.
+Because <code>\</code> is a separator, a host file whose name contains one
+cannot be reached — FAT cannot name such a file either. Where two
+host files differ only in case and the guest’s spelling matches
+neither exactly, the first in byte order is taken.</p>
+<p>Directory entries carry the host file’s modification time.
+<code>M_GETDATE</code> answers from the emulated clock instead, so it follows
+<strong>--rtc</strong>.</p>
+<p><strong>Do not combine it with a booted NextZXOS.</strong> It implies
+<strong>--esxdos-stub</strong> and inherits its limitation: the file calls are
+then answered in front of NextZXOS’s own esxDOS, and NextZXOS’s file
+commands stop working — <code>.ls</code> reports <em>No such file or dir</em>. This
+option is for programs jnext loads itself.</p>
+</dd>
+<dt><strong>--esxdos-stub-writable</strong></dt>
+<dd>Allow the guest to create, truncate and write files under
+<strong>--esxdos-stub-root</strong>. Off by default, and deliberately a separate
+flag: a guest write changes a real file on the host immediately, and
+rewinding the emulator cannot undo it. Reads are fully rewindable;
+writes are not.</dd>
 <dt><strong>--rtc</strong> <em>“YYYY-MM-DD HH:MM:SS”</em></dt>
 <dd>Pin the RTC to a fixed date and time (a frozen clock) instead of
 following the host clock, which makes boot screenshots

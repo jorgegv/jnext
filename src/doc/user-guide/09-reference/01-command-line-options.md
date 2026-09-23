@@ -259,6 +259,52 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     With NextZXOS booted it answers in front of NextZXOS’s own esxDOS
     for those calls, and NextZXOS’s file commands stop working.
 
+**--esxdos-stub-root** *DIR*
+
+:   Serve the host directory *DIR* to the guest through the esxDOS file
+    and directory calls, instead of the single in-memory file. Implies
+    **--esxdos-stub**. Read-only unless **--esxdos-stub-writable** is
+    also given.
+
+    **Which programs see *DIR*, and which do not.** A NEX loaded with
+    **--load** sees it, and so do dot commands: those reach the
+    filesystem through `RST $08`, which is what jnext intercepts.
+    **NextZXOS does not see it** — not its Browser, not its file
+    selector, not BASIC’s `LOAD`, not its loader. NextZXOS carries its
+    own SD-card driver and its own FAT code in ROM and reaches the card
+    directly, without ever executing an `RST $08`, so there is no point
+    at which jnext could answer for it. That boundary is permanent and
+    deliberate; it is not a limitation that a later version lifts. **To
+    put a file where NextZXOS can see it, copy it into the SD-card
+    image.**
+
+    Inside *DIR*, paths behave as FAT paths: `/` and `\` both separate
+    components, a leading separator is the root of *DIR* rather than the
+    host’s root, lookup ignores case, and the drive letters `*:`, `$:`
+    and `c:` all mean *DIR*. A path that would leave *DIR*, and any
+    symbolic link, is refused; symbolic links are not listed either.
+    Because `\` is a separator, a host file whose name contains one
+    cannot be reached — FAT cannot name such a file either. Where two
+    host files differ only in case and the guest’s spelling matches
+    neither exactly, the first in byte order is taken.
+
+    Directory entries carry the host file’s modification time.
+    `M_GETDATE` answers from the emulated clock instead, so it follows
+    **--rtc**.
+
+    **Do not combine it with a booted NextZXOS.** It implies
+    **--esxdos-stub** and inherits its limitation: the file calls are
+    then answered in front of NextZXOS’s own esxDOS, and NextZXOS’s file
+    commands stop working — `.ls` reports *No such file or dir*. This
+    option is for programs jnext loads itself.
+
+**--esxdos-stub-writable**
+:   Allow the guest to create, truncate and write files under
+    **--esxdos-stub-root**. Off by default, and deliberately a separate
+    flag: a guest write changes a real file on the host immediately, and
+    rewinding the emulator cannot undo it. Reads are fully rewindable;
+    writes are not.
+
 **--rtc** *“YYYY-MM-DD HH:MM:SS”*
 :   Pin the RTC to a fixed date and time (a frozen clock) instead of
     following the host clock, which makes boot screenshots

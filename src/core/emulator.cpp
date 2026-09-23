@@ -1128,6 +1128,24 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // tracing is on. Tracing must not require the stub: the most informative
     // case is a NextZXOS-expecting program running WITHOUT the stub, where
     // every call falls through unhandled and is otherwise invisible.
+    // GH #31 — --esxdos-stub-root. configure() closes every handle, which is
+    // what a re-init (soft reset, re-entrant load) should do to them anyway.
+    if (!cfg.esxdos_stub_root.empty()) {
+        std::string why;
+        if (!esxdos_hostfs_.configure(cfg.esxdos_stub_root,
+                                      cfg.esxdos_stub_writable, why)) {
+            Log::emulator()->error("--esxdos-stub-root: {}", why);
+        } else {
+            Log::emulator()->info(
+                "esxdos host directory: {} ({})",
+                esxdos_hostfs_.root().string(),
+                cfg.esxdos_stub_writable ? "read-write" : "read-only");
+            if (cfg.esxdos_stub_writable)
+                Log::emulator()->warn(
+                    "--esxdos-stub-writable: guest writes change host files "
+                    "immediately; rewinding the emulator cannot undo them");
+        }
+    }
     const bool esxdos_tracing = Log::esxdos()->should_log(spdlog::level::trace);
     bool direct_nex_load = false;
     if (!cfg.load_file.empty()) {
@@ -1151,7 +1169,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
             // the esxDOS API is always there for it; with no OS behind a
             // direct load, an unanswered call ran the 48K ROM's ERROR-1 and
             // the program died (Warhawk: M_GETSETDRV, then DI + HALT).
-            if (!stub_enabled && !host_nex_available && !direct_nex_esxdos_)
+            if (!stub_enabled && !host_nex_available && !direct_nex_esxdos_ &&
+                !esxdos_hostfs_.active())
                 return false;   // tracing/direct-load pre-arm only — service nothing
             // NextZXOS is reached through the DivMMC automap on $0008, which
             // only engages while ROM, not RAM, is mapped at $0000:
@@ -1166,12 +1185,38 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 if (carry_set) f |= 0x01; else f &= 0xFE;
                 r.AF = static_cast<uint16_t>((static_cast<uint16_t>(a) << 8) | f);
             };
-            auto read_zstr = [this](uint16_t address) {
+            // A dot command's COMMAND TAIL is "terminated by $00, $0d or ':'"
+            // (tbblue src/asm/readdir/readdir.asm:78-79, describing the entry
+            // convention every dot command is given). That triple belongs to
+            // the command line and to nothing else.
+            auto read_cmdline = [this](uint16_t address) {
                 std::string value;
                 for (int i = 0; i < 255; ++i) {
                     const char ch = static_cast<char>(mmu_.read(
                         static_cast<uint16_t>(address + i)));
                     if (ch == '\0' || ch == '\r' || ch == ':') break;
+                    value.push_back(ch);
+                }
+                return value;
+            };
+            // A FILESPEC is NUL-terminated and nothing else — every esxDOS
+            // header block says so in those words ("IX=filespec,
+            // null-terminated", asm_esx_f_open.asm; likewise F_STAT, F_OPENDIR
+            // and F_CHDIR). Splitting one on ':' truncates exactly the
+            // drive-qualified form the API is built around: F_OPEN is
+            // documented as "A=drive specifier (overridden if filespec
+            // includes a drive)", so "c:/game/data.bin" is a normal argument,
+            // and esxapi.def:129-130 assigns '*' and '$' as drive letters for
+            // the same purpose. NextZXOS's own ROM carries literals of that
+            // shape ("c:/nextzxos/autoexec.1st"). Reading a filespec with the
+            // command-tail terminator set handed resolve() the single byte "c"
+            // and every drive-qualified open failed ENOENT (GH #31 review).
+            auto read_filespec = [this](uint16_t address) {
+                std::string value;
+                for (int i = 0; i < 255; ++i) {
+                    const char ch = static_cast<char>(mmu_.read(
+                        static_cast<uint16_t>(address + i)));
+                    if (ch == '\0') break;
                     value.push_back(ch);
                 }
                 return value;
@@ -1267,7 +1312,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         return true;
                     }
                     case 0x9A: { // F_OPEN — active NEX or safe sibling, read-only
-                        const std::string filename = read_zstr(r.IX);
+                        const std::string filename = read_filespec(r.IX);
                         Log::emulator()->debug(
                             "extended NEX F_OPEN: '{}' mode={:#04x}",
                             filename, static_cast<uint8_t>(r.BC >> 8));
@@ -1302,7 +1347,12 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                             }
                             return true;
                         }
-                        if (plain_name && read_only) {
+                        // GH #31 — with --esxdos-stub-root set, the root IS
+                        // the filesystem: only the NEX's own name (handled
+                        // just above, which self-streaming needs) still
+                        // resolves beside the NEX. Everything else goes to the
+                        // root, so one name cannot mean two files.
+                        if (plain_name && read_only && !esxdos_hostfs_.active()) {
                             const std::filesystem::path sibling =
                                 (active_path.parent_path() / requested).lexically_normal();
                             std::error_code ec;
@@ -1422,6 +1472,235 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                         break;
                 }
             }
+            // ── GH #31 — the host directory served by --esxdos-stub-root ──
+            //
+            // Claims the PATH-keyed calls outright: with a root there is one
+            // volume and it is that directory. Claims the HANDLE-keyed ones
+            // only for handles it owns, so the legacy in-memory file (handle
+            // 1) and the extended-NEX host (2, 3) keep reaching their own code
+            // above and below this block.
+            //
+            // Register conventions are transcribed from z88dk's
+            // libsrc/_DEVELOPMENT/arch/zxn/esxdos/z80/asm_esx_*.asm header
+            // blocks (verbatim NextZXOS/esxDOS API excerpts), cross-checked
+            // against tbblue src/asm/readdir/readdir.asm for the directory
+            // calls. The filespec/buffer pointer is taken from IX, which is
+            // what those headers specify and what every other jnext esxDOS
+            // path already uses.
+            if (esxdos_hostfs_.active()) {
+                const uint8_t handle = static_cast<uint8_t>(r.AF >> 8);
+                auto fail = [&](uint8_t err) { set_a_and_carry(err, true); return true; };
+                auto done = [&](uint8_t a) { set_a_and_carry(a, false); return true; };
+                auto put_pos = [&](uint32_t pos) {   // BCDE = 32-bit position
+                    r.BC = static_cast<uint16_t>(pos >> 16);
+                    r.DE = static_cast<uint16_t>(pos);
+                };
+                auto put_stat = [&](uint16_t at, const EsxdosHostFs::StatInfo& st) {
+                    // 11-byte esx_stat, asm_esx_f_fstat.asm:
+                    // +0 '*' +1 $81 +2 attr +3(2) time +5(2) date +7(4) size
+                    auto w8 = [&](int off, uint8_t v) {
+                        mmu_.write(static_cast<uint16_t>(at + off), v);
+                    };
+                    w8(0, '*');
+                    w8(1, 0x81);
+                    w8(2, st.attr);
+                    w8(3, static_cast<uint8_t>(st.time));
+                    w8(4, static_cast<uint8_t>(st.time >> 8));
+                    w8(5, static_cast<uint8_t>(st.date));
+                    w8(6, static_cast<uint8_t>(st.date >> 8));
+                    for (int i = 0; i < 4; ++i)
+                        w8(7 + i, static_cast<uint8_t>(st.size >> (i * 8)));
+                };
+                auto put_zstr = [&](uint16_t at, const std::string& s) {
+                    uint16_t p = at;
+                    for (char c : s) mmu_.write(p++, static_cast<uint8_t>(c));
+                    mmu_.write(p++, 0);
+                    return p;
+                };
+
+                switch (defb) {
+                    case 0x9A: {  // F_OPEN — A=drive, IX=filespec, B=mode
+                        uint8_t h = 0;
+                        const uint8_t err = esxdos_hostfs_.open(
+                            read_filespec(r.IX), static_cast<uint8_t>(r.BC >> 8), h);
+                        if (err) { r.HL = 0xFFFF; return fail(err); }
+                        return done(h);
+                    }
+                    case 0x9B:    // F_CLOSE — A=handle (file OR directory)
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        if (const uint8_t err = esxdos_hostfs_.close(handle))
+                            return fail(err);
+                        return done(0x00);
+                    case 0x9C:    // F_SYNC — A=handle
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        if (const uint8_t err = esxdos_hostfs_.sync(handle))
+                            return fail(err);
+                        return done(0x00);
+                    case 0x9D: {  // F_READ — A=handle, IX=dest, BC=count
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        std::vector<uint8_t> bytes;
+                        const uint8_t err =
+                            esxdos_hostfs_.read(handle, r.BC, bytes);
+                        if (err) { r.BC = 0; return fail(err); }
+                        for (std::size_t i = 0; i < bytes.size(); ++i)
+                            mmu_.write(static_cast<uint16_t>(r.IX + i), bytes[i]);
+                        const uint16_t actual = static_cast<uint16_t>(bytes.size());
+                        r.BC = actual;
+                        r.DE = actual;
+                        r.HL = static_cast<uint16_t>(r.IX + actual);
+                        return done(handle);
+                    }
+                    case 0x9E: {  // F_WRITE — A=handle, IX=source, BC=count
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        const uint16_t want = r.BC;
+                        std::vector<uint8_t> bytes(want);
+                        for (uint16_t i = 0; i < want; ++i)
+                            bytes[i] = mmu_.read(static_cast<uint16_t>(r.IX + i));
+                        std::size_t written = 0;
+                        const uint8_t err = esxdos_hostfs_.write(
+                            handle, bytes.data(), bytes.size(), written);
+                        if (err) { r.BC = 0; return fail(err); }
+                        // BC is the documented answer; DE/HL follow F_READ's
+                        // shape, matching the in-memory stub so the two
+                        // back ends do not differ in what they leave behind.
+                        const uint16_t actual = static_cast<uint16_t>(written);
+                        r.BC = actual;
+                        r.DE = actual;
+                        r.HL = static_cast<uint16_t>(r.IX + actual);
+                        return done(handle);
+                    }
+                    case 0x9F: {  // F_SEEK — A=handle, BCDE=distance, IXL=whence
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        const uint32_t distance =
+                            (static_cast<uint32_t>(r.BC) << 16) | r.DE;
+                        uint32_t pos = 0;
+                        const uint8_t err = esxdos_hostfs_.seek(
+                            handle, static_cast<uint8_t>(r.IX), distance, pos);
+                        if (err) return fail(err);
+                        put_pos(pos);
+                        return done(handle);
+                    }
+                    case 0xA0: {  // F_FGETPOS — A=handle
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        uint32_t pos = 0;
+                        const uint8_t err = esxdos_hostfs_.fgetpos(handle, pos);
+                        if (err) return fail(err);
+                        put_pos(pos);
+                        return done(handle);
+                    }
+                    case 0xA1: {  // F_FSTAT — A=handle, IX=11-byte buffer
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        EsxdosHostFs::StatInfo st;
+                        const uint8_t err = esxdos_hostfs_.fstat(handle, st);
+                        if (err) return fail(err);
+                        put_stat(r.IX, st);
+                        return done(handle);
+                    }
+                    case 0xAC: {  // F_STAT — A=drive, IX=filespec, DE=11 bytes
+                        EsxdosHostFs::StatInfo st;
+                        const uint8_t err =
+                            esxdos_hostfs_.stat(read_filespec(r.IX), st);
+                        if (err) return fail(err);
+                        put_stat(r.DE, st);
+                        return done(0x00);
+                    }
+                    case 0xA3: {  // F_OPENDIR — A=drive, IX=path, B=mode
+                        uint8_t h = 0;
+                        const uint8_t err = esxdos_hostfs_.opendir(
+                            read_filespec(r.IX), static_cast<uint8_t>(r.BC >> 8), h);
+                        if (err) return fail(err);
+                        return done(h);
+                    }
+                    case 0xA4: {  // F_READDIR — A=handle, IX=entry buffer
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        EsxdosHostFs::DirEntry e;
+                        bool have = false;
+                        const uint8_t err =
+                            esxdos_hostfs_.readdir(handle, e, have);
+                        if (err) return fail(err);
+                        if (!have) return done(0x00);   // Fc=0, A=0: no more
+                        // Entry layout (readdir.asm `showanentry`, and z88dk
+                        // struct esx_dirent): attr, asciiz name(s), time word,
+                        // date word, size dword — all little-endian.
+                        const uint8_t name_mode =
+                            esxdos_hostfs_.dir_name_mode(handle);
+                        uint16_t p = r.IX;
+                        mmu_.write(p++, e.attr);
+                        if (name_mode == EsxdosHostFs::kDirShortOnly) {
+                            p = put_zstr(p, e.sfn);
+                        } else {
+                            std::string lfn = e.lfn;
+                            if (lfn.size() > 260) lfn.resize(260);
+                            p = put_zstr(p, lfn);
+                            if (name_mode == EsxdosHostFs::kDirLfnAndShort)
+                                p = put_zstr(p, e.sfn);
+                        }
+                        mmu_.write(p++, static_cast<uint8_t>(e.time));
+                        mmu_.write(p++, static_cast<uint8_t>(e.time >> 8));
+                        mmu_.write(p++, static_cast<uint8_t>(e.date));
+                        mmu_.write(p++, static_cast<uint8_t>(e.date >> 8));
+                        for (int i = 0; i < 4; ++i)
+                            mmu_.write(p++, static_cast<uint8_t>(e.size >> (i * 8)));
+                        return done(0x01);              // one entry returned
+                    }
+                    case 0xA5: {  // F_TELLDIR — A=handle
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        uint32_t pos = 0;
+                        const uint8_t err = esxdos_hostfs_.telldir(handle, pos);
+                        if (err) return fail(err);
+                        put_pos(pos);
+                        return done(handle);
+                    }
+                    case 0xA6: {  // F_SEEKDIR — A=handle, BCDE=pointer
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        const uint32_t pos =
+                            (static_cast<uint32_t>(r.BC) << 16) | r.DE;
+                        if (const uint8_t err = esxdos_hostfs_.seekdir(handle, pos))
+                            return fail(err);
+                        return done(handle);
+                    }
+                    case 0xA7:    // F_REWINDDIR — A=handle
+                        if (!EsxdosHostFs::owns_handle(handle)) break;
+                        if (const uint8_t err = esxdos_hostfs_.rewinddir(handle))
+                            return fail(err);
+                        return done(handle);
+                    case 0xA8: {  // F_GETCWD — A=drive, IX=buffer
+                        std::string cwd;
+                        const uint8_t err = esxdos_hostfs_.getcwd(cwd);
+                        if (err) return fail(err);
+                        put_zstr(r.IX, cwd);
+                        return done(0x00);
+                    }
+                    case 0xA9:    // F_CHDIR — A=drive, IX=path
+                        if (const uint8_t err =
+                                esxdos_hostfs_.chdir(read_filespec(r.IX)))
+                            return fail(err);
+                        return done(0x00);
+                    case 0xB1:    // F_GETFREE — A=drive; BCDE = 512-byte blocks
+                        put_pos(esxdos_hostfs_.free_blocks());
+                        return done(0x00);
+                    case 0x8E: {  // M_GETDATE — BC=date, DE=time (MS-DOS)
+                        std::tm now{};
+                        if (!rtc_.current_time(now)) {
+                            r.BC = 0;
+                            r.DE = 0;
+                            return fail(0x00);   // no RTC: Fc=1, BC=DE=0
+                        }
+                        int year = now.tm_year + 1900;
+                        if (year < 1980) year = 1980;
+                        if (year > 2107) year = 2107;
+                        r.BC = static_cast<uint16_t>(((year - 1980) << 9) |
+                                                     ((now.tm_mon + 1) << 5) |
+                                                     now.tm_mday);
+                        r.DE = static_cast<uint16_t>((now.tm_hour << 11) |
+                                                     (now.tm_min << 5) |
+                                                     (now.tm_sec / 2));
+                        return done(0x00);
+                    }
+                    default:
+                        break;   // not a host-directory call — fall through
+                }
+            }
             switch (defb) {
                 case 0x88:  // M_DOSVERSION
                     r.BC = 0x4E58;               // B='N', C='X'
@@ -1437,7 +1716,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 case 0x89: { // M_GETSETDRV — a direct load has one drive, C:
                     // Only for a directly loaded NEX (see the default case
                     // for why bare --esxdos-stub must not answer it).
-                    if (!direct_nex_esxdos_) return false;
+                    if (!direct_nex_esxdos_ && !esxdos_hostfs_.active())
+                        return false;
                     // Encoding: bits 7..3 = drive letter (0=A), bits 2..0
                     // ignored on set and 0 on return (NextZXOS_and_esxDOS_
                     // APIs.pdf, M_GETSETDRV). Values measured on real
@@ -1454,7 +1734,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     return true;
                 }
                 case 0x8F: { // M_EXECCMD — support .RUN sibling.nex
-                    std::string command = read_zstr(r.IX);
+                    std::string command = read_cmdline(r.IX);
                     while (!command.empty() && command.front() == ' ') command.erase(0, 1);
                     if (command.size() < 4 ||
                         (command[0] != 'r' && command[0] != 'R') ||
@@ -1478,7 +1758,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                     return true;
                 }
                 case 0x9A: { // F_OPEN — one in-memory file, persistent across NEX reset
-                    const std::string filename = read_zstr(r.IX);
+                    const std::string filename = read_filespec(r.IX);
                     const uint8_t mode = static_cast<uint8_t>(r.BC >> 8);
                     if ((mode & 0x02) != 0) {
                         esxdos_stub_filename_ = filename;
@@ -1625,7 +1905,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
                 }
                 return handled;
             };
-        if (cfg.esxdos_stub || esxdos_tracing || direct_nex_load) {
+        if (cfg.esxdos_stub || esxdos_tracing || direct_nex_load ||
+            esxdos_hostfs_.active()) {
             cpu_.on_esxdos_call = esxdos_bridge_handler_;
         }
 
@@ -11380,6 +11661,33 @@ void Emulator::save_state(StateWriter& w) const
     ctc_.save_timing(w);
     put_sentinel();   // "int_timing"
 
+    // GH #31 — --esxdos-stub-root open handles. An open host stream cannot go
+    // in a snapshot, so only the reopenable (path, offset, mode) triple does,
+    // plus the guest CWD; load_state reopens from it. That makes a rewind
+    // across host READS exact. It cannot make one across a host WRITE exact —
+    // the write already reached the disk — which is why writes are behind
+    // --esxdos-stub-writable and reads are not. Appended last; a snapshot
+    // taken without a root ends here with a zero count.
+    {
+        auto put_str = [&w](const std::string& v) {
+            const uint16_t n = static_cast<uint16_t>(
+                v.size() > 0xFFFF ? 0xFFFF : v.size());
+            w.write_u16(n);
+            w.write_bytes(reinterpret_cast<const uint8_t*>(v.data()), n);
+        };
+        const auto handles = esxdos_hostfs_.snapshot();
+        w.write_u16(static_cast<uint16_t>(handles.size()));
+        for (const auto& h : handles) {
+            w.write_u8(h.handle);
+            w.write_bool(h.is_dir);
+            w.write_u8(h.mode);
+            w.write_u64(h.position);
+            put_str(h.path);
+        }
+        put_str(esxdos_hostfs_.cwd_for_snapshot());
+    }
+    put_sentinel();   // "esxdos_hostfs"
+
     // Task 60b — bounds check: a snapshot buffer smaller than the state
     // stream would previously scribble past the allocation silently; the
     // StateWriter now suppresses the write and latches a sticky flag.
@@ -11844,6 +12152,31 @@ bool Emulator::load_state(StateReader& r)
         im2_.load_timing(r);
         ctc_.load_timing(r);
         if (!check_sentinel("int_timing")) return false;
+    }
+
+    // GH #31 — reopen the host-directory handles (see save_state).
+    if (!r.eof()) {
+        auto get_str = [&r]() {
+            const uint16_t n = r.read_u16();
+            std::string v(n, '\0');
+            if (n) r.read_bytes(reinterpret_cast<uint8_t*>(&v[0]), n);
+            return v;
+        };
+        std::vector<EsxdosHostFs::HandleSnapshot> handles;
+        const uint16_t count = r.read_u16();
+        for (uint16_t i = 0; i < count && !r.out_of_bounds(); ++i) {
+            EsxdosHostFs::HandleSnapshot h;
+            h.handle   = r.read_u8();
+            h.is_dir   = r.read_bool();
+            h.mode     = r.read_u8();
+            h.position = r.read_u64();
+            h.path     = get_str();
+            handles.push_back(std::move(h));
+        }
+        const std::string cwd = get_str();
+        esxdos_hostfs_.restore_cwd(cwd);
+        esxdos_hostfs_.restore(handles);
+        if (!check_sentinel("esxdos_hostfs")) return false;
     }
 
     // Pass-8 verify-audit (2026-05-09): re-sync the SpiMaster Flash-CS

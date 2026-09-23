@@ -116,7 +116,8 @@ target_link_libraries(nextreg_integration_test PRIVATE
 target_include_directories(nextreg_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME nextreg_integration_tests COMMAND nextreg_integration_test)
 
-add_executable(esxdos_stub_test esxdos_stub/esxdos_stub_test.cpp)
+add_executable(esxdos_stub_test esxdos_stub/esxdos_stub_test.cpp
+                               esxdos_stub/esxdos_hostfs_rows.cpp)
 target_link_libraries(esxdos_stub_test PRIVATE
     jnext_core jnext_cpu jnext_memory jnext_video
     jnext_audio jnext_port jnext_peripheral jnext_input

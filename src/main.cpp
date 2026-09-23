@@ -3,6 +3,7 @@
 #include "core/cli_options.h"
 #include "core/log.h"
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
+#include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
@@ -216,6 +217,8 @@ int main(int argc, char* argv[]) {
     bool        magic_breakpoint = false;
     bool        persistent_breakpoints = false;
     bool        esxdos_stub = false;
+    std::string esxdos_stub_root;
+    bool        esxdos_stub_writable = false;
     // GH #25 — emulated ESP-01. `esp_enabled_set` is what makes --no-esp mean
     // something: without it the saved GUI preference could not be told apart
     // from "the user did not ask", and the negation would be unrepresentable.
@@ -452,6 +455,13 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::EsxdosStub:
                 esxdos_stub = true;
+                break;
+            case cli::OptId::EsxdosStubRoot:
+                esxdos_stub_root = v[0];
+                esxdos_stub = true;   // the root IS the stub, served properly
+                break;
+            case cli::OptId::EsxdosStubWritable:
+                esxdos_stub_writable = true;
                 break;
             // --esp / --no-esp: last one wins, like any other repeated flag.
             case cli::OptId::Esp:
@@ -847,6 +857,19 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // GH #31 review — a --esxdos-stub-root that cannot be served is FATAL, not
+    // a warning. Parsing the flag also sets esxdos_stub, so carrying on would
+    // quietly serve the single in-memory file instead: a typo in a CI script
+    // would go green with the feature silently off, which is the failure mode
+    // --rzx-record's start-up check above exists to prevent.
+    if (!esxdos_stub_root.empty()) {
+        std::string why;
+        if (!EsxdosHostFs::validate_root(esxdos_stub_root, why)) {
+            fprintf(stderr, "--esxdos-stub-root: %s\n", why.c_str());
+            return 1;
+        }
+    }
+
     // GH #234 — --warm-start only reaches the NEX load path. Saying so is not
     // pedantry: it changes the machine a program starts on, so a user who
     // passes it expects a different result, and getting the old one with no
@@ -1099,6 +1122,8 @@ int main(int argc, char* argv[]) {
         cfg.magic_breakpoint = magic_breakpoint;
         cfg.persistent_breakpoints = persistent_breakpoints;
         cfg.esxdos_stub = esxdos_stub;
+        cfg.esxdos_stub_root = esxdos_stub_root;
+        cfg.esxdos_stub_writable = esxdos_stub_writable;
         cfg.tape_save_file = tape_save_file;
         cfg.magic_port_enabled = magic_port_enabled;
         cfg.magic_port_address = magic_port_address;

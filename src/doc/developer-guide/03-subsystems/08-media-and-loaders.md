@@ -327,6 +327,9 @@ precondition: the DivMMC automap that takes `$0008` to NextZXOS needs
 | `$9E` `F_WRITE` | the in-memory file only; there is no host-handle branch, so a write to host handle 2 or 3 fails (carry set, `A`=5) | in-memory file |
 | `$9F` / `$A0` / `$A1` `F_SEEK` / `F_FGETPOS` / `F_FSTAT` | host handles; otherwise `F_SEEK` fails (`A`=5) and the other two get the catch-all error | `F_SEEK` fails (`A`=5); the other two fall through |
 | any other `$80`-`$B1` | carry set, `A`=`$02` (`esx_enonsense`) | falls through |
+
+With `--esxdos-stub-root` the file and directory calls are served from a real
+host directory instead; see the section below.
 | `$B2` and above | falls through | falls through |
 
 The in-memory file (`esxdos_stub_file_`) is one anonymous buffer: opening for
@@ -371,11 +374,121 @@ bridge has its own suite, `test/core/extended_nex_test.cpp` (`XNEX-*`), and
 the regression rows `extended-nex-stream-func` and `esxdos-chain-*-func` run
 real programs.
 
-**Known gaps.** A directly loaded program cannot reach host files other than
-the kept-open NEX and its siblings; a host directory for it is
-[#31](https://github.com/jorgegv/jnext/issues/31), not implemented. There is
-one in-memory file, with no `F_SEEK`. `M_DOSVERSION` reports 1.94 without the host
-bridge.
+## A host directory: `--esxdos-stub-root` (GH #31)
+
+`--esxdos-stub-root DIR` replaces the single in-memory buffer with a real host
+directory. It implies `--esxdos-stub`, and `--esxdos-stub-writable` is the
+separate opt-in for writes. `EsxdosHostFs` (`src/core/esxdos_hostfs.*`) owns
+the sandbox, the handle table and the 8.3/timestamp synthesis; the dispatcher
+block sits in `handle_esxdos` between the extended-NEX bridge and the legacy
+in-memory switch.
+
+**Handle spaces.** 1 is the in-memory file, 2 and 3 are `ExtendedNexHost`, and
+`EsxdosHostFs` owns `$04..$0B` for files and `$84..$87` for directories. The
+dispatcher claims a handle-keyed call only for handles in its own range, so the
+three back ends never contend; path-keyed calls (`F_OPEN`, `F_STAT`,
+`F_OPENDIR`, `F_CHDIR`, `F_GETCWD`, `F_GETFREE`, `M_GETDATE`) it claims
+outright, since with a root there is exactly one volume. The one interaction
+worth knowing: with a root configured, the extended-NEX bridge's *sibling*
+lookup is skipped, so only the NEX's own filename still resolves beside the
+NEX — otherwise one name could mean two files.
+
+**Reading the filespec.** Two readers, and the distinction is load-bearing. A
+dot command's COMMAND TAIL is "terminated by `$00`, `$0d` or `':'`"
+(`readdir.asm:78-79`), so `M_EXECCMD` uses `read_cmdline`. A FILESPEC is
+NUL-terminated and nothing else — every esxDOS header block says so in those
+words — so the four path-keyed calls plus the two pre-existing `F_OPEN` sites
+use `read_filespec`. Applying the command-tail terminator set to a filespec
+truncates exactly the drive-qualified form the API is built around: F_OPEN is
+documented as "A=drive specifier (overridden if filespec includes a drive)",
+`esxapi.def:129-130` assigns `'*'` and `'$'` as drive letters, and NextZXOS's
+ROM carries literals like `"c:/nextzxos/autoexec.1st"`. That bug shipped into
+review: one shared helper split on `':'`, so `"c:/hello.txt"` reached
+`resolve()` as the single byte `"c"` and every drive-qualified open returned
+`ENOENT`. `HFS-84..88` pin all four calls through the dispatcher and `HFS-89`
+pins that `M_EXECCMD` still splits.
+
+**A bad root is fatal.** `EsxdosHostFs::validate_root()` is called from
+`main.cpp` beside the `--rzx-record` start-up check, and a root that does not
+exist or is not a directory exits non-zero. It has to: parsing the flag also
+sets `esxdos_stub`, so continuing would quietly serve the in-memory file and a
+typo in a CI script would go green with the feature off. `configure()` calls
+the same function, so the two cannot disagree.
+
+**Containment.** Primary confinement is LEXICAL and consults nothing: the guest
+path is split, `.` dropped, `..` popped, and a pop that would leave the root
+refused with `esx_epath`. An escaping path is therefore never constructed. A
+guest absolute path is absolute *within* the root. Both `/` and `\` separate
+components, on every host: FAT forbids a backslash inside a name, and treating
+it as an ordinary character would leave `std::filesystem::path` re-splitting it
+on a Windows build but not a POSIX one, so the lexical walk would enforce
+different things per platform. The drive qualifiers `*:`,
+`$:` and `c:` (`esxapi.def:129-130`) all map to the root. On top of that, every
+existing component is checked with `symlink_status()` and refused if it is a
+link, the result is canonicalised and re-checked against the canonical root,
+and an open re-checks once more afterwards. Those layers are genuinely
+independent, and that has a consequence worth stating plainly: **no row can
+prove any single symlink check is load-bearing**, because neutralising one does
+not change the answer. A reviewer measured it — all seven neutralised at once
+still gave a green suite. What the rows pin instead is that no call surface has
+lost *all* its protection, once per surface, using a link whose target is
+INSIDE the root (the only case containment cannot catch): `HFS-12` stat,
+`HFS-90` open, `HFS-91` opendir, `HFS-92` chdir. For `open` and `stat` the
+discriminating mutation is `symlink_status` → `status`, because their
+`is_regular_file` gate implicitly refuses a link too; for `opendir` and `chdir`
+deleting the explicit check is enough. The full note is in
+`esxdos_hostfs.cpp`. The residual TOCTOU window is documented in the
+`.cpp`: closing it needs an `openat(O_NOFOLLOW)` walk with no portable form
+across the Linux, macOS and MinGW builds.
+
+**Rewind.** An open `std::fstream` is not snapshottable, so `save_state` writes
+only `(handle, is_dir, mode, position, path)` per open handle plus the guest
+CWD, and `load_state` reopens from that. Reads therefore rewind exactly.
+Writes cannot — the host side effect already happened — which is the whole
+reason writes are behind a second flag.
+
+**Refusals rather than approximations.** `esx_mode_use_wildcards`,
+`esx_mode_sf_enable` and `esx_mode_use_header` return `esx_enosys`: each
+changes what the entry stream contains, and a caller that asked for a filtered
+or sorted listing and silently got neither is worse off than one told no. The
+two modes real software was measured to use (`.ls` asks for
+`esx_mode_lfn_only` and `esx_mode_short_only`, no other bits) are served.
+`M_P3DOS` is not answered: it bridges into NextZXOS ROM entry points including
+`IDE_SECTOR_READ`, and a directory has no sectors.
+
+**SCOPE, and the measurement behind it.** This serves programs that reach the
+filesystem through `RST $08` — a directly loaded NEX, and dot commands. It does
+NOT serve NextZXOS's Browser, file selector, BASIC or loader. That was the
+load-bearing assumption of the whole design, and it was settled experimentally
+before any of this was built (2026-09-23), not inferred:
+
+| Run (same build, same image, `--log-level esxdos=trace`) | calls in `$85..$B1` |
+|---|---|
+| Browser opened at `C:/`, descended into `C:/DEMOS/`, scrolled | **0** |
+| `.ls` from the NextZXOS command line | **76** |
+
+The `.ls` run is the positive control — it is `F_OPENDIR` ×2, `F_READDIR` ×35,
+`F_GETCWD` ×2, `F_READ` ×6, `M_P3DOS` ×22 and more — so the instrument plainly
+can see directory traffic. The Browser, listing a directory on screen, produced
+none of it. NextZXOS carries its own SD/SPI driver and FAT code in
+`enNextZX.rom` and never asks `$0008`. Reaching it would need a synthetic FAT32
+volume at the block layer, which the project declined
+(`doc/design/TASK89-ESXDOS-HOST-FILESYSTEM.md` §0.1 decision 5). The boundary is permanent, and the user-facing docs say so in
+`--help`, the man page and the user guide because the flag's name invites the
+opposite assumption.
+
+**Tests.** `HFS-01..95` in `test/esxdos_stub/esxdos_hostfs_rows.cpp` (linked
+into `esxdos_stub_test`): the sandbox and the 8.3/timestamp synthesis against
+the class, every register convention through the real dispatcher. The
+regression row `esxdos-hostfs-func` runs a real guest program that opens, seeks
+to offset 6, reads and prints a real host file through `RST $08`, then probes
+the sandbox from inside the guest — with a control run, no root, that must not
+produce the content.
+
+**Known gaps.** Without `--esxdos-stub-root` a directly loaded program still
+cannot reach host files other than the kept-open NEX and its siblings, and the
+in-memory file still has no `F_SEEK`. `M_DOSVERSION` reports 1.94 without the
+host bridge. `M_GETERR` is not implemented in either back end.
 
 ## RZX
 

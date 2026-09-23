@@ -199,6 +199,20 @@ struct EmulatorConfig {
     // Provides one in-memory file and `run sibling.nex` chaining.
     bool esxdos_stub = false;
 
+    // GH #31 — the host directory --esxdos-stub serves through RST $08.
+    // Empty (the default) keeps the historical behaviour: one anonymous
+    // in-memory file, no host filesystem at all. Naming a directory here
+    // turns the stub's file AND directory calls into real host I/O rooted at
+    // that directory, and implies esxdos_stub.
+    //
+    // SCOPE: NEX programs and dot commands only. NextZXOS's own Browser and
+    // loader never reach $0008 (measured, GH #31 — see esxdos_hostfs.h), so
+    // they cannot see this directory, by construction and permanently.
+    std::string esxdos_stub_root;
+    // Writes through the host directory. Off by default because a guest write
+    // is an irreversible host side effect that a rewind cannot take back.
+    bool esxdos_stub_writable = false;
+
     // --tape-save (G33 Phase 1): append blocks SAVEd via the 48K ROM
     // SA-BYTES routine (trap at 0x04C2) to this .tap file. Empty = the
     // SAVE trap is inactive (real-time MIC capture is G33 Phase 2).
