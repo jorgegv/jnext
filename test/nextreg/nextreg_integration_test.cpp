@@ -7849,6 +7849,72 @@ static void test_g56_cr_plan_rows(Emulator& emu) {
     }
 }
 
+// ── NR-MMU-04 — NextREG vs port-0x7FFD MMU arbitration ───────────────
+//
+// VHDL zxnext.vhd:4607-4699 holds MMU0..MMU7 in ONE clocked process with
+// three mutually exclusive arms, in this priority order:
+//
+//     if    reset = '1'                       -> :4610-4618 defaults
+//     elsif port_memory_change_dly = '1'      -> :4619-4684 port rebuild
+//                                                (MMU6/7 <= port_7ffd_bank
+//                                                 & '0' / & '1' at :4677-4680)
+//     elsif nr_mmu_we = '1'                   -> :4685-4696 MMU<n> <= nr_wr_dat
+//
+// Because all three arms drive the SAME register, whichever arm fires on
+// the later clock edge is the value that survives: a port 0x7FFD write
+// overwrites a prior NR 0x56/0x57 value, and an NR 0x56/0x57 write
+// overwrites a prior port-derived value. `port_memory_change_dly` (:3813)
+// is asserted by ANY unlocked port-0x7FFD write, not only by one that
+// changes the bank, so the rebuild arm re-fires even on a repeat write.
+//
+// N8E-RAM-REBUILD-1 above already pins one direction (an NR 0x56 override
+// clobbered by a later rebuild, there triggered via NR 0x8E bit 3). This
+// row pins the other direction — an NR write landing AFTER a port write
+// must win — and closes the loop with a second port write. Reverting the
+// NR 0x50-0x57 write handler's `mmu_.set_page()` call, or making the
+// port-0x7FFD handler skip `apply_legacy_ram_slots_`, kills a different
+// half of it.
+static void test_nr_mmu_arbitration(Emulator& emu) {
+    set_group("NR-MMU-Arbitration");
+
+    hard_reset(emu);
+
+    // Step 1 — port 0x7FFD ← bank 3. VHDL :4677-4680 loads
+    // MMU6 <= "0011" & '0' = 0x06, MMU7 <= "0011" & '1' = 0x07.
+    emu.port().out(0x7FFD, 0x03);
+    const uint8_t port1_56 = nr_read(emu, 0x56);
+    const uint8_t port1_57 = nr_read(emu, 0x57);
+
+    // Step 2 — NR 0x56 ← 0x20 through the NextREG data port. The
+    // nr_mmu_we arm at :4694 stores nr_wr_dat verbatim into MMU6, and
+    // MMU7 is untouched (the arm is a one-hot case on nr_mmu). 0x20 is
+    // not a value any `bank*2` rebuild from this state could produce, so
+    // the assertion cannot be satisfied by a stale port value.
+    nr_write(emu, 0x56, 0x20);
+    const uint8_t nr_56 = nr_read(emu, 0x56);
+    const uint8_t nr_57 = nr_read(emu, 0x57);
+
+    // Step 3 — port 0x7FFD ← bank 1. The rebuild arm fires again and
+    // clobbers the NR override: MMU6 <= 0x02, MMU7 <= 0x03.
+    emu.port().out(0x7FFD, 0x01);
+    const uint8_t port2_56 = nr_read(emu, 0x56);
+    const uint8_t port2_57 = nr_read(emu, 0x57);
+
+    check("NR-MMU-04",
+          "MMU6/7 take the value of whichever writer ran last: port 0x7FFD "
+          "bank 3 -> 0x06/0x07, then NR 0x56 <- 0x20 wins, then port 0x7FFD "
+          "bank 1 -> 0x02/0x03 [zxnext.vhd:4619,4677-4680,4685-4696, :3813]",
+          port1_56 == 0x06 && port1_57 == 0x07 &&
+          nr_56 == 0x20 && nr_57 == 0x07 &&
+          port2_56 == 0x02 && port2_57 == 0x03,
+          fmt("after 7FFD=3: %02X/%02X (want 06/07); after NR56=20: "
+              "%02X/%02X (want 20/07); after 7FFD=1: %02X/%02X (want 02/03)",
+              port1_56, port1_57, nr_56, nr_57, port2_56, port2_57));
+
+    // Leave the machine in its power-on state for anything that follows.
+    hard_reset(emu);
+}
+
 int main() {
     std::printf("NextREG Integration Tests (full-machine reset defaults)\n");
     std::printf("====================================\n\n");
@@ -7990,6 +8056,9 @@ int main() {
 
     test_g56_cr_plan_rows(emu);
     std::printf("  Group: G56-CR-PlanRows — done\n");
+
+    test_nr_mmu_arbitration(emu);
+    std::printf("  Group: NR-MMU-Arbitration — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
