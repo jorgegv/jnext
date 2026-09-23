@@ -11,7 +11,10 @@ sources in `ZX_Spectrum_Next_FPGA/cores/zxnext/src/audio/`.
 
 Live as of 2026-04-24 (Audio skip-reduction plan closed end-to-end):
 
-- **`audio_test`: 132 / 132 pass / 0 fail / 0 skip** — ZERO skips.
+- **`audio_test`: 160 / 160 pass / 0 fail / 0 skip** — ZERO skips.
+  (Was 132 / 132 on 2026-04-24; +28 rows since, of which +8 on
+  2026-09-24 for GH #201: AY-43, AY-63a, AY-63b, AY-64, TS-17, TS-40,
+  MX-15, MX-21.)
 - **`audio_nextreg_test` (new): 25 / 25 pass / 0 fail / 0 skip.**
 - **`audio_port_dispatch_test` (new): 16 / 16 pass / 0 fail / 0 skip.**
 - **`input_integration_test` extended**: 7/5/0/2 → 12/10/0/2 (+5 FE-READ rows).
@@ -41,6 +44,15 @@ closed end-to-end (Phases 0→4) on 2026-04-24. Summary:
 - **Wave E** (2026-04-24, post-Wave-B-critic) flipped the 4
   F-reinstated TS rows with distinct-amplitude per-PSG isolation
   proofs.
+- **GH #201** (2026-09-24) closed eight rows that had been `// A:` /
+  `// G:` / `WONT` comments and were publishing as `missing` in the
+  traceability matrix, and retired four that cannot honestly become a
+  `check()` (AY-41, SD-09, MX-30, IO-04 — each struck in place with its
+  rationale). Writing AY-43 found and fixed a real emulator defect: the
+  `ena_div_noise` phase in `src/audio/ay_chip.cpp` read the TOGGLED
+  `noise_div` where `ym2149.vhd:270-272` reads the value held on entry
+  to the process, so the noise clock ran on the 1st, 3rd, 5th `ena_div`
+  instead of the 2nd, 4th, 6th. Rate was right, phase inverted.
 - **Wave F** (2026-04-24, post-Wave-B-critic) fixed 6 of 7 emulator
   port-dispatch gaps surfaced by Wave B: SD-10 (port 0x5F Soundrive
   mode 1 ch D), AUD-SD-12 (port 0x3F Profi Covox ch A), AUD-SD-14 (port 0xFB
@@ -162,9 +174,9 @@ VHDL ref: `ym2149.vhd` lines 260-279
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
 | AY-40  | Divider reloads with `I_SEL_L=1` (AY compat)    | Reload value = `"0111"` (divide by 8)                      |
-| AY-41  | Divider reloads with `I_SEL_L=0` (YM mode)      | Reload value = `"1111"` (divide by 16)                     |
+| ~~AY-41~~ | ~~Divider reloads with `I_SEL_L=0` (YM mode)~~ | **RETIRED 2026-09-24 (GH #201)** — the ZX Next instantiates all three PSGs with `I_SEL_L => '1'` (`turbosound.vhd:164`, `:219`, `:274`), so `cnt_div <= (not I_SEL_L) & "111"` (`ym2149.vhd:267`) can only ever reload `"0111"`. The `"1111"` (/16) reload is a branch of the generic ym2149 IP core that no ZX Next signal can select — the hardware cannot enter this state. AY-44 asserts the /8 reload that IS reachable and cites `turbosound.vhd:164` for exactly this reason. No `check()` row exists. |
 | AY-42  | `ena_div` pulses once per divider cycle          | Tone generators clocked at this rate                       |
-| AY-43  | `ena_div_noise` at half `ena_div` rate           | Noise generator runs at half the tone clock                |
+| AY-43  | `ena_div_noise` at half `ena_div` rate           | Noise generator runs at half the tone clock, and lags it by one `ena_div` period: `noise_div <= not noise_div` is a signal assignment, so the `if (noise_div = '1')` on the next line reads the OLD value (`ym2149.vhd:270-272`) and the first pulse lands on the SECOND `ena_div`. Measured as tone edges on an 8-tick grid vs noise edges on a 16-tick grid, offset 8 |
 | AY-44  | In turbosound wiring, `I_SEL_L='1'` always      | AY-compatible divide-by-8 mode used                        |
 
 ### 1.5 Tone Generators
@@ -190,8 +202,8 @@ VHDL ref: `ym2149.vhd` lines 282-302
 | AY-60  | Noise period from R6[4:0]                        | Period counter uses `R6[4:0]-1` as comparator              |
 | AY-61  | Noise period 0 or 1 => comparator 0              | When `R6[4:1]=0000`, forced to 0 (fastest noise)          |
 | AY-62  | Noise uses 17-bit LFSR (poly17)                  | Feedback taps: bit 0 XOR bit 2 XOR zero-detect            |
-| AY-63  | Noise output is poly17 bit 0                     | Single shared noise for all channels                       |
-| AY-64  | Noise clocked at `ena_div_noise` rate            | Half the tone generator clock rate                         |
+| AY-63  | Noise output is poly17 bit 0                     | AY-63a: 96 shifts match an independent re-implementation of the VHDL LFSR recurrence (`ym2149.vhd:111,284,293,302`) bit for bit. AY-63b: one shared generator — A, B and C are equal on every tick (`:302,470-472`) |
+| AY-64  | Noise clocked at `ena_div_noise` rate            | One poly17 shift per `(comp+1)` `ena_div_noise` pulses (`ym2149.vhd:283,290-296`): the output-edge grid is `16*(comp+1)` ticks for R6 = 0 / 3 / 5 |
 
 ### 1.7 Channel Mixer
 
@@ -302,7 +314,7 @@ VHDL ref: `turbosound.vhd` lines 141-150
 |--------|--------------------------------------------------|------------------------------------------------------------|
 | TS-15  | Normal register address: bits[7:5] must be "000" | `psg_addr` only asserts when top 3 bits are 0             |
 | TS-16  | Address routed to selected AY only               | Only selected PSG gets `busctrl_addr = 1`                  |
-| TS-17  | Write routed to selected AY only                 | Only selected PSG gets `busctrl_we = 1`                    |
+| TS-17  | Write routed to selected AY only                 | `psgN_we` is gated on `ay_select` ALONE (`turbosound.vhd:144,147,150`) — unlike `psgN_addr`, which also needs `psg_d_i(7:5) = "000"` (`:141,143`). Each PSG keeps its own register contents AND its own address latch across selection changes |
 | TS-18  | Readback from selected AY                        | `psg_d_o` muxes based on `ay_select`                      |
 
 ### 2.3 Stereo Mixing per PSG
@@ -337,7 +349,7 @@ VHDL ref: `turbosound.vhd` lines 323-337
 
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
-| TS-40  | Pan "11": output to both L and R                  | Normal stereo                                              |
+| TS-40  | Pan "11": output to both L and R                  | Driven from pan `"00"` (both sides silent) to `"11"` through the select-byte write path (`turbosound.vhd:129-134`); both pan gates open (`:323`, `:327`) |
 | TS-41  | Pan "10": output to L only, R silenced            | R channel zeroed for this PSG                              |
 | TS-42  | Pan "01": output to R only, L silenced            | L channel zeroed for this PSG                              |
 | TS-43  | Pan "00": output silenced on both channels        | PSG contributes nothing                                    |
@@ -370,7 +382,7 @@ VHDL ref: `soundrive.vhd` lines 69-107
 | SD-06  | NextREG 0x2D (mono) writes to chA AND chD        | Both channels A and D updated simultaneously               |
 | SD-07  | NextREG 0x2C (left) writes to chB only           | Channel B updated                                          |
 | SD-08  | NextREG 0x2E (right) writes to chC only          | Channel C updated                                          |
-| SD-09  | Port I/O takes priority over NextREG              | If both fire same cycle, port I/O wins (checked first). skip — Dac collapses to last-write-wins per frame; needs event-queue refactor (see G31) |
+| ~~SD-09~~ | ~~Port I/O takes priority over NextREG~~ | **RETIRED 2026-09-24 (GH #201)**, was the G31 WONT. `soundrive.vhd:80-84` is an `if/elsif` in ONE clocked process, so the row only has content when both strobes are high on the SAME 28 MHz edge. A CPU cycle drives exactly one `iowr`, so the only hardware source of a genuine collision is the Copper writing NR 0x2D in the same cycle as a CPU `OUT` to a Soundrive port. jnext serialises CPU and Copper NextREG writes and modelling their per-cycle arbitration is the project-level WONT in [EMULATOR-DESIGN-PLAN.md](../design/EMULATOR-DESIGN-PLAN.md) Phase 11 (resolved as option (a); the same decision is why Copper ARB-01/02/03 order their stimulus by hand). The simultaneity this row needs cannot arise in jnext's execution model. SD-02..SD-08 cover both write paths individually. No `check()` row exists. |
 | AUD-SD-19 | DAC channels reset to 0x80 on `nr_08_dac_en` 1→0 transition   | `soundrive.reset_i = reset OR NOT nr_08_dac_en` — disable rezeroes chA/B/C/D to DC midpoint. skip — `emulator.cpp:1674` only flips `dac_enabled_`; pre-existing values in `Dac::ch_[]` persist (see G111). Note: SD-10..18 already used in §3.2 |
 
 ### 3.2 Port Mapping (from zxnext.vhd)
@@ -447,7 +459,7 @@ VHDL ref: `audio_mixer.vhd` lines 63-90
 | MX-05  | DAC input: 9-bit left-shifted by 2 + zero-padded  | `dac_L = "00" & dac_L_i & "00"` (range 0-2040)            |
 | MX-06  | I2S input: zero-extended 10-bit to 13-bit         | `i2s_L = "000" & pi_i2s_L_i` (range 0-1023)               |
 | MX-07  | I2S input is OFFSET BINARY: silence = 0x200, 0 = full-negative | `i2s.vhd:179` `o_audio_pi_L <= (not audio_pi_L(12)) & audio_pi_L(11 downto 3)` inverts the sign bit; `zxnext.vhd:2358-2359` substitutes the same 0x200 when disabled/muted/EAR |
-| MX-30  | Pi I2S source delivers a continuous 10-bit sample stream | I2s class exposes only a single set_sample(L,R) latch; no streaming source attached. skip — no Z80 software exercises Pi I2S today (Cat B); upgrade requires a real audio producer + frame-aligned sample queue (see G29) |
+| ~~MX-30~~ | ~~Pi I2S source delivers a continuous 10-bit sample stream~~ | **RETIRED 2026-09-24 (GH #201)**, was the G29 WONT. The row asks for a Pi I2S SOURCE. jnext models no such source and by scope decision never will: [EMULATOR-DESIGN-PLAN.md](../design/EMULATOR-DESIGN-PLAN.md) §3.1 lists `audio/i2s*.vhd` with scope **no** ("I2S; SDL audio queue used instead") and its Phase 5 records Pi GPIO NR 0x90-0xA9 as "intentionally stubbed"; `src/audio/i2s.h:10-13` states the class is "a pure latched sample-pair register — no real I2S wire / clocking / protocol emulation"; and nothing in `src/` ever calls `I2s::set_sample()`. There is no emulated Raspberry Pi to be the producer — an absent SUBSYSTEM, not an untested behaviour. What jnext does model stays covered by MX-06 (zero-extension into the 13-bit sum) and MX-07 (offset-binary midpoint, GH #116). No `check()` row exists. |
 
 ### 5.2 Final Mix
 
@@ -460,7 +472,7 @@ VHDL ref: `audio_mixer.vhd` lines 92-107
 | MX-12  | Reset zeroes both output channels                  | `pcm_L = 0`, `pcm_R = 0`                                  |
 | MX-13  | EAR and MIC go to both L and R                     | Beeper is always mono in the mix                           |
 | MX-14  | Max theoretical output = 5998                      | 512 + 128 + 2295 + 2040 + 1023 = 5998                     |
-| MX-15  | No saturation/clipping in mixer                    | 13-bit output is wide enough; no overflow possible         |
+| MX-15  | No saturation/clipping in mixer                    | All FIVE terms at their ceiling at once (`audio_mixer.vhd:63-64,80-89`): 512+128+2295+2040+1023 = 5998, still inside the 13-bit signal, arrives intact on both channels. ay = 2295 needs all three PSGs in mono mode. MX-05/MX-14 only assert sub-maximal sums |
 | MX-16  | Silence with the Pi I2S input WIRED and idle is digital 0 | The resting mix is DAC 0x100&lt;&lt;2 + I2S 0x200 = 1536; the host AC-coupling reference must be that whole sum. MX-10/MX-11 assert the same on a Mixer with NO I2s — a configuration the emulator never has (`src/core/emulator.cpp:44`) |
 | MX-17  | An ASSEMBLED power-on machine emits digital 0 (end-to-end) | GH #116: silence read +2048 on every sample of every run, so SDL's zero-padding of a starved device buffer became a ~21.5 Hz square wave — the reported "motor" noise. Lives in `audio_nextreg_test` because only the full machine wires the I2s |
 
@@ -469,7 +481,7 @@ VHDL ref: `audio_mixer.vhd` lines 92-107
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
 | MX-20  | `exc_i=1`: EAR and MIC contribute 0 to mix       | Beeper only goes to internal speaker, not line out         |
-| MX-21  | `exc_i=0`: EAR and MIC contribute normally        | Default behaviour                                          |
+| MX-21  | `exc_i=0`: EAR and MIC contribute normally        | The muxes at `audio_mixer.vhd:80-81` are COMBINATIONAL, so `exc_i` returning to `'0'` reopens them on the spot. Driven 1 → 0 on ONE Mixer, asserting EAR 512, MIC 128 and both 640 (×4 into int16). MX-01/MX-02 only see the power-on default and cannot tell a gate from a latch |
 | MX-22  | `exc_i` derived from NextREGs 0x06 bit 6 AND 0x08 bit 4 | `beep_spkr_excl = nr_06_internal_speaker_beep AND nr_08_internal_speaker_en` |
 | MX-23  | Mixer drops EAR/MIC contribution when `exc_i=1` (downstream)  | `pcm_L/R = ay_L/R + dac_L/R + i2s_L/R` only — `ear/mic = 0` regardless of `ear_i/mic_i`. skip — `mixer.cpp:28-29` sums EAR+MIC+AY+DAC+I2S unconditionally; Mixer never reads `Emulator::beep_spkr_excl()` (see G110) |
 
@@ -543,7 +555,7 @@ VHDL ref: `zxnext.vhd` lines 2647-2649, 2771-2773
 | IO-01  | Port FFFD: `A[15:14]="11"`, A[2]=1, A[0]=1      | AY register select (write) / read data                    |
 | IO-02  | Port BFFD: `A[15:14]="10"`, A[2]=1, A[0]=1      | AY register write                                          |
 | IO-03  | Port BFF5: BFFD with A[3]=0                       | Register query mode (`psg_d_o_reg_i`)                      |
-| IO-04  | FFFD read latched on falling CPU clock edge       | `port_fffd_dat <= psg_dat` on `falling_edge(i_CLK_CPU)`   |
+| ~~IO-04~~ | ~~FFFD read latched on falling CPU clock edge~~ | **RETIRED 2026-09-24 (GH #201)** — formalises the Wave F demotion already recorded at `test/audio/audio_port_dispatch_test.cpp:489-501`. `port_fffd_dat <= psg_dat` on `falling_edge(i_CLK_CPU)` is at `zxnext.vhd:6407-6411` (the earlier comment's `:2771-2773` is `port_fffd_rd`, a different signal). The latch reloads on EVERY CPU falling edge, unconditionally, and a Z80 `IN` holds IORQ for ≥ 3 T-states at the same clock, so it has been reloaded with the settled `psg_dat` long before the CPU samples the bus. `psg_dat` itself only changes on an `OUT` from a previous instruction. The one-CPU-cycle pipeline stage is therefore unobservable at the instruction granularity jnext's CPU models — a modelling-granularity decision, not a coverage gap. IO-01/IO-02/IO-03/IO-05 cover the observable 0xFFFD/0xBFFD/0xBFF5 paths. No `check()` row exists. |
 | IO-05  | BFFD readable as FFFD on +3 timing                | `port_fffd_rd` includes `port_bffd and machine_timing_p3` |
 
 ### 7.2 DAC Port Enable
