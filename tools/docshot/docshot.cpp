@@ -221,20 +221,6 @@ bool run_to_last_paper_line(Emulator& emu, DebuggerManager* mgr) {
     if (emu.clock().get() >= target)
         target += t.master_cycles_per_frame;
 
-    // Clear the data-breakpoint latch before arming.
-    //
-    // NOT defensive housekeeping — it works around a real defect this tool
-    // ran into. Mmu::read() raises DebugState::data_bp_hit for a READ
-    // watchpoint, and the debugger panels read memory through that same
-    // Mmu::read(): the Watches panel reads each watch's address, and the
-    // Memory, Stack and Disassembly panels read the region they display. So a
-    // READ or READ/WRITE watchpoint on an address any of those panels shows
-    // is tripped BY THE PANEL REFRESH, the latch survives run_to_cycle()
-    // (only DebugState::resume() clears it), and the next run stops one
-    // instruction later at an address the watchpoint has nothing to do with.
-    // Here that stopped the fixture frame dead and left the Copper panel
-    // showing a PC of 0 on a program that had never run.
-    emu.debug_state().set_data_bp_hit(false);
     emu.debug_state().run_to_cycle(target);
     for (int i = 0; i < 4 && !emu.debug_state().paused(); ++i)
         emu.run_frame();
