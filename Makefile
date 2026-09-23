@@ -968,7 +968,26 @@ docs-screenshots: unit-test-build
 	@# The tool needs a NextZXOS image, and jnext opens one read-write: hand it
 	@# a reflink clone so a capture run never mutates the developer's master.
 	@# Same idiom, and the same $$HOME/.jnext/runs location, as the clone
-	@# test/run-unit-tests.sh makes for the unit suites.
+	@# test/run-unit-tests.sh makes for the unit suites — INCLUDING its traps.
+	@#
+	@# WHY TRAPS AND NOT JUST `rm -rf` ON THE WAY OUT. The straight-line remove
+	@# handles a normal run and a failing docshot, and nothing else: a Ctrl-C
+	@# during the 400-frame boot, or a `kill`, leaves the ~1 GB clone in
+	@# $$HOME/.jnext/runs for good, with nothing in the project that sweeps it.
+	@# That leak class is not hypothetical here — two 1 GB directories from a
+	@# killed July run are still sitting in that directory.
+	@#
+	@# INT and TERM are listed EXPLICITLY, not folded into EXIT: an EXIT-only
+	@# trap does not fire when the shell is killed by a signal it has not
+	@# trapped, and this recipe runs in the terminal's foreground process
+	@# group, which is exactly where Ctrl-C lands. And the two signal handlers
+	@# EXIT rather than returning, for the reason run-unit-tests.sh records at
+	@# length: a handler that only cleans up lets the shell RESUME, running the
+	@# rest of the recipe against a clone it has just deleted.
+	@#
+	@# WHAT IT DOES NOT COVER: SIGKILL, which no trap can catch, and a host
+	@# crash. A clone can still be orphaned that way; it is a plain directory
+	@# under $$HOME/.jnext/runs and `rm -rf` is the whole recovery.
 	@set -e; \
 	 sd="$${JNEXT_TEST_SD_IMAGE:-$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}"; \
 	 if [ ! -f "$$sd" ]; then \
@@ -977,10 +996,17 @@ docs-screenshots: unit-test-build
 	   printf "        or point JNEXT_TEST_SD_IMAGE at an existing one.\n"; exit 1; \
 	 fi; \
 	 run_dir="$$HOME/.jnext/runs/docshot-$$$$"; \
+	 docshot_cleanup() { \
+	   [ -n "$$run_dir" ] && rm -rf "$$run_dir"; \
+	   rmdir "$$HOME/.jnext/runs" 2>/dev/null || true; \
+	   return 0; \
+	 }; \
+	 trap 'docshot_cleanup' EXIT; \
+	 trap 'docshot_cleanup; exit 130' INT; \
+	 trap 'docshot_cleanup; exit 143' TERM; \
 	 mkdir -p "$$run_dir"; \
 	 cp --reflink=auto "$$sd" "$$run_dir/sd.img"; \
 	 rc=0; ./build/docshot --sdcard "$$run_dir/sd.img" --out $(GUIDE_SRC)/img || rc=$$?; \
-	 rm -rf "$$run_dir"; \
 	 if [ $$rc -ne 0 ]; then printf "$(BADGE_FAIL) FAIL $(RESET) docshot did not write every image\n"; exit $$rc; fi; \
 	 printf "$(BADGE_PASS) OK $(RESET) debugger screenshots regenerated in $(GUIDE_SRC)/img\n"; \
 	 printf "        LOOK AT THEM, then run 'make docs-userguide' and commit both copies\n"
