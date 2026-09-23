@@ -95,12 +95,12 @@ bool SdCardDevice::mount(const std::string& path, bool read_only) {
     // Pass-5 verify-audit fix (2026-05-09): full SPI-protocol state reset
     // on mount. The pre-fix code cleared only state_/initialized_/app_cmd_/
     // cmd_idx_, leaving resp_buf_, resp_idx_, data_idx_, data_crc_count_,
-    // multi_block_, multi_block_sector_, persistent_response_byte_,
+    // multi_block_, multi_block_addr_, persistent_response_byte_,
     // data_block_, cmd_buf_ untouched. A runtime mount swap (e.g. user
     // changes --sdcard while a CMD18 stream is in flight, or a CMD17
     // SENDING_DATA is mid-transfer) would let send() continue emitting
     // stale data from the previous image's data_block_ or re-prime
-    // multi_block_sector_ as if streaming the old card. Use the same
+    // multi_block_addr_ as if streaming the old card. Use the same
     // canonical full reset() the soft-reset path uses to avoid drift —
     // mount() is conceptually a hard cycle of the card.
     reset();
@@ -118,7 +118,7 @@ void SdCardDevice::unmount() {
     // Pass-8 verify-audit fix (2026-05-09): symmetric with mount(). Pre-fix
     // unmount() cleared only state_ / initialized_ / file_size_ /
     // pending_write_after_r1_, leaving cmd_idx_, resp_buf_, resp_idx_,
-    // data_idx_, data_crc_count_, app_cmd_, multi_block_, multi_block_sector_
+    // data_idx_, data_crc_count_, app_cmd_, multi_block_, multi_block_addr_
     // and persistent_response_byte_ stale. After-the-fact remount via mount()
     // does call reset() and is therefore safe — but a bare unmount() (e.g.
     // user-initiated Eject SD with no follow-up mount) left the card in a
@@ -155,8 +155,8 @@ void SdCardDevice::deselect() {
         pending_write_after_r1_ = false;
         persistent_response_byte_ = 0xFF;
         sd_log()->debug(
-            "CS deasserted mid-CMD18 — stream paused (next sector={})",
-            multi_block_sector_);
+            "CS deasserted mid-CMD18 — stream paused (next byte={:#010x})",
+            multi_block_addr_);
         return;
     }
     // Otherwise: reset SPI protocol state on CS deassert (matches ZesarUX
@@ -172,8 +172,8 @@ void SdCardDevice::deselect() {
     data_crc_count_ = 0;
     data_token_received_ = false;  // V12-DIVMMC-06 (Pass-12 reviewer fix)
     app_cmd_ = false;
-    multi_block_        = false;
-    multi_block_sector_ = 0;
+    multi_block_      = false;
+    multi_block_addr_ = 0;
     // CMD24 R1-bridge flag also clears: a CS deassert mid-CMD24 (after R1
     // queued but before the data phase started) must not leave the card
     // primed to flip to RECEIVING_DATA on the next host activation.
@@ -267,15 +267,23 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
             if (!data_token_received_) {
                 break;  // pre-token byte (incl. 0xFF) — keep waiting
             }
-            if (data_idx_ < 512) {
+            // GH #94 — CMD24 only ever runs with the full physical block
+            // (WRITE_BL_PARTIAL = 0; cmd24_write_single_block() rejects any
+            // other block length at R1), so the data phase is kBlockLen long
+            // in both addressing modes.
+            if (data_idx_ < static_cast<int>(kBlockLen)) {
                 data_block_[data_idx_++] = tx;
                 break;
             }
             // Collecting 2 CRC bytes (ignored)
             data_crc_count_++;
             if (data_crc_count_ >= 2) {
-                uint32_t sector = cmd_arg();
-                uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
+                // GH #94 — cmd_buf_ still holds the CMD24 that opened this
+                // data phase, so the address is re-derived the same way the
+                // command did (§ 4.7.4: byte address on SDSC, block address
+                // on SDHC).
+                const uint64_t byte_addr = arg_to_byte_addr(cmd_arg());
+                const uint64_t sector    = byte_addr / kBlockLen;
                 // V12-DIVMMC-02 (Pass-12 verify-audit fix, 2026-05-10): SD
                 // Physical Layer Simplified Spec § 7.3.3.3 Data Response
                 // Token format is `0bxxx0_sss1` where the status code `sss`
@@ -293,10 +301,10 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 // latent; class-(b) → corrected for spec faithfulness and
                 // to surface the firmware's write-error path on past-EOF
                 // attempts.
-                bool write_ok = (byte_addr + 512 <= file_size_);
+                bool write_ok = (byte_addr + kBlockLen <= file_size_);
                 if (write_ok) {
                     file_.seekp(static_cast<std::streamoff>(byte_addr), std::ios::beg);
-                    file_.write(reinterpret_cast<const char*>(data_block_), 512);
+                    file_.write(reinterpret_cast<const char*>(data_block_), kBlockLen);
                     file_.flush();
                     // V15-DIVMMC-01 (Pass-15 verify-audit fix, 2026-05-10):
                     // SD Physical Layer Simplified Spec § 7.3.3.3 (Data
@@ -381,8 +389,8 @@ uint8_t SdCardDevice::receive(uint8_t tx) {
                 // mis-behaving host (or a test) that sends a different
                 // command mid-stream must not leave multi_block_ set
                 // and silently resume after the new command's block.
-                multi_block_        = false;
-                multi_block_sector_ = 0;
+                multi_block_      = false;
+                multi_block_addr_ = 0;
                 // Same logic for the CMD24 R1-bridge flag: a new command
                 // arriving mid-CMD24 (between the queued R1 and the data
                 // phase) must not leave the bridge armed and silently
@@ -468,7 +476,7 @@ uint8_t SdCardDevice::send() {
             if (resp_idx_ < resp_buf_.size()) {
                 return resp_buf_[resp_idx_++];
             }
-            if (data_idx_ < 512) {
+            if (data_idx_ < static_cast<int>(block_len_)) {
                 return data_block_[data_idx_++];
             }
             // The synthetic file-map overlay is a compatibility stream, not
@@ -477,11 +485,11 @@ uint8_t SdCardDevice::send() {
             // not expose CRC bytes. Keep real CRCs for ordinary image-backed
             // sectors; advance the overlay directly to its next framing
             // triplet.
-            if (!(multi_block_ && multi_block_sector_ != 0 &&
-                  is_overlay_sector(multi_block_sector_ - 1)) &&
+            if (!(multi_block_ && multi_block_addr_ >= block_len_ &&
+                  is_overlay_addr(multi_block_addr_ - block_len_)) &&
                 data_crc_count_ < 2) {
                 // Task 26 item 3 — emit the real CRC-16 (computed over the
-                // 512 data bytes when the block was loaded), high byte
+                // block_len_ data bytes when the block was loaded), high byte
                 // first. Pre-fix returned a dummy 0x00 for both bytes.
                 const uint8_t crc_byte = (data_crc_count_ == 0)
                     ? static_cast<uint8_t>(data_crc_ >> 8)
@@ -497,11 +505,9 @@ uint8_t SdCardDevice::send() {
             // on a subsequent read rather than the same byte that terminated
             // the previous block's CRC.
             if (multi_block_) {
-                const uint64_t byte_addr =
-                    static_cast<uint64_t>(multi_block_sector_) * 512;
-                const bool overlay_block =
-                    is_overlay_sector(multi_block_sector_);
-                if (!load_read_sector(multi_block_sector_)) {
+                const uint64_t byte_addr   = multi_block_addr_;
+                const bool     overlay_block = is_overlay_addr(byte_addr);
+                if (!load_read_block(byte_addr)) {
                     // V14-DIVMMC-01 (Pass-14 verify-audit fix, 2026-05-10):
                     // SD Physical Layer Simplified Spec § 7.3.3.3 (Data
                     // Error Token format): when the card cannot deliver
@@ -530,12 +536,12 @@ uint8_t SdCardDevice::send() {
                     // produced an indistinguishable timeout instead of
                     // the documented error signal.
                     sd_log()->warn(
-                        "CMD18 read past end of image at sector={}; "
+                        "CMD18 read past end of image at byte={:#010x}; "
                         "emitting data error token 0x08 and ending stream",
-                        multi_block_sector_);
-                    multi_block_        = false;
-                    multi_block_sector_ = 0;
-                    state_              = State::IDLE;
+                        byte_addr);
+                    multi_block_      = false;
+                    multi_block_addr_ = 0;
+                    state_            = State::IDLE;
                     return 0x08;  // data error token: out of range
                 }
                 // Guarded for the should_log() reason given in
@@ -544,15 +550,15 @@ uint8_t SdCardDevice::send() {
                 if (sd_log()->should_log(spdlog::level::trace))
                     sd_log()->trace(
                         "CMD18 next block sector={} (byte={:#010x})",
-                        multi_block_sector_, byte_addr);
-                ++multi_block_sector_;
+                        byte_addr / kBlockLen, byte_addr);
+                multi_block_addr_ = byte_addr + block_len_;
                 resp_buf_ = overlay_block
                     ? std::vector<uint8_t>{ 0xFE, 0x00, 0xFE }
                     : std::vector<uint8_t>{ 0xFE };
                 resp_idx_       = 0;
                 data_idx_       = 0;
                 data_crc_count_ = 0;
-                data_crc_       = sd_crc16(data_block_, 512);  // Task 26 item 3
+                data_crc_       = sd_crc16(data_block_, block_len_);  // Task 26 item 3
                 // The direct-NEX file-map bridge mirrors ZEsarUX's
                 // Atic-compatible SDHC stream: FE,00,FE is available
                 // immediately after the preceding 512 data bytes. Ordinary
@@ -757,8 +763,8 @@ void SdCardDevice::cmd12_stop_transmission() {
     data_idx_ = 0;
     data_crc_count_ = 0;
     // Terminate CMD18 streaming if active.
-    multi_block_        = false;
-    multi_block_sector_ = 0;
+    multi_block_      = false;
+    multi_block_addr_ = 0;
     // CMD12 has "stuff bytes" before R1 — the firmware reads 8 stuff bytes
     // before polling for R1 (see TBBLUE.FW code at 0x7AB0).
     // Provide 8 stuff bytes (0xFF) + NCR (0xFF) + R1 to ensure the R1 poll
@@ -792,26 +798,60 @@ void SdCardDevice::cmd13_send_status() {
 }
 
 void SdCardDevice::cmd16_set_blocklen() {
-    // CMD16 SET_BLOCKLEN: for SDHC the blocklen is fixed at 512.  Setting any
-    // other value is illegal (SD spec § 4.9.1: "In CCS=1 (SDHC) cards, the
-    // block length is fixed to 512 bytes").  We accept arg=512 silently and
-    // reject any other value with the illegal-command bit.
-    uint32_t arg = cmd_arg();
-    sd_log()->debug("CMD16 SET_BLOCKLEN arg={}", arg);
-    if (arg == 512) {
-        queue_r1(initialized_ ? 0x00 : 0x01);
-    } else {
-        // Pass-5 verify-audit fix (2026-05-09): R1 idle bit (bit 0) reflects
-        // the card's idle state and must NOT be hard-coded to 1 when the
-        // card has completed ACMD41 init. SD spec § 4.9.1 R1 layout:
-        //   bit 0 = in idle state, bit 2 = illegal command.
-        // Pre-fix returned 0x05 (= idle + illegal) unconditionally, which
-        // misreports a post-init card as "still in idle" to the host.
-        // Boot path uses arg=512 only, so the prior bug was latent —
-        // class-(b/c) — but the corrected response is spec-faithful.
-        const uint8_t idle_bit = initialized_ ? 0x00 : 0x01;
-        queue_r1(static_cast<uint8_t>(idle_bit | 0x04));  // illegal command bit
+    // CMD16 SET_BLOCKLEN — SD Phys Layer Simplified Spec § 4.3.2:
+    //
+    //   "In the case of a Standard Capacity SD Memory Card, this command sets
+    //    the block length (in bytes) for all following block commands (read,
+    //    write, lock). [...] In the case of a High Capacity SD Memory Card,
+    //    block length set by CMD16 command does not affect the memory read and
+    //    write commands. Always 512 Bytes fixed block length is used. [...] In
+    //    both cases, if block length is set larger than 512 Bytes, the card
+    //    sets the BLOCK_LEN_ERROR bit."
+    //
+    // So the mode decides whether the card *keeps* the length, not whether it
+    // accepts the command. Partial block reads are what make a shorter length
+    // meaningful, and READ_BL_PARTIAL is fixed to 1 in CSD Version 1.0
+    // (§ 5.3.2) — which is precisely the CSD this card reports when it is
+    // Standard Capacity (see cmd9_send_csd).
+    //
+    // GH #94: the pre-fix handler answered any length other than 512 with the
+    // illegal-command bit in BOTH modes. That refused a legal SDSC request
+    // (1..512) and mis-encoded the one condition the spec does name — an
+    // over-long block is BLOCK_LEN_ERROR, which SPI mode carries in R1 bit 6,
+    // whose Table 7-9 definition names the field: "the command's argument
+    // (e.g. address, block length) was outside the allowed range for this
+    // card".
+    const uint32_t arg = cmd_arg();
+    // Pass-5 verify-audit fix (2026-05-09): the R1 idle bit (bit 0) reflects
+    // the card's idle state and must NOT be hard-coded to 1 when the card has
+    // completed ACMD41 init. SD spec § 7.3.2.1 R1 layout: bit 0 = in idle
+    // state, bit 5 = address error, bit 6 = parameter error.
+    const uint8_t idle_bit = initialized_ ? 0x00 : 0x01;
+
+    // The allowed range is 1..2^READ_BL_LEN = 1..512. Anything outside it —
+    // over-long (the spec's named BLOCK_LEN_ERROR case) or zero-length (no
+    // transfer the card could perform) — is a parameter error and leaves the
+    // current block length untouched.
+    if (arg == 0 || arg > kBlockLen) {
+        sd_log()->debug("CMD16 SET_BLOCKLEN arg={} out of range → "
+                        "R1 PARAMETER_ERROR (block length stays {})",
+                        arg, block_len_);
+        queue_r1(static_cast<uint8_t>(idle_bit | 0x40));
+        return;
     }
+
+    if (block_addressed()) {
+        // High Capacity: accepted, but the transfer length stays fixed at 512.
+        // (The command remains effective for CMD42 LOCK_UNLOCK, which jnext
+        // does not model.)
+        sd_log()->debug("CMD16 SET_BLOCKLEN arg={} accepted; high-capacity "
+                        "card keeps its fixed {}-byte block", arg, kBlockLen);
+    } else {
+        block_len_ = arg;
+        sd_log()->debug("CMD16 SET_BLOCKLEN arg={} → standard-capacity block "
+                        "length now {}", arg, block_len_);
+    }
+    queue_r1(idle_bit);
 }
 
 void SdCardDevice::cmd23_set_block_count() {
@@ -823,18 +863,37 @@ void SdCardDevice::cmd23_set_block_count() {
 }
 
 void SdCardDevice::cmd17_read_single_block() {
-    uint32_t sector = cmd_arg();
-    // SDHC (CCS=1): argument is sector number, not byte address
-    uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
-    sd_log()->debug("CMD17 READ_SINGLE_BLOCK sector={} (byte={:#010x})", sector, byte_addr);
+    const uint32_t arg = cmd_arg();
+    // GH #94 — § 4.7.4: block address on a High Capacity card, byte address
+    // on a Standard Capacity one.
+    const uint64_t byte_addr = arg_to_byte_addr(arg);
+    const uint64_t sector    = byte_addr / kBlockLen;
+    sd_log()->debug("CMD17 READ_SINGLE_BLOCK arg={} → byte={:#010x} "
+                    "(sector={}, len={}, {})",
+                    arg, byte_addr, sector, block_len_,
+                    block_addressed() ? "block-addressed" : "byte-addressed");
 
     if (!initialized_) {
         queue_r1(0x01);  // idle state
         return;
     }
 
-    if (!load_read_sector(sector)) {
-        sd_log()->warn("CMD17 read past end of image: sector={} byte={:#010x} size={}", sector, byte_addr, file_size_);
+    if (crosses_block_boundary(byte_addr)) {
+        // READ_BLK_MISALIGN = 0 (§ 5.3.2): the block may not cross a physical
+        // block boundary. R1 bit 5 ADDRESS_ERROR (§ 7.3.2.1, Table 7-9) is the
+        // documented signal. No data token follows a command the card
+        // rejected, so R1 is the whole response — this is exactly what a host
+        // that passed a SECTOR index to a byte-addressed card now sees,
+        // instead of silently reading 512 bytes straddling two sectors.
+        sd_log()->warn("CMD17 misaligned byte address {:#010x} for a "
+                       "{}-byte block → R1 ADDRESS_ERROR", byte_addr,
+                       block_len_);
+        queue_r1(static_cast<uint8_t>(0x20));
+        return;
+    }
+
+    if (!load_read_block(byte_addr)) {
+        sd_log()->warn("CMD17 read past end of image: byte={:#010x} size={}", byte_addr, file_size_);
         // V12-DIVMMC-04 (Pass-12 reviewer fix, 2026-05-10): SD Physical
         // Layer Simplified Spec § 7.3.2.1 (Table 7-9) R1 layout — bit 6 =
         // PARAMETER_ERROR = "argument was out of the allowed range". When
@@ -861,12 +920,14 @@ void SdCardDevice::cmd17_read_single_block() {
     // R1 (Atic Atac Next's command sender does) swallowed the token and its
     // token-poll then consumed the whole first block, shifting the entire
     // CMD17/CMD18 delivery one sector early. Task 26 item 1 (2 NCR bytes) +
-    // item 3 (real CRC computed below).
+    // item 3 (real CRC computed below, over the block_len_ bytes actually
+    // transferred — § 7.2.4 puts the CRC over the data field, whose length is
+    // the current block length).
     resp_buf_ = { kIdle, kIdle, 0x00, kIdle, 0xFE };
     resp_idx_ = 0;
     data_idx_ = 0;
     data_crc_count_ = 0;
-    data_crc_ = sd_crc16(data_block_, 512);  // Task 26 item 3
+    data_crc_ = sd_crc16(data_block_, block_len_);  // Task 26 item 3
     state_ = State::SENDING_DATA;
 }
 
@@ -877,20 +938,31 @@ void SdCardDevice::cmd18_read_multiple_block() {
     // ...  until the host issues CMD12 STOP_TRANSMISSION (or deselects CS
     // in SPI mode).  See send()'s SENDING_DATA branch for the
     // between-blocks re-prime logic.
-    uint32_t sector     = cmd_arg();
-    uint64_t byte_addr  = static_cast<uint64_t>(sector) * 512;
-    sd_log()->debug("CMD18 READ_MULTIPLE_BLOCK sector={} (byte={:#010x})",
-                    sector, byte_addr);
+    const uint32_t arg       = cmd_arg();
+    const uint64_t byte_addr = arg_to_byte_addr(arg);  // GH #94, § 4.7.4
+    sd_log()->debug("CMD18 READ_MULTIPLE_BLOCK arg={} → byte={:#010x} "
+                    "(sector={}, len={}, {})",
+                    arg, byte_addr, byte_addr / kBlockLen, block_len_,
+                    block_addressed() ? "block-addressed" : "byte-addressed");
 
     if (!initialized_) {
         queue_r1(0x01);
         return;
     }
 
-    if (!load_read_sector(sector)) {
+    if (crosses_block_boundary(byte_addr)) {
+        // Same READ_BLK_MISALIGN = 0 contract as CMD17 above.
+        sd_log()->warn("CMD18 misaligned byte address {:#010x} for a "
+                       "{}-byte block → R1 ADDRESS_ERROR", byte_addr,
+                       block_len_);
+        queue_r1(static_cast<uint8_t>(0x20));
+        return;
+    }
+
+    if (!load_read_block(byte_addr)) {
         sd_log()->warn(
-            "CMD18 read past end of image: sector={} byte={:#010x} size={}",
-            sector, byte_addr, file_size_);
+            "CMD18 read past end of image: byte={:#010x} size={}",
+            byte_addr, file_size_);
         // V12-DIVMMC-04 (Pass-12 reviewer fix, 2026-05-10): same as CMD17 —
         // R1 bit 6 PARAMETER_ERROR per SD Physical Layer Simplified Spec
         // § 7.3.2.1 (Table 7-9) when the argument is out of allowed range.
@@ -907,26 +979,56 @@ void SdCardDevice::cmd18_read_multiple_block() {
     // (ZEsarUX has the same explicit compatibility path in mmc.c). Keep the
     // standards-oriented NCR×2 response and the GH #84 Nac gap byte for
     // ordinary card-image sectors.
-    resp_buf_ = is_overlay_sector(sector)
+    resp_buf_ = is_overlay_addr(byte_addr)
         ? std::vector<uint8_t>{ 0xFE, 0x00, 0xFE }
         : std::vector<uint8_t>{ kIdle, kIdle, 0x00, kIdle, 0xFE };
-    resp_idx_           = 0;
-    data_idx_           = 0;
-    data_crc_count_     = 0;
-    data_crc_           = sd_crc16(data_block_, 512);  // Task 26 item 3
-    multi_block_        = true;
-    multi_block_sector_ = sector + 1;  // next sector to stream
-    state_              = State::SENDING_DATA;
+    resp_idx_         = 0;
+    data_idx_         = 0;
+    data_crc_count_   = 0;
+    data_crc_         = sd_crc16(data_block_, block_len_);  // Task 26 item 3
+    multi_block_      = true;
+    // GH #94 — the stream advances one block length, which is the sector
+    // stride in block-addressed mode and the CMD16 length in byte-addressed
+    // mode (§ 4.3.2: "the block length ... for all following block commands").
+    multi_block_addr_ = byte_addr + block_len_;
+    state_            = State::SENDING_DATA;
 }
 
 void SdCardDevice::cmd24_write_single_block() {
-    uint32_t sector = cmd_arg();
-    uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
-    sd_log()->debug("CMD24 WRITE_SINGLE_BLOCK sector={} (byte={:#010x})",
-                    sector, byte_addr);
+    const uint32_t arg       = cmd_arg();
+    const uint64_t byte_addr = arg_to_byte_addr(arg);  // GH #94, § 4.7.4
+    sd_log()->debug("CMD24 WRITE_SINGLE_BLOCK arg={} → byte={:#010x} "
+                    "(sector={}, {})",
+                    arg, byte_addr, byte_addr / kBlockLen,
+                    block_addressed() ? "block-addressed" : "byte-addressed");
 
     if (!initialized_) {
         queue_r1(0x01);
+        return;
+    }
+
+    // GH #94 — WRITE_BL_PARTIAL = 0 in both CSDs this card reports (§ 5.3.2 /
+    // § 5.3.3), so a write must be a whole physical block. A CMD16 that
+    // shortened the block length for reads therefore makes CMD24 a
+    // BLOCK_LEN_ERROR, carried in SPI mode by R1 bit 6 PARAMETER_ERROR
+    // ("the command's argument (e.g. address, block length) was outside the
+    // allowed range for this card", § 7.3.2.1 Table 7-9). Rejecting at R1
+    // means no data phase, per § 4.3.4 — same shape as the past-EOF reject
+    // below.
+    if (block_len_ != kBlockLen) {
+        sd_log()->warn("CMD24 with a {}-byte block length: this card declares "
+                       "WRITE_BL_PARTIAL=0 → R1 PARAMETER_ERROR (no data "
+                       "phase)", block_len_);
+        queue_r1(0x40);
+        return;
+    }
+
+    if (crosses_block_boundary(byte_addr)) {
+        // WRITE_BLK_MISALIGN = 0 — same contract CMD17/CMD18 enforce for
+        // reads. R1 bit 5 ADDRESS_ERROR, no data phase.
+        sd_log()->warn("CMD24 misaligned byte address {:#010x} → "
+                       "R1 ADDRESS_ERROR (no data phase)", byte_addr);
+        queue_r1(static_cast<uint8_t>(0x20));
         return;
     }
 
@@ -953,9 +1055,9 @@ void SdCardDevice::cmd24_write_single_block() {
     // write past EOF), but real-spec divergence — the pre-fix path
     // accepted 514 wasted bytes from a misbehaving host instead of
     // rejecting at R1.
-    if (byte_addr + 512 > file_size_) {
-        sd_log()->warn("CMD24 write past end of image: sector={} byte={:#010x} size={} → R1 PARAMETER_ERROR (no data phase)",
-                       sector, byte_addr, file_size_);
+    if (byte_addr + kBlockLen > file_size_) {
+        sd_log()->warn("CMD24 write past end of image: byte={:#010x} size={} → R1 PARAMETER_ERROR (no data phase)",
+                       byte_addr, file_size_);
         queue_r1(0x40);  // R1 bit 6 = PARAMETER_ERROR
         // Do NOT set pending_write_after_r1_ — there is no data phase
         // for an out-of-range argument per SD spec § 4.3.4.
@@ -984,18 +1086,148 @@ void SdCardDevice::cmd55_app_cmd() {
 
 // CMD9 SEND_CSD — return 16-byte CSD register inside a data block.
 // Response shape (SPI mode): R1 + 0xFE data token + 16 CSD bytes + 2 CRC bytes.
-// We use the SDHC CSD v2.0 layout (CSD_STRUCTURE=01) where C_SIZE encodes
-// capacity in 512 KB units: capacity = (C_SIZE + 1) * 512 KB. Required by
-// enNxtmmc.rom / supervisor SD-init flow at $1925/$1F3D — without it the
-// firmware reads $FF for all 16 CSD bytes and aborts the boot.
-// See SD Physical Layer Simplified Spec v6.00, section 5.3.3 for layout.
+// Required by enNxtmmc.rom / supervisor SD-init flow at $1925/$1F3D — without
+// it the firmware reads $FF for all 16 CSD bytes and aborts the boot.
+//
+// GH #94 — the CSD *version* follows the capacity class the host negotiated,
+// because the two versions do not merely differ by a version nibble: they
+// encode the capacity in completely different fields.
+//   High Capacity (CCS=1) → CSD Version 2.0, § 5.3.3:
+//       capacity = (C_SIZE + 1) * 512 KB, C_SIZE 22 bits
+//   Standard Capacity (CCS=0) → CSD Version 1.0, § 5.3.2:
+//       capacity = (C_SIZE + 1) * 2^(C_SIZE_MULT + 2) * 2^READ_BL_LEN
+//       C_SIZE 12 bits, C_SIZE_MULT 3 bits, READ_BL_LEN 4 bits
+// A card that reported CCS=0 in its OCR and then a v2.0 CSD would be telling
+// the host two different things about what it is.
 void SdCardDevice::cmd9_send_csd() {
-    sd_log()->debug("CMD9 SEND_CSD initialized={}", initialized_);
+    sd_log()->debug("CMD9 SEND_CSD initialized={} class={}", initialized_,
+                    block_addressed() ? "SDHC (CSD v2.0)"
+                                      : "SDSC (CSD v1.0)");
     if (!initialized_) {
         queue_r1(0x01);
         return;
     }
 
+    uint8_t csd[16] = {};
+    if (block_addressed()) build_csd_v2(csd);
+    else                   build_csd_v1(csd);
+
+    // Response: NCR×2 + R1(0x00) + ≥1 idle Nac gap byte + token(0xFE) +
+    // 16 CSD bytes + 2 CRC bytes. GH #98: same SD Physical Layer Simplified
+    // Spec § 7.5.2 contract as CMD17/CMD18 (GH #84) — real cards always
+    // insert read-access filler between R1 and the start-of-block token.
+    // Task 26 item 1 (2 NCR) + item 3 (real CRC-16 over the 16 data bytes).
+    const uint16_t crc = sd_crc16(csd, sizeof(csd));
+    resp_buf_.clear();
+    resp_buf_.push_back(kIdle);  // NCR 1
+    resp_buf_.push_back(kIdle);  // NCR 2
+    resp_buf_.push_back(0x00);  // R1: ready
+    resp_buf_.push_back(kIdle); // Nac gap (§ 7.5.2, GH #98)
+    resp_buf_.push_back(0xFE);  // start-of-data token
+    for (auto b : csd) resp_buf_.push_back(b);
+    resp_buf_.push_back(static_cast<uint8_t>(crc >> 8));   // CRC16 high
+    resp_buf_.push_back(static_cast<uint8_t>(crc & 0xFF)); // CRC16 low
+    resp_idx_ = 0;
+    state_ = State::RESPONDING;
+}
+
+// CSD Version 1.0 — Standard Capacity, SD Phys Layer Simplified Spec § 5.3.2.
+//
+//   device capacity = BLOCKNR * BLOCK_LEN
+//     BLOCKNR   = (C_SIZE + 1) * MULT
+//     MULT      = 2^(C_SIZE_MULT + 2)     C_SIZE_MULT: 3 bits, 0..7
+//     BLOCK_LEN = 2^READ_BL_LEN           READ_BL_LEN: 4 bits, 9..11
+//
+// jnext pins READ_BL_LEN = 9 so that the physical block the CSD declares is
+// the one the SPI data path actually transfers, and so that the power-up
+// block length is the 512 every host expects. C_SIZE is only 12 bits, so the
+// largest capacity this encoding can express is 4096 * 2^9 * 2^9 = 1 GiB —
+// which covers the canonical 1 GB NextZXOS image exactly. A larger image
+// mounted by a host that negotiated HCS=0 saturates at that cap and says so
+// in the log: over-declaring capacity would invite the host to read past the
+// end of the file, which is the worse failure.
+//
+// READ_BL_PARTIAL is fixed to 1 in this CSD version (partial block reads are
+// always allowed on an SD card), which is what makes CMD16's shorter block
+// lengths meaningful — see cmd16_set_blocklen(). WRITE_BL_PARTIAL is 0, this
+// card writes whole blocks only, and CMD24 enforces that.
+void SdCardDevice::build_csd_v1(uint8_t csd[16]) const {
+    constexpr uint32_t kReadBlLen = 9;                 // 2^9 = 512 = kBlockLen
+    constexpr uint64_t kMaxCSize  = 4095;              // 12-bit field
+
+    uint32_t c_size_mult = 0;
+    uint64_t units       = 0;
+    for (; c_size_mult <= 7; ++c_size_mult) {
+        // MULT * BLOCK_LEN = 2^(C_SIZE_MULT + 2) * 2^READ_BL_LEN
+        const uint64_t unit = 1ULL << (c_size_mult + 2 + kReadBlLen);
+        units = file_size_ / unit;
+        if (units <= kMaxCSize + 1) break;
+    }
+    if (c_size_mult > 7) {
+        c_size_mult = 7;
+        units       = kMaxCSize + 1;
+        sd_log()->warn(
+            "SDSC CSD v1.0 cannot express {} bytes (12-bit C_SIZE caps at "
+            "1 GiB with READ_BL_LEN=9); declaring the cap", file_size_);
+    }
+    // A card must declare at least one MULT unit; an image smaller than one
+    // unit rounds up to it rather than declaring a zero-capacity card.
+    if (units == 0) units = 1;
+    const uint32_t c_size = static_cast<uint32_t>(units - 1);
+
+    // Currents are card properties the spec does not fix; these are ordinary
+    // values (VDD_R_CURR_MIN/MAX = 35/45 mA, VDD_W_CURR_MIN/MAX = 35/45 mA).
+    constexpr uint8_t kVddRCurrMin = 0x5, kVddRCurrMax = 0x5;
+    constexpr uint8_t kVddWCurrMin = 0x5, kVddWCurrMax = 0x5;
+
+    //   [0]  CSD_STRUCTURE=00 (v1.0) + reserved=000000        = 0x00
+    //   [1]  TAAC = 0x26 (1.5 ms)
+    //   [2]  NSAC = 0x00
+    //   [3]  TRAN_SPEED = 0x32 (25 MHz)
+    //   [4]  CCC[11:4] = 0x5B                     (CCC = 0x5B5)
+    //   [5]  CCC[3:0]<<4 | READ_BL_LEN = 0x59
+    //   [6]  READ_BL_PARTIAL=1, WRITE_BLK_MISALIGN=0, READ_BLK_MISALIGN=0,
+    //        DSR_IMP=0, reserved=00, C_SIZE[11:10]
+    //   [7]  C_SIZE[9:2]
+    //   [8]  C_SIZE[1:0]<<6 | VDD_R_CURR_MIN<<3 | VDD_R_CURR_MAX
+    //   [9]  VDD_W_CURR_MIN<<5 | VDD_W_CURR_MAX<<2 | C_SIZE_MULT[2:1]
+    //   [10] C_SIZE_MULT[0]<<7 | ERASE_BLK_EN=1 | SECTOR_SIZE[6:1]=0x3F
+    //   [11] SECTOR_SIZE[0]=1 <<7 | WP_GRP_SIZE=0x00          = 0x80
+    //   [12] WP_GRP_ENABLE=0 + reserved=00 + R2W_FACTOR=010 +
+    //        WRITE_BL_LEN[3:2]=10                             = 0x0A
+    //   [13] WRITE_BL_LEN[1:0]=01 <<6 | WRITE_BL_PARTIAL=0 | reserved = 0x40
+    //   [14] FILE_FORMAT_GRP/COPY/PERM_WP/TMP_WP/FILE_FORMAT/reserved = 0x00
+    //   [15] CRC7[6:0]<<1 | end_bit=1 — see the v2.0 note on CRC7.
+    csd[0]  = 0x00;
+    csd[1]  = 0x26;
+    csd[2]  = 0x00;
+    csd[3]  = 0x32;
+    csd[4]  = 0x5B;
+    csd[5]  = static_cast<uint8_t>((0x5 << 4) | kReadBlLen);
+    csd[6]  = static_cast<uint8_t>(0x80 | ((c_size >> 10) & 0x03));
+    csd[7]  = static_cast<uint8_t>((c_size >> 2) & 0xFF);
+    csd[8]  = static_cast<uint8_t>(((c_size & 0x03) << 6) |
+                                   (kVddRCurrMin << 3) | kVddRCurrMax);
+    csd[9]  = static_cast<uint8_t>((kVddWCurrMin << 5) | (kVddWCurrMax << 2) |
+                                   ((c_size_mult >> 1) & 0x03));
+    csd[10] = static_cast<uint8_t>(((c_size_mult & 0x01) << 7) | 0x40 | 0x3F);
+    csd[11] = 0x80;
+    csd[12] = 0x0A;
+    csd[13] = 0x40;
+    csd[14] = 0x00;
+    csd[15] = 0x01;
+
+    sd_log()->debug("CSD v1.0: C_SIZE={} C_SIZE_MULT={} READ_BL_LEN={} → "
+                    "declared capacity {} bytes (image {} bytes)",
+                    c_size, c_size_mult, kReadBlLen,
+                    static_cast<uint64_t>(c_size + 1) <<
+                        (c_size_mult + 2 + kReadBlLen),
+                    file_size_);
+}
+
+// CSD Version 2.0 — High Capacity, SD Phys Layer Simplified Spec § 5.3.3.
+// C_SIZE encodes capacity in 512 KB units: capacity = (C_SIZE + 1) * 512 KB.
+void SdCardDevice::build_csd_v2(uint8_t csd[16]) const {
     // Compute C_SIZE for the actual SD-image size: capacity = (C_SIZE + 1) * 512 KB.
     uint64_t c_size = (file_size_ / (512ULL * 1024ULL));
     if (c_size > 0) c_size -= 1;
@@ -1025,30 +1257,19 @@ void SdCardDevice::cmd9_send_csd() {
     //   [14] FILE_FORMAT_GRP=0 + COPY=0 + PERM_WRITE_PROTECT=0 +
     //        TMP_WRITE_PROTECT=0 + FILE_FORMAT=00 + reserved=00 = 0x00
     //   [15] CRC7[6:0]<<1 | end_bit=1 — most readers ignore CRC; use 0x01.
-    const uint8_t csd[16] = {
+    //        (The same placeholder is used by the v1.0 builder above, so the
+    //        two CSDs stay consistent with each other.)
+    const uint8_t bytes[16] = {
         0x40, 0x0E, 0x00, 0x32,
         0x5B, 0x59, 0x00, c_size_22_16,
         c_size_15_8, c_size_7_0, 0x7F, 0x80,
         0x0A, 0x40, 0x00, 0x01
     };
+    for (int i = 0; i < 16; ++i) csd[i] = bytes[i];
 
-    // Response: NCR×2 + R1(0x00) + ≥1 idle Nac gap byte + token(0xFE) +
-    // 16 CSD bytes + 2 CRC bytes. GH #98: same SD Physical Layer Simplified
-    // Spec § 7.5.2 contract as CMD17/CMD18 (GH #84) — real cards always
-    // insert read-access filler between R1 and the start-of-block token.
-    // Task 26 item 1 (2 NCR) + item 3 (real CRC-16 over the 16 data bytes).
-    const uint16_t crc = sd_crc16(csd, sizeof(csd));
-    resp_buf_.clear();
-    resp_buf_.push_back(kIdle);  // NCR 1
-    resp_buf_.push_back(kIdle);  // NCR 2
-    resp_buf_.push_back(0x00);  // R1: ready
-    resp_buf_.push_back(kIdle); // Nac gap (§ 7.5.2, GH #98)
-    resp_buf_.push_back(0xFE);  // start-of-data token
-    for (auto b : csd) resp_buf_.push_back(b);
-    resp_buf_.push_back(static_cast<uint8_t>(crc >> 8));   // CRC16 high
-    resp_buf_.push_back(static_cast<uint8_t>(crc & 0xFF)); // CRC16 low
-    resp_idx_ = 0;
-    state_ = State::RESPONDING;
+    sd_log()->debug("CSD v2.0: C_SIZE={} → declared capacity {} bytes "
+                    "(image {} bytes)", c_size,
+                    (c_size + 1) * 512ULL * 1024ULL, file_size_);
 }
 
 // CMD10 SEND_CID — return 16-byte CID register. Same shape as CMD9.
@@ -1178,6 +1399,22 @@ uint32_t SdCardDevice::cmd_arg() const {
            static_cast<uint32_t>(cmd_buf_[4]);
 }
 
+uint64_t SdCardDevice::arg_to_byte_addr(uint32_t arg) const {
+    // SD Phys Layer Simplified Spec § 4.7.4: the CMD17/CMD18/CMD24 argument is
+    // a BYTE address on a Standard Capacity card and a 512-byte BLOCK address
+    // on a High Capacity card. Which one applies is decided by CCS in the OCR,
+    // and CCS is what the host negotiated with ACMD41's HCS bit (§ 4.2.3).
+    return block_addressed() ? static_cast<uint64_t>(arg) * kBlockLen
+                             : static_cast<uint64_t>(arg);
+}
+
+bool SdCardDevice::crosses_block_boundary(uint64_t byte_addr) const {
+    if (block_addressed()) return false;  // argument cannot express a misalign
+    if (block_len_ == 0) return false;
+    return (byte_addr / kBlockLen) !=
+           ((byte_addr + block_len_ - 1) / kBlockLen);
+}
+
 bool SdCardDevice::is_overlay_sector(uint32_t sector) const {
     return read_overlay_ && overlay_sector_count_ != 0 &&
            sector >= overlay_first_sector_ &&
@@ -1185,17 +1422,30 @@ bool SdCardDevice::is_overlay_sector(uint32_t sector) const {
                overlay_sector_count_;
 }
 
-bool SdCardDevice::load_read_sector(uint32_t sector) {
-    if (is_overlay_sector(sector))
-        return read_overlay_(sector, data_block_);
+bool SdCardDevice::is_overlay_addr(uint64_t byte_addr) const {
+    // The direct-NEX file-map bridge indexes its overlay by SECTOR, and it is
+    // installed only by prepare_for_direct_nex(), which also forces the card
+    // into block-addressed mode — so an overlay can only ever be hit by a
+    // sector-aligned address. Requiring the alignment here keeps a
+    // byte-addressed card from half-matching an overlay sector.
+    if (!block_addressed()) return false;
+    if (byte_addr % kBlockLen != 0) return false;
+    const uint64_t sector = byte_addr / kBlockLen;
+    if (sector > 0xFFFFFFFFull) return false;
+    return is_overlay_sector(static_cast<uint32_t>(sector));
+}
 
-    const uint64_t byte_addr = static_cast<uint64_t>(sector) * 512;
-    if (byte_addr + 512 > file_size_) return false;
+bool SdCardDevice::load_read_block(uint64_t byte_addr) {
+    if (is_overlay_addr(byte_addr))
+        return read_overlay_(static_cast<uint32_t>(byte_addr / kBlockLen),
+                             data_block_);
+
+    if (byte_addr + block_len_ > file_size_) return false;
     file_.clear();
     file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
     if (!file_) return false;
-    file_.read(reinterpret_cast<char*>(data_block_), 512);
-    return file_.gcount() == 512;
+    file_.read(reinterpret_cast<char*>(data_block_), block_len_);
+    return file_.gcount() == static_cast<std::streamsize>(block_len_);
 }
 
 void SdCardDevice::queue_r1(uint8_t r1) {

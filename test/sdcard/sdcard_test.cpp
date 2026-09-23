@@ -166,6 +166,78 @@ void init_card(SdCardDevice& sd) {
     (void)send_cmd_r1(sd, 58, 0);          // CMD58 READ_OCR
 }
 
+// ─── GH #94 (SDSC) helpers ───────────────────────────────────────────
+
+// Bring the card up as a STANDARD CAPACITY card.
+//
+// SD Phys Layer Simplified Spec § 4.2.3: ACMD41's argument bit 30 is HCS
+// (Host Capacity Support). Clearing it tells the card the host does not
+// support high capacity, so the card must answer CMD58 with CCS=0 (§ 5.1)
+// and behave as an SDSC card from then on — byte addresses (§ 4.7.4) and a
+// CSD Version 1.0 register (§ 5.3.2). This is exactly FatFs's SDv1 branch,
+// which issues ACMD41 with a zero argument.
+void init_card_sdsc(SdCardDevice& sd) {
+    (void)send_cmd_r1(sd, 0, 0);           // CMD0 GO_IDLE
+    (void)send_cmd_r1(sd, 8, 0x1AA);       // CMD8 SEND_IF_COND
+    (void)send_cmd_r1(sd, 55, 0);          // CMD55 APP_CMD
+    (void)send_cmd_r1(sd, 41, 0x00000000); // ACMD41 with HCS = 0
+    (void)send_cmd_r1(sd, 58, 0);          // CMD58 READ_OCR
+}
+
+// CRC-16/XMODEM — CCITT polynomial 0x1021, initial value 0x0000, no
+// reflection, no final XOR. SD Phys Layer Simplified Spec § 7.2.4: every SPI
+// data block carries this CRC over its DATA field, whose length is the
+// current block length. Recomputed here on purpose rather than reused from
+// the emulator, so the test is an independent oracle for "how many bytes did
+// the card actually put in the data field".
+uint16_t crc16_xmodem(const uint8_t* data, size_t len) {
+    uint16_t crc = 0x0000;
+    for (size_t i = 0; i < len; ++i) {
+        crc ^= static_cast<uint16_t>(data[i]) << 8;
+        for (int b = 0; b < 8; ++b)
+            crc = (crc & 0x8000) ? static_cast<uint16_t>((crc << 1) ^ 0x1021)
+                                 : static_cast<uint16_t>(crc << 1);
+    }
+    return crc;
+}
+
+// Read `len` data bytes plus the 2 CRC bytes that follow them, and report
+// whether the CRC the card emitted matches a CRC computed over exactly those
+// `len` bytes. That equality is what proves the card's data field was `len`
+// bytes long and not some other length.
+bool read_block_len(SdCardDevice& sd, uint8_t* out, size_t len) {
+    for (size_t i = 0; i < len; ++i) out[i] = spi_read(sd);
+    const uint8_t hi = spi_read(sd);
+    const uint8_t lo = spi_read(sd);
+    const uint16_t want = crc16_xmodem(out, len);
+    return hi == static_cast<uint8_t>(want >> 8) &&
+           lo == static_cast<uint8_t>(want & 0xFF);
+}
+
+// Issue CMD9 and collect the 16-byte CSD register.
+bool read_csd(SdCardDevice& sd, uint8_t csd[16]) {
+    const uint8_t r1 = send_cmd_r1(sd, 9, 0);
+    if (r1 != 0x00) return false;
+    if (!wait_token(sd)) return false;
+    for (int i = 0; i < 16; ++i) csd[i] = spi_read(sd);
+    (void)spi_read(sd);  // CRC hi
+    (void)spi_read(sd);  // CRC lo
+    return true;
+}
+
+// Create a sparse image of `bytes` length with no content — enough for the
+// CSD capacity-encoding rows, which only read file_size_.
+std::string make_sparse_image(uint64_t bytes) {
+    char tmpl[] = "/tmp/jnext-sdcard-sparse-XXXXXX";
+    int fd = mkstemp(tmpl);
+    if (fd < 0) { std::perror("mkstemp"); std::exit(1); }
+    if (ftruncate(fd, static_cast<off_t>(bytes)) != 0) {
+        std::perror("ftruncate"); std::exit(1);
+    }
+    close(fd);
+    return tmpl;
+}
+
 } // namespace
 
 // ─── Tests ───────────────────────────────────────────────────────────
@@ -524,8 +596,21 @@ static void test_cmd13_status(SdCardDevice& sd) {
 // ─── New: CMD16 SET_BLOCKLEN ack ────────────────────────────────────────
 
 static void test_cmd16_set_blocklen(SdCardDevice& sd) {
-    // SD-12: CMD16 with arg=512 → R1=0x00 (ack); arg≠512 → illegal-command
-    // bit (bit 2) set.  Per SD spec § 4.9.1, SDHC blocklen is fixed at 512.
+    // SD-12: CMD16 accept/reject split.
+    //
+    // SD Phys Layer Simplified Spec § 4.3.2 names exactly one error case for
+    // SET_BLOCKLEN, and it is the same one in both capacity classes: "if block
+    // length is set larger than 512 Bytes, the card sets the BLOCK_LEN_ERROR
+    // bit". A length inside 1..512 is accepted (on a Standard Capacity card it
+    // takes effect; on a High Capacity card it is accepted but the transfer
+    // length stays 512 — see SDSC-CMD16-01 / SDSC-CMD16-03).
+    //
+    // GH #94: this row used to assert that arg=256 came back with the
+    // illegal-command bit, which is neither of the two things the spec
+    // describes. The over-long case is now asserted instead, and the R1
+    // carrier is bit 6 PARAMETER_ERROR — § 7.3.2.1 Table 7-9 defines it as
+    // "the command's argument (e.g. address, block length) was outside the
+    // allowed range for this card", which names the field.
     sd.reset();
     init_card(sd);
     uint8_t r1_ok = send_cmd_r1(sd, 16, 512);
@@ -535,13 +620,13 @@ static void test_cmd16_set_blocklen(SdCardDevice& sd) {
     // would clear that, so re-init.
     sd.reset();
     init_card(sd);
-    uint8_t r1_bad = send_cmd_r1(sd, 16, 256);
+    uint8_t r1_bad = send_cmd_r1(sd, 16, 1024);
     sd.deselect();
 
     check("SD-12",
-          "CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=256 illegal "
-          "(R1 bit 2 set)",
-          r1_ok == 0x00 && (r1_bad & 0x04) != 0,
+          "CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=1024 (>512) is "
+          "BLOCK_LEN_ERROR → R1 bit 6 PARAMETER_ERROR (§ 4.3.2, § 7.3.2.1)",
+          r1_ok == 0x00 && (r1_bad & 0x40) != 0,
           "r1_ok=" + std::to_string(r1_ok) +
           " r1_bad=" + std::to_string(r1_bad));
 }
@@ -933,20 +1018,30 @@ static void test_mmc_cmd1_init(SdCardDevice& sd) {
     // (see src/peripheral/sd_card.cpp) which sets initialized_=true on
     // first invocation.  Verify CMD1 returns R1=0x00 (ready) and a
     // subsequent CMD17 confirms the card is initialized.
+    //
+    // GH #94: CMD1 carries no HCS bit (SD Phys Layer Simplified Spec § 4.2.3
+    // puts HCS in ACMD41's argument), so a card brought up this way reports
+    // CCS=0 in its OCR and is therefore BYTE-addressed per § 4.7.4. That is
+    // also what FatFs assumes — its CT_MMC path leaves CT_BLOCK clear and
+    // multiplies the sector by 512 itself before issuing CMD17. This row
+    // therefore addresses sector 2 as byte 2*512; addressing it as block 2
+    // (the pre-fix behaviour) now reads byte 2, which straddles two physical
+    // blocks and is refused with ADDRESS_ERROR (see SDSC-ADDR-03).
     sd.reset();
 
     uint8_t r1 = send_cmd_r1(sd, 1, 0);
 
-    // Now issue CMD17 sector=2 — it must return R1=0x00 (initialized via
-    // legacy-MMC path), proving CMD1 alone is sufficient to initialize.
-    uint8_t r1_post = send_cmd_r1(sd, 17, 2);
+    // Now issue CMD17 for sector 2 as a BYTE address — it must return
+    // R1=0x00 (initialized via legacy-MMC path), proving CMD1 alone is
+    // sufficient to initialize.
+    uint8_t r1_post = send_cmd_r1(sd, 17, 2 * 512);
     bool tok = wait_token(sd);
     uint8_t b[512] = {}; if (tok) read_block(sd, b);
     sd.deselect();
 
     check("MMC-01",
           "CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 "
-          "returns R1=0x00",
+          "returns R1=0x00 and reads the byte address it was given",
           r1 == 0x00 && r1_post == 0x00 && tok && b[0] == 0x02,
           "r1=" + std::to_string(r1) +
           " r1_post=" + std::to_string(r1_post) +
@@ -1141,34 +1236,37 @@ static void test_sd_15_mount_full_reset() {
 // ─── New: SD-16 / cmd16 idle-bit reflects initialized_ (TASK2-VERIFY5) ──
 
 static void test_sd_16_cmd16_idle_bit(SdCardDevice& sd) {
-    // SD-16 (TASK2-VERIFY5 commit 24a1bc4): cmd16_set_blocklen(arg≠512)
-    // R1 idle bit (bit 0) must reflect initialized_ — NOT be hard-coded
-    // to 1. SD spec § 4.9.1 R1 layout: bit 0 = "in idle state" (the card
-    // is in initialization), bit 2 = "illegal command". Pre-fix returned
-    // 0x05 (idle + illegal) unconditionally, mis-reporting a post-init
+    // SD-16 (TASK2-VERIFY5 commit 24a1bc4): the R1 idle bit (bit 0) of a
+    // REJECTED CMD16 must reflect initialized_ — NOT be hard-coded to 1.
+    // SD spec § 7.3.2.1 R1 layout: bit 0 = "in idle state" (the card is in
+    // initialization), bit 6 = parameter error. Pre-fix the handler returned
+    // the idle bit unconditionally, mis-reporting a post-init
     // (ACMD41-completed) card as still in idle.
     //
-    // Discriminative shape (complements SD-12 above which only checks
-    // bit 2): with the card INITIALIZED via init_card(), CMD16 arg=256
-    // must return R1=0x04 (illegal-only, idle CLEAR). With the card
-    // RESET (uninit), arg=256 returns R1=0x05 (idle + illegal). Both
-    // reflect the same cmd16_set_blocklen() branch but pin both legs
-    // of the idle-bit derivation.
+    // Discriminative shape (complements SD-12 above, which only checks the
+    // error bit): with the card INITIALIZED via init_card(), an over-long
+    // CMD16 must return R1=0x40 (parameter error only, idle CLEAR). With the
+    // card RESET (uninit), it returns R1=0x41 (idle + parameter error). Both
+    // reflect the same cmd16_set_blocklen() branch but pin both legs of the
+    // idle-bit derivation.
+    //
+    // GH #94: the rejected argument is 1024 rather than 256, for the reason
+    // spelled out on SD-12 — 256 is a legal block length, not a rejection.
     sd.reset();
     init_card(sd);
-    uint8_t r1_init = send_cmd_r1(sd, 16, 256);   // bad blocklen, init
+    uint8_t r1_init = send_cmd_r1(sd, 16, 1024);   // bad blocklen, init
     sd.deselect();
 
     sd.reset();   // back to uninit (CMD0 not issued -> initialized_=false)
-    uint8_t r1_uninit = send_cmd_r1(sd, 16, 256); // bad blocklen, uninit
+    uint8_t r1_uninit = send_cmd_r1(sd, 16, 1024); // bad blocklen, uninit
     sd.deselect();
 
     check("SD-16",
-          "CMD16 SET_BLOCKLEN arg≠512 R1: initialized card -> 0x04 "
-          "(illegal only, idle CLEAR); uninitialized card -> 0x05 "
-          "(idle + illegal). Idle bit must derive from initialized_, "
-          "not be hard-coded (SD spec § 4.9.1)",
-          r1_init == 0x04 && r1_uninit == 0x05,
+          "CMD16 SET_BLOCKLEN over-long arg R1: initialized card -> 0x40 "
+          "(parameter error only, idle CLEAR); uninitialized card -> 0x41 "
+          "(idle + parameter error). Idle bit must derive from "
+          "initialized_, not be hard-coded (SD spec § 7.3.2.1)",
+          r1_init == 0x40 && r1_uninit == 0x41,
           "init=" + std::to_string(r1_init) +
           " uninit=" + std::to_string(r1_uninit));
 }
@@ -2439,6 +2537,477 @@ static void test_sd_loghot(SdCardDevice& sd) {
     lg->sinks().pop_back();
 }
 
+// ─── GH #94 — SDSC (byte-addressed) card support ────────────────────────
+//
+// SD Physical Layer Simplified Spec § 4.7.4 describes the CMD17 / CMD18 /
+// CMD24 argument as a "data address ... in byte units in a Standard Capacity
+// SD Memory Card and in block (512 Byte) units in a High Capacity SD Memory
+// Card". Which of the two applies is decided by CCS in the OCR (§ 5.1), and
+// CCS is 1 only when the host asked for it with ACMD41's HCS bit (§ 4.2.3).
+//
+// Pre-fix jnext multiplied the argument by 512 unconditionally, so a host
+// that had negotiated HCS=0 silently read and wrote 512× past the offset it
+// asked for. TBBlue / NextZXOS / FatFs all negotiate HCS=1, so no shipped
+// boot path was affected — the SDHC legs below (SDSC-ADDR-02, SDSC-CMD16-03,
+// SDSC-CSD-02) are the regression guards that keep it that way.
+
+static void test_sdsc_addressing(SdCardDevice& sd) {
+    // SDSC-ADDR-01: a Standard Capacity card takes a BYTE address. Sector 2
+    // is reached with the argument 2*512; the pre-fix ×512 would have turned
+    // that into byte 524288, well past the 8 KB fixture, so the row dies on
+    // the mutation with a past-EOF R1 instead of data.
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_sdsc = send_cmd_r1(sd, 17, 2 * 512);
+    bool tok_sdsc = wait_token(sd);
+    uint8_t b_sdsc[512] = {};
+    bool crc_sdsc = tok_sdsc && read_block_len(sd, b_sdsc, 512);
+    sd.deselect();
+
+    check("SDSC-ADDR-01",
+          "SDSC (ACMD41 HCS=0 → OCR CCS=0): CMD17 argument is a BYTE address "
+          "(§ 4.7.4) — arg 2*512 delivers sector 2 with a 512-byte CRC",
+          r1_sdsc == 0x00 && tok_sdsc && crc_sdsc && b_sdsc[0] == 0x02 &&
+              b_sdsc[1] == 0x00,
+          "r1=" + std::to_string(r1_sdsc) +
+          " tok=" + (tok_sdsc ? "1" : "0") +
+          " crc=" + (crc_sdsc ? "1" : "0") +
+          " b0=" + std::to_string(b_sdsc[0]));
+
+    // SDSC-ADDR-02: the shipped path is unchanged — a High Capacity card
+    // still takes a 512-byte BLOCK address, so the same sector is reached
+    // with the argument 2.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_sdhc = send_cmd_r1(sd, 17, 2);
+    bool tok_sdhc = wait_token(sd);
+    uint8_t b_sdhc[512] = {};
+    bool crc_sdhc = tok_sdhc && read_block_len(sd, b_sdhc, 512);
+    sd.deselect();
+
+    check("SDSC-ADDR-02",
+          "SDHC (ACMD41 HCS=1 → OCR CCS=1): CMD17 argument stays a 512-byte "
+          "BLOCK address (§ 4.7.4) — arg 2 delivers sector 2",
+          r1_sdhc == 0x00 && tok_sdhc && crc_sdhc && b_sdhc[0] == 0x02 &&
+              b_sdhc[1] == 0x00,
+          "r1=" + std::to_string(r1_sdhc) +
+          " tok=" + (tok_sdhc ? "1" : "0") +
+          " crc=" + (crc_sdhc ? "1" : "0") +
+          " b0=" + std::to_string(b_sdhc[0]));
+
+    // MMC-03 (planned row, closed by GH #94): the SAME argument means two
+    // different things in the two capacity classes. Argument 1536 is byte
+    // 1536 (= sector 3) on a Standard Capacity card and block 1536 (= byte
+    // 786432, past the 8 KB fixture) on a High Capacity one — so one
+    // argument produces data in one mode and a past-EOF PARAMETER_ERROR in
+    // the other. A card that ignored the class would answer both legs
+    // identically.
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_dual_sdsc = send_cmd_r1(sd, 17, 1536);
+    bool tok_dual = wait_token(sd);
+    uint8_t b_dual[512] = {};
+    if (tok_dual) read_block(sd, b_dual);
+    sd.deselect();
+
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_dual_sdhc = send_cmd_r1(sd, 17, 1536);
+    sd.deselect();
+
+    check("MMC-03",
+          "byte-vs-block addressing duality: argument 1536 is byte 1536 "
+          "(sector 3) with CCS=0 and block 1536 (past end of a 8 KB image) "
+          "with CCS=1 (§ 4.7.4)",
+          r1_dual_sdsc == 0x00 && tok_dual && b_dual[0] == 0x03 &&
+              r1_dual_sdhc == 0x40,
+          "sdsc_r1=" + std::to_string(r1_dual_sdsc) +
+          " b0=" + std::to_string(b_dual[0]) +
+          " sdhc_r1=" + std::to_string(r1_dual_sdhc));
+
+    // SDSC-ADDR-03: the failure this issue exists to prevent, made loud. A
+    // host that passes a SECTOR index to a byte-addressed card is asking for
+    // 512 bytes starting at byte 2 — which straddles two physical blocks.
+    // Both CSDs declare READ_BLK_MISALIGN = 0 (§ 5.3.2 / § 5.3.3), so § 4.3.2
+    // forbids it and § 7.3.2.1 Table 7-9 bit 5 ADDRESS_ERROR is the signal:
+    // "a misaligned address which did not match the block length was used in
+    // the command". No data token follows a rejected command.
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_mis = send_cmd_r1(sd, 17, 2);
+    bool tok_mis = wait_token(sd);
+    sd.deselect();
+
+    check("SDSC-ADDR-03",
+          "SDSC CMD17 with a misaligned byte address (a sector index used as "
+          "one) → R1 bit 5 ADDRESS_ERROR and no data token (§ 4.3.2, "
+          "§ 7.3.2.1)",
+          r1_mis == 0x20 && !tok_mis,
+          "r1=" + std::to_string(r1_mis) +
+          " tok=" + (tok_mis ? "1" : "0"));
+
+    // SDSC-ADDR-04: CMD18 streaming is byte-addressed too, and the stream
+    // advances one BLOCK per block — not one raw argument unit.
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_ml = send_cmd_r1(sd, 18, 3 * 512);
+    bool tok_ml1 = wait_token(sd);
+    uint8_t m1[512] = {}; if (tok_ml1) read_block(sd, m1);
+    bool tok_ml2 = wait_token(sd, 32);
+    uint8_t m2[512] = {}; if (tok_ml2) read_block(sd, m2);
+    (void)send_cmd_r1(sd, 12, 0);
+    sd.deselect();
+
+    check("SDSC-ADDR-04",
+          "SDSC CMD18 starts at the byte address given and advances one "
+          "512-byte block per streamed block (§ 4.7.4, § 4.3.2)",
+          r1_ml == 0x00 && tok_ml1 && tok_ml2 &&
+              m1[0] == 0x03 && m2[0] == 0x04,
+          "r1=" + std::to_string(r1_ml) +
+          " m1=" + std::to_string(m1[0]) +
+          " m2=" + std::to_string(m2[0]));
+}
+
+static void test_sdsc_write(SdCardDevice& sd) {
+    // SDSC-ADDR-05: CMD24 is byte-addressed on a Standard Capacity card too.
+    // Write a recognisable block at byte 6*512, then read it back through a
+    // High Capacity session as sector 6 — the two views must agree, which is
+    // only true if the SDSC write landed where the byte address pointed.
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_w = send_cmd_r1(sd, 24, 6 * 512);
+
+    uint8_t payload[512];
+    for (int i = 0; i < 512; ++i)
+        payload[i] = static_cast<uint8_t>(0xA5 ^ (i & 0xFF));
+
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, payload[i]);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+
+    uint8_t resp = 0xFF;
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b != 0xFF && b != 0x00) { resp = b; break; }
+    }
+    sd.deselect();
+
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_r = send_cmd_r1(sd, 17, 6);
+    bool tok = wait_token(sd);
+    uint8_t back[512] = {}; if (tok) read_block(sd, back);
+    sd.deselect();
+
+    const bool match = tok && std::memcmp(back, payload, 512) == 0;
+    check("SDSC-ADDR-05",
+          "SDSC CMD24 writes at the BYTE address given (§ 4.7.4): a block "
+          "written at byte 6*512 reads back as sector 6 in an SDHC session",
+          r1_w == 0x00 && resp == 0x05 && r1_r == 0x00 && match,
+          "r1_w=" + std::to_string(r1_w) +
+          " resp=" + std::to_string(resp) +
+          " r1_r=" + std::to_string(r1_r) +
+          " match=" + (match ? "1" : "0"));
+
+    // SDSC-ADDR-06: a misaligned CMD24 is refused before any data phase.
+    // WRITE_BLK_MISALIGN = 0 in both CSDs, so § 4.3.2 forbids a write block
+    // crossing a physical block boundary; § 4.3.4 says a command the card
+    // rejected in R1 has no data phase. Prove both: the R1 carries
+    // ADDRESS_ERROR, and the bytes the host pushes anyway do not reach the
+    // image.
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_mis = send_cmd_r1(sd, 24, 6 * 512 + 1);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, 0x5C);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+    sd.deselect();
+
+    sd.reset();
+    init_card(sd);
+    (void)send_cmd_r1(sd, 17, 6);
+    bool tok6 = wait_token(sd);
+    uint8_t after[512] = {}; if (tok6) read_block(sd, after);
+    sd.deselect();
+
+    const bool untouched = tok6 && std::memcmp(after, payload, 512) == 0;
+    check("SDSC-ADDR-06",
+          "SDSC CMD24 with a misaligned byte address → R1 bit 5 "
+          "ADDRESS_ERROR and no data phase; the pushed bytes never reach the "
+          "image (§ 4.3.2, § 4.3.4)",
+          r1_mis == 0x20 && untouched,
+          "r1=" + std::to_string(r1_mis) +
+          " untouched=" + (untouched ? "1" : "0"));
+
+    // Restore the fixture content of sector 6 so later rows see the image
+    // they were written against.
+    sd.reset();
+    init_card(sd);
+    uint8_t orig[512];
+    orig[0] = 0x06; orig[1] = 0x00; orig[2] = 0x00; orig[3] = 0x00;
+    for (int i = 4; i < 512; ++i)
+        orig[i] = static_cast<uint8_t>((6 + i) & 0xFF);
+    (void)send_cmd_r1(sd, 24, 6);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 512; ++i) spi_write(sd, orig[i]);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+    for (int i = 0; i < 32; ++i) {
+        uint8_t b = spi_read(sd);
+        if (b != 0xFF && b != 0x00) break;
+    }
+    sd.deselect();
+}
+
+static void test_sdsc_cmd16(SdCardDevice& sd) {
+    // SDSC-CMD16-01: on a Standard Capacity card CMD16 SET_BLOCKLEN "sets the
+    // block length (in bytes) for all following block commands" (§ 4.3.2),
+    // and a shorter length is usable for reads because CSD Version 1.0 fixes
+    // READ_BL_PARTIAL to 1 (§ 5.3.2). After CMD16 256, a CMD17 must put
+    // exactly 256 bytes in the data field — which the CRC that follows them
+    // proves, because § 7.2.4 computes it over the data field.
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_16 = send_cmd_r1(sd, 16, 256);
+    uint8_t r1_17 = send_cmd_r1(sd, 17, 256);
+    bool tok = wait_token(sd);
+    uint8_t part[256] = {};
+    bool crc_ok = tok && read_block_len(sd, part, 256);
+    sd.deselect();
+
+    bool content_ok = true;
+    for (int i = 0; i < 256; ++i)
+        if (part[i] != static_cast<uint8_t>((256 + i) & 0xFF))
+            content_ok = false;
+
+    check("SDSC-CMD16-01",
+          "SDSC CMD16 arg=256 is accepted and takes effect: the next CMD17 "
+          "transfers exactly 256 bytes from the byte address given, with a "
+          "CRC-16 over those 256 bytes (§ 4.3.2, § 5.3.2 READ_BL_PARTIAL=1, "
+          "§ 7.2.4)",
+          r1_16 == 0x00 && r1_17 == 0x00 && tok && crc_ok && content_ok,
+          "r1_16=" + std::to_string(r1_16) +
+          " r1_17=" + std::to_string(r1_17) +
+          " tok=" + (tok ? "1" : "0") +
+          " crc=" + (crc_ok ? "1" : "0") +
+          " content=" + (content_ok ? "1" : "0"));
+
+    // SDSC-CMD16-02: the one error § 4.3.2 names applies in BOTH classes —
+    // "if block length is set larger than 512 Bytes, the card sets the
+    // BLOCK_LEN_ERROR bit" — and a rejected CMD16 must leave the current
+    // block length alone, so the following read is still a full block.
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_big_sdsc = send_cmd_r1(sd, 16, 1024);
+    uint8_t r1_after    = send_cmd_r1(sd, 17, 512);
+    bool tok_after = wait_token(sd);
+    uint8_t full[512] = {};
+    bool crc_full = tok_after && read_block_len(sd, full, 512);
+    sd.deselect();
+
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_big_sdhc = send_cmd_r1(sd, 16, 1024);
+    sd.deselect();
+
+    check("SDSC-CMD16-02",
+          "CMD16 over 512 bytes is BLOCK_LEN_ERROR in both capacity classes "
+          "(R1 bit 6) and leaves the block length unchanged — the next read "
+          "still transfers 512 bytes (§ 4.3.2, § 7.3.2.1)",
+          (r1_big_sdsc & 0x40) != 0 && (r1_big_sdhc & 0x40) != 0 &&
+              r1_after == 0x00 && tok_after && crc_full && full[0] == 0x01,
+          "sdsc=" + std::to_string(r1_big_sdsc) +
+          " sdhc=" + std::to_string(r1_big_sdhc) +
+          " crc512=" + (crc_full ? "1" : "0") +
+          " b0=" + std::to_string(full[0]));
+
+    // SDSC-CMD16-03: the High Capacity half of the same sentence — "block
+    // length set by CMD16 command does not affect the memory read and write
+    // commands. Always 512 Bytes fixed block length is used" (§ 4.3.2). The
+    // command is still accepted; the transfer length must not move.
+    sd.reset();
+    init_card(sd);
+    uint8_t r1_16_hc = send_cmd_r1(sd, 16, 256);
+    uint8_t r1_17_hc = send_cmd_r1(sd, 17, 1);
+    bool tok_hc = wait_token(sd);
+    uint8_t hc[512] = {};
+    bool crc_hc = tok_hc && read_block_len(sd, hc, 512);
+    sd.deselect();
+
+    check("SDSC-CMD16-03",
+          "SDHC CMD16 arg=256 is accepted (R1=0x00) but does NOT change the "
+          "transfer length — the next CMD17 still delivers 512 bytes "
+          "(§ 4.3.2)",
+          r1_16_hc == 0x00 && r1_17_hc == 0x00 && tok_hc && crc_hc &&
+              hc[0] == 0x01,
+          "r1_16=" + std::to_string(r1_16_hc) +
+          " r1_17=" + std::to_string(r1_17_hc) +
+          " crc512=" + (crc_hc ? "1" : "0") +
+          " b0=" + std::to_string(hc[0]));
+
+    // SDSC-CMD16-04: both CSDs declare WRITE_BL_PARTIAL = 0, so a write must
+    // be a whole physical block. With the block length shortened for reads, a
+    // CMD24 is therefore a BLOCK_LEN_ERROR, rejected at R1 with no data phase
+    // (§ 4.3.4) — the bytes the host pushes anyway must not reach the image.
+    sd.reset();
+    init_card_sdsc(sd);
+    (void)send_cmd_r1(sd, 16, 256);
+    uint8_t r1_w = send_cmd_r1(sd, 24, 7 * 512);
+    spi_write(sd, 0xFE);
+    for (int i = 0; i < 256; ++i) spi_write(sd, 0x3C);
+    spi_write(sd, 0xFF);
+    spi_write(sd, 0xFF);
+    sd.deselect();
+
+    sd.reset();
+    init_card(sd);
+    (void)send_cmd_r1(sd, 17, 7);
+    bool tok7 = wait_token(sd);
+    uint8_t s7[512] = {}; if (tok7) read_block(sd, s7);
+    sd.deselect();
+
+    bool untouched = tok7 && s7[0] == 0x07;
+    for (int i = 4; i < 512 && untouched; ++i)
+        if (s7[i] != static_cast<uint8_t>((7 + i) & 0xFF)) untouched = false;
+
+    check("SDSC-CMD16-04",
+          "SDSC CMD24 after CMD16 256 → R1 bit 6 PARAMETER_ERROR "
+          "(WRITE_BL_PARTIAL=0, § 5.3.2) with no data phase (§ 4.3.4); the "
+          "pushed bytes never reach the image",
+          (r1_w & 0x40) != 0 && untouched,
+          "r1_w=" + std::to_string(r1_w) +
+          " untouched=" + (untouched ? "1" : "0"));
+}
+
+static void test_sdsc_csd() {
+    // The CSD rows use their own images: SDSC-CSD-03 needs a capacity that
+    // forces a different C_SIZE_MULT than the 8 KB fixture does.
+    const std::string small = make_image(16);            // 8 KiB
+    const std::string big   = make_sparse_image(16ULL << 20);  // 16 MiB
+
+    uint8_t csd[16] = {};
+
+    // SDSC-CSD-01: a Standard Capacity card answers CMD9 with a CSD Version
+    // 1.0 register (§ 5.3.2). CSD_STRUCTURE (bits [127:126], the top two bits
+    // of byte 0) is 00, READ_BL_LEN (byte 5 low nibble) is 9 so the declared
+    // physical block is the 512 the data path transfers, READ_BL_PARTIAL
+    // (byte 6 bit 7) is the 1 this CSD version fixes it to — and the capacity
+    // decodes through the v1.0 formula:
+    //     (C_SIZE + 1) * 2^(C_SIZE_MULT + 2) * 2^READ_BL_LEN
+    {
+        SdCardDevice card;
+        const bool mounted = card.mount(small);
+        init_card_sdsc(card);
+        const bool got = mounted && read_csd(card, csd);
+        card.deselect();
+        card.unmount();
+
+        const uint32_t structure   = (csd[0] >> 6) & 0x03;
+        const uint32_t read_bl_len = csd[5] & 0x0F;
+        const uint32_t read_bl_partial = (csd[6] >> 7) & 0x01;
+        const uint32_t c_size =
+            (static_cast<uint32_t>(csd[6] & 0x03) << 10) |
+            (static_cast<uint32_t>(csd[7]) << 2) |
+            (static_cast<uint32_t>(csd[8]) >> 6);
+        const uint32_t c_size_mult =
+            (static_cast<uint32_t>(csd[9] & 0x03) << 1) |
+            (static_cast<uint32_t>(csd[10]) >> 7);
+        const uint64_t capacity = static_cast<uint64_t>(c_size + 1) *
+                                  (1ULL << (c_size_mult + 2)) *
+                                  (1ULL << read_bl_len);
+
+        check("SDSC-CSD-01",
+              "SDSC CMD9 returns a CSD Version 1.0 register (CSD_STRUCTURE=00, "
+              "READ_BL_LEN=9, READ_BL_PARTIAL=1) whose "
+              "(C_SIZE+1)*2^(C_SIZE_MULT+2)*2^READ_BL_LEN decodes to the "
+              "image size (§ 5.3.2)",
+              got && structure == 0 && read_bl_len == 9 &&
+                  read_bl_partial == 1 && capacity == 8192,
+              "got=" + std::string(got ? "1" : "0") +
+              " struct=" + std::to_string(structure) +
+              " rbl=" + std::to_string(read_bl_len) +
+              " rbp=" + std::to_string(read_bl_partial) +
+              " c_size=" + std::to_string(c_size) +
+              " mult=" + std::to_string(c_size_mult) +
+              " cap=" + std::to_string(capacity));
+    }
+
+    // SDSC-CSD-02: the High Capacity card keeps its CSD Version 2.0 register
+    // (§ 5.3.3) — CSD_STRUCTURE=01, READ_BL_PARTIAL fixed to 0, and a
+    // 22-bit C_SIZE that counts 512 KB units. Regression guard for the
+    // shipped path as much as a spec assertion.
+    {
+        SdCardDevice card;
+        const bool mounted = card.mount(small);
+        init_card(card);
+        const bool got = mounted && read_csd(card, csd);
+        card.deselect();
+        card.unmount();
+
+        const uint32_t structure = (csd[0] >> 6) & 0x03;
+        const uint32_t read_bl_partial = (csd[6] >> 7) & 0x01;
+        const uint32_t c_size =
+            (static_cast<uint32_t>(csd[7] & 0x3F) << 16) |
+            (static_cast<uint32_t>(csd[8]) << 8) |
+            static_cast<uint32_t>(csd[9]);
+        const uint64_t capacity =
+            (static_cast<uint64_t>(c_size) + 1) * 512ULL * 1024ULL;
+
+        check("SDSC-CSD-02",
+              "SDHC CMD9 returns a CSD Version 2.0 register "
+              "(CSD_STRUCTURE=01, READ_BL_PARTIAL=0) whose 22-bit C_SIZE "
+              "counts 512 KB units (§ 5.3.3)",
+              got && structure == 1 && read_bl_partial == 0 &&
+                  c_size == 0 && capacity == 512ULL * 1024ULL,
+              "got=" + std::string(got ? "1" : "0") +
+              " struct=" + std::to_string(structure) +
+              " rbp=" + std::to_string(read_bl_partial) +
+              " c_size=" + std::to_string(c_size) +
+              " cap=" + std::to_string(capacity));
+    }
+
+    // SDSC-CSD-03: the v1.0 encoding has two capacity fields, and which
+    // C_SIZE_MULT a card picks depends on its size — C_SIZE is only 12 bits,
+    // so a 16 MiB card cannot use the multiplier an 8 KiB card uses. Decoding
+    // must still land exactly on the image size.
+    {
+        SdCardDevice card;
+        const bool mounted = card.mount(big);
+        init_card_sdsc(card);
+        const bool got = mounted && read_csd(card, csd);
+        card.deselect();
+        card.unmount();
+
+        const uint32_t read_bl_len = csd[5] & 0x0F;
+        const uint32_t c_size =
+            (static_cast<uint32_t>(csd[6] & 0x03) << 10) |
+            (static_cast<uint32_t>(csd[7]) << 2) |
+            (static_cast<uint32_t>(csd[8]) >> 6);
+        const uint32_t c_size_mult =
+            (static_cast<uint32_t>(csd[9] & 0x03) << 1) |
+            (static_cast<uint32_t>(csd[10]) >> 7);
+        const uint64_t capacity = static_cast<uint64_t>(c_size + 1) *
+                                  (1ULL << (c_size_mult + 2)) *
+                                  (1ULL << read_bl_len);
+
+        check("SDSC-CSD-03",
+              "SDSC CSD v1.0 capacity encoding scales with the image: a "
+              "16 MiB card needs C_SIZE_MULT=1 (12-bit C_SIZE cannot reach it "
+              "at MULT=4) and still decodes to the exact size (§ 5.3.2)",
+              got && c_size_mult == 1 && c_size == 4095 &&
+                  capacity == (16ULL << 20),
+              "got=" + std::string(got ? "1" : "0") +
+              " c_size=" + std::to_string(c_size) +
+              " mult=" + std::to_string(c_size_mult) +
+              " cap=" + std::to_string(capacity));
+    }
+
+    std::remove(small.c_str());
+    std::remove(big.c_str());
+}
+
 int main() {
     std::printf("SD card compliance tests\n");
     std::printf("====================================\n\n");
@@ -2502,6 +3071,12 @@ int main() {
     test_task26_cmd58_no_ff_payload(sd);         // item 2 — CMD58 no $FF payload
     test_task26_data_block_crc();                // item 3 — real data-block CRC-16
 
+    // ─── GH #94 — SDSC (byte-addressed) card support ──────────────────
+    test_sdsc_addressing(sd);   // SDSC-ADDR-01..04 + MMC-03
+    test_sdsc_write(sd);        // SDSC-ADDR-05/06
+    test_sdsc_cmd16(sd);        // SDSC-CMD16-01..04
+    test_sdsc_csd();            // SDSC-CSD-01..03
+
     // ─── WONT / RE-HOME rows (no skip()) ───────────────────────────────
     //
     // WONT SD-01 (G159) — CMD0 CRC validation + CMD59 CRC-toggle handler not
@@ -2551,15 +3126,21 @@ int main() {
     //   reviewer. Symmetric with our CMD18 implementation.
     //
     // WONT MMC-02 (G41) — MMC-mode CMD8 illegal-command response not modelled.
-    //   Reason: our card declares SDHC via OCR (CMD58 returns CCS=1). The
-    //   MMC-rejection path is unreachable. Test target is tautological.
+    //   Reason: an MMC card rejects CMD8; jnext's card answers it with a
+    //   proper R7 in both capacity classes, because CMD8 is what tells an SD
+    //   host the card is SDv2 in the first place. Modelling the rejection
+    //   needs a card-type switch the emulator does not have (CMD1 selects an
+    //   init PATH, not a card type).
     //   Revisit if: an MMC-only emulation mode is ever requested.
     //
-    // WONT MMC-03 (G41) — MMC byte-vs-block addressing duality not modelled.
-    //   Reason: our card is SDHC-only; CMD17/18/24 use block (sector) addressing
-    //   exclusively. Mode is fixed by the OCR declaration. Test target is
-    //   tautological for a SDHC-only card.
-    //   Revisit if: an MMC-only emulation mode is ever requested.
+    // CLOSED MMC-03 (G41, GH #94, 2026-09-23) — byte-vs-block addressing
+    //   duality IS modelled now, and MMC-03 is a live check() row in
+    //   test_sdsc_addressing() above. The card follows the capacity class the
+    //   host negotiated with ACMD41's HCS bit and reports back in CMD58's
+    //   OCR CCS bit: byte addresses when CCS=0, 512-byte block addresses when
+    //   CCS=1 (SD Phys Layer Simplified Spec § 4.7.4). Its planned-row entry
+    //   was removed from test/traceability-exceptions.conf in the same
+    //   change — a planned ID and an asserted ID may not coexist.
 
     sd.unmount();
     std::remove(img.c_str());
