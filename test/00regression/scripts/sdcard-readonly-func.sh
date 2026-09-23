@@ -41,7 +41,7 @@ if want sdcard-readonly-func; then
     faults=()
 
     # --- A: with the flag, jnext takes the DELIBERATE read-only path.
-    timeout 60 "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
+    timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
         --sdcard-readonly --delayed-automatic-exit 3 > "$W/ro.log" 2>&1 || true
     grep -qF "SD image opened read-only by request" "$W/ro.log" \
         || faults+=("A: --sdcard-readonly did not open the image read-only (flag not wired to mount())")
@@ -57,7 +57,7 @@ if want sdcard-readonly-func; then
     # parameter and always opened read-only — which is a real bug (it would
     # break every legitimate write) and is caught in sdcard_test by SD-14 and
     # four others, but this row should not depend on that.
-    timeout 60 "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
+    timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
         --delayed-automatic-exit 3 > "$W/rw.log" 2>&1 || true
     grep -qi "opened read-only" "$W/rw.log" \
         && faults+=("C: a run WITHOUT --sdcard-readonly still opened the image read-only")
@@ -70,7 +70,7 @@ if want sdcard-readonly-func; then
     # regression_tests.conf (400 frames, same --rtc). A seconds-based capture
     # lands on a different frame and diffs against the reference for reasons
     # that have nothing to do with this flag — measured, it does.
-    timeout 90 "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
+    timeout --foreground --kill-after=5s 90s "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
         --sdcard-readonly --delayed-screenshot "$W/welcome.png" \
         --delayed-screenshot-frames 400 --delayed-automatic-exit 21 \
         > "$W/shot.log" 2>&1 || true

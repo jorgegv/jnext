@@ -46,7 +46,7 @@ if want sdcard-isolation-func; then
     printf 'NOT-A-REAL-IMAGE\n' > "$W/cfg/sdcard/cspect-next-1gb-fixed.img"
     # A bogus image cannot boot; --delayed-automatic-exit bounds it either way
     # and the exit status is deliberately not asserted — only the resolution is.
-    JNEXT_CONFIG_DIR="$W/cfg" timeout 60 "$JNEXT" --headless --machine next \
+    JNEXT_CONFIG_DIR="$W/cfg" timeout --foreground --kill-after=5s 60s "$JNEXT" --headless --machine next \
         --delayed-automatic-exit 1 > "$W/resolve.log" 2>&1 || true
     grep -qF "$W/cfg/sdcard/cspect-next-1gb-fixed.img" "$W/resolve.log" \
         || faults+=("A: jnext did not resolve its SD image through \$JNEXT_CONFIG_DIR")
@@ -100,7 +100,7 @@ if want sdcard-isolation-func; then
     # less, because a rewrite with byte-identical content is precisely the
     # failure mode that already fooled this suite once. inode+mtime catches
     # that; a hash does not.
-    timeout 90 "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
+    timeout --foreground --kill-after=5s 90s "$JNEXT" --headless --machine next --rtc "$NEXTZXOS_RTC" \
         --delayed-automatic-exit 6 > "$W/boot.log" 2>&1 || true
     m_after=$(stat -c '%i:%Y:%s' "$SD_MASTER_IMAGE" 2>/dev/null || echo absent)
     [[ "$SD_MASTER_STAMP" != "absent" ]] \
