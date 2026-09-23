@@ -143,6 +143,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        unit-test-clean unit-test-build \
        kloc-count regression unit-test lint-assertions lint-makefile-help harness-selftest traceability-selftest cmake-guard-selftest traceability-accounting-check regression-doc-check worktree-bootstrap bench \
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
+       docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
@@ -949,6 +950,81 @@ docs-userguide:
 	@$(GUIDE_FINGERPRINT) > $(GUIDE_RENDERER)
 	@printf "$(BADGE_PASS) OK $(RESET) user guide rendered to doc/user-guide\n"
 	@printf "        it is committed: commit the regenerated files alongside your change\n"
+
+# Regenerate the user guide's 12 debugger screenshots from the running product
+docs-screenshots: unit-test-build
+	@# WHAT THIS IS FOR. src/doc/user-guide/img/debugger-*.png are pictures of
+	@# the debugger, and docs-check cannot see inside a PNG — it proves the
+	@# rendered HTML matches the markdown, nothing more. So a screenshot could
+	@# contradict the prose beneath it with every gate green, and twice did:
+	@# GH #225 (Breakpoints panel gained an On column and a master switch, the
+	@# picture showed neither) and GH #22 (Video panel gained four labelled
+	@# raster counters, a Region and a ULA-fetch readout and a frame diagram,
+	@# and its picture kept the old one-line HC/VC header for two more issues).
+	@# tools/docshot/docshot.cpp boots a real machine, brings up the real
+	@# DebuggerWindow through the production path and crops each panel out of a
+	@# render of it. See that file's header for the content fixture.
+	@#
+	@# DELIBERATELY NOT A PREREQUISITE OF ANYTHING. Capturing needs a Qt build
+	@# and an offscreen QPA platform, and boots NextZXOS for 400 frames; an
+	@# ordinary build or test run has no business doing that. There is also no
+	@# staleness GATE on these images, on purpose: a byte comparison would fail
+	@# on any Qt, font or freetype update, which is a version gap and not
+	@# staleness — the same reason docs-man-check and docs-userguide-check
+	@# SKIP rather than fail when the renderer differs. Here there is no
+	@# renderer fingerprint to compare, so the check could only cry wolf.
+	@#
+	@# COVERS the 12 debugger images. It does NOT cover gui-main-window.png or
+	@# preferences-startup.png (one needs the jnext_gui frontend and an audio
+	@# device, the other would publish the developer's own jnext.conf), nor any
+	@# image that is emulator OUTPUT rather than a Qt widget — jnext renders
+	@# those itself with --delayed-screenshot.
+	$(CMAKE) --build build --target docshot -j$(JOBS)
+	@# The tool needs a NextZXOS image, and jnext opens one read-write: hand it
+	@# a reflink clone so a capture run never mutates the developer's master.
+	@# Same idiom, and the same $$HOME/.jnext/runs location, as the clone
+	@# test/run-unit-tests.sh makes for the unit suites — INCLUDING its traps.
+	@#
+	@# WHY TRAPS AND NOT JUST `rm -rf` ON THE WAY OUT. The straight-line remove
+	@# handles a normal run and a failing docshot, and nothing else: a Ctrl-C
+	@# during the 400-frame boot, or a `kill`, leaves the ~1 GB clone in
+	@# $$HOME/.jnext/runs for good, with nothing in the project that sweeps it.
+	@# That leak class is not hypothetical here — two 1 GB directories from a
+	@# killed July run are still sitting in that directory.
+	@#
+	@# INT and TERM are listed EXPLICITLY, not folded into EXIT: an EXIT-only
+	@# trap does not fire when the shell is killed by a signal it has not
+	@# trapped, and this recipe runs in the terminal's foreground process
+	@# group, which is exactly where Ctrl-C lands. And the two signal handlers
+	@# EXIT rather than returning, for the reason run-unit-tests.sh records at
+	@# length: a handler that only cleans up lets the shell RESUME, running the
+	@# rest of the recipe against a clone it has just deleted.
+	@#
+	@# WHAT IT DOES NOT COVER: SIGKILL, which no trap can catch, and a host
+	@# crash. A clone can still be orphaned that way; it is a plain directory
+	@# under $$HOME/.jnext/runs and `rm -rf` is the whole recovery.
+	@set -e; \
+	 sd="$${JNEXT_TEST_SD_IMAGE:-$$HOME/.jnext/sdcard/cspect-next-1gb-fixed.img}"; \
+	 if [ ! -f "$$sd" ]; then \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) no NextZXOS SD image at $$sd\n"; \
+	   printf "        provision it with './build/jnext --headless --sdcard-download-confirm',\n"; \
+	   printf "        or point JNEXT_TEST_SD_IMAGE at an existing one.\n"; exit 1; \
+	 fi; \
+	 run_dir="$$HOME/.jnext/runs/docshot-$$$$"; \
+	 docshot_cleanup() { \
+	   [ -n "$$run_dir" ] && rm -rf "$$run_dir"; \
+	   rmdir "$$HOME/.jnext/runs" 2>/dev/null || true; \
+	   return 0; \
+	 }; \
+	 trap 'docshot_cleanup' EXIT; \
+	 trap 'docshot_cleanup; exit 130' INT; \
+	 trap 'docshot_cleanup; exit 143' TERM; \
+	 mkdir -p "$$run_dir"; \
+	 cp --reflink=auto "$$sd" "$$run_dir/sd.img"; \
+	 rc=0; ./build/docshot --sdcard "$$run_dir/sd.img" --out $(GUIDE_SRC)/img || rc=$$?; \
+	 if [ $$rc -ne 0 ]; then printf "$(BADGE_FAIL) FAIL $(RESET) docshot did not write every image\n"; exit $$rc; fi; \
+	 printf "$(BADGE_PASS) OK $(RESET) debugger screenshots regenerated in $(GUIDE_SRC)/img\n"; \
+	 printf "        LOOK AT THEM, then run 'make docs-userguide' and commit both copies\n"
 
 # Serve the rendered user guide over HTTP so it can be read in a browser
 read-userguide:

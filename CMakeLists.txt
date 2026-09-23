@@ -256,6 +256,10 @@ endif()
 
 if(ENABLE_DEBUGGER)
     add_subdirectory(src/debugger)
+    # The user guide's debugger screenshots, regenerated from the running
+    # product (`make docs-screenshots`). EXCLUDE_FROM_ALL inside — an ordinary
+    # build never compiles it.
+    add_subdirectory(tools/docshot)
 endif()
 
 add_executable(jnext src/main.cpp)

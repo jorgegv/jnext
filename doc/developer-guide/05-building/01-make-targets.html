@@ -1904,12 +1904,23 @@ staleness check guarding it:</p>
 <td>the guide's committed SVGs from Graphviz <code>.dot</code> sources</td>
 <td>(same check)</td>
 </tr>
+<tr>
+<td><code>docs-screenshots</code></td>
+<td>the user guide's twelve <code>img/debugger-*.png</code> from the running debugger</td>
+<td>none — see below</td>
+</tr>
 </tbody>
 </table>
-<p><code>make docs-check</code> runs all three guards and aggregates their results, so one
-stale document never hides another behind it. It is a prerequisite of both test
+<p><code>make docs-check</code> runs the first three guards and aggregates their results, so
+one stale document never hides another behind it. It is a prerequisite of both test
 targets. For reading rather than checking, <code>make read-userguide</code> and
 <code>make read-devguide</code> serve the rendered sites on localhost.</p>
+<p><code>docs-screenshots</code> is the odd one out: it regenerates pictures rather than
+text, it needs a Qt build, an offscreen QPA platform and an SD image to boot,
+and it has no staleness guard — a byte comparison would fail on any Qt or font
+update rather than on a stale image.
+<a href="../01-orientation/03-the-rules-that-shape-the-code.html">1.3</a> explains what it
+covers, what it does not, and why the gate was declined.</p>
 <h2 id="packaging-and-version">Packaging and version<a class="headerlink" href="#packaging-and-version" title="Permanent link">&para;</a></h2>
 <p><code>package-src</code>, <code>package-rpm</code>, <code>package-deb</code>, <code>package-flatpak</code>, <code>package-macos</code>
 and the five <code>package-win*</code> variants each build one distributable.

@@ -80,11 +80,19 @@ staleness check guarding it:
 | `docs-userguide` | `doc/user-guide` from `src/doc/user-guide` | `docs-userguide-check` |
 | `docs-devguide` | `doc/developer-guide` from `src/doc/developer-guide` | `docs-devguide-check` |
 | `docs-devguide-diagrams` | the guide's committed SVGs from Graphviz `.dot` sources | (same check) |
+| `docs-screenshots` | the user guide's twelve `img/debugger-*.png` from the running debugger | none — see below |
 
-`make docs-check` runs all three guards and aggregates their results, so one
-stale document never hides another behind it. It is a prerequisite of both test
+`make docs-check` runs the first three guards and aggregates their results, so
+one stale document never hides another behind it. It is a prerequisite of both test
 targets. For reading rather than checking, `make read-userguide` and
 `make read-devguide` serve the rendered sites on localhost.
+
+`docs-screenshots` is the odd one out: it regenerates pictures rather than
+text, it needs a Qt build, an offscreen QPA platform and an SD image to boot,
+and it has no staleness guard — a byte comparison would fail on any Qt or font
+update rather than on a stale image.
+[1.3](../01-orientation/03-the-rules-that-shape-the-code.md) explains what it
+covers, what it does not, and why the gate was declined.
 
 ## Packaging and version
 
