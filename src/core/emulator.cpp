@@ -14,6 +14,7 @@
 #include "peripheral/esp_host_policy.h"
 #include "peripheral/esp_uart_adapter.h"
 #include "peripheral/joy_uart_source.h"
+#include "peripheral/joy_uart_link.h"
 #include <algorithm>
 #include <cctype>
 #include <cstdlib>
@@ -6334,6 +6335,18 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // GH #251 — the serial cable in a joystick socket, if the user attached one.
     setup_joy_uart_source();
 
+    // GH #252 — teach the UART where a transmitted byte GOES while the joystick
+    // connector owns the channel (zxnext.vhd:3526-3531): out on pin 7, to the
+    // host endpoint. Installed unconditionally alongside the probe above so the
+    // two halves of the mux are wired in one place; it does nothing until
+    // setup_joy_uart_link() below actually attaches a cable.
+    uart_.set_joy_uart_tx_sink([this](uint8_t byte) {
+        if (joy_uart_link_) joy_uart_link_->send_to_host(byte);
+    });
+
+    // GH #252 — the LIVE bidirectional cable, if the user attached one.
+    setup_joy_uart_link();
+
     // Pass-8 verify-audit (2026-05-09): seed the VHDL zxnext.vhd:3319
     // composite Flash-CS gate from the post-power-on / post-init state.
     // Power-on defaults: nr_03_config_mode='1' (zxnext.vhd:1102) AND
@@ -8475,6 +8488,104 @@ void Emulator::service_joy_uart_source(uint64_t master_cycles)
     }
 }
 
+void Emulator::setup_joy_uart_link()
+{
+    if (config_.joy_uart_fifo.empty() && !config_.joy_uart_pty) return;  // no cable
+    // A SOFT reset must not unplug it, exactly as it must not rebuild the ESP
+    // or re-read the GH #251 recording: NR 0x0B resets and the guest has to set
+    // the mux up again, but the host on the other end of the cable never
+    // noticed, and re-opening the endpoint would drop whatever it holds.
+    if (joy_uart_link_) return;
+
+    std::string error;
+    std::unique_ptr<JoyUartEndpoint> endpoint =
+        config_.joy_uart_pty ? JoyUartEndpoint::open_pty(error)
+                             : JoyUartEndpoint::open_fifo(config_.joy_uart_fifo, error);
+    if (!endpoint) {
+        // Unreachable from the CLI, which opens the endpoint at startup and
+        // refuses there. Reachable from a caller that builds an EmulatorConfig
+        // by hand, and the answer is NO cable rather than a silently dead one.
+        Log::uart()->error("joystick serial cable: {} — no cable attached", error);
+        return;
+    }
+
+    joy_uart_link_ = std::make_unique<JoyUartLink>(std::move(endpoint),
+                                                   config_.joy_uart_connector);
+
+    joy_uart_link_->set_byte_sink([this](uint8_t byte) {
+        // The CONNECTOR gate, which `inject_joy_uart_rx` deliberately does not
+        // apply: `joy_uart_rx` is the line AFTER the connector mux, read from
+        // `i_JOY_LEFT(5)` or `i_JOY_RIGHT(5)` according to NR 0x0B bit 4
+        // (zxnext.vhd:3538). A cable in the other socket is a pin the FPGA is
+        // not looking at, so the byte is lost on the wire. Identical to the
+        // GH #251 sink — RX is the direction the connector field governs.
+        const bool routed = iomode_.joy_uart_en()
+                         && iomode_.joy_uart_connector() == joy_uart_link_->connector();
+        if (!routed) {
+            joy_uart_link_->note_dropped();
+            return;
+        }
+        inject_joy_uart_rx(byte);
+        joy_uart_link_->note_delivered();
+    });
+
+    // ONE posture line, and for the pty form it carries the slave device path —
+    // which is not a nicety but the whole interface: nothing else tells the user
+    // what to point their debugger at.
+    Log::uart()->info(
+        "joystick serial cable attached to joy {} — {}; the guest hears it only "
+        "while NR 0x0B selects UART mode (bits 7+5) on that connector (bit 4), "
+        "and bit 0 picks UART 0 or UART 1. Transmit is not connector-selected "
+        "(zxnext.vhd:1593, md6_joystick_connector_x2.vhd:116-117)",
+        joy_uart_link_->connector() + 1, joy_uart_link_->describe());
+}
+
+void Emulator::service_joy_uart_link(uint64_t master_cycles)
+{
+    // Pace off the channel NR 0x0B bit 0 selects (zxnext.vhd:3340-3341). Bit 0
+    // has a value whether or not the mux is enabled, so there is no special
+    // case: with the mux off the bytes are clocked out at that channel's baud
+    // and dropped by the sink, which is what the cable does.
+    const int ch = iomode_.iomode_0() ? 1 : 0;
+    joy_uart_link_->tick(static_cast<uint32_t>(master_cycles),
+                         uart_.channel(ch).byte_transfer_ticks());
+}
+
+void Emulator::service_joy_uart_link_frame()
+{
+    // THE REPLAY GATE, the same one the ESP carries and for a stronger reason.
+    // A rewind re-executes instructions the guest already ran: re-transmitting
+    // their bytes would duplicate them at the peer, which is not recoverable,
+    // and re-READING the endpoint would consume host bytes the post-replay
+    // timeline still needs. Inert means neither, so the host's bytes simply wait
+    // in the pipe. See JoyUartLink's header for why this is a gate, not a
+    // teardown.
+    //
+    // THE GATE IS RAISED HERE AND ENFORCED IN THE LINK, not tested twice. An
+    // early `return` here as well would be belt-and-braces over the check
+    // `JoyUartLink::poll()` already makes, and a second copy of a rule is a
+    // second thing that can be wrong while every test still passes: reverting
+    // one of the two changes nothing, so neither is covered. One gate, in the
+    // class that owns the descriptors and already gates `tick()` and
+    // `send_to_host()` the same way.
+    joy_uart_link_->set_inert(replay_mode_ || rzx_player_.is_playing());
+
+    joy_uart_link_->poll();
+
+    // A peer coming and going is normal and silent; anything else is a cable
+    // that has stopped working, and a cable that has stopped working without
+    // saying so is the silent no-op this whole feature exists to avoid — the
+    // same posture as the GH #251 "exhausted with all bytes LOST" warning.
+    if (!joy_uart_link_fault_reported_ && joy_uart_link_->faults() > 0) {
+        joy_uart_link_fault_reported_ = true;
+        Log::uart()->error(
+            "joystick serial cable ({}) reported an I/O error: {}. The cable has "
+            "stopped carrying traffic in at least one direction; the emulator "
+            "keeps running",
+            joy_uart_link_->describe(), joy_uart_link_->last_error());
+    }
+}
+
 bool Emulator::esp_associated() const
 {
     return esp_device_ && esp_device_->associated();
@@ -8630,6 +8741,11 @@ void Emulator::run_frame()
     // rewind_to_cycle() (called from the branch just after this) re-enters
     // run_frame() with replay_mode_ set, so each nested call gates itself here.
     service_esp_frame();
+
+    // GH #252 — and the live joystick cable's once-per-frame half, for exactly
+    // the same reason and in the same place: its replay gate has to be applied
+    // before any instruction of a replayed frame runs.
+    if (joy_uart_link_) service_joy_uart_link_frame();
 
     // Handle rewind step modes set by the GUI or scripting layer.
     // These are processed before the normal snapshot so we don't take a
@@ -9634,6 +9750,7 @@ void Emulator::tick_devices_after_instruction(uint64_t master_cycles)
     // predicted-not-taken branch, following the `device_attached_` precedent
     // documented in peripheral/uart.h.
     if (joy_uart_source_) service_joy_uart_source(master_cycles);
+    if (joy_uart_link_)   service_joy_uart_link(master_cycles);
 
     // Tick the NMI source pipeline (TASK-NMI-SOURCE-PIPELINE-PLAN.md
     // Phase 1 + Wave B + Wave C). Placement matches CTC / UART / Md6

@@ -21,6 +21,7 @@
 #include "core/emulator_config.h"
 #include "debug/debug_state.h"
 #include "debug/rewind_buffer.h"
+#include "peripheral/joy_uart_link.h"
 #include "peripheral/joy_uart_source.h"
 #include "peripheral/uart_device.h"
 
@@ -34,6 +35,13 @@
 #include <string>
 #include <system_error>
 #include <vector>
+
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/socket.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -1422,6 +1430,128 @@ std::vector<uint8_t> run_and_drain(Emulator& emu, uint8_t nr_0b, int channel,
     return got;
 }
 
+
+// ── GH #252 live-cable helpers ────────────────────────────────────────
+//
+// Real descriptors throughout. A mock endpoint would assert that the pacing
+// arithmetic is self-consistent and nothing about whether a FIFO can be opened
+// without a peer, which is the whole of the defect GH #252 reports.
+
+// A FIFO pair on disk with the host's two ends held open, removed when the
+// row's scope ends.
+//
+// `attach()` is separate from the constructor because the ORDER matters and is
+// itself part of what is under test: jnext opens `<base>.rx` for reading at
+// Emulator::init(), and only then can the host open the same path for writing
+// at all (O_WRONLY on a FIFO with no reader is the ENXIO the issue reports).
+class TempFifoCable {
+public:
+    explicit TempFifoCable(const std::string& tag) {
+        base_ = (std::filesystem::temp_directory_path()
+                 / ("jnext-joy-cable-" + tag)).string();
+        remove_files();
+    }
+    ~TempFifoCable() {
+        close_host_rx_writer();
+        close_host_tx_reader();
+        remove_files();
+    }
+    TempFifoCable(const TempFifoCable&)            = delete;
+    TempFifoCable& operator=(const TempFifoCable&) = delete;
+
+    const std::string& base() const { return base_; }
+
+    /// Open the host's ends, AFTER the emulator has created and opened its own.
+    /// `open_tx_reader` false leaves `<base>.tx` with no reader, which is the
+    /// state a run starts in before the debugger on the host attaches.
+    bool attach(bool open_tx_reader = true) {
+#ifdef _WIN32
+        (void)open_tx_reader;
+        return false;
+#else
+        rx_w_ = ::open((base_ + ".rx").c_str(), O_WRONLY | O_NONBLOCK);
+        if (open_tx_reader && !open_tx_reader_now()) return false;
+        return rx_w_ >= 0;
+#endif
+    }
+
+    bool open_tx_reader_now() {
+#ifdef _WIN32
+        return false;
+#else
+        tx_r_ = ::open((base_ + ".tx").c_str(), O_RDONLY | O_NONBLOCK);
+        return tx_r_ >= 0;
+#endif
+    }
+
+    void close_host_tx_reader() {
+#ifndef _WIN32
+        if (tx_r_ >= 0) { ::close(tx_r_); tx_r_ = -1; }
+#endif
+    }
+    void close_host_rx_writer() {
+#ifndef _WIN32
+        if (rx_w_ >= 0) { ::close(rx_w_); rx_w_ = -1; }
+#endif
+    }
+
+    /// Host → Next. Returns how many bytes the pipe took.
+    std::size_t send(const std::vector<uint8_t>& bytes) {
+#ifdef _WIN32
+        (void)bytes; return 0;
+#else
+        if (rx_w_ < 0 || bytes.empty()) return 0;
+        const ssize_t n = ::write(rx_w_, bytes.data(), bytes.size());
+        return (n > 0) ? static_cast<std::size_t>(n) : 0;
+#endif
+    }
+
+    /// Next → host, non-blocking; appends whatever is there right now.
+    std::vector<uint8_t> drain() {
+        std::vector<uint8_t> got;
+#ifndef _WIN32
+        if (tx_r_ < 0) return got;
+        uint8_t buf[512];
+        for (;;) {
+            const ssize_t n = ::read(tx_r_, buf, sizeof(buf));
+            if (n <= 0) break;
+            got.insert(got.end(), buf, buf + n);
+        }
+#endif
+        return got;
+    }
+
+private:
+    void remove_files() {
+        std::error_code ec;
+        std::filesystem::remove(base_ + ".rx", ec);
+        std::filesystem::remove(base_ + ".tx", ec);
+    }
+    std::string base_;
+    int         rx_w_ = -1;
+    int         tx_r_ = -1;
+};
+
+// Config for a Next with a LIVE joystick cable attached.
+EmulatorConfig link_config(const std::string& base, int connector) {
+    EmulatorConfig cfg;
+    cfg.type                 = MachineType::ZXN_ISSUE2;
+    cfg.rewind_buffer_frames = 0;
+    cfg.joy_uart_fifo        = base;
+    cfg.joy_uart_connector   = connector;
+    return cfg;
+}
+
+// Transmit one byte from the guest on `channel` with NR 0x0B held at `nr_0b`,
+// and run a whole frame so the byte-level TX engine completes it and the
+// cable's once-per-frame poll() runs.
+void guest_transmit_frame(Emulator& emu, uint8_t nr_0b, int channel, uint8_t byte) {
+    emu.nextreg().write(0x0B, nr_0b);
+    emu.port().out(0x153B, static_cast<uint8_t>(channel ? 0x40 : 0x00));
+    emu.port().out(0x133B, byte);
+    emu.run_frame();
+}
+
 } // namespace
 
 static void test_joy_uart_cable() {
@@ -1985,6 +2115,582 @@ static void test_joy_uart_cable() {
                   static_cast<unsigned long long>(on0.cycles / 19440),
                   on0.delivered, on0.dropped,
                   static_cast<unsigned long long>(on0.cycles)));
+    }
+
+    // ══════════════════════════════════════════════════════════════════
+    // GH #252 — the RETURN direction, and the live cable.
+    //
+    // Everything above is one-way: a recorded stream going in. What the
+    // hardware also does is send, and jnext had nowhere to send it — the
+    // isolated branch of `UartChannel::deliver_tx_byte` dropped the byte
+    // because there was no representation for joystick pin 7 at all.
+    // ══════════════════════════════════════════════════════════════════
+
+    // ── JOY-13 — a byte the guest transmits while the joystick connector owns
+    // the channel COMES OUT ON PIN 7 (zxnext.vhd:3526-3531):
+    //
+    //   joy_iomode_pin7 <= uart0_tx   when nr_0b_joy_iomode_0 = '0'
+    //
+    // which leaves the core as `o_JOY_IO_MODE_PIN_7` (zxnext.vhd:1593) and is
+    // driven onto the connector by md6_joystick_connector_x2.vhd:116. All three
+    // of the old outcomes still have to hold at the same time — the module-facing
+    // pin stays idle (zxnext.vhd:3343) so the ESP hears nothing, and there is
+    // still no loopback into this channel's own RX FIFO — or the new route would
+    // be a fourth copy of the byte rather than its destination.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        StubUartDevice esp;
+        emu.uart().attach_device(0, &esp);
+
+        std::vector<uint8_t> pin7;
+        emu.uart().set_joy_uart_tx_sink([&pin7](uint8_t b) { pin7.push_back(b); });
+
+        emu.nextreg().write(0x0B, 0xB0);        // mux on, channel 0, joy 2
+        emu.port().out(0x153B, 0x00);
+        emu.port().out(0x133B, 0xAA);           // guest transmits
+        tick_uart_byte(emu);
+        const bool on_pin7      = (pin7.size() == 1) && (pin7[0] == 0xAA);
+        const bool device_silent = esp.rx.empty();
+        const bool no_loopback   = emu.uart().channel(0).rx_empty();
+
+        // Positive control the other way: with the mux OFF the byte goes to the
+        // module on the wire and pin 7 carries nothing, so the row cannot pass
+        // for a build that simply sends every transmitted byte everywhere.
+        emu.nextreg().write(0x0B, 0x00);
+        emu.port().out(0x133B, 0xBB);
+        tick_uart_byte(emu);
+        const bool device_heard = (esp.rx.size() == 1) && (esp.rx[0] == 0xBB);
+        const bool pin7_quiet   = (pin7.size() == 1);
+
+        emu.uart().set_joy_uart_tx_sink(nullptr);
+        emu.uart().detach_device(0);
+
+        check("JOY-13",
+              "zxnext.vhd:3526-3531,1593 — while the joystick UART mux owns "
+              "UART 0 a transmitted byte leaves on joy pin 7, not through the "
+              "module-facing pin (:3343) and not looped back into the channel's "
+              "own RX FIFO; with the mux off it goes to the module instead",
+              on_pin7 && device_silent && no_loopback && device_heard && pin7_quiet,
+              fmt("on_pin7=%d device_silent=%d no_loopback=%d device_heard=%d "
+                  "pin7_quiet=%d (all want 1); pin7=[%s] device rx=%zu",
+                  on_pin7 ? 1 : 0, device_silent ? 1 : 0, no_loopback ? 1 : 0,
+                  device_heard ? 1 : 0, pin7_quiet ? 1 : 0,
+                  bytes_hex(pin7).c_str(), esp.rx.size()));
+    }
+
+    // ── JOY-14 — NR 0x0B bit 0 chooses WHICH channel's TX pin 7 carries, and
+    // the VHDL spells the two out separately:
+    //
+    //   if nr_0b_joy_iomode_0 = '0' then joy_iomode_pin7 <= uart0_tx;
+    //   else                             joy_iomode_pin7 <= uart1_tx;   (:3526-3530)
+    //
+    // JOY-13 pins bit 0 = 0. Without this row the second arm could compare the
+    // wrong channel — a copy-paste away in `Uart::set_joy_uart_tx_sink`'s
+    // two-line body — and the Pi-side rig would silently transmit nothing.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+        StubUartDevice esp;
+        emu.uart().attach_device(0, &esp);      // the ESP stays on UART 0
+
+        std::vector<uint8_t> pin7;
+        emu.uart().set_joy_uart_tx_sink([&pin7](uint8_t b) { pin7.push_back(b); });
+
+        emu.nextreg().write(0x0B, 0xB1);        // mux on, channel 1, joy 2
+        emu.port().out(0x153B, 0x40);           // select channel 1
+        emu.port().out(0x133B, 0x5A);
+        tick_uart_byte(emu);
+        const bool ch1_on_pin7 = (pin7.size() == 1) && (pin7[0] == 0x5A);
+
+        // ...and UART 0, which the mux did NOT take, still reaches its module.
+        emu.port().out(0x153B, 0x00);
+        emu.port().out(0x133B, 0xC3);
+        tick_uart_byte(emu);
+        const bool ch0_to_device = (esp.rx.size() == 1) && (esp.rx[0] == 0xC3);
+        const bool pin7_only_ch1 = (pin7.size() == 1);
+
+        emu.uart().set_joy_uart_tx_sink(nullptr);
+        emu.uart().detach_device(0);
+
+        check("JOY-14",
+              "zxnext.vhd:3526-3530 — with NR 0x0B bit 0 = 1 it is UART 1's TX "
+              "that pin 7 carries, while UART 0 keeps its own module-facing pin "
+              "and reaches the ESP normally",
+              ch1_on_pin7 && ch0_to_device && pin7_only_ch1,
+              fmt("ch1_on_pin7=%d ch0_to_device=%d pin7_only_ch1=%d (all want 1); "
+                  "pin7=[%s] device rx=[%s]",
+                  ch1_on_pin7 ? 1 : 0, ch0_to_device ? 1 : 0,
+                  pin7_only_ch1 ? 1 : 0, bytes_hex(pin7).c_str(),
+                  bytes_hex(esp.rx).c_str()));
+    }
+
+    // ── JOY-15 — THE TWO DIRECTIONS ARE GATED DIFFERENTLY, and that asymmetry
+    // is the VHDL's:
+    //
+    //   * RX is connector-selected. `joy_uart_rx <= ((not nr_0b_joy_iomode(0))
+    //     and not i_JOY_LEFT(5)) or (nr_0b_joy_iomode(0) and not
+    //     i_JOY_RIGHT(5))` (zxnext.vhd:3538) — bit 4 picks ONE socket's pin to
+    //     listen on.
+    //   * TX is not. `o_JOY_IO_MODE_PIN_7` (zxnext.vhd:1593) has no connector
+    //     selection anywhere in it; the board presents it to whichever socket
+    //     `o_joy_select` currently points at, and in io mode that free-runs
+    //     (`state <= "1111100" & state_next(1 downto 0)`, o_joy_select <=
+    //     state(1) — md6_joystick_connector_x2.vhd:109,117), alternating every
+    //     two CLK_28 ticks while one bit at 115200 lasts 243 of them. Both
+    //     sockets therefore see the transmitted bit.
+    //
+    // So a cable in the socket bit 4 does NOT select can still HEAR the Next
+    // while being unable to be heard by it. Copying the RX gate onto the TX
+    // path — the obvious-looking symmetry — would silently half-break exactly
+    // that rig, and nothing else in this suite would notice.
+    {
+        TempFifoCable cable("asym");
+        Emulator emu;
+        emu.init(link_config(cable.base(), /*connector=*/0));      // cable in joy 1
+        const bool attached = cable.attach();
+
+        // NR 0x0B bit 4 = 1 selects joy 2 — the OTHER socket.
+        cable.send({0x11, 0x22});
+        guest_transmit_frame(emu, 0xB0, 0, 0x99);
+        emu.nextreg().write(0x0B, 0xB0);
+        emu.run_frame();
+
+        const JoyUartLink* link = emu.joy_uart_link();
+        const std::vector<uint8_t> heard_by_host = cable.drain();
+        const bool rx_dropped = link && link->delivered() == 0 && link->dropped() > 0;
+        const bool rx_fifo_empty = emu.uart().channel(0).rx_empty();
+        const bool tx_arrived = (heard_by_host.size() == 1) && (heard_by_host[0] == 0x99);
+
+        check("JOY-15",
+              "zxnext.vhd:3538 vs :1593 + md6_joystick_connector_x2.vhd:109,117 "
+              "— NR 0x0B bit 4 selects which socket is LISTENED to, while pin 7 "
+              "is presented to both sockets in turn, so a cable in the "
+              "unselected socket is not heard by the Next yet still hears it",
+              attached && rx_dropped && rx_fifo_empty && tx_arrived,
+              fmt("attached=%d rx_dropped=%d rx_fifo_empty=%d tx_arrived=%d "
+                  "(all want 1); delivered=%zu dropped=%zu; host heard [%s] "
+                  "(want 99)",
+                  attached ? 1 : 0, rx_dropped ? 1 : 0, rx_fifo_empty ? 1 : 0,
+                  tx_arrived ? 1 : 0, link ? link->delivered() : 0,
+                  link ? link->dropped() : 0, bytes_hex(heard_by_host).c_str()));
+    }
+
+    // ── JOY-16 — THE FEATURE. A live FIFO cable carries both directions of a
+    // conversation while the machine runs: the host's bytes cross the
+    // zxnext.vhd:3340-3341 RX mux into the channel the guest reads at port
+    // 0x143B, and the guest's bytes come back out of the zxnext.vhd:3526-3531
+    // TX mux onto a descriptor the host reads.
+    //
+    // Real descriptors, real `mkfifo`, real `open`. That is the point: the
+    // one-way path this replaces failed not in its arithmetic but at `open()`
+    // — a FIFO blocked until its writer closed and a socket returned ENXIO —
+    // and no amount of in-memory stubbing would have found either.
+    {
+        TempFifoCable cable("duplex");
+        Emulator emu;
+        emu.init(link_config(cable.base(), /*connector=*/1));      // cable in joy 2
+        const bool attached = cable.attach();
+
+        const std::vector<uint8_t> from_host = {0x4A, 0x4E, 0x58, 0x54};
+        cable.send(from_host);
+
+        std::vector<uint8_t> to_guest;
+        for (int f = 0; f < 3; ++f) {
+            emu.nextreg().write(0x0B, 0xB0);      // mux on, channel 0, joy 2
+            emu.run_frame();
+            emu.port().out(0x153B, 0x00);
+            while (!emu.uart().channel(0).rx_empty())
+                to_guest.push_back(emu.port().in(0x143B));
+        }
+
+        const std::vector<uint8_t> from_guest = {0x01, 0x02, 0x03};
+        for (uint8_t b : from_guest) guest_transmit_frame(emu, 0xB0, 0, b);
+        const std::vector<uint8_t> to_host = cable.drain();
+
+        const JoyUartLink* link = emu.joy_uart_link();
+
+        check("JOY-16",
+              "GH #252 — a live joystick-port cable carries both directions at "
+              "once: the host's bytes reach port 0x143B through the "
+              "zxnext.vhd:3340-3341 RX mux and the guest's reach the host "
+              "through the zxnext.vhd:3526-3531 pin-7 TX mux, over real FIFOs "
+              "opened while the machine runs",
+              attached && to_guest == from_host && to_host == from_guest
+                  && link && link->dropped() == 0 && link->unsent() == 0,
+              fmt("attached=%d; guest got [%s] (want [4A 4E 58 54]); host got "
+                  "[%s] (want [01 02 03]); delivered=%zu dropped=%zu sent=%zu "
+                  "unsent=%zu",
+                  attached ? 1 : 0, bytes_hex(to_guest).c_str(),
+                  bytes_hex(to_host).c_str(),
+                  link ? link->delivered() : 0, link ? link->dropped() : 0,
+                  link ? link->sent() : 0, link ? link->unsent() : 0));
+    }
+
+    // ── JOY-17 — the live cable's RX is PACED at the receiving channel's byte
+    // time, not handed over as fast as the host supplies it.
+    //
+    // uart_rx.vhd clocks one frame per `prescaler * frame_bits` CLK_28 ticks
+    // (uart.vhd:404 wires the channel's own prescaler into its receiver), and
+    // the Next-side RX FIFO is 512 entries with drop-newest overflow. A host
+    // that writes 3000 bytes in one go — one DeZog memory-read response — would
+    // therefore lose 5/6 of them to the FIFO before the guest's first read if
+    // the cable simply dumped what it had. The count below is the elapsed
+    // master cycles over the channel's byte time, ±1 for where the run's edges
+    // fall, which is three thousand away from "everything at once".
+    {
+        TempFifoCable cable("pace");
+        Emulator emu;
+        emu.init(link_config(cable.base(), /*connector=*/1));
+        const bool attached = cable.attach();
+
+        std::vector<uint8_t> burst(3000);
+        for (std::size_t i = 0; i < burst.size(); ++i)
+            burst[i] = static_cast<uint8_t>((i * 11 + 3) & 0xFF);
+        const std::size_t offered = cable.send(burst);
+
+        const uint64_t start = emu.clock().get();
+        std::vector<uint8_t> got;
+        for (int f = 0; f < 2; ++f) {
+            emu.nextreg().write(0x0B, 0xB0);
+            emu.run_frame();
+            emu.port().out(0x153B, 0x00);
+            while (!emu.uart().channel(0).rx_empty())
+                got.push_back(emu.port().in(0x143B));
+        }
+        const uint64_t cycles     = emu.clock().get() - start;
+        const uint32_t byte_ticks = emu.uart().channel(0).byte_transfer_ticks();
+        const uint64_t want       = cycles / byte_ticks;
+
+        // The prefix must be the stream's, in order — a paced-but-scrambled
+        // delivery would satisfy a bare count.
+        bool prefix_ok = got.size() <= burst.size();
+        for (std::size_t i = 0; prefix_ok && i < got.size(); ++i)
+            prefix_ok = (got[i] == burst[i]);
+
+        check("JOY-17",
+              "uart.vhd:404 / uart_rx.vhd — the live cable delivers at the "
+              "receiving channel's byte time (prescaler * frame_bits), so a "
+              "3000-byte host burst arrives over many frames in order rather "
+              "than overflowing the 512-entry RX FIFO in one",
+              attached && offered >= burst.size() && prefix_ok
+                  && got.size() + 1 >= want && got.size() <= want + 1
+                  && got.size() < burst.size(),
+              fmt("attached=%d offered=%zu (want 3000); got %zu byte(s) (want "
+                  "%llu±1 and < 3000); in-order prefix=%d; byte_ticks=%u over "
+                  "%llu cycles",
+                  attached ? 1 : 0, offered, got.size(),
+                  static_cast<unsigned long long>(want), prefix_ok ? 1 : 0,
+                  byte_ticks, static_cast<unsigned long long>(cycles)));
+    }
+
+    // ── JOY-18 — NOTHING BLOCKS WHEN THERE IS NO FAR END, and a far end that
+    // turns up late is picked up.
+    //
+    // This is the defect GH #252 reports, in its most literal form: the
+    // Next→host FIFO cannot be opened at all until something is reading it
+    // (`O_WRONLY | O_NONBLOCK` gives ENXIO), so an eager open would either fail
+    // the run or — with the blocking form — wedge the emulator before the first
+    // frame. The cable opens that side LAZILY and retries it on every flush, so
+    // a debugger started after the emulator still gets the traffic that was
+    // queued while it was not there.
+    {
+        TempFifoCable cable("late");
+        Emulator emu;
+        emu.init(link_config(cable.base(), /*connector=*/1));
+        const bool attached = cable.attach(/*open_tx_reader=*/false);
+
+        const std::vector<uint8_t> markers = {0x71, 0x72, 0x73};
+        for (uint8_t b : markers) guest_transmit_frame(emu, 0xB0, 0, b);
+
+        const JoyUartLink* link = emu.joy_uart_link();
+        const bool nothing_sent_yet = link && link->sent() == 0
+                                   && link->unsent() == 0 && link->faults() == 0;
+
+        const bool reader_opened = cable.open_tx_reader_now();
+        emu.nextreg().write(0x0B, 0xB0);
+        emu.run_frame();                        // the frame seam retries the open
+        const std::vector<uint8_t> got = cable.drain();
+
+        check("JOY-18",
+              "GH #252 — the Next->host FIFO is opened lazily because "
+              "O_WRONLY|O_NONBLOCK on a FIFO with no reader is ENXIO: with no "
+              "peer the run proceeds and nothing is lost or faulted, and a "
+              "reader that attaches later receives what was queued",
+              attached && nothing_sent_yet && reader_opened && got == markers,
+              fmt("attached=%d nothing_sent_yet=%d reader_opened=%d (all want "
+                  "1); got [%s] (want [71 72 73]); sent=%zu unsent=%zu faults=%zu",
+                  attached ? 1 : 0, nothing_sent_yet ? 1 : 0,
+                  reader_opened ? 1 : 0, bytes_hex(got).c_str(),
+                  link ? link->sent() : 0, link ? link->unsent() : 0,
+                  link ? link->faults() : 0));
+    }
+
+    // ── JOY-19 — THE FAR END DISAPPEARS MID-SESSION, and comes back.
+    //
+    // Closing the read end of a FIFO makes the next write fail with EPIPE —
+    // and, with the default signal disposition, raise SIGPIPE and KILL the
+    // process. jnext ignores SIGPIPE when it opens the endpoint, takes the
+    // EPIPE, and then DISCARDS what is queued: those bytes are half of a
+    // conversation with a process that has exited, and giving the remains of
+    // them to whatever connects next would hand that peer a truncated message
+    // it cannot recognise as stale. The loss is counted rather than silent, and
+    // the cable re-opens for the next peer.
+    {
+        TempFifoCable cable("bounce");
+        Emulator emu;
+        emu.init(link_config(cable.base(), /*connector=*/1));
+        const bool attached = cable.attach();
+
+        guest_transmit_frame(emu, 0xB0, 0, 0xA1);
+        const std::vector<uint8_t> before = cable.drain();
+
+        cable.close_host_tx_reader();
+        guest_transmit_frame(emu, 0xB0, 0, 0xA2);      // EPIPE: lost with the peer
+
+        const JoyUartLink* link = emu.joy_uart_link();
+        const bool survived   = (link != nullptr);
+        const bool loss_seen  = link && link->unsent() == 1 && link->sent() == 1;
+
+        const bool reopened = cable.open_tx_reader_now();
+        guest_transmit_frame(emu, 0xB0, 0, 0xA3);
+        const std::vector<uint8_t> after = cable.drain();
+
+        check("JOY-19",
+              "GH #252 — a peer that closes mid-session makes the next write "
+              "EPIPE (SIGPIPE is ignored, so the emulator survives it); the "
+              "stale queue is discarded and counted rather than delivered to "
+              "the next peer, and the cable re-opens for one that reconnects",
+              attached && survived && before == std::vector<uint8_t>{0xA1}
+                  && loss_seen && reopened && after == std::vector<uint8_t>{0xA3},
+              fmt("attached=%d survived=%d loss_seen=%d reopened=%d (all want "
+                  "1); before=[%s] (want A1) after=[%s] (want A3); sent=%zu "
+                  "unsent=%zu faults=%zu",
+                  attached ? 1 : 0, survived ? 1 : 0, loss_seen ? 1 : 0,
+                  reopened ? 1 : 0, bytes_hex(before).c_str(),
+                  bytes_hex(after).c_str(), link ? link->sent() : 0,
+                  link ? link->unsent() : 0, link ? link->faults() : 0));
+    }
+
+    // ── JOY-20 — THE REPLAY GATE. A live descriptor is not snapshottable and
+    // nothing about this cable rides in the state stream, which is the opposite
+    // of the GH #251 recording (JOY-10/11) and for a reason the recording does
+    // not have: bytes already handed to the peer cannot be unsent.
+    //
+    // So while `replay_mode_` holds — rewind fast-forward and RZX playback both
+    // re-execute instructions the guest already ran — the cable is INERT, the
+    // `EspUartAdapter::set_inert` posture. Two halves, and the second is the one
+    // a naive gate gets wrong: a replayed frame must not re-transmit (the peer
+    // would see the byte twice), and it must not READ either, because the host
+    // bytes it consumed would be gone from the timeline that resumes afterwards.
+    {
+        TempFifoCable cable("replay");
+        Emulator emu;
+        emu.init(link_config(cable.base(), /*connector=*/1));
+        const bool attached = cable.attach();
+
+        guest_transmit_frame(emu, 0xB0, 0, 0xD1);
+        const std::vector<uint8_t> live_before = cable.drain();
+
+        emu.set_replay_mode(true);
+        cable.send({0xE1, 0xE2});                   // host talks during the replay
+        guest_transmit_frame(emu, 0xB0, 0, 0xD2);   // guest re-transmits
+        const std::vector<uint8_t> during = cable.drain();
+        const JoyUartLink* link = emu.joy_uart_link();
+        const bool not_read = link && link->received() == 0;
+
+        emu.set_replay_mode(false);
+        std::vector<uint8_t> to_guest;
+        for (int f = 0; f < 3; ++f) {
+            emu.nextreg().write(0x0B, 0xB0);
+            emu.run_frame();
+            emu.port().out(0x153B, 0x00);
+            while (!emu.uart().channel(0).rx_empty())
+                to_guest.push_back(emu.port().in(0x143B));
+        }
+        guest_transmit_frame(emu, 0xB0, 0, 0xD3);
+        const std::vector<uint8_t> live_after = cable.drain();
+
+        check("JOY-20",
+              "GH #252 — the live cable is held inert while replay_mode_ holds "
+              "(the EspUartAdapter::set_inert posture): a re-executed frame "
+              "neither re-transmits to the peer nor consumes the host bytes the "
+              "resumed timeline still needs, and both directions return when "
+              "the gate lifts",
+              attached && live_before == std::vector<uint8_t>{0xD1}
+                  && during.empty() && not_read
+                  && to_guest == std::vector<uint8_t>({0xE1, 0xE2})
+                  && live_after == std::vector<uint8_t>{0xD3},
+              fmt("attached=%d not_read=%d (both want 1); before=[%s] (want D1) "
+                  "during=[%s] (want empty) after=[%s] (want D3); guest got [%s] "
+                  "(want [E1 E2]); received=%zu",
+                  attached ? 1 : 0, not_read ? 1 : 0,
+                  bytes_hex(live_before).c_str(), bytes_hex(during).c_str(),
+                  bytes_hex(live_after).c_str(), bytes_hex(to_guest).c_str(),
+                  link ? link->received() : 0));
+    }
+
+    // ── JOY-21 — the PTY form of the same cable, end to end.
+    //
+    // A pty is what the consumer this issue names can actually open: DeZog's
+    // serial remote wants one serial DEVICE, not a pair of pipes, so without
+    // this transport the feature reaches a shell script and stops. It is also
+    // the form with a different failure surface — one descriptor for both
+    // directions, a line discipline that echoes and mangles CR/LF unless the
+    // termios is put in raw mode, and a master that survives its slave closing
+    // — so exercising it through the FIFO's rows would prove nothing about it.
+    //
+    // The slave path is read back from the cable's own description, which is
+    // also the only way a user learns it.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type                 = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        cfg.joy_uart_pty         = true;
+        cfg.joy_uart_connector   = 1;
+        emu.init(cfg);
+
+        const JoyUartLink* link = emu.joy_uart_link();
+        std::string slave;
+        if (link) {
+            const std::string& d = link->describe();
+            const std::size_t at = d.find("pty ");
+            if (at != std::string::npos) slave = d.substr(at + 4);
+        }
+
+        int slave_fd = -1;
+#ifndef _WIN32
+        if (!slave.empty())
+            slave_fd = ::open(slave.c_str(), O_RDWR | O_NOCTTY | O_NONBLOCK);
+#endif
+        const bool opened = slave_fd >= 0;
+
+        std::vector<uint8_t> to_guest;
+        std::vector<uint8_t> to_host;
+        if (opened) {
+#ifndef _WIN32
+            const uint8_t out[] = {0x31, 0x32};
+            (void)!::write(slave_fd, out, sizeof(out));
+#endif
+            for (int f = 0; f < 3; ++f) {
+                emu.nextreg().write(0x0B, 0xB0);
+                emu.run_frame();
+                emu.port().out(0x153B, 0x00);
+                while (!emu.uart().channel(0).rx_empty())
+                    to_guest.push_back(emu.port().in(0x143B));
+            }
+            guest_transmit_frame(emu, 0xB0, 0, 0x7E);
+            guest_transmit_frame(emu, 0xB0, 0, 0x0D);   // CR: raw mode must not translate it
+#ifndef _WIN32
+            uint8_t buf[64];
+            for (int tries = 0; tries < 4 && to_host.size() < 2; ++tries) {
+                const ssize_t n = ::read(slave_fd, buf, sizeof(buf));
+                if (n > 0) to_host.insert(to_host.end(), buf, buf + n);
+                emu.nextreg().write(0x0B, 0xB0);
+                emu.run_frame();
+            }
+            ::close(slave_fd);
+#endif
+        }
+
+        check("JOY-21",
+              "GH #252 — the pty transport carries the same zxnext.vhd:3340-3341 "
+              "/ :3526-3531 mux in both directions over one descriptor, with the "
+              "termios in raw mode so a 0x0D is delivered as a byte rather than "
+              "translated by the line discipline",
+              opened && to_guest == std::vector<uint8_t>({0x31, 0x32})
+                  && to_host == std::vector<uint8_t>({0x7E, 0x0D}),
+              fmt("slave='%s' opened=%d; guest got [%s] (want [31 32]); host got "
+                  "[%s] (want [7E 0D])",
+                  slave.c_str(), opened ? 1 : 0, bytes_hex(to_guest).c_str(),
+                  bytes_hex(to_host).c_str()));
+    }
+
+    // ── JOY-22 — the peer-loss discard throws away the RECEIVE queue too, and
+    // that half is invisible from outside unless a row puts bytes in it.
+    //
+    // `flush_tx()` clears BOTH queues when a write reports EPIPE, because both
+    // hold half of an exchange with a process that has exited. JOY-19 covers
+    // the transmit half — it is the one the counters show. The receive half is
+    // host bytes already pulled off the descriptor and not yet clocked into the
+    // guest, and nothing about them is visible at the moment they are dropped:
+    // deleting `rx_queue_.clear()` left the whole suite green, so that half of
+    // the documented decision lived only in a comment.
+    //
+    // The shape that makes it observable is a burst BIGGER than one frame's
+    // worth of pacing. 2000 bytes at the 115200 default is ~230 per frame, so
+    // after one frame ~1770 are still queued when the peer goes away — and if
+    // they were kept, the frames after it would go on delivering them.
+    {
+        TempFifoCable cable("rxdiscard");
+        Emulator emu;
+        emu.init(link_config(cable.base(), /*connector=*/1));
+        const bool attached = cable.attach();
+
+        std::vector<uint8_t> burst(2000);
+        for (std::size_t i = 0; i < burst.size(); ++i)
+            burst[i] = static_cast<uint8_t>((i * 5 + 9) & 0xFF);
+        const std::size_t offered = cable.send(burst);
+
+        // One frame: the whole burst comes off the descriptor into the queue,
+        // and only a frame's worth of it reaches the guest. The guest also
+        // TRANSMITS here, and that is not decoration — the Next->host FIFO is
+        // opened lazily, so until a byte has actually gone out jnext holds no
+        // write descriptor and a peer closing is indistinguishable from one
+        // that never attached (JOY-18's case, where nothing is discarded
+        // because nothing was lost). Writing the row without this step made it
+        // fail against correct code, which is how the distinction was found.
+        std::vector<uint8_t> before;
+        guest_transmit_frame(emu, 0xB0, 0, 0xA1);
+        emu.port().out(0x153B, 0x00);
+        while (!emu.uart().channel(0).rx_empty())
+            before.push_back(emu.port().in(0x143B));
+        const bool peer_was_attached = cable.drain() == std::vector<uint8_t>{0xA1};
+
+        // NOW the peer goes away, and the guest's next transmitted byte is what
+        // discovers it (EPIPE). Everything still queued dies with it.
+        cable.close_host_tx_reader();
+        guest_transmit_frame(emu, 0xB0, 0, 0xA2);
+
+        const JoyUartLink* link = emu.joy_uart_link();
+        const std::size_t delivered_at_loss = link ? link->delivered() : 0;
+        // Bytes that came off the descriptor and never reached the sink: the
+        // remainder that was in the queue at the instant of the loss. If this
+        // is 0 the row is asserting nothing.
+        const std::size_t abandoned = link
+            ? link->received() - link->delivered() - link->dropped() : 0;
+
+        // ...and now nothing more may arrive, however long the machine runs.
+        std::vector<uint8_t> after;
+        for (int f = 0; f < 3; ++f) {
+            emu.nextreg().write(0x0B, 0xB0);
+            emu.run_frame();
+            emu.port().out(0x153B, 0x00);
+            while (!emu.uart().channel(0).rx_empty())
+                after.push_back(emu.port().in(0x143B));
+        }
+
+        // `dropped() == 0` throughout, so "nothing arrived" cannot be the mux
+        // having stopped routing rather than the queue having been discarded.
+        const bool still_routed = link && link->dropped() == 0;
+
+        check("JOY-22",
+              "GH #252 — a peer lost mid-session takes the RECEIVE queue with "
+              "it as well as the transmit one: host bytes already read off the "
+              "descriptor but not yet clocked into the guest are discarded, so "
+              "the next peer's session does not begin with the tail of the "
+              "previous one's message",
+              attached && peer_was_attached && offered >= burst.size()
+                  && !before.empty() && abandoned > 0 && after.empty()
+                  && link->delivered() == delivered_at_loss && still_routed,
+              fmt("attached=%d peer_was_attached=%d offered=%zu (want 2000); "
+                  "before the loss the guest read %zu byte(s) (want >0) and %zu "
+                  "were left queued (want >0); after it read %zu (want 0); "
+                  "delivered %zu -> %zu (want unchanged); dropped=%zu (want 0)",
+                  attached ? 1 : 0, peer_was_attached ? 1 : 0, offered,
+                  before.size(), abandoned, after.size(), delivered_at_loss,
+                  link ? link->delivered() : 0, link ? link->dropped() : 0));
     }
 }
 

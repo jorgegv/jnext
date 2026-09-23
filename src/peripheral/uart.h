@@ -300,6 +300,38 @@ public:
         return device_isolated_probe_ && device_isolated_probe_();
     }
 
+    /// GH #252 — where this channel's transmitted bytes GO while the joystick
+    /// connector owns it. The return direction of the same mux the probe above
+    /// models, and the half that had nowhere to go.
+    ///
+    /// VHDL zxnext.vhd:3526-3531: in pin-7 modes "10"/"11" the transmit bit is
+    ///
+    ///   joy_iomode_pin7 <= uart0_tx   when nr_0b_joy_iomode_0 = '0'
+    ///   joy_iomode_pin7 <= uart1_tx   when nr_0b_joy_iomode_0 = '1'
+    ///
+    /// which leaves the core as `o_JOY_IO_MODE_PIN_7` (zxnext.vhd:1593) and is
+    /// driven onto joystick pin 7 by `md6_joystick_connector_x2.vhd:116`. So
+    /// the byte is not destroyed when the module-facing pin idles — it is
+    /// simply somewhere jnext had no representation for, which is why
+    /// `deliver_tx_byte` used to drop it.
+    ///
+    /// The gate is `device_isolated()` itself, nothing more: that predicate IS
+    /// `joy_iomode_uart_en AND (nr_0b_joy_iomode_0 selects this channel)`,
+    /// which is exactly the condition under which pin 7 carries this channel's
+    /// TX. The CONNECTOR field (bit 4) is deliberately NOT consulted — it
+    /// selects which socket is LISTENED to (zxnext.vhd:3538), while pin 7 is
+    /// presented to both sockets in turn by the free-running `joysel`
+    /// (md6_joystick_connector_x2.vhd:109,117). See joy_uart_link.h.
+    ///
+    /// Installed on BOTH channels from one source of truth by
+    /// `Uart::set_joy_uart_tx_sink`; only the isolated channel can ever reach
+    /// it. Not serialised, for the same reason the probe is not: it is host
+    /// topology, and the NR 0x0B state that decides when it fires lives in
+    /// IoMode, which IS serialised.
+    void set_joy_uart_tx_sink(std::function<void(uint8_t)> sink) {
+        joy_uart_tx_sink_ = std::move(sink);
+    }
+
     /// 28 MHz ticks for ONE complete frame at the current framing and
     /// prescaler. Public because the joystick-connector serial source
     /// (`JoyUartSource`, GH #251) paces off the RECEIVING channel's baud, and
@@ -508,6 +540,12 @@ private:
     // bare-peripheral unit test and keeps them byte-identical.
     std::function<bool()> device_isolated_probe_;
 
+    // GH #252 — joystick pin-7 TX sink for this channel; see
+    // set_joy_uart_tx_sink(). Empty means "no cable attached", which is every
+    // run without --joy-uart-fifo / --joy-uart-pty and keeps the isolated-TX
+    // path byte-identical to what GH #251 shipped.
+    std::function<void(uint8_t)> joy_uart_tx_sink_;
+
     /// Hand one outbound byte to whoever is listening: an attached
     /// UartDevice first, else `on_tx_byte`. Returns false when neither is
     /// present, leaving the caller to decide what an unheard byte means
@@ -613,6 +651,21 @@ public:
             [probe] { return probe && probe() == 0; });
         channels_[1].set_device_isolated_probe(
             [probe = std::move(probe)] { return probe && probe() == 1; });
+    }
+
+    /// GH #252 — install the joystick pin-7 TX sink on BOTH channels from one
+    /// source of truth, the return direction of the mux above.
+    ///
+    /// Both, not "the selected one", because the selection is NR 0x0B bit 0 and
+    /// changes at run time on a guest write; the sink is only ever reached
+    /// through `UartChannel::device_isolated()`, which can be true for at most
+    /// one channel at a time (`set_joy_uart_channel_probe` returns a single
+    /// channel index or -1), so installing it on both is the whole of the
+    /// routing. Passing `nullptr` removes it and restores the GH #251 behaviour
+    /// of dropping the byte on the floor.
+    void set_joy_uart_tx_sink(std::function<void(uint8_t)> sink) {
+        channels_[0].set_joy_uart_tx_sink(sink);
+        channels_[1].set_joy_uart_tx_sink(std::move(sink));
     }
 
     // ── Interrupt callbacks ───────────────────────────────────

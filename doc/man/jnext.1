@@ -208,12 +208,65 @@ the program has set NR 0x0B up.
 Requires \f[B]\-\-joy\-uart\-rx\f[R].
 .TP
 \f[B]\-\-joy\-uart\-connector\f[R] \f[I]N\f[R]
-Which joystick socket the \f[B]\-\-joy\-uart\-rx\f[R] cable is in:
-\f[CR]1\f[R] or \f[CR]2\f[R] (default \f[CR]2\f[R], the connector a real
-rig uses).
+Which joystick socket the joy\-port serial cable is in: \f[CR]1\f[R] or
+\f[CR]2\f[R] (default \f[CR]2\f[R], the connector a real rig uses).
 NR 0x0B bit 4 selects the connector the machine reads, so a guest that
 selects the other one hears nothing at all.
-Requires \f[B]\-\-joy\-uart\-rx\f[R].
+Applies to \f[B]\-\-joy\-uart\-rx\f[R], \f[B]\-\-joy\-uart\-fifo\f[R]
+and \f[B]\-\-joy\-uart\-pty\f[R], and requires one of them.
+.TP
+\f[B]\-\-joy\-uart\-fifo\f[R] \f[I]PATH\f[R]
+Attach a LIVE, BIDIRECTIONAL serial cable on the joystick\-port UART, as
+a pair of FIFOs named from \f[I]PATH\f[R]: \f[I]PATH\f[R]\f[CR].rx\f[R]
+carries host to Next and \f[I]PATH\f[R]\f[CR].tx\f[R] carries Next to
+host.
+Both names are from the guest\(cqs point of view, the same way round as
+\f[B]\-\-joy\-uart\-rx\f[R].
+Either is created if it does not exist; a path that exists and is not a
+FIFO is refused.
+.RS
+.PP
+This is the option to use for a debugger on the host \(em DeZog driving
+dezogif_ng \(em because it carries a conversation.
+\f[B]\-\-joy\-uart\-rx\f[R] is a RECORDING: it reads its file whole at
+startup, so pointing it at a FIFO waits for the writer to close and then
+replays what it got.
+The two are mutually exclusive: one cable, one socket.
+.PP
+The guest side is gated by NR 0x0B exactly as
+\f[B]\-\-joy\-uart\-rx\f[R] is, with one asymmetry that is the
+hardware\(cqs: RECEIVE is connector\-selected (bit 4 picks one
+socket\(cqs pin to listen on), TRANSMIT is not \(em the Next presents
+joystick pin 7 to both sockets in turn, so a cable in the socket bit 4
+does not select can still hear the machine while being unable to be
+heard by it.
+.PP
+NOTHING BLOCKS.
+With no peer attached, received bytes are simply absent and transmitted
+bytes wait; a peer that attaches later gets what was queued.
+A peer that goes away mid\-session ends the conversation: what was
+queued is discarded rather than handed to whatever connects next, and
+the cable re\-opens for a peer that reconnects.
+Receive is paced at the receiving channel\(cqs current baud, so a large
+host message cannot overrun the 512\-byte RX FIFO.
+.PP
+A rewind or an RZX playback holds the cable INERT \(em a re\-executed
+frame neither re\-transmits (the peer cannot un\-receive a byte) nor
+consumes host bytes the resumed timeline still needs.
+Nothing about a live cable is saved in a snapshot.
+Rewinding does not rewind the program on the other end of the cable, so
+a debugger session will not survive one.
+.PP
+POSIX only.
+.RE
+.TP
+\f[B]\-\-joy\-uart\-pty\f[R]
+As \f[B]\-\-joy\-uart\-fifo\f[R], but allocate a pseudo\-terminal
+instead and log the slave device path at startup.
+This is the form a serial client opens \(em DeZog\(cqs serial remote
+wants one serial device, not a pair of pipes \(em and it is put in raw
+mode so a binary protocol passes through untranslated.
+POSIX only.
 .TP
 \f[B]\-\-tape\-realtime\f[R]
 Real\-time tape loading, at the speed of an actual tape, instead of fast

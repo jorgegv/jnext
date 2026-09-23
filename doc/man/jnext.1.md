@@ -185,10 +185,53 @@ debugger ones.
     Requires **\--joy-uart-rx**.
 
 **\--joy-uart-connector** *N*
-:   Which joystick socket the **\--joy-uart-rx** cable is in: `1` or `2`
+:   Which joystick socket the joy-port serial cable is in: `1` or `2`
     (default `2`, the connector a real rig uses). NR 0x0B bit 4 selects the
     connector the machine reads, so a guest that selects the other one hears
-    nothing at all. Requires **\--joy-uart-rx**.
+    nothing at all. Applies to **\--joy-uart-rx**, **\--joy-uart-fifo** and
+    **\--joy-uart-pty**, and requires one of them.
+
+**\--joy-uart-fifo** *PATH*
+:   Attach a LIVE, BIDIRECTIONAL serial cable on the joystick-port UART, as a
+    pair of FIFOs named from *PATH*: *PATH*`.rx` carries host to Next and
+    *PATH*`.tx` carries Next to host. Both names are from the guest's point of
+    view, the same way round as **\--joy-uart-rx**. Either is created if it does
+    not exist; a path that exists and is not a FIFO is refused.
+
+    This is the option to use for a debugger on the host — DeZog driving
+    dezogif_ng — because it carries a conversation. **\--joy-uart-rx** is a
+    RECORDING: it reads its file whole at startup, so pointing it at a FIFO
+    waits for the writer to close and then replays what it got. The two are
+    mutually exclusive: one cable, one socket.
+
+    The guest side is gated by NR 0x0B exactly as **\--joy-uart-rx** is, with
+    one asymmetry that is the hardware's: RECEIVE is connector-selected (bit 4
+    picks one socket's pin to listen on), TRANSMIT is not — the Next presents
+    joystick pin 7 to both sockets in turn, so a cable in the socket bit 4 does
+    not select can still hear the machine while being unable to be heard by it.
+
+    NOTHING BLOCKS. With no peer attached, received bytes are simply absent and
+    transmitted bytes wait; a peer that attaches later gets what was queued. A
+    peer that goes away mid-session ends the conversation: what was queued is
+    discarded rather than handed to whatever connects next, and the cable
+    re-opens for a peer that reconnects. Receive is paced at the receiving
+    channel's current baud, so a large host message cannot overrun the 512-byte
+    RX FIFO.
+
+    A rewind or an RZX playback holds the cable INERT — a re-executed frame
+    neither re-transmits (the peer cannot un-receive a byte) nor consumes host
+    bytes the resumed timeline still needs. Nothing about a live cable is
+    saved in a snapshot. Rewinding does not rewind the program on the other
+    end of the cable, so a debugger session will not survive one.
+
+    POSIX only.
+
+**\--joy-uart-pty**
+:   As **\--joy-uart-fifo**, but allocate a pseudo-terminal instead and log the
+    slave device path at startup. This is the form a serial client opens —
+    DeZog's serial remote wants one serial device, not a pair of pipes — and it
+    is put in raw mode so a binary protocol passes through untranslated. POSIX
+    only.
 
 **\--tape-realtime**
 :   Real-time tape loading, at the speed of an actual tape, instead of fast
