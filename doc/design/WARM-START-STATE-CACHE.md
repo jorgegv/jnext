@@ -513,8 +513,28 @@ the restored stream stays in `warm_start_state_` for the session, so a GUI
 **File > Load NEX File…** after a CLI `--load` costs nothing.
 
 In the regression suite the cache lands in the run's own `$JNEXT_CONFIG_DIR`,
-so a full run pays the recording at most once (~3.4 s) plus the per-row digest
-on each `--load` row.
+so it is recorded fresh every run. **Not once, though** — the screenshot phase
+launches `JNEXT_TEST_JOBS` rows at a time, and the first `.nex` rows of the
+conf (`palette-demo`, `copper-demo`, `show512` — rows 1-8 are `BOOT` rows that
+take no `--load`) start together against a cache that does not exist yet.
+Measured directly: four concurrent first loads produce **four** recordings and
+zero restores. They run in parallel, so the wall-clock cost is still one boot
+(~3.4 s); the CPU cost is four. Every later row restores. Added to that is the
+~0.5 s digest on each of the 42 `.nex` rows.
+
+Concurrent writers are **not** serialised, and that is a considered decision
+rather than an oversight. `store()` writes `<cache>.tmp` and renames, and the
+temp name is shared, so two writers finishing at once can rename a blended
+file into place. Every torn file is REFUSED by the reader: the magic, the
+plain length against this build's own, the file size against `stored_bytes`,
+the `compressBound` ceiling and finally deflate's adler32 all stand between it
+and `load_state`. The cost of a tear is therefore exactly one extra recording,
+never a wrong machine. A lock file (the shape `scripts/01-sdcard-provision.sh`
+uses) would save ~3.4 s of CPU once per suite run and add a hang mode; a
+unique temp name per process would remove the tear but replace a self-healing
+fixed path — the next writer truncates and reuses it — with litter a killed
+process leaves for ever. Neither trade is worth making for a local cache whose
+worst failure is a re-boot.
 
 ### 11.5 What the default SURFACED: the handover leaves 48 BASIC paged
 

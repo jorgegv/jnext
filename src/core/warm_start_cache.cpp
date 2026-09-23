@@ -305,6 +305,19 @@ bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& w
     // Write to a sibling temporary and rename: a jnext killed mid-write must
     // not leave a half-recording that the length check would reject on every
     // later run without ever replacing it.
+    //
+    // The temp NAME is shared, deliberately, and so concurrent writers are not
+    // serialised. Since GH #234 became the default this happens routinely —
+    // the regression suite's first wave of `.nex` rows records four times at
+    // once (measured) — and two writers finishing together can rename a
+    // blended file into place. That file is REFUSED on the next load by the
+    // chain above: the magic, the plain length against this build's own, the
+    // size against stored_bytes, the compressBound ceiling, and finally
+    // deflate's own adler32. The cost of a tear is one extra recording, never
+    // a wrong machine. A per-process temp name would remove the tear and
+    // replace it with litter, because a fixed path is SELF-HEALING (the next
+    // writer truncates and reuses it) and a unique one is not; a lock file
+    // would save ~3.4 s of CPU once per suite run and add a hang mode.
     const std::string final_path = cache_path(id.machine_type);
     const std::string tmp_path   = final_path + ".tmp";
     {
