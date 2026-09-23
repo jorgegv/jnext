@@ -1046,6 +1046,7 @@ if(GTest_FOUND)
     # newly added test_*.cpp is invisible to an already-configured build dir.
     # Matches nothing today, which is exactly when the hazard is invisible.
     file(GLOB_RECURSE GTEST_SOURCES CONFIGURE_DEPENDS "test_*.cpp")
+    list(FILTER GTEST_SOURCES EXCLUDE REGEX "${JNEXT_GENERATED_DIR_REGEX}")
     if(GTEST_SOURCES)
         add_executable(jnext_tests ${GTEST_SOURCES})
         target_link_libraries(jnext_tests PRIVATE GTest::gtest_main

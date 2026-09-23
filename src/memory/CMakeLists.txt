@@ -2,6 +2,7 @@
 # source is compiled without a manual reconfigure (GH #252 shipped as an
 # undefined reference). Full rationale in the root CMakeLists.txt.
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp")
+list(FILTER SOURCES EXCLUDE REGEX "${JNEXT_GENERATED_DIR_REGEX}")
 add_library(jnext_memory STATIC ${SOURCES})
 target_include_directories(jnext_memory PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # mmu.cpp dispatches DivMMC overlay (DivMmc::read/write); mmu.h's inline

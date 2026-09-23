@@ -316,6 +316,197 @@ EXPECTED_FIRST_PARTY_GLOBS=18
 check "exactly $EXPECTED_FIRST_PARTY_GLOBS first-party globs scanned" \
 	"$good_count" "$EXPECTED_FIRST_PARTY_GLOBS"
 
+# ---------------------------------------------------------------------------
+# Phases 10-12: a source glob must never match the build's OWN GENERATED OUTPUT.
+#
+# The second edge of CONFIGURE_DEPENDS, and a direct consequence of it: because
+# the glob is re-evaluated at BUILD time, it runs after the build has written
+# its generated sources to disk. In an IN-SOURCE build (cmake -S . -B .) the
+# binary dir IS the source dir, so those files land inside the globbed
+# directory and the glob matches them.
+#
+# It shipped red in the flatpak CI job at v1.0.12. AUTOMOC writes each
+# moc_*.cpp into <target>_autogen/<hash>/ and aggregates them by #include into
+# <target>_autogen/mocs_compilation.cpp — the only one it adds as a target
+# source. The glob added the aggregated members as translation units of their
+# own and every Q_OBJECT symbol was compiled twice:
+#   multiple definition of `DebuggerWindow::staticMetaObject'
+# Nothing here saw it because every jnext build dir (build/, build/gui-release,
+# build/sdl-release) sits OUTSIDE src/. The flatpak jnext module has no
+# `builddir: true`, so flatpak-builder's cmake-ninja default built it in-source
+# at /run/build/jnext.
+#
+# The fixture is Qt-free ON PURPOSE, keeping this script's "no Qt/SDL, ~1s per
+# call" property. It does not simulate moc; it reproduces moc's SHAPE with
+# cmake -E: a custom command writes part.cpp and an aggregate.cpp that
+# `#include`s it into a <target>_autogen/ directory of the globbed dir, and
+# only the aggregate is a target source. That is precisely the arrangement that
+# makes a second compilation of the part a duplicate symbol.
+#
+# TWO build passes, and that is not padding: pass 1 creates the generated files
+# AFTER the glob check has already run, so pass 1 is green either way and a
+# single-pass test proves nothing. Pass 2 is where the glob sees them.
+# flatpak-builder runs `ninja` then `ninja install`, so it always takes both.
+#
+# The target is an executable rather than jnext's static libraries so the
+# failure is deterministic: every object is linked, so a twice-compiled symbol
+# is always a link error. Pulled from a static archive it would depend on
+# member ordering deciding whether both the aggregate and the part get pulled.
+# ---------------------------------------------------------------------------
+GENWORK="$WORK/gentest"
+
+# The fixture filters with the PROJECT'S OWN regex, read out of the root
+# CMakeLists, never a copy of it pasted here. A copy would make phase 10 pass
+# against a JNEXT_GENERATED_DIR_REGEX that had been changed to something that
+# no longer matches an autogen directory — the exact defect returning, with
+# phase 12 still green because the filter LINE is still there.
+JNEXT_GEN_REGEX=$(sed -nE 's/^set\(JNEXT_GENERATED_DIR_REGEX "(.*)"[[:space:]]*$/\1/p' \
+	"$REPO_ROOT/CMakeLists.txt")
+check "the project's generated-dir regex was extracted (non-empty)" \
+	"$([ -n "$JNEXT_GEN_REGEX" ] && echo yes || echo no)" "yes"
+
+# $1 = "with" | "without" — whether the fixture filters generated dirs out
+gen_fixture() {
+	local flt=""
+	[ "$1" = "with" ] && flt="list(FILTER SRC EXCLUDE REGEX \"$JNEXT_GEN_REGEX\")"
+	rm -rf "$GENWORK"
+	mkdir -p "$GENWORK/app"
+	cat > "$GENWORK/CMakeLists.txt" <<'EOF'
+cmake_minimum_required(VERSION 3.16)
+project(genselftest CXX)
+add_subdirectory(app)
+EOF
+	# CMAKE_CURRENT_BINARY_DIR == CMAKE_CURRENT_SOURCE_DIR here, because the
+	# configure below is in-source. That identity is the whole hazard.
+	cat > "$GENWORK/app/CMakeLists.txt" <<EOF
+add_custom_command(
+    OUTPUT \${CMAKE_CURRENT_BINARY_DIR}/genapp_autogen/aggregate.cpp
+    COMMAND \${CMAKE_COMMAND} -E make_directory \${CMAKE_CURRENT_BINARY_DIR}/genapp_autogen
+    COMMAND \${CMAKE_COMMAND} -E echo "int generated_symbol() { return 7; }" > \${CMAKE_CURRENT_BINARY_DIR}/genapp_autogen/part.cpp
+    COMMAND \${CMAKE_COMMAND} -E echo "#include \\"part.cpp\\"" > \${CMAKE_CURRENT_BINARY_DIR}/genapp_autogen/aggregate.cpp
+    VERBATIM)
+file(GLOB_RECURSE SRC CONFIGURE_DEPENDS "*.cpp")
+$flt
+add_executable(genmain \${SRC} \${CMAKE_CURRENT_BINARY_DIR}/genapp_autogen/aggregate.cpp)
+EOF
+	cat > "$GENWORK/app/main.cpp" <<'EOF'
+int generated_symbol();
+int main() { return generated_symbol(); }
+EOF
+}
+
+# IN-SOURCE on purpose: -S and -B are the same directory.
+gen_configure() { cmake -S "$GENWORK" -B "$GENWORK" \
+	-DCMAKE_CXX_COMPILER="$REAL_CXX" > "$WORK/gen.out" 2>&1; }
+gen_build() { cmake --build "$GENWORK" > "$WORK/gen.out" 2>&1; }
+
+for mode in with without; do
+	if [ "$mode" = "with" ]; then
+		echo "  -- 10: in-source build must not compile generated aggregate members twice --"
+	else
+		echo "  -- 11: negative control — the same fixture WITHOUT the filter must break --"
+	fi
+
+	outcome() { if "$@"; then echo built; else echo failed; fi; }
+
+	gen_fixture "$mode"
+	set +e
+	gen_configure
+	rc1=$(outcome gen_build)
+	set -e
+	# Pass 1 is green in BOTH modes: the generated files appear after the glob
+	# has been checked. Asserted, so a fixture that failed early cannot be
+	# mistaken for the defect in pass 2.
+	check "$mode: pass 1 builds clean (files not yet globbable)" "$rc1" "built"
+
+	set +e
+	rc2=$(outcome gen_build)
+	set -e
+	parts=$(find "$GENWORK" -name 'part.cpp.o' | wc -l)
+
+	if [ "$mode" = "with" ]; then
+		check "with: pass 2 still builds clean" "$rc2" "built"
+		check "with: the generated part was never compiled on its own" "$parts" "0"
+		# Convergence: a third pass must be a genuine no-op, not an endless
+		# reconfigure loop. The GLOB re-check itself still fires once (CMake
+		# compares the RAW glob, before list(FILTER)), so "it stops" is a
+		# separate claim from "it links".
+		set +e
+		rc3=$(outcome gen_build)
+		set -e
+		check "with: pass 3 builds clean too (converges)" "$rc3" "built"
+	else
+		check "without: pass 2 fails" "$rc2" "failed"
+		check "without: failure is the duplicate symbol, not something else" \
+			"$(grep -c 'multiple definition of .generated_symbol' "$WORK/gen.out")" "1"
+		check "without: the generated part really was compiled twice" "$parts" "1"
+	fi
+done
+
+# ---------------------------------------------------------------------------
+# Phase 12: every first-party file(GLOB_RECURSE ...) actually carries the
+# filter. Phases 10-11 prove the mechanism; this proves we USE it, and it is
+# the part that rots — a new subsystem CMakeLists.txt is made by copying an
+# existing one, and a copy taken from the wrong place carries the gap forward
+# in silence. Same scope and same reasoning as phase 9 (repo INDEX minus
+# third_party/); see that phase's comment for why the index, not the
+# filesystem.
+#
+# Pairing, not a bare count: the filter must name the SAME variable the glob
+# just set, on the line immediately after it. A file that filters some other
+# variable, or filters the right one twenty lines later with an add_library in
+# between, is not protected.
+#
+# IMMEDIATELY AFTER is literal: put NOTHING between the two lines, not even a
+# comment or a blank. A functionally harmless separator is reported as an
+# unfiltered glob — a false positive on correct configuration, accepted because
+# it fails loud on a green tree and can never mask a real gap. Loosening it to
+# "somewhere below" is what would silently accept the twenty-lines-later case.
+#
+# Non-recursive file(GLOB ...) is deliberately out of scope: it cannot descend
+# into a generated subdirectory. test/CMakeLists.txt's two `tests.*` data globs
+# are the only ones, and they glob fixture data, not sources.
+# ---------------------------------------------------------------------------
+echo "  -- 12: every first-party GLOB_RECURSE must exclude generated dirs --"
+
+check "JNEXT_GENERATED_DIR_REGEX is defined exactly once, in the root CMakeLists" \
+	"$(grep -c '^set(JNEXT_GENERATED_DIR_REGEX ' "$REPO_ROOT/CMakeLists.txt")" "1"
+
+unfiltered=""
+recursive_globs=0
+while IFS= read -r f; do
+	[ -n "$f" ] || continue
+	# Emit "<lineno>:<var>" for every GLOB_RECURSE in this file.
+	while IFS= read -r hit; do
+		[ -n "$hit" ] || continue
+		lno=${hit%%:*}
+		var=$(printf '%s' "${hit#*:}" | sed -E 's/^[[:space:]]*file\([[:space:]]*GLOB_RECURSE[[:space:]]+([A-Za-z_][A-Za-z0-9_]*).*/\1/')
+		recursive_globs=$((recursive_globs + 1))
+		next=$(sed -n "$((lno + 1))p" "$REPO_ROOT/$f")
+		case "$next" in
+			*"list(FILTER $var EXCLUDE REGEX \"\${JNEXT_GENERATED_DIR_REGEX}\")"*) ;;
+			*) unfiltered="$unfiltered$f:$lno: $var
+" ;;
+		esac
+	done <<-EOF
+		$(grep -nE '^[[:space:]]*file\([[:space:]]*GLOB_RECURSE' "$REPO_ROOT/$f" || true)
+	EOF
+done < "$WORK/cmake-files.txt"
+
+if [ -n "$unfiltered" ]; then
+	printf '%s' "$unfiltered" | grep . | sed 's/^/        /'
+fi
+check "no first-party GLOB_RECURSE without the generated-dir filter" \
+	"$(printf '%s' "$unfiltered" | grep -c .)" "0"
+
+# EXACT for the same reason phase 9's count is exact: a green result is only as
+# good as its denominator. Narrowing the file list would leave the unfiltered
+# count at 0 while silently scanning less. Updating this when you add or remove
+# a glob IS the point.
+EXPECTED_RECURSIVE_GLOBS=16
+check "exactly $EXPECTED_RECURSIVE_GLOBS first-party GLOB_RECURSE globs scanned" \
+	"$recursive_globs" "$EXPECTED_RECURSIVE_GLOBS"
+
 if [ "$FAIL" -eq 1 ]; then
 	echo "cmake-configure-guard-selftest: FAILED"
 	exit 1

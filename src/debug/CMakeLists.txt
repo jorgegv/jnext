@@ -2,6 +2,7 @@
 # source is compiled without a manual reconfigure (GH #252 shipped as an
 # undefined reference). Full rationale in the root CMakeLists.txt.
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp")
+list(FILTER SOURCES EXCLUDE REGEX "${JNEXT_GENERATED_DIR_REGEX}")
 add_library(jnext_debug STATIC ${SOURCES})
 target_include_directories(jnext_debug PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # rewind_buffer.cpp includes core/emulator.h → input/keyboard.h → <SDL2/SDL.h>,
