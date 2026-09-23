@@ -91,6 +91,24 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     with the SD write-error token rather than silently discarded. Use it
     when a run must not disturb an image other runs share.
 
+**--sdcard-file-add** *FILE*
+:   Copy host *FILE* into the SD-card image and **exit without starting
+    emulation**. Requires **--sdcard-file-dest**. The image written is
+    the one **--sdcard** names, or the default-location image when
+    **--sdcard** is omitted — in which case a loud warning says so,
+    because that image is shared with every other run. See **PUTTING A
+    FILE ON THE CARD**.
+
+**--sdcard-file-dest** *PATH*
+:   Where **--sdcard-file-add** puts the file, as a path from the root
+    of the card (`/NEXTZXOS/DRV-A.DSK`). The leading `/` is optional,
+    directories are separated with `/`, and any missing directory in the
+    path is created.
+
+**--sdcard-file-force**
+:   Let **--sdcard-file-add** replace a file that is already there.
+    Without it an existing destination is refused and left untouched.
+
 **--warm-start-regenerate**
 
 :   Discard the cached warm-start recording and take a fresh one on the

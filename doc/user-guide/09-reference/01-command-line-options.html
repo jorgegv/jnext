@@ -2992,6 +2992,21 @@ explicit path always wins.</dd>
 emulated machine sees a write-protected card: writes are rejected
 with the SD write-error token rather than silently discarded. Use it
 when a run must not disturb an image other runs share.</dd>
+<dt><strong>--sdcard-file-add</strong> <em>FILE</em></dt>
+<dd>Copy host <em>FILE</em> into the SD-card image and <strong>exit without starting
+emulation</strong>. Requires <strong>--sdcard-file-dest</strong>. The image written is
+the one <strong>--sdcard</strong> names, or the default-location image when
+<strong>--sdcard</strong> is omitted — in which case a loud warning says so,
+because that image is shared with every other run. See <strong>PUTTING A
+FILE ON THE CARD</strong>.</dd>
+<dt><strong>--sdcard-file-dest</strong> <em>PATH</em></dt>
+<dd>Where <strong>--sdcard-file-add</strong> puts the file, as a path from the root
+of the card (<code>/NEXTZXOS/DRV-A.DSK</code>). The leading <code>/</code> is optional,
+directories are separated with <code>/</code>, and any missing directory in the
+path is created.</dd>
+<dt><strong>--sdcard-file-force</strong></dt>
+<dd>Let <strong>--sdcard-file-add</strong> replace a file that is already there.
+Without it an existing destination is refused and left untouched.</dd>
 <dt><strong>--warm-start-regenerate</strong></dt>
 <dd>
 <p>Discard the cached warm-start recording and take a fresh one on the

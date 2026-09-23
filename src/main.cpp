@@ -5,6 +5,7 @@
 #include "core/nex_loader.h"   // probe_version + nex_version_needs_v13_optin (GH #228)
 #include "core/esxdos_hostfs.h"
 #include "core/rzx_recorder.h"
+#include "core/sdcard_file_add.h"
 #include "core/sdcard_provisioner.h"
 #include "core/video_recorder.h"
 #include "esp01/esp_at.h"          // AtEngine::UNASSOCIATED_IP, for --esp-ip-address
@@ -193,6 +194,10 @@ int main(int argc, char* argv[]) {
     bool        sdcard_readonly = false;
     bool        warm_start_regenerate = false;
     bool        sdcard_download_force   = false;
+    // GH #269 — the copy-and-exit SD-card mode.
+    std::string sdcard_file_add;       // host file to copy onto the card
+    std::string sdcard_file_dest;      // where it lands on the card
+    bool        sdcard_file_force = false;  // permit replacing an existing file
     std::string screenshot_file;
     int         screenshot_delay = 10;        // seconds (used unless screenshot_delay_frames is set)
     bool        screenshot_delay_set = false; // --delayed-screenshot-time given
@@ -364,6 +369,15 @@ int main(int argc, char* argv[]) {
                 break;
             case cli::OptId::SdcardReadonly:
                 sdcard_readonly = true;
+                break;
+            case cli::OptId::SdcardFileAdd:
+                sdcard_file_add = v[0];
+                break;
+            case cli::OptId::SdcardFileDest:
+                sdcard_file_dest = v[0];
+                break;
+            case cli::OptId::SdcardFileForce:
+                sdcard_file_force = true;
                 break;
             case cli::OptId::WarmStartRegenerate:
                 warm_start_regenerate = true;
@@ -926,12 +940,48 @@ int main(int argc, char* argv[]) {
               "--profile" },
             { magic_port_mode_set,          "--magic-port-mode",           magic_port_enabled,
               "--magic-port PORT" },
+            // GH #269 — the copy-and-exit SD mode needs both halves. Named in
+            // both directions so either half alone is an error, not a flag
+            // that was accepted and did nothing.
+            { !sdcard_file_add.empty(),     "--sdcard-file-add",           !sdcard_file_dest.empty(),
+              "--sdcard-file-dest PATH" },
+            { !sdcard_file_dest.empty(),    "--sdcard-file-dest",          !sdcard_file_add.empty(),
+              "--sdcard-file-add FILE" },
+            { sdcard_file_force,            "--sdcard-file-force",         !sdcard_file_add.empty(),
+              "--sdcard-file-add FILE" },
         };
         for (const Needs& n : needs) {
             if (n.given && !n.base) {
                 fprintf(stderr, "%s requires %s.\n", n.option, n.needs);
                 return 1;
             }
+        }
+    }
+    // GH #269 — --sdcard-file-add is a copy-and-exit mode, so anything that
+    // says "and then run this" contradicts it, and --sdcard-readonly says
+    // "never write the image" to a mode whose whole job is writing it. Both
+    // used to be the #138 failure shape: accepted, and one of them silently
+    // ignored.
+    if (!sdcard_file_add.empty()) {
+        if (sdcard_readonly) {
+            fprintf(stderr,
+                    "--sdcard-file-add cannot be combined with --sdcard-readonly: "
+                    "it exists to write the image.\n");
+            return 1;
+        }
+        // The closed set is "the program to run": --load, the bare file name
+        // (already folded into load_file above) and --inject. Every OTHER flag
+        // is inert here simply because no machine starts, and enumerating
+        // those would be a list with no end; these three are the ones a user
+        // can reasonably expect to mean "copy this, then run it".
+        const char* runs = !load_file.empty()   ? "--load (or a bare file name)"
+                         : !inject_file.empty() ? "--inject"
+                                                : nullptr;
+        if (runs) {
+            fprintf(stderr,
+                    "--sdcard-file-add cannot be combined with %s: it copies the file "
+                    "onto the card and exits without starting emulation.\n", runs);
+            return 1;
         }
     }
     // Headless automation (each says so in --help): the windowed frontends
@@ -1019,7 +1069,11 @@ int main(int argc, char* argv[]) {
         // confirm prompt and the progress dialog (torn down when it leaves
         // this scope, before QtApp constructs its own QApplication).
         SdcardGuiProvisioner gui_prov;
-        if (!headless) {
+        // GH #269 — --sdcard-file-add is a terminal command, not an app
+        // session, so it provisions through the CLI prompts even in a Qt
+        // build: popping a modal dialog out of `jnext --sdcard-file-add ...`
+        // in a script would hang it with nothing to click.
+        if (!headless && sdcard_file_add.empty()) {
             opts.confirm  = [&](const std::string& m) { return gui_prov.confirm(m); };
             opts.progress = [&](uint64_t d, uint64_t t) { return gui_prov.progress(d, t); };
             opts.busy     = [&](const std::string& p, const std::function<bool()>& w) {
@@ -1050,6 +1104,47 @@ int main(int argc, char* argv[]) {
                 "Use --sdcard-download-confirm to confirm download without asking.\n");
             return 1;
         }
+    }
+
+    // ---------------------------------------------------------------------
+    // GH #269 — --sdcard-file-add: copy a host file onto the card and EXIT.
+    //
+    // Placed here, after resolution, so it operates on exactly the image a
+    // normal run would boot: --sdcard FILE when given, else the default
+    // ~/.jnext/sdcard/cspect-next-1gb-fixed.img (provisioning it first if it
+    // is not there yet — a card is needed either way).
+    // ---------------------------------------------------------------------
+    if (!sdcard_file_add.empty()) {
+        // Writing the DEFAULT image is not wrong, but it is shared: every
+        // other jnext session and the whole regression suite resolve from it.
+        // Said loudly, once, and never repaired behind the user's back — a
+        // silent 1 GB backup copy per invocation would be its own surprise.
+        // Not a string comparison: `--sdcard ./cspect-next-1gb-fixed.img`, a
+        // symlink to it, or a case-different spelling all name the default
+        // image, and a warning a relative path defeats is one that goes
+        // missing exactly when it matters.
+        if (sdcard::same_image_file(sd_card_image,
+                                    sdcard::default_sdcard_image_path())) {
+            std::fprintf(stderr,
+                "warning: writing into the DEFAULT SD-card image\n"
+                "           %s\n"
+                "         Every jnext run that is given no --sdcard boots this image, and so\n"
+                "         does the test suite. Pass --sdcard FILE to write a private copy\n"
+                "         instead ('cp --reflink=auto' makes one instantly).\n",
+                sd_card_image.c_str());
+        }
+        std::string add_err;
+        const sdcard::FileAddStatus st = sdcard::add_file_to_image(
+            sd_card_image, sdcard_file_add, sdcard_file_dest,
+            sdcard_file_force, add_err);
+        if (st != sdcard::FileAddStatus::Ok) {
+            std::fprintf(stderr, "error: --sdcard-file-add: %s\n", add_err.c_str());
+            return static_cast<int>(st);
+        }
+        std::fprintf(stdout, "Copied '%s' to '%s' in %s\n",
+                     sdcard_file_add.c_str(), sdcard_file_dest.c_str(),
+                     sd_card_image.c_str());
+        return 0;
     }
 
     // Task 79 — --joyN-source only has an effect in the interactive frontends

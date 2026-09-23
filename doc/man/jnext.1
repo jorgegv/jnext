@@ -101,6 +101,27 @@ The emulated machine sees a write\-protected card: writes are rejected
 with the SD write\-error token rather than silently discarded.
 Use it when a run must not disturb an image other runs share.
 .TP
+\f[B]\-\-sdcard\-file\-add\f[R] \f[I]FILE\f[R]
+Copy host \f[I]FILE\f[R] into the SD\-card image and \f[B]exit without
+starting emulation\f[R].
+Requires \f[B]\-\-sdcard\-file\-dest\f[R].
+The image written is the one \f[B]\-\-sdcard\f[R] names, or the
+default\-location image when \f[B]\-\-sdcard\f[R] is omitted \(em in
+which case a loud warning says so, because that image is shared with
+every other run.
+See \f[B]PUTTING A FILE ON THE CARD\f[R].
+.TP
+\f[B]\-\-sdcard\-file\-dest\f[R] \f[I]PATH\f[R]
+Where \f[B]\-\-sdcard\-file\-add\f[R] puts the file, as a path from the
+root of the card (\f[CR]/NEXTZXOS/DRV\-A.DSK\f[R]).
+The leading \f[CR]/\f[R] is optional, directories are separated with
+\f[CR]/\f[R], and any missing directory in the path is created.
+.TP
+\f[B]\-\-sdcard\-file\-force\f[R]
+Let \f[B]\-\-sdcard\-file\-add\f[R] replace a file that is already
+there.
+Without it an existing destination is refused and left untouched.
+.TP
 \f[B]\-\-warm\-start\-regenerate\f[R]
 Discard the cached warm\-start recording and take a fresh one on the
 next \f[B]\-\-load\f[R] of a \f[CR].nex\f[R] file.
@@ -801,6 +822,54 @@ costs no space on a copy\-on\-write filesystem).
 .PP
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
+.SS PUTTING A FILE ON THE CARD
+\f[B]\-\-sdcard\-file\-add\f[R] copies a host file into the image and
+exits.
+No emulator starts, nothing boots; it is a file\-copy command that
+happens to live in the emulator binary, so getting a program onto the
+card needs no \f[CR]mtools\f[R] and no loopback mount.
+.IP
+.EX
+jnext \-\-sdcard\-file\-add game.dsk \-\-sdcard\-file\-dest /NEXTZXOS/DRV\-A.DSK
+jnext \-\-sdcard\-file\-add demo.nex \-\-sdcard\-file\-dest /DEMOS/demo.nex
+.EE
+.PP
+The destination is a path from the root of the card.
+Missing directories along it are created, so the second example works on
+a card with no \f[CR]/DEMOS\f[R].
+Names may be long: an 8.3\-clean uppercase name such as
+\f[CR]DRV\-A.DSK\f[R] is written as a plain short entry, and anything
+else gets VFAT long\-name entries plus a generated short name, exactly
+as any other FAT32 driver would write it.
+.PP
+A destination that already exists is \f[B]refused\f[R], and the file on
+the card is left alone \(em overwriting \f[CR]DRV\-A.DSK\f[R] would
+destroy a disk image.
+Pass \f[B]\-\-sdcard\-file\-force\f[R] to replace it deliberately.
+.PP
+The copy goes into the image \f[B]\-\-sdcard\f[R] names.
+With no \f[B]\-\-sdcard\f[R] it goes into the default\-location image,
+which every other run also boots and which the test suite resolves from;
+jnext warns loudly when that happens.
+It does not make a backup: these are gigabyte files, and
+\f[CR]cp \-\-reflink=auto\f[R] is instant on a copy\-on\-write
+filesystem.
+.PP
+The image must be a spec\-valid FAT32 (at least 65525 clusters) \(em the
+same thing the Next\(cqs own firmware requires.
+The image jnext provisions for itself already is one; a hand\-made
+under\-clustered image is refused, and
+\f[CR]tools/fix\-sdcard\-image.sh\f[R] re\-clusters one.
+.PP
+The exit status says which of the things that can go wrong did; see
+\f[B]EXIT STATUS\f[R].
+.PP
+\f[I]DRV\-A.DSK\f[R] is not an arbitrary example: NextZXOS auto\-mounts
+any \f[CR].DSK\f[R] or \f[CR].P3D\f[R] found at
+\f[CR]/NEXTZXOS/DRV\-\f[R]\f[I]X\f[R]\f[CR].DSK\f[R] (and
+\f[CR]CPM\-\f[R]\f[I]X\f[R]\f[CR].\f[R]\f[I]ext\f[R]) as drive
+\f[I]X\f[R], so copying one there is all it takes to have a +3 disk
+available at the next boot.
 .SH LOADING PROGRAMS
 Use \f[B]\-\-load\f[R] \f[I]FILE\f[R], or simply a bare filename
 (\f[CR]jnext game.tap\f[R]).
@@ -1937,6 +2006,40 @@ This holds in the GUI, the SDL\-only build and under
 \f[B]\-\-headless\f[R] alike.
 The error is logged, the machine keeps running without the program, and
 the non\-zero status is reported when \f[B]jnext\f[R] exits.
+.PP
+\f[B]\-\-sdcard\-file\-add\f[R] is a scriptable non\-emulation mode, so
+it reports which failure happened rather than a single non\-zero status:
+.TP
+0
+The file was copied onto the card.
+.TP
+1
+Command\-line usage error \(em one half of the pair given without the
+other, or combined with \f[B]\-\-sdcard\-readonly\f[R] or
+\f[B]\-\-load\f[R].
+.TP
+2
+The host file is missing, unreadable, shrank while being copied, or is 4
+GiB or larger (which FAT32 cannot store).
+.TP
+3
+The destination path is unusable: malformed or non\-ASCII, a name FAT
+forbids, a component that already exists as a file, or a destination
+that already exists as a directory.
+.TP
+4
+The destination file already exists and
+\f[B]\-\-sdcard\-file\-force\f[R] was not given.
+Nothing was written.
+.TP
+5
+The SD image is missing, is not an MBR\-partitioned FAT32 image, holds a
+filesystem this build will not mount (an under\-clustered one), or could
+not be written.
+.TP
+6
+The card has no room \(em not enough free space, or a directory with no
+free slots.
 .SH SEE ALSO
 \f[B]ffmpeg\f[R](1)
 .PP

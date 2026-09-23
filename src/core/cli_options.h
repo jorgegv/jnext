@@ -48,6 +48,9 @@ enum class OptId {
     SdcardDownloadConfirm,
     SdcardDownloadForce,
     SdcardReadonly,
+    SdcardFileAdd,
+    SdcardFileDest,
+    SdcardFileForce,
     WarmStartRegenerate,
     DelayedScreenshot,
     DelayedScreenshotTime,
@@ -234,6 +237,21 @@ inline constexpr Option OPTIONS[] = {
     { "--sdcard-readonly", 0, Doc::Documented, OptId::SdcardReadonly,
       "",
       "Open the SD image read-only; the host file is never written" },
+    // GH #269 — the copy-and-exit SD-card mode. No emulation is started; the
+    // exit status says what happened (see jnext(1) EXIT STATUS).
+    { "--sdcard-file-add", 1, Doc::Documented, OptId::SdcardFileAdd,
+      "FILE",
+      "Copy host FILE into the SD image and exit without\n"
+      "starting emulation. Needs --sdcard-file-dest PATH." },
+    { "--sdcard-file-dest", 1, Doc::Documented, OptId::SdcardFileDest,
+      "PATH",
+      "Where --sdcard-file-add puts the file on the card, as an\n"
+      "absolute path (e.g. /NEXTZXOS/DRV-A.DSK). Missing\n"
+      "directories are created." },
+    { "--sdcard-file-force", 0, Doc::Documented, OptId::SdcardFileForce,
+      "",
+      "Let --sdcard-file-add replace an existing file. Without\n"
+      "it an existing destination is refused, untouched." },
     { "--warm-start-regenerate", 0, Doc::Documented, OptId::WarmStartRegenerate,
       "",
       "Discard the cached warm-start recording and take a fresh one\n"

@@ -137,8 +137,15 @@ jobs:
             qt6-qtbase-devel \
             ImageMagick xorg-x11-server-Xvfb xdotool python3 python3-pyyaml unzip diffutils \
             ripgrep ffmpeg-free bc file xxd \
+            mtools dosfstools \
             pandoc mkdocs-material graphviz liberation-sans-fonts \
             perl-interpreter perl-FindBin perl-File-Temp perl-PathTools
+          # mtools + dosfstools are the FOREIGN validators the GH #269
+          # sdcard-file-add-func row reads the SD image back with (mdir,
+          # mcopy, fsck.vfat). They are not a convenience: jnext writes FAT32
+          # there, and a filesystem writer checked only by its own reader is
+          # the .szx defect this project already shipped once. That row FAILS
+          # rather than skips when they are absent, so they are declared here.
           # The four perl-* entries are the traceability tooling's own
           # dependencies (test/refresh-traceability-matrix.pl,
           # test/traceability-citations-selftest.pl), declared rather than

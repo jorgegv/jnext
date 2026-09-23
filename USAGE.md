@@ -24,6 +24,7 @@ the two can never disagree. For building jnext from source, see
   - [Misc](#misc)
 - [MACHINES](#machines)
 - [SD CARD AND ROMS](#sd-card-and-roms)
+  - [PUTTING A FILE ON THE CARD](#putting-a-file-on-the-card)
 - [LOADING PROGRAMS](#loading-programs)
   - [esxDOS calls from a directly loaded
     NEX](#esxdos-calls-from-a-directly-loaded-nex)
@@ -166,6 +167,23 @@ Open the SD image read-only, so the host file is never modified. The
 emulated machine sees a write-protected card: writes are rejected with
 the SD write-error token rather than silently discarded. Use it when a
 run must not disturb an image other runs share.
+
+**--sdcard-file-add** *FILE*  
+Copy host *FILE* into the SD-card image and **exit without starting
+emulation**. Requires **--sdcard-file-dest**. The image written is the
+one **--sdcard** names, or the default-location image when **--sdcard**
+is omitted — in which case a loud warning says so, because that image is
+shared with every other run. See **PUTTING A FILE ON THE CARD**.
+
+**--sdcard-file-dest** *PATH*  
+Where **--sdcard-file-add** puts the file, as a path from the root of
+the card (`/NEXTZXOS/DRV-A.DSK`). The leading `/` is optional,
+directories are separated with `/`, and any missing directory in the
+path is created.
+
+**--sdcard-file-force**  
+Let **--sdcard-file-add** replace a file that is already there. Without
+it an existing destination is refused and left untouched.
 
 **--warm-start-regenerate**  
 Discard the cached warm-start recording and take a fresh one on the next
@@ -762,6 +780,46 @@ filesystem).
 
 The mounted image is also the SD card the emulated machine sees at
 runtime, through the SPI/DivMMC path: NextZXOS reads its files from it.
+
+### PUTTING A FILE ON THE CARD
+
+**--sdcard-file-add** copies a host file into the image and exits. No
+emulator starts, nothing boots; it is a file-copy command that happens
+to live in the emulator binary, so getting a program onto the card needs
+no `mtools` and no loopback mount.
+
+    jnext --sdcard-file-add game.dsk --sdcard-file-dest /NEXTZXOS/DRV-A.DSK
+    jnext --sdcard-file-add demo.nex --sdcard-file-dest /DEMOS/demo.nex
+
+The destination is a path from the root of the card. Missing directories
+along it are created, so the second example works on a card with no
+`/DEMOS`. Names may be long: an 8.3-clean uppercase name such as
+`DRV-A.DSK` is written as a plain short entry, and anything else gets
+VFAT long-name entries plus a generated short name, exactly as any other
+FAT32 driver would write it.
+
+A destination that already exists is **refused**, and the file on the
+card is left alone — overwriting `DRV-A.DSK` would destroy a disk image.
+Pass **--sdcard-file-force** to replace it deliberately.
+
+The copy goes into the image **--sdcard** names. With no **--sdcard** it
+goes into the default-location image, which every other run also boots
+and which the test suite resolves from; jnext warns loudly when that
+happens. It does not make a backup: these are gigabyte files, and
+`cp --reflink=auto` is instant on a copy-on-write filesystem.
+
+The image must be a spec-valid FAT32 (at least 65525 clusters) — the
+same thing the Next’s own firmware requires. The image jnext provisions
+for itself already is one; a hand-made under-clustered image is refused,
+and `tools/fix-sdcard-image.sh` re-clusters one.
+
+The exit status says which of the things that can go wrong did; see
+**EXIT STATUS**.
+
+*DRV-A.DSK* is not an arbitrary example: NextZXOS auto-mounts any `.DSK`
+or `.P3D` found at `/NEXTZXOS/DRV-`*X*`.DSK` (and `CPM-`*X*`.`*ext*) as
+drive *X*, so copying one there is all it takes to have a +3 disk
+available at the next boot.
 
 ## LOADING PROGRAMS
 
@@ -1576,6 +1634,38 @@ recording given to **--load** or **--rzx-play**. This holds in the GUI,
 the SDL-only build and under **--headless** alike. The error is logged,
 the machine keeps running without the program, and the non-zero status
 is reported when **jnext** exits.
+
+**--sdcard-file-add** is a scriptable non-emulation mode, so it reports
+which failure happened rather than a single non-zero status:
+
+0  
+The file was copied onto the card.
+
+1  
+Command-line usage error — one half of the pair given without the other,
+or combined with **--sdcard-readonly** or **--load**.
+
+2  
+The host file is missing, unreadable, shrank while being copied, or is 4
+GiB or larger (which FAT32 cannot store).
+
+3  
+The destination path is unusable: malformed or non-ASCII, a name FAT
+forbids, a component that already exists as a file, or a destination
+that already exists as a directory.
+
+4  
+The destination file already exists and **--sdcard-file-force** was not
+given. Nothing was written.
+
+5  
+The SD image is missing, is not an MBR-partitioned FAT32 image, holds a
+filesystem this build will not mount (an under-clustered one), or could
+not be written.
+
+6  
+The card has no room — not enough free space, or a directory with no
+free slots.
 
 ## SEE ALSO
 
