@@ -59,6 +59,20 @@
 > "0x133B rejected" but VHDL line 2639 and `src/core/emulator.cpp:747` both
 > route 0x133B to UART TX-status — the test correctly tracks observable
 > VHDL, not plan wording.
+>
+> **Current status (2026-09-24, GH #201):** `port_test` reports
+> **132 / 132 pass / 0 fail / 0 skip**. The six rows the 2026-04-15 block
+> above lists as stubs are all closed: BUS-86-02 / BUS-88-00 / BUS-89-00
+> are real `check()` rows driving the NR 0x86-0x89 AND-mask from the port
+> side, IORQ-01 is a real row with a catch-all read counter and an
+> ordinary `IN A,(n)` as positive control, and CTN-01 / CTN-02 are real
+> rows measuring the contention-ON/OFF T-state delta on a real
+> `IN A,(n)`. BUS-86-03 is retired as a duplicate of
+> `V16-NMP-02-EXPBUS-ON-MASK`; BUS-87-D and AMAP-01 are retired on scope
+> grounds (jnext models no NextBUS and no F5/F6 expansion-bus hotkey).
+> The combined `REG-06+07` check was split into REG-06 (the register-
+> SELECT latch) and REG-07 (the register file), which the single check
+> could not distinguish.
 
 ---
 
@@ -344,8 +358,8 @@ Plus:
 |-----------|-----------------------------------------------|-----------------------------------|---------------------------------------------------|------------------------------------------------------------|------------------------|
 | BUS-86-01 | NR 0x86 inert when expbus_eff_en=0            | expbus_eff_en=0                   | NR 0x86 ← 0x00; OUT 0x00FF                        | SCLD write still reaches handler                           | `zxnext.vhd:2392`      |
 | BUS-86-02 | NR 0x86 gates when expbus_eff_en=1            | expbus_eff_en=1, NR 0x82 bit 0=1  | NR 0x86 bit 0 ← 0; OUT 0x00FF                     | SCLD write blocked                                         | `zxnext.vhd:2393`      |
-| BUS-86-03 | NR 0x86 AND with NR 0x82                      | expbus_eff_en=1                   | NR 0x82 bit 1=1, NR 0x86 bit 1=0                  | 0x7FFD blocked (AND of cleared bit)                        | `zxnext.vhd:2393, 2399`|
-| BUS-87-D  | DivMMC enable-diff detection                  | expbus_eff_en=1                   | Toggle NR 0x87 bit 0 while NR 0x83 bit 0 fixed    | `port_divmmc_io_en_diff` rising edge observable            | `zxnext.vhd:2413, 2180`|
+| ~~BUS-86-03~~ | ~~NR 0x86 AND with NR 0x82~~ | — | — | **RETIRED 2026-09-24 (GH #201)** — assertion for assertion the same claim, stimulus and oracle as `V16-NMP-02-EXPBUS-ON-MASK` in `test/nextreg/nextreg_integration_test.cpp` ("NR 0x86 b1=0 silences OUT 0x7FFD when expbus_eff_en=1 … [zxnext.vhd:2392-2393 / :2399]"), observing the same `Mmu::port_7ffd()` latch. Its neighbours `-EXPBUS-OFF` / `-ON-PASS` / `-TOGGLE` cover the expbus_eff_en=0, AND-term-set and live-toggle corners of the same bit. No `check()` row exists here. | — |
+| ~~BUS-87-D~~ | ~~DivMMC enable-diff detection~~ | — | — | **RETIRED 2026-09-24 (GH #201)** — `port_divmmc_io_en_diff` (`zxnext.vhd:2413`) is not a port-decode signal and is NOT an input to `internal_port_enable`. Its only consumer anywhere in the core is `hotkey_expbus_freeze` (`:2180`), whose only consumers are the guards at `:2189`/`:2191` stopping the F5/F6 expansion-bus hotkeys (`:6344-6345`) from writing `nr_80_expbus(7)`. jnext models neither end: no NextBUS emulation at all (`src/memory/contention.cpp:122-128` records that WONT) and F5/F6 have no expansion-bus side effect by owner decision (`src/gui/main_window.cpp:2024-2031`). The AND-side of NR 0x83/0x87 that jnext DOES model stays covered by `V16-NMP-02-DIVMMC-MASK` and `V16-NMP-02-MF-MASK`. No `check()` row exists. | — |
 | BUS-88-00 | NR 0x88 AND with NR 0x84 (AY)                 | expbus_eff_en=1                   | NR 0x88 bit 0 ← 0                                 | 0xFFFD/0xBFFD blocked regardless of NR 0x84                | `zxnext.vhd:2393, 2428`|
 | BUS-89-00 | NR 0x89 AND with NR 0x85 (ULA+)               | expbus_eff_en=1                   | NR 0x89 bit 0 ← 0                                 | 0xBF3B blocked                                             | `zxnext.vhd:2393, 2439`|
 
@@ -363,39 +377,71 @@ Plus:
 
 ### Group F. IORQ/M1 / RMW / contention-affected ports
 
-**IORQ-01 disposition.** The underlying VHDL guarantee (M1+IORQ bypasses
-port decode) is real and IS exercised, but a prior citation claiming
-coverage via "the FUSE Z80 opcode suite" was wrong (GH #196 phase 1.1
-review) — the FUSE opcode-test format has no interrupt-ack scenario and
-its `TestIO::in()` is a hardcoded stub. The row below cites the real
-coverage instead.
+**IORQ-01 disposition (closed 2026-09-24, GH #201).** The underlying
+VHDL guarantee (M1+IORQ bypasses port decode) is real. A first citation
+claiming coverage via "the FUSE Z80 opcode suite" was wrong (GH #196
+phase 1.1 review) — the FUSE opcode-test format has no interrupt-ack
+scenario and its `TestIO::in()` is a hardcoded stub. The replacement
+citation (IM2-ACK-VECTOR-EI-GRACE / ULA-INT-V19-IM2-04) was true but
+partial: both prove the vector ARRIVES through `on_int_ack()`, and
+neither has a `PortDispatch` in the picture, so neither could prove the
+negative half the row actually claims. The row is now a real
+row-local `check()` in `test/port/port_test.cpp` with a catch-all
+handler as the counter and an ordinary `IN A,(n)` as the positive
+control.
 
-**CTN-01/CTN-02 disposition.** A prior pass on this packet claimed both
-rows were "exercised end-to-end by the FUSE Z80 opcode suite" — false:
-the FUSE Z80 test harness path nulls the contention runtime entirely
-(`src/cpu/z80_cpu.cpp:62-64`), and `test/fuse/fuse_z80_test.cpp` never
-installs a `ContentionModel`, so every FUSE opcode test — including any
-IN/OUT case — runs with contention completely inert. This is the
-identical gap independently found in the Contention suite as
-CT-FUSE-03/CT-FUSE-04 (`doc/testing/CONTENTION-TEST-PLAN-DESIGN.md`
-§16): real, currently untested, and constructible with the same ON/OFF
-T-state-delta idiom used there. Status stays `missing`.
+**CTN-01/CTN-02 disposition (closed 2026-09-24, GH #201).** A prior pass
+on this packet claimed both rows were "exercised end-to-end by the FUSE
+Z80 opcode suite" — false: the FUSE Z80 test harness path nulls the
+contention runtime entirely (`src/cpu/z80_cpu.cpp:62-64`), and
+`test/fuse/fuse_z80_test.cpp` never installs a `ContentionModel`, so
+every FUSE opcode test — including any IN/OUT case — runs with
+contention completely inert. Both rows are now real `check()` rows in
+`test/port/port_test.cpp`, built on the ON/OFF T-state-delta idiom of
+CT-FUSE-01 and anchored with the canonical
+`seek_to_display_window()` from `test/contention/contention_helpers.h`.
+
+> **Stimulus correction.** Writing them exposed a plan bug, and
+> mutation-testing the first attempt exposed a second one. BOTH rows had
+> been specified from the classic 48K contention table ("is the port
+> address in the 0x4000 window"), not from their own cited oracle. The
+> Next decodes port contention as
+> `port_contend <= (not cpu_a(0)) or port_7ffd_active or port_bf3b or
+> port_ff3b` (`zxnext.vhd:4496`) — by ADDRESS BIT 0.
+>
+> * CTN-02's original `IN A,(0x00FE)` with `A=0` is an EVEN, therefore
+>   port-CONTENDED address, and could not have been the uncontended
+>   control the row needs.
+> * CTN-01's original `IN A,(0x4000|n)` is contended by the MEMORY term
+>   as well as the port term. Measured: deleting the `not cpu_a(0)` term
+>   from `ContentionModel::port_contend` left that form of the row green,
+>   so it could not tell a working port term from an absent one.
+>
+> Both rows now hold the PAGE constant (slot 0, ROM — memory term off per
+> `:4489`) and vary only address bit 0, which is the single axis
+> `:4496` decodes. Both also sweep all 8 phases of the contention period:
+> `wait_s` (`zxula.vhd:583`) is a function of `hc_adj`, two of the eight
+> phases stretch by zero, and a single fixed start offset is unsafe in
+> both directions — the first attempt read a legitimate zero and looked
+> like an emulator bug. The Contention suite's CT-IO-01/CT-IO-02 assert
+> the same even/odd decode at the bare-class tier, which is what made the
+> original discrepancy visible.
 
 | ID      | Title                                         | Stimulus                                                | Expected                                                            | Oracle                           |
 |---------|-----------------------------------------------|---------------------------------------------------------|---------------------------------------------------------------------|----------------------------------|
-| IORQ-01 | Interrupt ack not routed to `in`              | Raise IRQ line, let IM1/IM2 vector fetch happen          | `PortDispatch::in` is **not** called during M1+IORQ — vector resolves via the dedicated `on_int_ack()` callback, structurally separate from `IoInterface::in`. **Status: `missing`** (no row-local `check()`), but exercised end-to-end by `test/cpu/cpu_z80n_im2_regressions_test.cpp` (IM2-ACK-VECTOR-EI-GRACE) and `test/ctc_interrupts/ctc_interrupts_test.cpp` (ULA-INT-V19-IM2-04), both asserting the IM2 daisy-chain FSM advances off `on_int_ack()` | `zxnext.vhd:2705`; `z80_cpu.cpp:716` |
+| IORQ-01 | Interrupt ack not routed to `in`              | Bare `Z80Cpu` over a real `PortDispatch` holding ONE catch-all handler (mask 0, value 0 — nothing can slip past it). Positive control: one ordinary `IN A,(n)`. Then `request_interrupt()` + `execute()` in IM2. | The catch-all counts exactly ONE read (the `IN`) and no more, while `on_int_ack()` fires exactly once: the acknowledge does not reach `PortDispatch::in`. `zxnext.vhd:2705` gates the whole internal read response on `iord` = `cpu_ioreq_n='0' AND cpu_m1_n='1'`, so an M1+IORQ cycle is excluded by construction. **Closed 2026-09-24 (GH #201)** — the previously cited rows (IM2-ACK-VECTOR-EI-GRACE, ULA-INT-V19-IM2-04) prove the vector ARRIVES through `on_int_ack`; neither has a `PortDispatch` in the picture, so neither could prove the negative half. | `zxnext.vhd:2705`; `z80_cpu.cpp:716` |
 | IORQ-02 | Normal IN is routed, and composes the port-0xFE byte | `OUT (0xFE),0` then `IN A,(0xFE)` with no key pressed | Returns exactly `0xBF` — bit 7 = 1, bit 6 = EAR = 0, bit 5 = 1, bits 4:0 = half-row | `zxnext.vhd:2705`, `:3459` |
 | IORQ-02b| Port-0xFE bit 6 tracks the EAR-out latch      | `OUT (0xFE),0x10` then read; `OUT (0xFE),0x00` then read | bit 6 = 1 then 0                                                   | `zxnext.vhd:3459`, `:3598`       |
 | IORQ-02c| Pressed key yields the exact hardware byte    | Press `O`, read `0xDFFE`; press `SPACE`, read `0x7FFE`   | `0xBD` and `0xBE` respectively (GH #51: programs compare the whole byte, not just bits 4:0) | `zxnext.vhd:3459`  |
 | RMW-01  | 0xFE border + beeper latch                    | OUT 0xFE ← 0x07 (border); OUT 0xFE ← 0x10 (beeper bit)  | ULA border = 7 after first write, bit 4 latches speaker             | `zxnext.vhd:2582`                |
-| CTN-01  | Contended-port timing on 0x4000-range port    | `IN A,(0x4000|n)`                                       | T-state count matches contended-port pattern from `readport`. **Status: `missing`** — real, currently untested gap; NOT covered by the FUSE Z80 opcode suite (contention is nulled on that harness path). Identical to Contention's CT-FUSE-03 | `zxula.vhd:595`; `zxnext.vhd:4496`; `z80_cpu.cpp:62-64` |
-| CTN-02  | Uncontended `IN A,(nn)` outside 0x4000 range  | `IN A,(0x00FE)` with A=0                                | Only the fixed +1/+3 T-states. **Status: `missing`** — same reasoning as CTN-01; identical to Contention's CT-FUSE-04 | `zxula.vhd:595`; `zxnext.vhd:4496`; `z80_cpu.cpp:62-64` |
+| CTN-01  | Contended-port timing                         | 48K, first active display line: `IN A,(0xFE)` with `A=0` → port `0x00FE`, swept across all 8 phases of the contention period. EVEN (`cpu_a(0)=0`, so `port_contend`) and in slot 0 / ROM, so the memory term is off (`:4489`) and `port_contend` is the ONLY live term. ON/OFF T-state idiom. | ON exceeds 11 T on at least one phase and by at most 6 T (the `wait_s` envelope); OFF is a flat 11 T across all 8 phases. **Closed 2026-09-24 (GH #201)**; NOT covered by the FUSE Z80 opcode suite (contention is nulled on that harness path, `z80_cpu.cpp:62-64`). | `zxula.vhd:583,595`; `zxnext.vhd:4489,4496`; `z80_cpu.cpp:62-64` |
+| CTN-02  | Uncontended `IN A,(nn)`                       | 48K, same display line and same page as CTN-01, address bit 0 SET: `IN A,(0xFF)` with `A=0` → port `0x00FF`, swept across the same 8 phases. | No term fires on ANY phase, so the instruction costs exactly its fixed 11 T-states with contention enabled and disabled alike. **Closed 2026-09-24 (GH #201)**. | `zxula.vhd:583,595`; `zxnext.vhd:4489,4496`; `z80_cpu.cpp:62-64` |
 
 ### Group G. DivMMC automap interaction
 
 | ID       | Title                                              | Preconditions                                             | Stimulus                            | Expected                                                                                                  | Oracle                                |
 |----------|----------------------------------------------------|-----------------------------------------------------------|-------------------------------------|-----------------------------------------------------------------------------------------------------------|---------------------------------------|
-| AMAP-01  | DivMMC enable diff freezes expansion bus           | NR 0x83 b0 = 1, NR 0x87 b0 = 0, expbus_eff_en = 1         | Write to a divmmc-trigger address   | `hotkey_expbus_freeze` asserts (observable via debug hook / log)                                          | `zxnext.vhd:2180, 2413`               |
+| ~~AMAP-01~~ | ~~DivMMC enable diff freezes expansion bus~~ | — | — | **RETIRED 2026-09-24 (GH #201)** — `hotkey_expbus_freeze` (`zxnext.vhd:2180`) is combinational, not a latch, and is not an automap signal: it is `(port_divmmc_io_en_diff and divmmc_automap_held) or (port_multiface_io_en_diff and mf_mem_en)`, and its only consumers are the two guards at `:2189`/`:2191` that stop the F5/F6 expansion-bus hotkeys from writing `nr_80_expbus(7)` mid-automap. It gates no port decode, no memory map and no NMI. jnext has no NextBUS emulation and F5/F6 have no expansion-bus side effect, so there is no hotkey write for the freeze to hold off — asserting it would mean adding a debug accessor nothing in the emulator reads. Same reasoning as BUS-87-D. No `check()` row exists. | — |
 | AMAP-02  | 0xE3 writes honoured even when automap held        | DivMMC automap held                                        | OUT 0xE3 ← 0x80                     | DivMMC register state updates (the port is not squelched by automap; only memory mapping changes)         | `zxnext.vhd:2608`                     |
 | AMAP-03  | NR 0x83 b0 = 0 disables 0xE3 regardless of automap | NR 0x83 b0 = 0                                             | OUT 0xE3                            | No DivMMC state change; handler gated off                                                                 | `zxnext.vhd:2412, 2608`               |
 
@@ -582,7 +628,27 @@ at where the AND-gating logic is genuinely implemented and tested —
 `V16-NMP-02-NR85-NR89-B0` in `test/nextreg/nextreg_integration_test.cpp:5971-6109`.
 Those 7 IDs are themselves currently unrecorded anywhere in this
 matrix — a separate, pre-existing gap, out of scope for this fix (a
-candidate for a future phase-1.4-or-later item). The ONE remaining
+candidate for a future phase-1.4-or-later item).
+
+**Superseded 2026-09-24 (GH #201).** Those 4 rows have now been
+dispositioned individually rather than as a block, because only ONE of
+them was a genuine duplicate of the V16 coverage:
+
+- **BUS-86-03** (NR 0x86 b1 / port 0x7FFD) IS that duplicate —
+  `V16-NMP-02-EXPBUS-ON-MASK` asserts the identical claim, stimulus and
+  oracle. RETIRED.
+- **BUS-86-02** (NR 0x86 **b0** / port **0xFF**) is a different bit and
+  a different handler; no V16 row drives it. Now a real `check()`.
+- **BUS-88-00** (NR 0x88 b0 / the AY ports) — no existing row drives
+  NR 0x88 at all; `NR84-00` only checks that NR 0x84's own bit reads
+  back cleared. Now a real `check()`.
+- **BUS-89-00** (NR 0x89 b0 / 0xBF3B) — `V16-NMP-02-NR85-NR89-B0`
+  asserts the AND on the CONTENTION shadow
+  (`ContentionModel::port_ulap_io_en()`), not on the port handler. A
+  handler reading the raw cached NR 0x85 byte instead of the effective
+  one would pass that row and fail this one. Now a real `check()`.
+- **BUS-87-D** is not a port-decode row at all and is retired on scope
+  grounds; see its table entry. The ONE remaining
 `BUS-86..89-W` row in the main table is re-described to state only the
 bare-writability fact it actually proves, and — now that it makes an
 honest claim — genuinely duplicates the extra-coverage row, so removing
