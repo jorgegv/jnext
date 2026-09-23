@@ -333,13 +333,15 @@ process tree. `test/lint-timeouts.sh` — row 3 of the preflight — enforces it
 tracked `*.sh` under `test/`, a WIDER scope than `lint-traps.sh` because this hazard has
 nothing to do with being sourced. **The rule has NO exception list**, deliberately: whether a
 program handles SIGTERM is not statically decidable, and "this one is fine" is the reasoning
-that put the bare `timeout` there. Five call sites were fixed by hand and two more arrived
-within hours — the gate is the fix, not the sweep. It reuses lint-traps' syntax skeleton, adds
+that put the bare `timeout` there. A hand sweep fixed five call sites in two files and left
+THREE behind elsewhere — one of them seven weeks old, in `test/packaging/packaging-test.sh`,
+which only the wider scope finds. The gate is the fix, not the sweep. It reuses lint-traps' syntax skeleton, adds
 a bash-shaped command-position walk (reserved words, `VAR=x` prefixes, `command`/`builtin`/`env`)
 and judges each invocation on ITS OWN leading option run, so a `--kill-after` belonging to a
-different command on the same line excuses nothing. 53 cases pinned both ways; its header
-gives EXAMPLES of what it cannot catch (a command name in a variable, a heredoc body), not an
-exhaustive list.
+different command on the same line excuses nothing. Continuation lines are joined only AFTER
+comments are stripped — a backslash is inert inside a `#` comment, and deciding the other way
+round swallows the statement below it. 61 cases pinned both ways; its header gives EXAMPLES of
+what it cannot catch (a command name in a variable, a heredoc body), not an exhaustive list.
 
 **The harness is itself under test.** `make harness-selftest` (also run every regression as
 `harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It

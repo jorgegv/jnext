@@ -1916,14 +1916,22 @@ verdict on the real tree is trusted at all:</p>
   whereas with one file per case the lost case is named. It also cross-checks
   its own prose case table against the fixture files that exist, in both
   directions, so that the documentation and the fixtures cannot drift apart.</li>
-<li><code>test/lint-timeouts.sh</code> carries <strong>53 pinned cases: 25 that must flag and 28
+<li><code>test/lint-timeouts.sh</code> carries <strong>61 pinned cases: 30 that must flag and 31
   that must not</strong>, in the same one-file-per-case shape and with the same
   table-versus-fixtures cross-check. Its rules were mutation-tested one at a
-  time; the run killed 16 of 17 mutations and found a real hole — reverting the
+  time; the run killed 19 of 20 mutations and found a real hole — reverting the
   comment stripper changed nothing, because every comment fixture was inert for
   a second reason as well. The two cases that close it exist because of the
   mutation, not because anyone thought of them first.</li>
 </ul>
+<p>Mutation testing has a shape it cannot see, though, and review found it here:
+  per-rule mutation regresses the rules you <strong>wrote</strong>, so it can never surface
+  an <em>interaction</em> between two correct rules that nobody put together. The
+  blocker in this lint was exactly that — continuation lines were joined before
+  comments were stripped, and a backslash is inert inside a <code>#</code> comment, so the
+  statement below such a comment was swallowed whole. Every continuation case
+  had been written without a comment and every comment case without a
+  continuation.</p>
 <p>Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.</p>
 

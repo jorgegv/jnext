@@ -32,24 +32,17 @@ else
 fi
 echo ""
 
-# --- owner-absolute-path lint (GH #204) ---
-# The GH #204 sweep removed ~30 hardcoded home paths from tracked scripts and
-# sources. Nothing in that fix was discriminative — the review proved it by
-# re-running the pre-fix hook self-test, which passed, because the hardcoded
-# literal names the maintainer's real checkout on the maintainer's machine.
-# The bug class is invisible from the machine that has it, so a static grep is
-# the only gate that can see it from here. It would have caught 29 lines across
-# 26 files on the pre-fix tree.
 # --- unescalated-timeout lint ---
 # `timeout N cmd` sends SIGTERM and nothing after it, so a command that does
 # not act on SIGTERM runs unbounded while timeout reports 124 as if it had been
 # stopped. Two jnext processes were found alive 9289 s after a `timeout 120`,
 # reparented to systemd, burning a core apiece underneath the suite's
 # real-time-pacing-bound rows — the class of runaway that fails nothing itself
-# and makes OTHER rows lie. Commit d56ad276 fixed five such call sites by hand
-# and two more arrived within hours, which is why the gate exists and the fix
-# alone did not. Scanned wider than lint-traps: every tracked test/*.sh, since
-# a runaway started outside a row costs exactly the same.
+# and makes OTHER rows lie. Commit d56ad276 swept two files by hand and fixed
+# five call sites; three more were already in the tree elsewhere, one of them
+# seven weeks old, and only a gate that looks at the WHOLE test tree finds
+# those. Hence the scope: every tracked test/*.sh, wider than lint-traps,
+# because a runaway started outside a row costs exactly the same.
 echo -e "${BOLD}[lint-timeouts] Scanning test shell scripts for unescalated timeouts...${RESET}"
 CURRENT_ROW=lint-timeouts
 if bash "$PROJECT_DIR/test/lint-timeouts.sh"; then
@@ -59,6 +52,14 @@ else
 fi
 echo ""
 
+# --- owner-absolute-path lint (GH #204) ---
+# The GH #204 sweep removed ~30 hardcoded home paths from tracked scripts and
+# sources. Nothing in that fix was discriminative — the review proved it by
+# re-running the pre-fix hook self-test, which passed, because the hardcoded
+# literal names the maintainer's real checkout on the maintainer's machine.
+# The bug class is invisible from the machine that has it, so a static grep is
+# the only gate that can see it from here. It would have caught 29 lines across
+# 26 files on the pre-fix tree.
 echo -e "${BOLD}[lint-paths] Scanning tracked code/config for owner-absolute paths...${RESET}"
 CURRENT_ROW=lint-paths
 if bash "$PROJECT_DIR/test/lint-hardcoded-paths.sh"; then

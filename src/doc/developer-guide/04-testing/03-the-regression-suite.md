@@ -167,8 +167,10 @@ has nothing to do with being sourced: a process a packaging test leaves behind
 costs the same as one a regression row leaves behind. The rule has **no
 exception list**, deliberately: whether a given program handles `SIGTERM` is
 not statically decidable, and "this one is fine" is the reasoning that put the
-bare `timeout` there in the first place. Five call sites were fixed by hand
-before the lint existed and two more arrived within hours.
+bare `timeout` there in the first place. A hand sweep fixed five call sites in
+two files and left **three** behind elsewhere — one of them seven weeks old, in
+`test/packaging/packaging-test.sh`, which only a whole-tree scope finds. That is
+the argument for the gate: a sweep fixes what it is pointed at.
 
 ## Regenerating reference screenshots
 
