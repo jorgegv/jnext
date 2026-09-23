@@ -81,6 +81,40 @@ consults it once per instruction, before the fetch:
 | `STEP_BACK` / `RUN_BACK_TO_CYCLE` | `step_back()`, `run_back_to_cycle()` | handled before the loop starts, by rewinding |
 | watchpoint | `add_watchpoint` | `Mmu` latches `data_bp_hit`; checked after the instruction |
 
+### Enabling and disabling breakpoints
+
+`BreakpointSet` keeps two things, not one. The **model** — `pc_all_`
+(`addr -> enabled`) and `wp_all_` (each `Watchpoint` carrying its own
+`enabled`) — is what the Breakpoints panel lists. The **live cache** —
+`pc_live_` and `wp_live_`, the same container types the class had before any of
+this existed — holds only what can actually fire, and is what `has_pc()`,
+`has_watchpoint()`, `has_io_watchpoint()` and `has_any_watchpoints()` read.
+`rebuild_live_()` recomputes the cache, and is called only by mutators; nothing
+on the hot path ever rebuilds or filters.
+
+That split is what makes a disabled breakpoint cost *nothing* rather than
+merely little. The hot path's structures are unchanged and their contents are a
+subset of the model, so a disabled breakpoint is not hashed, not compared and
+not iterated. Disable the only watchpoint and `has_any_watchpoints()` goes
+false again, so the eight `Mmu` watchpoint sites and `PortDispatch` short-circuit
+exactly as on a machine that never had one.
+
+The **master switch** (`set_master_enabled()`) is the whole of
+`rebuild_live_()`'s first line: with it off, the cache is left empty and the
+model is not read at all. It therefore cannot consume a per-breakpoint flag,
+which is what makes the off/on round trip exact by construction rather than by
+a save-and-restore that has to be kept correct. One-shots sit outside the model
+entirely, so Step Over, Step Out and Run to Here still work while every
+breakpoint is suspended.
+
+Two queries exist where there used to be one, and they are not
+interchangeable: `has_pc()` is *live* (will this stop the CPU) and is what the
+run loop asks; `pc_exists()` / `pc_enabled()` are the *model* and are what the
+panel's checkbox and the gutter's marker ask. The gutter draws a filled dot for
+live and a hollow ring for a breakpoint that exists but is suspended, and the
+gutter's click-to-toggle asks `pc_exists()` — asking `has_pc()` there would
+read a disabled breakpoint as absent and stack a second one on top of it.
+
 Every one of those modes leaves `paused_` through `DebugState::unpause_()`,
 which also arms a one-instruction **step-off**. The loop consumes it
 immediately before `should_break()`, and that first test of a resumed run is
@@ -224,8 +258,10 @@ disassembly gutter) also **observe it**: `BreakpointSet::add_observer()` takes a
 is Qt-free — and every mutator calls it, so a breakpoint appears the instant it
 is set rather than on the next tick. The two subscribers differ, deliberately:
 the list acts on both change kinds, the gutter only on `PcBreakpoints`, since it
-paints `has_pc()` and nothing else. One-shot breakpoints notify nobody — they
-are transient, are set on every resume, and no panel draws them.
+paints the PC half and nothing else. One-shot breakpoints notify nobody — they
+are transient, are set on every resume, and no panel draws them. The enable
+setters notify the half they change; the master switch notifies **both**, since
+it changes every checkbox in the list and every dot in the gutter at once.
 
 The point is where the notification comes *from*. A dozen call sites mutate that
 set, and each one used to be responsible for repainting the views itself; twice

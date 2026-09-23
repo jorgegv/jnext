@@ -10,7 +10,10 @@ the `PC` line stays recognisable inside a selection, and clear of the gutter,
 so breakpoint dots stay visible.
 
 - **Click the gutter** on any line to set or clear an execute breakpoint (shown
-  as a red dot).
+  as a red dot). A breakpoint that has been
+  [suspended](08-breakpoints.md) — unticked in the Breakpoints panel, or
+  covered by its master switch — is drawn as a hollow red ring instead;
+  clicking its gutter still removes it.
 - **Click and drag** over the listing to select a range of lines, or click one
   line to select just that one. **Shift+click** extends the selection from
   where it started, and **Shift + ↑ ↓ Page Up/Down Home End** do the same from

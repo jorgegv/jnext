@@ -39,6 +39,20 @@ memory breakpoint never fires on a port access.
 
 **Breakpoints ▸ Clear All Breakpoints** removes all three kinds at once.
 
+## Turning them off instead of deleting them
+
+Each row of the [Breakpoints panel](../panels/08-breakpoints.md) carries an
+**On** checkbox, and the panel carries a **Breakpoints enabled** master switch.
+Unticking a row suspends that one breakpoint; unticking the master switch
+suspends all of them at once. Nothing is deleted either way — addresses, types
+and the individual On states all survive, so ticking the master switch back
+gives you exactly the set you had. New breakpoints are always created enabled,
+whichever route you create them from.
+
+A suspended execute breakpoint is drawn in the disassembly gutter as a hollow
+red ring rather than a filled dot, so it is still visible and still obviously
+not armed. Stepping and **Run to Here** are unaffected by the master switch.
+
 ## Closing the debugger window disarms them
 
 All three kinds are checked only while the debugger window is **open**. Close it
