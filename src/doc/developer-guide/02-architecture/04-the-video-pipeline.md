@@ -151,8 +151,11 @@ Five details reliably bite newcomers:
   line, and the tilemap's scroll, fetch and output-stage snapshots share that
   one point so that a Copper split changing several of them switches them all
   on the same row (GH #257; they used to be taken at the start of the line,
-  one row late). The renderer has no representation for "from column X", so
-  this is an approximation that can be up to one row early, never late.
+  one row late). Two lanes DO have a representation for "from column X": the
+  Layer 2 bank and scroll logs carry a column beside the line tag and the
+  renderer draws the row in segments (GH #270). For every other lane this stays
+  an approximation, and one that is not bounded to a row: a line carrying two
+  writes to the same register loses the first outright.
 - **Skipping the drain loses vblank writes forever.** `rewind_to_baseline()`
   deliberately undoes the live mutation the writer performed, and the per-row
   replay only covers visible rows — so a setup sequence that completes during

@@ -2012,6 +2012,10 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
         return v;
     });
     nextreg_.set_write_handler(0x12, [this](uint8_t v) -> uint8_t {
+        // GH #270 — position the change-log entry horizontally as well as
+        // by scanline, so a mid-line Copper MOVE switches the bank where it
+        // lands instead of repainting the whole line.
+        layer2_.set_current_hpos(nr_write_hpos());
         layer2_.set_active_bank(v);
         // Verify4-memory class-(a) fix: VHDL zxnext.vhd:2968 makes
         // layer2_active_bank combinational from nr_12_layer2_active_bank
@@ -2062,6 +2066,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Register 0x13: Layer 2 shadow RAM bank
     nextreg_.set_write_handler(0x13, [this](uint8_t v) -> uint8_t {
+        layer2_.set_current_hpos(nr_write_hpos());   // GH #270
         layer2_.set_shadow_bank(v);
         // Mirror to Mmu so that port 0x123B bit-3 (map_shadow) routes the
         // CPU L2 read/write-over through this bank — VHDL zxnext.vhd:2968
@@ -2210,12 +2215,14 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
 
     // Register 0x16: Layer 2 X scroll LSB
     nextreg_.set_write_handler(0x16, [this](uint8_t v) -> uint8_t {
+        layer2_.set_current_hpos(nr_write_hpos());   // GH #270
         layer2_.set_scroll_x_lsb(v);
         return v;
     });
 
     // Register 0x17: Layer 2 Y scroll
     nextreg_.set_write_handler(0x17, [this](uint8_t v) -> uint8_t {
+        layer2_.set_current_hpos(nr_write_hpos());   // GH #270
         layer2_.set_scroll_y(v);
         return v;
     });
@@ -2237,6 +2244,7 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // (cluster E): canonicalise on the write side; NR 0x71 is the only writer
     // of bit 8 of Layer2's 9-bit scroll_x, so `v & 0x01` is the read-back.
     nextreg_.set_write_handler(0x71, [this](uint8_t v) -> uint8_t {
+        layer2_.set_current_hpos(nr_write_hpos());   // GH #270
         layer2_.set_scroll_x_msb(v);
         return static_cast<uint8_t>(v & 0x01);
     });
@@ -9499,6 +9507,30 @@ int Emulator::current_hc() const
     // phc runs 0..447 (48K) or 0..455 (other modes) per line.
     uint64_t elapsed = clock_.get() - frame_cycle_;
     return static_cast<int>((elapsed % timing_.master_cycles_per_line) / 4);
+}
+
+int Emulator::nr_write_hpos() const
+{
+    // GH #270 — see the declaration in emulator.h for what the result means.
+    int raw_hc;
+    const int move_hc = copper_.active_move_hc();
+    if (move_hc >= 0) {
+        // Copper: `move_hc` is the VHDL `hc_ula` 7 MHz pixel counter
+        // (zxnext.vhd:3949 hcount_i => hc, GH #181), whose zero sits at raw
+        // hc = c_min_hactive - 11 (VideoTiming::hc_ula_zero_raw_hc). Rebase
+        // onto the raw frame counter, because that is the counter the LINE
+        // tag is in: Emulator::on_scanline fires at raw hc == 0
+        // (schedule_frame_events), while an hc_ula line starts 125 pixels
+        // later. Without the rebase, a Copper write in the raw hc 0..124
+        // window would carry an hc_ula near the END of the line and be
+        // rendered as "past the right edge" of a line it actually precedes.
+        raw_hc = move_hc + video_timing_.hc_ula_zero_raw_hc();
+        const int hc_span = video_timing_.hc_max() + 1;
+        if (raw_hc >= hc_span) raw_hc -= hc_span;
+    } else {
+        raw_hc = current_hc();
+    }
+    return raw_hc - static_cast<int>(video_timing_.display_origin().hc);
 }
 
 void Emulator::snapshot_raster()

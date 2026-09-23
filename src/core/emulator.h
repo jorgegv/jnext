@@ -654,6 +654,24 @@ public:
     /// Current horizontal counter (pixel column, 0..PIXELS_PER_LINE-1) within the current scanline.
     int current_hc() const;
 
+    /// Horizontal position of the NextREG write currently being serviced,
+    /// in display columns relative to the origin of the 256x192 active
+    /// area (`raw_hc - c_min_hactive`) — GH #270.
+    ///
+    /// Negative = left border / hblank (the write precedes the line's first
+    /// pixel); >= 256 = right border (it lands past the visible line and
+    /// only affects the next one).
+    ///
+    /// A Copper MOVE reports its own raster column via
+    /// `Copper::active_move_hc()` — essential, because the Copper window
+    /// for one CPU instruction is replayed AFTER the clock has already
+    /// advanced past it, so `current_hc()` would be up to a whole
+    /// instruction (tens of columns) late. A CPU write has no such
+    /// per-write timestamp under jnext's per-instruction granularity and
+    /// takes `current_hc()`, i.e. the end of the instruction that issued
+    /// it.
+    int nr_write_hpos() const;
+
     /// Snapshot raster position at the current clock value (call when pausing).
     void snapshot_raster();
 

@@ -111,6 +111,23 @@ public:
     bool     is_running() const { return mode_ != 0; }
     uint16_t instruction(uint16_t addr) const { return instructions_[addr & 0x3FF]; }
 
+    /// `hcount_i` of the MOVE currently being issued, or -1 when no
+    /// Copper MOVE is in flight (GH #270).
+    ///
+    /// `execute()` calls `NextReg::write()` synchronously from inside the
+    /// per-28 MHz-cycle loop, so any NextREG write handler that needs to
+    /// know WHERE along the scanline the write landed can ask for it here.
+    /// The value is the same `hc` argument `execute()` was called with —
+    /// i.e. the VHDL `hc_ula` 7 MHz pixel counter (zxnext.vhd:3949,
+    /// copper.vhd:35; GH #181), NOT the raw frame counter. Callers that
+    /// need raw `hc` add `VideoTiming::hc_ula_zero_raw_hc()` and wrap.
+    ///
+    /// Set only for the duration of the `nextreg.write()` call, so a CPU
+    /// write (which reaches the same handlers) reads -1 and falls back to
+    /// its own raster position. Deliberately NOT part of save/load state:
+    /// it is never non-negative outside that call.
+    int active_move_hc() const { return move_hc_; }
+
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
@@ -120,6 +137,7 @@ private:
     uint8_t  mode_ = 0;        // 2-bit mode from NextREG 0x62
     uint8_t  last_mode_ = 0;   // previous mode (for edge detection)
     bool     move_pending_ = false;  // MOVE output needs one cycle to clear
+    int      move_hc_ = -1;    // GH #270 — see active_move_hc()
 
     // Write address state machine
     uint16_t write_addr_ = 0;         // 11-bit byte address into instruction RAM

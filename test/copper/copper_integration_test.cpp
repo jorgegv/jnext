@@ -595,6 +595,288 @@ static void test_gh181_frame_boundary_carry()
           " want raw line 0, hc in [1,200]; pre-fix 141443 (raw line 310)");
 }
 
+// ── GH #270 — WHERE along the line a NextREG write lands ───────────────
+
+static void test_gh270_write_hpos()
+{
+    set_group("GH270-Hpos");
+
+    // Emulator::nr_write_hpos() turns "a NextREG write is happening now"
+    // into a column within the current scanline, for the Layer 2 change
+    // logs to record. It has two sources and one conversion, and the
+    // GH #270 regression row (layer2-midline-bank-func) only exercises one
+    // source and the un-wrapped half of the conversion. These two rows
+    // cover the rest.
+    //
+    // Both read the segment list back the way Renderer::render_frame builds
+    // it — rewind_to_baseline() then apply_changes_for_line() per row — and
+    // ask which column the second segment starts at.
+
+    // ---- GH270-HPOS-01: the Copper hc_ula -> raw hc REBASE + WRAP ----
+    //
+    // The Copper compares against `hc_ula` (zxnext.vhd:3949, copper.vhd:35;
+    // GH #181), whose zero is at raw hc = c_min_hactive - 11 = 125
+    // (zxula_timing.vhd:423-436). The per-scanline LINE tag, however, is in
+    // raw-frame space — Emulator::on_scanline is scheduled at raw hc == 0
+    // (schedule_frame_events) — so the column must be rebased onto raw hc
+    // before it means anything relative to that tag.
+    //
+    // hc_ula 331..455 is the part of an hc_ula line that lies in the NEXT
+    // raw line's hc 0..124, i.e. in the left border BEFORE that line's
+    // display. WAIT(hpos=40) has threshold (40<<3)+12 = 332
+    // (copper.vhd:94), which is exactly there: raw hc = (125+332) mod 456
+    // = 1, so the write precedes every pixel of the line it is tagged with
+    // and must own ALL of it — first affected source column 1-136+2 = -133.
+    //
+    // Discriminative: drop the `- hc_span` wrap and the same write reports
+    // raw hc 457, column 323 — past the 256-wide display, i.e. "affects no
+    // part of this line", the exact opposite of the truth.
+    //
+    // Driven by run_frame(), not by execute_single_instruction(): the line
+    // tag comes from the SCANLINE scheduler events, which the raw one-slot
+    // primitive does not drain.
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("GH270-HPOS-01", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+        } else {
+            const int ppl  = emu.video_timing().hc_max() + 1;
+            const int minh = emu.video_timing().display_origin().hc;
+            const bool geom_ok = (ppl == 456 && minh == 136 &&
+                                  emu.video_timing().display_origin().vc == 64);
+
+            emu.run_frame();
+            const uint16_t code_addr = 0xC000;
+            for (uint32_t a = code_addr; a <= 0xFFFF; ++a)
+                emu.mmu().write(static_cast<uint16_t>(a), 0x00);   // NOP sled
+            auto regs = emu.cpu().get_registers();
+            regs.PC = code_addr;
+            regs.IFF1 = 0;
+            regs.IFF2 = 0;
+            emu.cpu().set_registers(regs);
+
+            emu.copper().reset();
+            for (int i = 0; i < 16; ++i)
+                program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+            program_word(emu, 0, enc_wait(40, 100));      // hc_ula 332
+            program_word(emu, 1, enc_move(0x12, 0x10));   // Layer 2 bank
+            program_word(emu, 2, enc_wait(0, 511));       // HALT
+            nr_write(emu, 0x64, 0);
+            nr_write(emu, 0x12, 0x08);
+            set_copper_mode(emu, 1);
+
+            emu.run_frame();
+            const bool fired = (nr_read(emu, 0x12) == 0x10);
+
+            int found_row = -1, found_col = 0;
+            size_t found_segs = 0;
+            emu.layer2().rewind_to_baseline();
+            for (int row = 0; row < 256; ++row) {
+                emu.layer2().apply_changes_for_line(row);
+                if (emu.layer2().line_segment_count() > 1 && found_row < 0) {
+                    found_row  = row;
+                    found_segs = emu.layer2().line_segment_count();
+                    found_col  = emu.layer2().segment_first_column(1, false);
+                }
+            }
+            check("GH270-HPOS-01",
+                  "a Copper MOVE at hc_ula 332 rebases to raw hc 1 and owns "
+                  "the whole scanline (column -133), not none of it "
+                  "[copper.vhd:94; zxula_timing.vhd:423-436]",
+                  geom_ok && fired && found_row >= 0 && found_segs == 2
+                    && found_col == -133,
+                  "geom_ok=" + std::to_string(geom_ok) +
+                  " fired=" + std::to_string(fired) +
+                  " row=" + std::to_string(found_row) +
+                  " segs=" + std::to_string(found_segs) +
+                  " col=" + std::to_string(found_col) +
+                  " (expected -133; no-wrap would give 323)");
+        }
+    }
+
+    // ---- GH270-HPOS-02: a CPU write reports its OWN raster position ----
+    //
+    // Copper::active_move_hc() is only non-negative for the duration of a
+    // Copper MOVE's nextreg.write(). Everything else — a CPU OUT to
+    // 0x253B, the NEX loader, a soft reset — falls through to
+    // Emulator::current_hc(), the raw pixel counter, and lands at the
+    // column the instruction ended on.
+    //
+    // Discriminative: without the fallback the write carries the line-start
+    // tag and owns the WHOLE line (column <= 0), instead of splitting it
+    // around two thirds of the way across.
+    //
+    // execute_single_instruction() is the raw one-slot primitive and drains
+    // no scheduler events, so the SCANLINE tag this test needs has to be
+    // applied the way Emulator::on_scanline would. That is the only part
+    // stood in for; the write itself goes through the real port path, the
+    // real NR 0x12 handler and the real nr_write_hpos().
+    {
+        Emulator emu;
+        if (!build_next_emulator(emu)) {
+            check("GH270-HPOS-02", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+        } else {
+            const int minh = emu.video_timing().display_origin().hc;
+            const bool geom_ok = (minh == 136);
+
+            emu.run_frame();
+            const uint16_t code_addr = 0xC000;
+            for (uint32_t a = code_addr; a <= 0xFFFF; ++a)
+                emu.mmu().write(static_cast<uint16_t>(a), 0x00);   // NOP sled
+            auto regs = emu.cpu().get_registers();
+            regs.PC = code_addr;
+            regs.IFF1 = 0;
+            regs.IFF2 = 0;
+            emu.cpu().set_registers(regs);
+
+            // Make the Copper issue a MOVE FIRST, then stop it. The column
+            // it publishes is live only for the duration of its own
+            // nextreg.write(); a sentinel left standing afterwards would
+            // hand the CPU write below the Copper's column (here hpos=20 ->
+            // hc_ula 172 -> raw hc 297 -> column 163) instead of its own.
+            emu.copper().reset();
+            for (int i = 0; i < 16; ++i)
+                program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+            program_word(emu, 0, enc_wait(20, 10));
+            program_word(emu, 1, enc_move(0x12, 0x20));
+            program_word(emu, 2, enc_wait(0, 511));   // HALT
+            nr_write(emu, 0x64, 0);
+            set_copper_mode(emu, 1);
+            emu.run_frame();
+            const bool copper_fired = (nr_read(emu, 0x12) == 0x20);
+            set_copper_mode(emu, 0);          // Copper stopped: CPU path only
+            nr_write(emu, 0x12, 0x08);
+
+            // A NOP is 4 T-states = 8 raw pixels, so step until the raster
+            // is somewhere in [200, 208) of a visible line — well inside the
+            // 136..391 display window, so the resulting column is a genuine
+            // mid-line split rather than a clamp at either end.
+            bool arrived = false;
+            for (int i = 0; i < 20000 && !arrived; ++i) {
+                arrived = (emu.current_scanline() == 150
+                           && emu.current_hc() >= 200
+                           && emu.current_hc() < 208);
+                if (!arrived) emu.execute_single_instruction();
+            }
+            const int hc = emu.current_hc();
+
+            // Start a clean change log first. The per-line cursor walk in
+            // apply_changes_for_line requires ASCENDING line tags, and the
+            // boot frame this test ran leaves its own NR 0x12 traffic tagged
+            // at the lines it happened on.
+            emu.layer2().start_frame();
+            emu.layer2().set_current_line(118);   // fb row of raw line 150
+            nr_write(emu, 0x12, 0x10);            // CPU OUT, not a Copper MOVE
+
+            emu.layer2().rewind_to_baseline();
+            for (int row = 0; row <= 118; ++row)
+                emu.layer2().apply_changes_for_line(row);
+            const size_t segs = emu.layer2().line_segment_count();
+            const int col     = emu.layer2().segment_first_column(1, false);
+
+            check("GH270-HPOS-02",
+                  "a CPU NextREG write takes its column from the live raster "
+                  "position (hc 200..207 -> column 66..73), not from the "
+                  "line start and not from a Copper MOVE that already ran",
+                  geom_ok && copper_fired && arrived && segs == 2
+                    && col == hc - minh + 2 && col >= 66 && col <= 73,
+                  "geom_ok=" + std::to_string(geom_ok) +
+                  " copper_fired=" + std::to_string(copper_fired) +
+                  " arrived=" + std::to_string(arrived) +
+                  " hc=" + std::to_string(hc) +
+                  " segs=" + std::to_string(segs) +
+                  " col=" + std::to_string(col) +
+                  " want=" + std::to_string(hc - minh + 2));
+        }
+    }
+}
+
+// ── GH #270 — every tagged NextREG handler ────────────────────────────
+
+static void test_gh270_tagged_handlers()
+{
+    set_group("GH270-Handlers");
+
+    // GH270-HPOS-03 — the five NextREG write handlers that feed the Layer 2
+    // change logs (0x12 and 0x13 -> the bank log; 0x16, 0x17 and 0x71 ->
+    // the scroll log) each have to stamp the write with its column. A
+    // handler that forgets falls back to the line-start tag, which
+    // push_line_segment clamps forward onto the PREVIOUS segment and merges
+    // away — so the segment COUNT is the observable, and it is exact.
+    //
+    // Four WAITs on one cvc line, 8 hpos units apart, give four distinct
+    // columns (copper.vhd:94 threshold = (hpos<<3)+12, hc_ula -> raw hc +125,
+    // raw hc -> column -136+2):
+    //     hpos  8 -> hc_ula  76 -> raw 201 -> column  67   <- the MAME column
+    //     hpos 16 -> hc_ula 140 -> raw 265 -> column 131
+    //     hpos 24 -> hc_ula 204 -> raw 329 -> column 195
+    //     hpos 32 -> hc_ula 268 -> raw 393 -> column 259   (past the display)
+    // so a correct build reports 5 segments at exactly those columns, and
+    // dropping ANY ONE handler's stamp reports 4.
+    //
+    // This is also the emulator-tier check on the MAME-measured boundary:
+    // the reporter's WAIT(line, hpos=8) case puts it at display column 67.
+    Emulator emu;
+    if (!build_next_emulator(emu)) {
+        check("GH270-HPOS-03", "Emulator::init(ZXN_ISSUE2) failed", false, "");
+        return;
+    }
+    const bool geom_ok = (emu.video_timing().hc_max() + 1 == 456 &&
+                          emu.video_timing().display_origin().hc == 136 &&
+                          emu.video_timing().display_origin().vc == 64 &&
+                          emu.video_timing().vblank_top() == 32);
+
+    emu.run_frame();
+    const uint16_t code_addr = 0xC000;
+    for (uint32_t a = code_addr; a <= 0xFFFF; ++a)
+        emu.mmu().write(static_cast<uint16_t>(a), 0x00);   // NOP sled
+    auto regs = emu.cpu().get_registers();
+    regs.PC = code_addr;
+    regs.IFF1 = 0;
+    regs.IFF2 = 0;
+    emu.cpu().set_registers(regs);
+
+    emu.copper().reset();
+    for (int i = 0; i < 16; ++i)
+        program_word(emu, static_cast<uint16_t>(i), enc_move(0, 0));
+    program_word(emu, 0, enc_wait( 8, 100));
+    program_word(emu, 1, enc_move(0x16, 0x11));   // L2 X scroll LSB
+    program_word(emu, 2, enc_wait(16, 100));
+    program_word(emu, 3, enc_move(0x17, 0x22));   // L2 Y scroll
+    program_word(emu, 4, enc_wait(24, 100));
+    program_word(emu, 5, enc_move(0x71, 0x01));   // L2 X scroll MSB
+    program_word(emu, 6, enc_wait(32, 100));
+    program_word(emu, 7, enc_move(0x13, 0x33));   // L2 shadow bank
+    program_word(emu, 8, enc_wait(0, 511));       // HALT
+    nr_write(emu, 0x64, 0);
+    set_copper_mode(emu, 1);
+
+    emu.run_frame();
+    const bool fired = (nr_read(emu, 0x13) == 0x33);
+
+    // fb row of raw line 64+100 = 164 is 164-32 = 132.
+    emu.layer2().rewind_to_baseline();
+    for (int row = 0; row <= 132; ++row)
+        emu.layer2().apply_changes_for_line(row);
+    const size_t segs = emu.layer2().line_segment_count();
+    int c[4] = {0, 0, 0, 0};
+    for (int i = 0; i < 4; ++i)
+        c[i] = emu.layer2().segment_first_column(static_cast<size_t>(i + 1), false);
+
+    check("GH270-HPOS-03",
+          "NR 0x16 / 0x17 / 0x71 / 0x13 each stamp their write with its own "
+          "column: four MOVEs 8 hpos apart give segments at 67, 131, 195 and "
+          "259 [copper.vhd:94; zxnext.vhd:5220,5226; layer2.vhd:110-122]",
+          geom_ok && fired && segs == 5 &&
+          c[0] == 67 && c[1] == 131 && c[2] == 195 && c[3] == 259,
+          "geom_ok=" + std::to_string(geom_ok) +
+          " fired=" + std::to_string(fired) +
+          " segs=" + std::to_string(segs) +
+          " cols=" + std::to_string(c[0]) + "," + std::to_string(c[1]) +
+          "," + std::to_string(c[2]) + "," + std::to_string(c[3]) +
+          " (expected 5 segments at 67,131,195,259)");
+}
+
 // ── Main ──────────────────────────────────────────────────────────────
 
 int main() {
@@ -622,6 +904,12 @@ int main() {
 
     test_gh181_frame_boundary_carry();
     std::printf("  Group: GH181-FrameCarry — done\n");
+
+    test_gh270_write_hpos();
+    std::printf("  Group: GH270-Hpos — done\n");
+
+    test_gh270_tagged_handlers();
+    std::printf("  Group: GH270-Handlers — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
