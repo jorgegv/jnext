@@ -31,11 +31,23 @@
 # real. It costs nothing when the command is well behaved — it fires only if
 # SIGTERM was already disregarded.
 #
-# At the time of the incident 135 call sites used the house form and 5 did not;
-# commit d56ad276 fixed those 5. TWO MORE ARRIVED WITHIN HOURS
-# (joy-uart-link-func.sh, `timeout 110 cat` and `timeout 15 sh -c`), because a
-# point fix with no gate behind it is a point fix. That is what this file is:
-# the gate, not the fix.
+# A HAND SWEEP IS NOT A GATE, and the git history says so precisely. Commit
+# d56ad276 looked at two files and fixed five call sites. Three more were
+# already in the tree at that moment and it never looked at them:
+#
+#     timeout 110 cat     joy-uart-link-func.sh   39605ae9  09-23 01:16
+#     timeout 15 sh -c    joy-uart-link-func.sh   d97bc2f1  09-23 01:59
+#     timeout 600 python3 packaging-test.sh       699c376d  08-06 10:48
+#     ------------------- the sweep -------------  d56ad276  09-23 02:25
+#
+# (An earlier draft of this header said the first two "arrived within hours"
+# AFTER the sweep. They did not — they predate it by an hour and by 26
+# minutes. Corrected in review; the timestamps above are the evidence.)
+#
+# The third is the one that matters for scope: seven weeks old, in a file the
+# sweep had no reason to open, and invisible to any lint that looks only at
+# regression row scripts. A sweep fixes what it is pointed at. That is what
+# this file is instead: the gate, not the fix.
 #
 # ------------------------------------------------------------------------
 # SCOPE — tracked `*.sh` under test/, recursively. Stated, not implied.
@@ -94,10 +106,23 @@
 # the terminal's process group, so Ctrl-C and TTY reads reach it) and it is not
 # universally correct: without it, `timeout` puts the command in its OWN
 # process group and signals the whole group, which is what you want when the
-# command spawns a process tree. Measured: 158 of 162 call sites escalate, but
-# only 147 pass `--foreground` — 11 legitimate sites omit it on purpose.
-# Conflating the two would make this lint land red on code that does bound
-# itself, and a lint that flags correct code gets disabled.
+# command spawns a process tree.
+#
+# That is not a theoretical preference — the sites that omit it are exactly the
+# ones that bound a process TREE, and they cluster structurally rather than
+# randomly: every `timeout` in `test/harness-selftest.sh` (which bounds whole
+# harness and `make` invocations) and in `test/run-unit-tests.sh` (which bounds
+# a suite) omits it, as does the wine console driver in
+# `test/packaging/packaging-test.sh`. Requiring `--foreground` uniformly would
+# leave the grandchildren of those runs unreachable by the KILL — reintroducing
+# the very class this lint exists to stop — and would land the lint red on code
+# that already bounds itself. A lint that flags correct code gets disabled.
+#
+# (An earlier draft quoted "158 of 162 escalate, 147 with --foreground". Those
+# figures came from a grep that also counted comment lines and did not
+# reproduce; review recounted with this lint own walker and got 149 invocation
+# lines, 13 of them without `--foreground`, distributed exactly as above. The
+# structural statement is both accurate and stable, so it replaces the counts.)
 #
 # ------------------------------------------------------------------------
 # HOW THE MATCHING WORKS, AND WHY IT IS SHAPED LIKE THIS
@@ -149,10 +174,12 @@
 #     environment assignments.
 #   * an escalation option that belongs to a different `timeout` on the line.
 #   * an option run split over continuation lines, in both directions.
-#   * `timeout` spelled so the literal word never appears — bash concatenates
-#     adjacent word fragments, so `tim''eout`, `time\out` and `t\i\m\e\o\u\t`
-#     all run the program. Same class, and the same dequoting, as lint-traps'
-#     P29-P34.
+#   * `timeout` spelled so the literal word never appears in ONE of its
+#     variants — bash concatenates adjacent word fragments, so `tim''eout`,
+#     `time\out` and `t\i\m\e\o\u\t` all run the program, and the EMPTY pair and
+#     the backslash both resolve here. `"ti""meout"`, two NON-empty fragments,
+#     does not: each collapses to its own X. That one is in NOT CAUGHT below,
+#     squarely in the deliberate-obfuscation class.
 #   * a signal option that is not KILL (`--signal=HUP`), which escalates
 #     nothing.
 #
@@ -177,6 +204,10 @@
 #   * any other wrapper command — `nohup timeout 5 x`, `stdbuf -o0 timeout ...`,
 #     `xargs timeout ...`. Only `command`/`builtin`/`env` are modelled, being
 #     the ones this tree uses.
+#   * the word split into two NON-empty quoted fragments — `"ti""meout" 60 x`.
+#     Each fragment collapses to its own inert X, so the word never forms. The
+#     empty-pair and backslash variants DO resolve (P24, P25); this one is the
+#     same deliberate-obfuscation class as a command name in a variable.
 # These are OUT OF SCOPE, not a backlog. This lint is for the ACCIDENTAL bare
 # `timeout` — the failure that actually happened, twice, in a suite whose other
 # 158 call sites had the escalation. If you are assembling the command name
@@ -328,7 +359,11 @@ scan_files() {
                 # bash-style clusters (-vk5s) are handled by looking for the
                 # letter anywhere in the run.
                 if (t ~ /^-[A-Za-z]*k$/)  return 1       # value is the next token
-                if (t ~ /^-[A-Za-z]*k./)  return 1       # value attached
+                # Attached value, and it has to LOOK like one: GNU takes the
+                # rest of the token as the argument, so `-k=5s` and `-ks5s`
+                # are "invalid time interval" (measured, exit 125) and bound
+                # nothing at all. Flagged, not excused. X is a quoted token.
+                if (t ~ /^-[A-Za-z]*k[0-9$X]/) return 1  # value attached
                 if (t ~ /^-[A-Za-z]*s$/)  { want = 1; continue }
                 if (t ~ /^-[A-Za-z]*s(SIG)?(KILL|9)$/) return 1
                 continue                          # -v, -p, anything else
@@ -380,46 +415,93 @@ scan_files() {
             return 0
         }
 
-        # --------------------------------------------------------- driver
-        FNR == 1 { qst = 0; qcontent = ""; in_hd = 0; pend = ""; startln = 0 }
-
-        # Heredoc bodies are skipped wholesale — see NOT CAUGHT in the header.
-        in_hd { if ($0 ~ hd_term) in_hd = 0; next }
-
-        {
-            # Join backslash-continued lines, bash-exactly: the backslash and
-            # the newline both disappear and nothing is inserted, so
-            # `--kill\` + `-after=5s` is one token exactly as bash sees it.
-            # The offence is reported at the FIRST physical line.
-            if (pend == "") startln = FNR
-            raw = pend $0
-            nb = 0
-            while (substr(raw, length(raw) - nb, 1) == "\\") nb++
-            if (nb % 2 == 1) { pend = substr(raw, 1, length(raw) - 1); next }
-            pend = ""
-
-            analyse(raw)
-            if (CODE ~ /^[[:space:]]*$/) next
+        # ---------------------------------------------------------- emit
+        # emit(f, n, code, skel) — one LOGICAL line: arm a heredoc skip if it
+        # opens one, then report it if it carries an unescalated invocation.
+        function emit(f, n, code, skel,   w, line) {
+            if (code ~ /^[[:space:]]*$/) return
 
             # Arm the heredoc skip BEFORE matching, so a `timeout` in a child
             # script body is not read as ours. Detected on CODE, not on the
             # skeleton: the delimiter word is DATA that must survive, and a
             # heredoc can sit inside a "$( ... )" the skeleton collapses to X.
             # "<<<" is a herestring and must not arm it.
-            if (CODE !~ /<<</ && match(CODE, /<<-?[[:space:]]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/)) {
-                w = substr(CODE, RSTART, RLENGTH)
+            if (code !~ /<<</ && match(code, /<<-?[[:space:]]*['"'"'"]?[A-Za-z_][A-Za-z0-9_]*/)) {
+                w = substr(code, RSTART, RLENGTH)
                 sub(/^<<-?[[:space:]]*/, "", w)
                 gsub(/['"'"'"]/, "", w)
                 hd_term = "^[[:space:]]*" w "[[:space:]]*$"
                 in_hd = 1
             }
 
-            if (offenders(SKEL)) {
-                line = CODE
+            if (offenders(skel)) {
+                line = code
                 sub(/^[[:space:]]+/, "", line)
-                printf "%s:%d: [timeout with no --kill-after] %s\n", FILENAME, startln, line
+                printf "%s:%d: [timeout with no --kill-after] %s\n", f, n, line
             }
         }
+
+        # --------------------------------------------------------- driver
+        #
+        # ORDER MATTERS, AND IT IS THE OPPOSITE OF THE OBVIOUS ONE. analyse()
+        # runs on each PHYSICAL line first and the continuation question is
+        # then asked of CODE — the line with its comment already removed —
+        # never of the raw text.
+        #
+        # A backslash has NO special meaning inside a `#` comment: bash ends
+        # the comment at the newline, continuation or not. Measured:
+        #
+        #     $ bash -c $(: ...)echo before # a comment ending in backslash \
+        #     echo second-line-executed-if-joined
+        #     before
+        #     second-line-executed-if-joined      <- a SEPARATE statement
+        #
+        # Deciding on the raw line therefore swallows the line after any
+        # comment that happens to end in a backslash, and a bare `timeout`
+        # there becomes invisible. That is not a hypothetical shape in this
+        # tree: test/packaging/package-recipe-guard-test.sh:8 documents a
+        # multi-line invocation inside a comment block and ends exactly that
+        # way, harmless only because the line after it is another comment.
+        # Found in review; cases P26-P28 and N29-N31 pin both orderings.
+        #
+        # The join itself is bash-exact: the backslash and the newline both
+        # disappear and nothing is inserted, so `--kill\` + `-after=5s` is one
+        # token. SKEL needs no trimming — analyse() already drops a trailing
+        # unquoted backslash, having no next character to escape. An offence
+        # is reported at the FIRST physical line of the logical line.
+        FNR == 1 {
+            # A file that ends mid-continuation still owes its last logical
+            # line; flush it against the file it came from before resetting.
+            if (joining) emit(prevfile, startln, accCODE, accSKEL)
+            qst = 0; qcontent = ""; in_hd = 0
+            joining = 0; accCODE = ""; accSKEL = ""; startln = 0
+        }
+        { prevfile = FILENAME }
+
+        # Heredoc bodies are skipped wholesale — see NOT CAUGHT in the header.
+        in_hd { if ($0 ~ hd_term) in_hd = 0; next }
+
+        {
+            analyse($0)
+
+            nb = 0
+            while (substr(CODE, length(CODE) - nb, 1) == "\\") nb++
+
+            if (!joining) { startln = FNR; accCODE = ""; accSKEL = "" }
+            if (nb % 2 == 1) {
+                accCODE = accCODE substr(CODE, 1, length(CODE) - 1)
+                accSKEL = accSKEL SKEL
+                joining = 1
+                next
+            }
+            accCODE = accCODE CODE
+            accSKEL = accSKEL SKEL
+            joining = 0
+
+            emit(FILENAME, startln, accCODE, accSKEL)
+        }
+
+        END { if (joining) emit(prevfile, startln, accCODE, accSKEL) }
     ' "$@"
 }
 
@@ -435,10 +517,19 @@ scan_files() {
 #
 # MUTATION-TESTED, and the table below is what the mutations shaped. Each rule
 # in the scanner was reverted in turn and the self-test had to name the loss:
-# 16 of 17 mutations were killed, and one of them found a real hole — reverting
-# the comment stripper changed NOTHING, because every comment fixture was inert
-# for a second reason as well. N27/N28 (a comment carrying a separator) exist
-# because of that, not because anyone thought of them first.
+# 19 of 20 mutations killed. Two of them found real holes rather than merely
+# confirming rules:
+#
+#   * reverting the comment stripper changed NOTHING, because every comment
+#     fixture was inert for a second reason as well. N27/N28 (a comment
+#     carrying a separator) exist because of that, not because anyone thought
+#     of them first.
+#   * reverting the join/analyse ORDER verbatim loses P26, P27 and P28 — the
+#     comment-ending-in-a-backslash blocker that review found. Per-rule
+#     mutation cannot discover it: it regresses rules that were written, and
+#     this was an INTERACTION between two correct rules that nobody had put
+#     together. Continuation had only ever been tested without a comment, and
+#     comments only ever without a continuation.
 #
 # THE ONE SURVIVOR, stated rather than papered over: dropping the per-file
 # `FNR == 1` state reset kills no case. It is hygiene, not a matching rule —
@@ -448,7 +539,7 @@ scan_files() {
 # does not parse as bash, so the leak has no way into a working tree. It stays
 # because file-order-dependent behaviour is worse than an unpinned line.
 #
-# CASES — 25 must flag, 28 must not (53 total).
+# CASES — 30 must flag, 31 must not (61 total).
 # CASES-TABLE-BEGIN — every ID below is cross-checked against the fixture files
 # at the end of self_test(); the two cannot drift apart.
 #
@@ -476,8 +567,23 @@ scan_files() {
 #   P22 the option run is split, bare    P23 the whole invocation is on line 2
 #
 #   the SPELLING class — bash concatenates adjacent word fragments, so the
-#   literal word need never appear (the same mechanism lint-traps.sh pins):
+#   literal word need never appear. Only the EMPTY-pair and backslash variants,
+#   which is the part lint-traps.sh pins too; see NOT CAUGHT for the rest:
 #   P24 tim""eout                        P25 t\i\m\e\o\u\t
+#
+#   a comment ending in a BACKSLASH does not continue the line — bash ends the
+#   comment at the newline. Deciding the join before stripping comments
+#   swallowed the statement below it, and none of the cases above could see it:
+#   continuation was only ever tested without a comment and comments only ever
+#   without a continuation. Found in review, both orderings now pinned:
+#   P26 trailing comment, then a bare timeout
+#   P27 whole-line comment, then a bare timeout
+#   P28 a REAL join first, then the comment trap, then a bare timeout
+#
+#   an option that LOOKS like escalation and is not — GNU takes the rest of a
+#   short token as -k's argument, so both of these are "invalid time interval"
+#   (measured: exit 125) and bound nothing:
+#   P29 `-k=5s`                          P30 `-ks5s`
 #
 #   ---- and the other direction ----
 #
@@ -514,6 +620,14 @@ scan_files() {
 #   the heredoc exemption, and its limits:
 #   N25 a python3 heredoc body           N26 a `cat > child.sh` body
 #
+#   the comment/continuation interaction in the direction that COSTS — the
+#   blocker fix must not start flagging whatever follows a comment, nor break
+#   a genuine multi-line invocation that carries one:
+#   N29 comment ending in a backslash, then an ESCALATED timeout
+#   N30 a genuine join whose LAST line carries a trailing comment
+#   N31 a comment inside a genuine join terminates it, bash-exactly, and what
+#       is left had already escalated
+#
 # CASES-TABLE-END
 self_test() {
     local dir bad good out id f failed=0
@@ -522,7 +636,7 @@ self_test() {
     bad="$dir/bad"; good="$dir/good"
     mkdir -p "$bad" "$good"
 
-    # --- 25 cases that MUST be flagged, one file each -----------------------
+    # --- 30 cases that MUST be flagged, one file each -----------------------
     printf '%s\n' 'timeout 60 "$JNEXT" --headless'                       >"$bad/P01.sh"
     printf '%s\n' '    timeout 60 "$JNEXT" --headless'                   >"$bad/P02.sh"
     printf '%s\n' 'rm -f "$log"; timeout 60 "$JNEXT"'                    >"$bad/P03.sh"
@@ -548,8 +662,19 @@ self_test() {
     printf '%s\n' 'WINEDEBUG=-all \' '   timeout 600 python3 drv.py'     >"$bad/P23.sh"
     printf '%s\n' 'tim""eout 60 "$JNEXT"'                                >"$bad/P24.sh"
     printf '%s\n' 't\i\m\e\o\u\t 60 "$JNEXT"'                            >"$bad/P25.sh"
+    # a backslash is INERT inside a comment: bash ends the comment at the
+    # newline, so the line below it is a statement of its own. Deciding the
+    # join on the raw line swallowed it (found in review).
+    printf '%s\n' 'echo before # a note ending in a backslash \' 'timeout 5 cmd' >"$bad/P26.sh"
+    printf '%s\n' '# a whole-line note ending in a backslash \' 'timeout 5 cmd'  >"$bad/P27.sh"
+    # the other ordering: a REAL continuation first, then the comment trap.
+    printf '%s\n' 'echo a \' '   b   # trailing note ending in a backslash \' 'timeout 5 cmd' >"$bad/P28.sh"
+    # GNU takes the rest of a short token as -k'"'"'s argument, so neither of
+    # these is a valid interval and neither bounds anything.
+    printf '%s\n' 'timeout -k=5s 60 "$JNEXT"'                           >"$bad/P29.sh"
+    printf '%s\n' 'timeout -ks5s 60 "$JNEXT"'                           >"$bad/P30.sh"
 
-    # --- 28 shapes that MUST NOT be flagged ---------------------------------
+    # --- 31 shapes that MUST NOT be flagged ---------------------------------
     # A hit here is a false positive that would block a row an author may write.
     printf '%s\n' 'timeout --foreground --kill-after=5s 60s "$JNEXT"'    >"$good/N01.sh"
     printf '%s\n' 'timeout --kill-after=5s 60s "$JNEXT"'                 >"$good/N02.sh"
@@ -579,6 +704,14 @@ self_test() {
     printf '%s\n' 'sleep 1   # (timeout 60 would not escalate)'          >"$good/N28.sh"
     printf '%s\n' "python3 - <<'PY'" 'timeout = 60' 'PY'                 >"$good/N25.sh"
     printf '%s\n' "cat > child.sh <<'CHILD'" 'timeout 60 jnext' 'CHILD'  >"$good/N26.sh"
+    # the comment/continuation interaction must not flag CORRECT code either:
+    # the line after the comment is judged on its own, and it escalates.
+    printf '%s\n' 'echo before # a note ending in a backslash \' 'timeout --kill-after=5s 5s cmd' >"$good/N29.sh"
+    # a genuine two-line invocation whose LAST line carries a comment.
+    printf '%s\n' 'timeout --kill-after=5s \' '    60s "$JNEXT"   # bounded' >"$good/N30.sh"
+    # a comment inside a genuine join TERMINATES the command, exactly as bash
+    # does (measured); what is left had already escalated.
+    printf '%s\n' 'timeout --kill-after=5s \' '# note \' '60s cmd'  >"$good/N31.sh"
 
     # Every must-flag case must produce at least one row against ITS OWN file.
     out=$(scan_files "$bad"/*.sh)

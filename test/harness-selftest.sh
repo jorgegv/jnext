@@ -571,7 +571,7 @@ check "HS-49b" "an offending row script FAILS the preflight, not just the lint (
 
 # ------------- the unescalated-timeout lint must stay wired to the same preflight
 # Fourth instance of the HS-45/HS-46/HS-49 shape. test/lint-timeouts.sh self-tests its
-# own 53-case table on every invocation, so it can prove it still DETECTS a bare
+# own 61-case table on every invocation, so it can prove it still DETECTS a bare
 # `timeout`; nothing but these two rows proves it is still REACHED and that its verdict
 # still turns the preflight row red. The failure it guards leaves no trace in any
 # count: a `timeout N` that cannot escalate lets a wedged process outlive its row and
