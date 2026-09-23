@@ -38,7 +38,7 @@ mentions them, so a test can no longer be absent from this document.
 | NextREG                                    |   119 |   95 |    0 |    0 |      24 |          0 |
 | IO Port Dispatch                           |   137 |  126 |    0 |    0 |      11 |          0 |
 | Input                                      |   356 |  344 |    0 |    0 |      12 |          0 |
-| Rewind                                     |    21 |    0 |    0 |    0 |      21 |          0 |
+| Rewind                                     |    21 |   21 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |    67 |   64 |    0 |    0 |       3 |          0 |
 | Contention                                 |   160 |  158 |    0 |    0 |       2 |          0 |
@@ -63,7 +63,7 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4780 | 4590 |    0 |    5 |     185 |          0 |
+| **Total**                                  |  4780 | 4611 |    0 |    5 |     164 |          0 |
 
 Rows the sections above carry: **4780**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4483**. Rows the 113 suites declared in `test/unit-tests.conf` run live: **8089**.
 
@@ -3146,31 +3146,31 @@ Notes and rationale: [INPUT-TEST-PLAN-DESIGN.md](INPUT-TEST-PLAN-DESIGN.md).
 
 ## Rewind — `test/rewind/rewind_test.cpp`
 
-> **Rows below read `missing` because this suite asserts WITHOUT row IDs**, not because the behaviour is untested: it uses a bare `CHECK(cond, text)` macro and carries no ID literal at all, so no assertion can be matched to a row by name. Its citation column is the declared tombstone `(jnext-internal)` — it has no VHDL counterpart.
+> Citations in this section are the declared tombstone `(jnext-internal)`: this suite has no VHDL counterpart to cite.
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| RING-01 | Buffer starts empty | — | missing | — |
-| RING-02 | Depth capped at 4 after 6 frames | — | missing | — |
-| RING-03 | Newest frame_num after wrap | — | missing | — |
-| RING-04 | Oldest frame_num after wrap | — | missing | — |
-| SB-01 | step_back(5) returns true | — | missing | — |
-| SB-02 | step_back(5) lands on correct PC | — | missing | — |
-| SB-03 | step_back(10) returns true | — | missing | — |
-| SB-04 | step_back(10) lands on correct PC | — | missing | — |
-| RTF-01 | Five snapshots after five frames | — | missing | — |
-| RTF-02 | rewind_to_frame() returns true | — | missing | — |
-| RTF-03 | frame_num matches target+1 after rewind | — | missing | — |
-| RT-04 | save_state writes exact snap_size (pass 2) | — | missing | — |
-| RT-05 | save→load→save byte-identical (determinism) | — | missing | — |
-| SBD-01 | Rewind buffer null when disabled | — | missing | — |
-| SBD-02 | step_back returns false when disabled | — | missing | — |
-| RB-FRAME-01 | take_snapshot bound assertion absent (G67) | — | missing | — |
-| RB-FRAME-02 | Post-widening clean error path absent (G67) | — | missing | — |
-| RB-FRAME-03 | Construction-vs-measured size match check (G67) | — | missing | — |
-| RW-RT-01 | Snapshot size is greater than zero | — | missing | — |
-| RW-RT-02 | Snapshot is under 3 MB (sanity bound) | — | missing | — |
-| RW-RT-03 | save_state writes exactly snap_size bytes (pass 1) | — | missing | — |
+| RING-01 | rewind buffer starts empty | (jnext-internal) | pass | test/rewind/rewind_test.cpp:140 |
+| RING-02 | ring depth caps at its 4-frame capacity after 6 frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:146 |
+| RING-03 | newest frame_num is 5 after the wrap (frames 0..5 taken) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:147 |
+| RING-04 | oldest frame_num is 2 after the wrap (the two earliest were overwritten) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:148 |
+| SB-01 | step_back(5) reports success | (jnext-internal) | pass | test/rewind/rewind_test.cpp:180 |
+| SB-02 | step_back(5) lands on the PC the trace recorded 5 instructions back | (jnext-internal) | pass | test/rewind/rewind_test.cpp:183 |
+| SB-03 | step_back(10) reports success | (jnext-internal) | pass | test/rewind/rewind_test.cpp:196 |
+| SB-04 | step_back(10) lands on the PC the trace recorded 10 instructions back | (jnext-internal) | pass | test/rewind/rewind_test.cpp:199 |
+| RTF-01 | five frame snapshots are held after five frames | (jnext-internal) | pass | test/rewind/rewind_test.cpp:226 |
+| RTF-02 | rewind_to_frame() reports success for a frame still in the ring | (jnext-internal) | pass | test/rewind/rewind_test.cpp:234 |
+| RTF-03 | frame_num is target+1 after the rewind (the snapshot is taken at the start of the target frame) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:237 |
+| RW-RT-01 | a measured snapshot is larger than zero bytes | (jnext-internal) | pass | test/rewind/rewind_test.cpp:261 |
+| RW-RT-02 | a measured snapshot stays under the 3 MB sanity bound | (jnext-internal) | pass | test/rewind/rewind_test.cpp:262 |
+| RW-RT-03 | save_state writes exactly the measured snap_size bytes (pass 1) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:268 |
+| RT-04 | save_state writes exactly the measured snap_size bytes again after a load (pass 2) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:278 |
+| RT-05 | save -> load -> save produces byte-identical snapshots (determinism) | (jnext-internal) | pass | test/rewind/rewind_test.cpp:291 |
+| SBD-01 | no rewind buffer is allocated when rewind is disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:305 |
+| SBD-02 | step_back reports failure when rewind is disabled | (jnext-internal) | pass | test/rewind/rewind_test.cpp:313 |
+| RB-FRAME-01 | undersized slot (simulated post-construction widening): the snapshot is dropped, not published | (jnext-internal) | pass | test/rewind/rewind_test.cpp:753 |
+| RB-FRAME-02 | exact-size slot still publishes normally: the size guard refuses only mismatched writes and is not sticky | (jnext-internal) | pass | test/rewind/rewind_test.cpp:761 |
+| RB-FRAME-03 | oversized slot (save_state shrank since construction) is refused too: the size claim would otherwise be a lie | (jnext-internal) | pass | test/rewind/rewind_test.cpp:770 |
 
 ## Floating Bus — `test/floating_bus/floating_bus_test.cpp`
 
