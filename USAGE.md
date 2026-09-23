@@ -307,6 +307,12 @@ spelling matches neither exactly, the first in byte order is taken.
 Directory entries carry the host file’s modification time. `M_GETDATE`
 answers from the emulated clock instead, so it follows **--rtc**.
 
+**Do not combine it with a booted NextZXOS.** It implies
+**--esxdos-stub** and inherits its limitation: the file calls are then
+answered in front of NextZXOS’s own esxDOS, and NextZXOS’s file commands
+stop working — `.ls` reports *No such file or dir*. This option is for
+programs jnext loads itself.
+
 **--esxdos-stub-writable**  
 Allow the guest to create, truncate and write files under
 **--esxdos-stub-root**. Off by default, and deliberately a separate
@@ -816,6 +822,11 @@ Paths are confined to *DIR*. A path that climbs out of it is refused, a
 guest absolute path such as `/data/x.bin` means `DIR/data/x.bin` and
 never the host’s own `/data`, and symbolic links are refused rather than
 followed.
+
+And it is not for use alongside a booted NextZXOS. Implying
+**--esxdos-stub** means it inherits the same shadowing: with NextZXOS
+running, the file calls are answered before NextZXOS’s own esxDOS sees
+them, so its file commands break.
 
 jnext answers only while ROM is paged in at `$0000`, as on a real Next,
 where NextZXOS is reached through the DivMMC, which only takes over from

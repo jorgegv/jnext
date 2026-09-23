@@ -3094,6 +3094,11 @@ first in byte order is taken.</p>
 <p>Directory entries carry the host file’s modification time.
 <code>M_GETDATE</code> answers from the emulated clock instead, so it follows
 <strong>--rtc</strong>.</p>
+<p><strong>Do not combine it with a booted NextZXOS.</strong> It implies
+<strong>--esxdos-stub</strong> and inherits its limitation: the file calls are
+then answered in front of NextZXOS’s own esxDOS, and NextZXOS’s file
+commands stop working — <code>.ls</code> reports <em>No such file or dir</em>. This
+option is for programs jnext loads itself.</p>
 </dd>
 <dt><strong>--esxdos-stub-writable</strong></dt>
 <dd>Allow the guest to create, truncate and write files under

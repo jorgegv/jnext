@@ -242,6 +242,12 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
     `M_GETDATE` answers from the emulated clock instead, so it follows
     **--rtc**.
 
+    **Do not combine it with a booted NextZXOS.** It implies
+    **--esxdos-stub** and inherits its limitation: the file calls are
+    then answered in front of NextZXOS’s own esxDOS, and NextZXOS’s file
+    commands stop working — `.ls` reports *No such file or dir*. This
+    option is for programs jnext loads itself.
+
 **--esxdos-stub-writable**
 :   Allow the guest to create, truncate and write files under
     **--esxdos-stub-root**. Off by default, and deliberately a separate

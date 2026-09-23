@@ -1516,6 +1516,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#do-not-use-it-with-a-nextzxos-session" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Do not use it with a NextZXOS session
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#paths-as-the-program-sees-them" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2915,6 +2926,14 @@ add. This is measured behaviour, and it is a permanent boundary rather than a
 missing feature.</p>
 <p><strong>Files that NextZXOS must see still go into the SD-card image.</strong> That workflow
 has not changed and still works.</p>
+<h2 id="do-not-use-it-with-a-nextzxos-session">Do not use it with a NextZXOS session<a class="headerlink" href="#do-not-use-it-with-a-nextzxos-session" title="Permanent link">&para;</a></h2>
+<p><code>--esxdos-stub-root</code> implies <code>--esxdos-stub</code>, and inherits its long-standing
+limitation: with NextZXOS booted, JNEXT answers the esxDOS file calls <em>before</em>
+NextZXOS's own esxDOS sees them, so NextZXOS's file commands stop working —
+type <code>.ls</code> and you get <code>No such file or dir</code>.</p>
+<p>So the two are alternatives, not a combination. Use <code>--esxdos-stub-root</code> for a
+program JNEXT loads directly. Boot NextZXOS without it, and put the files in
+the SD-card image.</p>
 <h2 id="paths-as-the-program-sees-them">Paths, as the program sees them<a class="headerlink" href="#paths-as-the-program-sees-them" title="Permanent link">&para;</a></h2>
 <p>Inside the directory, paths behave like FAT paths rather than host paths:</p>
 <ul>

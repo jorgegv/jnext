@@ -271,6 +271,13 @@ matches neither exactly, the first in byte order is taken.
 Directory entries carry the host file\(cqs modification time.
 \f[CR]M_GETDATE\f[R] answers from the emulated clock instead, so it
 follows \f[B]\-\-rtc\f[R].
+.PP
+\f[B]Do not combine it with a booted NextZXOS.\f[R] It implies
+\f[B]\-\-esxdos\-stub\f[R] and inherits its limitation: the file calls
+are then answered in front of NextZXOS\(cqs own esxDOS, and
+NextZXOS\(cqs file commands stop working \(em \f[CR].ls\f[R] reports
+\f[I]No such file or dir\f[R].
+This option is for programs jnext loads itself.
 .RE
 .TP
 \f[B]\-\-esxdos\-stub\-writable\f[R]
@@ -862,6 +869,11 @@ A path that climbs out of it is refused, a guest absolute path such as
 \f[CR]/data/x.bin\f[R] means \f[CR]DIR/data/x.bin\f[R] and never the
 host\(cqs own \f[CR]/data\f[R], and symbolic links are refused rather
 than followed.
+.PP
+And it is not for use alongside a booted NextZXOS.
+Implying \f[B]\-\-esxdos\-stub\f[R] means it inherits the same
+shadowing: with NextZXOS running, the file calls are answered before
+NextZXOS\(cqs own esxDOS sees them, so its file commands break.
 .PP
 jnext answers only while ROM is paged in at \f[CR]$0000\f[R], as on a
 real Next, where NextZXOS is reached through the DivMMC, which only

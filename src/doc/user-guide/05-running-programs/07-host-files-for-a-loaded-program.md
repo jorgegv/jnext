@@ -51,6 +51,17 @@ missing feature.
 **Files that NextZXOS must see still go into the SD-card image.** That workflow
 has not changed and still works.
 
+## Do not use it with a NextZXOS session
+
+`--esxdos-stub-root` implies `--esxdos-stub`, and inherits its long-standing
+limitation: with NextZXOS booted, JNEXT answers the esxDOS file calls *before*
+NextZXOS's own esxDOS sees them, so NextZXOS's file commands stop working —
+type `.ls` and you get `No such file or dir`.
+
+So the two are alternatives, not a combination. Use `--esxdos-stub-root` for a
+program JNEXT loads directly. Boot NextZXOS without it, and put the files in
+the SD-card image.
+
 ## Paths, as the program sees them
 
 Inside the directory, paths behave like FAT paths rather than host paths:
