@@ -3625,23 +3625,32 @@ static void test_g56_cluster_b(Emulator& emu) {
     // - sprite_tie [4]: from sprites_.mirror_tie()
     // - bit 3: const-0
     // - bit 2: echoes the WRITE bit 2 (VHDL: stored as `not`, read as `not not`)
-    // - eff_scanlines [1:0]: from cached last-write
+    // - eff_scanlines [1:0]: the FRAME-EDGE-LATCHED copy of
+    //   `nr_09_scanlines` (zxnext.vhd:6701, latched only when
+    //   `video_frame_sync = '1'`), so a write→read round-trip of bits 1:0
+    //   only completes at the next frame edge. GH #201 correction: these
+    //   rows used to sample immediately, which pinned the pending value —
+    //   the same wrong oracle Task 58 corrected for the NR 0x05 eff bits
+    //   (see G56-CR-NR05-02/03/04). Each row now runs a frame first.
     {
         // Round-trip with all bits set: bit 3 must read 0, bit 4 must
         // come from sprites_.mirror_tie() (which is set by the same
         // write — both should agree).
         nr_write(emu, 0x09, 0xFF);
+        emu.run_frame();  // frame edge latches eff_nr_09_scanlines (:6701)
         uint8_t got = nr_read(emu, 0x09);
         check("G56-09-01",
-              "NR 0x09 write=0xFF read=0xF7 (bit 3 const-0)",
+              "NR 0x09 write=0xFF read=0xF7 after the frame edge "
+              "(bit 3 const-0) [zxnext.vhd:5909, :6701]",
               got == 0xF7, detail_eq(got, uint8_t{0xF7}));
     }
     {
         // Clear path — round-trip 0x00.
         nr_write(emu, 0x09, 0x00);
+        emu.run_frame();
         uint8_t got = nr_read(emu, 0x09);
         check("G56-09-02",
-              "NR 0x09 write=0x00 read=0x00",
+              "NR 0x09 write=0x00 read=0x00 after the frame edge",
               got == 0x00, detail_eq(got, uint8_t{0x00}));
     }
     {
@@ -3649,6 +3658,7 @@ static void test_g56_cluster_b(Emulator& emu) {
         // + hdmi_audio bit. 0x14 = sprite_tie=1, hdmi_audio_en write
         // bit 2 = 1. Read should be 0x14 (bit 4 + bit 2 set).
         nr_write(emu, 0x09, 0x14);
+        emu.run_frame();
         uint8_t got = nr_read(emu, 0x09);
         check("G56-09-03",
               "NR 0x09 write=0x14 → bit4 (sprite_tie) + bit2 (hdmi_audio) "
@@ -3658,6 +3668,7 @@ static void test_g56_cluster_b(Emulator& emu) {
     {
         // Bit 3 of write must be ignored on read.
         nr_write(emu, 0x09, 0x08);
+        emu.run_frame();
         uint8_t got = nr_read(emu, 0x09);
         check("G56-09-04",
               "NR 0x09 write=0x08 → read=0x00 (bit 3 forced 0) "
@@ -5511,6 +5522,10 @@ static void test_testcov_nmi_mf_port(Emulator& emu) {
     {
         hard_reset(emu);
         nr_write(emu, 0x09, 0xEF);          // all bits except bit 4
+        // GH #201 — bits 1:0 read the frame-edge-latched
+        // `eff_nr_09_scanlines` (zxnext.vhd:6701), so the write is only
+        // fully visible on a read after the next frame edge.
+        emu.run_frame();
         const uint8_t before = nr_read(emu, 0x09);  // bit 3 reads as 0
         guest_soft_reset(emu);      // the `reset` domain (GH #239)
         const uint8_t after = nr_read(emu, 0x09);
@@ -7270,6 +7285,570 @@ static void test_lores_registers() {
     }
 }
 
+
+// ── G56-CR plan rows — the NextREG read mux is COMPOSED, not stored ───
+//
+// doc/testing/NEXTREG-TEST-PLAN-DESIGN.md carries 24 planned `G56-CR-NN`
+// rows, one per register whose `port_253b_dat` assignment in the VHDL read
+// mux (zxnext.vhd:5878-6289) is NOT the stored write byte. Each row's claim
+// is exactly that distinction: the byte a NextREG read returns is
+// ASSEMBLED — from a live subsystem signal, from a frame-edge-latched
+// effective copy, from a port register some other instruction wrote, from
+// constant-0 reserved bits, or from a field permutation — and is therefore
+// free to differ from the byte last written to that register.
+//
+// Every row below is written so that an implementation which echoed the
+// stored byte would give a DIFFERENT answer. Where the VHDL read mux names
+// a signal with a second producer (a port write, an auto-increment, a
+// config-mode gate, a frame latch), that producer is the stimulus and the
+// row performs no NR write to the register under test at all.
+static void test_g56_cr_plan_rows(Emulator& emu) {
+    set_group("G56-CR-PlanRows");
+
+    // Deterministic baseline: fresh machine, config_mode = 1 (power-on
+    // default, zxnext.vhd:1102) so the config-gated latches below commit.
+    {
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+    }
+
+    // ── G56-CR-05 — NR 0x05 composed-read divergence ──────────────────
+    // zxnext.vhd:5897
+    //   port_253b_dat <= nr_05_joy0(1:0) & nr_05_joy1(1:0) & nr_05_joy0(2)
+    //                  & eff_nr_05_5060 & nr_05_joy1(2)
+    //                  & eff_nr_05_scandouble_en
+    // The joy fields follow the write immediately (:5157-5158) but bits 2
+    // and 0 are the EFFECTIVE copies, latched only at video_frame_sync
+    // (:6696-6703). So between a write and the next frame edge the read
+    // MUST disagree with the byte just written — that disagreement is the
+    // row, and a stored-byte read cannot produce it.
+    {
+        nr_write(emu, 0x05, 0x00);
+        emu.run_frame();                 // settle eff_5060 = eff_scandouble = 0
+        nr_write(emu, 0x05, 0xFF);       // pending: every field = 1
+        const uint8_t got    = nr_read(emu, 0x05);
+        const uint8_t stored = emu.nextreg().cached(0x05);
+        // joy0 = (d3,d7,d6) = 111, joy1 = (d1,d5,d4) = 111, eff bits still 0
+        //   -> 11<<6 | 11<<4 | 1<<3 | 0<<2 | 1<<1 | 0 = 0xFA
+        check("G56-CR-05",
+              "NR 0x05 read is composed, not stored: mid-frame write 0xFF "
+              "reads 0xFA (eff_5060/eff_scandouble still 0) and differs "
+              "from the stored byte [zxnext.vhd:5897, :6696-6703]",
+              got == 0xFA && got != stored,
+              fmt("got=0x%02X stored=0x%02X (want got=0xFA, got!=stored)",
+                  got, stored));
+        nr_write(emu, 0x05, 0x40);
+        emu.run_frame();
+    }
+
+    // ── G56-CR-06 — NR 0x06 psg_mode source-of-truth ──────────────────
+    // zxnext.vhd:5900 reads every field back, but the WRITE at :5161-5169
+    // latches bit 2 (`nr_06_ps2_mode`) only while `nr_03_config_mode='1'`.
+    // Bits 7:3 and 1:0 (psg_mode) latch unconditionally. So with config
+    // mode off, a 0xFF write must read back 0xFB — the read is assembled
+    // from the individual latches, not from the byte the CPU presented.
+    {
+        nr_write(emu, 0x06, 0x00);            // all latches clear
+        nr_write(emu, 0x03, 0x02);            // low3 = 010 -> config_mode = 0
+        nr_write(emu, 0x06, 0xFF);            // bit 2 must NOT commit
+        const uint8_t gated = nr_read(emu, 0x06);
+        nr_write(emu, 0x03, 0x07);            // low3 = 111 -> config_mode = 1
+        nr_write(emu, 0x06, 0xFF);            // now bit 2 commits too
+        const uint8_t open_ = nr_read(emu, 0x06);
+        check("G56-CR-06",
+              "NR 0x06 read is assembled per-latch: ps2_mode (b2) is "
+              "config_mode-gated on write so 0xFF reads 0xFB with config "
+              "mode off and 0xFF with it on; psg_mode (b1:0) is ungated "
+              "[zxnext.vhd:5161-5169, :5900]",
+              gated == 0xFB && open_ == 0xFF,
+              fmt("gated=0x%02X open=0x%02X (want 0xFB / 0xFF)",
+                  gated, open_));
+    }
+
+    // ── G56-CR-09 — NR 0x09 sprite_tie composed-read ──────────────────
+    // zxnext.vhd:5909
+    //   nr_09_psg_mono(7:5) & nr_09_sprite_tie(4) & '0'(3)
+    //     & (not nr_09_hdmi_audio_en)(2) & eff_nr_09_scanlines(1:0)
+    // Two independent composition facts in one formula: bit 3 is a hard
+    // constant 0 (no write bit reaches it), and bits 1:0 are the
+    // frame-edge-latched EFFECTIVE scanline field (:6701), not the pending
+    // `nr_09_scanlines` the write set (:5859-5860).
+    {
+        nr_write(emu, 0x09, 0x00);
+        emu.run_frame();                 // settle eff_scanlines = 00
+        nr_write(emu, 0x09, 0x0B);       // pending: b3=1 (const-0), scanlines=11
+        const uint8_t pre  = nr_read(emu, 0x09);
+        emu.run_frame();                 // frame edge latches eff_scanlines
+        const uint8_t post = nr_read(emu, 0x09);
+        check("G56-CR-09",
+              "NR 0x09 read composes bit 3 as constant 0 and bits 1:0 from "
+              "the frame-edge-latched eff_nr_09_scanlines: write 0x0B reads "
+              "0x00 before the frame edge and 0x03 after "
+              "[zxnext.vhd:5909, :5859-5860, :6701]",
+              pre == 0x00 && post == 0x03,
+              fmt("pre=0x%02X post=0x%02X (want 0x00 / 0x03)", pre, post));
+        nr_write(emu, 0x09, 0x00);
+        emu.run_frame();
+    }
+
+    // ── G56-CR-0A — NR 0x0A divmmc_automap_en mirror ──────────────────
+    // zxnext.vhd:5912 reads six fields owned by four different devices;
+    // bit 2 is constant 0. The WRITE at :5191-5198 latches bits 7:6
+    // (mf_type) and bit 5 (sd_swap) only while config_mode='1', while bit 4
+    // (divmmc_automap_en), bit 3 and bits 1:0 latch unconditionally. With
+    // config mode off a 0xFF write must therefore read back 0x1B.
+    {
+        nr_write(emu, 0x03, 0x07);            // config_mode = 1
+        nr_write(emu, 0x0A, 0x00);            // clear every latch
+        nr_write(emu, 0x03, 0x02);            // config_mode = 0
+        nr_write(emu, 0x0A, 0xFF);
+        const uint8_t gated = nr_read(emu, 0x0A);
+        nr_write(emu, 0x03, 0x07);            // config_mode = 1
+        nr_write(emu, 0x0A, 0xFF);
+        const uint8_t open_ = nr_read(emu, 0x0A);
+        check("G56-CR-0A",
+              "NR 0x0A read is assembled from four owners with bit 2 "
+              "constant 0: 0xFF reads 0x1B with config mode off (mf_type / "
+              "sd_swap latches closed) and 0xFB with it on "
+              "[zxnext.vhd:5191-5198, :5912]",
+              gated == 0x1B && open_ == 0xFB,
+              fmt("gated=0x%02X open=0x%02X (want 0x1B / 0xFB)",
+                  gated, open_));
+    }
+
+    // ── G56-CR-0B — NR 0x0B joystick composed-read ────────────────────
+    // zxnext.vhd:5915
+    //   nr_0b_joy_iomode_en(7) & '0'(6) & nr_0b_joy_iomode(5:4)
+    //     & "000"(3:1) & nr_0b_joy_iomode_0(0)
+    // The write (:5200-5203) latches only bits 7, 5:4 and 0; bits 6 and 3:1
+    // are read-mux constants. Write 0xFF -> read 0xB1.
+    {
+        nr_write(emu, 0x0B, 0xFF);
+        const uint8_t ones = nr_read(emu, 0x0B);
+        nr_write(emu, 0x0B, 0x4E);            // only reserved bits set
+        const uint8_t res = nr_read(emu, 0x0B);
+        check("G56-CR-0B",
+              "NR 0x0B read drops bit 6 and bits 3:1 (read-mux constants): "
+              "write 0xFF reads 0xB1, write 0x4E reads 0x00 "
+              "[zxnext.vhd:5200-5203, :5915]",
+              ones == 0xB1 && res == 0x00,
+              fmt("ones=0x%02X reserved=0x%02X (want 0xB1 / 0x00)",
+                  ones, res));
+        nr_write(emu, 0x0B, 0x00);
+    }
+
+    // ── G56-CR-10 — NR 0x10 live composed-read ────────────────────────
+    // zxnext.vhd:5924  port_253b_dat <= '0' & nr_10_coreid & i_SPKEY_BUTTONS(1:0)
+    // NR 0x10 has NO write entry in the write mux (:5195 onward is commented
+    // out), so every bit of this read comes from somewhere other than a
+    // NR 0x10 write: bit 7 is a constant, bits 6:2 are the board core id and
+    // bits 1:0 are the LIVE host F9/F10 button state.
+    {
+        nr_write(emu, 0x10, 0xFF);            // must not be stored at all
+        const uint8_t idle = nr_read(emu, 0x10);
+        emu.inject_hotkey_m1(true);         // i_SPKEY_BUTTONS(0)
+        const uint8_t m1 = nr_read(emu, 0x10);
+        emu.inject_hotkey_m1(false);
+        emu.inject_hotkey_drive(true);      // i_SPKEY_BUTTONS(1)
+        const uint8_t drv = nr_read(emu, 0x10);
+        emu.inject_hotkey_drive(false);
+        const uint8_t back = nr_read(emu, 0x10);
+        check("G56-CR-10",
+              "NR 0x10 read is fully composed (bit 7 const-0, b6:2 core id, "
+              "b1:0 the live i_SPKEY_BUTTONS): a 0xFF write is not stored, "
+              "and the two button bits follow the host keys "
+              "[zxnext.vhd:5924]",
+              (idle & 0x83) == 0x00 && (m1 & 0x03) == 0x01 &&
+              (drv & 0x03) == 0x02 && (back & 0x03) == 0x00,
+              fmt("idle=0x%02X m1=0x%02X drv=0x%02X back=0x%02X",
+                  idle, m1, drv, back));
+    }
+
+    // ── G56-CR-15 — NR 0x15 layer composed-read ───────────────────────
+    // zxnext.vhd:5939
+    //   nr_15_lores_en(7) & nr_15_sprite_priority(6)
+    //     & nr_15_sprite_border_clip_en(5) & nr_15_layer_priority(4:2)
+    //     & nr_15_sprite_over_border_en(1) & nr_15_sprite_en(0)
+    // Every field is owned by a different rendering block (LoRes, the sprite
+    // engine, the compositor). The read must follow those owners, so driving
+    // them from their own APIs — with NO NR 0x15 write — has to move the
+    // read. jnext routes the write into LoRes/SpriteEngine/Renderer, so a
+    // stored-byte read would go stale the moment any other producer moves.
+    {
+        nr_write(emu, 0x15, 0x00);
+        emu.sprites().set_mirror_tie(false);  // unrelated field, keep stable
+        emu.renderer().set_layer_priority(0x05);
+        emu.sprites().set_over_border(true);
+        const uint8_t got = nr_read(emu, 0x15);
+        check("G56-CR-15",
+              "NR 0x15 read is composed from the rendering owners: setting "
+              "layer_priority=5 and sprite over-border directly (no NR 0x15 "
+              "write) reads 0x16 [zxnext.vhd:5939]",
+              got == 0x16, detail_eq(got, uint8_t{0x16}));
+        nr_write(emu, 0x15, 0x00);
+    }
+
+    // ── G56-CR-22 — NR 0x22 bit 7 dynamic pulse_int_n ─────────────────
+    // zxnext.vhd:5992
+    //   (not pulse_int_n)(7) & "0000"(6:3) & port_ff_interrupt_disable(2)
+    //     & nr_22_line_interrupt_en(1) & nr_23_line_interrupt(8)(0)
+    // Bit 2 is NOT a NR 0x22 latch at all: it is `port_ff_reg(6)`
+    // (:3610-3635), which `OUT (0xFF),A` writes directly. Driving it from
+    // the port — with no NR 0x22 write — must move the NR 0x22 read.
+    {
+        emu.port().out(0x00FF, 0x00);
+        const uint8_t clear = nr_read(emu, 0x22);
+        emu.port().out(0x00FF, 0x40);         // port_ff_reg(6) = 1
+        const uint8_t set = nr_read(emu, 0x22);
+        check("G56-CR-22",
+              "NR 0x22 bit 2 is port_ff_reg(6), not a NR 0x22 latch: "
+              "OUT (0xFF),0x40 sets it with no NR 0x22 write, and bits 6:3 "
+              "read as constant 0 [zxnext.vhd:5992, :3610-3635]",
+              (clear & 0x04) == 0x00 && (set & 0x04) == 0x04 &&
+              (set & 0x78) == 0x00,
+              fmt("clear=0x%02X set=0x%02X", clear, set));
+        emu.port().out(0x00FF, 0x00);
+    }
+
+    // ── G56-CR-23 — NR 0x23 is one window on a 9-bit compare register ──
+    // zxnext.vhd:5995  port_253b_dat <= nr_23_line_interrupt(7 downto 0)
+    //          :5992  bit 0        <= nr_23_line_interrupt(8)
+    // The plan row notes that the NR 0x23 READ is a plain passthrough — the
+    // composition claim is about the SOURCE: NR 0x22 bit 0 and NR 0x23 are
+    // two windows on the ONE 9-bit `nr_23_line_interrupt` register that the
+    // raster comparator fires on (zxula_timing.vhd:577). So each window's
+    // write must leave the other half of that comparator value intact, and
+    // both reads must agree with it — which two independent stored bytes
+    // cannot guarantee. The comparator value is checked directly, not just
+    // the two read-backs, so a desynchronised second copy is visible.
+    {
+        nr_write(emu, 0x22, 0x00);
+        nr_write(emu, 0x23, 0x9C);
+        nr_write(emu, 0x22, 0x01);            // set bit 8; LSB must survive
+        const uint16_t t1  = emu.video_timing().line_interrupt_target();
+        const uint8_t lsb1 = nr_read(emu, 0x23);
+        const uint8_t msb1 = nr_read(emu, 0x22) & 0x01;
+        nr_write(emu, 0x23, 0x4D);            // rewrite LSB; MSB must survive
+        const uint16_t t2  = emu.video_timing().line_interrupt_target();
+        const uint8_t lsb2 = nr_read(emu, 0x23);
+        const uint8_t msb2 = nr_read(emu, 0x22) & 0x01;
+        check("G56-CR-23",
+              "NR 0x22 b0 / NR 0x23 are two windows on the one 9-bit "
+              "nr_23_line_interrupt the raster comparator uses: after "
+              "0x9C then MSB=1 it holds 0x19C, after LSB=0x4D it holds "
+              "0x14D, and both reads agree with it "
+              "[zxnext.vhd:5992, :5995, zxula_timing.vhd:577]",
+              t1 == 0x19C && lsb1 == 0x9C && msb1 == 0x01 &&
+              t2 == 0x14D && lsb2 == 0x4D && msb2 == 0x01,
+              fmt("t1=0x%03X lsb1=0x%02X msb1=%u t2=0x%03X lsb2=0x%02X msb2=%u",
+                  t1, lsb1, msb1, t2, lsb2, msb2));
+        nr_write(emu, 0x22, 0x00);
+        nr_write(emu, 0x23, 0x00);
+    }
+
+    // ── G56-CR-34 — NR 0x34 sprite-attr index live counter ────────────
+    // zxnext.vhd:6033  port_253b_dat <= '0' & sprite_mirror_id
+    // `sprite_mirror_id` is the sprite engine's live index counter, which
+    // AUTO-INCREMENTS on every NR 0x75-0x79 attribute write (:4916,
+    // sprites.vhd:603-605). Reading NR 0x34 after such writes — with no
+    // NR 0x34 write in between — must show the advanced index, and bit 7
+    // is a read-mux constant.
+    {
+        nr_write(emu, 0x34, 0x7F);            // index = 0x7F, bit 7 dropped
+        const uint8_t seed = nr_read(emu, 0x34);
+        nr_write(emu, 0x75, 0x00);            // per-byte write + increment
+        const uint8_t wrapped = nr_read(emu, 0x34);
+        nr_write(emu, 0x34, 0x00);
+        nr_write(emu, 0x75, 0x00);
+        nr_write(emu, 0x75, 0x00);
+        const uint8_t twice = nr_read(emu, 0x34);
+        check("G56-CR-34",
+              "NR 0x34 reads the LIVE sprite mirror index with bit 7 forced "
+              "0: NR 0x75 writes advance it (0x7F wraps to 0x00, 0x00 -> "
+              "0x02) with no NR 0x34 write [zxnext.vhd:6033, :4916, "
+              "sprites.vhd:603-605]",
+              seed == 0x7F && wrapped == 0x00 && twice == 0x02,
+              fmt("seed=0x%02X wrapped=0x%02X twice=0x%02X",
+                  seed, wrapped, twice));
+        nr_write(emu, 0x34, 0x00);
+    }
+
+    // ── G56-CR-40 — NR 0x40 palette idx autoinc state ─────────────────
+    // zxnext.vhd:6036  port_253b_dat <= nr_palette_idx
+    // `nr_palette_idx` auto-increments on NR 0x41 / NR 0x44 palette writes
+    // unless NR 0x43 bit 7 disables it (:5379, :5389, :5400). Reading
+    // NR 0x40 after an NR 0x41 write must therefore show a value nobody
+    // ever wrote to NR 0x40.
+    {
+        nr_write(emu, 0x43, 0x00);            // autoinc enabled
+        nr_write(emu, 0x40, 0x10);
+        nr_write(emu, 0x41, 0x00);            // palette write -> idx++
+        const uint8_t inc = nr_read(emu, 0x40);
+        nr_write(emu, 0x43, 0x80);            // autoinc DISABLED (b7)
+        nr_write(emu, 0x40, 0x20);
+        nr_write(emu, 0x41, 0x00);
+        const uint8_t held = nr_read(emu, 0x40);
+        nr_write(emu, 0x43, 0x00);
+        check("G56-CR-40",
+              "NR 0x40 reads the live palette index, which NR 0x41 writes "
+              "auto-increment (0x10 -> 0x11) unless NR 0x43 b7 disables it "
+              "(0x20 stays 0x20) [zxnext.vhd:6036, :5379, :5389, :5400]",
+              inc == 0x11 && held == 0x20,
+              fmt("inc=0x%02X held=0x%02X (want 0x11 / 0x20)", inc, held));
+    }
+
+    // ── G56-CR-43 — NR 0x43 palette ctrl composed-read ────────────────
+    // zxnext.vhd:6045
+    //   nr_43_palette_autoinc_disable(7) & nr_43_palette_write_select(6:4)
+    //     & nr_43_active_sprite_palette(3) & nr_43_active_layer2_palette(2)
+    //     & nr_43_active_ula_palette(1) & nr_43_ulanext_en(0)
+    // Six separate latches, no reserved bits — so the discriminator is that
+    // the read follows the PaletteManager control state that the other
+    // palette registers actually consult, not a private copy: NR 0x43 b7
+    // is the same bit that gates the NR 0x40 auto-increment above.
+    {
+        nr_write(emu, 0x43, 0xFF);
+        const uint8_t all = nr_read(emu, 0x43);
+        nr_write(emu, 0x43, 0x00);
+        const uint8_t none = nr_read(emu, 0x43);
+        nr_write(emu, 0x43, 0x50);            // write_select = 101, ulap off
+        const uint8_t sel = nr_read(emu, 0x43);
+        check("G56-CR-43",
+              "NR 0x43 read is the six-field palette control latch, all bits "
+              "live (0xFF -> 0xFF, 0x00 -> 0x00, 0x50 -> 0x50) "
+              "[zxnext.vhd:6045]",
+              all == 0xFF && none == 0x00 && sel == 0x50,
+              fmt("all=0x%02X none=0x%02X sel=0x%02X", all, none, sel));
+        nr_write(emu, 0x43, 0x00);
+    }
+
+    // ── G56-CR-4C — NR 0x4C bits 7:4 mask not propagated ──────────────
+    // zxnext.vhd:6057  port_253b_dat <= "0000" & nr_4c_tm_transparent_index
+    {
+        nr_write(emu, 0x4C, 0xFF);
+        const uint8_t got = nr_read(emu, 0x4C);
+        check("G56-CR-4C",
+              "NR 0x4C read is 4 constant zeros + the 4-bit tilemap "
+              "transparent index: write 0xFF reads 0x0F "
+              "[zxnext.vhd:6057]",
+              got == 0x0F, detail_eq(got, uint8_t{0x0F}));
+        nr_write(emu, 0x4C, 0x0F);
+    }
+
+    // ── G56-CR-68 — NR 0x68 b3 from port_ff3b_ulap_en ─────────────────
+    // zxnext.vhd:6093
+    //   (not nr_68_ula_en)(7) & nr_68_blend_mode(6:5)
+    //     & nr_68_cancel_extended_keys(4) & port_ff3b_ulap_en(3)
+    //     & nr_68_ula_fine_scroll_x(2) & '0'(1) & nr_68_ula_stencil_mode(0)
+    // Bit 3 is the ULA+ enable flip-flop, which port 0xFF3B writes own
+    // jointly with NR 0x68 (:4547-4551); bit 1 is a read-mux constant.
+    // Driving ULA+ from the port with no NR 0x68 write must move bit 3.
+    {
+        nr_write(emu, 0x68, 0x02);            // only the constant-0 bit set
+        const uint8_t res = nr_read(emu, 0x68);
+        emu.port().out(0xBF3B, 0x40);         // ulap_mode = "01"
+        emu.port().out(0xFF3B, 0x01);         // port-side ulap_en = 1
+        const uint8_t viaport = nr_read(emu, 0x68);
+        check("G56-CR-68",
+              "NR 0x68 bit 1 is a read-mux constant 0 and bit 3 is the "
+              "shared port_ff3b_ulap_en flip-flop: writing 0x02 reads 0x00 "
+              "and OUT (0xFF3B),1 sets bit 3 with no NR 0x68 write "
+              "[zxnext.vhd:6093, :4547-4551]",
+              res == 0x00 && (viaport & 0x08) == 0x08,
+              fmt("reserved=0x%02X viaport=0x%02X", res, viaport));
+        emu.port().out(0xFF3B, 0x00);
+        nr_write(emu, 0x68, 0x00);
+    }
+
+    // ── G56-CR-69 — NR 0x69 bits composed from port_ff ────────────────
+    // zxnext.vhd:6096
+    //   port_123b_layer2_en(7) & port_7ffd_shadow(6) & port_ff_reg(5:0)
+    // Not one bit of this read is a NR 0x69 latch: bit 7 is the port 0x123B
+    // Layer 2 enable flip-flop (:3916, :3924-3925), bit 6 is
+    // port_7FFD bit 3 (:3768) and bits 5:0 are the Timex port 0xFF register
+    // (:3610-3618). All three can be driven from their own ports.
+    {
+        emu.port().out(0x00FF, 0x00);
+        emu.port().out(0x123B, 0x00);
+        emu.port().out(0x7FFD, 0x00);
+        const uint8_t zero = nr_read(emu, 0x69);
+        emu.port().out(0x00FF, 0x3F);         // port_ff_reg(5:0) = 0x3F
+        emu.port().out(0x123B, 0x02);         // layer2 enable
+        emu.port().out(0x7FFD, 0x08);         // shadow screen
+        const uint8_t got = nr_read(emu, 0x69);
+        check("G56-CR-69",
+              "NR 0x69 reads three foreign registers — port 0x123B layer2 "
+              "enable, port 0x7FFD bit 3 and port 0xFF bits 5:0 — with no "
+              "NR 0x69 write: 0x00 -> 0xFF [zxnext.vhd:6096, :3916, :3768, "
+              ":3610-3618]",
+              zero == 0x00 && got == 0xFF,
+              fmt("zero=0x%02X got=0x%02X", zero, got));
+        emu.port().out(0x00FF, 0x00);
+        emu.port().out(0x123B, 0x00);
+        emu.port().out(0x7FFD, 0x00);
+    }
+
+    // ── G56-CR-6A — NR 0x6A radastan/lores composed ───────────────────
+    // zxnext.vhd:6099
+    //   "00"(7:6) & nr_6a_lores_radastan(5) & nr_6a_lores_radastan_xor(4)
+    //     & nr_6a_lores_palette_offset(3:0)
+    {
+        nr_write(emu, 0x6A, 0xFF);
+        const uint8_t got = nr_read(emu, 0x6A);
+        check("G56-CR-6A",
+              "NR 0x6A read is two constant zeros + radastan / xor / "
+              "palette-offset: write 0xFF reads 0x3F [zxnext.vhd:6099]",
+              got == 0x3F, detail_eq(got, uint8_t{0x3F}));
+        nr_write(emu, 0x6A, 0x00);
+    }
+
+    // ── G56-CR-6B — NR 0x6B b7 from nr_6b_tm_en ───────────────────────
+    // zxnext.vhd:6102  port_253b_dat <= nr_6b_tm_en & nr_6b_tm_control
+    // The tilemap enable and its 7 control bits are ONE register in the
+    // read mux but two signals in the design; the read must come from the
+    // Tilemap block that consumes them.
+    {
+        nr_write(emu, 0x6B, 0xC3);
+        const uint8_t got = nr_read(emu, 0x6B);
+        const bool live_en = emu.tilemap().enabled();
+        nr_write(emu, 0x6B, 0x43);            // clear the enable bit only
+        const uint8_t off = nr_read(emu, 0x6B);
+        const bool live_off = emu.tilemap().enabled();
+        check("G56-CR-6B",
+              "NR 0x6B read is the live Tilemap enable (b7) + control (b6:0): "
+              "0xC3 reads back with the block enabled, 0x43 with it disabled "
+              "[zxnext.vhd:6102]",
+              got == 0xC3 && live_en && off == 0x43 && !live_off,
+              fmt("on=0x%02X live=%d off=0x%02X live=%d",
+                  got, (int)live_en, off, (int)live_off));
+        nr_write(emu, 0x6B, 0x00);
+    }
+
+    // ── G56-CR-6C — NR 0x6C tilemap composed-read ─────────────────────
+    // zxnext.vhd:6105  port_253b_dat <= nr_6c_tm_default_attr
+    // Full 8 bits with no mask — the composition claim here is the SOURCE:
+    // the byte the read returns is the attribute the tilemap renderer uses.
+    {
+        nr_write(emu, 0x6C, 0xA5);
+        const uint8_t got  = nr_read(emu, 0x6C);
+        const uint8_t live = emu.tilemap().get_default_attr();
+        check("G56-CR-6C",
+              "NR 0x6C read returns the LIVE tilemap default attribute, all "
+              "8 bits unmasked [zxnext.vhd:6105]",
+              got == 0xA5 && live == 0xA5,
+              fmt("read=0x%02X live=0x%02X", got, live));
+        nr_write(emu, 0x6C, 0x00);
+    }
+
+    // ── G56-CR-6E / G56-CR-6F — bit 6 always 0 ────────────────────────
+    // zxnext.vhd:6108  nr_6e_tilemap_base_7 & '0' & nr_6e_tilemap_base
+    // zxnext.vhd:6111  nr_6f_tilemap_tiles_7 & '0' & nr_6f_tilemap_tiles
+    // The base address is split either side of a constant-0 bit, so bit 6
+    // of a write can never reappear on the read.
+    {
+        nr_write(emu, 0x6E, 0xFF);
+        const uint8_t ones = nr_read(emu, 0x6E);
+        nr_write(emu, 0x6E, 0x40);            // ONLY the constant bit
+        const uint8_t only = nr_read(emu, 0x6E);
+        check("G56-CR-6E",
+              "NR 0x6E read splits the tilemap base around a constant-0 "
+              "bit 6: 0xFF reads 0xBF and 0x40 reads 0x00 "
+              "[zxnext.vhd:6108]",
+              ones == 0xBF && only == 0x00,
+              fmt("ones=0x%02X only=0x%02X", ones, only));
+        nr_write(emu, 0x6E, 0x2C);            // VHDL reset default :5041-5042
+    }
+    {
+        nr_write(emu, 0x6F, 0xFF);
+        const uint8_t ones = nr_read(emu, 0x6F);
+        nr_write(emu, 0x6F, 0x40);
+        const uint8_t only = nr_read(emu, 0x6F);
+        check("G56-CR-6F",
+              "NR 0x6F read splits the tile-definition base around a "
+              "constant-0 bit 6: 0xFF reads 0xBF and 0x40 reads 0x00 "
+              "[zxnext.vhd:6111]",
+              ones == 0xBF && only == 0x00,
+              fmt("ones=0x%02X only=0x%02X", ones, only));
+        nr_write(emu, 0x6F, 0x0C);            // VHDL reset default :5044-5045
+    }
+
+    // ── G56-CR-70 — NR 0x70 bits 7:6 always 0 ─────────────────────────
+    // zxnext.vhd:6114
+    //   "00" & nr_70_layer2_resolution(1:0) & nr_70_layer2_palette_offset(3:0)
+    {
+        nr_write(emu, 0x70, 0xFF);
+        const uint8_t got = nr_read(emu, 0x70);
+        check("G56-CR-70",
+              "NR 0x70 read is two constant zeros + resolution + palette "
+              "offset: write 0xFF reads 0x3F [zxnext.vhd:6114]",
+              got == 0x3F, detail_eq(got, uint8_t{0x3F}));
+        nr_write(emu, 0x70, 0x00);
+    }
+
+    // ── G56-CR-71 — NR 0x71 bits 7:1 always 0 ─────────────────────────
+    // zxnext.vhd:6117  port_253b_dat <= "0000000" & nr_71_layer2_scrollx_msb
+    {
+        nr_write(emu, 0x71, 0xFF);
+        const uint8_t got = nr_read(emu, 0x71);
+        check("G56-CR-71",
+              "NR 0x71 read is seven constant zeros + the Layer 2 scroll-X "
+              "MSB: write 0xFF reads 0x01 [zxnext.vhd:6117]",
+              got == 0x01, detail_eq(got, uint8_t{0x01}));
+        nr_write(emu, 0x71, 0x00);
+    }
+
+    // ── G56-CR-80 — NR 0x80 expansion-bus dynamic state ───────────────
+    // zxnext.vhd:6123  port_253b_dat <= nr_80_expbus
+    // Unmasked, but bit 7 (`expbus_en`) and bit 4 (`expbus_disable_mem`) are
+    // latched into the effective expansion-bus enables that gate the NMI
+    // path (:2197, :2200, :2089) and the internal port-enable AND mask
+    // (:2392-2393). The read must agree with the state those consumers see.
+    {
+        nr_write(emu, 0x80, 0x00);
+        const uint8_t off = nr_read(emu, 0x80);
+        const bool live_off = emu.nmi_source().expbus_eff_en();
+        nr_write(emu, 0x80, 0x90);            // expbus_en + disable_mem
+        const uint8_t on = nr_read(emu, 0x80);
+        const bool live_on  = emu.nmi_source().expbus_eff_en();
+        const bool live_dis = emu.nmi_source().expbus_eff_disable_mem();
+        check("G56-CR-80",
+              "NR 0x80 reads the expansion-bus byte and its b7/b4 are the "
+              "SAME state the effective expbus enables expose "
+              "[zxnext.vhd:6123, :2197, :2200]",
+              off == 0x00 && !live_off && on == 0x90 && live_on && live_dis,
+              fmt("off=0x%02X/%d on=0x%02X/%d,%d",
+                  off, (int)live_off, on, (int)live_on, (int)live_dis));
+        nr_write(emu, 0x80, 0x00);
+    }
+
+    // ── G56-CR-81 — NR 0x81 b7 from i_BUS_ROMCS_n ─────────────────────
+    // zxnext.vhd:6126
+    //   i_BUS_ROMCS_n(7) & nr_81_expbus_ula_override(6)
+    //     & nr_81_expbus_nmi_debounce_disable(5) & nr_81_expbus_clken(4)
+    //     & nr_81_expbus_fdc(3) & '0'(2) & nr_81_expbus_speed(1:0)
+    // Bit 7 is an INPUT PIN, not a latch — with no expansion bus attached it
+    // idles high, so it reads 1 even after a 0x00 write. Bit 2 is a
+    // constant, and the write at :5496 hard-wires expbus_speed to "00"
+    // (`nr_wr_dat(1 downto 0)` is commented out in the VHDL), so bits 1:0
+    // never follow the write either.
+    {
+        nr_write(emu, 0x81, 0x00);
+        const uint8_t zero = nr_read(emu, 0x81);
+        nr_write(emu, 0x81, 0xFF);
+        const uint8_t ones = nr_read(emu, 0x81);
+        check("G56-CR-81",
+              "NR 0x81 bit 7 is the i_BUS_ROMCS_n input pin (reads 1 after a "
+              "0x00 write), bit 2 is a constant 0 and bits 1:0 are hard-wired "
+              "\"00\" on write: 0x00 -> 0x80, 0xFF -> 0xF8 "
+              "[zxnext.vhd:6126, :5496]",
+              zero == 0x80 && ones == 0xF8,
+              fmt("zero=0x%02X ones=0x%02X (want 0x80 / 0xF8)", zero, ones));
+        nr_write(emu, 0x81, 0x00);
+    }
+}
+
 int main() {
     std::printf("NextREG Integration Tests (full-machine reset defaults)\n");
     std::printf("====================================\n\n");
@@ -7408,6 +7987,9 @@ int main() {
 
     test_lores_registers();
     std::printf("  Group: LoRes-NR — done\n");
+
+    test_g56_cr_plan_rows(emu);
+    std::printf("  Group: G56-CR-PlanRows — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",

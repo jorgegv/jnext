@@ -1762,6 +1762,19 @@ private:
     // VideoTiming::refresh_60hz().
     bool     eff_nr_05_scandouble_en_ = false;
 
+    // Effective (frame-edge-latched) copy of NR 0x09 bits 1:0
+    // (`nr_09_scanlines`). VHDL zxnext.vhd:6701 latches
+    // `eff_nr_09_scanlines <= nr_09_scanlines` in the SAME
+    // `video_frame_sync` block as the two NR 0x05 effective copies, and
+    // the NR 0x09 read mux (:5909) surfaces the effective copy, not the
+    // pending FF that the NR 0x09 write (:5859-5860) and the F7 hotkey
+    // increment (:5861-5863) drive. Same lifecycle as
+    // `eff_nr_05_scandouble_en_`: latched in begin_new_frame(), seeded in
+    // init(), re-derived in load_state(), not serialised. No behavioural
+    // consumer in jnext (o_VIDEO_SCANLINES drives the VGA scan doubler,
+    // zxnext.vhd:1620) — this exists for VHDL-faithful read-back.
+    uint8_t  eff_nr_09_scanlines_ = 0;
+
     // NR 0x81 — Expansion bus control (VHDL zxnext.vhd:1222-1227).
     // Wave C (TASK-NMI-SOURCE-PIPELINE-PLAN) stores the raw byte for
     // VHDL-faithful read-back; bit 5 (`expbus_nmi_debounce_disable`) is

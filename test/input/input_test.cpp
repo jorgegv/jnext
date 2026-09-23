@@ -3171,22 +3171,34 @@ static void test_fnkeys() {
     }
 
     // ── FNK-04: F7 press increments NR 0x09 scanlines (VHDL :5861-5863) ──
+    // GH #201 correction — same frame-edge-latched readback as FNK-02/03:
+    // the NR 0x09 read surfaces `eff_nr_09_scanlines` (zxnext.vhd:5909),
+    // latched from the pending `nr_09_scanlines` only at `video_frame_sync`
+    // (:6701). The F7 hotkey drives the PENDING counter (:5861-5863), so
+    // the increment is invisible to a read until the next frame edge. This
+    // row used to sample immediately, pinning the pending value.
     {
         Emulator emu;
         build_next_emulator_for_nmi(emu);
         nr_write_via_port(emu, 0x09, 0x00);  // start with scanlines = 00
+        emu.run_frame();                     // latch eff_nr_09_scanlines = 0
         emu.port().out(0x243B, 0x09);
         const uint8_t before = emu.port().in(0x253B) & 0x03;
         emu.emu_fnkeys().simulate_mf_fkey_press(7);
+        emu.port().out(0x243B, 0x09);
+        // Pending counter incremented, eff not yet latched → read unchanged.
+        const uint8_t mid    = emu.port().in(0x253B) & 0x03;
+        emu.run_frame();                     // frame edge latches the increment
         emu.port().out(0x243B, 0x09);
         const uint8_t after  = emu.port().in(0x253B) & 0x03;
         const uint8_t expected = static_cast<uint8_t>((before + 1) & 0x03);
 
         check("FNK-04",
-              "F7 press increments NR 0x09 bits 1:0 (scanlines) (VHDL :5861-5863)",
-              after == expected,
-              DETAIL("NR 0x09 bits 1:0 before=%u after=%u expected=%u",
-                     before, after, expected));
+              "F7 press increments NR 0x09 bits 1:0 (scanlines), readable "
+              "after the frame edge only (VHDL :5861-5863; eff latch :6701)",
+              mid == before && after == expected,
+              DETAIL("NR 0x09 bits 1:0 before=%u mid=%u after=%u expected=%u",
+                     before, mid, after, expected));
     }
 
     // ── FNK-05: F8 with NR 0x06 bit 7 = 0 → no-op (VHDL :6347 gate) ──
