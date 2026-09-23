@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Group rows: the three static preflight lints, always rows 1-3 of the suite.
+# Group rows: the four static preflight lints, always rows 1-4 of the suite.
 # Sourced by regression.sh (the driver); also directly executable.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
@@ -29,6 +29,26 @@ if bash "$SCRIPT_DIR/lint-traps.sh"; then
     printf "  "; pass_row ": no row script installs its own trap"
 else
     printf "  "; fail_row ": a row script installs its own trap (see above)"
+fi
+echo ""
+
+# --- unescalated-timeout lint ---
+# `timeout N cmd` sends SIGTERM and nothing after it, so a command that does
+# not act on SIGTERM runs unbounded while timeout reports 124 as if it had been
+# stopped. Two jnext processes were found alive 9289 s after a `timeout 120`,
+# reparented to systemd, burning a core apiece underneath the suite's
+# real-time-pacing-bound rows — the class of runaway that fails nothing itself
+# and makes OTHER rows lie. Commit d56ad276 swept two files by hand and fixed
+# five call sites; three more were already in the tree elsewhere, one of them
+# seven weeks old, and only a gate that looks at the WHOLE test tree finds
+# those. Hence the scope: every tracked test/*.sh, wider than lint-traps,
+# because a runaway started outside a row costs exactly the same.
+echo -e "${BOLD}[lint-timeouts] Scanning test shell scripts for unescalated timeouts...${RESET}"
+CURRENT_ROW=lint-timeouts
+if bash "$PROJECT_DIR/test/lint-timeouts.sh"; then
+    printf "  "; pass_row ": every 'timeout' escalates to SIGKILL"
+else
+    printf "  "; fail_row ": a test script runs 'timeout' with no escalation (see above)"
 fi
 echo ""
 

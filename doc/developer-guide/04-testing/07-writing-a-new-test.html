@@ -1936,6 +1936,14 @@ about your row in particular.</p>
 project's own history includes six subsystem plans reporting "100% passing"
 while carrying tautologies, anti-tests that pinned wrong behaviour as the
 expected result, and 34 plan rows silently dropped from a 95-row plan.</p>
+<p>Know what it cannot show you, though. Breaking one rule at a time regresses the
+rules you <strong>wrote</strong>; it can never surface an <em>interaction</em> between two rules
+that are each correct and were never considered together. <code>lint-timeouts.sh</code>
+shipped its review round with exactly that defect — continuation lines joined
+before comments were stripped — and every one of its 53 cases passed, because
+continuation had only ever been tested without a comment and comments only ever
+without a continuation. So when a green mutation run tempts you to stop, go
+looking for the pair of rules nobody has written a case for.</p>
 <h2 id="then-never-review-your-own-work">Then: never review your own work<a class="headerlink" href="#then-never-review-your-own-work" title="Permanent link">&para;</a></h2>
 <p>Every change gets an independent review by someone — or some agent — that did
 not write it, working in its own worktree, and the verdict is binary: APPROVE

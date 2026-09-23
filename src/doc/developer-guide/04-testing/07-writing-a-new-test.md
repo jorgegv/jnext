@@ -122,6 +122,15 @@ project's own history includes six subsystem plans reporting "100% passing"
 while carrying tautologies, anti-tests that pinned wrong behaviour as the
 expected result, and 34 plan rows silently dropped from a 95-row plan.
 
+Know what it cannot show you, though. Breaking one rule at a time regresses the
+rules you **wrote**; it can never surface an *interaction* between two rules
+that are each correct and were never considered together. `lint-timeouts.sh`
+shipped its review round with exactly that defect — continuation lines joined
+before comments were stripped — and every one of its 53 cases passed, because
+continuation had only ever been tested without a comment and comments only ever
+without a continuation. So when a green mutation run tempts you to stop, go
+looking for the pair of rules nobody has written a case for.
+
 ## Then: never review your own work
 
 Every change gets an independent review by someone — or some agent — that did

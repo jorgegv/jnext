@@ -321,6 +321,16 @@ files so the two cannot drift. Command position is derived from bash's CLOSED se
 words (`! coproc do elif else if then time until while`), so `if trap …; then` is caught by
 construction rather than by having thought of it.
 
+**Every `timeout` in a test script must escalate to SIGKILL.** `timeout N cmd` sends only
+SIGTERM, which a command may ignore — the bound is then decorative and the 124 status lies.
+Write `timeout --foreground --kill-after=5s Ns`. `--kill-after` (or `--signal=KILL`) is the
+requirement; `--foreground` is optional and sometimes wrong to add — without it the command
+gets its own process group and the KILL reaches its children, which is what you want when it
+spawns a process tree. `test/lint-timeouts.sh`, row 3 of the preflight, enforces this across
+every tracked `*.sh` under `test/` — a wider scope than `lint-traps.sh`, since the hazard has
+nothing to do with being sourced. There is no exception list: whether a program handles
+SIGTERM is not statically decidable.
+
 **The harness is itself under test.** `make harness-selftest` (also run every regression as
 `harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It
 exists because the harness shipped once with a bug that appeared *only when a suite failed*

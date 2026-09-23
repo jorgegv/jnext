@@ -39,7 +39,7 @@ own SD-card clone. Any row whose guest **writes** to the card needs it.
 in run order. Each has its logic in `scripts/<name>.sh` and calls
 `begin_func <name>` to register that its row really was reported.
 
-Both files carry a `# expect: N` pin — currently 65 screenshots and 67
+Both files carry a `# expect: N` pin — currently 65 screenshots and 70
 functional — and the driver faults if a pin and the declared lines disagree.
 
 ## The independent witness
@@ -63,7 +63,7 @@ the manifest.
 At the end of a full run — that is, one not in `--update` mode — the driver
 proves three things: that every declared functional test reported **exactly
 one** row, that no undeclared row appeared, and that the grand total equals
-`3 lint + 1 sdcard-provision + screenshots + functional`. Any mismatch is
+`4 lint + 1 sdcard-provision + screenshots + functional`. Any mismatch is
 reported as a **harness fault**, exit 2, and is explicitly not a pass.
 
 Build artifacts that rows depend on — `rewind_test` and the SDL-only `jnext` —
@@ -137,6 +137,40 @@ look like syntax stays clean. Its scope is bounded on purpose: **it catches the
 accidental trap, not deliberate obfuscation, which no static grep can.** When a
 row needs scratch files, put them under `$TMP_DIR` instead of installing a
 cleanup handler — the harness trap already removes that directory.
+
+## Every `timeout` must escalate to `SIGKILL`
+
+`timeout N cmd` sends `SIGTERM` and nothing after it. A command that does not
+act on `SIGTERM` keeps running; `timeout` waits for it and then reports 124, so
+the bound is decorative and the status lies. Two `jnext` processes were once
+found alive **9289 seconds** after a `timeout 120` in a row — reparented to
+systemd, the worktree that spawned them long deleted, burning a core apiece
+underneath the suite's pacing-bound rows. A runaway of that class fails nothing
+itself; it makes *other* rows lie.
+
+So every invocation uses the house form:
+
+```bash
+timeout --foreground --kill-after=5s 60s "$JNEXT" --headless ...
+```
+
+`--kill-after` is the requirement, and `--signal=KILL` satisfies it too:
+`SIGKILL` cannot be ignored, so the bound is real. It costs nothing when the
+command is well behaved, because it fires only if `SIGTERM` was already
+disregarded. `--foreground` is *not* required and is not always right — without
+it `timeout` gives the command its own process group and the signal reaches its
+**children**, which is what you want when it spawns a process tree.
+
+`test/lint-timeouts.sh`, row 3 of the suite, enforces it across every tracked
+`*.sh` under `test/` — a wider scope than the trap lint, because this hazard
+has nothing to do with being sourced: a process a packaging test leaves behind
+costs the same as one a regression row leaves behind. The rule has **no
+exception list**, deliberately: whether a given program handles `SIGTERM` is
+not statically decidable, and "this one is fine" is the reasoning that put the
+bare `timeout` there in the first place. A sweep fixes only what it is pointed
+at: the hand pass before the lint fixed five call sites in two files and left
+**three** behind elsewhere, one of them seven weeks old in
+`test/packaging/packaging-test.sh` — which is the case for a whole-tree scope.
 
 ## Regenerating reference screenshots
 
