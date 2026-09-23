@@ -16,7 +16,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Memory/MMU            |      252 |      252 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU (int)      |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NextREG (integration) |      324 |      324 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NextREG (integration) |      348 |      348 |      0 |       0 |    100% | 🟢 All tests pass. |
 | esxDOS stub           |      159 |      159 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input                 |      334 |      334 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Input (integration)   |       24 |       24 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -31,6 +31,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
+| divmmc_integration_test |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "divmmc_integration_test" to the label map in refresh-subsystem-status.sh. |
 | Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       74 |       74 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -46,7 +47,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | VideoTiming           |       64 |       64 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      158 |      158 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (AY+DAC+Beeper) |      152 |      152 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (pacing)        |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -77,11 +78,11 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | TZX loader (container) |       91 |       91 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Snapshot IM latch (NR 0xC0) |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DMA                   |      160 |      160 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Tilemap               |       74 |       74 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Tilemap               |       84 |       84 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Tilemap raster splits |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes                 |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes (integration)   |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NMI Source Pipeline   |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NMI Source Pipeline   |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI (integration)     |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Atic Atac NMI         |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raw binary --inject   |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -118,6 +119,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **8049** | **8049** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **8116** | **8116** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

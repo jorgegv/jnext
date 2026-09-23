@@ -282,6 +282,18 @@ target_link_libraries(divmmc_test PRIVATE jnext_peripheral jnext_memory jnext_de
 target_include_directories(divmmc_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME divmmc_tests COMMAND divmmc_test)
 
+# DivMMC companion integration suite (GH #201) — the SRAM-map plan rows
+# (SM-01..05) observe Emulator::init's DivMMC ROM/RAM backing into physical
+# Ram pages 0x08 / 16-31, which the bare divmmc_test cannot see (it links
+# no jnext_core and owns no Ram). Mirrors the mmu_integration_test linkage.
+add_executable(divmmc_integration_test divmmc/divmmc_integration_test.cpp)
+target_link_libraries(divmmc_integration_test PRIVATE
+    jnext_core jnext_cpu jnext_memory jnext_video
+    jnext_audio jnext_port jnext_peripheral jnext_input
+    jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+target_include_directories(divmmc_integration_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME divmmc_integration_tests COMMAND divmmc_integration_test)
+
 # SD card SPI state machine compliance test
 add_executable(sdcard_test sdcard/sdcard_test.cpp)
 target_link_libraries(sdcard_test PRIVATE jnext_peripheral)

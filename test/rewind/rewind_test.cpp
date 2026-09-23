@@ -47,6 +47,23 @@ static void skip(const char* id, const char* reason) {
     fprintf(stdout, "SKIP %-16s %s\n", id, reason);
 }
 
+// ID-carrying form of CHECK. GH #201: `test/traceability-exceptions.conf`
+// lists this suite's planned rows because it has no VHDL counterpart and so
+// no plan doc — but every one of them named an assertion that this file
+// ALREADY made, anonymously, through the CHECK macro. An ID built nowhere is
+// an ID no source reader can see, so the matrix published all of them as
+// `missing` while they ran and passed. Spelling the ID out as a literal is
+// the whole fix; the condition and the message are unchanged.
+static void check(const char* id, bool cond, const char* desc) {
+    if (!cond) {
+        fprintf(stderr, "FAIL %s: %s\n", id, desc);
+        ++fail_count;
+    } else {
+        fprintf(stdout, "PASS %s: %s\n", id, desc);
+        ++pass_count;
+    }
+}
+
 #define CHECK(cond, msg) do { \
     if (!(cond)) { \
         fprintf(stderr, "FAIL [%s:%d] %s\n", __FILE__, __LINE__, msg); \
@@ -120,15 +137,15 @@ static int test_rewind_ring_wrap()
 
     auto* rb = emu.rewind_buffer();
     REQUIRE(rb != nullptr, "rewind buffer exists with 4 frames");
-    CHECK(rb->empty(), "buffer starts empty");
+    check("RING-01", rb->empty(), "rewind buffer starts empty");
 
     // Run 6 frames — should wrap after 4.
     for (int i = 0; i < 6; ++i)
         emu.run_frame();
 
-    CHECK(rb->depth() == 4, "depth capped at 4 after 6 frames");
-    CHECK(rb->newest_frame_num() == 5, "newest frame_num is 5 (frames 0..5 taken, 6th pending)");
-    CHECK(rb->oldest_frame_num() == 2, "oldest frame_num is 2 after wrap");
+    check("RING-02", rb->depth() == 4, "ring depth caps at its 4-frame capacity after 6 frames");
+    check("RING-03", rb->newest_frame_num() == 5, "newest frame_num is 5 after the wrap (frames 0..5 taken)");
+    check("RING-04", rb->oldest_frame_num() == 2, "oldest frame_num is 2 after the wrap (the two earliest were overwritten)");
 
     return 0;
 }
@@ -160,10 +177,10 @@ static int test_step_back_pc()
 
     // step_back(5)
     bool ok = emu.step_back(5);
-    CHECK(ok, "step_back(5) returns true");
+    check("SB-01", ok, "step_back(5) reports success");
     uint16_t pc_after_5 = emu.cpu().get_registers().PC;
     printf("  PC after step_back(5):  0x%04X (expected 0x%04X)\n", pc_after_5, expected_5);
-    CHECK(pc_after_5 == expected_5, "step_back(5) lands on correct PC");
+    check("SB-02", pc_after_5 == expected_5, "step_back(5) lands on the PC the trace recorded 5 instructions back");
 
     // step_back(10) — fresh emulator for a clean trace
     Emulator emu2;
@@ -176,10 +193,10 @@ static int test_step_back_pc()
 
     uint16_t expected2_10 = emu2.trace_log().at(ts2 - 10).pc;
     ok = emu2.step_back(10);
-    CHECK(ok, "step_back(10) returns true");
+    check("SB-03", ok, "step_back(10) reports success");
     uint16_t pc_after_10 = emu2.cpu().get_registers().PC;
     printf("  PC after step_back(10): 0x%04X (expected 0x%04X)\n", pc_after_10, expected2_10);
-    CHECK(pc_after_10 == expected2_10, "step_back(10) lands on correct PC");
+    check("SB-04", pc_after_10 == expected2_10, "step_back(10) lands on the PC the trace recorded 10 instructions back");
 
     return 0;
 }
@@ -206,7 +223,7 @@ static int test_rewind_to_frame()
     // Get rewind buffer info.
     auto* rb = emu.rewind_buffer();
     REQUIRE(rb != nullptr, "rewind buffer exists");
-    CHECK(rb->depth() == 5, "5 snapshots after 5 frames");
+    check("RTF-01", rb->depth() == 5, "five frame snapshots are held after five frames");
 
     uint32_t target_frame = rb->oldest_frame_num() + 1;
     printf("  Rewinding to frame %u (oldest=%u newest=%u)\n",
@@ -214,11 +231,11 @@ static int test_rewind_to_frame()
 
     // Rewind to frame target_frame.
     bool ok = emu.rewind_to_frame(target_frame);
-    CHECK(ok, "rewind_to_frame() returns true");
+    check("RTF-02", ok, "rewind_to_frame() reports success for a frame still in the ring");
 
     // After rewind, the frame_num_ should reflect the restored state.
-    CHECK(emu.frame_num() == target_frame + 1,
-          "frame_num_ matches target+1 after rewind (snapshot taken at start of target)");
+    check("RTF-03", emu.frame_num() == target_frame + 1,
+          "frame_num is target+1 after the rewind (the snapshot is taken at the start of the target frame)");
 
     return 0;
 }
@@ -241,14 +258,14 @@ static int test_snapshot_roundtrip()
     emu.save_state(measure);
     size_t snap_size = measure.position();
     printf("  Snapshot size: %zu bytes\n", snap_size);
-    CHECK(snap_size > 0, "snapshot size > 0");
-    CHECK(snap_size < 3 * 1024 * 1024, "snapshot < 3 MB (sanity check)");
+    check("RW-RT-01", snap_size > 0, "a measured snapshot is larger than zero bytes");
+    check("RW-RT-02", snap_size < 3 * 1024 * 1024, "a measured snapshot stays under the 3 MB sanity bound");
 
     // First snapshot.
     std::vector<uint8_t> buf1(snap_size, 0);
     StateWriter w1(buf1.data(), snap_size);
     emu.save_state(w1);
-    CHECK(w1.position() == snap_size, "save_state writes exactly snap_size bytes (pass 1)");
+    check("RW-RT-03", w1.position() == snap_size, "save_state writes exactly the measured snap_size bytes (pass 1)");
 
     // Restore.
     StateReader r(buf1.data(), snap_size);
@@ -258,7 +275,7 @@ static int test_snapshot_roundtrip()
     std::vector<uint8_t> buf2(snap_size, 0);
     StateWriter w2(buf2.data(), snap_size);
     emu.save_state(w2);
-    CHECK(w2.position() == snap_size, "save_state writes exactly snap_size bytes (pass 2)");
+    check("RT-04", w2.position() == snap_size, "save_state writes exactly the measured snap_size bytes again after a load (pass 2)");
 
     bool identical = (std::memcmp(buf1.data(), buf2.data(), snap_size) == 0);
     if (!identical) {
@@ -271,7 +288,7 @@ static int test_snapshot_roundtrip()
             }
         }
     }
-    CHECK(identical, "save→load→save produces identical bytes (determinism)");
+    check("RT-05", identical, "save -> load -> save produces byte-identical snapshots (determinism)");
 
     return 0;
 }
@@ -285,7 +302,7 @@ static int test_step_back_disabled()
     Emulator emu;
     build_emulator(emu, 0);  // rewind disabled
 
-    CHECK(emu.rewind_buffer() == nullptr, "rewind buffer is null when disabled");
+    check("SBD-01", emu.rewind_buffer() == nullptr, "no rewind buffer is allocated when rewind is disabled");
 
     emu.run_frame();
     emu.debug_state().set_active(true);
@@ -293,7 +310,7 @@ static int test_step_back_disabled()
     emu.execute_single_instruction();
 
     bool ok = emu.step_back(1);
-    CHECK(!ok, "step_back returns false when rewind is disabled");
+    check("SBD-02", !ok, "step_back reports failure when rewind is disabled");
 
     return 0;
 }
@@ -733,7 +750,7 @@ static int test_rb_frame_guard()
     {
         RewindBuffer rb(3, snap - 16);
         rb.take_snapshot(emu, 100, 1);
-        CHECK(rb.empty(), "RB-FRAME-01 undersized slot: snapshot dropped, not published");
+        check("RB-FRAME-01", rb.empty(), "undersized slot (simulated post-construction widening): the snapshot is dropped, not published");
     }
 
     // Clean error path: a correctly-sized buffer still publishes normally
@@ -741,7 +758,7 @@ static int test_rb_frame_guard()
     {
         RewindBuffer rb(3, snap);
         rb.take_snapshot(emu, 100, 1);
-        CHECK(rb.depth() == 1, "RB-FRAME-02 exact-size slot: snapshot publishes normally");
+        check("RB-FRAME-02", rb.depth() == 1, "exact-size slot still publishes normally: the size guard refuses only mismatched writes and is not sticky");
     }
 
     // Construction-vs-measured mismatch in the other direction (oversized
@@ -750,7 +767,7 @@ static int test_rb_frame_guard()
     {
         RewindBuffer rb(3, snap + 16);
         rb.take_snapshot(emu, 100, 1);
-        CHECK(rb.empty(), "RB-FRAME-03 slot/measured size mismatch: snapshot dropped");
+        check("RB-FRAME-03", rb.empty(), "oversized slot (save_state shrank since construction) is refused too: the size claim would otherwise be a lie");
     }
 
     // Eviction branch: a mismatched write over a FULL ring scribbles the

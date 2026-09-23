@@ -516,6 +516,8 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     // effective == pending (cold-boot default 0x41 → bit 0 = '1',
     // zxnext.vhd:1303). Kept in sync per-frame by begin_new_frame().
     eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
+    // Same latch, same edge, for NR 0x09 bits 1:0 (zxnext.vhd:6701).
+    eff_nr_09_scanlines_ = static_cast<uint8_t>(nextreg_.cached(0x09) & 0x03);
 
     // Mirror the post-build per-slot contention state into Mmu so the
     // p3_floating_bus_dat latch (VHDL zxnext.vhd:4498-4509) sees the
@@ -2243,19 +2245,25 @@ bool Emulator::init(const EmulatorConfig& cfg, bool preserve_memory)
     //   nr_09_psg_mono [7:5] & nr_09_sprite_tie [4] & '0' [3]
     //     & (NOT nr_09_hdmi_audio_en) [2] & eff_nr_09_scanlines [1:0]
     // Bit 3 always reads 0; bit 4 sourced from sprites_.mirror_tie() (the
-    // authoritative store wired through Sprites). Bits 7:5 (psg_mono) and
-    // bits 1:0 (eff_scanlines) are not separately latched in jnext yet —
-    // both echo the last-write byte through the cached regs_[0x09] (the
-    // VHDL latches them too, just into named signals). Bit 2 reads back
-    // the WRITE bit 2: VHDL stores `not nr_wr_dat(2)` so the read of
+    // authoritative store wired through Sprites). Bits 7:5 (psg_mono) echo
+    // the last-write byte through the cached regs_[0x09] (the VHDL latches
+    // them too, just into a named signal). Bit 2 reads back the WRITE bit
+    // 2: VHDL stores `not nr_wr_dat(2)` so the read of
     // `not nr_09_hdmi_audio_en` returns nr_wr_dat(2) — same as cached. G56.
+    //
+    // GH #201 — bits 1:0 are `eff_nr_09_scanlines`, the frame-edge-latched
+    // copy (zxnext.vhd:6701), NOT the pending `nr_09_scanlines` the write
+    // at :5859-5860 (or the F7 hotkey increment at :5861-5863) drives. They
+    // used to be read from the cache, so a mid-frame NR 0x09 write became
+    // visible on the very next read instead of at the next frame edge.
     nextreg_.set_read_handler(0x09, [this]() -> uint8_t {
         const uint8_t cached = nextreg_.cached(0x09);
-        // Mask: drop bit 4 (sprite_tie comes from sprites_) and bit 3
-        // (always 0 per VHDL).
-        const uint8_t base = static_cast<uint8_t>(cached & 0xE7);
+        // Mask: drop bit 4 (sprite_tie comes from sprites_), bit 3 (always
+        // 0 per VHDL) and bits 1:0 (the effective scanline latch).
+        const uint8_t base = static_cast<uint8_t>(cached & 0xE4);
         const uint8_t tie  = sprites_.mirror_tie() ? 0x10 : 0x00;
-        return static_cast<uint8_t>(base | tie);
+        return static_cast<uint8_t>(base | tie |
+                                    (eff_nr_09_scanlines_ & 0x03));
     });
 
     // Register 0x0A: Peripheral 2 — SD-card swap + mouse button reverse + DPI.
@@ -8435,6 +8443,14 @@ void Emulator::begin_new_frame()
         // behavioural consumer in jnext (the scan doubler is a
         // VGA-output device) — this exists for VHDL-faithful readback.
         eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
+        // NR 0x09 bits 1:0 (`nr_09_scanlines`) are latched in the SAME
+        // `video_frame_sync` block: VHDL zxnext.vhd:6701
+        // `eff_nr_09_scanlines <= nr_09_scanlines`. The NR 0x09 read mux
+        // (:5909) surfaces the effective copy, so a mid-frame NR 0x09
+        // write (or an F7 hotkey increment) must not be visible on a read
+        // until this edge.
+        eff_nr_09_scanlines_ =
+            static_cast<uint8_t>(nextreg_.cached(0x09) & 0x03);
     }
 
     // Rebase the FUSE tstates counter onto the new frame. derive_hc_vc() in
@@ -11890,6 +11906,7 @@ bool Emulator::load_state(StateReader& r)
     // edge (begin_new_frame), where pending == effective per VHDL
     // zxnext.vhd:6696-6703.
     eff_nr_05_scandouble_en_ = (nextreg_.cached(0x05) & 0x01) != 0;
+    eff_nr_09_scanlines_ = static_cast<uint8_t>(nextreg_.cached(0x09) & 0x03);
     cpu_.load_state(r);
     if (!check_sentinel("cpu")) return false;
     // Z80Cpu's /INT pulse window (zxnext.vhd:2033) is re-derived below,

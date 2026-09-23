@@ -136,11 +136,24 @@ VHDL ref: `ym2149.vhd` lines 240-249
 
 | ID     | Test                                             | Verification                                               |
 |--------|--------------------------------------------------|------------------------------------------------------------|
-| AY-30  | Read R14 with R7 bit 6 = 0 (Port A input mode)  | Returns `port_a_i` (external input). skip — AyChip lacks port_a_i accessor (see G30) |
-| AY-31  | Read R14 with R7 bit 6 = 1 (Port A output mode) | Returns `reg(14) AND port_a_i`. skip — reg(14)+port_a_i not modelled (see G30)        |
-| AY-32  | Read R15 with R7 bit 7 = 0 (Port B input mode)  | Returns `port_b_i`. skip — AyChip lacks port_b_i accessor (see G30)                   |
-| AY-33  | Read R15 with R7 bit 7 = 1 (Port B output mode) | Returns `reg(15) AND port_b_i`. skip — reg(15)+port_b_i not modelled (see G30)        |
-| AY-34  | Port A/B inputs default to 0xFF (pullup)         | In turbosound wiring, port_a_i/port_b_i = all 1s. skip — turbosound.vhd:158 tie-high not plumbed (see G30) |
+| AY-30  | Read R14 with R7 bit 6 = 0 (Port A input mode)  | Returns `port_a_i` = 0xFF, NOT the latched byte                                       |
+| AY-31  | Read R14 with R7 bit 6 = 1 (Port A output mode) | Returns `reg(14) AND port_a_i` = the latched byte                                     |
+| AY-32  | Read R15 with R7 bit 7 = 0 (Port B input mode)  | Returns `port_b_i` = 0xFF, NOT the latched byte                                       |
+| AY-33  | Read R15 with R7 bit 7 = 1 (Port B output mode) | Returns `reg(15) AND port_b_i` = the latched byte                                     |
+| AY-34  | Port A/B inputs default to 0xFF (pullup)         | `turbosound.vhd:174-176, :229-231, :284-286` tie port_a_i/port_b_i all-ones on all three PSGs |
+
+> **GH #201 (2026-09-23): AY-30..34 are live rows, no longer G30 skips.**
+> The G30 WONT rested on "AyChip lacks port_a_i / port_b_i accessors". That
+> premise was false: the Next routes those pins nowhere — `turbosound.vhd`
+> hard-ties both to all-ones for all three PSGs, so their value is a constant
+> of this hardware and there is nothing to plumb. What remained was a plain
+> register read any guest can perform, and jnext answered it with the stored
+> byte in BOTH directions. Fixed in `src/audio/ay_chip.cpp`; the five rows are
+> asserted in `audio_test` group `AY-ports`.
+>
+> The tie-high citation above was also wrong throughout this document and in
+> the test source: `turbosound.vhd:158` is psg0's `AY_ID` generic map, not the
+> port tie-off.
 
 ### 1.4 Clock Divider
 

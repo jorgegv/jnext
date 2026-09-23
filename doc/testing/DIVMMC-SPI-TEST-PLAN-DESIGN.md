@@ -27,6 +27,18 @@ Updated 2026-04-17 (commit `d4ea4e1`):
   - E3-04, E3-07, E3-08, EP-02/03/11, NR-01/02/05, SS-09/SS-11: fixed in prior sessions.
 - **Skips**: 56 rows. Genuinely unreachable — NMI lifecycle (NM-01..08), RETN hook (DA-06, IN-03), instant-vs-delayed pipeline (DMC-TM-01..04, TM-05), `automap_reset` vs `set_enabled` distinction (DA-08, NA-03), SRAM address ladder (SM-01..07), MISO priority ladder (SPI-MX-01/02/05), SPI state counter / SCK / MOSI pin (SX-06..10, ST-01..08), NR 0x09 bit 3 clear mapram (E3-05).
 
+> **GH #201 (2026-09-23): SM-01..05 are live rows now, not skips.** The
+> "unreachable" verdict above rested on jnext keeping DivMMC ROM and RAM in
+> private buffers with no physical page offset. That stopped being true on
+> 2026-07-09, when the NextZXOS-boot fix made the Next's DivMMC ROM a view of
+> SRAM page 0x08 and its RAM a view of pages 16-31 (`Emulator::init` calls
+> `set_rom_backing(ram_.page_ptr(0x08))` / `set_ram_backing(ram_.page_ptr(16))`)
+> — which is exactly the VHDL ladder the rows describe. Nobody re-checked the
+> verdict when the premise changed. See §11.
+>
+> SM-06/07 stay unreachable for a different and still-current reason: they need
+> expansion-bus ROMCS, which jnext does not model at all (G45).
+
 ## Architecture
 
 ### Test harness
@@ -317,6 +329,17 @@ DivMMC ROM and RAM occupy specific SRAM address ranges. VHDL reference:
 | SM-05 | DivMMC has priority over Layer 2 mapping | Checked before L2 in priority chain |
 | SM-06 | DivMMC has priority over ROMCS | Checked before ROMCS |
 | SM-07 | ROMCS maps to DivMMC banks 14 and 15 | `sram_A21_A13 = "00001111" & A13(0)` |
+
+**SM-01..05 live in the companion suite** `test/divmmc/divmmc_integration_test.cpp`
+(GH #201). They observe `Emulator::init`'s DivMMC ROM/RAM backing into physical
+`Ram` pages 0x08 and 16-31, which the bare `divmmc_test` cannot see — it links
+no `jnext_core` and owns no `Ram`. Each row seeds a sentinel directly into the
+physical page and requires the CPU-visible DivMMC window to return it; SM-05
+plants the Layer 2 byte through the Layer 2 write-over path rather than
+computing the page itself, so a Layer 2 addressing change cannot make a
+priority row fail for the wrong reason.
+
+**SM-06/07 remain unimplemented** — expansion-bus ROMCS is not modelled (G45).
 
 ### 12. Port 0xE7 -- SPI Chip Select (Slave Select)
 

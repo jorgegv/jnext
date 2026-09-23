@@ -602,6 +602,37 @@ assertion (`check("TM-CB5", ..., true, ...)` — a documentation placeholder),
 and the discrepancy it recorded (VHDL bit 5 = `strip_flags` vs the then-current
 C++ bit mapping) is resolved in the current code and covered by TM-50..TM-53.
 
+### GH #201 (2026-09-23) — all ten are live rows again, written from VHDL
+
+The disposition above is superseded. The rows stayed listed as planned, so the
+generated matrix published all ten as `missing` — an open claim that the
+project intends to test something it does not. They are asserted now, in group
+`G16 Control decode` of `test/tilemap/tilemap_test.cpp`, and none of them is a
+restoration of the retired anti-test:
+
+- **TM-CB1..CB5** assert the CONTROL-BYTE DECODE, one bit at a time, which the
+  named successor rows do not: those exercise the downstream behaviour of a
+  correctly-decoded flag. Each row drives its bit from an all-zero byte AND
+  from an all-ones byte with only that bit cleared, so reading the wrong bit
+  position fails in both directions. `tilemap.vhd:189-195` is the decode
+  (`mode_i <= control_i(6)`, `strip_flags_i <= control_i(5)`, `textmode_i <=
+  control_i(3)`, `mode_512_i <= control_i(1)`, `tm_on_top_i <= control_i(0)`);
+  bit 7 is `nr_6b_tm_en` one level up in `zxnext.vhd`'s NR 0x6B write. TM-CB5
+  pins bits 5 and 3 against each other, since a swap of the two would satisfy
+  either alone — it is a real assertion now, not the placeholder it was.
+- **TM-RR1..RR4** are not bare member round-trips either. What they pin is that
+  each register stores the WHOLE byte, because the bit-6 drop on NR 0x6E / 0x6F
+  belongs to the READ MUX (`zxnext.vhd:6108`, `:6111` — rows G56-CR-6E/6F), not
+  to the store. A store that applied the read mask would be wrong, and these
+  rows catch it.
+- **TM-RR5** closes the gap this table itself identified: it resets from a
+  fully DIRTIED state, both scroll registers included, which TM-04 cannot do
+  from a fresh object — that row cannot tell "reset clears" from "was never
+  set".
+
+All ten were mutation-tested: every bit-position swap, every store mask and
+both reset-default reverts kill exactly the row that claims them.
+
 ## Coverage notes (moved from the traceability matrix, GH #196)
 
 The matrix is a generated artifact now and carries no prose of its own; it

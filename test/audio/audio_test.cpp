@@ -149,10 +149,23 @@ static void g_ay_write() {
         bool ok = true;
         int bad_r = -1;
         uint8_t bad_v = 0;
-        for (int r = 0; r < 16; ++r) {
+        // R0..R13 read their latch back directly. R14/R15 do NOT: the read
+        // mux at ym2149.vhd:240-249 returns the PIN unless R7's direction
+        // bit for that port is set, and the 0x47 just written to R7 leaves
+        // port B an input. Open both ports first (GH #201) so the latch is
+        // observable at all — the mixer bits of R7 are left as written.
+        for (int r = 0; r < 14; ++r) {
             ay.select_register(r);
             uint8_t v = ay.read_data();
             if (v != static_cast<uint8_t>(0x40 | r)) { ok = false; bad_r = r; bad_v = v; break; }
+        }
+        if (ok) {
+            ay.select_register(7); ay.write_data(0xC7);   // both ports OUTPUT
+            for (int r = 14; r < 16; ++r) {
+                ay.select_register(r);
+                uint8_t v = ay.read_data();
+                if (v != static_cast<uint8_t>(0x40 | r)) { ok = false; bad_r = r; bad_v = v; break; }
+            }
         }
         check("AY-04", "write to all 16 registers (0..15)",
               ok, fmt("first bad r=%d got=0x%02x VHDL ym2149.vhd:189-207", bad_r, bad_v));
@@ -188,8 +201,11 @@ static void g_ay_write() {
     }
 
     // AY-07 - ym2149.vhd:209-211 writing R13 pulses env_reset. Observable:
-    // shape 0D (up, hold near max) must settle at env_vol=30 (YM[30]=0xE0)
-    // only if env_reset loaded env_vol=0 and direction=up at the write.
+    // shape 0D is `/‾‾‾` (ym2149.vhd:385-386) so it must settle at the TOP
+    // rail, env_vol=31 (YM[31]=0xFF) — which can only happen if env_reset
+    // loaded env_vol=0 and direction=up at the write. GH #201: the expected
+    // value was YM[30]=0xE0, one level short, because the shape cascade
+    // evaluated is_top_m1 against the POST-step volume.
     {
         AyChip ay;
         ay.set_ay_mode(false);
@@ -199,8 +215,9 @@ static void g_ay_write() {
         ay.select_register(12); ay.write_data(0x00);
         ay.select_register(13); ay.write_data(0x0D);
         for (int i = 0; i < 4000; ++i) ay.tick();
-        check("AY-07", "R13 write pulses env_reset (shape 0D settles to YM[30]=0xE0)",
-              ay.output_a() == 0xE0,
+        check("AY-07", "R13 write pulses env_reset (shape 0D `/‾‾‾` settles "
+              "to the top rail YM[31]=0xFF)",
+              ay.output_a() == 0xFF,
               fmt("out_a=0x%02x VHDL ym2149.vhd:209-211,392-401",
                   ay.output_a()));
     }
@@ -424,20 +441,100 @@ static void g_ay_readback() {
 static void g_ay_ports() {
     set_group("AY-ports");
 
-    // VHDL ym2149.vhd:240-249 + turbosound.vhd:158 — port_a_i/port_b_i
-    // tied to '1's at the turbosound wrapper. AyChip lacks accessors for
-    // these signals; no Z80 software on platform exercises PSG GPIO.
+    // GH #201 — AY-30..34 were a WONT under G30, on the grounds that
+    // "AyChip lacks accessors for port_a_i/port_b_i". That cost premise was
+    // wrong: the Next does not route those pins anywhere. turbosound.vhd
+    // hard-ties both to all-ones for all three PSGs (:174-176, :229-231,
+    // :284-286 — not :158, which is psg0's AY_ID generic), so their value
+    // is a constant of this hardware and needs no plumbing at all. What
+    // remained was a plain register read that any guest can perform, and
+    // jnext answered it with the stored byte in both directions.
     //
-    // WONT AY-30 / AY-31 / AY-32 / AY-33 / AY-34 — G30: AY-3-8910 GPIO
-    // ports (R14/R15) emulation. Used only by vintage 128K-era peripherals
-    // (Currah uSpeech, MIDI dongles, lightguns, multifaces using AY as a
-    // mux). jnext's target software (NextZXOS + modern Spectrum Next
-    // demos/games) never reads those registers. Per
-    // feedback_wont_taxonomy.md: explicit decision NOT to implement.
-    // Revisit trigger: jnext adds emulation of vintage AY-as-GPIO
-    // peripherals (e.g. Currah/MIDI). At that point AyChip needs
-    // port_a_i/port_b_i accessors and the turbosound.vhd:158 tie-high
-    // wiring becomes observable.
+    // VHDL ym2149.vhd:240-249 — R7 bits 7/6 are the port DIRECTION bits:
+    //   when x"E" => if (reg(7)(6) = '0') then O_DA <= port_a_i;
+    //                else                      O_DA <= reg(14) and port_a_i;
+    //   when x"F" => if (reg(7)(7) = '0') then O_DA <= port_b_i;
+    //                else                      O_DA <= reg(15) and port_b_i;
+    // An INPUT port reads the pin, not the latch.
+
+    // AY-30 — port A in input mode reads the pin, not what was written.
+    {
+        AyChip ay;
+        ay.select_register(7);  ay.write_data(0x3F);   // R7 b6 = 0 → A input
+        ay.select_register(14); ay.write_data(0x5A);   // latch a decoy
+        ay.select_register(14);
+        const uint8_t got = ay.read_data();
+        check("AY-30", "R14 with R7 bit 6 = 0 (port A input) reads port_a_i, "
+              "not the latched byte",
+              got == 0xFF,
+              fmt("got=0x%02x want=0xFF (decoy 0x5A latched) "
+                  "VHDL ym2149.vhd:240-242", got));
+    }
+
+    // AY-31 — port A in output mode reads `reg(14) and port_a_i`; with the
+    // pin tied high that is the stored byte, unmasked.
+    {
+        AyChip ay;
+        ay.select_register(7);  ay.write_data(0x7F);   // R7 b6 = 1 → A output
+        ay.select_register(14); ay.write_data(0x5A);
+        ay.select_register(14);
+        const uint8_t got = ay.read_data();
+        check("AY-31", "R14 with R7 bit 6 = 1 (port A output) reads "
+              "reg(14) AND port_a_i",
+              got == 0x5A,
+              fmt("got=0x%02x want=0x5A VHDL ym2149.vhd:240-244", got));
+    }
+
+    // AY-32 — port B input, the R15 mirror of AY-30.
+    {
+        AyChip ay;
+        ay.select_register(7);  ay.write_data(0x7F);   // R7 b7 = 0 → B input
+        ay.select_register(15); ay.write_data(0xA5);
+        ay.select_register(15);
+        const uint8_t got = ay.read_data();
+        check("AY-32", "R15 with R7 bit 7 = 0 (port B input) reads port_b_i, "
+              "not the latched byte",
+              got == 0xFF,
+              fmt("got=0x%02x want=0xFF (decoy 0xA5 latched) "
+                  "VHDL ym2149.vhd:245-247", got));
+    }
+
+    // AY-33 — port B output, the R15 mirror of AY-31.
+    {
+        AyChip ay;
+        ay.select_register(7);  ay.write_data(0xBF);   // R7 b7 = 1 → B output
+        ay.select_register(15); ay.write_data(0xA5);
+        ay.select_register(15);
+        const uint8_t got = ay.read_data();
+        check("AY-33", "R15 with R7 bit 7 = 1 (port B output) reads "
+              "reg(15) AND port_b_i",
+              got == 0xA5,
+              fmt("got=0x%02x want=0xA5 VHDL ym2149.vhd:245-249", got));
+    }
+
+    // AY-34 — the pull-up itself: both pins are all-ones, so an input-mode
+    // read is 0xFF for a latch of 0x00 as well as 0xFF, and an output-mode
+    // read of 0x00 is 0x00 (the AND is transparent, it does not force the
+    // line high). The 0x00-latch arm is what distinguishes a real tie-high
+    // from a read that merely happens to return 0xFF.
+    {
+        AyChip ay;
+        ay.select_register(7);  ay.write_data(0x3F);   // both ports INPUT
+        ay.select_register(14); ay.write_data(0x00);
+        ay.select_register(15); ay.write_data(0x00);
+        ay.select_register(14); const uint8_t in_a = ay.read_data();
+        ay.select_register(15); const uint8_t in_b = ay.read_data();
+        ay.select_register(7);  ay.write_data(0xFF);   // both ports OUTPUT
+        ay.select_register(14); const uint8_t out_a = ay.read_data();
+        ay.select_register(15); const uint8_t out_b = ay.read_data();
+        check("AY-34", "port_a_i / port_b_i are tied all-ones: an input-mode "
+              "read of a 0x00 latch is 0xFF, an output-mode read of it is "
+              "0x00",
+              in_a == 0xFF && in_b == 0xFF && out_a == 0x00 && out_b == 0x00,
+              fmt("in=%02x/%02x out=%02x/%02x "
+                  "VHDL ym2149.vhd:240-249, turbosound.vhd:174-176",
+                  in_a, in_b, out_a, out_b));
+    }
 }
 
 // =====================================================================
@@ -1089,7 +1186,12 @@ static void g_ay_envelope() {
               fmt("got=0x%02x VHDL ym2149.vhd:412-421", ay.output_a()));
     }
 
-    // AY-111 - ym2149.vhd:412-421 shape 4 (/___): hold at top.
+    // AY-111 - ym2149.vhd:412-421 shape 4 `/___` (the shape table at
+    // ym2149.vhd:373-374): C=0 with Attack=1 ramps UP and, at the step out
+    // of env_vol=31, the 5-bit counter WRAPS to 0 (:405-406) while is_top
+    // sets env_hold — so the steady state is SILENCE, not full volume.
+    // GH #201: the expected value was 0xFF, which is the shape the table
+    // draws for 0x0D, not for 0x04.
     {
         AyChip ay;
         ay.set_ay_mode(false);
@@ -1099,8 +1201,8 @@ static void g_ay_envelope() {
         ay.select_register(12); ay.write_data(0x00);
         ay.select_register(13); ay.write_data(0x04);
         for (int i = 0; i < 4000; ++i) ay.tick();
-        check("AY-111", "shape 4 (/___): hold at top (YM=0xFF)",
-              ay.output_a() == 0xFF,
+        check("AY-111", "shape 4 (/___): rises, wraps and holds at 0 (YM=0x00)",
+              ay.output_a() == 0x00,
               fmt("got=0x%02x VHDL ym2149.vhd:412-421", ay.output_a()));
     }
 
@@ -1125,10 +1227,13 @@ static void g_ay_envelope() {
                   saw_high, saw_zero));
     }
 
-    // AY-113 - shape 9 (\\___H=1 Alt=0 down): VHDL ym2149.vhd:428-431 holds
-    // on is_bot_p1 -> env_vol=1 -> YM[1]=0x01. (The plan row description
-    // says "hold at 0" but the VHDL references is_bot_p1 not is_bot.)
-    // Emulator known-bug flag: may hold at different vol; test asserts VHDL.
+    // AY-113 - shape 9 `\___` (ym2149.vhd:377-378). VHDL :428-431 sets
+    // env_hold on is_bot_p1, and is_bot_p1 is evaluated against the volume
+    // as of the clock edge (:361-366 are concurrent assignments), so the
+    // hold arms at the step OUT of env_vol=1 — which lands on 0. Steady
+    // state is therefore the bottom rail, matching the table's `\___`.
+    // GH #201: the expected value was YM[1]=0x01, one level short, because
+    // the flags were evaluated against the POST-step volume.
     {
         AyChip ay;
         ay.set_ay_mode(false);
@@ -1138,8 +1243,9 @@ static void g_ay_envelope() {
         ay.select_register(12); ay.write_data(0x00);
         ay.select_register(13); ay.write_data(0x09);
         for (int i = 0; i < 4000; ++i) ay.tick();
-        check("AY-113", "shape 9 H=1 Alt=0 down: hold at is_bot_p1 -> YM[1]=0x01",
-              ay.output_a() == 0x01,
+        check("AY-113", "shape 9 `\\___` H=1 Alt=0 down: holds at the bottom "
+              "rail YM[0]=0x00",
+              ay.output_a() == 0x00,
               fmt("got=0x%02x VHDL ym2149.vhd:428-431", ay.output_a()));
     }
 
@@ -1152,18 +1258,34 @@ static void g_ay_envelope() {
         ay.select_register(11); ay.write_data(0x00);
         ay.select_register(12); ay.write_data(0x00);
         ay.select_register(13); ay.write_data(0x0A);
-        bool saw_low = false, saw_high = false;
-        for (int i = 0; i < 4000; ++i) {
+        // GH #201 - the thresholds used to be `<= 0x04` / `>= 0xC0`, which a
+        // descending ramp crosses on its way down even if it then LOCKS one
+        // level inside the rail (which is exactly what the emulator did).
+        // Require the RAILS themselves, and the bottom rail more than once
+        // so a single descent cannot satisfy it - that second visit IS the
+        // turn-round the shape table draws for C/At/Al/H = 1 0 1 0.
+        int rails_low = 0, rails_high = 0;
+        bool at_low = false, at_high = false;
+        for (int i = 0; i < 8000; ++i) {
             ay.tick();
-            if (ay.output_a() <= 0x04) saw_low  = true;
-            if (ay.output_a() >= 0xC0) saw_high = true;
+            const uint8_t v = ay.output_a();
+            if (v == 0x00) { if (!at_low)  { ++rails_low;  at_low  = true; } }
+            else             at_low  = false;
+            if (v == 0xFF) { if (!at_high) { ++rails_high; at_high = true; } }
+            else             at_high = false;
         }
-        check("AY-114", "shape 10 (triangle): visits both extremes",
-              saw_low && saw_high,
-              fmt("low=%d high=%d VHDL ym2149.vhd:444-461", saw_low, saw_high));
+        check("AY-114", "shape 10 triangle: reaches BOTH rails and turns "
+              "round (bottom rail visited more than once)",
+              rails_low >= 2 && rails_high >= 1,
+              fmt("low=%d high=%d VHDL ym2149.vhd:444-461",
+                  rails_low, rails_high));
     }
 
-    // AY-115 - shape 11 (H=1 Alt=1 down): hold at is_bot -> YM[0]=0.
+    // AY-115 - shape 11 `\‾‾‾` (ym2149.vhd:379-381): H=1 Alt=1 down. VHDL
+    // :424-427 arms env_hold on is_bot, i.e. at the step out of env_vol=0 —
+    // and that step WRAPS the counter to 31 (:405-406), so the envelope
+    // decays and then holds at FULL volume, exactly as the table draws it.
+    // GH #201: the expected value was 0x00, the opposite rail.
     {
         AyChip ay;
         ay.set_ay_mode(false);
@@ -1173,8 +1295,9 @@ static void g_ay_envelope() {
         ay.select_register(12); ay.write_data(0x00);
         ay.select_register(13); ay.write_data(0x0B);
         for (int i = 0; i < 4000; ++i) ay.tick();
-        check("AY-115", "shape 11: hold at is_bot -> YM[0]=0x00",
-              ay.output_a() == 0x00,
+        check("AY-115", "shape 11 `\\‾‾‾`: decays then holds at the top rail "
+              "YM[31]=0xFF",
+              ay.output_a() == 0xFF,
               fmt("got=0x%02x VHDL ym2149.vhd:424-427", ay.output_a()));
     }
 
@@ -1199,7 +1322,10 @@ static void g_ay_envelope() {
                   saw_low, saw_high));
     }
 
-    // AY-117 - shape 13 H=1 Alt=0 up: hold at is_top_m1 -> YM[30]=0xE0.
+    // AY-117 - shape 13 `/‾‾‾` (ym2149.vhd:385-386): H=1 Alt=0 up. VHDL
+    // :438-441 arms env_hold on is_top_m1, evaluated against the volume as
+    // of the edge, so the hold lands after the step out of 30 — on 31.
+    // GH #201: the expected value was YM[30]=0xE0, one level short.
     {
         AyChip ay;
         ay.set_ay_mode(false);
@@ -1209,8 +1335,9 @@ static void g_ay_envelope() {
         ay.select_register(12); ay.write_data(0x00);
         ay.select_register(13); ay.write_data(0x0D);
         for (int i = 0; i < 4000; ++i) ay.tick();
-        check("AY-117", "shape 13 H=1 Alt=0 up: hold at is_top_m1 -> YM[30]=0xE0",
-              ay.output_a() == 0xE0,
+        check("AY-117", "shape 13 `/‾‾‾` H=1 Alt=0 up: holds at the top rail "
+              "YM[31]=0xFF",
+              ay.output_a() == 0xFF,
               fmt("got=0x%02x VHDL ym2149.vhd:438-441", ay.output_a()));
     }
 
@@ -1223,18 +1350,31 @@ static void g_ay_envelope() {
         ay.select_register(11); ay.write_data(0x00);
         ay.select_register(12); ay.write_data(0x00);
         ay.select_register(13); ay.write_data(0x0E);
-        bool saw_low = false, saw_high = false;
-        for (int i = 0; i < 4000; ++i) {
+        // GH #201 — same strengthening as AY-114, mirrored: shape 14 rises
+        // first, so it is the TOP rail that must be visited more than once
+        // for the turn-round to have happened. The old thresholds
+        // (`<= 0x04` / `>= 0xC0`) were crossed by the first ramp alone, so
+        // they passed while the ramp locked one level inside the rail.
+        int rails_low = 0, rails_high = 0;
+        bool at_low = false, at_high = false;
+        for (int i = 0; i < 8000; ++i) {
             ay.tick();
-            if (ay.output_a() <= 0x04) saw_low = true;
-            if (ay.output_a() >= 0xC0) saw_high = true;
+            const uint8_t v = ay.output_a();
+            if (v == 0x00) { if (!at_low)  { ++rails_low;  at_low  = true; } }
+            else             at_low  = false;
+            if (v == 0xFF) { if (!at_high) { ++rails_high; at_high = true; } }
+            else             at_high = false;
         }
-        check("AY-118", "shape 14 (triangle): visits both extremes",
-              saw_low && saw_high,
-              fmt("low=%d high=%d VHDL ym2149.vhd:444-461", saw_low, saw_high));
+        check("AY-118", "shape 14 `/\\/\\` triangle: reaches BOTH rails and "
+              "turns round (top rail visited more than once)",
+              rails_high >= 2 && rails_low >= 1,
+              fmt("low=%d high=%d VHDL ym2149.vhd:444-461", rails_low, rails_high));
     }
 
-    // AY-119 - shape 15 H=1 Alt=1 up: hold at is_top -> YM[31]=0xFF.
+    // AY-119 - shape 15 `/___` (ym2149.vhd:389-390): H=1 Alt=1 up. VHDL
+    // :434-437 arms env_hold on is_top, i.e. at the step out of env_vol=31,
+    // and that step wraps the counter to 0 — so the envelope rises and then
+    // goes SILENT. GH #201: the expected value was 0xFF, the opposite rail.
     {
         AyChip ay;
         ay.set_ay_mode(false);
@@ -1244,8 +1384,9 @@ static void g_ay_envelope() {
         ay.select_register(12); ay.write_data(0x00);
         ay.select_register(13); ay.write_data(0x0F);
         for (int i = 0; i < 4000; ++i) ay.tick();
-        check("AY-119", "shape 15: hold at is_top -> YM[31]=0xFF",
-              ay.output_a() == 0xFF,
+        check("AY-119", "shape 15 `/___`: rises then holds at the bottom "
+              "rail YM[0]=0x00",
+              ay.output_a() == 0x00,
               fmt("got=0x%02x VHDL ym2149.vhd:434-437", ay.output_a()));
     }
 
@@ -1282,8 +1423,9 @@ static void g_ay_envelope() {
         a.select_register(13); a.write_data(0x09);
         b.select_register(13); b.write_data(0x0D);
         for (int i = 0; i < 4000; ++i) { a.tick(); b.tick(); }
-        check("AY-123", "H=1 Alt=0: down holds YM[1]=0x01, up holds YM[30]=0xE0",
-              a.output_a() == 0x01 && b.output_a() == 0xE0,
+        check("AY-123", "H=1 Alt=0: `\\___` holds YM[0]=0x00, `/‾‾‾` holds "
+              "YM[31]=0xFF (ym2149.vhd:377-378, :385-386)",
+              a.output_a() == 0x00 && b.output_a() == 0xFF,
               fmt("down=0x%02x up=0x%02x VHDL ym2149.vhd:422-443",
                   a.output_a(), b.output_a()));
     }
@@ -1301,18 +1443,266 @@ static void g_ay_envelope() {
         a.select_register(13); a.write_data(0x0B);
         b.select_register(13); b.write_data(0x0F);
         for (int i = 0; i < 4000; ++i) { a.tick(); b.tick(); }
-        check("AY-124", "H=1 Alt=1: down holds YM[0]=0x00, up holds YM[31]=0xFF",
-              a.output_a() == 0x00 && b.output_a() == 0xFF,
+        check("AY-124", "H=1 Alt=1: `\\‾‾‾` holds YM[31]=0xFF, `/___` holds "
+              "YM[0]=0x00 (ym2149.vhd:379-381, :389-390)",
+              a.output_a() == 0xFF && b.output_a() == 0x00,
               fmt("down=0x%02x up=0x%02x VHDL ym2149.vhd:422-443",
                   a.output_a(), b.output_a()));
     }
 
-    // A: AY-125: triangle continuous — covered by AY-114 + AY-118 shape probes.
-    // A: AY-126: sawtooth continuous — covered by AY-112 + AY-116.
-    // A: AY-127: 32-level step progression — implied by AY-94 volume-table probes
-    //    and the shape sweeps that reach each end of the 32-level range.
-    // A: AY-128: period counter reset on R13 write — covered by AY-102 (R13
-    //    re-write resets env counter to shape 0 hold-at-0).
+    // ── GH #201: AY-103 / AY-120 / AY-121 / AY-125..128 ─────────────
+    //
+    // These six plan rows used to be recorded here as "covered by" other
+    // rows. They were not: an inference that a row WOULD have failed if the
+    // envelope were wrong is not an assertion, and the matrix published all
+    // six as `missing`. Each now has its own assertion, read from the
+    // 32-entry `volTableYm` at ym2149.vhd:157-162 rather than from any
+    // running level.
+    //
+    // Observation method (env_trace below): channel A is forced permanently
+    // mixed-on by R7 bits 0 and 3, because ym2149.vhd:469 computes
+    //   chan_mixed(0) <= (reg(7)(0) or tone_gen_op(1)) and (reg(7)(3) or noise_gen_op)
+    // so with both bits '1' the channel is on every clock; R8 bit 4 then
+    // routes `env_vol` into the output (:490-491) and, in YM mode,
+    // ym2149.vhd:531 emits `volTableYm(env_vol)`. The trace IS the envelope.
+    //
+    // Sampling rate: one envelope step per `ena_div` pulse (:344-349) and
+    // `ena_div` is every 8 chip clocks on this hardware — `cnt_div` reloads
+    // with `(not I_SEL_L) & "111"` (:266) and turbosound.vhd ties I_SEL_L
+    // to '1' for all three PSGs (:164, :219, :274) — so sampling every 8
+    // ticks yields exactly one sample per envelope step.
+
+    // volTableYm, ym2149.vhd:157-162, index 0..31.
+    static const uint8_t kYm[32] = {
+        0x00,0x01,0x01,0x02,0x02,0x03,0x03,0x04,
+        0x06,0x07,0x09,0x0a,0x0c,0x0e,0x11,0x13,
+        0x17,0x1b,0x20,0x25,0x2c,0x35,0x3e,0x47,
+        0x54,0x66,0x77,0x88,0xa1,0xc0,0xe0,0xff
+    };
+
+    auto env_trace = [](uint8_t shape, int steps) {
+        AyChip ay;
+        ay.set_ay_mode(false);                        // YM: full 5-bit table
+        ay.select_register(7);  ay.write_data(0x3F);  // chan_mixed(0) = '1'
+        ay.select_register(8);  ay.write_data(0x10);  // channel A = envelope
+        ay.select_register(11); ay.write_data(0x00);  // period 0 -> comp 0
+        ay.select_register(12); ay.write_data(0x00);
+        ay.select_register(13); ay.write_data(shape);
+        std::vector<uint8_t> out;
+        for (int i = 0; i < steps; ++i) {
+            for (int t = 0; t < 8; ++t) ay.tick();
+            out.push_back(ay.output_a());
+        }
+        return out;
+    };
+    // Index of the first sample equal to `v`, or -1.
+    auto first_of = [](const std::vector<uint8_t>& v, uint8_t want) {
+        for (size_t i = 0; i < v.size(); ++i) if (v[i] == want) return (int)i;
+        return -1;
+    };
+
+    // AY-127 — the counter is 5 bits wide and moves by exactly 1 per step.
+    // Shape 8 (C=1, At=0, Al=0, H=0) free-runs downward and wraps
+    // (ym2149.vhd:403-410, `+ "11111"` = -1 mod 32; no shape branch is
+    // taken for Al=0/H=0 so nothing ever holds). Anchoring on the first
+    // top sample makes the assertion independent of the sampling phase:
+    // the next 32 samples must be volTableYm[31] down to volTableYm[0].
+    {
+        auto tr = env_trace(0x08, 200);
+        int  a  = first_of(tr, 0xFF);
+        bool ok = (a >= 0) && (a + 32 < (int)tr.size());
+        int  bad = -1;
+        if (ok) {
+            for (int k = 0; k < 32; ++k) {
+                if (tr[a + k] != kYm[31 - k]) { ok = false; bad = k; break; }
+            }
+        }
+        check("AY-127", "envelope walks all 32 levels, one step apart "
+              "(shape 8 anchored at the top emits volTableYm[31..0])",
+              ok, fmt("anchor=%d first_mismatch=%d VHDL ym2149.vhd:403-410,157-162",
+                      a, bad));
+    }
+
+    // AY-120 — Attack=0 loads env_vol="11111" and env_inc='0'
+    // (ym2149.vhd:393-396). Shape 8 has At=0 and never holds, so the ramp
+    // must begin at the TOP of the 32-level range and walk down to the
+    // bottom in exactly 31 steps. The reset value itself is on the wire for
+    // a single chip clock — env_reset also forces `env_ena <= '1'` (:341),
+    // so a step is taken on the very next enable — which is why the first
+    // step-aligned sample may already be volTableYm[30]. The row accepts
+    // either and pins the DISTANCE to the bottom, which is what proves the
+    // load was 31 and not some level below it.
+    {
+        auto tr = env_trace(0x08, 40);
+        const bool from_top = (tr[0] == kYm[31]);
+        const int  want_bot = from_top ? 31 : 30;
+        bool nonincreasing = true;
+        for (int i = 1; i <= want_bot; ++i)
+            if (tr[i] > tr[i - 1]) { nonincreasing = false; break; }
+        check("AY-120", "Attack=0 loads env_vol=31 counting down: the ramp "
+              "starts at the top of the range, never rises, and reaches the "
+              "bottom exactly 31 steps after the reset",
+              (tr[0] == kYm[31] || tr[0] == kYm[30]) && nonincreasing &&
+              first_of(tr, 0x00) == want_bot,
+              fmt("first=0x%02x bottom_at=%d want=%d noninc=%d "
+                  "VHDL ym2149.vhd:393-396,341",
+                  tr[0], first_of(tr, 0x00), want_bot, (int)nonincreasing));
+    }
+
+    // AY-121 — Attack=1 loads env_vol="00000" and env_inc='1'
+    // (ym2149.vhd:397-399). Shape 12 is the At=1 mirror of shape 8.
+    {
+        auto tr = env_trace(0x0C, 40);
+        const bool from_bot = (tr[0] == kYm[0]);
+        const int  want_top = from_bot ? 31 : 30;
+        bool nondecreasing = true;
+        for (int i = 1; i <= want_top; ++i)
+            if (tr[i] < tr[i - 1]) { nondecreasing = false; break; }
+        check("AY-121", "Attack=1 loads env_vol=0 counting up: the ramp "
+              "starts at the bottom of the range, never falls, and reaches "
+              "the top exactly 31 steps after the reset",
+              (tr[0] == kYm[0] || tr[0] == kYm[1]) && nondecreasing &&
+              first_of(tr, 0xFF) == want_top,
+              fmt("first=0x%02x top_at=%d want=%d nondec=%d "
+                  "VHDL ym2149.vhd:397-399,341",
+                  tr[0], first_of(tr, 0xFF), want_top, (int)nondecreasing));
+    }
+
+    // AY-125 — C=1, H=0, Al=1 is the triangle: at each boundary the
+    // ALTERNATE branch (ym2149.vhd:444-461) flips env_inc instead of
+    // letting the counter wrap, and clears env_hold so the ramp never
+    // locks. Discriminator against AY-126: after the bottom sample the
+    // level goes back UP.
+    {
+        auto tr = env_trace(0x0A, 200);            // shape 10: C=1 At=0 Al=1 H=0
+        int  b  = first_of(tr, 0x00);
+        // Walk past the boundary dwell (is_bot_p1 sets env_hold for one
+        // step before is_bot clears it, :448-452), then require ascent.
+        int  i  = b;
+        while (i + 1 < (int)tr.size() && tr[i + 1] == 0x00) ++i;
+        bool up = (b >= 0) && (i + 1 < (int)tr.size()) && tr[i + 1] == kYm[1];
+        bool reaches_top = first_of(tr, 0xFF) >= 0;
+        check("AY-125", "C=1 H=0 Al=1 is a triangle: the direction REVERSES "
+              "at the bottom (next level is volTableYm[1], not the top) and "
+              "the ramp keeps running to the top again",
+              up && reaches_top,
+              fmt("bot=%d dwell_end=%d next=0x%02x top=%d "
+                  "VHDL ym2149.vhd:444-461", b, i,
+                  (i + 1 < (int)tr.size()) ? tr[i + 1] : 0xFFu,
+                  first_of(tr, 0xFF)));
+    }
+
+    // AY-126 — C=1, H=0, Al=0 takes NO branch of the shape cascade
+    // (ym2149.vhd:411-462: C=1 skips the first arm, H=0 the second, Al=0
+    // the third), so env_inc and env_hold keep the values env_reset gave
+    // them and the 5-bit counter simply wraps. Discriminator against
+    // AY-125: the sample after the bottom is the TOP, with no dwell.
+    {
+        auto tr = env_trace(0x08, 200);            // shape 8: C=1 At=0 Al=0 H=0
+        int  b  = first_of(tr, 0x00);
+        bool wraps = (b >= 0) && (b + 1 < (int)tr.size()) && tr[b + 1] == 0xFF;
+        check("AY-126", "C=1 H=0 Al=0 is a sawtooth: the counter WRAPS at "
+              "the bottom straight back to the top with no dwell and no "
+              "direction change",
+              wraps,
+              fmt("bot=%d next=0x%02x want=0xFF VHDL ym2149.vhd:411-462,403-410",
+                  b, (b >= 0 && b + 1 < (int)tr.size()) ? tr[b + 1] : 0xFFu));
+    }
+
+    // AY-103 — an R13 write RELOADS the envelope from the Attack bit
+    // wherever the ramp happens to be (ym2149.vhd:209-211 pulses env_reset,
+    // :392-402 reloads env_vol / env_inc / env_hold). Run a descending ramp
+    // well past the top, then re-write R13 with an At=1 shape: the level
+    // must jump to the bottom and ascend; re-write an At=0 shape and it
+    // must jump back to the top and descend.
+    {
+        AyChip ay;
+        ay.set_ay_mode(false);
+        ay.select_register(7);  ay.write_data(0x3F);
+        ay.select_register(8);  ay.write_data(0x10);
+        ay.select_register(11); ay.write_data(0x00);
+        ay.select_register(12); ay.write_data(0x00);
+        ay.select_register(13); ay.write_data(0x08);   // At=0, descending
+        for (int i = 0; i < 8 * 12; ++i) ay.tick();    // ~12 steps down
+        const uint8_t mid = ay.output_a();
+        ay.select_register(13); ay.write_data(0x0C);   // At=1 -> reload bottom
+        uint8_t after_up = 0xFF;
+        for (int s = 0; s < 3; ++s) {
+            for (int t = 0; t < 8; ++t) ay.tick();
+            if (s == 0) after_up = ay.output_a();
+        }
+        const uint8_t up_next = ay.output_a();
+        ay.select_register(13); ay.write_data(0x08);   // At=0 -> reload top
+        uint8_t after_dn = 0xFF;
+        for (int t = 0; t < 8; ++t) ay.tick();
+        after_dn = ay.output_a();
+        check("AY-103", "R13 write reloads the envelope from the Attack bit "
+              "mid-ramp: At=1 jumps to the bottom and ascends, At=0 jumps "
+              "back to the top",
+              mid != 0xFF && mid != 0x00 &&
+              after_up <= kYm[1] && up_next > after_up &&
+              after_dn >= kYm[30],
+              fmt("mid=0x%02x after_up=0x%02x up_next=0x%02x after_dn=0x%02x "
+                  "VHDL ym2149.vhd:209-211,392-402",
+                  mid, after_up, up_next, after_dn));
+    }
+
+    // AY-128 — env_reset clears the PERIOD counter too, not just the
+    // level: ym2149.vhd:340-342 sets `env_gen_cnt <= 0` and `env_ena <= '1'`
+    // on the pulse. With a non-zero period the step interval is constant, so
+    // an R13 write part-way through a period must restart a FULL interval
+    // rather than finish the remainder of the one in flight.
+    //
+    // The interval that follows a write is measured from the SECOND change,
+    // not the first: `env_ena <= '1'` makes the step right after the write
+    // arrive early by construction (:341), and that first short gap is the
+    // forced step, not the period.
+    {
+        auto gaps_after_shape_write = [](AyChip& ay, int n) {
+            std::vector<int> g;
+            uint8_t last = ay.output_a();
+            int prev = -1;
+            for (int t = 0; t < 8000 && (int)g.size() < n; ++t) {
+                ay.tick();
+                if (ay.output_a() != last) {
+                    last = ay.output_a();
+                    if (prev >= 0) g.push_back(t - prev);
+                    prev = t;
+                }
+            }
+            return g;
+        };
+        AyChip ay;
+        ay.set_ay_mode(false);
+        ay.select_register(7);  ay.write_data(0x3F);
+        ay.select_register(8);  ay.write_data(0x10);
+        ay.select_register(11); ay.write_data(0x04);   // period 4 -> comp 3
+        ay.select_register(12); ay.write_data(0x00);
+        ay.select_register(13); ay.write_data(0x08);   // free-running saw down
+        auto g0 = gaps_after_shape_write(ay, 3);
+        const int steady = g0.empty() ? -1 : g0.back();
+        // Re-arm THREE QUARTERS of the way through the period now in
+        // flight, so an un-reset counter would fire a quarter-period later
+        // and a reset one a full period later — far enough apart that the
+        // one-tick skew between the write and the reload edge cannot blur
+        // the two.
+        for (int k = 0; k < (steady * 3) / 4; ++k) ay.tick();
+        ay.select_register(13); ay.write_data(0x08);   // env_reset pulse
+        auto g1 = gaps_after_shape_write(ay, 3);
+        // g1[0] is the gap between the level reload the write itself
+        // causes and the FIRST period step after it — the only interval
+        // that carries the counter-reset evidence. (An earlier draft
+        // asserted the two gaps AFTER that one, which are full periods
+        // whether or not the counter was cleared; deleting `env_gen_cnt
+        // <= 0` from the emulator left it green.)
+        check("AY-128", "R13 write resets the envelope PERIOD counter: the "
+              "first step after a mid-period re-arm is a FULL period away, "
+              "not the remainder of the one that was in flight",
+              steady > 0 && !g1.empty() && g1[0] > (steady * 3) / 4,
+              fmt("steady=%d first_gap_after_write=%d (want > %d) "
+                  "VHDL ym2149.vhd:340-342",
+                  steady, g1.empty() ? -1 : g1[0], (steady * 3) / 4));
+    }
 }
 
 // =====================================================================
