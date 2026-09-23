@@ -1118,6 +1118,22 @@ if(ENABLE_DEBUGGER)
     target_include_directories(debugger_persistent_bp_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
     add_test(NAME debugger_persistent_bp_tests COMMAND debugger_persistent_bp_test)
 
+    # A debugger INSPECTION read is not a guest access. Drives the
+    # real DebuggerWindow panels (Watches / Stack / Disassembly / Memory, the
+    # last through a real paintEvent) against a real 48K Emulator with
+    # watchpoints armed on the addresses they display, and asserts the machine
+    # did not stop. Needs Qt but no display — same offscreen QPA idiom as the
+    # panel suites above.
+    add_executable(debugger_inspect_watchpoint_test debugger/inspect_watchpoint_test.cpp)
+    set_target_properties(debugger_inspect_watchpoint_test PROPERTIES AUTOMOC ON)
+    target_link_libraries(debugger_inspect_watchpoint_test PRIVATE
+        jnext_debugger
+        jnext_core jnext_cpu jnext_memory jnext_video
+        jnext_audio jnext_port jnext_peripheral jnext_input
+        jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB)
+    target_include_directories(debugger_inspect_watchpoint_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+    add_test(NAME debugger_inspect_watchpoint_tests COMMAND debugger_inspect_watchpoint_test)
+
     # Debugger Window Sizing test (GH #114 — "the debugger window does not fit
     # on a small monitor"). Drives the real DebuggerWindow through
     # DebuggerManager::set_enabled, shrinking it below the panels' combined

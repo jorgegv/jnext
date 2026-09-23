@@ -51,13 +51,11 @@ There are **two** booleans, and the split is load-bearing (GH #219).
 keeps the panels showing a live framebuffer, and `video_timing_.advance()`,
 which maintains raster counters nothing but a human inspector ever reads.
 `armed_` — `active_ || persistent_` — is the narrower *are breakpoints live*,
-and it is what the per-instruction breakpoint test and the watchpoint checks in
-`Mmu::read`/`Mmu::write` hang off. `persistent_` comes from
-`--persistent-breakpoints` via `EmulatorConfig`, and is what lets breakpoints
-survive closing the debugger window without switching the rest of that
-machinery back on. The call-stack pre/post hooks sit behind their own
-`enabled()` flag. The watchpoint checks are triple-gated — pointer non-null,
-`armed()`, *and* `has_any_watchpoints()`.
+and it is what the per-instruction breakpoint test hangs off. `persistent_`
+comes from `--persistent-breakpoints` via `EmulatorConfig`, and is what lets
+breakpoints survive closing the debugger window without switching the rest of
+that machinery back on. The call-stack pre/post hooks sit behind their own
+`enabled()` flag.
 
 `armed_` is a cached bool recomputed by the two setters rather than an
 expression, so the default configuration executes exactly the load-and-branch
@@ -65,6 +63,42 @@ the single `active()` gate used to.
 
 So "the debugger costs nothing when closed" is a claim about a predictable
 branch, not about conditional compilation.
+
+### A debugger read is not a guest access
+
+There is a **third** boolean, and it exists because `Mmu::read()` is not the
+CPU's read. The Watches, Memory, Stack and Disassembly panels all
+inspect guest memory through the same `Mmu::read()` the CPU uses, so before
+this gate existed a READ watchpoint on any address a panel happened to display
+was latched by the panel's own refresh — at roughly 4 Hz while the machine ran
+— and the next Run or Step stopped one instruction later at an unrelated
+address. The snapshot savers did the same on every File > Save Snapshot: all
+three sweep RAM through a temporary slot-7 window at `$E000`, and the 48K SNA
+saver additionally pushes PC at `SP-2`.
+
+`watchpoints_live_` is `armed_` **and** `guest_access_`, and `guest_access_` is
+false unless the emulator has declared that it is executing — the RAII
+`DebugState::GuestExecutionScope`, taken by exactly three functions:
+`Emulator::run_frame()`, `step_frame_slot()` and
+`execute_single_instruction()`. The watchpoint checks are therefore triple-
+gated on pointer non-null, `watchpoints_live()` and `has_any_watchpoints()`.
+
+The point of putting the gate there rather than around panel refresh is that
+it does not depend on the caller. A panel added tomorrow cannot fire a
+watchpoint whatever it calls, because it cannot make `guest_access_` true; and
+`MemoryPanel` in particular reads from its `paintEvent`, not from `refresh()`,
+so a scope around the refresh call would have missed it anyway.
+
+Its counterpart `DebugState::InspectionScope` covers the two debugger readers
+that necessarily run *inside* execution: the trace log captures four opcode
+bytes at `PC` and the call-stack tracker three, whatever the instruction's real
+length, so both read data bytes past a short instruction that the CPU never
+fetches. Both are switched on by the debugger, so both hurt exactly the user
+who had it open.
+
+The hot path pays nothing for any of this: `Mmu::read` and `Mmu::write` compile
+to the same 395 and 285 instructions they did before, every difference being a
+structure offset.
 
 ## Execution control
 
@@ -80,7 +114,7 @@ consults it once per instruction, before the fetch:
 | `OUT` | `step_out(sp)` | `check_step_out()` matches, after the instruction |
 | `RUN_TO_CYCLE` | `run_to_cycle()` | master clock reaches the target |
 | `STEP_BACK` / `RUN_BACK_TO_CYCLE` | `step_back()`, `run_back_to_cycle()` | handled before the loop starts, by rewinding |
-| watchpoint | `add_watchpoint` | `Mmu` latches `data_bp_hit`; checked after the instruction |
+| watchpoint | `add_watchpoint` | `Mmu` latches `data_bp_hit` (guest accesses only); checked after the instruction |
 
 ### Enabling and disabling breakpoints
 
@@ -136,7 +170,7 @@ on a later, unrelated breakpoint and swallows it. The UI reaches that state by
 ordinary use: the debugger toolbar's `F5: Continue` button is a plain
 `QPushButton` with no enable gating, and `MainWindow`'s global F5 handler
 forwards to `on_run()` whenever the debugger is enabled, regardless of whether
-the machine is paused. The arm is also dropped by `refresh_armed_()` when
+the machine is paused. The arm is also dropped by `refresh_gates_()` when
 breakpoints go dead, because the consumer stops running there while PC does
 not.
 
@@ -166,8 +200,9 @@ and never read, and F8 had the observable behaviour of Run.
 
 Its position inside that body is load-bearing in both directions, and the
 reason is the general one for any debugger hook here — **it may only read
-memory the CPU itself read**. `Mmu::read()` is not inert: it fires read
-watchpoints and latches the +3 floating bus. Reading the opcode speculatively
+memory the CPU itself read**. `Mmu::read()` is not inert: inside a
+`GuestExecutionScope` it fires read watchpoints, and it latches the +3
+floating bus whatever the scope. Reading the opcode speculatively
 before the instruction runs is therefore unsafe, because `Z80Cpu::execute()`
 has *three* early returns that complete a step without ever fetching at `PC` —
 an accepted NMI, an accepted `INT`, and the esxdos shim. In those slots the

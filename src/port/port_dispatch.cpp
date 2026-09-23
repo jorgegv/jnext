@@ -25,7 +25,11 @@ void PortDispatch::register_handler(uint16_t mask, uint16_t value,
 // nests a port write. Watching a port and missing the DMA's accesses to it
 // would be the wrong answer for a debugger.
 void PortDispatch::check_io_watchpoint_(uint16_t port, WatchType type) const {
-    if (!debug_state_ || !debug_state_->armed()) return;
+    // watchpoints_live(), not armed() — armed() AND the access being the
+    // emulated machine's rather than the debugger's own, so a panel or a tool
+    // probing a port cannot raise the latch. Same gate the eight Mmu sites
+    // take, for the same reason.
+    if (!debug_state_ || !debug_state_->watchpoints_live()) return;
     if (!debug_state_->breakpoints().has_any_watchpoints()) return;
     if (!debug_state_->breakpoints().has_io_watchpoint(port, type)) return;
     debug_state_->set_data_bp_hit(true);

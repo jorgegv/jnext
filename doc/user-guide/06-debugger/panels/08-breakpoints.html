@@ -1932,6 +1932,17 @@
   
 </li>
       
+        <li class="md-nav__item">
+  <a href="#watchpoints-watch-the-program-not-you" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Watchpoints watch the program, not you
+      
+    </span>
+  </a>
+  
+</li>
+      
     </ul>
   
 </nav>
@@ -2885,6 +2896,14 @@ afterwards, is the thing this panel exists to stop.</p>
 </ul>
 <p>Step Into, Step Over, Step Out and <strong>Run to Here</strong> keep working while the
 master switch is off, so a suspended machine is still one you can walk through.</p>
+<h2 id="watchpoints-watch-the-program-not-you">Watchpoints watch the <em>program</em>, not you<a class="headerlink" href="#watchpoints-watch-the-program-not-you" title="Permanent link">&para;</a></h2>
+<p>A read or write watchpoint fires on an access made by the program you are
+running. Looking at the same address — keeping it in the Watches panel,
+scrolling the Memory panel over it, having it in the displayed part of the
+stack — is not an access and never stops the machine, however often the panels
+refresh. Saving a snapshot does not trip one either.</p>
+<p>So you can safely watch an address in a panel and watchpoint it at the same
+time, which is usually what you want to do.</p>
 <p>In the disassembly gutter, a suspended breakpoint — individually disabled, or
 any breakpoint while the master switch is off — is drawn as a <strong>hollow red
 ring</strong> instead of a filled red dot. It stays visible, in the same place, so you
