@@ -211,7 +211,11 @@ void DisasmPanel::disassemble_from(uint16_t addr, int count)
         DisasmEntry entry;
         entry.line = disasm_one(cur, read_fn);
         entry.is_current_pc = (cur == current_pc);
-        entry.has_breakpoint = bps.has_pc(cur);
+        // GH #225 — two questions, not one: does a breakpoint EXIST here,
+        // and can it fire? paintEvent draws a filled dot for the second and a
+        // hollow ring for a breakpoint that is only the first.
+        entry.has_breakpoint  = bps.pc_exists(cur);
+        entry.breakpoint_live = bps.has_pc(cur);
         entries_.push_back(entry);
 
         cur = static_cast<uint16_t>(cur + entry.line.byte_count);
@@ -451,13 +455,31 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
                              QColor(204, 221, 255, 128)); // semi-transparent light blue
         }
 
-        // Breakpoint indicator (red circle in gutter)
+        // Breakpoint indicator in the gutter.
+        //
+        // GH #225 — a SUSPENDED breakpoint (individually disabled, or any
+        // breakpoint while the master switch is off) is drawn as a HOLLOW RING
+        // in the same place, at the same size, in the same red.
+        //
+        // Not hidden, and that is the decision the issue asks for. Hiding it
+        // makes the breakpoint invisible exactly where the user set it: the
+        // gutter click that would bring it back has nothing to aim at, the
+        // list and the gutter disagree about what exists, and the obvious
+        // reading is "it was deleted" — which is the one thing disabling
+        // must not look like. An outline keeps the address marked and is
+        // unmistakable at a glance.
         if (entry.has_breakpoint) {
-            painter.setBrush(QColor(255, 0, 0));
-            painter.setPen(Qt::NoPen);
-            int cx = GUTTER_WIDTH / 2;
-            int cy = y + LINE_HEIGHT / 2;
-            painter.drawEllipse(QPoint(cx, cy), 5, 5);
+            const int cx = GUTTER_WIDTH / 2;
+            const int cy = y + LINE_HEIGHT / 2;
+            if (entry.breakpoint_live) {
+                painter.setBrush(QColor(255, 0, 0));
+                painter.setPen(Qt::NoPen);
+                painter.drawEllipse(QPoint(cx, cy), 5, 5);
+            } else {
+                painter.setBrush(Qt::NoBrush);
+                painter.setPen(QPen(QColor(255, 0, 0), 2));
+                painter.drawEllipse(QPoint(cx, cy), 4, 4);
+            }
         }
 
         // Address column
@@ -521,7 +543,12 @@ void DisasmPanel::mousePressEvent(QMouseEvent* event)
         // Toggle breakpoint
         uint16_t addr = entries_[line].line.addr;
         auto& bps = emulator_->debug_state().breakpoints();
-        if (bps.has_pc(addr)) {
+        // GH #225 — pc_exists(), not has_pc(): the gutter click toggles
+        // whether a breakpoint IS THERE, which is what it has always done.
+        // has_pc() is now "can it fire", so a click on a suspended breakpoint
+        // would have read "none here" and added a second one on top of it.
+        // Enabling and disabling is the Breakpoints panel's checkbox.
+        if (bps.pc_exists(addr)) {
             bps.remove_pc(addr);
         } else {
             bps.add_pc(addr);
@@ -530,8 +557,10 @@ void DisasmPanel::mousePressEvent(QMouseEvent* event)
         // so entries_ was rebuilt underneath us — hence the bounds check. While
         // RUNNING refresh() is a no-op by design, and this patch plus update()
         // is what still shows the dot the instant it is clicked.
-        if (line < static_cast<int>(entries_.size()))
-            entries_[line].has_breakpoint = bps.has_pc(addr);
+        if (line < static_cast<int>(entries_.size())) {
+            entries_[line].has_breakpoint  = bps.pc_exists(addr);
+            entries_[line].breakpoint_live = bps.has_pc(addr);
+        }
         update();
     } else {
         // Select line. GH #21: a plain click is also a one-line SELECTION —
@@ -766,14 +795,16 @@ void DisasmPanel::contextMenuEvent(QContextMenuEvent* event)
     auto* toggle_bp = menu.addAction("Toggle Breakpoint");
     connect(toggle_bp, &QAction::triggered, this, [this, addr, line]() {
         auto& bps = emulator_->debug_state().breakpoints();
-        if (bps.has_pc(addr)) {
+        if (bps.pc_exists(addr)) {
             bps.remove_pc(addr);
         } else {
             bps.add_pc(addr);
         }
         // Same as the gutter click above — see mousePressEvent().
-        if (line < static_cast<int>(entries_.size()))
-            entries_[line].has_breakpoint = bps.has_pc(addr);
+        if (line < static_cast<int>(entries_.size())) {
+            entries_[line].has_breakpoint  = bps.pc_exists(addr);
+            entries_[line].breakpoint_live = bps.has_pc(addr);
+        }
         update();
     });
 

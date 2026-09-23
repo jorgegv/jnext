@@ -5,6 +5,7 @@
 
 #include <QVBoxLayout>
 #include <QHBoxLayout>
+#include <QCheckBox>
 #include <QPushButton>
 #include <QHeaderView>
 #include <QDialog>
@@ -13,6 +14,12 @@
 #include <QLineEdit>
 #include <QComboBox>
 #include <QLabel>
+
+// The table's columns, named once (GH #225 inserted one at the front).
+static constexpr int COL_ENABLED = 0;
+static constexpr int COL_TYPE    = 1;
+static constexpr int COL_ADDR    = 2;
+static constexpr int COL_SYMBOL  = 3;
 
 BreakpointPanel::BreakpointPanel(Emulator* emulator, QWidget* parent)
     : QWidget(parent)
@@ -39,27 +46,58 @@ BreakpointPanel::BreakpointPanel(Emulator* emulator, QWidget* parent)
     btn_row->addWidget(remove_btn);
 
     btn_row->addStretch();
+
+    // GH #225 — the MASTER SWITCH. It deletes nothing and clears no
+    // per-breakpoint flag; it decides whether the set's live cache is built
+    // from those flags at all, so unchecking and re-checking it restores
+    // exactly the set that was there. Right-aligned, away from the three
+    // destructive buttons it must not be mistaken for.
+    master_check_ = new QCheckBox(tr("Breakpoints enabled"), this);
+    master_check_->setChecked(
+        emulator_->debug_state().breakpoints().master_enabled());
+    master_check_->setToolTip(
+        tr("Master switch. Unchecking suspends every breakpoint and watchpoint "
+           "without deleting any; re-checking restores each one's own Enabled "
+           "state. Step Over, Step Out and Run to Here keep working."));
+    connect(master_check_, &QCheckBox::toggled, this, [this](bool on) {
+        if (updating_) return;
+        emulator_->debug_state().breakpoints().set_master_enabled(on);
+    });
+    btn_row->addWidget(master_check_);
+
     layout->addLayout(btn_row);
 
-    // Table
-    table_ = new QTableWidget(0, 3, this);
-    table_->setHorizontalHeaderLabels({tr("Type"), tr("Address"), tr("Symbol")});
+    // Table. Enabled first: it is a control, not data, and every debugger that
+    // has one puts it in the leading column.
+    table_ = new QTableWidget(0, 4, this);
+    table_->setHorizontalHeaderLabels(
+        {tr("On"), tr("Type"), tr("Address"), tr("Symbol")});
     table_->setSelectionBehavior(QAbstractItemView::SelectRows);
     table_->setSelectionMode(QAbstractItemView::SingleSelection);
     table_->setAlternatingRowColors(true);
     table_->setEditTriggers(QAbstractItemView::NoEditTriggers);
     table_->horizontalHeader()->setStretchLastSection(true);
     table_->verticalHeader()->setVisible(false);
-    table_->setColumnWidth(0, 90);
-    table_->setColumnWidth(1, 70);
+    table_->setColumnWidth(0, 32);
+    table_->setColumnWidth(1, 90);
+    table_->setColumnWidth(2, 70);
 
     QFont mono("Monospace", 10);
     mono.setStyleHint(QFont::Monospace);
     table_->setFont(mono);
 
-    // Double-click to edit
-    connect(table_, &QTableWidget::cellDoubleClicked, this, [this](int, int) {
+    // Double-click to edit — but NOT on the Enabled column, where a
+    // double-click is two toggles and must not also pop the Edit dialog.
+    connect(table_, &QTableWidget::cellDoubleClicked, this, [this](int, int col) {
+        if (col == COL_ENABLED) return;
         on_edit();
+    });
+
+    // GH #225 — the per-breakpoint checkbox. NoEditTriggers does not disable a
+    // user-checkable item's indicator, so this fires on a plain click.
+    connect(table_, &QTableWidget::itemChanged, this, [this](QTableWidgetItem* item) {
+        if (updating_ || !item || item->column() != COL_ENABLED) return;
+        apply_enabled_cell(item->row(), item->checkState() == Qt::Checked);
     });
 
     layout->addWidget(table_, 1);
@@ -112,9 +150,11 @@ void BreakpointPanel::rebuild_entries()
     entries_.clear();
     const auto& bps = emulator_->debug_state().breakpoints();
 
-    // Execute (PC) breakpoints
-    for (uint16_t addr : bps.pc_breakpoints()) {
-        entries_.push_back({addr, 0});
+    // Execute (PC) breakpoints. pc_breakpoints() is THE MODEL (GH #225): it
+    // carries the disabled ones too, each with its own flag, which is the
+    // whole point — a disabled breakpoint stays in this list.
+    for (const auto& entry : bps.pc_breakpoints()) {
+        entries_.push_back({entry.first, 0, entry.second});
     }
 
     // Data (watchpoint) breakpoints.
@@ -143,7 +183,7 @@ void BreakpointPanel::rebuild_entries()
             case WatchType::IO_READ:    ti = 4; break;
             case WatchType::IO_WRITE:   ti = 5; break;
         }
-        entries_.push_back({wp.addr, ti});
+        entries_.push_back({wp.addr, ti, wp.enabled});
     }
 
     // Sort by address
@@ -153,18 +193,47 @@ void BreakpointPanel::rebuild_entries()
 
 void BreakpointPanel::refresh()
 {
+    // GH #225 — RE-ENTRANCY GUARD, and it is not merely tidiness.
+    //
+    // apply_enabled_cell() raises `updating_` across its write to the set,
+    // because that write notifies and the notification lands back here — while
+    // Qt is still emitting itemChanged for the very QTableWidgetItem that the
+    // rebuild below would delete. Suppressing the rebuild removes that
+    // lifetime hazard, and costs nothing: the widget is already showing the
+    // state the user just clicked. The OTHER subscriber (the disassembly
+    // gutter) is unaffected — the suppression is this panel's, not the set's.
+    if (updating_) return;
+
     rebuild_entries();
+
+    // Everything below writes widgets FROM the model. The same flag is what
+    // stops itemChanged() and the master checkbox's toggled() from writing
+    // those values straight back into it.
+    updating_ = true;
+
+    if (master_check_)
+        master_check_->setChecked(
+            emulator_->debug_state().breakpoints().master_enabled());
 
     table_->setRowCount(static_cast<int>(entries_.size()));
 
     for (int i = 0; i < static_cast<int>(entries_.size()); ++i) {
         const auto& e = entries_[i];
 
+        // GH #225 — this breakpoint's OWN flag, not whether it can currently
+        // fire. The master switch has its own control; echoing it into every
+        // row would erase the state a user has to get back when they flip it.
+        auto* en_item = new QTableWidgetItem();
+        en_item->setFlags(Qt::ItemIsEnabled | Qt::ItemIsSelectable |
+                          Qt::ItemIsUserCheckable);
+        en_item->setCheckState(e.enabled ? Qt::Checked : Qt::Unchecked);
+        table_->setItem(i, COL_ENABLED, en_item);
+
         auto* type_item = new QTableWidgetItem(type_name(e.type_index));
-        table_->setItem(i, 0, type_item);
+        table_->setItem(i, COL_TYPE, type_item);
 
         auto* addr_item = new QTableWidgetItem(QString::asprintf("$%04X", e.addr));
-        table_->setItem(i, 1, addr_item);
+        table_->setItem(i, COL_ADDR, addr_item);
 
         QString sym;
         if (symbol_table_) {
@@ -172,8 +241,40 @@ void BreakpointPanel::refresh()
             if (s) sym = QString::fromStdString(*s);
         }
         auto* sym_item = new QTableWidgetItem(sym);
-        table_->setItem(i, 2, sym_item);
+        table_->setItem(i, COL_SYMBOL, sym_item);
     }
+
+    updating_ = false;
+}
+
+// GH #225 — a click on a row's Enabled checkbox.
+void BreakpointPanel::apply_enabled_cell(int row, bool enabled)
+{
+    if (row < 0 || row >= static_cast<int>(entries_.size())) return;
+
+    // type_index == -1 is the "unknown WatchType" row rebuild_entries()
+    // deliberately shows as "?": there is no type to address the breakpoint
+    // by, so it is left alone rather than guessed at. Same rule as
+    // on_edit()/on_remove().
+    const auto e = entries_[row];
+    if (e.type_index < 0) return;
+
+    auto& bps = emulator_->debug_state().breakpoints();
+
+    // Raised across the write: see refresh()'s head for why the rebuild this
+    // notification would otherwise trigger must not happen from inside the
+    // itemChanged signal that got us here.
+    updating_ = true;
+    if (e.type_index == 0) {
+        bps.set_pc_enabled(e.addr, enabled);
+    } else {
+        bps.set_watchpoint_enabled(e.addr, watch_type_for(e.type_index), enabled);
+    }
+    updating_ = false;
+
+    // ... and because there was no rebuild, entries_ is kept truthful here.
+    // on_edit() reads this flag to carry it across an address change.
+    entries_[row].enabled = enabled;
 }
 
 bool BreakpointPanel::show_bp_dialog(const QString& title, uint16_t& addr, int& type_index)
@@ -265,13 +366,19 @@ void BreakpointPanel::on_edit()
         bps.remove_watchpoint(old.addr, watch_type_for(old.type_index));
     }
 
-    // Add new
+    // Add new, carrying the old one's Enabled state across (GH #225). An edit
+    // moves a breakpoint; it does not create one, so a disabled breakpoint
+    // whose address the user corrects must come back still disabled. add_*()
+    // always creates enabled, hence the explicit re-apply.
     if (type_index == 0) {
         bps.add_pc(addr);
+        bps.set_pc_enabled(addr, old.enabled);
     } else {
-        bps.add_watchpoint(addr, watch_type_for(type_index));
+        const WatchType wt = watch_type_for(type_index);
+        bps.add_watchpoint(addr, wt);
+        bps.set_watchpoint_enabled(addr, wt, old.enabled);
     }
-    // Each of the four mutations above notified; the last one left the table
+    // Each of the mutations above notified; the last one left the table
     // showing the edited breakpoint. Nothing to repaint by hand.
 }
 

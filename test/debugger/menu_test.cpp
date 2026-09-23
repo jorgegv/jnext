@@ -113,12 +113,15 @@
 
 #include <QAction>
 #include <QApplication>
+#include <QCheckBox>
 #include <QContextMenuEvent>
 #include <QDialog>
+#include <QImage>
 #include <QKeyEvent>
 #include <QLineEdit>
 #include <QMainWindow>
 #include <QMenu>
+#include <QMouseEvent>
 #include <QComboBox>
 #include <QMenuBar>
 #include <QPushButton>
@@ -249,9 +252,12 @@ QStringList panel_rows(DebuggerWindow* dbg) {
     if (!panel) return out;
     auto* table = panel->findChild<QTableWidget*>();
     if (!table) return out;
+    // Columns 1 and 2. GH #225 inserted an "On" checkbox column at 0, so the
+    // Type and Address the rows below read moved one to the right; nothing
+    // about what they assert changed.
     for (int r = 0; r < table->rowCount(); ++r) {
-        QTableWidgetItem* type = table->item(r, 0);
-        QTableWidgetItem* addr = table->item(r, 1);
+        QTableWidgetItem* type = table->item(r, 1);
+        QTableWidgetItem* addr = table->item(r, 2);
         out << QStringLiteral("%1 %2")
                    .arg(type ? type->text() : QStringLiteral("?"),
                         addr ? addr->text() : QStringLiteral("?"));
@@ -386,6 +392,139 @@ bool fill_disasm_window(Emulator& emu, DisasmPanel* panel, uint16_t base) {
     if (!panel) return false;
     if (auto* sb = panel->findChild<QScrollBar*>())
         sb->setValue(base);
+    QApplication::processEvents();
+    return true;
+}
+
+// ── GH #225 helpers: the Enabled column, the master switch, the gutter ──
+
+/// The panel's table, or nullptr.
+QTableWidget* panel_table(DebuggerWindow* dbg) {
+    BreakpointPanel* panel = dbg ? dbg->breakpoint_panel() : nullptr;
+    return panel ? panel->findChild<QTableWidget*>() : nullptr;
+}
+
+/// The check state of every row's Enabled cell, top to bottom, as "1"/"0".
+/// A missing item reads "?" so a row that lost its checkbox fails loudly
+/// rather than silently comparing as unchecked.
+QString panel_checks(DebuggerWindow* dbg) {
+    QString out;
+    QTableWidget* table = panel_table(dbg);
+    if (!table) return out;
+    for (int r = 0; r < table->rowCount(); ++r) {
+        QTableWidgetItem* it = table->item(r, 0);
+        if (!it) { out += u'?'; continue; }
+        if (!(it->flags() & Qt::ItemIsUserCheckable)) { out += u'x'; continue; }
+        out += (it->checkState() == Qt::Checked) ? u'1' : u'0';
+    }
+    return out;
+}
+
+/// Tick or untick row `row`'s Enabled cell, the way a click on the indicator
+/// does: setCheckState emits itemChanged, which is the panel's own handler.
+///
+/// Deliberately NOT named with a trailing "check": test/lint-assertions.sh
+/// bans a literal true as a check()'s condition by regex, and any helper whose
+/// name ends that way is swept up with it.
+void set_panel_enabled(DebuggerWindow* dbg, int row, bool on) {
+    QTableWidget* table = panel_table(dbg);
+    if (!table) return;
+    QTableWidgetItem* it = table->item(row, 0);
+    if (!it) return;
+    it->setCheckState(on ? Qt::Checked : Qt::Unchecked);
+    QApplication::processEvents();
+}
+
+/// The panel's master switch, or nullptr.
+QCheckBox* master_switch(DebuggerWindow* dbg) {
+    BreakpointPanel* panel = dbg ? dbg->breakpoint_panel() : nullptr;
+    return panel ? panel->findChild<QCheckBox*>() : nullptr;
+}
+
+/// The row index of `addr` in the panel table, or -1. The table is sorted by
+/// address, but a row asserts the index it found rather than one it assumed.
+int panel_row_of(DebuggerWindow* dbg, uint16_t addr) {
+    QTableWidget* table = panel_table(dbg);
+    if (!table) return -1;
+    const QString want = QString::asprintf("$%04X", addr);
+    for (int r = 0; r < table->rowCount(); ++r) {
+        QTableWidgetItem* it = table->item(r, 2);
+        if (it && it->text() == want) return r;
+    }
+    return -1;
+}
+
+// The disassembly panel's private layout constants, restated (the same
+// coupling disasm_copy_test accepts and documents).
+constexpr int D_PAINT_Y  = 52;   // DisasmPanel::paint_y_offset_
+constexpr int D_LINE_H   = 18;   // DisasmPanel::LINE_HEIGHT
+constexpr int D_GUTTER_W = 20;   // DisasmPanel::GUTTER_WIDTH
+
+/// Click IN THE GUTTER of disassembly line `line` — x inside GUTTER_WIDTH,
+/// which is what makes mousePressEvent take the toggle-breakpoint branch
+/// rather than the selection one.
+void gutter_click(DisasmPanel* p, int line) {
+    if (!p) return;
+    const QPointF pos(D_GUTTER_W / 2, D_PAINT_Y + line * D_LINE_H + D_LINE_H / 2);
+    QMouseEvent press(QEvent::MouseButtonPress, pos, p->mapToGlobal(pos.toPoint()),
+                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    QApplication::sendEvent(p, &press);
+    QMouseEvent release(QEvent::MouseButtonRelease, pos, p->mapToGlobal(pos.toPoint()),
+                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    QApplication::sendEvent(p, &release);
+    QApplication::processEvents();
+}
+
+/// What the gutter column actually holds, measured rather than assumed.
+///
+/// GEOMETRY-INDEPENDENT ON PURPOSE. The rows below compare an ARMED rendering
+/// with a SUSPENDED one, so what they need is "where is the marker and what is
+/// at its middle", not "line 1 is at y=70". The bounding box of the pure-red
+/// pixels inside the gutter answers both, and it keeps working if the panel's
+/// private layout constants move.
+struct GutterMark {
+    int  red = 0;              // pure-red pixels in the whole gutter column
+    int  cx = -1, cy = -1;     // centre of their bounding box
+    bool centre_red = false;   // ... and whether that centre is itself red
+};
+
+GutterMark gutter_mark(const QImage& img) {
+    GutterMark m;
+    const QRgb red = qRgb(255, 0, 0);
+    int minx = img.width(), maxx = -1, miny = img.height(), maxy = -1;
+    const int gw = std::min(D_GUTTER_W, img.width());
+    for (int y = 0; y < img.height(); ++y) {
+        for (int x = 0; x < gw; ++x) {
+            if (img.pixel(x, y) != red) continue;
+            ++m.red;
+            if (x < minx) minx = x;
+            if (x > maxx) maxx = x;
+            if (y < miny) miny = y;
+            if (y > maxy) maxy = y;
+        }
+    }
+    if (maxx < 0) return m;
+    m.cx = (minx + maxx) / 2;
+    m.cy = (miny + maxy) / 2;
+    m.centre_red = (img.pixel(m.cx, m.cy) == red);
+    return m;
+}
+
+/// The disassembly panel's painted output, at its current size.
+QImage render_disasm(DisasmPanel* p) {
+    QImage img(p->size(), QImage::Format_ARGB32);
+    img.fill(Qt::magenta);            // "nothing was painted here" is visible
+    p->render(&img);
+    return img;
+}
+
+/// Point the disassembly at `base` with three-byte instructions under it, the
+/// panel paused and actually showing them. Line N is then base + 3N.
+bool point_disasm_at(Emulator& emu, DisasmPanel* panel, uint16_t base) {
+    if (!panel) return false;
+    panel->set_paused(true);   // the gutter only tracks the machine while paused
+    if (!fill_disasm_window(emu, panel, base)) return false;
+    panel->refresh();
     QApplication::processEvents();
     return true;
 }
@@ -1102,6 +1241,401 @@ static void test_panel_io_breakpoints()
     }
 }
 
+// ── BPEP: breakpoint enable/disable in the panel and the gutter (GH #225) ──
+//
+// THE FEATURE, from the user's side. Every newly created breakpoint is
+// ENABLED, whichever of the four creation routes made it; a per-row checkbox
+// disables one without deleting it; a master switch suspends them all and
+// gives them back exactly as they were.
+//
+// WHAT THESE ROWS ASSERT. The panel is read as a user reads it — the check
+// states of the Enabled column, and the rows that are still listed — and the
+// EFFECT is read from the BreakpointSet's LIVE query, has_pc(), which is the
+// one the hot loop consults. Both halves are needed: "the box is unticked" is
+// a label, and a panel that unticked a box without telling the set would
+// satisfy it. The backend suite (test/debug/bp_enable_test.cpp) carries the
+// other end of that claim — that has_pc() going false is what stops the CPU.
+//
+// THE GUTTER rows are asserted from PIXELS, because the issue's requirement
+// there is about appearance: a suspended breakpoint must still be marked and
+// must not look identical to an armed one. They compare an armed rendering
+// with a suspended one and never pin a coordinate — see gutter_mark().
+//
+// Mutation-tested one at a time against the product (reverted from a `cp`
+// backup each time); see the branch's report for which mutation kills which
+// row.
+
+static void test_breakpoint_enable()
+{
+    set_group("BPEP");
+
+    DebuggerFixture fx;
+    if (!fx.ok) {
+        check("BPEP-01", "the panel's Add dialog creates an ENABLED breakpoint", false, "fixture failed");
+        return;
+    }
+
+    BreakpointSet& bps = fx.emu.debug_state().breakpoints();
+    QMenu* bp_menu = menu_named(fx.dbg->menuBar(), QStringLiteral("Breakpoints"));
+    DisasmPanel* disasm = fx.dbg->disasm_panel();
+
+    auto reset_set = [&]() {
+        bps.set_master_enabled(true);
+        bps.clear_all_pc();
+        bps.clear_all_watchpoints();
+        fx.dbg->breakpoint_panel()->refresh();
+        QApplication::processEvents();
+    };
+
+    // ── The four creation routes. "Enabled by default" is a claim about
+    //    each of them separately, because each reaches a different mutator.
+
+    // BPEP-01 — route 1: the panel's own Add dialog, Execute.
+    {
+        reset_set();
+        QPushButton* add_btn = panel_button(fx.dbg, QStringLiteral("Add"));
+        PanelAnswer ans;
+        ans.typed       = QStringLiteral("8123");
+        ans.combo_index = 0;                       // Execute
+        click_and_answer(add_btn, ans);
+
+        check("BPEP-01", "the panel's Add dialog creates an ENABLED breakpoint",
+              add_btn && ans.seen && bps.pc_enabled(0x8123) && bps.has_pc(0x8123)
+                  && panel_checks(fx.dbg) == QStringLiteral("1")
+                  && panel_rows(fx.dbg) == QStringList{QStringLiteral("Execute $8123")},
+              fmt("dialog=%d enabled=%d live=%d checks=[%s] rows=[%s]",
+                  ans.seen ? 1 : 0, bps.pc_enabled(0x8123) ? 1 : 0,
+                  bps.has_pc(0x8123) ? 1 : 0,
+                  panel_checks(fx.dbg).toUtf8().constData(),
+                  panel_rows(fx.dbg).join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // BPEP-02 — route 2: the Breakpoints MENU. A different entry point
+    // (DebuggerWindow::show_add_exec_bp_dialog) reaching the same mutator.
+    {
+        reset_set();
+        QAction* item = item_named(bp_menu, QStringLiteral("Add Execute Breakpoint..."));
+        ModalAnswer ans;
+        ans.typed = QStringLiteral("8456");
+        if (item) trigger_and_answer(item, ans);
+
+        check("BPEP-02", "the Breakpoints menu creates an ENABLED breakpoint",
+              item && ans.seen && bps.pc_enabled(0x8456) && bps.has_pc(0x8456)
+                  && panel_checks(fx.dbg) == QStringLiteral("1"),
+              fmt("item=%d dialog=%d enabled=%d checks=[%s]",
+                  item ? 1 : 0, ans.seen ? 1 : 0, bps.pc_enabled(0x8456) ? 1 : 0,
+                  panel_checks(fx.dbg).toUtf8().constData()));
+    }
+
+    // BPEP-03 — route 3: a click in the disassembly GUTTER. The address it
+    // lands on is READ BACK from the set rather than computed from the panel's
+    // private layout, so the row asserts enablement and not arithmetic.
+    {
+        reset_set();
+        const bool armed = point_disasm_at(fx.emu, disasm, 0x8000);
+        gutter_click(disasm, 1);
+
+        const bool one = bps.pc_breakpoints().size() == 1;
+        const uint16_t addr = one ? bps.pc_breakpoints().begin()->first : 0;
+        check("BPEP-03", "a disassembly gutter click creates an ENABLED breakpoint",
+              armed && one && bps.pc_enabled(addr) && bps.has_pc(addr)
+                  && panel_checks(fx.dbg) == QStringLiteral("1"),
+              fmt("armed=%d n=%zu addr=$%04X enabled=%d checks=[%s]",
+                  armed ? 1 : 0, bps.pc_breakpoints().size(), addr,
+                  one && bps.pc_enabled(addr) ? 1 : 0,
+                  panel_checks(fx.dbg).toUtf8().constData()));
+    }
+
+    // BPEP-04 — route 4: the disassembly CONTEXT MENU's Toggle Breakpoint.
+    {
+        reset_set();
+        const bool armed = point_disasm_at(fx.emu, disasm, 0x8000);
+        PopupAnswer ans = pick_from_disasm(disasm, QStringLiteral("Toggle Breakpoint"));
+        QApplication::processEvents();
+
+        const bool one = bps.pc_breakpoints().size() == 1;
+        const uint16_t addr = one ? bps.pc_breakpoints().begin()->first : 0;
+        check("BPEP-04", "the disassembly context menu creates an ENABLED breakpoint",
+              armed && ans.found && one && bps.pc_enabled(addr) && bps.has_pc(addr)
+                  && panel_checks(fx.dbg) == QStringLiteral("1"),
+              fmt("armed=%d picked=%d n=%zu enabled=%d checks=[%s]",
+                  armed ? 1 : 0, ans.found ? 1 : 0, bps.pc_breakpoints().size(),
+                  one && bps.pc_enabled(addr) ? 1 : 0,
+                  panel_checks(fx.dbg).toUtf8().constData()));
+    }
+
+    // BPEP-05 — the data half of route 1. Watchpoints are a separate container
+    // with a separate mutator, so "enabled by default" is a separate claim.
+    {
+        reset_set();
+        QPushButton* add_btn = panel_button(fx.dbg, QStringLiteral("Add"));
+        PanelAnswer ans;
+        ans.typed       = QStringLiteral("9000");
+        ans.combo_index = 2;                       // Write
+        click_and_answer(add_btn, ans);
+
+        check("BPEP-05", "a watchpoint created from the panel is ENABLED too",
+              add_btn && ans.seen
+                  && bps.watchpoint_enabled(0x9000, WatchType::WRITE)
+                  && bps.has_watchpoint(0x9000, WatchType::WRITE)
+                  && panel_checks(fx.dbg) == QStringLiteral("1")
+                  && panel_rows(fx.dbg) == QStringList{QStringLiteral("Write $9000")},
+              fmt("dialog=%d enabled=%d rows=[%s]", ans.seen ? 1 : 0,
+                  bps.watchpoint_enabled(0x9000, WatchType::WRITE) ? 1 : 0,
+                  panel_rows(fx.dbg).join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // ── The per-breakpoint checkbox.
+
+    // BPEP-06 — THE column. Unticking a row takes the breakpoint OUT of the
+    // live set — has_pc() false, which is what the hot loop reads — while the
+    // row stays in the panel with its type and address unchanged. A panel that
+    // only repainted a checkbox fails the has_pc() half; one that "disabled"
+    // by deleting fails the still-listed half.
+    {
+        reset_set();
+        bps.add_pc(0x8123);
+        fx.dbg->breakpoint_panel()->refresh();
+        set_panel_enabled(fx.dbg, 0, false);
+
+        check("BPEP-06", "unticking a row suspends that breakpoint and leaves "
+              "it in the list",
+              !bps.has_pc(0x8123) && !bps.pc_enabled(0x8123)
+                  && bps.pc_exists(0x8123)
+                  && panel_checks(fx.dbg) == QStringLiteral("0")
+                  && panel_rows(fx.dbg) == QStringList{QStringLiteral("Execute $8123")},
+              fmt("live=%d exists=%d checks=[%s] rows=[%s]",
+                  bps.has_pc(0x8123) ? 1 : 0, bps.pc_exists(0x8123) ? 1 : 0,
+                  panel_checks(fx.dbg).toUtf8().constData(),
+                  panel_rows(fx.dbg).join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // BPEP-07 — and ticking it again arms it.
+    {
+        set_panel_enabled(fx.dbg, 0, true);
+        check("BPEP-07", "re-ticking a row arms that breakpoint again",
+              bps.has_pc(0x8123) && bps.pc_enabled(0x8123)
+                  && panel_checks(fx.dbg) == QStringLiteral("1"),
+              fmt("live=%d checks=[%s]", bps.has_pc(0x8123) ? 1 : 0,
+                  panel_checks(fx.dbg).toUtf8().constData()));
+    }
+
+    // BPEP-08 — the same, on a watchpoint row. The panel routes the two kinds
+    // to different setters (set_pc_enabled vs set_watchpoint_enabled) off one
+    // column, so a wrong route here is invisible in BPEP-06.
+    {
+        reset_set();
+        bps.add_watchpoint(0x9000, WatchType::WRITE);
+        fx.dbg->breakpoint_panel()->refresh();
+        set_panel_enabled(fx.dbg, 0, false);
+        const bool off = !bps.has_watchpoint(0x9000, WatchType::WRITE)
+                      && bps.watchpoint_exists(0x9000, WatchType::WRITE);
+        set_panel_enabled(fx.dbg, 0, true);
+
+        check("BPEP-08", "unticking a watchpoint row suspends the watchpoint, "
+              "ticking it back arms it",
+              off && bps.has_watchpoint(0x9000, WatchType::WRITE)
+                  && panel_rows(fx.dbg) == QStringList{QStringLiteral("Write $9000")},
+              fmt("off=%d back_on=%d rows=[%s]", off ? 1 : 0,
+                  bps.has_watchpoint(0x9000, WatchType::WRITE) ? 1 : 0,
+                  panel_rows(fx.dbg).join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // BPEP-09 — selectivity through the panel: two rows, one unticked, and the
+    // OTHER one is still live. A checkbox wired to the master switch by
+    // mistake passes BPEP-06 and fails here.
+    {
+        reset_set();
+        bps.add_pc(0x8100);
+        bps.add_pc(0x8200);
+        fx.dbg->breakpoint_panel()->refresh();
+        const int row = panel_row_of(fx.dbg, 0x8100);
+        if (row >= 0) set_panel_enabled(fx.dbg, row, false);
+
+        check("BPEP-09", "unticking one row leaves the other armed",
+              row >= 0 && !bps.has_pc(0x8100) && bps.has_pc(0x8200)
+                  && bps.master_enabled()
+                  && panel_checks(fx.dbg) == QStringLiteral("01"),
+              fmt("row=%d 8100 live=%d 8200 live=%d checks=[%s]", row,
+                  bps.has_pc(0x8100) ? 1 : 0, bps.has_pc(0x8200) ? 1 : 0,
+                  panel_checks(fx.dbg).toUtf8().constData()));
+    }
+
+    // ── The master switch.
+
+    // BPEP-10 — the control exists, is ON by default, and unticking it
+    // suspends an ENABLED breakpoint while leaving the per-breakpoint boxes
+    // exactly as they were. That last clause is the interaction the issue asks
+    // to get right: the master switch must not consume the individual states.
+    {
+        reset_set();
+        bps.add_pc(0x8100);
+        bps.add_pc(0x8200);
+        fx.dbg->breakpoint_panel()->refresh();
+        const int row = panel_row_of(fx.dbg, 0x8100);
+        if (row >= 0) set_panel_enabled(fx.dbg, row, false);
+
+        QCheckBox* master = master_switch(fx.dbg);
+        const bool on_by_default = master && master->isChecked();
+        if (master) { master->setChecked(false); QApplication::processEvents(); }
+
+        check("BPEP-10", "unticking the master switch suspends every breakpoint "
+              "and changes no per-breakpoint box",
+              on_by_default && !bps.master_enabled()
+                  && !bps.has_pc(0x8100) && !bps.has_pc(0x8200)
+                  && bps.pc_exists(0x8100) && bps.pc_exists(0x8200)
+                  && !bps.pc_enabled(0x8100) && bps.pc_enabled(0x8200)
+                  && panel_checks(fx.dbg) == QStringLiteral("01"),
+              fmt("default_on=%d master=%d live=[%d %d] checks=[%s]",
+                  on_by_default ? 1 : 0, bps.master_enabled() ? 1 : 0,
+                  bps.has_pc(0x8100) ? 1 : 0, bps.has_pc(0x8200) ? 1 : 0,
+                  panel_checks(fx.dbg).toUtf8().constData()));
+    }
+
+    // BPEP-11 — THE ROUND TRIP, through the control, continuing BPEP-10's
+    // state. Everything comes back exactly as it was: same rows, same boxes,
+    // and the right one live again.
+    {
+        QCheckBox* master = master_switch(fx.dbg);
+        if (master) { master->setChecked(true); QApplication::processEvents(); }
+
+        check("BPEP-11", "re-ticking the master switch restores exactly the set "
+              "that was there",
+              master && bps.master_enabled()
+                  && !bps.has_pc(0x8100) && bps.has_pc(0x8200)
+                  && !bps.pc_enabled(0x8100) && bps.pc_enabled(0x8200)
+                  && panel_checks(fx.dbg) == QStringLiteral("01")
+                  && panel_rows(fx.dbg) == QStringList{QStringLiteral("Execute $8100"),
+                                                       QStringLiteral("Execute $8200")},
+              fmt("master=%d live=[%d %d] checks=[%s] rows=[%s]",
+                  bps.master_enabled() ? 1 : 0,
+                  bps.has_pc(0x8100) ? 1 : 0, bps.has_pc(0x8200) ? 1 : 0,
+                  panel_checks(fx.dbg).toUtf8().constData(),
+                  panel_rows(fx.dbg).join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
+    // BPEP-12 — the control FOLLOWS the model. GH #220's rule: the set
+    // notifies and the views redraw themselves, so a master switch flipped
+    // anywhere but this checkbox still has to reach it.
+    {
+        reset_set();
+        bps.add_pc(0x8100);
+        fx.dbg->breakpoint_panel()->refresh();
+        bps.set_master_enabled(false);       // NOT through the control
+        QApplication::processEvents();
+        QCheckBox* master = master_switch(fx.dbg);
+        const bool unticked = master && !master->isChecked();
+        bps.set_master_enabled(true);
+        QApplication::processEvents();
+
+        check("BPEP-12", "the master switch control follows the set, not only "
+              "the other way round",
+              unticked && master && master->isChecked(),
+              fmt("unticked=%d reticked=%d", unticked ? 1 : 0,
+                  (master && master->isChecked()) ? 1 : 0));
+    }
+
+    // ── The gutter.
+
+    // BPEP-13 — a SUSPENDED breakpoint is still marked in the gutter, and does
+    // not look like an armed one. Measured from the rendered pixels, and
+    // stated as a comparison between the two renderings so no coordinate is
+    // pinned: armed is a filled disc (its own centre is red), suspended is a
+    // ring (red pixels still there, strictly fewer, centre NOT red).
+    {
+        reset_set();
+        const bool armed_ok = point_disasm_at(fx.emu, disasm, 0x8000);
+        bps.add_pc(0x8003);                       // line 1 of the view
+        QApplication::processEvents();
+        const GutterMark armed = gutter_mark(render_disasm(disasm));
+
+        bps.set_pc_enabled(0x8003, false);
+        QApplication::processEvents();
+        const GutterMark off = gutter_mark(render_disasm(disasm));
+
+        check("BPEP-13", "a disabled breakpoint is still marked in the gutter, "
+              "as a hollow ring rather than a filled dot",
+              armed_ok && armed.red > 0 && armed.centre_red &&
+                  off.red > 0 && !off.centre_red && off.red < armed.red,
+              fmt("armed red=%d centre=%d @(%d,%d); disabled red=%d centre=%d",
+                  armed.red, armed.centre_red ? 1 : 0, armed.cx, armed.cy,
+                  off.red, off.centre_red ? 1 : 0));
+    }
+
+    // BPEP-14 — and the master switch reaches the gutter too. It changes every
+    // dot at once, and the disassembly panel subscribes to the PcBreakpoints
+    // half only, so this is what proves the master notified that half.
+    {
+        reset_set();
+        const bool armed_ok = point_disasm_at(fx.emu, disasm, 0x8000);
+        bps.add_pc(0x8003);
+        QApplication::processEvents();
+        const GutterMark armed = gutter_mark(render_disasm(disasm));
+
+        bps.set_master_enabled(false);
+        QApplication::processEvents();
+        const GutterMark off = gutter_mark(render_disasm(disasm));
+        bps.set_master_enabled(true);
+
+        check("BPEP-14", "the master switch renders every gutter dot hollow",
+              armed_ok && armed.centre_red && off.red > 0 && !off.centre_red,
+              fmt("armed red=%d centre=%d; suspended red=%d centre=%d",
+                  armed.red, armed.centre_red ? 1 : 0,
+                  off.red, off.centre_red ? 1 : 0));
+    }
+
+    // BPEP-15 — a gutter click on a SUSPENDED breakpoint REMOVES it. The
+    // toggle asks "is one here", not "will one fire"; asking the second would
+    // read a disabled breakpoint as absent and stack a second one on top of
+    // it, leaving the user unable to clear it from the gutter at all.
+    {
+        reset_set();
+        const bool armed_ok = point_disasm_at(fx.emu, disasm, 0x8000);
+        gutter_click(disasm, 1);
+        const bool one = bps.pc_breakpoints().size() == 1;
+        const uint16_t addr = one ? bps.pc_breakpoints().begin()->first : 0;
+        bps.set_pc_enabled(addr, false);
+        QApplication::processEvents();
+        gutter_click(disasm, 1);                  // the same line again
+
+        check("BPEP-15", "a gutter click on a disabled breakpoint removes it "
+              "instead of adding a second",
+              armed_ok && one && bps.pc_breakpoints().empty(),
+              fmt("first click n=%zu; after second n=%zu (want 0)",
+                  one ? size_t(1) : bps.pc_breakpoints().size(),
+                  bps.pc_breakpoints().size()));
+    }
+
+    // BPEP-16 — Edit MOVES a breakpoint; it does not create one. A disabled
+    // breakpoint whose address the user corrects must come back still
+    // disabled, or the checkbox silently re-arms behind an unrelated edit.
+    {
+        reset_set();
+        bps.add_pc(0x8100);
+        fx.dbg->breakpoint_panel()->refresh();
+        set_panel_enabled(fx.dbg, 0, false);
+
+        select_panel_row(fx.dbg, 0);
+        QPushButton* edit_btn = panel_button(fx.dbg, QStringLiteral("Edit"));
+        PanelAnswer ans;
+        ans.typed       = QStringLiteral("8300");
+        ans.combo_index = 0;
+        click_and_answer(edit_btn, ans);
+
+        check("BPEP-16", "editing a disabled breakpoint's address keeps it "
+              "disabled",
+              edit_btn && ans.seen && !bps.pc_exists(0x8100)
+                  && bps.pc_exists(0x8300) && !bps.pc_enabled(0x8300)
+                  && !bps.has_pc(0x8300)
+                  && panel_checks(fx.dbg) == QStringLiteral("0"),
+              fmt("dialog=%d moved=%d enabled=%d checks=[%s]", ans.seen ? 1 : 0,
+                  bps.pc_exists(0x8300) ? 1 : 0, bps.pc_enabled(0x8300) ? 1 : 0,
+                  panel_checks(fx.dbg).toUtf8().constData()));
+    }
+
+    reset_set();
+}
+
 // ── DBG: the main window's Debug menu is not a dead end ───────────────
 
 static void test_debug_menu()
@@ -1620,6 +2154,8 @@ int main(int argc, char** argv)
     std::printf("  Group: BPX            — done\n");
     test_panel_io_breakpoints();
     std::printf("  Group: BPI            — done\n");
+    test_breakpoint_enable();
+    std::printf("  Group: BPEP           — done\n");
     test_debug_menu();
     std::printf("  Group: DBG            — done\n");
     test_run_guard();
