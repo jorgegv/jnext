@@ -1837,6 +1837,105 @@ inline uint32_t run_fuse_ldir_program(Emulator& emu, std::size_t max_steps = 100
     return t_end - t_start;
 }
 
+// ── CT-FUSE-03/04 helper: port-cycle contention through a real opcode ──
+//
+// The program lives at 0x8000 — slot 2, which on 48K holds bank 2 and is
+// therefore UNCONTENDED (`mem_contend` is '1' only for bank 5 under
+// machine_timing_48, zxnext.vhd:4490). Nothing in the loop touches
+// memory other than the instruction fetches, so no memory contention can
+// contribute to the measured delta: whatever difference appears comes
+// from the I/O cycle alone. That isolation is what CT-IO-01..09 (which
+// call `port_contend()` on a bare, unbuilt model and never execute an
+// opcode) and CT-INT-01 (memory-only, zero port I/O) cannot provide.
+//
+//   0x8000  06 64     LD B,100
+//   0x8002  AF        XOR A            ; A=0 → port address is 0x00nn every
+//                                      ;       iteration, so the A0 decode
+//                                      ;       under test never drifts
+//   0x8003  DB nn     IN A,(nn)        ; or D3 nn = OUT (nn),A
+//   0x8005  10 FB     DJNZ -5          ; → 0x8002
+//   0x8007  76        HALT
+//
+// VHDL oracle for the port term: `port_contend <= (not cpu_a(0)) or
+// port_7ffd_active or port_bf3b or port_ff3b` (zxnext.vhd:4496). With
+// A=0 the bus address is 0x00FE (A0=0 → contended) or 0x00FF (A0=1, and
+// neither 0xBF3B nor 0xFF3B nor a 0x7FFD decode → NOT contended).
+//
+// `o_cpu_contend` (zxula.vhd:600) gates the port term on
+// `ioreqtw3_n = '1'`, the registered previous-cycle value — so it can
+// assert on at most ONE clock of the I/O cycle, with magnitude equal to
+// the `wait_s` stretch, which zxula.vhd:583 bounds to the 0..6 range of
+// the per-phase pattern. Hence the VHDL-derived envelope: at most
+// 6 T-states per iteration.
+struct FusePortProgram {
+    static constexpr uint16_t kEntry      = 0x8000;   // slot 2 → bank 2, uncontended
+    static constexpr uint16_t kStackInit  = 0xBF00;
+    static constexpr uint8_t  kIterations = 100;
+    static constexpr uint16_t kHaltAddr   = 0x8007;
+    // zxula.vhd:583 bounds wait_s to the {6,5,4,3,2,1,0,0} phase pattern,
+    // and zxula.vhd:600 lets it land on one clock of the I/O cycle only.
+    static constexpr uint32_t kMaxDelta   = 6u * kIterations;
+};
+
+// `io_opcode` is 0xDB (IN A,(n)) or 0xD3 (OUT (n),A); `port_lsb` is the
+// low byte placed on A0..A7.
+inline void install_fuse_port_program(Emulator& emu, uint8_t io_opcode,
+                                      uint8_t port_lsb) {
+    constexpr uint16_t E = FusePortProgram::kEntry;
+    emu.mmu().write(E + 0, 0x06);                            // LD B, n
+    emu.mmu().write(E + 1, FusePortProgram::kIterations);
+    emu.mmu().write(E + 2, 0xAF);                            // XOR A
+    emu.mmu().write(E + 3, io_opcode);                       // IN A,(n) / OUT (n),A
+    emu.mmu().write(E + 4, port_lsb);
+    emu.mmu().write(E + 5, 0x10);                            // DJNZ
+    emu.mmu().write(E + 6, 0xFB);                            // -5 → 0x8002
+    emu.mmu().write(E + 7, 0x76);                            // HALT
+
+    auto regs = emu.cpu().get_registers();
+    regs.PC     = E;
+    regs.SP     = FusePortProgram::kStackInit;
+    regs.IFF1   = 0;
+    regs.IFF2   = 0;
+    regs.halted = false;
+    emu.cpu().set_registers(regs);
+}
+
+inline uint32_t run_fuse_port_program(Emulator& emu, std::size_t max_steps = 100000) {
+    seek_to_display_window(emu);   // contention only exists in the display
+    const uint32_t t_start = *fuse_z80_tstates_ptr();
+    for (std::size_t i = 0; i < max_steps; ++i) {
+        emu.cpu().execute();
+        const auto regs = emu.cpu().get_registers();
+        if (regs.halted && regs.PC == FusePortProgram::kHaltAddr) break;
+    }
+    const uint32_t t_end = *fuse_z80_tstates_ptr();
+    return t_end - t_start;
+}
+
+// One measurement pass: contention ON then OFF, on a single Emulator
+// (the `s_contention` singleton in src/cpu/z80_cpu.cpp is static, so two
+// live Emulators would race — same sequential shape CT-FUSE-01/02 use).
+struct PortContendProbe {
+    bool     init_ok = false;
+    uint32_t on      = 0;
+    uint32_t off     = 0;
+};
+
+inline PortContendProbe probe_fuse_port(uint8_t io_opcode, uint8_t port_lsb) {
+    PortContendProbe p;
+    Emulator emu;
+    if (!make_emu(emu, MachineType::ZX48K)) return p;
+    p.init_ok = true;
+
+    install_fuse_port_program(emu, io_opcode, port_lsb);
+    p.on = run_fuse_port_program(emu);
+
+    emu.contention().set_contention_disable(true);
+    install_fuse_port_program(emu, io_opcode, port_lsb);
+    p.off = run_fuse_port_program(emu);
+    return p;
+}
+
 } // namespace
 
 static void test_fuse_inopcode_contention() {
@@ -1995,30 +2094,103 @@ static void test_fuse_inopcode_contention() {
     }
 
     // ────────────────────────────────────────────────────────────────────
-    // CT-FUSE-03 — OUT port contention (RETIRED)
-    // CT-FUSE-04 — IN port contention  (RETIRED)
+    // CT-FUSE-03 — OUT port contention, through a real `OUT (n),A` opcode
     // ────────────────────────────────────────────────────────────────────
-    // OUT/IN port contention does NOT flow through the FUSE in-opcode
-    // contend_* macros — port cycles are fully owned by FUSE's own port
-    // callbacks (fuse_z80_readport / fuse_z80_writeport at
-    // src/cpu/z80_cpu.cpp). Those callbacks were wired into
-    // ContentionModel::contention_tick() in Phase 2 (commit 2026-04-26),
-    // ahead of G141 — and are exhaustively covered by:
-    //   * CT-IO-01..04, CT-IO-07..09 — bare-class even/odd port + ULA+
-    //     decode (zxnext.vhd:4496) at lines 379-477 of this file.
-    //   * CT-IO-05/06 — Phase-B 128K port_7ffd_active term (deferred
-    //     to full-Emulator harness; documented under-report).
-    //   * CT-INT-01 — full integration smoke through the Emulator port
-    //     dispatch + contention_tick() runtime, lines 1390-1426.
+    // GH #201: this row and CT-FUSE-04 carried a RETIRED comment claiming
+    // CT-IO-01..09 + CT-INT-01 already covered them. That claim was
+    // reviewed and rejected as factually wrong (see the plan doc §
+    // CT-FUSE): CT-IO-01..09 call `ContentionModel::port_contend()`
+    // directly on a bare, unbuilt model — decode-only, no opcode is ever
+    // executed and the stretch/LUT path is never entered — and CT-INT-01
+    // is a memory-only HALT-loop smoke with zero port I/O. Neither
+    // measures the port-cycle stretch these two rows were written for.
     //
-    // The CT-FUSE-03/04 rows would re-test the same code paths the CT-IO
-    // and CT-INT rows already cover — duplicating coverage without
-    // adding signal. Per the ARB-G65-01 retirement precedent
-    // (test/copper/copper_test.cpp:1451-1473) we retire here without a
-    // skip(): canonical coverage is in CT-IO-* + CT-INT-01.
+    // Two claims per row, both read straight off the VHDL:
     //
-    // No skip(): rows intentionally retired here — canonical coverage
-    // at CT-IO-01..09 + CT-INT-01.
+    //  (a) An EVEN port is contended — `port_contend <= (not cpu_a(0))
+    //      or ...` (zxnext.vhd:4496) — so a 100-iteration loop doing
+    //      `OUT (0xFE),A` from an UNCONTENDED code page must take longer
+    //      with contention on than off. The code page being uncontended
+    //      is what makes this a port measurement and not a memory one.
+    //
+    //  (b) An ODD port that is neither 0x7FFD, 0xBF3B nor 0xFF3B is NOT
+    //      contended by that same line, so the identical loop over port
+    //      0x00FF must take EXACTLY the same number of T-states with
+    //      contention on as off. That equality is the discriminator: a
+    //      model that stretched every I/O cycle regardless of A0 would
+    //      pass (a) and fail (b).
+    //
+    // Envelope for (a): `o_cpu_contend` (zxula.vhd:600) gates the port
+    // term on `ioreqtw3_n = '1'` — the registered previous-cycle value —
+    // so at most one clock of the I/O cycle can be stretched, by the
+    // `wait_s` amount, which zxula.vhd:583's phase pattern bounds to 6.
+    // Hence delta <= 6 * 100.
+    //
+    // ONE check() call per row, with the init-failure case folded into
+    // the condition rather than given its own early-return check(): the
+    // traceability generator publishes the FIRST check() it finds for an
+    // ID, so a leading error branch would put "Emulator::init failed" in
+    // the matrix as the description of a passing row. (CT-FUSE-01/02/05
+    // above and below still have that shape — pre-existing, cosmetic,
+    // and not touched here.)
+    {
+        const PortContendProbe even = probe_fuse_port(0xD3, 0xFE);  // OUT (0xFE),A
+        const PortContendProbe odd  = probe_fuse_port(0xD3, 0xFF);  // OUT (0xFF),A
+        const uint32_t even_delta = even.on - even.off;
+        const bool built = even.init_ok && odd.init_ok;
+        const bool even_contended = even.on > even.off
+                                    && even_delta <= FusePortProgram::kMaxDelta;
+        const bool odd_uncontended = odd.on == odd.off;
+        check("CT-FUSE-03",
+              "OUT (0xFE),A from an uncontended code page stretches the "
+              "port cycle (on > off, delta within the 6-T wait_s "
+              "envelope) while the same loop on odd port 0x00FF is "
+              "untouched (on == off) "
+              "[zxnext.vhd:4496 port_contend = not cpu_a(0); "
+              "zxula.vhd:583 wait_s pattern, :600 one-clock gate]",
+              built && even_contended && odd_uncontended,
+              std::string("built=") + (built ? "1" : "0")
+              + " even on=" + std::to_string(even.on)
+              + " off=" + std::to_string(even.off)
+              + " delta=" + std::to_string(even_delta)
+              + " (max " + std::to_string(FusePortProgram::kMaxDelta) + ")"
+              + "; odd on=" + std::to_string(odd.on)
+              + " off=" + std::to_string(odd.off));
+    }
+
+    // ────────────────────────────────────────────────────────────────────
+    // CT-FUSE-04 — IN port contention, through a real `IN A,(n)` opcode
+    // ────────────────────────────────────────────────────────────────────
+    // Same two claims as CT-FUSE-03 on the read side. The read and write
+    // callbacks order their stretches differently (fuse_z80_readport
+    // contends all four clocks before latching the bus; writeport strobes
+    // after the first) so the two rows exercise genuinely different code,
+    // and the VHDL treats them alike: `o_cpu_contend` keys off
+    // `i_cpu_iorq_n = '0'` with no rd/wr term at all (zxula.vhd:600).
+    {
+        const PortContendProbe even = probe_fuse_port(0xDB, 0xFE);  // IN A,(0xFE)
+        const PortContendProbe odd  = probe_fuse_port(0xDB, 0xFF);  // IN A,(0xFF)
+        const uint32_t even_delta = even.on - even.off;
+        const bool built = even.init_ok && odd.init_ok;
+        const bool even_contended = even.on > even.off
+                                    && even_delta <= FusePortProgram::kMaxDelta;
+        const bool odd_uncontended = odd.on == odd.off;
+        check("CT-FUSE-04",
+              "IN A,(0xFE) from an uncontended code page stretches the "
+              "port cycle (on > off, delta within the 6-T wait_s "
+              "envelope) while the same loop on odd port 0x00FF is "
+              "untouched (on == off) "
+              "[zxnext.vhd:4496 port_contend = not cpu_a(0); "
+              "zxula.vhd:600 keys on iorq_n alone, no rd/wr term]",
+              built && even_contended && odd_uncontended,
+              std::string("built=") + (built ? "1" : "0")
+              + " even on=" + std::to_string(even.on)
+              + " off=" + std::to_string(even.off)
+              + " delta=" + std::to_string(even_delta)
+              + " (max " + std::to_string(FusePortProgram::kMaxDelta) + ")"
+              + "; odd on=" + std::to_string(odd.on)
+              + " off=" + std::to_string(odd.off));
+    }
 
     // ────────────────────────────────────────────────────────────────────
     // CT-FUSE-05 — G53: legacy FUSE contention tables retired
