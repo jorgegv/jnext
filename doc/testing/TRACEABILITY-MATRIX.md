@@ -26,7 +26,7 @@ mentions them, so a test can no longer be absent from this document.
 | ULA Video                                  |   142 |  138 |    0 |    0 |       4 |          0 |
 | Layer2                                     |   209 |  201 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   221 |  214 |    0 |    0 |       7 |          0 |
-| Tilemap                                    |   102 |   84 |    0 |    0 |      18 |          0 |
+| Tilemap                                    |   102 |   94 |    0 |    0 |       8 |          0 |
 | Copper                                     |    95 |   92 |    0 |    0 |       3 |          0 |
 | Compositor                                 |   264 |  261 |    0 |    0 |       3 |          0 |
 | Audio                                      |   223 |  207 |    0 |    0 |      16 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4780 | 4580 |    0 |    5 |     195 |          0 |
+| **Total**                                  |  4780 | 4590 |    0 |    5 |     185 |          0 |
 
-Rows the sections above carry: **4780**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4483**. Rows the 113 suites declared in `test/unit-tests.conf` run live: **8079**.
+Rows the sections above carry: **4780**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4483**. Rows the 113 suites declared in `test/unit-tests.conf` run live: **8089**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -1127,16 +1127,16 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-131 | Stencil transparency | — | missing | — |
 | TM-140 | TM disabled, tm_on_top=0 | — | missing | — |
 | TM-141 | TM disabled, tm_on_top=1 | — | missing | — |
-| TM-CB1 | bit 6 = 80-column mode | — | missing | — |
-| TM-CB2 | bit 7 = enable | — | missing | — |
-| TM-CB3 | bit 1 = 512-tile mode (forces `below`) | — | missing | — |
-| TM-CB4 | bit 0 = `tm_on_top` overrides per-tile `below | — | missing | — |
-| TM-CB5 | bit 5 mapping — documented VHDL-vs-C++ discrepancy, asserted `true` unconditionally (not a real check even at authoring) | tilemap.vhd:190 | missing | — |
-| TM-RR1 | control register roundtrip (set/get raw byte) | — | missing | — |
-| TM-RR2 | default-attr roundtrip | — | missing | — |
-| TM-RR3 | map-base roundtrip | — | missing | — |
-| TM-RR4 | def-base roundtrip | — | missing | — |
-| TM-RR5 | reset restores all defaults (after dirtying every register, incl. scroll) | — | missing | — |
+| TM-CB1 | VHDL tilemap.vhd:192 — mode_i <= control_i(6): only bit 6 selects 80-column mode | tilemap.vhd:192 | pass | test/tilemap/tilemap_test.cpp:1890 |
+| TM-CB2 | VHDL zxnext.vhd NR 0x6B — nr_6b_tm_en <= nr_wr_dat(7): only bit 7 enables the tilemap | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:1904 |
+| TM-CB3 | VHDL tilemap.vhd:196 — mode_512_i <= control_i(1): only bit 1 selects 512-tile mode | tilemap.vhd:196 | pass | test/tilemap/tilemap_test.cpp:1918 |
+| TM-CB4 | VHDL tilemap.vhd:197 — tm_on_top_i <= control_i(0): only bit 0 puts the tilemap above the ULA | tilemap.vhd:197 | pass | test/tilemap/tilemap_test.cpp:1932 |
+| TM-CB5 | VHDL tilemap.vhd:193-194 — strip_flags_i is control_i(5) and textmode_i is control_i(3); bit 5 alone must not turn text mode on | tilemap.vhd:193-194 | pass | test/tilemap/tilemap_test.cpp:1948 |
+| TM-RR1 | VHDL zxnext.vhd:6102 — the NR 0x6B read-back is the stored control byte, all 8 bits | zxnext.vhd:6102 | pass | test/tilemap/tilemap_test.cpp:1963 |
+| TM-RR2 | VHDL zxnext.vhd:6105 — NR 0x6C read-back is the stored default attribute, all 8 bits | zxnext.vhd:6105 | pass | test/tilemap/tilemap_test.cpp:1976 |
+| TM-RR3 | VHDL zxnext.vhd:5041-5042 / :6108 — NR 0x6E stores the whole byte; only the read mux drops bit 6 | zxnext.vhd:5041-5042/6108 | pass | test/tilemap/tilemap_test.cpp:1990 |
+| TM-RR4 | VHDL zxnext.vhd:5044-5045 / :6111 — NR 0x6F stores the whole byte; only the read mux drops bit 6 | zxnext.vhd:5044-5045/6111 | pass | test/tilemap/tilemap_test.cpp:2002 |
+| TM-RR5 | VHDL zxnext.vhd:5033-5045 — reset restores NR 0x6B/0x6C to 0x00, NR 0x6E to 0x2C, NR 0x6F to 0x0C and clears both tilemap scroll registers, from a fully dirtied state | zxnext.vhd:5033-5045 | pass | test/tilemap/tilemap_test.cpp:2033 |
 | TM-96 | VHDL tilemap.vhd:429 — text mode emits paper pixels opaque; an all-paper tile is a solid run, never transparent | tilemap.vhd:429 | pass | test/tilemap/tilemap_test.cpp:1327 |
 | TM-97 | VHDL tilemap.vhd:386 — paper index = attr(7:1)<<1 \| 0, a real palette entry distinct from the ink index | tilemap.vhd:386 | pass | test/tilemap/tilemap_test.cpp:1345 |
 | TM-98 | VHDL tilemap.vhd:427/429 — pixel_en_f masks the index transparency test in text mode only: same data drops in standard mode and emits in text mode | tilemap.vhd:427/429 | pass | test/tilemap/tilemap_test.cpp:1376 |

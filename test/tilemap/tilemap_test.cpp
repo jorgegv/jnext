@@ -1852,6 +1852,197 @@ void group15_enable_below() {
 
 // ── main ────────────────────────────────────────────────────────────────
 
+
+// =====================================================================
+// G16 Control decode + register round-trip (TM-CB1..5, TM-RR1..5)
+//
+// These ten plan rows were orphaned when an older test file was deleted.
+// The plan doc records, for each of them, which live row now covers the
+// downstream BEHAVIOUR — but the control-byte DECODE itself, one bit at a
+// time, and the four register round-trips had no assertion of their own,
+// so all ten published as `missing`. GH #201 gives them one.
+//
+// VHDL tilemap.vhd:192-197 is the decode, verbatim:
+//     mode_i        <= control_i(6);   -- 0 = 40x32, 1 = 80x32
+//     strip_flags_i <= control_i(5);   -- 1 = eliminate tilemap flags
+//     textmode_i    <= control_i(3);
+//     mode_512_i    <= control_i(1);
+//     tm_on_top_i   <= control_i(0);   -- 1 = tilemap always on top of ula
+// and bit 7 is `nr_6b_tm_en` one level up, in zxnext.vhd's NR 0x6B write.
+// Each row drives ONE bit from an all-zero byte and from an all-ones byte,
+// so a decode that read the wrong bit position is caught in both
+// directions.
+// =====================================================================
+
+void group16_control_decode() {
+    set_group("G16 Control decode");
+    Tilemap tm; PaletteManager pal; Ram ram;
+
+    // TM-CB1 — bit 6 selects 80-column mode (tilemap.vhd:192).
+    {
+        fresh(tm, pal, ram);
+        tm.set_control(0x00);
+        const bool off = tm.mode_80col();
+        tm.set_control(0x40);
+        const bool on = tm.mode_80col();
+        tm.set_control(0xBF);                 // every bit BUT 6
+        const bool still_off = tm.mode_80col();
+        check_pred("TM-CB1", !off && on && !still_off,
+              "VHDL tilemap.vhd:192 — mode_i <= control_i(6): only bit 6 "
+              "selects 80-column mode");
+    }
+
+    // TM-CB2 — bit 7 is the tilemap enable (zxnext.vhd NR 0x6B write).
+    {
+        fresh(tm, pal, ram);
+        tm.set_control(0x00);
+        const bool off = tm.enabled();
+        tm.set_control(0x80);
+        const bool on = tm.enabled();
+        tm.set_control(0x7F);                 // every bit BUT 7
+        const bool still_off = tm.enabled();
+        check_pred("TM-CB2", !off && on && !still_off,
+              "VHDL zxnext.vhd NR 0x6B — nr_6b_tm_en <= nr_wr_dat(7): only "
+              "bit 7 enables the tilemap");
+    }
+
+    // TM-CB3 — bit 1 selects 512-tile mode (tilemap.vhd:196).
+    {
+        fresh(tm, pal, ram);
+        tm.set_control(0x00);
+        const bool off = tm.mode_512();
+        tm.set_control(0x02);
+        const bool on = tm.mode_512();
+        tm.set_control(0xFD);                 // every bit BUT 1
+        const bool still_off = tm.mode_512();
+        check_pred("TM-CB3", !off && on && !still_off,
+              "VHDL tilemap.vhd:196 — mode_512_i <= control_i(1): only bit 1 "
+              "selects 512-tile mode");
+    }
+
+    // TM-CB4 — bit 0 is tm_on_top (tilemap.vhd:197).
+    {
+        fresh(tm, pal, ram);
+        tm.set_control(0x00);
+        const bool off = tm.tm_on_top();
+        tm.set_control(0x01);
+        const bool on = tm.tm_on_top();
+        tm.set_control(0xFE);                 // every bit BUT 0
+        const bool still_off = tm.tm_on_top();
+        check_pred("TM-CB4", !off && on && !still_off,
+              "VHDL tilemap.vhd:197 — tm_on_top_i <= control_i(0): only bit 0 "
+              "puts the tilemap above the ULA");
+    }
+
+    // TM-CB5 — bit 5 is strip_flags, bit 3 is textmode (tilemap.vhd:193-194).
+    // The row historically flagged a bit-5 discrepancy and asserted `true`
+    // unconditionally; the wiring has since been corrected, so this pins
+    // the two neighbouring bits against each other — a swap of 5 and 3
+    // would pass either one alone.
+    {
+        fresh(tm, pal, ram);
+        tm.set_control(0x20);                 // bit 5 only
+        const bool strip_only_text = tm.text_mode();
+        tm.set_control(0x08);                 // bit 3 only
+        const bool text_only_text = tm.text_mode();
+        check_pred("TM-CB5", !strip_only_text && text_only_text,
+              "VHDL tilemap.vhd:193-194 — strip_flags_i is control_i(5) and "
+              "textmode_i is control_i(3); bit 5 alone must not turn text "
+              "mode on");
+    }
+
+    // TM-RR1 — control-register round-trip. VHDL zxnext.vhd:6102 reads the
+    // register back as `nr_6b_tm_en & nr_6b_tm_control`, i.e. the stored
+    // byte unmasked, so every bit written must come back.
+    {
+        fresh(tm, pal, ram);
+        tm.set_control(0xA5);
+        const uint8_t a = tm.get_control();
+        tm.set_control(0x5A);
+        const uint8_t b = tm.get_control();
+        check_pred("TM-RR1", a == 0xA5 && b == 0x5A,
+              "VHDL zxnext.vhd:6102 — the NR 0x6B read-back is the stored "
+              "control byte, all 8 bits");
+    }
+
+    // TM-RR2 — default-attribute round-trip. VHDL zxnext.vhd:6105 reads
+    // `nr_6c_tm_default_attr` whole.
+    {
+        fresh(tm, pal, ram);
+        tm.set_default_attr(0x3C);
+        const uint8_t a = tm.get_default_attr();
+        tm.set_default_attr(0xC3);
+        const uint8_t b = tm.get_default_attr();
+        check_pred("TM-RR2", a == 0x3C && b == 0xC3,
+              "VHDL zxnext.vhd:6105 — NR 0x6C read-back is the stored "
+              "default attribute, all 8 bits");
+    }
+
+    // TM-RR3 — map-base round-trip. The RAW store keeps all 8 bits (the
+    // read mux masks bit 6 separately, zxnext.vhd:6108, which is
+    // G56-CR-6E's row, not this one).
+    {
+        fresh(tm, pal, ram);
+        tm.set_map_base(0x2C);
+        const uint8_t a = tm.get_map_base_raw();
+        tm.set_map_base(0xF1);
+        const uint8_t b = tm.get_map_base_raw();
+        check_pred("TM-RR3", a == 0x2C && b == 0xF1,
+              "VHDL zxnext.vhd:5041-5042 / :6108 — NR 0x6E stores the whole "
+              "byte; only the read mux drops bit 6");
+    }
+
+    // TM-RR4 — tile-definition base round-trip, same shape as TM-RR3.
+    {
+        fresh(tm, pal, ram);
+        tm.set_def_base(0x0C);
+        const uint8_t a = tm.get_def_base_raw();
+        tm.set_def_base(0xDE);          // bit 6 SET, so a read-mux mask
+        const uint8_t b = tm.get_def_base_raw();   // applied here would show
+        check_pred("TM-RR4", a == 0x0C && b == 0xDE,
+              "VHDL zxnext.vhd:5044-5045 / :6111 — NR 0x6F stores the whole "
+              "byte; only the read mux drops bit 6");
+    }
+
+    // TM-RR5 — reset restores every default from a DIRTIED state. TM-04
+    // asserts the same tuple on a fresh object, which cannot distinguish
+    // "reset clears" from "was never set"; this row writes a non-default
+    // into each register first, scroll included, and only then resets.
+    // VHDL reset values: zxnext.vhd:5036-5045 (NR 0x6B = 0x00, NR 0x6C =
+    // 0x00, NR 0x6E = 0x2C, NR 0x6F = 0x0C) and :5033-5035 (the two
+    // tilemap scroll registers clear).
+    {
+        fresh(tm, pal, ram);
+        tm.set_control(0xFF);
+        tm.set_default_attr(0xFF);
+        tm.set_map_base(0xFF);
+        tm.set_def_base(0xFF);
+        tm.set_scroll_x_lsb(0xFF);
+        tm.set_scroll_x_msb(0x03);
+        tm.set_scroll_y(0xFF);
+        // Snapshot the dirtied scroll into the per-line arrays so the
+        // post-reset read of line 0 is a real observation of the scroll
+        // registers rather than an untouched array.
+        tm.snapshot_scroll_for_line(0);
+        const bool dirtied = tm.get_control() == 0xFF &&
+                             tm.get_map_base_raw() == 0xFF &&
+                             tm.scroll_x_for_line(0) == 0x3FF &&
+                             tm.scroll_y_for_line(0) == 0xFF;
+        tm.reset();
+        tm.snapshot_scroll_for_line(0);
+        check_pred("TM-RR5",
+              dirtied &&
+              tm.get_control() == 0x00 && tm.get_default_attr() == 0x00 &&
+              tm.get_map_base_raw() == 0x2C && tm.get_def_base_raw() == 0x0C &&
+              tm.scroll_x_for_line(0) == 0 && tm.scroll_y_for_line(0) == 0 &&
+              !tm.enabled() && !tm.mode_80col() && !tm.mode_512() &&
+              !tm.text_mode() && !tm.tm_on_top(),
+              "VHDL zxnext.vhd:5033-5045 — reset restores NR 0x6B/0x6C to "
+              "0x00, NR 0x6E to 0x2C, NR 0x6F to 0x0C and clears both "
+              "tilemap scroll registers, from a fully dirtied state");
+    }
+}
+
 int main() {
     std::printf("Tilemap Subsystem Compliance Test (VHDL-derived rewrite)\n");
     std::printf("========================================================\n\n");
@@ -1871,6 +2062,7 @@ int main() {
     group13_priority();      std::printf("  G13 Priority     done\n");
     group14_stencil();       std::printf("  G14 Stencil      done\n");
     group15_enable_below();  std::printf("  G15 Enable/below done\n");
+    group16_control_decode();std::printf("  G16 Control/RR   done\n");
 
     std::printf("\n========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
