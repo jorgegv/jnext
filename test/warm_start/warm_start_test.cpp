@@ -64,6 +64,9 @@
 //   WSR-RES-07    a firmware-less CARD declines after a real boot,
 //                 named as such, and caches nothing
 //   WSR-RES-08    that verdict is latched per image — no second boot
+//   WSR-RES-09    …and the non-Next decline is at DEBUG severity, not warn
+//                 or error: it is not a refusal, and it is on every legacy
+//                 run. The severity is pinned, not just the text
 //   WSR-LATCH-01  …but the fallback is still ANNOUNCED, once, on the load
 //                 that inherits the verdict and not on the one that took it
 //   WSR-LATCH-02  …and on every later load
@@ -135,6 +138,24 @@ struct LogTap {
         int n = 0;
         for (const auto& line : ring->last_formatted())
             if (line.find(needle) != std::string::npos) ++n;
+        return n;
+    }
+
+    /// As count(), but only messages logged AT `lvl`.
+    ///
+    /// Reads `last_raw()` rather than the rendered text: the level arrives as
+    /// the enum spdlog was called with, not as a `[debug]` substring that a
+    /// pattern change could rename or a payload could counterfeit. That is
+    /// what lets WSR-RES-09 pin a SEVERITY — the text of a line is pinned by
+    /// several rows already, and none of them would notice it being promoted
+    /// to `warn`.
+    int count_at(spdlog::level::level_enum lvl, const char* needle) const {
+        int n = 0;
+        for (const auto& msg : ring->last_raw()) {
+            if (msg.level != lvl) continue;
+            const std::string payload(msg.payload.data(), msg.payload.size());
+            if (payload.find(needle) != std::string::npos) ++n;
+        }
         return n;
     }
 };
@@ -698,6 +719,32 @@ int main()
                       tap.count(kWhyNoSdImage) == 0,
                   det("machine-type=%d no-sd=%d", tap.count(kWhyMachineType),
                       tap.count(kWhyNoSdImage)));
+
+            // …AT `debug`, and that is a claim about the SEVERITY, which no
+            // other row makes. WSR-RES-03 above pins the TEXT, and passes
+            // whatever level the line goes out at — an independent review
+            // promoted `debug` to `warn` and the whole suite stayed green.
+            //
+            // The level is a decision, not an accident (GH #234 by-default):
+            // a non-Next is not refusing anything, because it never had
+            // firmware to record and the user never asked for one. Since
+            // EVERY `--load` now comes through this guard, a `warn` here
+            // would print on every 48K/128K/+3 run for ever, which is how a
+            // log stops being read — while the other six declines, which ARE
+            // refusals, are `error` precisely so they get read. Pinned in
+            // both directions: promoting it puts the line in the warn bucket
+            // and empties the debug one, so either half of the assertion
+            // catches the change on its own.
+            check("WSR-RES-09",
+                  "…and it declines at DEBUG severity, not as a warning or an "
+                  "error — a legacy machine is not refusing anything",
+                  tap.count_at(spdlog::level::debug, kWhyMachineType) == 1 &&
+                      tap.count_at(spdlog::level::warn, kWhyMachineType) == 0 &&
+                      tap.count_at(spdlog::level::err, kWhyMachineType) == 0,
+                  det("debug=%d warn=%d err=%d",
+                      tap.count_at(spdlog::level::debug, kWhyMachineType),
+                      tap.count_at(spdlog::level::warn, kWhyMachineType),
+                      tap.count_at(spdlog::level::err, kWhyMachineType)));
         }
 
         // A Next that never booted. Its boot-ROM overlay is off and its

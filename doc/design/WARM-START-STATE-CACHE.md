@@ -613,9 +613,16 @@ That leaves the two §10.4 named: **`celeste` (1440 px) and `celeste2`
    changes form 37 (celeste) / 39 (celeste2) 8-connected clusters whose sizes
    are only 4, 8 and 16 — a 2x2 snowflake, two touching ones, a 4x4. There is
    no cluster larger than a single particle sprite anywhere in either frame.
-2. **Only the snow palette moves.** All changes swap among five colours: sky
-   blue, white, light grey, dark grey, black. The HUD, the timer (`00:00:00`),
-   the `100 M` marker, the player sprite and the whole level geometry are
+2. **Only the snow palette moves.** All changes swap among **six** distinct
+   RGB triples: sky blue `(36,182,255)`, white `(255,255,255)`, light grey
+   `(219,219,219)`, dark grey `(73,73,73)`, black `(0,0,0)`, and — at low
+   frequency, 4 and 20 endpoint-occurrences in the emulated-pixel space this
+   paragraph counts in, which is 16 and 80 in the PNG, a 2x2 blow-up —
+   `(36,36,73)`, an edge blend of the sky-blue/dark-grey pair rather than a
+   region of its own. (This paragraph said "five" until an independent review
+   counted them; the sixth is the one it is easy to read past.) The HUD, the
+   timer (`00:00:00`), the
+   `100 M` marker, the player sprite and the whole level geometry are
    identical.
 3. **It is deterministic.** Two warm runs of each are 0 px apart, so the
    regenerated reference is a stable target rather than a sample.
