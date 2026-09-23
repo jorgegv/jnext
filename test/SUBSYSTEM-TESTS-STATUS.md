@@ -31,6 +31,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | DivMMC + SPI          |      146 |      146 |      0 |       0 |    100% | 🟢 All tests pass. |
+| divmmc_integration_test |        5 |        5 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "divmmc_integration_test" to the label map in refresh-subsystem-status.sh. |
 | Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card               |       74 |       74 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -46,7 +47,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | VideoTiming           |       64 |       64 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Contention            |      158 |      158 |      0 |       0 |    100% | 🟢 All tests pass. |
 | I/O Port Dispatch     |      125 |      125 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Audio (AY+DAC+Beeper) |      140 |      140 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Audio (AY+DAC+Beeper) |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (NextREG)       |       34 |       34 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (port dispatch) |       23 |       23 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Audio (pacing)        |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -118,6 +119,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **8051** | **8051** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **8063** | **8063** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

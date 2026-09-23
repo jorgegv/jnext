@@ -238,7 +238,33 @@ void AyChip::update_envelope()
 
     if (!env_ena_) return;
 
-    // Advance envelope volume
+    // Boundary detection — VHDL ym2149.vhd:361-366.
+    //
+    //   is_zero <= '1' when env_vol(4 downto 1) = "0000" else '0';
+    //   is_bot  <= '1' when is_zero = '1' and env_vol(0) = '0' else '0';   (etc.)
+    //
+    // These are CONCURRENT assignments from `env_vol`, so inside the clocked
+    // shape process at :402-462 they still carry the value `env_vol` had at
+    // the start of this step — the step's own assignment does not land until
+    // the process ends. They must therefore be computed BEFORE the counter
+    // moves. GH #201: they used to be computed after, and the branches were
+    // left using VHDL's flag names against post-step values, which put the
+    // hold one level off on shapes 4-7/9/13 and INVERTED shapes 11 and 15
+    // (both end at the wrong rail) and made the two triangles (10 and 14)
+    // lock one level inside the boundary instead of turning round. The
+    // steady states below are independently pinned by the shape table
+    // spelled out at ym2149.vhd:371-391 (`\___`, `\‾‾‾`, `/‾‾‾`, `/___`),
+    // which needs no signal-timing argument at all.
+    const uint8_t pre_vol = env_vol_;
+    const bool is_zero = ((pre_vol >> 1) & 0x0F) == 0;
+    const bool is_ones = ((pre_vol >> 1) & 0x0F) == 0x0F;
+    const bool is_bot    = is_zero && ((pre_vol & 1) == 0);
+    const bool is_bot_p1 = is_zero && ((pre_vol & 1) == 1);
+    const bool is_top_m1 = is_ones && ((pre_vol & 1) == 0);
+    const bool is_top    = is_ones && ((pre_vol & 1) == 1);
+
+    // Advance envelope volume — VHDL ym2149.vhd:404-409, guarded by the
+    // env_hold value as of this clock edge.
     if (!env_hold_) {
         if (env_inc_) {
             env_vol_ = (env_vol_ + 1) & 0x1F;
@@ -247,68 +273,53 @@ void AyChip::update_envelope()
         }
     }
 
-    // Envelope shape control
-    // Boundary detection (from VHDL)
-    bool is_zero = ((env_vol_ >> 1) & 0x0F) == 0;
-    bool is_ones = ((env_vol_ >> 1) & 0x0F) == 0x0F;
-    bool is_bot    = is_zero && ((env_vol_ & 1) == 0);
-    bool is_bot_p1 = is_zero && ((env_vol_ & 1) == 1);
-    bool is_top_m1 = is_ones && ((env_vol_ & 1) == 0);
-    bool is_top    = is_ones && ((env_vol_ & 1) == 1);
-
-    uint8_t shape = reg_[13] & 0x0F;
+    // Envelope shape control — VHDL ym2149.vhd:411-462. `env_inc` is read
+    // as of the clock edge here too, so snapshot it: the alternate branch
+    // below is its only writer and must not see its own result.
+    const bool inc_before = env_inc_;
+    const uint8_t shape = reg_[13] & 0x0F;
 
     if ((shape & 0x08) == 0) {
-        // C=0: shapes 0-7
-        // Attack=0 (\___) or Attack=1 (/___)  — single cycle, then hold
-        // VHDL ym2149.vhd:412-421: boundary checks use pre-update vol.
-        // C++ checks post-update, so shift by one step:
-        //   VHDL is_bot_p1 (pre-update vol=1) → C++ is_bot (post-update vol=0)
-        //   VHDL is_top (pre-update vol=31)   → C++ is_top_m1 (post-update vol=30...
-        //     no: post-update wraps to 0). Staying with is_top since the C++
-        //     check-after-update model holds at the boundary value directly.
-        if (!env_inc_) {
-            // Counting down: hold at vol=0 (VHDL holds at pre-update vol=1,
-            // vol decrements to 0 simultaneously → same steady state)
-            if (is_bot) env_hold_ = true;
+        // C=0: shapes 0-7 — one ramp, then hold. VHDL :412-421.
+        // Down holds after the step out of env_vol=1 (steady 0, `\___`);
+        // up holds after the step out of env_vol=31, which WRAPS to 0
+        // (steady 0, `/___` — the table's "rise then silence").
+        if (!inc_before) {
+            if (is_bot_p1) env_hold_ = true;
         } else {
-            // Counting up: hold at vol=31
             if (is_top) env_hold_ = true;
         }
     } else if (shape & 0x01) {
-        // Hold=1: shapes 9, 11, 13, 15
-        if (!env_inc_) {
-            // Counting down
+        // C=1, Hold=1: shapes 9, 11, 13, 15. VHDL :422-443.
+        if (!inc_before) {
             if (shape & 0x02) {
-                // Alt=1: shapes 11, 15
-                if (is_bot) env_hold_ = true;
+                if (is_bot) env_hold_ = true;      // 11 `\‾‾‾` → steady 31
             } else {
-                // Alt=0: shapes 9, 13
-                if (is_bot_p1) env_hold_ = true;
+                if (is_bot_p1) env_hold_ = true;   //  9 `\___` → steady 0
             }
         } else {
-            // Counting up
             if (shape & 0x02) {
-                // Alt=1: shapes 11, 15
-                if (is_top) env_hold_ = true;
+                if (is_top) env_hold_ = true;      // 15 `/___` → steady 0
             } else {
-                // Alt=0: shapes 9, 13
-                if (is_top_m1) env_hold_ = true;
+                if (is_top_m1) env_hold_ = true;   // 13 `/‾‾‾` → steady 31
             }
         }
     } else if (shape & 0x02) {
-        // Alt=1, Hold=0: shapes 10, 14 (\/\/ and /\/\)
-        if (!env_inc_) {
+        // C=1, Alt=1, Hold=0: shapes 10 and 14 — the triangles. VHDL
+        // :444-461. One step of dwell at each rail (env_hold is set at the
+        // step INTO the rail and cleared at the step out of it), then the
+        // direction flips, so the ramp runs forever.
+        if (!inc_before) {
             if (is_bot_p1) env_hold_ = true;
             if (is_bot) {
                 env_hold_ = false;
-                env_inc_ = true;
+                env_inc_  = true;
             }
         } else {
             if (is_top_m1) env_hold_ = true;
             if (is_top) {
                 env_hold_ = false;
-                env_inc_ = false;
+                env_inc_  = false;
             }
         }
     }

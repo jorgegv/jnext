@@ -336,6 +336,8 @@ my @SUBSYS = (
      'tilemap_fetch_split_test'],
     ['### Companion integration suite — `test/lores/lores_integration_test.cpp`',
      'lores_integration_test'],
+    ['### Companion integration suite — `test/divmmc/divmmc_integration_test.cpp`',
+     'divmmc_integration_test'],
     ['### Companion integration suite — `test/ctc_interrupts/ctc_interrupts_test.cpp`',
      'ctc_interrupts_test'],
     ['### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`',
@@ -388,6 +390,7 @@ my %PLAN_DOC = (
     'copper_integration_test'     => 'COPPER',
     'tilemap_fetch_split_test'    => 'TILEMAP',
     'multiface_test'              => 'MULTIFACE',
+    'divmmc_integration_test'     => 'DIVMMC-SPI',
     'nmi_test'                    => 'NMI-PIPELINE',
     'nmi_integration_test'        => 'NMI-PIPELINE',
 );
