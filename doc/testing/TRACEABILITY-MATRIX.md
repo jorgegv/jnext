@@ -43,7 +43,7 @@ mentions them, so a test can no longer be absent from this document.
 | VideoTiming                                |    67 |   64 |    0 |    0 |       3 |          0 |
 | Contention                                 |   160 |  158 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    55 |   52 |    0 |    1 |       2 |          0 |
+| SD Card                                    |    76 |   74 |    0 |    1 |       1 |          0 |
 | NMI Source Pipeline                        |    82 |   76 |    0 |    0 |       6 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4780 | 4616 |    0 |    5 |     159 |          0 |
+| **Total**                                  |  4801 | 4638 |    0 |    5 |     158 |          0 |
 
-Rows the sections above carry: **4780**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4483**. Rows the 113 suites declared in `test/unit-tests.conf` run live: **8094**.
+Rows the sections above carry: **4801**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4504**. Rows the 113 suites declared in `test/unit-tests.conf` run live: **8116**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
