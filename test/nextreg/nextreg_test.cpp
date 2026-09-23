@@ -177,6 +177,9 @@ static void test_selection() {
     // fuse_z80_test/z80n_test per project memory — coverage unverified.
     // Replaced with two discriminative rows SEL-05a/05b below (G151).
 
+    // SEL-05a / SEL-05b — RETIRED in the plan doc 2026-09-24 (GH #201);
+    // both are asserted LIVE as nextreg_integration_test Z80N-SEL-01 /
+    // Z80N-SEL-02 (with Z80N-SEL-03 as the no-op guard).
     // SEL-05a — VHDL zxnext.vhd:4739-4745 — Z80N NEXTREG injects (reg, val)
     // directly without mutating nr_register. jnext src/cpu/z80n_ext.cpp:
     // 218-238 implements NEXTREG_NN/NEXTREG_A as two out() calls
@@ -442,6 +445,7 @@ static void test_clip_cycling() {
 static void test_mmu() {
     set_group("MMU");
 
+    // NR-MMU-01 — RETIRED in the plan doc 2026-09-24 (GH #201).
     // MMU-01 — zxnext.vhd:4610-4618 MMU reset defaults. COVERED AT
     // nextreg_integration_test.cpp Reset-Integration NREG-RST-05, which reads
     // NR 0x50-0x57 through the port path and matches the VHDL defaults.
@@ -460,6 +464,7 @@ static void test_mmu() {
               got == 0x20, detail_eq(got, 0x20));
     }
 
+    // NR-MMU-03 — RETIRED in the plan doc 2026-09-24 (GH #201).
     // MMU-03 — writing port 0x7FFD must update MMU6/MMU7 via the
     // secondary port-path described in zxnext.vhd:4605. The bare NextReg
     // class has no port 0x7FFD decoder; the Mmu subsystem owns that
@@ -468,6 +473,10 @@ static void test_mmu() {
     // 0x7FFD write path and asserts the resulting NR 0x56/0x57 state via
     // Mmu::get_page(6/7). Not a skip here — re-homed to MMU subsystem.
 
+    // NR-MMU-04 — IMPLEMENTED 2026-09-24 (GH #201) at the integration tier:
+    // nextreg_integration_test group NR-MMU-Arbitration drives port 0x7FFD,
+    // then NR 0x56, then port 0x7FFD again, and pins the value after each.
+    // The paragraph below records why the bare tier cannot host it.
     // MMU-04 — last-writer-wins arbitration between NextREG path and
     // port 0x7FFD path is Mmu-owned state. COVERED AT test/mmu/mmu_test.cpp
     // Cat3 P7F-12 (lock bit) and LCK-01/02/06 (lock enforcement), plus
@@ -704,15 +713,85 @@ static void test_port_enables() {
     // gate on port 0x1F not wired in src/core/emulator.cpp:1119).
     // Bare NextReg does not decode ports — re-homed to integration tier.
 
-    // PE-04 — internal port-enable reset defaults (0xFF for 0x82-0x84;
-    // 0x8F for 0x85 because bits 6:4 are always-zero on read per VHDL).
-    // COVERED AT nextreg_integration_test.cpp Reset-Integration NREG-RST-08.
+    // PE-04 — the internal port-enable group reloads on reset ONLY when
+    // nr_85_internal_port_reset_type (NR 0x85 bit 7) is '1'.
+    //
+    // VHDL zxnext.vhd:5052-5058 is a bare `if` with no `else`:
+    //     if nr_85_internal_port_reset_type = '1' then
+    //        nr_82_internal_port_enable <= (others => '1');
+    //        nr_83_internal_port_enable <= (others => '1');
+    //        nr_84_internal_port_enable <= (others => '1');
+    //        nr_85_internal_port_enable <= (others => '1');
+    //     end if;
+    // so with reset_type='0' every one of those flip-flops keeps its
+    // pre-reset value. The reset_type bit itself appears in NO reset
+    // clause (only the power-on initialiser at :1230 and the NR 0x85
+    // write at :5508-5509), so it survives either path.
+    //
+    // NR 0x85's read mux at :6138 composes
+    //     nr_85_internal_port_reset_type & "000" & nr_85_internal_port_enable
+    // (the enable field is 4 bits, `3 downto 0`), so the reset_type='1'
+    // readback is 1_000_1111 = 0x8F, not 0xFF.
+    //
+    // Both axes are asserted here because only the negative one is
+    // discriminative: NREG-RST-08 at the integration tier reads the
+    // group after a power-on reset, where reset_type is already '1' by
+    // the :1230 initialiser, so an emulator that reloaded the group
+    // unconditionally would still satisfy it.
+    //
+    // Bare tier is the right home: NextReg::reset() owns this gate (the
+    // bytes have no registered handler), so no subsystem wiring is
+    // involved.
+    {
+        NextReg nr;
+
+        // Axis 1 — reset_type = 1: the group reloads.
+        nr.write(0x82, 0x55);
+        nr.write(0x83, 0x66);
+        nr.write(0x84, 0x77);
+        nr.write(0x85, 0x8A);   // bit 7 = 1 → reset_type='1'; enable = 0xA
+        nr.reset();
+        const uint8_t rt1_82 = nr.read(0x82);
+        const uint8_t rt1_83 = nr.read(0x83);
+        const uint8_t rt1_84 = nr.read(0x84);
+        const uint8_t rt1_85 = nr.read(0x85);
+
+        // Axis 2 — reset_type = 0: the group survives untouched.
+        nr.write(0x82, 0x55);
+        nr.write(0x83, 0x66);
+        nr.write(0x84, 0x77);
+        nr.write(0x85, 0x0A);   // bit 7 = 0 → reset_type='0'; enable = 0xA
+        nr.reset();
+        const uint8_t rt0_82 = nr.read(0x82);
+        const uint8_t rt0_83 = nr.read(0x83);
+        const uint8_t rt0_84 = nr.read(0x84);
+        const uint8_t rt0_85 = nr.read(0x85);
+
+        char detail[160];
+        std::snprintf(detail, sizeof(detail),
+                      "rt1=%02x/%02x/%02x/%02x (want ff/ff/ff/8f) "
+                      "rt0=%02x/%02x/%02x/%02x (want 55/66/77/0a)",
+                      rt1_82, rt1_83, rt1_84, rt1_85,
+                      rt0_82, rt0_83, rt0_84, rt0_85);
+        check("PE-04",
+              "NR 0x82-0x85 reload to 0xFF/0x8F on reset only when NR 0x85 "
+              "bit 7 (reset_type) is 1; with bit 7 = 0 they survive "
+              "[zxnext.vhd:5052-5058, :1230, :6138]",
+              rt1_82 == 0xFF && rt1_83 == 0xFF && rt1_84 == 0xFF &&
+              rt1_85 == 0x8F &&
+              rt0_82 == 0x55 && rt0_83 == 0x66 && rt0_84 == 0x77 &&
+              rt0_85 == 0x0A,
+              detail);
+    }
 
     // PE-05 — bus-side port-enable reset defaults. TRACKED AT
     // nextreg_integration_test.cpp PE-05 (skip, real gap: regs_[0x89]
     // not seeded to VHDL default 0x8F per zxnext.vhd:6147-6150).
     // Not a skip here — re-homed to integration tier.
 
+    // PE-06..PE-09 — all four RETIRED in the plan doc 2026-09-24 (GH #201),
+    // each naming the PE-INT-* row below that asserts it.
+    //
     // PE-06 — NR 0x82 round-trip read. VHDL zxnext.vhd:5498-5499 (write
     // stores all 8 bits) + :6128-6129 (read returns all 8 bits). No
     // packing — the bare-tier round-trip is already covered by PE-01 /
@@ -762,6 +841,9 @@ static void test_copper_arbitration() {
               got == 0x3C, detail_eq(got, 0x3C));
     }
 
+    // COP-02 / COP-03 struck in the plan doc 2026-09-24 (GH #201) carrying
+    // the WONT rationale below; COP-04 struck the same day onto copper_test
+    // ARB-04.
     // WONT COP-02 / WONT COP-03 — cycle-accurate CPU+Copper nr_wr_* bus
     // arbitration (VHDL zxnext.vhd:4706-4777). VHDL uses a 4-process state
     // machine (copper_requester/d + cpu_requester/d + copper_req edge-pulse
@@ -804,6 +886,7 @@ static void test_copper_arbitration() {
 static void test_write_only_read_default() {
     set_group("WO");
 
+    // All four RETIRED in the plan doc 2026-09-24 (GH #201) onto these rows.
     // RE-HOME WO-01 → nextreg_integration_test.cpp WO-Integration / WO-INT-04 (G149).
     // RE-HOME WO-02 → nextreg_integration_test.cpp WO-Integration / WO-INT-29 (G149).
     // RE-HOME WO-03 → nextreg_integration_test.cpp WO-Integration / WO-INT-60 (G149).
