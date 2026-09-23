@@ -82,6 +82,26 @@ bool normalize_dest_path(const std::string& dest_path,
                          std::string& fatfs_path_out,
                          std::string& err);
 
+/// Do `a` and `b` name the same image file?
+///
+/// This exists for one caller — the warning jnext prints when
+/// `--sdcard-file-add` is about to write the DEFAULT, shared SD image — and it
+/// is a real question rather than a string comparison because that warning is
+/// the only thing standing between a user and clobbering the image every other
+/// run and the whole test suite boot from. `--sdcard ./card.img`, a symlink to
+/// it, `--sdcard a/../card.img`, or a case-different spelling on a
+/// case-insensitive volume all name the default image while comparing unequal
+/// as strings, and the warning would be silently skipped in exactly the
+/// situation it is for.
+///
+/// Answered by filesystem identity (device + inode) when both paths exist,
+/// which settles symlinks, hard links, relative spellings and case-folding at
+/// once. When one of them does not exist — the usual case for the default
+/// image on a machine that has never provisioned one — it falls back to
+/// comparing normalised paths, and then to comparing the strings, so the
+/// answer degrades rather than throwing. An empty path never matches anything.
+bool same_image_file(const std::string& a, const std::string& b);
+
 /// Copy `host_file` into `image_path` at `dest_path`, creating any missing
 /// intermediate directories.
 ///

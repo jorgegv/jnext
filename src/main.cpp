@@ -1119,7 +1119,12 @@ int main(int argc, char* argv[]) {
         // other jnext session and the whole regression suite resolve from it.
         // Said loudly, once, and never repaired behind the user's back — a
         // silent 1 GB backup copy per invocation would be its own surprise.
-        if (sd_card_image == sdcard::default_sdcard_image_path()) {
+        // Not a string comparison: `--sdcard ./cspect-next-1gb-fixed.img`, a
+        // symlink to it, or a case-different spelling all name the default
+        // image, and a warning a relative path defeats is one that goes
+        // missing exactly when it matters.
+        if (sdcard::same_image_file(sd_card_image,
+                                    sdcard::default_sdcard_image_path())) {
             std::fprintf(stderr,
                 "warning: writing into the DEFAULT SD-card image\n"
                 "           %s\n"

@@ -10,6 +10,7 @@ extern "C" {
 #include <array>
 #include <cstdio>
 #include <cstring>
+#include <filesystem>
 #include <fstream>
 #include <string>
 #include <vector>
@@ -160,6 +161,33 @@ const char* file_add_status_name(FileAddStatus s) {
         case FileAddStatus::ImageFull:        return "image-full";
     }
     return "?";
+}
+
+bool same_image_file(const std::string& a, const std::string& b) {
+    if (a.empty() || b.empty()) return false;
+    namespace fs = std::filesystem;
+
+    // Filesystem identity first, and it is DEFINITIVE in both directions: when
+    // both paths exist, `equivalent` compares the device+inode the OS reports,
+    // so it answers true for a symlink, a hard link, a relative spelling and a
+    // case-different one on a case-insensitive volume, and false for two files
+    // that merely look alike.
+    std::error_code ec;
+    const bool eq = fs::equivalent(a, b, ec);
+    if (!ec) return eq;
+
+    // One of them cannot be stat'ed — normally the default image on a machine
+    // that has never provisioned one. Compare lexically-normalised paths
+    // instead: weakly_canonical does not require the file to exist and still
+    // resolves '.', '..' and any existing leading components.
+    std::error_code eca, ecb;
+    const fs::path ca = fs::weakly_canonical(a, eca);
+    const fs::path cb = fs::weakly_canonical(b, ecb);
+    if (!eca && !ecb) return ca == cb;
+
+    // Nothing worked (a path the host rejects outright). Fall back to the
+    // string comparison this used to be: no worse than before, never throws.
+    return a == b;
 }
 
 bool normalize_dest_path(const std::string& dest_path,

@@ -236,6 +236,27 @@ if want sdcard-file-add-func; then
                                --sdcard-file-dest /WARNCHK2.BIN
     grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
         && faults+=("an explicit --sdcard still printed the shared-image warning")
+    # The warning must also survive a different SPELLING of the same image. A
+    # string comparison passes the two rows above and fails both of these, and
+    # the person it fails is the one about to clobber the shared card.
+    run_add 0 "default-warns-dotpath" \
+        --sdcard "$CFG/sdcard/./cspect-next-1gb-fixed.img" \
+        --sdcard-file-add "$W/long.bin" --sdcard-file-dest /WARNCHK3.BIN
+    grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
+        || faults+=("a './' spelling of the default image skipped the shared-image warning")
+    ln -sfn "$CARD" "$W/card-link.img"
+    run_add 0 "default-warns-symlink" \
+        --sdcard "$W/card-link.img" \
+        --sdcard-file-add "$W/long.bin" --sdcard-file-dest /WARNCHK4.BIN
+    grep -q "DEFAULT SD-card image" <<< "$ADD_OUT" \
+        || faults+=("a symlink to the default image skipped the shared-image warning")
+    # Both of those really did write the shared card, which is the point of
+    # warning about them.
+    mcopy -i "$CARD@@$OFF" ::/WARNCHK3.BIN "$W/w3.out" 2>/dev/null \
+        || faults+=("the './' spelling did not write the default image after all")
+    mcopy -i "$CARD@@$OFF" ::/WARNCHK4.BIN "$W/w4.out" 2>/dev/null \
+        || faults+=("the symlink did not write the default image after all")
+
     # ...and --sdcard really chose that image: the file is in it and not in the
     # default one. Without this, "quiet" would also be satisfied by writing the
     # default image and simply not saying so.
@@ -247,7 +268,7 @@ if want sdcard-file-add-func; then
     rm -rf "$W"
 
     if [[ ${#faults[@]} -eq 0 ]]; then
-        pass_row " (mcopy byte-identical, mdir names exact, fsck.vfat clean, 11 statuses)"
+        pass_row " (mcopy byte-identical, mdir names exact, fsck.vfat clean, 13 invocations)"
     else
         fail_row " (${#faults[@]} fault(s) writing to the SD image)"
         printf '      %s\n' "${faults[@]}"

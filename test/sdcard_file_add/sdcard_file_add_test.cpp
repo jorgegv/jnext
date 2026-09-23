@@ -716,6 +716,81 @@ void test_writes() {
           st == FileAddStatus::ImageUnusable &&
           err.find("zero-sector") != std::string::npos, err);
 
+    // ---- naming the same image two different ways ---------------------------
+    // The "you are writing the shared default image" warning is decided by
+    // same_image_file(). It used to be `==` on the two strings, which any
+    // relative spelling defeats — silently, and only for the user who is about
+    // to clobber the image every other run and the whole test suite boot from.
+    {
+        const fs::path other = g_scratch / "other.img";
+        write_host_file(other, payload(64, 61));
+        std::error_code ec;
+
+        check("SDFA-W48", "a path with './' and '..' in it names the same image",
+              sdcard::same_image_file(
+                  img.string(),
+                  (g_scratch / "." / "sub" / ".." / img.filename()).string()));
+
+        // The user's actual command: `cd <dir>; jnext --sdcard card.img ...`.
+        const fs::path cwd = fs::current_path(ec);
+        bool rel_ok = false;
+        if (!ec) {
+            fs::current_path(g_scratch, ec);
+            if (!ec) rel_ok = sdcard::same_image_file(img.string(),
+                                                      img.filename().string());
+            std::error_code back;
+            fs::current_path(cwd, back);
+        }
+        check("SDFA-W49", "a relative path from the image's own directory names it",
+              rel_ok);
+
+        const fs::path link = g_scratch / "card-link.img";
+        fs::remove(link, ec);
+        std::error_code link_ec;
+        fs::create_symlink(img, link, link_ec);
+        check("SDFA-W50", "a symlink to the image names the same image",
+              !link_ec && sdcard::same_image_file(img.string(), link.string()),
+              link_ec ? "cannot create a symlink here: " + link_ec.message() : "");
+        fs::remove(link, ec);
+
+        // A HARD link is the case that needs filesystem identity rather than
+        // path normalisation: there is no symlink to follow and no '.' to
+        // fold, just two directory entries pointing at one inode. It is also
+        // the only one of those cases this host can exercise — a
+        // case-insensitive volume, where `CARD.IMG` and `card.img` are one
+        // file, is answered by the same `equivalent` call and cannot be built
+        // on Linux.
+        const fs::path hard = g_scratch / "card-hard.img";
+        fs::remove(hard, ec);
+        std::error_code hard_ec;
+        fs::create_hard_link(img, hard, hard_ec);
+        check("SDFA-W55", "a hard link to the image names the same image",
+              !hard_ec && sdcard::same_image_file(img.string(), hard.string()),
+              hard_ec ? "cannot create a hard link here: " + hard_ec.message() : "");
+        fs::remove(hard, ec);
+
+        // The other direction matters as much: a warning that fires for every
+        // path is a warning nobody reads.
+        check("SDFA-W51", "two different files do not name the same image",
+              !sdcard::same_image_file(img.string(), other.string()));
+        check("SDFA-W52", "a path that does not exist does not name an existing image",
+              !sdcard::same_image_file(img.string(),
+                                       (g_scratch / "absent.img").string()));
+        // Both absent: there is no filesystem identity to consult, so the
+        // normalised paths decide. That fallback has to keep working, because
+        // the default image legitimately does not exist on a machine that has
+        // never provisioned one.
+        check("SDFA-W53", "two spellings of the same ABSENT path still match",
+              sdcard::same_image_file(
+                  (g_scratch / "absent.img").string(),
+                  (g_scratch / "." / "absent.img").string()));
+        check("SDFA-W54", "an empty path never names an image",
+              !sdcard::same_image_file("", img.string()) &&
+              !sdcard::same_image_file(img.string(), "") &&
+              !sdcard::same_image_file("", ""));
+        fs::remove(other, ec);
+    }
+
     // ---- the exit-code contract --------------------------------------------
     // These numbers are the documented process exit codes (jnext(1) EXIT
     // STATUS) and scripts branch on them, so they are pinned here rather than
