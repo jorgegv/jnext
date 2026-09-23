@@ -77,6 +77,37 @@ It is worth being precise about what this gate does and does not establish.
 page's narrative sections is checked by nobody at all. See
 [4.5 The documentation and CLI gates](../04-testing/05-documentation-and-cli-gates.md).
 
+### The user guide's screenshots are NOT generated, and NOT gated
+
+`src/doc/user-guide/img/*.png` are hand-captured pictures of the running
+program. `make docs-userguide` copies them; it does not produce them, and
+nothing compares them against the UI they claim to show. `docs-check` proves
+the rendered HTML matches the markdown — it cannot see inside a PNG. So a
+screenshot can contradict the prose directly beneath it and every gate stays
+green. That has happened: GH #225 added a column and a master switch to the
+Breakpoints panel, described both in the guide, and left the picture above the
+description showing neither.
+
+**If you change a panel the guide shows, re-capture its image in the same
+change.** There is no target for it, but it does not need a display. Build a
+short program against `jnext_debugger` + `jnext_gui`, run it under
+`QT_QPA_PLATFORM=offscreen`, and:
+
+1. `Emulator::init()`, then a `DebuggerManager` on a throwaway `QMainWindow`
+   with `set_enabled(true)` — the same fixture the debugger test suites use.
+2. Put the panel into the state worth showing (breakpoints, a loaded file, …).
+3. Walk up `parentWidget()` from the panel to the `QTabWidget` that holds it,
+   `setCurrentWidget()` the panel, and `setParent(nullptr)` so a `resize()` is
+   not undone by the window's splitter.
+4. `resize()` to the size the committed image already has — the guide's
+   neighbouring images share sizes on purpose (the two bottom-dock panels are
+   both 556x350, the left-hand tabs 600x760) — then `render()` into a
+   `QImage::Format_RGB32` and save.
+
+Regenerating *all* of them this way, behind a make target, is worth doing and
+has not been done; it needs per-panel content setup for every image, which is
+why it is not a side-effect of whichever change happens to invalidate one.
+
 ## The command line is data, not control flow
 
 `src/core/cli_options.h` holds every accepted flag as a `constexpr` table of

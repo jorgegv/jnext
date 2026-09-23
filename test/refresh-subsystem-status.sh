@@ -163,6 +163,7 @@ BEGIN {
     M["step_out_test"]                 = "Debugger Step Out"
     M["persistent_bp_test"]            = "Debugger persistent BPs"
     M["io_watchpoint_test"]            = "Debugger I/O Watchpoints"
+    M["bp_enable_test"]                = "Debugger BP Enable/Disable"
     M["resume_step_off_test"]          = "Debugger resume step-off"
     M["raster_state_test"]             = "Raster State (beam + ULA fetch)"
     M["app_config_test"]               = "GUI Preferences (AppConfig)"

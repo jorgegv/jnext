@@ -131,7 +131,12 @@ private:
     struct DisasmEntry {
         DisasmLine line;
         bool is_current_pc;
+        /// A PC breakpoint EXISTS at this address, enabled or not (GH #225).
         bool has_breakpoint;
+        /// ... and it can actually fire: individually enabled, master switch
+        /// on. The gutter draws a filled dot for live and a hollow ring for
+        /// suspended, so the two are never confused for one another.
+        bool breakpoint_live;
     };
     std::vector<DisasmEntry> entries_;
     int selected_line_ = -1;

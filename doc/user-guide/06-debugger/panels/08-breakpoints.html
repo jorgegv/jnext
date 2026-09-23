@@ -1841,6 +1841,24 @@
         
       
       
+        <label class="md-nav__link md-nav__link--active" for="__toc">
+          
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Breakpoints
+  
+
+    
+  </span>
+  
+  
+
+          <span class="md-nav__icon md-icon"></span>
+        </label>
+      
       <a href="08-breakpoints.html" class="md-nav__link md-nav__link--active">
         
   
@@ -1857,6 +1875,36 @@
   
 
       </a>
+      
+        
+
+<nav class="md-nav md-nav--secondary" aria-label="Table of contents">
+  
+  
+  
+    
+  
+  
+    <label class="md-nav__title" for="__toc">
+      <span class="md-nav__icon md-icon"></span>
+      Table of contents
+    </label>
+    <ul class="md-nav__list" data-md-component="toc" data-md-scrollfix>
+      
+        <li class="md-nav__item">
+  <a href="#turning-breakpoints-off-without-losing-them" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Turning breakpoints off without losing them
+      
+    </span>
+  </a>
+  
+</li>
+      
+    </ul>
+  
+</nav>
       
     </li>
   
@@ -2785,10 +2833,32 @@
 
 <h1 id="breakpoints">Breakpoints<a class="headerlink" href="#breakpoints" title="Permanent link">&para;</a></h1>
 <p><img alt="Breakpoints panel" src="../../img/debugger-breakpoints.png" /></p>
-<p>Every breakpoint in one list, sorted by address: type, address and — with a MAP
-file loaded — the symbol at that address. <strong>Add</strong>, <strong>Edit</strong> and <strong>Remove</strong>
-manage them; double-clicking a row edits it. The list and the disassembly
-gutter stay in sync in both directions.</p>
+<p>Every breakpoint in one list, sorted by address: an <strong>On</strong> checkbox, the type,
+the address and — with a MAP file loaded — the symbol at that address.
+<strong>Add</strong>, <strong>Edit</strong> and <strong>Remove</strong> manage them; double-clicking a row edits it.
+The list and the disassembly gutter stay in sync in both directions.</p>
+<h2 id="turning-breakpoints-off-without-losing-them">Turning breakpoints off without losing them<a class="headerlink" href="#turning-breakpoints-off-without-losing-them" title="Permanent link">&para;</a></h2>
+<p>Deleting a breakpoint to get past it, and typing the address back in
+afterwards, is the thing this panel exists to stop.</p>
+<ul>
+<li><strong>The On checkbox</strong> on a row disables just that breakpoint. It stays in the
+  list with its address and type; it simply does not fire. Tick it again and it
+  is back exactly as it was. Every breakpoint is created <strong>enabled</strong>, from
+  every route — the Add dialog, the Breakpoints menu, a gutter click or the
+  disassembly's right-click menu.</li>
+<li><strong>Breakpoints enabled</strong>, next to the buttons, is the <strong>master switch</strong>. Unticking
+  it suspends <em>every</em> breakpoint and watchpoint at once, and ticking it back
+  restores each one to its own On state — the individual checkboxes are left
+  alone while it is off, which is what makes the round trip exact. Use it to
+  let a program run through a session's worth of breakpoints and then pick up
+  where you left off.</li>
+</ul>
+<p>Step Into, Step Over, Step Out and <strong>Run to Here</strong> keep working while the
+master switch is off, so a suspended machine is still one you can walk through.</p>
+<p>In the disassembly gutter, a suspended breakpoint — individually disabled, or
+any breakpoint while the master switch is off — is drawn as a <strong>hollow red
+ring</strong> instead of a filled red dot. It stays visible, in the same place, so you
+can still see where your breakpoints are; it just does not look armed.</p>
 
 
 

@@ -1129,6 +1129,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Execution control">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#enabling-and-disabling-breakpoints" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Enabling and disabling breakpoints
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1958,6 +1975,35 @@ consults it once per instruction, before the fetch:</p>
 </tr>
 </tbody>
 </table>
+<h3 id="enabling-and-disabling-breakpoints">Enabling and disabling breakpoints<a class="headerlink" href="#enabling-and-disabling-breakpoints" title="Permanent link">&para;</a></h3>
+<p><code>BreakpointSet</code> keeps two things, not one. The <strong>model</strong> — <code>pc_all_</code>
+(<code>addr -&gt; enabled</code>) and <code>wp_all_</code> (each <code>Watchpoint</code> carrying its own
+<code>enabled</code>) — is what the Breakpoints panel lists. The <strong>live cache</strong> —
+<code>pc_live_</code> and <code>wp_live_</code>, the same container types the class had before any of
+this existed — holds only what can actually fire, and is what <code>has_pc()</code>,
+<code>has_watchpoint()</code>, <code>has_io_watchpoint()</code> and <code>has_any_watchpoints()</code> read.
+<code>rebuild_live_()</code> recomputes the cache, and is called only by mutators; nothing
+on the hot path ever rebuilds or filters.</p>
+<p>That split is what makes a disabled breakpoint cost <em>nothing</em> rather than
+merely little. The hot path's structures are unchanged and their contents are a
+subset of the model, so a disabled breakpoint is not hashed, not compared and
+not iterated. Disable the only watchpoint and <code>has_any_watchpoints()</code> goes
+false again, so the eight <code>Mmu</code> watchpoint sites and <code>PortDispatch</code> short-circuit
+exactly as on a machine that never had one.</p>
+<p>The <strong>master switch</strong> (<code>set_master_enabled()</code>) is the whole of
+<code>rebuild_live_()</code>'s first line: with it off, the cache is left empty and the
+model is not read at all. It therefore cannot consume a per-breakpoint flag,
+which is what makes the off/on round trip exact by construction rather than by
+a save-and-restore that has to be kept correct. One-shots sit outside the model
+entirely, so Step Over, Step Out and Run to Here still work while every
+breakpoint is suspended.</p>
+<p>Two queries exist where there used to be one, and they are not
+interchangeable: <code>has_pc()</code> is <em>live</em> (will this stop the CPU) and is what the
+run loop asks; <code>pc_exists()</code> / <code>pc_enabled()</code> are the <em>model</em> and are what the
+panel's checkbox and the gutter's marker ask. The gutter draws a filled dot for
+live and a hollow ring for a breakpoint that exists but is suspended, and the
+gutter's click-to-toggle asks <code>pc_exists()</code> — asking <code>has_pc()</code> there would
+read a disabled breakpoint as absent and stack a second one on top of it.</p>
 <p>Every one of those modes leaves <code>paused_</code> through <code>DebugState::unpause_()</code>,
 which also arms a one-instruction <strong>step-off</strong>. The loop consumes it
 immediately before <code>should_break()</code>, and that first test of a resumed run is
@@ -2140,8 +2186,10 @@ disassembly gutter) also <strong>observe it</strong>: <code>BreakpointSet::add_o
 is Qt-free — and every mutator calls it, so a breakpoint appears the instant it
 is set rather than on the next tick. The two subscribers differ, deliberately:
 the list acts on both change kinds, the gutter only on <code>PcBreakpoints</code>, since it
-paints <code>has_pc()</code> and nothing else. One-shot breakpoints notify nobody — they
-are transient, are set on every resume, and no panel draws them.</p>
+paints the PC half and nothing else. One-shot breakpoints notify nobody — they
+are transient, are set on every resume, and no panel draws them. The enable
+setters notify the half they change; the master switch notifies <strong>both</strong>, since
+it changes every checkbox in the list and every dot in the gutter at once.</p>
 <p>The point is where the notification comes <em>from</em>. A dozen call sites mutate that
 set, and each one used to be responsible for repainting the views itself; twice
 a site was added that did not, and the panels lied until the next tick. Emitting
