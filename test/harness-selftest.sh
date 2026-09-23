@@ -25,7 +25,7 @@ pass=0; fail=0; total=0
 # the declared and the reported side in lockstep — the exact silent-truncation
 # move the harnesses this file guards were built to forbid. Adding or removing
 # a check MUST update this number, deliberately.
-EXPECTED_TOTAL=51
+EXPECTED_TOTAL=53
 
 # Per-invocation bound on every end-to-end run of a REAL script (GH #81).
 # run_harness and run_preflight each execute a real harness end to end, and a
@@ -556,17 +556,50 @@ run_preflight_lint() {   # run_preflight_lint <clean|dirty>
 
 # A clean fixture must reach the lint (its own "[lint-traps] scanned:" line is printed
 # by lint-traps.sh, so seeing it proves the script actually ran) and pass, giving the
-# preflight its documented 3 rows (assertions, traps, hardcoded paths — GH #204 added
-# the third; this count is deliberately pinned, so adding a fourth fails here first).
+# preflight its documented 4 rows (assertions, traps, timeouts, hardcoded paths — GH
+# #204 added the third and the unescalated-timeout lint the fourth; this count is
+# deliberately pinned, so adding a fifth fails here first).
 out=$(run_preflight_lint clean); rc=$?
 check "HS-49a" "the trap lint is reached from the regression preflight, as row 2 (GH #153)" 0 $rc \
-    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 3"
+    "$out" "[lint-traps] scanned:" "no row script installs its own trap" "Pass: 4"
 
 # The other arm: an offending fixture must turn that row red and fail the preflight.
 # Without it HS-49a would also pass on a call whose exit status was discarded.
 out=$(run_preflight_lint dirty); rc=$?
 check "HS-49b" "an offending row script FAILS the preflight, not just the lint (GH #153)" 1 $rc \
     "$out" "a row script installs its own trap" "Fail: 1"
+
+# ------------- the unescalated-timeout lint must stay wired to the same preflight
+# Fourth instance of the HS-45/HS-46/HS-49 shape. test/lint-timeouts.sh self-tests its
+# own 53-case table on every invocation, so it can prove it still DETECTS a bare
+# `timeout`; nothing but these two rows proves it is still REACHED and that its verdict
+# still turns the preflight row red. The failure it guards leaves no trace in any
+# count: a `timeout N` that cannot escalate lets a wedged process outlive its row and
+# load the box underneath the pacing-bound rows, which then report a FAIL nobody can
+# reproduce. Deleting the four-line `if bash .../lint-timeouts.sh` block restores that
+# silence, and the row-count witness in regression.sh only says a row went missing —
+# not which, and not that the call survived with its status ignored.
+#
+# JNEXT_LINT_TIMEOUTS_DIR aims the lint at a fixture directory; it exists for these two
+# rows alone and regression.sh never sets it.
+LTO_FIX="$T/lint-timeouts"
+rm -rf "$LTO_FIX"; mkdir -p "$LTO_FIX/clean" "$LTO_FIX/dirty"
+printf '#!/usr/bin/env bash\ntimeout --foreground --kill-after=5s 60s jnext\n' > "$LTO_FIX/clean/row-func.sh"
+printf '#!/usr/bin/env bash\ntimeout 60 jnext\n'                              > "$LTO_FIX/dirty/row-func.sh"
+run_preflight_timeouts() {   # run_preflight_timeouts <clean|dirty>
+    JNEXT_LINT_TIMEOUTS_DIR="$LTO_FIX/$1" timeout --kill-after=5s "${INVOKE_TIMEOUT}s" \
+        bash "$PROJECT_DIR/test/00regression/scripts/00-preflight-lint.sh" 2>&1
+}
+
+out=$(run_preflight_timeouts clean); rc=$?
+check "HS-56a" "the unescalated-timeout lint is reached from the regression preflight, as row 3" 0 $rc \
+    "$out" "[lint-timeouts] scanned:" "every 'timeout' escalates to SIGKILL" "Pass: 4"
+
+# The other arm: a bare `timeout` must turn that row red and fail the whole preflight.
+# Without it HS-56a would also pass on a call whose exit status was discarded.
+out=$(run_preflight_timeouts dirty); rc=$?
+check "HS-56b" "a bare 'timeout' FAILS the preflight, not just the lint" 1 $rc \
+    "$out" "runs 'timeout' with no escalation" "Fail: 1"
 
 # =====================================================================================
 # The regression harness's preflight (test/00regression/regression.sh --preflight-only).

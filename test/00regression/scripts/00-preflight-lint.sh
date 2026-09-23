@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Group rows: the three static preflight lints, always rows 1-3 of the suite.
+# Group rows: the four static preflight lints, always rows 1-4 of the suite.
 # Sourced by regression.sh (the driver); also directly executable.
 # shellcheck source=test/00regression/test-functions.inc
 set -euo pipefail
@@ -40,6 +40,25 @@ echo ""
 # The bug class is invisible from the machine that has it, so a static grep is
 # the only gate that can see it from here. It would have caught 29 lines across
 # 26 files on the pre-fix tree.
+# --- unescalated-timeout lint ---
+# `timeout N cmd` sends SIGTERM and nothing after it, so a command that does
+# not act on SIGTERM runs unbounded while timeout reports 124 as if it had been
+# stopped. Two jnext processes were found alive 9289 s after a `timeout 120`,
+# reparented to systemd, burning a core apiece underneath the suite's
+# real-time-pacing-bound rows — the class of runaway that fails nothing itself
+# and makes OTHER rows lie. Commit d56ad276 fixed five such call sites by hand
+# and two more arrived within hours, which is why the gate exists and the fix
+# alone did not. Scanned wider than lint-traps: every tracked test/*.sh, since
+# a runaway started outside a row costs exactly the same.
+echo -e "${BOLD}[lint-timeouts] Scanning test shell scripts for unescalated timeouts...${RESET}"
+CURRENT_ROW=lint-timeouts
+if bash "$PROJECT_DIR/test/lint-timeouts.sh"; then
+    printf "  "; pass_row ": every 'timeout' escalates to SIGKILL"
+else
+    printf "  "; fail_row ": a test script runs 'timeout' with no escalation (see above)"
+fi
+echo ""
+
 echo -e "${BOLD}[lint-paths] Scanning tracked code/config for owner-absolute paths...${RESET}"
 CURRENT_ROW=lint-paths
 if bash "$PROJECT_DIR/test/lint-hardcoded-paths.sh"; then

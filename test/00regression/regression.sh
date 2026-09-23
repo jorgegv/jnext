@@ -186,7 +186,7 @@ echo -e "${BOLD}=== JNEXT Regression Test Suite ===${RESET}"
 load_report start
 echo ""
 
-# Group rows: the two preflight lints and the SD-image provisioning, then the
+# Group rows: the four preflight lints and the SD-image provisioning, then the
 # whole screenshot suite. Every test script is SOURCED (never exec'd) so all of
 # them share this one shell's counters, REPORTED_FUNC and ORDERED_TESTS.
 # shellcheck source=test/00regression/scripts/00-preflight-lint.sh
@@ -221,7 +221,7 @@ load_summary
 # --- Completeness: prove the suite ran everything it declares ---
 # A green result is only as trustworthy as its denominator. On a full run, every
 # declared functional test must have reported exactly one row, no undeclared row
-# may appear, and the grand total must equal 3 (preflight lints) +
+# may appear, and the grand total must equal 4 (preflight lints) +
 # 1 (sdcard-provision) + screenshots + functional. Anything else means a test
 # went missing, which is a harness fault, not a pass.
 if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
@@ -241,10 +241,10 @@ if [[ ${#FILTER_TESTS[@]} -eq 0 ]] && ! $UPDATE_MODE; then
         [[ -n "${IS_DECLARED_FUNC[$name]:-}" ]] \
             || faults+=("reported a row but is NOT declared in functional_tests.conf: ${BOLD}$name${RESET}")
     done
-    expected=$(( 3 + 1 + ${#ORDERED_TESTS[@]} + ${#DECLARED_FUNC[@]} ))
+    expected=$(( 4 + 1 + ${#ORDERED_TESTS[@]} + ${#DECLARED_FUNC[@]} ))
     actual=$(( pass + fail + skip ))
     [[ "$actual" -eq "$expected" ]] \
-        || faults+=("row count is ${BOLD}$actual${RESET}, but 3 lint + 1 sdcard-provision + ${#ORDERED_TESTS[@]} screenshot + ${#DECLARED_FUNC[@]} functional = ${BOLD}$expected${RESET} were declared")
+        || faults+=("row count is ${BOLD}$actual${RESET}, but 4 lint + 1 sdcard-provision + ${#ORDERED_TESTS[@]} screenshot + ${#DECLARED_FUNC[@]} functional = ${BOLD}$expected${RESET} were declared")
     if [[ ${#faults[@]} -gt 0 ]]; then
         harness_fault "${faults[@]}" "" \
             "The suite did not run what it says it ran. Treat this as RED, not as a pass."
