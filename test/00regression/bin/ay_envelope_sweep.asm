@@ -12,7 +12,7 @@
 ;
 ; WHY IT EXISTS: jnext had no audio-CONTENT regression row at all —
 ; audio-gain-func and audio-underrun-func test gain and pacing, so an AY
-; envelope bug that made 8 of the 16 shapes wrong passed 140/140 and shipped
+; envelope bug that made 10 of the 16 shapes wrong passed 140/140 and shipped
 ; through every release. This fixture is the workload that makes the content
 ; observable: it walks ALL SIXTEEN envelope shapes on channel A with tone and
 ; noise disabled, so the DAC output IS the envelope generator and nothing else.

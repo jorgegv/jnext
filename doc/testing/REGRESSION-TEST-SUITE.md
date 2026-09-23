@@ -195,11 +195,17 @@ The suite's only audio-**content** row, and the newest (GH #201, 2026-09-23).
 
 `audio-underrun-func` above measures PACING and `audio-gain-func` measures
 GAIN. Neither looks at what the emulator actually **synthesises**, and nothing
-else did either — which is how an AY envelope defect that made **8 of the 16
+else did either — which is how an AY envelope defect that made **10 of the 16
 shapes wrong** passed 140/140 and shipped through every release to date:
 shapes 4-7 ended at full volume instead of silence, shapes 11 and 15 ended at
-the opposite rail, and both triangles locked into a DC level instead of
-turning round. This row closes that hole.
+the opposite rail, shapes 9 and 13 one level short of it, and both triangles
+(10 and 14) locked into a DC level instead of turning round. Shapes 0-3, 8
+and 12 were unaffected. This row closes that hole.
+
+Those ten are a measurement, not a recollection: settling every shape on a
+fixed and a reverted build and diffing the steady states gives exactly that
+set. An earlier draft of this section said eight, having summarised four
+categories of defect rather than counting the shapes in them.
 
 **Workload**: `bin/ay_envelope_sweep.bin`, an 80-byte injected Z80 loop that
 walks all sixteen envelope shapes on channel A with tone and noise disabled,
@@ -219,8 +225,9 @@ redundant:
 - a shape ending at the **wrong rail** is a pure DC change with no AC change
   at all — slice 14 reads `0 0` correct and `1020 0` with the bug;
 - a shape that **locks** instead of ramping is a pure AC collapse — slices
-  20-22 read `96 226 / 424 399 / 958 224` correct and `13 91` three times over
-  with the bug.
+  20-22 read `96 226 / 424 399 / 958 224` correct and
+  `13 91 / 13 91 / 21 107` with the bug, the AC RMS collapsing to between a
+  half and a quarter.
 
 The comparison is **exact**, not tolerance-based. The whole chain — injected
 binary, fixed frame count, no RTC, no tape, no display — is deterministic to

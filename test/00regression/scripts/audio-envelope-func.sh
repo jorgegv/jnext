@@ -10,10 +10,12 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #
 # audio-gain-func and audio-underrun-func measure GAIN and PACING. Nothing
 # measured what the emulator actually SYNTHESISES, so an AY envelope defect
-# that made 8 of the 16 shapes wrong — shapes 4-7 ending at full volume
-# instead of silence, 11 and 15 ending at the opposite rail, and both
-# triangles locking into DC instead of turning round — passed 140/140 and
-# shipped through every release to date.
+# that made 10 of the 16 shapes wrong — shapes 4-7 ending at full volume
+# instead of silence, 11 and 15 ending at the opposite rail, 9 and 13 one
+# level short of it, and both triangles (10 and 14) locking into DC instead
+# of turning round — passed 140/140 and shipped through every release to
+# date. (Measured, not recalled: settling each shape on both builds and
+# diffing gives exactly those ten; 0-3, 8 and 12 are unaffected.)
 #
 # Workload: bin/ay_envelope_sweep.bin walks ALL SIXTEEN envelope shapes on
 # channel A with tone and noise disabled, so the DAC output is the envelope
@@ -32,10 +34,13 @@ source "$(dirname "${BASH_SOURCE[0]}")/../test-functions.inc"
 #   * a shape that ends at the WRONG RAIL is a pure DC change with no AC
 #     change at all — slice 14 reads `0 0` correct and `1020 0` with the bug;
 #   * a shape that LOCKS instead of ramping is a pure AC collapse —
-#     slices 20-22 read `96 226 / 424 399 / 958 224` correct and `13 91`
-#     three times over with the bug.
+#     slices 20-22 read `96 226 / 424 399 / 958 224` correct and
+#     `13 91 / 13 91 / 21 107` with the bug — the AC RMS collapsing to
+#     between a half and a quarter.
 # The comparison is EXACT, not tolerance-based: the pipeline is deterministic,
 # so any tolerance would only be a place for a real regression to hide.
+#
+# Every value quoted above is read off a capture, not off a memory of one.
 if want audio-envelope-func; then
     begin_func audio-envelope-func
 
