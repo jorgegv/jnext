@@ -109,6 +109,18 @@ as a write-protected card would. This runtime path is entirely separate from the
 host-side FAT32 reader in `src/core/sd_rom_extractor.{h,cpp}`, which pulls the
 ROM images out of the same file at startup.
 
+The card serves **both SD capacity classes**, and which one it is is decided by
+the host, not by the image. ACMD41's HCS bit is latched during init, CMD58
+reports it straight back as the OCR's CCS bit, and everything downstream follows
+from that one bit: CMD17/18/24 take a 512-byte *block* address when CCS=1 and a
+*byte* address when CCS=0, CMD9 answers with a CSD Version 2.0 or Version 1.0
+register (the two encode capacity through entirely different fields), and CMD16
+SET_BLOCKLEN changes the transfer length only on the standard-capacity card.
+TBBlue, NextZXOS and FatFs all negotiate HCS=1, so the boot path only ever takes
+the block-addressed leg — the standard-capacity leg exists so a legacy image
+mounted by a host that asks for SDSC is addressed correctly instead of silently
+512× off (GH #94).
+
 ## CTC
 
 The CTC is the Zilog counter/timer companion to the Z80, and the Next carries

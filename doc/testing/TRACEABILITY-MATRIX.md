@@ -43,7 +43,7 @@ mentions them, so a test can no longer be absent from this document.
 | VideoTiming                                |    67 |   64 |    0 |    0 |       3 |          0 |
 | Contention                                 |   160 |  158 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    55 |   52 |    0 |    1 |       2 |          0 |
+| SD Card                                    |    76 |   74 |    0 |    1 |       1 |          0 |
 | NMI Source Pipeline                        |    82 |   60 |    0 |    0 |      22 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -62,9 +62,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4751 | 4499 |    0 |    5 |     247 |          0 |
+| **Total**                                  |  4772 | 4521 |    0 |    5 |     246 |          0 |
 
-Rows the sections above carry: **4751**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4483**. Rows the 112 suites declared in `test/unit-tests.conf` run live: **8027**.
+Rows the sections above carry: **4772**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4504**. Rows the 112 suites declared in `test/unit-tests.conf` run live: **8049**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -340,8 +340,8 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | BOOT-NEX-05 | start_delay honoured unconditionally before code-entry, on top of any inter-bank loading_delay total | — | pass | test/mmu/mmu_test.cpp:3629 |
 | BOOT-NEX-06 | loading_bar_colour byte is written verbatim, not a fixed default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a` | — | pass | test/mmu/mmu_test.cpp:3597 |
 | BOOT-NEX-07 | G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) before screen-format ingest, eliminating attribute-area leak from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict) | — | pass | test/mmu/mmu_test.cpp:3709 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1012 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2197 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1119 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2307 |
 | BOOT-TAPESAVE-01 | TapSaver::build_block header block: LE length prefix (payload+2), flag 0x00, payload verbatim, XOR checksum — hand-computed TAP image (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3770 |
 | BOOT-TAPESAVE-02 | TapSaver data block (non-trivial XOR checksum) + append_block file ordering: file bytes == header-block \|\| data-block, hand-computed images (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3839 |
 | BOOT-TAPESAVE-03 | TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, correct boundaries/flags, payload identity, loader checksum verification, zero parse warnings (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3887 |
@@ -3582,61 +3582,82 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
-| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:177 |
-| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:185 |
-| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:211 |
-| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:255 |
-| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:263 |
-| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:271 |
-| CMD18-06 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:311 |
-| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:350 |
-| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:372 |
-| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:390 |
-| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:413 |
-| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:432 |
-| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:448 |
-| CMD18-05 | open CMD18 stream survives CS deassert; next block streams on reselect without a command (esxDOS cross-call streaming) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:480 |
-| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:518 |
-| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=256 illegal (R1 bit 2 set) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:541 |
-| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:564 |
-| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:656 |
-| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:663 |
-| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:684 |
-| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:730 |
-| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:772 |
-| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:833 |
-| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:841 |
-| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:897 |
-| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:947 |
-| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1012 |
-| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1119 |
-| SD-16 | CMD16 SET_BLOCKLEN arg≠512 R1: initialized card -> 0x04 (illegal only, idle CLEAR); uninitialized card -> 0x05 (idle + illegal). Idle bit must derive from initialized_, not be hard-coded (SD spec § 4.9.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1166 |
-| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1236 |
-| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1288 |
-| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1326 |
-| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1366 |
-| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1461 |
-| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1549 |
-| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1591 |
-| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1643 |
-| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1710 |
-| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1782 |
-| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1840 |
-| SD-28 | running as root; cannot construct a read-only image | (SD SPI spec) | skip | test/sdcard/sdcard_test.cpp:1888 |
-| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2023 |
-| SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2096 |
-| SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2151 |
-| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2197 |
-| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2232 |
-| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2278 |
-| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2321 |
-| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2345 |
-| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2362 |
-| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2385 |
-| SD-LOGHOT-01 | streaming into the next CMD18 block logs its trace line with sdcard at trace | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2426 |
-| SD-LOGHOT-02 | no CMD18 next-block trace line is emitted with the level off | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2434 |
+| INIT-01 | CMD0 returns R1=0x01 (in-idle) before ACMD41 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:261 |
+| INIT-02 | After init sequence, CMD17 R1=0x00 (ready) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:269 |
+| CMD17-01 | CMD17 sector=1 returns the correct first 4 sector-identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:295 |
+| CMD18-01 | CMD18 first block at sector=3 has correct identity bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:339 |
+| CMD18-02 | CMD18 second and third streamed blocks cover sector+1 and +2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:347 |
+| CMD18-03 | CMD12 aborts CMD18 stream cleanly; card ready for subsequent CMD17 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:355 |
+| CMD18-06 | CMD18 that hits end-of-image (sectors 14..15) terminates cleanly; no spurious token; follow-up CMD17 works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:395 |
+| CMD18-04 | CS deassert during CMD18 stream aborts cleanly; CMD17 afterward works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:434 |
+| SD-NAC-01 | CMD17: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:456 |
+| SD-NAC-02 | CMD18 first block: >=1 idle (0xFF) Nac gap byte before 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:474 |
+| SD-NAC-03 | CMD18 with one host flush byte after R1 still delivers the FIRST requested sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:497 |
+| SD-NAC-04 | CMD9 SEND_CSD: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:516 |
+| SD-NAC-05 | CMD10 SEND_CID: >=1 idle (0xFF) Nac gap byte between R1 and 0xFE token | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:532 |
+| CMD18-05 | open CMD18 stream survives CS deassert; next block streams on reselect without a command (esxDOS cross-call streaming) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:564 |
+| SD-02 | CMD13 SEND_STATUS returns R2 (2-byte): R1=0x00 then R2=0x00 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:602 |
+| SD-12 | CMD16 SET_BLOCKLEN: arg=512 ack (R1=0x00); arg=1024 (>512) is BLOCK_LEN_ERROR → R1 bit 6 PARAMETER_ERROR (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:638 |
+| SD-13 | CMD23 SET_BLOCK_COUNT acks (R1=0x00); subsequent CMD17 still works | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:661 |
+| SD-BUSY-01 | CMD24 accepted: the byte after the 0x05 data-response token is 0x00 (card drives DataOut low while programming, SD spec 7.3.3.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:753 |
+| SD-BUSY-02 | the busy window ends with a PARTIAL byte (neither 0x00 nor 0xFF) — DataOut is released part-way through a byte — and the line idles at 0xFF afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:760 |
+| SD-BUSY-03 | esxdos's post-write busy poll (enNxtmmc.rom $1FB9) completes in a handful of SPI reads instead of hitting its 12800-read timeout | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:781 |
+| SD-BUSY-05 | a CS deassert ENDS the post-write busy window — on reselect the card reads $FF (programming is modelled as instantaneous, so it has already completed); the firmware never takes this path | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:827 |
+| SD-BUSY-04 | a REJECTED CMD24 (0x0D write-error token) is NOT followed by a busy window — nothing was programmed, so the line stays idle at 0xFF | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:869 |
+| SD-RO-01 | read-only mount: CMD24 is REJECTED with the 0x0D write-error token (SD spec 7.3.3.3), not accepted with 0x05 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:930 |
+| SD-RO-02 | read-only mount: the host image is byte-identical after a rejected CMD24 — the write is not silently applied | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:938 |
+| SD-14 | CMD24 WRITE_BLOCK round-trip: R1=0x00 + data-response 0x05 + CMD17 readback returns identical 512 bytes | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:994 |
+| MMC-01 | CMD1 (legacy MMC init) sets card to ready; subsequent CMD17 returns R1=0x00 and reads the byte address it was given | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1054 |
+| BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1119 |
+| SD-15 | mount() does full reset() — persistent_response_byte_ MUST NOT leak across a runtime mount swap. Probe: after CMD0 on img1 (which sets persistent_response_byte_=0x01), mount(img2) must clear it back to 0xFF. A bare send() in IDLE state then returns 0xFF (post-fix) instead of the leaked 0x01 (pre-fix). Round-trip integrity also pinned via subsequent CMD17 on img2. Pre-fix mount() cleared only state_/initialized_/app_cmd_/cmd_idx_; post-fix calls reset() canonically (TASK2-VERIFY5 commit 24a1bc4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1226 |
+| SD-16 | CMD16 SET_BLOCKLEN over-long arg R1: initialized card -> 0x40 (parameter error only, idle CLEAR); uninitialized card -> 0x41 (idle + parameter error). Idle bit must derive from initialized_, not be hard-coded (SD spec § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1276 |
+| SD-17 | CMD24 tolerates leading 0xFF gap bytes between R1 and the 0xFE start-of-data token; readback equals payload byte-for-byte (SD Phys Layer Spec 6.00 § 7.3.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1346 |
+| SD-18 | Unhandled CMD20 returns R1 with bit 2 (illegal command) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1398 |
+| SD-19 | CMD55+ACMD42 (or CMD42 fall-through): R1 bit 2 (illegal cmd) set; bit 0 (idle) clear on initialized card (SD spec § 7.3.2.1; TASK2-VERIFY8 fix derives idle from initialized_) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1436 |
+| SD-20 | CMD55 followed by non-ACMD (CMD17) falls through to regular CMD switch; R1=0x00 + data block matches sector 2 fixture (SD spec § 4.3.9.1; TASK2-VERIFY9 fix) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1476 |
+| SD-21 | CMD24 past EOF rejects at R1 with PARAMETER_ERROR (0x40) and skips the data phase; in-bounds case still returns R1=0x00 + data-accepted (0x05) (SD Physical Layer Simplified Spec § 7.3.2.1 Table 7-9 + § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1571 |
+| SD-25 | CMD24 past EOF leaves FSM in IDLE — a follow-up CMD13 dispatches cleanly (proves data phase fully suppressed) (SD Physical Layer Simplified Spec § 4.3.4 + § 7.3.2.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1659 |
+| SD-22 | CMD8 R7 register byte 0 = 0x10 (cmd version 1, SD Physical Layer Simplified Spec § 7.3.2.6). Pre-fix hardcoded 0x00 in the cmd-version field. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1701 |
+| SD-23 | CMD17/CMD18 past EOF set R1 bit 6 PARAMETER_ERROR per SD Phys Layer Spec § 7.3.2.1 Table 7-9. In-bounds R1=0x00. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1753 |
+| SD-24 | CMD24 ignores stray pre-token bytes (other than 0xFE/0xFF) — data block boundary preserved per SD Phys Layer Spec § 7.3.3.2. Pre-fix absorbed stray byte as data_block_[0], shifting payload. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1820 |
+| SD-26 | CMD18 mid-stream past-EOF emits data error token 0x08 per SD Phys Layer Spec § 7.3.3.3 (V14-DIVMMC-01). Pre-fix silently aborted with 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1892 |
+| SD-27 | CMD8 R7 byte 0 (R1) reflects `initialized_` per SD Phys Layer Spec § 7.3.2.6 / R1 layout. Post-init CMD8 returns R1=0x00 (ready), not the pre-fix hardcoded 0x01 (idle). | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:1950 |
+| SD-28 | running as root; cannot construct a read-only image | (SD SPI spec) | skip | test/sdcard/sdcard_test.cpp:1998 |
+| SD-29 | ACMD41 HCS bit (arg bit 30) is reflected in CMD58 OCR CCS bit (byte 0 bit 6) per SD Phys Layer Spec § 4.2.3 / § 5.1. HCS=0 → CCS=0 (SDSC mode); HCS=1 → CCS=1 (SDHC mode). Pre-fix unconditionally reported CCS=1. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2133 |
+| SD-30 | receive(non-CMD-byte) in SENDING_DATA / RESPONDING / WRITE_RESP returns the next MISO byte and advances the response stream (full-duplex SPI per spi_master.vhd:104-168). Pre-fix returned 0xFF and left resp_idx_/data_idx_ un-advanced. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2206 |
+| SD-31 | receive(non-CMD-byte) in RESPONDING state observes the next response byte on MISO and advances resp_idx_ per VHDL full-duplex semantics (spi_master.vhd:104-168). Pre-fix the receive() default branch returned 0xFF and the R1 byte would never be observable via the write-side channel. | spi_master.vhd:104-168 | pass | test/sdcard/sdcard_test.cpp:2261 |
+| BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2307 |
+| SD-33-MOUNT | image mount | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2342 |
+| SD-33 | CMD10 CID Manufacturing Date encodes year=2026 month=05 per SD Physical Layer Simplified Spec § 5.2 Table 5-1. Pre-fix CID[14] was 0x65 encoding year_offset=0x16 = 2022 (off-by-4); post-fix CID[14] = 0xA5 encoding year_offset=0x1A = 2026. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2388 |
+| TASK26-NCR-01 | CMD0 response has exactly 2 idle ($FF) bytes before R1 (SD Phys Layer § 7.5.4 Ncr). Pre-fix emitted 1 idle byte so byte[1] was R1=0x01, not $FF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2431 |
+| TASK26-OCR-01 | CMD58 OCR payload contains no $FF byte (tbblue.fw skips $FF as idle and would misalign). Pre-fix OCR[1] (voltage window) = 0xFF. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2455 |
+| TASK26-CRC-00 | reference CRC-16/XMODEM("123456789") == 0x31C3 (SD data-block CRC variant: poly 0x1021, init 0x0000) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2472 |
+| TASK26-CRC-01 | CMD17 data block emits the real CRC-16 (poly 0x1021, init 0x0000) over the 512 data bytes, high byte first. Pre-fix emitted dummy 0x0000. | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2495 |
+| SD-LOGHOT-01 | streaming into the next CMD18 block logs its trace line with sdcard at trace | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2536 |
+| SD-LOGHOT-02 | no CMD18 next-block trace line is emitted with the level off | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2544 |
+| SDSC-ADDR-01 | SDSC (ACMD41 HCS=0 → OCR CCS=0): CMD17 argument is a BYTE address (§ 4.7.4) — arg 2*512 delivers sector 2 with a 512-byte CRC | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2579 |
+| SDSC-ADDR-02 | SDHC (ACMD41 HCS=1 → OCR CCS=1): CMD17 argument stays a 512-byte BLOCK address (§ 4.7.4) — arg 2 delivers sector 2 | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2600 |
+| MMC-03 | byte-vs-block addressing duality: argument 1536 is byte 1536 (sector 3) with CCS=0 and block 1536 (past end of a 8 KB image) with CCS=1 (§ 4.7.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2630 |
+| SDSC-ADDR-03 | SDSC CMD17 with a misaligned byte address (a sector index used as one) → R1 bit 5 ADDRESS_ERROR and no data token (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2653 |
+| SDSC-ADDR-07 | SDSC CMD18 with a misaligned byte address → R1 bit 5 ADDRESS_ERROR, no data token and no stream started (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2672 |
+| SDSC-ADDR-04 | SDSC CMD18 starts at the byte address given and advances one 512-byte block per streamed block (§ 4.7.4, § 4.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2692 |
+| SDSC-ADDR-05 | SDSC CMD24 writes at the BYTE address given (§ 4.7.4): a block written at byte 6*512 reads back as sector 6 in an SDHC session | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2735 |
+| SDSC-ADDR-06 | SDSC CMD24 with a misaligned byte address → R1 bit 5 ADDRESS_ERROR and no data phase; the pushed bytes never reach the image (§ 4.3.2, § 4.3.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2767 |
+| SDSC-CMD16-01 | SDSC CMD16 arg=256 is accepted and takes effect: the next CMD17 transfers exactly 256 bytes from the byte address given, with a CRC-16 over those 256 bytes (§ 4.3.2, § 5.3.2 READ_BL_PARTIAL=1, § 7.2.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2816 |
+| SDSC-CMD16-02 | CMD16 over 512 bytes is BLOCK_LEN_ERROR in both capacity classes (R1 bit 6) and leaves the block length unchanged — the next read still transfers 512 bytes (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2846 |
+| SDSC-CMD16-03 | SDHC CMD16 arg=256 is accepted (R1=0x00) but does NOT change the transfer length — the next CMD17 still delivers 512 bytes (§ 4.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2870 |
+| SDSC-CMD16-04 | SDSC CMD24 after CMD16 256 → R1 bit 6 PARAMETER_ERROR (WRITE_BL_PARTIAL=0, § 5.3.2) with no data phase (§ 4.3.4); the pushed bytes never reach the image | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2906 |
+| SDSC-CMD16-05 | SDSC CMD18 after CMD16 256 streams 256-byte blocks and advances one BLOCK LENGTH between them at BOTH stride sites — three blocks are image bytes 256..511, 512..767, 768..1023, not a hardcoded 512-byte stride (§ 4.3.2, § 4.3.3, § 7.2.4) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:2962 |
+| SDSC-CMD16-06 | SDSC shortened block at the very end of the image is delivered, not refused: the end-of-image bound and the host read both use the current block length, not a fixed 512 (§ 4.3.2, § 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3006 |
+| SDSC-OVL-01 | the sector-indexed read overlay answers a block-addressed card and never a byte-addressed one — not at an address that happens to be sector-aligned, nor at one that merely divides into an overlaid sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3075 |
+| SDSC-CMD16-07 | re-negotiating HCS=1 after a standard-capacity CMD16 restores the 512-byte block length (§ 4.3.2): the CMD18 stream transfers 512 bytes per block and strides 512, so a block-addressed card never forms an address that is not a block boundary | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3147 |
+| SDSC-CMD16-08 | CMD0 restores the power-up block length (§ 4.3.2): after CMD16 256, a CMD0 + legacy-MMC CMD1 init — the one flow that initialises without ACMD41 — leaves the next read a full 512-byte block | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3202 |
+| SDSC-ADDR-08 | CMD0 clears the negotiated capacity class: after ACMD41(HCS=1) → CMD0 → legacy-MMC CMD1 the card reports CCS=0 (§ 4.2.3, § 5.1) and is byte-addressed (§ 4.7.4), instead of carrying a declaration from a previous initialisation | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3264 |
+| SDSC-CSD-01 | SDSC CMD9 returns a CSD Version 1.0 register (CSD_STRUCTURE=00, READ_BL_LEN=9, READ_BL_PARTIAL=1) whose (C_SIZE+1)*2^(C_SIZE_MULT+2)*2^READ_BL_LEN decodes to the image size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3318 |
+| SDSC-CSD-02 | SDHC CMD9 returns a CSD Version 2.0 register (CSD_STRUCTURE=01, READ_BL_PARTIAL=0) whose 22-bit C_SIZE counts 512 KB units (§ 5.3.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3355 |
+| SDSC-CSD-03 | SDSC CSD v1.0 capacity encoding scales with the image: a 16 MiB card needs C_SIZE_MULT=1 (12-bit C_SIZE cannot reach it at MULT=4) and still decodes to the exact size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3392 |
+| SDSC-CSD-04 | an image below one MULT unit is declared at the v1.0 floor (C_SIZE=0, C_SIZE_MULT=0 → 2048 bytes, § 5.3.2) — the only size the encoding cannot round down — and a read inside that declaration but past the real file is still refused with OUT_OF_RANGE (§ 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3443 |
 | MMC-02 | CMD8 illegal-cmd response on MMC not modelled (see G41) | — | missing | — |
-| MMC-03 | MMC byte-vs-block addressing duality unsupported (see G41) | — | missing | — |
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp`
 

@@ -19,6 +19,17 @@
 ///
 /// The backing store is an `.img` file (raw disk image) opened for read/write.
 ///
+/// The card serves BOTH capacity classes, decided by what the host negotiated
+/// (GH #94). ACMD41's HCS bit latches `host_supports_sdhc_`, CMD58 reports it
+/// back as the OCR's CCS bit, and everything downstream follows from that one
+/// bit: CMD17/18/24 take a 512-byte BLOCK address when CCS=1 and a BYTE
+/// address when CCS=0 (SD Phys Layer Simplified Spec § 4.7.4), CMD9 answers
+/// with a CSD Version 2.0 or Version 1.0 register respectively (§ 5.3.3 /
+/// § 5.3.2), and CMD16 SET_BLOCKLEN changes the transfer length only on the
+/// Standard Capacity card (§ 4.3.2). TBBlue / NextZXOS / FatFs always
+/// negotiate HCS=1, so the block-addressed path is the only one the boot
+/// sequence takes.
+///
 /// SPI SD protocol:
 ///   Host sends command (6 bytes: 0x40|cmd, arg[3:0], crc)
 ///   Card responds with R1 (1 byte), then optional data.
@@ -63,12 +74,16 @@ public:
         initialized_ = false;
         app_cmd_ = false;
         multi_block_ = false;
-        multi_block_sector_ = 0;
+        multi_block_addr_ = 0;
         pending_write_after_r1_ = false;
         write_busy_pending_ = false;
         busy_remaining_ = 0;
         persistent_response_byte_ = 0xFF;
         host_supports_sdhc_ = false;  // V17-DIVMMC-01
+        // GH #94 — power-up block length is the card's own physical block,
+        // 2^READ_BL_LEN = 512 (SD Phys Layer Simplified Spec § 4.3.2 and the
+        // READ_BL_LEN field of both CSD versions, § 5.3.2 / § 5.3.3).
+        block_len_ = kBlockLen;
     }
 
     /// Recreate the SD-card state inherited by a program launched through
@@ -207,12 +222,31 @@ private:
     // HCS bit and reflects it in the CMD58 OCR's CCS field.
     bool host_supports_sdhc_ = false;
 
+    // GH #94 — the card's physical block: 2^READ_BL_LEN with READ_BL_LEN = 9,
+    // declared by both CSD versions this card synthesises. It is the unit the
+    // SDHC block address counts in, the boundary a Standard Capacity transfer
+    // may not cross (READ_BLK_MISALIGN = 0), and the only length CMD24 will
+    // write (WRITE_BL_PARTIAL = 0).
+    static constexpr uint32_t kBlockLen = 512;
+
+    // GH #94 — CMD16 SET_BLOCKLEN state (SD Phys Layer Simplified Spec
+    // § 4.3.2). On a Standard Capacity card CMD16 sets the length of every
+    // subsequent block transfer; on a High Capacity card the length is fixed
+    // at 512 and CMD16 "does not affect the memory read and write commands",
+    // so this stays kBlockLen for the whole SDHC life of the card.
+    uint32_t block_len_ = kBlockLen;
+
     // CMD18 multi-block read: true between CMD18 and CMD12/CS-deassert.
     // When a block's CRC finishes inside send(), we re-prime data_block_ from
-    // multi_block_sector_ and emit another 0xFE+data+CRC block instead of
+    // multi_block_addr_ and emit another 0xFE+data+CRC block instead of
     // going IDLE.
-    bool     multi_block_        = false;
-    uint32_t multi_block_sector_ = 0;  // next sector to send after current block
+    //
+    // GH #94: a BYTE address, not a sector index — the stream advances by
+    // block_len_ bytes per block, which is the sector stride in SDHC mode and
+    // the CMD16 length in SDSC mode. Keeping it in bytes is what lets one
+    // expression serve both addressing modes.
+    bool     multi_block_      = false;
+    uint64_t multi_block_addr_ = 0;  // byte address of the NEXT block to send
 
     // CMD24 R1-then-data bridge: cmd24_write_single_block() sets this so
     // that send() can transition RESPONDING → RECEIVING_DATA only AFTER
@@ -251,9 +285,11 @@ private:
     // NOTE: SdCardDevice intentionally has NO save_state/load_state.  The rewind
     // snapshot ring currently skips the SD back end.  If this class is
     // ever serialised, the CMD18 stream state (multi_block_,
-    // multi_block_sector_, plus state_/resp_buf_/resp_idx_/data_idx_/
+    // multi_block_addr_, plus state_/resp_buf_/resp_idx_/data_idx_/
     // data_crc_count_/data_block_ for mid-block snapshots) must be
-    // included so rewinding mid-stream doesn't corrupt the host view.
+    // included so rewinding mid-stream doesn't corrupt the host view —
+    // and, since GH #94, host_supports_sdhc_ and block_len_, which
+    // together decide how every subsequent address is interpreted.
 
     // Command processing
     void process_command();
@@ -270,13 +306,56 @@ private:
     void cmd55_app_cmd();
     void cmd58_read_ocr();
     void cmd9_send_csd();
+    /// Fill `csd` with a CSD Version 1.0 register (Standard Capacity).
+    void build_csd_v1(uint8_t csd[16]) const;
+    /// Fill `csd` with a CSD Version 2.0 register (High Capacity).
+    void build_csd_v2(uint8_t csd[16]) const;
     void cmd10_send_cid();
     void acmd41_sd_send_op_cond();
 
-    // Helper: compute 32-bit block address from command argument bytes
+    // Helper: compute the 32-bit argument from command argument bytes
     uint32_t cmd_arg() const;
+
+    /// True when the card is operating as a High Capacity (SDHC/SDXC) card,
+    /// i.e. when CMD58's OCR reports CCS=1.
+    ///
+    /// SD Phys Layer Simplified Spec § 4.2.3 / § 5.1: CCS is 1 only when the
+    /// host asked for it with ACMD41's HCS bit, so in this model CCS is
+    /// exactly `host_supports_sdhc_` (see cmd58_read_ocr()). A card that has
+    /// only been brought up with the legacy MMC CMD1 never sets HCS, so it
+    /// reports CCS=0 and is byte-addressed — which is what FatFs's CT_MMC
+    /// path assumes when it multiplies the sector by 512 itself.
+    bool block_addressed() const { return host_supports_sdhc_; }
+
+    /// Translate a CMD17/CMD18/CMD24 argument into a byte offset in the image.
+    ///
+    /// SD Phys Layer Simplified Spec § 4.7.4 (command descriptions for
+    /// READ_SINGLE_BLOCK / READ_MULTIPLE_BLOCK / WRITE_BLOCK): the argument is
+    /// "data address ... in byte units in a Standard Capacity SD Memory Card
+    /// and in block (512 Byte) units in a High Capacity SD Memory Card".
+    /// GH #94: jnext multiplied by 512 unconditionally, so an SDSC-negotiated
+    /// host silently read and wrote 512× past where it asked.
+    uint64_t arg_to_byte_addr(uint32_t arg) const;
+
+    /// True when a transfer of `block_len_` bytes starting at `byte_addr`
+    /// would cross a physical (512-byte) block boundary.
+    ///
+    /// Both CSDs this card synthesises declare READ_BLK_MISALIGN = 0 and
+    /// WRITE_BLK_MISALIGN = 0 (§ 5.3.2 / § 5.3.3), which per § 4.3.2 forbids
+    /// a data block from crossing a physical block boundary. The host is told
+    /// with R1 bit 5, whose Table 7-9 definition is exactly this condition:
+    /// "a misaligned address which did not match the block length was used in
+    /// the command". In block-addressed mode the argument cannot express a
+    /// misaligned address, so the check is inert there.
+    bool crosses_block_boundary(uint64_t byte_addr) const;
+
     bool is_overlay_sector(uint32_t sector) const;
-    bool load_read_sector(uint32_t sector);
+    /// True when `byte_addr` falls in an overlaid sector of a
+    /// block-addressed card. A byte-addressed card never matches: the
+    /// overlay is a sector-indexed bridge, not a view of the image.
+    bool is_overlay_addr(uint64_t byte_addr) const;
+    /// Load `block_len_` bytes at `byte_addr` into data_block_.
+    bool load_read_block(uint64_t byte_addr);
 
     // Queue an R1 response byte
     void queue_r1(uint8_t r1);
