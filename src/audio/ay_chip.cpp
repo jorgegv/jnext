@@ -79,6 +79,35 @@ uint8_t AyChip::read_data(bool reg_mode) const
 
     uint8_t r = addr_ & 0x0F;
 
+    // R14 / R15 are the two I/O ports, and their read is NOT the stored
+    // byte. VHDL ym2149.vhd:240-249:
+    //
+    //   when x"E" => if (reg(7)(6) = '0') then O_DA <= port_a_i;
+    //                else                      O_DA <= reg(14) and port_a_i;
+    //   when x"F" => if (reg(7)(7) = '0') then O_DA <= port_b_i;
+    //                else                      O_DA <= reg(15) and port_b_i;
+    //
+    // R7 bits 7/6 are the port direction bits: '0' = input, and an input
+    // port reads the PIN, not the latch. On the Next both pins are tied to
+    // all-ones for all three PSGs (turbosound.vhd:174-176, :229-231,
+    // :284-286), so an input-mode read is 0xFF whatever was written, and an
+    // output-mode read is `stored AND 0xFF` = the stored byte.
+    //
+    // GH #201 — jnext returned the stored byte in BOTH directions, so a
+    // program that put a port in input mode and probed it (the classic
+    // AY-port joystick / peripheral detect) read back its own last write
+    // instead of the pulled-up 0xFF the hardware drives. The VHDL case is
+    // shared by both AY and YM mode, so this sits above the AY-mode masks.
+    constexpr uint8_t kPortPullup = 0xFF;   // turbosound.vhd ties both high
+    if (r == 14) {
+        return (reg_[7] & 0x40) ? static_cast<uint8_t>(reg_[14] & kPortPullup)
+                                : kPortPullup;
+    }
+    if (r == 15) {
+        return (reg_[7] & 0x80) ? static_cast<uint8_t>(reg_[15] & kPortPullup)
+                                : kPortPullup;
+    }
+
     // In AY mode, upper bits of certain registers are masked
     // (registers with fewer than 8 meaningful bits)
     if (ay_mode_) {

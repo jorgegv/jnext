@@ -149,10 +149,23 @@ static void g_ay_write() {
         bool ok = true;
         int bad_r = -1;
         uint8_t bad_v = 0;
-        for (int r = 0; r < 16; ++r) {
+        // R0..R13 read their latch back directly. R14/R15 do NOT: the read
+        // mux at ym2149.vhd:240-249 returns the PIN unless R7's direction
+        // bit for that port is set, and the 0x47 just written to R7 leaves
+        // port B an input. Open both ports first (GH #201) so the latch is
+        // observable at all — the mixer bits of R7 are left as written.
+        for (int r = 0; r < 14; ++r) {
             ay.select_register(r);
             uint8_t v = ay.read_data();
             if (v != static_cast<uint8_t>(0x40 | r)) { ok = false; bad_r = r; bad_v = v; break; }
+        }
+        if (ok) {
+            ay.select_register(7); ay.write_data(0xC7);   // both ports OUTPUT
+            for (int r = 14; r < 16; ++r) {
+                ay.select_register(r);
+                uint8_t v = ay.read_data();
+                if (v != static_cast<uint8_t>(0x40 | r)) { ok = false; bad_r = r; bad_v = v; break; }
+            }
         }
         check("AY-04", "write to all 16 registers (0..15)",
               ok, fmt("first bad r=%d got=0x%02x VHDL ym2149.vhd:189-207", bad_r, bad_v));
@@ -428,20 +441,100 @@ static void g_ay_readback() {
 static void g_ay_ports() {
     set_group("AY-ports");
 
-    // VHDL ym2149.vhd:240-249 + turbosound.vhd:158 — port_a_i/port_b_i
-    // tied to '1's at the turbosound wrapper. AyChip lacks accessors for
-    // these signals; no Z80 software on platform exercises PSG GPIO.
+    // GH #201 — AY-30..34 were a WONT under G30, on the grounds that
+    // "AyChip lacks accessors for port_a_i/port_b_i". That cost premise was
+    // wrong: the Next does not route those pins anywhere. turbosound.vhd
+    // hard-ties both to all-ones for all three PSGs (:174-176, :229-231,
+    // :284-286 — not :158, which is psg0's AY_ID generic), so their value
+    // is a constant of this hardware and needs no plumbing at all. What
+    // remained was a plain register read that any guest can perform, and
+    // jnext answered it with the stored byte in both directions.
     //
-    // WONT AY-30 / AY-31 / AY-32 / AY-33 / AY-34 — G30: AY-3-8910 GPIO
-    // ports (R14/R15) emulation. Used only by vintage 128K-era peripherals
-    // (Currah uSpeech, MIDI dongles, lightguns, multifaces using AY as a
-    // mux). jnext's target software (NextZXOS + modern Spectrum Next
-    // demos/games) never reads those registers. Per
-    // feedback_wont_taxonomy.md: explicit decision NOT to implement.
-    // Revisit trigger: jnext adds emulation of vintage AY-as-GPIO
-    // peripherals (e.g. Currah/MIDI). At that point AyChip needs
-    // port_a_i/port_b_i accessors and the turbosound.vhd:158 tie-high
-    // wiring becomes observable.
+    // VHDL ym2149.vhd:240-249 — R7 bits 7/6 are the port DIRECTION bits:
+    //   when x"E" => if (reg(7)(6) = '0') then O_DA <= port_a_i;
+    //                else                      O_DA <= reg(14) and port_a_i;
+    //   when x"F" => if (reg(7)(7) = '0') then O_DA <= port_b_i;
+    //                else                      O_DA <= reg(15) and port_b_i;
+    // An INPUT port reads the pin, not the latch.
+
+    // AY-30 — port A in input mode reads the pin, not what was written.
+    {
+        AyChip ay;
+        ay.select_register(7);  ay.write_data(0x3F);   // R7 b6 = 0 → A input
+        ay.select_register(14); ay.write_data(0x5A);   // latch a decoy
+        ay.select_register(14);
+        const uint8_t got = ay.read_data();
+        check("AY-30", "R14 with R7 bit 6 = 0 (port A input) reads port_a_i, "
+              "not the latched byte",
+              got == 0xFF,
+              fmt("got=0x%02x want=0xFF (decoy 0x5A latched) "
+                  "VHDL ym2149.vhd:240-242", got));
+    }
+
+    // AY-31 — port A in output mode reads `reg(14) and port_a_i`; with the
+    // pin tied high that is the stored byte, unmasked.
+    {
+        AyChip ay;
+        ay.select_register(7);  ay.write_data(0x7F);   // R7 b6 = 1 → A output
+        ay.select_register(14); ay.write_data(0x5A);
+        ay.select_register(14);
+        const uint8_t got = ay.read_data();
+        check("AY-31", "R14 with R7 bit 6 = 1 (port A output) reads "
+              "reg(14) AND port_a_i",
+              got == 0x5A,
+              fmt("got=0x%02x want=0x5A VHDL ym2149.vhd:240-244", got));
+    }
+
+    // AY-32 — port B input, the R15 mirror of AY-30.
+    {
+        AyChip ay;
+        ay.select_register(7);  ay.write_data(0x7F);   // R7 b7 = 0 → B input
+        ay.select_register(15); ay.write_data(0xA5);
+        ay.select_register(15);
+        const uint8_t got = ay.read_data();
+        check("AY-32", "R15 with R7 bit 7 = 0 (port B input) reads port_b_i, "
+              "not the latched byte",
+              got == 0xFF,
+              fmt("got=0x%02x want=0xFF (decoy 0xA5 latched) "
+                  "VHDL ym2149.vhd:245-247", got));
+    }
+
+    // AY-33 — port B output, the R15 mirror of AY-31.
+    {
+        AyChip ay;
+        ay.select_register(7);  ay.write_data(0xBF);   // R7 b7 = 1 → B output
+        ay.select_register(15); ay.write_data(0xA5);
+        ay.select_register(15);
+        const uint8_t got = ay.read_data();
+        check("AY-33", "R15 with R7 bit 7 = 1 (port B output) reads "
+              "reg(15) AND port_b_i",
+              got == 0xA5,
+              fmt("got=0x%02x want=0xA5 VHDL ym2149.vhd:245-249", got));
+    }
+
+    // AY-34 — the pull-up itself: both pins are all-ones, so an input-mode
+    // read is 0xFF for a latch of 0x00 as well as 0xFF, and an output-mode
+    // read of 0x00 is 0x00 (the AND is transparent, it does not force the
+    // line high). The 0x00-latch arm is what distinguishes a real tie-high
+    // from a read that merely happens to return 0xFF.
+    {
+        AyChip ay;
+        ay.select_register(7);  ay.write_data(0x3F);   // both ports INPUT
+        ay.select_register(14); ay.write_data(0x00);
+        ay.select_register(15); ay.write_data(0x00);
+        ay.select_register(14); const uint8_t in_a = ay.read_data();
+        ay.select_register(15); const uint8_t in_b = ay.read_data();
+        ay.select_register(7);  ay.write_data(0xFF);   // both ports OUTPUT
+        ay.select_register(14); const uint8_t out_a = ay.read_data();
+        ay.select_register(15); const uint8_t out_b = ay.read_data();
+        check("AY-34", "port_a_i / port_b_i are tied all-ones: an input-mode "
+              "read of a 0x00 latch is 0xFF, an output-mode read of it is "
+              "0x00",
+              in_a == 0xFF && in_b == 0xFF && out_a == 0x00 && out_b == 0x00,
+              fmt("in=%02x/%02x out=%02x/%02x "
+                  "VHDL ym2149.vhd:240-249, turbosound.vhd:174-176",
+                  in_a, in_b, out_a, out_b));
+    }
 }
 
 // =====================================================================
