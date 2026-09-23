@@ -211,6 +211,49 @@ add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
 # modules. Adding files is common in src/ and test/ and rare-to-never there,
 # which is the whole of the difference.
 
+# ...and CONFIGURE_DEPENDS has a second edge that the first one creates. Because
+# the glob is re-evaluated at BUILD time, it runs at a moment when the build has
+# already written its own generated sources to disk. In an IN-SOURCE build
+# (cmake -S . -B .) the binary dir IS the source dir, so those generated files
+# land inside the very directory being globbed and the glob matches them.
+#
+# That shipped red (GH: flatpak job, v1.0.12). AUTOMOC writes each moc_*.cpp
+# into <target>_autogen/<hash>/ and then aggregates them by #include into
+# <target>_autogen/mocs_compilation.cpp, which is the only one it adds as a
+# target source. The glob added the aggregated members as translation units of
+# their own, so every Q_OBJECT symbol was compiled twice:
+#   multiple definition of `DebuggerWindow::staticMetaObject'
+# Two passes are needed to see it: pass 1 creates the files after the glob has
+# been checked, pass 2 finds them. flatpak-builder runs `ninja` then
+# `ninja install`, so it always takes both.
+#
+# jnext's own build dirs (build/, build/gui-release, build/sdl-release) are all
+# outside src/, which is why every other CI job stayed green. The flatpak jnext
+# module has no `builddir: true` — unlike the sdl2 module above it, whose
+# upstream CMakeLists refuses an in-tree build — so flatpak-builder's cmake-ninja
+# default builds it in-source at /run/build/jnext. That is DELIBERATELY left
+# alone: it is the only CI coverage of an in-source build of the real project,
+# and in-source is a configuration a downstream packager may well use. Adding
+# `builddir: true` would have turned the flatpak job green while leaving the
+# glob wrong for everyone else, and would have removed the only end-to-end
+# witness that it is right.
+#
+# The fix is to state what a SOURCE glob means: it matches sources, never the
+# build's own output. Every first-party file(GLOB_RECURSE ...) below is followed
+# by `list(FILTER <var> EXCLUDE REGEX "${JNEXT_GENERATED_DIR_REGEX}")`, and
+# test/cmake-configure-guard-selftest.sh phases 10-12 pin both the mechanism and
+# the fact that no glob is missing the filter.
+#
+# SCOPE, stated honestly: this excludes the two directory names CMake itself
+# generates inside a target's binary dir — <target>_autogen/ (AUTOMOC/AUTOUIC/
+# AUTORCC) and CMakeFiles/. It does NOT cover a hand-written add_custom_command
+# that writes a matching source straight into CMAKE_CURRENT_BINARY_DIR; src/core
+# does exactly that for nextboot_rom.c, which escapes only because the glob asks
+# for *.cpp. Such a file is a deliberate act with an obvious home, unlike the
+# autogen tree, which appears merely because a target has AUTOMOC on.
+set(JNEXT_GENERATED_DIR_REGEX "(^|/)([^/]+_autogen|CMakeFiles)/"
+    CACHE INTERNAL "Build-tree directories a source glob must never match")
+
 # input and debug must come before core: emulator.h includes input/keyboard.h
 # and debug/debug_state.h; jnext_core explicitly links jnext_input and jnext_debug.
 # Task 21: jnext_profiler is linked by jnext_core (Emulator owns a Profiler),

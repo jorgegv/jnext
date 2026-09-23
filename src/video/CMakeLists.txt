@@ -2,6 +2,7 @@
 # source is compiled without a manual reconfigure (GH #252 shipped as an
 # undefined reference). Full rationale in the root CMakeLists.txt.
 file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp")
+list(FILTER SOURCES EXCLUDE REGEX "${JNEXT_GENERATED_DIR_REGEX}")
 if(SOURCES)
     add_library(jnext_video STATIC ${SOURCES})
     target_include_directories(jnext_video PUBLIC ${CMAKE_SOURCE_DIR}/src)
