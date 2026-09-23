@@ -7,7 +7,10 @@ find_package(SDL2 REQUIRED)
 # too (glibc >= 2.34 folds pthread into libc, but the cross builds may not).
 find_package(Threads REQUIRED)
 
-file(GLOB_RECURSE SOURCES "*.cpp")
+# CONFIGURE_DEPENDS: re-check this glob at BUILD time, so a newly added
+# source is compiled without a manual reconfigure (GH #252 shipped as an
+# undefined reference). Full rationale in the root CMakeLists.txt.
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp")
 add_library(jnext_gui STATIC ${SOURCES})
 
 set_target_properties(jnext_gui PROPERTIES AUTOMOC ON)

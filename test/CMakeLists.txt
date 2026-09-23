@@ -5,7 +5,19 @@ target_include_directories(fuse_z80_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 
 # Stage FUSE test data; configure_file() registers each source as a
 # configure-time dep so edits re-copy on next build (file(COPY) doesn't).
-file(GLOB FUSE_TEST_DATA "${CMAKE_CURRENT_SOURCE_DIR}/fuse/tests.*")
+# CONFIGURE_DEPENDS closes the other half of that same staleness story: the
+# configure_file() deps catch an EDIT to a matched file, but only re-checking
+# the glob at build time catches the SET changing (a data file added, removed
+# or renamed), which would otherwise leave a stale copy staged in build/.
+#
+# It buys LESS here than on the src/ globs, and the difference is worth being
+# precise about: fuse_z80_test.cpp opens tests.in / tests.expected by
+# hardcoded name, never by enumerating the directory, so an added file is not
+# data the suite would have read anyway. What this protects is the STAGED SET
+# in build/ — a renamed or removed fixture leaving its stale copy behind. Kept
+# because that is a real (if rare) silent-staleness path and the cost is a
+# stat of a 3-entry directory, not because the src/ argument carries over.
+file(GLOB FUSE_TEST_DATA CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/fuse/tests.*")
 foreach(_src ${FUSE_TEST_DATA})
     get_filename_component(_fname ${_src} NAME)
     configure_file(${_src} ${CMAKE_CURRENT_BINARY_DIR}/fuse/${_fname} COPYONLY)
@@ -52,7 +64,8 @@ target_link_libraries(z80n_test PRIVATE jnext_cpu)
 target_include_directories(z80n_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # Stage Z80N test data; configure_file() registers each source as a
 # configure-time dep so edits re-copy on next build (file(COPY) doesn't).
-file(GLOB Z80N_TEST_DATA "${CMAKE_CURRENT_SOURCE_DIR}/z80n/tests.*")
+# CONFIGURE_DEPENDS for the same reason as FUSE_TEST_DATA above.
+file(GLOB Z80N_TEST_DATA CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/z80n/tests.*")
 foreach(_src ${Z80N_TEST_DATA})
     get_filename_component(_fname ${_src} NAME)
     configure_file(${_src} ${CMAKE_CURRENT_BINARY_DIR}/z80n/${_fname} COPYONLY)
@@ -1029,7 +1042,10 @@ endif()
 # GoogleTest-based tests (if available)
 find_package(GTest QUIET)
 if(GTest_FOUND)
-    file(GLOB_RECURSE GTEST_SOURCES "test_*.cpp")
+    # CONFIGURE_DEPENDS for the same reason as the src/ globs: without it a
+    # newly added test_*.cpp is invisible to an already-configured build dir.
+    # Matches nothing today, which is exactly when the hazard is invisible.
+    file(GLOB_RECURSE GTEST_SOURCES CONFIGURE_DEPENDS "test_*.cpp")
     if(GTEST_SOURCES)
         add_executable(jnext_tests ${GTEST_SOURCES})
         target_link_libraries(jnext_tests PRIVATE GTest::gtest_main

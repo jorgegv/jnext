@@ -1,4 +1,7 @@
-file(GLOB_RECURSE SOURCES "*.cpp")
+# CONFIGURE_DEPENDS: re-check this glob at BUILD time, so a newly added
+# source is compiled without a manual reconfigure (GH #252 shipped as an
+# undefined reference). Full rationale in the root CMakeLists.txt.
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp")
 
 # FUSE Z80 core — single C file that #includes the FUSE opcode files
 set(FUSE_Z80_DIR "${CMAKE_SOURCE_DIR}/third_party/fuse-z80")

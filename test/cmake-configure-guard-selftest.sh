@@ -1,7 +1,22 @@
 #!/usr/bin/env bash
-# Self-test for cmake-configure-guard.sh, the shared guard gui-release and
-# sdl-release use to skip re-running `cmake -B` on an already-configured
-# build dir (#141). Prerequisite of `make unit-test` (see Makefile).
+# Self-test for the build system's CONFIGURE FRESHNESS guarantees — that an
+# already-configured build dir still builds the sources that are on disk NOW.
+# Prerequisite of `make unit-test` (see Makefile). Two halves, and they are
+# the same subject because the second exists as a consequence of the first:
+#
+#   phases 1-6  cmake-configure-guard.sh, the shared guard gui-release and
+#               sdl-release use to SKIP re-running `cmake -B` on an
+#               already-configured build dir (#141).
+#   phases 7-9  file(GLOB ... CONFIGURE_DEPENDS), which is what keeps the
+#               source list fresh once that reconfigure is being skipped.
+#               Before #141 the two release targets re-ran `cmake -B` every
+#               invocation, which re-evaluated every glob as a side effect
+#               and accidentally hid the staleness; build/ (unit-test-build)
+#               always had the guard and so always had the hazard. It shipped:
+#               GH #252's src/peripheral/joy_uart_link.cpp arrived in a merge
+#               and the build died on `undefined reference to
+#               JoyUartLink::last_error()`, a symptom a long way from its
+#               cause, until `cmake -B build` was forced by hand.
 #
 # Exercises the EXACT defect the #141 review found, against REAL cmake/gcc/
 # g++ (a stub would only prove our own control flow, not that we correctly
@@ -130,6 +145,176 @@ for target in gui-release sdl-release; do
 		"$(printf '%s\n' "$recipe" | grep -cF "\"-DCMAKE_CXX_COMPILER=$SPACE_CXX\"")" \
 		"1"
 done
+
+# ---------------------------------------------------------------------------
+# Phases 7-8: file(GLOB ... CONFIGURE_DEPENDS) against REAL cmake/g++.
+#
+# Same reasoning as phases 1-5: the behaviour under test is CMake's, not ours,
+# so a stub would only prove our own control flow. The fixture reproduces the
+# GH #252 shape exactly — a new .cpp and its caller arriving together, into a
+# build dir that is already configured AND already built — and the rebuild is
+# `cmake --build` ALONE. No `cmake -B`, because "the build step alone notices"
+# is the entire property.
+#
+# Phase 8 is the negative control and is not optional: without it, phase 7
+# passes just as happily against a build system that reconfigures for some
+# unrelated reason, and would prove nothing about CONFIGURE_DEPENDS.
+# ---------------------------------------------------------------------------
+GLOBWORK="$WORK/globtest"
+
+# $1 = "with" | "without" — whether the fixture's glob carries CONFIGURE_DEPENDS
+glob_fixture() {
+	local kw=""
+	[ "$1" = "with" ] && kw="CONFIGURE_DEPENDS "
+	rm -rf "$GLOBWORK"
+	mkdir -p "$GLOBWORK/src"
+	cat > "$GLOBWORK/CMakeLists.txt" <<EOF
+cmake_minimum_required(VERSION 3.16)
+project(globselftest CXX)
+file(GLOB_RECURSE LIBSRC ${kw}"src/*.cpp")
+add_library(globlib STATIC \${LIBSRC})
+add_executable(globmain main.cpp)
+target_link_libraries(globmain globlib)
+EOF
+	# A static lib + an executable that references INTO it: the same shape as
+	# jnext's src/<subsystem> libs and src/main.cpp, so the failure mode is the
+	# same undefined reference rather than a merely-uncompiled file.
+	cat > "$GLOBWORK/src/present.cpp" <<'EOF'
+int present_symbol() { return 0; }
+EOF
+	cat > "$GLOBWORK/main.cpp" <<'EOF'
+int present_symbol();
+int main() { return present_symbol(); }
+EOF
+}
+
+# Add the new source AND its caller, exactly as a merge would.
+glob_add_source() {
+	cat > "$GLOBWORK/src/added_later.cpp" <<'EOF'
+int added_symbol() { return 0; }
+EOF
+	cat > "$GLOBWORK/main.cpp" <<'EOF'
+int present_symbol();
+int added_symbol();
+int main() { return present_symbol() + added_symbol(); }
+EOF
+}
+
+glob_configure() { cmake -B "$GLOBWORK/build" -S "$GLOBWORK" \
+	-DCMAKE_CXX_COMPILER="$REAL_CXX" > "$WORK/glob.out" 2>&1; }
+# The crux: BUILD only. Never `cmake -B` here.
+glob_build() { cmake --build "$GLOBWORK/build" > "$WORK/glob.out" 2>&1; }
+
+for mode in with without; do
+	if [ "$mode" = "with" ]; then
+		echo "  -- 7: a new .cpp must be picked up by a build-only rebuild (CONFIGURE_DEPENDS) --"
+		want="built"; label="picked up"
+	else
+		echo "  -- 8: negative control — the same fixture WITHOUT it must NOT be picked up --"
+		want="failed"; label="stays invisible"
+	fi
+
+	# Classify the OUTCOME, never a specific exit status: `cmake --build`
+	# forwards the generator's code (make exits 2 on a build failure, not 1).
+	outcome() { if "$@"; then echo built; else echo failed; fi; }
+
+	glob_fixture "$mode"
+	set +e
+	glob_configure
+	rc_first=$(outcome glob_build)
+	set -e
+	check "$mode: fixture builds clean before the new source" "$rc_first" "built"
+
+	glob_add_source
+	set +e
+	rc=$(outcome glob_build)
+	set -e
+	check "$mode: new source $label on a build-only rebuild" "$rc" "$want"
+
+	if [ "$mode" = "with" ]; then
+		# Not just "the build succeeded" — the object for the new file must
+		# actually exist, i.e. it really was compiled rather than elided.
+		found=$(find "$GLOBWORK/build" -name 'added_later.cpp.o' | wc -l)
+		check "with: added_later.cpp really was compiled" "$found" "1"
+	else
+		check "without: failure is the undefined reference, not something else" \
+			"$(grep -c 'undefined reference to .added_symbol' "$WORK/glob.out")" "1"
+	fi
+done
+
+# ---------------------------------------------------------------------------
+# Phase 9: every FIRST-PARTY file(GLOB...) in the repo carries CONFIGURE_DEPENDS.
+#
+# Phases 7-8 prove the mechanism works; this proves we actually USE it — the
+# part that rots, because a new subsystem directory gets made by copying an
+# existing CMakeLists.txt, and a copy taken before this change carries the
+# bare glob forward in silence.
+#
+# SCOPE is the repo INDEX minus third_party/, which is exactly "the CMake
+# files this project maintains". Two consequences worth stating, because the
+# mutation test of this phase found the comment easy to get wrong:
+#
+#   * Index-scoped means generated CMake files under build/ never enter, so
+#     the result does not depend on which build dirs happen to exist.
+#   * third_party/spdlog is a git SUBMODULE — one gitlink entry, no file
+#     content in this index — so its five ide.cmake globs are already out of
+#     scope by the submodule boundary, NOT by the filter below. They are
+#     upstream's file and pinning them would turn a submodule bump into a
+#     false failure. The filter earns its keep for the trees that ARE tracked
+#     directly here (third_party/{zot,fatfs,fuse-z80}): ours to edit, but
+#     drop-in vendored code that lists sources explicitly and is deliberately
+#     not held to our conventions.
+#   * An UNTRACKED CMakeLists.txt is likewise invisible here, and that is
+#     accepted rather than worked around: CI and review only ever see
+#     committed content, so a bad glob that is not in the index cannot reach
+#     anyone but its author, and it starts being checked the moment it is
+#     `git add`ed. Scanning the filesystem instead would drag in every
+#     generated CMake file under every build dir, making the result depend on
+#     which build dirs happen to exist.
+# ---------------------------------------------------------------------------
+echo "  -- 9: no first-party file(GLOB) may omit CONFIGURE_DEPENDS --"
+
+# No xargs: it needs -r (GNU) to not run with an empty list, which this must
+# survive — an empty list is precisely the vacuous-pass case guarded below.
+( cd "$REPO_ROOT" && git ls-files -- '*CMakeLists.txt' '*.cmake' ) \
+	| grep -v '^third_party/' > "$WORK/cmake-files.txt" || true
+
+all_globs=""
+while IFS= read -r f; do
+	[ -n "$f" ] || continue
+	hits=$(grep -nE '^[[:space:]]*file\([[:space:]]*GLOB' "$REPO_ROOT/$f") || true
+	[ -n "$hits" ] && all_globs="$all_globs$(printf '%s\n' "$hits" | sed "s|^|$f:|")
+"
+done < "$WORK/cmake-files.txt"
+
+bad_globs=$(printf '%s' "$all_globs" | grep . | grep -v CONFIGURE_DEPENDS) || true
+bad_count=$(printf '%s' "$bad_globs" | grep -c .) || true
+good_count=$(printf '%s' "$all_globs" | grep -c CONFIGURE_DEPENDS) || true
+
+if [ -n "$bad_globs" ]; then
+	printf '%s\n' "$bad_globs" | sed 's/^/        /'
+fi
+check "no first-party glob without CONFIGURE_DEPENDS" "$bad_count" "0"
+
+# EXACT, in the same spirit as test/unit-tests.conf's pinned row counts: the
+# number is the project's claim about how much this phase actually scans, and
+# it moves only when someone means it to. Updating it when you add or remove a
+# glob IS the point, not friction to be engineered away.
+#
+# A lower bound was tried first and REJECTED in review, because it is
+# defeatable in exactly the way that matters. Narrowing the filter above to
+# also drop test/ leaves every real CMakeLists.txt untouched, so bad_count
+# stays 0 — and with a floor of 10 the count merely falls 18 -> 15 and the
+# phase still reports green, having silently stopped looking at three real
+# globs. That is the failure class this project's whole test-manifest doctrine
+# exists for: a green result is only as good as its denominator.
+#
+# It also subsumes the vacuity guard the floor was written for: a wrong
+# ls-files pattern, or a run from outside a git checkout, scans nothing and
+# fails here on 0 != 18 rather than passing silently.
+EXPECTED_FIRST_PARTY_GLOBS=18
+check "exactly $EXPECTED_FIRST_PARTY_GLOBS first-party globs scanned" \
+	"$good_count" "$EXPECTED_FIRST_PARTY_GLOBS"
 
 if [ "$FAIL" -eq 1 ]; then
 	echo "cmake-configure-guard-selftest: FAILED"

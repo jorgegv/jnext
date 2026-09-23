@@ -178,6 +178,39 @@ add_subdirectory(third_party/spdlog EXCLUDE_FROM_ALL)
 # ZOT TZX/TAP player by antirez — MIT License.
 add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
 
+# Every src/<subsystem>/CMakeLists.txt below collects its sources with
+# file(GLOB_RECURSE ... CONFIGURE_DEPENDS "*.cpp"). CONFIGURE_DEPENDS is not
+# decoration: without it a glob is evaluated ONCE, at configure time, so a
+# newly added .cpp is invisible to an already-configured build dir until
+# cmake happens to re-run. That shipped as a link failure when GH #252's
+# src/peripheral/joy_uart_link.cpp arrived in a merge — `undefined reference
+# to JoyUartLink::last_error()`, a symptom a long way from its cause. It used
+# to be masked by accident: gui-release/sdl-release re-ran `cmake -B` on every
+# invocation, which re-evaluated the globs as a side effect. GH #141 made them
+# skip a redundant configure, removing that accidental protection (build/, via
+# unit-test-build, never had it). CONFIGURE_DEPENDS makes the generator
+# re-check the glob at BUILD time and reconfigure when the file set changes,
+# which is the property the build actually depends on.
+#
+# Note this is a DIFFERENT mechanism from the CMAKE_CONFIGURE_DEPENDS
+# directory property set on version.yaml at the top of this file: that one
+# re-runs cmake when a KNOWN, NAMED file changes, and cannot express "the set
+# of files matching a pattern changed".
+#
+# Cost: one directory re-check per glob per build. Measured by interleaved
+# A/B (6 rounds, patch applied/reverted between each) on a warm no-op build:
+# +0.002s gui-release, +0.011s sdl-release, +0.005s unit-test-build — single-
+# digit milliseconds against no-op builds of 0.23s / 0.18s / 0.45s, and three
+# orders of magnitude below the 7.5s / 5.9s reconfigure GH #141 removed. It
+# does not meaningfully give back what #141 won.
+#
+# Globs deliberately left WITHOUT it: the five in third_party/spdlog (a git
+# submodule — upstream's file, and a vendored tree whose file set never
+# changes under us). src/esp01 and third_party/{zot,fatfs} do not glob at all;
+# they list sources explicitly, because they are self-contained drop-in
+# modules. Adding files is common in src/ and test/ and rare-to-never there,
+# which is the whole of the difference.
+
 # input and debug must come before core: emulator.h includes input/keyboard.h
 # and debug/debug_state.h; jnext_core explicitly links jnext_input and jnext_debug.
 # Task 21: jnext_profiler is linked by jnext_core (Emulator owns a Profiler),
