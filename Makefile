@@ -621,8 +621,20 @@ traceability-selftest:
 	@# of its own, and shipped skipping every `?`-prefixed suite.
 	@perl test/traceability-citations-selftest.pl
 
-# Self-test the gui-release/sdl-release cmake reconfigure guard (#141)
+# Self-test the build's configure-freshness guards: reconfigure skip + source globs
 cmake-guard-selftest:
+	@# Covers BOTH halves of "an already-configured build dir still builds
+	@# what is on disk now", because the second is a consequence of the
+	@# first: the reconfigure-skip guard (#141, phases 1-6) and
+	@# file(GLOB ... CONFIGURE_DEPENDS) (phases 7-9), which is what keeps
+	@# the source list fresh once that reconfigure is being skipped. Before
+	@# #141 the two release targets re-ran `cmake -B` every invocation and
+	@# re-evaluated every glob as a side effect, hiding the staleness;
+	@# build/ (unit-test-build) always had the guard and so always had the
+	@# hazard. It shipped — GH #252's src/peripheral/joy_uart_link.cpp came
+	@# in on a merge and the build died on `undefined reference to
+	@# JoyUartLink::last_error()`, a symptom a long way from its cause.
+	@#
 	@# WIRED IN as a prerequisite of `unit-test` below, same reasoning as
 	@# traceability-selftest just above: this is the self-test of the
 	@# mechanism gui-release/sdl-release trust to decide whether re-running
@@ -636,10 +648,13 @@ cmake-guard-selftest:
 	@# by hand once" is exactly the gap that let it happen in the first
 	@# version.
 	@#
-	@# ~5 s, no jnext build needed: runs real cmake/gcc/g++ against a
-	@# throwaway 3-line CMakeLists.txt project (test/cmake-configure-guard-
-	@# selftest.sh), because the defect is real CMake behaviour, not one a
-	@# stub could faithfully reproduce.
+	@# ~2 s, no jnext build needed: runs real cmake/gcc/g++ against
+	@# throwaway few-line CMakeLists.txt projects (test/cmake-configure-
+	@# guard-selftest.sh), because both behaviours under test are real CMake
+	@# behaviour, not ones a stub could faithfully reproduce. The glob half
+	@# carries its own negative control: the same fixture WITHOUT
+	@# CONFIGURE_DEPENDS must still fail to see the new source, or the
+	@# positive case proves nothing.
 	@bash test/cmake-configure-guard-selftest.sh
 
 # Benchmark the 5 canonical workloads on the fastest core (needs 'make gui-release' first)
