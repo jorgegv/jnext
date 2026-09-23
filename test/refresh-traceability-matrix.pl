@@ -973,6 +973,7 @@ my %NO_MATRIX_SECTION = (
     'tzx_loader_test'         => 'TZX container format: libspectrum TZX reader + the TZX specification as oracles (host loader), no core counterpart',
     'snapshot_im_test'        => 'snapshot loaders seeding the NR 0xC0 IM latch (host loaders; nextreg.txt NR 0xC0)',
     'sd_rom_extractor_test'   => 'FAT32 + TBBlue SD path layout (host ROM extraction)',
+    'sdcard_file_add_test'    => 'FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
     'fat32_image_test'        => 'FAT32 on-disk format (host image reader)',
     'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',
     'snapshot_test'           => 'the .jns snapshot CONTAINER (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity. A jnext-internal on-disk format; the FPGA core never sees a file',

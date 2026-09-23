@@ -314,6 +314,15 @@ add_test(NAME sd_rom_extractor_tests
          COMMAND sd_rom_extractor_test
          WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
 
+# --sdcard-file-add: host file -> FAT32 SD image (GH #269).
+# Pure host code; links jnext_core for the writer, the short-name reader
+# (extract_sd_rom), the long-name reader (fat32_read_tree) and FatFs itself,
+# which the test drives directly to build its own small fixture images.
+add_executable(sdcard_file_add_test sdcard_file_add/sdcard_file_add_test.cpp)
+target_link_libraries(sdcard_file_add_test PRIVATE jnext_core)
+target_include_directories(sdcard_file_add_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sdcard_file_add_tests COMMAND sdcard_file_add_test)
+
 # FAT32 image read/write + geometry test (Task 27)
 # Native reimplementation of the mtools-based SD-image FAT32 cluster fix.
 # Pure host code; links jnext_core for extract_sd_rom() (SFN-preservation test).
