@@ -1880,9 +1880,9 @@ not a third independent execution.</p>
 <pre><code class="language-console">$ JNEXT_TEST_JOBS=4 bash test/00regression/regression.sh
 </code></pre>
 <p>This layer launches the real <code>jnext</code> binary headless and looks at what comes
-out of it. It reports <strong>119 rows</strong>, made up of 2 preflight lints, 1 SD-image
-provisioning row, 65 screenshot rows and 51 functional rows. The last two
-numbers come from the <code># expect: 65</code> and <code># expect: 51</code> pins in
+out of it. It reports <strong>140 rows</strong>, made up of 4 preflight lints, 1 SD-image
+provisioning row, 65 screenshot rows and 70 functional rows. The last two
+numbers come from the <code># expect: 65</code> and <code># expect: 70</code> pins in
 <code>regression_tests.conf</code> and <code>functional_tests.conf</code>, and the arithmetic that
 ties them to the total is the harness's own end-of-run accounting assertion.</p>
 <p>A screenshot row compares a whole frame, pixel for pixel, against a committed

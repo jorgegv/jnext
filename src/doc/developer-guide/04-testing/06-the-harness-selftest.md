@@ -104,7 +104,7 @@ long enough to rot into failing on 18 rows.
 
 ## The lint self-tests
 
-Two of the lints verify themselves on **every invocation**, before their
+Three of the lints verify themselves on **every invocation**, before their
 verdict on the real tree is trusted at all:
 
 - `test/lint-assertions.sh` writes a fixture containing one instance of each
@@ -118,6 +118,13 @@ verdict on the real tree is trusted at all:
   whereas with one file per case the lost case is named. It also cross-checks
   its own prose case table against the fixture files that exist, in both
   directions, so that the documentation and the fixtures cannot drift apart.
+- `test/lint-timeouts.sh` carries **53 pinned cases: 25 that must flag and 28
+  that must not**, in the same one-file-per-case shape and with the same
+  table-versus-fixtures cross-check. Its rules were mutation-tested one at a
+  time; the run killed 16 of 17 mutations and found a real hole — reverting the
+  comment stripper changed nothing, because every comment fixture was inert for
+  a second reason as well. The two cases that close it exist because of the
+  mutation, not because anyone thought of them first.
 
 Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.

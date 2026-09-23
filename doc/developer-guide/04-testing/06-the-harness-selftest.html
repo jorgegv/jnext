@@ -1902,7 +1902,7 @@ produced <code>regression-doc-check</code>, which wired up a screenshot-document
 checker that had existed, had been correct, and had been invoked by nothing for
 long enough to rot into failing on 18 rows.</p>
 <h2 id="the-lint-self-tests">The lint self-tests<a class="headerlink" href="#the-lint-self-tests" title="Permanent link">&para;</a></h2>
-<p>Two of the lints verify themselves on <strong>every invocation</strong>, before their
+<p>Three of the lints verify themselves on <strong>every invocation</strong>, before their
 verdict on the real tree is trusted at all:</p>
 <ul>
 <li><code>test/lint-assertions.sh</code> writes a fixture containing one instance of each
@@ -1916,6 +1916,13 @@ verdict on the real tree is trusted at all:</p>
   whereas with one file per case the lost case is named. It also cross-checks
   its own prose case table against the fixture files that exist, in both
   directions, so that the documentation and the fixtures cannot drift apart.</li>
+<li><code>test/lint-timeouts.sh</code> carries <strong>53 pinned cases: 25 that must flag and 28
+  that must not</strong>, in the same one-file-per-case shape and with the same
+  table-versus-fixtures cross-check. Its rules were mutation-tested one at a
+  time; the run killed 16 of 17 mutations and found a real hole — reverting the
+  comment stripper changed nothing, because every comment fixture was inert for
+  a second reason as well. The two cases that close it exist because of the
+  mutation, not because anyone thought of them first.</li>
 </ul>
 <p>Both directions matter, and not equally. A false negative merely fails to help,
 whereas a false positive blocks a correct row — and that is the one that costs.</p>

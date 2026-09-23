@@ -1343,6 +1343,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#every-timeout-must-escalate-to-sigkill" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Every timeout must escalate to SIGKILL
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#regenerating-reference-screenshots" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -1880,7 +1891,7 @@ own SD-card clone. Any row whose guest <strong>writes</strong> to the card needs
 <p><strong>Functional rows</strong> are declared in <code>functional_tests.conf</code>, one name per line,
 in run order. Each has its logic in <code>scripts/&lt;name&gt;.sh</code> and calls
 <code>begin_func &lt;name&gt;</code> to register that its row really was reported.</p>
-<p>Both files carry a <code># expect: N</code> pin — currently 65 screenshots and 67
+<p>Both files carry a <code># expect: N</code> pin — currently 65 screenshots and 70
 functional — and the driver faults if a pin and the declared lines disagree.</p>
 <h2 id="the-independent-witness">The independent witness<a class="headerlink" href="#the-independent-witness" title="Permanent link">&para;</a></h2>
 <p>The completeness check compares rows reported against rows declared, but for
@@ -1899,7 +1910,7 @@ the manifest.</p>
 <p>At the end of a full run — that is, one not in <code>--update</code> mode — the driver
 proves three things: that every declared functional test reported <strong>exactly
 one</strong> row, that no undeclared row appeared, and that the grand total equals
-<code>3 lint + 1 sdcard-provision + screenshots + functional</code>. Any mismatch is
+<code>4 lint + 1 sdcard-provision + screenshots + functional</code>. Any mismatch is
 reported as a <strong>harness fault</strong>, exit 2, and is explicitly not a pass.</p>
 <p>Build artifacts that rows depend on — <code>rewind_test</code> and the SDL-only <code>jnext</code> —
 are checked in the first second of the run rather than five minutes in. Running
@@ -1963,6 +1974,31 @@ look like syntax stays clean. Its scope is bounded on purpose: <strong>it catche
 accidental trap, not deliberate obfuscation, which no static grep can.</strong> When a
 row needs scratch files, put them under <code>$TMP_DIR</code> instead of installing a
 cleanup handler — the harness trap already removes that directory.</p>
+<h2 id="every-timeout-must-escalate-to-sigkill">Every <code>timeout</code> must escalate to <code>SIGKILL</code><a class="headerlink" href="#every-timeout-must-escalate-to-sigkill" title="Permanent link">&para;</a></h2>
+<p><code>timeout N cmd</code> sends <code>SIGTERM</code> and nothing after it. A command that does not
+act on <code>SIGTERM</code> keeps running; <code>timeout</code> waits for it and then reports 124, so
+the bound is decorative and the status lies. Two <code>jnext</code> processes were once
+found alive <strong>9289 seconds</strong> after a <code>timeout 120</code> in a row — reparented to
+systemd, the worktree that spawned them long deleted, burning a core apiece
+underneath the suite's pacing-bound rows. A runaway of that class fails nothing
+itself; it makes <em>other</em> rows lie.</p>
+<p>So every invocation uses the house form:</p>
+<pre><code class="language-bash">timeout --foreground --kill-after=5s 60s &quot;$JNEXT&quot; --headless ...
+</code></pre>
+<p><code>--kill-after</code> is the requirement, and <code>--signal=KILL</code> satisfies it too:
+<code>SIGKILL</code> cannot be ignored, so the bound is real. It costs nothing when the
+command is well behaved, because it fires only if <code>SIGTERM</code> was already
+disregarded. <code>--foreground</code> is <em>not</em> required and is not always right — without
+it <code>timeout</code> gives the command its own process group and the signal reaches its
+<strong>children</strong>, which is what you want when it spawns a process tree.</p>
+<p><code>test/lint-timeouts.sh</code>, row 3 of the suite, enforces it across every tracked
+<code>*.sh</code> under <code>test/</code> — a wider scope than the trap lint, because this hazard
+has nothing to do with being sourced: a process a packaging test leaves behind
+costs the same as one a regression row leaves behind. The rule has <strong>no
+exception list</strong>, deliberately: whether a given program handles <code>SIGTERM</code> is
+not statically decidable, and "this one is fine" is the reasoning that put the
+bare <code>timeout</code> there in the first place. Five call sites were fixed by hand
+before the lint existed and two more arrived within hours.</p>
 <h2 id="regenerating-reference-screenshots">Regenerating reference screenshots<a class="headerlink" href="#regenerating-reference-screenshots" title="Permanent link">&para;</a></h2>
 <pre><code class="language-console">$ bash test/00regression/generate-references.sh [test_name...]
 </code></pre>

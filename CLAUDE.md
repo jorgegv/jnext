@@ -321,6 +321,26 @@ files so the two cannot drift. Command position is derived from bash's CLOSED se
 words (`! coproc do elif else if then time until while`), so `if trap …; then` is caught by
 construction rather than by having thought of it.
 
+**Every `timeout` in a test script must escalate to SIGKILL.** `timeout N cmd` sends SIGTERM
+and nothing more: a command that does not act on it runs unbounded while `timeout` waits and
+then reports 124, so the bound is decorative and the status lies. Two jnext processes were
+found alive **9289 s** after a `timeout 120`, reparented to systemd, burning a core apiece
+underneath the suite's pacing-bound rows — a runaway that fails nothing itself and makes
+OTHER rows lie. The house form is `timeout --foreground --kill-after=5s Ns`; `--kill-after`
+(or `--signal=KILL`) is the requirement, `--foreground` is NOT — without it the command gets
+its own process group and the signal reaches its CHILDREN, which is right when it spawns a
+process tree. `test/lint-timeouts.sh` — row 3 of the preflight — enforces it across every
+tracked `*.sh` under `test/`, a WIDER scope than `lint-traps.sh` because this hazard has
+nothing to do with being sourced. **The rule has NO exception list**, deliberately: whether a
+program handles SIGTERM is not statically decidable, and "this one is fine" is the reasoning
+that put the bare `timeout` there. Five call sites were fixed by hand and two more arrived
+within hours — the gate is the fix, not the sweep. It reuses lint-traps' syntax skeleton, adds
+a bash-shaped command-position walk (reserved words, `VAR=x` prefixes, `command`/`builtin`/`env`)
+and judges each invocation on ITS OWN leading option run, so a `--kill-after` belonging to a
+different command on the same line excuses nothing. 53 cases pinned both ways; its header
+gives EXAMPLES of what it cannot catch (a command name in a variable, a heredoc body), not an
+exhaustive list.
+
 **The harness is itself under test.** `make harness-selftest` (also run every regression as
 `harness-selftest-func`) injects each fault against stub suites and asserts the refusal. It
 exists because the harness shipped once with a bug that appeared *only when a suite failed*
