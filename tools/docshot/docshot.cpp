@@ -649,8 +649,9 @@ int main(int argc, char** argv)
     settle();
 
     // Breakpoints and watches go in AFTER the positioning above, not before:
-    // an armed breakpoint in the ROM loop the boot sits in would stop the
-    // Run to EOF on its first instruction, and the frame would not be drawn.
+    // one of them sits on the ROM loop the boot is in, so an armed set would
+    // stop the run above on its first instruction and the frame would never
+    // be drawn.
     apply_debug_fixture(emu, dbg);
     mgr->refresh_panels();   // the MANAGER's — see run_to_last_paper_line()
     settle();
