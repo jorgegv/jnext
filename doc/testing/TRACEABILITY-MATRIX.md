@@ -43,7 +43,7 @@ mentions them, so a test can no longer be absent from this document.
 | VideoTiming                                |    67 |   64 |    0 |    0 |       3 |          0 |
 | Contention                                 |   160 |  158 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    75 |   73 |    0 |    1 |       1 |          0 |
+| SD Card                                    |    76 |   74 |    0 |    1 |       1 |          0 |
 | NMI Source Pipeline                        |    82 |   60 |    0 |    0 |      22 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -62,9 +62,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4771 | 4520 |    0 |    5 |     246 |          0 |
+| **Total**                                  |  4772 | 4521 |    0 |    5 |     246 |          0 |
 
-Rows the sections above carry: **4771**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4503**. Rows the 112 suites declared in `test/unit-tests.conf` run live: **8048**.
+Rows the sections above carry: **4772**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4504**. Rows the 112 suites declared in `test/unit-tests.conf` run live: **8049**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3652,10 +3652,11 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | SDSC-OVL-01 | the sector-indexed read overlay answers a block-addressed card and never a byte-addressed one — not at an address that happens to be sector-aligned, nor at one that merely divides into an overlaid sector | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3075 |
 | SDSC-CMD16-07 | re-negotiating HCS=1 after a standard-capacity CMD16 restores the 512-byte block length (§ 4.3.2): the CMD18 stream transfers 512 bytes per block and strides 512, so a block-addressed card never forms an address that is not a block boundary | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3147 |
 | SDSC-CMD16-08 | CMD0 restores the power-up block length (§ 4.3.2): after CMD16 256, a CMD0 + legacy-MMC CMD1 init — the one flow that initialises without ACMD41 — leaves the next read a full 512-byte block | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3202 |
-| SDSC-CSD-01 | SDSC CMD9 returns a CSD Version 1.0 register (CSD_STRUCTURE=00, READ_BL_LEN=9, READ_BL_PARTIAL=1) whose (C_SIZE+1)*2^(C_SIZE_MULT+2)*2^READ_BL_LEN decodes to the image size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3254 |
-| SDSC-CSD-02 | SDHC CMD9 returns a CSD Version 2.0 register (CSD_STRUCTURE=01, READ_BL_PARTIAL=0) whose 22-bit C_SIZE counts 512 KB units (§ 5.3.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3291 |
-| SDSC-CSD-03 | SDSC CSD v1.0 capacity encoding scales with the image: a 16 MiB card needs C_SIZE_MULT=1 (12-bit C_SIZE cannot reach it at MULT=4) and still decodes to the exact size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3328 |
-| SDSC-CSD-04 | an image below one MULT unit is declared at the v1.0 floor (C_SIZE=0, C_SIZE_MULT=0 → 2048 bytes, § 5.3.2) — the only size the encoding cannot round down — and a read inside that declaration but past the real file is still refused with OUT_OF_RANGE (§ 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3379 |
+| SDSC-ADDR-08 | CMD0 clears the negotiated capacity class: after ACMD41(HCS=1) → CMD0 → legacy-MMC CMD1 the card reports CCS=0 (§ 4.2.3, § 5.1) and is byte-addressed (§ 4.7.4), instead of carrying a declaration from a previous initialisation | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3264 |
+| SDSC-CSD-01 | SDSC CMD9 returns a CSD Version 1.0 register (CSD_STRUCTURE=00, READ_BL_LEN=9, READ_BL_PARTIAL=1) whose (C_SIZE+1)*2^(C_SIZE_MULT+2)*2^READ_BL_LEN decodes to the image size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3318 |
+| SDSC-CSD-02 | SDHC CMD9 returns a CSD Version 2.0 register (CSD_STRUCTURE=01, READ_BL_PARTIAL=0) whose 22-bit C_SIZE counts 512 KB units (§ 5.3.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3355 |
+| SDSC-CSD-03 | SDSC CSD v1.0 capacity encoding scales with the image: a 16 MiB card needs C_SIZE_MULT=1 (12-bit C_SIZE cannot reach it at MULT=4) and still decodes to the exact size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3392 |
+| SDSC-CSD-04 | an image below one MULT unit is declared at the v1.0 floor (C_SIZE=0, C_SIZE_MULT=0 → 2048 bytes, § 5.3.2) — the only size the encoding cannot round down — and a read inside that declaration but past the real file is still refused with OUT_OF_RANGE (§ 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3443 |
 | MMC-02 | CMD8 illegal-cmd response on MMC not modelled (see G41) | — | missing | — |
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp`

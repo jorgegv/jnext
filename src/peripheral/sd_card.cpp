@@ -693,6 +693,29 @@ void SdCardDevice::cmd1_send_op_cond() {
     queue_r1(0x00);  // R1: ready (not idle)
 }
 
+// CMD0 GO_IDLE_STATE — the software reset that returns the card to the Idle
+// State.
+//
+// GH #94 round-3 review asked for the whole class to be enumerated rather than
+// waiting for a third instance to be reported, so: the card carries exactly
+// THREE pieces of session state that a reset must drop, and they are the three
+// assigned below —
+//   initialized_          the host has not run an init sequence yet
+//   host_supports_sdhc_   no capacity class has been negotiated yet (§ 4.2.3)
+//   block_len_            no CMD16 has been issued yet, so the CSD default
+//                         applies (§ 4.3.2)
+// Everything else in the class is either transfer state that the arrival of
+// ANY new command already clears (`state_`, `cmd_buf_`/`cmd_idx_`,
+// `resp_buf_`/`resp_idx_`, `data_idx_`, `data_crc_count_`,
+// `data_token_received_`, `multi_block_`/`multi_block_addr_`,
+// `pending_write_after_r1_` — see receive()'s default-case abort branch and
+// queue_r1()), state that is written immediately before every use and so
+// cannot go stale (`data_block_`, `data_crc_`, `write_busy_pending_`,
+// `busy_remaining_`, `app_cmd_`), state CMD0 sets deliberately
+// (`persistent_response_byte_` = 0x01, the ZEsarUX-compatible sustained
+// response), or state that belongs to the MOUNTED MEDIA and not to the card
+// session, which a reset must NOT touch (`file_`, `file_size_`, and the
+// `read_overlay_` triple installed by the host).
 void SdCardDevice::cmd0_go_idle() {
     sd_log()->debug("CMD0 GO_IDLE_STATE → card reset");
     initialized_ = false;
@@ -707,6 +730,17 @@ void SdCardDevice::cmd0_go_idle() {
     // It is belt-and-braces next to the ACMD41 reset above (every init
     // sequence reaches ACMD41), which is exactly why it is cheap.
     block_len_ = kBlockLen;
+    // GH #94 round-3 review: the negotiated capacity class goes with it, for
+    // the same reason. A host declares whether it supports high capacity in
+    // ACMD41's HCS bit (§ 4.2.3); a card that has just been reset to the idle
+    // state has not been told anything about capacity yet, so carrying the
+    // previous answer across CMD0 makes the card claim a class it never
+    // negotiated. The legacy MMC path is where that becomes visible rather
+    // than theoretical — CMD1 initialises without any capacity negotiation,
+    // so after ACMD41(HCS=1) → CMD0 → CMD1 the pre-fix card reported CCS=1
+    // in its OCR and block-addressed every transfer, on the strength of an
+    // ACMD41 that belonged to a previous initialisation.
+    host_supports_sdhc_ = false;
     queue_r1(0x01);  // R1: in idle state
     // Pass-9 verify-audit (2026-05-09): keep persistent_response_byte_ at
     // ZEsarUX-style $01 to match the upstream boot trace. SD Physical Layer

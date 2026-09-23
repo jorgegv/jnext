@@ -3214,6 +3214,70 @@ static void test_sdsc_cmd0_restores_block_len() {
           " content=" + (content_ok ? "1" : "0"));
 }
 
+// SDSC-ADDR-08 — CMD0 clears the negotiated capacity class, so a card cannot
+// report a class it was never told about.
+//
+// The host declares whether it supports high capacity in ACMD41's HCS bit
+// (§ 4.2.3), and the card answers with CCS in its OCR (§ 5.1). CMD0 returns
+// the card to the idle state, where no such declaration has been made — so
+// the answer cannot survive it, for the same reason the CMD16 block length
+// cannot (SDSC-CMD16-08).
+//
+// The legacy MMC path makes this observable instead of theoretical: CMD1
+// initialises with no capacity negotiation at all, so
+//
+//     ACMD41(HCS=1) → CMD0 → CMD1 → CMD58 / CMD17
+//
+// reaches a working, initialized card whose only capacity declaration came
+// from an ACMD41 that belongs to a previous initialisation. The row asserts
+// both halves of the consequence: the OCR reports CCS=0, and the following
+// CMD17 is byte-addressed (§ 4.7.4) as a CCS=0 card must be.
+static void test_sdsc_cmd0_clears_capacity_class() {
+    const std::string img = make_image(16);
+    SdCardDevice card;
+    const bool mounted = card.mount(img);
+
+    card.reset();
+    init_card(card);                                  // ACMD41 HCS=1 → SDHC
+    const uint8_t r1_0 = send_cmd_r1(card, 0, 0);     // software reset
+    const uint8_t r1_1 = send_cmd_r1(card, 1, 0);     // legacy MMC init
+
+    // CMD58 R3: NCR×2 + R1 + 4 OCR bytes. R1 is the first non-0xFF byte, so
+    // the next read is OCR byte 0, whose bit 6 is CCS.
+    const uint8_t r1_58 = send_cmd_r1(card, 58, 0);
+    const uint8_t ocr0  = spi_read(card);
+    card.deselect();
+
+    // A CCS=0 card takes BYTE addresses, so sector 2 is reached with 2*512.
+    const uint8_t r1_17 = send_cmd_r1(card, 17, 2 * 512);
+    const bool tok = wait_token(card);
+    uint8_t blk[512] = {};
+    const bool crc = tok && read_block_len(card, blk, 512);
+    card.deselect();
+    card.unmount();
+    std::remove(img.c_str());
+
+    bool content_ok = tok && crc;
+    for (int i = 0; i < 512 && content_ok; ++i)
+        if (blk[i] != fixture_byte(1024 + i)) content_ok = false;
+
+    check("SDSC-ADDR-08",
+          "CMD0 clears the negotiated capacity class: after "
+          "ACMD41(HCS=1) → CMD0 → legacy-MMC CMD1 the card reports CCS=0 "
+          "(§ 4.2.3, § 5.1) and is byte-addressed (§ 4.7.4), instead of "
+          "carrying a declaration from a previous initialisation",
+          mounted && r1_0 == 0x01 && r1_1 == 0x00 && r1_58 == 0x00 &&
+              (ocr0 & 0x40) == 0 && (ocr0 & 0x80) != 0 &&
+              r1_17 == 0x00 && content_ok,
+          "mounted=" + std::string(mounted ? "1" : "0") +
+          " r1_0=" + std::to_string(r1_0) +
+          " r1_1=" + std::to_string(r1_1) +
+          " r1_58=" + std::to_string(r1_58) +
+          " ocr0=" + std::to_string(ocr0) +
+          " r1_17=" + std::to_string(r1_17) +
+          " content=" + (content_ok ? "1" : "0"));
+}
+
 static void test_sdsc_csd() {
     // The CSD rows use their own images: SDSC-CSD-03 needs a capacity that
     // forces a different C_SIZE_MULT than the 8 KB fixture does.
@@ -3465,6 +3529,7 @@ int main() {
     test_sdsc_overlay_guards(); // SDSC-OVL-01
     test_sdsc_recapacity_block_len();  // SDSC-CMD16-07
     test_sdsc_cmd0_restores_block_len();  // SDSC-CMD16-08
+    test_sdsc_cmd0_clears_capacity_class();  // SDSC-ADDR-08
     test_sdsc_csd();            // SDSC-CSD-01..04
 
     // ─── WONT / RE-HOME rows (no skip()) ───────────────────────────────
