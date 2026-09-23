@@ -82,7 +82,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Tilemap raster splits |       12 |       12 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes                 |       48 |       48 |      0 |       0 |    100% | 🟢 All tests pass. |
 | LoRes (integration)   |        2 |        2 |      0 |       0 |    100% | 🟢 All tests pass. |
-| NMI Source Pipeline   |       59 |       59 |      0 |       0 |    100% | 🟢 All tests pass. |
+| NMI Source Pipeline   |       75 |       75 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NMI (integration)     |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Atic Atac NMI         |        4 |        4 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Raw binary --inject   |       17 |       17 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -119,6 +119,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **8063** | **8063** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **8079** | **8079** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

@@ -43,8 +43,8 @@ mentions them, so a test can no longer be absent from this document.
 | VideoTiming                                |    67 |   64 |    0 |    0 |       3 |          0 |
 | Contention                                 |   160 |  158 |    0 |    0 |       2 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    76 |   74 |    0 |    1 |       1 |          0 |
-| NMI Source Pipeline                        |    82 |   60 |    0 |    0 |      22 |          0 |
+| SD Card                                    |    55 |   52 |    0 |    1 |       2 |          0 |
+| NMI Source Pipeline                        |    82 |   76 |    0 |    0 |       6 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4780 | 4564 |    0 |    5 |     211 |          0 |
+| **Total**                                  |  4780 | 4580 |    0 |    5 |     195 |          0 |
 
-Rows the sections above carry: **4780**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4483**. Rows the 113 suites declared in `test/unit-tests.conf` run live: **8063**.
+Rows the sections above carry: **4780**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4483**. Rows the 113 suites declared in `test/unit-tests.conf` run live: **8079**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3667,8 +3667,8 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
 | NMI-RST-01 | FSM idle + latches clear + gates off + nmi_generate_n high + not activated after reset | zxnext.vhd:2120,2149 | pass | test/nmi/nmi_test.cpp:132 |
-| NMI-RST-02 | All three request latches clear after reset | zxnext.vhd:2095-2105 | missing | — |
-| NMI-RST-03 | Gate flags at VHDL power-on values (MF-en = 0, DivMMC-en = 0, expbus-debounce = 0) | zxnext.vhd:1109-1110,1222 | missing | — |
+| NMI-RST-02 | reset clears all three request latches from a latched state | zxnext.vhd:2095-2105 | pass | test/nmi/nmi_test.cpp:2331 |
+| NMI-RST-03 | the three gate flags return to their VHDL power-on values after reset: MF-en 0, DivMMC-en 0, expbus debounce-disable 0 | zxnext.vhd:1109-1110,1222 | pass | test/nmi/nmi_test.cpp:2343 |
 | NMI-RST-04 | NR 0x02 reset_type[2:0] power-on default = "100" (read bits 1:0 = "00") | zxnext.vhd:1306 | pass | test/nmi/nmi_test.cpp:148 |
 | NR02-01 | NR 0x02 bit 3 write sets nmi_mf latch [zxnext.vhd:3832,3837,2097] | zxnext.vhd:3832,3837,2097 | pass | test/nmi/nmi_test.cpp:190 |
 | NR02-02 | NR 0x02 bit 2 write sets nmi_divmmc latch [zxnext.vhd:3833,3838,2099] | zxnext.vhd:3833,3838,2099 | pass | test/nmi/nmi_test.cpp:207 |
@@ -3704,24 +3704,24 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | GATE-06 | config_mode=1 force-clears all three priority latches | zxnext.vhd:2102-2105 | pass | test/nmi/nmi_test.cpp:1708 |
 | GATE-07 | config_mode=1 force-clears FSM to Idle from any state | zxnext.vhd:2102-2105 | pass | test/nmi/nmi_test.cpp:1728 |
 | GATE-08 | power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, expbus_eff_en, expbus_eff_disable_mem, config_mode) all false | zxnext.vhd:1109-1110/1222/369-371 | pass | test/nmi/nmi_test.cpp:1749 |
-| FSM-01 | IDLE → FETCH on `nmi_activated` rising | zxnext.vhd:2126-2134 | missing | — |
-| FSM-02 | FETCH → HOLD on M1 fetch at 0x0066 | zxnext.vhd:2135-2138 | missing | — |
-| FSM-03 | HOLD → END on `nmi_hold = 0 | zxnext.vhd:2139-2148 | missing | — |
-| FSM-04 | END → IDLE on `cpu_wr_n` rising edge | zxnext.vhd:2149-2162 | missing | — |
-| FSM-05 | END clears all three request latches | zxnext.vhd:2102-2105,2149-2162 | missing | — |
-| FSM-06 | nr_03_config_mode = 1` force-clears FSM to IDLE from any state | zxnext.vhd:2102-2105 | missing | — |
-| NMI-ARB-01 | Simultaneous MF + DivMMC assert → MF latches, DivMMC does not | zxnext.vhd:2097-2105 | missing | — |
-| NMI-ARB-02 | Simultaneous MF + ExpBus → MF latches, ExpBus does not | zxnext.vhd:2097-2105 | missing | — |
-| NMI-ARB-03 | Simultaneous DivMMC + ExpBus (no MF) → DivMMC wins | zxnext.vhd:2097-2105 | missing | — |
-| NMI-ARB-04 | mf_is_active = true` (stub) blocks DivMMC latch even with DivMMC request | zxnext.vhd:2097-2098 | missing | — |
-| EXPBUS-01 | Default `expbus_nmi_n = 1` (inactive); no assert | zxnext.vhd:2091 | missing | — |
-| EXPBUS-02 | expbus_nmi_n = 0` with `expbus_nmi_debounce_disable = 1` → immediate assert | zxnext.vhd:2091,1222 | missing | — |
-| EXPBUS-03 | expbus_nmi_n = 0` without debounce-disable → delayed assert (debounce path stubbed) | zxnext.vhd:2091 | missing | — |
+| FSM-01 | IDLE -> FETCH once a priority latch sets nmi_activated | zxnext.vhd:2126-2134,2093 | pass | test/nmi/nmi_test.cpp:2061 |
+| FSM-02 | FETCH -> HOLD only on an M1+MREQ fetch at 0x0066 | zxnext.vhd:2135-2138 | pass | test/nmi/nmi_test.cpp:2082 |
+| FSM-03 | HOLD is held while the consumer asserts nmi_hold and advances to END when it clears | zxnext.vhd:2139-2148,2118 | pass | test/nmi/nmi_test.cpp:2102 |
+| FSM-04 | END is a distinct state for one tick and then returns to IDLE | zxnext.vhd:2149-2162 | pass | test/nmi/nmi_test.cpp:2124 |
+| FSM-05 | reaching END clears nmi_mf / nmi_divmmc / nmi_expbus together | zxnext.vhd:2102-2105,2149-2162 | pass | test/nmi/nmi_test.cpp:2140 |
+| FSM-06 | config_mode = 1 forces the FSM back to IDLE and clears the latches, from FETCH and from HOLD alike | zxnext.vhd:2102-2105,2163-2165 | pass | test/nmi/nmi_test.cpp:2167 |
+| NMI-ARB-01 | MF and DivMMC asserting together: MF latches, DivMMC does not | zxnext.vhd:2107-2110 | pass | test/nmi/nmi_test.cpp:2261 |
+| NMI-ARB-02 | MF and the expansion bus asserting together: MF latches, ExpBus does not | zxnext.vhd:2107-2113 | pass | test/nmi/nmi_test.cpp:2275 |
+| NMI-ARB-03 | DivMMC and the expansion bus with no MF request: DivMMC wins | zxnext.vhd:2110-2113 | pass | test/nmi/nmi_test.cpp:2290 |
+| NMI-ARB-04 | mf_is_active blocks the DivMMC latch even with a DivMMC request pending (control: it latches when MF is inactive) | zxnext.vhd:2110 | pass | test/nmi/nmi_test.cpp:2311 |
+| EXPBUS-01 | expansion-bus NMI pin idles high after reset and asserts nothing | zxnext.vhd:2091 | pass | test/nmi/nmi_test.cpp:2183 |
+| EXPBUS-02 | with NR 0x81 bit 5 set, an asserted bus /NMI keeps nmi_generate_n low even after the FSM leaves IDLE/FETCH | zxnext.vhd:2091,2166,1222 | pass | test/nmi/nmi_test.cpp:2221 |
+| EXPBUS-03 | without NR 0x81 bit 5 the bus pin still latches, but nmi_generate_n releases as soon as the FSM leaves IDLE/FETCH (no extra term keeps it low) | zxnext.vhd:2091,2166 | pass | test/nmi/nmi_test.cpp:2241 |
 | NMI-DMA-01 | is_activated() true while any NMI latch is set | zxnext.vhd:2107 | pass | test/nmi/nmi_test.cpp:1857 |
 | NMI-DMA-02 | im2_dma_delay latches when is_activated() AND nr_cc_dma_int_en_0_7 | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:1881 |
 | NMI-DMA-03 | NR 0xCC bit 7 = 0 (or nmi_activated=0) blocks NMI-driven DMA delay | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:1910 |
 | NMI-INT-GH265-01 | MF NMI with NR 0xCC bit 7 set latches im2_dma_delay while the IM2 fabric is otherwise idle (VHDL zxnext.vhd:2001-2010, :2093) | zxnext.vhd:2001-2010,2093 | pass | test/nmi/nmi_integration_test.cpp:348 |
-| Z80-01 | FSM producing `/NMI` edge calls `Z80Cpu::request_nmi() | zxnext.vhd:1841,2164-2170 | missing | — |
+| Z80-01 | the FSM pulls nmi_generate_n low as soon as a request latches, and leaves it high while idle | zxnext.vhd:1841,2166 | pass | test/nmi/nmi_test.cpp:2371 |
 | Z80-02 | Z80 accepts NMI, PC vectors to 0x0066 | zxnext.vhd:2135-2138 | missing | — |
 | Z80-03 | Reset clears both NmiSource state and Z80 NMI line | zxnext.vhd:2120,2149 | missing | — |
 | Z80-04 | NMIACK_LSB / NMIACK_MSB latch PC into nr_c2/c3 (Z80N command cross-link) | zxnext.vhd:2050-2085,6232-6236 | missing | — |

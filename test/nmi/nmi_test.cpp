@@ -2011,6 +2011,371 @@ static void g_testcov_nmi_regressions()
 // Main
 // =====================================================================
 
+
+// =====================================================================
+// Group FSM — the NMI state machine, its priority latches and the
+// expansion-bus producer (GH #201).
+//
+// VHDL zxnext.vhd:2089-2170 is the whole of it:
+//
+//   nmi_assert_expbus <= '1' when expbus_eff_en='1' and
+//                        expbus_eff_disable_mem='0' and i_BUS_NMI_n='0'
+//   nmi_activated     <= nmi_mf or nmi_divmmc or nmi_expbus
+//   latch process (:2095-2115): cleared by reset, by config_mode='1' and
+//     by nmi_state = S_NMI_END; otherwise, and ONLY while
+//     nmi_activated='0', set in the order MF > DivMMC > ExpBus
+//   FSM (:2120-2161): IDLE -> FETCH on nmi_activated;
+//     FETCH -> HOLD on an M1+MREQ fetch at 0x0066;
+//     HOLD  -> END  when nmi_hold falls;
+//     END   -> IDLE when cpu_wr_n is high
+//   :2163-2165 reset / config_mode force the state register to IDLE
+//   :2166 nmi_generate_n <= '0' when (IDLE and activated) or FETCH or
+//                          (nr_81 debounce-disable and nmi_assert_expbus)
+//
+// The rows below drive `NmiSource` directly: the FSM, the three latches
+// and every gate are its own state, so the stand-alone object is the
+// honest tier for them and stays deterministic.
+// =====================================================================
+
+// Put the FSM in FETCH with the MF latch set, the cheapest legal entry.
+static void drive_to_fetch(NmiSource& nmi)
+{
+    nmi.reset();
+    nmi.set_mf_enable(true);          // NR 0x06 bit 3 (VHDL:2090)
+    nmi.strobe_mf_button();
+    nmi.tick(1);
+}
+
+static void g_fsm_pipeline()
+{
+    set_group("FSM");
+
+    // ── FSM-01 — IDLE -> FETCH on nmi_activated rising (VHDL:2126-2134) ──
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+        const bool idle_before = (nmi.state() == NmiSource::State::Idle);
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        check("FSM-01",
+              "IDLE -> FETCH once a priority latch sets nmi_activated",
+              idle_before && nmi.state() == NmiSource::State::Fetch &&
+              nmi.is_activated(),
+              "zxnext.vhd:2126-2134, :2093");
+    }
+
+    // ── FSM-02 — FETCH -> HOLD on an M1 fetch at 0x0066 (VHDL:2135-2138) ──
+    // The transition needs ALL THREE of mf_a_0066, cpu_m1_n='0' and
+    // cpu_mreq_n='0'; a fetch at any other address, or one without M1,
+    // must leave the FSM where it is.
+    {
+        NmiSource nmi;
+        drive_to_fetch(nmi);
+        nmi.observe_m1_fetch(0x0038, true, true);    // wrong address
+        const bool still_fetch_addr = (nmi.state() == NmiSource::State::Fetch);
+        nmi.observe_m1_fetch(0x0066, false, true);   // no M1
+        const bool still_fetch_m1 = (nmi.state() == NmiSource::State::Fetch);
+        nmi.observe_m1_fetch(0x0066, true, false);   // no MREQ
+        const bool still_fetch_mreq = (nmi.state() == NmiSource::State::Fetch);
+        nmi.observe_m1_fetch(0x0066, true, true);    // the real thing
+        check("FSM-02",
+              "FETCH -> HOLD only on an M1+MREQ fetch at 0x0066",
+              still_fetch_addr && still_fetch_m1 && still_fetch_mreq &&
+              nmi.state() == NmiSource::State::Hold,
+              "zxnext.vhd:2135-2138");
+    }
+
+    // ── FSM-03 — HOLD -> END when nmi_hold falls (VHDL:2139-2148) ────────
+    // nmi_hold is the consumer's feedback, muxed by which latch won
+    // (:2118). With the MF latch set it is mf_nmi_hold, so the FSM must
+    // SIT in HOLD while that is asserted and advance once it clears.
+    {
+        NmiSource nmi;
+        drive_to_fetch(nmi);
+        nmi.set_mf_nmi_hold(true);
+        nmi.observe_m1_fetch(0x0066, true, true);
+        nmi.tick(1);
+        const bool held = (nmi.state() == NmiSource::State::Hold);
+        nmi.set_mf_nmi_hold(false);
+        nmi.tick(1);
+        check("FSM-03",
+              "HOLD is held while the consumer asserts nmi_hold and "
+              "advances to END when it clears",
+              held && nmi.state() == NmiSource::State::End,
+              "zxnext.vhd:2139-2148, :2118");
+    }
+
+    // ── FSM-04 — END -> IDLE (VHDL:2149-2162) ────────────────────────────
+    // The VHDL gate is `cpu_wr_n = '1'` — "do not transition until the io
+    // write cycle completes". NmiSource is ticked at instruction
+    // boundaries, where the Z80 bus is idle and cpu_wr_n is high by
+    // construction, so the advance is unconditional at this granularity;
+    // what the row pins is that END is a real, single-tick state and not
+    // collapsed away.
+    {
+        NmiSource nmi;
+        drive_to_fetch(nmi);
+        nmi.observe_m1_fetch(0x0066, true, true);
+        nmi.tick(1);                                   // HOLD -> END
+        const bool at_end = (nmi.state() == NmiSource::State::End);
+        nmi.observe_cpu_wr(true);
+        nmi.tick(1);                                   // END -> IDLE
+        check("FSM-04",
+              "END is a distinct state for one tick and then returns to IDLE",
+              at_end && nmi.state() == NmiSource::State::Idle,
+              "zxnext.vhd:2149-2162");
+    }
+
+    // ── FSM-05 — END clears all three request latches ────────────────────
+    // VHDL:2102-2105 lists `nmi_state = S_NMI_END` alongside reset and
+    // config_mode as a clear term for nmi_mf / nmi_divmmc / nmi_expbus.
+    {
+        NmiSource nmi;
+        drive_to_fetch(nmi);
+        const bool mf_set = nmi.nmi_mf();
+        nmi.observe_m1_fetch(0x0066, true, true);
+        nmi.tick(1);                                   // -> END
+        nmi.tick(1);                                   // END clears + -> IDLE
+        check("FSM-05",
+              "reaching END clears nmi_mf / nmi_divmmc / nmi_expbus together",
+              mf_set && !nmi.nmi_mf() && !nmi.nmi_divmmc() &&
+              !nmi.nmi_expbus() && !nmi.is_activated(),
+              "zxnext.vhd:2102-2105, :2149-2162");
+    }
+
+    // ── FSM-06 — config_mode forces IDLE from any state ──────────────────
+    // VHDL:2163-2165 makes `nr_03_config_mode = '1'` an unconditional
+    // load of S_NMI_IDLE into the state register, and :2102-2105 clears
+    // the latches on the same term. Checked from FETCH and from HOLD.
+    {
+        NmiSource a;
+        drive_to_fetch(a);
+        const bool from_fetch_ok = (a.state() == NmiSource::State::Fetch);
+        a.set_config_mode(true);
+        a.tick(1);
+
+        NmiSource b;
+        drive_to_fetch(b);
+        b.set_mf_nmi_hold(true);
+        b.observe_m1_fetch(0x0066, true, true);
+        b.tick(1);
+        const bool from_hold_ok = (b.state() == NmiSource::State::Hold);
+        b.set_config_mode(true);
+        b.tick(1);
+
+        check("FSM-06",
+              "config_mode = 1 forces the FSM back to IDLE and clears the "
+              "latches, from FETCH and from HOLD alike",
+              from_fetch_ok && a.state() == NmiSource::State::Idle &&
+              !a.is_activated() &&
+              from_hold_ok && b.state() == NmiSource::State::Idle &&
+              !b.is_activated(),
+              "zxnext.vhd:2102-2105, :2163-2165");
+    }
+
+    // ── EXPBUS-01 — the bus NMI pin idles inactive ───────────────────────
+    // VHDL:2091 needs i_BUS_NMI_n='0' to assert, and the pin's idle level
+    // is '1'. After reset nothing may assert on its own.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        check("EXPBUS-01",
+              "expansion-bus NMI pin idles high after reset and asserts "
+              "nothing",
+              nmi.expbus_nmi_n() && !nmi.nmi_assert_expbus() &&
+              !nmi.nmi_expbus(),
+              "zxnext.vhd:2091");
+    }
+
+    // ── EXPBUS-02 / EXPBUS-03 — what the debounce-disable bit does ───────
+    // Read literally, VHDL:2091 has NO debounce term: the ExpBus latch
+    // asserts on `expbus_eff_en AND NOT expbus_eff_disable_mem AND pin
+    // low`, full stop. NR 0x81 bit 5 appears one line further down, at
+    // :2166, as an EXTRA term of `nmi_generate_n`:
+    //
+    //   nmi_generate_n <= '0' when (IDLE and activated) or FETCH
+    //                     or (nr_81_expbus_nmi_debounce_disable='1'
+    //                         and nmi_assert_expbus='1') else '1';
+    //
+    // so the bit does not change WHETHER the bus can raise an NMI, it
+    // changes whether /NMI stays asserted once the FSM has left the
+    // IDLE/FETCH window. Both rows are written to that, not to the plan's
+    // "delayed assert" phrasing — jnext models no debounce timer, and the
+    // VHDL has none in this path either.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_expbus_eff_en(true);
+        nmi.set_expbus_eff_disable_mem(false);
+        nmi.set_expbus_debounce_disable(true);
+        nmi.set_expbus_nmi_n(false);                 // bus pulls /NMI low
+        nmi.tick(1);
+        const bool latched = nmi.nmi_expbus();
+        // Walk the FSM out of the IDLE/FETCH window, where only the
+        // debounce-disable term can still hold /NMI down.
+        nmi.observe_m1_fetch(0x0066, true, true);
+        nmi.tick(1);
+        const bool past_fetch = (nmi.state() != NmiSource::State::Idle &&
+                                 nmi.state() != NmiSource::State::Fetch);
+        check("EXPBUS-02",
+              "with NR 0x81 bit 5 set, an asserted bus /NMI keeps "
+              "nmi_generate_n low even after the FSM leaves IDLE/FETCH",
+              latched && past_fetch && !nmi.nmi_generate_n(),
+              "zxnext.vhd:2091, :2166, :1222");
+    }
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_expbus_eff_en(true);
+        nmi.set_expbus_eff_disable_mem(false);
+        nmi.set_expbus_debounce_disable(false);
+        nmi.set_expbus_nmi_n(false);
+        nmi.tick(1);
+        const bool latched = nmi.nmi_expbus();
+        const bool asserted_in_window = !nmi.nmi_generate_n();
+        nmi.observe_m1_fetch(0x0066, true, true);
+        nmi.tick(1);
+        const bool past_fetch = (nmi.state() != NmiSource::State::Idle &&
+                                 nmi.state() != NmiSource::State::Fetch);
+        check("EXPBUS-03",
+              "without NR 0x81 bit 5 the bus pin still latches, but "
+              "nmi_generate_n releases as soon as the FSM leaves "
+              "IDLE/FETCH (no extra term keeps it low)",
+              latched && asserted_in_window && past_fetch &&
+              nmi.nmi_generate_n(),
+              "zxnext.vhd:2091, :2166");
+    }
+
+    // ── NMI-ARB-01..04 — first-come-first-served priority (VHDL:2095-2115) ──
+    // The latch process sets at most one latch per evaluation and tests
+    // MF, then DivMMC, then ExpBus, all under `nmi_activated = '0'`.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+        nmi.set_divmmc_enable(true);
+        nmi.strobe_mf_button();
+        nmi.strobe_divmmc_button();
+        nmi.tick(1);
+        check("NMI-ARB-01",
+              "MF and DivMMC asserting together: MF latches, DivMMC does not",
+              nmi.nmi_mf() && !nmi.nmi_divmmc(),
+              "zxnext.vhd:2107-2110");
+    }
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+        nmi.set_expbus_eff_en(true);
+        nmi.set_expbus_eff_disable_mem(false);
+        nmi.set_expbus_nmi_n(false);
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        check("NMI-ARB-02",
+              "MF and the expansion bus asserting together: MF latches, "
+              "ExpBus does not",
+              nmi.nmi_mf() && !nmi.nmi_expbus(),
+              "zxnext.vhd:2107-2113");
+    }
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_divmmc_enable(true);
+        nmi.set_expbus_eff_en(true);
+        nmi.set_expbus_eff_disable_mem(false);
+        nmi.set_expbus_nmi_n(false);
+        nmi.strobe_divmmc_button();
+        nmi.tick(1);
+        check("NMI-ARB-03",
+              "DivMMC and the expansion bus with no MF request: DivMMC wins",
+              nmi.nmi_divmmc() && !nmi.nmi_expbus() && !nmi.nmi_mf(),
+              "zxnext.vhd:2110-2113");
+    }
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_divmmc_enable(true);
+        nmi.set_mf_is_active(true);          // VHDL mf_is_active = '1'
+        nmi.strobe_divmmc_button();
+        nmi.tick(1);
+        const bool blocked = !nmi.nmi_divmmc();
+        // Control: the same stimulus latches once MF is no longer active,
+        // so the block is the gate and not a dead stimulus.
+        NmiSource ctl;
+        ctl.reset();
+        ctl.set_divmmc_enable(true);
+        ctl.set_mf_is_active(false);
+        ctl.strobe_divmmc_button();
+        ctl.tick(1);
+        check("NMI-ARB-04",
+              "mf_is_active blocks the DivMMC latch even with a DivMMC "
+              "request pending (control: it latches when MF is inactive)",
+              blocked && ctl.nmi_divmmc(),
+              "zxnext.vhd:2110");
+    }
+
+    // ── NMI-RST-02 / NMI-RST-03 — split out of the NMI-RST-01 aggregate ──
+    // NMI-RST-01 bundles every reset default into one check and its own
+    // comment asks for these two to be split out. RST-02 is about the
+    // three request LATCHES; RST-03 is about the GATE flags, which have
+    // only initial-value declarations in VHDL.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        const bool latched_first = nmi.nmi_mf();
+        nmi.reset();
+        check("NMI-RST-02",
+              "reset clears all three request latches from a latched state",
+              latched_first && !nmi.nmi_mf() && !nmi.nmi_divmmc() &&
+              !nmi.nmi_expbus() && !nmi.is_activated(),
+              "zxnext.vhd:2095-2105");
+    }
+    {
+        NmiSource nmi;
+        nmi.set_mf_enable(true);
+        nmi.set_divmmc_enable(true);
+        nmi.set_expbus_debounce_disable(true);
+        nmi.reset();
+        check("NMI-RST-03",
+              "the three gate flags return to their VHDL power-on values "
+              "after reset: MF-en 0, DivMMC-en 0, expbus debounce-disable 0",
+              !nmi.mf_enable() && !nmi.divmmc_enable() &&
+              !nmi.expbus_debounce_disable(),
+              "zxnext.vhd:1109-1110, :1222");
+    }
+
+    // ── Z80-01 — the FSM drives the CPU's /NMI line ──────────────────────
+    // VHDL:2166 `nmi_generate_n` is the signal wired to the Z80's /NMI
+    // (:1841). It must be inactive-high with nothing pending and pulled
+    // low the moment a latch sets, before any bus activity.
+    //
+    // What this row does NOT pin: :2166's first arm, `nmi_state =
+    // S_NMI_IDLE and nmi_activated = '1'`. NmiSource is evaluated once per
+    // instruction boundary and the latch-set and the IDLE -> FETCH advance
+    // land in the same evaluation, so by the time anything can observe the
+    // line the FSM is already in FETCH and the second arm is what holds it
+    // low. Deleting the first arm from the emulator changes nothing
+    // observable here — that arm is collapsed away by the tick
+    // granularity, not tested by this row.
+    {
+        NmiSource nmi;
+        nmi.reset();
+        nmi.set_mf_enable(true);
+        const bool idle_high = nmi.nmi_generate_n();
+        nmi.strobe_mf_button();
+        nmi.tick(1);
+        check("Z80-01",
+              "the FSM pulls nmi_generate_n low as soon as a request "
+              "latches, and leaves it high while idle",
+              idle_high && !nmi.nmi_generate_n(),
+              "zxnext.vhd:1841, :2166");
+    }
+}
+
 int main() {
     std::printf("NMI Source Pipeline Compliance Tests (Phase 1 + Wave A + Wave B + Wave C + Wave E)\n");
     std::printf("=========================================================\n\n");
@@ -2028,6 +2393,7 @@ int main() {
     g_mf_g162_skips();     std::printf("  MF   G162 parked rows  -- done\n");
     g_mf_int_wiring();     std::printf("  MF-INT F-gate live wiring -- done\n");
     g_boot_skips();        std::printf("  BOOT NextZXOS+bypass   -- done\n");
+    g_fsm_pipeline();      std::printf("  FSM  state machine     -- done\n");
 
     std::printf("\n=========================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
