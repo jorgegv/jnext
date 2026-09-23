@@ -253,6 +253,15 @@ bool Writer::add(const std::string& name, const uint8_t* data, size_t len,
               " members, the limit without ZIP64";
         return false;
     }
+    if (static_cast<uint64_t>(len) > kMaxMemberBytes) {
+        // Symmetry with the reader's ceiling. A writer able to emit a member
+        // its own reader refuses would produce files jnext cannot reopen,
+        // which is a worse failure than declining to write one.
+        why = "member " + quoted(name) + " is " + u64s(len) +
+              " bytes, over the " + u64s(kMaxMemberBytes) +
+              "-byte limit for a single member";
+        return false;
+    }
     if (static_cast<uint64_t>(len) > kMaxU32Field) {
         why = "member " + quoted(name) + " is " + u64s(len) +
               " bytes, over the " + u64s(kMaxU32Field) +
@@ -403,7 +412,44 @@ bool Writer::finish(std::vector<uint8_t>& out, std::string& why) const {
 // Reader
 // ─────────────────────────────────────────────────────────────────────────
 
+// EVERY allocation this reader sizes from a file-supplied value, and what
+// bounds it. The list is here because a ceiling that catches one site and
+// misses another is not a rule, and because the next person to add a field
+// needs to know which column their new one lands in:
+//
+//   inflate/stored output   `uncomp_size` / `comp_size`  -> kMaxMemberBytes,
+//                           checked in the central-directory walk BEFORE any
+//                           read. This was the unbounded one.
+//   archive comment         `comment_len` (u16) AND the cross-check
+//                           `i + 22 + clen == len`, so it is exactly the
+//                           bytes present in the file.
+//   central-dir entry name  `name_len`, preceded by the
+//                           `p + 46 + name + extra + comment > cd_end` refusal.
+//   local header name       `l_nlen`, preceded by the
+//                           `off + 30 + l_nlen > cd_offset` refusal.
+//   the entry vector        `total_count`, a u16 capped below 0xFFFF.
+//
+// Downstream, `manifest.json`'s text — and therefore everything the JSON
+// parser allocates from it — is bounded by the same member ceiling, because
+// it is read through this class like any other member.
 bool Reader::open(const uint8_t* data, size_t len, std::string& why) {
+    if (open_impl(data, len, why)) return true;
+
+    // A refusal must leave NOTHING half-parsed. The central-directory walk
+    // fills `entries_` well before `data_` is committed at the very end, so a
+    // refusal in between would leave a reader whose `entries()` is populated
+    // while its buffer pointer is null — and a caller that skipped the return
+    // value would dereference it in `read()`. Restoring the invariant here
+    // fixes it once, for every refusal site and every future accessor, rather
+    // than guarding the one accessor that dereferences today.
+    data_ = nullptr;
+    len_  = 0;
+    entries_.clear();
+    comment_.clear();
+    return false;
+}
+
+bool Reader::open_impl(const uint8_t* data, size_t len, std::string& why) {
     data_ = nullptr;
     len_  = 0;
     entries_.clear();
@@ -425,6 +471,10 @@ bool Reader::open(const uint8_t* data, size_t len, std::string& why) {
     const size_t scan_floor =
         (len > kEocdFixed + kMaxComment) ? len - kEocdFixed - kMaxComment : 0;
     size_t eocd = SIZE_MAX;
+    // `len - kEocdFixed + 1` is why the minimum-length check above is not
+    // merely a politeness: for any `len` below 21 it UNDERFLOWS, the loop
+    // starts near SIZE_MAX and the first `get_u32(data + i)` reads a wild
+    // pointer. The guard is the bound; there is no second one here.
     for (size_t i = len - kEocdFixed + 1; i-- > scan_floor;) {
         if (get_u32(data + i) != kSigEocd) continue;
         const uint16_t clen = get_u16(data + i + 20);
@@ -600,6 +650,23 @@ bool Reader::open(const uint8_t* data, size_t len, std::string& why) {
             why = "member " + quoted(name) + " is stored but declares " +
                   u64s(csize) + " compressed bytes against " + u64s(usize) +
                   " uncompressed";
+            return false;
+        }
+        // THE DECLARED-SIZE CEILING. Checked here, in the walk, so it refuses
+        // at open() before a single byte is inflated and before ANY consumer
+        // of `Entry` — present or future — can size an allocation from these
+        // numbers. `uncomp_size` is the dangerous one: nothing in a ZIP
+        // relates it to the compressed bytes actually present, so a 167-byte
+        // archive can declare a 4 GB member and a reader that believes the
+        // declaration allocates 4 GB, or throws `std::bad_alloc` and takes
+        // the process down. `comp_size` is bounded by the data-extent check
+        // further below, but it is bounded here too: a ceiling that catches
+        // one field and misses the other is half a rule.
+        if (usize > kMaxMemberBytes || csize > kMaxMemberBytes) {
+            why = "member " + quoted(name) + " declares " + u64s(usize) +
+                  " uncompressed / " + u64s(csize) + " compressed bytes, over "
+                  "the " + u64s(kMaxMemberBytes) + "-byte limit for a single "
+                  "member";
             return false;
         }
 

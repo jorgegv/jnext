@@ -117,6 +117,40 @@ bool valid_member_path(const std::string& path, std::string& why);
 /// reader allocate on a 64 KB name.
 constexpr size_t kMaxPathLen = 255;
 
+/// Largest member this container will write or read, compressed OR
+/// uncompressed. **This is a bound on a DECLARED size, and it is the reason
+/// it exists.**
+///
+/// A ZIP member's uncompressed length is a 32-bit field in the central
+/// directory. Nothing in the archive's structure relates it to the
+/// compressed bytes actually present: a 167-byte file can legitimately
+/// declare a 4 GB member, and a reader that sizes its output buffer from
+/// that declaration allocates 4 GB on a file that fits in a packet. On a
+/// memory-constrained host the allocation throws instead, and an uncaught
+/// `std::bad_alloc` **terminates the process** — the exact inversion of G9,
+/// which requires a hostile file to be refused loudly rather than to abort.
+///
+/// So the declaration is bounded BEFORE anything is allocated from it, in
+/// `Reader::open`'s central-directory walk, and a member above the ceiling
+/// is refused by name like every other feature outside the accepted subset.
+/// Checking it at the walk rather than at the allocation site is deliberate:
+/// it refuses at `open()`, before a single member has been read, and it
+/// covers every present and future consumer of `Entry` rather than the one
+/// call site that happens to allocate today.
+///
+/// 64 MB against a format whose largest legitimate member is
+/// `mem/ram.bin` at 2 097 152 bytes (design §6.1) — about 32x headroom, so
+/// the ceiling can never be reached by a file jnext itself wrote, while a
+/// hostile declaration costs at most a bounded, survivable allocation.
+///
+/// A ratio bound (uncompressed <= compressed x the DEFLATE maximum) was
+/// considered and REJECTED: 2 MB of zero-filled guest RAM — the single most
+/// likely real blob — deflates at a ratio near 1000:1, close enough to
+/// DEFLATE's 1032:1 theoretical maximum that a bound there would risk
+/// refusing legitimate files. A wrong bound that rejects real snapshots is
+/// worse than a generous one that bounds the damage.
+constexpr uint64_t kMaxMemberBytes = 64ull * 1024 * 1024;
+
 // ─────────────────────────────────────────────────────────────────────────
 // Writer
 // ─────────────────────────────────────────────────────────────────────────
@@ -182,6 +216,14 @@ public:
     /// deliberately: a member nobody reads can still make the archive one a
     /// different implementation resolves differently, and the whole point of
     /// the accepted subset is that there is exactly one reading.
+    ///
+    /// **A failed open leaves the reader EMPTY**, not half-parsed. The walk
+    /// populates `entries_` long before `data_` is committed, so a refusal in
+    /// between would otherwise leave a reader whose `entries()` is non-empty
+    /// while its buffer pointer is null — and a caller that forgot to check
+    /// the return value would dereference it. The invariant is restored here,
+    /// in one place, rather than guarded at each of the twenty-odd refusal
+    /// sites or patched at the one accessor that dereferences today.
     bool open(const uint8_t* data, size_t len, std::string& why);
 
     const std::vector<Entry>& entries() const { return entries_; }
@@ -201,6 +243,10 @@ public:
                    std::string& why) const;
 
 private:
+    /// The parse proper. Every refusal returns false from here; `open()` is
+    /// the wrapper that clears a partial parse.
+    bool open_impl(const uint8_t* data, size_t len, std::string& why);
+
     const uint8_t*     data_ = nullptr;
     size_t             len_  = 0;
     std::vector<Entry> entries_;
