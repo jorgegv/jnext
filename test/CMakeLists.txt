@@ -9,6 +9,14 @@ target_include_directories(fuse_z80_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 # configure_file() deps catch an EDIT to a matched file, but only re-checking
 # the glob at build time catches the SET changing (a data file added, removed
 # or renamed), which would otherwise leave a stale copy staged in build/.
+#
+# It buys LESS here than on the src/ globs, and the difference is worth being
+# precise about: fuse_z80_test.cpp opens tests.in / tests.expected by
+# hardcoded name, never by enumerating the directory, so an added file is not
+# data the suite would have read anyway. What this protects is the STAGED SET
+# in build/ — a renamed or removed fixture leaving its stale copy behind. Kept
+# because that is a real (if rare) silent-staleness path and the cost is a
+# stat of a 3-entry directory, not because the src/ argument carries over.
 file(GLOB FUSE_TEST_DATA CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/fuse/tests.*")
 foreach(_src ${FUSE_TEST_DATA})
     get_filename_component(_fname ${_src} NAME)

@@ -264,6 +264,13 @@ done
 #     directly here (third_party/{zot,fatfs,fuse-z80}): ours to edit, but
 #     drop-in vendored code that lists sources explicitly and is deliberately
 #     not held to our conventions.
+#   * An UNTRACKED CMakeLists.txt is likewise invisible here, and that is
+#     accepted rather than worked around: CI and review only ever see
+#     committed content, so a bad glob that is not in the index cannot reach
+#     anyone but its author, and it starts being checked the moment it is
+#     `git add`ed. Scanning the filesystem instead would drag in every
+#     generated CMake file under every build dir, making the result depend on
+#     which build dirs happen to exist.
 # ---------------------------------------------------------------------------
 echo "  -- 9: no first-party file(GLOB) may omit CONFIGURE_DEPENDS --"
 
@@ -289,14 +296,25 @@ if [ -n "$bad_globs" ]; then
 fi
 check "no first-party glob without CONFIGURE_DEPENDS" "$bad_count" "0"
 
-# A lower bound, not an exact pin: a NEW glob is already covered by the
-# assertion above, so an exact count would only add churn on every legitimate
-# addition. What this defends against is the check passing VACUOUSLY — a wrong
-# ls-files pattern, or a run from outside a git checkout, would otherwise scan
-# nothing and report a silent green. Mutation-tested: breaking the ls-files
-# pattern must reach THIS line and fail it, not abort the script earlier.
-check "the scan is not vacuous (>=10 first-party globs found)" \
-	"$([ "$good_count" -ge 10 ] && echo yes || echo no)" "yes"
+# EXACT, in the same spirit as test/unit-tests.conf's pinned row counts: the
+# number is the project's claim about how much this phase actually scans, and
+# it moves only when someone means it to. Updating it when you add or remove a
+# glob IS the point, not friction to be engineered away.
+#
+# A lower bound was tried first and REJECTED in review, because it is
+# defeatable in exactly the way that matters. Narrowing the filter above to
+# also drop test/ leaves every real CMakeLists.txt untouched, so bad_count
+# stays 0 — and with a floor of 10 the count merely falls 18 -> 15 and the
+# phase still reports green, having silently stopped looking at three real
+# globs. That is the failure class this project's whole test-manifest doctrine
+# exists for: a green result is only as good as its denominator.
+#
+# It also subsumes the vacuity guard the floor was written for: a wrong
+# ls-files pattern, or a run from outside a git checkout, scans nothing and
+# fails here on 0 != 18 rather than passing silently.
+EXPECTED_FIRST_PARTY_GLOBS=18
+check "exactly $EXPECTED_FIRST_PARTY_GLOBS first-party globs scanned" \
+	"$good_count" "$EXPECTED_FIRST_PARTY_GLOBS"
 
 if [ "$FAIL" -eq 1 ]; then
 	echo "cmake-configure-guard-selftest: FAILED"
