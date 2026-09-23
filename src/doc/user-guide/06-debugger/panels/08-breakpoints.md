@@ -27,6 +27,17 @@ afterwards, is the thing this panel exists to stop.
 Step Into, Step Over, Step Out and **Run to Here** keep working while the
 master switch is off, so a suspended machine is still one you can walk through.
 
+## Watchpoints watch the *program*, not you
+
+A read or write watchpoint fires on an access made by the program you are
+running. Looking at the same address — keeping it in the Watches panel,
+scrolling the Memory panel over it, having it in the displayed part of the
+stack — is not an access and never stops the machine, however often the panels
+refresh. Saving a snapshot does not trip one either.
+
+So you can safely watch an address in a panel and watchpoint it at the same
+time, which is usually what you want to do.
+
 In the disassembly gutter, a suspended breakpoint — individually disabled, or
 any breakpoint while the master switch is off — is drawn as a **hollow red
 ring** instead of a filled red dot. It stays visible, in the same place, so you

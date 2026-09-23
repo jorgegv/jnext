@@ -171,6 +171,7 @@ BEGIN {
     M["debugger_audio_panel_test"]     = "Debugger Audio Panel"
     M["debugger_quit_gate_test"]       = "Debugger Quit Gate"
     M["debugger_persistent_bp_test"]   = "Debugger persist. BP (GUI)"
+    M["debugger_inspect_watchpoint_test"] = "Debugger Inspection Reads"
     M["window_attach_test"]            = "Debugger Window Attach"
     M["debugger_window_size_test"]     = "Debugger Window Sizing"
     M["debugger_window_grow_test"]     = "Debugger Window Growing"

@@ -9017,6 +9017,18 @@ void Emulator::service_esp_frame()
 
 void Emulator::run_frame()
 {
+    // For the whole of this call, memory and port accesses are the EMULATED
+    // MACHINE's, so watchpoints may fire. See DebugState::
+    // GuestExecutionScope: outside these scopes they may not, which is what
+    // stops the debugger's own panels from tripping the user's watchpoints on
+    // the addresses they display.
+    //
+    // It wraps the WHOLE function, not just the instruction loop: the tape
+    // ROM traps below load bytes into guest memory in place of the ROM
+    // routine that would otherwise have written them, and a WRITE watchpoint
+    // on the load area must see that exactly as it would without fast-load.
+    DebugState::GuestExecutionScope guest_exec(debug_state_);
+
     // GH #25 — ESP service, deliberately FIRST. The replay gate below must be
     // applied before any instruction of a replayed frame executes, and
     // rewind_to_cycle() (called from the branch just after this) re-enters
@@ -9428,6 +9440,26 @@ uint64_t Emulator::step_one_instruction()
     // former hand-maintained copy in execute_single_instruction() had
     // drifted (missing im2_.tick(), both /INT polls, md6_.tick() and
     // the trace record), silently dropping interrupts while stepping.
+    //
+    // INVARIANT: every caller of this function holds a
+    // DebugState::GuestExecutionScope, because everything below is the
+    // emulated machine executing and its memory/port accesses must be able to
+    // fire the user's watchpoints. There are exactly three callers —
+    // run_frame(), step_frame_slot() and execute_single_instruction() — and
+    // all three take the scope. A FOURTH must take it too, or watchpoints
+    // would be silently dead on that path.
+    //
+    // NOT enforced by an assert: CMakeLists.txt forces RelWithDebInfo when no
+    // build type is given, so NDEBUG is defined in build/ and gui-release
+    // alike and an assert here would never execute in any configuration this
+    // project builds — a claim with nothing behind it. It is enforced by the
+    // tests instead: debugger_inspect_watchpoint_test's control rows fire a
+    // watchpoint through EACH of the three roots (INSPW-10/11/12 run_frame,
+    // INSPW-13 step_frame_slot, INSPW-14 execute_single_instruction), so a
+    // root that loses its scope fails a named row. A capability-token
+    // parameter would make it a compile error instead, and was declined only
+    // because it puts an argument on this call for every instruction the
+    // machine executes.
     uint64_t master_cycles;
     bool dma_stalled_cpu_this_step = false;
     bool cpu_executed = false;   // GH #265 follow-up (finding 4) — see below
@@ -9585,6 +9617,15 @@ uint64_t Emulator::step_one_instruction()
         // Record trace entry before execution (captures pre-execution state).
         // Enabled during replay so consecutive step-backs can look up target cycles.
         if (trace_log_.enabled()) {
+            // The trace record reads FOUR opcode bytes at PC, and
+            // z80_instruction_length() reads up to four more, whatever the
+            // instruction's real length is. For a one-byte NOP the CPU fetches
+            // exactly one of them, so PC+1..PC+3 are the DEBUGGER's reads, not
+            // the machine's, and a READ watchpoint on a data byte sitting
+            // after a short instruction was fired by the trace log alone.
+            // Which made it the user's problem precisely when the debugger was
+            // open, since that (and --rewind) is what enables the trace.
+            DebugState::InspectionScope inspect(debug_state_);
             const Z80Registers& regs = cpu_.registers();
             TraceEntry te;
             te.cycle = clock_.get();
@@ -9632,6 +9673,12 @@ uint64_t Emulator::step_one_instruction()
         }
         // Call stack tracking (debugger only, gated by enabled flag).
         if (call_stack_.enabled()) {
+            // Same shape as the trace record above: three bytes are
+            // read at PC whatever the instruction's length, so PC+1 and PC+2
+            // are the debugger's reads and must not fire the user's
+            // watchpoints. The call-stack tracker is switched on by the
+            // debugger, so this too only ever hurt the user who had it open.
+            DebugState::InspectionScope inspect(debug_state_);
             const Z80Registers& regs2 = cpu_.registers();
             uint8_t op0 = mmu_.read(regs2.PC);
             uint8_t op1 = mmu_.read(regs2.PC + 1);
@@ -10155,6 +10202,12 @@ uint64_t Emulator::step_frame_slot()
     // Called only from debugger_step(), which is the machine's sole driver
     // while the debugger holds it. See that function for why the frame loop
     // does NOT belong to execute_single_instruction().
+    //
+    // The third and last place the machine executes. Guarding here
+    // rather than in debugger_step() keeps the invariant stated at
+    // step_one_instruction() true of EVERY caller of it.
+    DebugState::GuestExecutionScope guest_exec(debug_state_);
+
     if (!frame_in_progress_) {
         begin_new_frame();
         frame_in_progress_ = true;
@@ -10194,6 +10247,22 @@ int Emulator::execute_single_instruction()
     // effect on any caller that is not parked, which is every test.
     resume_from_park("the debugger stepped a single instruction");
 
+    // One of the three places the machine executes. See run_frame().
+    DebugState::GuestExecutionScope guest_exec(debug_state_);
+
+    // It does NOT consume data_bp_hit_, and that is safe only because this
+    // function has no production caller: every caller in src/ is this
+    // definition and its declaration, debugger_step() deliberately does not
+    // route through it (GH #207, see there), and everything else under test/
+    // drives it directly and reads the latch itself. A watchpoint that fires
+    // here therefore leaves the latch standing for whoever looks next.
+    //
+    // If this ever DOES get a production caller that runs with watchpoints
+    // armed, it must consume the latch — pause() + set_data_bp_hit(false), as
+    // run_frame() and debugger_step() both do — or that caller's next resume
+    // stops one instruction in, at an address the watchpoint has nothing to do
+    // with. That is exactly the defect DebugState::GuestExecutionScope exists
+    // to remove, reintroduced from the other end.
     const uint64_t master_cycles = step_one_instruction();
     tick_devices_after_instruction(master_cycles);
     return static_cast<int>(master_cycles / clock_.cpu_divisor());

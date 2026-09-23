@@ -103,9 +103,10 @@ private:
     /// Raise the data-breakpoint latch if `port` is watched for `type`
     /// (WatchType::IO_READ / IO_WRITE). Out of line in the .cpp: read() and
     /// write() are already out of line, and the gate order here is the one the
-    /// eight Mmu watchpoint sites use — null pointer, then DebugState::armed()
-    /// (GH #219: breakpoints LIVE, not "debugger window open"), then
-    /// has_any_watchpoints(), and only then the scan.
+    /// eight Mmu watchpoint sites use — null pointer, then
+    /// DebugState::watchpoints_live() (GH #219: breakpoints LIVE, not
+    /// "debugger window open" — and the access is the emulated machine's, not
+    /// a panel's), then has_any_watchpoints(), and only then the scan.
     void check_io_watchpoint_(uint16_t port, WatchType type) const;
 
     std::vector<PortHandler> handlers_;

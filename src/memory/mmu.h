@@ -222,6 +222,17 @@ public:
     void set_multiface(Multiface* m) { multiface_ = m; }
 
     // Debugger state — set by Emulator for data breakpoint checking.
+    //
+    // The eight watchpoint sites below all open with the SAME gate, in the
+    // same order: null pointer, then DebugState::watchpoints_live(), then
+    // has_any_watchpoints(), and only then the per-address scan.
+    //
+    // watchpoints_live() rather than armed() because read() is not only the
+    // CPU's read: the Watches, Memory, Stack and Disassembly panels
+    // all inspect guest memory through it, and so do the snapshot savers and
+    // the doc-screenshot tool. It is false unless the Emulator has declared
+    // that it is EXECUTING (DebugState::GuestExecutionScope), so an
+    // inspection read cannot raise the latch however it reaches this function.
     void set_debug_state(DebugState* ds) { debug_state_ = ds; }
 
     // Hot-path memory access (inline for performance)
@@ -242,7 +253,7 @@ public:
         if (multiface_ && addr < 0x4000 && mf_overlay_active_()) {
             uint8_t val = (addr < 0x2000) ? mf_rom_byte_(addr)
                                           : mf_ram_byte_(addr);
-            if (debug_state_ && debug_state_->armed() &&
+            if (debug_state_ && debug_state_->watchpoints_live() &&
                 debug_state_->breakpoints().has_any_watchpoints() &&
                 debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
                 debug_state_->set_data_bp_hit(true);
@@ -257,7 +268,7 @@ public:
             uint8_t val;
             if (divmmc_read(addr, val)) {
                 // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
-                if (debug_state_ && debug_state_->armed() &&
+                if (debug_state_ && debug_state_->watchpoints_live() &&
                     debug_state_->breakpoints().has_any_watchpoints() &&
                     debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
                     debug_state_->set_data_bp_hit(true);
@@ -317,7 +328,7 @@ public:
                 // since the ULA wouldn't have driven valid data on this
                 // cycle, the latched byte is the prior CPU-bus value — not
                 // currently modelled at this granularity).
-                if (debug_state_ && debug_state_->armed() &&
+                if (debug_state_ && debug_state_->watchpoints_live() &&
                     debug_state_->breakpoints().has_any_watchpoints() &&
                     debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
                     debug_state_->set_data_bp_hit(true);
@@ -329,7 +340,7 @@ public:
             uint8_t phys_page = to_sram_page(static_cast<uint8_t>(l2_page | ((addr >> 13) & 1)));
             const uint8_t* p = ram_.page_ptr(phys_page);
             uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
-            if (debug_state_ && debug_state_->armed() &&
+            if (debug_state_ && debug_state_->watchpoints_live() &&
                 debug_state_->breakpoints().has_any_watchpoints() &&
                 debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
                 debug_state_->set_data_bp_hit(true);
@@ -350,7 +361,7 @@ public:
             !config_mode_ && addr < 0x4000 && read_only_[slot]) {
             const uint8_t* p = ram_.page_ptr(altrom_sram_page_(addr));
             uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
-            if (debug_state_ && debug_state_->armed() &&
+            if (debug_state_ && debug_state_->watchpoints_live() &&
                 debug_state_->breakpoints().has_any_watchpoints() &&
                 debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
                 debug_state_->set_data_bp_hit(true);
@@ -365,7 +376,7 @@ public:
         if (config_mode_ && addr < 0x4000 && read_only_[slot]) {
             const uint8_t* p = ram_.page_ptr((static_cast<uint16_t>(nr_04_romram_bank_) << 1) | slot);
             uint8_t val = p ? p[addr & 0x1FFF] : 0xFF;
-            if (debug_state_ && debug_state_->armed() &&
+            if (debug_state_ && debug_state_->watchpoints_live() &&
                 debug_state_->breakpoints().has_any_watchpoints() &&
                 debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
                 debug_state_->set_data_bp_hit(true);
@@ -393,7 +404,7 @@ public:
             p3_floating_bus_dat_ = val;
         }
         // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
-        if (debug_state_ && debug_state_->armed() &&
+        if (debug_state_ && debug_state_->watchpoints_live() &&
             debug_state_->breakpoints().has_any_watchpoints() &&
             debug_state_->breakpoints().has_watchpoint(addr, WatchType::READ)) {
             debug_state_->set_data_bp_hit(true);
@@ -404,7 +415,7 @@ public:
 
     inline void write(uint16_t addr, uint8_t val) override {
         // Check data breakpoints (only when breakpoints are armed and watchpoints exist)
-        if (debug_state_ && debug_state_->armed() &&
+        if (debug_state_ && debug_state_->watchpoints_live() &&
             debug_state_->breakpoints().has_any_watchpoints() &&
             debug_state_->breakpoints().has_watchpoint(addr, WatchType::WRITE)) {
             debug_state_->set_data_bp_hit(true);

@@ -22,13 +22,13 @@ public:
     /// Forcing this true with the window closed would switch all of that on
     /// for nobody's benefit, which is why GH #219 did not do it.
     bool active() const { return active_; }
-    void set_active(bool a) { active_ = a; refresh_armed_(); }
+    void set_active(bool a) { active_ = a; refresh_gates_(); }
 
     /// GH #219 — `--persistent-breakpoints`: keep breakpoints live for the
     /// whole run, not just while the debugger window is open. Set once from
     /// EmulatorConfig at init(); the UI never touches it.
     bool persistent_breakpoints() const { return persistent_; }
-    void set_persistent_breakpoints(bool p) { persistent_ = p; refresh_armed_(); }
+    void set_persistent_breakpoints(bool p) { persistent_ = p; refresh_gates_(); }
 
     /// Are breakpoints and watchpoints LIVE? The hot-path gate.
     ///
@@ -38,6 +38,81 @@ public:
     /// true for the whole run: that is what "persistent" means, and the
     /// per-instruction breakpoint check is the price of it.
     bool armed() const { return armed_; }
+
+    /// Are WATCHPOINTS live — i.e. would a memory or port access made RIGHT
+    /// NOW be allowed to raise the data-breakpoint latch? The hot-path gate
+    /// for the eight Mmu sites and PortDispatch::check_io_watchpoint_.
+    ///
+    /// armed() AND the access being the EMULATED MACHINE's, rather than the
+    /// debugger's own. A watchpoint exists to catch the guest
+    /// program touching an address; the panel that DISPLAYS that address is an
+    /// observer and must be invisible to it. Before this gate existed, the
+    /// Watches / Memory / Stack / Disassembly panels all read guest memory
+    /// through the same Mmu::read() the CPU uses, so a READ watchpoint on any
+    /// address a panel happened to show was latched by the panel's own
+    /// refresh — ~4 times a second while running — and the next Run or Step
+    /// stopped one instruction later, at an address the watchpoint had
+    /// nothing to do with.
+    ///
+    /// It is a single cached bool, recomputed only when something a human did
+    /// changed it, so the eight Mmu sites execute exactly the load-and-branch
+    /// they executed when they read armed() directly.
+    bool watchpoints_live() const { return wp_live_; }
+
+    /// Is the emulated machine currently executing? See GuestExecutionScope.
+    /// Public for the one assertion that enforces the invariant, and for
+    /// tests.
+    bool guest_access() const { return guest_access_; }
+
+    /// RAII — "the code in this block IS the emulated machine".
+    ///
+    /// Taken by the three functions that drive the machine: Emulator::
+    /// run_frame(), execute_single_instruction() and step_frame_slot(). Every
+    /// guest memory access and every guest port access happens inside one of
+    /// them, so watchpoints are live exactly there and NOWHERE ELSE.
+    ///
+    /// That is what makes this safe by DEFAULT rather than by discipline: a
+    /// panel, a tool, a snapshot saver — anything that reads guest memory
+    /// from outside the emulator's own execution — cannot fire a watchpoint,
+    /// whatever entry point it calls and whether or not its author knew this
+    /// problem existed. There is no call site to remember, because the gate
+    /// does not depend on the caller at all.
+    ///
+    /// It nests (run_frame -> step_frame_slot is a real nesting under
+    /// rewind replay) and restores the previous value, so it is safe on any
+    /// path out, including the data-breakpoint early return.
+    class GuestExecutionScope {
+    public:
+        explicit GuestExecutionScope(DebugState& ds)
+            : ds_(ds), prev_(ds.guest_access_) { ds.set_guest_access_(true); }
+        ~GuestExecutionScope() { ds_.set_guest_access_(prev_); }
+        GuestExecutionScope(const GuestExecutionScope&) = delete;
+        GuestExecutionScope& operator=(const GuestExecutionScope&) = delete;
+    private:
+        DebugState& ds_;
+        bool prev_;
+    };
+
+    /// RAII — "the code in this block is the DEBUGGER looking, not the guest".
+    ///
+    /// The counterpart, for the handful of debugger reads that necessarily
+    /// happen INSIDE GuestExecutionScope because they are interleaved with
+    /// execution: the trace log's 4-byte opcode capture and the call-stack
+    /// tracker's 3-byte opcode peek, both of which read bytes past a short
+    /// instruction that the CPU never fetches. Both are switched on by the
+    /// debugger itself, so without this they fired spurious READ watchpoints
+    /// on data bytes for exactly the user who had the debugger open.
+    class InspectionScope {
+    public:
+        explicit InspectionScope(DebugState& ds)
+            : ds_(ds), prev_(ds.guest_access_) { ds.set_guest_access_(false); }
+        ~InspectionScope() { ds_.set_guest_access_(prev_); }
+        InspectionScope(const InspectionScope&) = delete;
+        InspectionScope& operator=(const InspectionScope&) = delete;
+    private:
+        DebugState& ds_;
+        bool prev_;
+    };
 
     bool paused() const { return paused_; }
     void pause();
@@ -136,8 +211,24 @@ public:
     void set_data_bp_addr(uint16_t a) { data_bp_addr_ = a; }
 
 private:
-    void refresh_armed_() {
+    /// The ONE writer of guest_access_ — private, so the flag can only be
+    /// moved by the two RAII scopes above and can never be left stuck by an
+    /// early return, an exception or a forgotten reset.
+    void set_guest_access_(bool g) { guest_access_ = g; refresh_gates_(); }
+
+    /// Recompute BOTH cached hot-path gates from the three inputs that feed
+    /// them (active_, persistent_, guest_access_). Named for the gates rather
+    /// than for armed_ alone, which is what it used to maintain: it now also
+    /// owns wp_live_, and a name that mentions only half of what a function
+    /// maintains is how the next person misses the other half.
+    ///
+    /// Called only from the three setters — i.e. only when a human opened the
+    /// debugger, passed --persistent-breakpoints, or the machine entered or
+    /// left execution (twice per frame, or twice per debugger Step). Never
+    /// from the hot path.
+    void refresh_gates_() {
         armed_ = active_ || persistent_;
+        wp_live_ = armed_ && guest_access_;
         // Disarming breakpoints drops any pending step-off with them. The gate
         // that consumes it does not run while !armed(), so PC moves on freely
         // and a surviving arm would suppress an unrelated test the moment
@@ -170,6 +261,16 @@ private:
     bool active_ = false;
     bool persistent_ = false;
     bool armed_ = false;
+    // Kept adjacent to armed_ deliberately: the eight Mmu watchpoint sites
+    // read wp_live_ on every memory access, and it is the one member of this
+    // class the hot path touches.
+    //
+    // guest_access_ defaults FALSE, which is the whole design: watchpoints are
+    // OFF until the emulator itself declares that it is executing. Everything
+    // else — every panel, every tool, every saver — is an observer by
+    // construction rather than by remembering to say so.
+    bool guest_access_ = false;
+    bool wp_live_ = false;
     bool paused_ = false;
     bool step_off_pending_ = false;
     bool data_bp_hit_ = false;

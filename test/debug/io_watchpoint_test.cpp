@@ -451,9 +451,17 @@ int main() {
     // and `dma_.write_io = [](p,v){ port_.write(p,v); }` (emulator.cpp), so a
     // check installed in the CPU's in()/out() would miss every DMA access to a
     // watched port. These two calls are those lambdas' bodies.
+    //
+    // And they are made INSIDE a DebugState::GuestExecutionScope,
+    // because the DMA runs inside run_frame(). Calling port().read() bare from
+    // here would be a HOST-side access, which no longer fires a watchpoint at
+    // all (that is the fix: a panel or a tool reading a port is an observer).
+    // The scope is what makes these two calls stand for the DMA's, rather than
+    // for the doc-screenshot tool's.
     {
         Emulator emu;
         build(emu, /*persistent=*/true);
+        DebugState::GuestExecutionScope guest_exec(emu.debug_state());
         emu.debug_state().breakpoints().add_watchpoint(0x00FE, WatchType::IO_READ);
         emu.port().read(0x7FFE);
         const bool rd = emu.debug_state().data_bp_hit() &&

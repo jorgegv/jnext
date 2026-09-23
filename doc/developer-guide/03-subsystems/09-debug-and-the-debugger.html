@@ -1118,6 +1118,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="What ENABLE_DEBUGGER=OFF removes">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#a-debugger-read-is-not-a-guest-access" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        A debugger read is not a guest access
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1909,18 +1926,46 @@ true only when the UI enables the debugger or a magic breakpoint fires.</p>
 keeps the panels showing a live framebuffer, and <code>video_timing_.advance()</code>,
 which maintains raster counters nothing but a human inspector ever reads.
 <code>armed_</code> — <code>active_ || persistent_</code> — is the narrower <em>are breakpoints live</em>,
-and it is what the per-instruction breakpoint test and the watchpoint checks in
-<code>Mmu::read</code>/<code>Mmu::write</code> hang off. <code>persistent_</code> comes from
-<code>--persistent-breakpoints</code> via <code>EmulatorConfig</code>, and is what lets breakpoints
-survive closing the debugger window without switching the rest of that
-machinery back on. The call-stack pre/post hooks sit behind their own
-<code>enabled()</code> flag. The watchpoint checks are triple-gated — pointer non-null,
-<code>armed()</code>, <em>and</em> <code>has_any_watchpoints()</code>.</p>
+and it is what the per-instruction breakpoint test hangs off. <code>persistent_</code>
+comes from <code>--persistent-breakpoints</code> via <code>EmulatorConfig</code>, and is what lets
+breakpoints survive closing the debugger window without switching the rest of
+that machinery back on. The call-stack pre/post hooks sit behind their own
+<code>enabled()</code> flag.</p>
 <p><code>armed_</code> is a cached bool recomputed by the two setters rather than an
 expression, so the default configuration executes exactly the load-and-branch
 the single <code>active()</code> gate used to.</p>
 <p>So "the debugger costs nothing when closed" is a claim about a predictable
 branch, not about conditional compilation.</p>
+<h3 id="a-debugger-read-is-not-a-guest-access">A debugger read is not a guest access<a class="headerlink" href="#a-debugger-read-is-not-a-guest-access" title="Permanent link">&para;</a></h3>
+<p>There is a <strong>third</strong> boolean, and it exists because <code>Mmu::read()</code> is not the
+CPU's read. The Watches, Memory, Stack and Disassembly panels all
+inspect guest memory through the same <code>Mmu::read()</code> the CPU uses, so before
+this gate existed a READ watchpoint on any address a panel happened to display
+was latched by the panel's own refresh — at roughly 4 Hz while the machine ran
+— and the next Run or Step stopped one instruction later at an unrelated
+address. The snapshot savers did the same on every File &gt; Save Snapshot: all
+three sweep RAM through a temporary slot-7 window at <code>$E000</code>, and the 48K SNA
+saver additionally pushes PC at <code>SP-2</code>.</p>
+<p><code>watchpoints_live_</code> is <code>armed_</code> <strong>and</strong> <code>guest_access_</code>, and <code>guest_access_</code> is
+false unless the emulator has declared that it is executing — the RAII
+<code>DebugState::GuestExecutionScope</code>, taken by exactly three functions:
+<code>Emulator::run_frame()</code>, <code>step_frame_slot()</code> and
+<code>execute_single_instruction()</code>. The watchpoint checks are therefore triple-
+gated on pointer non-null, <code>watchpoints_live()</code> and <code>has_any_watchpoints()</code>.</p>
+<p>The point of putting the gate there rather than around panel refresh is that
+it does not depend on the caller. A panel added tomorrow cannot fire a
+watchpoint whatever it calls, because it cannot make <code>guest_access_</code> true; and
+<code>MemoryPanel</code> in particular reads from its <code>paintEvent</code>, not from <code>refresh()</code>,
+so a scope around the refresh call would have missed it anyway.</p>
+<p>Its counterpart <code>DebugState::InspectionScope</code> covers the two debugger readers
+that necessarily run <em>inside</em> execution: the trace log captures four opcode
+bytes at <code>PC</code> and the call-stack tracker three, whatever the instruction's real
+length, so both read data bytes past a short instruction that the CPU never
+fetches. Both are switched on by the debugger, so both hurt exactly the user
+who had it open.</p>
+<p>The hot path pays nothing for any of this: <code>Mmu::read</code> and <code>Mmu::write</code> compile
+to the same 395 and 285 instructions they did before, every difference being a
+structure offset.</p>
 <h2 id="execution-control">Execution control<a class="headerlink" href="#execution-control" title="Permanent link">&para;</a></h2>
 <p><code>DebugState</code> holds <code>paused_</code>, a <code>StepMode</code>, and a <code>BreakpointSet</code>. The run loop
 consults it once per instruction, before the fetch:</p>
@@ -1971,7 +2016,7 @@ consults it once per instruction, before the fetch:</p>
 <tr>
 <td>watchpoint</td>
 <td><code>add_watchpoint</code></td>
-<td><code>Mmu</code> latches <code>data_bp_hit</code>; checked after the instruction</td>
+<td><code>Mmu</code> latches <code>data_bp_hit</code> (guest accesses only); checked after the instruction</td>
 </tr>
 </tbody>
 </table>
@@ -2023,7 +2068,7 @@ on a later, unrelated breakpoint and swallows it. The UI reaches that state by
 ordinary use: the debugger toolbar's <code>F5: Continue</code> button is a plain
 <code>QPushButton</code> with no enable gating, and <code>MainWindow</code>'s global F5 handler
 forwards to <code>on_run()</code> whenever the debugger is enabled, regardless of whether
-the machine is paused. The arm is also dropped by <code>refresh_armed_()</code> when
+the machine is paused. The arm is also dropped by <code>refresh_gates_()</code> when
 breakpoints go dead, because the consumer stops running there while PC does
 not.</p>
 <p>Step Over is not a special CPU mode. <code>DebuggerManager::on_step_over()</code> asks the
@@ -2049,8 +2094,9 @@ That call did not exist at all until issue #203 was fixed: the mode was written
 and never read, and F8 had the observable behaviour of Run.</p>
 <p>Its position inside that body is load-bearing in both directions, and the
 reason is the general one for any debugger hook here — <strong>it may only read
-memory the CPU itself read</strong>. <code>Mmu::read()</code> is not inert: it fires read
-watchpoints and latches the +3 floating bus. Reading the opcode speculatively
+memory the CPU itself read</strong>. <code>Mmu::read()</code> is not inert: inside a
+<code>GuestExecutionScope</code> it fires read watchpoints, and it latches the +3
+floating bus whatever the scope. Reading the opcode speculatively
 before the instruction runs is therefore unsafe, because <code>Z80Cpu::execute()</code>
 has <em>three</em> early returns that complete a step without ever fetching at <code>PC</code> —
 an accepted NMI, an accepted <code>INT</code>, and the esxdos shim. In those slots the
