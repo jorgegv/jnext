@@ -195,9 +195,20 @@ setup) jnext does not reproduce; the list is in `apply()`.
 
 ## The warm start: applying a NEX to a machine the firmware made
 
-`--warm-start` (GH #234, the structural fix for GH #72) replaces the synthetic
+The warm start (GH #234, the structural fix for GH #72) replaces the synthetic
 machine at the top of `Emulator::load_nex()` with a recording of a real boot.
-It is opt-in, Next-only, and `.nex`-only.
+It is Next-only and `.nex`-only, and it is **not an option**: there is no
+enable flag, because a default of "start the program on a machine hardware
+cannot produce" is the wrong default. It shipped in v1.0.6 as opt-in
+`--warm-start` while the reference movement it causes was still unmeasured;
+that flag was removed once the movement had been measured and accepted (two
+rows, both animation phase). `--warm-start-regenerate` survives as the debug /
+refresh lever.
+
+Everything that can go wrong falls back to exactly the machine `--load` has
+always assembled, and says so on `error` first — the only decline that is
+quiet is the non-Next one, which is not a decline at all (a 48K has no
+firmware to record, so nothing was refused and nothing was asked for).
 
 **Why it exists.** `Emulator::init()` skips the boot-ROM overlay whenever a
 load file is present — the overlay at `$0000-$1FFF` would clobber the
@@ -246,12 +257,53 @@ booted one does.
 **The cache** is `src/core/warm_start_cache.{h,cpp}`: one file per machine
 type under `<config-dir>/warm-start`, with a 96-byte header carrying the
 identity that invalidates it — the SD image's SHA-256, the machine type, a
-state-format version, and the exact stream length. Any mismatch discards the
-file and re-boots. The length is not a convenience: `Ram::load_state` reads a
-count-prefixed blob straight into the live RAM buffer, so refusing a stream
-whose length is not exactly what this build writes is what keeps a foreign
-recording from writing past it. It is **generated locally and never vendored**
-— a post-NextZXOS snapshot holds NextZXOS and DivMMC ROM content in RAM.
+state-format version, and the exact *uncompressed* stream length. Any mismatch
+discards the file and re-boots. The length is not a convenience:
+`Ram::load_state` reads a count-prefixed blob straight into the live RAM
+buffer, so refusing a stream whose length is not exactly what this build
+writes is what keeps a foreign recording from writing past it. It is
+**generated locally and never vendored** — a post-NextZXOS snapshot holds
+NextZXOS and DivMMC ROM content in RAM.
+
+**The header is plain; the payload is deflated.** The stream is ~2.29 MB, of
+which RAM is 91.5 % and 89.5 % of the whole file is zero bytes; zlib takes it
+to ~126 KB. zlib rather than zstd because zlib is already a required
+dependency (`find_package(ZLIB REQUIRED)`; `rzx.h`, `szx_loader.cpp` and
+`sdcard_provisioner.cpp` all use it). The header is **not** compressed,
+because it carries the identity the loader validates *before* it is willing
+to touch the payload: compressing it would mean inflating megabytes of a file
+not yet shown to be this build's, this machine's or this card's, and sizing
+the output buffer from a number read out of that same unvalidated stream.
+zlib's `uncompress()` also wants the exact output size up front — which is
+`plain_bytes`, in the plain header. There are therefore TWO lengths on disk:
+`plain_bytes` at offset 16 (identity, compared against this build) and
+`stored_bytes` at offset 88 (bytes on disk, compared against the file size and
+nothing else). The `Identity` field is named `plain_bytes` for that reason —
+the rename is what forced every former use site through the compiler when the
+second length appeared. The magic's trailing digit is the FILE-layout
+generation and went `JNEXTWS1` -> `JNEXTWS2` here; `kFormatVersion` did not
+move, because the state stream inside did not change.
+
+Three refusal branches came with the payload and are pinned by `WSC-Z-02`,
+`WSC-Z-03` and `WSC-Z-05`: a stream that will not inflate, one that inflates
+*short* of the declared plain length (zlib alone is happy with that — it
+reached `Z_STREAM_END` with room to spare — so the equality is checked
+explicitly), and a header declaring an empty payload.
+
+**The handover leaves 48 BASIC paged.** `nexload.asm` never writes 0x7FFD or
+0x1FFD; its last instruction is `rst $20` (`nexload.asm:587`), NextZXOS's
+"leave this dot command and jump to HL", and that OS handover is what selects
+ROM 3. Measured through the real chain in jnext — boot NextZXOS, *Command
+Line*, `.nexload` — the machine sits at `sram_rom = 0` (NextZXOS's own ROM)
+for the whole menu and command line and is at `7FFD=0x10, 1FFD=0x06,
+sram_rom = 3` from the program's first instruction. The synthetic machine gets
+this right by having only the 48K image in its SRAM ROM pages; the recording,
+taken at the NextZXOS menu, does not, so `init_for_load_from_file()` sets the
+two ROM-bank bits after the restore. It is deliberately NOT in
+`NexLoader::apply()`, which also runs on the synthetic path. Without it every
+program that reads the character set out of ROM renders noise —
+`magic-bp-demo` and `magic-port-demo` did, and row `G` of `warm-start-func` is
+the regression.
 
 **What it surfaced.** `NexLoader::apply()` did not model MMU0-5 at all; it
 relied on `init()`'s reset defaults happening to hold bank 5 at `$4000` and
@@ -262,10 +314,23 @@ machine the defaults do not hold — a measured MMU3 = page 17 sent every write
 to `$6000-$7FFF` into Layer 2's bank 8. `apply()` now writes them, which is a
 no-op on the synthetic path and pinned by `NEXMMU-01..07`.
 
-**Tests.** `test/warm_start/warm_start_test.cpp` (`WSC-*` for the cache file
-and its four invalidation keys, `WSR-*` for the residency criterion) plus the
-`warm-start-func` regression row for the end-to-end record → cache → restore
-round trip, which needs a real SD image and so cannot be a unit test.
+**The cost.** A miss costs a 500-frame boot, ~3.5 s headless. A hit costs the
+SD image's SHA-256 — ~0.5 s for a 1 GB image warm in the page cache, ~1.2 s
+cold — because the recording's identity is the image's *contents*. The cheap
+alternatives (a size+mtime key, a hashed prefix, a named subset of files) all
+accept a cached recording without reading the image, and any of them can serve
+a recording of a different card while reporting success; that is the worst
+failure this mechanism can have, because the machine it produces looks booted.
+Within a process the digest is paid once: the restored stream stays in
+`warm_start_state_` for the session, so a GUI **File > Load NEX File…** after
+a CLI `--load` costs nothing.
+
+**Tests.** `test/warm_start/warm_start_test.cpp` (`WSC-*` for the cache file,
+its four invalidation keys and the compressed payload; `WSR-*` for the
+residency criterion, the announced fallbacks and `WSR-DEF-01`, which proves the
+path is reached with no flag set) plus the `warm-start-func` regression row for
+the end-to-end record → cache → restore round trip, which needs a real SD image
+and so cannot be a unit test.
 
 ## The esxDOS stand-in for directly loaded programs
 

@@ -196,10 +196,22 @@ public:
     // through the same `Saveable` stream the rewind buffer uses, cache it
     // beside the SD image, restore it on later loads.
     //
-    // Opt-in (`--warm-start`) and Next-only. `--machine 48k/128k/plus3` never
-    // run tbblue.fw either, but they have no firmware to record, so there is
-    // nothing for this mechanism to do there — it says so and declines rather
-    // than quietly doing nothing.
+    // This is the BEHAVIOUR of a `--load` of a .nex on a Next, not an option.
+    // An emulator whose default is "run the program on a machine hardware
+    // cannot produce" has the wrong default; the recorded state is what
+    // `--load` should always meet. `--warm-start-regenerate` survives as the
+    // lever for when the firmware or NextZXOS on the card changes.
+    //
+    // Next-only. `--machine 48k/128k/plus3` never run tbblue.fw either, but
+    // they have no firmware to record, so there is nothing for this mechanism
+    // to do there and it declines on `debug` — quietly, because nothing is
+    // being refused. Every OTHER decline is an error the user can read.
+    //
+    // .nex-only, structurally: the single caller is load_nex(). A snapshot
+    // replaces the whole machine, so a warm start has nothing to contribute
+    // to one; a tape is loaded by a fast-load trap at a 48K-ROM address that
+    // a NextZXOS-resident machine does not have paged in, so warm-starting a
+    // tape would break loading rather than improve it.
 
     /// Obtain the warm-start state for this machine — from the cache when the
     /// identity matches, otherwise by BOOTING the firmware here and now (a
@@ -209,9 +221,11 @@ public:
     /// restored. A false return is never fatal: the caller falls back to the
     /// synthetic init(), which is what `--load` has always done.
     ///
-    /// Destructive by construction — recording re-init()s this emulator and
-    /// runs frames on it — so it is only ever called from a load path that
-    /// was going to re-initialise anyway.
+    /// Non-destructive to THIS emulator: a recording runs on its own freshly
+    /// constructed Emulator (see record_warm_start_state), because a cold boot
+    /// has to start from power-on state and a re-init() of a machine that has
+    /// already been init()ed once does not (GH #234 §10.2). All this does to
+    /// `this` is measure its state-stream length.
     bool ensure_warm_start_state();
 
     /// The recorded state, empty until ensure_warm_start_state() succeeds.
@@ -1486,7 +1500,7 @@ private:
     bool record_warm_start_state(std::vector<uint8_t>& out);
 
     /// The re-initialisation at the top of a NEX load: the warm-start
-    /// restore when it is enabled, available and this is a Next, and plain
+    /// restore when one is available for this machine and card, and plain
     /// init(config_) otherwise. Returns false only when init() itself fails.
     bool init_for_load_from_file();
 

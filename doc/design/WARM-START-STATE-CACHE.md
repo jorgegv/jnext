@@ -1,10 +1,14 @@
 # Warm-Start State Cache — running NEX files from a real post-boot machine
 
-> Status: **implemented, opt-in** (`--warm-start`). Milestone v1.1.
-> Tracking issue: [#234](https://github.com/jorgegv/jnext/issues/234).
+> Status: **implemented, and it is the behaviour — there is no enable flag**.
+> Milestone v1.1. Tracking issue:
+> [#234](https://github.com/jorgegv/jnext/issues/234).
 >
 > §10 below is the implementation record: what the measurement the design
 > demanded actually found, including the two places this document was wrong.
+> §11 records the follow-up decision that removed `--warm-start` and made the
+> recording the default, the compression that came with it, and the ROM
+> selection the default surfaced (§11.5, which falsifies §10.8).
 
 ## 1. The problem
 
@@ -384,3 +388,259 @@ menu at a fixed frame number is precisely the silent-wrong-capture failure §7.3
 warns about, and it turned out to be unnecessary: the loader establishes the
 memory map (§10.3) and zeroes bank 5, so what screen NextZXOS happened to be
 showing does not reach the program.
+
+---
+
+## 11. The default (2026-09-23) — and the compressed payload
+
+§10.3 shipped this as opt-in `--warm-start`, on the explicit ground that
+moving committed references is the repository owner's decision and not a side
+effect of adding a mechanism. That decision has now been made, in the owner's
+own words:
+
+> "I did not intend for warm-start to be an option. Just to be a quick way of
+> launching NEX files with exactly the same state as NextZXOS+nexload would."
+
+So the flag is gone. §10.6's answer to open question 3 ("Inverted: the feature
+is opt-in") is **superseded by this section**.
+
+### 11.1 Why a flag was the wrong shape
+
+An option whose default is "start the program on a machine hardware cannot
+produce" has the wrong default. The recorded state is not a mode; it is what
+`--load` should always have met. GH #226 is what the other default cost — a
+bit no code ever wrote, three dead hotkeys, and months before anyone noticed —
+and the whole argument of §1 is that such divergences cannot be enumerated
+except by comparison with a real boot. Putting that comparison behind a flag
+leaves the enumeration undone for everybody who does not type it.
+
+`--warm-start-regenerate` **stays**, unchanged in meaning: the debug / refresh
+lever for a card whose `TBBLUE.FW` or NextZXOS has been replaced and which the
+user wants re-recorded deliberately. It reaches only the `.nex` load path, so
+a run that cannot get there warns that it has nothing to regenerate rather
+than silently doing nothing.
+
+### 11.2 What "falls back loudly" now means
+
+With no flag on the command line there is nothing left to remind a user that a
+warm start was even attempted, so every fallback has to say so itself. The
+levels were re-chosen on that basis:
+
+| Path | Level | Why |
+|---|---|---|
+| Non-Next machine (`48k`/`128k`/`plus3`) | `debug` | NOT a refusal. There is no firmware to record, nothing was asked for and nothing was denied. On `warn` it would print on every legacy run forever, which is how a log stops being read. §7.4 asked for "out of scope, loudly"; with the flag gone, loud here is wrong. |
+| No SD image mounted | `error` | A Next that could have had a recording and does not. Unreachable from the CLI (`main.cpp` exits first) but reachable from the library and the GUI. |
+| SD image cannot be digested | `error` | Same. |
+| Recording boot did not end NextZXOS-resident | `error` | Already was. |
+| Recording length disagrees with this build | `error` | Already was. |
+| Cached state will not deserialise | `error` | Already was. |
+| Restored machine is not NextZXOS-resident | `error` | Already was. |
+| **A verdict already latched for this image** | `error` (NEW) | The latch stops the second load paying another 500-frame boot; it must not stop the second load being *explained*. Rows `WSR-LATCH-01/02`. |
+| Recorded but could not be cached | `warn` | Not a fallback at all — this run got its warm machine; only the next one pays again. |
+
+### 11.3 The payload is deflated; the header is not
+
+Measured on the real recording: **2 293 061 bytes**, of which RAM is 91.5 %
+(`Ram::save_state` writes `data_.data()` verbatim and the default RAM is
+2048 KB), 89.5 % of the whole file is zero and 88.5 % is zero in runs of >= 256.
+Deflate at level 9 takes it to **128 753 bytes — 5.6 %**. (zstd -19 reaches
+98 966, and is not worth a new dependency for the last 30 KB of a local cache
+file: **zlib is already required** — `find_package(ZLIB REQUIRED)`,
+`CMakeLists.txt:151`, used by `rzx.h`, `szx_loader.cpp` and
+`sdcard_provisioner.cpp`.)
+
+**The 96-byte header stays plain.** It carries the identity the loader
+validates *before* it is willing to trust a byte of the payload. Compressing
+it would mean inflating ~2.3 MB of a file not yet shown to be this build's,
+this machine's or this card's — expensive work on unvalidated input, with the
+output buffer sized from a number read out of that same input. Every refusal
+(wrong magic, wrong machine type, wrong digest, wrong plain length,
+truncation, empty payload) is answerable from 96 plain bytes, and that
+ordering — establish identity, *then* decompress — is what keeps the length
+guard meaningful; a guard that runs after the thing it guards is not one.
+zlib pulls the same way mechanically: `uncompress()` wants the exact output
+size up front, and that number lives in the plain header.
+
+**Two lengths, and they are not allowed to be confused.**
+
+| Offset | Field | Meaning | Compared against |
+|---|---|---|---|
+| 16 | `plain_bytes` | uncompressed stream length | what THIS BUILD's `save_state` produces |
+| 88 | `stored_bytes` | bytes of deflate stream on disk | the file's own size, and nothing else |
+
+The identity guard is the *plain* length, and it is load-bearing exactly as
+§10.6 described: `Ram::load_state` reads a count-prefixed blob straight into
+the live RAM buffer. `Identity::state_bytes` was therefore **renamed
+`plain_bytes`** — the rename is the mechanism, not the documentation: it made
+the compiler walk every former use site when the second length appeared,
+rather than leaving a name whose meaning had quietly moved. The compressed
+length is deliberately NOT in `Identity` at all: it is a property of the zlib
+build that wrote the file, not of the machine the recording is of.
+
+Inflation additionally asserts that the stream produces **exactly**
+`plain_bytes`. zlib's `uncompress()` refuses a stream wanting more room than
+it was given, but is perfectly happy with one that reaches `Z_STREAM_END`
+short of the buffer — and a short stream is precisely the shape that
+deserialises into the wrong fields instead of failing, since `load_state`
+reads a sequence of sized slots.
+
+**Magic bumped, `kFormatVersion` not.** `JNEXTWS1` -> `JNEXTWS2`: the magic's
+trailing digit is the FILE-layout generation and the file layout is what
+changed. `kFormatVersion` versions the *state stream*, and not one byte of
+that stream moved; bumping it would have been a false claim about
+`Emulator::save_state` and would have left the next reader unable to tell
+which mechanism answers which question. A v1 file fails at the magic — the
+first and cheapest check — instead of being handed to the inflater.
+
+### 11.4 The cost, measured
+
+| | |
+|---|---|
+| synthetic `--load` (unchanged) | 0.11-0.16 s |
+| warm `--load`, cache hit | 0.64-0.66 s |
+| warm `--load`, cache miss (records) | ~2.7-4.3 s |
+| cache file | 128 753 B (was 2 293 061 B) |
+
+The ~0.5 s a cache hit adds is **the SD image's SHA-256**, not the restore
+(the compressed file is 126 KB and `load_state` is milliseconds). It is ~1.2 s
+when the image is cold in the page cache. That cost is paid deliberately: the
+cheap alternatives — a `(size, mtime)` key, a hashed prefix, a named subset of
+files — all ACCEPT a cached recording without reading the image, and every one
+of them can serve a recording of a different card while reporting success.
+That is the worst failure this mechanism can have, because the machine it
+produces looks booted (§4, §10.6). Within a process the digest is paid once:
+the restored stream stays in `warm_start_state_` for the session, so a GUI
+**File > Load NEX File…** after a CLI `--load` costs nothing.
+
+In the regression suite the cache lands in the run's own `$JNEXT_CONFIG_DIR`,
+so it is recorded fresh every run. **Not once, though** — the screenshot phase
+launches `JNEXT_TEST_JOBS` rows at a time, and the first `.nex` rows of the
+conf (`palette-demo`, `copper-demo`, `show512` — rows 1-8 are `BOOT` rows that
+take no `--load`) start together against a cache that does not exist yet.
+Measured directly: four concurrent first loads produce **four** recordings and
+zero restores. They run in parallel, so the wall-clock cost is still one boot
+(~3.4 s); the CPU cost is four. Every later row restores. Added to that is the
+~0.5 s digest on each of the 42 `.nex` rows.
+
+Concurrent writers are **not** serialised, and that is a considered decision
+rather than an oversight. `store()` writes `<cache>.tmp` and renames, and the
+temp name is shared, so two writers finishing at once can rename a blended
+file into place. Every torn file is REFUSED by the reader: the magic, the
+plain length against this build's own, the file size against `stored_bytes`,
+the `compressBound` ceiling and finally deflate's adler32 all stand between it
+and `load_state`. The cost of a tear is therefore exactly one extra recording,
+never a wrong machine. A lock file (the shape `scripts/01-sdcard-provision.sh`
+uses) would save ~3.4 s of CPU once per suite run and add a hang mode; a
+unique temp name per process would remove the tear but replace a self-healing
+fixed path — the next writer truncates and reuses it — with litter a killed
+process leaves for ever. Neither trade is worth making for a local cache whose
+worst failure is a re-boot.
+
+### 11.5 What the default SURFACED: the handover leaves 48 BASIC paged
+
+Turning the warm start on for every `--load` moved four references, not two.
+Two of them — `magic-bp-demo` and `magic-port-demo` — came out with the text
+rendered as **noise**: correct layout, correct line positions, garbage glyphs.
+Both read the character set straight out of ROM (`ROM_CHARSET 0x3C00`,
+`demo/magic_bp_demo.c`). That is a defect, not a rebase.
+
+**The oracle.** Booting NextZXOS in jnext, choosing *Command Line* and typing
+`.nexload b.nex` against a copy of the demo on the card root — the §10.1
+method, the real loader on the real OS — renders the text **correctly** and is
+**pixel-identical (0 differing pixels) to the committed reference**. So the
+reference is right and the warm path was wrong.
+
+**The mechanism**, measured by probing `port_7ffd` / `port_1ffd` /
+`current_sram_rom()` / `read(0x3C00)` every 5 frames through that same run:
+
+| Phase | 7FFD | 1FFD | `sram_rom` |
+|---|---|---|---|
+| NextZXOS splash, menu, command line | `0x00` / `0x07` | `0x00` | **0** (NextZXOS's own ROM) |
+| From the program's first instruction | `0x10` | `0x06` | **3** (48 BASIC) |
+
+`nexload.asm` never writes either port — grep it. Its last instruction is
+`rst $20` (`nexload.asm:587`), NextZXOS's "leave this dot command and jump to
+HL", and **that** handover is what selects ROM 3. It is OS behaviour the
+loader inherits rather than performs, which is exactly why
+`NexLoader::apply()` does not model it and must not: `apply()` also runs on
+the synthetic path, where the SRAM ROM pages hold only the 48K image and the
+selection means something different.
+
+The synthetic machine got this right by having no alternative — the 48K image
+is the only ROM it has. The recording, taken at the NextZXOS menu, carries the
+OS's four-ROM set with **ROM 0** selected, so the program read NextZXOS's code
+as font data.
+
+**The fix** is two lines in `Emulator::init_for_load_from_file()`, after the
+restore and its residency re-check: set 7FFD bit 4 and 1FFD bit 2, the two
+bits that compose the ROM bank (`Mmu::current_rom_bank()`, VHDL
+`zxnext.vhd:2994`). Only those two — 7FFD's low bits also select the bank at
+`0xC000` (which `apply()` overwrites from the entry bank regardless) and 1FFD
+bit 1 is the +3 disk motor, which none of this is about. After it, the
+restored machine reads `7FFD=0x10 1FFD=0x04 sram_rom=3`, `0x3C00 = FF FF 00
+00` — byte-identical to the oracle's handover state — and both references
+match at **0 pixels** again.
+
+It is confined to the warm path on purpose, so the synthetic path stays
+byte-for-byte what it was, which is the property §10.1's 37-row measurement
+rested on.
+
+**This falsifies §10.8's claim** that "what screen NextZXOS happened to be
+showing does not reach the program". It does reach it, through the 128K/+3 ROM
+selection. The capture point is still the right one — driving a menu at a
+fixed frame remains the failure §7.3 warns about — but the machine the
+recording holds is the OS's, and the handover the OS performs on top of it has
+to be modelled explicitly rather than assumed away.
+
+Row `G` of `warm-start-func` is the regression: it warm-starts
+`magic_bp_demo.nex` and requires 0 pixels against the committed reference. The
+`D` row's `tilemap-demo` does not read the ROM and passed throughout, which is
+why `G` is a separate run rather than another assertion on the same one.
+
+### 11.6 Reference movement, verified before regeneration
+
+§10.4 measured ten moved rows: eight from the ULA palette and two from
+animation phase. The eight are gone — GH #70 landed on `main` (commit
+`6d73b61c`, "seed the ULA palette from the boot chain's table, not level 6"),
+which moved the cold path onto the same table the firmware writes, so the warm
+and cold paths now agree there. The two ROM-font rows of §11.5 were a defect
+and are back at 0 px.
+
+That leaves the two §10.4 named: **`celeste` (1440 px) and `celeste2`
+(1520 px)**, both animation phase, and the evidence for "animation phase" is:
+
+1. **Every differing cluster is one particle.** In emulated-pixel space the
+   changes form 37 (celeste) / 39 (celeste2) 8-connected clusters whose sizes
+   are only 4, 8 and 16 — a 2x2 snowflake, two touching ones, a 4x4. There is
+   no cluster larger than a single particle sprite anywhere in either frame.
+2. **Only the snow palette moves.** All changes swap among **six** distinct
+   RGB triples: sky blue `(36,182,255)`, white `(255,255,255)`, light grey
+   `(219,219,219)`, dark grey `(73,73,73)`, black `(0,0,0)`, and — at low
+   frequency, 4 and 20 endpoint-occurrences in the emulated-pixel space this
+   paragraph counts in, which is 16 and 80 in the PNG, a 2x2 blow-up —
+   `(36,36,73)`, an edge blend of the sky-blue/dark-grey pair rather than a
+   region of its own. (This paragraph said "five" until an independent review
+   counted them; the sixth is the one it is easy to read past.) The HUD, the
+   timer (`00:00:00`), the
+   `100 M` marker, the player sprite and the whole level geometry are
+   identical.
+3. **It is deterministic.** Two warm runs of each are 0 px apart, so the
+   regenerated reference is a stable target rather than a sample.
+4. **The reference is not the privileged phase.** Running `celeste` through
+   the real chain — boot NextZXOS, Command Line, `.nexload c.nex` — differs
+   from the committed reference by 688 px of exactly the same particle
+   clusters. The hardware path does not reproduce the synthetic phase either;
+   the phase simply is not pinned, because the program starts on a machine
+   holding NextZXOS's RAM leftovers, which is what happens on hardware too.
+
+Those two references were regenerated with the owner's explicit sign-off, in a
+commit of their own, after confirming that no third row moved.
+
+### 11.7 Still not vendored
+
+Nothing here weakens §4. The recording is still produced on the user's machine
+from the image they mounted, still stored under `~/.jnext`, still never
+committed and never packaged. Compression changes its size, not its contents:
+a 126 KB file holding NextZXOS and DivMMC ROM content is a file holding
+firmware exactly as a 2.2 MB one is.
+

@@ -7459,21 +7459,37 @@ bool Emulator::ensure_warm_start_state()
 {
     if (!warm_start_state_.empty()) return true;
     if (!config_.sd_card_image.empty() &&
-        warm_start_failed_image_ == config_.sd_card_image) return false;
+        warm_start_failed_image_ == config_.sd_card_image) {
+        // The verdict is latched per image (see the member's doc comment), but
+        // the ANNOUNCEMENT is not. Every load that silently gets the synthetic
+        // machine is a load whose result the user cannot explain, and with the
+        // warm start now the behaviour rather than an option there is no flag
+        // on the command line to remind them it was even attempted. So the
+        // latch short-circuits the 500-frame boot, not the sentence.
+        Log::emulator()->error(
+            "warm start: this SD image was already refused earlier in this session — "
+            "this load falls back to the synthetic machine");
+        return false;
+    }
 
     if (config_.type != MachineType::ZXN_ISSUE2) {
-        // Not a failure, and not silence either: a user who asked for a warm
-        // start on a 48K has asked for something that does not exist, and
-        // should be told so rather than left wondering.
-        Log::emulator()->warn(
-            "warm start: ignored on the {} — only the Next boots firmware, so there "
-            "is nothing to record",
+        // NOT an error, and deliberately quiet. The warm start is the default
+        // for a Next; on a 48K/128K/+3 there is no firmware to record, so
+        // there is nothing being refused and nothing the user did wrong. When
+        // this was a flag the user had typed, saying so on `warn` was right —
+        // they had asked for something that does not exist. Now that every
+        // `--load` comes through here, the same line would print on every
+        // legacy-machine run forever, which is how a log stops being read.
+        Log::emulator()->debug(
+            "warm start: not applicable on the {} — only the Next boots firmware, so "
+            "there is nothing to record",
             machine_type_str(config_.type));
         return false;
     }
     if (config_.sd_card_image.empty()) {
-        Log::emulator()->warn("warm start: ignored — no SD image is mounted, so there "
-                              "is no firmware to boot");
+        Log::emulator()->error("warm start: no SD image is mounted, so there is no "
+                               "firmware to boot — this load falls back to the "
+                               "synthetic machine, which is NOT what hardware does");
         return false;
     }
 
@@ -7483,20 +7499,30 @@ bool Emulator::ensure_warm_start_state()
     {
         StateWriter measure;
         save_state(measure);
-        id.state_bytes = measure.position();
+        id.plain_bytes = measure.position();
     }
+    // The whole-image digest, on every load, is what keeps this a recording
+    // rather than a fixture — and it is the dominant cost of a warm start
+    // once the recording exists (~1.2 s for a 1 GB image; the restore itself
+    // is milliseconds). It is paid deliberately. The cheap alternatives all
+    // ACCEPT a cached recording without reading the image — a (size, mtime)
+    // key, a hashed prefix, a named subset of files — and every one of them
+    // can serve a recording of a DIFFERENT card while reporting success,
+    // which is the worst failure this mechanism can have because the machine
+    // it produces looks booted. Within a process the digest is paid once: the
+    // restored state stays in warm_start_state_ for the session.
     id.sd_image_sha256 = sdcard::sha256_file(config_.sd_card_image);
     if (id.sd_image_sha256.empty()) {
-        Log::emulator()->warn("warm start: cannot digest SD image '{}' — falling back "
-                              "to the synthetic machine",
-                              config_.sd_card_image);
+        Log::emulator()->error("warm start: cannot digest SD image '{}' — this load "
+                               "falls back to the synthetic machine",
+                               config_.sd_card_image);
         warm_start_failed_image_ = config_.sd_card_image;
         return false;
     }
 
     if (config_.warm_start_regenerate) {
         Log::emulator()->info("warm start: --warm-start-regenerate — ignoring any "
-                              "cached state");
+                              "cached state and taking a fresh recording");
     } else {
         std::string why;
         if (warm_start::load(id, warm_start_state_, why)) {
@@ -7521,11 +7547,11 @@ bool Emulator::ensure_warm_start_state()
     // guard that stops a foreign stream writing past that buffer
     // (Ram::load_state reads a count-prefixed blob straight into it), and a
     // guard derived from an assumption is not one.
-    if (warm_start_state_.size() != id.state_bytes) {
+    if (warm_start_state_.size() != id.plain_bytes) {
         Log::emulator()->error(
             "warm start: the recording is {} bytes but this machine's state stream is "
             "{} — discarding it",
-            warm_start_state_.size(), id.state_bytes);
+            warm_start_state_.size(), id.plain_bytes);
         warm_start_state_.clear();
         warm_start_failed_image_ = config_.sd_card_image;
         return false;
@@ -7538,16 +7564,32 @@ bool Emulator::ensure_warm_start_state()
         Log::emulator()->warn("warm start: recorded but not cached ({}); the next run "
                               "will boot again", why);
     } else {
-        Log::emulator()->info("warm start: cached at {}",
-                              warm_start::cache_path(id.machine_type));
+        // The on-disk size is read back rather than computed: it is the
+        // compressed length, the plain stream above is ~2.2 MB, and printing
+        // the number that is actually on the disk is the only way a reader
+        // can tell the compression is doing anything.
+        std::error_code sz_ec;
+        const auto on_disk =
+            std::filesystem::file_size(warm_start::cache_path(id.machine_type), sz_ec);
+        Log::emulator()->info("warm start: cached at {} ({} KB on disk, deflated from "
+                              "{} KB)",
+                              warm_start::cache_path(id.machine_type),
+                              sz_ec ? 0u : static_cast<unsigned>((on_disk + 512) / 1024),
+                              (warm_start_state_.size() + 512) / 1024);
     }
     return true;
 }
 
 bool Emulator::init_for_load_from_file()
 {
-    if (!config_.warm_start) return init(config_);
-
+    // No flag guards this. A `--load` of a .nex on a Next gets the recorded
+    // machine because that is what the program would meet on hardware; an
+    // option whose default is "start on a machine the firmware cannot
+    // produce" is the wrong default, and GH #226 is what that default cost.
+    // Every way this can decline — a non-Next, no SD image, a card with no
+    // firmware, a recording that will not deserialise, a restore that is not
+    // NextZXOS-resident — falls back to exactly the machine `--load` has
+    // always assembled, and says so first.
     if (!ensure_warm_start_state()) return init(config_);
 
     // init() FIRST, then restore on top. The state stream carries the emulated
@@ -7585,6 +7627,34 @@ bool Emulator::init_for_load_from_file()
         warm_start_failed_image_ = config_.sd_card_image;
         return init(config_);
     }
+
+    // Hand over the way NextZXOS hands over: with 48 BASIC paged.
+    //
+    // `nexload.asm` never writes 0x7FFD or 0x1FFD — its very last act is
+    // `rst $20` (nexload.asm:587), NextZXOS's "leave this dot command and
+    // jump to HL". THAT is what selects ROM 3, and it is OS behaviour the
+    // loader inherits rather than performs, which is why NexLoader::apply()
+    // does not model it and must not: it would then fire on the synthetic
+    // path too.
+    //
+    // MEASURED, on this emulator, driving the real chain — boot NextZXOS,
+    // Command Line, `.nexload b.nex`: the machine sits at 7FFD=0x00/0x07,
+    // 1FFD=0x00, sram_rom=0 for the whole menu and command line, and is at
+    // 7FFD=0x10, 1FFD=0x06, sram_rom=3 from the moment the program's first
+    // instruction runs. The synthetic path has only the 48K image in its
+    // SRAM ROM pages, so it got this right by having no alternative; the
+    // recording, taken at the NextZXOS menu, carries the OS's own ROM 0 and
+    // got it wrong. Two committed references caught it — magic-bp-demo and
+    // magic-port-demo both read the character set straight out of ROM
+    // (`ROM_CHARSET 0x3C00`), and rendered noise where glyphs belong.
+    //
+    // Only the two ROM-select bits are set, not the measured bytes: 7FFD's
+    // low bits also choose the bank at 0xC000 (which apply() overwrites from
+    // the entry bank anyway) and 1FFD bit 1 is the +3 disk motor, which no
+    // part of this is about. ROM bank = (1FFD(2), 7FFD(4)) — mmu.h
+    // current_rom_bank(), VHDL zxnext.vhd:2994.
+    mmu_.map_plus3_bank(static_cast<uint8_t>(mmu_.port_1ffd() | 0x04));
+    mmu_.map_128k_bank(static_cast<uint8_t>(mmu_.port_7ffd() | 0x10));
 
     Log::emulator()->info("warm start: NextZXOS is resident; the program is applied on "
                           "top of it, as nexload does on hardware");

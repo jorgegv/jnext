@@ -162,16 +162,17 @@ struct EmulatorConfig {
     // machine Emulator::init() assembles. Next-only; 48k/128k/plus3 have no
     // firmware to record. See src/core/warm_start_cache.h.
     //
-    // DEFAULT OFF. The mechanism changes what every `--load` program sees, and
-    // the screenshot references that pin those programs were all taken against
-    // the synthetic machine — so turning it on by default is a change to the
-    // recorded expectations of the suite, which is the repository owner's
-    // decision and not a side effect of adding the feature.
-    bool warm_start = false;
-    // Discard any cached recording and take a fresh one. For a user whose
-    // cache was recorded before an SD image was edited in a way the digest
-    // cannot see (a file replaced with one of identical content is not that;
-    // a deliberate experiment is), and for testing the recording path itself.
+    // THERE IS NO ENABLE FLAG. It shipped in v1.0.6 as opt-in `--warm-start`
+    // while the reference movement it causes was still unmeasured; that has
+    // since been measured and signed off, and an option whose default is
+    // "start the program on a machine hardware cannot produce" is the wrong
+    // default. Every `--load` of a .nex on a Next takes the recorded machine
+    // or says loudly why it could not.
+    //
+    // Discard any cached recording and take a fresh one. The debug / refresh
+    // lever: for a card whose TBBLUE.FW or NextZXOS has been updated in a way
+    // the image digest DOES see but the user wants re-recorded deliberately,
+    // and for testing the recording path itself.
     bool warm_start_regenerate = false;
 
     // Rewind buffer: number of frame snapshots to keep (0 = disabled).
