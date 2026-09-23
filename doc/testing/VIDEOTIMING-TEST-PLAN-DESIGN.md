@@ -259,7 +259,7 @@ coupling below).
 |---|--------|--------|------|---------:|--------|
 | 1 | VT-01  | new    | 48K `hc_max()` and `vc_max()` after `init(ZX48K)` | 447, 311 | skip (F-VT-MAX-REBASE) |
 | 2 | VT-02  | new    | 128K `hc_max()` and `vc_max()` after `init(ZX128K)` | 455, 310 | skip (F-VT-MAX-REBASE) |
-| 3 | VT-03  | new    | Pentagon `hc_max()` and `vc_max()` after `init(PENTAGON)` | 447, 319 | skip (F-VT-MAX-REBASE) |
+| 3 | ~~VT-03~~ | new | ~~Pentagon `hc_max()` and `vc_max()` after `init(PENTAGON)`~~ | ~~447, 319~~ | **RETIRED 2026-09-24 (GH #201)** — covered live by `VT-T51-01`; see the retirement note in § Planned rows carried over |
 
 Rows 1-3 are justified as neighbour-expansion: they pin the
 VHDL-faithful `c_max_hc`/`c_max_vc` values that the C++ `init()`
@@ -304,7 +304,7 @@ as a natural follow-on, but that is not in this plan's re-home scope.
 | # | Row ID | Origin | Test | Expected | Status |
 |---|--------|--------|------|---------:|--------|
 | 1 | VT-04  | S13.05 | 128K `display_origin()` after `init(ZX128K)` | hc=136, vc=64 | skip (F-VT-ACCESSOR) |
-| 2 | VT-05  | S13.06 | Pentagon `display_origin()` after `init(PENTAGON)` | hc=128, vc=80 | skip (F-VT-ACCESSOR) |
+| 2 | ~~VT-05~~ | S13.06 | ~~Pentagon `display_origin()` after `init(PENTAGON)`~~ | ~~hc=128, vc=80~~ | **RETIRED 2026-09-24 (GH #201)** — covered live by `VT-T51-01`; see the retirement note in § Planned rows carried over |
 | 3 | VT-06  | new    | 48K `display_origin()` after `init(ZX48K)` — symmetry baseline | hc=128, vc=64 | skip (F-VT-ACCESSOR) |
 
 VT-06 is the symmetry partner of VT-04/05; it pins the 48K VHDL
@@ -402,7 +402,7 @@ accessor is an observation surface, not a behaviour change.
 |---|--------|--------|------|---------:|--------|
 | 1 | VT-10  | S14.01 | 48K `int_position()` after `init(ZX48K)` | hc=116, vc=0 | skip (F-VT-ACCESSOR) |
 | 2 | VT-11  | S14.02 | 128K `int_position()` after `init(ZX128K)` | hc=128, vc=1 | skip (F-VT-ACCESSOR) |
-| 3 | VT-12  | S14.03 | Pentagon `int_position()` after `init(PENTAGON)` | hc=439, vc=319 | skip (F-VT-ACCESSOR) |
+| 3 | ~~VT-12~~ | S14.03 | ~~Pentagon `int_position()` after `init(PENTAGON)`~~ | ~~hc=439, vc=319~~ | **RETIRED 2026-09-24 (GH #201)** — covered live by `VT-T51-01`; see the retirement note in § Planned rows carried over |
 | 4 | VT-13  | new    | +3 `int_position()` after `init(ZX_PLUS3)` — VHDL `i_timing(0)='1'` selects the 126 variant | hc=126, vc=1 | skip (F-VT-ACCESSOR) |
 
 VT-13 is the VHDL-justified neighbour of VT-11: the same
@@ -962,9 +962,39 @@ which is what they are.
 
 | ID | Description | VHDL file:line |
 |----|-------------|----------------|
-| VT-03 | Pentagon `hc_max()`/`vc_max()` after `init(PENTAGON)` = 447, 319 (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:160/168 — `c_max_hc<=447`, `c_max_vc<=319`. No `check()` exists under the literal ID `VT-03`: the standalone `MachineType::Pentagon` enum this row's `init(PENTAGON)` API describes was dropped Wave 0.3 (2026-05-04) — but Pentagon TIMING itself is not gone, NR 0x03 tim_sel bit 2 still selects it at runtime. The identical facts are proven LIVE by `VT-T51-01` (Section 10, Task 51) via `init_timing(MachineTimingMode::TimingPentagon)`, same VHDL lines) | zxula_timing.vhd:160,168 |
-| VT-05 | Pentagon `display_origin()` = {128, 80} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:159/167 — `c_min_hactive<=128`, `c_min_vactive<=80`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:159,167 |
-| VT-12 | Pentagon `int_position()` = {439, 319} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:155/163 — `c_int_h<=448+3-12`=439, `c_int_v<=319`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:155,163 |
+| ~~VT-03~~ | ~~Pentagon `hc_max()`/`vc_max()` after `init(PENTAGON)` = 447, 319~~ | ~~zxula_timing.vhd:160,168~~ |
+| ~~VT-05~~ | ~~Pentagon `display_origin()` = {128, 80}~~ | ~~zxula_timing.vhd:159,167~~ |
+| ~~VT-12~~ | ~~Pentagon `int_position()` = {439, 319}~~ | ~~zxula_timing.vhd:155,163~~ |
+
+**All three RETIRED 2026-09-24 (GH #201) onto `VT-T51-01`.** The prior
+phase (GH #196 phase 1.4) had already verified the citations and written
+the disposition into the row text, but left the rows unstruck, so the
+generator kept emitting three `missing` entries for facts that pass on
+every run.
+
+The retirement was checked rather than inherited: `VT-T51-01`'s `check()`
+(Section 10, `videotiming_test.cpp`) is a single conjunction over
+**all six** constants these three rows name —
+
+```cpp
+vt.init_timing(MachineTimingMode::TimingPentagon);
+const bool ok = vt.hc_max() == 447 && vt.vc_max() == 319 &&
+                vt.display_origin().hc == 128 &&
+                vt.display_origin().vc == 80 &&
+                vt.int_position().hc == 439 &&
+                vt.int_position().vc == 319;
+```
+
+— so VT-03 (`hc_max`/`vc_max`), VT-05 (`display_origin`) and VT-12
+(`int_position`) are each fully contained in it, against the same VHDL
+lines. Mutation-confirmed: setting the Pentagon `vc_max_` to 318 fails
+`VT-T51-01`.
+
+Only the API these rows were written against is gone. `MachineType::Pentagon`
+was dropped in Wave 0.3 (2026-05-04); Pentagon *timing* was not, and NR 0x03
+`tim_sel` bit 2 still selects it at runtime through
+`init_timing(MachineTimingMode::TimingPentagon)`. Rewriting the three rows
+against that entry point would restate `VT-T51-01` three times over.
 
 ## Coverage notes (moved from the traceability matrix, GH #196)
 

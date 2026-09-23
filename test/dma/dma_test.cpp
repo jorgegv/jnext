@@ -211,10 +211,19 @@ void group1_port_decode() {
               fmt("counter=0x%04X  VHDL dma.vhd:675-676", dma.counter()));
     }
 
-    // 1.5 — REMOVED (redundant with 1.1/1.2).  dma_mode_i is re-latched on
-    // every port access in VHDL dma.vhd:213-242; the "default after reset"
-    // check would just re-test 1.1 (ZXN LOAD yields counter=0) with no
-    // additional signal.  No independent observable, no test value.
+    // 1.5 — RETIRED 2026-09-24 (GH #201).  The reset value of dma_mode is
+    // UNREACHABLE, which is a stronger reason than the "redundant with
+    // 1.1/1.2" note that stood here.  zxnext.vhd:1816-1817 re-latches
+    // dma_mode on every port access, and its only consumers are
+    // dma_mode_i at dma.vhd:482 (FINISH_DMA auto-restart reload) and
+    // :664/:673 (R6 LOAD / CONTINUE counter init).  Every one of those is
+    // reached only after the guest has programmed the DMA through port
+    // 0x0B or 0x6B -- and that programming write is itself an access that
+    // latches the mode.  There is no window in which the reset default is
+    // the value a consumer sees.  jnext carries the mode as a per-access
+    // parameter (Dma::write(val, z80_compat)), the same semantics with no
+    // separate reset state to observe.  1.1/1.2 and 1.6 cover the
+    // reachable behaviour.
 
     // 1.6 Mode switches per access: alternate ZXN and Z80 LOADs.
     {
@@ -776,22 +785,22 @@ void group7_r5() {
               fmt("state=%d  VHDL dma.vhd:238,494", (int)dma.state()));
     }
 
-    // 7.3 — DEFERRED (not a skip).  VHDL dma.vhd:622 assigns R5_ce_wait_s
-    // but the consuming branches at dma.vhd:341, :409 are commented out in
-    // the VHDL source.  When/if those branches are re-enabled, this test
-    // comes back:
-    //   {
-    //       fresh(dma);
-    //       zxn(dma, 0x92);                  // R5 with ce_wait=1
-    //       check("7.3", "R5 ce_wait bit stored",
-    //             /* would need a ce_wait() accessor */);
-    //   }
+    // 7.3 — RETIRED 2026-09-24 (GH #201).  R5_ce_wait_s is a write-only
+    // dead latch in the authoritative VHDL: assigned at dma.vhd:622,
+    // cleared at :237 (reset) and :644 (R6 0xC3), and read at exactly two
+    // places -- :341 and :409 -- BOTH of which are commented out in the
+    // VHDL source.  The bit therefore has no hardware effect at all, and
+    // jnext models none.  The only assertion available would be a
+    // setter->getter round-trip on a field nothing consumes, which is the
+    // tautology class test/lint-assertions.sh exists to reject.  Revisit
+    // only if those two VHDL branches are re-enabled upstream.
 
-    // 7.4 — DEFERRED (not a skip).  R5 reset defaults: ce_wait=0 +
-    // auto_restart=0.  The auto_restart reset is covered by 7.2 (behavioural
-    // proof).  ce_wait has no behavioural consequence (see 7.3), so checking
-    // its reset value is field-initialisation busywork.  Keep deferred until
-    // 7.3 is implementable.
+    // 7.4 — RETIRED 2026-09-24 (GH #201).  Both bits, separately:
+    //   * R5_auto_restart_s = 0 at reset is proven BEHAVIOURALLY by live
+    //     row 7.2 above -- a fresh DMA run to the end of a block lands in
+    //     IDLE, not TRANSFERRING, which is only true when auto-restart
+    //     defaults off (dma.vhd:238, :494).
+    //   * R5_ce_wait_s = 0 is the same dead latch as 7.3.
 }
 
 // ══════════════════════════════════════════════════════════════════════

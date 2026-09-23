@@ -483,7 +483,7 @@ in the 0-16K region.
 | P7F-08  | Bank 7 select                 | 0x7FFD ← 0x07               | MMU6=0x0E, MMU7=0x0F                  |
 | P7F-09  | ROM 0 select                  | 0x7FFD ← 0x00               | MMU0=0xFF, MMU1=0xFF, ROM 0 active    |
 | P7F-10  | ROM 1 select (bit 4)          | 0x7FFD ← 0x10               | MMU0=0xFF, MMU1=0xFF, ROM 1 active    |
-| P7F-11  | Shadow screen (bit 3)         | 0x7FFD ← 0x08               | port_7ffd_shadow = 1                  |
+| ~~P7F-11~~ | ~~Shadow screen (bit 3)~~ | ~~0x7FFD ← 0x08~~ | **RETIRED 2026-09-24 (GH #201)** — covered live by **P7F-16** in this suite (`mmu_test.cpp`): `map_128k_bank(0x08)` → `Mmu::shadow_screen_en()` true, with the boot-clear and clear-on-0x00 legs as discriminators (`zxnext.vhd:3652, :3768`). The comment in the suite had pointed at `ula_test.cpp` S15.02 “and S15.04” instead — S15.02 asserts the ULA-side bank-7 fetch, a different claim, and S15.04 has not existed since it was itself re-homed here as P7F-17. Both halves of that pointer were wrong and are corrected in the source. |
 | P7F-12  | Lock bit (bit 5)              | 0x7FFD ← 0x20               | port_7ffd_locked = 1                  |
 | P7F-13  | Locked write rejected         | Lock, then write 0x7FFD ← 1 | MMU6/7 unchanged                      |
 | P7F-14  | NR 0x08 bit 7 unlocks         | Lock, NR 0x08 ← 0x80        | port_7ffd_reg(5) cleared → unlocked   |
@@ -522,7 +522,7 @@ as `a1495ba`).
 | P1F-04  | ROM bank 3 (+3 mode)          | 1FFD ← 0x04, 7FFD ← 0x10   | port_1ffd_rom = "11", ROM 3           |
 | P1F-05  | Special mode enable            | 1FFD ← 0x01                  | port_1ffd_special = 1, all-RAM        |
 | P1F-06  | Locked by 7FFD bit 5          | Lock, 1FFD ← 0x01           | 1FFD register unchanged               |
-| P1F-07  | Motor bit independent          | 1FFD ← 0x08                  | Disk motor on, paging unaffected      |
+| ~~P1F-07~~ | ~~Motor bit independent~~ | ~~1FFD ← 0x08~~ | **RETIRED 2026-09-24 (GH #201)**, upgrading the 2026-04-21 WONT to a settled scope decision on the evidence in [GH #24](https://github.com/jorgegv/jnext/issues/24) (closed 2026-09-23). jnext models no disk motor because **no ZX Next board has a floppy controller to drive one**: on the Issue 2 reference target `gen_fdc_234` ties `o_BUS_P3_MTR_n <= '1'` permanently inactive (`zxnext.vhd:1681-1689`) and `zxnext_top_issue2.vhd:2468-2470` leaves the three FDC signals `=> open`, not connected to a pin. `port_1ffd_mtr_n` (`zxnext.vhd:3757`) is latched but, on this board, drives nothing. Its one other consumer is the Multiface register readback at `:4312`, which is MF-suite territory, not paging. |
 
 ### Category 6: +3 Special Paging Modes
 
@@ -576,7 +576,7 @@ as `a1495ba`).
 | EF7-03  | Bit 2 = 1 disables Pent-1024     | NR 0x8F=0x03, EFF7 ← 0x04 | pentagon_1024_en = 0, lock is NOT overridden   |
 | EF7-04  | Reset state                       | After reset                | port_eff7_reg_2 = 0, port_eff7_reg_3 = 0     |
 | EF7-05  | Soft reset preserves EFF7 + RAM-at-0 | EFF7 ← 0x0C, reset(false) | port_eff7_reg_{2,3} preserved, slots 0/1 stay RAM (VHDL:3777) |
-| EF7-06  | NR 0x85 b2 (`port_eff7_io_en`) gates EFF7 writes | NR 0x85 b2 ← 0; OUT 0xEFF7 ← 0x0C (Pent-1024 disable + RAM-at-0); follow with the usual paging-change trigger | `port_eff7_reg_{2,3}` stays 0; MMU0 stays at ROM. VHDL `zxnext.vhd:2604, 2441, 2392` ANDs port-decode with `internal_port_enable(26)` which sits in the nr_85 byte (= NR 0x85 bit 2). **G143 fix landed** in `emulator.cpp` 2026-04-28; **NR mapping corrected to NR 0x85 b2 on 2026-05-04** during Tier A SKIP-reduction. RE-HOMED to `test/mmu/mmu_integration_test.cpp` (MMU-EF7-IO-EN-00..02). |
+| ~~EF7-06~~ | ~~NR 0x85 b2 (`port_eff7_io_en`) gates EFF7 writes~~ **RETIRED 2026-09-24 (GH #201)** — the re-home named below completed; the parent ID was never struck, so the generated matrix kept emitting it as `missing` beside its own three live children. Covered by **MMU-EF7-IO-EN-00/01/02** in `test/mmu/mmu_integration_test.cpp` (all pass): baseline clear, gate CLOSED drops an `OUT 0xEFF7,0x0C`, gate OPEN lets the same write set both flags — a discriminative pair on the exact AND-gate this row describes. Original row text: | NR 0x85 b2 ← 0; OUT 0xEFF7 ← 0x0C (Pent-1024 disable + RAM-at-0); follow with the usual paging-change trigger | `port_eff7_reg_{2,3}` stays 0; MMU0 stays at ROM. VHDL `zxnext.vhd:2604, 2441, 2392` ANDs port-decode with `internal_port_enable(26)` which sits in the nr_85 byte (= NR 0x85 bit 2). **G143 fix landed** in `emulator.cpp` 2026-04-28; **NR mapping corrected to NR 0x85 b2 on 2026-05-04** during Tier A SKIP-reduction. RE-HOMED to `test/mmu/mmu_integration_test.cpp` (MMU-EF7-IO-EN-00..02). |
 
 ### Category 11: ROM Selection
 
@@ -1084,18 +1084,39 @@ carries COVERED-AT comments.
 
 ### Category 26: `.dsk` / +3 FDC Loading (parked here as `BOOT-FDC-*`)
 
-> Note: jnext does not model the uPD765 FDC. P1F-07 in this plan is
-> already a WONT decision (commit `3dd892a`, 2026-04-21,
-> *"+3 disk motor — explicit decision NOT to implement; NextZXOS /
-> SD / NEX loaders cover relevant software"*). Tracked for
-> completeness so any future re-evaluation has pre-allocated rows.
-> Future implementer must lift P1F-07 first.
+> **All three rows RETIRED 2026-09-24 (GH #201).** They are not a
+> coverage gap and there is no future implementer to hand them to:
+> [GH #24](https://github.com/jorgegv/jnext/issues/24) was closed
+> NOT PLANNED on 2026-09-23 with the finding that **there is no FDC to
+> emulate on any ZX Next board issue**, and that `.DSK` already works
+> without one.
+>
+> Re-verified against the VHDL for this retirement:
+> - 76 VHDL files, no disk-controller entity. On the Issue 2 reference
+>   target `gen_fdc_234` (`zxnext.vhd:1681-1689`) ties `o_BUS_P3_MTR_n`,
+>   `o_BUS_P3_DRD_n` and `o_BUS_P3_DWR_n` permanently inactive, and
+>   `zxnext_top_issue2.vhd:2468-2470` leaves all three `=> open` — not
+>   wired to a pin.
+> - Only `gen_fdc_5` (board issue >= 3) forwards them, and then to a
+>   *physically attached external* controller, not an on-board one.
+> - Ports 0x2FFD/0x3FFD are an optional I/O **trap**, not a controller:
+>   gated on NR 0xD8 bit 0 (`zxnext.vhd:2601-2602`), with no read-data
+>   path at all, raising a Multiface-class NMI and recording the cause
+>   in NR 0xD9/0xDA (`:3835-3898`). NextZXOS's handler answers it with
+>   an error dialog, not with FDC behaviour.
+> - `.DSK`/`.P3D` images mount at the +3DOS layer via NextZXOS
+>   automount, measured end-to-end in jnext v1.0.18 (see #24), and the
+>   regression suite carries a `sdcard-dsk-automount-func` row for it.
+>
+> Building a uPD765 would make jnext diverge from the machine it
+> emulates, so this is a scope decision, not an omission. P1F-07 is
+> retired on the same evidence.
 
 | ID         | Test                                            | Setup                                                                  | Expected                                                                                                |
 |------------|-------------------------------------------------|------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------|
-| BOOT-FDC-01 | `.dsk` (CPCEMU/EDSK) image mounted on +3 drive | `--machine plus3 --load game.dsk`                                       | FDC enumerates tracks/sectors; +3DOS recognises disk and shows catalog. skip — no uPD765 / no `.dsk` loader; P1F-07 = WONT (see G38) |
-| BOOT-FDC-02 | uPD765 motor-on / read-id behaviour            | Issue Read-ID command; check status registers                          | ST0/ST1/ST2 and CHRN bytes per uPD765 datasheet. skip — uPD765 unmodelled; P1F-07 = WONT (see G38)        |
-| BOOT-FDC-03 | NR 0x81 b3 (`fdc` clken) gates motor-on        | NR 0x81 ← bit3=1; observe drive-motor LED state via NR introspection   | Motor-on visible; NR 0x81 b3=0 ⇒ motor off. skip — FDC unmodelled; P1F-07 = WONT (see G38)              |
+| ~~BOOT-FDC-01~~ | ~~`.dsk` (CPCEMU/EDSK) image mounted on +3 drive~~ | ~~`--machine plus3 --load game.dsk`~~ | **RETIRED 2026-09-24 (GH #201).** The premise is wrong twice over: jnext's `--machine plus3` is the Next core's +3 compatibility mode (NR 0x03 typ_sel/tim_sel = 0x03), which has no drive on real hardware either; and `.DSK` mounting is not a missing feature — NextZXOS automounts `.dsk`/`.p3d` at the +3DOS layer with no FDC in the path, covered by the `sdcard-dsk-automount-func` regression row. |
+| ~~BOOT-FDC-02~~ | ~~uPD765 motor-on / read-id behaviour~~ | ~~Issue Read-ID command; check status registers~~ | **RETIRED 2026-09-24 (GH #201).** There is no uPD765 in the core to derive an oracle from, and the project's oracle rule is the VHDL. The row's only other possible oracle — the uPD765 datasheet — would specify a chip the emulated machine does not contain. |
+| ~~BOOT-FDC-03~~ | ~~NR 0x81 b3 (`fdc` clken) gates motor-on~~ | ~~NR 0x81 ← bit3=1; observe drive-motor LED state via NR introspection~~ | **RETIRED 2026-09-24 (GH #201), and the row was also factually wrong.** `nr_81_expbus_fdc` gates the expansion-bus **read/write strobes** (`zxnext.vhd:1696-1697`), not the motor: `o_BUS_P3_MTR_n <= port_1ffd_mtr_n` at `:1695` is ungated by NR 0x81 entirely. Both signals exist only inside `gen_fdc_5` (board issue >= 3) and are absent from the Issue 2 reference target anyway. Had this row ever been implemented as written it would have pinned behaviour the hardware does not have. |
 
 ### Category 28: Dedicated bank-5 / bank-7 BRAMs
 
