@@ -14,6 +14,11 @@
 /// serialises the complete state through the same `Saveable` stream the
 /// rewind buffer uses, and restores it on later loads.
 ///
+/// This is the BEHAVIOUR of a `--load` of a `.nex` on a Next, not an option:
+/// an emulator whose default is "start the program on a machine hardware
+/// cannot produce" has the wrong default. `--warm-start-regenerate` remains,
+/// as the lever for when the firmware or NextZXOS on the card changes.
+///
 /// This file owns only the recording's IDENTITY and its storage. Recording
 /// and restoring are `Emulator::ensure_warm_start_state()` /
 /// `Emulator::load_nex()`.
@@ -25,7 +30,9 @@
 /// shipping it. A shipped snapshot would also stop corresponding to the image
 /// the user actually mounts, which is a subtler version of the very problem
 /// this mechanism exists to remove. Deriving it from the mounted image makes
-/// the correspondence structural rather than promised.
+/// the correspondence structural rather than promised. Compressing it (below)
+/// does not change that one inch: a smaller file holding firmware is still a
+/// file holding firmware.
 namespace warm_start {
 
 /// State-stream format version.
@@ -41,6 +48,14 @@ namespace warm_start {
 /// and alters the meaning — a field repurposed, two adjacent slots swapped,
 /// an enum renumbered. Those are invisible to a length check and are exactly
 /// the ones that corrupt silently.
+///
+/// It is NOT the file-layout version. That is the magic's trailing digit
+/// (`warm_start_cache.cpp`), and the two are deliberately separate: the file
+/// gained a compressed payload without the state stream inside it changing a
+/// single byte, so exactly one of the two moved. Bumping this one as well
+/// would have been a claim about `save_state` that is not true, and would
+/// leave the next reader unable to tell which mechanism answers which
+/// question.
 constexpr uint32_t kFormatVersion = 1;
 
 /// Everything a cached recording must agree with before it may be restored.
@@ -72,14 +87,26 @@ struct Identity {
     /// `kFormatVersion` at the time of recording.
     uint32_t format_version = kFormatVersion;
 
-    /// Exact length of the serialised state stream.
+    /// Exact length of the serialised state stream BEFORE compression — the
+    /// number of bytes `Emulator::save_state` writes and `load_state` will
+    /// read back.
     ///
     /// Load-bearing, not a convenience: `Ram::load_state` reads a
     /// count-prefixed blob straight into the live RAM buffer, so a stream
     /// recorded against a differently-sized RAM would write past it. Refusing
-    /// any file whose length is not EXACTLY what this build's
+    /// any file whose plain length is not EXACTLY what this build's
     /// `Emulator::save_state` produces makes that unreachable.
-    uint64_t state_bytes = 0;
+    ///
+    /// Named `plain_bytes`, not `state_bytes`, since the file gained a
+    /// compressed payload: there are now TWO lengths in play and confusing
+    /// them is the one way this guard could be defeated. The rename is the
+    /// mechanism — every former use site had to be revisited by the compiler
+    /// rather than silently keeping a name whose meaning had moved. The
+    /// compressed length is NOT in this struct at all, because it is not part
+    /// of the identity: it is a property of the zlib build that wrote the
+    /// file, not of the machine the recording is of. It lives in the header
+    /// (where it describes the bytes on disk) and nowhere else.
+    uint64_t plain_bytes = 0;
 };
 
 /// `<config-dir>/warm-start`, where `<config-dir>` is `$JNEXT_CONFIG_DIR` when
@@ -94,17 +121,22 @@ std::string cache_dir();
 /// leaving an orphan beside it.
 std::string cache_path(uint8_t machine_type);
 
-/// Read the cached state for `want`. Returns false — with a one-line human
-/// reason in `why` — when the file is absent, unreadable, or disagrees with
-/// `want` in any field. `out` is only written on success.
+/// Read the cached state for `want`, inflating the payload. Returns false —
+/// with a one-line human reason in `why` — when the file is absent,
+/// unreadable, disagrees with `want` in any field, or does not inflate to
+/// exactly `want.plain_bytes`. `out` is only written on success, and on
+/// success holds the UNCOMPRESSED stream.
 bool load(const Identity& want, std::vector<uint8_t>& out, std::string& why);
 
-/// Write `state` with `id` as its header. Returns false and fills `why` on
-/// any I/O failure; a failed store is never fatal to the caller, it only
-/// costs the next run another boot.
+/// Write `state` (uncompressed) with `id` as its header, deflating the
+/// payload. Returns false and fills `why` on any I/O or compression failure;
+/// a failed store is never fatal to the caller, it only costs the next run
+/// another boot.
 bool store(const Identity& id, const std::vector<uint8_t>& state, std::string& why);
 
-/// Byte length of the on-disk header that precedes the state stream.
+/// Byte length of the on-disk header that precedes the compressed payload.
+/// PLAIN — never compressed. See the file-layout comment in the .cpp for why
+/// the header is the one part that cannot be.
 constexpr size_t kHeaderBytes = 96;
 
 }  // namespace warm_start

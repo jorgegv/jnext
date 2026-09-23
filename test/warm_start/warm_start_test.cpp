@@ -32,8 +32,14 @@
 //   WSC-RT-02     store() creates the cache directory when it does not exist
 //   WSC-RT-03     store() leaves no .tmp file behind
 //   WSC-RT-04     a second store() replaces in place — one file per machine
-//   WSC-HDR-01    file length is exactly kHeaderBytes + state_bytes
+//   WSC-HDR-01    file length is kHeaderBytes + the STORED (compressed) length
 //   WSC-HDR-02    the SD digest is stored as ASCII hex at its documented offset
+//   WSC-Z-01      the stored payload is DEFLATED, and its length is the header's
+//   WSC-Z-02      a corrupted compressed payload is REFUSED as an inflate failure
+//   WSC-Z-03      a payload that inflates SHORT of its declared length is REFUSED
+//   WSC-Z-04      a previous-generation (JNEXTWS1) file is REFUSED at the magic
+//   WSC-Z-05      a header declaring an empty compressed payload is REFUSED
+//   WSC-Z-06      an over-long stored length is REFUSED before it sizes a read
 //   WSC-INV-01    a different SD image digest is REFUSED
 //   WSC-INV-02    a different machine type is REFUSED
 //   WSC-INV-03    a bumped state-format version is REFUSED
@@ -43,7 +49,7 @@
 //   WSC-INV-07    a missing file is REFUSED
 //   WSC-INV-08    a file shorter than the header is REFUSED
 //   WSC-INV-09    a refused load leaves the caller's buffer untouched
-//   WSC-INV-10    all eight refusal branches state a DISTINCT reason
+//   WSC-INV-10    all twelve refusal branches state a DISTINCT reason
 //   WSC-STORE-01  store() refuses a header that disagrees with its payload
 //   WSC-STORE-02  store() refuses a digest too long for the header field
 //   WSR-RES-01    a non-Next machine is refused, naming the machine
@@ -58,6 +64,11 @@
 //   WSR-RES-07    a firmware-less CARD declines after a real boot,
 //                 named as such, and caches nothing
 //   WSR-RES-08    that verdict is latched per image — no second boot
+//   WSR-LATCH-01  …but the fallback is still ANNOUNCED, once, on the load
+//                 that inherits the verdict and not on the one that took it
+//   WSR-LATCH-02  …and on every later load
+//   WSR-DEF-01    a .nex load takes the warm-start path WITH NO FLAG — the
+//                 feature is the behaviour, not an option
 
 #include "core/emulator.h"
 #include "core/emulator_config.h"
@@ -109,7 +120,15 @@ struct LogTap {
     explicit LogTap(std::shared_ptr<spdlog::logger> l)
         : log(std::move(l)),
           ring(std::make_shared<spdlog::sinks::ringbuffer_sink_mt>(256)),
-          saved(log->level()) { log->sinks().push_back(ring); }
+          saved(log->level()) {
+        log->sinks().push_back(ring);
+        // The tap must see EVERY level, not the ones a default logger happens
+        // to pass. The machine-type decline is `debug` on purpose (it is not a
+        // refusal of anything the user asked for — GH #234 by-default), so a
+        // tap left at `info` would read zero of those lines and WSR-RES-03
+        // would fail for a reason that has nothing to do with the guard.
+        log->set_level(spdlog::level::trace);
+    }
     ~LogTap() { log->set_level(saved); log->sinks().pop_back(); }
 
     int count(const char* needle) const {
@@ -126,6 +145,11 @@ struct LogTap {
 constexpr const char* kWhyMachineType = "only the Next boots firmware";
 constexpr const char* kWhyNoSdImage   = "no SD image is mounted";
 constexpr const char* kWhyNotRecorded = "Not recording";
+// GH #234 by-default: the per-image failure verdict is latched, but the
+// SENTENCE is not. Every load that silently gets the synthetic machine is a
+// load whose result the user cannot explain, and there is no longer a flag on
+// the command line to remind them a warm start was even attempted.
+constexpr const char* kWhyLatched     = "already refused earlier in this session";
 
 /// Formatted failure detail. NOT called `fmt`: including a spdlog sink
 /// brings the `fmt` namespace into scope and a local `fmt()` is then
@@ -141,6 +165,15 @@ std::string det(const char* f, ...) {
 
 std::string g_dir;
 
+/// Every refusal `warm_start::load()` produces anywhere in this suite, in the
+/// order it was produced. WSC-INV-10 asserts they are all distinct: the
+/// cache's whole recovery story is that a refusal tells the user WHICH key
+/// moved, and two branches sharing a sentence is that story quietly failing.
+/// File-scope because the refusal rows live in two different scopes (the
+/// compression rows refuse before the identity rows do) and a ledger that saw
+/// only one of them would under-state the denominator.
+std::vector<std::string> g_refusals;
+
 void set_config_dir(const std::string& d) {
     ::setenv("JNEXT_CONFIG_DIR", d.c_str(), 1);
 }
@@ -149,6 +182,30 @@ void set_config_dir(const std::string& d) {
 // returns. The rows never hash a real file — what is under test is the
 // comparison, not OpenSSL.
 std::string digest(char fill) { return std::string(64, fill); }
+
+/// The smallest NEX `NexLoader::load()` accepts: a 512-byte header declaring
+/// one 16 KB bank, plus that bank. Enough to reach Emulator::load_nex() ->
+/// init_for_load_from_file(), which is the seam WSR-DEF-01 is about. Modelled
+/// on nex_loader_test's own fixture writer; kept local because what this row
+/// needs is a file that LOADS, not one that renders anything.
+bool write_min_nex(const std::string& path) {
+    constexpr size_t kBank = 16384;
+    std::vector<uint8_t> file(512 + kBank, 0x00);
+    std::memcpy(file.data() + 0, "Next", 4);
+    std::memcpy(file.data() + 4, "V1.2", 4);
+    file[8]  = 0;      // ram_required: 768 KB
+    file[9]  = 1;      // num_banks
+    file[10] = 0;      // screen_flags: no loading screen
+    file[11] = 7;      // border
+    file[12] = 0x00; file[13] = 0xFF;   // SP
+    file[14] = 0x00; file[15] = 0x80;   // PC
+    file[18 + 2] = 1;  // bank 2 present
+    std::ofstream f(path, std::ios::binary | std::ios::trunc);
+    if (!f) return false;
+    f.write(reinterpret_cast<const char*>(file.data()),
+            static_cast<std::streamsize>(file.size()));
+    return static_cast<bool>(f);
+}
 
 std::vector<uint8_t> payload(size_t n, uint8_t seed) {
     std::vector<uint8_t> v(n);
@@ -161,7 +218,7 @@ warm_start::Identity make_id(const std::string& sha, uint8_t mtype, size_t bytes
     id.sd_image_sha256 = sha;
     id.machine_type    = mtype;
     id.format_version  = warm_start::kFormatVersion;
-    id.state_bytes     = bytes;
+    id.plain_bytes     = bytes;
     return id;
 }
 
@@ -169,6 +226,29 @@ std::vector<uint8_t> read_file(const std::string& p) {
     std::ifstream f(p, std::ios::binary);
     return std::vector<uint8_t>((std::istreambuf_iterator<char>(f)),
                                 std::istreambuf_iterator<char>());
+}
+
+/// Little-endian u64 straight out of a header image. Written here rather than
+/// exported from warm_start_cache.cpp on purpose: a row that decoded the file
+/// with the writer's own helper would agree with it by construction, which is
+/// no assertion at all about the byte order on disk.
+uint64_t le64(const std::vector<uint8_t>& buf, size_t off) {
+    if (off + 8 > buf.size()) return 0;
+    uint64_t v = 0;
+    for (int i = 7; i >= 0; --i) v = (v << 8) | buf[off + static_cast<size_t>(i)];
+    return v;
+}
+
+/// Overwrite `n` bytes at `off` of a file in place.
+void poke(const std::string& p, size_t off, const uint8_t* data, size_t n) {
+    std::fstream f(p, std::ios::binary | std::ios::in | std::ios::out);
+    f.seekp(static_cast<std::streamoff>(off));
+    f.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(n));
+}
+void poke_u64(const std::string& p, size_t off, uint64_t v) {
+    uint8_t b[8];
+    for (int i = 0; i < 8; ++i) b[i] = static_cast<uint8_t>(v >> (8 * i));
+    poke(p, off, b, 8);
 }
 
 }  // namespace
@@ -228,15 +308,175 @@ int main()
 
         std::error_code sz_ec;
         const auto on_disk = std::filesystem::file_size(warm_start::cache_path(0), sz_ec);
-        check("WSC-HDR-01", "file length is kHeaderBytes + state_bytes",
-              !sz_ec && on_disk == warm_start::kHeaderBytes + state.size(),
-              sz_ec ? sz_ec.message() : det("%ju bytes", (uintmax_t)on_disk));
+        const auto hdr_raw = read_file(warm_start::cache_path(0));
+        const uint64_t hdr_plain  = le64(hdr_raw, 16);   // kOffPlainBytes
+        const uint64_t hdr_stored = le64(hdr_raw, 88);   // kOffStoredBytes
+        check("WSC-HDR-01",
+              "file length is kHeaderBytes + the STORED (compressed) length, and the "
+              "header's plain length is the uncompressed stream",
+              !sz_ec && on_disk == warm_start::kHeaderBytes + hdr_stored &&
+                  hdr_plain == state.size(),
+              sz_ec ? sz_ec.message()
+                    : det("%ju on disk, plain=%ju stored=%ju", (uintmax_t)on_disk,
+                          (uintmax_t)hdr_plain, (uintmax_t)hdr_stored));
 
         const auto raw = read_file(warm_start::cache_path(0));
         check("WSC-HDR-02", "the SD digest is ASCII hex in the header",
               raw.size() > 88 &&
                   std::string(reinterpret_cast<const char*>(raw.data()) + 24, 64) ==
                       id.sd_image_sha256);
+
+        // ── Compression (GH #234 by-default) ────────────────────────
+        //
+        // The payload is deflated and the 96-byte header is not. Round-tripping
+        // (WSC-RT-01) proves the bytes survive, which a no-op "compressor" that
+        // copied its input would satisfy just as well — so these rows assert
+        // the compression actually happened, and that every way it can go wrong
+        // is REFUSED rather than half-inflated into the caller's buffer.
+        {
+            const std::string p0 = warm_start::cache_path(0);
+            const auto raw = read_file(p0);
+            const uint64_t stored = le64(raw, 88);
+            // The payload on disk must be both SMALLER than the plain stream
+            // and DIFFERENT from its opening bytes. Size alone would be
+            // satisfied by a truncation; a prefix comparison alone would be
+            // satisfied by an XOR. Together they say "deflated".
+            const bool smaller = stored < state.size();
+            const bool not_a_copy =
+                raw.size() > warm_start::kHeaderBytes + 8 &&
+                std::memcmp(raw.data() + warm_start::kHeaderBytes, state.data(), 8) != 0;
+            check("WSC-Z-01",
+                  "the stored payload is DEFLATED — smaller than the plain stream and "
+                  "not a copy of it — and the header's stored length is what is on disk",
+                  smaller && not_a_copy &&
+                      raw.size() == warm_start::kHeaderBytes + stored,
+                  det("plain=%zu stored=%ju", state.size(), (uintmax_t)stored));
+
+            // A corrupted deflate stream. One byte in the middle of the
+            // payload, so the length fields still agree and the ONLY thing
+            // left to catch it is the inflate.
+            {
+                const uint8_t junk = static_cast<uint8_t>(
+                    raw[warm_start::kHeaderBytes + stored / 2] ^ 0xFFu);
+                poke(p0, warm_start::kHeaderBytes + static_cast<size_t>(stored / 2),
+                     &junk, 1);
+                std::vector<uint8_t> out;
+                std::string why;
+                const bool rejected = !warm_start::load(id, out, why);
+                if (rejected) g_refusals.push_back(why);
+                check("WSC-Z-02",
+                      "a corrupted compressed payload is refused AS AN INFLATE "
+                      "failure, with nothing handed to the caller",
+                      rejected && why.find("does not inflate") != std::string::npos &&
+                          out.empty(),
+                      why);
+                warm_start::store(id, state, why);
+            }
+
+            // A stream that inflates SHORT of the length its header declares.
+            // zlib's uncompress() is happy here — it reached Z_STREAM_END with
+            // room to spare — so the only thing that catches it is the explicit
+            // "did I get exactly what was promised" comparison. Built by
+            // recording a shorter state and then raising the plain-length field
+            // to match what the caller will ask for; the caller's own length
+            // check therefore passes and this row is the one left standing.
+            {
+                std::string why;
+                const auto shortstate = payload(1024, 0x33);
+                warm_start::store(make_id(digest('a'), 0, shortstate.size()),
+                                  shortstate, why);
+                poke_u64(p0, 16, state.size());          // kOffPlainBytes
+                std::vector<uint8_t> out;
+                const bool rejected = !warm_start::load(id, out, why);
+                if (rejected) g_refusals.push_back(why);
+                check("WSC-Z-03",
+                      "a payload that inflates to FEWER bytes than its header declares "
+                      "is refused, naming both lengths",
+                      rejected && why.find("inflates to") != std::string::npos &&
+                          out.empty(),
+                      why);
+                warm_start::store(id, state, why);
+            }
+
+            // The file-layout generation digit is part of the magic. An old
+            // v1 cache holds a RAW state stream where this build expects a
+            // deflate stream, so it has to be refused at the magic — the first
+            // and cheapest check — rather than fed to the inflater. WSC-INV-06
+            // corrupts byte 0 and would survive a compare that stopped at 7
+            // bytes; this one moves only the digit.
+            {
+                const uint8_t one = '1';
+                poke(p0, 7, &one, 1);
+                std::vector<uint8_t> out;
+                std::string why;
+                const bool rejected = !warm_start::load(id, out, why);
+                // Deliberately NOT recorded in g_refusals: this is the SAME
+                // branch WSC-INV-06 takes (the magic compare), reached through
+                // a different byte. What it proves is that the generation
+                // digit participates in that compare, not that an eleventh
+                // branch exists — and a ledger of BRANCHES must not count one
+                // branch twice, or WSC-INV-10 would demand two distinct
+                // sentences from one `return`.
+                check("WSC-Z-04",
+                      "a previous-generation (JNEXTWS1) file is refused at the magic, "
+                      "not inflated",
+                      rejected &&
+                          why.find("is not a jnext warm-start file") != std::string::npos,
+                      why);
+                warm_start::store(id, state, why);
+            }
+
+            // A stored length larger than deflate could possibly produce.
+            // The plain length still agrees, and the file really is that big,
+            // so every other check passes — this is the one that stops the
+            // allocation. Built by padding the file and raising the stored
+            // field to match, which keeps the truncation check happy.
+            {
+                std::string why;
+                const uint64_t huge =
+                    static_cast<uint64_t>(state.size()) * 4 + 4096;
+                {
+                    std::ofstream f(p0, std::ios::binary | std::ios::app);
+                    const std::vector<uint8_t> pad(
+                        static_cast<size_t>(warm_start::kHeaderBytes + huge -
+                                            std::filesystem::file_size(p0)), 0);
+                    f.write(reinterpret_cast<const char*>(pad.data()),
+                            static_cast<std::streamsize>(pad.size()));
+                }
+                poke_u64(p0, 88, huge);
+                std::vector<uint8_t> out;
+                const bool rejected = !warm_start::load(id, out, why);
+                if (rejected) g_refusals.push_back(why);
+                check("WSC-Z-06",
+                      "a stored length larger than deflate could produce from the "
+                      "declared plain length is refused BEFORE it sizes a read",
+                      rejected &&
+                          why.find("more than deflate can produce") != std::string::npos &&
+                          out.empty(),
+                      why);
+                warm_start::store(id, state, why);
+            }
+
+            // A header claiming an empty payload. Without the explicit check
+            // this reaches uncompress() with avail_in = 0, which is a
+            // Z_DATA_ERROR rather than a diagnosable answer.
+            {
+                std::filesystem::resize_file(p0, warm_start::kHeaderBytes, ec);
+                poke_u64(p0, 88, 0);                     // kOffStoredBytes
+                std::vector<uint8_t> out;
+                std::string why;
+                const bool rejected = !warm_start::load(id, out, why);
+                if (rejected) g_refusals.push_back(why);
+                check("WSC-Z-05",
+                      "a header declaring an empty compressed payload is refused, "
+                      "as such",
+                      rejected &&
+                          why.find("declares an empty compressed payload") !=
+                              std::string::npos,
+                      why);
+                warm_start::store(id, state, why);
+            }
+        }
 
         // A second, different recording for the same machine type replaces
         // the first: the identity check invalidates, the filename does not,
@@ -268,7 +508,6 @@ int main()
     {
         std::vector<uint8_t> out;
         std::string why;
-        std::vector<std::string> reasons;   // one per refusal, for WSC-INV-10
 
         // A refusal is only the RIGHT refusal when it comes from the branch
         // the row names. "it was refused" is satisfied by any of the eight
@@ -280,7 +519,7 @@ int main()
             out.clear();
             why.clear();
             const bool rejected = !warm_start::load(want, out, why);
-            if (rejected) reasons.push_back(why);
+            if (rejected) g_refusals.push_back(why);
             return rejected && why.find(expect) != std::string::npos;
         };
 
@@ -373,7 +612,15 @@ int main()
         // per-row `expect` fragments above prove each branch says the right
         // thing; this proves no two of them say the same thing.
         {
-            std::vector<std::string> sorted = reasons;
+            // TWELVE, not eight: four NEW branches (WSC-Z-02, -03, -05, -06)
+            // came with the compressed payload, and they refuse EARLIER in
+            // the file, so a ledger scoped to this block would have proved
+            // distinctness over a subset while the suite grew a thirteenth
+            // branch beside it. WSC-Z-04 is absent on purpose — it re-enters
+            // WSC-INV-06's branch. The number is the claim about how many
+            // ways this file can be rejected; adding a branch means changing
+            // it deliberately.
+            std::vector<std::string> sorted = g_refusals;
             std::sort(sorted.begin(), sorted.end());
             const bool all_set = std::none_of(
                 sorted.begin(), sorted.end(),
@@ -381,10 +628,10 @@ int main()
             const bool all_distinct =
                 std::adjacent_find(sorted.begin(), sorted.end()) == sorted.end();
             check("WSC-INV-10",
-                  "all eight refusal branches state a reason, and no two state "
+                  "all twelve refusal branches state a reason, and no two state "
                   "the same one",
-                  reasons.size() == 8 && all_set && all_distinct,
-                  det("%zu refusals", reasons.size()));
+                  g_refusals.size() == 12 && all_set && all_distinct,
+                  det("%zu refusals", g_refusals.size()));
         }
     }
 
@@ -560,6 +807,60 @@ int main()
               "without booting again",
               again && tap.count(kWhyNotRecorded) == 1,
               det("not-recorded=%d over two calls", tap.count(kWhyNotRecorded)));
+
+        // The latch must not make the fallback SILENT. Counted across both
+        // calls rather than merely "present after the second": the first call
+        // must NOT emit it (it boots and reports the boot's own failure) and
+        // the second must, so `== 1` over two calls is the only value that
+        // says the announcement tracks the fallback one-for-one. A row
+        // asserting only `>= 1` would pass on an implementation that printed
+        // it on every call including the one that really did the work.
+        check("WSR-LATCH-01",
+              "a latched refusal is ANNOUNCED on the load that inherits it — once, "
+              "and not on the call that took the verdict",
+              tap.count(kWhyLatched) == 1,
+              det("latched=%d over two calls", tap.count(kWhyLatched)));
+
+        // And it keeps saying so: the third load is as silent-if-unfixed as
+        // the second, so the count must keep step with the number of loads.
+        const bool third = !emuf.ensure_warm_start_state();
+        check("WSR-LATCH-02",
+              "…and on every later load, not only the first one after the verdict",
+              third && tap.count(kWhyLatched) == 2,
+              det("latched=%d over three calls", tap.count(kWhyLatched)));
+    }
+
+    // ── The feature is the BEHAVIOUR, not an option ──────────────────
+    //
+    // There is no enable flag to pass, so the row cannot assert one is
+    // honoured; what it asserts is that the seam is reached WITHOUT one.
+    // `Emulator::load_nex()` on a Next with no SD image must report the no-SD
+    // decline — which only ensure_warm_start_state() emits, and which only
+    // runs if init_for_load_from_file() went looking for a recording. Restore
+    // the `if (!config_.warm_start) return init(config_);` gate this change
+    // removed and the line is never printed, so the row dies.
+    //
+    // No SD image is what makes it offline: the machine declines immediately
+    // instead of booting 500 frames of firmware that is not there.
+    {
+        const std::string nex = g_dir + "/min.nex";
+        const bool built = write_min_nex(nex);
+
+        Emulator emud;
+        EmulatorConfig cd;
+        cd.type = MachineType::ZXN_ISSUE2;
+        cd.rewind_buffer_frames = 0;
+        cd.load_file = nex;          // as --load sets it
+        emud.init(cd);
+
+        LogTap tap(Log::emulator());
+        const bool loaded = emud.load_nex(nex);
+        check("WSR-DEF-01",
+              "a .nex load reaches the warm-start path with NO FLAG SET — the "
+              "feature is the behaviour, not an option",
+              built && loaded && tap.count(kWhyNoSdImage) == 1,
+              det("built=%d loaded=%d no-sd=%d", built ? 1 : 0, loaded ? 1 : 0,
+                  tap.count(kWhyNoSdImage)));
     }
 
     std::filesystem::remove_all(g_dir, ec);

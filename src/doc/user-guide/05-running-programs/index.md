@@ -89,37 +89,71 @@ can write to FAT32 disk images, such as `mcopy` from mtools.
 (A NEX file whose header asks to keep its own file open can also read that
 file, and read files next to it, when loaded directly. It cannot write them.)
 
-## Starting from a real NextZXOS: `--warm-start`
+## The machine a NEX file starts on
 
-There is a middle road between the two. `--warm-start` boots the firmware for
-real — once — and then starts your program on the machine that boot produced:
+Loading a NEX file directly still starts it on a Next that the firmware made.
+There is no option for this and nothing to turn on:
 
 ```
-jnext --warm-start game.nex
+jnext game.nex
 ```
 
-The first time you use it with a given SD card image, JNEXT cold-boots it the
-way it does with no arguments (the FPGA boot ROM, then `TBBLUE.FW`, then
-NextZXOS), and saves the resulting machine to `~/.jnext/warm-start/`. That
-takes a few seconds and prints a line saying so. Every run after that restores
-the saved machine instead of booting, so it costs nothing.
+The first time you load a NEX file with a given SD card image, JNEXT cold-boots
+that image the way it does with no arguments — the FPGA boot ROM, then
+`TBBLUE.FW`, then NextZXOS — and saves the resulting machine under
+`~/.jnext/warm-start/`. That takes about three and a half seconds, and JNEXT
+prints a line saying it is doing it and another when it is done. Every load
+after that restores the saved machine instead of booting.
 
 What your program gets is a Next with NextZXOS resident and its ROM paged in —
 the environment a NEX file is written for, because on real hardware every NEX
-is launched by NextZXOS. Without it, the program meets a machine JNEXT
-assembles, whose settings are JNEXT's idea of what the firmware would have
-left rather than what it actually left.
+file is launched by NextZXOS. The alternative, which is what JNEXT did before
+version 1.0.11, is a machine JNEXT assembles: its settings are JNEXT's idea of
+what the firmware would have left rather than what it actually left, and some
+of them are states real hardware never reaches.
 
-The saved machine is recorded from *your* image and is never shipped with
-JNEXT: it contains NextZXOS's own ROM. It re-records itself when the image
-changes, when you pick a different machine, or when a JNEXT update changes the
-format — `--warm-start-regenerate` forces it.
+This does not replace booting NextZXOS from the card. The program still starts
+directly, so the section above still applies: files next to it on your computer
+are not visible to it. What changes is the machine underneath.
 
-Two limits. It is the ZX Spectrum Next only: the 48K, 128K and +3 run no
-firmware, so there is nothing to record, and the option says so and does
-nothing. And it applies to `.nex` files; tapes and snapshots load as they
-always have.
+### When it cannot be done
 
-It is off by default, because it changes what every loaded program sees.
+JNEXT never falls back quietly. If it cannot record or restore the machine it
+prints an error naming the reason and starts the program on the assembled
+machine instead. The reasons are:
+
+- no SD card image is mounted, so there is no firmware to boot;
+- the card has no firmware on it, or the boot does not end with NextZXOS
+  resident;
+- the saved machine will not load back, or is not NextZXOS-resident once it
+  has been through a file.
+
+The 48K, 128K and +3 are not one of those cases: they run no firmware at all,
+so there is nothing to record and nothing is reported. The same goes for tapes
+and snapshots, which are loaded by mechanisms a NextZXOS-resident machine does
+not have — a snapshot replaces the whole machine, and a tape is read through a
+48K ROM routine that is not paged in. Those load exactly as they always have.
+
+### Where it is kept, and refreshing it
+
+The saved machine is recorded from *your* image, on your computer, and is never
+shipped with JNEXT: it contains NextZXOS's own ROM, and JNEXT does not
+redistribute firmware — which is also why it downloads the SD card image rather
+than including one.
+
+It is one file per machine type, a little over 100 KB, keyed by the contents of
+the SD card image, the machine type and the save format. Change any of those —
+replace the image, switch machine, install a JNEXT update that changes the
+format — and it re-records itself on the next load. Checking that key means
+reading the whole card image each time a NEX file is loaded, which costs about
+half a second on a 1 GB image; it is what stops a recording of one card being
+served to another.
+
+If you update `TBBLUE.FW` or NextZXOS on the card in a way you want re-recorded
+straight away, `--warm-start-regenerate` forces it:
+
+```
+jnext --warm-start-regenerate game.nex
+```
 
 ---
