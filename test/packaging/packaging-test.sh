@@ -356,10 +356,13 @@ win_console_capture() {
     wcc_dir=$(cd "$(dirname "$wcc_exe")" && pwd)
     # The outer timeout is deliberately far above the driver's own budget — it
     # is a hang stop, not a deadline, and a cold prefix pays for a wineboot
-    # before anything else runs.
+    # before anything else runs. --kill-after is what makes it a real stop:
+    # SIGTERM alone bounds nothing a program chooses to ignore. No --foreground
+    # here, unlike the jnext rows: without it timeout gives the driver its own
+    # process group and the signals reach the wine tree underneath it.
     (cd "$wcc_dir" \
         && WINEPREFIX="$WIN_CONSOLE_PREFIX" WINEDEBUG=-all \
-           timeout 600 python3 "$win_console_driver" \
+           timeout --kill-after=5s 600s python3 "$win_console_driver" \
            "$(basename "$wcc_exe")" "$@") >"$wcc_log.raw" 2>&1
     wcc_st=$?
     sed -e 's/\x1b\[[0-9;?]*[a-zA-Z]//g' "$wcc_log.raw" | tr -d '\r' >"$wcc_log"

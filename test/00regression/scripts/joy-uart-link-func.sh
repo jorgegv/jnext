@@ -82,7 +82,7 @@ if want joy-uart-link-func; then
         # blocks until a writer appears, which is why this is a background job
         # and not an `exec` redirect: jnext opens its write end only when it has
         # something to send.
-        timeout 110 cat "$base.tx" >"$outfile" &
+        timeout --foreground --kill-after=5s 110s cat "$base.tx" >"$outfile" &
         cat_pid=$!
 
         # Fact 2 — the guest's readiness byte, and with it the TX direction.
@@ -101,7 +101,8 @@ if want joy-uart-link-func; then
             # between announcing itself and now. `timeout` is what keeps an
             # unlikely crash from wedging the whole suite instead of failing
             # this one row.
-            if ! timeout 15 sh -c 'printf ABC > "$0"' "$base.rx"; then
+            if ! timeout --foreground --kill-after=5s 15s \
+                    sh -c 'printf ABC > "$0"' "$base.rx"; then
                 fails+=("could not write to $base.rx — jnext is no longer reading it")
             fi
             for _ in $(seq 1 600); do
