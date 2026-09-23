@@ -560,6 +560,23 @@
     </span>
   </a>
   
+    <nav class="md-nav" aria-label="Some documents are generated, committed, and gated">
+      <ul class="md-nav__list">
+        
+          <li class="md-nav__item">
+  <a href="#the-user-guides-screenshots-are-not-generated-and-not-gated" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The user guide's screenshots are NOT generated, and NOT gated
+      
+    </span>
+  </a>
+  
+</li>
+        
+      </ul>
+    </nav>
+  
 </li>
       
         <li class="md-nav__item">
@@ -1905,6 +1922,34 @@ a check that quietly skips is indistinguishable from a check that passed.</p>
 <code>make cli-check</code>, and even then only for the flag <em>set</em>. The prose in the man
 page's narrative sections is checked by nobody at all. See
 <a href="../04-testing/05-documentation-and-cli-gates.html">4.5 The documentation and CLI gates</a>.</p>
+<h3 id="the-user-guides-screenshots-are-not-generated-and-not-gated">The user guide's screenshots are NOT generated, and NOT gated<a class="headerlink" href="#the-user-guides-screenshots-are-not-generated-and-not-gated" title="Permanent link">&para;</a></h3>
+<p><code>src/doc/user-guide/img/*.png</code> are hand-captured pictures of the running
+program. <code>make docs-userguide</code> copies them; it does not produce them, and
+nothing compares them against the UI they claim to show. <code>docs-check</code> proves
+the rendered HTML matches the markdown — it cannot see inside a PNG. So a
+screenshot can contradict the prose directly beneath it and every gate stays
+green. That has happened: GH #225 added a column and a master switch to the
+Breakpoints panel, described both in the guide, and left the picture above the
+description showing neither.</p>
+<p><strong>If you change a panel the guide shows, re-capture its image in the same
+change.</strong> There is no target for it, but it does not need a display. Build a
+short program against <code>jnext_debugger</code> + <code>jnext_gui</code>, run it under
+<code>QT_QPA_PLATFORM=offscreen</code>, and:</p>
+<ol>
+<li><code>Emulator::init()</code>, then a <code>DebuggerManager</code> on a throwaway <code>QMainWindow</code>
+   with <code>set_enabled(true)</code> — the same fixture the debugger test suites use.</li>
+<li>Put the panel into the state worth showing (breakpoints, a loaded file, …).</li>
+<li>Walk up <code>parentWidget()</code> from the panel to the <code>QTabWidget</code> that holds it,
+   <code>setCurrentWidget()</code> the panel, and <code>setParent(nullptr)</code> so a <code>resize()</code> is
+   not undone by the window's splitter.</li>
+<li><code>resize()</code> to the size the committed image already has — the guide's
+   neighbouring images share sizes on purpose (the two bottom-dock panels are
+   both 556x350, the left-hand tabs 600x760) — then <code>render()</code> into a
+   <code>QImage::Format_RGB32</code> and save.</li>
+</ol>
+<p>Regenerating <em>all</em> of them this way, behind a make target, is worth doing and
+has not been done; it needs per-panel content setup for every image, which is
+why it is not a side-effect of whichever change happens to invalidate one.</p>
 <h2 id="the-command-line-is-data-not-control-flow">The command line is data, not control flow<a class="headerlink" href="#the-command-line-is-data-not-control-flow" title="Permanent link">&para;</a></h2>
 <p><code>src/core/cli_options.h</code> holds every accepted flag as a <code>constexpr</code> table of
 <code>{ name, arity, doc-status, id }</code>, and <code>src/main.cpp</code> dispatches from it with a

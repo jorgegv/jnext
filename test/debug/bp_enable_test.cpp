@@ -529,6 +529,9 @@ int main() {
     // an enable toggle that notified nobody would leave both panels stale, and
     // the master switch has to reach the gutter (PcBreakpoints) as well as the
     // list (Watchpoints).
+    //
+    // It also pins the NO-OP guard on every mutator that carries one — see
+    // the `quiet` block below for why all three are re-called and not two.
     {
         BreakpointSet bps;
         bps.add_pc(BP_ADDR);
@@ -551,7 +554,14 @@ int main() {
 
         // A no-op write must notify nobody, or the panel that echoes the model
         // back re-enters refresh() on every repaint.
+        //
+        // ALL THREE mutators carry that guard, so all three are re-called
+        // here. An earlier cut of this row re-called two of them and left
+        // set_watchpoint_enabled()'s guard to inference — review found that
+        // dropping it kept every suite green. A row that names an invariant
+        // has to test it everywhere the invariant is implemented.
         bps.set_pc_enabled(BP_ADDR, false);
+        bps.set_watchpoint_enabled(DATA, WatchType::WRITE, false);
         bps.set_master_enabled(false);
         const bool quiet = (pc_notes == 2 && wp_notes == 2);
 

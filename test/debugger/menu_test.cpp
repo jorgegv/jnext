@@ -1633,6 +1633,58 @@ static void test_breakpoint_enable()
                   panel_checks(fx.dbg).toUtf8().constData()));
     }
 
+    // BPEP-17 — a WATCHPOINT row's checkbox is painted from THE MODEL.
+    //
+    // Review found this hole: hardcoding the watchpoint branch of
+    // rebuild_entries() to `true` — every watchpoint row always drawn
+    // checked, whatever the model says — left the whole suite green.
+    // panel_rows() never reads column 0, and BPEP-08 exercises a watchpoint's
+    // checkbox but asserts only the behavioural side effect. So the PC half of
+    // "the column shows the real state" was pinned and the watchpoint half was
+    // left to inference.
+    //
+    // Two halves, because they reach rebuild_entries() by different routes:
+    // a table BUILT from an already-disabled model, and a table REBUILT after
+    // the user unticked a row. The second needs the explicit refresh():
+    // apply_enabled_cell() deliberately suppresses the rebuild inside its own
+    // itemChanged signal, so without it the row would only re-read the
+    // checkbox the test itself set.
+    {
+        reset_set();
+        bps.add_watchpoint(0x9000, WatchType::WRITE);
+        bps.add_watchpoint(0xA000, WatchType::READ);
+        bps.set_watchpoint_enabled(0xA000, WatchType::READ, false);
+        fx.dbg->breakpoint_panel()->refresh();
+        QApplication::processEvents();
+        const QString built = panel_checks(fx.dbg);       // want "10"
+        const QStringList built_rows = panel_rows(fx.dbg);
+
+        const int row = panel_row_of(fx.dbg, 0x9000);
+        if (row >= 0) set_panel_enabled(fx.dbg, row, false);
+        fx.dbg->breakpoint_panel()->refresh();            // rebuild FROM the model
+        QApplication::processEvents();
+        const QString rebuilt = panel_checks(fx.dbg);     // want "00"
+
+        bps.set_watchpoint_enabled(0xA000, WatchType::READ, true);
+        fx.dbg->breakpoint_panel()->refresh();
+        QApplication::processEvents();
+        const QString back = panel_checks(fx.dbg);        // want "01"
+
+        check("BPEP-17", "a watchpoint row's checkbox shows that watchpoint's "
+              "real enabled state, built and rebuilt",
+              row >= 0
+                  && built    == QStringLiteral("10")
+                  && rebuilt  == QStringLiteral("00")
+                  && back     == QStringLiteral("01")
+                  && built_rows == QStringList{QStringLiteral("Write $9000"),
+                                               QStringLiteral("Read $A000")},
+              fmt("row=%d built=[%s] (want 10) rebuilt=[%s] (want 00) "
+                  "back=[%s] (want 01) rows=[%s]", row,
+                  built.toUtf8().constData(), rebuilt.toUtf8().constData(),
+                  back.toUtf8().constData(),
+                  built_rows.join(QStringLiteral(", ")).toUtf8().constData()));
+    }
+
     reset_set();
 }
 
