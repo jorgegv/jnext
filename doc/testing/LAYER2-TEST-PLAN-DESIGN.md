@@ -459,11 +459,11 @@ always sources from NR 0x12 regardless of the `shadow` flag.
 
 | ID | Title | Preconditions | Stimulus | Expected | VHDL cite |
 |----|-------|---------------|----------|----------|-----------|
-| G7-01 | Bank `+1` transform on default bank | reset; NR 0x12=0x08 (default) | enable L2, write known byte at L2 offset 0 via CPU-map; screenshot | display sources from SRAM 16K page 24 (0x60000) — `(0+1)&1000 = "00011000"` | layer2.vhd:172 |
-| G7-02 | Bank `+1` transform, nonzero high 3 bits | NR 0x12 = `"0011000"` = 0x18 | enable L2, write pattern | `layer2_bank_eff = (001+1)&1000 = "00101000"` = 40; display sources from SRAM page 40 | layer2.vhd:172 |
-| G7-03 | Bank `+1` transform, max legal | NR 0x12 = `"1101000"` = 0x68 | enable L2, write pattern | `layer2_bank_eff = (110+1)&1000 = "01111000"` = 120; visible (bit 21 = 0) | layer2.vhd:172-175 |
+| G7-01 | Bank `+1` transform on default bank | reset; NR 0x12=0x08 (default) | **LIVE since GH #201** — write the probe byte at the VHDL-transformed RAM address and a decoy at the untransformed one, render with `rom_in_sram = true` | display sources from SRAM 16K page 24 (0x60000) — `(0+1)&1000 = "00011000"` | layer2.vhd:172 |
+| G7-02 | Bank `+1` transform, nonzero high 3 bits | NR 0x12 = `"0011000"` = 0x18 | **LIVE since GH #201** — probe + decoy as G7-01 | `layer2_bank_eff = (001+1)&1000 = "00101000"` = 40; display sources from SRAM page 40 | layer2.vhd:172 |
+| G7-03 | Bank `+1` transform, max legal | NR 0x12 = `"1101000"` = 0x68 | **LIVE since GH #201** — probe + decoy as G7-01 | `layer2_bank_eff = (110+1)&1000 = "01111000"` = 120; visible (bit 21 = 0) | layer2.vhd:172-175 |
 | G7-04 | Out-of-range bank → no pixel | NR 0x12 = `"1111000"` | enable L2, fill VRAM, screenshot | no L2 pixel anywhere: `(111+1)&1000 = "10001000"` → addr bit 21 = 1 → `layer2_en=0` | layer2.vhd:173-175 |
-| G7-05 | Address bits 16:14 select 16K page within 48K | NR 0x70=0x00, NR 0x12=0x08, map segment 0 with offset 0,1,2 and write distinct bytes; screenshot | rows 0..63 come from page 24, rows 64..127 from page 25, rows 128..191 from page 26 | layer2.vhd:173 |
+| G7-05 | Address bits 16:14 select 16K page within 48K | NR 0x70=0x00, NR 0x12=0x08 | **LIVE since GH #201** — three distinct bytes at the transformed addresses of `l2_addr` 0 / 16384 / 32768, decoys at the untransformed ones; render fb rows 32 / 96 / 160 | rows 0..63 come from page 24, rows 64..127 from page 25, rows 128..191 from page 26 | layer2.vhd:173 |
 | G7-06 | 320x256 uses 5 pages | NR 0x70=0x10, NR 0x12=0x08, fill all 5 pages with distinct marker bytes | screenshot | all 5 column-major stripes appear in the expected screen regions | layer2.vhd:160 wide + 173 |
 | G7-07 | Port 0x123B bit 0 enables CPU writes | reset, port 0x123B ← 0x01 (bit0=1, bit2=0) | write byte to segment 0 (0x0000-0x3FFF), then set bit0=0 and bit2=1 to read | readback = written byte; display not enabled | zxnext.vhd:3917, 3025 |
 | G7-08 | Port 0x123B bit 2 enables CPU reads | after G7-07 setup | toggle bit2=1 with known VRAM | read returns stored L2 byte, not regular memory | zxnext.vhd:3918, 3025 |
@@ -506,15 +506,14 @@ retraction notice. None of them appeared in the old plan.
 | G9-01 | Disable then re-enable via NR 0x69 | L2 enabled via port 0x123B, then NR 0x69 ← 0x00 | screenshot | L2 disappears (proves NR 0x69 path wires through) | zxnext.vhd:3924 |
 | G9-02 | Cold-reset port 0x123B read is 0x00 | cold reset | IN A,(0x123B) | `0x00` | zxnext.vhd:3908-3913, 3933 |
 | G9-03 | Clip y1 > y2 empties display | NR 0x18 writes `0,255,200,100` | screenshot | no L2 pixels | layer2.vhd:167 |
-| G9-04 | Scroll X with wide branch NOT fired | see G3-12 | — | — | — |
+| ~~G9-04~~ | ~~Scroll X with wide branch NOT fired~~ | — | **RETIRED 2026-09-24 (GH #201)** — the "wide-scroll branch stays inactive under narrow mode" claim is the precondition of `G3-12` (narrow-mode scroll-X), which only produces its expected column mapping if the `layer2.vhd:148-152` wide branch does not fire. Re-running the same stimulus under a second ID adds no signal. Verified: `G3-12` is a live `check()` in `test/layer2/layer2_test.cpp`. No `check()` row exists for G9-04. | — | — |
 | G9-05 | Wide mode clip `x2=0xFF` ⇒ effective 511 | NR 0x70=0x10, clip x2=0xFF, x1=0 | all 320 columns visible | `clip_x2_q = 0xFF & '1' = 0x1FF = 511`, covers all columns 0..319 | layer2.vhd:134 |
-| G9-06 | `hc_eff = hc + 1` cannot be detected as a pure scroll (non-test, explanatory) | — | documentation only | the +1 is folded into the address formula; G2-12 is the scroll-independent probe | layer2.vhd:148 |
-| L2-G17-01 | Parallax.nex side-by-side duplication root cause (post-LoRes) | parallax.nex run end-to-end after G01/G02 land | rendered frame matches reference (no two-copies mirror) — placeholder; concrete oracle to be authored once Phase A/B parallax investigation lands | PARALLAX-NEX-INVESTIGATION.md required-work table |
-| G9-G28-01 | `hc_eff = hc + 1` per-column observable | gated on cycle-accurate render refactor: render one scanline at column-cycle granularity; sample at hc and hc+1 | column N's pixel address uses `hc+1` (one-cycle pipeline lift); placeholder until cycle-accurate path lands | layer2.vhd:148 |
+| ~~G9-06~~ | ~~`hc_eff = hc + 1` cannot be detected as a pure scroll~~ | — | **RETIRED 2026-09-24 (GH #201)** — the row declares itself "non-test, explanatory" and its Expected column is prose, not a value. `hc_eff` is a VHDL-internal one-pixel pipeline lift folded into the address formula; jnext's Layer 2 renders whole rows (`render_scanline`), so there is no surface at which it could be sampled. Kept as documentation, removed from the row count. No `check()` row exists. | — | layer2.vhd:148 |
+| ~~L2-G17-01~~ | ~~Parallax.nex side-by-side duplication root cause (post-LoRes)~~ | **RETIRED 2026-09-24 (GH #201)** — an investigation-class placeholder, never an assertion (its own Expected column says "placeholder; concrete oracle to be authored"). The investigation CLOSED 2026-05-01: the "two copies" symptom was three coordinate-space defects cancelling (G164v2, commits cde0a45 / f5bed99 / 8fcb345 / 460fac6), all now covered by `PSCAN-VBLANK-COALESCE-01` in `compositor_test`, the `G10`/`G10b`..`G10e` per-scanline change-log rows in this suite, and the pinned 100-frame parallax-demo screenshot baseline. No `check()` row exists. | — |
+| ~~G9-G28-01~~ | ~~`hc_eff = hc + 1` per-column observable~~ | **RETIRED 2026-09-24 (GH #201)** — gated on a pixel-granular Layer 2 renderer refactor. `doc/design/EMULATOR-DESIGN-PLAN.md` records that class of work as **WONT** twice over (the internal cycle-accurate Z80N core and the copper/beast 400% assessment, both 2026-07-17), so the gate will not open. Under jnext's per-scanline accuracy model the one-cycle lift is unobservable by construction, not merely unimplemented. Documented as a modelling limitation in the plan's §"mid-line register write" discussion; no `check()` row exists. | layer2.vhd:148 |
 
-> *L2-G17-01 is an investigation-class row. Concrete stimulus + expected
-> state to be defined after Phase A/B parallax investigation lands; see
-> `MEMORY.md` 2026-04-27 EOD entry.*
+> *L2-G17-01 was an investigation-class row; the investigation closed
+> 2026-05-01 and the row was retired 2026-09-24 (GH #201) — see the table.*
 
 ### Group G10b — Per-scanline NR 0x15 replay (LoRes / sprite-en / priority, G02)
 

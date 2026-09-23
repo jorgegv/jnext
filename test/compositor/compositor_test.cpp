@@ -1960,7 +1960,67 @@ static void test_UTB() {
               DETAIL("got=0x%08X expected=0x%08X", got, PIX_ULA));
     }
 
-    // RE-HOME UB-G26-01 → UTB-40 + UTB-41 (mode-01 mix_top/mix_bot swap on tm_pixel_below_2; VHDL zxnext.vhd:7163-7177). Original "FPGA-team oracle" deferral retired per VHDL-as-oracle rule.
+    // UB-G26-01 — GH #201. Previously re-homed onto UTB-40/UTB-41 in a
+    // source comment. That re-home was WRONG and is withdrawn here: both
+    // of those rows composite at `set_layer_priority(0)` (mode 000 = SLU),
+    // and the NR 0x68 blend mux at zxnext.vhd:7139-7178 is only reached in
+    // priority modes 110/111 (renderer.cpp `case 6: case 7:`). UTB-40/41
+    // therefore exercise the `ulatm_rgb` merge at zxnext.vhd:7116, not the
+    // `mix_top`/`mix_bot` swap they cite — they pass because the two paths
+    // happen to agree on which of ULA/TM reaches the U slot.
+    //
+    // The rows that DO reach the mode-01 arm are BL-31 / BL-32 in the BL
+    // group, and they are sound — but neither has a sprite, so between
+    // them they pin only "whatever landed in mix_top wins". They cannot
+    // see the cascade POSITION of the two slots. This row adds exactly
+    // that: with an opaque sprite planted between them, it also pins
+    // `mix_top > sprite > mix_bot` at zxnext.vhd:7300-7310.
+    //
+    // This row runs the real branch. `ula_blend_mode_2 = "01"` falls into
+    // the `when others` arm (zxnext.vhd:7163-7177):
+    //     if tm_pixel_below_2 = '1' then  mix_top <= ula_rgb; mix_bot <= tm_rgb;
+    //     else                            mix_top <= tm_rgb;  mix_bot <= ula_rgb;
+    // The output cascade (zxnext.vhd:7300-7310 additive) orders
+    //     l2_priority > mix_top > sprite > mix_bot > mixer,
+    // so an OPAQUE SPRITE planted between the two slots is what makes the
+    // swap observable: whichever of ULA/TM landed in `mix_top` beats the
+    // sprite, and the one that landed in `mix_bot` loses to it. Without the
+    // sprite both orderings produce the same pixel and the row would be
+    // vacuous — which is exactly the defect in the re-home it replaces.
+    {
+        // below=1 → mix_top = ULA, mix_bot = TM  (zxnext.vhd:7166-7169)
+        clear_layers(r);
+        r.set_layer_priority(6);               // 110 — reaches the blend mux
+        r.set_blend_mode(1);                   // NR 0x68 b6:5 = 01
+        r.tm_enabled_        = true;           // NR 0x6B b7 — an opaque TM
+                                               // pixel implies the layer is on
+        r.ula_line_[0]       = PIX_ULA;
+        r.tilemap_line_[0]   = PIX_TM;
+        r.sprite_line_[0]    = PIX_S;          // discriminator between top/bot
+        r.tm_pixel_below_[0] = true;
+        const uint32_t got_below1 = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+
+        // below=0 → mix_top = TM, mix_bot = ULA  (zxnext.vhd:7170-7175)
+        clear_layers(r);
+        r.set_layer_priority(6);
+        r.set_blend_mode(1);
+        r.tm_enabled_        = true;
+        r.ula_line_[0]       = PIX_ULA;
+        r.tilemap_line_[0]   = PIX_TM;
+        r.sprite_line_[0]    = PIX_S;
+        r.tm_pixel_below_[0] = false;
+        const uint32_t got_below0 = composite_one(r, Renderer::rrrgggbb_to_argb(0xE3));
+
+        check("UB-G26-01",
+              "NR0x68 blend mode 01: tm_pixel_below_2 swaps mix_top/mix_bot "
+              "(ULA on top when below=1, TM on top when below=0) — proven "
+              "against an opaque sprite in the cascade slot between them "
+              "(zxnext.vhd:7163-7177, 7300-7310)",
+              got_below1 == PIX_ULA && got_below0 == PIX_TM,
+              DETAIL("below1=0x%08X (exp ULA 0x%08X) below0=0x%08X (exp TM 0x%08X) spr=0x%08X",
+                     got_below1, PIX_ULA, got_below0, PIX_TM, PIX_S));
+        r.set_blend_mode(0);                   // leave the shared Renderer clean
+    }
 
     // UB-G26-02 — VHDL zxnext.vhd:7300 (additive cascade) / 7342
     // (subtractive cascade): the `if layer2_priority='1'` arm is the
@@ -4468,30 +4528,34 @@ static void test_LMASK() {
 
     // ── Parser rows (Renderer::parse_layer_mask) ─────────────────────────
 
-    struct ParseOk { const char* spec; uint8_t expect; const char* desc; };
+    // GH #201: the row IDs are spelled out as LITERALS in the table, not
+    // built with snprintf from the loop index as they were until now. An
+    // ID assembled at run time is invisible to every source reader and to
+    // the traceability generator, which greps the source for ID-shaped
+    // literals — so all 22 LMASK-P/E rows ran green every night while the
+    // matrix published them as `missing`. CLAUDE.md: "A row ID must be a
+    // LITERAL. Spell every ID out."
+    struct ParseOk { const char* id; const char* spec; uint8_t expect; const char* desc; };
     const ParseOk ok_rows[] = {
-        {"ula",     Renderer::LAYER_ULA,     "single name 'ula'"},
-        {"layer2",  Renderer::LAYER_LAYER2,  "single name 'layer2'"},
-        {"sprites", Renderer::LAYER_SPRITES, "single name 'sprites'"},
-        {"tiles",   Renderer::LAYER_TILES,   "single name 'tiles'"},
-        {"all",     Renderer::LAYER_ALL,     "'all' selects every layer"},
-        {"ula,layer2",
+        {"LMASK-P01", "ula",     Renderer::LAYER_ULA,     "single name 'ula'"},
+        {"LMASK-P02", "layer2",  Renderer::LAYER_LAYER2,  "single name 'layer2'"},
+        {"LMASK-P03", "sprites", Renderer::LAYER_SPRITES, "single name 'sprites'"},
+        {"LMASK-P04", "tiles",   Renderer::LAYER_TILES,   "single name 'tiles'"},
+        {"LMASK-P05", "all",     Renderer::LAYER_ALL,     "'all' selects every layer"},
+        {"LMASK-P06", "ula,layer2",
              static_cast<uint8_t>(Renderer::LAYER_ULA | Renderer::LAYER_LAYER2),
              "two names"},
-        {"layer2,ula",
+        {"LMASK-P07", "layer2,ula",
              static_cast<uint8_t>(Renderer::LAYER_ULA | Renderer::LAYER_LAYER2),
              "order does not matter"},
-        {"sprites,tiles,ula,layer2", Renderer::LAYER_ALL,
+        {"LMASK-P08", "sprites,tiles,ula,layer2", Renderer::LAYER_ALL,
              "all four names spelled out == 'all'"},
     };
-    for (size_t i = 0; i < sizeof(ok_rows) / sizeof(ok_rows[0]); ++i) {
-        const auto& row = ok_rows[i];
+    for (const auto& row : ok_rows) {
         uint8_t     mask = 0xFF;
         std::string err  = "unset";
         const bool  got  = Renderer::parse_layer_mask(row.spec, mask, err);
-        char id[32];
-        snprintf(id, sizeof(id), "LMASK-P%02zu", i + 1);
-        check(id, row.desc,
+        check(row.id, row.desc,
               got && mask == row.expect && err.empty(),
               DETAIL("spec='%s' ok=%d mask=0x%02X (exp 0x%02X) err='%s'",
                      row.spec, got ? 1 : 0, mask, row.expect, err.c_str()));
@@ -4499,31 +4563,28 @@ static void test_LMASK() {
 
     // Rejections. Fail loud: every one of these must return false with a
     // non-empty message; none may be silently folded away.
-    struct ParseErr { const char* spec; const char* desc; };
+    struct ParseErr { const char* id; const char* spec; const char* desc; };
     const ParseErr err_rows[] = {
-        {"",            "empty list is an error"},
-        {"bogus",       "unknown name is an error"},
-        {"ULA",         "names are lowercase only — 'ULA' is unknown"},
-        {"Layer2",      "mixed case is unknown"},
-        {"ula,bogus",   "one bad name in a good list still errors"},
-        {"ula ,tiles",  "no whitespace tolerance — ' ' is part of the name"},
-        {"ula,ula",     "duplicate name is an error"},
-        {"all,ula",     "'all' plus another name double-selects — error"},
-        {"ula,all",     "…in either order"},
-        {"all,all",     "'all' twice is an error"},
-        {"ula,",        "trailing comma leaves an empty name — error"},
-        {",ula",        "leading comma leaves an empty name — error"},
-        {"ula,,tiles",  "empty element in the middle — error"},
-        {",",           "a lone comma is an error"},
+        {"LMASK-E01", "",            "empty list is an error"},
+        {"LMASK-E02", "bogus",       "unknown name is an error"},
+        {"LMASK-E03", "ULA",         "names are lowercase only — 'ULA' is unknown"},
+        {"LMASK-E04", "Layer2",      "mixed case is unknown"},
+        {"LMASK-E05", "ula,bogus",   "one bad name in a good list still errors"},
+        {"LMASK-E06", "ula ,tiles",  "no whitespace tolerance — ' ' is part of the name"},
+        {"LMASK-E07", "ula,ula",     "duplicate name is an error"},
+        {"LMASK-E08", "all,ula",     "'all' plus another name double-selects — error"},
+        {"LMASK-E09", "ula,all",     "…in either order"},
+        {"LMASK-E10", "all,all",     "'all' twice is an error"},
+        {"LMASK-E11", "ula,",        "trailing comma leaves an empty name — error"},
+        {"LMASK-E12", ",ula",        "leading comma leaves an empty name — error"},
+        {"LMASK-E13", "ula,,tiles",  "empty element in the middle — error"},
+        {"LMASK-E14", ",",           "a lone comma is an error"},
     };
-    for (size_t i = 0; i < sizeof(err_rows) / sizeof(err_rows[0]); ++i) {
-        const auto& row = err_rows[i];
+    for (const auto& row : err_rows) {
         uint8_t     mask = 0xAA;   // sentinel: must not be touched on failure
         std::string err;
         const bool  got = Renderer::parse_layer_mask(row.spec, mask, err);
-        char id[32];
-        snprintf(id, sizeof(id), "LMASK-E%02zu", i + 1);
-        check(id, row.desc,
+        check(row.id, row.desc,
               !got && !err.empty() && mask == 0xAA,
               DETAIL("spec='%s' returned=%d mask=0x%02X err='%s'",
                      row.spec, got ? 1 : 0, mask, err.c_str()));

@@ -1310,12 +1310,35 @@ static void group4() {
               DETAIL("y=%d", info.y));
     }
 
-    // G4.XY-04 removed: the original test expected a sprite at y=256 to
-    // render in over-border mode, but VHDL clip_y2_i is 8-bit — y_e_v
-    // maxes at 255 (sprites.vhd:1048,1053), so y=256 is always clipped.
-    // The 9-bit Y coordinate (SpriteAttr::y() returns 0-511) is correct
-    // for the sprite→scanline comparison, but the clip window can't open
-    // past y=255.  No valid VHDL-derivable oracle exists for this row.
+    // G4.XY-04 — the positive counterpart of G4.XY-03.
+    // VHDL sprites.vhd:796-797:
+    //     spr_y8   <= '0' when sprite_attr_3(6) = '0' else spr_cur_attr_4(0);
+    //     spr_cur_y <= spr_y8 & spr_cur_attr_1;
+    // With the 5-byte (extended) attribute format selected by attr3(6)=1,
+    // bit 0 of the 5th byte becomes the 9th bit of Y, so attr1=0x00 with
+    // attr4(0)=1 yields spr_cur_y = 256. attr4(7:6) is left "00" so the
+    // sprite stays an ordinary one (a relative needs attr4(7:6)="01",
+    // sprites.vhd:756) and spr_cur_h = attr4(7) and attr3(6) = 0.
+    //
+    // GH #201 note on scope: this row used to be deleted outright because
+    // the plan's *Verify* column asks for "pixels on line 256 only", which
+    // is genuinely unreachable — the clip comparator is 8-bit
+    // (`y_e_v <= '0' & clip_y2_i`, sprites.vhd:1048,1053), so nothing is
+    // ever drawn above line 255 whatever spr_cur_y says. Deleting the row
+    // threw away the part that IS derivable and IS modelled: the Y-MSB
+    // assembly at :796. That half is asserted here; the plan row's Verify
+    // column now records the unreachable half and why.
+    {
+        fresh(spr, pal);
+        set5(spr, 0, /*x=*/0x00, /*y=*/0x00, /*attr2=*/0x00,
+                     /*attr3=*/0x80, /*attr4=*/0x01);   // set5 forces attr3(6)=1
+        auto info = spr.get_sprite_info(0);
+        check("G4.XY-04",
+              "attr3(6)=1 + attr4(0)=1 + attr1=0x00 → spr_cur_y = 256 "
+              "(9-bit Y, MSB from the 5th attribute byte; sprites.vhd:796-797)",
+              info.y == 256 && ((info.y >> 8) & 1) == 1,
+              DETAIL("y=%d", info.y));
+    }
 
     // G4.XY-05 — x=319 renders last valid column.
     {
@@ -1820,16 +1843,78 @@ static void group9() {
               pixel_index(line, 0) == 241);
     }
 
-    // G9.RO-03 / G9.RO-04 — COVERED ELSEWHERE (not a skip).
-    // These rows test the exact VHDL pattern_addr_delta counter values
-    // (-16 when xmirror+rotate, +16 when rotate alone; sprites.vhd:817-819).
-    // The delta is an internal FSM counter; the C++ engine computes the
-    // equivalent pattern row/col directly from rotate/x_mirror_eff flags.
-    // The observable effect (rendered pixel layout) is already fully covered:
-    //   - rotate+xmirror end-to-end: G9.MI-04 (xmirror alone, delta -1) +
-    //     G9.RO-01 (rotate+xmirror, swapped pattern addressing)
-    //   - rotate alone end-to-end: G9.RO-02 (rotate=1 activates x_mirror_eff)
-    // No observable behavior remains uncovered.
+    // G9.RO-03 / G9.RO-04 — GH #201.
+    //
+    // The comment that stood here retired both rows as "covered elsewhere",
+    // naming G9.MI-04 / G9.RO-01 for "rotate+xmirror" and G9.RO-02 for
+    // "rotate alone". That was WRONG twice over and is withdrawn:
+    //   * G9.RO-01 and G9.RO-02 have the SAME stimulus — `set4(…, 0x02, …)`,
+    //     rotate=1 with xmirror=0. The rotate+xmirror configuration
+    //     (attr2 = 0x0A) is asserted by no row in this file.
+    //   * The SPRITES plan pairs each stimulus with the wrong delta. VHDL
+    //     sprites.vhd:813,817-819:
+    //         spr_x_mirr_eff <= attr2(3) xor attr2(1);   -- rotate inverts xmirror
+    //         delta = -16 when x_mirr_eff='1' and attr2(1)='1'
+    //         delta = +16 when x_mirr_eff='0' and attr2(1)='1'
+    //     so -16 is rotate WITHOUT xmirror (attr2 = 0x02, xor → 1) and
+    //     +16 is rotate WITH xmirror (attr2 = 0x0A, xor → 0) — the exact
+    //     opposite of the plan's stimulus column, which is corrected in
+    //     SPRITES-TEST-PLAN-DESIGN.md with this ID.
+    //
+    // Observable oracle, read off sprites.vhd:816-819 and nothing else:
+    // under rotate the start address is `pattern & x_index & y_index`
+    // (:816), with x_index = 0 when x_mirr_eff='0' and 15 when it is '1'
+    // (:814), and the pattern pointer then steps by `delta` per screen
+    // column. At scanline 0 with the sprite at y=0, y_index = 0, so the
+    // sixteen columns read pattern bytes
+    //     delta = -16 : 240, 224, 208, …, 16, 0
+    //     delta = +16 :   0,  16,  32, …, 224, 240
+    // Asserting the WHOLE 16-column sequence is what pins the delta: the
+    // two existing rows only sample columns 0 and 15, which is satisfied
+    // by any monotone map between those endpoints.
+    {
+        uint8_t buf[256];
+        for (int i = 0; i < 256; ++i) buf[i] = static_cast<uint8_t>(i | 1);
+
+        // Read the 16 rendered pattern-byte values for one attr2 setting.
+        auto columns = [&](uint8_t attr2, int* out) {
+            fresh(spr, pal);
+            pal.set_sprite_transparency(0xE3);
+            upload_pattern_raw(spr, 0, buf);
+            set4(spr, 0, 0, 0, attr2, 0x80);
+            uint32_t line[kSpritesTestBufW]; clear_line(line);
+            spr.render_scanline(line, 0, pal);
+            for (int c = 0; c < 16; ++c) out[c] = pixel_index(line, c);
+        };
+
+        // G9.RO-03 — rotate=1, xmirror=0 → x_mirr_eff=1 → delta = -16.
+        {
+            int got[16]; columns(0x02, got);
+            bool ok = true;
+            for (int c = 0; c < 16; ++c)
+                if (got[c] != (((15 - c) * 16) | 1)) ok = false;
+            check("G9.RO-03",
+                  "rotate=1, xmirror=0 → x_mirr_eff=1 → pattern pointer steps "
+                  "by -16 per column (240,224,…,0) (sprites.vhd:813,816,817)",
+                  ok,
+                  DETAIL("col0=%d col1=%d col14=%d col15=%d",
+                         got[0], got[1], got[14], got[15]));
+        }
+
+        // G9.RO-04 — rotate=1, xmirror=1 → x_mirr_eff=0 → delta = +16.
+        {
+            int got[16]; columns(0x0A, got);
+            bool ok = true;
+            for (int c = 0; c < 16; ++c)
+                if (got[c] != ((c * 16) | 1)) ok = false;
+            check("G9.RO-04",
+                  "rotate=1, xmirror=1 → x_mirr_eff=0 → pattern pointer steps "
+                  "by +16 per column (0,16,…,240) (sprites.vhd:813,816,819)",
+                  ok,
+                  DETAIL("col0=%d col1=%d col14=%d col15=%d",
+                         got[0], got[1], got[14], got[15]));
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

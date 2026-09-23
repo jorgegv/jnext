@@ -78,9 +78,12 @@ compositor_integration_test 7/7/0/0 (100%). Net 9 SKIP closures this session:
   Renderer / Ula. Standard snapshot/init/getter idiom matching
   `fallback_per_line_` / `ula_enabled_per_line_` pattern.
 
-* **G26 (UB-G26-01/02)** remain skip() — blocked on FPGA-team
-  oracle confirmation (see Open Questions §1, §2 below). No code
-  change is appropriate until the semantic question is resolved.
+* **G26 (UB-G26-01/02)** — both LIVE. UB-G26-02 landed earlier under
+  the VHDL-as-oracle rule (no external confirmation needed, and none
+  is available); UB-G26-01 landed 2026-09-24 (GH #201). The earlier
+  "blocked on FPGA-team oracle confirmation" posture is withdrawn:
+  the VHDL IS the oracle, and Open Questions §1/§2 below are answered
+  by reading zxnext.vhd:7163-7177 rather than by asking anyone.
 
 * **2026-07-13 (Task 43 + Task 45) — per-line snapshot *consumption*
   now covered, not just bookkeeping.** `stencil_mode_per_line_` /
@@ -651,7 +654,7 @@ The subtraction branch is only entered if `mix_rgb_transparent = '0'`
 | UTB-31 | Mode 11, TM as U, ULA floats above | 11 | 0 | `tm_rgb` | transparent (gate `NOT 0 = 1`) | `ula_rgb` (gate `tm_pixel_below_2 = 0`) → ULA goes to **bot** | 7156–7162 |
 | UTB-40 | Mode 01 (`others`), below=0 | 01 | 0 | transparent | `tm_rgb` | `ula_rgb` | 7163–7176 (else branch) |
 | UTB-41 | Mode 01, below=1 | 01 | 1 | transparent | `ula_rgb` | `tm_rgb` | 7163–7176 (if branch) |
-| UB-G26-01 | UTB-40/41 oracle inversion check: confirm `ula_blend_mode_2 = 01` `mix_top`/`mix_bot` swap on `tm_pixel_below_2` matches FPGA-team intent | mode 01, set ULA+TM with TM pixel below = 1; sample `mix_rgb` source | matches FPGA-team-confirmed expected; if confirmed inverted, UTB-40/41 must be regenerated and this row re-rules | zxnext.vhd:7163-7177 |
+| UB-G26-01 | Mode-01 `mix_top`/`mix_bot` swap on `tm_pixel_below_2`, checked through the output cascade | **LIVE since GH #201** — priority 110 + NR 0x68 b6:5 = 01, opaque ULA + opaque TM + **opaque sprite**, run for below = 1 and below = 0 | below=1 → ULA reaches the output (it is in `mix_top`, which beats the sprite); below=0 → TM does. The sprite is the discriminator: `mix_top > sprite > mix_bot` (zxnext.vhd:7300-7310), so without it both orderings give the same pixel. **The earlier "confirm with the FPGA team" framing is withdrawn** — the VHDL is the oracle. Not re-homed onto `UTB-40/41`: those composite at priority 000 and never reach the blend mux at all. `BL-31`/`BL-32` do reach it and are sound, but have no sprite, so they pin which slot wins and not where the slots sit in the cascade. | zxnext.vhd:7163-7177, 7300-7310 |
 | UB-G26-02 | L2 priority bit in modes 110/111 *over* opaque `mix_top` matches FPGA-team intent | mode 110, L=✓ S=✓ U=✓ mix_top=opaque, L2 priority bit set | additive RGB wins over `mix_top_rgb` (per VHDL 7300/7342 first-`if`); FPGA-team confirms not a copy-paste artefact | zxnext.vhd:7300, 7342 |
 
 | ID | Title | Preconditions | Stimulus | Expected | VHDL |
@@ -1104,6 +1107,15 @@ and the NR 0x4A fallback all keep behaving per the VHDL; the border, which
 the ULA emits, disappears with `ula` and falls through to NR 0x4A; and
 stencil, gated on `tm_en`, goes down with `tiles`.
 
+**Row-ID note (GH #201, 2026-09-24):** the parser rows used to be written as
+the two RANGE rows `LMASK-P01..P08` and `LMASK-E01..E14`, and the suite built
+their IDs at run time with `snprintf("LMASK-P%02zu", i + 1)`. Both halves of
+that are against the project rule that a row ID is a source-visible LITERAL:
+the traceability generator greps the source for ID-shaped literals, found
+none of the 22, and published every one of them as `missing` while they ran
+green every night. The table below spells out all 22, and the suite now
+carries the ID as a literal field in its own stimulus table.
+
 Parser rows (LMASK-P/E/S) pin the CLI contract: comma-separated, lowercase,
 exactly `ula` / `layer2` / `sprites` / `tiles` / `all`; empty lists, empty
 elements, unknown names, wrong case and double-selection (including
@@ -1111,8 +1123,28 @@ elements, unknown names, wrong case and double-selection (including
 
 | ID | Title | Stimulus | Expected | VHDL |
 |----|-------|----------|----------|------|
-| LMASK-P01..P08 | Parser accepts each name, both orders, and the full spell-out | `ula` / `layer2` / `sprites` / `tiles` / `all` / `ula,layer2` / `layer2,ula` / `sprites,tiles,ula,layer2` | mask bits set exactly; `error` cleared | — (CLI) |
-| LMASK-E01..E14 | Parser rejects: empty list, unknown name, wrong case, whitespace, duplicates, `all`+name, leading/trailing/inner empty element | `""`, `bogus`, `ULA`, `ula ,tiles`, `ula,ula`, `all,ula`, `ula,`, `,ula`, `ula,,tiles`, `,` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-P01 | single name `ula` | `ula` | mask = LAYER_ULA; `error` cleared | — (CLI) |
+| LMASK-P02 | single name `layer2` | `layer2` | mask = LAYER_LAYER2; `error` cleared | — (CLI) |
+| LMASK-P03 | single name `sprites` | `sprites` | mask = LAYER_SPRITES; `error` cleared | — (CLI) |
+| LMASK-P04 | single name `tiles` | `tiles` | mask = LAYER_TILES; `error` cleared | — (CLI) |
+| LMASK-P05 | `all` selects every layer | `all` | mask = LAYER_ALL; `error` cleared | — (CLI) |
+| LMASK-P06 | two names | `ula,layer2` | mask = ULA\|LAYER2; `error` cleared | — (CLI) |
+| LMASK-P07 | order does not matter | `layer2,ula` | mask = ULA\|LAYER2; `error` cleared | — (CLI) |
+| LMASK-P08 | all four names spelled out == `all` | `sprites,tiles,ula,layer2` | mask = LAYER_ALL; `error` cleared | — (CLI) |
+| LMASK-E01 | Parser rejects: empty list is an error | `""` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E02 | Parser rejects: unknown name is an error | `bogus` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E03 | Parser rejects: names are lowercase only | `ULA` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E04 | Parser rejects: mixed case is unknown | `Layer2` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E05 | Parser rejects: one bad name in a good list still errors | `ula,bogus` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E06 | Parser rejects: no whitespace tolerance — the space is part of the name | `ula ,tiles` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E07 | Parser rejects: duplicate name is an error | `ula,ula` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E08 | Parser rejects: `all` plus another name double-selects | `all,ula` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E09 | Parser rejects: …in either order | `ula,all` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E10 | Parser rejects: `all` twice is an error | `all,all` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E11 | Parser rejects: trailing comma leaves an empty name | `ula,` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E12 | Parser rejects: leading comma leaves an empty name | `,ula` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E13 | Parser rejects: empty element in the middle | `ula,,tiles` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
+| LMASK-E14 | Parser rejects: a lone comma is an error | `,` | returns false, `error` non-empty, `mask` untouched | — (CLI) |
 | LMASK-S01 | Mask → canonical name list | ALL / `ula|tiles` / 0 | `all` / `ula,tiles` / `none` | — (CLI) |
 | LMASK-C01 | Default mask is LAYER_ALL and composes every layer | reset(); all four layers opaque, mode 000 | sprite wins (SLU), mask == 0x0F | 7218 |
 | LMASK-C02 | `sprites` alone reaches the output regardless of priority position | all four opaque, mask = `sprites` | sprite pixel | zxnext.vhd:7118 |
@@ -1176,20 +1208,29 @@ as the fallback colour) and pass once it is present. Screenshot-level twin:
 | PAL (palette integration)          |  6 |
 | RST (reset)                        |  4 |
 | LMASK (host layer mask, Task 22b)  | 38 |
+
+> The LMASK figure counts the 22 parser rows individually (GH #201 spelled
+> `LMASK-P01..P08` / `LMASK-E01..E14` out); it was already the runtime count,
+> because the suite always emitted 22 rows there.
 | UCLIP (NR 0x1A per-line deferral)  |  4 |
 | **Total**                          |**155** |
 
 ## Open Questions (Honest)
 
-1. **`ula_blend_mode_2 = 01` `mix_top_rgb`/`mix_bot_rgb` reading.** The
-   VHDL has the mode-01 case as the `others =>` branch
-   (lines 7163–7177) with `mix_rgb <= (others => '0')` and
-   `mix_rgb_transparent <= '1'`. The `mix_top`/`mix_bot` selection
-   swaps on `tm_pixel_below_2`, but the assignment semantics of
-   "`ula_rgb` goes to top when below=1" look inverted to the name of
-   the flag. The UTB-40/UTB-41 rows encode the VHDL as-is; if a future
-   schematic review shows the VHDL itself has a typo, these rows must
-   be regenerated.
+1. ~~**`ula_blend_mode_2 = 01` `mix_top_rgb`/`mix_bot_rgb` reading.**~~
+   **CLOSED 2026-09-24 (GH #201).** The VHDL has the mode-01 case as the
+   `others =>` branch (lines 7163–7177) with `mix_rgb <= (others => '0')`
+   and `mix_rgb_transparent <= '1'`, and the `mix_top`/`mix_bot` selection
+   swaps on `tm_pixel_below_2`. The reading only *looks* inverted if
+   "below" is taken to mean "lower in the output" — it does not: the flag
+   names the tilemap's position relative to the ULA, so below=1 putting
+   the **ULA** on top is the consistent reading, not a typo. There is no
+   FPGA-team oracle to appeal to and the project rule is that the VHDL IS
+   the oracle, so the question is resolved by reading it. `UB-G26-01`
+   (added GH #201) now asserts the branch through the real blend mux with
+   a sprite in the cascade slot between `mix_top` and `mix_bot`; note that
+   `UTB-40`/`UTB-41` composite at priority 000 and never reach the mux,
+   whatever their descriptions claim.
 
 2. **`layer2_priority` in mode 110/111 with `mix_top` opaque.** Lines
    7300 and 7342 place `layer2_priority=1` as the first `if` in the

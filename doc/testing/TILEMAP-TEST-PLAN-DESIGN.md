@@ -237,7 +237,7 @@ disabled.
 | TM-41 | Text mode pixel extraction | `shift_left(mem_data, abs_x(2:0))` then bit 7 | Each pixel is 1 bit from tile data |
 | TM-42 | Text mode palette construction | `tilemap_1(7:1) & shifted_bit` | 7-bit palette offset + pixel bit = 8-bit palette index |
 | TM-43 | Text mode no transforms | Transforms not applied in textmode | Mirror/rotate bits ignored; repurposed as palette |
-| TM-44 | Text mode transparency | `pixel_textmode_s` + global transparent RGB | Text-mode transparency uses RGB comparison, not index |
+| ~~TM-44~~ | ~~Text mode transparency~~ | **RETIRED 2026-09-24 (GH #201)** — both halves of the claim are live in this suite: `TM-98` proves the index test is masked off in text mode and applied in standard mode (identical stimulus, NR 0x6B b3 the only difference, tilemap.vhd:427/429), and `TM-95` proves the RGB compare then fires at the compositor (zxnext.vhd:7109). The earlier pointer to `compositor_test` TR-20/TR-21 is **withdrawn**: TR-20's expected value is its own stimulus (`rrrgggbb_to_argb(0xE3)` vs `vhdl_fallback_argb(0xE3)` — the same 32-bit word) and it never sets `tm_pixel_textmode_`, so it cannot fail. No `check()` row exists for TM-44. |
 
 VHDL text-mode pixel (lines 385-386):
 ```
@@ -360,8 +360,8 @@ abs_y_mult = '0' & mult_sub   when mode=40col
 | TM-90 | Standard transparency index | `transp_colour_i` = `nr_4c_tm_transparent_index` | 4-bit pixel matching transp index is transparent |
 | TM-91 | Default transparency (0xF) | Reset value is 0xF | Pixel value 15 is transparent by default |
 | TM-92 | Custom transparency index | Write 0x4C with different value | Custom index makes those pixels transparent |
-| TM-93 | Text mode transparency (RGB) | `tm_pixel_textmode_2=1 and tm_rgb_2(8:1)=transparent_rgb_2` | Text mode compares post-palette RGB, not index |
-| TM-94 | Text mode vs standard path | `pixel_en_f` logic | Standard: index check; text: always enabled if pixel_en_s, then RGB check |
+| ~~TM-93~~ | ~~Text mode transparency (RGB)~~ | **RETIRED 2026-09-24 (GH #201)** — duplicate of `TM-95` two rows below, which is live and makes exactly this claim (`tm_pixel_textmode_2 = 1 and tm_rgb_2(8:1) = transparent_rgb_2` → transparent, zxnext.vhd:7109) with a real text-mode pixel driven through `Renderer::composite_scanline`. The earlier pointer to `compositor_test` TR-20 is withdrawn — see TM-44. No `check()` row exists for TM-93. |
+| ~~TM-94~~ | ~~Text mode vs standard path~~ | **RETIRED 2026-09-24 (GH #201)** — the compound claim is `TM-98` (the `pixel_en_f` mux itself: index test in standard mode, bypassed in text mode) followed by `TM-95` (the RGB check that applies instead). Both live, both discriminating. The earlier pointer to `compositor_test` TR-21/TR-22 is withdrawn: neither sets `tm_pixel_textmode_`, so neither can tell the two pipelines apart. No `check()` row exists for TM-94. |
 | TM-95 | Text-mode RGB transparency at TM tier (not compositor) | `tm_pixel_textmode_2=1`, post-palette `tm_rgb_2(8:1) == nr_14_global_transparent` | Honour transparency at the Tilemap output, not in compositor. Pixel emitted with `pixel_textmode_o=1` and matching RGB → `pixel_en_o=0`. skip — `renderer.cpp:286` checks alpha=0 only; no NR 0x14 RGB compare; precondition: G101 (see G98) |
 
 VHDL transparency enable (lines 427-429):
@@ -426,7 +426,7 @@ LSB=1 for end).
 | TM-120 | Tilemap on top (default) | `tm_on_top_i=0` default | ULA shows through transparent TM pixels |
 | TM-121 | Tilemap always on top | `tm_on_top_i=1` via 0x6B bit 0 | Tilemap covers ULA completely |
 | TM-122 | Per-tile below flag | `pixel_below = (attr(0) OR mode_512) AND NOT tm_on_top` | Per-tile ULA priority |
-| TM-123 | Below flag in compositor | `ulatm_rgb = tm_rgb when below=0 or ula_transparent, else ula_rgb` | ULA covers TM when below=1 and ULA non-transparent |
+| TM-123 | Below flag in compositor | `ulatm_rgb = tm_rgb when below=0 or ula_transparent, else ula_rgb` | **LIVE since GH #201** — end to end: a real tile with attr(0)=0/1 is rendered, and its pixels AND flags are fed to `Renderer::composite_scanline` against an opaque ULA pixel. attr(0)=0 → the tile covers the ULA; attr(0)=1 → the ULA covers the tile. Written in this suite rather than re-homed onto `compositor_test` UTB-10/11 because those plant `tm_pixel_below_` by hand and TM-122/124/125 prove only the tilemap end — neither crosses the seam, which is where GH #113 lived. |
 | TM-124 | tm_on_top overrides per-tile | `AND NOT tm_on_top` | When tm_on_top=1, below is forced to 0 |
 | TM-125 | 512-mode forces below | `attr(0) OR mode_512` | In 512-tile mode, below is always set (unless tm_on_top) |
 
@@ -449,8 +449,8 @@ ulatm_rgb <= tm_rgb when (tm_transparent=0) and (below=0 or ula_transparent=1)
 
 | ID | Test | VHDL Basis | Verify |
 |----|------|-----------|--------|
-| TM-130 | Stencil mode (ULA AND TM) | `nr_68_ula_stencil_mode=1` | Output = ULA_rgb AND TM_rgb |
-| TM-131 | Stencil transparency | `stencil_transparent = ula_transparent OR tm_transparent` | Stencil is transparent if either layer is |
+| TM-130 | Stencil mode (ULA AND TM) | `nr_68_ula_stencil_mode=1` | **LIVE since GH #201** — ULA = 0xFC, tile = 0x3F, AND = 0x3C, a value equal to NEITHER input, driven from a real tilemap pixel. Not re-homed onto `compositor_test` STEN-10/11: both of those pick pairs whose AND equals the TM value itself, so both pass unchanged if the compositor simply showed the tile. |
+| ~~TM-131~~ | ~~Stencil transparency~~ | **RETIRED 2026-09-24 (GH #201)** — `stencil_transparent <= ula_transparent or tm_transparent` (zxnext.vhd:7112) is asserted three ways in `test/compositor/compositor_test.cpp`, each against the NR 0x4A fallback (a value that is neither input, so none degenerates): `STEN-12` (ULA transparent), `STEN-13` (TM transparent), `STEN-14` (both). No `check()` row exists for TM-131. |
 
 VHDL stencil (lines 7112-7113):
 ```
@@ -462,8 +462,8 @@ stencil_rgb <= (ula_rgb AND tm_rgb) when stencil_transparent=0
 
 | ID | Test | VHDL Basis | Verify |
 |----|------|-----------|--------|
-| TM-140 | TM disabled, tm_on_top=0 | `tm_en_1a=0`, `nr_6b_tm_control(0)=0` | below=1, ULA shows through |
-| TM-141 | TM disabled, tm_on_top=1 | `tm_en_1a=0`, `nr_6b_tm_control(0)=1` | below=0, but TM transparent, so ULA shows |
+| TM-140 | TM disabled, tm_on_top=0 | `tm_en_1a=0`, `nr_6b_tm_control(0)=0` | **LIVE since GH #201, and it found an emulator bug.** below = NOT tm_on_top = 1 on every pixel, asserted both at the Tilemap tier and through `Renderer::render_row`. jnext short-circuited `Tilemap::render_scanline` on `!enabled_` and left the renderer's all-false fill in place — the tm_on_top=1 answer, given unconditionally — so a tilemap-off frame in NR 0x68 blend mode 01 or 11 put the ULA in `mix_bot` (below the sprites) where hardware puts it in `mix_top` (above them). Fixed in `src/video/tilemap.cpp` + `src/video/renderer.cpp`. |
+| TM-141 | TM disabled, tm_on_top=1 | `tm_en_1a=0`, `nr_6b_tm_control(0)=1` | **LIVE since GH #201** — below = 0 on every pixel. Paired with TM-140 this is what proves the flag FOLLOWS `NOT tm_on_top` rather than merely being cleared; on its own it is satisfied by the pre-fix all-false fill. The earlier pointer to `compositor_test` TR-23 is withdrawn: TR-23 asserts a disabled tilemap is transparent, which says nothing about the below flag. |
 
 ## Test Execution
 

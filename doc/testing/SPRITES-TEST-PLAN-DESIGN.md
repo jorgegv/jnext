@@ -326,12 +326,12 @@ Each row is: **ID · Title · Preconditions · Stimulus · Expected · VHDL cite
 | G1.AT-09 | Mirror `index="111"` sets sprite number | `mirror_we=1, idx=111, data=0x05` | — | `mirror_sprite_q = 0x05`, `mirror_num_change='1'` | 600–602 |
 | G1.AT-10 | `mirror_inc_i` increments within 7 bits | mirror_sprite_q=0x7F | Pulse `mirror_inc_i` | mirror_sprite_q(6:0) wraps to 0 | 603–605 |
 | G1.AT-11 | Legacy `set_attr_slot()` helper moves the 0x57 cursor unconditionally (GH #74 description fix: the row never sets the tie, so it pins the jnext legacy unified-slot helper, NOT the hardware `mirror_tie_i` semantics of 653–654 — those are covered by G1.AT-13/18–21 forward and G1.AT-22..24 reverse) | Tie=0 (default) | `set_attr_slot(0x20)`; write 0x57 | 0x57 byte lands in slot 0x20 byte 0 | 653–654 (gate NOT exercised) |
-| G1.AT-12 | Mirror write takes priority over pending CPU write | Both latched same cycle | `mirror_served=1` blocks `cpu_served` | attr0_we driven from mirror, not cpu | 704–715 |
+| ~~G1.AT-12~~ | ~~Mirror write takes priority over pending CPU write~~ | — | **RETIRED 2026-09-24 (GH #201)** — `sprites.vhd:704-715` arbitrates a mirror write and a CPU write latched on the SAME clock edge (`cpu_served <= '1' when mirror_served = '0' and cpu_request = '1'`). jnext's `SpriteEngine` surface is one method call at a time, so the simultaneity this row is about cannot be constructed: there is never a pending CPU write when a mirror write arrives. The two non-simultaneous outcomes — mirror writes land in the mirror-selected slot, CPU writes in theirs — are live at `G1.AT-10` / `G1.AT-11`. No `check()` row exists. | — | 704–715 |
 | G1.AT-13 | NR 0x09 bit 4 sprite_tie ties NR 0x34 mirror_sprite_q to attr_index | Set NR 0x09 b4=1 via Emulator | Write 0x10 to NR 0x34 mirror sprite-num | attr_index becomes 0x10<<3 (slot 0x10), bundled with G96 | sprites.vhd:594-612, 653-654; zxnext.vhd:5187, 1123, 4352 |
 | G1.AT-14 | NR 0x35-0x39 (bit 6 = 0) MUST NOT increment sprite slot | Set sprite slot 0x05 via NR 0x34 | Write to NR 0x35; write to NR 0x35 again | Both writes land in slot 5 (no auto-inc) | zxnext.vhd:4855-4877, 4916; sprites.vhd:594-612 |
 | G1.AT-15 | NR 0x75-0x79 (bit 6 = 1) increments sprite slot after EVERY byte | Set sprite slot 0x05 via NR 0x34 | Write 4 bytes to NR 0x75 | Bytes land in slots 5,6,7,8 — one per write, not one per 4-byte attr block | zxnext.vhd:4855-4877, 4916; sprites.vhd:603-605 |
-| G1.AT-16 | NR 0x19 read returns indexed sprite-clip register, NOT raw last write | Write 4 bytes to NR 0x19 (cycles x1,x2,y1,y2) | Read NR 0x19 four times | Reads cycle through indexed clip registers (mirror NR 0x18 reader at zxnext.vhd:5956-5970); reads must not advance idx | zxnext.vhd:5956-5970 |
-| G1.AT-17 | NR 0x1A read returns indexed ULA-clip register, NOT raw last write | Write 4 bytes to NR 0x1A | Read NR 0x1A four times | Reads cycle through indexed clip registers; reads must not advance idx | zxnext.vhd:5956-5970 |
+| ~~G1.AT-16~~ | ~~NR 0x19 read returns indexed sprite-clip register, NOT raw last write~~ | — | **RE-HOMED 2026-04-28, RETIRED HERE 2026-09-24 (GH #201)** — the read mux lives in `Emulator::clip_spr_idx_`, not in `SpriteEngine`, so the owning plan is NextREG integration. Live coverage verified: `CLIP-11` (reads cycle x1→x2→y1→y2 as the idx advances) and `CLIP-11b` (two consecutive reads are equal, i.e. a read does not advance the idx) in `test/nextreg/nextreg_integration_test.cpp`, both citing zxnext.vhd:5955-5961. No `check()` row exists in `sprites_test`. | zxnext.vhd:5956-5970 |
+| ~~G1.AT-17~~ | ~~NR 0x1A read returns indexed ULA-clip register, NOT raw last write~~ | — | **RE-HOMED 2026-04-28, RETIRED HERE 2026-09-24 (GH #201)** — same reason as G1.AT-16 (`Emulator::clip_ula_idx_`). Live coverage verified: `CLIP-12`, `CLIP-12b` (no idx advance on read) and `CLIP-12c` (raw y2 register vs the consumer's clamp) in `test/nextreg/nextreg_integration_test.cpp`, citing zxnext.vhd:5963-5969. No `check()` row exists in `sprites_test`. | zxnext.vhd:5956-5970 |
 | G1.AT-22 | Reverse tie sync via port 0x303B: `attr_num_change` + `mirror_tie_i=1` loads mirror_sprite_q from new attr slot (6:0) and pattern_index(7) (bit 7, "wear helmet") | Tie=1; mirror ← 0x10 via NR 0x34 | 0x303B ← 0xA5 | mirror_sprite_q = 0xA5 (slot 0x25, bit 7 = pattern_index(7) = d(7)); pattern_index = 0x2580 | 607–609, 655–657 (GH #74) |
 | G1.AT-23 | Reverse tie sync via port-0x57 slot advance only: `index_inc_attr_by_8` (byte 3 with attr3(6)=0, or byte 4) pulses `attr_num_change`; non-boundary byte writes never do. Bit 7 loaded from pattern_index(7), not preserved | 0x303B ← 0xB0 with tie=0 (mirror stays 0, pattern_index(7)=1); then tie=1 | Stream 0x57 bytes: b0/b1/b2 (non-boundary), b3 ext=0 (advance), b0..b3 ext=1 (no advance at b3), b4 (advance) | mirror untouched (0x00) on non-boundary writes; = 0xB1 after first advance; unchanged at b3-with-ext; = 0xB2 after byte-4 advance | 607–609, 639, 658–663 (GH #74) |
 | G1.AT-24 | Tie CLEAR: neither port 0x303B nor a port-0x57 slot advance may touch mirror_sprite_q (the :607-609 branch is gated on `mirror_tie_i`) | Tie=0; mirror ← 0x42 via NR 0x34 | 0x303B ← 0x25; then 4× 0x57 (b3 ext=0, slot advance) | mirror_sprite_q stays 0x42 after both; 0x57 bytes land in slot 0x25 | 607–609 gate (GH #74) |
@@ -378,7 +378,7 @@ consistent with the VHDL FSM for one full scanline.
 | G4.XY-01 | Sprite at (0,0) opaque fills [0..15] on line 0 | 16×16 fully-opaque pattern | draw line 0 | line_buf[0..15] all have bit8=1 | 796–799, 965 |
 | G4.XY-02 | X MSB (attr2(0)=1) gives x=256+attr0 | attr0=0x20, attr2=0x01 | render on line 0 | pixels at 288..303 | 799 |
 | G4.XY-03 | Y MSB requires 5th byte; else forced to 0 | attr3(6)=0, attr4(0)=1 | spr_cur_y | y8=0 regardless of attr4(0) | 796 |
-| G4.XY-04 | Y MSB honored with 5th byte | attr3(6)=1, attr4(0)=1, attr1=0x00 | y=256, only visible on vcounter=256 | pixels on line 256 only | 796 |
+| G4.XY-04 | Y MSB honored with 5th byte | attr3(6)=1, attr4(0)=1, attr1=0x00 | **LIVE since GH #201** — read `spr_cur_y` back via `get_sprite_info()` | `spr_y8 <= attr4(0)` when attr3(6)=1, so `spr_cur_y = spr_y8 & attr1` = 256. **Scope note (2026-09-24):** the original "pixels on line 256 only" clause is NOT asserted and cannot be — the clip comparator is 8-bit (`y_e_v <= '0' & clip_y2_i`, sprites.vhd:1048,1053), so nothing is ever drawn above line 255 whatever `spr_cur_y` holds. The row asserts the Y-MSB assembly at :796-797, which is the part the VHDL makes observable. | 796–797 |
 | G4.XY-05 | x=319 renders last valid column | sprite x=319, 1px opaque pattern | — | line_buf[319] written; state exits when hcount_valid=0 | 822, 855–860 |
 | G4.XY-06 | x=320 fully off-screen, x-wrap 1× (mask 11111) still renders via wrap-around | sprite x=320 | — | state stays in S_PROCESS until mask condition holds; no pixel on this line | 822, 855 |
 | G4.XY-07 | 2× scale wrap-around, sprite starts at x=300 | attr4(4:3)=01 | — | 20 px drawn at 300..319, remainder absorbed by wrap mask 11110 | 919–927 |
@@ -433,8 +433,8 @@ trail maps 1:1 to the old TR-* IDs.
 | G9.MI-04 | Both mirrors | attr2(3)=attr2(2)=1 | — | fully rotated 180° | 811, 813 |
 | G9.RO-01 | Rotate swaps row/col in address | attr2(1)=1 | render | addr = `pat & x_index & y_index` | 816 |
 | G9.RO-02 | `x_mirr_eff = xmirror XOR rotate` | attr2(3)=0, attr2(1)=1 | — | effective x-mirror=1 | 813 |
-| G9.RO-03 | Rotate + x-mirror produces delta = -16 (0x3FF0) | attr2(3)=1, attr2(1)=1 | — | pattern address advances by -16 per pixel | 817 |
-| G9.RO-04 | Rotate without mirror: delta = +16 | attr2(1)=1, attr2(3)=0 | — | +16 | 819 |
+| G9.RO-03 | Rotate, x-mirror CLEAR, produces delta = -16 (0x3FF0) | attr2(3)=**0**, attr2(1)=1 | **LIVE since GH #201** — render the 16 columns and read back the pattern byte each one resolved to | pattern address advances by -16 per pixel: columns read bytes 240, 224, …, 16, 0. **Stimulus corrected 2026-09-24 (GH #201):** the plan previously said attr2(3)=1. `spr_x_mirr_eff <= attr2(3) xor attr2(1)` (sprites.vhd:813), so attr2(3)=1 with rotate gives x_mirr_eff = 0, which is the **+16** branch. -16 requires x_mirr_eff = 1, i.e. attr2(3)=0. | 813, 816, 817 |
+| G9.RO-04 | Rotate WITH x-mirror: delta = +16 | attr2(1)=1, attr2(3)=**1** | **LIVE since GH #201** — same probe as G9.RO-03 | pattern address advances by +16 per pixel: columns read bytes 0, 16, …, 224, 240. **Stimulus corrected 2026-09-24 (GH #201):** see G9.RO-03 — the plan had the two stimuli swapped relative to their deltas. | 813, 816, 819 |
 
 ### Group 10 — Scaling
 
@@ -540,7 +540,7 @@ VHDL-driven state via outputs.
 | G15.NG-03 | Sprite at `(x=0, y=0)` with `attr3(7)=1, attr3(6)=0` (no 5th byte) ⇒ forces 1× scale and y_msb=0 | — | — | sprite still renders normally | 796, 907, 919 |
 | G15.NG-04 | Palette offset wrap: `paloff=0xF, pat(7:4)=0x1` ⇒ (0xF+0x1)&0xF = 0 | — | — | low byte = 0x0N | 968 |
 | G15.NG-05 | Zero-size pattern (all bytes = transp colour) ⇒ zero pixels written but FSM still advances to next sprite | — | — | collision bit stays 0, no OT | 971 |
-| G15.NG-06 | Relative sprite whose computed `spr_rel_x3(8)=1` but attr3(6)=0 — **impossible** because relatives require attr3(6)=1; document as unreachable | — | — | — | 756 |
+| ~~G15.NG-06~~ | ~~Relative sprite whose computed `spr_rel_x3(8)=1` but attr3(6)=0~~ | — | **RETIRED 2026-09-24 (GH #201)** — unreachable by construction, as the row itself states. `spr_relative <= '1' when sprite_attr_3(6) = '1' and sprite_attr_4(7 downto 6) = "01"` (sprites.vhd:756), so a sprite with attr3(6)=0 is never a relative and the state cannot be entered on hardware either. Writing a `check()` for it would have to assert something the VHDL cannot produce. No `check()` row exists. | 756 |
 | G15.NG-07 | Negative offset wraps in 9-bit arithmetic: anchor_x=5, rel x0=0xF0 (signed −16) ⇒ pixel at x=`(5-16) mod 512 = 0x1F5` (off-screen) | anchor has `xmirror=1, rotate=0` so the `not(x0)+1` negation path (sprites.vhd:762) is active and x0=0xF0 is treated as signed −16 | — | no pixel, FSM qualifies out | 762, 772 |
 
 ### Group 16 — Per-Scanline Attribute Change Log
@@ -651,7 +651,7 @@ in code.
 
 **Current status (2026-04-15):** test code rewritten and merged to main.
 Honest pass rate: **115/116 live, 10 stub** (G13.OT-02/03/04, G11.OB-03,
-G12.RP-03/04, G9.RO-03/04, G1.AT-12, G15.NG-06 — facilities not exposed by
+G12.RP-03/04, G1.AT-12, G15.NG-06 — facilities not exposed by
 `SpriteEngine`). The 1 remaining live failure is a Task 3 emulator bug:
 sprite Y clip is 8-bit in C++ (`clip_y1_`/`clip_y2_`) but VHDL `y_e_v` is
 9-bit — cannot address y=256. Task 3 backlog also contains: `max_sprites_`
