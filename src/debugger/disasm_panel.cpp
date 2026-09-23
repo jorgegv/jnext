@@ -466,8 +466,14 @@ void DisasmPanel::paintEvent(QPaintEvent* /*event*/)
         // gutter click that would bring it back has nothing to aim at, the
         // list and the gutter disagree about what exists, and the obvious
         // reading is "it was deleted" — which is the one thing disabling
-        // must not look like. An outline keeps the address marked and is
-        // unmistakable at a glance.
+        // must not look like. An outline keeps the address marked and reads
+        // as clearly different from an armed one.
+        //
+        // Measured rather than asserted (GH #225 review): at the gutter's real
+        // size the marker is about 8x8 px, where disc-versus-ring is legible
+        // but not generous. If it ever has to be plainer, the honest lever is
+        // a SECOND visual channel — a paler red for suspended — not a bigger
+        // ring: the gutter is 20 px wide and the dot already fills it.
         if (entry.has_breakpoint) {
             const int cx = GUTTER_WIDTH / 2;
             const int cy = y + LINE_HEIGHT / 2;
