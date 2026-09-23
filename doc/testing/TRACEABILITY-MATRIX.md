@@ -1127,11 +1127,11 @@ Notes and rationale: [TILEMAP-TEST-PLAN-DESIGN.md](TILEMAP-TEST-PLAN-DESIGN.md).
 | TM-131 | Stencil transparency | — | missing | — |
 | TM-140 | TM disabled, tm_on_top=0 | — | missing | — |
 | TM-141 | TM disabled, tm_on_top=1 | — | missing | — |
-| TM-CB1 | VHDL tilemap.vhd:192 — mode_i <= control_i(6): only bit 6 selects 80-column mode | tilemap.vhd:192 | pass | test/tilemap/tilemap_test.cpp:1890 |
+| TM-CB1 | VHDL tilemap.vhd:189 — mode_i <= control_i(6): only bit 6 selects 80-column mode | tilemap.vhd:189 | pass | test/tilemap/tilemap_test.cpp:1890 |
 | TM-CB2 | VHDL zxnext.vhd NR 0x6B — nr_6b_tm_en <= nr_wr_dat(7): only bit 7 enables the tilemap | zxnext.vhd | pass | test/tilemap/tilemap_test.cpp:1904 |
-| TM-CB3 | VHDL tilemap.vhd:196 — mode_512_i <= control_i(1): only bit 1 selects 512-tile mode | tilemap.vhd:196 | pass | test/tilemap/tilemap_test.cpp:1918 |
-| TM-CB4 | VHDL tilemap.vhd:197 — tm_on_top_i <= control_i(0): only bit 0 puts the tilemap above the ULA | tilemap.vhd:197 | pass | test/tilemap/tilemap_test.cpp:1932 |
-| TM-CB5 | VHDL tilemap.vhd:193-194 — strip_flags_i is control_i(5) and textmode_i is control_i(3); bit 5 alone must not turn text mode on | tilemap.vhd:193-194 | pass | test/tilemap/tilemap_test.cpp:1948 |
+| TM-CB3 | VHDL tilemap.vhd:194 — mode_512_i <= control_i(1): only bit 1 selects 512-tile mode | tilemap.vhd:194 | pass | test/tilemap/tilemap_test.cpp:1918 |
+| TM-CB4 | VHDL tilemap.vhd:195 — tm_on_top_i <= control_i(0): only bit 0 puts the tilemap above the ULA | tilemap.vhd:195 | pass | test/tilemap/tilemap_test.cpp:1932 |
+| TM-CB5 | VHDL tilemap.vhd:190-191 — strip_flags_i is control_i(5) and textmode_i is control_i(3); bit 5 alone must not turn text mode on | tilemap.vhd:190-191 | pass | test/tilemap/tilemap_test.cpp:1948 |
 | TM-RR1 | VHDL zxnext.vhd:6102 — the NR 0x6B read-back is the stored control byte, all 8 bits | zxnext.vhd:6102 | pass | test/tilemap/tilemap_test.cpp:1963 |
 | TM-RR2 | VHDL zxnext.vhd:6105 — NR 0x6C read-back is the stored default attribute, all 8 bits | zxnext.vhd:6105 | pass | test/tilemap/tilemap_test.cpp:1976 |
 | TM-RR3 | VHDL zxnext.vhd:5041-5042 / :6108 — NR 0x6E stores the whole byte; only the read mux drops bit 6 | zxnext.vhd:5041-5042/6108 | pass | test/tilemap/tilemap_test.cpp:1990 |

@@ -189,6 +189,50 @@ Hz timer) or floods (128K/Next: 49.36 Hz) the device queue. See
 `src/platform/audio_pacing.h`. On the pre-fix binary this test reports 25
 underruns; the fix reports none.
 
+## Functional test: audio-envelope-func
+
+The suite's only audio-**content** row, and the newest (GH #201, 2026-09-23).
+
+`audio-underrun-func` above measures PACING and `audio-gain-func` measures
+GAIN. Neither looks at what the emulator actually **synthesises**, and nothing
+else did either — which is how an AY envelope defect that made **8 of the 16
+shapes wrong** passed 140/140 and shipped through every release to date:
+shapes 4-7 ended at full volume instead of silence, shapes 11 and 15 ended at
+the opposite rail, and both triangles locked into a DC level instead of
+turning round. This row closes that hole.
+
+**Workload**: `bin/ay_envelope_sweep.bin`, an 80-byte injected Z80 loop that
+walks all sixteen envelope shapes on channel A with tone and noise disabled,
+so `chan_mixed(0)` is '1' every clock (`ym2149.vhd:469`) and the DAC output is
+the envelope generator and nothing else. Its `.asm` carries the VHDL basis and
+the bytes for regeneration without a toolchain.
+
+**Capture**: `--headless --wav-record`. Headless has no real-time pacing, so
+unlike `audio-underrun-func` this row cannot be perturbed by a loaded host —
+it was developed and verified at a 1-minute load of 6.5.
+
+**Fingerprint**: the capture cut into 32 equal slices, each published as its
+mean (the DC level) and its AC RMS (the mean removed), in
+`ref/ay-envelope-profile.txt`. Both halves are load-bearing and neither is
+redundant:
+
+- a shape ending at the **wrong rail** is a pure DC change with no AC change
+  at all — slice 14 reads `0 0` correct and `1020 0` with the bug;
+- a shape that **locks** instead of ramping is a pure AC collapse — slices
+  20-22 read `96 226 / 424 399 / 958 224` correct and `13 91` three times over
+  with the bug.
+
+The comparison is **exact**, not tolerance-based. The whole chain — injected
+binary, fixed frame count, no RTC, no tape, no display — is deterministic to
+the sample, verified by three consecutive runs producing a byte-identical
+profile. A tolerance here would only be somewhere for a real regression to
+hide. The reference is 32 short lines, so a failure diff names the slices that
+moved and a human can read the defect out of it.
+
+**Acceptance test** (re-run it if you touch the envelope generator): revert the
+`AyChip::update_envelope` boundary-flag fix and this row must FAIL. Verified —
+24 of the 32 profile lines move.
+
 ## Functional test: esp-loopback-func
 
 The first of **six** rows that exercise the **emulated ESP-01 end to end**

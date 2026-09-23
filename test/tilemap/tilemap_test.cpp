@@ -1862,7 +1862,7 @@ void group15_enable_below() {
 // time, and the four register round-trips had no assertion of their own,
 // so all ten published as `missing`. GH #201 gives them one.
 //
-// VHDL tilemap.vhd:192-197 is the decode, verbatim:
+// VHDL tilemap.vhd:189-195 is the decode, verbatim:
 //     mode_i        <= control_i(6);   -- 0 = 40x32, 1 = 80x32
 //     strip_flags_i <= control_i(5);   -- 1 = eliminate tilemap flags
 //     textmode_i    <= control_i(3);
@@ -1878,7 +1878,7 @@ void group16_control_decode() {
     set_group("G16 Control decode");
     Tilemap tm; PaletteManager pal; Ram ram;
 
-    // TM-CB1 — bit 6 selects 80-column mode (tilemap.vhd:192).
+    // TM-CB1 — bit 6 selects 80-column mode (tilemap.vhd:189).
     {
         fresh(tm, pal, ram);
         tm.set_control(0x00);
@@ -1888,7 +1888,7 @@ void group16_control_decode() {
         tm.set_control(0xBF);                 // every bit BUT 6
         const bool still_off = tm.mode_80col();
         check_pred("TM-CB1", !off && on && !still_off,
-              "VHDL tilemap.vhd:192 — mode_i <= control_i(6): only bit 6 "
+              "VHDL tilemap.vhd:189 — mode_i <= control_i(6): only bit 6 "
               "selects 80-column mode");
     }
 
@@ -1906,7 +1906,7 @@ void group16_control_decode() {
               "bit 7 enables the tilemap");
     }
 
-    // TM-CB3 — bit 1 selects 512-tile mode (tilemap.vhd:196).
+    // TM-CB3 — bit 1 selects 512-tile mode (tilemap.vhd:194).
     {
         fresh(tm, pal, ram);
         tm.set_control(0x00);
@@ -1916,11 +1916,11 @@ void group16_control_decode() {
         tm.set_control(0xFD);                 // every bit BUT 1
         const bool still_off = tm.mode_512();
         check_pred("TM-CB3", !off && on && !still_off,
-              "VHDL tilemap.vhd:196 — mode_512_i <= control_i(1): only bit 1 "
+              "VHDL tilemap.vhd:194 — mode_512_i <= control_i(1): only bit 1 "
               "selects 512-tile mode");
     }
 
-    // TM-CB4 — bit 0 is tm_on_top (tilemap.vhd:197).
+    // TM-CB4 — bit 0 is tm_on_top (tilemap.vhd:195).
     {
         fresh(tm, pal, ram);
         tm.set_control(0x00);
@@ -1930,11 +1930,11 @@ void group16_control_decode() {
         tm.set_control(0xFE);                 // every bit BUT 0
         const bool still_off = tm.tm_on_top();
         check_pred("TM-CB4", !off && on && !still_off,
-              "VHDL tilemap.vhd:197 — tm_on_top_i <= control_i(0): only bit 0 "
+              "VHDL tilemap.vhd:195 — tm_on_top_i <= control_i(0): only bit 0 "
               "puts the tilemap above the ULA");
     }
 
-    // TM-CB5 — bit 5 is strip_flags, bit 3 is textmode (tilemap.vhd:193-194).
+    // TM-CB5 — bit 5 is strip_flags, bit 3 is textmode (tilemap.vhd:190-191).
     // The row historically flagged a bit-5 discrepancy and asserted `true`
     // unconditionally; the wiring has since been corrected, so this pins
     // the two neighbouring bits against each other — a swap of 5 and 3
@@ -1946,7 +1946,7 @@ void group16_control_decode() {
         tm.set_control(0x08);                 // bit 3 only
         const bool text_only_text = tm.text_mode();
         check_pred("TM-CB5", !strip_only_text && text_only_text,
-              "VHDL tilemap.vhd:193-194 — strip_flags_i is control_i(5) and "
+              "VHDL tilemap.vhd:190-191 — strip_flags_i is control_i(5) and "
               "textmode_i is control_i(3); bit 5 alone must not turn text "
               "mode on");
     }
