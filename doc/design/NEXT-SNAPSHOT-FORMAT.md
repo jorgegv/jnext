@@ -539,8 +539,33 @@ Rules:
   its grammar without a JSON parse, and a truncated file is still classifiable.
 - **Member paths are lower-case, `/`-separated, no leading `/`, no `..`.** A
   reader refuses any archive containing a path that does not match
-  `^[a-z0-9][a-z0-9._/-]*$`. A snapshot is not an extraction target, and
-  zip-slip is not a hazard we accept even in a private format.
+  `^[a-z0-9][a-z0-9._/-]*$` **and** that fails any of the component rules
+  below. A snapshot is not an extraction target, and zip-slip is not a hazard
+  we accept even in a private format.
+
+  > **The regex ALONE is not sufficient, and an earlier draft of this section
+  > implied it was.** Both `.` and `/` are inside the character class, so
+  > `state/../../etc/passwd` **matches** `^[a-z0-9][a-z0-9._/-]*$` and is still
+  > a traversal. Anyone implementing from the regex and the prose "no `..`"
+  > would ship the hazard this bullet exists to refuse. Found while
+  > implementing S1; the rules that actually close it are therefore stated,
+  > not left to the reader:
+  >
+  > 1. the path is non-empty and at most 255 bytes;
+  > 2. its first character is `[a-z0-9]` — this, not the character class, is
+  >    what rejects an absolute path, a leading `.` and a leading `-`;
+  > 3. every character is in `[a-z0-9._/-]` — this is what rejects a
+  >    backslash (which Windows tooling treats as a separator, so it is a
+  >    traversal in disguise), every upper-case letter, and every control or
+  >    non-ASCII byte;
+  > 4. **no component is empty** — which is what rejects a trailing `/` (a ZIP
+  >    directory entry, never written), a leading `/` and a doubled `//`;
+  > 5. **no component is exactly `.` or `..`** — the rule the regex cannot
+  >    express at all.
+  >
+  > The grammar applies to the manifest's own `members` keys as well as to the
+  > archive's entries, and is checked on the writer's side too, so a bad path
+  > cannot enter an archive in the first place.
 - **Duplicate member names are a REFUSAL.** ZIP permits them and real readers
   disagree about which one wins — some take the first central-directory entry,
   some the last, some the last *local* header. That is the `.szx` failure shape
@@ -556,6 +581,33 @@ Rules:
   path.
 - **ZIP64 is not written and is refused on read.** No member can approach 4 GB;
   writing ZIP64 would add a second framing to test for no reachable benefit.
+- **A single member may declare at most 64 MB, compressed or uncompressed, and
+  a larger declaration is refused before anything is allocated from it.**
+  This is a format rule, not an implementation detail, and it was added after
+  S1's review measured what its absence costs.
+
+  A ZIP member's uncompressed length is a bare 32-bit field in the central
+  directory, and **nothing in the archive's structure relates it to the
+  compressed bytes actually present**. A 161-byte archive can legitimately
+  declare a 4 GB member; a reader that sizes its output buffer from that
+  declaration allocates 4 GB (measured: 4 198 256 KB resident, 1 048 798 minor
+  faults) on a file that fits in a packet, and on a memory-constrained host
+  throws `std::bad_alloc` instead — which, uncaught, **terminates the
+  emulator**. That is the inversion of G9: a hostile file must be refused
+  loudly, never abort and never restore something plausible.
+
+  The ceiling is checked in the central-directory walk, so it refuses at open
+  time, before a member is read and before any consumer of the entry list can
+  size an allocation from it. 64 MB against a largest legitimate member of
+  2 097 152 bytes (`mem/ram.bin`, §6.1) is about 32x headroom, so no file
+  jnext writes can approach it.
+
+  A *ratio* bound — uncompressed ≤ compressed × DEFLATE's maximum expansion —
+  was considered and rejected: 2 MB of zero-filled guest RAM, the single most
+  likely real blob, deflates at a ratio near 1000:1, close enough to the
+  1032:1 theoretical maximum that the bound would risk refusing legitimate
+  files. A bound that rejects real snapshots is worse than a generous one that
+  merely caps the damage.
 - **The reader accepts only the exact ZIP subset the writer emits; any other
   feature is a refusal.** This is a rule rather than a list, and it is deliberate:
   ZIP has a long tail — a local header whose CRC or sizes disagree with the
@@ -1669,16 +1721,42 @@ note that must be handled up front:
 
 > **There is no VHDL counterpart.** A snapshot format is a jnext-internal
 > artefact, so there is no `*-TEST-PLAN-DESIGN.md` derived from the FPGA source
-> and no per-row VHDL citation. That is the position `rewind_test` and
-> `sdcard_test` are already in: they carry per-suite tombstones
-> (`(jnext-internal)`, `(SD SPI spec)`) and their planned rows live in
-> `test/traceability-exceptions.conf`. **`snapshot_test` needs the same
-> treatment, added in the same change**, or `make traceability-check` will
-> refuse. The tombstone reads `(jnext-internal)` and cites this document.
+> and no per-row VHDL citation. `make traceability-check` refuses unless every
+> declared suite is accounted for, so `snapshot_test` must be placed in the
+> generator in the same change that adds it.
+>
+> **It goes in `%NO_MATRIX_SECTION`, NOT in `%TOMBSTONE`.** An earlier draft of
+> this section prescribed the `rewind_test` / `sdcard_test` treatment — a
+> per-suite citation tombstone plus planned rows in
+> `test/traceability-exceptions.conf` — and that was wrong. The two mechanisms
+> are not interchangeable, and the generator's own header comments
+> (`test/refresh-traceability-matrix.pl:395-402`, `:933-947`) say which is
+> which:
+>
+> - **`%TOMBSTONE`** applies to a suite that *has* a per-row matrix section —
+>   one traced against a plan — and gives its uncited rows a standing
+>   `(jnext-internal)` citation instead of a bare `—`. `rewind_test` and
+>   `sdcard_test` are in that position because they carry historical
+>   planned-but-unimplemented rows, which is what `traceability-exceptions.conf`
+>   records.
+> - **`%NO_MATRIX_SECTION`** applies to a suite whose oracle is a file format,
+>   a host API or jnext-internal policy, with no VHDL-derived plan row to map
+>   and nothing planned. It is still fully declared, counted and run.
+>
+> `snapshot_test` is the second: its authority is this document, every row is
+> implemented, and nothing is planned-but-missing. The precedent is exact —
+> `warm_start_test` (jnext's other own on-disk format), `nex_loader_test`,
+> `fat32_image_test`. Putting it in `%TOMBSTONE` would have claimed a matrix
+> section it does not have, and adding rows to `traceability-exceptions.conf`
+> would have manufactured a backlog that does not exist. Corrected here after
+> S1 implemented it and an independent reviewer adjudicated the deviation.
 
 Manifests to update in the same change (a missing test is a loud failure, never
-a silent skip): `test/unit-tests.conf` (with the **exact** pinned row count),
-`test/00regression/functional_tests.conf`, `test/traceability-exceptions.conf`.
+a silent skip): `test/unit-tests.conf` (with the **exact** pinned row count
+**and** the `# expect:` suite count), `test/00regression/functional_tests.conf`
+once functional rows exist, and the generator's `%NO_MATRIX_SECTION` entry
+above. `test/refresh-subsystem-status.sh` needs the suite's friendly name too,
+or the dashboard emits a TODO.
 
 ### 16.1 Unit rows — `test/snapshot/snapshot_test.cpp`
 
