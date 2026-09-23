@@ -232,11 +232,19 @@ add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
 # module has no `builddir: true` — unlike the sdl2 module above it, whose
 # upstream CMakeLists refuses an in-tree build — so flatpak-builder's cmake-ninja
 # default builds it in-source at /run/build/jnext. That is DELIBERATELY left
-# alone: it is the only CI coverage of an in-source build of the real project,
-# and in-source is a configuration a downstream packager may well use. Adding
-# `builddir: true` would have turned the flatpak job green while leaving the
-# glob wrong for everyone else, and would have removed the only end-to-end
-# witness that it is right.
+# alone, and the reason is the DIVISION between the two guards, not scarcity:
+#
+#   * cmake-configure-guard-selftest.sh phases 10-12 are the PRIMARY guard. They
+#     are fast (~1s), deterministic, and run on every `make unit-test`, so the
+#     regression is caught before review, let alone before CI.
+#   * The flatpak job is the SECONDARY, end-to-end one, and it runs on every
+#     push, not only on releases. It is the only place an in-source build of the
+#     REAL project happens, against real Qt and real AUTOMOC — where the phase-10
+#     fixture only reproduces moc's aggregate-include SHAPE with cmake -E.
+#
+# `builddir: true` would delete the second without replacing it, and it would
+# have turned the job green while leaving the glob wrong for everyone else —
+# in-source being a configuration a downstream packager may well use.
 #
 # The fix is to state what a SOURCE glob means: it matches sources, never the
 # build's own output. Every first-party file(GLOB_RECURSE ...) below is followed
@@ -250,7 +258,16 @@ add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
 # that writes a matching source straight into CMAKE_CURRENT_BINARY_DIR; src/core
 # does exactly that for nextboot_rom.c, which escapes only because the glob asks
 # for *.cpp. Such a file is a deliberate act with an obvious home, unlike the
-# autogen tree, which appears merely because a target has AUTOMOC on.
+# autogen tree, which appears merely because a target has AUTOMOC on. It also
+# cuts the other way: a HAND-WRITTEN source directory named <something>_autogen
+# or CMakeFiles would be dropped from the build silently, with no warning. No
+# tracked file matches today, and these are CMake's own reserved names, so the
+# collision is a naming mistake rather than a trap — but it is name matching,
+# not property matching. It has to be: the build-time re-glob is a raw
+# filesystem diff that cannot consult the GENERATED property (AUTOMOC's outputs
+# are not marked at glob time), and filtering on CMAKE_CURRENT_BINARY_DIR
+# degenerates to a no-op in exactly the in-source case that needs it, because
+# there the binary dir IS the source dir.
 set(JNEXT_GENERATED_DIR_REGEX "(^|/)([^/]+_autogen|CMakeFiles)/"
     CACHE INTERNAL "Build-tree directories a source glob must never match")
 

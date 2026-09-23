@@ -457,6 +457,12 @@ done
 # variable, or filters the right one twenty lines later with an add_library in
 # between, is not protected.
 #
+# IMMEDIATELY AFTER is literal: put NOTHING between the two lines, not even a
+# comment or a blank. A functionally harmless separator is reported as an
+# unfiltered glob — a false positive on correct configuration, accepted because
+# it fails loud on a green tree and can never mask a real gap. Loosening it to
+# "somewhere below" is what would silently accept the twenty-lines-later case.
+#
 # Non-recursive file(GLOB ...) is deliberately out of scope: it cannot descend
 # into a generated subdirectory. test/CMakeLists.txt's two `tests.*` data globs
 # are the only ones, and they glob fixture data, not sources.
