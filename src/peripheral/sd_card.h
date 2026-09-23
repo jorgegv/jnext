@@ -350,7 +350,9 @@ private:
     bool crosses_block_boundary(uint64_t byte_addr) const;
 
     bool is_overlay_sector(uint32_t sector) const;
-    /// True when `byte_addr` names the start of an overlaid sector.
+    /// True when `byte_addr` falls in an overlaid sector of a
+    /// block-addressed card. A byte-addressed card never matches: the
+    /// overlay is a sector-indexed bridge, not a view of the image.
     bool is_overlay_addr(uint64_t byte_addr) const;
     /// Load `block_len_` bytes at `byte_addr` into data_block_.
     bool load_read_block(uint64_t byte_addr);

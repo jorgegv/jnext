@@ -1170,9 +1170,29 @@ void SdCardDevice::build_csd_v1(uint8_t csd[16]) const {
             "SDSC CSD v1.0 cannot express {} bytes (12-bit C_SIZE caps at "
             "1 GiB with READ_BL_LEN=9); declaring the cap", file_size_);
     }
-    // A card must declare at least one MULT unit; an image smaller than one
-    // unit rounds up to it rather than declaring a zero-capacity card.
-    if (units == 0) units = 1;
+    // Every other size rounds DOWN, which is the safe direction: a declared
+    // capacity below the file only hides its tail. One size cannot round
+    // down — an image under one MULT unit (2 KiB at C_SIZE_MULT=0), for which
+    // the smallest register this encoding can express already says 2 KiB, so
+    // there is no C_SIZE/C_SIZE_MULT pair that declares less. It is declared
+    // and logged rather than silently rounded.
+    //
+    // A capacity declared above the file is the shape of an out-of-bounds
+    // read, so it is worth saying exactly why it is not one here: nothing in
+    // the read path consults the CSD. Every transfer is bounded against
+    // file_size_ itself — load_read_block() refuses a block that would run
+    // past it, and CMD17/CMD18/CMD24 turn that refusal into the documented
+    // out-of-range R1 and data-error token (§ 7.3.2.1, § 7.3.3.3), which is
+    // what SD-21/SD-23/SD-26 pin. A host that believed the over-declared
+    // capacity and read the tail gets those errors, not host memory.
+    if (units == 0) {
+        units = 1;
+        sd_log()->warn(
+            "SDSC CSD v1.0 cannot express {} bytes (the smallest v1.0 "
+            "capacity is one MULT unit = 2048 bytes); declaring 2048 — reads "
+            "past the real end of the image are still refused",
+            file_size_);
+    }
     const uint32_t c_size = static_cast<uint32_t>(units - 1);
 
     // Currents are card properties the spec does not fix; these are ordinary
@@ -1423,13 +1443,19 @@ bool SdCardDevice::is_overlay_sector(uint32_t sector) const {
 }
 
 bool SdCardDevice::is_overlay_addr(uint64_t byte_addr) const {
-    // The direct-NEX file-map bridge indexes its overlay by SECTOR, and it is
-    // installed only by prepare_for_direct_nex(), which also forces the card
-    // into block-addressed mode — so an overlay can only ever be hit by a
-    // sector-aligned address. Requiring the alignment here keeps a
-    // byte-addressed card from half-matching an overlay sector.
+    // The direct-NEX file-map bridge indexes its overlay by SECTOR. A
+    // byte-addressed card's addresses are offsets into the image and have
+    // nothing to do with that numbering, so the overlay answers only a
+    // block-addressed card — this is the guard SDSC-OVL-01 pins.
+    //
+    // No alignment test is needed alongside it: while the card is
+    // block-addressed, every address reaching here is a multiple of
+    // kBlockLen by construction. arg_to_byte_addr() multiplies the argument
+    // by kBlockLen, and the CMD18 stride is block_len_, which CMD16 cannot
+    // move off kBlockLen in this mode (§ 4.3.2). An earlier version tested
+    // the alignment as well; it could not fail, so it was code no row could
+    // reach.
     if (!block_addressed()) return false;
-    if (byte_addr % kBlockLen != 0) return false;
     const uint64_t sector = byte_addr / kBlockLen;
     if (sector > 0xFFFFFFFFull) return false;
     return is_overlay_sector(static_cast<uint32_t>(sector));

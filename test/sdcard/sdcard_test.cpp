@@ -225,6 +225,18 @@ bool read_csd(SdCardDevice& sd, uint8_t csd[16]) {
     return true;
 }
 
+// The byte make_image() wrote at absolute offset `off`: sector S carries S as a
+// 32-bit LE magic in its first 4 bytes, then a rolling (S + index) pattern.
+// Having it as a function lets a row assert a block's WHOLE content against the
+// fixture instead of an identity prefix — which is what distinguishes one
+// candidate block address from another when the prefixes happen to coincide.
+uint8_t fixture_byte(uint64_t off) {
+    const uint64_t s = off / 512;
+    const uint64_t j = off % 512;
+    if (j < 4) return static_cast<uint8_t>((s >> (8 * j)) & 0xFF);
+    return static_cast<uint8_t>((s + j) & 0xFF);
+}
+
 // Create a sparse image of `bytes` length with no content — enough for the
 // CSD capacity-encoding rows, which only read file_size_.
 std::string make_sparse_image(uint64_t bytes) {
@@ -1123,7 +1135,7 @@ static void test_sd_15_mount_full_reset() {
     // full SPI-protocol state reset, identical to reset(). Pre-fix mount()
     // cleared only state_/initialized_/app_cmd_/cmd_idx_, leaving
     // resp_buf_/resp_idx_/data_idx_/data_crc_count_/multi_block_/
-    // multi_block_sector_/persistent_response_byte_/data_block_/cmd_buf_
+    // multi_block_addr_/persistent_response_byte_/data_block_/cmd_buf_
     // untouched. A runtime mount swap (e.g. user changes --sdcard while
     // a CMD17 SENDING_DATA is mid-transfer) leaves these fields stale.
     //
@@ -1133,7 +1145,7 @@ static void test_sd_15_mount_full_reset() {
     // hits receive()'s default-state abort branch (sd_card.cpp:201-218 —
     // "new CMD start byte while state_!=IDLE") because CMD8's resp_buf_
     // is left partially-drained after send_cmd_r1's "stop on first non-FF"
-    // poll. That abort branch DOES clear multi_block_/multi_block_sector_/
+    // poll. That abort branch DOES clear multi_block_/multi_block_addr_/
     // pending_write_after_r1_, masking the leak — and CMD17 then re-reads
     // data_block_ from the new file. Net: original test passed both pre-
     // fix and post-fix.
@@ -2646,6 +2658,25 @@ static void test_sdsc_addressing(SdCardDevice& sd) {
           "r1=" + std::to_string(r1_mis) +
           " tok=" + (tok_mis ? "1" : "0"));
 
+    // SDSC-ADDR-07: CMD18 enforces the same alignment contract at its own
+    // call site. CMD17, CMD18 and CMD24 each test it separately, so each
+    // needs its own row — a shared helper being correct says nothing about a
+    // caller that forgot to call it. Beyond the R1, no stream may start: a
+    // rejected CMD18 must leave multi-block mode off, so nothing follows.
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_mis18 = send_cmd_r1(sd, 18, 2);
+    bool tok_mis18 = wait_token(sd);
+    sd.deselect();
+
+    check("SDSC-ADDR-07",
+          "SDSC CMD18 with a misaligned byte address → R1 bit 5 "
+          "ADDRESS_ERROR, no data token and no stream started (§ 4.3.2, "
+          "§ 7.3.2.1)",
+          r1_mis18 == 0x20 && !tok_mis18,
+          "r1=" + std::to_string(r1_mis18) +
+          " tok=" + (tok_mis18 ? "1" : "0"));
+
     // SDSC-ADDR-04: CMD18 streaming is byte-addressed too, and the stream
     // advances one BLOCK per block — not one raw argument unit.
     sd.reset();
@@ -2879,6 +2910,177 @@ static void test_sdsc_cmd16(SdCardDevice& sd) {
           (r1_w & 0x40) != 0 && untouched,
           "r1_w=" + std::to_string(r1_w) +
           " untouched=" + (untouched ? "1" : "0"));
+
+    // SDSC-CMD16-05: CMD16 sets the block length "for all following block
+    // commands" (§ 4.3.2) — CMD18 included. A multi-block stream therefore
+    // advances one BLOCK LENGTH per block, not a fixed 512: § 4.3.3 has the
+    // card send "continuously blocks of data" from the starting address, and
+    // the block is whatever CMD16 last made it.
+    //
+    // Discriminative shape: with the length at 256 and the stream started at
+    // byte 256, the blocks must be image bytes 256..511, 512..767 and
+    // 768..1023. A stride hardcoded to 512 would put the second block at
+    // 768..1023 instead — and the fixture's rolling pattern makes those two
+    // disagree from the second byte onward, so the whole-block comparison
+    // below kills it. (The first byte coincides at 0x01 in both, which is
+    // exactly why this row compares all 256 bytes rather than the identity
+    // prefix that the other CMD18 rows use.)
+    //
+    // THREE blocks, not two, and the third is the point. The stride is
+    // computed at two separate sites — cmd18_read_multiple_block() sets the
+    // address of block 2, and the re-prime inside send()'s SENDING_DATA
+    // branch sets the address of every block after that. A two-block read
+    // exercises only the first site: the second site's result is not
+    // observed until block 3 arrives. Verified by mutating each site
+    // independently, which is how this row grew from two blocks to three.
+    //
+    // The CRC each block carries is checked too, so the row pins the data
+    // FIELD length as well as the stride between fields (§ 7.2.4).
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_16b = send_cmd_r1(sd, 16, 256);
+    uint8_t r1_18  = send_cmd_r1(sd, 18, 256);
+    bool tok_s1 = wait_token(sd);
+    uint8_t s1[256] = {};
+    bool crc_s1 = tok_s1 && read_block_len(sd, s1, 256);
+    bool tok_s2 = wait_token(sd, 32);
+    uint8_t s2[256] = {};
+    bool crc_s2 = tok_s2 && read_block_len(sd, s2, 256);
+    bool tok_s3 = wait_token(sd, 32);
+    uint8_t s3[256] = {};
+    bool crc_s3 = tok_s3 && read_block_len(sd, s3, 256);
+    (void)send_cmd_r1(sd, 12, 0);
+    sd.deselect();
+
+    bool stride_ok = tok_s1 && tok_s2 && tok_s3;
+    for (int i = 0; i < 256 && stride_ok; ++i) {
+        if (s1[i] != fixture_byte(256 + i)) stride_ok = false;
+        if (s2[i] != fixture_byte(512 + i)) stride_ok = false;
+        if (s3[i] != fixture_byte(768 + i)) stride_ok = false;
+    }
+
+    check("SDSC-CMD16-05",
+          "SDSC CMD18 after CMD16 256 streams 256-byte blocks and advances "
+          "one BLOCK LENGTH between them at BOTH stride sites — three blocks "
+          "are image bytes 256..511, 512..767, 768..1023, not a hardcoded "
+          "512-byte stride (§ 4.3.2, § 4.3.3, § 7.2.4)",
+          r1_16b == 0x00 && r1_18 == 0x00 && crc_s1 && crc_s2 && crc_s3 &&
+              stride_ok,
+          "r1_16=" + std::to_string(r1_16b) +
+          " r1_18=" + std::to_string(r1_18) +
+          " crc=" + (crc_s1 ? "1" : "0") + (crc_s2 ? "1" : "0") +
+                    (crc_s3 ? "1" : "0") +
+          " stride=" + (stride_ok ? "1" : "0") +
+          " s2[1]=" + std::to_string(s2[1]) +
+          " want2=" + std::to_string(fixture_byte(513)) +
+          " s3[0]=" + std::to_string(s3[0]) +
+          " want3=" + std::to_string(fixture_byte(768)));
+
+    // SDSC-CMD16-06: the end-of-image bound scales with the block length
+    // too. A 256-byte block starting 256 bytes before the end of the image
+    // fits entirely inside it, so § 4.3.2 has nothing to object to and the
+    // card must deliver it — the OUT_OF_RANGE condition of § 7.3.2.1 is
+    // about the data the command asks for, not about a fixed 512.
+    //
+    // This is the row that separates "reads block_len_ bytes" from "reads
+    // 512 and emits the first block_len_ of them": the latter reads past the
+    // end of the file here and turns a legal request into a past-EOF error.
+    // Both the length passed to the host read and the bound checked before
+    // it have to use the current block length, and only a block at the very
+    // end of the image can tell.
+    const uint64_t kImageBytes = 16 * 512;   // the shared fixture
+    sd.reset();
+    init_card_sdsc(sd);
+    uint8_t r1_16c = send_cmd_r1(sd, 16, 256);
+    uint8_t r1_tail = send_cmd_r1(sd, 17,
+                                  static_cast<uint32_t>(kImageBytes - 256));
+    bool tok_tail = wait_token(sd);
+    uint8_t tail[256] = {};
+    bool crc_tail = tok_tail && read_block_len(sd, tail, 256);
+    sd.deselect();
+
+    bool tail_ok = tok_tail;
+    for (int i = 0; i < 256 && tail_ok; ++i)
+        if (tail[i] != fixture_byte(kImageBytes - 256 + i)) tail_ok = false;
+
+    check("SDSC-CMD16-06",
+          "SDSC shortened block at the very end of the image is delivered, "
+          "not refused: the end-of-image bound and the host read both use "
+          "the current block length, not a fixed 512 (§ 4.3.2, § 7.3.2.1)",
+          r1_16c == 0x00 && r1_tail == 0x00 && crc_tail && tail_ok,
+          "r1_16=" + std::to_string(r1_16c) +
+          " r1_17=" + std::to_string(r1_tail) +
+          " crc=" + (crc_tail ? "1" : "0") +
+          " content=" + (tail_ok ? "1" : "0"));
+}
+
+// SDSC-OVL-01 — the direct-NEX read overlay is a SECTOR-indexed, SDHC-only
+// compatibility bridge (set_read_overlay(); see is_overlay_addr()). One guard
+// keeps a byte-addressed card away from it, and no other row here exercises
+// it, because no other row installs an overlay at all: a standard-capacity
+// card's addresses are byte offsets into the image and have nothing to do
+// with the overlay's sector numbering, so the overlay must never answer one.
+//
+// The SDSC leg puts two differently-dangerous addresses through that guard.
+// A 256-byte stream from byte 256 reaches byte 512, which IS sector 1's
+// boundary, and byte 768, which is not a boundary but still DIVIDES to
+// sector 1 — so neither an exact match nor a truncating one may be served.
+//
+// The SDHC leg proves the overlay is reachable at all, so the SDSC leg is a
+// real negative rather than a vacuous one.
+static void test_sdsc_overlay_guards() {
+    const std::string img = make_image(16);
+    SdCardDevice card;
+    const bool mounted = card.mount(img);
+    card.set_read_overlay(1, 1, [](uint32_t, uint8_t* dst) {
+        std::memset(dst, 0xEE, 512);
+        return true;
+    });
+
+    // SDSC leg: a 256-byte stream from byte 256 crosses byte 512 (sector 1,
+    // aligned) and byte 768 (sector 1, NOT aligned). Neither may be served
+    // from the overlay.
+    card.reset();
+    init_card_sdsc(card);
+    (void)send_cmd_r1(card, 16, 256);
+    (void)send_cmd_r1(card, 18, 256);
+    bool sdsc_clean = true;
+    for (int blk = 0; blk < 3; ++blk) {
+        if (!wait_token(card, 32)) { sdsc_clean = false; break; }
+        uint8_t b[256] = {};
+        for (int i = 0; i < 256; ++i) b[i] = spi_read(card);
+        (void)spi_read(card); (void)spi_read(card);   // CRC
+        for (int i = 0; i < 256; ++i)
+            if (b[i] != fixture_byte(256 + blk * 256 + i)) sdsc_clean = false;
+    }
+    (void)send_cmd_r1(card, 12, 0);
+    card.deselect();
+
+    // SDHC leg: the same sector IS the overlay's, and a block-addressed read
+    // of it must come back as overlay content.
+    card.reset();
+    init_card(card);
+    const uint8_t r1 = send_cmd_r1(card, 17, 1);
+    const bool tok = wait_token(card);
+    uint8_t ovl[512] = {};
+    if (tok) read_block(card, ovl);
+    card.deselect();
+    card.unmount();
+    std::remove(img.c_str());
+
+    bool overlay_served = tok && r1 == 0x00;
+    for (int i = 0; i < 512 && overlay_served; ++i)
+        if (ovl[i] != 0xEE) overlay_served = false;
+
+    check("SDSC-OVL-01",
+          "the sector-indexed read overlay answers a block-addressed card "
+          "and never a byte-addressed one — not at an address that happens "
+          "to be sector-aligned, nor at one that merely divides into an "
+          "overlaid sector",
+          mounted && sdsc_clean && overlay_served,
+          "mounted=" + std::string(mounted ? "1" : "0") +
+          " sdsc_clean=" + (sdsc_clean ? "1" : "0") +
+          " overlay_served=" + (overlay_served ? "1" : "0"));
 }
 
 static void test_sdsc_csd() {
@@ -3004,6 +3206,60 @@ static void test_sdsc_csd() {
               " cap=" + std::to_string(capacity));
     }
 
+    // SDSC-CSD-04: the one image size the v1.0 encoding cannot round DOWN.
+    // Capacity is (C_SIZE+1) * MULT * BLOCK_LEN with C_SIZE >= 0, MULT >= 4
+    // and BLOCK_LEN = 512, so the smallest register this version can express
+    // already says 2048 bytes (§ 5.3.2). An image under that is declared at
+    // the floor — the only case where the declared capacity exceeds the file,
+    // and therefore the one worth pinning rather than leaving implicit.
+    //
+    // The second half of the row is why that over-declaration is harmless:
+    // nothing in the read path consults the CSD, so a host that believes the
+    // 2048 and reads past the real end gets the documented out-of-range R1
+    // (§ 7.3.2.1) rather than anything outside the file.
+    {
+        const std::string tiny = make_sparse_image(1000);
+        SdCardDevice card;
+        const bool mounted = card.mount(tiny);
+        init_card_sdsc(card);
+        const bool got = mounted && read_csd(card, csd);
+        card.deselect();
+
+        const uint32_t read_bl_len = csd[5] & 0x0F;
+        const uint32_t c_size =
+            (static_cast<uint32_t>(csd[6] & 0x03) << 10) |
+            (static_cast<uint32_t>(csd[7]) << 2) |
+            (static_cast<uint32_t>(csd[8]) >> 6);
+        const uint32_t c_size_mult =
+            (static_cast<uint32_t>(csd[9] & 0x03) << 1) |
+            (static_cast<uint32_t>(csd[10]) >> 7);
+        const uint64_t capacity = static_cast<uint64_t>(c_size + 1) *
+                                  (1ULL << (c_size_mult + 2)) *
+                                  (1ULL << read_bl_len);
+
+        // A read inside the declared capacity but past the real file.
+        card.reset();
+        init_card_sdsc(card);
+        const uint8_t r1_past = send_cmd_r1(card, 17, 512);
+        card.deselect();
+        card.unmount();
+        std::remove(tiny.c_str());
+
+        check("SDSC-CSD-04",
+              "an image below one MULT unit is declared at the v1.0 floor "
+              "(C_SIZE=0, C_SIZE_MULT=0 → 2048 bytes, § 5.3.2) — the only "
+              "size the encoding cannot round down — and a read inside that "
+              "declaration but past the real file is still refused with "
+              "OUT_OF_RANGE (§ 7.3.2.1)",
+              got && c_size == 0 && c_size_mult == 0 && capacity == 2048 &&
+                  r1_past == 0x40,
+              "got=" + std::string(got ? "1" : "0") +
+              " c_size=" + std::to_string(c_size) +
+              " mult=" + std::to_string(c_size_mult) +
+              " cap=" + std::to_string(capacity) +
+              " r1_past=" + std::to_string(r1_past));
+    }
+
     std::remove(small.c_str());
     std::remove(big.c_str());
 }
@@ -3072,10 +3328,11 @@ int main() {
     test_task26_data_block_crc();                // item 3 — real data-block CRC-16
 
     // ─── GH #94 — SDSC (byte-addressed) card support ──────────────────
-    test_sdsc_addressing(sd);   // SDSC-ADDR-01..04 + MMC-03
+    test_sdsc_addressing(sd);   // SDSC-ADDR-01..04/07 + MMC-03
     test_sdsc_write(sd);        // SDSC-ADDR-05/06
-    test_sdsc_cmd16(sd);        // SDSC-CMD16-01..04
-    test_sdsc_csd();            // SDSC-CSD-01..03
+    test_sdsc_cmd16(sd);        // SDSC-CMD16-01..06
+    test_sdsc_overlay_guards(); // SDSC-OVL-01
+    test_sdsc_csd();            // SDSC-CSD-01..04
 
     // ─── WONT / RE-HOME rows (no skip()) ───────────────────────────────
     //
