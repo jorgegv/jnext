@@ -1783,6 +1783,550 @@ static void test_group10d_per_scanline_bank() {
     }
 }
 
+// ============================================================================
+// Group G10f: mid-line bank / scroll segmentation (GH #270)
+// ============================================================================
+//
+// The bank (NR 0x12) and scroll (NR 0x16/0x17/0x71) change logs carry the
+// COLUMN each write landed at, not just its scanline, and render_scanline
+// draws the line as one span per segment. Before GH #270 the last write on
+// a line won and the whole line came from it.
+//
+// The hpos -> first-affected-source-column mapping under test is derived in
+// seg_first_col() in src/video/layer2.cpp from copper.vhd:94,
+// zxnext.vhd:4709-4731, layer2.vhd:110-122,145-148 and
+// zxula_timing.vhd:476-520; it is `hpos + 2` narrow and `hpos + 34` wide.
+// Its external check is MAME 0.289 (`tbblue`), which puts the boundary of
+// the reporter's WAIT(line, hpos=8) case at display column 67 — the same
+// column these rows assert, reached here by setting hpos directly.
+static void test_group10f_midline_segments() {
+    set_group("G10f mid-line segments");
+
+    // Column 67 is the MAME-checked boundary of the GH #270 repro; these are
+    // the hpos values that land a write there in each mode.
+    constexpr int kHposCol67Narrow = 67 - 2;    // 65
+    constexpr int kHposCol99Wide   = 99 - 34;   // 65 — the same physical spot
+
+    // ---------- GH270-01: the hpos -> column mapping itself ----------
+    // layer2.vhd:145-148 `hc_eff = (phc|whc) + 1` plus the CLK_7 resample at
+    // :110-122, with whc = phc + 32 (zxula_timing.vhd:476-520). One write,
+    // read back through both mode mappings: narrow +2, wide +34.
+    {
+        Layer2 l2; l2.reset();
+        l2.start_frame();
+        l2.set_current_line(100);
+        l2.set_current_hpos(kHposCol67Narrow);
+        l2.set_active_bank(0x10);
+        l2.rewind_to_baseline();
+        l2.apply_changes_for_line(100);
+        const bool two_segments = (l2.line_segment_count() == 2);
+        const int narrow_col = l2.segment_first_column(1, /*wide=*/false);
+        const int wide_col   = l2.segment_first_column(1, /*wide=*/true);
+        check("L2-GH270-01",
+              "hpos 65 -> source column 67 narrow / 99 wide (the 32-column "
+              "wide-mode overscan apart)",
+              two_segments && narrow_col == 67 && wide_col == 99,
+              DETAIL("segments=%zu narrow=%d wide=%d",
+                     l2.line_segment_count(), narrow_col, wide_col));
+    }
+
+    // ---------- GH270-02: two bank writes on one line, 256x192 ----------
+    // THE FILED DEFECT. zxnext.vhd:5220 latches NR 0x12; layer2.vhd:113-121
+    // resamples it every CLK_7, so the second write cannot retro-actively
+    // repaint the columns the first one owned.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x00);            // 256x192 8bpp
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_256x192(ram, 0x08, [](int, int){ return uint8_t{0x5A}; });
+        fill_256x192(ram, 0x10, [](int, int){ return uint8_t{0x6B}; });
+        set_l2_palette_8bit(pal, 0x5A, 0x1C);
+        set_l2_palette_8bit(pal, 0x6B, 0x38);
+
+        l2.start_frame();
+        l2.set_current_line(132);   // fb row 132 = display line 100
+        l2.set_current_hpos(kHposCol67Narrow);
+        l2.set_active_bank(0x10);        // takes over at column 67
+        l2.set_current_hpos(300);        // past the right edge — next line only
+        l2.set_active_bank(0x08);
+        l2.rewind_to_baseline();
+
+        uint32_t buf[BUF_WIDTH];
+        for (int row = 0; row <= 132; ++row) l2.apply_changes_for_line(row);
+        render_row(l2, ram, pal, buf, 132);   // fb row 132 = display line 100
+        const bool left_old  = buf[DISP_X_NARROW + 2 * 66]
+                            == pal.layer2_colour(0x5A);
+        const bool right_new = buf[DISP_X_NARROW + 2 * 67]
+                            == pal.layer2_colour(0x6B);
+        const bool tail_new  = buf[DISP_X_NARROW + 2 * 255]
+                            == pal.layer2_colour(0x6B);
+        check("L2-GH270-02",
+              "two NR 0x12 writes on one line: bank 0x08 to column 66, "
+              "bank 0x10 from 67 - the second write does not repaint the line",
+              left_old && right_new && tail_new,
+              DETAIL("left_old=%d right_new=%d tail_new=%d",
+                     left_old, right_new, tail_new));
+    }
+
+    // ---------- GH270-03: same, 320x256 wide mode ----------
+    // layer2.vhd:147 selects i_whc for every wide resolution, so the same
+    // write lands 32 columns further right in the 320-wide source space.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x10);            // 320x256 8bpp
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_320x256(ram, 0x08, [](int, int){ return uint8_t{0x5A}; });
+        fill_320x256(ram, 0x10, [](int, int){ return uint8_t{0x6B}; });
+        set_l2_palette_8bit(pal, 0x5A, 0x1C);
+        set_l2_palette_8bit(pal, 0x6B, 0x38);
+
+        l2.start_frame();
+        l2.set_current_line(100);
+        l2.set_current_hpos(kHposCol99Wide);
+        l2.set_active_bank(0x10);
+        l2.rewind_to_baseline();
+
+        uint32_t buf[BUF_WIDTH];
+        for (int row = 0; row <= 100; ++row) l2.apply_changes_for_line(row);
+        render_row(l2, ram, pal, buf, 100);
+        const bool left_old  = buf[2 * 98] == pal.layer2_colour(0x5A);
+        const bool right_new = buf[2 * 99] == pal.layer2_colour(0x6B);
+        check("L2-GH270-03",
+              "320x256: the same write splits the line at source column 99",
+              left_old && right_new,
+              DETAIL("left_old=%d right_new=%d", left_old, right_new));
+    }
+
+    // ---------- GH270-04: same, 640x256 4bpp ----------
+    // The byte column IS hc_eff here too (two 14 MHz pixels per 7 MHz
+    // period), so the split lands on the same column index as 320-mode.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x20);            // 640x256 4bpp
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_640x256(ram, 0x08, [](int, int){ return uint8_t{0x55}; });
+        fill_640x256(ram, 0x10, [](int, int){ return uint8_t{0x66}; });
+        set_l2_palette_8bit(pal, 0x05, 0x1C);
+        set_l2_palette_8bit(pal, 0x06, 0x38);
+
+        l2.start_frame();
+        l2.set_current_line(100);
+        l2.set_current_hpos(kHposCol99Wide);
+        l2.set_active_bank(0x10);
+        l2.rewind_to_baseline();
+
+        uint32_t buf[BUF_WIDTH];
+        for (int row = 0; row <= 100; ++row) l2.apply_changes_for_line(row);
+        render_row(l2, ram, pal, buf, 100);
+        const bool left_old  = buf[98 * 2] == pal.layer2_colour(0x05)
+                            && buf[98 * 2 + 1] == pal.layer2_colour(0x05);
+        const bool right_new = buf[99 * 2] == pal.layer2_colour(0x06)
+                            && buf[99 * 2 + 1] == pal.layer2_colour(0x06);
+        check("L2-GH270-04",
+              "640x256 4bpp: the split lands on byte column 99, both nibbles",
+              left_old && right_new,
+              DETAIL("left_old=%d right_new=%d", left_old, right_new));
+    }
+
+    // ---------- GH270-05: mid-line NR 0x16 (X scroll) ----------
+    // layer2.vhd:116 resamples i_scroll_x on the same CLK_7 edge as the
+    // bank, so a mid-line X-scroll write segments the line identically.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x00);
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_256x192(ram, 0x08,
+                     [](int x, int){ return static_cast<uint8_t>(x); });
+        for (int i = 0; i < 256; ++i)
+            set_l2_palette_8bit(pal, static_cast<uint8_t>(i),
+                                static_cast<uint8_t>((i * 7) | 1));
+
+        l2.start_frame();
+        l2.set_current_line(132);   // fb row 132 = display line 100
+        l2.set_current_hpos(kHposCol67Narrow);
+        l2.set_scroll_x_lsb(4);
+        l2.rewind_to_baseline();
+
+        uint32_t buf[BUF_WIDTH];
+        for (int row = 0; row <= 132; ++row) l2.apply_changes_for_line(row);
+        render_row(l2, ram, pal, buf, 132);
+        const bool distinct = pal.layer2_colour(100) != pal.layer2_colour(104);
+        const bool post = buf[DISP_X_NARROW + 2 * 100] == pal.layer2_colour(104);
+        const bool pre  = buf[DISP_X_NARROW + 2 *  66] == pal.layer2_colour(66);
+        check("L2-GH270-05",
+              "mid-line NR 0x16: columns before 67 unscrolled, from 67 on "
+              "shifted by 4",
+              distinct && pre && post,
+              DETAIL("distinct=%d col66_unscrolled=%d col100_scrolled=%d",
+                     distinct, pre, post));
+    }
+
+    // ---------- GH270-06: mid-line NR 0x17 (Y scroll) ----------
+    // layer2.vhd:117 - i_scroll_y is resampled per CLK_7 too, and feeds
+    // y_pre per pixel (:156), so the source ROW changes part-way along.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x00);
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_256x192(ram, 0x08,
+                     [](int, int y){ return static_cast<uint8_t>(y); });
+        set_l2_palette_8bit(pal, 100, 0x1C);
+        set_l2_palette_8bit(pal, 105, 0x38);
+
+        l2.start_frame();
+        l2.set_current_line(132);   // fb row 132 = display line 100
+        l2.set_current_hpos(kHposCol67Narrow);
+        l2.set_scroll_y(5);
+        l2.rewind_to_baseline();
+
+        uint32_t buf[BUF_WIDTH];
+        for (int row = 0; row <= 132; ++row) l2.apply_changes_for_line(row);
+        render_row(l2, ram, pal, buf, 132);
+        const bool pre  = buf[DISP_X_NARROW + 2 * 66] == pal.layer2_colour(100);
+        const bool post = buf[DISP_X_NARROW + 2 * 67] == pal.layer2_colour(105);
+        check("L2-GH270-06",
+              "mid-line NR 0x17: source row 100 to column 66, row 105 from 67",
+              pre && post,
+              DETAIL("pre=%d post=%d", pre, post));
+    }
+
+    // ---------- GH270-07: off-line hpos clamps both ways ----------
+    // A write before the line's first pixel owns the whole line; one past
+    // the last pixel owns none of it but is still the next line's state
+    // (the live registers keep advancing - that is what makes the banded
+    // rows of the repro start in the PREVIOUS line's bank).
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x00);
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_256x192(ram, 0x08, [](int, int){ return uint8_t{0x5A}; });
+        fill_256x192(ram, 0x10, [](int, int){ return uint8_t{0x6B}; });
+        fill_256x192(ram, 0x18, [](int, int){ return uint8_t{0x7C}; });
+        set_l2_palette_8bit(pal, 0x5A, 0x1C);
+        set_l2_palette_8bit(pal, 0x6B, 0x38);
+        set_l2_palette_8bit(pal, 0x7C, 0xC0);
+
+        l2.start_frame();
+        l2.set_current_line(132);   // fb row 132 = display line 100
+        l2.set_current_hpos(-120);       // left border: owns the whole line
+        l2.set_active_bank(0x10);
+        l2.set_current_hpos(300);        // right border: owns none of it
+        l2.set_active_bank(0x18);
+        l2.rewind_to_baseline();
+
+        uint32_t buf[BUF_WIDTH];
+        for (int row = 0; row <= 132; ++row) l2.apply_changes_for_line(row);
+        render_row(l2, ram, pal, buf, 132);
+        const bool head = buf[DISP_X_NARROW + 0]        == pal.layer2_colour(0x6B);
+        const bool tail = buf[DISP_X_NARROW + 2 * 255]  == pal.layer2_colour(0x6B);
+        l2.apply_changes_for_line(133);
+        render_row(l2, ram, pal, buf, 133);
+        const bool next_line = buf[DISP_X_NARROW + 0] == pal.layer2_colour(0x7C);
+        check("L2-GH270-07",
+              "hpos before the line owns all of it; hpos past it owns none "
+              "but still becomes the next line's starting bank",
+              head && tail && next_line,
+              DETAIL("head=%d tail=%d next_line=%d", head, tail, next_line));
+    }
+
+    // ---------- GH270-08: writes sharing a column coalesce ----------
+    // The usual Copper idiom is two MOVEs 2x28 MHz cycles apart, i.e. the
+    // same 7 MHz column. They must produce ONE segment carrying the LAST
+    // value, not two adjacent ones - which is also what keeps the segment
+    // count bounded by the column count.
+    {
+        Layer2 l2; l2.reset();
+        l2.start_frame();
+        l2.set_current_line(100);
+        l2.set_current_hpos(kHposCol67Narrow);
+        l2.set_active_bank(0x10);
+        l2.set_current_hpos(kHposCol67Narrow);
+        l2.set_active_bank(0x18);
+        l2.rewind_to_baseline();
+        l2.apply_changes_for_line(100);
+        check("L2-GH270-08",
+              "two writes at one column coalesce into one segment, last wins",
+              l2.line_segment_count() == 2 && l2.active_bank() == 0x18,
+              DETAIL("segments=%zu bank=0x%02X",
+                     l2.line_segment_count(), l2.active_bank()));
+    }
+
+    // ---------- GH270-09: a backwards hpos is clamped forward ----------
+    // An instruction straddling a raw-line boundary has its whole Copper
+    // window replayed under one line tag, so the tail carries next-line
+    // columns. The stray write must not apply EARLIER than the one before
+    // it: clamping it forward lands it on the SAME column, where it merges
+    // into that segment rather than opening one to its left.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x00);
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_256x192(ram, 0x08, [](int, int){ return uint8_t{0x5A}; });
+        fill_256x192(ram, 0x10, [](int, int){ return uint8_t{0x6B}; });
+        fill_256x192(ram, 0x18, [](int, int){ return uint8_t{0x7C}; });
+        set_l2_palette_8bit(pal, 0x5A, 0x1C);
+        set_l2_palette_8bit(pal, 0x6B, 0x38);
+        set_l2_palette_8bit(pal, 0x7C, 0xC0);
+
+        l2.start_frame();
+        l2.set_current_line(132);
+        l2.set_current_hpos(148);        // column 150
+        l2.set_active_bank(0x10);
+        l2.set_current_hpos(18);         // column 20 - out of order
+        l2.set_active_bank(0x18);
+        l2.rewind_to_baseline();
+
+        uint32_t buf[BUF_WIDTH];
+        for (int row = 0; row <= 132; ++row) l2.apply_changes_for_line(row);
+        render_row(l2, ram, pal, buf, 132);
+        const int first = l2.segment_first_column(1, /*wide=*/false);
+        // Column 30 is to the RIGHT of the stray write's own column (20) and
+        // to the LEFT of the one it was clamped to, so it is exactly where a
+        // missing clamp would show: it must still be the baseline bank.
+        const bool col30  = buf[DISP_X_NARROW + 2 *  30] == pal.layer2_colour(0x5A);
+        const bool col200 = buf[DISP_X_NARROW + 2 * 200] == pal.layer2_colour(0x7C);
+        check("L2-GH270-09",
+              "out-of-order hpos is clamped forward onto the previous "
+              "segment, never applied earlier",
+              l2.line_segment_count() == 2 && first == 150 && col30 && col200,
+              DETAIL("segments=%zu first=%d col30=%d col200=%d",
+                     l2.line_segment_count(), first, col30, col200));
+    }
+
+    // ---------- GH270-10: set_current_line re-arms the column tag ----------
+    // Anything that writes without positioning itself (a soft reset, a
+    // loader, any NextREG path that does not call set_current_hpos) must
+    // behave exactly as it did before segmentation existed: one span, the
+    // whole line. A write at the line start merges INTO segment 0, so the
+    // segment count stays 1 and every column carries the new value.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x00);
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_256x192(ram, 0x08, [](int, int){ return uint8_t{0x5A}; });
+        fill_256x192(ram, 0x10, [](int, int){ return uint8_t{0x6B}; });
+        set_l2_palette_8bit(pal, 0x5A, 0x1C);
+        set_l2_palette_8bit(pal, 0x6B, 0x38);
+
+        l2.start_frame();
+        l2.set_current_line(100);
+        l2.set_current_hpos(200);        // a column deep inside line 100
+        l2.set_current_line(132);        // new line - tag re-armed
+        l2.set_active_bank(0x10);
+        l2.rewind_to_baseline();
+
+        uint32_t buf[BUF_WIDTH];
+        for (int row = 0; row <= 132; ++row) l2.apply_changes_for_line(row);
+        render_row(l2, ram, pal, buf, 132);
+        const bool head = buf[DISP_X_NARROW + 0]       == pal.layer2_colour(0x6B);
+        const bool tail = buf[DISP_X_NARROW + 2 * 255] == pal.layer2_colour(0x6B);
+        check("L2-GH270-10",
+              "a new scanline re-arms the column tag: an unpositioned write "
+              "is one span covering the whole line",
+              l2.line_segment_count() == 1 && head && tail,
+              DETAIL("segments=%zu head=%d tail=%d",
+                     l2.line_segment_count(), head, tail));
+    }
+
+    // ---------- GH270-11: the two logs merge by COLUMN, not by log ----------
+    // Scroll and bank are separate logs; the renderer needs one ordered
+    // sequence of spans, so they are merged on hpos. Here the scroll write
+    // is logged FIRST but belongs to the RIGHT of the bank write.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x00);
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        // Bank 0x08 -> index = x; bank 0x10 -> index = x + 0x80.
+        fill_256x192(ram, 0x08,
+                     [](int x, int){ return static_cast<uint8_t>(x); });
+        fill_256x192(ram, 0x10,
+                     [](int x, int){ return static_cast<uint8_t>(x + 0x80); });
+        for (int i = 0; i < 256; ++i)
+            set_l2_palette_8bit(pal, static_cast<uint8_t>(i),
+                                static_cast<uint8_t>((i * 7) | 1));
+
+        l2.start_frame();
+        l2.set_current_line(132);   // fb row 132 = display line 100
+        l2.set_current_hpos(148);        // scroll from column 150
+        l2.set_scroll_x_lsb(4);
+        l2.set_current_hpos(48);         // bank from column 50 - logged later
+        l2.set_active_bank(0x10);
+        l2.rewind_to_baseline();
+
+        uint32_t buf[BUF_WIDTH];
+        for (int row = 0; row <= 132; ++row) l2.apply_changes_for_line(row);
+        render_row(l2, ram, pal, buf, 132);
+        // col 40: old bank, no scroll.  col 100: new bank, no scroll.
+        // col 200: new bank, scrolled by 4.
+        const bool c40  = buf[DISP_X_NARROW + 2 *  40] == pal.layer2_colour(40);
+        const bool c100 = buf[DISP_X_NARROW + 2 * 100] == pal.layer2_colour(100 + 0x80);
+        const bool c200 = buf[DISP_X_NARROW + 2 * 200] == pal.layer2_colour(204 + 0x80);
+        check("L2-GH270-11",
+              "bank and scroll segments interleave by column even when the "
+              "logs disagree with that order",
+              c40 && c100 && c200,
+              DETAIL("c40=%d c100=%d c200=%d", c40, c100, c200));
+    }
+
+    // ---------- GH270-12: no replay at all -> live registers ----------
+    // Every direct render_scanline caller (unit tests, the debugger's
+    // Layer 2 views) renders without a segment list; that path must keep
+    // reading the live registers.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x00);
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_256x192(ram, 0x10, [](int, int){ return uint8_t{0x6B}; });
+        set_l2_palette_8bit(pal, 0x6B, 0x38);
+        l2.set_active_bank(0x10);
+
+        uint32_t buf[BUF_WIDTH];
+        render_row(l2, ram, pal, buf, 132);
+        check("L2-GH270-12",
+              "render_scanline with no segment list uses the live registers",
+              l2.line_segment_count() == 0
+                && buf[DISP_X_NARROW + 0] == pal.layer2_colour(0x6B)
+                && buf[DISP_X_NARROW + 2 * 255] == pal.layer2_colour(0x6B),
+              DETAIL("segments=%zu head=0x%08X tail=0x%08X",
+                     l2.line_segment_count(), buf[DISP_X_NARROW],
+                     buf[DISP_X_NARROW + 2 * 255]));
+    }
+
+    // ---------- GH270-13: the debug view ignores the segments ----------
+    // render_scanline_debug FORCES one bank for the whole row (that is what
+    // the debugger's "Layer2 active / shadow" panes show), so a segment
+    // list carrying per-segment banks must not contradict it.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x00);
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_256x192(ram, 0x08, [](int, int){ return uint8_t{0x5A}; });
+        fill_256x192(ram, 0x10, [](int, int){ return uint8_t{0x6B}; });
+        set_l2_palette_8bit(pal, 0x5A, 0x1C);
+        set_l2_palette_8bit(pal, 0x6B, 0x38);
+
+        l2.start_frame();
+        l2.set_current_line(132);   // fb row 132 = display line 100
+        l2.set_current_hpos(kHposCol67Narrow);
+        l2.set_active_bank(0x10);
+        l2.rewind_to_baseline();
+        for (int row = 0; row <= 132; ++row) l2.apply_changes_for_line(row);
+
+        uint32_t buf[BUF_WIDTH];
+        memset(buf, 0, sizeof(buf));
+        l2.render_scanline_debug(buf, 132, ram, pal, /*bank=*/0x08,
+                                 pal.global_transparency(),
+                                 /*rom_in_sram=*/false,
+                                 pal.active_layer2_palette());
+        const bool uniform = buf[DISP_X_NARROW + 0] == pal.layer2_colour(0x5A)
+                          && buf[DISP_X_NARROW + 2 * 255] == pal.layer2_colour(0x5A);
+        // and the list survives the call for the renderer that owns it
+        const bool restored = (l2.line_segment_count() == 2);
+        check("L2-GH270-13",
+              "render_scanline_debug draws its forced bank across the whole "
+              "row and leaves the segment list intact",
+              uniform && restored,
+              DETAIL("uniform=%d restored=%d (segments=%zu)",
+                     uniform, restored, l2.line_segment_count()));
+    }
+
+    // ---------- GH270-14: rewind_to_baseline drops the list ----------
+    // rewind_to_baseline() puts the live registers back to the frame
+    // baseline. A segment list built from a LATER row would then contradict
+    // them, so it goes with them — otherwise a render between the rewind and
+    // the next apply_changes_for_line() draws the baseline row from the
+    // wrong frame position.
+    {
+        Ram ram; PaletteManager pal;
+        Layer2 l2; l2.reset();
+        l2.set_enabled(true);
+        l2.set_control(0x00);
+        pal.reset();
+        pal.set_global_transparency(0xFE);
+        fill_256x192(ram, 0x08, [](int, int){ return uint8_t{0x5A}; });
+        fill_256x192(ram, 0x10, [](int, int){ return uint8_t{0x6B}; });
+        set_l2_palette_8bit(pal, 0x5A, 0x1C);
+        set_l2_palette_8bit(pal, 0x6B, 0x38);
+
+        l2.start_frame();
+        l2.set_current_line(132);
+        l2.set_current_hpos(kHposCol67Narrow);
+        l2.set_active_bank(0x10);
+        l2.rewind_to_baseline();
+        for (int row = 0; row <= 132; ++row) l2.apply_changes_for_line(row);
+        const bool built = (l2.line_segment_count() == 2);
+
+        l2.rewind_to_baseline();          // start of the next frame's render
+        uint32_t buf[BUF_WIDTH];
+        render_row(l2, ram, pal, buf, 132);
+        const bool dropped = (l2.line_segment_count() == 0);
+        const bool baseline_everywhere =
+            buf[DISP_X_NARROW + 0]       == pal.layer2_colour(0x5A)
+         && buf[DISP_X_NARROW + 2 * 255] == pal.layer2_colour(0x5A);
+        check("L2-GH270-14",
+              "rewind_to_baseline drops the segment list, so a render before "
+              "the next replay uses the rewound live registers",
+              built && dropped && baseline_everywhere,
+              DETAIL("built=%d dropped=%d baseline=%d (segments=%zu)",
+                     built, dropped, baseline_everywhere,
+                     l2.line_segment_count()));
+    }
+
+    // ---------- GH270-15: a hard reset drops the list ----------
+    // Same contract at the other lifecycle boundary: reset(hard) wipes the
+    // change logs, and the segment list is derived from them.
+    {
+        Layer2 l2; l2.reset();
+        l2.start_frame();
+        l2.set_current_line(132);
+        l2.set_current_hpos(kHposCol67Narrow);
+        l2.set_active_bank(0x10);
+        l2.rewind_to_baseline();
+        for (int row = 0; row <= 132; ++row) l2.apply_changes_for_line(row);
+        const bool built = (l2.line_segment_count() == 2);
+        l2.reset(/*hard=*/true);
+        check("L2-GH270-15",
+              "a hard reset drops the segment list with the change logs it "
+              "is derived from",
+              built && l2.line_segment_count() == 0,
+              DETAIL("built=%d segments_after_reset=%zu",
+                     built, l2.line_segment_count()));
+    }
+}
+
 // =========================================================================
 // Group G10e: per-scanline L2 enable replay (G14)
 // =========================================================================
@@ -2217,6 +2761,8 @@ int main() {
     printf("  Group: G10d per-scanline NR 0x12/0x13 — done\n");
     test_group10e_per_scanline_enable();
     printf("  Group: G10e per-scanline L2 enable — done\n");
+    test_group10f_midline_segments();
+    printf("  Group: G10f mid-line segments — done\n");
     test_group11_priority_propagation();
     printf("  Group: G11 priority propagation — done\n");
     log_deferred();

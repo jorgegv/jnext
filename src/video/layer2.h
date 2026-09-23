@@ -274,8 +274,31 @@ public:
 
     /// Update the scanline tag attached to subsequent scroll writes.
     /// Called from Emulator::on_scanline. Default 0 at frame start.
+    ///
+    /// Also re-arms the horizontal tag to "before this line starts"
+    /// (GH #270): a write that nobody positions explicitly then applies
+    /// from column 0, which is exactly the whole-line behaviour every
+    /// write had before segmentation existed.
     void set_current_line(int line) {
         current_line_ = static_cast<uint16_t>(line);
+        current_hpos_ = kHposLineStart;
+    }
+
+    /// Position subsequent bank / scroll writes horizontally within the
+    /// current scanline (GH #270).
+    ///
+    /// Units: display columns relative to the origin of the 256x192 active
+    /// area, i.e. `raw_hc - c_min_hactive` (zxula_timing.vhd:195). Negative
+    /// values are the left border / hblank and mean "from the start of the
+    /// line"; values past the display width mean "not on this line at all"
+    /// (the write still becomes the next line's starting state, because
+    /// apply_changes_for_line keeps advancing the live registers).
+    ///
+    /// Emulator::nr_write_hpos() computes it; see the derivation of the
+    /// hpos -> first-affected-source-column mapping in layer2.cpp
+    /// (seg_first_col).
+    void set_current_hpos(int hpos) {
+        current_hpos_ = static_cast<int16_t>(hpos);
     }
 
     /// Restore the live scroll state to the frame baseline and reset
@@ -317,6 +340,30 @@ public:
     /// worst-case "Copper writes scroll on every scanline" scenario.
     static constexpr size_t MAX_CHANGES_PER_FRAME = 1024;
 
+    /// Horizontal tag meaning "before this scanline's first pixel"
+    /// (GH #270). Any value below `-c_min_hactive` does; this one is far
+    /// enough below to be unmistakable in a log dump and still fits int16.
+    static constexpr int16_t kHposLineStart = -4096;
+
+    /// Cap on distinct mid-line segments per scanline (GH #270).
+    ///
+    /// Segments are keyed on `hpos`, writes sharing one column coalesce,
+    /// and `hpos` is derived from a raw `hc` of at most 456 values
+    /// (zxula_timing.vhd:196 c_max_hc = 455) — so a scanline cannot
+    /// produce more than 457 of them and the cap is unreachable. The
+    /// bound check in push_line_segment() is therefore defensive only.
+    static constexpr size_t MAX_SEGMENTS_PER_LINE = 512;
+
+    /// Number of render segments the last apply_changes_for_line() built
+    /// (diagnostic + tests). 1 = the whole line drawn from one state.
+    size_t line_segment_count() const { return line_segment_count_; }
+
+    /// First source column of segment `i`, for the given resolution mode
+    /// — the public form of the hpos -> column mapping derived in
+    /// layer2.cpp. Exposed for tests; the renderer uses the internal
+    /// helper directly.
+    int segment_first_column(size_t i, bool wide) const;
+
 private:
     uint8_t  active_bank_    = 8;     // NextREG 0x12 default
     uint8_t  shadow_bank_    = 11;    // NextREG 0x13 default
@@ -335,6 +382,7 @@ private:
     // ── Per-scanline change log ──────────────────────────────────────
     struct ScrollChange {
         uint16_t line;             ///< 0..lines_per_frame-1
+        int16_t  hpos;             ///< GH #270 — column within that line
         uint16_t scroll_x;         ///< 9-bit X scroll snapshot after change
         uint8_t  scroll_y;         ///< Y scroll snapshot after change
     };
@@ -342,6 +390,7 @@ private:
     std::array<ScrollChange, MAX_CHANGES_PER_FRAME> change_log_{};
     size_t   change_count_    = 0;
     uint16_t current_line_    = 0;
+    int16_t  current_hpos_    = kHposLineStart;
     size_t   render_cursor_   = 0;
     bool     overflow_warned_ = false;
 
@@ -368,6 +417,7 @@ private:
     // VHDL zxnext.vhd:5220, 1135 — NR 0x12 / NR 0x13 active-bank writes.
     struct BankChange {
         uint16_t line;
+        int16_t  hpos;             ///< GH #270 — column within that line
         uint8_t  active_bank;
         uint8_t  shadow_bank;
     };
@@ -377,6 +427,41 @@ private:
     bool     bank_overflow_warned_ = false;
     uint8_t  baseline_active_bank_ = 8;
     uint8_t  baseline_shadow_bank_ = 11;
+
+    // -- Mid-line render segments (GH #270) ---------------------------
+    //
+    // The bank (NR 0x12) and scroll (NR 0x16/0x17/0x71) logs above record
+    // WHERE in the line each write landed, not just which line. The two
+    // are merged by hpos into this list once per scanline by
+    // apply_changes_for_line(); render_scanline() then draws the line as
+    // one span per entry instead of one span for the whole line.
+    //
+    // Entry 0 always holds the state live at the start of the line, with
+    // hpos = kHposLineStart, so a line with no mid-line write is exactly
+    // one segment and the rendered result is byte-identical to the
+    // pre-GH-#270 single-span path.
+    //
+    // hpos is non-decreasing by construction (push_line_segment clamps),
+    // so the renderer can walk it with a single monotone cursor.
+    //
+    // NOT part of save/load state: rebuilt from the logs every render.
+    struct LineSegment {
+        int16_t  hpos;          ///< first column at which this state is live
+        uint8_t  active_bank;
+        uint8_t  scroll_y;
+        uint16_t scroll_x;
+    };
+    std::array<LineSegment, MAX_SEGMENTS_PER_LINE> line_segments_{};
+    size_t line_segment_count_ = 0;
+    bool   segment_overflow_warned_ = false;
+
+    /// Reset the segment list to a single entry holding the live
+    /// bank/scroll state at the start of the scanline.
+    void begin_line_segments();
+    /// Append the live bank/scroll state as a segment starting at `hpos`,
+    /// coalescing with the previous entry when they share a column and
+    /// clamping backwards positions forward so the list stays monotone.
+    void push_line_segment(int16_t hpos);
 
     // ── Enable per-scanline change log (G14) ─────────────────────────
     // VHDL zxnext.vhd:3916, 3924-3925 — port 0x123B b1 / NR 0x69 b7.

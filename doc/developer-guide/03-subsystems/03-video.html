@@ -997,10 +997,10 @@
 </li>
       
         <li class="md-nav__item">
-  <a href="#accepted-limitation-mid-line-writes-apply-from-the-start-of-the-row" class="md-nav__link">
+  <a href="#mid-line-writes-three-logs-resolve-per-column-the-rest-per-row" class="md-nav__link">
     <span class="md-ellipsis">
       
-        Accepted limitation: mid-line writes apply from the start of the row
+        Mid-line writes: three logs resolve per column, the rest per row
       
     </span>
   </a>
@@ -2077,7 +2077,8 @@ snapshot the <em>previous</em> row, because by the time <code>on_scanline(N)</co
 Copper has finished line N-1; tilemap scroll latches at the start of the current
 row, as hardware does.</p>
 <p><strong>Change logs</strong> are the finer instrument: they record every write with a line
-tag and replay it during render. Each owner exposes the same five calls —
+tag — and, for the two Layer 2 logs, a column tag as well — and replay it
+during render. Each owner exposes the same five calls —
 <code>start_frame</code>, <code>set_current_line</code>, <code>rewind_to_baseline</code>, <code>apply_changes_for_line</code>
 and <code>flush_remaining_changes</code> — so a new one costs no new protocol. The logs
 are: palette contents (<code>PaletteManager</code>); Layer 2 scroll, clip, bank, enable and
@@ -2097,16 +2098,35 @@ transparency indices, the sprite and tilemap clip windows, and NR 0x68 b3 (ULA+
 enable — <code>Ula</code> has the per-line snapshot API, but nothing calls it). The
 coverage is demand-driven by design: a register gets a log when a real program
 turns out to need one.</p>
-<h2 id="accepted-limitation-mid-line-writes-apply-from-the-start-of-the-row">Accepted limitation: mid-line writes apply from the start of the row<a class="headerlink" href="#accepted-limitation-mid-line-writes-apply-from-the-start-of-the-row" title="Permanent link">&para;</a></h2>
-<p>Both mechanisms are row-granular, so a register write that physically lands
-part-way through a scanline is applied from the <strong>beginning</strong> of that row.
-Hardware samples those latches per pixel and would change only the pixels after
-the write. The residual error is therefore <strong>bounded to at most one row, and is
-one-directional</strong> — an effect can appear early, never late. Closing it properly
-would need either sub-row granularity or the cycle-accurate rendering refactor,
-both of which have been assessed and declined; this is a known modelling
-limitation rather than a bug. <code>AttributeMux</code> is the one place the finer
-granularity was genuinely needed, and it resolves per column.</p>
+<h2 id="mid-line-writes-three-logs-resolve-per-column-the-rest-per-row">Mid-line writes: three logs resolve per column, the rest per row<a class="headerlink" href="#mid-line-writes-three-logs-resolve-per-column-the-rest-per-row" title="Permanent link">&para;</a></h2>
+<p>Snapshot arrays and most change logs are row-granular, so a register write that
+physically lands part-way through a scanline is applied from the <strong>beginning</strong>
+of that row. Hardware samples those latches per pixel and would change only the
+pixels after the write.</p>
+<p>Three logs do better. <code>AttributeMux</code> was the first (Nirvana-class attribute
+rewrites), and GH #270 added the Layer 2 <strong>bank</strong> (NR 0x12/0x13) and <strong>scroll</strong>
+(NR 0x16/0x17/0x71) logs. Those two carry an <code>hpos</code> beside the line tag,
+<code>Layer2::apply_changes_for_line</code> merges them into one per-row list of render
+segments ordered by column, and <code>render_scanline</code> draws the row as one span per
+segment. With no mid-line write there is exactly one span and the emitted
+pixels are identical to the single-span loop that preceded it.</p>
+<p>The column comes from <code>Emulator::nr_write_hpos()</code>. A Copper MOVE reports its own
+raster position through <code>Copper::active_move_hc()</code> — it has to, because the
+Copper window for one CPU instruction is replayed <em>after</em> the clock has already
+advanced past it, so the live counter would be up to a whole instruction late.
+Everything else (a CPU <code>OUT</code>, a loader, a soft reset) takes <code>current_hc()</code>. Both
+are rebased onto the raw frame counter, because the <em>line</em> tag is in raw-frame
+space: <code>Emulator::on_scanline</code> is scheduled at raw hc 0, while an <code>hc_ula</code> line
+starts 125 pixels later. <code>seg_first_col()</code> in <code>layer2.cpp</code> then maps the column
+onto the first affected source column — <code>hpos + 2</code> narrow, <code>hpos + 34</code> wide —
+and carries the VHDL derivation of those two constants.</p>
+<p><strong>For every other log the row-granular approximation stands</strong>, and the bound
+once claimed for it does not: an effect can appear up to a row early, but a line
+carrying <em>two</em> writes to the same register loses the first one outright, which
+is a horizontal error with no vertical component at all. That is what GH #270
+reported for the Layer 2 bank. Closing it for the remaining logs needs the same
+treatment or the cycle-accurate rendering refactor, which has been assessed and
+declined.</p>
 
 
 

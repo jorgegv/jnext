@@ -12,7 +12,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Rewind                |       96 |       96 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Copper (integration)  |        7 |        7 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Copper (integration)  |       10 |       10 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      252 |      252 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU (int)      |       68 |       68 |      0 |       0 |    100% | 🟢 All tests pass. |
 | NextREG (bare)        |       25 |       25 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -23,7 +23,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Phantom Typist        |       22 |       22 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC + Interrupts      |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CTC (integration)     |       81 |       81 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Layer 2               |      134 |      134 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Layer 2               |      149 |      149 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART + I2C/RTC        |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
 | UART (integration)    |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 socket transport |      188 |      188 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -121,6 +121,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **8341** | **8341** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **8359** | **8359** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

@@ -40,10 +40,16 @@ void Layer2::reset(bool hard)
     // next frame boundary.
     change_count_      = 0;
     current_line_      = 0;
+    current_hpos_      = kHposLineStart;
     render_cursor_     = 0;
     overflow_warned_   = false;
     baseline_scroll_x_ = 0;
     baseline_scroll_y_ = 0;
+
+    // GH #270 — the per-line render segments are derived state; drop them
+    // so nothing can render from a list built before the reset.
+    line_segment_count_       = 0;
+    segment_overflow_warned_  = false;
 
     clip_change_count_     = 0;
     clip_render_cursor_    = 0;
@@ -90,6 +96,7 @@ void Layer2::log_scroll_change()
     }
     change_log_[change_count_++] = ScrollChange{
         current_line_,
+        current_hpos_,
         scroll_x_,
         scroll_y_,
     };
@@ -127,7 +134,7 @@ void Layer2::log_bank_change()
         return;
     }
     bank_change_log_[bank_change_count_++] = BankChange{
-        current_line_, active_bank_, shadow_bank_,
+        current_line_, current_hpos_, active_bank_, shadow_bank_,
     };
 }
 
@@ -174,6 +181,7 @@ void Layer2::start_frame()
     change_count_      = 0;
     render_cursor_     = 0;
     current_line_      = 0;
+    current_hpos_      = kHposLineStart;
     overflow_warned_   = false;
 
     baseline_clip_x1_      = clip_x1_;
@@ -224,17 +232,168 @@ void Layer2::rewind_to_baseline()
     resolution_            = baseline_resolution_;
     palette_offset_        = baseline_palette_offset_;
     nr70_render_cursor_    = 0;
+
+    // GH #270 — a segment list left over from the previous frame must not
+    // outlive the rewind: render_scanline would draw row 0 from it before
+    // apply_changes_for_line(0) has rebuilt it.
+    line_segment_count_ = 0;
+}
+
+// ---------------------------------------------------------------------------
+// Mid-line render segments (GH #270)
+// ---------------------------------------------------------------------------
+//
+// hpos -> first affected SOURCE column, derived from the VHDL.
+//
+// `hpos` is `raw_hc - c_min_hactive` (see Layer2::set_current_hpos), so the
+// derivation below is stated in raw `hc` and then rebased.
+//
+//  1. The NextREG file and Layer 2 both run off the same counters:
+//       zxula_timing.vhd:476-520 — the 7 MHz counters are reset from the raw
+//       frame counter `hc`:
+//           wide_hactive <= '1' when hc = c_min_hactive - 48
+//           phc  <= -48   (256-mode practical counter)  on that pulse
+//           whc  <= -16   (320/640-mode wide counter)   on that pulse
+//       Both are REGISTERED, so they take the reload value on the edge AFTER
+//       the compare, i.e. at raw hc = c_min_hactive - 47. Counting up from
+//       there:
+//           phc == P  <=>  hc == c_min_hactive + P + 1
+//           whc == W  <=>  hc == c_min_hactive + W - 31
+//       (and therefore whc = phc + 32, the 32-column wide-mode overscan on
+//        each side of the 256-wide area.)
+//
+//  2. layer2.vhd:145-148 picks the counter and looks ONE column ahead:
+//           hc <= i_phc when narrow else i_whc;
+//           hc_eff <= hc + 1;
+//     `hc_eff` is the SOURCE column whose address is generated during that
+//     7 MHz period — and it is exactly the `x` this renderer loops over
+//     (clip and scroll are both applied to it, layer2.vhd:154,167).
+//
+//  3. The bank / scroll inputs are resampled one 7 MHz period before use:
+//           layer2.vhd:110-122 — layer2_active_bank_q, layer2_scroll_x_q,
+//           layer2_scroll_y_q <= their NR inputs, on i_CLK_7.
+//     So a NextREG value that becomes visible during 7 MHz period Q is first
+//     USED for an address in period Q+1, i.e. for source column Q+2.
+//
+//  4. When does the value become visible? For a Copper MOVE the VHDL takes
+//     three further 28 MHz cycles after the MOVE cycle — copper_dout_s is
+//     registered (copper.vhd:101), copper_requester_d delays it one cycle and
+//     copper_req one more (zxnext.vhd:4709-4731), and the NR write process
+//     itself is clocked (nr_wr_en, zxnext.vhd:4775). A MOVE issued in the
+//     FIRST 28 MHz sub-cycle of 7 MHz period H therefore lands the new NR
+//     value on the CLK_7 edge that opens period H+1 — the same edge the
+//     resample in (3) fires on, so the resample still captures the OLD value
+//     and `layer2_*_q` only changes at the edge opening period H+2.
+//
+//     Net: value written during 7 MHz period H is first USED for source
+//     column (H+2) + 1 - 12 ... expressed directly in raw hc, with
+//     phc = hc - c_min_hactive - 1:
+//
+//         first source column (narrow) = hpos + 2
+//         first source column (wide)   = hpos + 34      (= narrow + 32)
+//
+//     Checked against MAME 0.289 (`tbblue`) in GH #270: a Copper
+//     WAIT(line, hpos=8) + MOVE NR 0x12 has threshold (8<<3)+12 = 76
+//     (copper.vhd:94), satisfied at hc_ula = 76, so raw hc = 76 + 125 = 201
+//     and hpos = 201 - 136 = 65 -> first affected column 67. MAME measures
+//     the boundary at display pixel 67.
+static inline int seg_first_col(int16_t hpos, bool wide)
+{
+    return static_cast<int>(hpos) + (wide ? 34 : 2);
+}
+
+int Layer2::segment_first_column(size_t i, bool wide) const
+{
+    if (i >= line_segment_count_) return 0;
+    return seg_first_col(line_segments_[i].hpos, wide);
+}
+
+void Layer2::begin_line_segments()
+{
+    line_segments_[0] = LineSegment{
+        kHposLineStart, active_bank_, scroll_y_, scroll_x_,
+    };
+    line_segment_count_ = 1;
+}
+
+void Layer2::push_line_segment(int16_t hpos)
+{
+    LineSegment& last = line_segments_[line_segment_count_ - 1];
+
+    // Keep the list monotone. An entry can legitimately arrive with a
+    // SMALLER hpos than its predecessor: an instruction that straddles a
+    // raw-line boundary has its whole Copper window replayed under the
+    // line tag that was current when the scheduler last fired, so the tail
+    // of that window carries next-line columns. Clamping it forward keeps
+    // every span non-empty and makes the stray write apply no earlier than
+    // the previous one — strictly better than the pre-GH-#270 behaviour,
+    // which let it repaint the whole line.
+    if (hpos < last.hpos) hpos = last.hpos;
+
+    // Writes sharing a column (the usual `MOVE bank` + `MOVE scroll` pair)
+    // are one segment, which is also what keeps the cap unreachable.
+    if (hpos == last.hpos) {
+        last.active_bank = active_bank_;
+        last.scroll_x    = scroll_x_;
+        last.scroll_y    = scroll_y_;
+        return;
+    }
+
+    if (line_segment_count_ >= MAX_SEGMENTS_PER_LINE) {
+        if (!segment_overflow_warned_) {
+            Log::video()->warn(
+                "Layer2: mid-line segment list full at line {} (cap {}); "
+                "the rest of this scanline renders from the last segment.",
+                current_line_, MAX_SEGMENTS_PER_LINE);
+            segment_overflow_warned_ = true;
+        }
+        last.active_bank = active_bank_;
+        last.scroll_x    = scroll_x_;
+        last.scroll_y    = scroll_y_;
+        return;
+    }
+
+    line_segments_[line_segment_count_++] = LineSegment{
+        hpos, active_bank_, scroll_y_, scroll_x_,
+    };
 }
 
 void Layer2::apply_changes_for_line(int line)
 {
     const uint16_t lt = static_cast<uint16_t>(line);
 
-    while (render_cursor_ < change_count_
-        && change_log_[render_cursor_].line == lt) {
-        const auto& c = change_log_[render_cursor_++];
-        scroll_x_ = c.scroll_x;
-        scroll_y_ = c.scroll_y;
+    // GH #270 — the scroll and bank logs are replayed TOGETHER, ordered by
+    // the column each write landed at, because they feed the same set of
+    // render segments. The interleaving does not change the end-of-line
+    // live state (the two logs touch disjoint registers), only which state
+    // each span of the line is drawn with.
+    begin_line_segments();
+    for (;;) {
+        const bool has_scroll = render_cursor_ < change_count_
+                             && change_log_[render_cursor_].line == lt;
+        const bool has_bank   = bank_render_cursor_ < bank_change_count_
+                             && bank_change_log_[bank_render_cursor_].line == lt;
+        if (!has_scroll && !has_bank) break;
+
+        const bool take_scroll =
+            !has_bank
+            || (has_scroll
+                && change_log_[render_cursor_].hpos
+                       <= bank_change_log_[bank_render_cursor_].hpos);
+
+        int16_t hpos;
+        if (take_scroll) {
+            const auto& c = change_log_[render_cursor_++];
+            scroll_x_ = c.scroll_x;
+            scroll_y_ = c.scroll_y;
+            hpos      = c.hpos;
+        } else {
+            const auto& c = bank_change_log_[bank_render_cursor_++];
+            active_bank_ = c.active_bank;
+            shadow_bank_ = c.shadow_bank;
+            hpos         = c.hpos;
+        }
+        push_line_segment(hpos);
     }
 
     while (clip_render_cursor_ < clip_change_count_
@@ -244,13 +403,6 @@ void Layer2::apply_changes_for_line(int line)
         clip_x2_ = c.x2;
         clip_y1_ = c.y1;
         clip_y2_ = c.y2;
-    }
-
-    while (bank_render_cursor_ < bank_change_count_
-        && bank_change_log_[bank_render_cursor_].line == lt) {
-        const auto& c = bank_change_log_[bank_render_cursor_++];
-        active_bank_ = c.active_bank;
-        shadow_bank_ = c.shadow_bank;
     }
 
     while (enable_render_cursor_ < enable_change_count_
@@ -366,12 +518,20 @@ void Layer2::render_scanline_debug(uint32_t* dst, int row, const Ram& ram,
     const uint8_t saved_bank = active_bank_;
     enabled_      = true;
     active_bank_  = bank;
+    // GH #270 — this view FORCES one bank for the whole row, so the
+    // mid-line segment list (which carries per-segment banks) would
+    // contradict it. Suppress it for the duration of the call: with no
+    // segments render_scanline falls back to the live registers, which is
+    // exactly what this function has always drawn.
+    const size_t saved_segments = line_segment_count_;
+    line_segment_count_ = 0;
     // Debugger view doesn't need per-pixel priority info — pass nullptr.
     // transparent_rgb and palette_bank_second come from the CALLER's
     // per-line replay — see the doc comments in layer2.h (Task 46, GH #163).
     render_scanline(dst, row, ram, palette, transparent_rgb,
                     rom_in_sram, /*priority_dst=*/nullptr,
                     palette_bank_second);
+    line_segment_count_ = saved_segments;
     enabled_      = saved_enabled;
     active_bank_  = saved_bank;
 }
@@ -416,52 +576,82 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         if (y < clip_y1_ || y > clip_y2_)
             return;
 
-        // Y scroll wraps at 192.
-        int src_y = (y + scroll_y_) % 192;
+        // GH #270 — draw the line as one span per mid-line segment. With
+        // no mid-line write there is exactly one span covering 0..255 and
+        // the emitted pixels are identical to the pre-segmentation loop.
+        const size_t nseg = line_segment_count_;
+        size_t seg = 0;
+        int    x   = 0;
+        while (x < 256) {
+            uint8_t  seg_bank;
+            uint16_t seg_sx;
+            uint8_t  seg_sy;
+            int      x_end;
+            if (nseg == 0) {
+                // No replay has run (direct render_scanline callers: unit
+                // tests, render_scanline_debug) — use the live registers.
+                seg_bank = active_bank_;
+                seg_sx   = scroll_x_;
+                seg_sy   = scroll_y_;
+                x_end    = 256;
+            } else {
+                while (seg + 1 < nseg
+                    && seg_first_col(line_segments_[seg + 1].hpos, false) <= x)
+                    ++seg;
+                const LineSegment& sg = line_segments_[seg];
+                seg_bank = sg.active_bank;
+                seg_sx   = sg.scroll_x;
+                seg_sy   = sg.scroll_y;
+                x_end    = (seg + 1 < nseg)
+                         ? seg_first_col(line_segments_[seg + 1].hpos, false)
+                         : 256;
+                if (x_end > 256) x_end = 256;
+            }
 
-        // Bank and row offset.
-        int third = src_y / 64;
-        int row_in_third = src_y % 64;
-        uint32_t l2_addr_base = static_cast<uint32_t>(src_y) * 256;
+            // Y scroll wraps at 192. Per-span because NR 0x17 is one of the
+            // registers a mid-line Copper MOVE can change.
+            int src_y = (y + seg_sy) % 192;
+            uint32_t l2_addr_base = static_cast<uint32_t>(src_y) * 256;
 
-        for (int x = 0; x < 256; ++x) {
-            // Clip X check on DESTINATION column (pre-scroll), per VHDL
-            // layer2.vhd:167 — clip uses `hc_eff`, not `x_pre`. Without
-            // this, the 8-pixel "clipped band" wanders through the
-            // display as L2 scrolls (parallax.nex bottom band exposed
-            // it: side gutters that should be black showed graphics).
-            // VHDL clip space at narrow res is 9-bit but the high bit is
-            // 0 (clip_x1_q = '0' & i_clip_x1, layer2.vhd:130) so direct
-            // 8-bit comparison against x (0..255) is faithful.
-            if (x < clip_x1_ || x > clip_x2_)
-                continue;
+            for (; x < x_end; ++x) {
+                // Clip X check on DESTINATION column (pre-scroll), per VHDL
+                // layer2.vhd:167 — clip uses `hc_eff`, not `x_pre`. Without
+                // this, the 8-pixel "clipped band" wanders through the
+                // display as L2 scrolls (parallax.nex bottom band exposed
+                // it: side gutters that should be black showed graphics).
+                // VHDL clip space at narrow res is 9-bit but the high bit is
+                // 0 (clip_x1_q = '0' & i_clip_x1, layer2.vhd:130) so direct
+                // 8-bit comparison against x (0..255) is faithful.
+                if (x < clip_x1_ || x > clip_x2_)
+                    continue;
 
-            int src_x = (x + (scroll_x_ & 0xFF)) & 0xFF;
+                int src_x = (x + (seg_sx & 0xFF)) & 0xFF;
 
-            uint32_t l2_addr = l2_addr_base + src_x;
-            uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr, rom_in_sram);
-            uint8_t pixel = ram.read(ram_addr);
+                uint32_t l2_addr = l2_addr_base + src_x;
+                uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
+                uint8_t pixel = ram.read(ram_addr);
 
-            uint8_t colour_idx = static_cast<uint8_t>(
-                ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
+                uint8_t colour_idx = static_cast<uint8_t>(
+                    ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
 
-            // Transparency: compare palette RRRGGGBB against global transparent colour.
-            if (palette.layer2_rgb8(palette_bank_second, colour_idx) == transp_rgb)
-                continue;
+                // Transparency: compare palette RRRGGGBB against global transparent colour.
+                if (palette.layer2_rgb8(palette_bank_second, colour_idx) == transp_rgb)
+                    continue;
 
-            // Pixel-double: each 256-mode source pixel writes two
-            // 640-grid cells (matches VHDL's narrow-res 7 MHz output
-            // re-sampled at the compositor's 14 MHz pixel clock).
-            uint32_t argb = palette.layer2_colour(palette_bank_second, colour_idx);
-            dst[DISP_X + 2 * x]     = argb;
-            dst[DISP_X + 2 * x + 1] = argb;
-            // VHDL zxnext.vhd:7050 — palette bit 15 (NR 0x44 b7) drives
-            // layer2_priority_2 per-pixel for opaque L2 pixels. Compositor
-            // uses this to promote L2 above sprites (zxnext.vhd:7220).
-            if (priority_dst) {
-                const bool prio = palette.layer2_priority_high(palette_bank_second, colour_idx);
-                priority_dst[DISP_X + 2 * x]     = prio;
-                priority_dst[DISP_X + 2 * x + 1] = prio;
+                // Pixel-double: each 256-mode source pixel writes two
+                // 640-grid cells (matches VHDL's narrow-res 7 MHz output
+                // re-sampled at the compositor's 14 MHz pixel clock).
+                uint32_t argb = palette.layer2_colour(palette_bank_second, colour_idx);
+                dst[DISP_X + 2 * x]     = argb;
+                dst[DISP_X + 2 * x + 1] = argb;
+                // VHDL zxnext.vhd:7050 — palette bit 15 (NR 0x44 b7) drives
+                // layer2_priority_2 per-pixel for opaque L2 pixels. Compositor
+                // uses this to promote L2 above sprites (zxnext.vhd:7220).
+                if (priority_dst) {
+                    const bool prio = palette.layer2_priority_high(palette_bank_second, colour_idx);
+                    priority_dst[DISP_X + 2 * x]     = prio;
+                    priority_dst[DISP_X + 2 * x + 1] = prio;
+                }
             }
         }
     }
@@ -480,9 +670,6 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         if (row < clip_y1_ || row > clip_y2_)
             return;
 
-        // Y scroll wraps at 256 (natural 8-bit wrap).
-        uint8_t src_y = static_cast<uint8_t>(row + scroll_y_);
-
         // VHDL clip for wide mode: clip_x1_q = i_clip_x1 & '0',
         //                          clip_x2_q = i_clip_x2 & '1'
         // (layer2.vhd:133-134). 9-bit register space spans 0..511; the
@@ -494,36 +681,68 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         uint16_t clip_x1_eff = static_cast<uint16_t>(clip_x1_) << 1;
         uint16_t clip_x2_eff = (static_cast<uint16_t>(clip_x2_) << 1) | 1;
 
-        for (int x = 0; x < 320; ++x) {
-            // Clip X on DESTINATION column (pre-scroll), per VHDL
-            // layer2.vhd:167.
-            if (x < clip_x1_eff || x > clip_x2_eff)
-                continue;
+        // GH #270 — one span per mid-line segment; see the narrow branch.
+        const size_t nseg = line_segment_count_;
+        size_t seg = 0;
+        int    x   = 0;
+        while (x < 320) {
+            uint8_t  seg_bank;
+            uint16_t seg_sx;
+            uint8_t  seg_sy;
+            int      x_end;
+            if (nseg == 0) {
+                seg_bank = active_bank_;
+                seg_sx   = scroll_x_;
+                seg_sy   = scroll_y_;
+                x_end    = 320;
+            } else {
+                while (seg + 1 < nseg
+                    && seg_first_col(line_segments_[seg + 1].hpos, true) <= x)
+                    ++seg;
+                const LineSegment& sg = line_segments_[seg];
+                seg_bank = sg.active_bank;
+                seg_sx   = sg.scroll_x;
+                seg_sy   = sg.scroll_y;
+                x_end    = (seg + 1 < nseg)
+                         ? seg_first_col(line_segments_[seg + 1].hpos, true)
+                         : 320;
+                if (x_end > 320) x_end = 320;
+            }
 
-            // X scroll with wrap at 320.
-            int src_x_pre = x + (scroll_x_ & 0x1FF);
-            int src_x = (src_x_pre >= 320) ? (src_x_pre - 320) : src_x_pre;
+            // Y scroll wraps at 256 (natural 8-bit wrap).
+            uint8_t src_y = static_cast<uint8_t>(row + seg_sy);
 
-            // Column-major: addr = x * 256 + y (17-bit).
-            uint32_t l2_addr = static_cast<uint32_t>(src_x) * 256 + src_y;
-            uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr, rom_in_sram);
-            uint8_t pixel = ram.read(ram_addr);
+            for (; x < x_end; ++x) {
+                // Clip X on DESTINATION column (pre-scroll), per VHDL
+                // layer2.vhd:167.
+                if (x < clip_x1_eff || x > clip_x2_eff)
+                    continue;
 
-            uint8_t colour_idx = static_cast<uint8_t>(
-                ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
+                // X scroll with wrap at 320.
+                int src_x_pre = x + (seg_sx & 0x1FF);
+                int src_x = (src_x_pre >= 320) ? (src_x_pre - 320) : src_x_pre;
 
-            if (palette.layer2_rgb8(palette_bank_second, colour_idx) == transp_rgb)
-                continue;
+                // Column-major: addr = x * 256 + y (17-bit).
+                uint32_t l2_addr = static_cast<uint32_t>(src_x) * 256 + src_y;
+                uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
+                uint8_t pixel = ram.read(ram_addr);
 
-            // Pixel-double: 320 source → 640 framebuffer cells.
-            uint32_t argb = palette.layer2_colour(palette_bank_second, colour_idx);
-            dst[2 * x]     = argb;
-            dst[2 * x + 1] = argb;
-            // VHDL zxnext.vhd:7050 — see narrow-mode comment above.
-            if (priority_dst) {
-                const bool prio = palette.layer2_priority_high(palette_bank_second, colour_idx);
-                priority_dst[2 * x]     = prio;
-                priority_dst[2 * x + 1] = prio;
+                uint8_t colour_idx = static_cast<uint8_t>(
+                    ((pixel >> 4) + palette_offset_) << 4 | (pixel & 0x0F));
+
+                if (palette.layer2_rgb8(palette_bank_second, colour_idx) == transp_rgb)
+                    continue;
+
+                // Pixel-double: 320 source → 640 framebuffer cells.
+                uint32_t argb = palette.layer2_colour(palette_bank_second, colour_idx);
+                dst[2 * x]     = argb;
+                dst[2 * x + 1] = argb;
+                // VHDL zxnext.vhd:7050 — see narrow-mode comment above.
+                if (priority_dst) {
+                    const bool prio = palette.layer2_priority_high(palette_bank_second, colour_idx);
+                    priority_dst[2 * x]     = prio;
+                    priority_dst[2 * x + 1] = prio;
+                }
             }
         }
     }
@@ -541,8 +760,6 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         if (row < clip_y1_ || row > clip_y2_)
             return;
 
-        uint8_t src_y = static_cast<uint8_t>(row + scroll_y_);
-
         // Wide-mode clip (layer2.vhd:133-134): 9-bit, 0..511 grid.
         uint16_t clip_x1_eff = static_cast<uint16_t>(clip_x1_) << 1;
         uint16_t clip_x2_eff = (static_cast<uint16_t>(clip_x2_) << 1) | 1;
@@ -550,38 +767,73 @@ void Layer2::render_scanline(uint32_t* dst, int row, const Ram& ram,
         // Each memory address holds 2 horizontal pixels (left = high
         // nibble, right = low nibble). Iterate 320 bytes; emit two
         // adjacent destination cells per byte for the canonical 640.
-        for (int col = 0; col < 320; ++col) {
-            // Clip X on DESTINATION column (pre-scroll), per VHDL
-            // layer2.vhd:167. Compare column byte-index directly
-            // against the doubled clip register (preserved from the
-            // pre-G104 semantics); do NOT divide.
-            if (col < clip_x1_eff || col > clip_x2_eff)
-                continue;
-
-            int src_col_pre = col + (scroll_x_ & 0x1FF);
-            int src_col = (src_col_pre >= 320) ? (src_col_pre - 320) : src_col_pre;
-
-            uint32_t l2_addr = static_cast<uint32_t>(src_col) * 256 + src_y;
-            uint32_t ram_addr = compute_ram_addr(active_bank_, l2_addr, rom_in_sram);
-            uint8_t byte = ram.read(ram_addr);
-
-            // High nibble = left pixel.
-            uint8_t left_nib = (byte >> 4) & 0x0F;
-            uint8_t left_idx = static_cast<uint8_t>((palette_offset_ << 4) | left_nib);
-            if (palette.layer2_rgb8(palette_bank_second, left_idx) != transp_rgb) {
-                dst[col * 2] = palette.layer2_colour(palette_bank_second, left_idx);
-                // VHDL zxnext.vhd:7050 — per-pixel L2 priority bit.
-                if (priority_dst)
-                    priority_dst[col * 2] = palette.layer2_priority_high(palette_bank_second, left_idx);
+        //
+        // GH #270 — one span per mid-line segment; see the narrow branch.
+        // The byte column IS the VHDL `hc_eff` in this mode too
+        // (layer2.vhd:147 selects i_whc for every wide resolution), so the
+        // segment boundary lands on the same column index as 320-mode.
+        const size_t nseg = line_segment_count_;
+        size_t seg = 0;
+        int    col = 0;
+        while (col < 320) {
+            uint8_t  seg_bank;
+            uint16_t seg_sx;
+            uint8_t  seg_sy;
+            int      col_end;
+            if (nseg == 0) {
+                seg_bank = active_bank_;
+                seg_sx   = scroll_x_;
+                seg_sy   = scroll_y_;
+                col_end  = 320;
+            } else {
+                while (seg + 1 < nseg
+                    && seg_first_col(line_segments_[seg + 1].hpos, true) <= col)
+                    ++seg;
+                const LineSegment& sg = line_segments_[seg];
+                seg_bank = sg.active_bank;
+                seg_sx   = sg.scroll_x;
+                seg_sy   = sg.scroll_y;
+                col_end  = (seg + 1 < nseg)
+                         ? seg_first_col(line_segments_[seg + 1].hpos, true)
+                         : 320;
+                if (col_end > 320) col_end = 320;
             }
 
-            // Low nibble = right pixel.
-            uint8_t right_nib = byte & 0x0F;
-            uint8_t right_idx = static_cast<uint8_t>((palette_offset_ << 4) | right_nib);
-            if (palette.layer2_rgb8(palette_bank_second, right_idx) != transp_rgb) {
-                dst[col * 2 + 1] = palette.layer2_colour(palette_bank_second, right_idx);
-                if (priority_dst)
-                    priority_dst[col * 2 + 1] = palette.layer2_priority_high(palette_bank_second, right_idx);
+            uint8_t src_y = static_cast<uint8_t>(row + seg_sy);
+
+            for (; col < col_end; ++col) {
+                // Clip X on DESTINATION column (pre-scroll), per VHDL
+                // layer2.vhd:167. Compare column byte-index directly
+                // against the doubled clip register (preserved from the
+                // pre-G104 semantics); do NOT divide.
+                if (col < clip_x1_eff || col > clip_x2_eff)
+                    continue;
+
+                int src_col_pre = col + (seg_sx & 0x1FF);
+                int src_col = (src_col_pre >= 320) ? (src_col_pre - 320) : src_col_pre;
+
+                uint32_t l2_addr = static_cast<uint32_t>(src_col) * 256 + src_y;
+                uint32_t ram_addr = compute_ram_addr(seg_bank, l2_addr, rom_in_sram);
+                uint8_t byte = ram.read(ram_addr);
+
+                // High nibble = left pixel.
+                uint8_t left_nib = (byte >> 4) & 0x0F;
+                uint8_t left_idx = static_cast<uint8_t>((palette_offset_ << 4) | left_nib);
+                if (palette.layer2_rgb8(palette_bank_second, left_idx) != transp_rgb) {
+                    dst[col * 2] = palette.layer2_colour(palette_bank_second, left_idx);
+                    // VHDL zxnext.vhd:7050 — per-pixel L2 priority bit.
+                    if (priority_dst)
+                        priority_dst[col * 2] = palette.layer2_priority_high(palette_bank_second, left_idx);
+                }
+
+                // Low nibble = right pixel.
+                uint8_t right_nib = byte & 0x0F;
+                uint8_t right_idx = static_cast<uint8_t>((palette_offset_ << 4) | right_nib);
+                if (palette.layer2_rgb8(palette_bank_second, right_idx) != transp_rgb) {
+                    dst[col * 2 + 1] = palette.layer2_colour(palette_bank_second, right_idx);
+                    if (priority_dst)
+                        priority_dst[col * 2 + 1] = palette.layer2_priority_high(palette_bank_second, right_idx);
+                }
             }
         }
     }

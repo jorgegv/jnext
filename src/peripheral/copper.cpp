@@ -171,7 +171,13 @@ void Copper::execute(int hc, int vc, NextReg& nextreg) {
 
         if (reg != 0) {
             // NOP check: reg==0 means no write pulse (VHDL: copper_list_data_i(14 downto 8) /= "0000000")
+            // GH #270 — publish the raster column this MOVE is issued at so
+            // NextREG handlers with a per-scanline change log can record
+            // WHERE along the line the write landed, not just which line.
+            // See Copper::active_move_hc().
+            move_hc_ = hc;
             nextreg.write(reg, val);
+            move_hc_ = -1;
             move_pending_ = true;
             if (Log::copper()->should_log(spdlog::level::trace))
                 Log::copper()->trace("MOVE nextreg[{:#04x}] = {:#04x}, PC={}", reg, val, pc_);
