@@ -1,4 +1,7 @@
-file(GLOB_RECURSE SOURCES "*.cpp")
+# CONFIGURE_DEPENDS: re-check this glob at BUILD time, so a newly added
+# source is compiled without a manual reconfigure (GH #252 shipped as an
+# undefined reference). Full rationale in the root CMakeLists.txt.
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp")
 add_library(jnext_debug STATIC ${SOURCES})
 target_include_directories(jnext_debug PUBLIC ${CMAKE_SOURCE_DIR}/src)
 # rewind_buffer.cpp includes core/emulator.h → input/keyboard.h → <SDL2/SDL.h>,

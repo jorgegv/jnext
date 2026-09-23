@@ -2,8 +2,11 @@
 # Phase A); Qt6 is the default whenever present.
 find_package(Qt${JNEXT_QT_MAJOR} REQUIRED COMPONENTS Widgets)
 
-file(GLOB_RECURSE SOURCES "*.cpp")
-file(GLOB_RECURSE HEADERS "*.h")
+# CONFIGURE_DEPENDS: re-check this glob at BUILD time, so a newly added
+# source is compiled without a manual reconfigure (GH #252 shipped as an
+# undefined reference). Full rationale in the root CMakeLists.txt.
+file(GLOB_RECURSE SOURCES CONFIGURE_DEPENDS "*.cpp")
+file(GLOB_RECURSE HEADERS CONFIGURE_DEPENDS "*.h")
 
 add_library(jnext_debugger STATIC ${SOURCES} ${HEADERS})
 set_target_properties(jnext_debugger PROPERTIES AUTOMOC ON)
