@@ -282,9 +282,10 @@ public:
     virtual void blob(const char* name, uint8_t* data, std::size_t len) = 0;
 
     /// Guest memory that ALIASES another blob (§6.1 case 2): the DivMMC RAM
-    /// window onto `Ram` page `page`. Binary writes it inline — reproducing
-    /// today's stream, which is the duplication S5b removes — and JSON writes a
-    /// REFERENCE, not the bytes.
+    /// window onto `Ram` page `page`. BOTH encodings now write a REFERENCE
+    /// rather than the bytes — JSON always, binary at machine level (S5b,
+    /// §17.0). Standalone, the binary encoding still writes the bytes inline,
+    /// because a stream with no `ram` block in it has nowhere to point.
     ///
     /// STATICALLY DECLARED, and asserted at run time (§9.2): `data` must be
     /// non-null. The assertion is scoped to machine-level saves via
@@ -348,9 +349,13 @@ public:
         if (!failed_) { failed_ = true; failure_ = detail; }
     }
 
-    /// §9.2 — only an `Emulator`-driven realisation asserts that a
-    /// `ram_window` is really backed. A standalone subsystem round-trip in a
-    /// unit test is legitimate and must not trip it.
+    /// "This walk is Emulator-driven", and therefore "this stream carries the
+    /// `ram` block". Two consequences, both on `ram_window` and both §9.2's:
+    /// only here is a `ram_window` asserted to be really backed (a standalone
+    /// subsystem round-trip in a unit test is legitimate and must not trip
+    /// it), and only here does the BINARY encoding emit a reference instead of
+    /// the bytes (S5b, §17.0) — there being somewhere to point only in a
+    /// stream that carries the referent.
     void set_machine_level(bool on) { machine_level_ = on; }
     bool machine_level() const { return machine_level_; }
 

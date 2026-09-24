@@ -611,43 +611,54 @@ void DivMmc::write(uint16_t addr, uint8_t val) {
 }
 
 // GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
-// binary stream order, so it must not be disturbed: the byte-identity gate
-// (§17.1) pins these 131 089 bytes as block 18 of the 2 292 965-byte stream.
+// binary stream order, so it must not be disturbed.
 //
-// ── THE 128 KB IS DECLARED `ram_window`, AND IT IS STILL WRITTEN INLINE ──
+// ── THE 128 KB IS A REFERENCE, NOT A COPY (S5b, §17.0) ──────────────────
 //
 // `ram_window` (§6.1 case 2) says "guest memory that ALIASES another blob":
-// this buffer IS `Ram` page 16 onwards, so the same 128 KB already travels
-// inside `mem/ram.bin`. The binary realisation writes it inline anyway, which
-// is exactly the duplication §17.0 removes in S5b — reproducing it here is
-// what the byte-identity gate requires of S2-S5, and that gate is a migration
-// scaffold, not a contract. S5 does NOT pre-empt S5b: turning this into a
-// reference moves the golden, and re-baselining it is S5b's job, with the
-// diff explained field by field.
+// this buffer IS `Ram` page 16 onwards, so the same 128 KB already travels in
+// the stream's `ram` block, seventeen blocks earlier. Until S5b the binary
+// encoding wrote it a second time anyway, and that is what made the DivMMC
+// block 131 089 bytes of the pre-S5b 2 292 965-byte stream. It now writes
+// nothing at machine level: the restore resolves the window through `Ram`,
+// which was verified byte-for-byte before the change — the golden's DivMMC
+// window at 2 152 291 was identical to its own `Ram` page 16 at 131 096
+// across all 131 072 bytes, so the copy carried no information at all.
 //
-// ── WHAT §9.2's RUN-TIME ASSERTION CANNOT SEE HERE ──────────────────────
+// ── WHAT `machine_level` IS, AND WHY IT IS `ram_ext_ != nullptr` ────────
 //
-// §9.2 says the static "DivMMC is always a window" claim is "asserted at run
-// time so it cannot go stale", by a `ram_window` declaration failing loudly
-// when its pointer is null. That assertion is VACUOUS for this call, and not
-// because of the machine-level scoping: `ram_data()` NEVER returns null — it
-// falls back to the private `ram_` array (divmmc.h:288-291) — so the
-// null-check cannot fire whatever `machine_level()` says.
+// The flag means "this walk is Emulator-driven, so the stream carries `Ram`".
+// `ram_ext_` is set by exactly one line in the tree — `Emulator::init()` at
+// emulator.cpp:279, unconditionally, for every machine type — so a non-null
+// `ram_ext_` IS "an Emulator built me", and a null one IS "a unit test built
+// me standalone, and no `ram` block exists to point at". Deriving the flag
+// here keeps the two halves of the stream in agreement by construction: save
+// and load read the same member, and nothing mutates it after init().
 //
-// Declaring `ram_ext_` instead would make the claim checkable, but it would
-// QUIETLY GUT the standalone round-trip that row DA-09 performs
-// (`divmmc_test.cpp` builds a DivMmc whose `set_ram_backing` was never called,
-// so `ram_ext_` is null). It would NOT crash: `StateWriter::write_bytes` is
+// It is also FAIL-SAFE in the direction that matters. Were line 279 ever
+// removed, this would evaluate false and the 128 KB would simply travel
+// inline again — today's behaviour, a wider stream, no data loss. The
+// alternative keying (an Emulator-set flag independent of the backing) buys a
+// louder failure at the cost of a silent-data-loss mode when the two
+// disagree, which is the wrong trade for a rewind ring.
+//
+// The declaration passes `ram_data()`, not `ram_ext_`, and that is deliberate
+// for the standalone path: `StateWriter::write_bytes` is
 // `else if (src) memcpy(...)` and `StateReader::read_bytes` guards `if (dst)`
-// on BOTH its branches (`core/saveable.h:51-57`, `:104-112`), so a null
-// pointer skips the copy and only advances `pos_`. The stream would keep its
-// width — no desync, no overflow flag, DA-09 still green — while 128 KB of
-// DivMMC RAM silently stopped travelling in either direction. Degraded
-// coverage that no gate can see is a worse failure than a crash, which is the
-// actual reason not to do it. So the declaration keeps `ram_data()`, and the
-// claim stays a comment until the Emulator-driven realisation of §9.2 exists
-// to carry it — which is the same stage that makes this a reference rather
-// than a copy.
+// on BOTH branches (`core/saveable.h:51-57`, `:104-112`), so declaring a null
+// `ram_ext_` would keep the stream's width — no desync, no overflow flag, row
+// DA-09 still green — while 128 KB stopped travelling in either direction.
+// Degraded coverage no gate can see is the worse failure.
+//
+// §9.2's run-time null assertion therefore still cannot fire here, and this
+// is the stage that was entitled to make it fire. It is left to S6 on
+// purpose: with the flag derived from the pointer it guards, an assertion on
+// that pointer is a tautology, and the fail-safe branch above already covers
+// the hazard it was written for. It becomes load-bearing when the
+// Emulator-driven JSON realisation lands, where an unbacked window would emit
+// a reference to bytes no member carries — a dangling pointer in a FILE,
+// which no fallback can repair. `snapshot_test` rows JNSD-J08/J09 keep the
+// mechanism itself under test in the meantime.
 void DivMmc::describe_state(jnext::save::StateDesc& d)
 {
     // The composite `enabled_` byte stays at the front so the field order of
@@ -683,7 +694,7 @@ void DivMmc::describe_state(jnext::save::StateDesc& d)
 
 void DivMmc::save_state(StateWriter& w) const
 {
-    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/ram_ext_ != nullptr);
 }
 
 void DivMmc::load_state(StateReader& r)
@@ -698,5 +709,5 @@ void DivMmc::load_state(StateReader& r)
     // observable end state is identical. Row S5-DIVMMC-LEVERS pins that: a
     // stream carrying enabled=0 with port_io=1 / nr_0a_4=0 must restore the
     // levers from the stream, not from the composite.
-    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/ram_ext_ != nullptr);
 }

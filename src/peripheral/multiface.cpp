@@ -359,20 +359,36 @@ bool Multiface::load_rom_bytes(const uint8_t* data, size_t size)
 // ── Save / load state ────────────────────────────────────────────────
 
 // GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
-// binary stream order, so it must not be disturbed: the byte-identity gate
-// (§17.1) pins these 8 200 bytes as the `multiface` block of the
-// 2 292 965-byte stream.
+// binary stream order, so it must not be disturbed.
 //
-// ── THE 8 KB IS A `blob`, NOT A `ram_window` ────────────────────────────
+// ── THE 8 KB IS A `blob`, AND IT IS CONDITIONALLY PRESENT (S5b, §17.0) ──
 //
-// §9.2 makes that a STATIC declaration, and the reason is that the property
-// is unconditionally true IN THE STREAM: `save_state` has always written
-// `ram_.data()` — the PRIVATE array — whatever `set_ram_backing()` did
-// (emulator.cpp:301/:304 gives it Ram page 0x0B on 48K/128K/+3 and nullptr on
-// the Next). On the Next that array is dead zeros and the live 8 KB already
-// travels inside `mem/ram.bin`; on the other machines it is the real thing.
-// So `blob` it is, and dropping it on the Next is S5b's job, not S5's:
-// re-baselining the golden is what that stage exists for.
+// §9.2 makes the KIND a static declaration and the PRESENCE machine-dependent
+// — "declared `blob`, and emitted only on the machines where it is live" —
+// and the two halves have different reasons.
+//
+// `blob` rather than `ram_window`, because the aliasing is NOT unconditional
+// the way DivMMC's is: `set_ram_backing` is gated on the machine type
+// (emulator.cpp:301/:304 — Ram page 0x0B on the Next, nullptr on
+// 48K/128K/+3). A `ram_window` declaration would make the JSON encoding emit
+// a reference to page 0x0B on a 48K machine, where that page holds nothing of
+// the sort. The declaration must stay true on every machine, so it is a blob.
+//
+// Present only when there is no backing, because that is exactly when the
+// private array is the store. On the Next the live 8 KB IS Ram page 0x0B and
+// already travels in the `ram` block, and what `save_state` used to write
+// here was the untouched private array — verified, not assumed: all 8 192
+// bytes of the pre-S5b golden's Multiface RAM, at offset 2 283 678, were
+// zero. Dropping them costs nothing and is §4.3(2). On 48K/128K/+3 (and in a
+// standalone `multiface_test` round-trip, where nothing calls
+// `set_ram_backing` either) the array is the real thing and still travels.
+//
+// This is the one place in the tree where the stream's WIDTH depends on the
+// machine type: 2 153 701 bytes on the Next against 2 161 893 on the others.
+// `RewindBuffer` needs the width constant only within a run and measures it
+// once per `init()`; a machine-type change is a power cycle that reconstructs
+// the Emulator (`MainWindow::on_machine_type`), and the G67 bound guard drops
+// a mis-sized snapshot loudly rather than publishing it.
 //
 // The `1` presence byte that precedes this block is written by
 // `Emulator::save_state`, not here — it is framing for an append-only
@@ -390,9 +406,12 @@ void Multiface::describe_state(jnext::save::StateDesc& d)
     d.boolean("mode_p3", mode_p3_);
     d.boolean("mode_128", mode_128_);
     d.boolean("mode_48", mode_48_);
-    // RAM contents (8 KB). ROM is reloaded fresh from SD each session, so it
-    // is not state and is not declared.
-    d.blob("ram", ram_.data(), ram_.size());
+    // RAM contents (8 KB), on the machines where the private array is the
+    // store. ROM is reloaded fresh from SD each session, so it is not state
+    // and is not declared at all.
+    if (ram_ext_ == nullptr) {
+        d.blob("ram", ram_.data(), ram_.size());
+    }
 }
 
 void Multiface::save_state(StateWriter& w) const
