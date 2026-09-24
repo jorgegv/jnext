@@ -192,9 +192,19 @@ by reading the code.
 | Rule | Reason |
 |---|---|
 | A binding must name exactly one non-modifier key | `Ctrl` alone is not a shortcut |
-| No Ctrl/Alt/Meta ⇒ the key must be **F1..F12** | A bare letter, digit, arrow, `Home`, `Return`… would be consumed by Qt's shortcut map *before* the focused panel sees it, breaking the memory panel's hex typing, the disassembly address box and every panel's navigation. `Shift+F6` is fine — the key is still an F-key |
+| No Ctrl/Alt/Meta ⇒ the key must be **F1..F12** | A bare letter, digit, arrow, `Home`, `Return`… would be consumed by Qt's shortcut map *before* the focused panel sees it, breaking the memory panel's hex typing, the disassembly address box and the panels' navigation. `Shift+F6` is fine — the key is still an F-key. **Bare forms only** — see the note below |
 | `Alt+<letter>` (alone or with Shift) refused | The debugger's menu bar owns the window-wide Alt+letter namespace. A collision there is the GH #124 round-robin defect |
 | `Ctrl+C`, `Ctrl+A` refused | Reserved by the disassembly panel for Copy / Select All (GH #21) |
+
+**What the second rule does not cover.** It restricts the BARE forms, not the
+modified ones: `Ctrl+Up` is bindable, and would shadow a panel that gave
+`Ctrl+Up` its own meaning. Today none does — both panels treat the arrows,
+`Home`/`End` and `PageUp`/`PageDown` identically with or without Ctrl, and the
+only modified chords either claims are `Ctrl+C`/`Ctrl+A`, already reserved. This
+is an **accepted bound**, not an oversight: restricting the modified forms as
+well would cost most of the usable namespace to defend behaviour that does not
+exist. A panel that later gives a modified navigation key its own meaning has to
+reserve it in `validate_combo()`, the way GH #21 did.
 
 Two things are explicitly **allowed**, and both need saying because the project's
 main-window rules say the opposite:

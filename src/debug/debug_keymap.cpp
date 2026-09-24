@@ -162,7 +162,18 @@ bool validate_combo(const Combo& c, std::string& why) {
     // A window-wide shortcut is consumed by Qt's shortcut map BEFORE the
     // focused panel sees the key, so a bare letter/digit/arrow/Home/Return
     // would break the memory panel's hex typing, the disassembly address box
-    // and every panel's navigation. Function keys are safe: no panel types one.
+    // and the panels' navigation. Function keys are safe: no panel types one.
+    //
+    // SCOPE, because the sentence above is easy to read as more than it is:
+    // this protects the BARE forms only. A navigation key WITH Ctrl/Alt/Meta
+    // is not restricted, so `Ctrl+Up` is bindable and would shadow a panel
+    // that gave Ctrl+Up its own meaning. Today none does — both panels handle
+    // the arrows, Home/End and PageUp/PageDown identically with or without
+    // Ctrl, and the only modified chords either one claims are Ctrl+C/Ctrl+A,
+    // reserved below. An ACCEPTED BOUND, not an oversight: restricting the
+    // modified forms too would cost most of the usable namespace to defend
+    // behaviour that does not exist. A panel that later gives a modified
+    // navigation key its own meaning must reserve it here, the way GH #21 did.
     if (!has_hard_mod && !is_function_key(c.key)) {
         why = "needs Ctrl, Alt or Meta — only F1-F12 may be bound on their own, "
               "because a bare key is taken from the panel that has focus";
