@@ -24,7 +24,7 @@ target_link_libraries(jnext_gui PUBLIC
     jnext_core jnext_cpu jnext_memory
     jnext_video jnext_audio jnext_port
     jnext_peripheral jnext_input
-    jnext_platform jnext_save)
+    jnext_platform jnext_save jnext_debug)
 
 target_include_directories(jnext_gui PUBLIC ${CMAKE_SOURCE_DIR}/src "${CMAKE_BINARY_DIR}/generated")
 

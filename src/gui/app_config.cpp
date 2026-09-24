@@ -174,6 +174,22 @@ void AppConfig::load() {
     // hand-edited file gets the same blank-rejection and de-duplication the
     // CLI does; a security control that means two different things depending
     // on where the value came from is not a control.
+    // GH #1 — the debugger key bindings. Only REDEFINITIONS live in the file,
+    // so an absent (or absent-key) group simply leaves every action at its
+    // compiled-in default, and a default this project changes later reaches a
+    // user who never overrode it.
+    debug_key_issues_.clear();
+    {
+        std::vector<std::pair<std::string, std::string>> entries;
+        settings_.beginGroup("debugger_keys");
+        // childKeys() preserves the file's order, which is what makes the
+        // "first entry wins" tie-breaks in build_keymap() reproducible.
+        for (const QString& k : settings_.childKeys())
+            entries.emplace_back(k.toStdString(), settings_.value(k).toString().toStdString());
+        settings_.endGroup();
+        data_.debug_keys = jnext::dbgkeys::build_keymap(entries, debug_key_issues_);
+    }
+
     settings_.beginGroup("esp");
     data_.esp_enabled = settings_.value("enabled", data_.esp_enabled).toBool();
     {
@@ -229,6 +245,28 @@ void AppConfig::save() const {
     settings_.setValue("joy1_source", QString::fromLatin1(joy_source_str(data_.joy_source[0])));
     settings_.setValue("joy2_source", QString::fromLatin1(joy_source_str(data_.joy_source[1])));
     settings_.endGroup();
+
+    // GH #1 — ONLY redefinitions are written. The group is removed first so
+    // that resetting an action back to its default REMOVES its line rather
+    // than leaving a stale one, and a file whose every action is at its
+    // default has no [debugger_keys] section at all.
+    settings_.remove("debugger_keys");
+    {
+        settings_.beginGroup("debugger_keys");
+        for (int i = 0; i < jnext::dbgkeys::ACTION_COUNT; ++i) {
+            const auto a = static_cast<jnext::dbgkeys::Action>(i);
+            if (data_.debug_keys.is_default(a)) continue;
+            settings_.setValue(QString::fromLatin1(jnext::dbgkeys::info(a).id),
+                               QString::fromStdString(
+                                   jnext::dbgkeys::render_combo(data_.debug_keys.combo(a))));
+        }
+        // Entries this build did not recognise are written back verbatim, so
+        // running an older jnext does not delete a newer one's binding.
+        for (const auto& u : data_.debug_keys.unknown_entries())
+            settings_.setValue(QString::fromStdString(u.first),
+                               QString::fromStdString(u.second));
+        settings_.endGroup();
+    }
 
     settings_.beginGroup("esp");     // GH #25
     settings_.setValue("enabled", data_.esp_enabled);

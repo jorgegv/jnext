@@ -1,5 +1,8 @@
 #include "gui/preferences_dialog.h"
 #include "gui/emulator_widget.h"
+#ifdef ENABLE_DEBUGGER
+#include "gui/shortcut_capture_button.h"
+#endif
 
 #include "peripheral/esp_host_policy.h"
 
@@ -17,12 +20,15 @@
 #include <QTabWidget>
 #include <QDialogButtonBox>
 #include <QFileDialog>
+#include <QGridLayout>
 #include <QRegularExpression>
+#include <QScrollArea>
 
 #include <cmath>
 
-PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* parent)
-    : QDialog(parent)
+PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* parent,
+                                     const std::vector<jnext::dbgkeys::LoadIssue>& key_issues)
+    : QDialog(parent), debug_keys_(current.debug_keys)
 {
     setWindowTitle(tr("Preferences"));
 
@@ -35,6 +41,14 @@ PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* pare
     tabs->addTab(build_audio_tab(), tr("Audio"));
     tabs->addTab(build_network_tab(), tr("Network"));
     tabs->addTab(build_paths_tab(), tr("Paths"));
+#ifdef ENABLE_DEBUGGER
+    tabs->addTab(build_debug_keys_tab(key_issues), tr("Debugger Keys"));
+#else
+    // No tab, but debug_keys_ was still seeded from `current` above and is
+    // still written back by collect() — a debugger-less build must not wipe a
+    // user's bindings just by opening this dialog (GH #1, GH #25).
+    (void)key_issues;
+#endif
 
     // --- Fill from `current` ---
     machine_combo_->setCurrentIndex(machine_combo_->findData(static_cast<int>(current.machine_type)));
@@ -403,8 +417,168 @@ AppConfigData PreferencesDialog::collect() const {
     cfg.last_load_dir  = last_load_dir_edit_->text();
     cfg.sd_card_path   = sd_card_path_edit_->text();
     cfg.screenshot_dir = screenshot_dir_edit_->text();
+    cfg.debug_keys = debug_keys_;   // GH #1 — including the preserved unknowns
     cfg.quick_screenshot_dir = quick_screenshot_dir_edit_->text();
     cfg.quick_screenshot_format = static_cast<ScreenshotFormat>(
         quick_screenshot_fmt_combo_->currentData().toInt());
     return cfg;
 }
+
+#ifdef ENABLE_DEBUGGER
+// ---------------------------------------------------------------------------
+// GH #1 — Debugger Keys
+// ---------------------------------------------------------------------------
+
+QWidget* PreferencesDialog::build_debug_keys_tab(
+    const std::vector<jnext::dbgkeys::LoadIssue>& key_issues) {
+    using namespace jnext::dbgkeys;
+
+    auto* tab    = new QWidget(this);
+    auto* outer  = new QVBoxLayout(tab);
+
+    auto* intro = new QLabel(
+        tr("Click a shortcut to change it, then press the key combination you "
+           "want. Only F1-F12 may be used on their own; anything else needs "
+           "Ctrl, Alt or Meta, because a bare key would be taken away from "
+           "whichever debugger panel has focus.\n"
+           "Only the bindings you change are written to the configuration "
+           "file."), tab);
+    intro->setWordWrap(true);
+    outer->addWidget(intro);
+
+    // Everything AppConfig refused in [debugger_keys], shown where the user can
+    // act on it. The log says the same thing at startup; a config error that
+    // only ever appears on stderr is one a GUI user never sees.
+    if (!key_issues.empty()) {
+        QStringList lines;
+        for (const auto& i : key_issues) {
+            lines << tr("%1 = %2 \u2014 %3")
+                         .arg(QString::fromStdString(i.action_id).toHtmlEscaped(),
+                              QString::fromStdString(i.text).toHtmlEscaped(),
+                              QString::fromStdString(i.reason).toHtmlEscaped());
+        }
+        auto* bad = new QLabel(
+            tr("<b>Problems found in the configuration file:</b><br>%1")
+                .arg(lines.join(QStringLiteral("<br>"))),
+            tab);
+        bad->setWordWrap(true);
+        bad->setStyleSheet(QStringLiteral("QLabel { color: #b00000; }"));
+        outer->addWidget(bad);
+    }
+
+    auto* grid_host = new QWidget(tab);
+    auto* grid = new QGridLayout(grid_host);
+    grid->setColumnStretch(0, 1);
+    for (int i = 0; i < ACTION_COUNT; ++i) {
+        const ActionInfo& a = info(static_cast<Action>(i));
+        grid->addWidget(new QLabel(tr(a.label), grid_host), i, 0);
+
+        key_buttons_[i] = new ShortcutCaptureButton(grid_host);
+        key_buttons_[i]->setMinimumWidth(160);
+        connect(key_buttons_[i], &ShortcutCaptureButton::combo_captured, this,
+                [this, i](Combo c) { on_key_captured(i, c); });
+        connect(key_buttons_[i], &ShortcutCaptureButton::combo_refused, this,
+                [this](const QString& why) {
+                    if (key_message_) key_message_->setText(why);
+                });
+        grid->addWidget(key_buttons_[i], i, 1);
+
+        auto* reset = new QPushButton(tr("Reset"), grid_host);
+        connect(reset, &QPushButton::clicked, this, [this, i]() { reset_key(i); });
+        grid->addWidget(reset, i, 2);
+
+        refresh_key_row(i);
+    }
+
+    // The table is taller than the other tabs, and the dialog must stay usable
+    // on a small screen.
+    auto* scroll = new QScrollArea(tab);
+    scroll->setWidget(grid_host);
+    scroll->setWidgetResizable(true);
+    outer->addWidget(scroll, 1);
+
+    auto* row = new QHBoxLayout();
+    auto* reset_all = new QPushButton(tr("Reset All to Defaults"), tab);
+    connect(reset_all, &QPushButton::clicked, this, [this]() {
+        debug_keys_.reset_all();
+        for (int i = 0; i < ACTION_COUNT; ++i) refresh_key_row(i);
+        if (key_message_)
+            key_message_->setText(tr("All debugger keys reset to their defaults."));
+    });
+    row->addWidget(reset_all);
+    row->addStretch(1);
+    outer->addLayout(row);
+
+    key_message_ = new QLabel(tab);
+    key_message_->setWordWrap(true);
+    outer->addWidget(key_message_);
+
+    return tab;
+}
+
+void PreferencesDialog::refresh_key_row(int index) {
+    using namespace jnext::dbgkeys;
+    if (index < 0 || index >= ACTION_COUNT || !key_buttons_[index]) return;
+    key_buttons_[index]->set_combo(debug_keys_.combo(static_cast<Action>(index)));
+}
+
+void PreferencesDialog::on_key_captured(int index, jnext::dbgkeys::Combo combo) {
+    using namespace jnext::dbgkeys;
+    const Action target = static_cast<Action>(index);
+
+    if (const ActionInfo* owner = debug_keys_.action_for(combo)) {
+        if (owner->action != target) {
+            // Refused, not "last one wins". Qt makes two identical sequences
+            // AMBIGUOUS and fires them round-robin, so allowing this would
+            // break the binding the user just made AND the one they forgot
+            // about (GH #124). The old value goes back on the button.
+            if (key_message_) {
+                key_message_->setText(
+                    tr("%1 is already bound to \"%2\". Change that one first.")
+                        .arg(QString::fromStdString(render_combo(combo)),
+                             tr(owner->label)));
+            }
+            refresh_key_row(index);
+            return;
+        }
+    }
+
+    debug_keys_.set(target, combo);
+    refresh_key_row(index);
+    if (key_message_) {
+        key_message_->setText(tr("\"%1\" is now %2.")
+                                  .arg(tr(info(target).label),
+                                       QString::fromStdString(render_combo(combo))));
+    }
+}
+
+void PreferencesDialog::reset_key(int index) {
+    using namespace jnext::dbgkeys;
+    if (index < 0 || index >= ACTION_COUNT) return;
+    const Action target = static_cast<Action>(index);
+    const Combo def = info(target).def;
+
+    // A reset can collide too: if the user moved another action onto this
+    // one's default, restoring it would create exactly the ambiguity the
+    // capture path refuses. Same answer, same reason.
+    if (const ActionInfo* owner = debug_keys_.action_for(def)) {
+        if (owner->action != target) {
+            if (key_message_) {
+                key_message_->setText(
+                    tr("Cannot restore %1 for \"%2\": it is bound to \"%3\".")
+                        .arg(QString::fromStdString(render_combo(def)),
+                             tr(info(target).label), tr(owner->label)));
+            }
+            return;
+        }
+    }
+
+    debug_keys_.reset(target);
+    refresh_key_row(index);
+    if (key_message_) {
+        key_message_->setText(tr("\"%1\" reset to %2.")
+                                  .arg(tr(info(target).label),
+                                       QString::fromStdString(render_combo(def))));
+    }
+}
+#endif  // ENABLE_DEBUGGER

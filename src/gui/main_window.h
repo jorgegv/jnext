@@ -199,6 +199,12 @@ public:
     // (an Apply must not restart the machine) lives here, not in the dialog.
     void apply_preferences(const AppConfigData& cfg);
 
+    /// GH #1 — hand the current debugger key bindings to the debugger window.
+    /// No-op without ENABLE_DEBUGGER or before the window exists. Called when
+    /// the debugger is created and again whenever Preferences changes them, so
+    /// a rebind applies live rather than at next launch.
+    void push_debug_keymap();
+
     /// Update status bar information.  Called once per second from the frame timer.
     /// Refresh the status bar. `fps` is the EMULATED frame rate (run_frame()
     /// calls/s); `presented_fps` is the rate at which frames actually reached
