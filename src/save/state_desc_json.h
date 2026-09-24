@@ -144,5 +144,84 @@ private:
     void refuse(const char* name, const std::string& why);
 };
 
+// ─────────────────────────────────────────────────────────────────────────
+// Walking a declaration into / out of one subsystem's JSON — GH #27 S8
+// ─────────────────────────────────────────────────────────────────────────
+//
+// The JSON counterparts of `state_desc_bin.h`'s `save_via_desc` family, and
+// deliberately the same four shapes, because the assembler walks the SAME list
+// of subsystems in both encodings and a mismatch between the two lists is the
+// defect the whole descriptor layer exists to make impossible.
+//
+// The `const_cast` is the binary side's, unchanged and for the same reason
+// stated there: one declaration serves both directions, so the write path
+// takes a non-const reference to a subsystem it does not modify. `state_desc.h`
+// documents the three write-back shapes and why each is value-preserving.
+
+/// Walk `obj`'s single declaration into JSON. `blobs` receives the blob
+/// members that declaration says exist, in declaration order — the writer's
+/// input to `manifest.members`.
+template <typename T>
+inline std::string json_via_desc(const T& obj, bool machine_level,
+                                 std::vector<JsonWriteDesc::BlobRef>* blobs =
+                                     nullptr) {
+    JsonWriteDesc d;
+    d.set_machine_level(machine_level);
+    const_cast<T&>(obj).describe_state(d);
+    if (blobs) *blobs = d.blobs();
+    return d.str();
+}
+
+/// The same for a subsystem whose declaration is split across SEVERAL describe
+/// methods (§9.5(2)). Every method runs into ONE document: the binary stream
+/// splits them because each is a sentinel-delimited block, and §9.5(2) says
+/// plainly that "the JSON side is free to merge them all", which is where they
+/// belong logically.
+template <typename T>
+inline std::string json_via_desc_methods(
+    const T& obj, const std::vector<void (T::*)(StateDesc&)>& methods,
+    bool machine_level,
+    std::vector<JsonWriteDesc::BlobRef>* blobs = nullptr) {
+    JsonWriteDesc d;
+    d.set_machine_level(machine_level);
+    for (auto m : methods) (const_cast<T&>(obj).*m)(d);
+    if (blobs) *blobs = d.blobs();
+    return d.str();
+}
+
+/// Restore `obj` from one subsystem's JSON. Returns false with `refusal`
+/// naming the offending key; the subsystem is then NOT half-restored from
+/// garbage, because `JsonReadDesc` latches a parse failure before any field is
+/// touched.
+template <typename T>
+inline bool restore_via_desc(T& obj, const std::string& text,
+                             bool machine_level, std::string& refusal,
+                             std::vector<std::string>* unclaimed = nullptr) {
+    JsonReadDesc d(text);
+    d.set_machine_level(machine_level);
+    if (!d.failed()) obj.describe_state(d);
+    if (unclaimed) *unclaimed = d.unclaimed_keys();
+    if (d.failed()) { refusal = d.refusal(); return false; }
+    return true;
+}
+
+template <typename T>
+inline bool restore_via_desc_methods(
+    T& obj, const std::vector<void (T::*)(StateDesc&)>& methods,
+    const std::string& text, bool machine_level, std::string& refusal,
+    std::vector<std::string>* unclaimed = nullptr) {
+    JsonReadDesc d(text);
+    d.set_machine_level(machine_level);
+    if (!d.failed()) {
+        for (auto m : methods) {
+            (obj.*m)(d);
+            if (d.failed()) break;
+        }
+    }
+    if (unclaimed) *unclaimed = d.unclaimed_keys();
+    if (d.failed()) { refusal = d.refusal(); return false; }
+    return true;
+}
+
 }  // namespace save
 }  // namespace jnext

@@ -60,6 +60,28 @@ void JoyUartSource::load_state(StateReader& r) {
     timer_     = r.read_u32();
 }
 
+JoyUartSource::Snapshot JoyUartSource::snapshot_for_jns() const {
+    Snapshot s;
+    s.pos       = static_cast<uint32_t>(pos_);
+    s.delivered = static_cast<uint32_t>(delivered_);
+    s.dropped   = static_cast<uint32_t>(dropped_);
+    s.frames    = frames_;
+    s.timer     = timer_;
+    return s;
+}
+
+void JoyUartSource::restore_from_jns(const Snapshot& s) {
+    // The same clamp `load_state` applies, and for the same reason: a `pos`
+    // past the end would make `exhausted()` true while `bytes_[pos_]` remained
+    // indexable by anything that checked the other way round.
+    pos_       = (s.pos > bytes_.size()) ? bytes_.size()
+                                         : static_cast<std::size_t>(s.pos);
+    delivered_ = s.delivered;
+    dropped_   = s.dropped;
+    frames_    = s.frames;
+    timer_     = s.timer;
+}
+
 bool read_joy_uart_source_file(const std::string& path,
                               std::vector<uint8_t>& bytes,
                               std::string& error) {

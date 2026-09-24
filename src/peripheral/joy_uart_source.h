@@ -117,6 +117,22 @@ public:
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
+    /// The same five counters, for a `.jns` (GH #27 S8). This class stays a
+    /// §9.5(5) exception in the BINARY stream — its presence is a flag rather
+    /// than a member, because a positional reader must know whether the next
+    /// bytes exist at all — so the JSON side needs a way in and out that is
+    /// not a `StateWriter`.
+    ///
+    /// `restore` applies `load_state`'s CLAMP, and that is the reason this is
+    /// a method pair rather than five public fields: a `.jns` is a file a user
+    /// was handed, so `pos` past the end of the byte stream must be brought
+    /// back in range here and not left for `bytes_[pos_]` to discover.
+    struct Snapshot {
+        uint32_t pos = 0, delivered = 0, dropped = 0, frames = 0, timer = 0;
+    };
+    Snapshot snapshot_for_jns() const;
+    void     restore_from_jns(const Snapshot& s);
+
 private:
     std::vector<uint8_t> bytes_;
     ByteSink             sink_;

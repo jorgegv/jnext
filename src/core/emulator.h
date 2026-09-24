@@ -13,6 +13,7 @@ namespace jnext { namespace save { class StateDesc; } }
 #include "core/clock.h"
 #include "core/emulator_config.h"
 #include "core/esxdos_hostfs.h"
+#include "core/jns_snapshot.h"
 #include "core/extended_nex_host.h"
 #include "core/scheduler.h"
 #include "cpu/z80_cpu.h"
@@ -796,6 +797,52 @@ public:
     void describe_nextreg_appends(jnext::save::StateDesc& d);
     void describe_tail(jnext::save::StateDesc& d);
 
+    /// A SIXTH declaration, and one the binary stream never walks: the four
+    /// §9.5 exceptions above, staged into members so they can be DECLARED like
+    /// everything else (GH #27 S8, `src/core/emulator_jns.cpp`).
+    ///
+    /// They are exceptions in the BINARY stream because each is written
+    /// relative to something the stream does not carry, or re-seated with side
+    /// effects on read. A `.jns` has named keys and no positional chronology,
+    /// so in JSON they are ordinary fields — provided the fold and the
+    /// re-seating happen OUTSIDE the walk, which is what the `jns_*_` staging
+    /// members below are for. `save_jns` fills them, `load_jns` consumes them,
+    /// and nothing else touches them.
+    void describe_jns_exceptions(jnext::save::StateDesc& d);
+
+    // ── `.jns` whole-machine save and load (GH #27 S8, design §15) ───────
+
+    /// Serialise the whole machine into `out`.
+    ///
+    /// ALWAYS ADVANCES TO A FRAME BOUNDARY FIRST when one is in flight
+    /// (§10.2 P7, owner decision 2026-09-23): there is no refusal path, no
+    /// unavailable menu item and no failure mode, and `report.advanced_to_frame_boundary`
+    /// says whether it happened so the caller can tell the user once.
+    bool save_jns(const jnext::JnsSaveOptions& opt, std::vector<uint8_t>& out,
+                  jnext::JnsLoadReport& report, std::string& why);
+
+    /// Restore the whole machine from a `.jns`.
+    ///
+    /// On refusal returns false with `why` NAMING the offending thing and the
+    /// machine LEFT ALONE — every check the container and the manifest can do
+    /// runs before a single subsystem is touched. A refusal mid-restore is
+    /// still possible (a malformed `state/*.json`), and it is reported the
+    /// same way `load_state`'s sentinel mismatch is: the machine is not
+    /// trustworthy and the caller must say so.
+    bool load_jns(const uint8_t* data, std::size_t len,
+                  const jnext::JnsLoadOptions& opt, jnext::JnsLoadReport& report,
+                  std::string& why);
+
+    /// The ONE list of subsystems a `.jns` carries, walked by BOTH directions.
+    ///
+    /// A member template rather than two hand-kept lists, and that is the
+    /// whole point: a subsystem added to the save side and forgotten on the
+    /// load side is not expressible here. `v(name, obj)` walks `describe_state`;
+    /// `v(name, obj, &T::a, &T::b, ...)` walks several declarations into one
+    /// member (§9.5(2) — the JSON side is free to merge blocks the binary
+    /// stream must keep apart).
+    template <typename V> void visit_jns_subsystems(V&& v);
+
     /// Name of the subsystem whose sentinel failed in the last load_state
     /// (empty if the last load succeeded). Non-empty means the machine is
     /// currently in a torn, partially-restored state after a failed
@@ -1374,6 +1421,27 @@ private:
     TurboSound      turbosound_;
     Dac             dac_;
     I2s             i2s_;
+
+    // ── `.jns` staging for the four §9.5 exceptions (GH #27 S8) ──────────
+    //
+    // NOT MACHINE STATE, and never in the binary stream: `save_state` does not
+    // write them and `load_state` does not read them. They exist so
+    // `describe_jns_exceptions` can DECLARE values whose computation has to
+    // happen outside a declaration walk — a fold against a counter the stream
+    // does not carry, and a re-seating with side effects on the read side.
+    //
+    // Staged into members rather than passed as locals because a declaration
+    // binds by REFERENCE and a `StateDesc` method takes no arguments. The same
+    // shape `describe_state` already uses for `esp_frames`, one scope wider.
+    //
+    // Their lifetime is one `save_jns` or one `load_jns` call. Nothing else
+    // reads them, and a reviewer should treat any other reader as a defect.
+    uint64_t jns_monotonic_tstates_ = 0;   ///< base + live, folded at capture
+    int64_t  jns_int_first_ts_      = 0;   ///< /INT window, relative to FUSE
+    int64_t  jns_int_last_ts_       = 0;   ///< INT64_MAX stays INT64_MAX
+    bool     jns_stackless_retn_    = false;
+    bool     jns_joy_uart_present_  = false;
+    bool     jns_multiface_present_ = true;
     Mixer           mixer_;
 
     // Debugger-only source mute; NOT machine state (not reset, not serialised).

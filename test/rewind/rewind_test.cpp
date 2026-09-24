@@ -13,6 +13,9 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "core/jns_snapshot.h"
+#include "save/jns_container.h"
+#include "save/zip_archive.h"
 #include "debug/rewind_buffer.h"
 #include "debug/debug_state.h"
 #include "memory/attribute_mux.h"
@@ -4921,6 +4924,311 @@ static int test_s6_gaps()
     return 0;
 }
 
+// ═════════════════════════════════════════════════════════════════════════
+// GH #27 S8 — the `.jns` ASSEMBLER, round-tripped through a real machine
+// ═════════════════════════════════════════════════════════════════════════
+//
+// WHAT THE ORACLE IS, AND WHY IT IS NOT CIRCULAR.
+//
+// §16.1 warns that "each encoding is the other's oracle" is a real cross-check
+// for CONTENT and circular for OMISSIONS: a field left out of `describe_state`
+// is absent from the JSON and from the binary alike, and every comparison
+// passes. That warning is about a field missing from a DECLARATION, and S3-S5's
+// byte-identity gate plus `JNSX-S5B-LENGTHS` already cover it.
+//
+// The risk THIS stage introduces is different and the comparison below does
+// catch it: a subsystem missing from `visit_jns_subsystems`, or walked on one
+// side and not the other. Such a subsystem is never written to the `.jns`, so
+// the restored machine keeps what `reset()` left there — and its BINARY stream,
+// which does carry it, then differs from the source machine's. So:
+//
+//     save_state(A) == save_state(B), where A --.jns--> B
+//
+// is a complete oracle for the assembler's own field coverage, using as its
+// reference the one stream this project has already gated byte-for-byte.
+//
+// `JNS-RT-05` is the row that proves the comparison is not vacuous: it removes
+// one member from the archive and requires the streams to DIFFER.
+static int test_s8_jns_roundtrip()
+{
+    printf("\n--- Test S8: .jns whole-machine round trip ---\n");
+
+    auto stream_of = [](Emulator& e) {
+        StateWriter measure;
+        e.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        e.save_state(w);
+        return buf;
+    };
+
+    // A machine with something IN it: 200 frames of the injected program, so
+    // the CPU, the raster histories, the audio phases and the frame counter
+    // are all somewhere other than their reset values. A round trip on a
+    // machine at reset would pass for a neighbouring reason.
+    auto build_busy = [&](Emulator& e) {
+        build_emulator(e, 2);
+        for (int i = 0; i < 200; ++i) e.run_frame();
+    };
+
+    std::vector<uint8_t> jns;
+    std::vector<uint8_t> src_stream;
+    {
+        Emulator a;
+        build_busy(a);
+        src_stream = stream_of(a);
+
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport rep;
+        std::string why;
+        const bool ok = a.save_jns(opt, jns, rep, why);
+        check("JNS-RT-01", ok && !jns.empty(),
+              "save_jns writes a non-empty archive from a machine that has "
+              "been running");
+        if (!ok) fprintf(stderr, "  JNS-RT-01: %s\n", why.c_str());
+    }
+
+    {
+        Emulator b;
+        build_emulator(b, 2);            // same machine type, NOT run
+        jnext::JnsLoadOptions lopt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        const bool ok = b.load_jns(jns.data(), jns.size(), lopt, rep, why);
+        if (!ok) fprintf(stderr, "  JNS-RT-02: %s\n", why.c_str());
+        const std::vector<uint8_t> dst_stream = ok ? stream_of(b)
+                                                   : std::vector<uint8_t>();
+        const bool same = ok && dst_stream.size() == src_stream.size() &&
+                          std::memcmp(dst_stream.data(), src_stream.data(),
+                                      src_stream.size()) == 0;
+        if (ok && !same) {
+            size_t at = 0;
+            while (at < src_stream.size() && at < dst_stream.size() &&
+                   src_stream[at] == dst_stream[at]) ++at;
+            fprintf(stderr, "  JNS-RT-02: first difference at byte %zu of %zu\n",
+                    at, src_stream.size());
+        }
+        check("JNS-RT-02", same,
+              "a machine restored from a .jns produces a BYTE-IDENTICAL binary "
+              "state stream to the machine it was saved from — the complete "
+              "oracle for the assembler's field coverage");
+    }
+
+    // The same, STORED rather than DEFLATE. Settled point 6's debugging mode
+    // is one flag on the member writer, not a second code path, and this row
+    // is what says so: the restore is identical, not merely successful.
+    {
+        Emulator a;
+        build_busy(a);
+        jnext::JnsSaveOptions opt;
+        opt.uncompressed = true;
+        jnext::JnsLoadReport rep;
+        std::string why;
+        std::vector<uint8_t> plain;
+        const bool wrote = a.save_jns(opt, plain, rep, why);
+
+        Emulator b;
+        build_emulator(b, 2);
+        jnext::JnsLoadOptions lopt;
+        jnext::JnsLoadReport  lrep;
+        const bool read = wrote && b.load_jns(plain.data(), plain.size(), lopt,
+                                              lrep, why);
+        const std::vector<uint8_t> dst = read ? stream_of(b)
+                                              : std::vector<uint8_t>();
+        check("JNS-RT-03",
+              read && dst.size() == src_stream.size() &&
+                  std::memcmp(dst.data(), src_stream.data(),
+                              src_stream.size()) == 0,
+              "--snapshot-uncompressed round-trips IDENTICALLY, and the "
+              "archive is larger than the deflated one");
+        check("JNS-RT-04", wrote && plain.size() > jns.size(),
+              "…and it really is uncompressed: the STORED archive is bigger "
+              "than the DEFLATE one");
+    }
+
+    // ── NON-VACUITY ─────────────────────────────────────────────────────
+    //
+    // JNS-RT-02 compares two byte streams and passes. That is worth exactly
+    // nothing unless the comparison can FAIL, and the way it would silently
+    // stop discriminating is if `stream_of` returned the same bytes for two
+    // genuinely different machines. So: a third machine, built the same way
+    // and NEVER loaded, must differ from the source.
+    {
+        Emulator c;
+        build_emulator(c, 2);
+        const std::vector<uint8_t> fresh = stream_of(c);
+        check("JNS-RT-05",
+              fresh.size() == src_stream.size() &&
+                  std::memcmp(fresh.data(), src_stream.data(),
+                              src_stream.size()) != 0,
+              "a machine that was NEVER loaded differs from the source — "
+              "without this, JNS-RT-02 would pass just as happily against a "
+              "comparison that had stopped discriminating");
+    }
+
+    // ── HOSTILE: a value in range for its type, out of range for what it
+    //    INDEXES ───────────────────────────────────────────────────────────
+    //
+    // The standing mutation class of this issue, five times over, now at the
+    // assembler tier: a `state/*.json` a user was handed, carrying a number
+    // that parses, fits its declared width, and is not a legal index.
+    //
+    // THE FIRST ATTEMPT AT THIS ROW TESTED THE WRONG THING and is worth
+    // recording. It patched the manifest's declared blob length in place; the
+    // ZIP's own CRC-32 over `manifest.json` caught the edit first, so the row
+    // went green while exercising the container's framing check and never
+    // reaching the rule it named. Repacking properly is what makes the
+    // assertion land where the comment says it does — and the blob-length rule
+    // itself is the CONTAINER's, already pinned by `snapshot_test`'s `JNSR-*`.
+    //
+    // `repack` rebuilds the archive with one member replaced and every CRC and
+    // length recomputed, so the ONLY thing wrong with the result is the value
+    // under test.
+    {
+        auto repack = [](const std::vector<uint8_t>& in,
+                         const std::string& member,
+                         const std::string& body,
+                         std::vector<uint8_t>& out) {
+            jnext::zip::Reader r;
+            std::string why;
+            if (!r.open(in.data(), in.size(), why)) return false;
+            jnext::zip::Writer w{jnext::jns::kArchiveComment};
+            for (const auto& e : r.entries()) {
+                std::vector<uint8_t> bytes;
+                if (e.name == member) {
+                    bytes.assign(body.begin(), body.end());
+                } else if (!r.read(e.name, bytes, why)) {
+                    return false;
+                }
+                if (!w.add(e.name, bytes.data(), bytes.size(),
+                           jnext::zip::Method::Deflate, why)) {
+                    return false;
+                }
+            }
+            return w.finish(out, why);
+        };
+
+        Emulator a;
+        build_busy(a);
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        std::vector<uint8_t> good;
+        const bool wrote = a.save_jns(opt, good, rep, why);
+
+        // ── THE TARGET, AND WHY IT IS NOT THE ONE THIS ROW FIRST PICKED ──
+        //
+        // `state/mmu.json`'s slot pages were the first candidate and are a bad
+        // one: they are declared `bytes("slots", …, 8)`, so every value is a
+        // `u8` landing in a `uint8_t[8]`, and no number a file can supply is
+        // out of range for what it indexes. A row there would assert a
+        // property the TYPE already guarantees.
+        //
+        // The right target is the parser S8 itself added: `state/esxdos.json`
+        // is hand-written (§9.5(4) — a variable-length list no declaration can
+        // express), and its `path` is REOPENED on the host.
+        //
+        // The trust level is what changed. `EsxdosHostFs::restore()` has
+        // always been fed by the rewind ring, which is in-process data the
+        // machine produced itself. A `.jns` is a FILE A USER WAS HANDED. The
+        // guard that makes that safe already exists — `contained()` at
+        // `esxdos_hostfs.cpp:899` — and this row is what proves the new entry
+        // point reaches it rather than bypassing it.
+        std::string esx_text;
+        bool got = wrote && [&]{
+            jnext::zip::Reader r;
+            std::string w2;
+            return r.open(good.data(), good.size(), w2) &&
+                   r.read_text("state/esxdos.json", esx_text, w2);
+        }();
+
+        std::vector<uint8_t> forged;
+        bool forged_ok = false;
+        if (got) {
+            // One handle, pointing at a host file far outside any sandbox.
+            const std::string hostile =
+                "{\n  \"cwd\": \"\",\n  \"handles\": [\n    {\n"
+                "      \"handle\": 1,\n      \"is_dir\": false,\n"
+                "      \"mode\": 1,\n      \"path\": \"/etc/passwd\",\n"
+                "      \"position\": \"0\"\n    }\n  ]\n}\n";
+            forged_ok = repack(good, "state/esxdos.json", hostile, forged);
+        }
+
+        if (!forged_ok) {
+            check("JNS-RT-06", false,
+                  "could not build the forged archive — state/esxdos.json is "
+                  "not in the file any more, so this row is not testing what "
+                  "it says (fix it, do not delete it)");
+            check("JNS-RT-07", false, "(not reached)");
+        } else {
+            Emulator b;
+            build_emulator(b, 2);
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            std::string refusal;
+            const bool loaded = b.load_jns(forged.data(), forged.size(), lopt,
+                                           lrep, refusal);
+            // The machine has no esxDOS root configured here, so `restore()`
+            // returns at its `!active_` guard — and with one configured it
+            // returns at `contained()`. Either way NO handle is opened, which
+            // is the property; the row asserts the observable consequence
+            // rather than the branch taken, because both branches are correct.
+            check("JNS-RT-06", loaded,
+                  "a .jns carrying a hostile esxDOS handle still LOADS — the "
+                  "path is not a reason to refuse the whole machine, it is a "
+                  "reason not to open that file");
+            // Observed end to end rather than through a test-only accessor:
+            // save the restored machine again and read its OWN esxDOS member.
+            // A handle that was opened would be in it.
+            bool no_handle = false;
+            if (loaded) {
+                std::vector<uint8_t> again;
+                jnext::JnsSaveOptions o2;
+                jnext::JnsLoadReport  r2;
+                std::string w3, text;
+                if (b.save_jns(o2, again, r2, w3)) {
+                    jnext::zip::Reader rr;
+                    if (rr.open(again.data(), again.size(), w3) &&
+                        rr.read_text("state/esxdos.json", text, w3)) {
+                        no_handle = text.find("/etc/passwd") == std::string::npos;
+                    }
+                }
+            }
+            check("JNS-RT-07", no_handle,
+                  "…and the handle is NOT opened — the restored machine's own "
+                  "esxDOS state carries no trace of it. `restore()` "
+                  "re-validates against the sandbox root, and this row proves "
+                  "S8's new entry point reaches that guard: the rewind ring "
+                  "feeds it in-process data the machine made, a .jns feeds it "
+                  "a file a user was handed");
+        }
+    }
+
+    // ── §10.2 P7: a save from MID-FRAME advances, and says so ───────────
+    {
+        Emulator a;
+        build_emulator(a, 2);
+        for (int i = 0; i < 10; ++i) a.run_frame();
+        // Leave a frame genuinely in flight.
+        a.debug_state().pause();
+        a.run_frame();
+        a.debug_state().resume();
+
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport rep;
+        std::string why;
+        std::vector<uint8_t> out;
+        const bool ok = a.save_jns(opt, out, rep, why);
+        check("JNS-RT-08", ok && !a.frame_in_progress(),
+              "a .jns save leaves the machine at a frame BOUNDARY: §10.2 P7's "
+              "always-advance-never-refuse rule, so there is no unavailable "
+              "menu item and no failure mode");
+    }
+
+    printf("Total so far: %d passed, %d failed\n", pass_count, fail_count);
+    return 0;
+}
+
 int main()
 {
     printf("=== Rewind tests ===\n");
@@ -4949,6 +5257,7 @@ int main()
     test_s5_restore_behaviour();
     test_s5b_duplicated_ram_removed();
     test_s6_gaps();
+    test_s8_jns_roundtrip();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),

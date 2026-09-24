@@ -47,7 +47,13 @@ set(FATFS_SOURCES ${FATFS_DIR}/ff.c ${FATFS_DIR}/ffunicode.c)
 add_library(jnext_core STATIC ${SOURCES} ${FATFS_SOURCES} ${NEXTBOOT_ROM_GEN})
 # ${CMAKE_SOURCE_DIR} is on the path so that #include "third_party/fatfs/ff.h"
 # resolves now that FatFs sits with the other vendored libraries at the root.
-target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR})
+# "${CMAKE_BINARY_DIR}/generated" carries the generated version.h. GH #27 S8
+# needs it: a `.jns` manifest records the jnext version that WROTE it
+# (`producer.jnext_version`, design §8), which is provenance a bug report is
+# bisected from. jnext_gui and the jnext executable already add the same
+# directory; jnext_core did not, because nothing in it had asked until now.
+target_include_directories(jnext_core PUBLIC ${CMAKE_SOURCE_DIR}/src ${CMAKE_SOURCE_DIR}
+                                             "${CMAKE_BINARY_DIR}/generated")
 # emulator.h includes input/keyboard.h; Keyboard symbols live in jnext_input.
 # src/input is added before src/core in the root CMakeLists so this target exists.
 # Declare what jnext_core ACTUALLY uses. emulator.cpp alone reaches into the
