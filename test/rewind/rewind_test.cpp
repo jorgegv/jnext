@@ -1757,6 +1757,9 @@ static int test_s3_descriptor_layout()
     Emulator emu;
     build_emulator(emu, 2);
 
+    // Every recording, kept for the uniqueness row at the foot of this test.
+    std::vector<std::pair<std::string, std::vector<std::string>>> all_decls;
+
     // ── Clock — stream block 0, 12 bytes ─────────────────────────────────
     {
         static const char* const want[] = {
@@ -1765,6 +1768,7 @@ static int test_s3_descriptor_layout()
         };
         s3::RecordDesc rec;
         emu.clock().describe_state(rec);
+        all_decls.push_back({"clock", rec.fields()});
         const std::string d = s3::diff(rec.fields(), s3::vec(want, 2));
         if (!d.empty()) fprintf(stderr, "  S3-DECL-CLOCK: %s\n", d.c_str());
         check("S3-DECL-CLOCK", d.empty(),
@@ -1783,6 +1787,7 @@ static int test_s3_descriptor_layout()
         };
         s3::RecordDesc rec;
         emu.ram().describe_state(rec);
+        all_decls.push_back({"ram", rec.fields()});
         const std::string d = s3::diff(rec.fields(), s3::vec(want, 2));
         if (!d.empty()) fprintf(stderr, "  S3-DECL-RAM: %s\n", d.c_str());
         check("S3-DECL-RAM", d.empty(),
@@ -1837,6 +1842,7 @@ static int test_s3_descriptor_layout()
         };
         s3::RecordDesc rec;
         emu.mmu().describe_state(rec);
+        all_decls.push_back({"mmu", rec.fields()});
         const std::string d =
             s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
         if (!d.empty()) fprintf(stderr, "  S3-DECL-MMU: %s\n", d.c_str());
@@ -1861,6 +1867,7 @@ static int test_s3_descriptor_layout()
         };
         s3::RecordDesc rec;
         emu.nextreg().describe_state(rec);
+        all_decls.push_back({"nextreg", rec.fields()});
         const std::string d =
             s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
         if (!d.empty()) fprintf(stderr, "  S3-DECL-NEXTREG: %s\n", d.c_str());
@@ -1892,6 +1899,7 @@ static int test_s3_descriptor_layout()
         };
         s3::RecordDesc rec;
         emu.cpu().describe_state(rec);
+        all_decls.push_back({"cpu", rec.fields()});
         const std::string d =
             s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
         if (!d.empty()) fprintf(stderr, "  S3-DECL-CPU: %s\n", d.c_str());
@@ -1951,6 +1959,7 @@ static int test_s3_descriptor_layout()
 
         s3::RecordDesc rec;
         emu.im2().describe_state(rec);
+        all_decls.push_back({"im2", rec.fields()});
         const std::string d = s3::diff(rec.fields(), want);
         if (!d.empty()) fprintf(stderr, "  S3-DECL-IM2: %s\n", d.c_str());
         check("S3-DECL-IM2", d.empty(),
@@ -1990,6 +1999,7 @@ static int test_s3_descriptor_layout()
 
         s3::RecordDesc rec;
         emu.im2().describe_timing(rec);
+        all_decls.push_back({"im2_timing", rec.fields()});
         const std::string d = s3::diff(rec.fields(), want);
         if (!d.empty()) fprintf(stderr, "  S3-DECL-IM2-TIMING: %s\n", d.c_str());
         check("S3-DECL-IM2-TIMING", d.empty(),
@@ -2000,6 +2010,37 @@ static int test_s3_descriptor_layout()
               "the IM2 timing declaration is 589 bytes wide — the first 589 of "
               "block 31's 609, the remaining 20 being the CPU's /INT pair and "
               "the CTC's chained triggers");
+    }
+
+    // ── Every key of a declaration must be UNIQUE ────────────────────────
+    //
+    // A duplicate name is invisible to the byte-identity gate: the binary
+    // encoding ignores names entirely, so the stream stays correct to the
+    // byte while `JsonWriteDesc` — which writes `obj[name] = value` — drops
+    // the first field of the pair and `.jns` silently loses it. That is a
+    // fault in exactly the property S3 exists to establish (one field list,
+    // two encodings), and the only place it can be caught is here.
+    {
+        std::string dup;
+        for (const auto& sub : all_decls) {
+            std::vector<std::string> seen;
+            for (const auto& f : sub.second) {
+                // "kind name width" -> "name"
+                const std::size_t a = f.find(' ');
+                const std::size_t b = f.rfind(' ');
+                const std::string key = f.substr(a + 1, b - a - 1);
+                for (const auto& k : seen) {
+                    if (k == key && dup.empty())
+                        dup = sub.first + "." + key;
+                }
+                seen.push_back(key);
+            }
+        }
+        if (!dup.empty()) fprintf(stderr, "  S3-KEYS-UNIQUE: %s\n", dup.c_str());
+        check("S3-KEYS-UNIQUE", dup.empty(),
+              "no declaration names the same key twice — a duplicate is "
+              "invisible to the byte stream, which ignores names, and silently "
+              "drops a field from the JSON encoding, which does not");
     }
 
     return 0;
