@@ -1071,7 +1071,19 @@ void Mmu::save_state(StateWriter& w) const
 
 void Mmu::load_state(StateReader& r)
 {
-    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name — a stream and a build that disagree about the machine or
+        // timing list. The field keeps its pre-load value rather than taking
+        // a wrong one (§16.1: "a wrong FSM state is not a safe default"), the
+        // stream stays in sync (the byte was consumed either way), and the
+        // fault is NAMED rather than swallowed.
+        Log::memory()->error("Mmu::load_state: the stream does not match this "
+                             "build's declaration at '{}'",
+                             d.failure() ? d.failure() : "?");
+    }
 
     // Phase 2 B — NR 0x8F is 2 bits wide (VHDL zxnext.vhd:3787-3794). The
     // mask is applied HERE and not in the declaration: it is a property of

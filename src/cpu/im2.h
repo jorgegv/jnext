@@ -26,6 +26,8 @@ enum class Im2Level : int {
 /// the legacy path (raise/clear/has_pending/get_vector/set_mask/on_reti) is
 /// functionally wired. All new DevIdx-based entry points exist as stubs that
 /// compile and do not affect behaviour — Phase 2 agents will implement them.
+namespace jnext { namespace save { class StateDesc; } }
+
 class Im2Controller {
 public:
     // VHDL priority order (zxnext.vhd:1941). Index 0 = highest priority.
@@ -165,6 +167,11 @@ public:
         + sizeof(uint8_t) + 3 * sizeof(uint64_t) + sizeof(uint32_t);
     void save_timing(StateWriter& w) const;
     void load_timing(StateReader& r);
+
+    /// GH #27 S3 — the SECOND field list (design §9.5(2)). These fields
+    /// travel in the Emulator stream's `int_timing` block, not in this
+    /// subsystem's own, so they need a declaration of their own.
+    void describe_timing(jnext::save::StateDesc& d);
     void reset_timing();
 
     // ── Legacy API (retained as compatibility wrappers; new code should use the
@@ -283,6 +290,9 @@ public:
     // ── Save/load ──────────────────────────────────────────────────────────
     void save_state(StateWriter& w) const;
     void load_state(StateReader& r);
+
+    /// GH #27 S3 — the ONE field list (design §9.2).
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     struct Device {

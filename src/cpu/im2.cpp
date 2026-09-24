@@ -1,5 +1,70 @@
 #include "im2.h"
+#include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
+
+namespace {
+
+// GH #27 S3 — the per-device key tables for the §9.4 loop collapse in
+// `Im2Controller::describe_state` / `describe_timing`.
+//
+// The 14 devices are the DevIdx enumeration (im2.h), and they are named
+// rather than numbered so a `.jns` says `ctc3_int_en` and not `dev06_int_en`.
+//
+// LITERALS, concatenated by the preprocessor, and NOT built at run time. The
+// reason is `StateDesc::fail()`: it STORES the `const char*` it is handed
+// instead of copying it, so a key formatted into a stack buffer would dangle
+// in exactly the refusal path whose whole job is to name the field.
+#define IM2_DEV_STATE_KEYS(p)                                              \
+    { p "_int_req",   p "_int_req_d",  p "_int_en",                        \
+      p "_int_unq",   p "_int_status", p "_im2_int_req",                   \
+      p "_state",     p "_dma_int_en", p "_exception" }
+
+#define IM2_DEV_TIMING_KEYS(p)                                             \
+    { p "_req_at", p "_unq_at", p "_status_at", p "_im2_req_at",           \
+      p "_sreq_at" }
+
+#define IM2_DEV_NAMES(M)                                                   \
+    M("line"), M("uart0_rx"), M("uart1_rx"),                               \
+    M("ctc0"), M("ctc1"), M("ctc2"), M("ctc3"),                            \
+    M("ctc4"), M("ctc5"), M("ctc6"), M("ctc7"),                            \
+    M("ula"), M("uart0_tx"), M("uart1_tx")
+
+const char* const kDevStateKeys[14][9]  = { IM2_DEV_NAMES(IM2_DEV_STATE_KEYS) };
+const char* const kDevTimingKeys[14][5] = { IM2_DEV_NAMES(IM2_DEV_TIMING_KEYS) };
+
+#undef IM2_DEV_STATE_KEYS
+#undef IM2_DEV_TIMING_KEYS
+#undef IM2_DEV_NAMES
+
+// Enum name tables (design §6.2, §9.4). The binary encoding stays the u8
+// ordinal the stream has always carried; the names are what a `.jns` writes,
+// so renumbering either FSM is a visible schema diff rather than a silent
+// re-interpretation of old files.
+const char* const kDevStateNameArr[] = {
+    "s_0",    // DevState::S_0   (im2.h:47, VHDL im2_device.vhd:83)
+    "s_req",  // DevState::S_REQ
+    "s_ack",  // DevState::S_ACK
+    "s_isr",  // DevState::S_ISR
+};
+const jnext::save::EnumNames kDevStateNames{
+    kDevStateNameArr, sizeof(kDevStateNameArr) / sizeof(kDevStateNameArr[0])};
+
+const char* const kDecStateNameArr[] = {
+    "s_0",         // DecState::S_0 (im2.h:311, VHDL im2_control.vhd)
+    "s_ed_t4",     // DecState::S_ED_T4
+    "s_ed4d_t4",   // DecState::S_ED4D_T4
+    "s_ed45_t4",   // DecState::S_ED45_T4
+    "s_cb_t4",     // DecState::S_CB_T4
+    "s_srl_t1",    // DecState::S_SRL_T1
+    "s_srl_t2",    // DecState::S_SRL_T2
+    "s_ddfd_t4",   // DecState::S_DDFD_T4
+};
+const jnext::save::EnumNames kDecStateNames{
+    kDecStateNameArr, sizeof(kDecStateNameArr) / sizeof(kDecStateNameArr[0])};
+
+}  // namespace
 
 // =============================================================================
 // Phase 1 scaffold — compile-only expansion of Im2Controller.
@@ -458,36 +523,43 @@ void Im2Controller::reset_timing() {
     pulse_started_ = false;
 }
 
-void Im2Controller::save_timing(StateWriter& w) const {
+// GH #27 S3 — the SECOND declaration (design §9.5(2)). `save_timing` is
+// called from a DIFFERENT block than `save_state`: the GH #265 timing fields
+// travel in `int_timing`, block 31 at the very end of the Emulator stream,
+// not in block 5. One `describe_state` cannot put its fields in two blocks
+// and the byte-identity gate forbids moving them, so there are two describe
+// methods, each bound to its own block. A `.jns` is free to merge these keys
+// into `state/im2.json`, where they belong logically.
+void Im2Controller::describe_timing(jnext::save::StateDesc& d) {
     for (int i = 0; i < N; ++i) {
-        const Device& dv = dev_[i];
-        w.write_u64(dv.req_at);
-        w.write_u64(dv.unq_at);
-        w.write_u64(dv.status_at);
-        w.write_u64(dv.im2_req_at);
-        w.write_u64(dv.sreq_at);
+        Device& dv = dev_[i];
+        const char* const* k = kDevTimingKeys[i];
+        d.u64(k[0], dv.req_at);
+        d.u64(k[1], dv.unq_at);
+        d.u64(k[2], dv.status_at);
+        d.u64(k[3], dv.im2_req_at);
+        d.u64(k[4], dv.sreq_at);
     }
-    w.write_bool(pulse_timed_);
-    w.write_u64(pulse_te_);
-    w.write_u64(pulse_e1_);
-    w.write_u64(pulse_en_);
-    w.write_u32(pulse_d_);
+    d.boolean("pulse_timed", pulse_timed_);
+    d.u64("pulse_te", pulse_te_);
+    d.u64("pulse_e1", pulse_e1_);
+    d.u64("pulse_en", pulse_en_);
+    d.u32("pulse_d", pulse_d_);
+}
+
+void Im2Controller::save_timing(StateWriter& w) const {
+    jnext::save::BinWriteDesc d(w);
+    const_cast<Im2Controller*>(this)->describe_timing(d);
 }
 
 void Im2Controller::load_timing(StateReader& r) {
-    for (int i = 0; i < N; ++i) {
-        Device& dv = dev_[i];
-        dv.req_at     = r.read_u64();
-        dv.unq_at     = r.read_u64();
-        dv.status_at  = r.read_u64();
-        dv.im2_req_at = r.read_u64();
-        dv.sreq_at    = r.read_u64();
+    jnext::save::BinReadDesc d(r);
+    describe_timing(d);
+    if (d.failed()) {
+        Log::cpu()->error("Im2Controller::load_timing: the stream does not "
+                          "match this build's declaration at '{}'",
+                          d.failure() ? d.failure() : "?");
     }
-    pulse_timed_ = r.read_bool();
-    pulse_te_    = r.read_u64();
-    pulse_e1_    = r.read_u64();
-    pulse_en_    = r.read_u64();
-    pulse_d_     = r.read_u32();
     quiescent_   = false;
 }
 
@@ -1808,81 +1880,84 @@ void Im2Controller::propagate_isr_serviced() {
 // which clears the rewind ring. This matches the style used by NextReg (see
 // commit history for precedent).
 // -----------------------------------------------------------------------------
-void Im2Controller::save_state(StateWriter& w) const {
+// GH #27 S3 — the ONE field list (design §9.2). Block 5, 149 bytes: 14
+// devices x 9 fields, then the decoder, pulse fabric, NR 0xC0 and DMA-delay
+// scalars. Declaration order IS the stream order.
+//
+// The 14-device loop is §9.4's "array elements inside loops" class: it
+// COLLAPSES to one declaration per field rather than expanding to 126, and
+// the keys come from the literal table above so each device is named.
+//
+// The two enums are marshalled through a local `uint8_t`. DevState and
+// DecState ARE `: uint8_t`-backed, so a `reinterpret_cast<uint8_t&>` would
+// work here — it is not used, because the same declaration idiom then reads
+// identically in `Mmu::describe_state`, where the enums are `int`-wide and it
+// would NOT work. One idiom that is always right beats two that differ by a
+// property of the enum a reader has to go and check.
+void Im2Controller::describe_state(jnext::save::StateDesc& d) {
     // Devices.
     for (int i = 0; i < N; ++i) {
-        const Device& dv = dev_[i];
-        w.write_bool(dv.int_req);
-        w.write_bool(dv.int_req_d);
-        w.write_bool(dv.int_en);
-        w.write_bool(dv.int_unq);
-        w.write_bool(dv.int_status);
-        w.write_bool(dv.im2_int_req);
-        w.write_u8(static_cast<uint8_t>(dv.state));
-        w.write_bool(dv.dma_int_en);
-        w.write_bool(dv.exception);
+        Device& dv = dev_[i];
+        const char* const* k = kDevStateKeys[i];
+        d.boolean(k[0], dv.int_req);
+        d.boolean(k[1], dv.int_req_d);
+        d.boolean(k[2], dv.int_en);
+        d.boolean(k[3], dv.int_unq);
+        d.boolean(k[4], dv.int_status);
+        d.boolean(k[5], dv.im2_int_req);
+        uint8_t state = static_cast<uint8_t>(dv.state);
+        d.enum8(k[6], state, kDevStateNames);
+        dv.state = static_cast<DevState>(state);
+        d.boolean(k[7], dv.dma_int_en);
+        d.boolean(k[8], dv.exception);
     }
     // Decoder.
-    w.write_u8(static_cast<uint8_t>(dec_state_));
-    w.write_bool(reti_seen_pulse_);
-    w.write_bool(retn_seen_pulse_);
-    w.write_bool(reti_decode_);
-    w.write_bool(dma_delay_ctrl_);
-    w.write_u8(im_mode_);
+    {
+        uint8_t dec = static_cast<uint8_t>(dec_state_);
+        d.enum8("dec_state", dec, kDecStateNames);
+        dec_state_ = static_cast<DecState>(dec);
+    }
+    d.boolean("reti_seen_pulse", reti_seen_pulse_);
+    d.boolean("retn_seen_pulse", retn_seen_pulse_);
+    d.boolean("reti_decode", reti_decode_);
+    d.boolean("dma_delay_ctrl", dma_delay_ctrl_);
+    d.u8("im_mode", im_mode_);
     // Pulse.
-    w.write_bool(pulse_int_n_);
-    w.write_u8(pulse_count_);
-    w.write_bool(machine_48_or_p3_);
+    d.boolean("pulse_int_n", pulse_int_n_);
+    d.u8("pulse_count", pulse_count_);
+    d.boolean("machine_48_or_p3", machine_48_or_p3_);
     // NR 0xC0.
-    w.write_u8(vector_base_msb3_);
-    w.write_bool(im2_mode_);
-    w.write_bool(stackless_nmi_);
+    d.u8("vector_base_msb3", vector_base_msb3_);
+    d.boolean("im2_mode", im2_mode_);
+    d.boolean("stackless_nmi", stackless_nmi_);
     // DMA delay.
-    w.write_u16(dma_int_en_mask14_);
-    w.write_bool(im2_dma_delay_latched_);
-    w.write_bool(nmi_activated_);
-    w.write_bool(nr_cc_dma_int_en_0_7_);
+    d.u16("dma_int_en_mask14", dma_int_en_mask14_);
+    d.boolean("im2_dma_delay_latched", im2_dma_delay_latched_);
+    d.boolean("nmi_activated", nmi_activated_);
+    d.boolean("nr_cc_dma_int_en_0_7", nr_cc_dma_int_en_0_7_);
     // ACK book-keeping.
-    w.write_i32(last_acked_);
+    d.i32("last_acked", last_acked_);
     // Legacy API mask.
-    w.write_u16(legacy_mask_);
+    d.u16("legacy_mask", legacy_mask_);
+}
+
+void Im2Controller::save_state(StateWriter& w) const {
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Im2Controller::load_state(StateReader& r) {
-    for (int i = 0; i < N; ++i) {
-        Device& dv = dev_[i];
-        dv.int_req      = r.read_bool();
-        dv.int_req_d    = r.read_bool();
-        dv.int_en       = r.read_bool();
-        dv.int_unq      = r.read_bool();
-        dv.int_status   = r.read_bool();
-        dv.im2_int_req  = r.read_bool();
-        dv.state        = static_cast<DevState>(r.read_u8());
-        dv.dma_int_en   = r.read_bool();
-        dv.exception    = r.read_bool();
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name — a stream and a build that disagree about an FSM. The
+        // field keeps its pre-load value rather than taking a wrong FSM state
+        // (§16.1: "a wrong FSM state is not a safe default"), the stream stays
+        // in sync (the byte was consumed either way), and the fault is named.
+        Log::cpu()->error("Im2Controller::load_state: the stream does not "
+                          "match this build's declaration at '{}'",
+                          d.failure() ? d.failure() : "?");
     }
-    dec_state_       = static_cast<DecState>(r.read_u8());
-    reti_seen_pulse_ = r.read_bool();
-    retn_seen_pulse_ = r.read_bool();
-    reti_decode_     = r.read_bool();
-    dma_delay_ctrl_  = r.read_bool();
-    im_mode_         = r.read_u8();
-
-    pulse_int_n_      = r.read_bool();
-    pulse_count_      = r.read_u8();
-    machine_48_or_p3_ = r.read_bool();
-
-    vector_base_msb3_ = r.read_u8();
-    im2_mode_         = r.read_bool();
-    stackless_nmi_    = r.read_bool();
-
-    dma_int_en_mask14_     = r.read_u16();
-    im2_dma_delay_latched_ = r.read_bool();
-    nmi_activated_         = r.read_bool();
-    nr_cc_dma_int_en_0_7_  = r.read_bool();
-
-    last_acked_  = r.read_i32();
-    legacy_mask_ = r.read_u16();
 
     // GH #265 — the timing fields travel in a block appended at the end of
     // the Emulator stream (Emulator::load_state reads it when present);
