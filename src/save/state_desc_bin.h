@@ -138,10 +138,15 @@ private:
 /// Drive a subsystem's `describe_state` in the WRITE direction from a
 /// `save_state() const`.
 ///
-/// THE ONE `const_cast` (see `state_desc.h`). It is safe because no
-/// write-direction realisation assigns through a bound reference; putting it
-/// here rather than at each of the ~34 call sites is what keeps that claim
-/// checkable by reading one function.
+/// THE ONE `const_cast`. Putting it here rather than at each of the ~34 call
+/// sites is what keeps the safety argument checkable by reading one function.
+///
+/// That argument is NOT "nothing on the write path assigns to a member" —
+/// thirteen declarations do. It is that no bound object is really `const`, that
+/// no write-direction REALISATION assigns through a bound reference, and that
+/// every declaration's write-back is value-preserving. `state_desc.h` states it
+/// in full, with the three shapes and which of them rests on a test rather than
+/// on construction. Read that before adding a declaration that writes.
 template <typename T>
 inline void save_via_desc(const T& obj, StateWriter& w, bool machine_level) {
     BinWriteDesc d(w);

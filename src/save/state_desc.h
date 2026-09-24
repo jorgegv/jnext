@@ -35,10 +35,48 @@
 // `describe_state` binds members by NON-CONST reference, because one declaration
 // has to serve both reading and writing. A subsystem's `save_state` is `const`,
 // so the write direction needs a `const_cast`. It is done in exactly ONE place —
-// `save_via_desc`, at the foot of `state_desc_bin.h` — and it is safe because no
-// write-direction realisation ever assigns through a bound reference.
-// Thirty-four hand-rolled `const_cast`s at the call sites would not be: the
-// claim is checkable by reading one function, and would not be by reading 34.
+// `save_via_desc`, at the foot of `state_desc_bin.h`. Thirty-four hand-rolled
+// `const_cast`s at the call sites would not be checkable by reading one
+// function; this is.
+//
+// WHAT MAKES IT SAFE, exactly — and it is NOT "nothing on the write path ever
+// assigns to a member", which is false:
+//
+//   1. No bound object is really `const`. Every subsystem is a non-const member
+//      of `Emulator` (or a non-const local in a unit test) reached through a
+//      `const&` only because `save_state()` is `const`. Writing through a
+//      `const_cast` is UB only for an object DECLARED const, and none is.
+//   2. The write-direction REALISATIONS never assign through a bound reference:
+//      `BinWriteDesc`'s `do_*` overrides read `v`, and `bytes`/`blob`/
+//      `ram_window`/`log`/`fifo` only read. `MeasureDesc` IS a `BinWriteDesc`.
+//   3. The DECLARATIONS do assign to members on the write path — thirteen of
+//      them — and that is the part that has to hold. Every such write-back
+//      must be VALUE-PRESERVING. Three shapes, in descending order of how
+//      solid the guarantee is:
+//
+//      a. The enum round-trip, `local = member; d.enum8(.., local, ..);
+//         member = local` (Im2, Mmu, Ula, Palette, Copper, Ctc, Dma, I2c,
+//         NmiSource, Uart, Joystick, MembraneStick). By (2) the realisation
+//         leaves `local` untouched, so the write-back stores back the value it
+//         just took. A no-op BY CONSTRUCTION.
+//      b. A normalising write-back: `I2cController`'s two `pi_i2c1_*` members
+//         are `uint8_t` but travel as `bool`, so the write-back stores
+//         `flag ? 1 : 0`. A no-op only given the class's own 0/1 invariant —
+//         true, and stated at that call site, but an INVARIANT rather than a
+//         construction.
+//      c. A container rebuild: `Keyboard::describe_state` does
+//         `auto_queue_.clear()` and re-`push_back()`s the staging array on
+//         both paths. Idempotent only while `auto_queue_.size() <=
+//         MAX_AUTO_TYPE_KEYS`, which `queue_auto_type()` enforces at the one
+//         place the queue grows. This is the genuinely risky shape, and it is
+//         the one pinned by a test — row `S5-KB-SAVE-PURE` saves twice and
+//         asserts the two buffers are byte-identical AND the queue survived.
+//
+// So the rule for a future declaration: marshalling through a local is fine,
+// but if your write-back's value-preservation rests on an invariant rather
+// than on construction, it needs a row like `S5-KB-SAVE-PURE`. Read this as a
+// property of the declarations, which are checkable one at a time — not as a
+// blanket guarantee the realisation provides on their behalf.
 //
 // ── HOSTILE INPUT ────────────────────────────────────────────────────────
 //

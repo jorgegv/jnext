@@ -634,13 +634,20 @@ void DivMmc::write(uint16_t addr, uint8_t val) {
 // falls back to the private `ram_` array (divmmc.h:288-291) — so the
 // null-check cannot fire whatever `machine_level()` says.
 //
-// Declaring `ram_ext_` instead would make the claim checkable but would break
-// the standalone round-trip that row DA-09 performs (`divmmc_test.cpp`
-// builds a DivMmc whose `set_ram_backing` was never called, so `ram_ext_` is
-// null and the write would be a 128 KB `memcpy` from nullptr). So the
-// declaration keeps `ram_data()`, and the claim stays a comment until the
-// Emulator-driven realisation of §9.2 exists to carry it — which is the same
-// stage that makes this a reference rather than a copy.
+// Declaring `ram_ext_` instead would make the claim checkable, but it would
+// QUIETLY GUT the standalone round-trip that row DA-09 performs
+// (`divmmc_test.cpp` builds a DivMmc whose `set_ram_backing` was never called,
+// so `ram_ext_` is null). It would NOT crash: `StateWriter::write_bytes` is
+// `else if (src) memcpy(...)` and `StateReader::read_bytes` guards `if (dst)`
+// on BOTH its branches (`core/saveable.h:51-57`, `:104-112`), so a null
+// pointer skips the copy and only advances `pos_`. The stream would keep its
+// width — no desync, no overflow flag, DA-09 still green — while 128 KB of
+// DivMMC RAM silently stopped travelling in either direction. Degraded
+// coverage that no gate can see is a worse failure than a crash, which is the
+// actual reason not to do it. So the declaration keeps `ram_data()`, and the
+// claim stays a comment until the Emulator-driven realisation of §9.2 exists
+// to carry it — which is the same stage that makes this a reference rather
+// than a copy.
 void DivMmc::describe_state(jnext::save::StateDesc& d)
 {
     // The composite `enabled_` byte stays at the front so the field order of
