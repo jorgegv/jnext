@@ -337,8 +337,31 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
                               bool* textmode_flags,
                               bool palette_bank_second) const
 {
-    if (!enabled_ || y < 0 || y >= 256)
+    if (y < 0 || y >= 256)
         return;
+
+    // Tilemap OFF (NR 0x6B b7 = 0) — GH #201.
+    //
+    // The layer emits no pixels, but its per-pixel BELOW flag is not simply
+    // cleared. VHDL zxnext.vhd:6863 latches
+    //     tm_pixel_below_1 <= (tm_pixel_below and tm_en_1a)
+    //                         or ((not nr_6b_tm_control(0)) and not tm_en_1a);
+    // so with tm_en = 0 the flag takes the COMPLEMENT of tm_on_top
+    // (NR 0x6B b0) rather than 0. It stays invisible in the ordinary ULA/TM
+    // merge — zxnext.vhd:7116 only consults it when the TM pixel is opaque —
+    // but the NR 0x68 blend modes at zxnext.vhd:7156-7177 use it to decide
+    // whether the ULA lands in the mixer's `mix_top` or `mix_bot` slot, and
+    // those two slots sit on opposite sides of the sprite layer in the output
+    // cascade (zxnext.vhd:7300-7310). jnext used to leave the array at the
+    // renderer's all-false fill, which is the tm_on_top = 1 answer, so a
+    // tilemap-off frame in blend mode 01 or 11 put the ULA below the sprites
+    // when hardware puts it above. Rows TM-140 / TM-141.
+    if (!enabled_) {
+        if (ula_over_flags)
+            for (int i = 0; i < 640; ++i)
+                ula_over_flags[i] = !ula_on_top_;
+        return;
+    }
 
     // Clip window — VHDL tilemap.vhd:415-424 pixel_en_s gates output
     // against [xsv, xev] horizontal and [ysv, yev] vertical, where

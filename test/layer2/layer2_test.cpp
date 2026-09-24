@@ -194,6 +194,24 @@ static void render_row(const Layer2& l2, Ram& ram, PaletteManager& pal,
                        pal.active_layer2_palette());
 }
 
+// Render a scanline with the Next-mode SRAM mapping ENGAGED
+// (`rom_in_sram = true`).
+//
+// This is the only call shape under which the VHDL bank transform at
+// layer2.vhd:172 is observable: it is the flag that tells the renderer the
+// CPU-side MMU is also serving ROM out of the shared SRAM, which is the
+// hardware condition the unconditional `+1` on the bank's high nibble
+// exists to skip past. `render_row` above passes false and therefore reads
+// the untransformed bank, which is why every other row in this file writes
+// its VRAM through `write_both()`.
+static void render_row_sram(const Layer2& l2, Ram& ram, PaletteManager& pal,
+                            uint32_t* buf, int fb_row) {
+    memset(buf, 0, sizeof(uint32_t) * BUF_WIDTH);
+    l2.render_scanline(buf, fb_row, ram, pal, pal.global_transparency(),
+                       /*rom_in_sram=*/true, /*priority_dst=*/nullptr,
+                       pal.active_layer2_palette());
+}
+
 // Program a single palette entry (8-bit RRRGGGBB) into the currently-active
 // Layer 2 palette (NR 0x43[2] drives active_l2_second_).
 static void set_l2_palette_8bit(PaletteManager& pal, uint8_t idx, uint8_t rgb8) {
@@ -1124,21 +1142,121 @@ static void test_group7_bank_transform() {
     // Ram::page_ptr() (affecting all RAM access) plus growing RAM from
     // 2048KB to 2304KB — significant refactor for zero functional benefit.
 
-    // G7-01..G7-03 and G7-05a..c — GENUINELY UNOBSERVABLE (not skips).
-    // The +1 / +32 bank transform at layer2.vhd:172 is a physical SRAM
-    // layout artifact: the real FPGA shares one 2MB SRAM chip between
-    // RAM and ROM, so every SRAM access (MMU, Layer2, DMA) adds 32
-    // to the page number to skip the 256KB ROM region. JNEXT keeps RAM
-    // and ROM in separate objects — both Layer2 reads and MMU writes
-    // use the SAME raw page numbers without +32, so the two sides
-    // agree and every game/firmware write-read pair observes the
-    // correct data. No software-visible behaviour depends on the
-    // physical offset, so these plan rows cannot be falsified at the
-    // C++ abstraction level. Matching VHDL strictly would require
-    // moving the +32 into `Ram::page_ptr()` (affecting all RAM access)
-    // plus growing RAM from 2048KB to 2304KB — significant refactor
-    // for zero functional benefit. See the block comment above for
-    // the full rationale (retained verbatim from the 2026-04-16 audit).
+    // ---- G7-01 / G7-02 / G7-03 / G7-05 (GH #201) ------------------------
+    //
+    // The block comment above is the 2026-04-16 audit's conclusion that
+    // these rows are unobservable. That conclusion was TRUE THEN and is
+    // STALE NOW: on 2026-05-16 the renderer gained the `rom_in_sram`
+    // parameter and `compute_ram_addr()` applies the VHDL `+16` (in 16K
+    // bank units) whenever it is set — src/video/layer2.cpp, citing
+    // layer2.vhd:172. So the transform has been modelled, and directly
+    // falsifiable, for four months while these four plan rows kept
+    // publishing as `missing`. The comment is kept above because its
+    // account of WHY the offset exists (one shared 2 MB SRAM, 256 KB of
+    // ROM at the bottom, every accessor skipping it) is still the right
+    // reading of the hardware; only its "cannot be falsified" verdict is
+    // superseded.
+    //
+    // Every row below writes the probe byte ONLY at the VHDL-transformed
+    // address and a DIFFERENT byte at the untransformed one, so a renderer
+    // that dropped the `+16` would read the decoy and fail. `write_both()`
+    // — used by the rest of this file, which renders with rom_in_sram=false
+    // — deliberately is not used here: writing both addresses is exactly
+    // what makes the transform invisible.
+    {
+        Ram r7; PaletteManager p7;
+        Layer2 l7; l7.reset(); l7.set_enabled(true);
+        // Keep NR 0x14 away from every index we probe so nothing reads as
+        // transparent (zxnext.vhd:7121).
+        p7.set_global_transparency(0xFF);
+        uint32_t b7[BUF_WIDTH];
+
+        // Distinct opaque palette entries for probe vs decoy.
+        constexpr uint8_t IDX_HIT   = 0x21;
+        constexpr uint8_t IDX_DECOY = 0x42;
+        set_l2_palette_8bit(p7, IDX_HIT,   0x1C);
+        set_l2_palette_8bit(p7, IDX_DECOY, 0x03);
+
+        // Plant (hit at the VHDL bank, decoy at the raw bank) for one
+        // (bank, l2_addr) pair and render the row that reads it.
+        auto probe = [&](uint8_t bank, int fb_row, uint32_t l2_addr) -> uint32_t {
+            r7.write(vhdl_ram_addr(bank, l2_addr), IDX_HIT);
+            r7.write(cpp_ram_addr(bank, l2_addr),  IDX_DECOY);
+            l7.set_active_bank(bank);
+            render_row_sram(l7, r7, p7, b7, fb_row);
+            return b7[DISP_X_NARROW + 0];
+        };
+
+        // G7-01: NR 0x12 = 0x08 (the reset default, zxnext.vhd:4943).
+        //        bank_eff = ("000"+1) & "1000" = "00011000" = 24.
+        check("G7-01", "NR 0x12=0x08 (default): display sources SRAM 16K page 24 "
+                       "(VHDL layer2.vhd:172 bank_eff = (bank(6:4)+1)&bank(3:0))",
+              probe(0x08, DISP_Y_NARROW + 0, 0u) == p7.layer2_colour(IDX_HIT),
+              DETAIL("got 0x%08X hit 0x%08X decoy 0x%08X",
+                     b7[DISP_X_NARROW + 0], p7.layer2_colour(IDX_HIT),
+                     p7.layer2_colour(IDX_DECOY)));
+
+        // G7-02: NR 0x12 = 0x18 = "0011000" → ("001"+1)&"1000" = 40.
+        check("G7-02", "NR 0x12=0x18: nonzero high 3 bits → SRAM 16K page 40 "
+                       "(VHDL layer2.vhd:172)",
+              probe(0x18, DISP_Y_NARROW + 0, 0u) == p7.layer2_colour(IDX_HIT),
+              DETAIL("got 0x%08X hit 0x%08X decoy 0x%08X",
+                     b7[DISP_X_NARROW + 0], p7.layer2_colour(IDX_HIT),
+                     p7.layer2_colour(IDX_DECOY)));
+
+        // G7-03: NR 0x12 = 0x68 = "1101000" → ("110"+1)&"1000" = 120, the
+        //        largest bank whose transformed address still has bit 21 = 0
+        //        (120 * 16 KB = 0x1E0000), so layer2_en stays asserted and the
+        //        pixel is VISIBLE — VHDL layer2.vhd:173-175.
+        {
+            const uint32_t got = probe(0x68, DISP_Y_NARROW + 0, 0u);
+            const uint32_t addr_eff = 120u * 16384u;      // layer2_addr_eff
+            check("G7-03", "NR 0x12=0x68 (max legal): SRAM 16K page 120, "
+                           "addr_eff bit 21 = 0 so the pixel is visible "
+                           "(VHDL layer2.vhd:172-175)",
+                  got == p7.layer2_colour(IDX_HIT) && ((addr_eff >> 21) & 1u) == 0u,
+                  DETAIL("got 0x%08X hit 0x%08X addr_eff 0x%06X",
+                         got, p7.layer2_colour(IDX_HIT), addr_eff));
+        }
+
+        // G7-05: layer2_addr(16:14) is ADDED to bank_eff, so the three
+        //        64-row thirds of the 256x192 bitmap come out of three
+        //        CONSECUTIVE 16K pages — VHDL layer2.vhd:173
+        //        `layer2_addr_eff <= (bank_eff + addr(16:14)) & addr(13:0)`.
+        //        With NR 0x12 = 0x08 that is pages 24 / 25 / 26.
+        {
+            constexpr uint8_t IDX_T0 = 0x11, IDX_T1 = 0x22, IDX_T2 = 0x33;
+            set_l2_palette_8bit(p7, IDX_T0, 0x1C);
+            set_l2_palette_8bit(p7, IDX_T1, 0x03);
+            set_l2_palette_8bit(p7, IDX_T2, 0xE0);
+            l7.set_active_bank(0x08);
+            // y = 0 / 64 / 128 at x = 0 → l2_addr 0 / 16384 / 32768, i.e.
+            // addr(16:14) = 0 / 1 / 2 with offset 0 in each.
+            r7.write(vhdl_ram_addr(0x08, 0u),     IDX_T0);   // page 24
+            r7.write(vhdl_ram_addr(0x08, 16384u), IDX_T1);   // page 25
+            r7.write(vhdl_ram_addr(0x08, 32768u), IDX_T2);   // page 26
+            // Decoys at the untransformed pages 8 / 9 / 10.
+            r7.write(cpp_ram_addr(0x08, 0u),      IDX_DECOY);
+            r7.write(cpp_ram_addr(0x08, 16384u),  IDX_DECOY);
+            r7.write(cpp_ram_addr(0x08, 32768u),  IDX_DECOY);
+            render_row_sram(l7, r7, p7, b7, DISP_Y_NARROW + 0);
+            const uint32_t got0 = b7[DISP_X_NARROW + 0];
+            render_row_sram(l7, r7, p7, b7, DISP_Y_NARROW + 64);
+            const uint32_t got1 = b7[DISP_X_NARROW + 0];
+            render_row_sram(l7, r7, p7, b7, DISP_Y_NARROW + 128);
+            const uint32_t got2 = b7[DISP_X_NARROW + 0];
+            check("G7-05", "addr(16:14) selects the 16K page within the 48K "
+                           "bitmap: rows 0-63 / 64-127 / 128-191 come from "
+                           "pages 24 / 25 / 26 (VHDL layer2.vhd:173)",
+                  got0 == p7.layer2_colour(IDX_T0) &&
+                  got1 == p7.layer2_colour(IDX_T1) &&
+                  got2 == p7.layer2_colour(IDX_T2),
+                  DETAIL("got %08X/%08X/%08X exp %08X/%08X/%08X",
+                         got0, got1, got2,
+                         p7.layer2_colour(IDX_T0), p7.layer2_colour(IDX_T1),
+                         p7.layer2_colour(IDX_T2)));
+        }
+    }
 
     // G7-04 (out-of-range bit-21 guard) and G7-06 (320x256 uses 5 pages)
     // both stress the VHDL SRAM bit-21 check which the C++ renderer does
@@ -1340,12 +1458,16 @@ static void test_group9_boundary() {
     check("G9-05", "wide clip x2=0xFF renders all 640 framebuffer cells (320 src cols ×2)",
           all_visible);
 
-    // G9-04 — COVERED ELSEWHERE (not a skip).
-    // The "wide-scroll branch NOT fired under narrow mode"
-    // (layer2.vhd:148) is the inverse of G3-12's narrow-scroll path:
-    // G3-12 only passes if the wide-scroll branch stays inactive while
-    // narrow mode is selected. Re-running the same stimulus under a
-    // different ID would duplicate coverage without adding signal.
+    // G9-04 — COVERED ELSEWHERE (not a skip). RETIRED in the plan doc
+    // 2026-09-24 (GH #201).
+    // The "wide branch" is the WIDE-MODE-ONLY wrap correction
+    // `x(8 downto 6) <= x_pre(8 downto 6) + "011"` at layer2.vhd:152.
+    // G3-12 runs in wide mode — setup_wide(200) — with scroll_x = 100, so
+    // x_pre = 100 < 320, the branch guard holds and the correction is NOT
+    // applied; the row only passes if column 0 sources source-column 100.
+    // That IS G9-04's claim. Re-running the same stimulus under a second
+    // ID adds no signal. (An earlier wording here called G3-12 a
+    // "narrow-scroll path" — backwards; G3-12 is a wide-mode row.)
 
     // G9-06 — UNOBSERVABLE (not a skip).
     // `hc_eff <= hc + 1` at layer2.vhd:148 is a VHDL internal pipeline
@@ -1366,11 +1488,17 @@ static void test_group9_boundary() {
     // coordinates rather than raw VC. parallax.nex now visually matches
     // CSpect end-to-end.
     //
-    // No skip(): the row is intentionally retired here — the fixes are
-    // covered by PSCAN-VBLANK-COALESCE-01 in compositor_test, the
-    // per-scanline change-log unit tests across this suite (G10/G10b/
-    // G10c/G10d/G10e), and the pinned 100-frame parallax-demo regression
-    // baseline.
+    // No skip(): the row is intentionally retired. Live coverage, by REAL
+    // row ID and file (an earlier wording here used "G10/G10b/G10c/G10d/
+    // G10e", which are this file's FUNCTION names rather than row IDs, and
+    // put PSCAN-VBLANK-COALESCE-01 in the wrong suite):
+    //   - PSCAN-VBLANK-COALESCE-01
+    //     test/compositor/compositor_integration_test.cpp:498
+    //   - PSCAN-G10-01 .. PSCAN-G10-05
+    //     test/compositor/compositor_test.cpp:4052-4400
+    //   - this suite's per-scanline change-log rows: G10-01..G10-05,
+    //     G10-G05-01a..G10-G05-02, G10-G09-01a..G10-G09-02
+    //   - the pinned 100-frame parallax-demo screenshot baseline.
 
     // WONT G9-G28-01 — VHDL layer2.vhd:148 `hc_eff <= hc + 1` column-pipeline
     // observable. Today's Layer 2 renderer is scanline-granular: the +1 lift
