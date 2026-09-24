@@ -139,6 +139,21 @@ struct ProvisionOptions {
     ProgressFn  progress;           // optional; passed into the download
     CopyFn      copy;               // defaults to default_copy_file
     BusyFn      busy;               // optional; wraps the copy+patch step
+
+    // GH #271 — diagnosability seam. Path whose EXISTENCE means "this process
+    // runs inside a Flatpak sandbox"; /.flatpak-info is the conventional
+    // marker — flatpak mounts it into every sandbox (verified by reading it
+    // from inside jnext's own bundle), and it is what portal clients test.
+    // When it is there, a download failure
+    // gets a note saying the sandbox may simply have no network — because the
+    // reporter of #271 reasonably read "Could not resolve hostname" as
+    // "jnext's downloader is broken" and went off to prove wget worked.
+    //
+    // It is a FIELD rather than a hard-coded constant so both branches are
+    // testable on a host that is not in a sandbox: a test points it at a
+    // temporary file. Production never sets it, and off a Flatpak the file
+    // does not exist, so nothing changes for anyone else.
+    std::string sandbox_marker = "/.flatpak-info";
 };
 
 enum class ProvisionStatus { Ok, Declined, Failed };

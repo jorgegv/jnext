@@ -61,6 +61,31 @@ bool file_exists(const std::string& path) {
     struct stat st{};
     return ::stat(path.c_str(), &st) == 0 && S_ISREG(st.st_mode);
 }
+// GH #271 — if a download fails while we are inside a Flatpak sandbox, say so.
+//
+// A Flatpak without --share=network has its own network namespace with nothing
+// but loopback in it, so libcurl reports "Could not resolve hostname" for a
+// host the very same machine resolves fine one shell out. That is a confusing
+// message to receive, and the reporter of #271 drew the only reasonable
+// conclusion available to him — that jnext's downloader was broken — and spent
+// his time proving wget worked instead of looking at sandbox permissions.
+//
+// jnext's own Flatpak now ships the permission (and
+// packaging/flatpak/verify-permissions.sh keeps it there), but this note is
+// still worth its four lines: an older install, a third-party build, or a
+// `flatpak override --unshare=network` all land a user in exactly the same
+// place with exactly the same message.
+//
+// Returns "" — and therefore changes NOTHING — outside a sandbox.
+std::string sandbox_network_note(const ProvisionOptions& opts) {
+    if (opts.sandbox_marker.empty() || !file_exists(opts.sandbox_marker))
+        return {};
+    return "\n  note: jnext is running inside a Flatpak sandbox, which has its own"
+           "\n  network namespace. If the same URL downloads fine outside the sandbox,"
+           "\n  the sandbox has no network access. Check and grant it with:"
+           "\n    flatpak info --show-permissions io.github.zxjogv.jnext"
+           "\n    flatpak override --user --share=network io.github.zxjogv.jnext";
+}
 std::string basename_of(const std::string& p) {
     auto pos = p.find_last_of("/\\");
     return pos == std::string::npos ? p : p.substr(pos + 1);
@@ -500,7 +525,7 @@ ProvisionResult provision_sd_card(const ProvisionOptions& opts) {
         const std::string zip_tmp = dir + "/sn-emulator.zip.part";
         if (!download(distro_url, zip_tmp, opts.progress, err)) {
             r.status = ProvisionStatus::Failed;
-            r.error  = "download failed: " + err;
+            r.error  = "download failed: " + err + sandbox_network_note(opts);
             return r;
         }
 

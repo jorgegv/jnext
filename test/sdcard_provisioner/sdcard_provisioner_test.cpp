@@ -41,6 +41,10 @@
 //                  REJECTED, the download seam IS invoked (full cycle).
 //   PROV-SHA-WRITE-01    after a successful (stubbed) download, the .sha256
 //                  sidecar exists and matches the raw's actual hash.
+//   PROV-SANDBOX-01..03  GH #271 — a download failure inside a Flatpak sandbox
+//                  carries a note naming the sandbox as the likely cause;
+//                  outside one it does not; and a NON-download failure never
+//                  carries it even inside a sandbox.
 //   PROV-UNZIP-01  Extract a STORED entry from a crafted zip.
 //   PROV-UNZIP-02  Extract a DEFLATED entry from a crafted zip.
 //   PROV-UNZIP-03  Missing entry → false.
@@ -668,6 +672,84 @@ int main() {
         std::remove(raw.c_str());
         std::remove(raw_sha.c_str());
         std::remove(fixed.c_str());
+    }
+
+
+    // -- PROV-SANDBOX-01/02/03: GH #271 sandbox note on a download failure --
+    //
+    // The bug these exist for: a Flatpak without --share=network has no DNS,
+    // so libcurl says "Could not resolve hostname" for a host the same machine
+    // resolves fine outside the sandbox. The reporter concluded the DOWNLOADER
+    // was broken. jnext now says where to look.
+    //
+    // ProvisionOptions.sandbox_marker is what makes BOTH directions testable
+    // on a host that is not in a sandbox: point it at a file that exists, or
+    // at one that does not. Production leaves the default (/.flatpak-info).
+    {
+        const std::string marker = tp("fake-flatpak-info");
+        write_file(marker, {'x'});
+
+        auto failing_dl = [](const std::string&, const std::string&,
+                             const sdcard::ProgressFn&, std::string& err) {
+            err = "Could not resolve hostname"; return false;
+        };
+
+        // 01: inside a sandbox, the note is appended AND the libcurl text is
+        // still there (the note adds to the diagnosis, it does not replace it).
+        sdcard::ProvisionOptions o1;
+        o1.auto_confirm   = true;
+        o1.download       = failing_dl;
+        o1.sandbox_marker = marker;
+        auto r1 = sdcard::provision_sd_card(o1);
+        check("PROV-SANDBOX-01", "sandboxed download failure names the sandbox",
+              r1.status == sdcard::ProvisionStatus::Failed &&
+              r1.error.find("Flatpak sandbox") != std::string::npos &&
+              r1.error.find("--share=network") != std::string::npos,
+              r1.error);
+        check("PROV-SANDBOX-01", "the underlying error text is preserved",
+              r1.error.find("Could not resolve hostname") != std::string::npos,
+              r1.error);
+
+        // 02: NOT in a sandbox (marker path does not exist) — byte-identical
+        // to the message jnext printed before this change. This is the row
+        // that fails if the note ever leaks onto an ordinary desktop run.
+        sdcard::ProvisionOptions o2;
+        o2.auto_confirm   = true;
+        o2.download       = failing_dl;
+        o2.sandbox_marker = tp("no-such-flatpak-info");
+        auto r2 = sdcard::provision_sd_card(o2);
+        check("PROV-SANDBOX-02", "no note outside a sandbox",
+              r2.status == sdcard::ProvisionStatus::Failed &&
+              r2.error == "download failed: Could not resolve hostname",
+              r2.error);
+
+        // 03: inside a sandbox, but the DOWNLOAD SUCCEEDED and a later step
+        // failed. The note must not appear: the network plainly worked, and a
+        // note pointing at sandbox permissions would be a false lead. The stub
+        // writes a file that is not a zip, so unzip_entry fails.
+        sdcard::ProvisionOptions o3;
+        o3.auto_confirm   = true;
+        o3.sandbox_marker = marker;
+        o3.download       = [](const std::string&, const std::string& dest,
+                               const sdcard::ProgressFn&, std::string&) {
+            std::ofstream f(dest, std::ios::binary | std::ios::trunc);
+            f << "not a zip";
+            return true;
+        };
+        auto r3 = sdcard::provision_sd_card(o3);
+        check("PROV-SANDBOX-03", "no note on a non-network failure in a sandbox",
+              r3.status == sdcard::ProvisionStatus::Failed &&
+              r3.error.find("Flatpak sandbox") == std::string::npos,
+              r3.error);
+
+        // 04: the DEFAULT marker path. Rows 01-03 all set sandbox_marker
+        // explicitly, so every one of them stays green if the default is
+        // changed to "" or to a path no sandbox has — and then the note never
+        // reaches a single real user. This row is what stops that: the default
+        // is the whole feature in production.
+        check("PROV-SANDBOX-04", "default sandbox marker is /.flatpak-info",
+              sdcard::ProvisionOptions{}.sandbox_marker == "/.flatpak-info",
+              sdcard::ProvisionOptions{}.sandbox_marker);
     }
 
     // -- PROV-UNZIP-01/02/03 --
