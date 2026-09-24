@@ -22,29 +22,29 @@ mentions them, so a test can no longer be absent from this document.
 <!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
-| Memory/MMU                                 |   262 |  256 |    0 |    0 |       6 |          0 |
-| ULA Video                                  |   142 |  138 |    0 |    0 |       4 |          0 |
+| Memory/MMU                                 |   256 |  256 |    0 |    0 |       0 |          0 |
+| ULA Video                                  |   139 |  139 |    0 |    0 |       0 |          0 |
 | Layer2                                     |   224 |  216 |    0 |    0 |       8 |          0 |
 | Sprites                                    |   221 |  214 |    0 |    0 |       7 |          0 |
 | Tilemap                                    |   102 |   94 |    0 |    0 |       8 |          0 |
 | Copper                                     |    95 |   92 |    0 |    0 |       3 |          0 |
 | Compositor                                 |   264 |  261 |    0 |    0 |       3 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
-| DMA                                        |   168 |  160 |    0 |    0 |       8 |          0 |
+| DMA                                        |   160 |  160 |    0 |    0 |       0 |          0 |
 | DivMMC+SPI                                 |   176 |  153 |    0 |    0 |      23 |          0 |
 | Multiface                                  |    55 |   55 |    0 |    0 |       0 |          0 |
-| CTC+Interrupts                             |   210 |  195 |    0 |    0 |      15 |          0 |
+| CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
 | UART+I2C/RTC                               |   123 |  120 |    0 |    0 |       3 |          0 |
-| NextREG                                    |   119 |   95 |    0 |    0 |      24 |          0 |
+| NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
 | IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   356 |  344 |    0 |    0 |      12 |          0 |
 | Rewind                                     |    21 |   21 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
-| VideoTiming                                |    67 |   64 |    0 |    0 |       3 |          0 |
-| Contention                                 |   160 |  158 |    0 |    0 |       2 |          0 |
+| VideoTiming                                |    64 |   64 |    0 |    0 |       0 |          0 |
+| Contention                                 |   160 |  160 |    0 |    0 |       0 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
 | SD Card                                    |    76 |   74 |    0 |    1 |       1 |          0 |
-| NMI Source Pipeline                        |    82 |   76 |    0 |    0 |       6 |          0 |
+| NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
 | CPU/Z80N/IM2 regressions                   |    56 |   56 |    0 |    0 |       0 |          0 |
@@ -58,14 +58,14 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
 | Companion: divmmc_integration_test         |     5 |    5 |    0 |    0 |       0 |          0 |
-| Companion: ctc_interrupts_test             |    81 |   81 |    0 |    0 |       0 |          0 |
-| Companion: nextreg_integration_test        |   340 |  340 |    0 |    0 |       0 |          0 |
+| Companion: ctc_interrupts_test             |    88 |   88 |    0 |    0 |       0 |          0 |
+| Companion: nextreg_integration_test        |   341 |  341 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4813 | 4672 |    0 |    5 |     136 |          0 |
+| **Total**                                  |  4768 | 4695 |    0 |    5 |      68 |          0 |
 
-Rows the sections above carry: **4813**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4516**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8374**.
+Rows the sections above carry: **4768**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4462**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8388**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -211,90 +211,87 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | P7F-08 | 0x7FFD bank select MMU6/MMU7 — VHDL zxnext.vhd:3640-3814 | zxnext.vhd:3640-3814 | pass | test/mmu/mmu_test.cpp:402 |
 | P7F-09 | port 0x7FFD bit 4=0 → ROM 0 (slots 0,1 read-only) — VHDL zxnext.vhd:4619-4670 port_memory_change | zxnext.vhd:4619-4670 | pass | test/mmu/mmu_test.cpp:423 |
 | P7F-10 | port 0x7FFD bit 4=1 → ROM 1 (slots 0,1 read-only) — VHDL zxnext.vhd:4619-4670 port_memory_change | zxnext.vhd:4619-4670 | pass | test/mmu/mmu_test.cpp:435 |
-| P7F-11 | Shadow screen (bit 3) | — | missing | — |
-| P7F-12 | 0x7FFD bit 5 locks further 0x7FFD writes — VHDL zxnext.vhd:3814 | zxnext.vhd:3814 | pass | test/mmu/mmu_test.cpp:459 |
-| P7F-13 | locked port writes do not change MMU6/MMU7 — VHDL zxnext.vhd:3814 | zxnext.vhd:3814 | pass | test/mmu/mmu_test.cpp:477 |
-| P7F-14 | NR 0x08 bit 7 clears 7FFD paging lock — VHDL zxnext.vhd:3654-3656 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:505 |
-| P7F-15 | port 0x7FFD register preserved — VHDL zxnext.vhd:3640 | zxnext.vhd:3640 | pass | test/mmu/mmu_test.cpp:521 |
-| P7F-16 | port_7ffd bit 3 sequence toggles Mmu::shadow_screen_en — VHDL zxnext.vhd:3652,3768 (the Ula screen_mode=000 gate is covered by ula_integration_test INT-SHADOW-01) | zxnext.vhd:3652,3768 | pass | test/mmu/mmu_test.cpp:554 |
-| P7F-17 | Mmu::shadow_screen_en isolates port_7ffd bit 3 — VHDL zxnext.vhd:4453 (i_ula_shadow_en <= port_7ffd_reg(3)) | zxnext.vhd:4453 | pass | test/mmu/mmu_test.cpp:583 |
-| DFF-01 | DFFD bit 0 → port_7ffd_bank(3) — VHDL zxnext.vhd:3764,4679-4680 | zxnext.vhd:3764,4679-4680 | pass | test/mmu/mmu_test.cpp:618 |
-| DFF-02 | DFFD bit 1 → port_7ffd_bank(4) — VHDL zxnext.vhd:3764,4679-4680 | zxnext.vhd:3764,4679-4680 | pass | test/mmu/mmu_test.cpp:632 |
-| DFF-03 | DFFD bit 2 → port_7ffd_bank(5) — VHDL zxnext.vhd:3765,4679-4680 | zxnext.vhd:3765,4679-4680 | pass | test/mmu/mmu_test.cpp:646 |
-| DFF-04 | DFFD bit 3 → port_7ffd_bank(6) — VHDL zxnext.vhd:3766,4679-4680 | zxnext.vhd:3766,4679-4680 | pass | test/mmu/mmu_test.cpp:660 |
-| DFF-05 | DFFD=0x0F + 7FFD=0x07 → bank 127 — VHDL zxnext.vhd:3763-3766,4679-4680 | zxnext.vhd:3763-3766,4679-4680 | pass | test/mmu/mmu_test.cpp:675 |
-| DFF-06 | DFFD write gated by 7FFD lock — VHDL zxnext.vhd:3691 | zxnext.vhd:3691 | pass | test/mmu/mmu_test.cpp:694 |
-| DFF-07 | DFFD(4) stored but no effect on bank (Profi forced off) — VHDL zxnext.vhd:3693,3797 | zxnext.vhd:3693,3797 | pass | test/mmu/mmu_test.cpp:715 |
-| DFF-08 | soft reset CLEARS port_dffd_reg + MMU6/7 reset to seed — VHDL zxnext.vhd:3686-3688 (reset = hard OR soft) | zxnext.vhd:3686-3688 | pass | test/mmu/mmu_test.cpp:750 |
-| DFF-09 | DFFD bit 6 latched into port_dffd_reg_6, separate from 5-bit port_dffd_reg, hard-reset cleared — VHDL zxnext.vhd:877, 3693-3694, 3686-3689, 4314 | zxnext.vhd:877,3693-3694,3686-3689,4314 | pass | test/mmu/mmu_test.cpp:793 |
-| P1F-01 | +3 ROM 0: slots 0,1 read-only after 1ffd=0 & 7ffd(4)=0 — VHDL zxnext.vhd:4619-4670 | zxnext.vhd:4619-4670 | pass | test/mmu/mmu_test.cpp:825 |
-| P1F-02 | +3 ROM 1: slots 0,1 read-only after 7ffd(4)=1 — VHDL zxnext.vhd:4619-4670 | zxnext.vhd:4619-4670 | pass | test/mmu/mmu_test.cpp:837 |
-| P1F-03 | +3 ROM 2: slots 0,1 read-only after 1ffd(2)=1 — VHDL zxnext.vhd:4619-4670 | zxnext.vhd:4619-4670 | pass | test/mmu/mmu_test.cpp:849 |
-| P1F-04 | +3 ROM 3: slots 0,1 read-only after 1ffd(2)=1 & 7ffd(4)=1 — VHDL zxnext.vhd:4619-4670 | zxnext.vhd:4619-4670 | pass | test/mmu/mmu_test.cpp:861 |
-| P1F-05 | +3 special mode: all 8 slots RAM — VHDL zxnext.vhd:4623-4632 | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:882 |
-| P1F-06 | port 0x1FFD write gated by 0x7FFD bit 5 lock — VHDL zxnext.vhd:3814 | zxnext.vhd:3814 | pass | test/mmu/mmu_test.cpp:896 |
-| P1F-07 | Motor bit independent | — | missing | — |
-| SPE-01 | +3 special paging layout — VHDL zxnext.vhd:4623-4632 | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:926 |
-| SPE-02 | +3 special paging layout — VHDL zxnext.vhd:4623-4632 | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:928 |
-| SPE-03 | +3 special paging layout — VHDL zxnext.vhd:4623-4632 | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:930 |
-| SPE-04 | +3 special paging layout — VHDL zxnext.vhd:4623-4632 | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:932 |
-| SPE-05 | exit +3 special mode → slots 0,1 return to ROM — VHDL zxnext.vhd:4634 | zxnext.vhd:4634 | pass | test/mmu/mmu_test.cpp:962 |
-| LCK-01 | 7FFD(5) locks further 0x7FFD writes — VHDL zxnext.vhd:3814 | zxnext.vhd:3814 | pass | test/mmu/mmu_test.cpp:983 |
-| LCK-02 | 7FFD(5) locks further 0x1FFD writes — VHDL zxnext.vhd:3814 | zxnext.vhd:3814 | pass | test/mmu/mmu_test.cpp:996 |
-| LCK-03 | 7FFD(5) lock blocks DFFD write — VHDL zxnext.vhd:3691 | zxnext.vhd:3691 | pass | test/mmu/mmu_test.cpp:1017 |
-| LCK-04 | NR 0x08 bit 7 unlock path drops 7FFD lock — VHDL zxnext.vhd:3654-3656 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:1041 |
-| LCK-05 | pentagon_1024_en drops port_7ffd_locked — VHDL zxnext.vhd:3769,3801 | zxnext.vhd:3769,3801 | pass | test/mmu/mmu_test.cpp:1072 |
-| LCK-06 | direct NR 0x50-0x57 bypasses 7FFD(5) lock — VHDL zxnext.vhd:4880 NR write handler | zxnext.vhd:4880 | pass | test/mmu/mmu_test.cpp:1087 |
-| LCK-07 | NR 0x8E write bypasses 7FFD(5) lock — VHDL zxnext.vhd:3662,3696,3726 | zxnext.vhd:3662,3696,3726 | pass | test/mmu/mmu_test.cpp:1114 |
-| N8E-01 | NR 0x8E bit 3=1 stores 7FFD(2:0)<-bits(6:4), DFFD(0)<-bit7 — VHDL zxnext.vhd:3662-3670,3696-3704 | zxnext.vhd:3662-3670,3696-3704 | pass | test/mmu/mmu_test.cpp:1146 |
-| N8E-02 | NR 0x8E bit 2=0 routes bit 0 to 7FFD(4) (ROM-high) — VHDL zxnext.vhd:3668-3670 | zxnext.vhd:3668-3670 | pass | test/mmu/mmu_test.cpp:1167 |
-| N8E-03 | NR 0x8E bit 2=1 sets 1FFD(0) special-mode — VHDL zxnext.vhd:3734 | zxnext.vhd:3734 | pass | test/mmu/mmu_test.cpp:1187 |
-| N8E-04 | NR 0x8E bit 2:0=111 sets 1FFD bits 2:1:0 in that VHDL order — VHDL zxnext.vhd:3732-3734 | zxnext.vhd:3732-3734 | pass | test/mmu/mmu_test.cpp:1204 |
-| N8E-05 | Read-back format | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1238 |
-| N8E-06 | NR 0x8E bit 3=1 clears DFFD(3) (non-Profi) — VHDL zxnext.vhd:3698-3700 | zxnext.vhd:3698-3700 | pass | test/mmu/mmu_test.cpp:1274 |
-| N8F-01 | standard mapping mode uses DFFD for bank(4:3)/(5)/(6) — VHDL zxnext.vhd:3764-3766 else branches | zxnext.vhd:3764-3766 | pass | test/mmu/mmu_test.cpp:1304 |
-| N8F-02 | Pentagon-512 mode uses 7FFD(7:6) for bank(4:3) — VHDL zxnext.vhd:3764 when-branch | zxnext.vhd:3764 | pass | test/mmu/mmu_test.cpp:1324 |
-| N8F-03 | Pentagon-1024 mode promotes 7FFD(5) into bank(5) — VHDL zxnext.vhd:3765,3801 | zxnext.vhd:3765,3801 | pass | test/mmu/mmu_test.cpp:1346 |
-| N8F-04 | EFF7(2)=1 gates pentagon_1024_en off → standard bank composition — VHDL zxnext.vhd:3798,3801 | zxnext.vhd:3798,3801 | pass | test/mmu/mmu_test.cpp:1373 |
-| N8F-05 | Pentagon mode forces bank(6)=0 regardless of DFFD(3) — VHDL zxnext.vhd:3766 | zxnext.vhd:3766 | pass | test/mmu/mmu_test.cpp:1396 |
-| EF7-01 | EFF7(3)=1 → MMU0=0x00, MMU1=0x01 (RAM at 0x0000) — VHDL zxnext.vhd:4636-4644 | zxnext.vhd:4636-4644 | pass | test/mmu/mmu_test.cpp:1427 |
-| EF7-02 | EFF7(3)=0 → ROM at 0x0000 (slots 0,1 read-only) — VHDL zxnext.vhd:4641-4644 | zxnext.vhd:4641-4644 | pass | test/mmu/mmu_test.cpp:1450 |
-| EF7-03 | EFF7(2)=1 → port_eff7_disable_p1024 set (feeds VHDL:3801 gate) — VHDL zxnext.vhd:3781,3801 | zxnext.vhd:3781,3801 | pass | test/mmu/mmu_test.cpp:1470 |
-| EF7-04 | hard reset clears port_eff7_reg_{2,3} — VHDL zxnext.vhd:3777-3779 | zxnext.vhd:3777-3779 | pass | test/mmu/mmu_test.cpp:1494 |
-| EF7-05 | soft reset CLEARS port_eff7_reg_{2,3} + slots 0/1 → ROM — VHDL zxnext.vhd:3777-3779 (reset = hard OR soft) | zxnext.vhd:3777-3779 | pass | test/mmu/mmu_test.cpp:1524 |
-| EF7-06 | NR 0x85 b2 (`port_eff7_io_en`) gates EFF7 writes | zxnext.vhd:2604,2441,2392 | missing | — |
-| ROM-01 | 48K machine sram_rom = 0 — VHDL zxnext.vhd:2984 | zxnext.vhd:2984 | pass | test/mmu/mmu_test.cpp:1559 |
-| ROM-02 | 128K ROM 0: 7FFD(4)=0 → sram_rom=0 — VHDL zxnext.vhd:3003-3005 | zxnext.vhd:3003-3005 | pass | test/mmu/mmu_test.cpp:1573 |
-| ROM-03 | 128K ROM 1: 7FFD(4)=1 → sram_rom=1 — VHDL zxnext.vhd:3003-3005 | zxnext.vhd:3003-3005 | pass | test/mmu/mmu_test.cpp:1585 |
-| ROM-04 | +3 ROM 0: 1FFD(2)=0, 7FFD(4)=0 → sram_rom=00 — VHDL zxnext.vhd:2993 | zxnext.vhd:2993 | pass | test/mmu/mmu_test.cpp:1599 |
-| ROM-05 | +3 ROM 1: 1FFD(2)=0, 7FFD(4)=1 → sram_rom=01 — VHDL zxnext.vhd:2993 | zxnext.vhd:2993 | pass | test/mmu/mmu_test.cpp:1612 |
-| ROM-06 | +3 ROM 2: 1FFD(2)=1, 7FFD(4)=0 → sram_rom=10 — VHDL zxnext.vhd:2993 | zxnext.vhd:2993 | pass | test/mmu/mmu_test.cpp:1626 |
-| ROM-07 | +3 ROM 3: 1FFD(2)=1, 7FFD(4)=1 → sram_rom=11 — VHDL zxnext.vhd:2993 | zxnext.vhd:2993 | pass | test/mmu/mmu_test.cpp:1639 |
-| ROM-08 | write to ROM slot has no effect — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:1660 |
-| ROM-09 | altrom_en+altrom_rw=1 routes ROM-slot writes to the alt-ROM SRAM region — VHDL zxnext.vhd:3056, 3078, 3117 | zxnext.vhd:3056,3078,3117 | pass | test/mmu/mmu_test.cpp:1690 |
-| ROM-10 | 48K hardwires sram_rom3 high for all port / altrom states — VHDL zxnext.vhd:2985 | zxnext.vhd:2985 | pass | test/mmu/mmu_test.cpp:1721 |
-| ROM-11 | ZXN with altrom-lock: sram_rom3 follows lock_rom1, not lock_rom0 — VHDL zxnext.vhd:3000 | zxnext.vhd:3000 | pass | test/mmu/mmu_test.cpp:1746 |
-| ROM-12 | +3 sram_rom3 = 1FFD(2) AND 7FFD(4); ZXN sram_rom3 = 7FFD(4) alone — VHDL zxnext.vhd:2994,3004 | zxnext.vhd:2994,3004 | pass | test/mmu/mmu_test.cpp:1794 |
-| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF; upper 8 KB mirrors lower per VHDL zxnext.vhd:3199-3204 (cpu_a(12:0)) and :1856 (cpu_a(15:14)="00" gate) | zxnext.vhd:3199-3204 | pass | test/mmu/mmu_test.cpp:3403 |
-| BOOT-OVL-02 | boot ROM does not leak past 0x3FFF — gate is cpu_a(15:14) per VHDL zxnext.vhd:1856 | zxnext.vhd:1856 | pass | test/mmu/mmu_test.cpp:3424 |
-| BOOT-OVL-03 | wrong-sized boot ROM blob is zero-padded to 8 KB and mirrored through 16 KB — VHDL zxnext.vhd:3199-3204 hardwires cpu_a(12:0) | zxnext.vhd:3199-3204 | pass | test/mmu/mmu_test.cpp:3451 |
-| ALT-01 | NR 0x8C bit 7 → altrom_en — VHDL zxnext.vhd:2262 | zxnext.vhd:2262 | pass | test/mmu/mmu_test.cpp:2495 |
-| ALT-02 | NR 0x8C bit 7 = 0 → altrom_en cleared — VHDL zxnext.vhd:2262 | zxnext.vhd:2262 | pass | test/mmu/mmu_test.cpp:2510 |
-| ALT-03 | NR 0x8C bit 6 → altrom_rw — VHDL zxnext.vhd:2263 | zxnext.vhd:2263 | pass | test/mmu/mmu_test.cpp:2521 |
-| ALT-04 | NR 0x8C bit 6 = 0 → altrom_rw cleared (read-only altrom) — VHDL zxnext.vhd:2263 | zxnext.vhd:2263 | pass | test/mmu/mmu_test.cpp:2533 |
-| ALT-05 | NR 0x8C bit 5 → altrom_lock_rom1 — VHDL zxnext.vhd:2264 | zxnext.vhd:2264 | pass | test/mmu/mmu_test.cpp:2546 |
-| ALT-06 | NR 0x8C bit 4 → altrom_lock_rom0 — VHDL zxnext.vhd:2265 | zxnext.vhd:2265 | pass | test/mmu/mmu_test.cpp:2558 |
-| ALT-07 | hard reset copies NR 0x8C bits 3:0 into bits 7:4 — VHDL zxnext.vhd:2254-2256 | zxnext.vhd:2254-2256 | pass | test/mmu/mmu_test.cpp:2576 |
-| ALT-08 | altrom SRAM address formula routes 0x0000 to SRAM page 12 when alt_128_n=0 — VHDL zxnext.vhd:2981-3001, 3021, 3078, 3117 | zxnext.vhd:2981-3001,3021,3078,3117 | pass | test/mmu/mmu_test.cpp:2601 |
-| ALT-09 | NR 0x8C read-back returns stored byte — VHDL zxnext.vhd:6156 | zxnext.vhd:6156 | pass | test/mmu/mmu_test.cpp:2616 |
+| P7F-12 | 0x7FFD bit 5 locks further 0x7FFD writes — VHDL zxnext.vhd:3814 | zxnext.vhd:3814 | pass | test/mmu/mmu_test.cpp:468 |
+| P7F-13 | locked port writes do not change MMU6/MMU7 — VHDL zxnext.vhd:3814 | zxnext.vhd:3814 | pass | test/mmu/mmu_test.cpp:486 |
+| P7F-14 | NR 0x08 bit 7 clears 7FFD paging lock — VHDL zxnext.vhd:3654-3656 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:514 |
+| P7F-15 | port 0x7FFD register preserved — VHDL zxnext.vhd:3640 | zxnext.vhd:3640 | pass | test/mmu/mmu_test.cpp:530 |
+| P7F-16 | port_7ffd bit 3 sequence toggles Mmu::shadow_screen_en — VHDL zxnext.vhd:3652,3768 (the Ula screen_mode=000 gate is covered by ula_integration_test INT-SHADOW-01) | zxnext.vhd:3652,3768 | pass | test/mmu/mmu_test.cpp:563 |
+| P7F-17 | Mmu::shadow_screen_en isolates port_7ffd bit 3 — VHDL zxnext.vhd:4453 (i_ula_shadow_en <= port_7ffd_reg(3)) | zxnext.vhd:4453 | pass | test/mmu/mmu_test.cpp:592 |
+| DFF-01 | DFFD bit 0 → port_7ffd_bank(3) — VHDL zxnext.vhd:3764,4679-4680 | zxnext.vhd:3764,4679-4680 | pass | test/mmu/mmu_test.cpp:627 |
+| DFF-02 | DFFD bit 1 → port_7ffd_bank(4) — VHDL zxnext.vhd:3764,4679-4680 | zxnext.vhd:3764,4679-4680 | pass | test/mmu/mmu_test.cpp:641 |
+| DFF-03 | DFFD bit 2 → port_7ffd_bank(5) — VHDL zxnext.vhd:3765,4679-4680 | zxnext.vhd:3765,4679-4680 | pass | test/mmu/mmu_test.cpp:655 |
+| DFF-04 | DFFD bit 3 → port_7ffd_bank(6) — VHDL zxnext.vhd:3766,4679-4680 | zxnext.vhd:3766,4679-4680 | pass | test/mmu/mmu_test.cpp:669 |
+| DFF-05 | DFFD=0x0F + 7FFD=0x07 → bank 127 — VHDL zxnext.vhd:3763-3766,4679-4680 | zxnext.vhd:3763-3766,4679-4680 | pass | test/mmu/mmu_test.cpp:684 |
+| DFF-06 | DFFD write gated by 7FFD lock — VHDL zxnext.vhd:3691 | zxnext.vhd:3691 | pass | test/mmu/mmu_test.cpp:703 |
+| DFF-07 | DFFD(4) stored but no effect on bank (Profi forced off) — VHDL zxnext.vhd:3693,3797 | zxnext.vhd:3693,3797 | pass | test/mmu/mmu_test.cpp:724 |
+| DFF-08 | soft reset CLEARS port_dffd_reg + MMU6/7 reset to seed — VHDL zxnext.vhd:3686-3688 (reset = hard OR soft) | zxnext.vhd:3686-3688 | pass | test/mmu/mmu_test.cpp:759 |
+| DFF-09 | DFFD bit 6 latched into port_dffd_reg_6, separate from 5-bit port_dffd_reg, hard-reset cleared — VHDL zxnext.vhd:877, 3693-3694, 3686-3689, 4314 | zxnext.vhd:877,3693-3694,3686-3689,4314 | pass | test/mmu/mmu_test.cpp:802 |
+| P1F-01 | +3 ROM 0: slots 0,1 read-only after 1ffd=0 & 7ffd(4)=0 — VHDL zxnext.vhd:4619-4670 | zxnext.vhd:4619-4670 | pass | test/mmu/mmu_test.cpp:834 |
+| P1F-02 | +3 ROM 1: slots 0,1 read-only after 7ffd(4)=1 — VHDL zxnext.vhd:4619-4670 | zxnext.vhd:4619-4670 | pass | test/mmu/mmu_test.cpp:846 |
+| P1F-03 | +3 ROM 2: slots 0,1 read-only after 1ffd(2)=1 — VHDL zxnext.vhd:4619-4670 | zxnext.vhd:4619-4670 | pass | test/mmu/mmu_test.cpp:858 |
+| P1F-04 | +3 ROM 3: slots 0,1 read-only after 1ffd(2)=1 & 7ffd(4)=1 — VHDL zxnext.vhd:4619-4670 | zxnext.vhd:4619-4670 | pass | test/mmu/mmu_test.cpp:870 |
+| P1F-05 | +3 special mode: all 8 slots RAM — VHDL zxnext.vhd:4623-4632 | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:891 |
+| P1F-06 | port 0x1FFD write gated by 0x7FFD bit 5 lock — VHDL zxnext.vhd:3814 | zxnext.vhd:3814 | pass | test/mmu/mmu_test.cpp:905 |
+| SPE-01 | +3 special paging layout — VHDL zxnext.vhd:4623-4632 | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:946 |
+| SPE-02 | +3 special paging layout — VHDL zxnext.vhd:4623-4632 | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:948 |
+| SPE-03 | +3 special paging layout — VHDL zxnext.vhd:4623-4632 | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:950 |
+| SPE-04 | +3 special paging layout — VHDL zxnext.vhd:4623-4632 | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:952 |
+| SPE-05 | exit +3 special mode → slots 0,1 return to ROM — VHDL zxnext.vhd:4634 | zxnext.vhd:4634 | pass | test/mmu/mmu_test.cpp:982 |
+| LCK-01 | 7FFD(5) locks further 0x7FFD writes — VHDL zxnext.vhd:3814 | zxnext.vhd:3814 | pass | test/mmu/mmu_test.cpp:1003 |
+| LCK-02 | 7FFD(5) locks further 0x1FFD writes — VHDL zxnext.vhd:3814 | zxnext.vhd:3814 | pass | test/mmu/mmu_test.cpp:1016 |
+| LCK-03 | 7FFD(5) lock blocks DFFD write — VHDL zxnext.vhd:3691 | zxnext.vhd:3691 | pass | test/mmu/mmu_test.cpp:1037 |
+| LCK-04 | NR 0x08 bit 7 unlock path drops 7FFD lock — VHDL zxnext.vhd:3654-3656 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:1061 |
+| LCK-05 | pentagon_1024_en drops port_7ffd_locked — VHDL zxnext.vhd:3769,3801 | zxnext.vhd:3769,3801 | pass | test/mmu/mmu_test.cpp:1092 |
+| LCK-06 | direct NR 0x50-0x57 bypasses 7FFD(5) lock — VHDL zxnext.vhd:4880 NR write handler | zxnext.vhd:4880 | pass | test/mmu/mmu_test.cpp:1107 |
+| LCK-07 | NR 0x8E write bypasses 7FFD(5) lock — VHDL zxnext.vhd:3662,3696,3726 | zxnext.vhd:3662,3696,3726 | pass | test/mmu/mmu_test.cpp:1134 |
+| N8E-01 | NR 0x8E bit 3=1 stores 7FFD(2:0)<-bits(6:4), DFFD(0)<-bit7 — VHDL zxnext.vhd:3662-3670,3696-3704 | zxnext.vhd:3662-3670,3696-3704 | pass | test/mmu/mmu_test.cpp:1166 |
+| N8E-02 | NR 0x8E bit 2=0 routes bit 0 to 7FFD(4) (ROM-high) — VHDL zxnext.vhd:3668-3670 | zxnext.vhd:3668-3670 | pass | test/mmu/mmu_test.cpp:1187 |
+| N8E-03 | NR 0x8E bit 2=1 sets 1FFD(0) special-mode — VHDL zxnext.vhd:3734 | zxnext.vhd:3734 | pass | test/mmu/mmu_test.cpp:1207 |
+| N8E-04 | NR 0x8E bit 2:0=111 sets 1FFD bits 2:1:0 in that VHDL order — VHDL zxnext.vhd:3732-3734 | zxnext.vhd:3732-3734 | pass | test/mmu/mmu_test.cpp:1224 |
+| N8E-05 | Read-back format | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1258 |
+| N8E-06 | NR 0x8E bit 3=1 clears DFFD(3) (non-Profi) — VHDL zxnext.vhd:3698-3700 | zxnext.vhd:3698-3700 | pass | test/mmu/mmu_test.cpp:1294 |
+| N8F-01 | standard mapping mode uses DFFD for bank(4:3)/(5)/(6) — VHDL zxnext.vhd:3764-3766 else branches | zxnext.vhd:3764-3766 | pass | test/mmu/mmu_test.cpp:1324 |
+| N8F-02 | Pentagon-512 mode uses 7FFD(7:6) for bank(4:3) — VHDL zxnext.vhd:3764 when-branch | zxnext.vhd:3764 | pass | test/mmu/mmu_test.cpp:1344 |
+| N8F-03 | Pentagon-1024 mode promotes 7FFD(5) into bank(5) — VHDL zxnext.vhd:3765,3801 | zxnext.vhd:3765,3801 | pass | test/mmu/mmu_test.cpp:1366 |
+| N8F-04 | EFF7(2)=1 gates pentagon_1024_en off → standard bank composition — VHDL zxnext.vhd:3798,3801 | zxnext.vhd:3798,3801 | pass | test/mmu/mmu_test.cpp:1393 |
+| N8F-05 | Pentagon mode forces bank(6)=0 regardless of DFFD(3) — VHDL zxnext.vhd:3766 | zxnext.vhd:3766 | pass | test/mmu/mmu_test.cpp:1416 |
+| EF7-01 | EFF7(3)=1 → MMU0=0x00, MMU1=0x01 (RAM at 0x0000) — VHDL zxnext.vhd:4636-4644 | zxnext.vhd:4636-4644 | pass | test/mmu/mmu_test.cpp:1447 |
+| EF7-02 | EFF7(3)=0 → ROM at 0x0000 (slots 0,1 read-only) — VHDL zxnext.vhd:4641-4644 | zxnext.vhd:4641-4644 | pass | test/mmu/mmu_test.cpp:1470 |
+| EF7-03 | EFF7(2)=1 → port_eff7_disable_p1024 set (feeds VHDL:3801 gate) — VHDL zxnext.vhd:3781,3801 | zxnext.vhd:3781,3801 | pass | test/mmu/mmu_test.cpp:1490 |
+| EF7-04 | hard reset clears port_eff7_reg_{2,3} — VHDL zxnext.vhd:3777-3779 | zxnext.vhd:3777-3779 | pass | test/mmu/mmu_test.cpp:1514 |
+| EF7-05 | soft reset CLEARS port_eff7_reg_{2,3} + slots 0/1 → ROM — VHDL zxnext.vhd:3777-3779 (reset = hard OR soft) | zxnext.vhd:3777-3779 | pass | test/mmu/mmu_test.cpp:1544 |
+| ROM-01 | 48K machine sram_rom = 0 — VHDL zxnext.vhd:2984 | zxnext.vhd:2984 | pass | test/mmu/mmu_test.cpp:1579 |
+| ROM-02 | 128K ROM 0: 7FFD(4)=0 → sram_rom=0 — VHDL zxnext.vhd:3003-3005 | zxnext.vhd:3003-3005 | pass | test/mmu/mmu_test.cpp:1593 |
+| ROM-03 | 128K ROM 1: 7FFD(4)=1 → sram_rom=1 — VHDL zxnext.vhd:3003-3005 | zxnext.vhd:3003-3005 | pass | test/mmu/mmu_test.cpp:1605 |
+| ROM-04 | +3 ROM 0: 1FFD(2)=0, 7FFD(4)=0 → sram_rom=00 — VHDL zxnext.vhd:2993 | zxnext.vhd:2993 | pass | test/mmu/mmu_test.cpp:1619 |
+| ROM-05 | +3 ROM 1: 1FFD(2)=0, 7FFD(4)=1 → sram_rom=01 — VHDL zxnext.vhd:2993 | zxnext.vhd:2993 | pass | test/mmu/mmu_test.cpp:1632 |
+| ROM-06 | +3 ROM 2: 1FFD(2)=1, 7FFD(4)=0 → sram_rom=10 — VHDL zxnext.vhd:2993 | zxnext.vhd:2993 | pass | test/mmu/mmu_test.cpp:1646 |
+| ROM-07 | +3 ROM 3: 1FFD(2)=1, 7FFD(4)=1 → sram_rom=11 — VHDL zxnext.vhd:2993 | zxnext.vhd:2993 | pass | test/mmu/mmu_test.cpp:1659 |
+| ROM-08 | write to ROM slot has no effect — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:1680 |
+| ROM-09 | altrom_en+altrom_rw=1 routes ROM-slot writes to the alt-ROM SRAM region — VHDL zxnext.vhd:3056, 3078, 3117 | zxnext.vhd:3056,3078,3117 | pass | test/mmu/mmu_test.cpp:1710 |
+| ROM-10 | 48K hardwires sram_rom3 high for all port / altrom states — VHDL zxnext.vhd:2985 | zxnext.vhd:2985 | pass | test/mmu/mmu_test.cpp:1741 |
+| ROM-11 | ZXN with altrom-lock: sram_rom3 follows lock_rom1, not lock_rom0 — VHDL zxnext.vhd:3000 | zxnext.vhd:3000 | pass | test/mmu/mmu_test.cpp:1766 |
+| ROM-12 | +3 sram_rom3 = 1FFD(2) AND 7FFD(4); ZXN sram_rom3 = 7FFD(4) alone — VHDL zxnext.vhd:2994,3004 | zxnext.vhd:2994,3004 | pass | test/mmu/mmu_test.cpp:1814 |
+| BOOT-OVL-01 | 8 KB boot ROM overlays full 16 KB at 0x0000-0x3FFF; upper 8 KB mirrors lower per VHDL zxnext.vhd:3199-3204 (cpu_a(12:0)) and :1856 (cpu_a(15:14)="00" gate) | zxnext.vhd:3199-3204 | pass | test/mmu/mmu_test.cpp:3423 |
+| BOOT-OVL-02 | boot ROM does not leak past 0x3FFF — gate is cpu_a(15:14) per VHDL zxnext.vhd:1856 | zxnext.vhd:1856 | pass | test/mmu/mmu_test.cpp:3444 |
+| BOOT-OVL-03 | wrong-sized boot ROM blob is zero-padded to 8 KB and mirrored through 16 KB — VHDL zxnext.vhd:3199-3204 hardwires cpu_a(12:0) | zxnext.vhd:3199-3204 | pass | test/mmu/mmu_test.cpp:3471 |
+| ALT-01 | NR 0x8C bit 7 → altrom_en — VHDL zxnext.vhd:2262 | zxnext.vhd:2262 | pass | test/mmu/mmu_test.cpp:2515 |
+| ALT-02 | NR 0x8C bit 7 = 0 → altrom_en cleared — VHDL zxnext.vhd:2262 | zxnext.vhd:2262 | pass | test/mmu/mmu_test.cpp:2530 |
+| ALT-03 | NR 0x8C bit 6 → altrom_rw — VHDL zxnext.vhd:2263 | zxnext.vhd:2263 | pass | test/mmu/mmu_test.cpp:2541 |
+| ALT-04 | NR 0x8C bit 6 = 0 → altrom_rw cleared (read-only altrom) — VHDL zxnext.vhd:2263 | zxnext.vhd:2263 | pass | test/mmu/mmu_test.cpp:2553 |
+| ALT-05 | NR 0x8C bit 5 → altrom_lock_rom1 — VHDL zxnext.vhd:2264 | zxnext.vhd:2264 | pass | test/mmu/mmu_test.cpp:2566 |
+| ALT-06 | NR 0x8C bit 4 → altrom_lock_rom0 — VHDL zxnext.vhd:2265 | zxnext.vhd:2265 | pass | test/mmu/mmu_test.cpp:2578 |
+| ALT-07 | hard reset copies NR 0x8C bits 3:0 into bits 7:4 — VHDL zxnext.vhd:2254-2256 | zxnext.vhd:2254-2256 | pass | test/mmu/mmu_test.cpp:2596 |
+| ALT-08 | altrom SRAM address formula routes 0x0000 to SRAM page 12 when alt_128_n=0 — VHDL zxnext.vhd:2981-3001, 3021, 3078, 3117 | zxnext.vhd:2981-3001,3021,3078,3117 | pass | test/mmu/mmu_test.cpp:2621 |
+| ALT-09 | NR 0x8C read-back returns stored byte — VHDL zxnext.vhd:6156 | zxnext.vhd:6156 | pass | test/mmu/mmu_test.cpp:2636 |
 | RSTD-8C-01 | reset RELOADS nr_8c_altrom_lock_rom1 (bit 5) from bit 1 — it does NOT clear: NR 0x8C=0x02 -> after RESET_SOFT lock_rom1=1, lock_rom0=0, byte=0x22 [zxnext.vhd:2254-2255 nibble copy, :2264 lock_rom1 <= nr_8c_altrom(5); nextreg.txt:861-864] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:1016 |
 | RSTD-8C-02 | reset RELOADS nr_8c_altrom_lock_rom0 (bit 4) from bit 0 — it does NOT clear: NR 0x8C=0x01 -> after RESET_SOFT lock_rom0=1, lock_rom1=0, byte=0x11 [zxnext.vhd:2254-2255 nibble copy, :2265 lock_rom0 <= nr_8c_altrom(4); nextreg.txt:861-865] | zxnext.vhd:2254-2255 | pass | test/nextreg/nextreg_integration_test.cpp:1041 |
-| MMU-CFG-01 | config_mode=1 routes 0x0000-0x3FFF ROM-slot writes to SRAM via NR 0x04 — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2649 |
-| MMU-CFG-02 | config_mode=1 reads from 0x0000-0x3FFF ROM-slot return SRAM bank contents — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2669 |
-| MMU-CFG-03 | MMU-RAM mapping on ROM-slot range wins over config_mode routing — VHDL zxnext.vhd:3037 | zxnext.vhd:3037 | pass | test/mmu/mmu_test.cpp:2690 |
-| MMU-CFG-04 | config_mode=0 suppresses ROM-slot routing; writes drop — VHDL zxnext.vhd:3044-3050 bypassed | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2710 |
-| MMU-CFG-06 | Mmu::reset() PRESERVES nr_04_romram_bank — no reset clause in VHDL zxnext.vhd:4930-5111 (the only sites are :1104 declaration, :3045 use, :5717/:5732 writes; a declaration default is FPGA power-on, not a reset clause); config_mode is Emulator-owned | zxnext.vhd:4930-5111 | pass | test/mmu/mmu_test.cpp:2765 |
-| CFG-12 | Mmu::reset(hard=false) ALSO preserves nr_04_romram_bank — zxnext.vhd's `reset` is reset_hard OR reset_soft (zxnext_top_issue2.vhd:840, zxnext.vhd:1730) and the signal is in no reset block at all (:4930-5111) | zxnext_top_issue2.vhd:840, zxnext.vhd:1730 | pass | test/mmu/mmu_test.cpp:2795 |
+| MMU-CFG-01 | config_mode=1 routes 0x0000-0x3FFF ROM-slot writes to SRAM via NR 0x04 — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2669 |
+| MMU-CFG-02 | config_mode=1 reads from 0x0000-0x3FFF ROM-slot return SRAM bank contents — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2689 |
+| MMU-CFG-03 | MMU-RAM mapping on ROM-slot range wins over config_mode routing — VHDL zxnext.vhd:3037 | zxnext.vhd:3037 | pass | test/mmu/mmu_test.cpp:2710 |
+| MMU-CFG-04 | config_mode=0 suppresses ROM-slot routing; writes drop — VHDL zxnext.vhd:3044-3050 bypassed | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:2730 |
+| MMU-CFG-06 | Mmu::reset() PRESERVES nr_04_romram_bank — no reset clause in VHDL zxnext.vhd:4930-5111 (the only sites are :1104 declaration, :3045 use, :5717/:5732 writes; a declaration default is FPGA power-on, not a reset clause); config_mode is Emulator-owned | zxnext.vhd:4930-5111 | pass | test/mmu/mmu_test.cpp:2785 |
+| CFG-12 | Mmu::reset(hard=false) ALSO preserves nr_04_romram_bank — zxnext.vhd's `reset` is reset_hard OR reset_soft (zxnext_top_issue2.vhd:840, zxnext.vhd:1730) and the signal is in no reset block at all (:4930-5111) | zxnext_top_issue2.vhd:840, zxnext.vhd:1730 | pass | test/mmu/mmu_test.cpp:2815 |
 | RSTD-04-01 | RESET_SOFT PRESERVES nr_04_romram_bank — the signal is absent from the reset block [zxnext.vhd:4930-5111]; its only sites are zxnext.vhd:1104 (declaration), zxnext.vhd:3045 (use) and the write handlers zxnext.vhd:5717 / zxnext.vhd:5732, gated solely on nr_04_we | zxnext.vhd:4930-5111, zxnext.vhd:1104, zxnext.vhd:3045, zxnext.vhd:5717, zxnext.vhd:5732 | pass | test/nextreg/nextreg_integration_test.cpp:1086 |
 | RSTD-04-02 | RESET_HARD clears nr_04_romram_bank to the zxnext.vhd:1104 power-on default via the host cold boot (FPGA reconfiguration, zxnext_top_issue2.vhd:1195); the NR 0x02 b1 write itself only raises the deferred request [Task 70] | zxnext.vhd:1104, zxnext_top_issue2.vhd:1195 | pass | test/nextreg/nextreg_integration_test.cpp:1114 |
 | RSTD-04-03 | NR 0x04 write reaches the Mmu mirror consumed by the SRAM address compose [zxnext.vhd:3045], bit 7 masked off per gen_romram_234 [zxnext.vhd:5709-5722]; both mirrors agree | zxnext.vhd:3045, zxnext.vhd:5709-5722 | pass | test/nextreg/nextreg_integration_test.cpp:1150 |
@@ -303,143 +300,140 @@ Notes and rationale: [MEMORY-MMU-TEST-PLAN-DESIGN.md](MEMORY-MMU-TEST-PLAN-DESIG
 | CMG-01 | a Next start with NO boot ROM leaves the Mmu config_mode mirror at its power-on false, and the NextReg latch agrees because init() makes the IPL's own NR 0x03 commit [zxnext.vhd:1102, :5147-5151], so a write into the still-ROM low slot is DROPPED instead of being rerouted into SRAM [zxnext.vhd:3044-3050] | zxnext.vhd:1102, zxnext.vhd:3044-3050 | pass | test/nextreg/nextreg_integration_test.cpp:1255 |
 | CMG-02 | NO non-Next machine type runs the config-mode resync, even with a boot ROM enabled: the gate's machine-type clause holds it shut for every value in the enum's non-Next set [contention.h:5], so the Mmu mirror keeps its own value instead of following the NextReg latch [zxnext.vhd:1102,5122] | zxnext.vhd:1102,5122 | pass | test/nextreg/nextreg_integration_test.cpp:1330 |
 | CMG-03 | the init() config-mode resync observes the POST-reset boot-ROM state: Mmu::reset() arms boot_rom_en_ from the persisted boot ROM + config_mode [mmu.cpp:179], and the gate must run after that, so the mirror follows the NextReg latch down instead of keeping its stale pre-init value | — | pass | test/nextreg/nextreg_integration_test.cpp:1388 |
-| ADR-01 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2922 |
-| ADR-02 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2923 |
-| ADR-03 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2924 |
-| ADR-04 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2925 |
-| ADR-05 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2928 |
-| ADR-06 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2929 |
-| ADR-07 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2930 |
-| ADR-08 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2931 |
-| ADR-09 | page 0xE0 on RAM slot → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061 | zxnext.vhd:3060-3061 | pass | test/mmu/mmu_test.cpp:2959 |
-| ADR-10 | page 0xFE on RAM slot → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061 | zxnext.vhd:3060-3061 | pass | test/mmu/mmu_test.cpp:2969 |
-| BNK-01 | page 0x0A maps to the dedicated bank-5 VRAM buffer, touching no SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:3007 |
-| BNK-02 | page 0x0B maps to the bank-5 VRAM upper half (offset 0x2000), touching no SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:3026 |
-| BNK-03 | page 0x0E maps to the dedicated bank-7 BRAM buffer, touching no SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:3050 |
-| BNK-04 | page 0x0F is NOT dual-port — gets +0x20 shift like any RAM page — VHDL zxnext.vhd:2961-2962 (bypass only for 0x0A/0x0B/0x0E) | zxnext.vhd:2961-2962 | pass | test/mmu/mmu_test.cpp:3070 |
-| BNK-05 | page 0x0A CPU round-trip — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3087 |
-| BNK-06 | page 0x0E CPU round-trip — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3100 |
-| L2M-01 | L2 write-over lands in L2 bank physical SRAM, not MMU slot — VHDL zxnext.vhd:2969,3077 | zxnext.vhd:2969,3077 | pass | test/mmu/mmu_test.cpp:3138 |
-| L2M-01b | L2 bank 8 aliases MMU page 0x10 (hardware collision) — VHDL zxnext.vhd:2964,2969 | zxnext.vhd:2964,2969 | pass | test/mmu/mmu_test.cpp:3157 |
-| L2M-02a | L2 read-over returns L2 bank byte, not MMU slot — VHDL zxnext.vhd:2969,3077,3100 | zxnext.vhd:2969,3077,3100 | pass | test/mmu/mmu_test.cpp:3176 |
-| L2M-02b | L2 read-over OFF → MMU slot wins — VHDL zxnext.vhd:3077 sram_pre_layer2_rd_en gate | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3195 |
-| L2M-03 | L2 auto-segment follows cpu_a(15:14) — VHDL zxnext.vhd:3100-3107 | zxnext.vhd:3100-3107 | pass | test/mmu/mmu_test.cpp:3219 |
-| L2M-04 | L2 write-over does not apply to 0xC000-0xFFFF — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3237 |
+| ADR-01 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2942 |
+| ADR-02 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2943 |
+| ADR-03 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2944 |
+| ADR-04 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2945 |
+| ADR-05 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2948 |
+| ADR-06 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2949 |
+| ADR-07 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2950 |
+| ADR-08 | page→SRAM round-trip — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:2951 |
+| ADR-09 | page 0xE0 on RAM slot → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061 | zxnext.vhd:3060-3061 | pass | test/mmu/mmu_test.cpp:2979 |
+| ADR-10 | page 0xFE on RAM slot → floating bus (0xFF) — VHDL zxnext.vhd:3060-3061 | zxnext.vhd:3060-3061 | pass | test/mmu/mmu_test.cpp:2989 |
+| BNK-01 | page 0x0A maps to the dedicated bank-5 VRAM buffer, touching no SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:3027 |
+| BNK-02 | page 0x0B maps to the bank-5 VRAM upper half (offset 0x2000), touching no SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:3046 |
+| BNK-03 | page 0x0E maps to the dedicated bank-7 BRAM buffer, touching no SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:3070 |
+| BNK-04 | page 0x0F is NOT dual-port — gets +0x20 shift like any RAM page — VHDL zxnext.vhd:2961-2962 (bypass only for 0x0A/0x0B/0x0E) | zxnext.vhd:2961-2962 | pass | test/mmu/mmu_test.cpp:3090 |
+| BNK-05 | page 0x0A CPU round-trip — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3107 |
+| BNK-06 | page 0x0E CPU round-trip — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3120 |
+| L2M-01 | L2 write-over lands in L2 bank physical SRAM, not MMU slot — VHDL zxnext.vhd:2969,3077 | zxnext.vhd:2969,3077 | pass | test/mmu/mmu_test.cpp:3158 |
+| L2M-01b | L2 bank 8 aliases MMU page 0x10 (hardware collision) — VHDL zxnext.vhd:2964,2969 | zxnext.vhd:2964,2969 | pass | test/mmu/mmu_test.cpp:3177 |
+| L2M-02a | L2 read-over returns L2 bank byte, not MMU slot — VHDL zxnext.vhd:2969,3077,3100 | zxnext.vhd:2969,3077,3100 | pass | test/mmu/mmu_test.cpp:3196 |
+| L2M-02b | L2 read-over OFF → MMU slot wins — VHDL zxnext.vhd:3077 sram_pre_layer2_rd_en gate | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3215 |
+| L2M-03 | L2 auto-segment follows cpu_a(15:14) — VHDL zxnext.vhd:3100-3107 | zxnext.vhd:3100-3107 | pass | test/mmu/mmu_test.cpp:3239 |
+| L2M-04 | L2 write-over does not apply to 0xC000-0xFFFF — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3257 |
 | L2M-05 | NR 0x12 write sets Layer 2 active bank (7-bit) [zxnext.vhd:4945 nr_12_layer2_active_bank] | zxnext.vhd:4945 | pass | test/nextreg/nextreg_integration_test.cpp:3030 |
 | L2M-06 | NR 0x13 write sets Layer 2 shadow bank (7-bit) [zxnext.vhd:4946 nr_13_layer2_shadow_bank] | zxnext.vhd:4946 | pass | test/nextreg/nextreg_integration_test.cpp:3066 |
 | PRI-01 | DivMMC ROM overrides MMU at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084) | zxnext.vhd:3084 | pass | test/divmmc/divmmc_test.cpp:2365 |
 | PRI-02 | DivMMC RAM overrides MMU at 0x2000-0x3FFF when overlay active (VHDL zxnext.vhd:3087) | zxnext.vhd:3087 | pass | test/divmmc/divmmc_test.cpp:2399 |
-| PRI-03 | L2 write-over outranks MMU in 0-16K — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3296 |
+| PRI-03 | L2 write-over outranks MMU in 0-16K — VHDL zxnext.vhd:3077 | zxnext.vhd:3077 | pass | test/mmu/mmu_test.cpp:3316 |
 | PRI-04 | DivMMC beats Layer 2 write-over at 0x0000-0x1FFF when overlay active (VHDL zxnext.vhd:3084-3100 chain) | zxnext.vhd:3084-3100 | pass | test/divmmc/divmmc_test.cpp:2445 |
-| PRI-05 | MMU-only path at 0xC000 with no overrides — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3317 |
-| PRI-06 | altrom overrides normal ROM when altrom_en=1, altrom_rw=0 — VHDL zxnext.vhd:3078 arbiter priority | zxnext.vhd:3078 | pass | test/mmu/mmu_test.cpp:3342 |
-| PRI-07 | config_mode ROMRAM routing outranks normal ROM read path — VHDL zxnext.vhd:3044-3052 | zxnext.vhd:3044-3052 | pass | test/mmu/mmu_test.cpp:3366 |
+| PRI-05 | MMU-only path at 0xC000 with no overrides — VHDL zxnext.vhd:2933-3133 | zxnext.vhd:2933-3133 | pass | test/mmu/mmu_test.cpp:3337 |
+| PRI-06 | altrom overrides normal ROM when altrom_en=1, altrom_rw=0 — VHDL zxnext.vhd:3078 arbiter priority | zxnext.vhd:3078 | pass | test/mmu/mmu_test.cpp:3362 |
+| PRI-07 | config_mode ROMRAM routing outranks normal ROM read path — VHDL zxnext.vhd:3044-3052 | zxnext.vhd:3044-3052 | pass | test/mmu/mmu_test.cpp:3386 |
 | SD2-01 | NR 0x84 b2 SET: OUT to 0x7FF1/0xDFF9/0x1FF1 (low byte F1/F9) leaves 7FFD/DFFD/1FFD unchanged, byte goes to Soundrive [zxnext.vhd:2708, 2718-2720; conflict resolves DAC-wards] | zxnext.vhd:2708,2718-2720, zxnext.vhd:2775-2778 | pass | test/audio/audio_port_dispatch_test.cpp:845 |
 | SD2-02 | NR 0x84 b2 CLEAR: identical OUTs to 0x7FF1/0xDFF9/0x1FF1 DO reapply 7FFD/DFFD/1FFD paging, DAC untouched [zxnext.vhd:2708 conflict term 0; :2718-2720 fire] | zxnext.vhd:2708 | pass | test/audio/audio_port_dispatch_test.cpp:877 |
-| BOOT-NEX-01 | loader rejects NEX whose ram_required exceeds installed RAM — src/core/nex_loader.cpp:apply() honours header.ram_required | — | pass | test/mmu/mmu_test.cpp:3499 |
-| BOOT-NEX-02 | loader accepts NEX whose ram_required ≤ installed RAM; spec mapping 0=768/1=1792/2=2048 KB; unknown → 0 | — | pass | test/mmu/mmu_test.cpp:3520 |
-| BOOT-NEX-03 | loading_bar draws a per-bank-slot mark that advances along VRAM (bank 11 / MMU page 23) — nexload.asm:616-621 `progress` | — | pass | test/mmu/mmu_test.cpp:3567 |
-| BOOT-NEX-04 | loading_delay honoured: 109 post-early bank-slot waits of loading_delay frames each when a screen is present; zero frames when no screen is present | — | pass | test/mmu/mmu_test.cpp:3613 |
-| BOOT-NEX-05 | start_delay honoured unconditionally before code-entry, on top of any inter-bank loading_delay total | — | pass | test/mmu/mmu_test.cpp:3629 |
-| BOOT-NEX-06 | loading_bar_colour byte is written verbatim, not a fixed default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a` | — | pass | test/mmu/mmu_test.cpp:3597 |
-| BOOT-NEX-07 | G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) before screen-format ingest, eliminating attribute-area leak from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict) | — | pass | test/mmu/mmu_test.cpp:3709 |
+| BOOT-NEX-01 | loader rejects NEX whose ram_required exceeds installed RAM — src/core/nex_loader.cpp:apply() honours header.ram_required | — | pass | test/mmu/mmu_test.cpp:3519 |
+| BOOT-NEX-02 | loader accepts NEX whose ram_required ≤ installed RAM; spec mapping 0=768/1=1792/2=2048 KB; unknown → 0 | — | pass | test/mmu/mmu_test.cpp:3540 |
+| BOOT-NEX-03 | loading_bar draws a per-bank-slot mark that advances along VRAM (bank 11 / MMU page 23) — nexload.asm:616-621 `progress` | — | pass | test/mmu/mmu_test.cpp:3587 |
+| BOOT-NEX-04 | loading_delay honoured: 109 post-early bank-slot waits of loading_delay frames each when a screen is present; zero frames when no screen is present | — | pass | test/mmu/mmu_test.cpp:3633 |
+| BOOT-NEX-05 | start_delay honoured unconditionally before code-entry, on top of any inter-bank loading_delay total | — | pass | test/mmu/mmu_test.cpp:3649 |
+| BOOT-NEX-06 | loading_bar_colour byte is written verbatim, not a fixed default — nexload.asm:617,619-620 `ld a,(LoadCol):ld e,a` | — | pass | test/mmu/mmu_test.cpp:3617 |
+| BOOT-NEX-07 | G16 fix: zero_bank5_screen_pages() clears pages 10+11 (16 KB) before screen-format ingest, eliminating attribute-area leak from stale pre-load RAM (BEAST-NEX-INVESTIGATION.md §Verdict) | — | pass | test/mmu/mmu_test.cpp:3729 |
 | BOOT-SD-01 | mount/unmount round-trip: img1→img2→img1 yields correct sector-0 content each time | — | pass | test/sdcard/sdcard_test.cpp:1119 |
 | BOOT-SD-02 | unmount mid-CMD18 stream + re-mount + CMD17 works (state machine cleaned up) | — | pass | test/sdcard/sdcard_test.cpp:2307 |
-| BOOT-TAPESAVE-01 | TapSaver::build_block header block: LE length prefix (payload+2), flag 0x00, payload verbatim, XOR checksum — hand-computed TAP image (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3770 |
-| BOOT-TAPESAVE-02 | TapSaver data block (non-trivial XOR checksum) + append_block file ordering: file bytes == header-block \|\| data-block, hand-computed images (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3839 |
-| BOOT-TAPESAVE-03 | TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, correct boundaries/flags, payload identity, loader checksum verification, zero parse warnings (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3887 |
-| BOOT-Z80-01 | v1 (uncompressed) .z80 round-trip — Mmu reads at 0x4000-0xFFFF match the raw-RAM image; PC/AF/BC/etc. match header bytes (worldofspectrum.org/faq/reference/z80format.htm v1 layout) | — | pass | test/mmu/mmu_test.cpp:3954 |
-| BOOT-Z80-02 | v2 (RLE-compressed) .z80 round-trip — decompress_page() reproduces the fill-run + literal-tail pattern across all three 48K page-number -> bank mappings (page4/5/8 -> 0x8000/0xC000/0x4000) | — | pass | test/mmu/mmu_test.cpp:4027 |
-| BOOT-Z80-03 | v3 (extended-header, 128K) .z80 — Ram banks 0-7 populated per the page3..10 -> bank0..7 table; port_7ffd_ from header byte 0x23 | — | pass | test/mmu/mmu_test.cpp:4098 |
-| BOOT-Z80-04 | Unsupported / corrupt .z80 file rejected — truncated RLE run with no end marker; loader returns error and Mmu is left untouched | — | pass | test/mmu/mmu_test.cpp:4135 |
-| BOOT-Z80-05 | Structurally-valid .z80 with only foreign page numbers is rejected by apply_ram_to_mmu() (zero pages applied), not silently reported as a successful load with no RAM written | — | pass | test/mmu/mmu_test.cpp:4184 |
-| BOOT-Z80-06 | hardware mode 3 is 128K in a v2 .z80 (its page 5, bank 2, lands at 0x8000) and 48K in a v3 one | — | pass | test/mmu/mmu_test.cpp:4221 |
-| BOOT-SNAPSAVE-02 | SzxSaver::build() produces a spec-conformant .szx for +3 (machine_id=5): 8-byte header, ZXSTZ80REGS(37B)/ZXSTSPECREGS(8B)/ZXSTRAMPAGE chunks at their exact published offsets, all 8 physical RAM banks (0-7) with chPageNo == physical bank number and full content — spectaculator.com/docs/zx-state/{header,z80regs,specregs,rampage}.shtml + libspectrum szx.c:3337-3342 (128-memory-capability page set) (G35) | — | pass | test/mmu/mmu_test.cpp:4366 |
-| BOOT-SNAPSAVE-03 | NexSaver::build() produces a spec-conformant .nex V1.2: 512-byte header fields at their exact NexLoader-parsed offsets (magic/version/ram_required/num_banks/border/sp/pc/banks[]/preserve_regs/entry_bank), full bank payloads in NexLoader's kBankOrder — https://wiki.specnext.dev/NEX_file_format (G35) | — | pass | test/mmu/mmu_test.cpp:4589 |
-| BOOT-DECI-01 | TZX 0x15 Direct Recording: EAR(t) = sample[(t-t0)/77] MSB-first with used_bits=5 in the last byte; level 0 and stopped after the final sample (TZX spec v1.20 block 0x15) | — | pass | test/mmu/mmu_test.cpp:4704 |
-| BOOT-DECI-02 | TZX pause holds the block's final level ~1 ms (3500 T) before dropping low, preserving the terminating edge of pulse blocks and the un-inverted final sample of 0x15 blocks (empirical heuristic; measured 48K-ROM LD-BYTES terminating-edge requirement, Task 57) | — | pass | test/mmu/mmu_test.cpp:4797 |
-| BOOT-DECI-03 | WAV real-time EAR: 8-bit PCM 44.1 kHz frames mapped from the 3.5 MHz T-state clock, threshold at the 128 centre; 0 before start and past end (G37) | — | pass | test/mmu/mmu_test.cpp:4852 |
-| BOOT-DECI-04 | WAV EAR transitions at the linearly-interpolated 128 crossing (sub-sample precision), not quantised to the 79.4 T sample grid — frame 10.75 of a 96→160 crossing reads 1 (G37 fix discriminator) | — | pass | test/mmu/mmu_test.cpp:4908 |
-| BOOT-FDC-01 | .dsk` (CPCEMU/EDSK) image mounted on +3 drive | — | missing | — |
-| BOOT-FDC-02 | uPD765 motor-on / read-id behaviour | — | missing | — |
-| BOOT-FDC-03 | NR 0x81 b3 (`fdc` clken) gates motor-on | — | missing | — |
-| BANK7-01 | MMU page 0x0E lands in the dedicated BRAM buffer, not in any SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:5994 |
-| BANK7-02 | alt-ROM write to phys page 0x0E does not corrupt MMU-page-0x0E workspace (the $DA35 saved-SP NextZXOS boot killer) | — | pass | test/mmu/mmu_test.cpp:6018 |
-| BANK7-03 | MMU page 0x0A lands in the dedicated bank-5 VRAM, not in any SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:6041 |
-| BANK7-04 | config-mode NR $04=$17 window writes SRAM page 0x2E without touching the bank-7 BRAM — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6068 |
-| BANK7-05 | standalone-machine (rom_in_sram=false) bank-7 writes land in flat RAM pages 0x0E/0x0F, NOT the Next-only BRAM buffer | — | pass | test/mmu/mmu_test.cpp:6094 |
-| BANK5-01 | pages 0x0A/0x0B are the lower/upper 8K halves of the single 16K bank-5 VRAM — VHDL zxnext.vhd:6558 (addr_width 14) | zxnext.vhd:6558 | pass | test/mmu/mmu_test.cpp:6127 |
-| BANK5-02 | config-mode NR $04=$05 window writes SRAM page 0x0A without touching the bank-5 VRAM (the NextZXOS mid-boot-garbage killer) — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6152 |
-| BANK5-03 | standalone-machine (rom_in_sram=false) bank-5 writes land in flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer | — | pass | test/mmu/mmu_test.cpp:6172 |
-| BANK5-04 | CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional layer2_A21_A13 formula), not page 0x0A and not the VRAM — VHDL zxnext.vhd:2966-2971 + 3100-3107 | zxnext.vhd:2966-2971 | pass | test/mmu/mmu_test.cpp:6197 |
-| N8E-05a | NR 0x8E read-back {dffd(0),7FFD(2:0),1,1FFD(0),1FFD(2),bit0} — VHDL zxnext.vhd:6158-6159 | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1238 |
-| N8E-05b | NR 0x8E read-back bit 0 flips with 1FFD(0) selector — VHDL zxnext.vhd:6159 | zxnext.vhd:6159 | pass | test/mmu/mmu_test.cpp:1255 |
-| MTC-01 | machine_type change leaves slot 0 NR-mapped to RAM (VHDL zxnext.vhd:3813 — no port_memory_change_dly pulse) | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:1922 |
-| MTC-02 | slot 1 RAM mapping preserved across machine_type → +3 | — | pass | test/mmu/mmu_test.cpp:1942 |
-| MTC-03 | machine_type change refreshes legacy-ROM slot 0/1 cache to new sram_rom-derived pages (ZXN→48K: 2/3 → 0/1) | — | pass | test/mmu/mmu_test.cpp:1968 |
-| G12-MUX-01 | a single attribute write is recorded and replayable within the SAME frame it happens -- no arm/gate, no frame-boundary latency | — | pass | test/mmu/mmu_test.cpp:2025 |
-| G12-MUX-02 | writes tagged outside the active display (border/vblank) are recorded unconditionally -- no positional gate remains | — | pass | test/mmu/mmu_test.cpp:2052 |
-| G12-MUX-03 | a cell racing only 2 colour bands (the scenario the old repeat>=4 heuristic left flat and silently wrong) correctly reconstructs both distinct band colours | zxula.vhd:192 | pass | test/mmu/mmu_test.cpp:2106 |
-| G12-MUX-04 | scanline 0 replay reconstructs the value written while tagged line 0, not the frame's last write | — | pass | test/mmu/mmu_test.cpp:2125 |
-| G12-MUX-05 | scanline 1 replay reconstructs the value written while tagged line 1 | — | pass | test/mmu/mmu_test.cpp:2132 |
-| G12-MUX-06 | scanline 2 replay reconstructs the value written while tagged line 2 -- three distinct scanlines, three distinct colours from ONE physical byte, matching real Nirvana output | — | pass | test/mmu/mmu_test.cpp:2139 |
-| G12-MUX-07 | a scanline with no attribute write carries the previous scanline's reconstructed value forward (matches VHDL: the ULA re-fetches unchanged RAM and sees the unchanged byte) | zxula.vhd:223-224 | pass | test/mmu/mmu_test.cpp:2152 |
-| G12-MUX-08 | bank-7 shadow attribute plane replays independently of bank 5 at the same column/row offset | — | pass | test/mmu/mmu_test.cpp:2165 |
-| G12-MUX-09 | discriminative fall-through: an untouched cell renders its REAL RAM content unchanged across every scanline, while a DIFFERENT cell racing in the SAME frame replays its own mid-frame writes -- proves the mux overlays changes on top of real RAM rather than replacing the entire plane | — | pass | test/mmu/mmu_test.cpp:2223 |
-| G12-MUX-10 | column-accurate resolution: a write landing AFTER this column's own attribute-fetch instant this scanline does NOT apply until the cell's next scanline -- the earlier write wins for THIS scanline's render, proving genuine hc gating rather than round 3's line-only gating | zxula.vhd:226-263/270-303, zxula.vhd:271-306 | pass | test/mmu/mmu_test.cpp:2299 |
-| G12-MUX-11 | fetch-instant parity asymmetry: hc=162 lands AFTER even col 4's fetch (160) but BEFORE odd col 5's (164); hc=166 lands AFTER col 5's -- col 4 keeps its early value this line, col 5 shows the 162-write this line and the 166-write only next line [zxula.vhd:271-306,368-455; Task 54] | zxula.vhd:271-306,368-455 | pass | test/mmu/mmu_test.cpp:2352 |
-| SHA-01 | Mmu::set_port_7ffd_bit3 toggles shadow_screen_en() — VHDL zxnext.vhd:3658,4453 | zxnext.vhd:3658,4453 | pass | test/mmu/mmu_test.cpp:2389 |
-| SHA-02 | Bit-3 alias and full-byte port-7FFD write share port_7ffd_reg storage — VHDL zxnext.vhd:3653,3658 | zxnext.vhd:3653,3658 | pass | test/mmu/mmu_test.cpp:2415 |
-| SHA-03 | Bit-3 toggle isolated to shadow_screen_en; port_7ffd bits 7:4\|2:0 and current_rom_bank unchanged — VHDL zxnext.vhd:3763-3766,4453 | zxnext.vhd:3763-3766,4453 | pass | test/mmu/mmu_test.cpp:2457 |
-| MMU-CFG-05 | addr bit 13 selects upper/lower 8 KB of nr_04 bank — VHDL zxnext.vhd:3045 (nr_04<<1 \| cpu_a(13)) | zxnext.vhd:3045 | pass | test/mmu/mmu_test.cpp:2729 |
-| MMU-CFG-07 | out-of-range nr_04 bank → read 0xFF + write drop — Ram::page_ptr nullptr fallback | zxnext.vhd:3045 | pass | test/mmu/mmu_test.cpp:2818 |
-| CFG-08 | set_config_mode / set_nr_04_romram_bank toggle between drop and route — VHDL zxnext.vhd:3044-3045,3049,3056 | zxnext.vhd:3044-3045,3049,3056 | pass | test/mmu/mmu_test.cpp:2841 |
-| CFG-09 | rom_in_sram=true routes ROM-slot reads through ram_ pages 0..7 — VHDL zxnext.vhd:3052 | zxnext.vhd:3052 | pass | test/mmu/mmu_test.cpp:2864 |
-| CFG-10 | rom_in_sram + config_mode=0: writes to ROM slot still drop — VHDL zxnext.vhd:3056 sram_pre_rdonly | zxnext.vhd:3056 | pass | test/mmu/mmu_test.cpp:2883 |
-| CFG-11 | set_rom_in_sram(true)→(false) restores ROM-slot reads to rom_ buffer — VHDL zxnext.vhd:3052 | zxnext.vhd:3052 | pass | test/mmu/mmu_test.cpp:2903 |
-| BOOT-SNAPSAVE-02B | SzxSaver::build() IFF1/IFF2/halted encode independently (discriminative pair for BOOT-SNAPSAVE-02) — spectaculator.com/docs/zx-state/z80regs.shtml | — | pass | test/mmu/mmu_test.cpp:4401 |
-| BOOT-SNAPSAVE-02C | SzxSaver::build() emits exactly banks {0, 2, 5} for a 48K save (machine_id=1) — the SZX page-numbering convention (spectaculator.com/docs/zx-state/rampage.shtml + libspectrum szx.c:3330-3334), NOT the first 3 banks {0,1,2} | — | pass | test/mmu/mmu_test.cpp:4453 |
-| BOOT-SNAPSAVE-02D | SzxSaver::build()/ram_page_set() refuse (empty return, error message set) for any chMachineId outside {1,2,4,5} — 48K/128K/+2A/+3 are the only machines .szx can represent | — | pass | test/mmu/mmu_test.cpp:4496 |
-| BOOT-SNAPSAVE-03B | NexSaver::build() clamps to the format's 112-bank ceiling on >1792 KB installs and reports the clamp rather than overflowing banks[112] or writing an unrepresentable ram_required — nex_loader.h banks[112]/kBankOrder (G155) | — | pass | test/mmu/mmu_test.cpp:4625 |
-| BOOT-SNAPSAVE-03C | NexSaver::build() detects a non-contiguous slot 6/7 bank pair and flags contiguous_entry_bank=false rather than silently mis-saving (NexSaver class doc-comment) | — | pass | test/mmu/mmu_test.cpp:4650 |
-| MMU-PR-01 | slot_in_rom_area at reset (NR 0x50/51 = 0xFF): true for slots 0/1 (VHDL :2964 mmu_A21_A13(8)=1 when effective page >= 0xE0) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4948 |
-| MMU-PR-02 | slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5) — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4962 |
-| MMU-PR-03 | slot_in_rom_area true at boundary NR 0x50 = 0xE0 (VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4973 |
-| MMU-PR-04 | slot_in_rom_area false at NR 0x50 = 0xDF (just below VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:4985 |
-| MMU-PR-05 | pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00) — VHDL zxnext.vhd:3029,3065 | zxnext.vhd:3029,3065 | pass | test/mmu/mmu_test.cpp:4995 |
-| PR-06 | pre_override(2)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 — MF wins, override='000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5005 |
-| PR-07 | pre_override(2)=1 for PC<0x4000 with mf_active=0 — VHDL zxnext.vhd:3043,3050,3057 | zxnext.vhd:3043,3050,3057 | pass | test/mmu/mmu_test.cpp:5015 |
-| PR-08 | pre_override(0)=1 in normal ROM mode (VHDL zxnext.vhd:3057 → '111') | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5029 |
-| PR-09 | pre_override(0)=0 when config_mode=1 (VHDL zxnext.vhd:3044,3050) | zxnext.vhd:3044,3050 | pass | test/mmu/mmu_test.cpp:5040 |
-| PR-10 | pre_override(0)=0 for slot 0 RAM-mapped (VHDL zxnext.vhd:3037,3043) | zxnext.vhd:3037,3043 | pass | test/mmu/mmu_test.cpp:5052 |
-| PR-11 | pre_override(0)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 → '000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5062 |
-| PR-12 | pre_override(0)=0 for PC>=0x4000 — VHDL zxnext.vhd:3065 | zxnext.vhd:3065 | pass | test/mmu/mmu_test.cpp:5072 |
-| PR-13 | pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF — VHDL zxnext.vhd:3057 | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5084 |
-| PR-14 | pre_override(0) tracks per-slot ROM/RAM mode (VHDL zxnext.vhd:2952 mem_active_page selects MMU0..MMU7 by cpu_a(15:13)) | zxnext.vhd:2952 | pass | test/mmu/mmu_test.cpp:5103 |
-| FIX-NR5xFF-01 | NR $51=$FF (engage_legacy_rom_paging_slot(1)) preserves slot 0 RAM mapping — VHDL zxnext.vhd:4686-4696 nr_mmu_we per-slot | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5148 |
-| FIX-NR5xFF-02 | NR $52=$FF → slot 2 inactive: read returns 0xFF, write dropped (VHDL zxnext.vhd:3061 sram_pre_active=0 when mmu_A21_A13(8)=1) | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5173 |
-| FIX-NR5xFF-03 | NR $56=$FF → slot 6 inactive (NOT legacy RAM auto-paged) — VHDL zxnext.vhd:3061 sram_pre_active=0 | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5193 |
-| FIX-PLUS3-01 | +3 special-mode 1→0 transition reverts slots 2-5 to bank 5 / bank 2 — VHDL zxnext.vhd:4655-4670 | zxnext.vhd:4655-4670 | pass | test/mmu/mmu_test.cpp:5230 |
-| FIX-PLUS3-02 | +3 special: port_7FFD write does NOT clobber special table — VHDL zxnext.vhd:4623 (arbiter rewrites 0..7) | zxnext.vhd:4623 | pass | test/mmu/mmu_test.cpp:5260 |
-| FIX-PLUS3-03 | port_1ffd_special_old persisted across save/load — exit after load fires slot 2-5 revert (VHDL :3716,3729; commit 45d8b30) | zxnext.vhd:3716/3729 | pass | test/mmu/mmu_test.cpp:5294 |
-| FIX-NR8C-CACHE-01 | NR 0x8C lock_rom1 flip refreshes slot-0 cached read pointer (pre→0x00, post→0x40) — VHDL zxnext.vhd:2981-3008,3052; commit 3dd4e73 | zxnext.vhd:2981-3008,3052 | pass | test/mmu/mmu_test.cpp:5345 |
-| FIX-NR8C-CACHE-02 | NR 0x8C write with no lock change preserves slot 0 RAM mapping AND cached read pointer — VHDL zxnext.vhd:3813 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5397 |
-| FIX-SLOT01-HIPAGE-01 | NR $50=0xE5 routes slot 0 to legacy ROM (sram_rom-derived) — VHDL zxnext.vhd:2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5444 |
-| FIX-UNLOCK-01 | unlock_paging() clears bit 5 of port_7ffd_ AND paging_locked_ — VHDL zxnext.vhd:3654-3656; commit 31d1786 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:5473 |
-| FIX-NR8C-PRESERVE-01 | NR 0x8C write preserves slot 0 explicit RAM mapping — VHDL zxnext.vhd:3813 no port_memory_change_dly; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5501 |
-| FIX-NR8C-PRESERVE-02 | NR 0x8C with sram_rom-changing lock preserves slot 1 RAM mapping — VHDL zxnext.vhd:3813; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5520 |
-| FIX-EFF7-FF-01 | NR $50=$FF under EFF7(3)=1: nr_mmu_[0]=0xFF verbatim, slot 0 → legacy ROM (not RAM) — VHDL :4686-4696 nr_mmu_we; commits 31d1786 + 560cb18 | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5553 |
-| FIX-NRMMU-SAVE-01 | nr_mmu_[0]=0xE5 verbatim round-trips through save/load — VHDL zxnext.vhd:4686-4696 + :6059-6081 NR readback; commit 560cb18 | zxnext.vhd:4686-4696,6059-6081 | pass | test/mmu/mmu_test.cpp:5593 |
-| FIX-NR12-PROP-01 | Mmu::set_l2_active_bank propagates to CPU L2 read path — VHDL zxnext.vhd:2968 + :2969 layer2_active_page; commit 560cb18 | zxnext.vhd:2968,2969 | pass | test/mmu/mmu_test.cpp:5627 |
-| FIX-RESET-CFG-01-A | reset with config_mode=0 leaves boot_rom_en cleared — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5658 |
-| FIX-RESET-CFG-01-B | reset with config_mode=1 re-arms boot_rom_en — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5676 |
-| FIX-MTC-SPECIAL-01 | set_machine_type during +3 special preserves special-mapping slots 0/1 — VHDL zxnext.vhd:4623-4632 (table independent of sram_rom); commit 165835d | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:5709 |
-| FIX-CURRSRAMROM-128K-01 | 128K with lock_rom1=1: sram_rom = lock_rom1 = 1 (NOT 7ffd(4)=0) — VHDL zxnext.vhd:2997-3007 shared else branch; commit b6b42dd | zxnext.vhd:2997-3007 | pass | test/mmu/mmu_test.cpp:5739 |
-| FIX-L2-OVERLAY-LOWHALF-01 | L2 write-over with seg=01 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043 sram_pre_override(1)=1; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:5772 |
-| FIX-L2-OVERLAY-LOWHALF-02 | L2 write-over with seg=10 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:5792 |
-| FIX-L2-ROM-AREA-01 | L2 read with bank=0x70 → sram_active=0 → 0xFF (NOT ROM-area wrap) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:5822 |
-| FIX-L2-ROM-AREA-02 | L2 write with bank=0x70 → sram_active=0 → write dropped (NOT corrupting ROM area) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:5851 |
-| V11-MEM-01-A | NR $50=0xE5 + save_state + load_state: rebuild_ptr serves legacy ROM (sram_rom*2+slot=0) via consistent slots_[] — VHDL zxnext.vhd:3037-3057 :3052; verify11-memory | zxnext.vhd:3037-3057 | pass | test/mmu/mmu_test.cpp:5943 |
+| BOOT-TAPESAVE-01 | TapSaver::build_block header block: LE length prefix (payload+2), flag 0x00, payload verbatim, XOR checksum — hand-computed TAP image (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3790 |
+| BOOT-TAPESAVE-02 | TapSaver data block (non-trivial XOR checksum) + append_block file ordering: file bytes == header-block \|\| data-block, hand-computed images (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3859 |
+| BOOT-TAPESAVE-03 | TapSaver → TapLoader::parse_blocks round-trip: 2 blocks, correct boundaries/flags, payload identity, loader checksum verification, zero parse warnings (G33 Phase 1) | — | pass | test/mmu/mmu_test.cpp:3907 |
+| BOOT-Z80-01 | v1 (uncompressed) .z80 round-trip — Mmu reads at 0x4000-0xFFFF match the raw-RAM image; PC/AF/BC/etc. match header bytes (worldofspectrum.org/faq/reference/z80format.htm v1 layout) | — | pass | test/mmu/mmu_test.cpp:3974 |
+| BOOT-Z80-02 | v2 (RLE-compressed) .z80 round-trip — decompress_page() reproduces the fill-run + literal-tail pattern across all three 48K page-number -> bank mappings (page4/5/8 -> 0x8000/0xC000/0x4000) | — | pass | test/mmu/mmu_test.cpp:4047 |
+| BOOT-Z80-03 | v3 (extended-header, 128K) .z80 — Ram banks 0-7 populated per the page3..10 -> bank0..7 table; port_7ffd_ from header byte 0x23 | — | pass | test/mmu/mmu_test.cpp:4118 |
+| BOOT-Z80-04 | Unsupported / corrupt .z80 file rejected — truncated RLE run with no end marker; loader returns error and Mmu is left untouched | — | pass | test/mmu/mmu_test.cpp:4155 |
+| BOOT-Z80-05 | Structurally-valid .z80 with only foreign page numbers is rejected by apply_ram_to_mmu() (zero pages applied), not silently reported as a successful load with no RAM written | — | pass | test/mmu/mmu_test.cpp:4204 |
+| BOOT-Z80-06 | hardware mode 3 is 128K in a v2 .z80 (its page 5, bank 2, lands at 0x8000) and 48K in a v3 one | — | pass | test/mmu/mmu_test.cpp:4241 |
+| BOOT-SNAPSAVE-02 | SzxSaver::build() produces a spec-conformant .szx for +3 (machine_id=5): 8-byte header, ZXSTZ80REGS(37B)/ZXSTSPECREGS(8B)/ZXSTRAMPAGE chunks at their exact published offsets, all 8 physical RAM banks (0-7) with chPageNo == physical bank number and full content — spectaculator.com/docs/zx-state/{header,z80regs,specregs,rampage}.shtml + libspectrum szx.c:3337-3342 (128-memory-capability page set) (G35) | — | pass | test/mmu/mmu_test.cpp:4386 |
+| BOOT-SNAPSAVE-03 | NexSaver::build() produces a spec-conformant .nex V1.2: 512-byte header fields at their exact NexLoader-parsed offsets (magic/version/ram_required/num_banks/border/sp/pc/banks[]/preserve_regs/entry_bank), full bank payloads in NexLoader's kBankOrder — https://wiki.specnext.dev/NEX_file_format (G35) | — | pass | test/mmu/mmu_test.cpp:4609 |
+| BOOT-DECI-01 | TZX 0x15 Direct Recording: EAR(t) = sample[(t-t0)/77] MSB-first with used_bits=5 in the last byte; level 0 and stopped after the final sample (TZX spec v1.20 block 0x15) | — | pass | test/mmu/mmu_test.cpp:4724 |
+| BOOT-DECI-02 | TZX pause holds the block's final level ~1 ms (3500 T) before dropping low, preserving the terminating edge of pulse blocks and the un-inverted final sample of 0x15 blocks (empirical heuristic; measured 48K-ROM LD-BYTES terminating-edge requirement, Task 57) | — | pass | test/mmu/mmu_test.cpp:4817 |
+| BOOT-DECI-03 | WAV real-time EAR: 8-bit PCM 44.1 kHz frames mapped from the 3.5 MHz T-state clock, threshold at the 128 centre; 0 before start and past end (G37) | — | pass | test/mmu/mmu_test.cpp:4872 |
+| BOOT-DECI-04 | WAV EAR transitions at the linearly-interpolated 128 crossing (sub-sample precision), not quantised to the 79.4 T sample grid — frame 10.75 of a 96→160 crossing reads 1 (G37 fix discriminator) | — | pass | test/mmu/mmu_test.cpp:4928 |
+| BANK7-01 | MMU page 0x0E lands in the dedicated BRAM buffer, not in any SRAM page — VHDL zxnext.vhd:2962+6670 | zxnext.vhd:2962 | pass | test/mmu/mmu_test.cpp:6047 |
+| BANK7-02 | alt-ROM write to phys page 0x0E does not corrupt MMU-page-0x0E workspace (the $DA35 saved-SP NextZXOS boot killer) | — | pass | test/mmu/mmu_test.cpp:6071 |
+| BANK7-03 | MMU page 0x0A lands in the dedicated bank-5 VRAM, not in any SRAM page — VHDL zxnext.vhd:2961+6558 | zxnext.vhd:2961 | pass | test/mmu/mmu_test.cpp:6094 |
+| BANK7-04 | config-mode NR $04=$17 window writes SRAM page 0x2E without touching the bank-7 BRAM — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6121 |
+| BANK7-05 | standalone-machine (rom_in_sram=false) bank-7 writes land in flat RAM pages 0x0E/0x0F, NOT the Next-only BRAM buffer | — | pass | test/mmu/mmu_test.cpp:6147 |
+| BANK5-01 | pages 0x0A/0x0B are the lower/upper 8K halves of the single 16K bank-5 VRAM — VHDL zxnext.vhd:6558 (addr_width 14) | zxnext.vhd:6558 | pass | test/mmu/mmu_test.cpp:6180 |
+| BANK5-02 | config-mode NR $04=$05 window writes SRAM page 0x0A without touching the bank-5 VRAM (the NextZXOS mid-boot-garbage killer) — VHDL zxnext.vhd:3044-3050 | zxnext.vhd:3044-3050 | pass | test/mmu/mmu_test.cpp:6205 |
+| BANK5-03 | standalone-machine (rom_in_sram=false) bank-5 writes land in flat RAM pages 0x0A/0x0B, NOT the Next-only VRAM buffer | — | pass | test/mmu/mmu_test.cpp:6225 |
+| BANK5-04 | CPU L2 window with bank 5 writes SRAM page 0x2A (unconditional layer2_A21_A13 formula), not page 0x0A and not the VRAM — VHDL zxnext.vhd:2966-2971 + 3100-3107 | zxnext.vhd:2966-2971 | pass | test/mmu/mmu_test.cpp:6250 |
+| N8E-05a | NR 0x8E read-back {dffd(0),7FFD(2:0),1,1FFD(0),1FFD(2),bit0} — VHDL zxnext.vhd:6158-6159 | zxnext.vhd:6158-6159 | pass | test/mmu/mmu_test.cpp:1258 |
+| N8E-05b | NR 0x8E read-back bit 0 flips with 1FFD(0) selector — VHDL zxnext.vhd:6159 | zxnext.vhd:6159 | pass | test/mmu/mmu_test.cpp:1275 |
+| MTC-01 | machine_type change leaves slot 0 NR-mapped to RAM (VHDL zxnext.vhd:3813 — no port_memory_change_dly pulse) | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:1942 |
+| MTC-02 | slot 1 RAM mapping preserved across machine_type → +3 | — | pass | test/mmu/mmu_test.cpp:1962 |
+| MTC-03 | machine_type change refreshes legacy-ROM slot 0/1 cache to new sram_rom-derived pages (ZXN→48K: 2/3 → 0/1) | — | pass | test/mmu/mmu_test.cpp:1988 |
+| G12-MUX-01 | a single attribute write is recorded and replayable within the SAME frame it happens -- no arm/gate, no frame-boundary latency | — | pass | test/mmu/mmu_test.cpp:2045 |
+| G12-MUX-02 | writes tagged outside the active display (border/vblank) are recorded unconditionally -- no positional gate remains | — | pass | test/mmu/mmu_test.cpp:2072 |
+| G12-MUX-03 | a cell racing only 2 colour bands (the scenario the old repeat>=4 heuristic left flat and silently wrong) correctly reconstructs both distinct band colours | zxula.vhd:192 | pass | test/mmu/mmu_test.cpp:2126 |
+| G12-MUX-04 | scanline 0 replay reconstructs the value written while tagged line 0, not the frame's last write | — | pass | test/mmu/mmu_test.cpp:2145 |
+| G12-MUX-05 | scanline 1 replay reconstructs the value written while tagged line 1 | — | pass | test/mmu/mmu_test.cpp:2152 |
+| G12-MUX-06 | scanline 2 replay reconstructs the value written while tagged line 2 -- three distinct scanlines, three distinct colours from ONE physical byte, matching real Nirvana output | — | pass | test/mmu/mmu_test.cpp:2159 |
+| G12-MUX-07 | a scanline with no attribute write carries the previous scanline's reconstructed value forward (matches VHDL: the ULA re-fetches unchanged RAM and sees the unchanged byte) | zxula.vhd:223-224 | pass | test/mmu/mmu_test.cpp:2172 |
+| G12-MUX-08 | bank-7 shadow attribute plane replays independently of bank 5 at the same column/row offset | — | pass | test/mmu/mmu_test.cpp:2185 |
+| G12-MUX-09 | discriminative fall-through: an untouched cell renders its REAL RAM content unchanged across every scanline, while a DIFFERENT cell racing in the SAME frame replays its own mid-frame writes -- proves the mux overlays changes on top of real RAM rather than replacing the entire plane | — | pass | test/mmu/mmu_test.cpp:2243 |
+| G12-MUX-10 | column-accurate resolution: a write landing AFTER this column's own attribute-fetch instant this scanline does NOT apply until the cell's next scanline -- the earlier write wins for THIS scanline's render, proving genuine hc gating rather than round 3's line-only gating | zxula.vhd:226-263/270-303, zxula.vhd:271-306 | pass | test/mmu/mmu_test.cpp:2319 |
+| G12-MUX-11 | fetch-instant parity asymmetry: hc=162 lands AFTER even col 4's fetch (160) but BEFORE odd col 5's (164); hc=166 lands AFTER col 5's -- col 4 keeps its early value this line, col 5 shows the 162-write this line and the 166-write only next line [zxula.vhd:271-306,368-455; Task 54] | zxula.vhd:271-306,368-455 | pass | test/mmu/mmu_test.cpp:2372 |
+| SHA-01 | Mmu::set_port_7ffd_bit3 toggles shadow_screen_en() — VHDL zxnext.vhd:3658,4453 | zxnext.vhd:3658,4453 | pass | test/mmu/mmu_test.cpp:2409 |
+| SHA-02 | Bit-3 alias and full-byte port-7FFD write share port_7ffd_reg storage — VHDL zxnext.vhd:3653,3658 | zxnext.vhd:3653,3658 | pass | test/mmu/mmu_test.cpp:2435 |
+| SHA-03 | Bit-3 toggle isolated to shadow_screen_en; port_7ffd bits 7:4\|2:0 and current_rom_bank unchanged — VHDL zxnext.vhd:3763-3766,4453 | zxnext.vhd:3763-3766,4453 | pass | test/mmu/mmu_test.cpp:2477 |
+| MMU-CFG-05 | addr bit 13 selects upper/lower 8 KB of nr_04 bank — VHDL zxnext.vhd:3045 (nr_04<<1 \| cpu_a(13)) | zxnext.vhd:3045 | pass | test/mmu/mmu_test.cpp:2749 |
+| MMU-CFG-07 | out-of-range nr_04 bank → read 0xFF + write drop — Ram::page_ptr nullptr fallback | zxnext.vhd:3045 | pass | test/mmu/mmu_test.cpp:2838 |
+| CFG-08 | set_config_mode / set_nr_04_romram_bank toggle between drop and route — VHDL zxnext.vhd:3044-3045,3049,3056 | zxnext.vhd:3044-3045,3049,3056 | pass | test/mmu/mmu_test.cpp:2861 |
+| CFG-09 | rom_in_sram=true routes ROM-slot reads through ram_ pages 0..7 — VHDL zxnext.vhd:3052 | zxnext.vhd:3052 | pass | test/mmu/mmu_test.cpp:2884 |
+| CFG-10 | rom_in_sram + config_mode=0: writes to ROM slot still drop — VHDL zxnext.vhd:3056 sram_pre_rdonly | zxnext.vhd:3056 | pass | test/mmu/mmu_test.cpp:2903 |
+| CFG-11 | set_rom_in_sram(true)→(false) restores ROM-slot reads to rom_ buffer — VHDL zxnext.vhd:3052 | zxnext.vhd:3052 | pass | test/mmu/mmu_test.cpp:2923 |
+| BOOT-SNAPSAVE-02B | SzxSaver::build() IFF1/IFF2/halted encode independently (discriminative pair for BOOT-SNAPSAVE-02) — spectaculator.com/docs/zx-state/z80regs.shtml | — | pass | test/mmu/mmu_test.cpp:4421 |
+| BOOT-SNAPSAVE-02C | SzxSaver::build() emits exactly banks {0, 2, 5} for a 48K save (machine_id=1) — the SZX page-numbering convention (spectaculator.com/docs/zx-state/rampage.shtml + libspectrum szx.c:3330-3334), NOT the first 3 banks {0,1,2} | — | pass | test/mmu/mmu_test.cpp:4473 |
+| BOOT-SNAPSAVE-02D | SzxSaver::build()/ram_page_set() refuse (empty return, error message set) for any chMachineId outside {1,2,4,5} — 48K/128K/+2A/+3 are the only machines .szx can represent | — | pass | test/mmu/mmu_test.cpp:4516 |
+| BOOT-SNAPSAVE-03B | NexSaver::build() clamps to the format's 112-bank ceiling on >1792 KB installs and reports the clamp rather than overflowing banks[112] or writing an unrepresentable ram_required — nex_loader.h banks[112]/kBankOrder (G155) | — | pass | test/mmu/mmu_test.cpp:4645 |
+| BOOT-SNAPSAVE-03C | NexSaver::build() detects a non-contiguous slot 6/7 bank pair and flags contiguous_entry_bank=false rather than silently mis-saving (NexSaver class doc-comment) | — | pass | test/mmu/mmu_test.cpp:4670 |
+| MMU-PR-01 | slot_in_rom_area at reset (NR 0x50/51 = 0xFF): true for slots 0/1 (VHDL :2964 mmu_A21_A13(8)=1 when effective page >= 0xE0) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5001 |
+| MMU-PR-02 | slot_in_rom_area false when NR 0x50 = 0x0A (RAM bank 5) — VHDL zxnext.vhd:2964 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5015 |
+| MMU-PR-03 | slot_in_rom_area true at boundary NR 0x50 = 0xE0 (VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5026 |
+| MMU-PR-04 | slot_in_rom_area false at NR 0x50 = 0xDF (just below VHDL zxnext.vhd:2964 boundary) | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5038 |
+| MMU-PR-05 | pre_override(2)=0 for PC>=0x4000 (cpu_a(15:14)!=00) — VHDL zxnext.vhd:3029,3065 | zxnext.vhd:3029,3065 | pass | test/mmu/mmu_test.cpp:5048 |
+| PR-06 | pre_override(2)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 — MF wins, override='000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5058 |
+| PR-07 | pre_override(2)=1 for PC<0x4000 with mf_active=0 — VHDL zxnext.vhd:3043,3050,3057 | zxnext.vhd:3043,3050,3057 | pass | test/mmu/mmu_test.cpp:5068 |
+| PR-08 | pre_override(0)=1 in normal ROM mode (VHDL zxnext.vhd:3057 → '111') | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5082 |
+| PR-09 | pre_override(0)=0 when config_mode=1 (VHDL zxnext.vhd:3044,3050) | zxnext.vhd:3044,3050 | pass | test/mmu/mmu_test.cpp:5093 |
+| PR-10 | pre_override(0)=0 for slot 0 RAM-mapped (VHDL zxnext.vhd:3037,3043) | zxnext.vhd:3037,3043 | pass | test/mmu/mmu_test.cpp:5105 |
+| PR-11 | pre_override(0)=0 when mf_active=1 (VHDL zxnext.vhd:3030,3036 → '000') | zxnext.vhd:3030,3036 | pass | test/mmu/mmu_test.cpp:5115 |
+| PR-12 | pre_override(0)=0 for PC>=0x4000 — VHDL zxnext.vhd:3065 | zxnext.vhd:3065 | pass | test/mmu/mmu_test.cpp:5125 |
+| PR-13 | pre_override(0)=1 in slot 1 (PC=0x2000) with NR 0x51=0xFF — VHDL zxnext.vhd:3057 | zxnext.vhd:3057 | pass | test/mmu/mmu_test.cpp:5137 |
+| PR-14 | pre_override(0) tracks per-slot ROM/RAM mode (VHDL zxnext.vhd:2952 mem_active_page selects MMU0..MMU7 by cpu_a(15:13)) | zxnext.vhd:2952 | pass | test/mmu/mmu_test.cpp:5156 |
+| FIX-NR5xFF-01 | NR $51=$FF (engage_legacy_rom_paging_slot(1)) preserves slot 0 RAM mapping — VHDL zxnext.vhd:4686-4696 nr_mmu_we per-slot | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5201 |
+| FIX-NR5xFF-02 | NR $52=$FF → slot 2 inactive: read returns 0xFF, write dropped (VHDL zxnext.vhd:3061 sram_pre_active=0 when mmu_A21_A13(8)=1) | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5226 |
+| FIX-NR5xFF-03 | NR $56=$FF → slot 6 inactive (NOT legacy RAM auto-paged) — VHDL zxnext.vhd:3061 sram_pre_active=0 | zxnext.vhd:3061 | pass | test/mmu/mmu_test.cpp:5246 |
+| FIX-PLUS3-01 | +3 special-mode 1→0 transition reverts slots 2-5 to bank 5 / bank 2 — VHDL zxnext.vhd:4655-4670 | zxnext.vhd:4655-4670 | pass | test/mmu/mmu_test.cpp:5283 |
+| FIX-PLUS3-02 | +3 special: port_7FFD write does NOT clobber special table — VHDL zxnext.vhd:4623 (arbiter rewrites 0..7) | zxnext.vhd:4623 | pass | test/mmu/mmu_test.cpp:5313 |
+| FIX-PLUS3-03 | port_1ffd_special_old persisted across save/load — exit after load fires slot 2-5 revert (VHDL :3716,3729; commit 45d8b30) | zxnext.vhd:3716/3729 | pass | test/mmu/mmu_test.cpp:5347 |
+| FIX-NR8C-CACHE-01 | NR 0x8C lock_rom1 flip refreshes slot-0 cached read pointer (pre→0x00, post→0x40) — VHDL zxnext.vhd:2981-3008,3052; commit 3dd4e73 | zxnext.vhd:2981-3008,3052 | pass | test/mmu/mmu_test.cpp:5398 |
+| FIX-NR8C-CACHE-02 | NR 0x8C write with no lock change preserves slot 0 RAM mapping AND cached read pointer — VHDL zxnext.vhd:3813 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5450 |
+| FIX-SLOT01-HIPAGE-01 | NR $50=0xE5 routes slot 0 to legacy ROM (sram_rom-derived) — VHDL zxnext.vhd:2964 mmu_A21_A13(8)=1 + :3052; commit 3dd4e73 | zxnext.vhd:2964 | pass | test/mmu/mmu_test.cpp:5497 |
+| FIX-UNLOCK-01 | unlock_paging() clears bit 5 of port_7ffd_ AND paging_locked_ — VHDL zxnext.vhd:3654-3656; commit 31d1786 | zxnext.vhd:3654-3656 | pass | test/mmu/mmu_test.cpp:5526 |
+| FIX-NR8C-PRESERVE-01 | NR 0x8C write preserves slot 0 explicit RAM mapping — VHDL zxnext.vhd:3813 no port_memory_change_dly; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5554 |
+| FIX-NR8C-PRESERVE-02 | NR 0x8C with sram_rom-changing lock preserves slot 1 RAM mapping — VHDL zxnext.vhd:3813; commit 31d1786 | zxnext.vhd:3813 | pass | test/mmu/mmu_test.cpp:5573 |
+| FIX-EFF7-FF-01 | NR $50=$FF under EFF7(3)=1: nr_mmu_[0]=0xFF verbatim, slot 0 → legacy ROM (not RAM) — VHDL :4686-4696 nr_mmu_we; commits 31d1786 + 560cb18 | zxnext.vhd:4686-4696 | pass | test/mmu/mmu_test.cpp:5606 |
+| FIX-NRMMU-SAVE-01 | nr_mmu_[0]=0xE5 verbatim round-trips through save/load — VHDL zxnext.vhd:4686-4696 + :6059-6081 NR readback; commit 560cb18 | zxnext.vhd:4686-4696,6059-6081 | pass | test/mmu/mmu_test.cpp:5646 |
+| FIX-NR12-PROP-01 | Mmu::set_l2_active_bank propagates to CPU L2 read path — VHDL zxnext.vhd:2968 + :2969 layer2_active_page; commit 560cb18 | zxnext.vhd:2968,2969 | pass | test/mmu/mmu_test.cpp:5680 |
+| FIX-RESET-CFG-01-A | reset with config_mode=0 leaves boot_rom_en cleared — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5711 |
+| FIX-RESET-CFG-01-B | reset with config_mode=1 re-arms boot_rom_en — VHDL zxnext.vhd:5109-5111; commit 165835d | zxnext.vhd:5109-5111 | pass | test/mmu/mmu_test.cpp:5729 |
+| FIX-MTC-SPECIAL-01 | set_machine_type during +3 special preserves special-mapping slots 0/1 — VHDL zxnext.vhd:4623-4632 (table independent of sram_rom); commit 165835d | zxnext.vhd:4623-4632 | pass | test/mmu/mmu_test.cpp:5762 |
+| FIX-CURRSRAMROM-128K-01 | 128K with lock_rom1=1: sram_rom = lock_rom1 = 1 (NOT 7ffd(4)=0) — VHDL zxnext.vhd:2997-3007 shared else branch; commit b6b42dd | zxnext.vhd:2997-3007 | pass | test/mmu/mmu_test.cpp:5792 |
+| FIX-L2-OVERLAY-LOWHALF-01 | L2 write-over with seg=01 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043 sram_pre_override(1)=1; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:5825 |
+| FIX-L2-OVERLAY-LOWHALF-02 | L2 write-over with seg=10 still intercepts low half (0x0000) — VHDL zxnext.vhd:3043; commit b6b42dd | zxnext.vhd:3043 | pass | test/mmu/mmu_test.cpp:5845 |
+| FIX-L2-ROM-AREA-01 | L2 read with bank=0x70 → sram_active=0 → 0xFF (NOT ROM-area wrap) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:5875 |
+| FIX-L2-ROM-AREA-02 | L2 write with bank=0x70 → sram_active=0 → write dropped (NOT corrupting ROM area) — VHDL zxnext.vhd:2971 + :3101-3102; commit 9d252b6 | zxnext.vhd:2971,3101-3102 | pass | test/mmu/mmu_test.cpp:5904 |
+| V11-MEM-01-A | NR $50=0xE5 + save_state + load_state: rebuild_ptr serves legacy ROM (sram_rom*2+slot=0) via consistent slots_[] — VHDL zxnext.vhd:3037-3057 :3052; verify11-memory | zxnext.vhd:3037-3057 | pass | test/mmu/mmu_test.cpp:5996 |
 
 ## ULA Video — `test/ula/ula_test.cpp`
 
@@ -459,20 +453,16 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | S9-PSL.02 | zxula.vhd:192,206 — NR 0x27 mid-frame split: line32→row0(white) line33→row2(black) | zxula.vhd:192,206 | pass | test/ula/ula_test.cpp:3178 |
 | S9-PSL.03 | zxula.vhd:199 — NR 0x68 b2 fine_scroll mid-frame flip per line | zxula.vhd:199 | pass | test/ula/ula_test.cpp:3218 |
 | S9-PSL.04 | zxula.vhd:193-207 — start_frame_scroll clears log and snapshots baseline | zxula.vhd:193-207 | pass | test/ula/ula_test.cpp:3249 |
-| S17.01 | zxnext.vhd:5391-5393 — NR 0x43 b1-3 selector change-log captures per-line snapshots | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3762 |
-| S17.02 | zxnext.vhd:5462 + :6826 — NR 0x6B b4 mid-frame flip lands on the correct scanline | zxnext.vhd:5462,6826 | pass | test/ula/ula_test.cpp:3792 |
-| S17.03 | zxnext.vhd:5391-5393 vs :5462 — NR 0x43 / NR 0x6B b4 are independent change-streams | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3834 |
-| S17.04 | zxnext.vhd:5391-5393 + :5462 — palsel_start_frame clears logs and snapshots baseline from live state | zxnext.vhd:5391-5393,5462 | pass | test/ula/ula_test.cpp:3874 |
-| S18.01 | zxula.vhd:191 — STANDARD dump is 6912 bytes: 6144 pixels @ +0x0000 then 768 attrs @ +0x1800 | zxula.vhd:191 | pass | test/ula/ula_test.cpp:3462 |
-| S18.02 | zxula.vhd:218 — port 0xFF mode 001 dumps the alt file: 6912 bytes from +0x2000 / +0x3800 | zxula.vhd:218 | pass | test/ula/ula_test.cpp:3485 |
-| S18.03 | zxula.vhd:235/245 — hi-colour dumps both fetched planes: 12288 bytes, +0x0000 then +0x2000 | zxula.vhd:235/245 | pass | test/ula/ula_test.cpp:3508 |
-| S18.04 | zxula.vhd:389 — hi-res dumps the even and odd pixel planes: 12288 bytes, +0x0000 then +0x2000 | zxula.vhd:389 | pass | test/ula/ula_test.cpp:3529 |
-| S18.05 | zxnext.vhd:6649-6656 — the 0x7FFD b3 shadow bit alone moves the dump to bank 7 | zxnext.vhd:6649-6656 | pass | test/ula/ula_test.cpp:3550 |
-| S18.06 | zxula.vhd:191 — i_ula_shadow_en forces screen_mode to "000", so a shadow dump is 6912 bytes even in hi-colour | zxula.vhd:191 | pass | test/ula/ula_test.cpp:3574 |
-| S13.03 | Pentagon frame length | — | missing | — |
-| S14.04 | Interrupt disabled | — | missing | — |
-| S14.05 | Line interrupt fires | — | missing | — |
-| S14.06 | Line interrupt 0 = last line | — | missing | — |
+| S17.01 | zxnext.vhd:5391-5393 — NR 0x43 b1-3 selector change-log captures per-line snapshots | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3800 |
+| S17.02 | zxnext.vhd:5462 + :6826 — NR 0x6B b4 mid-frame flip lands on the correct scanline | zxnext.vhd:5462,6826 | pass | test/ula/ula_test.cpp:3830 |
+| S17.03 | zxnext.vhd:5391-5393 vs :5462 — NR 0x43 / NR 0x6B b4 are independent change-streams | zxnext.vhd:5391-5393 | pass | test/ula/ula_test.cpp:3872 |
+| S17.04 | zxnext.vhd:5391-5393 + :5462 — palsel_start_frame clears logs and snapshots baseline from live state | zxnext.vhd:5391-5393,5462 | pass | test/ula/ula_test.cpp:3912 |
+| S18.01 | zxula.vhd:191 — STANDARD dump is 6912 bytes: 6144 pixels @ +0x0000 then 768 attrs @ +0x1800 | zxula.vhd:191 | pass | test/ula/ula_test.cpp:3500 |
+| S18.02 | zxula.vhd:218 — port 0xFF mode 001 dumps the alt file: 6912 bytes from +0x2000 / +0x3800 | zxula.vhd:218 | pass | test/ula/ula_test.cpp:3523 |
+| S18.03 | zxula.vhd:235/245 — hi-colour dumps both fetched planes: 12288 bytes, +0x0000 then +0x2000 | zxula.vhd:235/245 | pass | test/ula/ula_test.cpp:3546 |
+| S18.04 | zxula.vhd:389 — hi-res dumps the even and odd pixel planes: 12288 bytes, +0x0000 then +0x2000 | zxula.vhd:389 | pass | test/ula/ula_test.cpp:3567 |
+| S18.05 | zxnext.vhd:6649-6656 — the 0x7FFD b3 shadow bit alone moves the dump to bank 7 | zxnext.vhd:6649-6656 | pass | test/ula/ula_test.cpp:3588 |
+| S18.06 | zxula.vhd:191 — i_ula_shadow_en forces screen_mode to "000", so a shadow dump is 6912 bytes even in hi-colour | zxula.vhd:191 | pass | test/ula/ula_test.cpp:3612 |
 | S1.01 | zxula.vhd:218-263 — VHDL pixel/attr vram_a formula | zxula.vhd:218-263 | pass | test/ula/ula_test.cpp:215 |
 | S1.02 | zxula.vhd:218-263 — VHDL pixel/attr vram_a formula | zxula.vhd:218-263 | pass | test/ula/ula_test.cpp:216 |
 | S1.03 | zxula.vhd:218-263 — VHDL pixel/attr vram_a formula | zxula.vhd:218-263 | pass | test/ula/ula_test.cpp:217 |
@@ -584,11 +574,12 @@ Notes and rationale: [ULA-VIDEO-TEST-PLAN-DESIGN.md](ULA-VIDEO-TEST-PLAN-DESIGN.
 | S12.01 | zxnext.vhd:5445 — reset default nr_68_ula_en=1 (ULA enabled) | zxnext.vhd:5445 | pass | test/ula/ula_test.cpp:3303 |
 | S13.01 | zxula_timing.vhd — 48K c_max_hc=447, c_max_vc=311 → 448*312/2 = 69888 T-states | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3335 |
 | S13.02 | zxula_timing.vhd — 128K c_max_hc=455, c_max_vc=310 → 456*311/2 = 70908 T-states | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3345 |
-| S13.04 | zxula_timing.vhd — 48K min_hactive=128, min_vactive=64 → display origin (128,64) 256x192 | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3356 |
-| S13.14 | zxula_timing.vhd — frame_done flips exactly at 69888 T-states (48K) | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3385 |
-| S15.01 | zxnext.vhd:4453 — primary render reads bank 5 (page 10) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3597 |
-| S15.02 | zxnext.vhd:4453 — i_ula_shadow_en selects bank 7 (page 14) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3616 |
-| S16.01 | zxnext.vhd:6957-6958/4919 — NR 0xFF poke at (bank=NR0x43b6, idx=bf3b[5:0]) commits RRRGGGBBB(B0=B1\|B0) | zxnext.vhd:6957-6958/4919 | pass | test/ula/ula_test.cpp:3703 |
+| S13.03 | zxula_timing.vhd:160,168 — Pentagon c_max_hc=447, c_max_vc=319 → 448*320/2 = 71680 T-states | zxula_timing.vhd:160,168 | pass | test/ula/ula_test.cpp:3365 |
+| S13.04 | zxula_timing.vhd — 48K min_hactive=128, min_vactive=64 → display origin (128,64) 256x192 | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3373 |
+| S13.14 | zxula_timing.vhd — frame_done flips exactly at 69888 T-states (48K) | zxula_timing.vhd | pass | test/ula/ula_test.cpp:3402 |
+| S15.01 | zxnext.vhd:4453 — primary render reads bank 5 (page 10) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3635 |
+| S15.02 | zxnext.vhd:4453 — i_ula_shadow_en selects bank 7 (page 14) VRAM | zxnext.vhd:4453 | pass | test/ula/ula_test.cpp:3654 |
+| S16.01 | zxnext.vhd:6957-6958/4919 — NR 0xFF poke at (bank=NR0x43b6, idx=bf3b[5:0]) commits RRRGGGBBB(B0=B1\|B0) | zxnext.vhd:6957-6958/4919 | pass | test/ula/ula_test.cpp:3741 |
 
 ## Layer2 — `test/layer2/layer2_test.cpp`
 
@@ -1769,170 +1760,162 @@ Notes and rationale: [DMA-TEST-PLAN-DESIGN.md](DMA-TEST-PLAN-DESIGN.md).
 | 1.2 | Write 0x0B latches Z80 mode: counter=0xFFFF on LOAD | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:184 |
 | 1.3 | Subsequent 0x6B access latches ZXN: CONTINUE counter=0 | dma.vhd:673-674 | pass | test/dma/dma_test.cpp:198 |
 | 1.4 | Subsequent 0x0B access latches Z80: CONTINUE counter=0xFFFF | dma.vhd:675-676 | pass | test/dma/dma_test.cpp:209 |
-| 1.5 | Mode defaults to ZXN (0) on reset | — | missing | — |
-| 1.6 | Mode re-latched on each port access | dma.vhd:664-668 | pass | test/dma/dma_test.cpp:226 |
-| 2.1 | R0 bit2=1 dir A->B: src=portA, dst=portB | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:254 |
-| 2.2 | R0 bit2=0 dir B->A: src=portB, dst=portA | dma.vhd:659-662 | pass | test/dma/dma_test.cpp:270 |
-| 2.3 | R0 addr LO sub-byte only | dma.vhd:739 | pass | test/dma/dma_test.cpp:283 |
-| 2.4 | R0 addr HI sub-byte | dma.vhd:752 | pass | test/dma/dma_test.cpp:296 |
-| 2.5 | R0 full 16-bit port A address | dma.vhd:739,752 | pass | test/dma/dma_test.cpp:310 |
-| 2.6 | R0 block length LO sub-byte | dma.vhd:763 | pass | test/dma/dma_test.cpp:322 |
-| 2.7 | R0 block length HI sub-byte | dma.vhd:772 | pass | test/dma/dma_test.cpp:335 |
-| 2.8 | R0 selective re-program: only addr LO updated | dma.vhd:518-538 | pass | test/dma/dma_test.cpp:351 |
-| 3.1 | R1 bit3=0: portA reads memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:380 |
-| 3.2 | R1 bit3=1: portA reads I/O | dma.vhd:542 | pass | test/dma/dma_test.cpp:399 |
-| 3.3 | R1 addr mode 01 = increment | dma.vhd:543 | pass | test/dma/dma_test.cpp:409 |
-| 3.4 | R1 addr mode 00 = decrement | dma.vhd:543 | pass | test/dma/dma_test.cpp:418 |
-| 3.5 | R1 addr mode 10 = fixed | dma.vhd:543 | pass | test/dma/dma_test.cpp:427 |
-| 3.6 | R1 timing byte stored (00/01/10/11) | dma.vhd:776 | pass | test/dma/dma_test.cpp:440 |
-| 4.1 | R2 bit3=0: portB writes memory | dma.vhd:559 | pass | test/dma/dma_test.cpp:465 |
-| 4.2 | R2 bit3=1: portB writes I/O | dma.vhd:559 | pass | test/dma/dma_test.cpp:484 |
-| 4.3 | R2 addr mode 01 = increment | dma.vhd:560 | pass | test/dma/dma_test.cpp:494 |
-| 4.4 | R2 addr mode 00 = decrement | dma.vhd:560 | pass | test/dma/dma_test.cpp:503 |
-| 4.5 | R2 addr mode 10 = fixed | dma.vhd:560 | pass | test/dma/dma_test.cpp:512 |
-| 4.6 | R2 timing byte stored (00/01/10/11) | dma.vhd:790 | pass | test/dma/dma_test.cpp:525 |
-| 4.7 | R2 prescaler sub-byte consumed; sequencer returns to IDLE | dma.vhd:799 | pass | test/dma/dma_test.cpp:547 |
-| 4.8 | Prescaler=0 default: full block in one burst (no wait) | dma.vhd:424 | pass | test/dma/dma_test.cpp:561 |
-| 5.1 | R3 bit6=1 -> TRANSFERRING | dma.vhd:576-579 | pass | test/dma/dma_test.cpp:583 |
-| 5.2 | R3 bit6=0 -> IDLE | dma.vhd:576 | pass | test/dma/dma_test.cpp:592 |
-| 5.3 | R3 mask sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:606 |
-| 5.4 | R3 match sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:621 |
-| 6.1 | R4 mode 00 = byte | dma.vhd:601 | pass | test/dma/dma_test.cpp:644 |
-| 6.2 | R4 mode 01 = continuous | dma.vhd:601 | pass | test/dma/dma_test.cpp:653 |
-| 6.3 | R4 mode 10 = burst | dma.vhd:601 | pass | test/dma/dma_test.cpp:662 |
-| 6.4 | Reset default R4 mode = continuous | dma.vhd:236 | pass | test/dma/dma_test.cpp:671 |
-| 6.5 | R4 portB addr LO sub-byte | dma.vhd:816 | pass | test/dma/dma_test.cpp:686 |
-| 6.6 | R4 portB addr HI sub-byte | dma.vhd:827 | pass | test/dma/dma_test.cpp:702 |
-| 6.7 | R4 full 16-bit port B address | dma.vhd:816,827 | pass | test/dma/dma_test.cpp:716 |
-| 6.8 | R4 mode 11 stored as raw value 3 (no VHDL special case) | dma.vhd:601 | pass | test/dma/dma_test.cpp:732 |
-| 7.1 | R5 auto-restart: state=TRANSFERRING and addrs reloaded | dma.vhd:473-491 | pass | test/dma/dma_test.cpp:760 |
-| 7.2 | R5 auto-restart off (default): state=IDLE after block | dma.vhd:238,494 | pass | test/dma/dma_test.cpp:774 |
-| 7.3 | CE/WAIT mux bit | — | missing | — |
-| 7.4 | R5 defaults on reset | — | missing | — |
-| 8.1 | 0xC3 RESET: state=IDLE | dma.vhd:638 | pass | test/dma/dma_test.cpp:813 |
-| 8.2 | 0xC7 resets port A timing to 01 | dma.vhd:648 | pass | test/dma/dma_test.cpp:823 |
-| 8.3 | 0xCB resets port B timing to 01 | dma.vhd:651 | pass | test/dma/dma_test.cpp:834 |
-| 8.4 | LOAD clears status_endofblock_n (bit5=1) | dma.vhd:654 | pass | test/dma/dma_test.cpp:849 |
-| 8.5 | LOAD A->B: src=0x1234, dst=0x5678 | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:863 |
-| 8.6 | LOAD B->A: src=0x5678, dst=0x1234 | dma.vhd:660-662 | pass | test/dma/dma_test.cpp:878 |
-| 8.7 | LOAD ZXN: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:889 |
-| 8.8 | LOAD Z80: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:899 |
-| 8.9 | CONTINUE: counter reset, addrs preserved | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:913 |
-| 8.10 | CONTINUE ZXN: counter=0 | dma.vhd:673-674 | pass | test/dma/dma_test.cpp:925 |
-| 8.11 | CONTINUE Z80: counter=0xFFFF | dma.vhd:675-676 | pass | test/dma/dma_test.cpp:935 |
-| 8.12 | ENABLE -> TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:944 |
-| 8.13 | DISABLE -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:954 |
-| 8.14 | 0x8B status reinit: byte = 0x3A | dma.vhd:691-692,902 | pass | test/dma/dma_test.cpp:971 |
-| 8.15 | 0xBB mask=0x01: read sequence locked to status | dma.vhd:731,859-860 | pass | test/dma/dma_test.cpp:987 |
-| 8.16 | 0xBF forces next read = status byte | dma.vhd:696-699 | pass | test/dma/dma_test.cpp:1003 |
-| 9.1 | A->B inc both, 4 bytes copied in order | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1026 |
-| 9.2 | B->A inc both, 4 bytes copied portB->portA | dma.vhd:660-662,389-391 | pass | test/dma/dma_test.cpp:1046 |
-| 9.3 | A->B src decrement: reads walk backwards | dma.vhd:384-387 | pass | test/dma/dma_test.cpp:1067 |
-| 9.4 | A->B fixed src: identical bytes written N times | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1088 |
-| 9.5 | A->B fixed dst: last byte remains in single slot | dma.vhd:389-396 | pass | test/dma/dma_test.cpp:1107 |
-| 9.6 | Block length = 1 transfers 1 byte (ZXN) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1121 |
-| 9.7 | Block length = 256 transfers 256 bytes | dma.vhd:426 | pass | test/dma/dma_test.cpp:1135 |
-| 9.8 | Block length = 0 transfers 1 byte (ZXN) | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:1152 |
-| 10.1 | Mem->IO A inc, B fixed: last byte at fixed IO port | dma.vhd:559 | pass | test/dma/dma_test.cpp:1183 |
-| 10.2 | Mem->IO A inc, B inc: 3 consecutive IO ports written | dma.vhd:559,389-391 | pass | test/dma/dma_test.cpp:1202 |
-| 10.3 | Mem->IO: read phase asserts MREQ (mem callback), write phase asserts IORQ (io callback) | dma.vhd:186-190,290-296 | pass | test/dma/dma_test.cpp:1233 |
-| 10.4 | IO->Mem: byte arrives from IO to memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:1256 |
-| 10.5 | IO->IO: single byte arrives at destination IO port | dma.vhd:542,559 | pass | test/dma/dma_test.cpp:1275 |
-| 10.6 | IO port B delivered with full 16-bit address | dma.vhd:36 | pass | test/dma/dma_test.cpp:1295 |
-| 11.1 | Both inc A->B: src=0x8004 dst=0x9004 after 4 bytes | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1317 |
-| 11.2 | Both dec A->B: src=0x7FFF dst=0x8FFF after 4 bytes | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1336 |
-| 11.3 | Src inc, dst dec: dst walks backwards while src ascends | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1355 |
-| 11.4 | Src dec, dst fixed: dst=0x9000 holds last source byte (0x20) | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1375 |
-| 11.5 | Both fixed: addresses unchanged after transfer | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1395 |
-| 11.6 | Src wraps 0xFFFF -> 0x0000 (16-bit address) | dma.vhd:36,381 | pass | test/dma/dma_test.cpp:1416 |
-| 12.1 | Continuous: whole block in one execute_burst | dma.vhd:426-430,601 | pass | test/dma/dma_test.cpp:1442 |
-| 12.2 | Burst prescaler=0: 1 byte per execute_burst | dma.vhd:424 | pass | test/dma/dma_test.cpp:1465 |
-| 12.3 | Burst prescaler>0: is_active() false during wait | dma.vhd:424-425 | pass | test/dma/dma_test.cpp:1487 |
-| 12.4 | Burst WAITING_CYCLES: cpu_busreq_n deasserted (bus released) | dma.vhd:445 | pass | test/dma/dma_test.cpp:1510 |
-| 12.5 | After prescaler expires: cpu_busreq_n re-asserted | dma.vhd:451-460 | pass | test/dma/dma_test.cpp:1535 |
-| 12.6 | R4 mode=00 transfers full block_len bytes (VHDL dma.vhd:426 block-length check is mode-agnostic) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1562 |
-| 12.7 | Continuous+prescaler: one byte then wait (TRANSFERRING) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1594 |
-| 12.8 | Prescaler vs timer scales with turbo_i (8x clocks at 28MHz) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1613 |
-| 13.1 | Prescaler=0: no WAITING_CYCLES (runs to IDLE) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1645 |
-| 13.2 | turbo=00 (3.5MHz): timer += 8 per clock | dma.vhd:251 | pass | test/dma/dma_test.cpp:1657 |
-| 13.3 | turbo=01 (7MHz): timer += 4 per clock | dma.vhd:252 | pass | test/dma/dma_test.cpp:1668 |
-| 13.4 | turbo=10 (14MHz): timer += 2 per clock | dma.vhd:253 | pass | test/dma/dma_test.cpp:1679 |
-| 13.5 | turbo=11 (28MHz): timer += 1 per clock | dma.vhd:254 | pass | test/dma/dma_test.cpp:1690 |
-| 13.6 | Prescaler comparison uses timer bits(13:5) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1704 |
-| 13.7 | turbo=10 (14MHz): source byte latched on rising edge of `dma_d_p_s | dma.vhd:172-181, dma.vhd:166-170 | missing | — |
-| 13.8 | turbo=10 (14MHz): rd_n / wr_n strobes extended across READ_4/WRITE_4 | dma.vhd:158,160-161 | missing | — |
-| 14.1 | ZXN LOAD: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:1762 |
-| 14.2 | Z80 LOAD: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:1771 |
-| 14.3 | ZXN: counter=N after N-byte block | dma.vhd:361 | pass | test/dma/dma_test.cpp:1783 |
-| 14.4 | ZXN block_len=5: 5 bytes transferred | dma.vhd:426 | pass | test/dma/dma_test.cpp:1795 |
-| 14.5 | Z80 block_len=5: 6 bytes (block_len+1) | dma.vhd:426,666-667 | pass | test/dma/dma_test.cpp:1810 |
-| 14.6 | ZXN block_len=0: 1 byte transferred | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:1825 |
-| 14.7 | Z80 block_len=0: 1 byte transferred | dma.vhd:361,426,667 | pass | test/dma/dma_test.cpp:1837 |
-| 14.8 | Counter readback = 5 after 5-byte block | dma.vhd:933-947 | pass | test/dma/dma_test.cpp:1855 |
-| 15.1 | TRANSFER: cpu_busreq_n asserted (false) | dma.vhd:278 | pass | test/dma/dma_test.cpp:1878 |
-| 15.2 | WAITING_ACK gates transfer on cpu_bai_n | dma.vhd:296 | pass | test/dma/dma_test.cpp:1894 |
-| 15.3 | IDLE: cpu_busreq_n deasserted (true) | dma.vhd:225,262 | pass | test/dma/dma_test.cpp:1903 |
-| 15.4 | bus_busreq_n=0 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1917 |
-| 15.5 | daisy_busy=true at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1931 |
-| 15.6 | dma_delay=1 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1944 |
-| 15.7 | dma_holds_bus=true while transferring | zxnext.vhd | pass | test/dma/dma_test.cpp:1957 |
-| 15.8 | DMA cannot self-program | — | missing | — |
-| 16.1 | Auto-restart: src/dst reloaded to 0x8000/0x9000 | dma.vhd:473-481 | pass | test/dma/dma_test.cpp:1986 |
-| 16.2 | Auto-restart ZXN: counter reloaded to 0 | dma.vhd:482-486 | pass | test/dma/dma_test.cpp:1999 |
-| 16.3 | Auto-restart A->B reload uses R0 as src, R4 as dst | dma.vhd:474-476 | pass | test/dma/dma_test.cpp:2012 |
-| 16.4 | Auto-restart B->A reload: src=portB, dst=portA | dma.vhd:478-479 | pass | test/dma/dma_test.cpp:2031 |
-| 16.5 | CONTINUE preserves src/dst | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:2045 |
-| 16.6 | LOAD restores start addrs; CONTINUE keeps current addrs | dma.vhd:656-662 | pass | test/dma/dma_test.cpp:2065 |
-| 17.1 | Status bits [4:1] = 1101 | dma.vhd:902 | pass | test/dma/dma_test.cpp:2089 |
-| 17.2 | Initial endofblock_n = 1 (bit5 set) | dma.vhd:242 | pass | test/dma/dma_test.cpp:2100 |
-| 17.3 | After block: endofblock_n = 0 (bit5 clear) | dma.vhd:471 | pass | test/dma/dma_test.cpp:2113 |
-| 17.4 | After 1 byte: atleastone = 1 (bit0 set) | dma.vhd:412 | pass | test/dma/dma_test.cpp:2126 |
-| 17.5 | 0x8B reinit: status = 0x3A | dma.vhd:691-692 | pass | test/dma/dma_test.cpp:2140 |
-| 17.6 | 0xC3 reset: status = 0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2154 |
-| 17.7 | Default mask 0x7F: 7-field cycle then wrap | dma.vhd:239 | pass | test/dma/dma_test.cpp:2178 |
-| 17.8 | Read sequence advances mask bits 0..6 in order | dma.vhd:902-922 | pass | test/dma/dma_test.cpp:2197 |
-| 17.9 | Mask 0x07: 3 fields (status, cnt LO/HI) then wrap | dma.vhd:696-717 | pass | test/dma/dma_test.cpp:2215 |
-| 17.10 | Mask with two bits: wraps after last enabled field | dma.vhd:919-922 | pass | test/dma/dma_test.cpp:2236 |
-| 18.1 | Read field: status byte | dma.vhd:902 | pass | test/dma/dma_test.cpp:2274 |
-| 18.2 | Read field: counter LO = 0x00 (ZXN just LOADed) | dma.vhd:933 | pass | test/dma/dma_test.cpp:2284 |
-| 18.3 | Read field: counter HI = 0x00 (ZXN just LOADed) | dma.vhd:935 | pass | test/dma/dma_test.cpp:2294 |
-| 18.4 | Read field: portA LO = src LO (0x34) under A->B | dma.vhd:910-912 | pass | test/dma/dma_test.cpp:2305 |
-| 18.5 | Read field: portA HI = src HI (0x12) under A->B | dma.vhd:913-915 | pass | test/dma/dma_test.cpp:2315 |
-| 18.6 | Read field: portB LO = dst LO (0x78) under A->B | dma.vhd:916-918 | pass | test/dma/dma_test.cpp:2325 |
-| 18.7 | Read field: portB HI = dst HI (0x56) under A->B | dma.vhd:919-921 | pass | test/dma/dma_test.cpp:2335 |
-| 18.8 | B->A: portA reads dst, portB reads src | dma.vhd:910-921 | pass | test/dma/dma_test.cpp:2350 |
-| 19.1 | Hardware reset defaults | dma.vhd:213-242 | pass | test/dma/dma_test.cpp:2378 |
-| 19.2 | 0xC3 soft reset: state=IDLE and status=0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2396 |
-| 19.3 | 0xC3 preserves R0 and R4 start addresses | dma.vhd:638-645 | pass | test/dma/dma_test.cpp:2414 |
-| 19.4 | 0xC3 resets both port timings to 01 | dma.vhd:641-642 | pass | test/dma/dma_test.cpp:2426 |
-| 19.5 | 0xC3 resets prescaler: transfer runs to IDLE in one burst | dma.vhd:643 | pass | test/dma/dma_test.cpp:2443 |
-| 19.6 | 0xC3 clears auto-restart: transfer ends at IDLE | dma.vhd:645 | pass | test/dma/dma_test.cpp:2457 |
-| 20.1 | dma_delay=1 blocks START_DMA; deasserting proceeds | dma.vhd:269 | pass | test/dma/dma_test.cpp:2483 |
-| 20.2 | dma_delay mid-transfer: cpu_busreq_n released | dma.vhd:427-428 | pass | test/dma/dma_test.cpp:2499 |
-| 20.3 | IM2 DMA interrupt enable regs | — | missing | — |
-| 20.4 | DMA delay signal composition | — | missing | — |
-| 21.1 | Timing 00 -> 4 cycles | dma.vhd:313 | pass | test/dma/dma_test.cpp:2534 |
-| 21.2 | Timing 01 -> 3 cycles | dma.vhd:314 | pass | test/dma/dma_test.cpp:2542 |
-| 21.3 | Timing 10 -> 2 cycles | dma.vhd:315 | pass | test/dma/dma_test.cpp:2550 |
-| 21.4 | Timing 11 -> 4 cycles (when others) | dma.vhd:316 | pass | test/dma/dma_test.cpp:2558 |
-| 21.5 | Read timing selects R1 (A->B) vs R2 (B->A) | dma.vhd:311 | pass | test/dma/dma_test.cpp:2574 |
-| 21.6 | Write timing selects R2 (A->B) vs R1 (B->A) | dma.vhd:371 | pass | test/dma/dma_test.cpp:2588 |
-| 22.1 | DISABLE mid-transfer -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:2610 |
-| 22.2 | ENABLE without LOAD: state=TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:2621 |
-| 22.3 | Multiple LOADs: last values used | dma.vhd:656-668 | pass | test/dma/dma_test.cpp:2640 |
-| 22.4 | CONTINUE during auto-restart: counter reset, addrs kept | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:2658 |
-| 22.5 | R1 base byte does not update R0 direction | dma.vhd:542 | pass | test/dma/dma_test.cpp:2676 |
-| 22.6 | 0x00 matches R2 (dec), not R0 | dma.vhd:518-520,559 | pass | test/dma/dma_test.cpp:2689 |
-| 23.1 | Emulator::init failed (Next machine) | zxnext.vhd:1828-1835,1839,1844 | pass | test/dma/dma_test.cpp:2779 |
-| 23.2 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/dma/dma_test.cpp:2811 |
-| 23.3 | Emulator::init failed (Next machine) | zxnext.vhd | pass | test/dma/dma_test.cpp:2845 |
-| 23.4 | Wait hook: one call per source memory READ at the stepped source address; accumulator = 8 for an 8-byte mem->mem block — writes never wait (zxnext.vhd:3175 cpu_rd_n='0') | zxnext.vhd:3175, zxnext.vhd:3171-3181 | pass | test/dma/dma_test.cpp:2871 |
-| 23.5 | I/O-source block: the wait hook is never consulted — I/O reads assert IORQ, not MREQ; sram_memcycle needs cpu_mreq_n='0' (zxnext.vhd:3144) | zxnext.vhd:3144 | pass | test/dma/dma_test.cpp:2902 |
-| 23.6 | mem->I/O block: all 8 source memory reads wait; the I/O destination write is irrelevant to the read-side wait (zxnext.vhd:3144,3175) | zxnext.vhd:3144,3175 | pass | test/dma/dma_test.cpp:2934 |
-| 23.7 | Emulator::init failed (Next machine) | dma.vhd:267-269, zxnext.vhd:2001-2010 | pass | test/dma/dma_test.cpp:2993 |
-| GH230-08 | write_io still alive when Emulator::init() would reassign it mid-burst | — | pass | test/dma/dma_test.cpp:3160 |
-| GH230-09 | executing write_io reads its own capture after the reassignment | — | pass | test/dma/dma_test.cpp:3167 |
-| GH230-10 | the burst still delivered the byte to the I/O destination | — | pass | test/dma/dma_test.cpp:3172 |
+| 1.6 | Mode re-latched on each port access | dma.vhd:664-668 | pass | test/dma/dma_test.cpp:235 |
+| 2.1 | R0 bit2=1 dir A->B: src=portA, dst=portB | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:263 |
+| 2.2 | R0 bit2=0 dir B->A: src=portB, dst=portA | dma.vhd:659-662 | pass | test/dma/dma_test.cpp:279 |
+| 2.3 | R0 addr LO sub-byte only | dma.vhd:739 | pass | test/dma/dma_test.cpp:292 |
+| 2.4 | R0 addr HI sub-byte | dma.vhd:752 | pass | test/dma/dma_test.cpp:305 |
+| 2.5 | R0 full 16-bit port A address | dma.vhd:739,752 | pass | test/dma/dma_test.cpp:319 |
+| 2.6 | R0 block length LO sub-byte | dma.vhd:763 | pass | test/dma/dma_test.cpp:331 |
+| 2.7 | R0 block length HI sub-byte | dma.vhd:772 | pass | test/dma/dma_test.cpp:344 |
+| 2.8 | R0 selective re-program: only addr LO updated | dma.vhd:518-538 | pass | test/dma/dma_test.cpp:360 |
+| 3.1 | R1 bit3=0: portA reads memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:389 |
+| 3.2 | R1 bit3=1: portA reads I/O | dma.vhd:542 | pass | test/dma/dma_test.cpp:408 |
+| 3.3 | R1 addr mode 01 = increment | dma.vhd:543 | pass | test/dma/dma_test.cpp:418 |
+| 3.4 | R1 addr mode 00 = decrement | dma.vhd:543 | pass | test/dma/dma_test.cpp:427 |
+| 3.5 | R1 addr mode 10 = fixed | dma.vhd:543 | pass | test/dma/dma_test.cpp:436 |
+| 3.6 | R1 timing byte stored (00/01/10/11) | dma.vhd:776 | pass | test/dma/dma_test.cpp:449 |
+| 4.1 | R2 bit3=0: portB writes memory | dma.vhd:559 | pass | test/dma/dma_test.cpp:474 |
+| 4.2 | R2 bit3=1: portB writes I/O | dma.vhd:559 | pass | test/dma/dma_test.cpp:493 |
+| 4.3 | R2 addr mode 01 = increment | dma.vhd:560 | pass | test/dma/dma_test.cpp:503 |
+| 4.4 | R2 addr mode 00 = decrement | dma.vhd:560 | pass | test/dma/dma_test.cpp:512 |
+| 4.5 | R2 addr mode 10 = fixed | dma.vhd:560 | pass | test/dma/dma_test.cpp:521 |
+| 4.6 | R2 timing byte stored (00/01/10/11) | dma.vhd:790 | pass | test/dma/dma_test.cpp:534 |
+| 4.7 | R2 prescaler sub-byte consumed; sequencer returns to IDLE | dma.vhd:799 | pass | test/dma/dma_test.cpp:556 |
+| 4.8 | Prescaler=0 default: full block in one burst (no wait) | dma.vhd:424 | pass | test/dma/dma_test.cpp:570 |
+| 5.1 | R3 bit6=1 -> TRANSFERRING | dma.vhd:576-579 | pass | test/dma/dma_test.cpp:592 |
+| 5.2 | R3 bit6=0 -> IDLE | dma.vhd:576 | pass | test/dma/dma_test.cpp:601 |
+| 5.3 | R3 mask sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:615 |
+| 5.4 | R3 match sub-byte consumed; subsequent R0 still parsed | dma.vhd:576-582 | pass | test/dma/dma_test.cpp:630 |
+| 6.1 | R4 mode 00 = byte | dma.vhd:601 | pass | test/dma/dma_test.cpp:653 |
+| 6.2 | R4 mode 01 = continuous | dma.vhd:601 | pass | test/dma/dma_test.cpp:662 |
+| 6.3 | R4 mode 10 = burst | dma.vhd:601 | pass | test/dma/dma_test.cpp:671 |
+| 6.4 | Reset default R4 mode = continuous | dma.vhd:236 | pass | test/dma/dma_test.cpp:680 |
+| 6.5 | R4 portB addr LO sub-byte | dma.vhd:816 | pass | test/dma/dma_test.cpp:695 |
+| 6.6 | R4 portB addr HI sub-byte | dma.vhd:827 | pass | test/dma/dma_test.cpp:711 |
+| 6.7 | R4 full 16-bit port B address | dma.vhd:816,827 | pass | test/dma/dma_test.cpp:725 |
+| 6.8 | R4 mode 11 stored as raw value 3 (no VHDL special case) | dma.vhd:601 | pass | test/dma/dma_test.cpp:741 |
+| 7.1 | R5 auto-restart: state=TRANSFERRING and addrs reloaded | dma.vhd:473-491 | pass | test/dma/dma_test.cpp:769 |
+| 7.2 | R5 auto-restart off (default): state=IDLE after block | dma.vhd:238,494 | pass | test/dma/dma_test.cpp:783 |
+| 8.1 | 0xC3 RESET: state=IDLE | dma.vhd:638 | pass | test/dma/dma_test.cpp:822 |
+| 8.2 | 0xC7 resets port A timing to 01 | dma.vhd:648 | pass | test/dma/dma_test.cpp:832 |
+| 8.3 | 0xCB resets port B timing to 01 | dma.vhd:651 | pass | test/dma/dma_test.cpp:843 |
+| 8.4 | LOAD clears status_endofblock_n (bit5=1) | dma.vhd:654 | pass | test/dma/dma_test.cpp:858 |
+| 8.5 | LOAD A->B: src=0x1234, dst=0x5678 | dma.vhd:656-658 | pass | test/dma/dma_test.cpp:872 |
+| 8.6 | LOAD B->A: src=0x5678, dst=0x1234 | dma.vhd:660-662 | pass | test/dma/dma_test.cpp:887 |
+| 8.7 | LOAD ZXN: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:898 |
+| 8.8 | LOAD Z80: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:908 |
+| 8.9 | CONTINUE: counter reset, addrs preserved | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:922 |
+| 8.10 | CONTINUE ZXN: counter=0 | dma.vhd:673-674 | pass | test/dma/dma_test.cpp:934 |
+| 8.11 | CONTINUE Z80: counter=0xFFFF | dma.vhd:675-676 | pass | test/dma/dma_test.cpp:944 |
+| 8.12 | ENABLE -> TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:953 |
+| 8.13 | DISABLE -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:963 |
+| 8.14 | 0x8B status reinit: byte = 0x3A | dma.vhd:691-692,902 | pass | test/dma/dma_test.cpp:980 |
+| 8.15 | 0xBB mask=0x01: read sequence locked to status | dma.vhd:731,859-860 | pass | test/dma/dma_test.cpp:996 |
+| 8.16 | 0xBF forces next read = status byte | dma.vhd:696-699 | pass | test/dma/dma_test.cpp:1012 |
+| 9.1 | A->B inc both, 4 bytes copied in order | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1035 |
+| 9.2 | B->A inc both, 4 bytes copied portB->portA | dma.vhd:660-662,389-391 | pass | test/dma/dma_test.cpp:1055 |
+| 9.3 | A->B src decrement: reads walk backwards | dma.vhd:384-387 | pass | test/dma/dma_test.cpp:1076 |
+| 9.4 | A->B fixed src: identical bytes written N times | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1097 |
+| 9.5 | A->B fixed dst: last byte remains in single slot | dma.vhd:389-396 | pass | test/dma/dma_test.cpp:1116 |
+| 9.6 | Block length = 1 transfers 1 byte (ZXN) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1130 |
+| 9.7 | Block length = 256 transfers 256 bytes | dma.vhd:426 | pass | test/dma/dma_test.cpp:1144 |
+| 9.8 | Block length = 0 transfers 1 byte (ZXN) | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:1161 |
+| 10.1 | Mem->IO A inc, B fixed: last byte at fixed IO port | dma.vhd:559 | pass | test/dma/dma_test.cpp:1192 |
+| 10.2 | Mem->IO A inc, B inc: 3 consecutive IO ports written | dma.vhd:559,389-391 | pass | test/dma/dma_test.cpp:1211 |
+| 10.3 | Mem->IO: read phase asserts MREQ (mem callback), write phase asserts IORQ (io callback) | dma.vhd:186-190,290-296 | pass | test/dma/dma_test.cpp:1242 |
+| 10.4 | IO->Mem: byte arrives from IO to memory | dma.vhd:542 | pass | test/dma/dma_test.cpp:1265 |
+| 10.5 | IO->IO: single byte arrives at destination IO port | dma.vhd:542,559 | pass | test/dma/dma_test.cpp:1284 |
+| 10.6 | IO port B delivered with full 16-bit address | dma.vhd:36 | pass | test/dma/dma_test.cpp:1304 |
+| 11.1 | Both inc A->B: src=0x8004 dst=0x9004 after 4 bytes | dma.vhd:379-391 | pass | test/dma/dma_test.cpp:1326 |
+| 11.2 | Both dec A->B: src=0x7FFF dst=0x8FFF after 4 bytes | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1345 |
+| 11.3 | Src inc, dst dec: dst walks backwards while src ascends | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1364 |
+| 11.4 | Src dec, dst fixed: dst=0x9000 holds last source byte (0x20) | dma.vhd:384-396 | pass | test/dma/dma_test.cpp:1384 |
+| 11.5 | Both fixed: addresses unchanged after transfer | dma.vhd:379-396 | pass | test/dma/dma_test.cpp:1404 |
+| 11.6 | Src wraps 0xFFFF -> 0x0000 (16-bit address) | dma.vhd:36,381 | pass | test/dma/dma_test.cpp:1425 |
+| 12.1 | Continuous: whole block in one execute_burst | dma.vhd:426-430,601 | pass | test/dma/dma_test.cpp:1451 |
+| 12.2 | Burst prescaler=0: 1 byte per execute_burst | dma.vhd:424 | pass | test/dma/dma_test.cpp:1474 |
+| 12.3 | Burst prescaler>0: is_active() false during wait | dma.vhd:424-425 | pass | test/dma/dma_test.cpp:1496 |
+| 12.4 | Burst WAITING_CYCLES: cpu_busreq_n deasserted (bus released) | dma.vhd:445 | pass | test/dma/dma_test.cpp:1519 |
+| 12.5 | After prescaler expires: cpu_busreq_n re-asserted | dma.vhd:451-460 | pass | test/dma/dma_test.cpp:1544 |
+| 12.6 | R4 mode=00 transfers full block_len bytes (VHDL dma.vhd:426 block-length check is mode-agnostic) | dma.vhd:426 | pass | test/dma/dma_test.cpp:1571 |
+| 12.7 | Continuous+prescaler: one byte then wait (TRANSFERRING) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1603 |
+| 12.8 | Prescaler vs timer scales with turbo_i (8x clocks at 28MHz) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1622 |
+| 13.1 | Prescaler=0: no WAITING_CYCLES (runs to IDLE) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1654 |
+| 13.2 | turbo=00 (3.5MHz): timer += 8 per clock | dma.vhd:251 | pass | test/dma/dma_test.cpp:1666 |
+| 13.3 | turbo=01 (7MHz): timer += 4 per clock | dma.vhd:252 | pass | test/dma/dma_test.cpp:1677 |
+| 13.4 | turbo=10 (14MHz): timer += 2 per clock | dma.vhd:253 | pass | test/dma/dma_test.cpp:1688 |
+| 13.5 | turbo=11 (28MHz): timer += 1 per clock | dma.vhd:254 | pass | test/dma/dma_test.cpp:1699 |
+| 13.6 | Prescaler comparison uses timer bits(13:5) | dma.vhd:424 | pass | test/dma/dma_test.cpp:1713 |
+| 14.1 | ZXN LOAD: counter=0 | dma.vhd:664-665 | pass | test/dma/dma_test.cpp:1771 |
+| 14.2 | Z80 LOAD: counter=0xFFFF | dma.vhd:666-667 | pass | test/dma/dma_test.cpp:1780 |
+| 14.3 | ZXN: counter=N after N-byte block | dma.vhd:361 | pass | test/dma/dma_test.cpp:1792 |
+| 14.4 | ZXN block_len=5: 5 bytes transferred | dma.vhd:426 | pass | test/dma/dma_test.cpp:1804 |
+| 14.5 | Z80 block_len=5: 6 bytes (block_len+1) | dma.vhd:426,666-667 | pass | test/dma/dma_test.cpp:1819 |
+| 14.6 | ZXN block_len=0: 1 byte transferred | dma.vhd:361,426 | pass | test/dma/dma_test.cpp:1834 |
+| 14.7 | Z80 block_len=0: 1 byte transferred | dma.vhd:361,426,667 | pass | test/dma/dma_test.cpp:1846 |
+| 14.8 | Counter readback = 5 after 5-byte block | dma.vhd:933-947 | pass | test/dma/dma_test.cpp:1864 |
+| 15.1 | TRANSFER: cpu_busreq_n asserted (false) | dma.vhd:278 | pass | test/dma/dma_test.cpp:1887 |
+| 15.2 | WAITING_ACK gates transfer on cpu_bai_n | dma.vhd:296 | pass | test/dma/dma_test.cpp:1903 |
+| 15.3 | IDLE: cpu_busreq_n deasserted (true) | dma.vhd:225,262 | pass | test/dma/dma_test.cpp:1912 |
+| 15.4 | bus_busreq_n=0 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1926 |
+| 15.5 | daisy_busy=true at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1940 |
+| 15.6 | dma_delay=1 at START_DMA: DMA defers | dma.vhd:269 | pass | test/dma/dma_test.cpp:1953 |
+| 15.7 | dma_holds_bus=true while transferring | zxnext.vhd | pass | test/dma/dma_test.cpp:1966 |
+| 16.1 | Auto-restart: src/dst reloaded to 0x8000/0x9000 | dma.vhd:473-481 | pass | test/dma/dma_test.cpp:1995 |
+| 16.2 | Auto-restart ZXN: counter reloaded to 0 | dma.vhd:482-486 | pass | test/dma/dma_test.cpp:2008 |
+| 16.3 | Auto-restart A->B reload uses R0 as src, R4 as dst | dma.vhd:474-476 | pass | test/dma/dma_test.cpp:2021 |
+| 16.4 | Auto-restart B->A reload: src=portB, dst=portA | dma.vhd:478-479 | pass | test/dma/dma_test.cpp:2040 |
+| 16.5 | CONTINUE preserves src/dst | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:2054 |
+| 16.6 | LOAD restores start addrs; CONTINUE keeps current addrs | dma.vhd:656-662 | pass | test/dma/dma_test.cpp:2074 |
+| 17.1 | Status bits [4:1] = 1101 | dma.vhd:902 | pass | test/dma/dma_test.cpp:2098 |
+| 17.2 | Initial endofblock_n = 1 (bit5 set) | dma.vhd:242 | pass | test/dma/dma_test.cpp:2109 |
+| 17.3 | After block: endofblock_n = 0 (bit5 clear) | dma.vhd:471 | pass | test/dma/dma_test.cpp:2122 |
+| 17.4 | After 1 byte: atleastone = 1 (bit0 set) | dma.vhd:412 | pass | test/dma/dma_test.cpp:2135 |
+| 17.5 | 0x8B reinit: status = 0x3A | dma.vhd:691-692 | pass | test/dma/dma_test.cpp:2149 |
+| 17.6 | 0xC3 reset: status = 0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2163 |
+| 17.7 | Default mask 0x7F: 7-field cycle then wrap | dma.vhd:239 | pass | test/dma/dma_test.cpp:2187 |
+| 17.8 | Read sequence advances mask bits 0..6 in order | dma.vhd:902-922 | pass | test/dma/dma_test.cpp:2206 |
+| 17.9 | Mask 0x07: 3 fields (status, cnt LO/HI) then wrap | dma.vhd:696-717 | pass | test/dma/dma_test.cpp:2224 |
+| 17.10 | Mask with two bits: wraps after last enabled field | dma.vhd:919-922 | pass | test/dma/dma_test.cpp:2245 |
+| 18.1 | Read field: status byte | dma.vhd:902 | pass | test/dma/dma_test.cpp:2283 |
+| 18.2 | Read field: counter LO = 0x00 (ZXN just LOADed) | dma.vhd:933 | pass | test/dma/dma_test.cpp:2293 |
+| 18.3 | Read field: counter HI = 0x00 (ZXN just LOADed) | dma.vhd:935 | pass | test/dma/dma_test.cpp:2303 |
+| 18.4 | Read field: portA LO = src LO (0x34) under A->B | dma.vhd:910-912 | pass | test/dma/dma_test.cpp:2314 |
+| 18.5 | Read field: portA HI = src HI (0x12) under A->B | dma.vhd:913-915 | pass | test/dma/dma_test.cpp:2324 |
+| 18.6 | Read field: portB LO = dst LO (0x78) under A->B | dma.vhd:916-918 | pass | test/dma/dma_test.cpp:2334 |
+| 18.7 | Read field: portB HI = dst HI (0x56) under A->B | dma.vhd:919-921 | pass | test/dma/dma_test.cpp:2344 |
+| 18.8 | B->A: portA reads dst, portB reads src | dma.vhd:910-921 | pass | test/dma/dma_test.cpp:2359 |
+| 19.1 | Hardware reset defaults | dma.vhd:213-242 | pass | test/dma/dma_test.cpp:2387 |
+| 19.2 | 0xC3 soft reset: state=IDLE and status=0x3A | dma.vhd:638-641 | pass | test/dma/dma_test.cpp:2405 |
+| 19.3 | 0xC3 preserves R0 and R4 start addresses | dma.vhd:638-645 | pass | test/dma/dma_test.cpp:2423 |
+| 19.4 | 0xC3 resets both port timings to 01 | dma.vhd:641-642 | pass | test/dma/dma_test.cpp:2435 |
+| 19.5 | 0xC3 resets prescaler: transfer runs to IDLE in one burst | dma.vhd:643 | pass | test/dma/dma_test.cpp:2452 |
+| 19.6 | 0xC3 clears auto-restart: transfer ends at IDLE | dma.vhd:645 | pass | test/dma/dma_test.cpp:2466 |
+| 20.1 | dma_delay=1 blocks START_DMA; deasserting proceeds | dma.vhd:269 | pass | test/dma/dma_test.cpp:2492 |
+| 20.2 | dma_delay mid-transfer: cpu_busreq_n released | dma.vhd:427-428 | pass | test/dma/dma_test.cpp:2508 |
+| 21.1 | Timing 00 -> 4 cycles | dma.vhd:313 | pass | test/dma/dma_test.cpp:2543 |
+| 21.2 | Timing 01 -> 3 cycles | dma.vhd:314 | pass | test/dma/dma_test.cpp:2551 |
+| 21.3 | Timing 10 -> 2 cycles | dma.vhd:315 | pass | test/dma/dma_test.cpp:2559 |
+| 21.4 | Timing 11 -> 4 cycles (when others) | dma.vhd:316 | pass | test/dma/dma_test.cpp:2567 |
+| 21.5 | Read timing selects R1 (A->B) vs R2 (B->A) | dma.vhd:311 | pass | test/dma/dma_test.cpp:2583 |
+| 21.6 | Write timing selects R2 (A->B) vs R1 (B->A) | dma.vhd:371 | pass | test/dma/dma_test.cpp:2597 |
+| 22.1 | DISABLE mid-transfer -> IDLE | dma.vhd:728 | pass | test/dma/dma_test.cpp:2619 |
+| 22.2 | ENABLE without LOAD: state=TRANSFERRING | dma.vhd:725 | pass | test/dma/dma_test.cpp:2630 |
+| 22.3 | Multiple LOADs: last values used | dma.vhd:656-668 | pass | test/dma/dma_test.cpp:2649 |
+| 22.4 | CONTINUE during auto-restart: counter reset, addrs kept | dma.vhd:670-676 | pass | test/dma/dma_test.cpp:2667 |
+| 22.5 | R1 base byte does not update R0 direction | dma.vhd:542 | pass | test/dma/dma_test.cpp:2685 |
+| 22.6 | 0x00 matches R2 (dec), not R0 | dma.vhd:518-520,559 | pass | test/dma/dma_test.cpp:2698 |
+| 23.1 | Emulator::init failed (Next machine) | zxnext.vhd:1828-1835,1839,1844 | pass | test/dma/dma_test.cpp:2788 |
+| 23.2 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/dma/dma_test.cpp:2820 |
+| 23.3 | Emulator::init failed (Next machine) | zxnext.vhd | pass | test/dma/dma_test.cpp:2854 |
+| 23.4 | Wait hook: one call per source memory READ at the stepped source address; accumulator = 8 for an 8-byte mem->mem block — writes never wait (zxnext.vhd:3175 cpu_rd_n='0') | zxnext.vhd:3175, zxnext.vhd:3171-3181 | pass | test/dma/dma_test.cpp:2880 |
+| 23.5 | I/O-source block: the wait hook is never consulted — I/O reads assert IORQ, not MREQ; sram_memcycle needs cpu_mreq_n='0' (zxnext.vhd:3144) | zxnext.vhd:3144 | pass | test/dma/dma_test.cpp:2911 |
+| 23.6 | mem->I/O block: all 8 source memory reads wait; the I/O destination write is irrelevant to the read-side wait (zxnext.vhd:3144,3175) | zxnext.vhd:3144,3175 | pass | test/dma/dma_test.cpp:2943 |
+| 23.7 | Emulator::init failed (Next machine) | dma.vhd:267-269, zxnext.vhd:2001-2010 | pass | test/dma/dma_test.cpp:3002 |
+| GH230-08 | write_io still alive when Emulator::init() would reassign it mid-burst | — | pass | test/dma/dma_test.cpp:3169 |
+| GH230-09 | executing write_io reads its own capture after the reassignment | — | pass | test/dma/dma_test.cpp:3176 |
+| GH230-10 | the burst still delivered the byte to the I/O destination | — | pass | test/dma/dma_test.cpp:3181 |
 
 ## DivMMC+SPI — `test/divmmc/divmmc_test.cpp`
 
@@ -2228,11 +2211,9 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | CTC-CW-08 | ctc_chan.vhd:271 i_int_en_wr overrides D7 of control_reg | ctc_chan.vhd:271 | pass | test/ctc/ctc_test.cpp:922 |
 | CTC-CW-09 | ctc_chan.vhd:267 hard reset clears control_reg | ctc_chan.vhd:267 | pass | test/ctc/ctc_test.cpp:933 |
 | CTC-CW-10 | ctc_chan.vhd:281 hard reset clears time_constant_reg | ctc_chan.vhd:281 | pass | test/ctc/ctc_test.cpp:946 |
-| CTC-CW-11 | Write edge: iowr is rising-edge detected (i_iowr AND NOT iowr_d) | — | missing | — |
 | CTC-NR-01 | ctc_chan.vhd:271 NR 0xC5 write routes bits to per-channel i_int_en | ctc_chan.vhd:271 | pass | test/ctc/ctc_test.cpp:980 |
 | CTC-NR-02 | zxnext.vhd:4078 NR 0xC5 read returns ctc_int_en[7:0] | zxnext.vhd:4078 | pass | test/ctc/ctc_test.cpp:995 |
 | CTC-NR-03 | ctc_chan.vhd:269-271 both CW D7 and i_int_en_wr reach control_reg(7-3) | ctc_chan.vhd:269-271 | pass | test/ctc/ctc_test.cpp:1007 |
-| CTC-NR-04 | NextREG 0xC5 write does not overlap with port CTC write | — | missing | — |
 | IM2C-01 | im2_control.vhd:163 S_0 + ED → S_ED_T4 (o_reti_decode=1) | im2_control.vhd:163 | pass | test/ctc/ctc_test.cpp:1050 |
 | IM2C-02 | im2_control.vhd:234 reti_seen = 1 for the one cycle state_next=S_ED4D_T4 | im2_control.vhd:234 | pass | test/ctc/ctc_test.cpp:1064 |
 | IM2C-03 | im2_control.vhd:236 retn_seen = 1 for the one cycle state_next=S_ED45_T4 | im2_control.vhd:236 | pass | test/ctc/ctc_test.cpp:1077 |
@@ -2245,7 +2226,6 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | IM2C-10 | im2_control.vhd:224 ED 46 → im_mode = 00 (IM 0) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1190 |
 | IM2C-11 | im2_control.vhd:224 ED 56 → im_mode = 01 (IM 1) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1201 |
 | IM2C-12 | im2_control.vhd:224 ED 5E → im_mode = 10 (IM 2) | im2_control.vhd:224 | pass | test/ctc/ctc_test.cpp:1212 |
-| IM2C-13 | IM mode updates on falling edge of CLK_CPU | — | missing | — |
 | IM2C-14 | im2_control.vhd:222 im_mode defaults to 00 on reset | im2_control.vhd:222 | pass | test/ctc/ctc_test.cpp:1231 |
 | IM2C-G87-01 | RETI (ED 4D) advances IM2 FSM and pulses o_reti_seen [VHDL im2_control.vhd:158-209,234] | im2_control.vhd:158-209,234 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1031 |
 | IM2C-G87-02 | RETN (ED 45) advances IM2 FSM and pulses o_retn_seen [VHDL im2_control.vhd:233-238] | im2_control.vhd:233-238 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1055 |
@@ -2279,12 +2259,14 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | PULSE-06 | zxnext.vhd:2033 128K/Pentagon pulse width ~ 36 cycles (bit5 AND bit2) | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1763 |
 | PULSE-07 | zxnext.vhd:2036-2044 pulse counter reset while pulse_int_n=1 | zxnext.vhd:2036-2044 | pass | test/ctc/ctc_test.cpp:1799 |
 | PULSE-08 | zxnext.vhd:1840 INT_n = pulse_int_n AND im2_int_n; im2_int_n high in pulse mode | zxnext.vhd:1840 | pass | test/ctc/ctc_test.cpp:1820 |
-| PULSE-09 | External bus INT: o_BUS_INT_n = pulse_int_n AND im2_int_n | — | missing | — |
 | PULSE-G89-01 | LDIRX (ED B4) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2095-2138] | t80n_mcode.vhd:2095-2138 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1143 |
 | PULSE-G89-02 | LDDRX (ED BC) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256] | t80n_mcode.vhd:2230-2256 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1184 |
 | PULSE-G89-03 | LDPIRX (ED B7) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991] | t80n_mcode.vhd:1953-1991 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1225 |
 | PULSE-G89-04 | LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226] | t80n_mcode.vhd:2188-2226 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1264 |
-| PULSE-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | — | missing | — |
+| PULSE-G89-INT | LDIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2095-2138 + zxnext.vhd INT path] | t80n_mcode.vhd:2095-2138, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1354 |
+| PULSE-G89-INT-02 | LDDRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2230-2256 + zxnext.vhd INT path] | t80n_mcode.vhd:2230-2256, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1363 |
+| PULSE-G89-INT-03 | LDPIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:1953-1991 + zxnext.vhd INT path] | t80n_mcode.vhd:1953-1991, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1372 |
+| PULSE-G89-INT-04 | LDIRSCALE inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2188-2226 + zxnext.vhd INT path] | t80n_mcode.vhd:2188-2226, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1381 |
 | PULSE-G121-01 | zxnext.vhd:2033 pulse_count_end follows runtime NR 0x03 timing change | zxnext.vhd:2033 | pass | test/ctc/ctc_test.cpp:1871 |
 | IM2W-01 | im2_peripheral.vhd:90-101 int_req edge detect fires once per rising edge | im2_peripheral.vhd:90-101 | pass | test/ctc/ctc_test.cpp:1908 |
 | IM2W-02 | im2_peripheral.vhd:167-178 im2_int_req latched on qualified edge | im2_peripheral.vhd:167-178 | pass | test/ctc/ctc_test.cpp:1923 |
@@ -2294,7 +2276,6 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | IM2W-06 | im2_peripheral.vhd:180 o_int_status = int_status OR im2_int_req | im2_peripheral.vhd:180 | pass | test/ctc/ctc_test.cpp:2035 |
 | IM2W-07 | im2_peripheral.vhd:105 im2_reset_n composite gates state transitions | im2_peripheral.vhd:105 | pass | test/ctc/ctc_test.cpp:2071 |
 | IM2W-08 | im2_peripheral.vhd:172 int_unq latches im2_int_req without int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:2087 |
-| IM2W-09 | isr_serviced edge detection across clock domains | — | missing | — |
 | IM2W-G119-01 | zxnext.vhd:1941 ZC/TO must reach IM2 unconditionally; int_en gates at fabric | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2141 |
 | ULA-INT-01 | ULA HC/VC interrupt fires at int_h/int_v → NR 0xC8 bit 0 set [zxnext.vhd:1937,1941; emulator.cpp:1988-1998; im2.cpp:264-266] | zxnext.vhd:1937,1941 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:144 |
 | ULA-INT-02 | ULA int suppressed when port_ff(6)/NR 0x22[2] set → NR 0xC8 bit 0 clear [zxnext.vhd:3619-3620, :3635, :6711; emulator.cpp:1989 gate] | zxnext.vhd:3619-3620,3635,6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:174 |
@@ -2306,14 +2287,14 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | ULA-INT-08 | zxnext.vhd:1941 LINE at priority idx0 (chain head) | zxnext.vhd:1941 | pass | test/ctc/ctc_test.cpp:2203 |
 | ULA-INT-09 | zxnext.vhd:1964 EXCEPTION=1 only for ULA (IM2-mode pulse fires) | zxnext.vhd:1964 | pass | test/ctc/ctc_test.cpp:2238 |
 | NR-C0-01 | zxnext.vhd:5597/1999 NR 0xC0 stores im2_vector_base[2:0] | zxnext.vhd:5597/1999 | pass | test/ctc/ctc_test.cpp:2255 |
-| NR-C0-02 | Write NextREG 0xC0: bit [3] = stackless NMI | — | missing | — |
+| NR-C0-02 | NR 0xC0 bit 3 selects the stackless NMI acknowledge: set, the two acknowledge writes leave RAM untouched and arm the RETN substitution; clear, the interrupted PC is written to the stack and no substitution is armed (SP -= 2 either way) [zxnext.vhd:5598, :2075-2085; t80n.vhd:1765-1767] | zxnext.vhd:5598,2075-2085, t80n.vhd:1765-1767 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2627 |
 | NR-C0-03 | zxnext.vhd:5599/1975 NR 0xC0 bit 0 toggles pulse/IM2 mode | zxnext.vhd:5599/1975 | pass | test/ctc/ctc_test.cpp:2283 |
 | NR-C0-04 | NR 0xC0 read composes VVV_0_S_MM_I (vector + stackless + im_mode + int_mode) [zxnext.vhd:6229-6230; emulator.cpp:771-778] | zxnext.vhd:6229-6230 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:837 |
 | NR-C4-01 | zxnext.vhd NR 0xC4 bit1 enables LINE interrupt fan-out | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2301 |
 | NR-C4-02 | NR 0xC4 bit 1 write drives line_interrupt_en (read bit 1 round-trip) [zxnext.vhd:5607-5610, :6239; emulator.cpp:792] | zxnext.vhd:5607-5610,6239 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:858 |
 | NR-C4-03 | NR 0xC4 readback format E_00000_UU (expbus, 5x zero, line, ula) [zxnext.vhd:6239 / :3621-3622 / :3635 / :6711; emulator.cpp:796-804] | zxnext.vhd:6239/3621-3622/3635/6711 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:890 |
 | NR-C5-01 | zxnext.vhd:4078/1949 NR 0xC5 fans out CTC int_en bits 0..7 | zxnext.vhd:4078/1949 | pass | test/ctc/ctc_test.cpp:2321 |
-| NR-C5-02 | Read NextREG 0xC5: returns ctc_int_en[7:0] | — | missing | — |
+| NR-C5-02 | NR 0xC5 read returns the live per-channel ctc_int_en with bits 7:4 hardwired 0 — only nr_wr_dat(3:0) reaches the CTC on a write, and a control word's D7 moves the same bit [zxnext.vhd:6242, :4079, :4089, :4093; ctc_chan.vhd:269,276] | zxnext.vhd:4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2671 |
 | NR-C6-01 | zxnext.vhd NR 0xC6/1949 UART1_TX int_en enables fabric path | zxnext.vhd | pass | test/ctc/ctc_test.cpp:2340 |
 | NR-C6-02 | NR 0xC6 read format 0_654_0_210 (bits 7 and 3 read as 0) [zxnext.vhd:6244-6245; emulator.cpp:828-831] | zxnext.vhd:6244-6245 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:906 |
 | NR-C8-01 | zxnext.vhd:6247 NR 0xC8 read {LINE,ULA} → bits 1:0 | zxnext.vhd:6247 | pass | test/ctc/ctc_test.cpp:2360 |
@@ -2322,8 +2303,8 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | NR-CC-01 | zxnext.vhd:5629-5630/1957-1958 NR 0xCC DMA int enable bit routes through mask | zxnext.vhd:5629-5630/1957-1958 | pass | test/ctc/ctc_test.cpp:2411 |
 | NR-CD-01 | zxnext.vhd:5633/1957 NR 0xCD DMA int enable bit routes through mask | zxnext.vhd:5633/1957 | pass | test/ctc/ctc_test.cpp:2429 |
 | NR-CE-01 | zxnext.vhd:5636-5637/1957-1958 NR 0xCE DMA int enable bit routes through mask | zxnext.vhd:5636-5637/1957-1958 | pass | test/ctc/ctc_test.cpp:2444 |
-| NR-C2-01 | NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6232] | zxnext.vhd:2050-2085,6232 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1089 |
-| NR-C3-01 | NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6236] | zxnext.vhd:2050-2085,6236 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1094 |
+| NR-C2-01 | NR 0xC2 mirrors NMI return-address LSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6232] | zxnext.vhd:2050-2085 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1089 |
+| NR-C3-01 | NR 0xC3 mirrors NMI return-address MSB after Z80 services /NMI [VHDL zxnext.vhd:2050-2085,6236] | zxnext.vhd:6236 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1094 |
 | ISC-01 | zxnext.vhd:1955 NR 0xC8 b1 clears LINE int_status | zxnext.vhd:1955 | pass | test/ctc/ctc_test.cpp:2502 |
 | ISC-02 | zxnext.vhd:1952 NR 0xC8 b0 clears ULA int_status | zxnext.vhd:1952 | pass | test/ctc/ctc_test.cpp:2523 |
 | ISC-03 | zxnext.vhd:1953 NR 0xC9 bit clears CTC0 int_status | zxnext.vhd:1953 | pass | test/ctc/ctc_test.cpp:2545 |
@@ -2345,56 +2326,51 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | UNQ-03 | zxnext.vhd:1946-1947 NR 0x20 b6 unqualified ULA (bypasses int_en) | zxnext.vhd:1946-1947 | pass | test/ctc/ctc_test.cpp:2864 |
 | UNQ-04 | im2_peripheral.vhd:172 int_unq bypasses i_int_en | im2_peripheral.vhd:172 | pass | test/ctc/ctc_test.cpp:2894 |
 | UNQ-05 | im2_peripheral.vhd:160 int_unq feeds int_status register | im2_peripheral.vhd:160 | pass | test/ctc/ctc_test.cpp:2909 |
-| CTC-JOY-01 | Joystick IO mode 01: CTC channel 3 ZC/TO toggles pin7 | — | missing | — |
-| CTC-JOY-02 | Toggle conditioned on nr_0b_joy_iomode_0 or pin7=0 | — | missing | — |
-| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1396 |
-| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1442 |
-| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1470 |
-| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1501 |
-| SSTEP-05 | ULA frame INT is scheduled and delivered during debugger single-step [zxula_timing.vhd:551; zxnext.vhd:1840] | zxula_timing.vhd:551, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1572 |
-| SSTEP-06 | A debugger Step at a HALT leaves the halt into the ISR [t80n.vhd:496, :502-503, :1727] | t80n.vhd:496,502-503,1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1606 |
-| SSTEP-07 | Frames keep turning over while stepping — a second HALT is also left [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1656 |
-| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress [t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle] | t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1693 |
-| SSTEP-09 | A Step consumes the data-breakpoint latch, so a watchpoint firing inside a halt cannot freeze every later Step [t80n.vhd:502-503 — the halted core re-fetches every slot] | t80n.vhd:502-503 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1751 |
-| SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot and leaves the machine rewindable [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1816 |
-| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101,154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1907 |
-| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1978 |
-| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 193) | ctc_chan.vhd:143-146 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2036 |
-| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2088 |
-| CTC-C1-ACC-03 | timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; zxnext.vhd:4084]; tick(35) == 35x tick(1) | ctc_chan.vhd:115-127,219-226,134-139, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2135 |
-| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2398 |
-| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2431 |
-| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | zxnext.vhd:4067 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2477 |
-| INT-GH265-01 | 48K pulse-mode INT taken at the first boundary whose last T-state starts on a CPU edge that samples the pulse low (zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:548-557, im2_peripheral.vhd:90-101,184-194, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2647 |
-| INT-GH265-02 | 128K pulse-mode INT taken at the first boundary >= 294 T (zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:187,199,548-557, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2669 |
-| INT-GH265-03 | hardware-IM2 INT: S_REQ on the first CPU edge after im2_int_req with M1_n high, INT_s one edge later (im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; t80n.vhd:1729-1731,1761,1788) | im2_peripheral.vhd:167-178, im2_device.vhd:91-107,150, t80n.vhd:1729-1731,1761,1788 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2693 |
-| INT-GH265-04 | 48K pulse: 32 CPU edges sample it low, the last at E_1 + 31*8; the boundary after that edge is the last taken (zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772) | zxnext.vhd:2033-2044, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2712 |
-| INT-GH265-05 | 128K pulse: 36 CPU edges, last boundary E_1 + 36*8 (zxnext.vhd:2033 pulse_count(5) and pulse_count(2)) | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2728 |
-| INT-GH265-06 | a pulse straddling the frame edge is still taken after it (zxnext.vhd:2017-2044 has no frame term) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2768 |
-| INT-GH265-10 | a pulse straddling the frame edge survives a snapshot taken there (zxnext.vhd:2017-2044) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2813 |
-| INT-GH265-11 | a pulse pending across a CPU-speed change lasts its remaining CPU edges at the new speed (zxnext.vhd:2035-2044) | zxnext.vhd:2035-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2861 |
-| INT-GH265-12 | EI grace survives a snapshot taken straight after the EI (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2914 |
-| INT-GH265-07 | EI grace across the frame edge (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2957 |
-| INT-GH265-08 | IM2 hardware mode, CPU in IM 1: the ULA's exception pulse is taken (im2_peripheral.vhd:192; zxnext.vhd:1840) | im2_peripheral.vhd:192, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2982 |
-| INT-GH265-09 | NR 0x20 unqualified request taken at the boundary after the OUT that writes it (zxnext.vhd:1946-1947,4747-4777; t80n.vhd:1664,1742-1772) | zxnext.vhd:1946-1947,4747-4777, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3010 |
-| ISC-GH265-01 | NR 0xC8 read by IN A,(C) sees a status set before the port_253b_dat load 83 cycles in, not one set on it (zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162) | zxnext.vhd:5871-5882,6247-6248, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3050 |
-| ISC-GH265-02 | polling NR 0xC8 for the frame interrupt: an IN starting at 49 T sees it, one at 48 T does not (zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882,6247-6248) | zxula_timing.vhd:548-557, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882,6247-6248 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3092 |
-| ISC-GH265-03 | NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling edge after the request (zxnext.vhd:2017-2031,5991-5992) | zxnext.vhd:2017-2031,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3119 |
-| ISC-GH265-04 | NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge of the pulse (zxnext.vhd:2033-2044,5991-5992) | zxnext.vhd:2033-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3147 |
-| ISC-GH265-05 | NR 0xC8 clear commits on its edge: a request set before it is cleared, one set on it survives (im2_peripheral.vhd:160; zxnext.vhd:1952-1955,4747-4777) | im2_peripheral.vhd:160, zxnext.vhd:1952-1955,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3178 |
-| ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3214 |
-| ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3242 |
-| ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3275 |
-| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3317 |
-| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3347 |
-| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3384 |
+| CTC-JOY-01 | in NR 0x0B iomode "01" each CTC channel-3 ZC/TO toggles joy_iomode_pin7, and a channel-0 ZC/TO does not [zxnext.vhd:3518-3524, :4088] | zxnext.vhd:3522 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2715 |
+| CTC-JOY-02 | the pin-7 toggle is conditioned on (nr_0b_joy_iomode_0='1' OR joy_iomode_pin7='0'): with NR 0x0B bit 0 clear a ZC/TO moves pin7 only from '0' to '1' and never back [zxnext.vhd:3519-3524] | zxnext.vhd:3519-3520 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2756 |
+| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1454 |
+| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1500 |
+| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1528 |
+| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1559 |
+| SSTEP-05 | ULA frame INT is scheduled and delivered during debugger single-step [zxula_timing.vhd:551; zxnext.vhd:1840] | zxula_timing.vhd:551, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1630 |
+| SSTEP-06 | A debugger Step at a HALT leaves the halt into the ISR [t80n.vhd:496, :502-503, :1727] | t80n.vhd:496,502-503,1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1664 |
+| SSTEP-07 | Frames keep turning over while stepping — a second HALT is also left [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1714 |
+| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress [t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle] | t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1751 |
+| SSTEP-09 | A Step consumes the data-breakpoint latch, so a watchpoint firing inside a halt cannot freeze every later Step [t80n.vhd:502-503 — the halted core re-fetches every slot] | t80n.vhd:502-503 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1809 |
+| SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot and leaves the machine rewindable [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1874 |
+| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101,154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1965 |
+| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2036 |
+| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 193) | ctc_chan.vhd:143-146 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2094 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2146 |
+| CTC-C1-ACC-03 | timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; zxnext.vhd:4084]; tick(35) == 35x tick(1) | ctc_chan.vhd:115-127,219-226,134-139, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2193 |
+| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2456 |
+| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2489 |
+| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | zxnext.vhd:4067 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2535 |
+| INT-GH265-01 | 48K pulse-mode INT taken at the first boundary whose last T-state starts on a CPU edge that samples the pulse low (zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:548-557, im2_peripheral.vhd:90-101,184-194, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2923 |
+| INT-GH265-02 | 128K pulse-mode INT taken at the first boundary >= 294 T (zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:187,199,548-557, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2945 |
+| INT-GH265-03 | hardware-IM2 INT: S_REQ on the first CPU edge after im2_int_req with M1_n high, INT_s one edge later (im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; t80n.vhd:1729-1731,1761,1788) | im2_peripheral.vhd:167-178, im2_device.vhd:91-107,150, t80n.vhd:1729-1731,1761,1788 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2969 |
+| INT-GH265-04 | 48K pulse: 32 CPU edges sample it low, the last at E_1 + 31*8; the boundary after that edge is the last taken (zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772) | zxnext.vhd:2033-2044, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2988 |
+| INT-GH265-05 | 128K pulse: 36 CPU edges, last boundary E_1 + 36*8 (zxnext.vhd:2033 pulse_count(5) and pulse_count(2)) | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3004 |
+| INT-GH265-06 | a pulse straddling the frame edge is still taken after it (zxnext.vhd:2017-2044 has no frame term) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3044 |
+| INT-GH265-10 | a pulse straddling the frame edge survives a snapshot taken there (zxnext.vhd:2017-2044) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3089 |
+| INT-GH265-11 | a pulse pending across a CPU-speed change lasts its remaining CPU edges at the new speed (zxnext.vhd:2035-2044) | zxnext.vhd:2035-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3137 |
+| INT-GH265-12 | EI grace survives a snapshot taken straight after the EI (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3190 |
+| INT-GH265-07 | EI grace across the frame edge (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3233 |
+| INT-GH265-08 | IM2 hardware mode, CPU in IM 1: the ULA's exception pulse is taken (im2_peripheral.vhd:192; zxnext.vhd:1840) | im2_peripheral.vhd:192, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3258 |
+| INT-GH265-09 | NR 0x20 unqualified request taken at the boundary after the OUT that writes it (zxnext.vhd:1946-1947,4747-4777; t80n.vhd:1664,1742-1772) | zxnext.vhd:1946-1947,4747-4777, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3286 |
+| ISC-GH265-01 | NR 0xC8 read by IN A,(C) sees a status set before the port_253b_dat load 83 cycles in, not one set on it (zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162) | zxnext.vhd:5871-5882,6247-6248, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3326 |
+| ISC-GH265-02 | polling NR 0xC8 for the frame interrupt: an IN starting at 49 T sees it, one at 48 T does not (zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882,6247-6248) | zxula_timing.vhd:548-557, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882,6247-6248 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3368 |
+| ISC-GH265-03 | NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling edge after the request (zxnext.vhd:2017-2031,5991-5992) | zxnext.vhd:2017-2031,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3395 |
+| ISC-GH265-04 | NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge of the pulse (zxnext.vhd:2033-2044,5991-5992) | zxnext.vhd:2033-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3423 |
+| ISC-GH265-05 | NR 0xC8 clear commits on its edge: a request set before it is cleared, one set on it survives (im2_peripheral.vhd:160; zxnext.vhd:1952-1955,4747-4777) | im2_peripheral.vhd:160, zxnext.vhd:1952-1955,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3454 |
+| ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3490 |
+| ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3518 |
+| ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3551 |
+| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3593 |
+| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3623 |
+| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3660 |
 | CTC-CH-GH265-01 | ctc_chan.vhd:115-127,173-182 rising-edge trigger counts one edge after the ZC/TO | ctc_chan.vhd:115-127,173-182 | pass | test/ctc/ctc_test.cpp:786 |
 | CTC-CH-GH265-02 | ctc_chan.vhd:115-127,173-182 a ZC/TO in flight reaches the next channel after its source stops | ctc_chan.vhd:115-127,173-182 | pass | test/ctc/ctc_test.cpp:810 |
-| IM2-G89-01 | LDIRX samples INT/NMI between iterations | — | missing | — |
-| IM2-G89-02 | LDDRX samples INT/NMI between iterations | — | missing | — |
-| IM2-G89-03 | LDPIRX samples INT/NMI between iterations | — | missing | — |
-| IM2-G89-04 | LDIRSCALE samples INT/NMI between iterations | — | missing | — |
-| IM2-G90-01 | 28 MHz turbo SRAM-read wait state asserts sram_wait_n | — | missing | — |
 
 ## UART+I2C/RTC — `test/uart/uart_test.cpp`
 
@@ -2536,10 +2512,6 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | SEL-02 | read_selected() after reset reads NR 0x24 [zxnext.vhd:4594-4596] | zxnext.vhd:4594-4596 | pass | test/nextreg/nextreg_test.cpp:149 |
 | SEL-03 | NR 0x00 via select+write+read path returns 0x0A (selection pathway respects read-only) [zxnext.vhd:5884-5885] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1628 |
 | SEL-04 | select(0x7F)+write_selected(0xAB)+read_selected()==0xAB [zxnext.vhd read dispatch, NR 0x7F user scratch] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:168 |
-| NR-SEL-05 | NEXTREG ED 91 instruction | — | missing | — |
-| SEL-05a | Pre-select NR 0x7F via 0x243B; execute Z80N `NEXTREG 0x54, 0x04` (ED 91 54 04); read 0x253B without re-selecting | zxnext.vhd:4739-4744 | missing | — |
-| SEL-05b | Same setup with `NEXTREG 0x54,A` (ED 92); after it, write 0x253B ← 0x5C (raw data port) | — | missing | — |
-| SEL-05c | Execute `NEXTREG 0x7E, 0x3C`; read NR 0x7E | — | missing | — |
 | RO-01 | NR 0x00 machine ID reset=0x0A via port path [VHDL g_machine_id, zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:1513 |
 | MID-01 | NR 0x00 machine ID reset=0x0A (VHDL g_machine_id=X"0A") [zxnext_top_issue2.vhd:35] | zxnext_top_issue2.vhd:35 | pass | test/nextreg/nextreg_integration_test.cpp:192 |
 | RO-02 | NR 0x00 read-only: write 0x42 then read returns 0x0A [zxnext.vhd:5884-5885 — read routed to g_machine_id; no write handler] | zxnext.vhd:5884-5885 | pass | test/nextreg/nextreg_integration_test.cpp:1529 |
@@ -2558,16 +2530,16 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | RST-09 | NR 0x1B post-reset read returns tilemap clip_x1 = 0x00 [zxnext.vhd:5971-5977 read mux; :4977-4981 reset defaults] | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:346 |
 | RW-01 | NR 0x07 read = (actual<<4) \| requested, pads 0 in bits[7:6] and bits[3:2] [zxnext.vhd:5902-5903] | zxnext.vhd:5902-5903 | pass | test/nextreg/nextreg_integration_test.cpp:2384 |
 | RW-02 | NR 0x08 bit 7 read = NOT port_7ffd_locked, bit 6 = nr_08_contention_disable [zxnext.vhd:5906] | zxnext.vhd:5906 | pass | test/nextreg/nextreg_integration_test.cpp:2436 |
-| RW-03 | NR 0x12 L2 active bank write=0x10 read=0x10 [zxnext.vhd ~5190 nr_12_layer2_active_bank] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:279 |
-| RW-04 | NR 0x14 global transparent write=0x55 read=0x55 [zxnext.vhd ~5200 nr_14_global_transparent] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:291 |
-| RW-05 | NR 0x15 layer control write=0x15 read=0x15 [zxnext.vhd ~5210 nr_15_sprite_lores] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:304 |
-| RW-06 | NR 0x16 L2 scroll X write=0xAA read=0xAA [zxnext.vhd ~5220 nr_16_layer2_scrollx] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:315 |
-| RW-07 | NR 0x42 ULANext format write=0xFF read=0xFF [zxnext.vhd ~5470 nr_42_ulanext_format] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:326 |
-| RW-08 | NR 0x43 palette control write=0x55 read=0x55 [zxnext.vhd ~5480 nr_43_palette_control] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:340 |
-| RW-09 | NR 0x4A fallback RGB write=0x42 read=0x42 [zxnext.vhd ~5520 nr_4a_fallback_colour] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:351 |
-| RW-10 | NR 0x50-0x57 MMU pages write/read round-trip [zxnext.vhd:4607-4700] | zxnext.vhd:4607-4700 | pass | test/nextreg/nextreg_test.cpp:375 |
-| RW-11 | NR 0x7F user scratch write=0xAB read=0xAB [zxnext.vhd read dispatch, user-scratch slot] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:386 |
-| RW-12 | NR 0x6B tilemap control write=0x81 read=0x81 [zxnext.vhd ~5630 nr_6b_tilemap_control] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:398 |
+| RW-03 | NR 0x12 L2 active bank write=0x10 read=0x10 [zxnext.vhd ~5190 nr_12_layer2_active_bank] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:282 |
+| RW-04 | NR 0x14 global transparent write=0x55 read=0x55 [zxnext.vhd ~5200 nr_14_global_transparent] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:294 |
+| RW-05 | NR 0x15 layer control write=0x15 read=0x15 [zxnext.vhd ~5210 nr_15_sprite_lores] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:307 |
+| RW-06 | NR 0x16 L2 scroll X write=0xAA read=0xAA [zxnext.vhd ~5220 nr_16_layer2_scrollx] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:318 |
+| RW-07 | NR 0x42 ULANext format write=0xFF read=0xFF [zxnext.vhd ~5470 nr_42_ulanext_format] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:329 |
+| RW-08 | NR 0x43 palette control write=0x55 read=0x55 [zxnext.vhd ~5480 nr_43_palette_control] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:343 |
+| RW-09 | NR 0x4A fallback RGB write=0x42 read=0x42 [zxnext.vhd ~5520 nr_4a_fallback_colour] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:354 |
+| RW-10 | NR 0x50-0x57 MMU pages write/read round-trip [zxnext.vhd:4607-4700] | zxnext.vhd:4607-4700 | pass | test/nextreg/nextreg_test.cpp:378 |
+| RW-11 | NR 0x7F user scratch write=0xAB read=0xAB [zxnext.vhd read dispatch, user-scratch slot] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:389 |
+| RW-12 | NR 0x6B tilemap control write=0x81 read=0x81 [zxnext.vhd ~5630 nr_6b_tilemap_control] | zxnext.vhd | pass | test/nextreg/nextreg_test.cpp:401 |
 | CLIP-01 | NR 0x18 4-write cycle → x1=0x11 x2=0x22 y1=0x33 y2=0x44 [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1661 |
 | CLIP-02 | NR 0x18 fifth write wraps back to x1 (mod-4 idx) [zxnext.vhd:5242-5249] | zxnext.vhd:5242-5249 | pass | test/nextreg/nextreg_integration_test.cpp:1681 |
 | CLIP-03 | NR 0x1C bit 0 resets L2 clip idx so next NR 0x18 write → x1 [zxnext.vhd:5278-5281] | zxnext.vhd:5278-5281 | pass | test/nextreg/nextreg_integration_test.cpp:1700 |
@@ -2578,51 +2550,33 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | CLIP-08 | NR 0x18 read mux cycles through x1, x2, y1, y2 as idx advances [zxnext.vhd:5947-5953] | zxnext.vhd:5947-5953 | pass | test/nextreg/nextreg_integration_test.cpp:1825 |
 | CLIP-09 | Read NR 0x1B twice with no intervening write | zxnext.vhd:5971-5977 | pass | test/nextreg/nextreg_integration_test.cpp:1849 |
 | CLIP-10 | NR 0x1B write lands x1=0xAA AND advances tm idx → NR 0x1C bits 7:6 = 01 (0x40) [zxnext.vhd:5276 write increments idx; :5980 NR 0x1C packing] | zxnext.vhd:5276 | pass | test/nextreg/nextreg_integration_test.cpp:1880 |
-| NR-MMU-01 | Reset defaults | — | missing | — |
-| NR-MMU-02 | NR 0x52 (MMU2) write=0x20 read=0x20 [zxnext.vhd:4613 MMU2 storage] | zxnext.vhd:4613 | pass | test/nextreg/nextreg_test.cpp:457 |
-| NR-MMU-03 | Write port 0x7FFD, check MMU6/7 | — | missing | — |
-| NR-MMU-04 | NextREG write overrides port write | — | missing | — |
+| NR-MMU-02 | NR 0x52 (MMU2) write=0x20 read=0x20 [zxnext.vhd:4613 MMU2 storage] | zxnext.vhd:4613 | pass | test/nextreg/nextreg_test.cpp:461 |
+| NR-MMU-04 | MMU6/7 take the value of whichever writer ran last: port 0x7FFD bank 3 -> 0x06/0x07, then NR 0x56 <- 0x20 wins, then port 0x7FFD bank 1 -> 0x02/0x03 [zxnext.vhd:4619,4677-4680,4686-4696, :3813] | zxnext.vhd:4607-4699 | pass | test/nextreg/nextreg_integration_test.cpp:7903 |
 | N8E-RAM-PRESERVE-0 | NR 0x56 override survives NR 0x8E write with bit 3 = 0 [zxnext.vhd:3814 port_memory_ram_change_dly, :4677 MMU6/7 gate] | zxnext.vhd:3814 | pass | test/nextreg/nextreg_integration_test.cpp:2924 |
 | N8E-RAM-REBUILD-1 | NR 0x8E bit 3 = 1 rebuilds MMU6/7 from port_7ffd_bank [zxnext.vhd:3814, :4677] | zxnext.vhd:3814,4677 | pass | test/nextreg/nextreg_integration_test.cpp:2949 |
 | CFG-01 | NR 0x03 bits[6:4] compose from nr_03_machine_timing (reset default "011") [zxnext.vhd:1099, 5893-5894] | zxnext.vhd:1099,5893-5894 | pass | test/nextreg/nextreg_integration_test.cpp:2716 |
 | CFG-02 | NR 0x03 bit 3 XOR-toggles nr_03_user_dt_lock; read composes bit 3 from that state [zxnext.vhd:5121-5151, 5894] | zxnext.vhd:5121-5151,5894 | pass | test/nextreg/nextreg_integration_test.cpp:2752 |
-| CFG-03 | NR 0x03 bits[2:0]=111 re-enters config_mode [zxnext.vhd:5147-5148] | zxnext.vhd:5147-5148 | pass | test/nextreg/nextreg_test.cpp:517 |
-| CFG-04 | NR 0x03 bits[2:0]=001..110 clears config_mode [zxnext.vhd:5149-5150] | zxnext.vhd:5149-5150 | pass | test/nextreg/nextreg_test.cpp:540 |
+| CFG-03 | NR 0x03 bits[2:0]=111 re-enters config_mode [zxnext.vhd:5147-5148] | zxnext.vhd:5147-5148 | pass | test/nextreg/nextreg_test.cpp:526 |
+| CFG-04 | NR 0x03 bits[2:0]=001..110 clears config_mode [zxnext.vhd:5149-5150] | zxnext.vhd:5149-5150 | pass | test/nextreg/nextreg_test.cpp:549 |
 | CFG-05 | NR 0x03 bits 2:0=001 clears config_mode at write time [zxnext.vhd:5147-5151 — Task 11 Branch 1 implemented] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_integration_test.cpp:2783 |
-| CFG-06 | NR 0x03 bits[2:0]=000 is a no-op (no change to config_mode) [zxnext.vhd:5147-5151 no-change branch] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_test.cpp:564 |
-| CFG-07 | reset() preserves config_mode (VHDL has no reset clause; latch survives reset) [zxnext.vhd:1102, :5147-5151 — no reset block] | zxnext.vhd:1102,5147-5151 | pass | test/nextreg/nextreg_test.cpp:594 |
+| CFG-06 | NR 0x03 bits[2:0]=000 is a no-op (no change to config_mode) [zxnext.vhd:5147-5151 no-change branch] | zxnext.vhd:5147-5151 | pass | test/nextreg/nextreg_test.cpp:573 |
+| CFG-07 | reset() preserves config_mode (VHDL has no reset clause; latch survives reset) [zxnext.vhd:1102, :5147-5151 — no reset block] | zxnext.vhd:1102,5147-5151 | pass | test/nextreg/nextreg_test.cpp:603 |
 | PAL-01 | NR 0x41 auto-increments palette index: pal[0]=0xFC pal[1]=0x03 [zxnext.vhd:4918-4920 palette write] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2058 |
 | PAL-02 | NR 0x41 8-bit palette value round-trips at selected index [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2072 |
 | PAL-03 | NR 0x44 9-bit write: upper 8 bits land at selected idx [zxnext.vhd:4918-4920 palette sub_idx latch] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2092 |
 | PAL-04 | NR 0x41 read returns palette byte at selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:2107 |
 | PAL-05 | NR 0x44 read returns priority+LSB for selected index [zxnext.vhd read dispatch ~5867-6292] | zxnext.vhd | pass | test/nextreg/nextreg_integration_test.cpp:2120 |
 | PAL-06 | NR 0x43 bit 7 disables auto-inc: 2× NR 0x41 at idx 0x50 keeps pointer on 0x50, pal[0x51] untouched [zxnext.vhd:4918-4920] | zxnext.vhd:4918-4920 | pass | test/nextreg/nextreg_integration_test.cpp:2144 |
-| PE-01 | NR 0x82 internal port-enable write=0x00 read=0x00 [zxnext.vhd:2392-2442, 5052-5068] | zxnext.vhd:2392-2442,5052-5068 | pass | test/nextreg/nextreg_test.cpp:683 |
-| PE-02 | NR 0x82 internal port-enable write=0xA5 read=0xA5 [zxnext.vhd:2392-2442, 5052-5068] | zxnext.vhd:2392-2442,5052-5068 | pass | test/nextreg/nextreg_test.cpp:695 |
+| PE-01 | NR 0x82 internal port-enable write=0x00 read=0x00 [zxnext.vhd:2392-2442, 5052-5068] | zxnext.vhd:2392-2442,5052-5068 | pass | test/nextreg/nextreg_test.cpp:692 |
+| PE-02 | NR 0x82 internal port-enable write=0xA5 read=0xA5 [zxnext.vhd:2392-2442, 5052-5068] | zxnext.vhd:2392-2442,5052-5068 | pass | test/nextreg/nextreg_test.cpp:704 |
 | PE-03 | NR 0x82 bit 6 gates port 0x1F (Kempston 1): bit6=1→handler, bit6=0→0xFF [zxnext.vhd:2392-2442] | zxnext.vhd:2392-2442 | pass | test/nextreg/nextreg_integration_test.cpp:2202 |
-| PE-04 | Reset with reset_type=1 | — | missing | — |
+| PE-04 | NR 0x82-0x85 reload to 0xFF/0x8F on reset only when NR 0x85 bit 7 (reset_type) is 1; with bit 7 = 0 they survive [zxnext.vhd:5052-5058, :1230, :6138] | zxnext.vhd:5052-5058,1230,6138 | pass | test/nextreg/nextreg_test.cpp:776 |
 | PE-05 | NR 0x89 bus port enable reset=0x8F [zxnext.vhd:1234-1235, 6147-6150] | zxnext.vhd:1234-1235,6147-6150 | pass | test/nextreg/nextreg_integration_test.cpp:2221 |
-| PE-06 | Read NR 0x82 after a write, full VHDL packing | zxnext.vhd:5508-5522 | missing | — |
-| PE-07 | Read NR 0x86 (bus-port-enable, no read_handler today) | zxnext.vhd:5061-5067 | missing | — |
-| PE-08 | Read NR 0x89 inverted-reset semantics | zxnext.vhd:6138,6150 | missing | — |
-| PE-09 | Read NR 0x80 / 0x88 not initialised | — | missing | — |
-| COP-01 | NR 0x15 CPU-path write=0x3C read=0x3C [zxnext.vhd:4706-4777 cpu_requester_1] | zxnext.vhd:4706-4777 | pass | test/nextreg/nextreg_test.cpp:759 |
-| COP-02 | Copper write NR 0x15 simultaneously | — | missing | — |
-| COP-03 | CPU write while copper active | — | missing | — |
-| COP-04 | Copper register limited to 0x7F | — | missing | — |
-| WO-01 | Write NR 0x04 ← 0xA5; read NR 0x04 via 0x243B/0x253B | zxnext.vhd:5878-6289 | missing | — |
-| WO-02 | Write NR 0x29 ← 0x55; read NR 0x29 | — | missing | — |
-| WO-03 | Write NR 0x60 ← 0x42; read NR 0x60 | — | missing | — |
-| WO-04 | Write NR 0x35 ← 0x33; read NR 0x35 | — | missing | — |
+| COP-01 | NR 0x15 CPU-path write=0x3C read=0x3C [zxnext.vhd:4706-4777 cpu_requester_1] | zxnext.vhd:4706-4777 | pass | test/nextreg/nextreg_test.cpp:838 |
 | T58-NR05-EFF-01 | NR 0x05 bits 2/0 are frame-edge-latched on read: write 0x05 reads 0x00 before the frame edge, 0x05 after [zxnext.vhd:5897, :6696-6703] | zxnext.vhd:5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:3429 |
 | TC-NR05-PRESERVE | NR 0x05 survives a soft reset (no VHDL reset clause) [zxnext.vhd:1105-1106 / 1302-1303] | zxnext.vhd:6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:5118 |
 | TC-NR05-PENTAGON | NR 0x05 bit 2 reads 0 after Pentagon entry + frame edge (pending FF forced 0, eff latched at frame sync) [zxnext.vhd:5835-5836 / :6697-6700 / :5897] | zxnext.vhd:5835-5836,6697-6700,5897 | pass | test/nextreg/nextreg_integration_test.cpp:5150 |
 | V13-NMP-01 | NR 0x05 bit 2 Pentagon-mode cache canonicalisation: (a) write-while-Pentagon does not leak; (b) Pentagon-engagement clears prior bit-2 latch [zxnext.vhd:5832-5841 / :5897 / :6696-6703] | zxnext.vhd:5835-5836,5897,6696-6703 | pass | test/nextreg/nextreg_integration_test.cpp:6037 |
-| FT-D8-01 | NR 0xD8 nr_d8_io_trap_fdc_en write/read-back | zxnext.vhd:5639-5640,6265-6266 | missing | — |
-| FT-D8-02 | NR 0xD8 enable=1 must allow strobe_iotrap to assert MF | zxnext.vhd:2601-2602,3835,3837 | missing | — |
-| FT-D9-01 | NR 0xD9 nr_d9_iotrap_write captures CPU write byte | zxnext.vhd:3892-3893 | missing | — |
-| FT-DA-01 | NR 0xDA nr_da_iotrap_cause encoding 01/10/11 | zxnext.vhd:3872-3877 | missing | — |
-| FT-DA-02 | NR 0xDA cause clears via NR 0x02 b4 write=0 | zxnext.vhd:3879-3880 | missing | — |
 | G56-CR-05 | NR 0x05 read is composed, not stored: mid-frame write 0xFF reads 0xFA (eff_5060/eff_scandouble still 0) and differs from the stored byte [zxnext.vhd:5897, :6696-6703] | zxnext.vhd:5896-5897 | pass | test/nextreg/nextreg_integration_test.cpp:7335 |
 | G56-CR-06 | NR 0x06 read is assembled per-latch: ps2_mode (b2) is config_mode-gated on write so 0xFF reads 0xFB with config mode off and 0xFF with it on; psg_mode (b1:0) is ungated [zxnext.vhd:5161-5169, :5900] | zxnext.vhd:5899-5900 | pass | test/nextreg/nextreg_integration_test.cpp:7360 |
 | G56-CR-09 | NR 0x09 read composes bit 3 as constant 0 and bits 1:0 from the frame-edge-latched eff_nr_09_scanlines: write 0x0B reads 0x00 before the frame edge and 0x03 after [zxnext.vhd:5909, :5859-5860, :6701] | zxnext.vhd:5908-5909 | pass | test/nextreg/nextreg_integration_test.cpp:7385 |
@@ -2647,10 +2601,10 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | G56-CR-71 | NR 0x71 read is seven constant zeros + the Layer 2 scroll-X MSB: write 0xFF reads 0x01 [zxnext.vhd:6117] | zxnext.vhd:6116-6117 | pass | test/nextreg/nextreg_integration_test.cpp:7795 |
 | G56-CR-80 | NR 0x80 reads the expansion-bus byte and its b7/b4 are the SAME state the effective expbus enables expose [zxnext.vhd:6123, :2197, :2200] | zxnext.vhd:6122-6123 | pass | test/nextreg/nextreg_integration_test.cpp:7816 |
 | G56-CR-81 | NR 0x81 bit 7 is the i_BUS_ROMCS_n input pin (reads 1 after a 0x00 write), bit 2 is a constant 0 and bits 1:0 are hard-wired "00" on write: 0x00 -> 0x80, 0xFF -> 0xF8 [zxnext.vhd:6126, :5496] | zxnext.vhd:6125-6126 | pass | test/nextreg/nextreg_integration_test.cpp:7841 |
-| GH230-01 | write handler still alive when its own slot is re-registered | — | pass | test/nextreg/nextreg_test.cpp:971 |
-| GH230-02 | executing write handler reads its own capture after re-registration | — | pass | test/nextreg/nextreg_test.cpp:978 |
-| GH230-03 | G56 canonicalisation preserved: regs_[] takes the EXECUTING handler's return, not the raw byte | — | pass | test/nextreg/nextreg_test.cpp:983 |
-| GH230-04 | handler re-registered mid-call is the one in place afterwards | — | pass | test/nextreg/nextreg_test.cpp:992 |
+| GH230-01 | write handler still alive when its own slot is re-registered | — | pass | test/nextreg/nextreg_test.cpp:1054 |
+| GH230-02 | executing write handler reads its own capture after re-registration | — | pass | test/nextreg/nextreg_test.cpp:1061 |
+| GH230-03 | G56 canonicalisation preserved: regs_[] takes the EXECUTING handler's return, not the raw byte | — | pass | test/nextreg/nextreg_test.cpp:1066 |
+| GH230-04 | handler re-registered mid-call is the one in place afterwards | — | pass | test/nextreg/nextreg_test.cpp:1075 |
 
 ## IO Port Dispatch — `test/port/port_test.cpp`
 
@@ -3274,9 +3228,6 @@ Notes and rationale: [VIDEOTIMING-TEST-PLAN-DESIGN.md](VIDEOTIMING-TEST-PLAN-DES
 | VT-GH265-04 | IN A,(n) of NR 0x1F: I/O cycle after 7 T, edge on the cvc step reads 0x36, one T-state later 0x00 (zxnext.vhd:5871-5876; t80na.vhd:214-222) | zxnext.vhd:5871-5876, t80na.vhd:214-222 | pass | test/videotiming/videotiming_test.cpp:1843 |
 | VT-GH265-05 | a loop polling NR 0x1F for line 0 leaves on the first turn whose IN samples past the cvc step: 12 instructions, not 15 (zxnext.vhd:5871-5876,5985-5986; t80na.vhd:214-222) | zxnext.vhd:5871-5876,5985-5986, t80na.vhd:214-222 | pass | test/videotiming/videotiming_test.cpp:1885 |
 | VT-GH265-06 | a NR 0x1F read outside any instruction samples at the clock, even after an IN has executed: 8 cycles before the step it reads 0x36 (zxnext.vhd:5985-5986; zxula_timing.vhd:457-470) | zxnext.vhd:5985-5986, zxula_timing.vhd:457-470 | pass | test/videotiming/videotiming_test.cpp:1916 |
-| VT-03 | Pentagon `hc_max()`/`vc_max()` after `init(PENTAGON)` = 447, 319 (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:160/168 — `c_max_hc<=447`, `c_max_vc<=319`. No `check()` exists under the literal ID `VT-03`: the standalone `MachineType::Pentagon` enum this row's `init(PENTAGON)` API describes was dropped Wave 0.3 (2026-05-04) — but Pentagon TIMING itself is not gone, NR 0x03 tim_sel bit 2 still selects it at runtime. The identical facts are proven LIVE by `VT-T51-01` (Section 10, Task 51) via `init_timing(MachineTimingMode::TimingPentagon)`, same VHDL lines) | zxula_timing.vhd:160/168, zxula_timing.vhd:160,168 | missing | — |
-| VT-05 | Pentagon `display_origin()` = {128, 80} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:159/167 — `c_min_hactive<=128`, `c_min_vactive<=80`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:159/167, zxula_timing.vhd:159,167 | missing | — |
-| VT-12 | Pentagon `int_position()` = {439, 319} (GH #196 phase 1.4: citation VERIFIED against zxula_timing.vhd:155/163 — `c_int_h<=448+3-12`=439, `c_int_v<=319`. Same disposition as VT-03: the `init(PENTAGON)` API was retired Wave 0.3, but the fact is proven LIVE by `VT-T51-01` via `init_timing(MachineTimingMode::TimingPentagon)`) | zxula_timing.vhd:155/163, zxula_timing.vhd:155,163 | missing | — |
 | VT-01 | 48K hc_max()=447, vc_max()=311 after init(ZX48K) (zxula_timing.vhd:262,270) | zxula_timing.vhd:262,270 | pass | test/videotiming/videotiming_test.cpp:109 |
 | VT-02 | 128K hc_max()=455, vc_max()=310 after init(ZX128K) (zxula_timing.vhd:196,204) | zxula_timing.vhd:196,204 | pass | test/videotiming/videotiming_test.cpp:117 |
 | VT-04 | 128K display_origin() = {136, 64} (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/videotiming/videotiming_test.cpp:139 |
@@ -3387,9 +3338,9 @@ Notes and rationale: [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIG
 | CT-TURBO-05 | Emulator::init failed — would verify NR 0x08 bit 6 → contention_disable [zxnext.vhd:4481,5823] | zxnext.vhd:4481,5823 | pass | test/contention/contention_test.cpp:1077 |
 | CT-TURBO-06 | NR 0x08 bit 6 shadow latches on hc(8) rising edge: shadow alone does not affect gate; hc<256 does not commit; hc>=256 commits [zxnext.vhd:5822-5823] | zxnext.vhd:5822-5823 | pass | test/contention/contention_test.cpp:1142 |
 | CT-TURBO-07 | NR 0x07 cpu_speed shadow → effective commits only on bus-idle (mreq_n & iorq_n & m1_n & not dma_holds_bus): shadow alone does not affect gate; bus_idle=0 does not commit; dma_holds_bus=1 does not commit; bus_idle=1 AND dma_holds_bus=0 commits [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:1209 |
-| CT-TURBO-09 | NR 0x07=0/1/2/3 → Clock divisor 8/4/2/1 and the CPU is granted exactly master_cycles_per_frame/divisor T-states in one run_frame() (overshoot <= one instruction). Pins the 28 MHz-master ÷ NR 0x07 CPU clock end-to-end, not just the divisor value [zxnext.vhd:5787-5790,5809,5817; GH #165] | zxnext.vhd:5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2271 |
-| CT-TURBO-10 | Uncontended self-looping LDIR: iterations retired in one frame == (master_cycles_per_frame/divisor - setup)/21 at NR 0x07=0/1/2, and 14 MHz retires exactly 4x the 3.5 MHz count. Pins per-instruction T-state charging against the frame budget — the composition GH #165 claimed was 590x wrong [zxnext.vhd:4481,5787-5790,5809,5817; GH #165] | zxnext.vhd:4481,5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2326 |
-| CT-TURBO-11 | Emulator::init failed (likely missing 48K ROM) — row would otherwise verify NR 0x07=0x02 disables the runtime contention path [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2362 |
+| CT-TURBO-09 | NR 0x07=0/1/2/3 → Clock divisor 8/4/2/1 and the CPU is granted exactly master_cycles_per_frame/divisor T-states in one run_frame() (overshoot <= one instruction). Pins the 28 MHz-master ÷ NR 0x07 CPU clock end-to-end, not just the divisor value [zxnext.vhd:5787-5790,5809,5817; GH #165] | zxnext.vhd:5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2443 |
+| CT-TURBO-10 | Uncontended self-looping LDIR: iterations retired in one frame == (master_cycles_per_frame/divisor - setup)/21 at NR 0x07=0/1/2, and 14 MHz retires exactly 4x the 3.5 MHz count. Pins per-instruction T-state charging against the frame budget — the composition GH #165 claimed was 590x wrong [zxnext.vhd:4481,5787-5790,5809,5817; GH #165] | zxnext.vhd:4481,5787-5790,5809,5817 | pass | test/contention/contention_test.cpp:2498 |
+| CT-TURBO-11 | Emulator::init failed (likely missing 48K ROM) — row would otherwise verify NR 0x07=0x02 disables the runtime contention path [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2534 |
 | CT-FB-01 | Emulator::init failed (likely missing +3 ROMs) — would verify p3_floating_bus_dat captures bank-4 read [zxnext.vhd:4498-4505] | zxnext.vhd:4498-4505 | pass | test/contention/contention_test.cpp:1253 |
 | CT-FB-02 | Emulator::init failed — would verify mem write capture [zxnext.vhd:4498-4508] | zxnext.vhd:4498-4508 | pass | test/contention/contention_test.cpp:1283 |
 | CT-FB-03 | Emulator::init failed — would verify latch hold on non-contended access [zxnext.vhd:4498-4501] | zxnext.vhd:4498-4501 | pass | test/contention/contention_test.cpp:1309 |
@@ -3397,98 +3348,98 @@ Notes and rationale: [CONTENTION-TEST-PLAN-DESIGN.md](CONTENTION-TEST-PLAN-DESIG
 | CT-INT-01 | Emulator::init failed — would verify 48K contention-ON adds non-zero T-states [zxula.vhd:582-595; zxula_timing.vhd] | zxula.vhd:582-595, zxula_timing.vhd | pass | test/contention/contention_test.cpp:1384 |
 | CT-INT-02 | Emulator::init failed — would verify 48K contention-OFF matches baseline [zxnext.vhd:4481,5823] | zxnext.vhd:4481,5823 | pass | test/contention/contention_test.cpp:1418 |
 | CT-INT-03 | Regression suite plumbing: floating-bus reference PNG exists AND regression_tests.conf includes a `floating-bus` entry — contention regressions land via test/00regression/regression.sh [test/00regression/img/floating-bus-reference.png; test/00regression/regression_tests.conf] | — | pass | test/contention/contention_test.cpp:1497 |
-| CT-FUSE-01 | Emulator::init failed — would verify M1 fetch contention [zxula.vhd:583; zxnext.vhd:4481,4490] | zxula.vhd:583, zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:1877 |
-| CT-FUSE-02 | Emulator::init failed — would verify LDIR no-MREQ tail contention [zxula.vhd:583,595; z80_ed.c:418-433] | zxula.vhd:583,595 | pass | test/contention/contention_test.cpp:1955 |
-| CT-FUSE-03 | C | zxula.vhd:595, zxnext.vhd:4496 | missing | — |
-| CT-FUSE-04 | C | zxula.vhd:595, zxnext.vhd:4496 | missing | — |
-| T51-INT-01 | Emulator::init(ZX128K) failed — Task 51 video-timing re-push probe | zxula_timing.vhd:147-280, zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:3135 |
-| T56-INT-01 | Emulator::init(ZX128K) failed — Task 56 50/60 Hz frame-edge commit probe | zxnext.vhd:6697-6703, zxula_timing.vhd:282-298 | pass | test/contention/contention_test.cpp:3212 |
-| CT-SW28-01 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3699 |
-| CT-SW28-02 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3700 |
-| CT-SW28-03 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3701 |
-| CT-SW28-04 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3171-3181 | pass | test/contention/contention_test.cpp:3702 |
-| CT-SW28-05 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3736 |
-| CT-SW28-06 | Emulator::init failed (Next machine) | zxnext.vhd:3171-3181 | pass | test/contention/contention_test.cpp:3740 |
-| CT-SW28-07 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3175 | pass | test/contention/contention_test.cpp:3743 |
-| CT-SW28-08 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3747 |
-| CT-SW28-09 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3751 |
-| CT-SW28-10 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3758 |
-| CT-SW28-11 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3764 |
-| CT-SW28-12 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3768 |
-| CT-SW28-13 | Emulator::init failed (Next machine) | zxnext.vhd:6592,3175 | pass | test/contention/contention_test.cpp:3801 |
-| CT-SW28-14 | Emulator::init failed (Next machine) | zxnext.vhd:6670-6685 | pass | test/contention/contention_test.cpp:3828 |
-| CT-SW28-15 | Emulator::init failed (Next machine) | zxnext.vhd:2964,3061 | pass | test/contention/contention_test.cpp:3854 |
-| CT-SW28-16 | Emulator::init failed (Next machine) | zxnext.vhd:1857,3199-3204 | pass | test/contention/contention_test.cpp:3888 |
-| CT-SW28-17 | Emulator::init failed (Next machine) | zxnext.vhd:3052-3053 | pass | test/contention/contention_test.cpp:3898 |
-| CT-SW28-18 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3923 |
-| CT-SW28-19 | Emulator::init failed (Next machine) | zxnext.vhd:3084-3099 | pass | test/contention/contention_test.cpp:3956 |
-| CT-SW28-20 | Emulator::init failed (Next machine) | zxnext.vhd:3028-3035 | pass | test/contention/contention_test.cpp:3995 |
-| CT-SW28-21 | Emulator::init failed (Next machine) | zxnext.vhd:3077 | pass | test/contention/contention_test.cpp:4031 |
-| CT-GH183-01 | 48K: `contention_tick()` identical at both ticks of every T-state pair `{hc-1, hc}` over the contended span | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4190 |
-| CT-GH183-02 | 128K: same pair invariance | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4190 |
-| CT-GH183-03 | 48K: swapping jnext's independent (hc-12, vc) rebase for the VHDL-exact linear counter pair (hc-11) changes the contention delay at ZERO T-states of a full frame — the -12 in ula_prefetch_origin_hc() is unobservable here [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4213 |
-| CT-GH183-04 | 128K: same whole-frame VHDL-exact rebase comparison — zero differing T-states, identical per-frame contention total [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4225 |
-| CT-GH183-05 | +3: the hc_adj(3:1)=000 wait_s extension puts index pair {15,0} astride the i_hc(8) window edge, so the -12 vs -11 rebase relocates exactly 2 T-states per display line (384/frame) with an IDENTICAL per-frame contention total — a sub-T-state blip, not a delay change [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:4248 |
-| CT-GH183-06 | Emulator::init failed — would verify end-to-end origin invariance [zxula_timing.vhd:423-436] | zxula_timing.vhd:423-436 | pass | test/contention/contention_test.cpp:4271 |
-| CT-GH265-01 | 48K port-contended IN A,(C): the port handler runs after the I/O cycle's stretch, in its last clock (zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222) | zxnext.vhd:4496, zxula.vhd:587-595, t80na.vhd:214-222 | pass | test/contention/contention_test.cpp:4369 |
-| CT-GH265-02 | 48K IN A,(C) in the top border: no stretch, 12 T, handler at 11 T (zxula.vhd:414,583) | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:4385 |
-| CT-OVS-01 | Every IN of a 31-T loop over 4 frames finds the contention counter at clock - frame start: the frame start carries the overshoot (zxula.vhd:582-583 via derive_hc_vc) | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:4667 |
-| CT-OVS-02 | A DMA step moves the contention counter with the clock (dma_holds_bus: no CPU cycle, zxnext.vhd:1828-1844) | zxnext.vhd:1828-1844 | pass | test/contention/contention_test.cpp:4694 |
-| CT-OVS-03 | A parked frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:4716 |
-| CT-OVS-04 | After a 7 MHz -> 3.5 MHz switch mid-frame every IN finds the contention counter at clock - frame start (zxnext.vhd:5796-5828 commit) | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:4744 |
-| CT-OVS-05 | A tape-trap frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:4782 |
-| CT-IOC-01 | 48K IN A,(C) of 0x00FE (even port, uncontended page, N:1,C:3) matches FUSE 1.6 in all 8 phases (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4492 |
-| CT-IOC-02 | 48K IN A,(C) of 0x40FE (even port, contended page, C:1,C:3) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:4495 |
-| CT-IOC-03 | 48K IN A,(C) of 0x40FF (odd port, contended page, C:1 x4) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4498 |
-| CT-IOC-04 | 48K IN A,(C) of 0x00FF (odd port, uncontended page, N:4) takes 12 T in every phase, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4501 |
-| CT-IOC-05 | 48K IN A,(C) of 0x7FFD: no port_7ffd_active on 48K timing, so an odd port in bank 5's page (C:1 x4), as FUSE 1.6 (zxnext.vhd:2594,4489-4496) | zxnext.vhd:2594,4489-4496 | pass | test/contention/contention_test.cpp:4504 |
-| CT-IOC-06 | 48K OUT (C),A to 0x00FE matches FUSE 1.6 (N:1,C:3) (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4508 |
-| CT-IOC-07 | 48K OUT (C),A to 0x40FE matches FUSE 1.6 (C:1,C:3) (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:4511 |
-| CT-IOC-08 | 48K OUT (C),A to 0x40FF matches FUSE 1.6 (C:1 x4) (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4514 |
-| CT-IOC-09 | 48K OUT (C),A to 0x00FF takes 12 T in every phase (N:4), as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4517 |
-| CT-IOC-10 | 48K IN A,(0xFF) with A=0x40 (port 0x40FF, contended page) matches FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4522 |
-| CT-IOC-11 | 48K IN A,(0xFF) with A=0x80 (port 0x80FF, bank 2 page) is never stretched, 11 T, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4526 |
-| CT-IOC-12 | 128K IN A,(C) of 0xC0FF with bank 1 at 0xC000 (odd page, contended) matches FUSE 1.6 (C:1 x4; zxnext.vhd:4489-4493) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4530 |
-| CT-IOC-13 | 128K IN A,(C) of 0xC0FE with bank 1 at 0xC000 matches FUSE 1.6 (C:1,C:3; zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4534 |
-| CT-IOC-14 | 128K OUT (C),A to 0xC0FF with bank 1 at 0xC000 matches FUSE 1.6 (C:1 x4) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4538 |
-| CT-IOC-15 | 128K IN A,(C) of 0x40FF (bank 5) matches FUSE 1.6 (C:1 x4) | — | pass | test/contention/contention_test.cpp:4542 |
-| CT-IOC-16 | 128K IN A,(C) of 0x80FF (bank 2) takes 12 T in every phase, as FUSE 1.6 (N:4) | — | pass | test/contention/contention_test.cpp:4545 |
-| CT-IOC-17 | 128K IN A,(C) of 0x7FFE (keyboard half-row, even, bank 5) matches FUSE 1.6 (C:1,C:3) | — | pass | test/contention/contention_test.cpp:4548 |
-| CT-IOC-18 | 128K OUT (C),A to 0x7FFD: port_7ffd_active makes it a contended port in a contended page, C:1,C:3 (VHDL; FUSE differs) (zxnext.vhd:2594,4496; zxula.vhd:587-595) | zxnext.vhd:2594,4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4557 |
-| CT-IOC-19 | 128K OUT (C),A to 0xBF3B (ULA+ on, bank 2 page): a contended port in an uncontended page, N:1,C:3 (zxnext.vhd:2685,4496; zxula.vhd:587-595) | zxnext.vhd:2685,4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4563 |
-| CT-IOC-20 | 128K OUT (C),A to 0xFF3B (ULA+ on) with bank 1 at 0xC000: contended port and page, C:1,C:3 (zxnext.vhd:2686,4489-4496; zxula.vhd:587-595) | zxnext.vhd:2686,4489-4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4567 |
-| CT-IOC-21 | 128K OUT (C),A to 0xFF3B with ULA+ off (NR 0x85 b0=0), bank 1 at 0xC000: just an odd port in a contended page, C:1 x4 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:4572 |
-| CT-IOC-22 | 48K timing, MMU7 = page 10 (bank 5): IN A,(C) of 0xE0FF is in a contended page, C:1 x4 (zxnext.vhd:2952,4489-4493) | zxnext.vhd:2952,4489-4493 | pass | test/contention/contention_test.cpp:4582 |
-| CT-IOC-23 | 48K timing, MMU2 = page 4 (bank 2): IN A,(C) of 0x40FF is NOT in a contended page, N:4 (zxnext.vhd:2952,4489-4493) | zxnext.vhd:2952,4489-4493 | pass | test/contention/contention_test.cpp:4587 |
-| CT-IOC-24 | +3 timing: IN A,(C) of 0x40FE and 0x40FF are never stretched, 12 T in every phase (zxula.vhd:599-600) | zxula.vhd:599-600 | pass | test/contention/contention_test.cpp:4603 |
+| CT-FUSE-01 | Emulator::init failed — would verify M1 fetch contention [zxula.vhd:583; zxnext.vhd:4481,4490] | zxula.vhd:583, zxnext.vhd:4481,4490 | pass | test/contention/contention_test.cpp:1976 |
+| CT-FUSE-02 | Emulator::init failed — would verify LDIR no-MREQ tail contention [zxula.vhd:583,595; z80_ed.c:418-433] | zxula.vhd:583,595 | pass | test/contention/contention_test.cpp:2054 |
+| CT-FUSE-03 | OUT (0xFE),A from an uncontended code page stretches the port cycle (on > off, delta within the 6-T wait_s envelope) while the same loop on odd port 0x00FF is untouched (on == off) [zxnext.vhd:4496 port_contend = not cpu_a(0); zxula.vhd:583 wait_s pattern, :600 one-clock gate] | zxnext.vhd:4496, zxula.vhd:583 | pass | test/contention/contention_test.cpp:2144 |
+| CT-FUSE-04 | IN A,(0xFE) from an uncontended code page stretches the port cycle (on > off, delta within the 6-T wait_s envelope) while the same loop on odd port 0x00FF is untouched (on == off) [zxnext.vhd:4496 port_contend = not cpu_a(0); zxula.vhd:600 keys on iorq_n alone, no rd/wr term] | zxnext.vhd:4496, zxula.vhd:600 | pass | test/contention/contention_test.cpp:2178 |
+| T51-INT-01 | Emulator::init(ZX128K) failed — Task 51 video-timing re-push probe | zxula_timing.vhd:147-280, zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:3307 |
+| T56-INT-01 | Emulator::init(ZX128K) failed — Task 56 50/60 Hz frame-edge commit probe | zxnext.vhd:6697-6703, zxula_timing.vhd:282-298 | pass | test/contention/contention_test.cpp:3384 |
+| CT-SW28-01 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3871 |
+| CT-SW28-02 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3872 |
+| CT-SW28-03 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3873 |
+| CT-SW28-04 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3171-3181 | pass | test/contention/contention_test.cpp:3874 |
+| CT-SW28-05 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:3908 |
+| CT-SW28-06 | Emulator::init failed (Next machine) | zxnext.vhd:3171-3181 | pass | test/contention/contention_test.cpp:3912 |
+| CT-SW28-07 | Emulator::init failed (Next machine) | zxnext.vhd:3154,3167,3175 | pass | test/contention/contention_test.cpp:3915 |
+| CT-SW28-08 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3919 |
+| CT-SW28-09 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3923 |
+| CT-SW28-10 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3930 |
+| CT-SW28-11 | Emulator::init failed (Next machine) | zxnext.vhd:3144,3175 | pass | test/contention/contention_test.cpp:3936 |
+| CT-SW28-12 | Emulator::init failed (Next machine) | zxnext.vhd:3144 | pass | test/contention/contention_test.cpp:3940 |
+| CT-SW28-13 | Emulator::init failed (Next machine) | zxnext.vhd:6592,3175 | pass | test/contention/contention_test.cpp:3973 |
+| CT-SW28-14 | Emulator::init failed (Next machine) | zxnext.vhd:6670-6685 | pass | test/contention/contention_test.cpp:4000 |
+| CT-SW28-15 | Emulator::init failed (Next machine) | zxnext.vhd:2964,3061 | pass | test/contention/contention_test.cpp:4026 |
+| CT-SW28-16 | Emulator::init failed (Next machine) | zxnext.vhd:1857,3199-3204 | pass | test/contention/contention_test.cpp:4060 |
+| CT-SW28-17 | Emulator::init failed (Next machine) | zxnext.vhd:3052-3053 | pass | test/contention/contention_test.cpp:4070 |
+| CT-SW28-18 | Emulator::init failed (Next machine) | zxnext.vhd:3175 | pass | test/contention/contention_test.cpp:4095 |
+| CT-SW28-19 | Emulator::init failed (Next machine) | zxnext.vhd:3084-3099 | pass | test/contention/contention_test.cpp:4128 |
+| CT-SW28-20 | Emulator::init failed (Next machine) | zxnext.vhd:3028-3035 | pass | test/contention/contention_test.cpp:4167 |
+| CT-SW28-21 | Emulator::init failed (Next machine) | zxnext.vhd:3077 | pass | test/contention/contention_test.cpp:4203 |
+| CT-GH183-01 | 48K: `contention_tick()` identical at both ticks of every T-state pair `{hc-1, hc}` over the contended span | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4362 |
+| CT-GH183-02 | 128K: same pair invariance | zxula.vhd:582-583, zxula_timing.vhd:344,423-436 | pass | test/contention/contention_test.cpp:4362 |
+| CT-GH183-03 | 48K: swapping jnext's independent (hc-12, vc) rebase for the VHDL-exact linear counter pair (hc-11) changes the contention delay at ZERO T-states of a full frame — the -12 in ula_prefetch_origin_hc() is unobservable here [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4385 |
+| CT-GH183-04 | 128K: same whole-frame VHDL-exact rebase comparison — zero differing T-states, identical per-frame contention total [zxula_timing.vhd:423-451] | zxula_timing.vhd:423-451 | pass | test/contention/contention_test.cpp:4397 |
+| CT-GH183-05 | +3: the hc_adj(3:1)=000 wait_s extension puts index pair {15,0} astride the i_hc(8) window edge, so the -12 vs -11 rebase relocates exactly 2 T-states per display line (384/frame) with an IDENTICAL per-frame contention total — a sub-T-state blip, not a delay change [zxula.vhd:583] | zxula.vhd:583 | pass | test/contention/contention_test.cpp:4420 |
+| CT-GH183-06 | Emulator::init failed — would verify end-to-end origin invariance [zxula_timing.vhd:423-436] | zxula_timing.vhd:423-436 | pass | test/contention/contention_test.cpp:4443 |
+| CT-GH265-01 | 48K port-contended IN A,(C): the port handler runs after the I/O cycle's stretch, in its last clock (zxnext.vhd:4496; zxula.vhd:587-595; t80na.vhd:214-222) | zxnext.vhd:4496, zxula.vhd:587-595, t80na.vhd:214-222 | pass | test/contention/contention_test.cpp:4541 |
+| CT-GH265-02 | 48K IN A,(C) in the top border: no stretch, 12 T, handler at 11 T (zxula.vhd:414,583) | zxula.vhd:414,583 | pass | test/contention/contention_test.cpp:4557 |
+| CT-OVS-01 | Every IN of a 31-T loop over 4 frames finds the contention counter at clock - frame start: the frame start carries the overshoot (zxula.vhd:582-583 via derive_hc_vc) | zxula.vhd:582-583 | pass | test/contention/contention_test.cpp:4839 |
+| CT-OVS-02 | A DMA step moves the contention counter with the clock (dma_holds_bus: no CPU cycle, zxnext.vhd:1828-1844) | zxnext.vhd:1828-1844 | pass | test/contention/contention_test.cpp:4866 |
+| CT-OVS-03 | A parked frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:4888 |
+| CT-OVS-04 | After a 7 MHz -> 3.5 MHz switch mid-frame every IN finds the contention counter at clock - frame start (zxnext.vhd:5796-5828 commit) | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:4916 |
+| CT-OVS-05 | A tape-trap frame advances the contention counter with the clock | — | pass | test/contention/contention_test.cpp:4954 |
+| CT-IOC-01 | 48K IN A,(C) of 0x00FE (even port, uncontended page, N:1,C:3) matches FUSE 1.6 in all 8 phases (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4664 |
+| CT-IOC-02 | 48K IN A,(C) of 0x40FE (even port, contended page, C:1,C:3) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:4667 |
+| CT-IOC-03 | 48K IN A,(C) of 0x40FF (odd port, contended page, C:1 x4) matches FUSE 1.6 (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4670 |
+| CT-IOC-04 | 48K IN A,(C) of 0x00FF (odd port, uncontended page, N:4) takes 12 T in every phase, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4673 |
+| CT-IOC-05 | 48K IN A,(C) of 0x7FFD: no port_7ffd_active on 48K timing, so an odd port in bank 5's page (C:1 x4), as FUSE 1.6 (zxnext.vhd:2594,4489-4496) | zxnext.vhd:2594,4489-4496 | pass | test/contention/contention_test.cpp:4676 |
+| CT-IOC-06 | 48K OUT (C),A to 0x00FE matches FUSE 1.6 (N:1,C:3) (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4680 |
+| CT-IOC-07 | 48K OUT (C),A to 0x40FE matches FUSE 1.6 (C:1,C:3) (zxula.vhd:587-595; zxnext.vhd:4489-4496) | zxula.vhd:587-595, zxnext.vhd:4489-4496 | pass | test/contention/contention_test.cpp:4683 |
+| CT-IOC-08 | 48K OUT (C),A to 0x40FF matches FUSE 1.6 (C:1 x4) (zxula.vhd:587-595; zxnext.vhd:4489-4493) | zxula.vhd:587-595, zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4686 |
+| CT-IOC-09 | 48K OUT (C),A to 0x00FF takes 12 T in every phase (N:4), as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4689 |
+| CT-IOC-10 | 48K IN A,(0xFF) with A=0x40 (port 0x40FF, contended page) matches FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4694 |
+| CT-IOC-11 | 48K IN A,(0xFF) with A=0x80 (port 0x80FF, bank 2 page) is never stretched, 11 T, as FUSE 1.6 (zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4698 |
+| CT-IOC-12 | 128K IN A,(C) of 0xC0FF with bank 1 at 0xC000 (odd page, contended) matches FUSE 1.6 (C:1 x4; zxnext.vhd:4489-4493) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4702 |
+| CT-IOC-13 | 128K IN A,(C) of 0xC0FE with bank 1 at 0xC000 matches FUSE 1.6 (C:1,C:3; zxula.vhd:587-595) | zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4706 |
+| CT-IOC-14 | 128K OUT (C),A to 0xC0FF with bank 1 at 0xC000 matches FUSE 1.6 (C:1 x4) | zxnext.vhd:4489-4493 | pass | test/contention/contention_test.cpp:4710 |
+| CT-IOC-15 | 128K IN A,(C) of 0x40FF (bank 5) matches FUSE 1.6 (C:1 x4) | — | pass | test/contention/contention_test.cpp:4714 |
+| CT-IOC-16 | 128K IN A,(C) of 0x80FF (bank 2) takes 12 T in every phase, as FUSE 1.6 (N:4) | — | pass | test/contention/contention_test.cpp:4717 |
+| CT-IOC-17 | 128K IN A,(C) of 0x7FFE (keyboard half-row, even, bank 5) matches FUSE 1.6 (C:1,C:3) | — | pass | test/contention/contention_test.cpp:4720 |
+| CT-IOC-18 | 128K OUT (C),A to 0x7FFD: port_7ffd_active makes it a contended port in a contended page, C:1,C:3 (VHDL; FUSE differs) (zxnext.vhd:2594,4496; zxula.vhd:587-595) | zxnext.vhd:2594,4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4729 |
+| CT-IOC-19 | 128K OUT (C),A to 0xBF3B (ULA+ on, bank 2 page): a contended port in an uncontended page, N:1,C:3 (zxnext.vhd:2685,4496; zxula.vhd:587-595) | zxnext.vhd:2685,4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4735 |
+| CT-IOC-20 | 128K OUT (C),A to 0xFF3B (ULA+ on) with bank 1 at 0xC000: contended port and page, C:1,C:3 (zxnext.vhd:2686,4489-4496; zxula.vhd:587-595) | zxnext.vhd:2686,4489-4496, zxula.vhd:587-595 | pass | test/contention/contention_test.cpp:4739 |
+| CT-IOC-21 | 128K OUT (C),A to 0xFF3B with ULA+ off (NR 0x85 b0=0), bank 1 at 0xC000: just an odd port in a contended page, C:1 x4 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:4744 |
+| CT-IOC-22 | 48K timing, MMU7 = page 10 (bank 5): IN A,(C) of 0xE0FF is in a contended page, C:1 x4 (zxnext.vhd:2952,4489-4493) | zxnext.vhd:2952,4489-4493 | pass | test/contention/contention_test.cpp:4754 |
+| CT-IOC-23 | 48K timing, MMU2 = page 4 (bank 2): IN A,(C) of 0x40FF is NOT in a contended page, N:4 (zxnext.vhd:2952,4489-4493) | zxnext.vhd:2952,4489-4493 | pass | test/contention/contention_test.cpp:4759 |
+| CT-IOC-24 | +3 timing: IN A,(C) of 0x40FE and 0x40FF are never stretched, 12 T in every phase (zxula.vhd:599-600) | zxula.vhd:599-600 | pass | test/contention/contention_test.cpp:4775 |
 | CT-DELAY-01 | Emulator::init failed for one or more machines — would verify per-frame contention drift bound across 48K/128K/+3 [zxula.vhd:582-595; zxnext.vhd:4481] | zxula.vhd:582-595, zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:1602 |
-| CT-FUSE-05 | Emulator::init failed — would verify single-contention-path invariant [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2060 |
-| CT-TURBO-08 | Combined mid-line NR 0x07 + NR 0x08 b6 writes: each shadow commits on its OWN edge (NR 0x07 on bus-idle CLK_CPU; NR 0x08 b6 on bus-idle CLK_CPU AND hc(8)='1'); independent — one edge satisfied does not commit the other [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:2184 |
-| FIX-CONTEND-NR03-01 | ContentionModel::rebuild_for_type updates type/LUT and preserves ALL 5 dynamic gate fields (mem_active_page, cpu_speed, pending_cpu_speed, contention_disable/_shadow, port_7ffd_io_en) — VHDL :5137-5145 + :4489-4493; commit f5ec6d8 | — | pass | test/contention/contention_test.cpp:2497 |
-| FIX-CONTEND-NR03-INT-01 | Emulator::init(ZX48K) failed — would verify NR 0x03 dispatcher drives both axes | — | pass | test/contention/contention_test.cpp:2532 |
-| FIX-CONTEND-7FFD-01 | 128K + port 0x7FFD: port_contend gated on port_7ffd_io_en (NR 0x82 b1) — VHDL :4496/:2594/:2593; commit f5ec6d8 | zxnext.vhd:4496,2594,2593 | pass | test/contention/contention_test.cpp:2586 |
-| FIX-CONTEND-7FFD-02 | 48K + port 0x7FFD + io_en=1: port_contend=0 (s128/p3 timing gates off) — VHDL zxnext.vhd:2594; commit f5ec6d8 | zxnext.vhd:2594 | pass | test/contention/contention_test.cpp:2604 |
-| FIX-CONTEND-7FFD-03 | +3 + port 0x7FFD + io_en=1: port_contend=1 — VHDL zxnext.vhd:2593-2594; commit f5ec6d8 | zxnext.vhd:2593-2594 | pass | test/contention/contention_test.cpp:2622 |
-| FIX-MEMACTIVE-PAGE-01 | Emulator::init failed — would verify Mmu::get_page returns 0xFF sentinel for ROM slots 0/1 on 128K [zxnext.vhd:2949-2956,4489] | zxnext.vhd:2949-2956,4489 | pass | test/contention/contention_test.cpp:2656 |
-| FIX-MEMACTIVE-PAGE-INT-01 | Emulator::init failed — would verify CPU mem_active_page_for calls Mmu::get_page (NOT get_effective_page) | — | pass | test/contention/contention_test.cpp:2702 |
-| V15-CPU-NIT-03-01 | ZX128K, NR 0x85 b0=1, IORQ@$BF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2685,4496; reviewer-promoted V15-CPU-NIT-03) | zxnext.vhd:2439,2685,4496 | pass | test/contention/contention_test.cpp:2807 |
-| V15-CPU-NIT-03-02 | ZX128K, NR 0x85 b0=1, IORQ@$FF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:2825 |
-| V15-CPU-NIT-03-03 | ZX128K, NR 0x85 b0=0, IORQ@$BF3B → contention_tick stretch == 0 (gate disabled; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:2846 |
-| V15-CPU-NIT-03-04 | set_port_ulap_io_en(true) → port_ulap_io_en()==true; set_port_ulap_io_en(false) → port_ulap_io_en()==false (round-trip; mirrors port_7ffd_io_en pattern) | — | pass | test/contention/contention_test.cpp:2862 |
-| V15-CPU-NIT-03-05 | port_contend(0xBF3B, port_ulap_io_en=true) returns true regardless of shadow state (parameter override; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:2883 |
-| D3-CONTENTION-01 | tim_sel=128 / typ_sel=48 / page=0x02 — pre-fix follows typ_sel (48: bank-5 only → false); post-fix follows tim_sel (128: odd banks → true) per VHDL zxnext.vhd:4491,5761-5777 | zxnext.vhd:4491,5761-5777 | pass | test/contention/contention_test.cpp:2938 |
-| D3-CONTENTION-02 | tim_sel=+3 / typ_sel=128 / page=0x08 — pre-fix follows typ_sel (128: odd banks → false); post-fix follows tim_sel (+3: banks>=4 → true) per VHDL zxnext.vhd:4492,5761-5777 | zxnext.vhd:4492,5761-5777 | pass | test/contention/contention_test.cpp:2959 |
-| D3-CONTENTION-03 | video-frame deferred-commit latch — set_pending defers the new tim_sel until commit_pending_machine_timing() at the frame edge; pre-commit retains old effective value (VHDL zxnext.vhd:6694-6703) | zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:2996 |
-| D3-CONTENTION-04 | Emulator::init(ZX128K) failed | zxnext.vhd:4490-4492 | pass | test/contention/contention_test.cpp:3069 |
-| D3-CONTENTION-05 | Emulator::init(ZX128K) failed — Mmu::machine_timing_ axis storage + commit probe | — | pass | test/contention/contention_test.cpp:3239 |
-| D3-CONTENTION-06 | tim_sel=Pentagon disables contention regardless of typ_sel (VHDL zxnext.vhd:4481 — i_contention_en gates on NOT machine_timing_pentagon) | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:3297 |
-| D3-CONTENTION-NIT-01 | Emulator::init(ZX48K) failed — would verify load_state preserves machine_timing pair from Mmu schema | — | pass | test/contention/contention_test.cpp:3339 |
-| T50-01 | 48K, read $4000 at raw vc=10 (TOP BORDER, above c_min_vactive=64) on an hc phase that DOES contend in raw coordinates → NO contention (zxula.vhd:414 border_active_v is keyed on the ULA display-relative i_vc, reset at c_min_vactive per zxula_timing.vhd:441-452) | zxula.vhd:414, zxula_timing.vhd:441-452 | pass | test/contention/contention_test.cpp:3538 |
-| T50-02 | 48K, read $4000 at raw vc=64 (FIRST display line) → contends (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3549 |
-| T50-03 | 48K, read $4000 at raw vc=200 (BOTTOM display third, still within 64..255) → contends; pre-fix the raw vc tripped border_active_v and silently stopped contending (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3561 |
-| T50-04 | 48K, read $4000: raw vc=255 (LAST display line) contends, raw vc=256 (BOTTOM BORDER) does not — the window closes at exactly 192 ULA lines (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3572 |
-| T50-05 | 48K, read $4000 on a display line but at hc=4 (LEFT BORDER, before ula_min_hactive=c_min_hactive-12=116) → NO contention (zxula.vhd:416 border_active_ula = i_hc(8) or border_active_v; zxula_timing.vhd:423) | zxula.vhd:416, zxula_timing.vhd:423 | pass | test/contention/contention_test.cpp:3586 |
-| T50-06 | 128K (c_min_hactive=136, 228 T/line): top border does not contend and a display line does — proves the ULA counter origins are taken per-machine from VideoTiming, not hardcoded to the 48K values (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/contention/contention_test.cpp:3614 |
+| CT-FUSE-05 | Emulator::init failed — would verify single-contention-path invariant [zxnext.vhd:4481] | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:2232 |
+| CT-TURBO-08 | Combined mid-line NR 0x07 + NR 0x08 b6 writes: each shadow commits on its OWN edge (NR 0x07 on bus-idle CLK_CPU; NR 0x08 b6 on bus-idle CLK_CPU AND hc(8)='1'); independent — one edge satisfied does not commit the other [zxnext.vhd:5796-5828] | zxnext.vhd:5796-5828 | pass | test/contention/contention_test.cpp:2356 |
+| FIX-CONTEND-NR03-01 | ContentionModel::rebuild_for_type updates type/LUT and preserves ALL 5 dynamic gate fields (mem_active_page, cpu_speed, pending_cpu_speed, contention_disable/_shadow, port_7ffd_io_en) — VHDL :5137-5145 + :4489-4493; commit f5ec6d8 | — | pass | test/contention/contention_test.cpp:2669 |
+| FIX-CONTEND-NR03-INT-01 | Emulator::init(ZX48K) failed — would verify NR 0x03 dispatcher drives both axes | — | pass | test/contention/contention_test.cpp:2704 |
+| FIX-CONTEND-7FFD-01 | 128K + port 0x7FFD: port_contend gated on port_7ffd_io_en (NR 0x82 b1) — VHDL :4496/:2594/:2593; commit f5ec6d8 | zxnext.vhd:4496,2594,2593 | pass | test/contention/contention_test.cpp:2758 |
+| FIX-CONTEND-7FFD-02 | 48K + port 0x7FFD + io_en=1: port_contend=0 (s128/p3 timing gates off) — VHDL zxnext.vhd:2594; commit f5ec6d8 | zxnext.vhd:2594 | pass | test/contention/contention_test.cpp:2776 |
+| FIX-CONTEND-7FFD-03 | +3 + port 0x7FFD + io_en=1: port_contend=1 — VHDL zxnext.vhd:2593-2594; commit f5ec6d8 | zxnext.vhd:2593-2594 | pass | test/contention/contention_test.cpp:2794 |
+| FIX-MEMACTIVE-PAGE-01 | Emulator::init failed — would verify Mmu::get_page returns 0xFF sentinel for ROM slots 0/1 on 128K [zxnext.vhd:2949-2956,4489] | zxnext.vhd:2949-2956,4489 | pass | test/contention/contention_test.cpp:2828 |
+| FIX-MEMACTIVE-PAGE-INT-01 | Emulator::init failed — would verify CPU mem_active_page_for calls Mmu::get_page (NOT get_effective_page) | — | pass | test/contention/contention_test.cpp:2874 |
+| V15-CPU-NIT-03-01 | ZX128K, NR 0x85 b0=1, IORQ@$BF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2685,4496; reviewer-promoted V15-CPU-NIT-03) | zxnext.vhd:2439,2685,4496 | pass | test/contention/contention_test.cpp:2979 |
+| V15-CPU-NIT-03-02 | ZX128K, NR 0x85 b0=1, IORQ@$FF3B, default param port_ulap_io_en=false → contention_tick stretches > 0 (zxnext.vhd:2439,2686,4496) | zxnext.vhd:2439,2686,4496 | pass | test/contention/contention_test.cpp:2997 |
+| V15-CPU-NIT-03-03 | ZX128K, NR 0x85 b0=0, IORQ@$BF3B → contention_tick stretch == 0 (gate disabled; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:3018 |
+| V15-CPU-NIT-03-04 | set_port_ulap_io_en(true) → port_ulap_io_en()==true; set_port_ulap_io_en(false) → port_ulap_io_en()==false (round-trip; mirrors port_7ffd_io_en pattern) | — | pass | test/contention/contention_test.cpp:3034 |
+| V15-CPU-NIT-03-05 | port_contend(0xBF3B, port_ulap_io_en=true) returns true regardless of shadow state (parameter override; zxnext.vhd:2685+4496) | zxnext.vhd:2685 | pass | test/contention/contention_test.cpp:3055 |
+| D3-CONTENTION-01 | tim_sel=128 / typ_sel=48 / page=0x02 — pre-fix follows typ_sel (48: bank-5 only → false); post-fix follows tim_sel (128: odd banks → true) per VHDL zxnext.vhd:4491,5761-5777 | zxnext.vhd:4491,5761-5777 | pass | test/contention/contention_test.cpp:3110 |
+| D3-CONTENTION-02 | tim_sel=+3 / typ_sel=128 / page=0x08 — pre-fix follows typ_sel (128: odd banks → false); post-fix follows tim_sel (+3: banks>=4 → true) per VHDL zxnext.vhd:4492,5761-5777 | zxnext.vhd:4492,5761-5777 | pass | test/contention/contention_test.cpp:3131 |
+| D3-CONTENTION-03 | video-frame deferred-commit latch — set_pending defers the new tim_sel until commit_pending_machine_timing() at the frame edge; pre-commit retains old effective value (VHDL zxnext.vhd:6694-6703) | zxnext.vhd:6694-6703 | pass | test/contention/contention_test.cpp:3168 |
+| D3-CONTENTION-04 | Emulator::init(ZX128K) failed | zxnext.vhd:4490-4492 | pass | test/contention/contention_test.cpp:3241 |
+| D3-CONTENTION-05 | Emulator::init(ZX128K) failed — Mmu::machine_timing_ axis storage + commit probe | — | pass | test/contention/contention_test.cpp:3411 |
+| D3-CONTENTION-06 | tim_sel=Pentagon disables contention regardless of typ_sel (VHDL zxnext.vhd:4481 — i_contention_en gates on NOT machine_timing_pentagon) | zxnext.vhd:4481 | pass | test/contention/contention_test.cpp:3469 |
+| D3-CONTENTION-NIT-01 | Emulator::init(ZX48K) failed — would verify load_state preserves machine_timing pair from Mmu schema | — | pass | test/contention/contention_test.cpp:3511 |
+| T50-01 | 48K, read $4000 at raw vc=10 (TOP BORDER, above c_min_vactive=64) on an hc phase that DOES contend in raw coordinates → NO contention (zxula.vhd:414 border_active_v is keyed on the ULA display-relative i_vc, reset at c_min_vactive per zxula_timing.vhd:441-452) | zxula.vhd:414, zxula_timing.vhd:441-452 | pass | test/contention/contention_test.cpp:3710 |
+| T50-02 | 48K, read $4000 at raw vc=64 (FIRST display line) → contends (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3721 |
+| T50-03 | 48K, read $4000 at raw vc=200 (BOTTOM display third, still within 64..255) → contends; pre-fix the raw vc tripped border_active_v and silently stopped contending (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3733 |
+| T50-04 | 48K, read $4000: raw vc=255 (LAST display line) contends, raw vc=256 (BOTTOM BORDER) does not — the window closes at exactly 192 ULA lines (zxula.vhd:414) | zxula.vhd:414 | pass | test/contention/contention_test.cpp:3744 |
+| T50-05 | 48K, read $4000 on a display line but at hc=4 (LEFT BORDER, before ula_min_hactive=c_min_hactive-12=116) → NO contention (zxula.vhd:416 border_active_ula = i_hc(8) or border_active_v; zxula_timing.vhd:423) | zxula.vhd:416, zxula_timing.vhd:423 | pass | test/contention/contention_test.cpp:3758 |
+| T50-06 | 128K (c_min_hactive=136, 228 T/line): top border does not contend and a display line does — proves the ULA counter origins are taken per-machine from VideoTiming, not hardcoded to the 48K values (zxula_timing.vhd:195,203) | zxula_timing.vhd:195,203 | pass | test/contention/contention_test.cpp:3786 |
 
 ## LoRes — `test/lores/lores_test.cpp`
 
@@ -3678,8 +3629,8 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | Test ID | Description | VHDL file:line | Status | Test file:line |
 |---------|-------------|----------------|--------|----------------|
 | NMI-RST-01 | FSM idle + latches clear + gates off + nmi_generate_n high + not activated after reset | zxnext.vhd:2120,2149 | pass | test/nmi/nmi_test.cpp:132 |
-| NMI-RST-02 | reset clears all three request latches from a latched state | zxnext.vhd:2095-2105 | pass | test/nmi/nmi_test.cpp:2331 |
-| NMI-RST-03 | the three gate flags return to their VHDL power-on values after reset: MF-en 0, DivMMC-en 0, expbus debounce-disable 0 | zxnext.vhd:1109-1110,1222 | pass | test/nmi/nmi_test.cpp:2343 |
+| NMI-RST-02 | reset clears all three request latches from a latched state | zxnext.vhd:2095-2105 | pass | test/nmi/nmi_test.cpp:2547 |
+| NMI-RST-03 | the three gate flags return to their VHDL power-on values after reset: MF-en 0, DivMMC-en 0, expbus debounce-disable 0 | zxnext.vhd:1109-1110,1222 | pass | test/nmi/nmi_test.cpp:2559 |
 | NMI-RST-04 | NR 0x02 reset_type[2:0] power-on default = "100" (read bits 1:0 = "00") | zxnext.vhd:1306 | pass | test/nmi/nmi_test.cpp:148 |
 | NR02-01 | NR 0x02 bit 3 write sets nmi_mf latch [zxnext.vhd:3832,3837,2097] | zxnext.vhd:3832,3837,2097 | pass | test/nmi/nmi_test.cpp:190 |
 | NR02-02 | NR 0x02 bit 2 write sets nmi_divmmc latch [zxnext.vhd:3833,3838,2099] | zxnext.vhd:3833,3838,2099 | pass | test/nmi/nmi_test.cpp:207 |
@@ -3699,66 +3650,62 @@ Notes and rationale: [NMI-PIPELINE-TEST-PLAN-DESIGN.md](NMI-PIPELINE-TEST-PLAN-D
 | HK-07b | F10 honours port_divmmc_io_en gate (no strobe when NR 0x83 bit 0 = 0) | zxnext.vhd:6349 | pass | test/nmi/nmi_test.cpp:598 |
 | HK-08 | F4 dispatcher advances reset_type FSM and honours config_mode gate | zxnext.vhd:6370 | pass | test/nmi/nmi_test.cpp:652 |
 | HK-09 | F1 dispatcher requests a host cold boot (deferred hard reset) [Task 70] | zxnext.vhd:6371 | pass | test/nmi/nmi_test.cpp:731 |
-| DIS-01 | FSM IDLE→FETCH for DivMMC path pulses nmi_divmmc_button → DivMmc::set_button_nmi(true) | zxnext.vhd:2170, divmmc.vhd:108-111 | pass | test/nmi/nmi_test.cpp:1360 |
-| DIS-02 | DivMmc automap_held=1 → is_nmi_hold()=1 → NmiSource divmmc_nmi_hold=1 | divmmc.vhd:150, zxnext.vhd:2107,2118 | pass | test/nmi/nmi_test.cpp:1389 |
-| DIS-03 | is_nmi_hold() = automap_held OR button_nmi across {00,10,01,11} | divmmc.vhd:150 | pass | test/nmi/nmi_test.cpp:1430 |
-| DIS-04 | FSM HOLD → END when divmmc_nmi_hold transitions to 0 | zxnext.vhd:2118, divmmc.vhd:150 | pass | test/nmi/nmi_test.cpp:1466 |
-| CLR-01 | reset() clears button_nmi_ | divmmc.vhd:108 | pass | test/nmi/nmi_test.cpp:1489 |
-| CLR-02 | set_enabled(true→false) edge (VHDL i_automap_reset) clears button_nmi_ | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/nmi/nmi_test.cpp:1510 |
-| CLR-03 | on_retn_seen() clears button_nmi_ | divmmc.vhd:108 | pass | test/nmi/nmi_test.cpp:1528 |
-| CLR-04 | automap_held rising edge clears button_nmi_ | divmmc.vhd:112-113 | pass | test/nmi/nmi_test.cpp:1561 |
-| NMI-GATE-01 | NR 0x06 bit 3 decode sets NmiSource::mf_enable() | zxnext.vhd:1110 | pass | test/nmi/nmi_test.cpp:1607 |
-| NMI-GATE-02 | NR 0x06 bit 4 decode sets NmiSource::divmmc_enable() | zxnext.vhd:1109 | pass | test/nmi/nmi_test.cpp:1622 |
-| NMI-GATE-03 | NR 0x81 bit 5 decode sets NmiSource::expbus_debounce_disable() | zxnext.vhd:1222 | pass | test/nmi/nmi_test.cpp:1637 |
-| GATE-04 | CONMEM=1 blocks MF latch even with enable+button set | zxnext.vhd:2107 | pass | test/nmi/nmi_test.cpp:1661 |
-| GATE-05 | mf_is_active=1 blocks DivMMC latch even with enable+button set | zxnext.vhd:2099 | pass | test/nmi/nmi_test.cpp:1682 |
-| GATE-06 | config_mode=1 force-clears all three priority latches | zxnext.vhd:2102-2105 | pass | test/nmi/nmi_test.cpp:1708 |
-| GATE-07 | config_mode=1 force-clears FSM to Idle from any state | zxnext.vhd:2102-2105 | pass | test/nmi/nmi_test.cpp:1728 |
-| GATE-08 | power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, expbus_eff_en, expbus_eff_disable_mem, config_mode) all false | zxnext.vhd:1109-1110/1222/369-371 | pass | test/nmi/nmi_test.cpp:1749 |
-| FSM-01 | IDLE -> FETCH once a priority latch sets nmi_activated | zxnext.vhd:2126-2134,2093 | pass | test/nmi/nmi_test.cpp:2061 |
-| FSM-02 | FETCH -> HOLD only on an M1+MREQ fetch at 0x0066 | zxnext.vhd:2135-2138 | pass | test/nmi/nmi_test.cpp:2082 |
-| FSM-03 | HOLD is held while the consumer asserts nmi_hold and advances to END when it clears | zxnext.vhd:2139-2148,2118 | pass | test/nmi/nmi_test.cpp:2102 |
-| FSM-04 | END is a distinct state for one tick and then returns to IDLE | zxnext.vhd:2149-2162 | pass | test/nmi/nmi_test.cpp:2124 |
-| FSM-05 | reaching END clears nmi_mf / nmi_divmmc / nmi_expbus together | zxnext.vhd:2102-2105,2149-2162 | pass | test/nmi/nmi_test.cpp:2140 |
-| FSM-06 | config_mode = 1 forces the FSM back to IDLE and clears the latches, from FETCH and from HOLD alike | zxnext.vhd:2102-2105,2163-2165 | pass | test/nmi/nmi_test.cpp:2167 |
-| NMI-ARB-01 | MF and DivMMC asserting together: MF latches, DivMMC does not | zxnext.vhd:2107-2110 | pass | test/nmi/nmi_test.cpp:2261 |
-| NMI-ARB-02 | MF and the expansion bus asserting together: MF latches, ExpBus does not | zxnext.vhd:2107-2113 | pass | test/nmi/nmi_test.cpp:2275 |
-| NMI-ARB-03 | DivMMC and the expansion bus with no MF request: DivMMC wins | zxnext.vhd:2110-2113 | pass | test/nmi/nmi_test.cpp:2290 |
-| NMI-ARB-04 | mf_is_active blocks the DivMMC latch even with a DivMMC request pending (control: it latches when MF is inactive) | zxnext.vhd:2110 | pass | test/nmi/nmi_test.cpp:2311 |
-| EXPBUS-01 | expansion-bus NMI pin idles high after reset and asserts nothing | zxnext.vhd:2091 | pass | test/nmi/nmi_test.cpp:2183 |
-| EXPBUS-02 | with NR 0x81 bit 5 set, an asserted bus /NMI keeps nmi_generate_n low even after the FSM leaves IDLE/FETCH | zxnext.vhd:2091,2166,1222 | pass | test/nmi/nmi_test.cpp:2221 |
-| EXPBUS-03 | without NR 0x81 bit 5 the bus pin still latches, but nmi_generate_n releases as soon as the FSM leaves IDLE/FETCH (no extra term keeps it low) | zxnext.vhd:2091,2166 | pass | test/nmi/nmi_test.cpp:2241 |
-| NMI-DMA-01 | is_activated() true while any NMI latch is set | zxnext.vhd:2107 | pass | test/nmi/nmi_test.cpp:1857 |
-| NMI-DMA-02 | im2_dma_delay latches when is_activated() AND nr_cc_dma_int_en_0_7 | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:1881 |
-| NMI-DMA-03 | NR 0xCC bit 7 = 0 (or nmi_activated=0) blocks NMI-driven DMA delay | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:1910 |
+| DIS-01 | FSM IDLE→FETCH for DivMMC path pulses nmi_divmmc_button → DivMmc::set_button_nmi(true) | zxnext.vhd:2170, divmmc.vhd:108-111 | pass | test/nmi/nmi_test.cpp:1576 |
+| DIS-02 | DivMmc automap_held=1 → is_nmi_hold()=1 → NmiSource divmmc_nmi_hold=1 | divmmc.vhd:150, zxnext.vhd:2107,2118 | pass | test/nmi/nmi_test.cpp:1605 |
+| DIS-03 | is_nmi_hold() = automap_held OR button_nmi across {00,10,01,11} | divmmc.vhd:150 | pass | test/nmi/nmi_test.cpp:1646 |
+| DIS-04 | FSM HOLD → END when divmmc_nmi_hold transitions to 0 | zxnext.vhd:2118, divmmc.vhd:150 | pass | test/nmi/nmi_test.cpp:1682 |
+| CLR-01 | reset() clears button_nmi_ | divmmc.vhd:108 | pass | test/nmi/nmi_test.cpp:1705 |
+| CLR-02 | set_enabled(true→false) edge (VHDL i_automap_reset) clears button_nmi_ | divmmc.vhd:108, zxnext.vhd:4112 | pass | test/nmi/nmi_test.cpp:1726 |
+| CLR-03 | on_retn_seen() clears button_nmi_ | divmmc.vhd:108 | pass | test/nmi/nmi_test.cpp:1744 |
+| CLR-04 | automap_held rising edge clears button_nmi_ | divmmc.vhd:112-113 | pass | test/nmi/nmi_test.cpp:1777 |
+| NMI-GATE-01 | NR 0x06 bit 3 decode sets NmiSource::mf_enable() | zxnext.vhd:1110 | pass | test/nmi/nmi_test.cpp:1823 |
+| NMI-GATE-02 | NR 0x06 bit 4 decode sets NmiSource::divmmc_enable() | zxnext.vhd:1109 | pass | test/nmi/nmi_test.cpp:1838 |
+| NMI-GATE-03 | NR 0x81 bit 5 decode sets NmiSource::expbus_debounce_disable() | zxnext.vhd:1222 | pass | test/nmi/nmi_test.cpp:1853 |
+| GATE-04 | CONMEM=1 blocks MF latch even with enable+button set | zxnext.vhd:2107 | pass | test/nmi/nmi_test.cpp:1877 |
+| GATE-05 | mf_is_active=1 blocks DivMMC latch even with enable+button set | zxnext.vhd:2099 | pass | test/nmi/nmi_test.cpp:1898 |
+| GATE-06 | config_mode=1 force-clears all three priority latches | zxnext.vhd:2102-2105 | pass | test/nmi/nmi_test.cpp:1924 |
+| GATE-07 | config_mode=1 force-clears FSM to Idle from any state | zxnext.vhd:2102-2105 | pass | test/nmi/nmi_test.cpp:1944 |
+| GATE-08 | power-on gate flags (mf_en, divmmc_en, expbus_debounce_dis, expbus_eff_en, expbus_eff_disable_mem, config_mode) all false | zxnext.vhd:1109-1110/1222/369-371 | pass | test/nmi/nmi_test.cpp:1965 |
+| FSM-01 | IDLE -> FETCH once a priority latch sets nmi_activated | zxnext.vhd:2126-2134,2093 | pass | test/nmi/nmi_test.cpp:2277 |
+| FSM-02 | FETCH -> HOLD only on an M1+MREQ fetch at 0x0066 | zxnext.vhd:2135-2138 | pass | test/nmi/nmi_test.cpp:2298 |
+| FSM-03 | HOLD is held while the consumer asserts nmi_hold and advances to END when it clears | zxnext.vhd:2139-2148,2118 | pass | test/nmi/nmi_test.cpp:2318 |
+| FSM-04 | END is a distinct state for one tick and then returns to IDLE | zxnext.vhd:2149-2162 | pass | test/nmi/nmi_test.cpp:2340 |
+| FSM-05 | reaching END clears nmi_mf / nmi_divmmc / nmi_expbus together | zxnext.vhd:2102-2105,2149-2162 | pass | test/nmi/nmi_test.cpp:2356 |
+| FSM-06 | config_mode = 1 forces the FSM back to IDLE and clears the latches, from FETCH and from HOLD alike | zxnext.vhd:2102-2105,2163-2165 | pass | test/nmi/nmi_test.cpp:2383 |
+| NMI-ARB-01 | MF and DivMMC asserting together: MF latches, DivMMC does not | zxnext.vhd:2107-2110 | pass | test/nmi/nmi_test.cpp:2477 |
+| NMI-ARB-02 | MF and the expansion bus asserting together: MF latches, ExpBus does not | zxnext.vhd:2107-2113 | pass | test/nmi/nmi_test.cpp:2491 |
+| NMI-ARB-03 | DivMMC and the expansion bus with no MF request: DivMMC wins | zxnext.vhd:2110-2113 | pass | test/nmi/nmi_test.cpp:2506 |
+| NMI-ARB-04 | mf_is_active blocks the DivMMC latch even with a DivMMC request pending (control: it latches when MF is inactive) | zxnext.vhd:2110 | pass | test/nmi/nmi_test.cpp:2527 |
+| EXPBUS-01 | expansion-bus NMI pin idles high after reset and asserts nothing | zxnext.vhd:2091 | pass | test/nmi/nmi_test.cpp:2399 |
+| EXPBUS-02 | with NR 0x81 bit 5 set, an asserted bus /NMI keeps nmi_generate_n low even after the FSM leaves IDLE/FETCH | zxnext.vhd:2091,2166,1222 | pass | test/nmi/nmi_test.cpp:2437 |
+| EXPBUS-03 | without NR 0x81 bit 5 the bus pin still latches, but nmi_generate_n releases as soon as the FSM leaves IDLE/FETCH (no extra term keeps it low) | zxnext.vhd:2091,2166 | pass | test/nmi/nmi_test.cpp:2457 |
+| NMI-DMA-01 | is_activated() true while any NMI latch is set | zxnext.vhd:2107 | pass | test/nmi/nmi_test.cpp:2073 |
+| NMI-DMA-02 | im2_dma_delay latches when is_activated() AND nr_cc_dma_int_en_0_7 | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:2097 |
+| NMI-DMA-03 | NR 0xCC bit 7 = 0 (or nmi_activated=0) blocks NMI-driven DMA delay | zxnext.vhd:2007 | pass | test/nmi/nmi_test.cpp:2126 |
 | NMI-INT-GH265-01 | MF NMI with NR 0xCC bit 7 set latches im2_dma_delay while the IM2 fabric is otherwise idle (VHDL zxnext.vhd:2001-2010, :2093) | zxnext.vhd:2001-2010,2093 | pass | test/nmi/nmi_integration_test.cpp:348 |
-| Z80-01 | the FSM pulls nmi_generate_n low as soon as a request latches, and leaves it high while idle | zxnext.vhd:1841,2166 | pass | test/nmi/nmi_test.cpp:2371 |
-| Z80-02 | Z80 accepts NMI, PC vectors to 0x0066 | zxnext.vhd:2135-2138 | missing | — |
-| Z80-03 | Reset clears both NmiSource state and Z80 NMI line | zxnext.vhd:2120,2149 | missing | — |
-| Z80-04 | NMIACK_LSB / NMIACK_MSB latch PC into nr_c2/c3 (Z80N command cross-link) | zxnext.vhd:2050-2085,6232-6236 | missing | — |
-| BOOT-LOOP-01 | NextZXOS RAM-test outer loop (208 passes × 112 banks over ~15 s) (**COVERED AT regression tier** — `boot-nextzxos-welcome`, test/00regression/regression_tests.conf; the RAM-test loop must complete and fall through to BASIC before that screenshot renders, Task 8a 2026-07-13 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | — | missing | — |
-| BOOT-LOGO-01 | NextZXOS loader logo + 4-entry log render (**COVERED AT regression tier** — `boot-nextzxos-splash`, test/00regression/regression_tests.conf; pins the clean loading log at frame 252, Task 8a 2026-07-13 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | — | missing | — |
-| BOOT-DOT-01 | NextZXOS BASIC + dot-command surface (**COVERED AT regression tier** — `boot-nextzxos-dotls`, test/00regression/regression_tests.conf; types `.ls` in the NextZXOS Command Line and pins the SD-root listing, Task 57 2026-07-14, closes G47 — see doc/testing/TEST-TAXONOMY.md Layer 1; no `check()`/`skip()` row exists) | — | missing | — |
+| Z80-01 | the FSM pulls nmi_generate_n low as soon as a request latches, and leaves it high while idle | zxnext.vhd:1841,2166 | pass | test/nmi/nmi_test.cpp:2587 |
+| Z80-02 | the pipeline's /NMI is accepted by the Z80: PC vectors to 0x0066, the interrupted PC is pushed and SP drops by two; the acknowledge clears IFF1 and leaves IFF2 standing, and RETN restores IFF1 from it and returns | zxnext.vhd:1841,2168, t80n.vhd:1716-1718 | pass | test/nmi/nmi_test.cpp:904 |
+| Z80-03 | a reset returns the NMI pipeline to IDLE with every request latch clear and nmi_generate_n released, and the CPU does not service an NMI it was handed before the reset | zxnext.vhd:2098-2101,2154-2155,2168 | pass | test/nmi/nmi_test.cpp:965 |
 | NR02-INT-01 | NR 0x02 write via OUT 0x253B routes to NmiSource [Wave A handler, zxnext.vhd:3833,3838,2099] | zxnext.vhd:3833,3838,2099 | pass | test/nmi/nmi_test.cpp:422 |
 | HK-CFG-01 | firmware-less cold boot clears nr_03_config_mode (the IPL's own NR 0x03 commit, zxnext.vhd:5147-5151), so host F4 passes the zxnext.vhd:6370 gate and advances the reset_type FSM | zxnext.vhd:1102,5147-5151,6370 | pass | test/nmi/nmi_test.cpp:684 |
 | HK-CFG-02 | legacy --machine cold boot also clears nr_03_config_mode, so F4 is live there too (zxnext.vhd:6370 gate + :1735 FSM) | zxnext.vhd:1102,5147-5151,6370 | pass | test/nmi/nmi_test.cpp:710 |
-| MF-G162-01 | strobe_iotrap() OR's into nmi_assert_mf and latches MF | zxnext.vhd:3835-3837 | pass | test/nmi/nmi_test.cpp:789 |
-| MF-G162-01b | iotrap honours NR 0x06 bit 3 gate (no latch when MF-en off) | zxnext.vhd:2090 | pass | test/nmi/nmi_test.cpp:800 |
-| MF-G162-02 | port 0x2FFD READ + 0x3FFD WRITE strobe iotrap when NR 0xD8 bit 0 = 1, gated off when bit 0 = 0 | zxnext.vhd:2598-2602,3835-3837 | pass | test/nmi/nmi_test.cpp:847 |
-| MF-G48-01 | MF1 mode: NR 0x0A=11/NR 0x83 b1=1 → button arms NMI; OUT 0x9F clears nmi_active and latches port_io_dly | zxnext.vhd:2612-2616, multiface.vhd:122-131 | pass | test/nmi/nmi_test.cpp:914 |
-| MF-G48-02 | NR 0x0A b7:6 = 00 -> MF+3, 11 -> MF1, others -> MF128 | multiface.vhd:105-118 | pass | test/nmi/nmi_test.cpp:941 |
-| MF-G48-03 | port_io_dly edge detector gates nmi_active clear on prior-cycle quiescence | multiface.vhd:122-131 | pass | test/nmi/nmi_test.cpp:983 |
-| MF-G48-04 | INVISIBLE FF: reset=1, button=0, mode_128 disable_wr=1, mode_p3 enable_wr=1 | multiface.vhd:152-163 | pass | test/nmi/nmi_test.cpp:1021 |
-| MF-G48-05 | MF +3 readback mux: cpu_a(15:12)=0x1 → port_1ffd, 0x7 → port_7ffd | zxnext.vhd:4312-4313 | pass | test/nmi/nmi_test.cpp:1068 |
-| MF-G48-06 | DivMMC retn_seen gated by NOT mf_is_active: clears with MF inactive, preserved with MF active | zxnext.vhd:4111 | pass | test/nmi/nmi_test.cpp:1131 |
-| MF-G48-07 | port 0xDFFD bit 6 latches into port_dffd_reg_6; bit 5 hardwired to 0 in readback | zxnext.vhd:3694 | pass | test/nmi/nmi_test.cpp:1174 |
-| MF-INT-01 | NmiSource::mf_is_active() reflects Multiface::is_active() per tick (live wiring) | zxnext.vhd:2099 | pass | test/nmi/nmi_test.cpp:1228 |
-| MF-INT-02 | NmiSource::mf_nmi_hold() reflects Multiface::is_nmi_hold() per tick (live wiring) | zxnext.vhd:2118 | pass | test/nmi/nmi_test.cpp:1264 |
-| GATE-09 | expbus_eff_en=0 blocks nmi_assert_expbus even with /BUS_NMI low | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1771 |
-| GATE-10 | expbus_eff_disable_mem=1 blocks nmi_assert_expbus | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1791 |
-| GATE-11 | expbus_eff_en=1 + disable_mem=0 + pin low → producer + latch + FSM fetch | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1811 |
-| TC-NMI3-END-IDLE | FSM advances End → Idle so subsequent NMIs fire [zxnext.vhd:2149-2162 / Initial NMI-3 fix c1d7998] | zxnext.vhd:2149-2162 | pass | test/nmi/nmi_test.cpp:1959 |
-| TC-NMI-HOLD-LINE-HIGH | /NMI deasserted (HIGH) during HOLD state [zxnext.vhd:2168 / Verify1 78f5f1c] | zxnext.vhd:2168 | pass | test/nmi/nmi_test.cpp:1999 |
+| MF-G162-01 | strobe_iotrap() OR's into nmi_assert_mf and latches MF | zxnext.vhd:3835-3837 | pass | test/nmi/nmi_test.cpp:1005 |
+| MF-G162-01b | iotrap honours NR 0x06 bit 3 gate (no latch when MF-en off) | zxnext.vhd:2090 | pass | test/nmi/nmi_test.cpp:1016 |
+| MF-G162-02 | port 0x2FFD READ + 0x3FFD WRITE strobe iotrap when NR 0xD8 bit 0 = 1, gated off when bit 0 = 0 | zxnext.vhd:2598-2602,3835-3837 | pass | test/nmi/nmi_test.cpp:1063 |
+| MF-G48-01 | MF1 mode: NR 0x0A=11/NR 0x83 b1=1 → button arms NMI; OUT 0x9F clears nmi_active and latches port_io_dly | zxnext.vhd:2612-2616, multiface.vhd:122-131 | pass | test/nmi/nmi_test.cpp:1130 |
+| MF-G48-02 | NR 0x0A b7:6 = 00 -> MF+3, 11 -> MF1, others -> MF128 | multiface.vhd:105-118 | pass | test/nmi/nmi_test.cpp:1157 |
+| MF-G48-03 | port_io_dly edge detector gates nmi_active clear on prior-cycle quiescence | multiface.vhd:122-131 | pass | test/nmi/nmi_test.cpp:1199 |
+| MF-G48-04 | INVISIBLE FF: reset=1, button=0, mode_128 disable_wr=1, mode_p3 enable_wr=1 | multiface.vhd:152-163 | pass | test/nmi/nmi_test.cpp:1237 |
+| MF-G48-05 | MF +3 readback mux: cpu_a(15:12)=0x1 → port_1ffd, 0x7 → port_7ffd | zxnext.vhd:4312-4313 | pass | test/nmi/nmi_test.cpp:1284 |
+| MF-G48-06 | DivMMC retn_seen gated by NOT mf_is_active: clears with MF inactive, preserved with MF active | zxnext.vhd:4111 | pass | test/nmi/nmi_test.cpp:1347 |
+| MF-G48-07 | port 0xDFFD bit 6 latches into port_dffd_reg_6; bit 5 hardwired to 0 in readback | zxnext.vhd:3694 | pass | test/nmi/nmi_test.cpp:1390 |
+| MF-INT-01 | NmiSource::mf_is_active() reflects Multiface::is_active() per tick (live wiring) | zxnext.vhd:2099 | pass | test/nmi/nmi_test.cpp:1444 |
+| MF-INT-02 | NmiSource::mf_nmi_hold() reflects Multiface::is_nmi_hold() per tick (live wiring) | zxnext.vhd:2118 | pass | test/nmi/nmi_test.cpp:1480 |
+| GATE-09 | expbus_eff_en=0 blocks nmi_assert_expbus even with /BUS_NMI low | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:1987 |
+| GATE-10 | expbus_eff_disable_mem=1 blocks nmi_assert_expbus | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:2007 |
+| GATE-11 | expbus_eff_en=1 + disable_mem=0 + pin low → producer + latch + FSM fetch | zxnext.vhd:2089 | pass | test/nmi/nmi_test.cpp:2027 |
+| TC-NMI3-END-IDLE | FSM advances End → Idle so subsequent NMIs fire [zxnext.vhd:2149-2162 / Initial NMI-3 fix c1d7998] | zxnext.vhd:2149-2162 | pass | test/nmi/nmi_test.cpp:2175 |
+| TC-NMI-HOLD-LINE-HIGH | /NMI deasserted (HIGH) during HOLD state [zxnext.vhd:2168 / Verify1 78f5f1c] | zxnext.vhd:2168 | pass | test/nmi/nmi_test.cpp:2215 |
 
 ## Raster State — `test/debug/raster_state_test.cpp`
 
@@ -4759,58 +4706,65 @@ Notes and rationale: [CTC-INTERRUPTS-TEST-PLAN-DESIGN.md](CTC-INTERRUPTS-TEST-PL
 | PULSE-G89-02 | LDDRX (ED BC) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2230-2256] | t80n_mcode.vhd:2230-2256 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1184 |
 | PULSE-G89-03 | LDPIRX (ED B7) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0; HL stays fixed [VHDL t80n_mcode.vhd:1953-1991] | t80n_mcode.vhd:1953-1991 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1225 |
 | PULSE-G89-04 | LDIRSCALE (ED B6) runs ONE iteration per execute() and rewinds PC by 2 if BC!=0 [VHDL t80n_mcode.vhd:2188-2226] | t80n_mcode.vhd:2188-2226 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1264 |
-| PULSE-G89-INT | LDIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2095-2138 + zxnext.vhd INT path] | t80n_mcode.vhd:2095-2138, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1319 |
-| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1396 |
-| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1442 |
-| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1470 |
-| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1501 |
-| SSTEP-05 | ULA frame INT is scheduled and delivered during debugger single-step [zxula_timing.vhd:551; zxnext.vhd:1840] | zxula_timing.vhd:551, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1572 |
-| SSTEP-06 | A debugger Step at a HALT leaves the halt into the ISR [t80n.vhd:496, :502-503, :1727] | t80n.vhd:496,502-503,1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1606 |
-| SSTEP-07 | Frames keep turning over while stepping — a second HALT is also left [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1656 |
-| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress [t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle] | t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1693 |
-| SSTEP-09 | A Step consumes the data-breakpoint latch, so a watchpoint firing inside a halt cannot freeze every later Step [t80n.vhd:502-503 — the halted core re-fetches every slot] | t80n.vhd:502-503 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1751 |
-| SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot and leaves the machine rewindable [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1816 |
-| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1907 |
-| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1978 |
-| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 193) | ctc_chan.vhd:214-226,143-146,162-170 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2036 |
-| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2088 |
-| CTC-C1-ACC-03 | timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; zxnext.vhd:4084]; tick(35) == 35x tick(1) | ctc_chan.vhd:115-127,219-226,134-139, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2135 |
-| PW-48K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2251 |
-| PW-48K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2251 |
-| PW-48K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2251 |
-| PW-NEXT-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2253 |
-| PW-NEXT-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2253 |
-| PW-NEXT-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2253 |
-| PW-128K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2260 |
-| PW-128K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2260 |
-| PW-128K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2260 |
-| PW-GH237-128K-SOFT | 128K keeps the 36-cycle /INT pulse width across RESET_SOFT — tim_sel "010" survives the reset, so machine_timing_128 is still the one-hot and the terminal still needs pulse_count(2) [zxnext.vhd:2033; :1099 + :4926-5111 no reset clause] | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2317 |
-| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2398 |
-| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2431 |
-| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | ctc_chan.vhd:269,276, zxnext.vhd:4067,4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2477 |
-| INT-GH265-01 | 48K pulse-mode INT taken at the first boundary whose last T-state starts on a CPU edge that samples the pulse low (zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:548-557, im2_peripheral.vhd:90-101,184-194, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2647 |
-| INT-GH265-02 | 128K pulse-mode INT taken at the first boundary >= 294 T (zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:187,199,548-557, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2669 |
-| INT-GH265-03 | hardware-IM2 INT: S_REQ on the first CPU edge after im2_int_req with M1_n high, INT_s one edge later (im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; t80n.vhd:1729-1731,1761,1788) | im2_peripheral.vhd:167-178, im2_device.vhd:91-107,150, t80n.vhd:1729-1731,1761,1788 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2693 |
-| INT-GH265-04 | 48K pulse: 32 CPU edges sample it low, the last at E_1 + 31*8; the boundary after that edge is the last taken (zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772) | zxnext.vhd:2033-2044, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2712 |
-| INT-GH265-05 | 128K pulse: 36 CPU edges, last boundary E_1 + 36*8 (zxnext.vhd:2033 pulse_count(5) and pulse_count(2)) | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2728 |
-| INT-GH265-06 | a pulse straddling the frame edge is still taken after it (zxnext.vhd:2017-2044 has no frame term) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2768 |
-| INT-GH265-10 | a pulse straddling the frame edge survives a snapshot taken there (zxnext.vhd:2017-2044) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2813 |
-| INT-GH265-11 | a pulse pending across a CPU-speed change lasts its remaining CPU edges at the new speed (zxnext.vhd:2035-2044) | zxnext.vhd:2035-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2861 |
-| INT-GH265-12 | EI grace survives a snapshot taken straight after the EI (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2914 |
-| INT-GH265-07 | EI grace across the frame edge (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2957 |
-| INT-GH265-08 | IM2 hardware mode, CPU in IM 1: the ULA's exception pulse is taken (im2_peripheral.vhd:192; zxnext.vhd:1840) | im2_peripheral.vhd:192, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2982 |
-| INT-GH265-09 | NR 0x20 unqualified request taken at the boundary after the OUT that writes it (zxnext.vhd:1946-1947,4747-4777; t80n.vhd:1664,1742-1772) | zxnext.vhd:1946-1947,4747-4777, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3010 |
-| ISC-GH265-01 | NR 0xC8 read by IN A,(C) sees a status set before the port_253b_dat load 83 cycles in, not one set on it (zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162) | zxnext.vhd:5871-5882,6247-6248, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3050 |
-| ISC-GH265-02 | polling NR 0xC8 for the frame interrupt: an IN starting at 49 T sees it, one at 48 T does not (zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882,6247-6248) | zxula_timing.vhd:548-557, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882,6247-6248 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3092 |
-| ISC-GH265-03 | NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling edge after the request (zxnext.vhd:2017-2031,5991-5992) | zxnext.vhd:2017-2031,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3119 |
-| ISC-GH265-04 | NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge of the pulse (zxnext.vhd:2033-2044,5991-5992) | zxnext.vhd:2033-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3147 |
-| ISC-GH265-05 | NR 0xC8 clear commits on its edge: a request set before it is cleared, one set on it survives (im2_peripheral.vhd:160; zxnext.vhd:1952-1955,4747-4777) | im2_peripheral.vhd:160, zxnext.vhd:1952-1955,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3178 |
-| ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3214 |
-| ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3242 |
-| ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3275 |
-| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3317 |
-| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3347 |
-| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3384 |
+| PULSE-G89-INT | LDIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2095-2138 + zxnext.vhd INT path] | t80n_mcode.vhd:2095-2138, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1354 |
+| PULSE-G89-INT-02 | LDDRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2230-2256 + zxnext.vhd INT path] | t80n_mcode.vhd:2230-2256, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1363 |
+| PULSE-G89-INT-03 | LDPIRX inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:1953-1991 + zxnext.vhd INT path] | t80n_mcode.vhd:1953-1991, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1372 |
+| PULSE-G89-INT-04 | LDIRSCALE inter-iteration INT sampling: pending /INT serviced between iterations (BC unchanged across the INT) [VHDL t80n_mcode.vhd:2188-2226 + zxnext.vhd INT path] | t80n_mcode.vhd:2188-2226, zxnext.vhd | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1381 |
+| SSTEP-01 | Pulse-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840; im2_peripheral.vhd:186-194] | zxnext.vhd:1840, im2_peripheral.vhd:186-194 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1454 |
+| SSTEP-02 | IM2-mode CTC INT delivered during debugger single-step [zxnext.vhd:1840, :1999 ack vector composition] | zxnext.vhd:1840,1999 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1500 |
+| SSTEP-03 | Trace log records one entry per debugger single-step (parity with run_frame's per-instruction record) | — | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1528 |
+| SSTEP-04 | MD6 FSM latches raw inputs during debugger single-step [md6_joystick_connector_x2.vhd:103-114, :151-152] | md6_joystick_connector_x2.vhd:103-114,151-152 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1559 |
+| SSTEP-05 | ULA frame INT is scheduled and delivered during debugger single-step [zxula_timing.vhd:551; zxnext.vhd:1840] | zxula_timing.vhd:551, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1630 |
+| SSTEP-06 | A debugger Step at a HALT leaves the halt into the ISR [t80n.vhd:496, :502-503, :1727] | t80n.vhd:496,502-503,1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1664 |
+| SSTEP-07 | Frames keep turning over while stepping — a second HALT is also left [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1714 |
+| SSTEP-08 | A Step at a DI'd HALT is bounded and reports no progress [t80n.vhd:1727 — Halt_FF clears only on IntCycle/NMICycle] | t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1751 |
+| SSTEP-09 | A Step consumes the data-breakpoint latch, so a watchpoint firing inside a halt cannot freeze every later Step [t80n.vhd:502-503 — the halted core re-fetches every slot] | t80n.vhd:502-503 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1809 |
+| SSTEP-10 | A halt-run crossing a frame boundary takes the frame's rewind snapshot and leaves the machine rewindable [zxula_timing.vhd:551; t80n.vhd:1727] | zxula_timing.vhd:551, t80n.vhd:1727 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1874 |
+| CIM2-QUIESCE-01 | pulse mode: quiescent ticks are serialized no-ops; pulse after stretch keeps exact 36-cycle width [zxnext.vhd:2033-2044] and edge detect is not masked by a stale int_req_d [im2_peripheral.vhd:98-101] | zxnext.vhd:2033-2044, im2_peripheral.vhd:98-101 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:1965 |
+| CIM2-QUIESCE-02 | im2 mode: S_REQ/S_ISR stable across quiescent stretches (serialized no-ops); ACK vector [zxnext.vhd:1999] and RETI clear via tick [im2_device.vhd:123-128] still exact after skipped stretches | zxnext.vhd:1999, im2_device.vhd:123-128 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2036 |
+| CTC-C1-ACC-01 | timer /16 TC=3: single tick(150) span fires exactly the 3 ZC/TO at 49/97/145 [ctc_chan.vhd:214-226,143-146,:162-170]; prescaler phase survives the closed-form jump (4th ZC/TO exactly at 193) | ctc_chan.vhd:214-226,143-146,162-170 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2094 |
+| CTC-C1-ACC-02 | ch0 timer /16 TC=3 chained into ch1 counter TC=2 [zxnext.vhd:4084]: one tick(200) equals 200 tick(1) calls — sequence 0,0,1,0,0,1 and identical counters | zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2146 |
+| CTC-C1-ACC-03 | timer ch1 armed by D3=1 started by ch0's ZC/TO at 17 through clk_trg_d, fires at 35 [ctc_chan.vhd:115-127,219-226,134-139; zxnext.vhd:4084]; tick(35) == 35x tick(1) | ctc_chan.vhd:115-127,219-226,134-139, zxnext.vhd:4084 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2193 |
+| PW-48K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2309 |
+| PW-48K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2309 |
+| PW-48K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2309 |
+| PW-NEXT-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2311 |
+| PW-NEXT-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2311 |
+| PW-NEXT-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2311 |
+| PW-128K-28 | pulse LOW width at 28 MHz == terminal CPU T-states [zxnext.vhd:2035-2044] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2318 |
+| PW-128K-35 | pulse LOW width at 3.5 MHz == terminal CPU T-states [zxnext.vhd:2035-2044,2014-2015,2033] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2318 |
+| PW-128K-INV | pulse LOW width is CPU-speed invariant [zxnext.vhd:2035-2044 i_CLK_CPU domain] | zxnext.vhd:2035-2044,2014-2015,2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2318 |
+| PW-GH237-128K-SOFT | 128K keeps the 36-cycle /INT pulse width across RESET_SOFT — tim_sel "010" survives the reset, so machine_timing_128 is still the one-hot and the terminal still needs pulse_count(2) [zxnext.vhd:2033; :1099 + :4926-5111 no reset clause] | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2375 |
+| CTC-CW-INTEN-01 | CTC control word D7=1 enables that channel's IM2 interrupt even when NR 0xC5 left it masked [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2456 |
+| CTC-CW-INTEN-02 | CTC control word D7=0 disables that channel's IM2 interrupt even when NR 0xC5 had enabled it [ctc_chan.vhd:269,276 + zxnext.vhd:1949] | ctc_chan.vhd:269,276, zxnext.vhd:1949 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2489 |
+| CTC-CW-INTEN-03 | a control word enables exactly its own channel, leaves the others' enables intact, and never enables CTC4..7 [ctc_chan.vhd:269,276 + zxnext.vhd:4067,4093] | ctc_chan.vhd:269,276, zxnext.vhd:4067,4093 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2535 |
+| NR-C0-02 | NR 0xC0 bit 3 selects the stackless NMI acknowledge: set, the two acknowledge writes leave RAM untouched and arm the RETN substitution; clear, the interrupted PC is written to the stack and no substitution is armed (SP -= 2 either way) [zxnext.vhd:5598, :2075-2085; t80n.vhd:1765-1767] | zxnext.vhd:5598,2075-2085, t80n.vhd:1765-1767 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2627 |
+| NR-C5-02 | NR 0xC5 read returns the live per-channel ctc_int_en with bits 7:4 hardwired 0 — only nr_wr_dat(3:0) reaches the CTC on a write, and a control word's D7 moves the same bit [zxnext.vhd:6242, :4079, :4089, :4093; ctc_chan.vhd:269,276] | zxnext.vhd:6242,4079,4089,4093, ctc_chan.vhd:269,276 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2671 |
+| CTC-JOY-01 | in NR 0x0B iomode "01" each CTC channel-3 ZC/TO toggles joy_iomode_pin7, and a channel-0 ZC/TO does not [zxnext.vhd:3518-3524, :4088] | zxnext.vhd:3518-3524,4088 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2715 |
+| CTC-JOY-02 | the pin-7 toggle is conditioned on (nr_0b_joy_iomode_0='1' OR joy_iomode_pin7='0'): with NR 0x0B bit 0 clear a ZC/TO moves pin7 only from '0' to '1' and never back [zxnext.vhd:3519-3524] | zxnext.vhd:3519-3524 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2756 |
+| INT-GH265-01 | 48K pulse-mode INT taken at the first boundary whose last T-state starts on a CPU edge that samples the pulse low (zxula_timing.vhd:548-557; im2_peripheral.vhd:90-101,184-194; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:548-557, im2_peripheral.vhd:90-101,184-194, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2923 |
+| INT-GH265-02 | 128K pulse-mode INT taken at the first boundary >= 294 T (zxula_timing.vhd:187,199,548-557; zxnext.vhd:2017-2031; t80n.vhd:1664,1742-1772) | zxula_timing.vhd:187,199,548-557, zxnext.vhd:2017-2031, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2945 |
+| INT-GH265-03 | hardware-IM2 INT: S_REQ on the first CPU edge after im2_int_req with M1_n high, INT_s one edge later (im2_peripheral.vhd:167-178; im2_device.vhd:91-107,150; t80n.vhd:1729-1731,1761,1788) | im2_peripheral.vhd:167-178, im2_device.vhd:91-107,150, t80n.vhd:1729-1731,1761,1788 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2969 |
+| INT-GH265-04 | 48K pulse: 32 CPU edges sample it low, the last at E_1 + 31*8; the boundary after that edge is the last taken (zxnext.vhd:2033-2044; t80n.vhd:1664,1742-1772) | zxnext.vhd:2033-2044, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:2988 |
+| INT-GH265-05 | 128K pulse: 36 CPU edges, last boundary E_1 + 36*8 (zxnext.vhd:2033 pulse_count(5) and pulse_count(2)) | zxnext.vhd:2033 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3004 |
+| INT-GH265-06 | a pulse straddling the frame edge is still taken after it (zxnext.vhd:2017-2044 has no frame term) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3044 |
+| INT-GH265-10 | a pulse straddling the frame edge survives a snapshot taken there (zxnext.vhd:2017-2044) | zxnext.vhd:2017-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3089 |
+| INT-GH265-11 | a pulse pending across a CPU-speed change lasts its remaining CPU edges at the new speed (zxnext.vhd:2035-2044) | zxnext.vhd:2035-2044 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3137 |
+| INT-GH265-12 | EI grace survives a snapshot taken straight after the EI (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3190 |
+| INT-GH265-07 | EI grace across the frame edge (t80n.vhd:1768 SetEI = '0') | t80n.vhd:1768 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3233 |
+| INT-GH265-08 | IM2 hardware mode, CPU in IM 1: the ULA's exception pulse is taken (im2_peripheral.vhd:192; zxnext.vhd:1840) | im2_peripheral.vhd:192, zxnext.vhd:1840 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3258 |
+| INT-GH265-09 | NR 0x20 unqualified request taken at the boundary after the OUT that writes it (zxnext.vhd:1946-1947,4747-4777; t80n.vhd:1664,1742-1772) | zxnext.vhd:1946-1947,4747-4777, t80n.vhd:1664,1742-1772 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3286 |
+| ISC-GH265-01 | NR 0xC8 read by IN A,(C) sees a status set before the port_253b_dat load 83 cycles in, not one set on it (zxnext.vhd:5871-5882,6247-6248; im2_peripheral.vhd:154-162) | zxnext.vhd:5871-5882,6247-6248, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3326 |
+| ISC-GH265-02 | polling NR 0xC8 for the frame interrupt: an IN starting at 49 T sees it, one at 48 T does not (zxula_timing.vhd:548-557; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882,6247-6248) | zxula_timing.vhd:548-557, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882,6247-6248 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3368 |
+| ISC-GH265-03 | NR 0x22 bit 7 sees pulse_int_n fall on the CLK_28 falling edge after the request (zxnext.vhd:2017-2031,5991-5992) | zxnext.vhd:2017-2031,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3395 |
+| ISC-GH265-04 | NR 0x22 bit 7 clears on the load edge after the 32nd CPU edge of the pulse (zxnext.vhd:2033-2044,5991-5992) | zxnext.vhd:2033-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3423 |
+| ISC-GH265-05 | NR 0xC8 clear commits on its edge: a request set before it is cleared, one set on it survives (im2_peripheral.vhd:160; zxnext.vhd:1952-1955,4747-4777) | im2_peripheral.vhd:160, zxnext.vhd:1952-1955,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3454 |
+| ISC-GH265-06 | NR 0xC5 enable commits on its edge: a ZC/TO before it is not latched, one on it is (im2_peripheral.vhd:167-178; zxnext.vhd:1949,4747-4777) | im2_peripheral.vhd:167-178, zxnext.vhd:1949,4747-4777 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3490 |
+| ISC-GH265-07 | NR 0xC8 bit 1 sees the line interrupt from its registered int_line, one pixel after the hc_ula = 255 compare (zxula_timing.vhd:423-436,455-472,566-583; im2_peripheral.vhd:154-162; zxnext.vhd:5871-5882) | zxula_timing.vhd:423-436,455-472,566-583, im2_peripheral.vhd:154-162, zxnext.vhd:5871-5882 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3518 |
+| ISC-GH265-08 | a request reaching the pulse fabric before pulse_int_n has returned to '1' is lost; one after it starts a new pulse (zxnext.vhd:2017-2044,5991-5992) | zxnext.vhd:2017-2044,5991-5992 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3551 |
+| CTC-RD-GH265-01 | CTC programmed and read by OUT/IN: written on its commit edge, read at the port_ctc_dat reload (zxnext.vhd:4095-4100; ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150,214-222) | zxnext.vhd:4095-4100, ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150,214-222 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3593 |
+| CTC-RD-GH265-02 | IN of a CTC port latches t_count as of the edge before the port_ctc_dat reload 83 cycles in (zxnext.vhd:4095-4100) | zxnext.vhd:4095-4100 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3623 |
+| CTC-WR-GH265-01 | a CTC constant written by OUT is taken on its commit edge: its first count 17 edges on, its ZC/TO 16 per count after (ctc_chan.vhd:214-226,246-254; t80na.vhd:148-150; im2_peripheral.vhd:154-162) | ctc_chan.vhd:214-226,246-254, t80na.vhd:148-150, im2_peripheral.vhd:154-162 | pass | test/ctc_interrupts/ctc_interrupts_test.cpp:3660 |
 
 ### Companion integration suite — `test/nextreg/nextreg_integration_test.cpp`
 
@@ -5158,6 +5112,7 @@ Notes and rationale: [NEXTREG-TEST-PLAN-DESIGN.md](NEXTREG-TEST-PLAN-DESIGN.md).
 | G56-CR-71 | NR 0x71 read is seven constant zeros + the Layer 2 scroll-X MSB: write 0xFF reads 0x01 [zxnext.vhd:6117] | zxnext.vhd:6117 | pass | test/nextreg/nextreg_integration_test.cpp:7795 |
 | G56-CR-80 | NR 0x80 reads the expansion-bus byte and its b7/b4 are the SAME state the effective expbus enables expose [zxnext.vhd:6123, :2197, :2200] | zxnext.vhd:6123,2197,2200 | pass | test/nextreg/nextreg_integration_test.cpp:7816 |
 | G56-CR-81 | NR 0x81 bit 7 is the i_BUS_ROMCS_n input pin (reads 1 after a 0x00 write), bit 2 is a constant 0 and bits 1:0 are hard-wired "00" on write: 0x00 -> 0x80, 0xFF -> 0xF8 [zxnext.vhd:6126, :5496] | zxnext.vhd:6126,5496 | pass | test/nextreg/nextreg_integration_test.cpp:7841 |
+| NR-MMU-04 | MMU6/7 take the value of whichever writer ran last: port 0x7FFD bank 3 -> 0x06/0x07, then NR 0x56 <- 0x20 wins, then port 0x7FFD bank 1 -> 0x02/0x03 [zxnext.vhd:4619,4677-4680,4686-4696, :3813] | zxnext.vhd:4619,4677-4680,4686-4696,3813 | pass | test/nextreg/nextreg_integration_test.cpp:7903 |
 
 ### Companion integration suite — `test/nmi/nmi_integration_test.cpp`
 
