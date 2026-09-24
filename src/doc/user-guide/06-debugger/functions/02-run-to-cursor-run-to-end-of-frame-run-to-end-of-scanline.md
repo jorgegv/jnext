@@ -15,3 +15,7 @@ point, it targets the same position in the next frame.
 
 Both are on the toolbar and in the **Debug** menu, and both require the machine
 to be paused already.
+
+None of these three has a key out of the box, but all three can be given one —
+Run to Cursor then acts on the disassembly's current line from anywhere in the
+debugger window. See [Changing the keys](09-changing-the-keys.md).

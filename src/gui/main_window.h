@@ -199,10 +199,10 @@ public:
     // (an Apply must not restart the machine) lives here, not in the dialog.
     void apply_preferences(const AppConfigData& cfg);
 
-    /// GH #1 — hand the current debugger key bindings to the debugger window.
-    /// No-op without ENABLE_DEBUGGER or before the window exists. Called when
-    /// the debugger is created and again whenever Preferences changes them, so
-    /// a rebind applies live rather than at next launch.
+    /// GH #1 — hand the LIVE debugger key bindings (debug_keys_) to the
+    /// debugger window. No-op without ENABLE_DEBUGGER or before the window
+    /// exists. Called when the debugger is created and again from
+    /// apply_preferences(), so a rebind applies live rather than at next launch.
     void push_debug_keymap();
 
     /// Update status bar information.  Called once per second from the frame timer.
@@ -453,4 +453,11 @@ private:
     // applied, and write-through updated by file dialogs that remember a
     // directory (Load Program, Open Tape, Save Screenshot, Mount SD Card).
     AppConfig app_config_;
+
+    // GH #1 — the debugger key bindings that are IN EFFECT, which is not
+    // necessarily what app_config_ holds: apply_preferences() is the one place
+    // that makes a setting live, and the caller decides separately whether to
+    // persist it. Both the emulator window's own forwarding and the push into
+    // the debugger window read THIS, so the two windows can never disagree.
+    jnext::dbgkeys::Keymap debug_keys_;
 };

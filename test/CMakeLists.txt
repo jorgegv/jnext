@@ -1263,6 +1263,23 @@ if(ENABLE_DEBUGGER)
     # arrangement, inverted, since that one lives in the ENABLE_QT_UI block.
     # Needs Qt but no display — same offscreen QPA idiom as the suites above.
     if(ENABLE_QT_UI)
+        # GH #1 — redefinable debugger keys, against the RUNNING product: the
+        # real DebuggerWindow's actions and toolbar captions, and the real
+        # MainWindow's forwarding of the five execution keys. The grammar, the
+        # validation and the persistence live in app_config_test's DK group,
+        # which needs no widgets. Needs BOTH windows, hence ENABLE_QT_UI on top
+        # of the ENABLE_DEBUGGER block; no display — offscreen QPA in main().
+        add_executable(debugger_keymap_test debugger/keymap_test.cpp)
+        set_target_properties(debugger_keymap_test PROPERTIES AUTOMOC ON)
+        target_link_libraries(debugger_keymap_test PRIVATE
+            jnext_gui jnext_debugger
+            jnext_core jnext_cpu jnext_memory jnext_video
+            jnext_audio jnext_port jnext_peripheral jnext_input
+            jnext_save jnext_debug spdlog::spdlog zot_tzx ZLIB::ZLIB
+            Qt${JNEXT_QT_MAJOR}::Test)
+        target_include_directories(debugger_keymap_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+        add_test(NAME debugger_keymap_tests COMMAND debugger_keymap_test)
+
         add_executable(debugger_menu_test debugger/menu_test.cpp)
         set_target_properties(debugger_menu_test PROPERTIES AUTOMOC ON)
         target_link_libraries(debugger_menu_test PRIVATE

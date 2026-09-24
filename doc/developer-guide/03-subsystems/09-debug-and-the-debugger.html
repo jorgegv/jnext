@@ -1166,6 +1166,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#the-key-bindings-are-data-gh-1" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        The key bindings are data (GH #1)
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#panels" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -2065,10 +2076,9 @@ PC the gate sees is necessarily the PC the resume was issued at. Without the
 edge check the guarantee is simply false — a resume issued on an
 already-running machine arms against a PC that keeps moving, and the arm lands
 on a later, unrelated breakpoint and swallows it. The UI reaches that state by
-ordinary use: the debugger toolbar's <code>F5: Continue</code> button is a plain
-<code>QPushButton</code> with no enable gating, and <code>MainWindow</code>'s global F5 handler
-forwards to <code>on_run()</code> whenever the debugger is enabled, regardless of whether
-the machine is paused. The arm is also dropped by <code>refresh_gates_()</code> when
+ordinary use: the debugger toolbar's Continue button is a plain <code>QPushButton</code>
+with no enable gating, and <code>MainWindow</code> forwards the Run binding to <code>on_run()</code>
+whenever the debugger is enabled, regardless of whether the machine is paused. The arm is also dropped by <code>refresh_gates_()</code> when
 breakpoints go dead, because the consumer stops running there while PC does
 not.</p>
 <p>Step Over is not a special CPU mode. <code>DebuggerManager::on_step_over()</code> asks the
@@ -2145,6 +2155,51 @@ enough to saturate the circular trace buffer, while Step Back still undoes N
 raw instructions. Nothing corrupts — the rewind buffer's own frame snapshots
 are taken normally — but the two controls are counting different things, so
 stepping <em>back</em> out of a halt is not one press.</p>
+<h2 id="the-key-bindings-are-data-gh-1">The key bindings are data (GH #1)<a class="headerlink" href="#the-key-bindings-are-data-gh-1" title="Permanent link">&para;</a></h2>
+<p>No shortcut in the debugger window is written at its call site. The inventory
+is a table in <code>src/debug/debug_keymap.cpp</code> — twelve actions, each with a
+config-file id, a label and a compiled-in default — and
+<code>DebuggerWindow::apply_keymap()</code> is the single place that pushes a
+<code>jnext::dbgkeys::Keymap</code> onto the <code>QAction</code>s. It also rewrites every toolbar
+caption and tooltip that quotes a key, so <code>F5: Continue</code> is <em>generated</em> from
+the binding rather than typed next to it; with the default map it produces
+exactly the strings the toolbar carried before the mechanism existed.</p>
+<p>Three properties of the layout are worth understanding before changing it.</p>
+<p><strong>The model is Qt-free and lives in <code>jnext_debug</code>.</strong> Not in <code>src/debugger/</code>,
+because <code>src/gui/</code> has to read and write the same table with
+<code>ENABLE_DEBUGGER=OFF</code>: <code>AppConfig</code> must round-trip <code>[debugger_keys]</code> in a
+debugger-less build, or <code>PreferencesDialog::collect()</code> — which rebuilds an
+<code>AppConfigData</code> from scratch — would wipe a user's bindings the moment they
+pressed OK. And not in <code>src/gui/</code> either, because <code>ENABLE_QT_UI=OFF</code> with
+<code>ENABLE_DEBUGGER=ON</code> is a real build-matrix combination in which <code>jnext_gui</code>
+does not exist. The Qt conversions sit in the header-only
+<code>src/debug/debug_keymap_qt.h</code>, which <code>jnext_debug</code> itself never compiles.</p>
+<p><strong>The vocabulary is bounded.</strong> <code>Key</code> is an enum of function keys, letters,
+digits and sixteen named keys, not a mirror of <code>Qt::Key</code>. That is what makes
+<code>parse_combo()</code> able to refuse a value <em>by name</em>, makes <code>render_combo()</code>
+canonical, and makes the whole grammar testable without a widget.
+<code>validate_combo()</code> then refuses the combinations that would break something
+else: anything without Ctrl/Alt/Meta that is not <code>F1</code>–<code>F12</code> (Qt's shortcut map
+outranks the focused panel, and the memory panel types hex with bare keys),
+<code>Alt</code>+letter (the menu bar's namespace), and <code>Ctrl+C</code>/<code>Ctrl+A</code> (GH #21).</p>
+<p><strong>Conflicts are refused, not resolved, wherever a human is present.</strong> Qt
+classifies two identical sequences as AMBIGUOUS and dispatches them
+round-robin, so a clash breaks <em>both</em> bindings — the GH #124 defect this window
+shipped five times. The Preferences tab therefore rejects a capture that
+another action already holds. <code>build_keymap()</code> still has to resolve a
+hand-edited file, and does so deterministically: explicit beats default,
+earlier action beats later, and the loser is left unbound and reported. Every
+refusal — unparseable, illegal, unknown id, conflict — becomes a <code>LoadIssue</code>
+that <code>MainWindow</code> logs at error level and the tab lists in red. Nothing is
+dropped quietly.</p>
+<p><code>MainWindow</code> keeps its own <code>debug_keys_</code>, the map that is <em>in effect</em>, seeded
+after <code>app_config_.load()</code> and replaced by <code>apply_preferences()</code>. Both the
+emulator window's forwarding of the five execution keys and the push into
+<code>DebuggerWindow::set_keymap()</code> read that member, so the two windows cannot end
+up on different maps. The forwarding covers exactly <code>run</code>, <code>pause</code>,
+<code>step_into</code>, <code>step_over</code> and <code>step_out</code>; it matches modifiers exactly, and it
+deliberately excludes <code>trace_toggle</code>, whose default <code>F2</code> is that window's
+scale cycler.</p>
 <h2 id="panels">Panels<a class="headerlink" href="#panels" title="Permanent link">&para;</a></h2>
 <p>Thirteen panels, created by <code>DebuggerWindow::create_panels()</code>. What each one
 introspects:</p>

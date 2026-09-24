@@ -8,7 +8,9 @@
 | Step Over | **F7** | `F7: Step Over` |
 | Step Out | **F8** | `F8: Step Out` |
 
-The same actions are in the **Debug** menu.
+The same actions are in the **Debug** menu. Every key in that table can be
+changed — see [Changing the keys](09-changing-the-keys.md); the rest of this
+page names the defaults.
 
 **Run / Continue** resumes free execution. When the machine is stopped *on* a
 breakpoint, that breakpoint does not stop it again for the instruction you are

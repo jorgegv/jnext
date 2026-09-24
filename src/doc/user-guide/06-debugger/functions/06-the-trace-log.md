@@ -12,5 +12,8 @@ entries, so it always holds the last 10 000 instructions.
   writes it to a text file, one instruction per line.
 - `--trace` on the command line starts with it enabled.
 
+**F2** and **F3** are the defaults and can be rebound — see
+[Changing the keys](09-changing-the-keys.md).
+
 The trace is what makes "how did we get *here*?" answerable after a breakpoint
 fires. It is also a prerequisite for stepping backwards.

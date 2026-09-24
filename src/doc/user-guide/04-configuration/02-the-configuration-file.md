@@ -36,6 +36,16 @@ with `gain_beeper_db`, `gain_ay0_db`, `gain_ay1_db`, `gain_ay2_db`, and
 invalid value falls back to 0 dB. An explicit matching `--audio-gain-...-db`
 value overrides the saved setting for that run.
 
+Redefined debugger keys are stored in the `[debugger_keys]` section, one line
+per action, for example `step_over=F10`. **Only the keys you have changed
+appear** — a configuration file in which you have never touched a debugger key
+has no `[debugger_keys]` section at all, which is what lets a future JNEXT
+change a default and have the change reach you. An entry JNEXT cannot
+understand is reported on the console at startup and listed at the top of the
+Preferences **Debugger Keys** tab; the action keeps its default. The spelling
+of the action names and of the key combinations is in
+[6.3.9](../06-debugger/functions/09-changing-the-keys.md).
+
 The quick screenshot is stored in the `[screenshot]` section: `quick_dir` (an
 empty value means `~/.jnext/screenshots`) and `quick_format`, either `png` or
 `scr`. They are the same two settings as the Preferences **Paths** tab;

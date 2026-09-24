@@ -1,6 +1,6 @@
 # Preferences
 
-**Settings > Preferences…** (Alt+P) opens a dialog with five tabs.
+**Settings > Preferences…** (Alt+P) opens a dialog with six tabs.
 
 ![The Preferences dialog, Startup tab](../img/preferences-startup.png)
 
@@ -49,6 +49,10 @@ Screenshot** needs, since that capture never asks: the directory it writes to
 (blank means `~/.jnext/screenshots`) and whether it writes PNG or SCR. Those
 two are a deliberate choice rather than a memory of the last dialog, so the
 quick capture always lands in the same place.
+
+**Debugger Keys** rebinds the debugger's own keys — see
+[6.3.9](../06-debugger/functions/09-changing-the-keys.md). The tab is only
+present in a build with the debugger compiled in.
 
 ## Apply, OK and Cancel
 

@@ -167,10 +167,9 @@ PC the gate sees is necessarily the PC the resume was issued at. Without the
 edge check the guarantee is simply false — a resume issued on an
 already-running machine arms against a PC that keeps moving, and the arm lands
 on a later, unrelated breakpoint and swallows it. The UI reaches that state by
-ordinary use: the debugger toolbar's `F5: Continue` button is a plain
-`QPushButton` with no enable gating, and `MainWindow`'s global F5 handler
-forwards to `on_run()` whenever the debugger is enabled, regardless of whether
-the machine is paused. The arm is also dropped by `refresh_gates_()` when
+ordinary use: the debugger toolbar's Continue button is a plain `QPushButton`
+with no enable gating, and `MainWindow` forwards the Run binding to `on_run()`
+whenever the debugger is enabled, regardless of whether the machine is paused. The arm is also dropped by `refresh_gates_()` when
 breakpoints go dead, because the consumer stops running there while PC does
 not.
 
@@ -257,6 +256,58 @@ enough to saturate the circular trace buffer, while Step Back still undoes N
 raw instructions. Nothing corrupts — the rewind buffer's own frame snapshots
 are taken normally — but the two controls are counting different things, so
 stepping *back* out of a halt is not one press.
+
+## The key bindings are data (GH #1)
+
+No shortcut in the debugger window is written at its call site. The inventory
+is a table in `src/debug/debug_keymap.cpp` — twelve actions, each with a
+config-file id, a label and a compiled-in default — and
+`DebuggerWindow::apply_keymap()` is the single place that pushes a
+`jnext::dbgkeys::Keymap` onto the `QAction`s. It also rewrites every toolbar
+caption and tooltip that quotes a key, so `F5: Continue` is *generated* from
+the binding rather than typed next to it; with the default map it produces
+exactly the strings the toolbar carried before the mechanism existed.
+
+Three properties of the layout are worth understanding before changing it.
+
+**The model is Qt-free and lives in `jnext_debug`.** Not in `src/debugger/`,
+because `src/gui/` has to read and write the same table with
+`ENABLE_DEBUGGER=OFF`: `AppConfig` must round-trip `[debugger_keys]` in a
+debugger-less build, or `PreferencesDialog::collect()` — which rebuilds an
+`AppConfigData` from scratch — would wipe a user's bindings the moment they
+pressed OK. And not in `src/gui/` either, because `ENABLE_QT_UI=OFF` with
+`ENABLE_DEBUGGER=ON` is a real build-matrix combination in which `jnext_gui`
+does not exist. The Qt conversions sit in the header-only
+`src/debug/debug_keymap_qt.h`, which `jnext_debug` itself never compiles.
+
+**The vocabulary is bounded.** `Key` is an enum of function keys, letters,
+digits and sixteen named keys, not a mirror of `Qt::Key`. That is what makes
+`parse_combo()` able to refuse a value *by name*, makes `render_combo()`
+canonical, and makes the whole grammar testable without a widget.
+`validate_combo()` then refuses the combinations that would break something
+else: anything without Ctrl/Alt/Meta that is not `F1`–`F12` (Qt's shortcut map
+outranks the focused panel, and the memory panel types hex with bare keys),
+`Alt`+letter (the menu bar's namespace), and `Ctrl+C`/`Ctrl+A` (GH #21).
+
+**Conflicts are refused, not resolved, wherever a human is present.** Qt
+classifies two identical sequences as AMBIGUOUS and dispatches them
+round-robin, so a clash breaks *both* bindings — the GH #124 defect this window
+shipped five times. The Preferences tab therefore rejects a capture that
+another action already holds. `build_keymap()` still has to resolve a
+hand-edited file, and does so deterministically: explicit beats default,
+earlier action beats later, and the loser is left unbound and reported. Every
+refusal — unparseable, illegal, unknown id, conflict — becomes a `LoadIssue`
+that `MainWindow` logs at error level and the tab lists in red. Nothing is
+dropped quietly.
+
+`MainWindow` keeps its own `debug_keys_`, the map that is *in effect*, seeded
+after `app_config_.load()` and replaced by `apply_preferences()`. Both the
+emulator window's forwarding of the five execution keys and the push into
+`DebuggerWindow::set_keymap()` read that member, so the two windows cannot end
+up on different maps. The forwarding covers exactly `run`, `pause`,
+`step_into`, `step_over` and `step_out`; it matches modifiers exactly, and it
+deliberately excludes `trace_toggle`, whose default `F2` is that window's
+scale cycler.
 
 ## Panels
 

@@ -240,6 +240,7 @@ MainWindow::MainWindow(QWidget* parent)
             "Config [debugger_keys] {}={}: {}",
             issue.action_id, issue.text, issue.reason);
     }
+    debug_keys_ = app_config_.data().debug_keys;
 
     // Central widget: the emulator display (fixed-size, pixel-perfect).
     emulator_widget_ = new EmulatorWidget(this);
@@ -1982,10 +1983,11 @@ void MainWindow::apply_preferences(const AppConfigData& cfg) {
             cfg.esp_enabled ? "enabled" : "disabled");
     }
 
-    // GH #1 — the debugger key bindings apply LIVE, in both windows. The
-    // debugger re-derives every shortcut and every toolbar caption from the
-    // map, and MainWindow's own forwarding below reads app_config_ directly,
-    // which the caller has already updated.
+    // GH #1 — the debugger key bindings apply LIVE, in both windows. This is
+    // the ONLY place that makes them live: the forwarding in keyPressEvent()
+    // and the push into the debugger window both read debug_keys_, so an
+    // Apply can never leave the two windows on different maps.
+    debug_keys_ = cfg.debug_keys;
     push_debug_keymap();
 
     // cfg.silent has no live setter (the SDL audio device is opened once at
@@ -1998,7 +2000,7 @@ void MainWindow::push_debug_keymap() {
 #ifdef ENABLE_DEBUGGER
     if (!debugger_mgr_) return;
     if (auto* win = debugger_mgr_->debugger_window_ptr())
-        win->set_keymap(app_config_.data().debug_keys);
+        win->set_keymap(debug_keys_);
 #endif
 }
 
@@ -2054,7 +2056,7 @@ void MainWindow::keyPressEvent(QKeyEvent* event) {
         if (debugger_mgr_ && debugger_mgr_->is_enabled()) {
             using namespace jnext::dbgkeys;
             const Combo pressed = combo_from_event(key, modifiers);
-            const Keymap& km = app_config_.data().debug_keys;
+            const Keymap& km = debug_keys_;
             if (pressed.bound()) {
                 // GH #223: the debugger owns Run whenever it is enabled,
                 // whether or not the machine is paused. on_run() is now a
