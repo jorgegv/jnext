@@ -28,6 +28,7 @@
 #include "video/tilemap.h"
 #include "video/ula.h"
 #include "memory/rom.h"
+#include "port/nextreg.h"
 #include "save/state_desc.h"
 
 #include <cstring>
@@ -2146,6 +2147,116 @@ static int test_s3_restore_behaviour()
               "a byte written into the bank-7 BRAM is readable through the "
               "restored slot: the single rebuild_ptr() pass runs AFTER the "
               "blobs land, which the mid-stream call never did");
+    }
+
+    // ── The restore-time masks, which S3 MOVED ───────────────────────────
+    //
+    // NR 0x8F is 2 bits (VHDL zxnext.vhd:3787-3794) and the two NR 0x03
+    // sub-fields are 3 bits each (:1099, :1103). Before S3 each mask was
+    // applied to the value as it was read; S3 applies it to the member after
+    // the walk, because in the declaration it would change what the WRITE
+    // direction emits. Identical result — and NOTHING covered it either way:
+    // reverting all three masks killed no row in any suite. A mask nothing
+    // asserts is a mask the next edit deletes, so the three rows below are
+    // the answer the mutation table owed.
+    {
+        Ram ram;
+        Rom rom;
+        Mmu mmu(ram, rom);
+        mmu.write_nr_8f(0x01);
+        mmu.set_machine_type(MachineType::ZX128K);   // a neighbour, to pin the offset
+
+        StateWriter measure;
+        mmu.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        mmu.save_state(w);
+
+        // nr_8f_mode is declaration index 25, stream offset 32.
+        check("S3-MMU-NR8F-OFFSET",
+              buf[32] == 0x01 &&
+                  buf[28] == static_cast<uint8_t>(MachineType::ZX128K),
+              "nr_8f_mode is at stream offset 32 and machine_type at 28 — the "
+              "row below is meaningless if it pokes some other field");
+        buf[32] = 0xFF;
+
+        Mmu back(ram, rom);
+        StateReader r(buf.data(), n);
+        back.load_state(r);
+        check("S3-MMU-NR8F-MASK",
+              back.nr_8f_mode() == 0x03 &&
+                  back.machine_type() == MachineType::ZX128K &&
+                  r.position() == n,
+              "a restored NR 0x8F keeps only its 2 declared bits "
+              "(zxnext.vhd:3787-3794), its neighbour is untouched and the "
+              "stream still ends where it should");
+    }
+    {
+        NextReg nr;
+        nr.set_nr_03_machine_timing(0x05);
+        nr.set_nr_03_machine_type(0x02);
+        nr.select(0x42);                    // a neighbour, to pin the offset
+
+        StateWriter measure;
+        nr.save_state(measure);
+        const size_t n = measure.position();
+        std::vector<uint8_t> buf(n, 0);
+        StateWriter w(buf.data(), n);
+        nr.save_state(w);
+
+        // selected 0, regs 1..256, nr_03_config_mode 257,
+        // nr_04_romram_bank 258, nr_03_machine_timing 259,
+        // nr_03_user_dt_lock 260, nr_03_machine_type 261.
+        check("S3-NEXTREG-NR03-OFFSET",
+              buf[0] == 0x42 && buf[259] == 0x05 && buf[261] == 0x02,
+              "the two NR 0x03 sub-fields are at stream offsets 259 and 261, "
+              "behind the 256-byte register file");
+        buf[259] = 0xFF;
+        buf[261] = 0xFF;
+
+        NextReg back;
+        StateReader r(buf.data(), n);
+        back.load_state(r);
+        check("S3-NEXTREG-NR03-MASK",
+              back.nr_03_machine_timing() == 0x07 &&
+                  back.nr_03_machine_type() == 0x07 &&
+                  back.selected() == 0x42 && r.position() == n,
+              "both restored NR 0x03 sub-fields keep only their 3 declared "
+              "bits (zxnext.vhd:1099, :1103) and the select latch is intact");
+    }
+
+    // ── The CPU's /INT window is RELATIVE to a counter that is re-seeded ──
+    //
+    // §9.5(3): the u32 in the CPU block is int_first_ts_ minus the FUSE
+    // T-state counter, because load_state does not restore that counter.
+    // Marshalling a constant instead killed no row: at the EMULATOR level the
+    // appended int_timing block (31) replaces the pair straight afterwards,
+    // so the CPU block's copy is invisible there. It is not invisible to a
+    // standalone Z80Cpu save/load, which is what this row exercises.
+    {
+        Emulator emu;
+        build_emulator(emu, 2);
+        Z80Cpu& cpu = emu.cpu();
+
+        *fuse_z80_tstates_ptr() = 0x1000;
+        cpu.request_interrupt(0xFD, 0x1000, 0x1020);
+        *fuse_z80_tstates_ptr() = 0x1050;      // the window is now 0x50 behind
+
+        uint8_t buf[256];
+        StateWriter w(buf, sizeof(buf));
+        cpu.save_state(w);
+        const size_t n = w.position();
+
+        *fuse_z80_tstates_ptr() = 0x9000;      // a different frame's counter
+        StateReader r(buf, n);
+        cpu.load_state(r);
+
+        check("S3-CPU-INT-WINDOW",
+              cpu.int_window_first_ts() == 0x9000 - 0x50,
+              "the /INT window's first boundary is restored RELATIVE to "
+              "whatever the T-state counter now is (0x50 behind it), not as "
+              "the absolute stamp it was saved from");
     }
 
     return 0;
