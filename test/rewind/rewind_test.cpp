@@ -3575,38 +3575,6 @@ static int test_s4_descriptor_layout()
 namespace s4 {
 
 /// Save a subsystem into a right-sized buffer, the standard two-pass idiom.
-// ── Test 22: GH #27 S5 — what the migration CHANGED, not just transcribed ─
-//
-// The mutation table for S5 was derived from `git diff`, not from the row
-// list, and eight reverts killed nothing in any suite:
-//
-//   * the two Dma restore masks (turbo_ & 0x03, dma_timer_s_ & 0x3FFF)
-//   * the three Md6ConnectorX2 masks (two 12-bit latches, the 9-bit counter)
-//   * the MembraneStick keymap_addr_ & 0x01FF mask
-//   * DivMmc restoring its two split enable levers from the STREAM rather
-//     than deriving them from the composite `enabled_` byte
-//   * I2cController restoring its two pi_i2c1 line inputs at all
-//
-// Every one of them is behaviour S5 MOVED rather than introduced — the masks
-// out of the read expressions and into the line after the walk, the DivMMC
-// levers by dropping a dead mid-read seed — and every one was uncovered
-// before S5 as well. A ninth, the auto-type queue's count clamp, is behaviour
-// S5 RESHAPED: the rebuild loop is now bounded by MAX_AUTO_TYPE_KEYS with the
-// count gating the push, which is `BinReadDesc::fifo`'s idiom and is what
-// makes a forged count unable to index past the staging array.
-//
-// Each poke-a-byte row is PAIRED with an OFFSET row asserting that the byte
-// it pokes really is the field it names. A corruption row that hits the wrong
-// field passes for the wrong reason, which is the failure mode this pairing
-// exists to close.
-//
-// The offsets are read off the declarations the S5-DECL-* rows pin, so a
-// reordering that moved a field would fail there first and these rows second,
-// rather than silently testing a neighbour.
-
-namespace s5 {
-
-/// Save `obj` into a fresh buffer sized by a measure pass. Returns the bytes.
 template <typename T>
 std::vector<uint8_t> save_bytes(const T& obj)
 {
@@ -3991,6 +3959,55 @@ static int test_s4_restore_behaviour()
               "keeps its pre-load mode instead of taking one the two-bit "
               "register cannot hold, and the stream still ends where it "
               "should");
+    }
+
+    return 0;
+}
+
+
+// ── Test 22: GH #27 S5 — what the migration CHANGED, not just transcribed ─
+//
+// The mutation table for S5 was derived from `git diff`, not from the row
+// list, and eight reverts killed nothing in any suite:
+//
+//   * the two Dma restore masks (turbo_ & 0x03, dma_timer_s_ & 0x3FFF)
+//   * the three Md6ConnectorX2 masks (two 12-bit latches, the 9-bit counter)
+//   * the MembraneStick keymap_addr_ & 0x01FF mask
+//   * DivMmc restoring its two split enable levers from the STREAM rather
+//     than deriving them from the composite `enabled_` byte
+//   * I2cController restoring its two pi_i2c1 line inputs at all
+//
+// Every one of them is behaviour S5 MOVED rather than introduced — the masks
+// out of the read expressions and into the line after the walk, the DivMMC
+// levers by dropping a dead mid-read seed — and every one was uncovered
+// before S5 as well. A ninth, the auto-type queue's count clamp, is behaviour
+// S5 RESHAPED: the rebuild loop is now bounded by MAX_AUTO_TYPE_KEYS with the
+// count gating the push, which is `BinReadDesc::fifo`'s idiom and is what
+// makes a forged count unable to index past the staging array.
+//
+// Each poke-a-byte row is PAIRED with an OFFSET row asserting that the byte
+// it pokes really is the field it names. A corruption row that hits the wrong
+// field passes for the wrong reason, which is the failure mode this pairing
+// exists to close.
+//
+// The offsets are read off the declarations the S5-DECL-* rows pin, so a
+// reordering that moved a field would fail there first and these rows second,
+// rather than silently testing a neighbour.
+
+namespace s5 {
+
+/// Save `obj` into a fresh buffer sized by a measure pass. Returns the bytes.
+template <typename T>
+std::vector<uint8_t> save_bytes(const T& obj)
+{
+    StateWriter measure;
+    obj.save_state(measure);
+    std::vector<uint8_t> buf(measure.position(), 0);
+    StateWriter w(buf.data(), buf.size());
+    obj.save_state(w);
+    return buf;
+}
+
 void poke16(std::vector<uint8_t>& b, std::size_t off, uint16_t v)
 {
     std::memcpy(b.data() + off, &v, sizeof(v));
