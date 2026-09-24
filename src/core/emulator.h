@@ -1343,6 +1343,27 @@ private:
     /// Logical frame counter — incremented each run_frame(); saved in snapshots.
     uint32_t frame_num_   = 0;
 
+    /// One complete membrane scan, in 28 MHz master cycles: nine
+    /// CLK_28_MEMBRANE_EN pulses of 2^9 cycles each (zxnext_top_issue2.vhd:1179
+    /// with :1168-1170, and the 9-state rotator at membrane.vhd:99-108). The
+    /// VHDL annotates the same number as "complete scan every 2.5 scanlines
+    /// (0.018ms per row)". Drives Keyboard::tick_scan() from on_scanline();
+    /// see GH #268 there.
+    static constexpr uint32_t MEMBRANE_SCAN_CYCLES = 9u * 512u;   // 4608
+
+    /// Master cycles accumulated towards the next membrane scan. Sub-scan
+    /// PHASE only, and deliberately not snapshotted.
+    ///
+    /// The state it drives IS snapshotted: `Keyboard::save_state` /
+    /// `load_state` round-trip `shift_hist_` (`w.write_bytes(shift_hist_, 2)`
+    /// / `r.read_bytes(shift_hist_, 2)`, keyboard.cpp:639 and :670,
+    /// pre-existing), so the hysteresis buffer itself survives a rewind or a
+    /// save/load intact. This counter is the only part that does not, and all
+    /// it can do is put the next scan boundary somewhere else inside one
+    /// 4608-cycle window — at most ~165 us of hysteresis phase, and the
+    /// buffer it would advance is already correct.
+    uint32_t membrane_scan_accum_ = 0;
+
     /// When true, snapshot-taking is active (independent of buffer allocation).
     bool rewind_enabled_ = false;
 
