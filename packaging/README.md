@@ -489,7 +489,11 @@ the thing it guards cannot be built here.
 One tag-triggered workflow — a `gate` job reads `releases.yaml` (from the tag's
 own commit) and only lets the build + publish run for **listed** tags. See
 [doc/RELEASE-PROTOCOL.md](../doc/RELEASE-PROTOCOL.md) for the full gated-release
-policy. The per-OS build jobs, when they run:
+policy. **Every artifact job is blocking** — as of 2026-08-02 no job in
+`release.yml` carries `continue-on-error`, so a packaging failure on any
+platform withholds the whole release rather than silently omitting that one
+artifact (issue #61 for `macos`, v0.99.110 for `flatpak`). The per-OS build
+jobs, when they run:
 
 | Job       | Runner                        | Build                                                 | Package(s)                     | Verified locally? |
 |-----------|-------------------------------|-------------------------------------------------------|--------------------------------|--------------------|
@@ -497,8 +501,8 @@ policy. The per-OS build jobs, when they run:
 | `rpm`     | `ubuntu-latest` + `fedora:44` | `make package-rpm` (in a Fedora container)           | RPM (`build/rpm-release/`)     | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node) |
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` + `package-win-qt5` + `package-win32-qt5` (MinGW cross-builds + DLL bundling) | 3× ZIP (`build/win-release/`, `build/win-qt5-release/`, `build/win32-qt5-release/`) | Yes — all three built here; the x64-Qt6 zip ran green on a real runner and shipped in v0.98.19, confirmed working on Windows hardware; both Qt5 zips confirmed by a tester on real Windows 8.1 (GH #108) |
-| `flatpak` | `ubuntu-latest` + KDE 6.10     | `flatpak-builder` (org.kde.Sdk//6.10), then `make verify-flatpak-permissions` on the bundle | `.flatpak` bundle              | **Yes** — blocking since v0.99.110 (it ran green on a real runner, so the `continue-on-error` its comment made conditional on that was removed) |
-| `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `.dmg` (`build/mac-release/`) | No — no macOS runner locally (`continue-on-error`); the bundle's self-containment is asserted in-job by `verify-bundle.sh` |
+| `flatpak` | `ubuntu-latest` + KDE 6.10     | `flatpak-builder` (org.kde.Sdk//6.10), then `make verify-flatpak-permissions` on the bundle | `.flatpak` bundle              | Yes — built here against the installed `org.kde.Sdk//6.10`, then installed from the bundle and run; its sandbox permissions are asserted in-job by `verify-permissions.sh` (GH #271). *Blocking since v0.99.110.* |
+| `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `.dmg` (`build/mac-release/`) | No — no macOS runner locally; the bundle's self-containment is asserted in-job by `verify-bundle.sh`. *Blocking since issue #61.* |
 
 This workflow is separate from `ci.yml` (which runs the test suite on push/PR).
 `release.yml` does not run tests — it builds packages and, for tags listed in
