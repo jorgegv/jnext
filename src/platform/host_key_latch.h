@@ -268,10 +268,21 @@ private:
 /// distinguishes rollover-while-typing from two fingers at once, and NOT
 /// staggering is precisely what loses both characters today.
 ///
-/// SIDE EFFECT ON THE LATCH. Gate (b) makes `Latch::on_press`'s "a re-press
-/// cancels a pending release" branch unreachable FROM HERE — a press can no
-/// longer be applied while a release is deferred. The branch stays: `Latch` is
-/// an independent policy object with its own contract (rows HKL-08*) and this
+/// SIDE EFFECT ON THE LATCH, scoped precisely — the branch is NOT dead.
+/// Gate (b) makes `Latch::on_press`'s "a re-press cancels a pending release"
+/// branch unreachable along the GATED path: a press can no longer be applied
+/// while a release is deferred. It is still reachable through `enqueue`'s
+/// OVERFLOW FLUSH, which bypasses the gates by design — press A, release A
+/// with no frame (so the release sits in `Latch::deferred_`), re-press A,
+/// which now queues, then overflow, and the flush calls `apply_press(A)` with
+/// A still deferred. That is correct behaviour there: the flush replays the
+/// complete event list in order and lands on the host's true key state either
+/// way.
+///
+/// SER-12 traverses that path but does NOT pin this branch — measured by
+/// deleting the cancel, which leaves SER-12 green and fails only HKL-08a/b.
+/// So the branch's behaviour is pinned at the `Latch` tier, where it belongs:
+/// `Latch` is an independent policy object with its own contract and this
 /// Router is one client of it.
 template <typename Sink, typename Scancode>
 class Router {
