@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Kempston-mouse state + port 0xFADF / 0xFBDF / 0xFFDF read composer +
 /// NR 0x0A mouse-control bits.
 ///
@@ -92,6 +94,11 @@ public:
     // latches so a rewind or save/load restores the exact mouse state.
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     uint8_t x_ = 0;             // i_MOUSE_X, driven by host adapter

@@ -1,5 +1,7 @@
 #include "input/mouse.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 // =============================================================================
 // Phase 2 Agent H — Kempston mouse port composers per zxnext.vhd:3543-3561.
@@ -135,22 +137,29 @@ uint8_t KempstonMouse::read_port_ffdf() const
 // Task 60c — state serialisation
 // =============================================================================
 
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 6 bytes inside the `input` block of the 2 292 965-byte
+// stream.
+//
+// The three port composers are zxnext.vhd:3543-3561: `x_`/`y_` on 0xFBDF /
+// 0xFFDF and `buttons_`/`wheel_` on 0xFADF.
+void KempstonMouse::describe_state(jnext::save::StateDesc& d)
+{
+    d.u8("x", x_);
+    d.u8("y", y_);
+    d.u8("buttons", buttons_);
+    d.u8("wheel", wheel_);
+    d.boolean("button_reverse", button_reverse_);
+    d.u8("dpi", dpi_);
+}
+
 void KempstonMouse::save_state(StateWriter& w) const
 {
-    w.write_u8(x_);
-    w.write_u8(y_);
-    w.write_u8(buttons_);
-    w.write_u8(wheel_);
-    w.write_bool(button_reverse_);
-    w.write_u8(dpi_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void KempstonMouse::load_state(StateReader& r)
 {
-    x_              = r.read_u8();
-    y_              = r.read_u8();
-    buttons_        = r.read_u8();
-    wheel_          = r.read_u8();
-    button_reverse_ = r.read_bool();
-    dpi_            = r.read_u8();
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 }

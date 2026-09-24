@@ -1,6 +1,23 @@
 #pragma once
 #include <cstdint>
 
+namespace jnext { namespace save { class StateDesc; struct EnumNames; } }
+
+namespace jnext { namespace input {
+
+/// GH #27 S5 — the closed name set for `Joystick::Mode`, exposed so
+/// `MembraneStick` (whose two mode fields ARE `Joystick::Mode`) declares
+/// them with the SAME table.
+///
+/// That is the point of naming an enum once: the same ordinal means the same
+/// thing in `state/joystick.json` and `state/membrane_stick.json`, and
+/// renumbering the mode set is one schema diff rather than two that could
+/// disagree. A second, privately-spelled table in membrane_stick.cpp would
+/// be the duplication §9.2's whole argument is against.
+const jnext::save::EnumNames& joystick_mode_names();
+
+} }  // namespace jnext::input
+
 class MembraneStick;  // forward — wired via set_membrane_stick(); not owned.
 
 /// Joystick state + NR 0x05 mode decoder + port 0x1F / 0x37 read composer.
@@ -153,6 +170,11 @@ public:
     // re-fanout is required.
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     // Raw NR 0x05 byte (latched pre-decode so that set_nr_05 round-trips

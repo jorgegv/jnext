@@ -1,6 +1,8 @@
 #pragma once
 #include <cstdint>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// NR 0x0B joystick I/O-mode pin-7 multiplexer.
 ///
 /// VHDL reference:
@@ -149,6 +151,11 @@ public:
     // backwards-compat); restoring it twice to the same value is idempotent.
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     // Reset to the logical NR 0x0B value 0x01 (en=0, mode=00, iomode_0=1)

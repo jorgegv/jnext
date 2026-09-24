@@ -1,6 +1,40 @@
 #include "input/joystick.h"
 #include "input/membrane_stick.h"
+#include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
+
+namespace {
+
+// Enum name table (design §6.2, §9.4). The binary encoding stays the u8
+// ordinal the stream has always carried; the NAME is what a `.jns` writes, so
+// renumbering the mode set becomes a visible schema diff rather than a silent
+// re-interpretation of old files. Ordinals are Joystick::Mode
+// (joystick.h:26), which is NR 0x05 bits 7:6+4:3 decoded per
+// zxnext.vhd:3470-3494.
+const char* const kJoyModeNameArr[] = {
+    "sinclair2",  // Mode::Sinclair2 — keys 0,9,8,7,6 on row 4
+    "kempston1",  // Mode::Kempston1 — port 0x1F
+    "cursor",     // Mode::Cursor
+    "sinclair1",  // Mode::Sinclair1 — keys 1..5 on row 3
+    "kempston2",  // Mode::Kempston2 — port 0x37
+    "md3_left",   // Mode::Md3Left
+    "md3_right",  // Mode::Md3Right
+    "io_mode",    // Mode::IoMode — NR 0x0B owns pin 7
+};
+const jnext::save::EnumNames kJoyModeNames{
+    kJoyModeNameArr, sizeof(kJoyModeNameArr) / sizeof(kJoyModeNameArr[0])};
+
+}  // namespace
+
+namespace jnext {
+namespace input {
+
+const jnext::save::EnumNames& joystick_mode_names() { return kJoyModeNames; }
+
+}  // namespace input
+}  // namespace jnext
 
 // =============================================================================
 // Phase 2 Agent A — NR 0x05 mode decoder implemented VHDL-faithfully per
@@ -305,20 +339,44 @@ bool Joystick::port_37_hw_en() const
 // Task 60c — state serialisation
 // =============================================================================
 
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 7 bytes inside the `input` block of the 2 292 965-byte
+// stream.
+//
+// The two modes are marshalled through a local `uint8_t`. `Mode` IS
+// `: uint8_t`-backed, so a `reinterpret_cast<uint8_t&>` would work — it is
+// not used, because the same idiom then reads identically where an enum has
+// no fixed underlying type and is `int`-wide, where it would NOT work.
+void Joystick::describe_state(jnext::save::StateDesc& d)
+{
+    d.u8("nr_05_raw", nr_05_raw_);
+    uint8_t m0 = static_cast<uint8_t>(joy0_mode_);
+    d.enum8("joy0_mode", m0, kJoyModeNames);
+    joy0_mode_ = static_cast<Mode>(m0);
+    uint8_t m1 = static_cast<uint8_t>(joy1_mode_);
+    d.enum8("joy1_mode", m1, kJoyModeNames);
+    joy1_mode_ = static_cast<Mode>(m1);
+    d.u16("joy_left_bits", joy_left_bits_);
+    d.u16("joy_right_bits", joy_right_bits_);
+}
+
 void Joystick::save_state(StateWriter& w) const
 {
-    w.write_u8(nr_05_raw_);
-    w.write_u8(static_cast<uint8_t>(joy0_mode_));
-    w.write_u8(static_cast<uint8_t>(joy1_mode_));
-    w.write_u16(joy_left_bits_);
-    w.write_u16(joy_right_bits_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Joystick::load_state(StateReader& r)
 {
-    nr_05_raw_      = r.read_u8();
-    joy0_mode_      = static_cast<Mode>(r.read_u8());
-    joy1_mode_      = static_cast<Mode>(r.read_u8());
-    joy_left_bits_  = r.read_u16();
-    joy_right_bits_ = r.read_u16();
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name. The field keeps its pre-load value rather than taking a
+        // mode the hardware has no encoding for, the stream stays in sync
+        // (the byte was consumed either way), and the fault is named.
+        Log::input()->error("Joystick::load_state: the stream does not match "
+                            "this build's declaration at '{}'",
+                            d.failure() ? d.failure() : "?");
+    }
 }
