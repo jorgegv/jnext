@@ -141,6 +141,35 @@ const AtEngine::CommandEntry AtEngine::kCommands[] = {
     {"AT+UART_CUR=",   true,  &AtEngine::cmd_uart},
     {"AT+UART_DEF=",   true,  &AtEngine::cmd_uart},
     {"AT+UART=",       true,  &AtEngine::cmd_uart},
+
+    // ─── GH #154 ────────────────────────────────────────────────────────
+    // The Wi-Fi configuration category, and the query forms of commands that
+    // shipped set-only. No new dispatch mechanism: the table already
+    // distinguishes an exact entry from a prefix one, and a `?` form is just
+    // another exact entry — which is what design-doc §3 choice C predicted
+    // ("adding rows, not extending an if/else chain"). An earlier plan for
+    // this work proposed a shared pre-parse rule for `?`; reading the table
+    // showed the rows ARE the mechanism, so the rule was not built.
+    //
+    // NO `=?` TEST FORMS. ESP-AT v2.3.0.0 documents the test form of no
+    // command at all, so their replies would be invented. `AT+CWMODE=?`
+    // therefore reaches cmd_cwmode, fails to parse `?` as a mode, and answers
+    // ERROR — refused by decision, not only by accident.
+    {"AT+CWMODE?",     false, &AtEngine::cmd_cwmode_query},
+    {"AT+CWMODE=",     true,  &AtEngine::cmd_cwmode},
+    {"AT+CWJAP=",      true,  &AtEngine::cmd_cwjap_set},
+    {"AT+CWLAP",       false, &AtEngine::cmd_cwlap},
+    {"AT+CWQAP",       false, &AtEngine::cmd_cwqap},
+    {"AT+CIPMUX?",     false, &AtEngine::cmd_cipmux_query},
+    {"AT+CIPSERVER?",  false, &AtEngine::cmd_cipserver_query},
+    {"AT+CIPMODE?",    false, &AtEngine::cmd_cipmode_query},
+    {"AT+CIPMODE=",    true,  &AtEngine::cmd_cipmode},
+    // `AT+CIPSTATUS` cannot be shadowed by the exact `AT+CIPSTA?` entry above:
+    // that entry's 9th character is `?` where this line's is `T`.
+    {"AT+CIPSTATUS",   false, &AtEngine::cmd_cipstatus},
+    {"AT+UART_CUR?",   false, &AtEngine::cmd_uart_query_cur},
+    {"AT+UART_DEF?",   false, &AtEngine::cmd_uart_query_def},
+    {"AT+UART?",       false, &AtEngine::cmd_uart_query},
 };
 const std::size_t AtEngine::kCommandCount = sizeof(kCommands) / sizeof(kCommands[0]);
 
@@ -339,6 +368,16 @@ void AtEngine::cmd_reset(const std::string&) {
     // module that had been running for weeks is the evidence for that.
     server_timeout_ = DEFAULT_SERVER_TIMEOUT_S;
 
+    // And so does the Wi-Fi configuration (GH #154), for the same reason: this
+    // module has no flash, so nothing the guest set survives a restart. It also
+    // keeps the fixed reply below HONEST — `WIFI CONNECTED` / `WIFI GOT IP` is
+    // a lie if the module came back in SoftAP-only mode or still unjoined, and
+    // a conditional reply would mean a guest could make `AT+RST` fall silent in
+    // a state no evidenced client expects.
+    cwmode_ = DEFAULT_CWMODE;
+    joined_ = true;
+    ssid_   = SSID;
+
     // `associated_` DELIBERATELY SURVIVES (GH #246). Everything reset above is
     // state the guest itself put there; the association is not — it is the
     // access point being reachable, which no command from this end restores.
@@ -368,6 +407,28 @@ void AtEngine::cmd_cipstart(const std::string& args) {
     if (c.open || c.connecting) {
         // Real firmware says `ALREADY CONNECTED`, which nothing parses.
         log_debug("AT+CIPSTART while a connection exists — answering ERROR");
+        queue_error();
+        return;
+    }
+
+    // NO STATION, NO CONNECTION (GH #154). This is what makes `AT+CWMODE=2`
+    // and `AT+CWQAP` MODELLED rather than merely recorded: the mode reaches the
+    // guest as a refusal here and as `STAIP,"0.0.0.0"` from `AT+CIFSR`, which
+    // is what a real module does with no address. Real firmware says `no ip`;
+    // that string is on the never-emit list (design doc §5.4) and `ERROR` is
+    // the refusal every evidenced client already handles.
+    //
+    // IT KEYS OFF THE GUEST'S TWO GATES ONLY, NEVER THE HOST'S OUTAGE. A first
+    // draft of this guard used `station_has_ip()`, which includes `associated_`,
+    // and `ASSOC-13` caught it immediately: a host-scheduled outage must still
+    // let new connections open, because GH #246 deliberately confined itself to
+    // the address REPORT (design doc §16.3) and the user guide promises exactly
+    // that in as many words. Widening it here would have invented outage
+    // traffic behaviour that has never been measured — the one thing §16.3 says
+    // not to do.
+    if (!station_enabled_by_guest()) {
+        log_debug("AT+CIPSTART with no station (mode {}, joined {}) — answering ERROR",
+                  cwmode_, joined_);
         queue_error();
         return;
     }
@@ -848,8 +909,22 @@ void AtEngine::cmd_gmr(const std::string&) {
 
 void AtEngine::cmd_cwjap(const std::string&) {
     // Anchors: `CWJAP:"` for the SSID, then the first `","` for the AP MAC;
-    // both printed up to the next '"'.
-    queue(std::string("\r\n+CWJAP:\"") + SSID + "\",\"" + AP_BSSID + "\",1,-55\r\n\r\nOK\r\n");
+    // both printed up to the next '"'. NXtel's diagnostics screen matches those
+    // fragments rather than whole lines, so the shape is load-bearing.
+    //
+    // `No AP` IS REACHABLE ONLY BY THE GUEST'S OWN HAND (GH #154). It answers
+    // only when `joined_` is false, which nothing but `AT+CWQAP` and
+    // `AT+CWMODE=2` clear — deliberately NOT when the HOST's scheduled outage
+    // clears `associated_`. That keeps GH #246 exactly where §16.3 put it ("the
+    // address report is the only thing that changes"), so every ASSOC row and
+    // every pre-#154 session sees byte-identical output here. A guest that never
+    // sends those two commands cannot tell this code from the code it replaced.
+    if (!joined_ || cwmode_ == CWMODE_SOFTAP_ONLY) {
+        queue("\r\nNo AP\r\n\r\nOK\r\n");
+        return;
+    }
+    queue(std::string("\r\n+CWJAP:\"") + ssid_ + "\",\"" + AP_BSSID + "\"," +
+          std::to_string(AP_CHANNEL) + "," + std::to_string(AP_RSSI) + "\r\n\r\nOK\r\n");
 }
 
 void AtEngine::cmd_cipsta(const std::string&) {
@@ -867,10 +942,232 @@ void AtEngine::cmd_cifsr(const std::string&) {
     // reports — the line is still there, so a guest that polls this sees the
     // address go away rather than seeing its parse fail. The MAC is the
     // radio's own and is unaffected by whether it is joined to anything.
-    queue(std::string("\r\n+CIFSR:STAIP,\"") + (associated_ ? sta_ip_ : UNASSOCIATED_IP) +
+    queue(std::string("\r\n+CIFSR:STAIP,\"") + (station_has_ip() ? sta_ip_ : UNASSOCIATED_IP) +
           "\"\r\n"
           "+CIFSR:STAMAC,\"" + STA_MAC + "\"\r\n\r\nOK\r\n");
 }
+
+// ─── GH #154 — Wi-Fi configuration, and the query forms ───────────────
+//
+// WHY THIS GROUP EXISTS AT ALL, since none of it moves a byte of guest data:
+// the ZX Spectrum Next's own shipped WiFi documentation
+// (`tbblue/docs/extra-hw/wifi/WIFIand UARTReadME1st.txt:232-280`) walks a user
+// through `AT+CWMODE?` → `AT+CWMODE=1` → `AT+CWLAP` → `AT+CWJAP="net","pass"`,
+// and before this change jnext answered ERROR to the first line and to five of
+// the first six. Everything that moved bytes worked; the entire radio
+// configuration half did not exist. That is a user-visible defect against a
+// shipped artifact, which is why these four rank above every other unbuilt
+// command in the AT set.
+
+void AtEngine::cmd_cwmode(const std::string& args) {
+    std::uint32_t mode = 0;
+    // 1 = station, 2 = SoftAP, 3 = both. `AT+CWMODE=?` lands here too and
+    // fails this parse, which is the intended refusal of the test form.
+    if (!parse_uint(args, 3, mode) || mode == 0) {
+        log_debug("AT+CWMODE=\"{}\" is not a mode — answering ERROR", escape(args));
+        queue_error();
+        return;
+    }
+    cwmode_ = static_cast<int>(mode);
+    // MODE 2 IS MODELLED, NOT REFUSED. SoftAP-only means there is no station,
+    // and "no station" is a state this module already represents — so the mode
+    // reaches the guest through `AT+CIFSR` reporting no address and
+    // `AT+CIPSTART` failing, exactly as it would on hardware. Refusing the mode
+    // instead would have been the easy choice and a worse one: it would make
+    // jnext answer ERROR to a value the Next's own OTA instructions use
+    // (`AT+CWMODE=3`, readme:553) and teach nothing about the mode.
+    log_debug("AT+CWMODE={} — station {}", cwmode_,
+              cwmode_ == CWMODE_SOFTAP_ONLY ? "disabled (SoftAP only)" : "enabled");
+    queue_ok();
+}
+
+void AtEngine::cmd_cwmode_query(const std::string&) {
+    queue("\r\n+CWMODE:" + std::to_string(cwmode_) + "\r\n\r\nOK\r\n");
+}
+
+void AtEngine::cmd_cwjap_set(const std::string& args) {
+    std::string rest = args;
+    std::string ssid;
+    if (!take_quoted(rest, ssid) || ssid.empty()) {
+        log_debug("AT+CWJAP=\"{}\" has no SSID — answering ERROR", escape(args));
+        queue_error();
+        return;
+    }
+    // BOTH ARGUMENTS ARE REQUIRED, because real firmware requires them:
+    // `AT+CWJAP=<"ssid">,<"pwd">`. Accepting a one-argument join would be
+    // leniency in the ONE direction an emulator must never be lenient — a
+    // program that worked here would answer ERROR on a real ESP-01, and the
+    // author would have no way to find out until the hardware told them. A
+    // third argument (the optional `<"bssid">`) is legitimate and ignored.
+    //
+    // The password itself is accepted and DISCARDED. There is nothing to
+    // authenticate against, and storing a credential the guest typed would be a
+    // liability with no purpose — it can never be checked and must never be
+    // reported back.
+    std::string password;
+    if (!take_quoted(rest, password)) {
+        log_debug("AT+CWJAP=\"{}\" has no password — answering ERROR", escape(args));
+        queue_error();
+        return;
+    }
+    if (!join_accepted(ssid)) {   // always true today; see the doc comment
+        log_debug("AT+CWJAP join to \"{}\" refused by policy", escape(ssid));
+        queue_error();
+        return;
+    }
+    ssid_   = ssid;
+    joined_ = true;
+    log_info("ESP joined \"{}\" (synthetic AP)", escape(ssid));
+    // URCs BEFORE the OK, unlike `AT+RST` which acknowledges first. The
+    // difference is real: `AT+RST`'s OK acks a reset that has not happened yet,
+    // whereas this OK reports a join that HAS. Both orders are the firmware's.
+    queue("\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n\r\nOK\r\n");
+}
+
+void AtEngine::cmd_cwlap(const std::string&) {
+    // ONE ENTRY, AND IT IS THE MODULE'S OWN SYNTHETIC AP. Never a scan of the
+    // host's radio: §8.3 forbids host network information reaching the guest,
+    // and a real scan would put the user's neighbours' SSIDs inside the
+    // emulated machine. One honest synthetic entry beats three invented ones.
+    //
+    // The channel, RSSI and BSSID are the SAME constants `AT+CWJAP?` answers,
+    // so a guest that scans and then asks what it is joined to is not told two
+    // different stories about one access point.
+    queue(std::string("\r\n+CWLAP:(") + std::to_string(AP_ECN) + ",\"" + SSID + "\"," +
+          std::to_string(AP_RSSI) + ",\"" + AP_BSSID + "\"," + std::to_string(AP_CHANNEL) +
+          ")\r\n\r\nOK\r\n");
+}
+
+void AtEngine::cmd_cwqap(const std::string&) {
+    joined_ = false;
+    log_info("ESP left its access point (AT+CWQAP)");
+    // `WIFI DISCONNECT` IS ON THE NEVER-EMIT LIST, AND THIS IS THE EXCEPTION.
+    // That list (design doc §5.4) exists because `ESPATreadme.TXT:92` records
+    // that an UNEXPECTED disconnect URC leaves the NextZXOS driver in an
+    // unknown state. One the guest just asked for by sending `AT+CWQAP` is not
+    // unexpected — the same reasoning that lets `AT+RST` drop every connection
+    // without a `CLOSED`. Nothing else in the module emits it, and no path
+    // reaches here except this command.
+    queue("\r\nWIFI DISCONNECT\r\n\r\nOK\r\n");
+}
+
+void AtEngine::cmd_cipmux_query(const std::string&) {
+    queue(std::string("\r\n+CIPMUX:") + (cipmux_ ? "1" : "0") + "\r\n\r\nOK\r\n");
+}
+
+void AtEngine::cmd_cipserver_query(const std::string&) {
+    const bool up = listener_ && listener_->listening();
+    // The port is reported only while a server is up, which is what the
+    // documented `+CIPSERVER:<mode>[,<port>…]` optionality means. It is the
+    // guest's own chosen port, so reporting it discloses nothing.
+    queue(std::string("\r\n+CIPSERVER:") + (up ? "1," + std::to_string(listener_->port()) : "0") +
+          "\r\n\r\nOK\r\n");
+}
+
+void AtEngine::cmd_cipmode(const std::string& args) {
+    // REFUSE A CHANGE, NOT THE COMMAND — the `AT+CIPMUX` precedent
+    // (design doc §13.7c). jnext is permanently in mode 0, so a guest asking
+    // for mode 0 is asking for the status quo and gets it. Before this change
+    // even `AT+CIPMODE=0` answered ERROR, which failed a client for defensively
+    // asserting the mode it was already in.
+    //
+    // Mode 1 — passthrough — stays refused. It has no consumer: every one of
+    // the 31 mentions across the local Next corpus is a comment explaining that
+    // it CANNOT be used beside `AT+CIPMUX=1`/`AT+CIPSERVER`, and the one real
+    // code path is in a fork that does not compile it. It would also suspend
+    // every framing guarantee in design-doc §5.2, which is the part of this
+    // module that hangs the emulated machine when it is wrong.
+    std::uint32_t mode = 0;
+    if (!parse_uint(args, 1, mode)) {
+        log_debug("AT+CIPMODE=\"{}\" unparseable — answering ERROR", escape(args));
+        queue_error();
+        return;
+    }
+    if (mode != 0) {
+        log_debug("AT+CIPMODE=1 (passthrough) is not implemented — answering ERROR");
+        queue_error();
+        return;
+    }
+    queue_ok();
+}
+
+void AtEngine::cmd_cipmode_query(const std::string&) {
+    queue("\r\n+CIPMODE:0\r\n\r\nOK\r\n");
+}
+
+void AtEngine::cmd_cipstatus(const std::string&) {
+    // `STATUS:<stat>` then one `+CIPSTATUS:` line per live link.
+    //
+    // WHY THIS IS HERE AT ALL: it is the missing half of a pair. GH #211 added
+    // `AT+CIPCLOSE=<id>` precisely so a wedged peer could be named and dropped,
+    // and its own failure story is four wedged peers exhausting the four
+    // inbound slots "with nothing the guest can say about it". A command to
+    // close link <id> with no command to ask which <id>s exist is incomplete.
+    //
+    // Design-doc §14.6 declined it partly because adding it "would mean
+    // inventing a status format nothing parses". That reason was wrong: the
+    // format below is the documented one, not an invention.
+    std::size_t live = 0;
+    for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid)
+        if (conn_[cid].open) ++live;
+
+    // 2 = got IP, 3 = connected, 5 = not connected to an AP. 4 ("disconnected")
+    // is deliberately never emitted: it means "a connection existed and has
+    // gone", which this module does not track once a slot is released, and
+    // guessing between 2 and 4 would be a claim rather than a reading.
+    const int stat = !station_has_ip() ? 5 : (live > 0 ? 3 : 2);
+    std::string out = "\r\nSTATUS:" + std::to_string(stat) + "\r\n";
+
+    for (std::size_t cid = 0; cid < MAX_CONNECTIONS; ++cid) {
+        const Connection& c = conn_[cid];
+        if (!c.open) continue;
+        // The PEER'S RESOLVED ADDRESS, which is what the documented
+        // `<"remote IP">` field means — not the name the guest typed. It is not
+        // a host disclosure either: it is the host the guest itself named, or
+        // the peer that dialled in.
+        //
+        // No "if it looks unset, substitute the hostname" fallback. An earlier
+        // draft had one; mutation testing showed no path reaches it (every open
+        // slot has a transport, and a transport with an open connection has an
+        // address), and a fallback that turns a known-unknown into an EMPTY
+        // string for an inbound link — which carries no hostname at all — would
+        // be worse than reporting the address the transport actually has.
+        const std::string remote = to_string(c.transport->peer_address());
+        // <local port>: 0 for an outbound link. A real module reports its own
+        // ephemeral port; jnext's would be a HOST socket's port, and putting a
+        // host detail inside the guest buys nothing the guest does not know.
+        // An inbound link reports the listener's port, which the guest chose.
+        const unsigned lport =
+            (cid == SINGLE_CID || !listener_) ? 0u : static_cast<unsigned>(listener_->port());
+        // <tetype>: 0 = this module is the client, 1 = it is the server. Slot 0
+        // is the only slot an `AT+CIPSTART` can use and no listener ever
+        // accepts into it (design doc §13.7a), so the split is exactly by id.
+        const int tetype = (cid == SINGLE_CID) ? 0 : 1;
+        out += "+CIPSTATUS:" + std::to_string(cid) + ",\"" + protocol_text(c.protocol) + "\",\"" +
+               remote + "\"," + std::to_string(c.port) + "," + std::to_string(lport) + "," +
+               std::to_string(tetype) + "\r\n";
+    }
+    out += "\r\nOK\r\n";
+    queue(out);
+}
+
+void AtEngine::queue_uart_query(const char* prefix) {
+    // The baud the guest last asked for, or the power-on default if it never
+    // did. jnext's actual pacing comes from the channel's LIVE prescaler rather
+    // than from this number (design doc §6.1), so this reports what the MODULE
+    // was told — which is what the command asks.
+    const std::uint32_t baud = requested_baud_ ? requested_baud_ : DEFAULT_UART_BAUD;
+    queue(std::string("\r\n") + prefix + ":" + std::to_string(baud) + "," +
+          std::to_string(uart_databits_) + "," + std::to_string(uart_stopbits_) + "," +
+          std::to_string(uart_parity_) + "," + std::to_string(uart_flow_) + "\r\n\r\nOK\r\n");
+}
+
+// Three spellings, three replies. The prefix has to echo the command that was
+// asked, so the name cannot be recovered inside one shared handler — the
+// dispatch table hands a handler its ARGUMENTS, never its own name.
+void AtEngine::cmd_uart_query_cur(const std::string&) { queue_uart_query("+UART_CUR"); }
+void AtEngine::cmd_uart_query_def(const std::string&) { queue_uart_query("+UART_DEF"); }
+void AtEngine::cmd_uart_query(const std::string&)     { queue_uart_query("+UART"); }
 
 void AtEngine::cmd_cipdns(const std::string&) {
     // Anchor: `+CIPDNS_CUR:` (and LF + the same for the second server), each

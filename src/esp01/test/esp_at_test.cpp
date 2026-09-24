@@ -2896,6 +2896,285 @@ int main() {
         check("STO-20b", "...so the module is left on its 180 s default, which is what "
                  "hardware did for six builds", r.eng.server_timeout() == 180); }
 
+    // ══ Group J — GH #154: the Wi-Fi configuration category ═════════════
+    //
+    // WHY THESE ROWS EXIST. The ZX Spectrum Next's own shipped WiFi
+    // documentation (`tbblue/docs/extra-hw/wifi/WIFIand UARTReadME1st.txt`)
+    // walks a user through a terminal session, and before GH #154 jnext
+    // answered ERROR to five of its first six lines. The oracle for this group
+    // is therefore that document plus the ESP8266 AT instruction set — NOT the
+    // implementation, which is what `feedback_test_from_vhdl` requires.
+
+    // ── AT+CWMODE ──────────────────────────────────────────────────────
+    {   Rig r; r.send("AT+CWMODE?\r\n"); r.drain();
+        check_eq("CWM-01", "the module powers on in station mode, which is what the Next's "
+                 "own WiFi walk-through opens by checking", r.take(),
+                 "\r\n+CWMODE:1\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWMODE=1\r\n"); r.drain();
+        check_eq("CWM-02", "AT+CWMODE=1 answers OK (readme:238)", r.take(), "\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWMODE=3\r\nAT+CWMODE?\r\n"); r.drain();
+        check_eq("CWM-03", "station+AP is accepted and reported back — the mode the Next's "
+                 "own OTA instructions use (readme:553)", r.take(),
+                 "\r\nOK\r\n\r\n+CWMODE:3\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWMODE=3\r\n"); r.drain(); r.take();
+        r.send("AT+CIFSR\r\n"); r.drain();
+        check("CWM-04", "mode 3 still has a station, so the address is still reported",
+              r.take().find("STAIP,\"192.168.1.50\"") != std::string::npos); }
+    {   Rig r; r.send("AT+CWMODE=2\r\n"); r.drain();
+        check_eq("CWM-05", "SoftAP-only is ACCEPTED, not refused", r.take(), "\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWMODE=2\r\n"); r.drain(); r.take();
+        r.send("AT+CIFSR\r\n"); r.drain();
+        check("CWM-06", "...and it really removes the station: no address to report",
+              r.take().find("STAIP,\"0.0.0.0\"") != std::string::npos); }
+    {   Rig r; r.send("AT+CWMODE=2\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle();
+        check_eq("CWM-07", "...so an outbound connect has nothing to connect from",
+                 r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CWMODE=2\r\n"); r.drain(); r.take();
+        r.send("AT+CWJAP?\r\n"); r.drain();
+        check_eq("CWM-08", "...and the module reports no AP rather than a stale join",
+                 r.take(), "\r\nNo AP\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWMODE=2\r\nAT+CWMODE=1\r\n"); r.drain(); r.take();
+        r.send("AT+CIFSR\r\n"); r.drain();
+        check("CWM-09", "going back to station mode restores the address",
+              r.take().find("STAIP,\"192.168.1.50\"") != std::string::npos); }
+    {   Rig r; r.send("AT+CWMODE=0\r\n"); r.drain();
+        check_eq("CWM-10", "mode 0 does not exist — ERROR", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CWMODE=4\r\n"); r.drain();
+        check_eq("CWM-11", "nor does mode 4", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CWMODE=x\r\n"); r.drain();
+        check_eq("CWM-12", "a non-numeric mode is refused, never coerced", r.take(),
+                 "\r\nERROR\r\n"); }
+    {   // The TEST form is refused BY DECISION, not only by accident: ESP-AT
+        // v2.3.0.0 documents the `=?` form of no command at all, so its reply
+        // would have to be invented.
+        Rig r; r.send("AT+CWMODE=?\r\n"); r.drain();
+        check_eq("CWM-13", "the =? test form is refused — no version documents its reply",
+                 r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CWMODE=2\r\nAT+RST\r\n"); r.drain(); r.take();
+        r.send("AT+CWMODE?\r\n"); r.drain();
+        check_eq("CWM-14", "AT+RST restores station mode — a STATED deviation from 1.x, where "
+                 "the bare command persists, taken so AT+RST's WIFI GOT IP is never a lie",
+                 r.take(), "\r\n+CWMODE:1\r\n\r\nOK\r\n"); }
+
+    // ── AT+CWJAP (set form) ────────────────────────────────────────────
+    {   Rig r; r.send("AT+CWJAP=\"wifinetwork\",\"password\"\r\n"); r.drain();
+        check_eq("CWJ-01", "joining answers the two WIFI URCs and then OK — the readme's "
+                 "\"CONNECTED and GOT IP\"", r.take(),
+                 "\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWJAP=\"wifinetwork\",\"password\"\r\n"); r.drain(); r.take();
+        r.send("AT+CWJAP?\r\n"); r.drain();
+        check_eq("CWJ-02", "the SSID the guest asked for is what the query reports back",
+                 r.take(),
+                 "\r\n+CWJAP:\"wifinetwork\",\"02:00:00:00:00:01\",1,-55\r\n\r\nOK\r\n"); }
+    {   // THE JOIN POLICY. The Next's own documentation tells the user to type
+        // their REAL network name, so the one SSID guaranteed not to be typed
+        // is the module's own synthetic one. A join must therefore succeed for
+        // any name at all.
+        Rig r; r.send("AT+CWJAP=\"some other network\",\"hunter2\"\r\n"); r.drain();
+        check_eq("CWJ-03", "any SSID is accepted — jnext's network is synthetic, so no name "
+                 "is more reachable than another", r.take(),
+                 "\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWJAP=wifinetwork,password\r\n"); r.drain();
+        check_eq("CWJ-04", "an unquoted SSID is refused", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CWJAP=\"\",\"password\"\r\n"); r.drain();
+        check_eq("CWJ-05", "an empty SSID is refused", r.take(), "\r\nERROR\r\n"); }
+    {   // Leniency here would be leniency in the one direction that costs a
+        // developer real time: real firmware needs BOTH arguments, so a join
+        // jnext accepted and hardware refused would look like a jnext success
+        // and a hardware bug.
+        Rig r; r.send("AT+CWJAP=\"wifinetwork\"\r\n"); r.drain();
+        check_eq("CWJ-08", "a join with no password is refused, as it is on hardware",
+                 r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CWJAP=\"wifinetwork\",unquoted\r\n"); r.drain();
+        check_eq("CWJ-09", "...and so is an unquoted password", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CWJAP=\"wifinetwork\",\"pw\",\"02:00:00:00:00:01\"\r\n"); r.drain();
+        check_eq("CWJ-10", "a third argument is the optional BSSID and is accepted",
+                 r.take(), "\r\nWIFI CONNECTED\r\n\r\nWIFI GOT IP\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWJAP=?\r\n"); r.drain();
+        check_eq("CWJ-06", "the =? test form is refused here too", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CWJAP=\"other\",\"pw\"\r\nAT+RST\r\n"); r.drain(); r.take();
+        r.send("AT+CWJAP?\r\n"); r.drain();
+        check_eq("CWJ-07", "AT+RST forgets the guest's SSID — this module has no flash",
+                 r.take(),
+                 "\r\n+CWJAP:\"JNextWifiHost\",\"02:00:00:00:00:01\",1,-55\r\n\r\nOK\r\n"); }
+
+    // ── AT+CWLAP ───────────────────────────────────────────────────────
+    {   Rig r; r.send("AT+CWLAP\r\n"); r.drain();
+        check_eq("CWL-01", "the scan lists exactly one AP: the module's own synthetic one, "
+                 "never a scan of the host's radio (design doc §8.3)", r.take(),
+                 "\r\n+CWLAP:(3,\"JNextWifiHost\",-55,\"02:00:00:00:00:01\",1)\r\n\r\nOK\r\n"); }
+    {   // A guest that scans and then asks what it is joined to must not be
+        // told two different stories about one access point.
+        Rig r; r.send("AT+CWLAP\r\n"); r.drain();
+        const std::string lap = r.take();
+        r.send("AT+CWJAP?\r\n"); r.drain();
+        const std::string jap = r.take();
+        check("CWL-02", "the scan's BSSID agrees with the join report",
+              lap.find("02:00:00:00:00:01") != std::string::npos &&
+              jap.find("02:00:00:00:00:01") != std::string::npos);
+        check("CWL-03", "...and so do its channel and RSSI",
+              lap.find("-55") != std::string::npos && jap.find(",1,-55") != std::string::npos); }
+    {   Rig r; r.send("AT+CWLAPX\r\n"); r.drain();
+        check_eq("CWL-04", "AT+CWLAP is an exact entry — trailing text is not swallowed",
+                 r.take(), "\r\nERROR\r\n"); }
+
+    // ── AT+CWQAP ───────────────────────────────────────────────────────
+    {   Rig r; r.send("AT+CWQAP\r\n"); r.drain();
+        check_eq("CWQ-01", "leaving the AP emits WIFI DISCONNECT — the ONE exception to the "
+                 "never-emit list, because the guest asked for it", r.take(),
+                 "\r\nWIFI DISCONNECT\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWQAP\r\n"); r.drain(); r.take();
+        r.send("AT+CIFSR\r\n"); r.drain();
+        check("CWQ-02", "...the station address goes away, as it does for a real outage",
+              r.take().find("STAIP,\"0.0.0.0\"") != std::string::npos); }
+    {   Rig r; r.send("AT+CWQAP\r\n"); r.drain(); r.take();
+        r.send("AT+CWJAP?\r\n"); r.drain();
+        check_eq("CWQ-03", "...and the join query says No AP", r.take(),
+                 "\r\nNo AP\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWQAP\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle();
+        check_eq("CWQ-04", "...and there is nothing to connect from", r.take(),
+                 "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CWQAP\r\nAT+CWJAP=\"back\",\"pw\"\r\n"); r.drain(); r.take();
+        r.send("AT+CIFSR\r\n"); r.drain();
+        check("CWQ-05", "rejoining restores the address",
+              r.take().find("STAIP,\"192.168.1.50\"") != std::string::npos); }
+    {   Rig r; r.send("AT+CWQAP\r\nAT+RST\r\n"); r.drain(); r.take();
+        r.send("AT+CIFSR\r\n"); r.drain();
+        check("CWQ-06", "AT+RST rejoins too, which is what makes its WIFI GOT IP honest",
+              r.take().find("STAIP,\"192.168.1.50\"") != std::string::npos); }
+    {   // THE GH #246 BOUNDARY, ASSERTED AT THIS NEW SEAM. A HOST-scheduled
+        // outage changes the address REPORT and nothing else — §16.3 and the
+        // user guide both promise it, and ASSOC-13 pins the traffic half. A
+        // first draft of the CIPSTART guard used the wrong predicate and broke
+        // exactly this; these two rows are why it cannot come back.
+        Rig r; r.eng.set_associated(false);
+        r.send("AT+CWJAP?\r\n"); r.drain();
+        check("CWQ-07", "a HOST outage does NOT make the join query say No AP — only the "
+              "guest's own AT+CWQAP does",
+              r.take().find("+CWJAP:\"JNextWifiHost\"") != std::string::npos); }
+    {   Rig r; r.eng.set_associated(false);
+        r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle();
+        check_eq("CWQ-08", "a HOST outage does NOT refuse a new connection either "
+                 "(design doc §16.3: \"new ones still open\")", r.take(), "\r\nOK\r\n"); }
+
+    // ── Query forms of commands that shipped set-only ──────────────────
+    {   Rig r; r.send("AT+CIPMUX?\r\n"); r.drain();
+        check_eq("QRY-01", "AT+CIPMUX? reports the power-on single-connection default",
+                 r.take(), "\r\n+CIPMUX:0\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CIPMUX=1\r\nAT+CIPMUX?\r\n"); r.drain();
+        check_eq("QRY-02", "...and follows a real change", r.take(),
+                 "\r\nOK\r\n\r\n+CIPMUX:1\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+UART_CUR?\r\n"); r.drain();
+        check_eq("QRY-03", "AT+UART_CUR? reports the power-on frame before the guest sets one",
+                 r.take(), "\r\n+UART_CUR:115200,8,1,0,0\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+UART_CUR=1152000,8,1,0,0\r\nAT+UART_CUR?\r\n"); r.drain();
+        check_eq("QRY-04", "...and reports nextsync's baud once it has been set", r.take(),
+                 "\r\nOK\r\n\r\n+UART_CUR:1152000,8,1,0,0\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+UART_DEF?\r\n"); r.drain();
+        check_eq("QRY-05", "AT+UART_DEF? answers under its OWN prefix", r.take(),
+                 "\r\n+UART_DEF:115200,8,1,0,0\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+UART?\r\n"); r.drain();
+        check_eq("QRY-06", "and the plain AT+UART? under its own", r.take(),
+                 "\r\n+UART:115200,8,1,0,0\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CIPSERVER?\r\n"); r.drain();
+        check_eq("QRY-07", "AT+CIPSERVER? reports no server without inventing a port",
+                 r.take(), "\r\n+CIPSERVER:0\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSERVER?\r\n"); r.drain();
+        check_eq("QRY-08", "...and reports the guest's own chosen port once one is up",
+                 r.take(), "\r\n+CIPSERVER:1,4000\r\n\r\nOK\r\n"); }
+
+    // ── AT+CIPMODE — refuse a CHANGE, not the command ──────────────────
+    {   Rig r; r.send("AT+CIPMODE=0\r\n"); r.drain();
+        check_eq("CPM-01", "AT+CIPMODE=0 asks for the mode jnext is permanently in, so it "
+                 "succeeds — refusing the status quo failed a defensive client for nothing",
+                 r.take(), "\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CIPMODE=1\r\n"); r.drain();
+        check_eq("CPM-02", "passthrough is still refused — it has no consumer and would "
+                 "suspend every framing guarantee in design doc §5.2", r.take(),
+                 "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CIPMODE?\r\n"); r.drain();
+        check_eq("CPM-03", "the query reports mode 0", r.take(),
+                 "\r\n+CIPMODE:0\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CIPMODE=2\r\n"); r.drain();
+        check_eq("CPM-04", "mode 2 does not exist", r.take(), "\r\nERROR\r\n"); }
+    {   Rig r; r.send("AT+CIPMODE=?\r\n"); r.drain();
+        check_eq("CPM-05", "and the =? test form is refused", r.take(), "\r\nERROR\r\n"); }
+
+    // ── AT+CIPSTATUS — the missing half of AT+CIPCLOSE=<id> ────────────
+    {   Rig r; r.send("AT+CIPSTATUS\r\n"); r.drain();
+        check_eq("CSTAT-01", "with an address and no links, the status is 2 (got IP)",
+                 r.take(), "\r\nSTATUS:2\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CWQAP\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSTATUS\r\n"); r.drain();
+        check_eq("CSTAT-02", "with no AP, the status is 5", r.take(),
+                 "\r\nSTATUS:5\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle(); r.take();
+        r.send("AT+CIPSTATUS\r\n"); r.drain();
+        check_eq("CSTAT-03", "an open outbound TCP link reports status 3 and one line naming "
+                 "it: id 0, TCP, the RESOLVED peer address (the spec's <\"remote IP\">, not the "
+                 "name the guest typed), its port, local port 0, tetype 0 (client)",
+                 r.take(),
+                 "\r\nSTATUS:3\r\n+CIPSTATUS:0,\"TCP\",\"192.0.2.1\",2048,0,0\r\n\r\nOK\r\n"); }
+    {   // The local port is deliberately 0 rather than the host socket's real
+        // ephemeral port: that is a HOST detail, and putting it inside the
+        // guest buys nothing the guest does not already know.
+        Rig r;
+        r.send("AT+CIPSTART=\"UDP\",\"example.test\",123\r\n"); r.settle(); r.take();
+        r.send("AT+CIPSTATUS\r\n"); r.drain();
+        check_eq("CSTAT-04", "a UDP link reports its own protocol, and still no host port",
+                 r.take(),
+                 "\r\nSTATUS:3\r\n+CIPSTATUS:0,\"UDP\",\"192.0.2.1\",123,0,0\r\n\r\nOK\r\n"); }
+    {   Rig r;
+        r.send("AT+CIPSTART=\"TCP\",\"example.test\",2048\r\n"); r.settle(); r.take();
+        r.send("AT+CIPCLOSE\r\n"); r.drain(); r.take();
+        r.send("AT+CIPSTATUS\r\n"); r.drain();
+        check_eq("CSTAT-05", "a closed link is gone from the report, which is the whole point "
+                 "of pairing this with AT+CIPCLOSE=<id>", r.take(),
+                 "\r\nSTATUS:2\r\n\r\nOK\r\n"); }
+    {   // THE INBOUND HALF. Mutation testing found this missing: with only
+        // outbound rows, `tetype` could be hardcoded to 0 and `<local port>` to
+        // 0 and every row still passed. Those two fields are the only thing
+        // that distinguishes a link the guest DIALLED from one that dialled IN,
+        // which is precisely what a guest asks this command to find out.
+        Rig r;
+        r.send("AT+CIPMUX=1\r\nAT+CIPSERVER=1,4000\r\n"); r.settle(); r.take();
+        add_inbound(r.lsn);
+        r.settle(); r.take();
+        r.send("AT+CIPSTATUS\r\n"); r.drain();
+        const std::string st = r.take();
+        check("CSTAT-08", "an accepted link is reported as id 1 — never id 0, which stays the "
+              "guest's own outbound slot (design doc §13.7a)",
+              st.find("+CIPSTATUS:1,") != std::string::npos);
+        check("CSTAT-09", "...with tetype 1, marking it as one the module SERVES rather than "
+              "one it dialled",
+              st.rfind(",1\r\n") != std::string::npos);
+        check("CSTAT-10", "...and <local port> is the listener's own port, which the guest "
+              "chose and already knows",
+              st.find(",4000,1\r\n") != std::string::npos); }
+    {   // A HOST outage and a guest-commanded leave look the same HERE, and
+        // that is right: both mean "no address", which is what status 5 says
+        // and what `AT+CIFSR` reports as 0.0.0.0 in the very same state. It
+        // does not re-open GH #246's boundary — this is the address REPORT,
+        // which §16.3 says IS what an outage changes, and CWQ-08 pins that
+        // traffic still flows.
+        Rig r; r.eng.set_associated(false);
+        r.send("AT+CIPSTATUS\r\n"); r.drain();
+        check_eq("CSTAT-11", "a HOST outage reports status 5, exactly as AT+CIFSR reports no "
+                 "address in the same state", r.take(), "\r\nSTATUS:5\r\n\r\nOK\r\n"); }
+    {   Rig r; r.send("AT+CIPSTATUSX\r\n"); r.drain();
+        check_eq("CSTAT-06", "AT+CIPSTATUS is an exact entry — trailing text is not swallowed",
+                 r.take(), "\r\nERROR\r\n"); }
+    {   // The one collision worth pinning: `AT+CIPSTA?` is an exact entry whose
+        // 9th character is `?` where this command's is `T`, so neither can
+        // shadow the other however the table is ordered.
+        Rig r; r.send("AT+CIPSTA?\r\n"); r.drain();
+        check("CSTAT-07", "AT+CIPSTA? is not shadowed by the new AT+CIPSTATUS row",
+              r.take().find("+CIPSTA:ip:") != std::string::npos); }
+
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4d\n", g_total, g_pass, g_fail,
                 g_skip);
