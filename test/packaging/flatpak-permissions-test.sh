@@ -217,22 +217,73 @@ stub_case FPKP-13 "an unreadable app id is a hard error" missing 1 \
 # there separately. Dropping either leaves a build that can ship the GH #271
 # bug again with every other row here still green.
 
-# The recipe body ONLY: from `package-flatpak:` to the line before the next
-# target. Stopping at the next target is load-bearing — `verify-flatpak-
-# permissions:` is defined immediately below it, so a range that swallowed one
-# more line would match the target's own name and pass with the call deleted.
-if awk '/^package-flatpak:/ { inr = 1; next }
-        inr && /^[a-zA-Z0-9_.-]+:/ { exit }
-        inr' Makefile | grep -q 'verify-flatpak-permissions'; then
+# Both rows reduce their file to the lines that ACTUALLY RUN and match only
+# there. A plain substring grep is not enough, and this is not a theoretical
+# worry — review mutated both call sites into comments and both rows stayed
+# green:
+#
+#     Makefile      @# $(MAKE) verify-flatpak-permissions   (disabled)
+#     release.yml   # - name: Verify sandbox permissions ...
+#                   #   run: make verify-flatpak-permissions ...
+#
+# "Comment it out while chasing something else" is an utterly ordinary edit,
+# and it silently reships GH #271. So: recipe lines whose command text begins
+# with `#` (with or without make's `@`/`-`/`+` prefixes) do not count, and
+# neither do YAML comment lines.
+
+# --- FPKP-14: the package-flatpak RECIPE ------------------------------------
+# Scoped to the recipe body — from `package-flatpak:` to the line before the
+# next target — because `verify-flatpak-permissions:` is defined immediately
+# below it and a range that swallowed one more line would match the target's
+# own name with the call deleted. Then: recipe lines only (leading TAB),
+# make's `@`/`-`/`+` line prefixes stripped, commented-out lines dropped, and
+# any trailing ` #...` cut so the name cannot hide in an end-of-line comment.
+mk_active=$(awk '
+    /^package-flatpak:/            { inr = 1; next }
+    inr && /^[a-zA-Z0-9_.-]+:/     { exit }
+    inr {
+        if ($0 !~ /^\t/) next               # not a recipe line at all
+        line = $0
+        sub(/^\t+/, "", line)
+        while (line ~ /^[@+-]/) sub(/^[@+-]/, "", line)
+        sub(/^[ \t]+/, "", line)
+        if (line ~ /^#/) next                # commented-out recipe line
+        sub(/[ \t]#.*$/, "", line)          # trailing comment
+        print line
+    }' Makefile)
+if grep -q 'verify-flatpak-permissions' <<<"$mk_active"; then
     ok FPKP-14 "make package-flatpak invokes the permission gate"
 else
-    bad FPKP-14 "package-flatpak no longer runs verify-flatpak-permissions — a local build would ship without the gate"
+    bad FPKP-14 "package-flatpak does not RUN verify-flatpak-permissions (commented out or gone) — a local build would ship without the gate"
 fi
 
-if grep -q 'verify-flatpak-permissions' .github/workflows/release.yml; then
-    ok FPKP-15 "release.yml's flatpak job invokes the permission gate"
+# --- FPKP-15: the release.yml flatpak JOB -----------------------------------
+# Scoped to the `flatpak:` job, and matched only on what a `run:` actually
+# executes. Requiring a `run:` is the point: the step's own `name:` contains
+# the target's name too, so "an active line" would still pass with the step
+# commented out down to its name. Handles both `run: cmd` and a `run: |`
+# block (any deeper-indented continuation lines count as part of it).
+yml_run=$(awk '
+    /^  flatpak:/                        { inj = 1; next }
+    inj && /^  [a-zA-Z0-9_-]+:/          { exit }
+    !inj                                 { next }
+    {
+        raw = $0
+        line = raw; sub(/^[ \t]+/, "", line)
+        if (line ~ /^#/) next                       # YAML comment
+        ind = match(raw, /[^ ]/) - 1
+        if (in_run && ind > run_ind) { print line; next }
+        in_run = 0
+        if (line ~ /^(- )?run:[ \t]*/) {
+            run_ind = ind; in_run = 1
+            sub(/^(- )?run:[ \t]*/, "", line)
+            print line
+        }
+    }' .github/workflows/release.yml)
+if grep -q 'verify-flatpak-permissions' <<<"$yml_run"; then
+    ok FPKP-15 "release.yml's flatpak job RUNS the permission gate"
 else
-    bad FPKP-15 "release.yml no longer runs verify-flatpak-permissions — the SHIPPED bundle would be ungated (it is built by the action, not by make package-flatpak)"
+    bad FPKP-15 "release.yml's flatpak job does not RUN verify-flatpak-permissions (commented out, renamed or gone) — the SHIPPED bundle would be ungated: that job builds through the action, not through make package-flatpak"
 fi
 
 printf "\n"
