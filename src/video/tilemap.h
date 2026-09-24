@@ -6,6 +6,8 @@
 class Ram;
 class PaletteManager;
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Tilemap renderer for 40x32 and 80x32 tile modes.
 ///
 /// The tilemap displays a grid of 8x8 pixel tiles fetched from RAM.
@@ -278,6 +280,9 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S4 — the ONE field list (design §9.2).
+    void describe_state(jnext::save::StateDesc& d);
 
     // -----------------------------------------------------------------
     // Per-scanline NR 0x6B change log (G06)

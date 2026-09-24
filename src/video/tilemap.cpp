@@ -2,6 +2,8 @@
 
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 #include "memory/ram.h"
 #include "video/palette.h"
 
@@ -710,46 +712,49 @@ void Tilemap::render_scanline(uint32_t* dst, bool* ula_over_flags, int y,
     }
 }
 
+// GH #27 S4 — the ONE field list (design §9.2). Block 9 of the byte-identity
+// stream (§17.1), 26 bytes. Declaration order IS the stream order.
+//
+// `map_base_addr_` / `def_base_addr_` are DECODED from `map_base_raw_` /
+// `def_base_raw_` and the tilemap bank, and are declared anyway because the
+// stream has always carried them: they are what the fetch path reads, and
+// re-deriving them on restore would be a behaviour change the byte-identity
+// gate forbids S4 from making.
+//
+// NOT DECLARED: the per-scanline scroll snapshot and the NR 0x6B change-log
+// — §9.5(8), rebuilt every frame; `load_state` re-baselines both after the
+// walk (GH #261).
+//
+// No field carries a DECLARED DEFAULT: §12.2's gate for them is S6's.
+void Tilemap::describe_state(jnext::save::StateDesc& d)
+{
+    d.u8("control_raw", control_raw_);
+    d.boolean("enabled", enabled_);
+    d.boolean("mode_80col", mode_80col_);
+    d.boolean("text_mode", text_mode_);
+    d.boolean("force_attr", force_attr_);
+    d.boolean("mode_512", mode_512_);
+    d.boolean("ula_on_top", ula_on_top_);
+    d.u8("default_attr", default_attr_);
+    d.u8("map_base_raw", map_base_raw_);
+    d.u8("def_base_raw", def_base_raw_);
+    d.u32("map_base_addr", map_base_addr_);
+    d.u32("def_base_addr", def_base_addr_);
+    d.u16("scroll_x", scroll_x_);
+    d.u8("scroll_y", scroll_y_);
+    d.u8("clip_x1", clip_x1_); d.u8("clip_x2", clip_x2_);
+    d.u8("clip_y1", clip_y1_); d.u8("clip_y2", clip_y2_);
+    d.boolean("palette_sel", palette_sel_);   // NR 0x6B bit 4
+}
+
 void Tilemap::save_state(StateWriter& w) const
 {
-    w.write_u8(control_raw_);
-    w.write_bool(enabled_);
-    w.write_bool(mode_80col_);
-    w.write_bool(text_mode_);
-    w.write_bool(force_attr_);
-    w.write_bool(mode_512_);
-    w.write_bool(ula_on_top_);
-    w.write_u8(default_attr_);
-    w.write_u8(map_base_raw_);
-    w.write_u8(def_base_raw_);
-    w.write_u32(map_base_addr_);
-    w.write_u32(def_base_addr_);
-    w.write_u16(scroll_x_);
-    w.write_u8(scroll_y_);
-    w.write_u8(clip_x1_); w.write_u8(clip_x2_);
-    w.write_u8(clip_y1_); w.write_u8(clip_y2_);
-    w.write_bool(palette_sel_);   // NR 0x6B bit 4
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Tilemap::load_state(StateReader& r)
 {
-    control_raw_ = r.read_u8();
-    enabled_ = r.read_bool();
-    mode_80col_ = r.read_bool();
-    text_mode_ = r.read_bool();
-    force_attr_ = r.read_bool();
-    mode_512_ = r.read_bool();
-    ula_on_top_ = r.read_bool();
-    default_attr_ = r.read_u8();
-    map_base_raw_ = r.read_u8();
-    def_base_raw_ = r.read_u8();
-    map_base_addr_ = r.read_u32();
-    def_base_addr_ = r.read_u32();
-    scroll_x_ = r.read_u16();
-    scroll_y_ = r.read_u8();
-    clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
-    clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
-    palette_sel_ = r.read_bool();   // NR 0x6B bit 4
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
     fetch_per_line_active_ = false;
     output_per_line_active_ = false;
     // GH #261 — the per-scanline scroll snapshot and NR 0x6B log are render
