@@ -1,5 +1,7 @@
 #pragma once
 
+namespace jnext { namespace save { class StateDesc; } }
+
 #include <cstdint>
 #include <cstdio>
 #include <functional>
@@ -765,6 +767,34 @@ public:
     /// mismatch or out-of-bounds read; the restore is aborted at that point
     /// and the machine state is NOT trustworthy.
     bool load_state(class StateReader& r);
+
+    // ── The ONE field list for the Emulator's OWN scalars (GH #27 S6) ────
+    //
+    // Design §9.2, §10.1's last row. S3-S5 migrated the thirty-four
+    // subsystems; these ~40 fields — `frame_cycle_`, the monotonic T-state
+    // clock, the IM2 shadows, the four clip-window write indices, the NextREG
+    // appends, the tail latches — are the last un-migrated part of the
+    // stream, and they are exactly the ones §10.1 says become NAMED KEYS in a
+    // `.jns`, so the append-order chronology they carry today disappears.
+    //
+    // FIVE methods, not one, and the reason is the stream's own shape: each
+    // corresponds to a sentinel-delimited BLOCK, and one `describe_state`
+    // cannot put its fields in two blocks (§9.5(2), the precedent
+    // `Im2Controller::save_timing` set). The JSON side is free to merge them
+    // all into `state/emulator.json`, where they belong logically.
+    //
+    // What is NOT here, and why, each a named §9.5 exception:
+    //   * the monotonic T-state fold, written relative to the FUSE counter
+    //     the stream does not carry and re-seated with side effects on the
+    //     read side — §9.5(3);
+    //   * the CPU `/INT` window pair, same class, in the `int_timing` block;
+    //   * the esxDOS handle table (variable-length list) — §9.5(4);
+    //   * the `joy_uart` and `multiface` presence flags — §9.5(5).
+    void describe_frame_origin(jnext::save::StateDesc& d);
+    void describe_state(jnext::save::StateDesc& d);
+    void describe_nmi_tail(jnext::save::StateDesc& d);
+    void describe_nextreg_appends(jnext::save::StateDesc& d);
+    void describe_tail(jnext::save::StateDesc& d);
 
     /// Name of the subsystem whose sentinel failed in the last load_state
     /// (empty if the last load succeeded). Non-empty means the machine is

@@ -4642,6 +4642,80 @@ static int test_s6_gaps()
               "save (design §10.2 P13, defect D2)");
     }
 
+    // ══ The Emulator's OWN scalars, migrated (design §10.1's last row) ═══
+    //
+    // S3-S5 migrated the thirty-four subsystems and left these behind: the
+    // last un-migrated part of the stream, and the one §10.1 says becomes
+    // NAMED KEYS in a `.jns`, so the append-order chronology disappears. The
+    // migration is a TRANSCRIPTION with a byte-exact oracle — the golden is
+    // byte-identical across it — and these rows pin the field list and the
+    // width of each of the five blocks so a future edit that drops or
+    // reorders a field is a diff a reviewer sees.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+
+        static const char* const want[] = {
+            "u32 frame_num 4",
+            "u32 boot_hold_frames_remaining 4",
+            "u32 esp_frames 4",
+            "bool cpu_parked 1",
+            "u64 psg_accum 8",
+            "u64 sample_accum 8",
+            "bool dac_enabled 1",
+            "bool line_interrupt_enable 1",
+            "bool ula_int_disabled 1",
+            "u16 line_interrupt_target 2",
+            "bool im2_hw_mode 1",
+            "u8 im2_vector_base 1",
+            "bytes im2_int_enable 3",
+            "bytes im2_int_status 3",
+            "bool im2_c4_expbus 1",
+            "u8 nr_c6_uart_int_en 1",
+            "u8 clip_l2_idx 1",
+            "u8 clip_spr_idx 1",
+            "u8 clip_ula_idx 1",
+            "u8 clip_tm_idx 1",
+            "bool nr_cc_dma_delay_on_nmi 1",
+            "u8 nr_cc_dma_delay_en_ula 1",
+            "u8 nr_cd_dma_delay_en_ctc 1",
+            "u8 nr_ce_dma_delay_en_uart1 1",
+            "u8 nr_ce_dma_delay_en_uart0 1",
+            "bool im2_dma_delay_latched 1",
+            "u8 nr_08_stored_low 1",
+            "bool joy_iomode_pin7 1",
+        };
+        s3::RecordDesc rec;
+        emu.describe_state(rec);
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S6-DECL-EMULATOR: %s\n", d.c_str());
+        check("S6-DECL-EMULATOR", d.empty(),
+              "the Emulator's own scalar declaration walks exactly the fields "
+              "the golden's \"emulator\" block carries, in that order — the "
+              "two hand-written values that open the block (the frame origin "
+              "and the §9.5(3) monotonic fold) are not in it");
+        check("S6-WIDTH-EMULATOR", rec.width() == 56u,
+              "…and is exactly 56 bytes wide, which with the 8-byte frame "
+              "origin and the 8-byte monotonic fold is the 72-byte block the "
+              "pre-migration golden measures");
+
+        s3::RecordDesc org, nmi, apx, tail;
+        emu.describe_frame_origin(org);
+        emu.describe_nmi_tail(nmi);
+        emu.describe_nextreg_appends(apx);
+        emu.describe_tail(tail);
+        check("S6-WIDTH-EMULATOR-BLOCKS",
+              org.width() == 8u && nmi.width() == 1u && apx.width() == 8u &&
+                  tail.width() == 2u && apx.fields().size() == 8u &&
+                  tail.fields().size() == 2u,
+              "the four companion blocks measure 8 / 1 / 8 / 2 bytes: one "
+              "declaration per SENTINEL-DELIMITED block, because one "
+              "describe_state cannot put its fields in two blocks (§9.5(2))");
+    }
+
     // ══ P7 — the mid-frame pause a save must never refuse ═══════════════
     //
     // `save_state` documents that snapshots "are only ever taken at a frame

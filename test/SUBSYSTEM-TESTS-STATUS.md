@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |      227 |      227 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |      236 |      236 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      252 |      252 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -30,16 +30,16 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | ESP-01 AT command engine |      344 |      344 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext UART adapter |       30 |       30 |      0 |       0 |    100% | 🟢 All tests pass. |
 | ESP-01 jnext policy + wiring |      101 |      101 |      0 |       0 |    100% | 🟢 All tests pass. |
-| DivMMC + SPI          |      147 |      147 |      0 |       0 |    100% | 🟢 All tests pass. |
+| DivMMC + SPI          |      148 |      148 |      0 |       0 |    100% | 🟢 All tests pass. |
 | divmmc_integration_test |        6 |        6 |      0 |       0 |    100% | 🟢 All tests pass. ⚠ TODO: add "divmmc_integration_test" to the label map in refresh-subsystem-status.sh. |
-| Multiface (core)      |       55 |       55 |      0 |       0 |    100% | 🟢 All tests pass. |
-| SD Card               |       74 |       74 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Multiface (core)      |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
+| SD Card               |       81 |       81 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD ROM Extractor      |       26 |       26 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD File Add (GH #269) |       72 |       72 |      0 |       0 |    100% | 🟢 All tests pass. |
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Snapshot container + descriptor (.jns, GH #27) |      278 |      278 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Snapshot container + descriptor (.jns, GH #27) |      291 |      291 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      212 |      212 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor            |      237 |      237 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -121,6 +121,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **8677** | **8677** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **8709** | **8709** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.

@@ -9,6 +9,7 @@
 #include "core/emulator.h"
 #include "core/emulator_config.h"
 #include "core/saveable.h"
+#include "peripheral/sd_card.h"
 
 #include <cstdarg>
 #include <cstdio>
@@ -189,11 +190,23 @@ void test_stackless_nmi()
     // taken with a root and open handles is longer, which is why this row
     // builds its own emulator rather than reusing one that might have any.
     constexpr std::size_t kHostFs      = 2 * sizeof(uint16_t) + sizeof(uint32_t);
+    // The FIFTH is GH #27 S6's SD-card SPI FSM, which follows the host-FS
+    // block and is last. MEASURED rather than written as a number: the block
+    // is a fixed-width declaration, so a bare `SdCardDevice` in measure mode
+    // is exactly as wide as the one in the stream, and this arithmetic cannot
+    // go stale the way a literal would when the FSM gains a field.
+    const std::size_t kSdCard = []() {
+        SdCardDevice probe;
+        StateWriter  m;
+        probe.save_state(m);
+        return m.position() + sizeof(uint32_t);
+    }();
     Emulator old_snapshot_emu;
     fresh_emulator(old_snapshot_emu);
     old_snapshot_emu.cpu().set_stackless_retn_active_for_load(true);
     const std::size_t old_snapshot_size =
-        snapshot.size() - kHostFs - kIntTiming - kTailBlocks * kTailBlock;
+        snapshot.size() - kSdCard - kHostFs - kIntTiming -
+        kTailBlocks * kTailBlock;
     StateReader old_reader(snapshot.data(), old_snapshot_size);
     const bool old_snapshot_ok =
         old_snapshot_emu.load_state(old_reader) &&
@@ -206,8 +219,9 @@ void test_stackless_nmi()
     Emulator boundary_emu;
     fresh_emulator(boundary_emu);
     boundary_emu.cpu().set_stackless_retn_active_for_load(false);
-    StateReader boundary_reader(snapshot.data(),
-                                snapshot.size() - kHostFs - kIntTiming - kTailBlock);
+    StateReader boundary_reader(
+        snapshot.data(),
+        snapshot.size() - kSdCard - kHostFs - kIntTiming - kTailBlock);
     const bool boundary_ok =
         boundary_emu.load_state(boundary_reader) &&
         boundary_emu.cpu().stackless_retn_active();
