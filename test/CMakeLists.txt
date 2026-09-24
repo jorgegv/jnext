@@ -361,6 +361,23 @@ target_link_libraries(snapshot_test PRIVATE jnext_save)
 target_include_directories(snapshot_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
 add_test(NAME snapshot_tests COMMAND snapshot_test)
 
+# The .jns snapshot's SD-card media IDENTITY (GH #27 S7). A separate binary
+# from snapshot_test on purpose: that one links jnext_save ALONE so the
+# container's rules are provable with no emulator, no card and no filesystem
+# (design §16.1), and this one needs jnext_core for the FAT32 parser and real
+# images on disk. Keeping them apart is what stops the descriptor layer's own
+# suite acquiring a dependency on the emulator core.
+#
+# WORKING_DIRECTORY and the canonical 1 GB fixture: same contract as
+# sd_rom_extractor_tests — JNEXT_TEST_SD_IMAGE overrides, and a missing
+# fixture is a fatal refusal rather than a shrinking row count.
+add_executable(sd_identity_test snapshot/sd_identity_test.cpp)
+target_link_libraries(sd_identity_test PRIVATE jnext_core)
+target_include_directories(sd_identity_test PRIVATE ${CMAKE_SOURCE_DIR}/src)
+add_test(NAME sd_identity_tests
+         COMMAND sd_identity_test
+         WORKING_DIRECTORY ${CMAKE_SOURCE_DIR})
+
 # Sprites subsystem compliance test
 add_executable(sprites_test sprites/sprites_test.cpp)
 target_link_libraries(sprites_test PRIVATE jnext_video jnext_memory jnext_port jnext_peripheral jnext_debug)
