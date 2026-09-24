@@ -367,9 +367,15 @@ private:
         if (!is_modifier(sc)) key_awaiting_frame_ = true;
     }
 
-    void apply_release(int sc)
+    /// Returns false when the Latch deferred it, i.e. the release has NOT
+    /// landed. The drain needs that answer (nothing behind an undelivered
+    /// release may pass it); the arrival path ignores it. Shared rather than
+    /// written out twice so the two callers cannot drift.
+    bool apply_release(int sc)
     {
-        if (latch_.on_release(sc)) sink_->set_key(static_cast<Scancode>(sc), false);
+        if (!latch_.on_release(sc)) return false;
+        sink_->set_key(static_cast<Scancode>(sc), false);
+        return true;
     }
 
     void enqueue(int sc, bool pressed)
@@ -407,8 +413,7 @@ private:
                 pending_.pop_front();
                 // A release the Latch defers has not landed, so nothing behind
                 // it may pass it.
-                if (!latch_.on_release(ev.sc)) break;
-                sink_->set_key(static_cast<Scancode>(ev.sc), false);
+                if (!apply_release(ev.sc)) break;
             }
         }
     }
