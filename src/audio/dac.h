@@ -4,6 +4,8 @@
 #include <functional>
 #include <utility>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Soundrive 4-channel 8-bit DAC emulation.
 ///
 /// Channels A+B → Left, C+D → Right.
@@ -39,6 +41,11 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     uint8_t ch_[4];  // A, B, C, D
