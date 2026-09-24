@@ -169,6 +169,14 @@ Two consequences, documented rather than prevented:
 * The forwarding now matches **modifiers exactly**. It previously switched on
   the key alone, so `Shift+F7` in the emulator window triggered Step Over. It no
   longer does, which is what lets `Shift+F7` mean Step Back.
+
+  The consequence is that a *modified* F-key now falls through to the emulator
+  window's own handling, exactly as it does when the debugger is off:
+  `Shift+F9` fires the Multiface NMI rather than pausing, and `Shift+F5` /
+  `Shift+F6` / `Shift+F7` / `Shift+F8` drive the `EmuFnKeys` FSM. (`Shift+F4`
+  already did nothing — that case tests the modifiers itself.) This is a
+  deliberate consequence of exact matching rather than a separate decision:
+  the debugger claims the combinations it is bound to and nothing else.
 * Binding one of those five to a combination the emulator window uses itself
   (F1 hard reset, F4 soft reset, F10 DivMMC, F11 fullscreen, F2 scale) shadows
   it while the debugger is enabled. This already happened before this work —

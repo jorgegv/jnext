@@ -62,6 +62,7 @@
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
 #include "gui/main_window.h"
+#include "peripheral/nmi_source.h"
 #include "gui/preferences_dialog.h"
 #include "gui/shortcut_capture_button.h"
 
@@ -461,9 +462,20 @@ void test_main_window_forwarding() {
     // alone, so Shift+F9 paused too — which is what made Shift+F7 unusable for
     // Step Back.
     run_machine();
+    const bool mf_before = fx.emu.nmi_source().mf_button();
     send_key(&fx.win, parsed("Shift+F9"));
     check("DKM-02", "a modified variant of a bound chord is NOT forwarded",
           !fx.emu.debug_state().paused(), "Shift+F9 paused the machine");
+
+    // DKM-02 on its own only says the debugger did not take it. This says
+    // where it WENT: straight on to the emulator window's own F9 hotkey, the
+    // Multiface NMI, exactly as with the debugger closed. It is the half of
+    // the exact-modifier change the user guide describes, and describing it
+    // without measuring it is how a doc goes stale.
+    check("DKM-05", "the unforwarded variant reaches the emulator's own F9 hotkey",
+          !mf_before && fx.emu.nmi_source().mf_button(),
+          mf_before ? "the MF button line was already raised"
+                    : "the Multiface NMI hotkey did not fire");
 
     // Rebind, and the forwarding must move with it.
     AppConfigData cfg = fx.win.app_config().data();

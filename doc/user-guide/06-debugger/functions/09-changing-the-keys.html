@@ -3040,6 +3040,11 @@ is the emulator window's window-scale cycler.</p>
   fullscreen, <strong>F2</strong> scale — takes that function away while the debugger is
   enabled. This is not new: Pause has always taken <strong>F9</strong> away from the
   Multiface NMI button. Rebind it if you want the other one back.</li>
+<li>A <em>modified</em> version of a forwarded key is no longer swallowed. With the
+  default bindings, <strong>Shift+F9</strong> in the emulator window fires the Multiface NMI
+  instead of pausing, and Shift+F5/F6/F7/F8 reach the machine's own function
+  keys — the same thing they do with the debugger closed. Only the exact
+  combination you bound is taken.</li>
 <li>The reverse happens for keys the emulator window binds as a <em>menu</em> shortcut,
   such as <strong>Ctrl+F5</strong> and <strong>Ctrl+F6</strong> (start and stop video recording): there
   the menu item wins and the debugger command is not forwarded. It still works
