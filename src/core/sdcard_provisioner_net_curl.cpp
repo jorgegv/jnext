@@ -8,7 +8,7 @@
 //
 // Both twins implement the same three functions declared in
 // sdcard_provisioner.h with identical contracts (partial file removed on
-// failure, ProgressFn false aborts with "download cancelled by user"). The
+// failure, ProgressFn false aborts with "cancelled by user"). The
 // whole-file #ifdef pair keeps file(GLOB_RECURSE) in src/core/CMakeLists.txt
 // correct on every platform: exactly one twin has content per build.
 #ifndef _WIN32
@@ -110,18 +110,18 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
     if (rc != CURLE_OK) {
         std::remove(dest_path.c_str());
         if (rc == CURLE_ABORTED_BY_CALLBACK || prog_ctx.aborted)
-            err = "download cancelled by user";
+            err = "cancelled by user";
         else
-            err = std::string("download failed: ") + curl_easy_strerror(rc);
+            err = curl_easy_strerror(rc);
         return false;
     }
     if (!flush_ok) {
         std::remove(dest_path.c_str());
-        err = "download failed: write/flush error on " + dest_path;
+        err = "write/flush error on " + dest_path;
         return false;
     }
     if (!file_exists_posix(dest_path)) {
-        err = "download produced no file: " + dest_path;
+        err = "produced no file: " + dest_path;
         return false;
     }
     return true;

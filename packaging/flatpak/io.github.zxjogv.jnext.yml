@@ -14,6 +14,21 @@ command: jnext
 
 finish-args:
   - --share=ipc
+  # GH #271. jnext is a NETWORKED application and this manifest never said so,
+  # which left the sandbox with no network namespace and therefore no DNS at
+  # all. Two shipped features need it:
+  #   * the SD-card provisioner downloads the NextZXOS distro zip over HTTPS
+  #     (src/core/sdcard_provisioner_net_curl.cpp) — without it a first run has
+  #     no ROMs and dies with libcurl's "Could not resolve hostname", which is
+  #     exactly what was reported;
+  #   * the ESP-01 WiFi emulation (GH #25) opens real TCP/UDP sockets and
+  #     listens for inbound connections (src/esp01/src/esp_socket_posix.cpp),
+  #     so a guest program can reach a real BBS such as nx.nxtel.org. That half
+  #     was broken too and simply nobody had tried it inside a Flatpak.
+  # Do not drop this line: packaging/flatpak/verify-permissions.sh asserts it
+  # on the BUILT bundle (run by `make package-flatpak` and by the release
+  # workflow's flatpak job), so losing it fails the build rather than the user.
+  - --share=network
   - --socket=x11
   - --socket=wayland
   - --socket=pulseaudio

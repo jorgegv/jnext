@@ -68,6 +68,13 @@ using ProgressFn = std::function<bool(uint64_t downloaded, uint64_t total)>;
 
 // Download seam: fetch `url` into local file `dest_path`, reporting progress
 // via `progress` (may be empty). Returns true on success, else sets `err`.
+//
+// `err` is a BARE reason — "Could not resolve hostname", "HTTP status 404" —
+// and must NOT carry a "download failed" of its own. provision_sd_card adds
+// that framing exactly once, and both default backends used to add it too, so
+// the reported message read `download failed: download failed: Could not
+// resolve hostname` (GH #271: the doubled text is in the bug report itself).
+// PROV-PREFIX-01/02 pin the single-prefix form on the real backend.
 // Default impl is platform-native: libcurl on Linux/macOS
 // (sdcard_provisioner_net_curl.cpp), WinHTTP on Windows
 // (sdcard_provisioner_net_win.cpp — GH #108 Phase B, so the Windows packages
@@ -139,6 +146,21 @@ struct ProvisionOptions {
     ProgressFn  progress;           // optional; passed into the download
     CopyFn      copy;               // defaults to default_copy_file
     BusyFn      busy;               // optional; wraps the copy+patch step
+
+    // GH #271 — diagnosability seam. Path whose EXISTENCE means "this process
+    // runs inside a Flatpak sandbox"; /.flatpak-info is the conventional
+    // marker — flatpak mounts it into every sandbox (verified by reading it
+    // from inside jnext's own bundle), and it is what portal clients test.
+    // When it is there, a download failure
+    // gets a note saying the sandbox may simply have no network — because the
+    // reporter of #271 reasonably read "Could not resolve hostname" as
+    // "jnext's downloader is broken" and went off to prove wget worked.
+    //
+    // It is a FIELD rather than a hard-coded constant so both branches are
+    // testable on a host that is not in a sandbox: a test points it at a
+    // temporary file. Production never sets it, and off a Flatpak the file
+    // does not exist, so nothing changes for anyone else.
+    std::string sandbox_marker = "/.flatpak-info";
 };
 
 enum class ProvisionStatus { Ok, Declined, Failed };

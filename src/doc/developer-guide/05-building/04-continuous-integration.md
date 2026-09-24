@@ -1,11 +1,25 @@
 # 5.4 Continuous integration
 
-There are three workflows. `ci.yml` tests, and runs on every push to `main` and
-every pull request. `release.yml` builds and publishes packages, and runs on a
-`v*` tag push. `macos-build.yml` builds, packages and verifies the macOS `.dmg`
-on demand — it has only a `workflow_dispatch` trigger, so it never runs by
-itself; it exists so that the macOS leg can be exercised without having to cut
-a release to do it.
+Two workflows run by themselves. `ci.yml` tests, and runs on every push to
+`main` and every pull request. `release.yml` builds and publishes packages, and
+runs on a `v*` tag push.
+
+The rest are dispatched by hand, from Actions → *Run workflow*. They exist
+because a platform whose build only runs at release time is a platform whose
+breakage is found at release time. `macos-build.yml` builds, packages and
+verifies the macOS `.dmg`; `windows-build.yml` produces the three Windows zips,
+which is also how a fix build reaches a reporter before the next release; and
+`flatpak-build.yml` builds the Flatpak bundle and checks its sandbox
+permissions.
+
+`flatpak-build.yml` is different in kind from the other two, and the difference
+is worth copying. It is not a hand-dispatched *copy* of the release job — it
+**is** the release job. It carries both a `workflow_call` and a
+`workflow_dispatch` trigger, and the `flatpak` jobs in `ci.yml` and
+`release.yml` are one line each that calls it. So a manual run is evidence
+about the build that actually ships, rather than about something that resembles
+it. `macos-build.yml` and `windows-build.yml` predate the pattern and still
+repeat their `release.yml` counterpart's make targets.
 
 ## The hard rule: every step is a plain make target
 
@@ -21,10 +35,12 @@ from the log.
 The rule has a corollary for when CI seems to need something the local flow
 lacks. The answer is almost never a CI-only step. Either the project is missing
 a target — in which case add it to the Makefile, so local runs get it too — or
-the need is imaginary. There is exactly one declared exception, the Flatpak job
-in `release.yml`, and it is written down both in that job's comment and in
-`doc/RELEASE-PROTOCOL.md` so that it stays a decision rather than becoming
-drift.
+the need is imaginary. There is exactly one declared exception, the Flatpak
+build in `flatpak-build.yml`, and it is written down both in that file's header
+and in `doc/RELEASE-PROTOCOL.md` so that it stays a decision rather than
+becoming drift. Its permission check is *not* part of the exception: that step
+runs `make verify-flatpak-permissions`, the same target a local
+`make package-flatpak` ends with.
 
 The second corollary is **never pipe a build or test command**. GitHub's
 default `bash -e` does not set `pipefail`, so a piped step takes the *pipe's*
@@ -80,12 +96,19 @@ other use for. One detail matters here: in CI a missing packaging tool is a
 a pass.
 
 **`macos`** runs `make package-macos` on a real `macos-latest` runner, and
-**`flatpak`** actually builds the bundle inside the KDE runtime container. Both
-exist because a platform whose failures are invisible until release time fails
-too late to be useful — the v0.98.34 `.dmg` referenced Homebrew paths and
-aborted in dyld on every Mac except the one that built it. Neither job is
+**`flatpak`** calls `flatpak-build.yml`, which actually builds the bundle inside
+the KDE runtime container and then asserts its sandbox permissions. Both exist
+because a platform whose failures are invisible until release time fails too
+late to be useful — the v0.98.34 `.dmg` referenced Homebrew paths and aborted in
+dyld on every Mac except the one that built it. Neither job is
 `continue-on-error`, since going red when the thing stops working is the entire
 point of having them.
+
+The permission check came with the consolidation and is not incidental. This
+job used to be `release.yml`'s copied near-verbatim, minus that step, so from
+the day GH #271 was fixed a bundle that stopped carrying `--share=network`
+would still have passed here on every push — which is exactly the defect the
+gate was written for. One body, one gate, three callers.
 
 ## The SD-card image is provisioned, never faked
 
@@ -116,7 +139,8 @@ containers, one per supported release, because `dpkg-shlibdeps` bakes the
 container's own library package names into the dependency list, so a deb built
 in one release's container is uninstallable on the next. `rpm` builds in the
 pinned Fedora container, so that its dependencies are Fedora-native. Then `src`,
-`windows` (three zips from one Fedora container), `flatpak`, and `macos`.
+`windows` (three zips from one Fedora container), `flatpak` (one line, calling
+`flatpak-build.yml`), and `macos`.
 Finally **`publish`** attaches everything to a GitHub Release, gated on
 `if: success() && needs.gate.outputs.publish == 'true'`.
 
