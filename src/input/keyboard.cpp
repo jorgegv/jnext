@@ -638,7 +638,7 @@ uint8_t Keyboard::nr_b1_byte() const {
 
 // GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
 // binary stream order, so it must not be disturbed: the byte-identity gate
-// (§17.1) pins these 340 bytes at the head of the `input` block of the
+// (§17.1) pins these 342 bytes at the head of the 450-byte `input` block of the
 // 2 292 965-byte stream.
 //
 // ── THE AUTO-TYPE QUEUE ─────────────────────────────────────────────────

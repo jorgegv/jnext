@@ -906,7 +906,7 @@ void Dma::tick_burst_wait(uint64_t master_cycles) {
 
 // GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
 // binary stream order, so it must not be disturbed: the byte-identity gate
-// (§17.1) pins these 49 bytes as block 13 of the 2 292 965-byte stream.
+// (§17.1) pins these 43 bytes as block 13 of the 2 292 965-byte stream.
 //
 // The four enums are marshalled through a local `uint8_t`. These four ARE
 // `: uint8_t`-backed, so a `reinterpret_cast<uint8_t&>` would work — it is

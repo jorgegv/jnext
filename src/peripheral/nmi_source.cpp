@@ -532,7 +532,7 @@ void NmiSource::tick(uint32_t master_cycles)
 
 // GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
 // binary stream order, so it must not be disturbed: the byte-identity gate
-// (§17.1) pins these 27 bytes as the `nmi_source` block of the
+// (§17.1) pins these 28 bytes of the 29-byte `nmi_source` block of the
 // 2 292 965-byte stream.
 //
 // `state_` is marshalled through a local `uint8_t`. It IS `: uint8_t`-backed,

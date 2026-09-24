@@ -426,7 +426,7 @@ void I2cController::on_scl_falling() {
 
 // GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
 // binary stream order, so it must not be disturbed: the byte-identity gate
-// (§17.1) pins these 15 bytes as block 15 of the 2 292 965-byte stream.
+// (§17.1) pins these 13 bytes as block 15 of the 2 292 965-byte stream.
 //
 // `state_` is marshalled through a local `uint8_t`. `enum class State`
 // (i2c.h:197) has NO fixed underlying type, so it is `int`-wide: binding a

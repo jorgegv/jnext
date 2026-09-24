@@ -18,6 +18,7 @@
 #include "memory/attribute_mux.h"
 #include "memory/mmu.h"
 #include "memory/ram.h"
+#include "peripheral/i2c.h"
 #include "audio/mixer.h"
 #include "cpu/z80_cpu.h"
 #include "video/layer2.h"
@@ -2046,6 +2047,934 @@ static int test_s3_descriptor_layout()
     return 0;
 }
 
+
+// ── Test 19: GH #27 S5 — the peripheral / audio / input declarations ──────
+//
+// S5 replaced twenty hand-written save_state/load_state pairs with a walk of
+// one `describe_state` declaration each (CTC also gains a `describe_timing`,
+// design §9.5(2)). The MIGRATION was proved by the §17.1 byte-identity gate:
+// the warm-start recording of a booted NextZXOS machine re-extracted after
+// every subsystem and `cmp`ed against a pre-migration image, 2 292 965 bytes,
+// clean each time. That gate is a one-shot scaffold — it needs a pre-migration
+// build to have produced the golden — so it cannot be a row here.
+//
+// What CAN be a row, and is what the gate leaves behind, is the LAYOUT the
+// gate proved. The existing round-trip rows cannot see it: save->load->save is
+// idempotence, and a consistently reordered pair of same-width fields passes it
+// (design §17.1 says so in as many words).
+//
+// ── WHERE THE TWO HALVES OF EACH PAIR COME FROM ──────────────────────────
+//
+// The `S5-WIDTH-*` numbers are an INDEPENDENT oracle. They were read out of
+// the pre-migration golden itself, not out of the new code: the stream carries
+// a `kStateSentinelMagic ^ ordinal` u32 after every subsystem
+// (`emulator.cpp:11606`), so scanning the 2 292 965-byte image for the 33
+// sentinels in order gives every block's exact length, and those lengths sum
+// to the file size with nothing left over. A declaration whose width is right
+// cannot have dropped, gained or resized a field.
+//
+// The `S5-DECL-*` field lists are a transcription of the declarations, and
+// their job is narrower and worth being honest about: they are a CHANGE
+// DETECTOR. Widths alone cannot see two same-width fields swapped, which is
+// exactly the fault §17.1 says the round-trip rows are blind to, so the names
+// have to be spelled out somewhere. Spelling them here means a reordering
+// shows up as a failing row rather than as a silently different `.jns`.
+//
+// Every description below is a STRING LITERAL, and the `fprintf` beside each
+// one is why: the traceability generator reads a row's text from its own
+// `check()` call, so a `cond ? "text" : detail.c_str()` description publishes
+// as a bare em-dash.
+
+static int test_s5_descriptor_layout()
+{
+    printf("\n--- Test 19: GH #27 S5 descriptor declarations ---\n");
+
+    Emulator emu;
+    build_emulator(emu, 2);
+
+    // `rtc_` has no Emulator accessor, and it does not need one: a declaration
+    // is a property of the CLASS, so a standalone instance walks the same
+    // field list the Emulator's does.
+    I2cRtc rtc;
+
+    // Every recording, kept for the uniqueness row at the foot of this test.
+    std::vector<std::pair<std::string, std::vector<std::string>>> all_decls;
+
+    // ── ctc — block 12 — four channels of ten fields: 40 bytes ──
+    {
+        static const char* const want[] = {
+            "bool ch0_control_int_en 1",
+            "bool ch0_control_counter 1",
+            "bool ch0_control_prescale 1",
+            "bool ch0_control_edge 1",
+            "bool ch0_control_trigger 1",
+            "u8 ch0_time_constant 1",
+            "u8 ch0_counter 1",
+            "u8 ch0_prescaler 1",
+            "enum8 ch0_state 1",
+            "bool ch0_clk_trg_prev 1",
+            "bool ch1_control_int_en 1",
+            "bool ch1_control_counter 1",
+            "bool ch1_control_prescale 1",
+            "bool ch1_control_edge 1",
+            "bool ch1_control_trigger 1",
+            "u8 ch1_time_constant 1",
+            "u8 ch1_counter 1",
+            "u8 ch1_prescaler 1",
+            "enum8 ch1_state 1",
+            "bool ch1_clk_trg_prev 1",
+            "bool ch2_control_int_en 1",
+            "bool ch2_control_counter 1",
+            "bool ch2_control_prescale 1",
+            "bool ch2_control_edge 1",
+            "bool ch2_control_trigger 1",
+            "u8 ch2_time_constant 1",
+            "u8 ch2_counter 1",
+            "u8 ch2_prescaler 1",
+            "enum8 ch2_state 1",
+            "bool ch2_clk_trg_prev 1",
+            "bool ch3_control_int_en 1",
+            "bool ch3_control_counter 1",
+            "bool ch3_control_prescale 1",
+            "bool ch3_control_edge 1",
+            "bool ch3_control_trigger 1",
+            "u8 ch3_time_constant 1",
+            "u8 ch3_counter 1",
+            "u8 ch3_prescaler 1",
+            "enum8 ch3_state 1",
+            "bool ch3_clk_trg_prev 1",
+        };
+        s3::RecordDesc rec;
+        emu.ctc().describe_state(rec);
+        all_decls.push_back({"ctc", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-CTC: %s\n", d.c_str());
+        check("S5-DECL-CTC", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-CTC", rec.width() == 40u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── ctc_timing — the CTC part of block 31 int_timing: 4 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 ch0_trg_delay 1",
+            "u8 ch1_trg_delay 1",
+            "u8 ch2_trg_delay 1",
+            "u8 ch3_trg_delay 1",
+        };
+        s3::RecordDesc rec;
+        emu.ctc().describe_timing(rec);
+        all_decls.push_back({"ctc_timing", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-CTC-TIMING: %s\n", d.c_str());
+        check("S5-DECL-CTC-TIMING", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-CTC-TIMING", rec.width() == 4u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── dma — block 13: 43 bytes ──
+    {
+        static const char* const want[] = {
+            "bool dir_a_to_b 1",
+            "u16 port_a_addr 2",
+            "u16 block_len 2",
+            "bool port_a_is_io 1",
+            "u8 port_a_addr_mode 1",
+            "u8 port_a_timing 1",
+            "bool port_b_is_io 1",
+            "u8 port_b_addr_mode 1",
+            "u8 port_b_timing 1",
+            "u8 port_b_prescaler 1",
+            "bool dma_en 1",
+            "u8 mode 1",
+            "u16 port_b_addr 2",
+            "bool ce_wait 1",
+            "bool auto_restart 1",
+            "u8 read_mask 1",
+            "enum8 state 1",
+            "u16 src 2",
+            "u16 dst 2",
+            "u16 counter 2",
+            "bool status_at_least_one 1",
+            "bool status_end_of_block 1",
+            "enum8 wr_seq 1",
+            "enum8 rd_seq 1",
+            "u8 reg_temp 1",
+            "bool z80_compat 1",
+            "u8 turbo 1",
+            "u16 dma_timer_s 2",
+            "bool in_waiting_cycles 1",
+            "enum8 phase 1",
+            "bool cpu_busreq_n 1",
+            "bool cpu_bao_n 1",
+            "bool cpu_bai_n 1",
+            "bool bus_busreq_n 1",
+            "bool dma_delay 1",
+            "bool daisy_busy 1",
+        };
+        s3::RecordDesc rec;
+        emu.dma().describe_state(rec);
+        all_decls.push_back({"dma", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-DMA: %s\n", d.c_str());
+        check("S5-DECL-DMA", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-DMA", rec.width() == 43u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── spi — block 14: 3 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 cs 1",
+            "u8 rx_data 1",
+            "bool sd_swap 1",
+        };
+        s3::RecordDesc rec;
+        emu.spi().describe_state(rec);
+        all_decls.push_back({"spi", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-SPI: %s\n", d.c_str());
+        check("S5-DECL-SPI", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-SPI", rec.width() == 3u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── i2c — block 15: 13 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 scl 1",
+            "u8 sda_out 1",
+            "u8 sda_in 1",
+            "u8 prev_scl 1",
+            "u8 prev_sda 1",
+            "enum8 state 1",
+            "u8 bit_count 1",
+            "u8 shift_reg 1",
+            "u8 device_addr 1",
+            "bool is_read 1",
+            "u8 read_data 1",
+            "bool pi_i2c1_scl 1",
+            "bool pi_i2c1_sda 1",
+        };
+        s3::RecordDesc rec;
+        emu.i2c().describe_state(rec);
+        all_decls.push_back({"i2c", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-I2C: %s\n", d.c_str());
+        check("S5-DECL-I2C", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-I2C", rec.width() == 13u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── rtc — block 16 — no Emulator accessor, so a standalone I2cRtc: 69 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 reg_ptr 1",
+            "bool addr_set 1",
+            "bytes regs 64",
+            "bool osc_halt 1",
+            "bool mode_12h 1",
+            "bool use_real_time 1",
+        };
+        s3::RecordDesc rec;
+        rtc.describe_state(rec);
+        all_decls.push_back({"rtc", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-RTC: %s\n", d.c_str());
+        check("S5-DECL-RTC", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-RTC", rec.width() == 69u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── uart — block 17 — the selector and two channels, FIFOs included: 2330 bytes ──
+    {
+        static const char* const want[] = {
+            "i32 select 4",
+            "fifo ch0_tx_fifo 72",
+            "fifo ch0_rx_fifo 1032",
+            "u8 ch0_prescaler_msb 1",
+            "u16 ch0_prescaler_lsb 2",
+            "u8 ch0_framing 1",
+            "bool ch0_tx_busy 1",
+            "u32 ch0_tx_timer_byte 4",
+            "bool ch0_err_overflow 1",
+            "bool ch0_err_framing 1",
+            "bool ch0_err_break 1",
+            "bool ch0_bitlevel_mode 1",
+            "enum8 ch0_tx_state 1",
+            "enum8 ch0_tx_state_next 1",
+            "u8 ch0_tx_shift 1",
+            "u32 ch0_tx_timer 4",
+            "u32 ch0_tx_prescaler_snap 4",
+            "u8 ch0_tx_bit_count 1",
+            "bool ch0_tx_parity_live 1",
+            "bool ch0_tx_frame_parity_en 1",
+            "bool ch0_tx_frame_stop_bits 1",
+            "bool ch0_tx_parity_odd_snap 1",
+            "bool ch0_cts_n 1",
+            "bool ch0_tx_line_out 1",
+            "bool ch0_tx_busy_bitlevel 1",
+            "bool ch0_tx_en 1",
+            "enum8 ch0_rx_state 1",
+            "enum8 ch0_rx_state_next 1",
+            "u8 ch0_rx_shift 1",
+            "u32 ch0_rx_timer 4",
+            "u32 ch0_rx_prescaler_snap 4",
+            "bool ch0_rx_timer_updated 1",
+            "u8 ch0_rx_bit_count 1",
+            "bool ch0_rx_parity_live 1",
+            "u8 ch0_rx_frame_bits 1",
+            "bool ch0_rx_frame_parity_en 1",
+            "bool ch0_rx_frame_stop_bits 1",
+            "bool ch0_rx_parity_odd_snap 1",
+            "u8 ch0_rx_debounce_counter 1",
+            "u8 ch0_rx_button_sync 1",
+            "bool ch0_rx_raw 1",
+            "bool ch0_rx_debounced 1",
+            "bool ch0_rx_d 1",
+            "bool ch0_rx_edge 1",
+            "bool ch0_rx_byte_parity_err 1",
+            "bool ch0_rx_byte_framing_err 1",
+            "fifo ch1_tx_fifo 72",
+            "fifo ch1_rx_fifo 1032",
+            "u8 ch1_prescaler_msb 1",
+            "u16 ch1_prescaler_lsb 2",
+            "u8 ch1_framing 1",
+            "bool ch1_tx_busy 1",
+            "u32 ch1_tx_timer_byte 4",
+            "bool ch1_err_overflow 1",
+            "bool ch1_err_framing 1",
+            "bool ch1_err_break 1",
+            "bool ch1_bitlevel_mode 1",
+            "enum8 ch1_tx_state 1",
+            "enum8 ch1_tx_state_next 1",
+            "u8 ch1_tx_shift 1",
+            "u32 ch1_tx_timer 4",
+            "u32 ch1_tx_prescaler_snap 4",
+            "u8 ch1_tx_bit_count 1",
+            "bool ch1_tx_parity_live 1",
+            "bool ch1_tx_frame_parity_en 1",
+            "bool ch1_tx_frame_stop_bits 1",
+            "bool ch1_tx_parity_odd_snap 1",
+            "bool ch1_cts_n 1",
+            "bool ch1_tx_line_out 1",
+            "bool ch1_tx_busy_bitlevel 1",
+            "bool ch1_tx_en 1",
+            "enum8 ch1_rx_state 1",
+            "enum8 ch1_rx_state_next 1",
+            "u8 ch1_rx_shift 1",
+            "u32 ch1_rx_timer 4",
+            "u32 ch1_rx_prescaler_snap 4",
+            "bool ch1_rx_timer_updated 1",
+            "u8 ch1_rx_bit_count 1",
+            "bool ch1_rx_parity_live 1",
+            "u8 ch1_rx_frame_bits 1",
+            "bool ch1_rx_frame_parity_en 1",
+            "bool ch1_rx_frame_stop_bits 1",
+            "bool ch1_rx_parity_odd_snap 1",
+            "u8 ch1_rx_debounce_counter 1",
+            "u8 ch1_rx_button_sync 1",
+            "bool ch1_rx_raw 1",
+            "bool ch1_rx_debounced 1",
+            "bool ch1_rx_d 1",
+            "bool ch1_rx_edge 1",
+            "bool ch1_rx_byte_parity_err 1",
+            "bool ch1_rx_byte_framing_err 1",
+        };
+        s3::RecordDesc rec;
+        emu.uart().describe_state(rec);
+        all_decls.push_back({"uart", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-UART: %s\n", d.c_str());
+        check("S5-DECL-UART", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-UART", rec.width() == 2330u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── divmmc — block 18 — the 128 KB window inline, as S5b will change: 131089 bytes ──
+    {
+        static const char* const want[] = {
+            "bool enabled 1",
+            "bool conmem 1",
+            "bool mapram 1",
+            "u8 bank 1",
+            "u8 control_reg 1",
+            "bool automap_active 1",
+            "u8 entry_points_0 1",
+            "u8 entry_valid_0 1",
+            "u8 entry_timing_0 1",
+            "u8 entry_points_1 1",
+            "bool automap_hold 1",
+            "bool automap_held 1",
+            "bool button_nmi 1",
+            "bool layer2_map_read 1",
+            "bool retn_pending_clear 1",
+            "ram_window ram 131072",
+            "bool port_io_enable 1",
+            "bool nr_0a_4_enable 1",
+        };
+        s3::RecordDesc rec;
+        emu.divmmc().describe_state(rec);
+        all_decls.push_back({"divmmc", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-DIVMMC: %s\n", d.c_str());
+        check("S5-DECL-DIVMMC", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-DIVMMC", rec.width() == 131089u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── beeper — block 19: 3 bytes ──
+    {
+        static const char* const want[] = {
+            "bool ear 1",
+            "bool mic 1",
+            "bool tape_ear 1",
+        };
+        s3::RecordDesc rec;
+        emu.beeper().describe_state(rec);
+        all_decls.push_back({"beeper", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-BEEPER: %s\n", d.c_str());
+        check("S5-DECL-BEEPER", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-BEEPER", rec.width() == 3u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── turbosound — block 20 — three chips of 25 fields: 152 bytes ──
+    {
+        static const char* const want[] = {
+            "bool ay0_ay_mode 1",
+            "bytes ay0_reg 16",
+            "u8 ay0_addr 1",
+            "u8 ay0_cnt_div 1",
+            "bool ay0_noise_div 1",
+            "bool ay0_ena_div 1",
+            "bool ay0_ena_div_noise 1",
+            "u16 ay0_tone_cnt_a 2",
+            "u16 ay0_tone_cnt_b 2",
+            "u16 ay0_tone_cnt_c 2",
+            "bool ay0_tone_op_a 1",
+            "bool ay0_tone_op_b 1",
+            "bool ay0_tone_op_c 1",
+            "u8 ay0_noise_cnt 1",
+            "u32 ay0_poly17 4",
+            "bool ay0_noise_op 1",
+            "u16 ay0_env_cnt 2",
+            "bool ay0_env_ena 1",
+            "bool ay0_env_reset 1",
+            "u8 ay0_env_vol 1",
+            "bool ay0_env_inc 1",
+            "bool ay0_env_hold 1",
+            "u8 ay0_out_a 1",
+            "u8 ay0_out_b 1",
+            "u8 ay0_out_c 1",
+            "bool ay1_ay_mode 1",
+            "bytes ay1_reg 16",
+            "u8 ay1_addr 1",
+            "u8 ay1_cnt_div 1",
+            "bool ay1_noise_div 1",
+            "bool ay1_ena_div 1",
+            "bool ay1_ena_div_noise 1",
+            "u16 ay1_tone_cnt_a 2",
+            "u16 ay1_tone_cnt_b 2",
+            "u16 ay1_tone_cnt_c 2",
+            "bool ay1_tone_op_a 1",
+            "bool ay1_tone_op_b 1",
+            "bool ay1_tone_op_c 1",
+            "u8 ay1_noise_cnt 1",
+            "u32 ay1_poly17 4",
+            "bool ay1_noise_op 1",
+            "u16 ay1_env_cnt 2",
+            "bool ay1_env_ena 1",
+            "bool ay1_env_reset 1",
+            "u8 ay1_env_vol 1",
+            "bool ay1_env_inc 1",
+            "bool ay1_env_hold 1",
+            "u8 ay1_out_a 1",
+            "u8 ay1_out_b 1",
+            "u8 ay1_out_c 1",
+            "bool ay2_ay_mode 1",
+            "bytes ay2_reg 16",
+            "u8 ay2_addr 1",
+            "u8 ay2_cnt_div 1",
+            "bool ay2_noise_div 1",
+            "bool ay2_ena_div 1",
+            "bool ay2_ena_div_noise 1",
+            "u16 ay2_tone_cnt_a 2",
+            "u16 ay2_tone_cnt_b 2",
+            "u16 ay2_tone_cnt_c 2",
+            "bool ay2_tone_op_a 1",
+            "bool ay2_tone_op_b 1",
+            "bool ay2_tone_op_c 1",
+            "u8 ay2_noise_cnt 1",
+            "u32 ay2_poly17 4",
+            "bool ay2_noise_op 1",
+            "u16 ay2_env_cnt 2",
+            "bool ay2_env_ena 1",
+            "bool ay2_env_reset 1",
+            "u8 ay2_env_vol 1",
+            "bool ay2_env_inc 1",
+            "bool ay2_env_hold 1",
+            "u8 ay2_out_a 1",
+            "u8 ay2_out_b 1",
+            "u8 ay2_out_c 1",
+            "u8 ay_select 1",
+            "u8 ay0_pan 1",
+            "u8 ay1_pan 1",
+            "u8 ay2_pan 1",
+            "bool enabled 1",
+            "bool stereo_mode 1",
+            "u8 mono_mode 1",
+            "u16 pcm_l 2",
+            "u16 pcm_r 2",
+        };
+        s3::RecordDesc rec;
+        emu.turbosound().describe_state(rec);
+        all_decls.push_back({"turbosound", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-TURBOSOUND: %s\n", d.c_str());
+        check("S5-DECL-TURBOSOUND", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-TURBOSOUND", rec.width() == 152u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── dac — block 21: 4 bytes ──
+    {
+        static const char* const want[] = {
+            "bytes channels 4",
+        };
+        s3::RecordDesc rec;
+        emu.dac().describe_state(rec);
+        all_decls.push_back({"dac", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-DAC: %s\n", d.c_str());
+        check("S5-DECL-DAC", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-DAC", rec.width() == 4u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── i2s — the i2s block: 4 bytes ──
+    {
+        static const char* const want[] = {
+            "u16 left 2",
+            "u16 right 2",
+        };
+        s3::RecordDesc rec;
+        emu.i2s().describe_state(rec);
+        all_decls.push_back({"i2s", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-I2S: %s\n", d.c_str());
+        check("S5-DECL-I2S", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-I2S", rec.width() == 4u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── nmi_source — the nmi_source block, less the Emulator byte after it: 28 bytes ──
+    {
+        static const char* const want[] = {
+            "bool mf_button 1",
+            "bool divmmc_button 1",
+            "bool expbus_nmi_n 1",
+            "bool strobe_mf_button_pending 1",
+            "bool strobe_divmmc_button_pending 1",
+            "bool nmi_sw_gen_mf 1",
+            "bool nmi_sw_gen_divmmc 1",
+            "bool iotrap_strobe_pending 1",
+            "bool mf_enable 1",
+            "bool divmmc_enable 1",
+            "bool expbus_debounce_disable 1",
+            "bool expbus_eff_en 1",
+            "bool expbus_eff_disable_mem 1",
+            "bool config_mode 1",
+            "bool mf_nmi_hold 1",
+            "bool mf_is_active 1",
+            "bool divmmc_nmi_hold 1",
+            "bool divmmc_conmem 1",
+            "bool nmi_mf 1",
+            "bool nmi_divmmc 1",
+            "bool nmi_expbus 1",
+            "enum8 state 1",
+            "bool nr_02_pending_mf 1",
+            "bool nr_02_pending_divmmc 1",
+            "bool prev_wr_n 1",
+            "bool mf_button_strobe 1",
+            "bool divmmc_button_strobe 1",
+            "u8 reset_type 1",
+        };
+        s3::RecordDesc rec;
+        emu.nmi_source().describe_state(rec);
+        all_decls.push_back({"nmi_source", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-NMI: %s\n", d.c_str());
+        check("S5-DECL-NMI", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-NMI", rec.width() == 28u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── multiface — the multiface block, less the presence byte before it: 8200 bytes ──
+    {
+        static const char* const want[] = {
+            "bool enabled 1",
+            "bool nmi_active 1",
+            "bool invisible 1",
+            "bool mf_enable 1",
+            "bool port_io_dly 1",
+            "bool mode_p3 1",
+            "bool mode_128 1",
+            "bool mode_48 1",
+            "blob ram 8192",
+        };
+        s3::RecordDesc rec;
+        emu.multiface().describe_state(rec);
+        all_decls.push_back({"multiface", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-MULTIFACE: %s\n", d.c_str());
+        check("S5-DECL-MULTIFACE", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-MULTIFACE", rec.width() == 8200u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── keyboard — the head of the input block: 342 bytes ──
+    {
+        static const char* const want[] = {
+            "bytes matrix 8",
+            "u16 ex_matrix 2",
+            "bytes shift_hist 2",
+            "u32 auto_queue_count 4",
+            "i32 auto00_row1 4",
+            "i32 auto00_col1 4",
+            "i32 auto00_row2 4",
+            "i32 auto00_col2 4",
+            "i32 auto00_frames 4",
+            "i32 auto01_row1 4",
+            "i32 auto01_col1 4",
+            "i32 auto01_row2 4",
+            "i32 auto01_col2 4",
+            "i32 auto01_frames 4",
+            "i32 auto02_row1 4",
+            "i32 auto02_col1 4",
+            "i32 auto02_row2 4",
+            "i32 auto02_col2 4",
+            "i32 auto02_frames 4",
+            "i32 auto03_row1 4",
+            "i32 auto03_col1 4",
+            "i32 auto03_row2 4",
+            "i32 auto03_col2 4",
+            "i32 auto03_frames 4",
+            "i32 auto04_row1 4",
+            "i32 auto04_col1 4",
+            "i32 auto04_row2 4",
+            "i32 auto04_col2 4",
+            "i32 auto04_frames 4",
+            "i32 auto05_row1 4",
+            "i32 auto05_col1 4",
+            "i32 auto05_row2 4",
+            "i32 auto05_col2 4",
+            "i32 auto05_frames 4",
+            "i32 auto06_row1 4",
+            "i32 auto06_col1 4",
+            "i32 auto06_row2 4",
+            "i32 auto06_col2 4",
+            "i32 auto06_frames 4",
+            "i32 auto07_row1 4",
+            "i32 auto07_col1 4",
+            "i32 auto07_row2 4",
+            "i32 auto07_col2 4",
+            "i32 auto07_frames 4",
+            "i32 auto08_row1 4",
+            "i32 auto08_col1 4",
+            "i32 auto08_row2 4",
+            "i32 auto08_col2 4",
+            "i32 auto08_frames 4",
+            "i32 auto09_row1 4",
+            "i32 auto09_col1 4",
+            "i32 auto09_row2 4",
+            "i32 auto09_col2 4",
+            "i32 auto09_frames 4",
+            "i32 auto10_row1 4",
+            "i32 auto10_col1 4",
+            "i32 auto10_row2 4",
+            "i32 auto10_col2 4",
+            "i32 auto10_frames 4",
+            "i32 auto11_row1 4",
+            "i32 auto11_col1 4",
+            "i32 auto11_row2 4",
+            "i32 auto11_col2 4",
+            "i32 auto11_frames 4",
+            "i32 auto12_row1 4",
+            "i32 auto12_col1 4",
+            "i32 auto12_row2 4",
+            "i32 auto12_col2 4",
+            "i32 auto12_frames 4",
+            "i32 auto13_row1 4",
+            "i32 auto13_col1 4",
+            "i32 auto13_row2 4",
+            "i32 auto13_col2 4",
+            "i32 auto13_frames 4",
+            "i32 auto14_row1 4",
+            "i32 auto14_col1 4",
+            "i32 auto14_row2 4",
+            "i32 auto14_col2 4",
+            "i32 auto14_frames 4",
+            "i32 auto15_row1 4",
+            "i32 auto15_col1 4",
+            "i32 auto15_row2 4",
+            "i32 auto15_col2 4",
+            "i32 auto15_frames 4",
+            "i32 auto_frame_count 4",
+            "bool auto_gap 1",
+            "bool cancel_extended 1",
+        };
+        s3::RecordDesc rec;
+        emu.keyboard().describe_state(rec);
+        all_decls.push_back({"keyboard", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-KEYBOARD: %s\n", d.c_str());
+        check("S5-DECL-KEYBOARD", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-KEYBOARD", rec.width() == 342u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── joystick — the input block: 7 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 nr_05_raw 1",
+            "enum8 joy0_mode 1",
+            "enum8 joy1_mode 1",
+            "u16 joy_left_bits 2",
+            "u16 joy_right_bits 2",
+        };
+        s3::RecordDesc rec;
+        emu.joystick().describe_state(rec);
+        all_decls.push_back({"joystick", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-JOYSTICK: %s\n", d.c_str());
+        check("S5-DECL-JOYSTICK", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-JOYSTICK", rec.width() == 7u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── mouse — the input block: 6 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 x 1",
+            "u8 y 1",
+            "u8 buttons 1",
+            "u8 wheel 1",
+            "bool button_reverse 1",
+            "u8 dpi 1",
+        };
+        s3::RecordDesc rec;
+        emu.mouse().describe_state(rec);
+        all_decls.push_back({"mouse", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-MOUSE: %s\n", d.c_str());
+        check("S5-DECL-MOUSE", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-MOUSE", rec.width() == 6u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── md6 — the input block: 16 bytes ──
+    {
+        static const char* const want[] = {
+            "u16 raw_left 2",
+            "u16 raw_right 2",
+            "u16 latched_left 2",
+            "u16 latched_right 2",
+            "u16 state 2",
+            "bool six_button_left 1",
+            "bool six_button_right 1",
+            "u32 clk_en_accum 4",
+        };
+        s3::RecordDesc rec;
+        emu.md6().describe_state(rec);
+        all_decls.push_back({"md6", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-MD6: %s\n", d.c_str());
+        check("S5-DECL-MD6", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-MD6", rec.width() == 16u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── membrane_stick — the input block: 73 bytes ──
+    {
+        static const char* const want[] = {
+            "enum8 mode_left 1",
+            "enum8 mode_right 1",
+            "u16 state_left 2",
+            "u16 state_right 2",
+            "bytes keymap 64",
+            "u8 keymap_sel 1",
+            "u16 keymap_addr 2",
+        };
+        s3::RecordDesc rec;
+        emu.membrane_stick().describe_state(rec);
+        all_decls.push_back({"membrane_stick", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-MEMBRANE: %s\n", d.c_str());
+        check("S5-DECL-MEMBRANE", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-MEMBRANE", rec.width() == 73u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+    // ── iomode — the input block: 6 bytes ──
+    {
+        static const char* const want[] = {
+            "u8 nr_0b_raw 1",
+            "bool pin7 1",
+            "bool uart0_tx 1",
+            "bool uart1_tx 1",
+            "bool joy_left_bit5 1",
+            "bool joy_right_bit5 1",
+        };
+        s3::RecordDesc rec;
+        emu.iomode().describe_state(rec);
+        all_decls.push_back({"iomode", rec.fields()});
+        const std::string d =
+            s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S5-DECL-IOMODE: %s\n", d.c_str());
+        check("S5-DECL-IOMODE", d.empty(),
+              "the declaration walks exactly the fields the golden's block "
+              "carries, in that order");
+        check("S5-WIDTH-IOMODE", rec.width() == 6u,
+              "the declaration is exactly as wide as the block the "
+              "pre-migration golden's sentinel map measures");
+    }
+
+
+    // ── Every key of a declaration must be UNIQUE ────────────────────────
+    //
+    // The same fault S3-KEYS-UNIQUE catches for the core subsystems, and it
+    // matters more here: five of these declarations are built by REPEATING
+    // one field list over several instances (four CTC channels, two UART
+    // channels, three AY chips, sixteen auto-type slots), so a key table that
+    // forgot to carry the instance number would produce a declaration that is
+    // byte-perfect and silently loses three quarters of its JSON.
+    {
+        std::string dup;
+        for (const auto& sub : all_decls) {
+            std::vector<std::string> seen;
+            for (const auto& f : sub.second) {
+                // "kind name width" -> "name"
+                const std::size_t a = f.find(' ');
+                const std::size_t b = f.rfind(' ');
+                const std::string key = f.substr(a + 1, b - a - 1);
+                for (const auto& k : seen) {
+                    if (k == key && dup.empty())
+                        dup = sub.first + "." + key;
+                }
+                seen.push_back(key);
+            }
+        }
+        if (!dup.empty()) fprintf(stderr, "  S5-KEYS-UNIQUE: %s\n", dup.c_str());
+        check("S5-KEYS-UNIQUE", dup.empty(),
+              "no S5 declaration names the same key twice — a duplicate is "
+              "invisible to the byte stream, which ignores names, and silently "
+              "drops a field from the JSON encoding, which does not");
+    }
+
+    // ── The six input classes sum to the `input` block ───────────────────
+    //
+    // Each of the six is pinned above on its own, but the block they share is
+    // 450 bytes and the golden's sentinel map is what says so. Summing them
+    // here is the row that would catch a SEVENTH class being appended to
+    // `Emulator::save_state`'s input group without the stream being
+    // re-measured — which is how the joy_uart block came to vary in width.
+    {
+        std::size_t sum = 0;
+        for (const auto& sub : all_decls) {
+            if (sub.first == "keyboard" || sub.first == "joystick" ||
+                sub.first == "mouse" || sub.first == "md6" ||
+                sub.first == "membrane_stick" || sub.first == "iomode") {
+                for (const auto& f : sub.second)
+                    sum += std::stoul(f.substr(f.rfind(' ') + 1));
+            }
+        }
+        if (sum != 450) fprintf(stderr, "  S5-INPUT-BLOCK: sum is %zu\n", sum);
+        check("S5-INPUT-BLOCK", sum == 450,
+              "the six input declarations sum to the 450 bytes the golden's "
+              "sentinel map measures for the input block");
+    }
+
+    return 0;
+}
+
 // ── Test 18: GH #27 S3 — what the migration CHANGED, not just transcribed ─
 
 static int test_s3_restore_behaviour()
@@ -2332,6 +3261,7 @@ int main()
     test_rewind_across_soft_reset();
     test_s3_descriptor_layout();
     test_s3_restore_behaviour();
+    test_s5_descriptor_layout();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),

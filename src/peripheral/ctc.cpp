@@ -450,7 +450,8 @@ void Ctc::handle_zc_to(int channel) {
 
 // GH #27 S5 — the ONE field list for a channel (design §9.2). Declaration
 // order IS the binary stream order, so it must not be disturbed: the
-// byte-identity gate (§17.1) pins four of these back to back as block 12.
+// byte-identity gate (§17.1) pins four of these back to back as the 40 bytes
+// of block 12.
 //
 // `state_` is marshalled through a local `uint8_t` rather than bound with a
 // `reinterpret_cast`. `enum class State` (ctc.h:116) has NO fixed underlying

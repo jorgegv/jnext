@@ -962,7 +962,7 @@ UartDevice* Uart::device(int channel) const {
 // GH #27 S5 — the ONE field list for a channel (design §9.2). Declaration
 // order IS the binary stream order, so it must not be disturbed: the
 // byte-identity gate (§17.1) pins two of these, plus the selector, as the
-// 2 262 bytes of block 17.
+// 2 330 bytes of block 17.
 //
 // The two FIFOs are `d.fifo` (design §9.5(1)): a count-prefixed,
 // RING-NORMALISED, zero-padded history that a plain array descriptor cannot

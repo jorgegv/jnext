@@ -612,7 +612,7 @@ void DivMmc::write(uint16_t addr, uint8_t val) {
 
 // GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
 // binary stream order, so it must not be disturbed: the byte-identity gate
-// (§17.1) pins these 131 090 bytes as block 18 of the 2 292 965-byte stream.
+// (§17.1) pins these 131 089 bytes as block 18 of the 2 292 965-byte stream.
 //
 // ── THE 128 KB IS DECLARED `ram_window`, AND IT IS STILL WRITTEN INLINE ──
 //
