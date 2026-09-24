@@ -68,6 +68,13 @@ using ProgressFn = std::function<bool(uint64_t downloaded, uint64_t total)>;
 
 // Download seam: fetch `url` into local file `dest_path`, reporting progress
 // via `progress` (may be empty). Returns true on success, else sets `err`.
+//
+// `err` is a BARE reason — "Could not resolve hostname", "HTTP status 404" —
+// and must NOT carry a "download failed" of its own. provision_sd_card adds
+// that framing exactly once, and both default backends used to add it too, so
+// the reported message read `download failed: download failed: Could not
+// resolve hostname` (GH #271: the doubled text is in the bug report itself).
+// PROV-PREFIX-01/02 pin the single-prefix form on the real backend.
 // Default impl is platform-native: libcurl on Linux/macOS
 // (sdcard_provisioner_net_curl.cpp), WinHTTP on Windows
 // (sdcard_provisioner_net_win.cpp — GH #108 Phase B, so the Windows packages

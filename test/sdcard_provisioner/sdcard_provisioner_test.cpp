@@ -41,6 +41,10 @@
 //                  REJECTED, the download seam IS invoked (full cycle).
 //   PROV-SHA-WRITE-01    after a successful (stubbed) download, the .sha256
 //                  sidecar exists and matches the raw's actual hash.
+//   PROV-PREFIX-01..02  GH #271 — the backends report a BARE reason and the
+//                  user-visible error says "download failed" exactly once
+//                  (the bug report pasted it twice). Drives the REAL
+//                  default_http_download; no network (bad URL scheme).
 //   PROV-SANDBOX-01..03  GH #271 — a download failure inside a Flatpak sandbox
 //                  carries a note naming the sandbox as the likely cause;
 //                  outside one it does not; and a NON-download failure never
@@ -750,6 +754,58 @@ int main() {
         check("PROV-SANDBOX-04", "default sandbox marker is /.flatpak-info",
               sdcard::ProvisionOptions{}.sandbox_marker == "/.flatpak-info",
               sdcard::ProvisionOptions{}.sandbox_marker);
+
+        // -- PROV-PREFIX-01/02: ONE "download failed:", not two --
+        //
+        // The bug report for GH #271 contains the doubled text verbatim:
+        //
+        //   error: SD-card image: download failed: download failed: Could not
+        //   resolve hostname
+        //
+        // Both halves said it: the backend framed its own `err`, and
+        // provision_sd_card framed it again. The backends now report a BARE
+        // reason (see the DownloadFn contract) and the caller owns the single
+        // "download failed: ".
+        //
+        // These two rows drive the REAL default_http_download, not a stub —
+        // the stub rows above cannot see a backend that re-prefixes. No
+        // network is touched: an unsupported URL scheme fails inside libcurl
+        // before any socket or resolver call, which is also why it is
+        // deterministic on an offline CI box.
+        const char* kOfflineFailUrl = "xyzzy://nowhere";
+
+        std::string dl_err;
+        bool dl_ok = sdcard::default_http_download(kOfflineFailUrl,
+                                                   tp("prefix01.part"),
+                                                   sdcard::ProgressFn{}, dl_err);
+        check("PROV-PREFIX-01", "the real backend reports a BARE reason",
+              !dl_ok && !dl_err.empty() &&
+              dl_err.find("download failed") == std::string::npos &&
+              dl_err.find("download cancelled") == std::string::npos &&
+              dl_err.find("download produced") == std::string::npos,
+              dl_err);
+
+        // End to end through the real backend, which is the line the reporter
+        // pasted. Counted rather than compared to a literal: libcurl's wording
+        // for the scheme error is its business, the number of prefixes is ours.
+        std::remove(fixed.c_str());
+        std::remove(raw.c_str());
+        std::remove(raw_sha.c_str());
+        setenv("JNEXT_SDCARD_DISTRO_URL", kOfflineFailUrl, 1);
+        sdcard::ProvisionOptions o4;
+        o4.auto_confirm   = true;   // no download override: the REAL backend
+        o4.sandbox_marker = tp("no-such-flatpak-info");
+        auto r4 = sdcard::provision_sd_card(o4);
+        unsetenv("JNEXT_SDCARD_DISTRO_URL");
+        size_t n_prefix = 0;
+        for (size_t at = r4.error.find("download failed");
+             at != std::string::npos;
+             at = r4.error.find("download failed", at + 1))
+            ++n_prefix;
+        check("PROV-PREFIX-02", "user-visible error says 'download failed' ONCE",
+              r4.status == sdcard::ProvisionStatus::Failed &&
+              r4.error.rfind("download failed: ", 0) == 0 && n_prefix == 1,
+              r4.error);
     }
 
     // -- PROV-UNZIP-01/02/03 --
