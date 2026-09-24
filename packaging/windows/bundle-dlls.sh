@@ -160,22 +160,16 @@ fi
 done
 resolve_queue
 
-# --- runtime-loaded dependencies (invisible to objdump) ---------------------
-# Fedora's mingw64-sdl2-compat ships an SDL2.dll that is a shim implementing the
-# SDL2 API on top of SDL3 — it LoadLibrary("SDL3.dll")s at runtime, so SDL3.dll
-# is NOT in SDL2.dll's PE import table and the closure above misses it. Without
-# it the exe dies with "Failed loading SDL3 library". Detect the shim (its DLL
-# name strings mention SDL3.dll) and pull SDL3.dll + its own closure in.
-if [ -n "${SEEN[sdl2.dll]:-}" ]; then
-    sdl2_src=$(find "$BIN" -maxdepth 1 -iname 'SDL2.dll' | head -n1)
-    # grep the DLL directly (grep -a) rather than `strings | grep -q`: under
-    # `set -o pipefail` the grep -q closes the pipe early and SIGPIPEs the
-    # producer, which would fail the pipeline and silently skip SDL3.
-    if [ -n "$sdl2_src" ] && grep -qai 'SDL3\.dll' "$sdl2_src"; then
-        QUEUE+=("sdl3.dll")
-        resolve_queue
-    fi
-fi
+# NOTE (GH #57): a runtime-loaded-dependency step used to live here. Fedora's
+# mingw64-sdl2-compat ships an SDL2.dll that is a shim implementing the SDL2
+# API on top of SDL3 — it LoadLibrary("SDL3.dll")s at runtime, so SDL3.dll was
+# NOT in SDL2.dll's PE import table and the import closure above could not see
+# it; without an explicit rule the exe died with "Failed loading SDL3 library".
+# jnext links SDL3 DIRECTLY now, so SDL3.dll is a real import entry that
+# `imports`/resolve_queue pick up like any other DLL. The step was deleted with
+# the bug class rather than left as a no-op. If a LoadLibrary()'d dependency is
+# ever introduced again it must be named explicitly here — no import walk will
+# find it.
 
 # --- ensure the exe itself is in the bundle ---------------------------------
 if [ "$(cd "$(dirname "$EXE")" && pwd)/$(basename "$EXE")" != "$(cd "$DEST" && pwd)/$(basename "$EXE")" ]; then

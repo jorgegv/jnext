@@ -140,12 +140,6 @@ else
     bad complete-closure "contract test failed" "$LOGDIR/closure.log"
 fi
 
-# --- bundle-dlopen-deps.sh contract (adds the library no walk can see) -------
-if bash test/packaging/bundle-dlopen-deps-test.sh >"$LOGDIR/dlopendeps.log" 2>&1; then
-    ok bundle-dlopen-deps "copies libSDL3 for sdl2-compat, no-ops otherwise, fails loud when absent"
-else
-    bad bundle-dlopen-deps "contract test failed" "$LOGDIR/dlopendeps.log"
-fi
 
 # --- package-* recipe guard (a failing bundle step must abort, GH #148) ------
 # The only contract row that reads the Makefile rather than a packaging script.
@@ -234,8 +228,11 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
     if make package-win >"$LOGDIR/win.log" 2>&1; then
         z=$(ls -1 build/win-release/*.zip 2>/dev/null | head -1)
         # The ZIP must contain the exe AND its bundled runtime — the Qt6 core DLL,
-        # the platforms/qwindows.dll plugin (no GUI without it), and SDL3.dll (the
-        # sdl2-compat SDL2.dll runtime-loads it; missing it → "Failed loading SDL3").
+        # the platforms/qwindows.dll plugin (no GUI without it), and SDL3.dll,
+        # which jnext links directly (GH #57). SDL2.dll must be ABSENT: its
+        # presence would mean the build resolved to mingw-sdl2-compat again,
+        # which is the shim this migration removed and which drags in a
+        # LoadLibrary()'d SDL3 that no import walk can see.
         if [ -n "$z" ]; then
             list=$(unzip -l "$z" 2>/dev/null)
             # GH #108 Phase B: the Windows provisioner is WinHTTP+BCrypt, so
@@ -248,10 +245,11 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt6Core.dll" \
                && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
-               && printf '%s' "$list" | grep -qi "SDL3.dll"; then
-                ok package-win "$(basename "$z") (jnext.exe + Qt6/SDL2/SDL3 DLLs + qwindows plugin, no curl/OpenSSL)"
+               && printf '%s' "$list" | grep -qi "SDL3.dll" \
+               && ! printf '%s' "$list" | grep -qi "SDL2.dll"; then
+                ok package-win "$(basename "$z") (jnext.exe + Qt6/SDL3 DLLs + qwindows plugin, no SDL2 shim, no curl/OpenSSL)"
             else
-                bad package-win ".zip missing bundled DLLs, qwindows plugin, or SDL3.dll" "$LOGDIR/win.log"
+                bad package-win ".zip missing bundled DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win.log"
             fi
         else
             bad package-win "no .zip produced" "$LOGDIR/win.log"
@@ -432,7 +430,7 @@ else
 fi
 
 # --- package-win-sdl (SDL-only Windows 8+ variant, GH #108) ------------------
-# The SDL-only zip must contain the exe and the SDL2+SDL3 pair, and must NOT
+# The SDL-only zip must contain the exe and SDL3.dll (never SDL2.dll), and must NOT
 # contain any Qt DLL or plugin: a leaked Qt6 DLL would silently re-raise the
 # bundle's OS floor to Windows 10 (fedora's Qt6Gui hard-imports d3d12.dll —
 # see doc/design/WINDOWS-COMPAT-PLAN.md). No Qt toolchain needed here.
@@ -447,13 +445,13 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
             if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
                 bad package-win-sdl "curl/OpenSSL chain DLLs leaked back into the zip — Win7 floor regression (GH #108 Phase B)" "$LOGDIR/win-sdl.log"
             elif printf '%s' "$list" | grep -q "jnext.exe" \
-               && printf '%s' "$list" | grep -qi "SDL2.dll" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
+               && ! printf '%s' "$list" | grep -qi "SDL2.dll" \
                && ! printf '%s' "$list" | grep -q "Qt6" \
                && ! printf '%s' "$list" | grep -q "platforms/"; then
-                ok package-win-sdl "$(basename "$z") (jnext.exe + SDL2/SDL3, no Qt, no curl/OpenSSL)"
+                ok package-win-sdl "$(basename "$z") (jnext.exe + SDL3, no SDL2 shim, no Qt, no curl/OpenSSL)"
             else
-                bad package-win-sdl ".zip missing exe/SDL DLLs, or Qt files leaked in" "$LOGDIR/win-sdl.log"
+                bad package-win-sdl ".zip missing exe or SDL3.dll, or Qt files / the SDL2 shim leaked in" "$LOGDIR/win-sdl.log"
             fi
         else
             bad package-win-sdl "no .zip produced" "$LOGDIR/win-sdl.log"
@@ -490,10 +488,11 @@ if command -v mingw64-cmake >/dev/null 2>&1 && command -v x86_64-w64-mingw32-gcc
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt5Core.dll" \
                && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
-               && printf '%s' "$list" | grep -qi "SDL3.dll"; then
-                ok package-win-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5/SDL2/SDL3 DLLs + qwindows, no Qt6, no curl/OpenSSL)"
+               && printf '%s' "$list" | grep -qi "SDL3.dll" \
+               && ! printf '%s' "$list" | grep -qi "SDL2.dll"; then
+                ok package-win-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5/SDL3 DLLs + qwindows, no SDL2 shim, no Qt6, no curl/OpenSSL)"
             else
-                bad package-win-qt5 ".zip missing exe, Qt5 DLLs, qwindows plugin, or SDL3.dll" "$LOGDIR/win-qt5.log"
+                bad package-win-qt5 ".zip missing exe/Qt5 DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win-qt5.log"
             fi
         else
             bad package-win-qt5 "no .zip produced" "$LOGDIR/win-qt5.log"
@@ -506,7 +505,7 @@ else
 fi
 
 # --- package-win32-sdl (SDL-only 32-bit i686 variant, GH #108 Phase C) -------
-# Same assertions as the x64 SDL row: exe + the SDL2/SDL3 pair present, no Qt
+# Same assertions as the x64 SDL row: exe + SDL3.dll, no SDL2 shim, no Qt
 # DLL/plugin, no curl/OpenSSL chain (each would silently raise the bundle's
 # audited Win7 floor). Toolchain: mingw32-cmake + i686-w64-mingw32-gcc.
 if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >/dev/null 2>&1; then
@@ -517,13 +516,13 @@ if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >
             if printf '%s' "$list" | grep -qiE "libcurl|libcrypto|libssl|libssh|libidn2|libpsl|libunistring|iconv"; then
                 bad package-win32-sdl "curl/OpenSSL chain DLLs leaked back into the zip — Win7 floor regression (GH #108 Phase B)" "$LOGDIR/win32-sdl.log"
             elif printf '%s' "$list" | grep -q "jnext.exe" \
-               && printf '%s' "$list" | grep -qi "SDL2.dll" \
                && printf '%s' "$list" | grep -qi "SDL3.dll" \
+               && ! printf '%s' "$list" | grep -qi "SDL2.dll" \
                && ! printf '%s' "$list" | grep -q "Qt6" \
                && ! printf '%s' "$list" | grep -q "platforms/"; then
-                ok package-win32-sdl "$(basename "$z") (jnext.exe + SDL2/SDL3, no Qt, no curl/OpenSSL)"
+                ok package-win32-sdl "$(basename "$z") (jnext.exe + SDL3, no SDL2 shim, no Qt, no curl/OpenSSL)"
             else
-                bad package-win32-sdl ".zip missing exe/SDL DLLs, or Qt files leaked in" "$LOGDIR/win32-sdl.log"
+                bad package-win32-sdl ".zip missing exe or SDL3.dll, or Qt files / the SDL2 shim leaked in" "$LOGDIR/win32-sdl.log"
             fi
         else
             bad package-win32-sdl "no .zip produced" "$LOGDIR/win32-sdl.log"
@@ -559,10 +558,11 @@ if command -v mingw32-cmake >/dev/null 2>&1 && command -v i686-w64-mingw32-gcc >
             elif printf '%s' "$list" | grep -q "jnext.exe" \
                && printf '%s' "$list" | grep -q "Qt5Core.dll" \
                && printf '%s' "$list" | grep -q "platforms/qwindows.dll" \
-               && printf '%s' "$list" | grep -qi "SDL3.dll"; then
-                ok package-win32-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5/SDL2/SDL3 DLLs + qwindows, no Qt6, no curl/OpenSSL)"
+               && printf '%s' "$list" | grep -qi "SDL3.dll" \
+               && ! printf '%s' "$list" | grep -qi "SDL2.dll"; then
+                ok package-win32-qt5 "$(basename "$z") (jnext.exe GUI-subsys + Qt5/SDL3 DLLs + qwindows, no SDL2 shim, no Qt6, no curl/OpenSSL)"
             else
-                bad package-win32-qt5 ".zip missing exe, Qt5 DLLs, qwindows plugin, or SDL3.dll" "$LOGDIR/win32-qt5.log"
+                bad package-win32-qt5 ".zip missing exe/Qt5 DLLs/qwindows plugin/SDL3.dll, or the SDL2 shim leaked back in" "$LOGDIR/win32-qt5.log"
             fi
         else
             bad package-win32-qt5 "no .zip produced" "$LOGDIR/win32-qt5.log"
