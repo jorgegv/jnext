@@ -81,14 +81,19 @@ struct SdImageIdentity {
     /// SHA-256 of the MBR PARTITION TABLE — the 64-byte table at offset 0x1BE
     /// plus the 2-byte 0x55AA signature, 66 bytes — lower-case hex.
     ///
-    /// NOT the whole 512-byte sector, although the field name would allow it.
+    /// NAMED FOR WHAT IT HASHES. It was `mbr_sha256`, which reads as the whole
+    /// 512-byte sector; the behaviour was always the 66-byte window and was
+    /// documented in three places, so the rename (GH #27 S8) changes nothing
+    /// but the one thing that misled. S8 is when the manifest becomes
+    /// user-facing, which made it the last cheap moment to do it.
+    ///
     /// §11.3 names "the MBR partition table", and the narrower window is the
     /// one that survives the same argument that removed `BS_VolLab` from the
     /// refusal test: the first 446 bytes are BOOTSTRAP CODE, which `fdisk`,
     /// `syslinux` and several imaging tools rewrite without touching the
     /// partitioning. Digesting them would produce a false refusal on the same
     /// physical card, which is the cries-wolf failure §11.1 exists to avoid.
-    std::string mbr_sha256;
+    std::string mbr_partition_table_sha256;
 
     /// `BS_VolID`, BPB offset 0x43, 4 bytes little-endian, rendered as exactly
     /// 8 lower-case hex digits. The genuinely stable identifier, and what the

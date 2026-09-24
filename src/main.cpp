@@ -226,6 +226,10 @@ int main(int argc, char* argv[]) {
     std::string snapshot_file;
     int         snapshot_delay_frames = 0;    // --delayed-snapshot-frames
     bool        snapshot_delay_frames_set = false;
+    // GH #27 S8 — the three `.jns` flags (design §15.1).
+    bool        snapshot_uncompressed = false;
+    bool        snapshot_strict       = false;
+    bool        snapshot_force_sdcard = false;
     MachineType machine_type = MachineType::ZXN_ISSUE2;
     bool        machine_type_set = false;
     std::string machine_arg = "next";  // raw --machine string, for the benchmark label
@@ -430,6 +434,19 @@ int main(int argc, char* argv[]) {
             case cli::OptId::DelayedSnapshotFrames:
                 snapshot_delay_frames = std::stoi(v[0]);
                 snapshot_delay_frames_set = true;
+                break;
+            // GH #27 S8 — the three `.jns` flags (design §15.1). They reach
+            // the emulator through EmulatorConfig, because both the save and
+            // the load happen inside it and the frontends only carry the file
+            // name.
+            case cli::OptId::SnapshotUncompressed:
+                snapshot_uncompressed = true;
+                break;
+            case cli::OptId::SnapshotStrict:
+                snapshot_strict = true;
+                break;
+            case cli::OptId::SnapshotForceSdcard:
+                snapshot_force_sdcard = true;
                 break;
             case cli::OptId::Machine:
                 if (!parse_machine_type(v[0], machine_type)) {
@@ -1229,6 +1246,9 @@ int main(int argc, char* argv[]) {
         cfg.esxdos_stub_root = esxdos_stub_root;
         cfg.esxdos_stub_writable = esxdos_stub_writable;
         cfg.tape_save_file = tape_save_file;
+        cfg.jns_uncompressed = snapshot_uncompressed;
+        cfg.jns_strict       = snapshot_strict;
+        cfg.jns_force_sdcard = snapshot_force_sdcard;
         cfg.magic_port_enabled = magic_port_enabled;
         cfg.magic_port_address = magic_port_address;
         cfg.magic_port_mode = magic_port_mode;

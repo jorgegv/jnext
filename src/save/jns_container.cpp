@@ -130,8 +130,8 @@ std::string SdIdentity::describe() const {
     return "size=" + u64s(image_bytes) + " vol-id=" +
            (fat32_volume_id.empty() ? std::string("(none)") : fat32_volume_id) +
            " mbr=" +
-           (mbr_sha256.empty() ? std::string("(none)")
-                               : mbr_sha256.substr(0, 16)) +
+           (mbr_partition_table_sha256.empty() ? std::string("(none)")
+                               : mbr_partition_table_sha256.substr(0, 16)) +
            " lba=" + u64s(partition_lba);
 }
 
@@ -175,7 +175,7 @@ std::string manifest_to_json(const Manifest& m) {
 
         json id = json::object();
         id["image_bytes"]     = m.sdcard.identity.image_bytes;
-        id["mbr_sha256"]      = m.sdcard.identity.mbr_sha256;
+        id["mbr_partition_table_sha256"]      = m.sdcard.identity.mbr_partition_table_sha256;
         id["fat32_volume_id"] = m.sdcard.identity.fat32_volume_id;
         id["partition_lba"]   = m.sdcard.identity.partition_lba;
         sd["identity"] = id;
@@ -434,7 +434,7 @@ bool manifest_parse(const std::string& text, Manifest& out,
                 }
                 if (!get_u64_key(id, "image_bytes", out.sdcard.identity.image_bytes,
                                  where + ".identity", why) ||
-                    !get_str_key(id, "mbr_sha256", out.sdcard.identity.mbr_sha256,
+                    !get_str_key(id, "mbr_partition_table_sha256", out.sdcard.identity.mbr_partition_table_sha256,
                                  where + ".identity", why) ||
                     !get_str_key(id, "fat32_volume_id",
                                  out.sdcard.identity.fat32_volume_id,
@@ -445,7 +445,7 @@ bool manifest_parse(const std::string& text, Manifest& out,
                     return false;
                 }
                 note_unknown(unknown_keys, "media.sdcard.identity.", id,
-                             {"image_bytes", "mbr_sha256", "fat32_volume_id",
+                             {"image_bytes", "mbr_partition_table_sha256", "fat32_volume_id",
                               "partition_lba"});
             }
             if (sd.contains("informational")) {

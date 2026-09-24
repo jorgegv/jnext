@@ -63,7 +63,7 @@ def manifest_from_the_spec():
                 "read_only": False,
                 "identity": {
                     "image_bytes": 1073741824,
-                    "mbr_sha256": "a" * 64,
+                    "mbr_partition_table_sha256": "a" * 64,
                     "fat32_volume_id": "1a2b3c4d",
                     "partition_lba": 2048,
                 },

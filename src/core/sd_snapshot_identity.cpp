@@ -98,7 +98,7 @@ bool describe_sdcard_for_snapshot(const std::string& image_path,
     out.mounted_path    = image_path;
     out.read_only       = read_only;
     out.identity.image_bytes     = id.image_bytes;
-    out.identity.mbr_sha256      = id.mbr_sha256;
+    out.identity.mbr_partition_table_sha256      = id.mbr_partition_table_sha256;
     out.identity.fat32_volume_id = id.fat32_volume_id;
     out.identity.partition_lba   = id.partition_lba;
     out.vollab                   = id.fat32_bs_vollab;

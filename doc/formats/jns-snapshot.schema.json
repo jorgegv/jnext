@@ -105,7 +105,7 @@
                       "minimum": 0,
                       "type": "integer"
                     },
-                    "mbr_sha256": {
+                    "mbr_partition_table_sha256": {
                       "pattern": "^([0-9a-f]{64})?$",
                       "type": "string"
                     },
@@ -117,7 +117,7 @@
                   "required": [
                     "fat32_volume_id",
                     "image_bytes",
-                    "mbr_sha256",
+                    "mbr_partition_table_sha256",
                     "partition_lba"
                   ],
                   "type": "object"

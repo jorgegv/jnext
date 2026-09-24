@@ -336,7 +336,7 @@
                   "required": [
                     "fat32_volume_id",
                     "image_bytes",
-                    "mbr_sha256",
+                    "mbr_partition_table_sha256",
                     "partition_lba"
                   ],
                   "properties": {
@@ -344,7 +344,7 @@
                       "type": "integer",
                       "minimum": 0
                     },
-                    "mbr_sha256": {
+                    "mbr_partition_table_sha256": {
                       "type": "string",
                       "pattern": "^([0-9a-f]{64})?$"
                     },

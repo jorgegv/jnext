@@ -549,9 +549,9 @@ bool read_sd_image_identity(const std::string& sd_image_path,
         Log::emulator()->error("sd_rom_extractor: {}", why);
         return fail();
     }
-    out.mbr_sha256 = sdcard::sha256_hex(
+    out.mbr_partition_table_sha256 = sdcard::sha256_hex(
         std::vector<uint8_t>(mbr + 0x1BE, mbr + 0x200));
-    if (out.mbr_sha256.empty()) {
+    if (out.mbr_partition_table_sha256.empty()) {
         why = "SHA-256 of the MBR partition table failed";
         Log::emulator()->error("sd_rom_extractor: {}", why);
         return fail();

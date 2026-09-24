@@ -275,7 +275,7 @@ Manifest make_manifest() {
 SdIdentity make_identity() {
     SdIdentity i;
     i.image_bytes     = 1073741824ull;
-    i.mbr_sha256      = "aa11bb22cc33dd44ee55ff6600778899"
+    i.mbr_partition_table_sha256      = "aa11bb22cc33dd44ee55ff6600778899"
                         "aa11bb22cc33dd44ee55ff6600778899";
     i.fat32_volume_id = "1a2b3c4d";
     i.partition_lba   = 2048;
@@ -3017,7 +3017,7 @@ int main(int argc, char** argv) {
             SdIdentity other = base;
             if (std::strcmp(c.field, "volid") == 0) other.fat32_volume_id = "99887766";
             if (std::strcmp(c.field, "size") == 0)  other.image_bytes = 2147483648ull;
-            if (std::strcmp(c.field, "mbr") == 0)   other.mbr_sha256 = "ff00";
+            if (std::strcmp(c.field, "mbr") == 0)   other.mbr_partition_table_sha256 = "ff00";
             if (std::strcmp(c.field, "lba") == 0)   other.partition_lba = 63;
 
             ReaderEnv e = env_with_card(other, "NEXT       ", "aabbccdd");

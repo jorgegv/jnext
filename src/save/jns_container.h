@@ -103,12 +103,12 @@ struct Capture {
 /// than none.
 struct SdIdentity {
     uint64_t    image_bytes = 0;
-    std::string mbr_sha256;
+    std::string mbr_partition_table_sha256;
     std::string fat32_volume_id;   ///< BS_VolID, BPB offset 0x43, 8 hex chars
     uint64_t    partition_lba = 0;
 
     bool operator==(const SdIdentity& o) const {
-        return image_bytes == o.image_bytes && mbr_sha256 == o.mbr_sha256 &&
+        return image_bytes == o.image_bytes && mbr_partition_table_sha256 == o.mbr_partition_table_sha256 &&
                fat32_volume_id == o.fat32_volume_id &&
                partition_lba == o.partition_lba;
     }

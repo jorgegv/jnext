@@ -62,8 +62,7 @@
 #include <string>
 #include <vector>
 
-#include <sys/stat.h>  // utimensat (POSIX)
-#include <fcntl.h>     // AT_FDCWD
+#include <filesystem>
 #include <unistd.h>   // getpid (POSIX)
 
 namespace {
@@ -435,9 +434,9 @@ int main(int argc, char** argv) {
     }
 
     check("JNSI-P06",
-          "`mbr_sha256` is 64 lower-case hex characters",
-          base_ok && is_lower_hex(base.mbr_sha256, 64),
-          det("mbr='%s'", base.mbr_sha256.c_str()));
+          "`mbr_partition_table_sha256` is 64 lower-case hex characters",
+          base_ok && is_lower_hex(base.mbr_partition_table_sha256, 64),
+          det("mbr='%s'", base.mbr_partition_table_sha256.c_str()));
 
     // ─────────────────────────────────────────────────────────────────────
     // JNSI-P07..P12 — the discriminative pairs
@@ -454,11 +453,11 @@ int main(int argc, char** argv) {
                               poke(m, 0x1BE + 12, 0x77);   // partition SIZE field
         const bool read = prepared && read_sd_image_identity(m, id, w);
         check("JNSI-P07",
-              "changing a byte of the MBR PARTITION TABLE changes `mbr_sha256` "
+              "changing a byte of the MBR PARTITION TABLE changes `mbr_partition_table_sha256` "
               "— the partitioning is part of the card's identity",
-              read && id.mbr_sha256 != base.mbr_sha256,
+              read && id.mbr_partition_table_sha256 != base.mbr_partition_table_sha256,
               det("prepared=%d read=%d same=%d", prepared, read,
-                  read && id.mbr_sha256 == base.mbr_sha256));
+                  read && id.mbr_partition_table_sha256 == base.mbr_partition_table_sha256));
     }
     {
         const std::string m = tmp_path("mbr-boot");
@@ -468,12 +467,12 @@ int main(int argc, char** argv) {
         const bool read = prepared && read_sd_image_identity(m, id, w);
         check("JNSI-P08",
               "changing a byte of the MBR BOOTSTRAP CODE (offset < 0x1BE) does "
-              "NOT change `mbr_sha256`. `fdisk`, `syslinux` and several imaging "
+              "NOT change `mbr_partition_table_sha256`. `fdisk`, `syslinux` and several imaging "
               "tools rewrite it without touching the partitioning, and a "
               "refusal on that would be the cries-wolf failure §11.1 exists to "
               "avoid — the same argument that keeps BS_VolLab out of the test",
-              read && id.mbr_sha256 == base.mbr_sha256,
-              det("read=%d mbr='%s'", read, id.mbr_sha256.c_str()));
+              read && id.mbr_partition_table_sha256 == base.mbr_partition_table_sha256,
+              det("read=%d mbr='%s'", read, id.mbr_partition_table_sha256.c_str()));
     }
     {
         const std::string m = tmp_path("volid");
@@ -487,7 +486,7 @@ int main(int argc, char** argv) {
               "changing BS_VolID changes `fat32_volume_id` and nothing else in "
               "the identity",
               read && id.fat32_volume_id == "1a2b3c99" &&
-                  id.mbr_sha256 == base.mbr_sha256 &&
+                  id.mbr_partition_table_sha256 == base.mbr_partition_table_sha256 &&
                   id.image_bytes == base.image_bytes &&
                   id.partition_lba == base.partition_lba,
               det("read=%d volid='%s'", read, id.fat32_volume_id.c_str()));
@@ -506,7 +505,7 @@ int main(int argc, char** argv) {
               "label cannot produce a refusal on the same physical card (§11.3)",
               read && id.fat32_bs_vollab == "XEXT       " &&
                   id.fat32_volume_id == base.fat32_volume_id &&
-                  id.mbr_sha256 == base.mbr_sha256 &&
+                  id.mbr_partition_table_sha256 == base.mbr_partition_table_sha256 &&
                   id.image_bytes == base.image_bytes &&
                   id.partition_lba == base.partition_lba,
               det("read=%d vollab='%s'", read, id.fat32_bs_vollab.c_str()));
@@ -528,7 +527,7 @@ int main(int argc, char** argv) {
               "four fields alone — a resized card is a different card, and the "
               "row says which field noticed",
               read && id.image_bytes == base.image_bytes + 512 &&
-                  id.mbr_sha256 == base.mbr_sha256 &&
+                  id.mbr_partition_table_sha256 == base.mbr_partition_table_sha256 &&
                   id.fat32_volume_id == base.fat32_volume_id,
               det("read=%d bytes=%llu", read,
                   static_cast<unsigned long long>(id.image_bytes)));
@@ -545,7 +544,7 @@ int main(int argc, char** argv) {
         const bool read = prepared && read_sd_image_identity(m, id, w);
         const bool unchanged =
             read && id.image_bytes == base.image_bytes &&
-            id.mbr_sha256 == base.mbr_sha256 &&
+            id.mbr_partition_table_sha256 == base.mbr_partition_table_sha256 &&
             id.fat32_volume_id == base.fat32_volume_id &&
             id.partition_lba == base.partition_lba &&
             id.fat32_bs_vollab == base.fat32_bs_vollab;
@@ -569,7 +568,7 @@ int main(int argc, char** argv) {
 
         jnext::jns::SdIdentity as_jns;
         as_jns.image_bytes     = id.image_bytes;
-        as_jns.mbr_sha256      = id.mbr_sha256;
+        as_jns.mbr_partition_table_sha256      = id.mbr_partition_table_sha256;
         as_jns.fat32_volume_id = id.fat32_volume_id;
         as_jns.partition_lba   = id.partition_lba;
 
@@ -581,7 +580,7 @@ int main(int argc, char** argv) {
               "refuses instead of trusting an identity nothing stands behind",
               read && id.fat32_volume_id.empty() &&
                   id.fat32_bs_vollab.empty() && !as_jns.populated() &&
-                  id.image_bytes != 0 && !id.mbr_sha256.empty(),
+                  id.image_bytes != 0 && !id.mbr_partition_table_sha256.empty(),
               det("read=%d volid='%s' populated=%d", read,
                   id.fat32_volume_id.c_str(), as_jns.populated()));
     }
@@ -696,20 +695,20 @@ int main(int argc, char** argv) {
         const bool good = prepared && read_sd_image_identity(m, before, w1);
         const bool broke = prepared && poke(m, 0x1BE + 4, 0x83);  // not FAT32
         after.image_bytes = 0xDEAD;      // pre-dirtied: a function that never
-        after.mbr_sha256  = "stale";     // touches `out` must not pass either
+        after.mbr_partition_table_sha256  = "stale";     // touches `out` must not pass either
         const bool refused = broke && !read_sd_image_identity(m, after, w2);
         check("JNSI-P19b",
               "a refusal leaves EVERY field empty — the image size and the MBR "
               "digest are known before the FAT32 parse fails, and handing those "
               "two back would be an identity that compares unequal against "
               "itself",
-              good && before.image_bytes != 0 && !before.mbr_sha256.empty() &&
+              good && before.image_bytes != 0 && !before.mbr_partition_table_sha256.empty() &&
                   refused && after.image_bytes == 0 &&
-                  after.mbr_sha256.empty() && after.fat32_volume_id.empty() &&
+                  after.mbr_partition_table_sha256.empty() && after.fat32_volume_id.empty() &&
                   after.partition_lba == 0 && after.fat32_bs_vollab.empty(),
               det("good=%d refused=%d bytes=%llu mbr='%s'", good, refused,
                   static_cast<unsigned long long>(after.image_bytes),
-                  after.mbr_sha256.c_str()));
+                  after.mbr_partition_table_sha256.c_str()));
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -726,7 +725,7 @@ int main(int argc, char** argv) {
               ok && info.present && info.mounted_path == base_img &&
                   info.read_only &&
                   info.identity.image_bytes == base.image_bytes &&
-                  info.identity.mbr_sha256 == base.mbr_sha256 &&
+                  info.identity.mbr_partition_table_sha256 == base.mbr_partition_table_sha256 &&
                   info.identity.fat32_volume_id == base.fat32_volume_id &&
                   info.identity.partition_lba == base.partition_lba &&
                   info.vollab == base.fat32_bs_vollab &&
@@ -805,10 +804,29 @@ int main(int argc, char** argv) {
         std::string sha, mtime, w;
         bool prepared = copy_image(base_img, m);
         if (prepared) {
-            struct timespec ts[2];
-            ts[0].tv_sec = 1700000000; ts[0].tv_nsec = 0;   // atime
-            ts[1].tv_sec = 1700000000; ts[1].tv_nsec = 0;   // mtime
-            prepared = ::utimensat(AT_FDCWD, m.c_str(), ts, 0) == 0;
+            // `std::filesystem::last_write_time`'s SETTER, not `utimensat`.
+            // The first version of this row used the POSIX call and did not
+            // compile under the MinGW cross-toolchain with ENABLE_TESTS=ON —
+            // a gap `make win-release` cannot show, because it builds the
+            // shipped binary and never this file. The convention is one
+            // directory away (`test/uart/uart_integration_test.cpp` guards
+            // POSIX code with `#ifdef _WIN32`), and the portable setter is
+            // better than a guard: it keeps ONE code path, so the assertion
+            // below is the same assertion on every platform.
+            //
+            // C++17 has no portable `system_clock` -> `file_clock` cast, so
+            // this is the documented offset idiom — the exact reverse of the
+            // one `iso8601_utc` uses to read the value back.
+            namespace fs = std::filesystem;
+            const auto sys_tp = std::chrono::system_clock::from_time_t(
+                static_cast<std::time_t>(1700000000));
+            const auto file_tp =
+                std::chrono::time_point_cast<fs::file_time_type::duration>(
+                    sys_tp - std::chrono::system_clock::now() +
+                    fs::file_time_type::clock::now());
+            std::error_code ec;
+            fs::last_write_time(m, file_tp, ec);
+            prepared = !ec;
         }
         const bool ok = prepared &&
                         jnext::read_sd_image_content_stamp(m, sha, mtime, w);
@@ -967,7 +985,7 @@ int main(int argc, char** argv) {
                          read_sd_image_identity(m, b, wb);
         const bool premise = got && a.fat32_bs_vollab != b.fat32_bs_vollab &&
                              a.fat32_volume_id == b.fat32_volume_id &&
-                             a.mbr_sha256 == b.mbr_sha256 &&
+                             a.mbr_partition_table_sha256 == b.mbr_partition_table_sha256 &&
                              a.image_bytes == b.image_bytes &&
                              a.partition_lba == b.partition_lba;
         check("JNSI-P31",
@@ -1006,7 +1024,7 @@ int main(int argc, char** argv) {
         const bool ok = read_sd_image_identity(real, id, w);
         jnext::jns::SdIdentity as_jns;
         as_jns.image_bytes     = id.image_bytes;
-        as_jns.mbr_sha256      = id.mbr_sha256;
+        as_jns.mbr_partition_table_sha256      = id.mbr_partition_table_sha256;
         as_jns.fat32_volume_id = id.fat32_volume_id;
         as_jns.partition_lba   = id.partition_lba;
         check("JNSI-P32",
@@ -1014,7 +1032,7 @@ int main(int argc, char** argv) {
               "identity. The rows above run on images this suite built; this "
               "one runs on the card jnext actually mounts",
               ok && as_jns.populated() && id.image_bytes > 0 &&
-                  is_lower_hex(id.mbr_sha256, 64) &&
+                  is_lower_hex(id.mbr_partition_table_sha256, 64) &&
                   is_lower_hex(id.fat32_volume_id, 8) && id.partition_lba > 0,
               det("ok=%d bytes=%llu lba=%u volid='%s' why='%s'", ok,
                   static_cast<unsigned long long>(id.image_bytes),

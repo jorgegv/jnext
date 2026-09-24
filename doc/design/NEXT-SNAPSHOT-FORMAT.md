@@ -1412,7 +1412,7 @@ identity split in two so it can be both stable and informative.
 
     "identity": {
       "image_bytes": 1073741824,
-      "mbr_sha256": "…",
+      "mbr_partition_table_sha256": "…",
       "fat32_volume_id": "1a2b3c4d",
       "partition_lba": 2048
     },
@@ -1474,11 +1474,30 @@ not warned on", and the second half of that cannot be true of a label change
 made ON DISK. `BS_VolLab` sits at `partition_lba * 512 + 0x47` — *inside the
 file* — so rewriting it necessarily moves the whole-image SHA-256 that Tier 2
 **is**, and a Tier-2 drift warning is emitted. That warning is correct: a byte
-of the card did change. Carving the boot sector out of Tier 2 to suppress it
-would break the one property Tier 2 has, that it is the warm-start cache's
-digest *reused verbatim* (pinned by `JNSI-P34`), and would buy nothing — the
-user gets the same warning the first time NextZXOS touches a directory entry
-anyway.
+of the card did change.
+
+Carving the boot sector out of Tier 2 to suppress it is rejected on two
+grounds, both structural:
+
+1. **Tier 2 would stop being the warm-start cache's digest *reused verbatim*.**
+   That is a stated property, and a tested one — `JNSI-P34` asserts the stamp
+   is byte-for-byte `sdcard::sha256_file` of the same image. A second digest
+   implementation that skips a range is a different mechanism wearing the same
+   name, and the next person to change one of the two would have no gate
+   telling them the other moved.
+2. **It would couple Tier 2 to Tier 1.** To exclude the boot sector you must
+   first know where the partition starts, which is Tier 1's MBR parse.
+   `read_sd_image_content_stamp` today needs nothing but a path — it works on
+   an image whose BPB is unreadable — and that independence is why a Tier-1
+   failure can leave Tier 2 intact and vice versa (`JNSI-P26`, `JNSI-P26b`).
+
+*An earlier draft of this paragraph argued instead that suppressing it "would
+buy nothing — the user gets the same warning the first time NextZXOS touches a
+directory entry anyway". That overstates the case and is withdrawn: a
+label-only edit made by an offline tool with no intervening boot would not
+otherwise move the digest, so in that one scenario the carve-out really would
+suppress something. The adjudication is unchanged; the two reasons above are
+the ones that carry it.*
 
 What the row promises, and what is implemented and tested, is that the **label
 is never part of the refusal test and is never itself reported**: no refusal,
@@ -1538,7 +1557,7 @@ the container compares. The split is deliberate: `snapshot_test` links
 no card and no filesystem, and the producer's rows live in `sd_identity_test`,
 which links `jnext_core` and works on real images.
 
-`mbr_sha256` digests the **64-byte partition table plus the 2-byte 0x55AA
+`mbr_partition_table_sha256` digests the **64-byte partition table plus the 2-byte 0x55AA
 signature**, not the whole 512-byte sector. The prose above names "the MBR
 partition table" and the narrower window survives the same argument that
 removed `BS_VolLab` from the refusal test: the first 446 bytes are bootstrap
