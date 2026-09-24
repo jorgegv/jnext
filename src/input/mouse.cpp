@@ -23,13 +23,16 @@
 // handler (see src/core/emulator.cpp Kempston-mouse port registration —
 // mirrors the NR 0x82 bit-6 gate pattern used for port 0x001F).
 //
-// Deferred / out-of-scope (plan rows MOUSE-09/10/11, all G-classified):
-//   - button_reverse_ (NR 0x0A bit 3): stored but not applied; the VHDL
-//     has no internal consumer — button reversal is host-adapter work.
-//   - Wheel signed-delta semantics: host-adapter responsibility; VHDL
-//     exposes only the raw 4-bit field.
+// Host-adapter responsibilities, each one PINNED by a plan row that fails
+// if it is done here instead (GH #201 turned all three from prose into
+// assertions in test/input/input_test.cpp):
+//   - button_reverse_ (NR 0x0A bit 3): stored but not applied; its only
+//     readers in VHDL are the NR 0x0A read-back (zxnext.vhd:5912) and the
+//     o_MOUSE_CONTROL pin (:1599) — MOUSE-09.
+//   - Wheel signed-delta semantics: VHDL exposes only the raw 4-bit field
+//     (i_MOUSE_WHEEL is `std_logic_vector(3 downto 0)`, :104) — MOUSE-10.
 //   - DPI code (NR 0x0A bits 1:0): stored but not consumed; exposed on
-//     o_MOUSE_CONTROL for an external host-adapter DPI divisor only.
+//     o_MOUSE_CONTROL for an external host-adapter DPI divisor — MOUSE-11.
 // =============================================================================
 
 void KempstonMouse::reset()
@@ -67,7 +70,7 @@ void KempstonMouse::inject_delta(int dx, int dy)
     // 8-bit wrap-around accumulation. dx/dy are host pixel deltas; the
     // Kempston protocol exposes the raw 8-bit counter registers directly
     // at 0xFBDF / 0xFFDF (zxnext.vhd:3546, 3553). Signed-vs-unsigned
-    // interpretation is host-side (plan row MOUSE-10 = G).
+    // interpretation is host-side (plan row MOUSE-10).
     x_ = static_cast<uint8_t>(x_ + dx);
     y_ = static_cast<uint8_t>(y_ + dy);
 }
@@ -77,7 +80,7 @@ void KempstonMouse::set_buttons(uint8_t mask)
     // Store the raw 3-bit active-high button mask from the host.
     // Convention: bit 0 = R, bit 1 = L, bit 2 = M (see mouse.h:33).
     // The port read inverts to active-low per VHDL; button_reverse_ is
-    // NOT applied here (plan row MOUSE-09 = G; VHDL has no in-core
+    // NOT applied here (plan row MOUSE-09; VHDL has no in-core
     // consumer of nr_0a_mouse_button_reverse — host-adapter remaps).
     buttons_ = mask & 0x07;
 }
