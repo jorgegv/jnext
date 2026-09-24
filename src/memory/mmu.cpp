@@ -3,7 +3,39 @@
 #include "peripheral/multiface.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 #include <cstring>
+
+namespace {
+
+// GH #27 S3 — enum name tables for the `enum8` declarations in
+// `Mmu::describe_state`. The binary encoding stays the u8 ordinal the stream
+// has always carried; these names are what the JSON encoding writes, so a
+// renumbering of either list shows up as a schema diff (design §6.2, §9.4).
+//
+// A hole would be spelled `nullptr` and refused in both directions; neither
+// list has one.
+const char* const kMachineTypeNameArr[] = {
+    "zxn_issue2",   // MachineType::ZXN_ISSUE2 (contention.h:5)
+    "zx48k",        // MachineType::ZX48K
+    "zx128k",       // MachineType::ZX128K
+    "zx_plus3",     // MachineType::ZX_PLUS3
+};
+const jnext::save::EnumNames kMachineTypeNames{
+    kMachineTypeNameArr, sizeof(kMachineTypeNameArr) / sizeof(kMachineTypeNameArr[0])};
+
+const char* const kMachineTimingNameArr[] = {
+    "timing_48",        // MachineTimingMode::Timing48       (contention.h:55)
+    "timing_128",       // MachineTimingMode::Timing128
+    "timing_plus3",     // MachineTimingMode::TimingPlus3
+    "timing_pentagon",  // MachineTimingMode::TimingPentagon
+};
+const jnext::save::EnumNames kMachineTimingNames{
+    kMachineTimingNameArr,
+    sizeof(kMachineTimingNameArr) / sizeof(kMachineTimingNameArr[0])};
+
+}  // namespace
 
 // Reset MMU register view from VHDL zxnext.vhd lines 4611-4618:
 // MMU0=0xFF(ROM), MMU1=0xFF(ROM), MMU2=0x0A(bank5 lo), MMU3=0x0B(bank5 hi),
@@ -893,44 +925,81 @@ void Mmu::map_plus3_bank(uint8_t port_1ffd) {
 // State serialisation
 // ---------------------------------------------------------------------------
 
-void Mmu::save_state(StateWriter& w) const
+// ---------------------------------------------------------------------------
+// GH #27 S3 — the ONE field list (design §9.2)
+// ---------------------------------------------------------------------------
+//
+// Declaration order IS the binary stream order, and the byte-identity gate
+// (§17.1) pins this block at 24 634 bytes — block 2 of the 2 292 965-byte
+// stream. Nothing here may be reordered, and every historical "appended at
+// the tail" comment below records where a field was added, which is why the
+// order looks arbitrary in places. It is not: it is chronology.
+//
+// No field carries a DECLARED DEFAULT (§12.2). See `Clock::describe_state`
+// for why S3 declares every key required.
+//
+// THE THREE ENUMS ARE MARSHALLED THROUGH A LOCAL `uint8_t`, not bound
+// directly. `MachineType` and `MachineTimingMode` are `enum class` with no
+// fixed underlying type (contention.h:5, :54), so they are `int`-wide and a
+// `uint8_t&` bound to one would read and write a single byte of a four-byte
+// object. The cast is the tree's own idiom for them anyway
+// (`static_cast<uint8_t>(machine_type_)`); what `enum8` adds is the NAME in
+// the JSON encoding, so an FSM or machine-list renumbering becomes a visible
+// schema diff rather than a silent re-interpretation of old files.
+void Mmu::describe_state(jnext::save::StateDesc& d)
 {
-    w.write_bytes(slots_, 8);
-    for (int i = 0; i < 8; ++i) w.write_bool(read_only_[i]);
-    w.write_bool(paging_locked_);
-    w.write_u8(port_7ffd_);
-    w.write_u8(port_1ffd_);
-    w.write_bool(l2_write_enable_);
-    w.write_u8(l2_segment_mask_);
-    w.write_u8(l2_bank_);
-    w.write_bool(boot_rom_en_);
-    w.write_bool(config_mode_);
-    w.write_u8(nr_04_romram_bank_);
-    w.write_bool(rom_in_sram_);
-    // Branch C appended state (post-Task 12c): contention_disabled (NR 0x08 bit 6),
-    // the full nr_8c_altrom register byte (VHDL zxnext.vhd:387), and machine_type_
-    // for sram_rom selection (zxnext.vhd:2981-3008).
-    w.write_bool(contention_disabled_);
-    w.write_u8(nr_8c_reg_);
-    w.write_u8(static_cast<uint8_t>(machine_type_));
-    // Phase 2 A appended state — extended-paging ports (0xDFFD + 0xEFF7).
+    d.bytes("slots", slots_, 8);
+    d.boolean("read_only_0", read_only_[0]);
+    d.boolean("read_only_1", read_only_[1]);
+    d.boolean("read_only_2", read_only_[2]);
+    d.boolean("read_only_3", read_only_[3]);
+    d.boolean("read_only_4", read_only_[4]);
+    d.boolean("read_only_5", read_only_[5]);
+    d.boolean("read_only_6", read_only_[6]);
+    d.boolean("read_only_7", read_only_[7]);
+    d.boolean("paging_locked", paging_locked_);
+    d.u8("port_7ffd", port_7ffd_);
+    d.u8("port_1ffd", port_1ffd_);
+    d.boolean("l2_write_enable", l2_write_enable_);
+    d.u8("l2_segment_mask", l2_segment_mask_);
+    d.u8("l2_bank", l2_bank_);
+    d.boolean("boot_rom_en", boot_rom_en_);
+    d.boolean("config_mode", config_mode_);
+    d.u8("nr_04_romram_bank", nr_04_romram_bank_);
+    d.boolean("rom_in_sram", rom_in_sram_);
+    // Branch C append (post-Task 12c): contention_disabled (NR 0x08 bit 6),
+    // the full nr_8c_altrom register byte (VHDL zxnext.vhd:387), and
+    // machine_type_ for sram_rom selection (zxnext.vhd:2981-3008).
+    d.boolean("contention_disabled", contention_disabled_);
+    d.u8("nr_8c_reg", nr_8c_reg_);
+    {
+        uint8_t machine_type = static_cast<uint8_t>(machine_type_);
+        d.enum8("machine_type", machine_type, kMachineTypeNames);
+        machine_type_ = static_cast<MachineType>(machine_type);
+    }
+    // Phase 2 A append — extended-paging ports (0xDFFD + 0xEFF7).
     // port_dffd_reg_ holds cpu_do(4:0) per VHDL zxnext.vhd:3693; the
     // port_eff7 flags are two single bits per VHDL zxnext.vhd:3781-3782.
-    w.write_u8(port_dffd_reg_);
-    w.write_bool(port_eff7_reg_2_);
-    w.write_bool(port_eff7_reg_3_);
-    // Phase 2 B appended state — NR 0x8F mapping mode (2 bits).
-    // VHDL zxnext.vhd:3787-3794 has no reset process, so the value persists
-    // across reset and must round-trip.
-    w.write_u8(nr_8f_mode_);
-    // Phase 2 D2 appended state — Layer 2 read-enable latch
+    d.u8("port_dffd_reg", port_dffd_reg_);
+    d.boolean("port_eff7_reg_2", port_eff7_reg_2_);
+    d.boolean("port_eff7_reg_3", port_eff7_reg_3_);
+    // Phase 2 B append — NR 0x8F mapping mode (2 bits). VHDL
+    // zxnext.vhd:3787-3794 has no reset process, so the value persists across
+    // reset and must round-trip. The 2-bit mask is applied by `load_state`
+    // after the walk: masking a value on the way IN is a property of the
+    // restore, not of the field list.
+    d.u8("nr_8f_mode", nr_8f_mode_);
+    // Phase 2 D2 append — Layer 2 read-enable latch
     // (port_123b_layer2_map_rd_en, VHDL zxnext.vhd:3918). Write-enable and
-    // segment mask/bank are already persisted above.
-    w.write_bool(l2_read_enable_);
-    // Floating-bus Branch B appended state — p3_floating_bus_dat latch
+    // segment mask/bank are already declared above.
+    d.boolean("l2_read_enable", l2_read_enable_);
+    // Floating-bus Branch B append — p3_floating_bus_dat latch
     // (VHDL zxnext.vhd:4498-4509) and per-slot contention mirror.
-    w.write_u8(p3_floating_bus_dat_);
-    for (int i = 0; i < 4; ++i) w.write_bool(slot_contended_[i]);
+    d.u8("p3_floating_bus_dat", p3_floating_bus_dat_);
+    d.boolean("slot_contended_0", slot_contended_[0]);
+    d.boolean("slot_contended_1", slot_contended_[1]);
+    d.boolean("slot_contended_2", slot_contended_[2]);
+    d.boolean("slot_contended_3", slot_contended_[3]);
     // Task 8 Tier 1 Wave 2 — port 0x123B G92/G144/G145 latches:
     //   l2_segment_raw_  — 2-bit raw segment (VHDL zxnext.vhd:3920) for the
     //                      :3933 read-back composition (G145).
@@ -938,171 +1007,95 @@ void Mmu::save_state(StateWriter& w) const
     //   l2_map_shadow_   — bit 3 (CPU map shadow bank select, G144).
     //   l2_offset_       — 3-bit offset register (G92, VHDL :3922).
     //   l2_shadow_bank_  — NR 0x13 mirror used when map_shadow=1 (:2968).
-    w.write_u8(l2_segment_raw_);
-    w.write_bool(l2_enable_);
-    w.write_bool(l2_map_shadow_);
-    w.write_u8(l2_offset_);
-    w.write_u8(l2_shadow_bank_);
+    d.u8("l2_segment_raw", l2_segment_raw_);
+    d.boolean("l2_enable", l2_enable_);
+    d.boolean("l2_map_shadow", l2_map_shadow_);
+    d.u8("l2_offset", l2_offset_);
+    d.u8("l2_shadow_bank", l2_shadow_bank_);
     // Task 8 Tier 1 Wave 2 — port 0xDFFD bit 6 latch (VHDL zxnext.vhd:877,
     // 3694, 4314). Single-bit flip-flop, separate from the 5-bit
     // port_dffd_reg vector. (G148)
-    w.write_bool(port_dffd_reg_6_);
+    d.boolean("port_dffd_reg_6", port_dffd_reg_6_);
     // Task 2 Memory review — port_1ffd_special_old (VHDL :882/3716/3729).
-    // Required so a save state taken inside +3 special paging mode
-    // restores the slot-2-to-5 revert behaviour on the next paging
-    // trigger after load.
-    w.write_bool(port_1ffd_special_old_);
-    // Verify4-memory class-(a) fix — persist nr_mmu_[8] verbatim. VHDL
-    // zxnext.vhd:4686-4699 stores nr_wr_dat directly into MMU<i> on
-    // any NR 0x50..0x57 write, including values in the 0xE0..0xFE
-    // range that map to the ROM area via the mmu_A21_A13(8)='1' gate.
-    // The NR-port read-back at :6075-6082 returns this verbatim value.
-    // Pre-fix load_state() recovered nr_mmu_[i] from
-    //   `read_only_[i] ? 0xFF : slots_[i]`
-    // which lost any verbatim 0xE0..0xFE NR 0x50/0x51 write value (it
-    // collapsed back to the 0xFF sentinel because read_only_=true).
-    // Persisting the array round-trips the NR read-back faithfully.
-    w.write_bytes(nr_mmu_, 8);
-    // V24-MEM-01 / V25-MEM-01 fix — machine_timing axis split. Both
-    // shadow (pending) and effective (latched) fields are persisted so
-    // a snapshot taken between an NR 0x03 bits-6:4 write and the next
-    // video-frame edge round-trips faithfully. Schema bump: appended at
-    // tail, matched by the `!r.eof()`-tolerant reader (per V20R-CPU-
-    // NIT-01 precedent). Older saves fall through with the constructor
-    // default (+3 timing per VHDL :1099/:1377), which Emulator::
-    // load_state re-syncs from the canonical NR 0x03 cached byte
-    // (matching the same machine_type-from-NextReg pattern at :7283).
-    w.write_u8(static_cast<uint8_t>(machine_timing_));
-    w.write_u8(static_cast<uint8_t>(pending_machine_timing_));
-    // 2026-07-10 schema append: dedicated bank-7 lower-half BRAM content
-    // (VHDL bank7_ram dpram2). Appended at end per the established
-    // schema-extension pattern.
-    w.write_bytes(bank7_bram_.data(), bank7_bram_.size());
-    // Task 25 (2026-07-10) schema append: dedicated bank-5 16K VRAM
-    // content (VHDL bank5_ram dpram2, zxnext.vhd:6558). Same pattern.
-    w.write_bytes(bank5_vram_.data(), bank5_vram_.size());
-    // G12 (Task 8 Nirvana) schema append: replay tag cursor. The mux is
-    // now always-on (no arm/gate — removed round 3), so only the
-    // scanline-tag cursor needs to survive a rewind snapshot; the
-    // per-frame log/baseline is rebuilt fresh from live RAM every frame
-    // regardless (Mmu::attr_mux_start_frame(), called at the top of
-    // every Emulator::run_frame before any CPU execution, and by
-    // Emulator::load_state itself so the render rewind_to_frame does right
-    // after a load sees the restored VRAM — GH #261). A prior version DID
-    // persist AttributeMux's variable-length log_ array here; that was the
-    // actual root cause of a "free(): invalid size" heap-corruption
-    // crash in RewindBuffer::Slot's destructor — RewindBuffer slots are
-    // fixed-size, but the serialised byte count varied with log_size_
-    // frame to frame. See attribute_mux.h for the full rationale.
-    w.write_u16(attr_mux_current_line_);
+    // Required so a save state taken inside +3 special paging mode restores
+    // the slot-2-to-5 revert behaviour on the next paging trigger after load.
+    d.boolean("port_1ffd_special_old", port_1ffd_special_old_);
+    // Verify4-memory class-(a) fix — nr_mmu_[8] verbatim. VHDL
+    // zxnext.vhd:4686-4699 stores nr_wr_dat directly into MMU<i> on any
+    // NR 0x50..0x57 write, including values in the 0xE0..0xFE range that map
+    // to the ROM area via the mmu_A21_A13(8)='1' gate. The NR-port read-back
+    // at :6075-6082 returns this verbatim value. Recovering nr_mmu_[i] from
+    // `read_only_[i] ? 0xFF : slots_[i]` lost any verbatim 0xE0..0xFE write.
+    d.bytes("nr_mmu", nr_mmu_, 8);
+    // V24-MEM-01 / V25-MEM-01 — machine_timing axis split. Both shadow
+    // (pending) and effective (latched) fields travel so a snapshot taken
+    // between an NR 0x03 bits-6:4 write and the next video-frame edge
+    // round-trips faithfully.
+    {
+        uint8_t machine_timing = static_cast<uint8_t>(machine_timing_);
+        d.enum8("machine_timing", machine_timing, kMachineTimingNames);
+        machine_timing_ = static_cast<MachineTimingMode>(machine_timing);
+    }
+    {
+        uint8_t pending = static_cast<uint8_t>(pending_machine_timing_);
+        d.enum8("pending_machine_timing", pending, kMachineTimingNames);
+        pending_machine_timing_ = static_cast<MachineTimingMode>(pending);
+    }
+    // 2026-07-10 append: dedicated bank-7 lower-half BRAM content (VHDL
+    // bank7_ram dpram2) and, Task 25, bank-5 16K VRAM (VHDL bank5_ram dpram2,
+    // zxnext.vhd:6558). `blob` rather than `bytes`: §6.1 case 3 — a store of
+    // 8 KB and 16 KB belongs in a ZIP member, not in a 16 384-character hex
+    // string. In the binary stream the two calls are identical.
+    d.blob("bank7_bram", bank7_bram_.data(), bank7_bram_.size());
+    d.blob("bank5_vram", bank5_vram_.data(), bank5_vram_.size());
+    // G12 (Task 8 Nirvana) — replay tag cursor. The mux is always-on (no
+    // arm/gate — removed round 3), so only the scanline-tag cursor needs to
+    // survive a rewind snapshot; the per-frame log/baseline is rebuilt fresh
+    // from live RAM every frame regardless (Mmu::attr_mux_start_frame(),
+    // called at the top of every Emulator::run_frame before any CPU
+    // execution, and by Emulator::load_state itself so the render
+    // rewind_to_frame does right after a load sees the restored VRAM —
+    // GH #261). A prior version DID persist AttributeMux's variable-length
+    // log_ array here; that was the actual root cause of a "free(): invalid
+    // size" heap-corruption crash in RewindBuffer::Slot's destructor —
+    // RewindBuffer slots are fixed-size, but the serialised byte count varied
+    // with log_size_ frame to frame. See attribute_mux.h for the full
+    // rationale.
+    d.u16("attr_mux_current_line", attr_mux_current_line_);
+}
+
+void Mmu::save_state(StateWriter& w) const
+{
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Mmu::load_state(StateReader& r)
 {
-    // V24-MEM-NIT-01: reset the load-time machine_timing schema flag at
-    // entry. Will be set true below iff BOTH timing slots are present.
-    machine_timing_loaded_from_schema_ = false;
-    r.read_bytes(slots_, 8);
-    for (int i = 0; i < 8; ++i) read_only_[i] = r.read_bool();
-    paging_locked_   = r.read_bool();
-    port_7ffd_       = r.read_u8();
-    port_1ffd_       = r.read_u8();
-    l2_write_enable_ = r.read_bool();
-    l2_segment_mask_ = r.read_u8();
-    l2_bank_         = r.read_u8();
-    boot_rom_en_     = r.read_bool();
-    config_mode_       = r.read_bool();
-    nr_04_romram_bank_ = r.read_u8();
-    rom_in_sram_       = r.read_bool();
-    // Branch C appended state — keep load tolerant of older streams that
-    // do not carry these fields yet. save_state writes them; if the stream
-    // predates Branch C, the reader will short-read and the caller's
-    // StateReader bounds-check will flag it. We rely on save_state always
-    // matching the same code generation so load_state is safe to read.
-    contention_disabled_ = r.read_bool();
-    nr_8c_reg_           = r.read_u8();
-    machine_type_        = static_cast<MachineType>(r.read_u8());
-    // Phase 2 A appended state — extended-paging ports (0xDFFD + 0xEFF7).
-    port_dffd_reg_   = r.read_u8();
-    port_eff7_reg_2_ = r.read_bool();
-    port_eff7_reg_3_ = r.read_bool();
-    // Phase 2 B appended state — NR 0x8F mapping mode (2 bits stored in u8).
-    nr_8f_mode_      = static_cast<uint8_t>(r.read_u8() & 0x03);
-    // Phase 2 D2 appended state — Layer 2 read-enable latch
-    // (port_123b_layer2_map_rd_en, VHDL zxnext.vhd:3918).
-    l2_read_enable_  = r.read_bool();
-    // Floating-bus Branch B appended state — p3_floating_bus_dat latch
-    // and per-slot contention mirror.
-    p3_floating_bus_dat_ = r.read_u8();
-    for (int i = 0; i < 4; ++i) slot_contended_[i] = r.read_bool();
-    // Task 8 Tier 1 Wave 2 — port 0x123B G92/G144/G145 latches (must
-    // mirror save_state() in order). Older streams that predate this
-    // block will short-read; StateReader's bounds check flags it.
-    l2_segment_raw_  = r.read_u8();
-    l2_enable_       = r.read_bool();
-    l2_map_shadow_   = r.read_bool();
-    l2_offset_       = r.read_u8();
-    l2_shadow_bank_  = r.read_u8();
-    // Task 8 Tier 1 Wave 2 — port 0xDFFD bit 6 latch (G148, VHDL :877/3694/4314).
-    port_dffd_reg_6_ = r.read_bool();
-    // Task 2 Memory review — port_1ffd_special_old (VHDL :882/3716/3729).
-    port_1ffd_special_old_ = r.read_bool();
-    // Rebuild fast-dispatch pointers from restored page/read_only state.
-    for (int i = 0; i < 8; ++i) rebuild_ptr(i);
-    // Verify4-memory class-(a) fix — restore nr_mmu_[8] verbatim. See
-    // save_state() comment for VHDL line refs and rationale. The array
-    // is appended after every other field so older save streams that
-    // predate this addition still round-trip via the lossy fallback
-    // recovered below (StateReader's bounds check flags short reads).
-    r.read_bytes(nr_mmu_, 8);
-    // V24-MEM-01 / V25-MEM-01 fix — machine_timing axis split. Older
-    // saves fall through with the constructor default (TimingPlus3 per
-    // VHDL :1099/:1377). Emulator::load_state subsequently re-syncs
-    // both fields from the canonical NR 0x03 cached byte when the
-    // schema slot was absent, so the round-trip is robust against
-    // schema-version mismatch.
-    //
-    // V24-MEM-NIT-01 (reviewer follow-up): track whether BOTH slots
-    // were successfully read. The Emulator::load_state re-sync uses
-    // this signal to decide between trusting the schema-restored pair
-    // (preserves a `pending != effective` deferred-commit state taken
-    // between an NR 0x03 bits-6:4 write and the next video-frame edge)
-    // OR re-deriving from NextReg (old-format fallback). Pre-fix the
-    // re-sync clobbered the pair unconditionally — see
-    // emulator.cpp:7376-7395.
-    bool got_machine_timing = false;
-    bool got_pending        = false;
-    if (!r.eof()) {
-        machine_timing_ = static_cast<MachineTimingMode>(r.read_u8());
-        got_machine_timing = true;
-    }
-    if (!r.eof()) {
-        pending_machine_timing_ = static_cast<MachineTimingMode>(r.read_u8());
-        got_pending = true;
-    }
-    machine_timing_loaded_from_schema_ = got_machine_timing && got_pending;
-    // 2026-07-10 schema append — bank-7 BRAM content. Older saves without
-    // this slot fall through with a zeroed BRAM (StateReader bounds check).
-    if (!r.eof()) {
-        r.read_bytes(bank7_bram_.data(), bank7_bram_.size());
-    }
-    // Task 25 (2026-07-10) schema append — bank-5 VRAM content. Older
-    // saves fall through with a zeroed buffer.
-    if (!r.eof()) {
-        r.read_bytes(bank5_vram_.data(), bank5_vram_.size());
-    }
-    // G12 (Task 8 Nirvana) schema append — replay tag cursor. Older
-    // streams (pre-round-3 "armed" schema) fall through with
-    // attr_mux_current_line_=0 (constructor default); attr_mux5_/
-    // attr_mux7_ are NOT restored here (no save_state/load_state on
-    // AttributeMux — see the comment in save_state above):
-    // Emulator::load_state rebuilds them from the now-restored live RAM
-    // content once the video timing is restored (GH #261).
-    if (!r.eof()) {
-        attr_mux_current_line_ = r.read_u16();
-    }
-    // Re-point the slot ptrs so any slot holding page 0x0A/0x0B/0x0E
-    // picks up the freshly-restored BRAM buffers.
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+
+    // Phase 2 B — NR 0x8F is 2 bits wide (VHDL zxnext.vhd:3787-3794). The
+    // mask is applied HERE and not in the declaration: it is a property of
+    // the restore, not of the field, and putting it in `describe_state` would
+    // change what the WRITE direction emits.
+    nr_8f_mode_ = static_cast<uint8_t>(nr_8f_mode_ & 0x03);
+
+    // V24-MEM-01 / V24-MEM-NIT-01 — the machine_timing pair is ALWAYS
+    // present now. It used to be read behind `if (!r.eof())`, with this flag
+    // recording whether both halves arrived, so `Emulator::load_state` could
+    // fall back to re-deriving the pair from NR 0x03 for a stream written
+    // before the pair existed (emulator.cpp, path (2)). No such stream can
+    // reach this function: the pair is a declared field, and `StateReader`
+    // never runs out inside block 2 of 33. Setting the flag unconditionally
+    // states that, instead of leaving a guard that cannot fire pretending to
+    // be load-bearing.
+    machine_timing_loaded_from_schema_ = true;
+
+    // Rebuild the fast-dispatch pointers ONCE, after everything is restored —
+    // including bank7_bram_/bank5_vram_, so a slot holding page 0x0A/0x0B/0x0E
+    // picks up the freshly-restored BRAM buffers. The hand-written version
+    // called this twice, once mid-stream and once at the end; the first call's
+    // results were overwritten by the second and nothing in between consulted
+    // a pointer.
     for (int i = 0; i < 8; ++i) rebuild_ptr(i);
 }
 
