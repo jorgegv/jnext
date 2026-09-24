@@ -311,6 +311,15 @@ uint16_t DisasmPanel::selected_address() const
     return emulator_->cpu().get_registers().PC;
 }
 
+void DisasmPanel::run_to_selected()
+{
+    // GH #1. Deliberately routed through the SIGNAL rather than calling
+    // DebugState::run_to() here: DebuggerManager's handler carries the Task 60e
+    // corruption gate and the four set_paused(false) calls, and a second
+    // implementation of that would drift.
+    emit run_to_requested(selected_address());
+}
+
 int DisasmPanel::line_at_y(int y) const
 {
     int adjusted = y - paint_y_offset_;

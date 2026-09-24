@@ -2068,6 +2068,8 @@
       
         
       
+        
+      
     
     
     
@@ -2328,6 +2330,34 @@
     
   
     The magic breakpoint and the magic port
+  
+
+    
+  </span>
+  
+  
+
+      </a>
+    </li>
+  
+
+              
+            
+              
+                
+  
+  
+  
+  
+    <li class="md-nav__item">
+      <a href="../06-debugger/functions/09-changing-the-keys.html" class="md-nav__link">
+        
+  
+  
+  <span class="md-ellipsis">
+    
+  
+    Changing the keys
   
 
     
@@ -2840,6 +2870,15 @@ with <code>gain_beeper_db</code>, <code>gain_ay0_db</code>, <code>gain_ay1_db</c
 <code>gain_dac_db</code> for the individual sources. Each accepts -24 through +24; an
 invalid value falls back to 0 dB. An explicit matching <code>--audio-gain-...-db</code>
 value overrides the saved setting for that run.</p>
+<p>Redefined debugger keys are stored in the <code>[debugger_keys]</code> section, one line
+per action, for example <code>step_over=F10</code>. <strong>Only the keys you have changed
+appear</strong> — a configuration file in which you have never touched a debugger key
+has no <code>[debugger_keys]</code> section at all, which is what lets a future JNEXT
+change a default and have the change reach you. An entry JNEXT cannot
+understand is reported on the console at startup and listed at the top of the
+Preferences <strong>Debugger Keys</strong> tab; the action keeps its default. The spelling
+of the action names and of the key combinations is in
+<a href="../06-debugger/functions/09-changing-the-keys.html">6.3.9</a>.</p>
 <p>The quick screenshot is stored in the <code>[screenshot]</code> section: <code>quick_dir</code> (an
 empty value means <code>~/.jnext/screenshots</code>) and <code>quick_format</code>, either <code>png</code> or
 <code>scr</code>. They are the same two settings as the Preferences <strong>Paths</strong> tab;

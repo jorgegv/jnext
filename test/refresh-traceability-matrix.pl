@@ -1105,6 +1105,7 @@ my %NO_MATRIX_SECTION = (
     'debugger_window_size_test' => 'debugger window geometry (host GUI)',
     'debugger_window_grow_test' => 'debugger window geometry (host GUI)',
     'debugger_accel_test'       => 'debugger keyboard accelerators (host GUI)',
+    'debugger_keymap_test'      => 'user-redefinable debugger key bindings (host GUI + jnext.conf, GH #1); the commands they invoke are traced by the suites of the hardware each one drives',
     'debugger_menu_test'        => 'debugger menu reachability (host GUI)',
     'debugger_disasm_copy_test' => 'disassembly-panel selection and clipboard text (host GUI, GH #21); the disassembler it copies is traced in `## Z80N`',
 );
