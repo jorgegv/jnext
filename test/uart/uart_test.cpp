@@ -507,16 +507,81 @@ static void test_group3_prescaler() {
               fmt("msb=%u", msb));
     }
 
-    // BAUD-02 / BAUD-03 — D-UNOBSERVABLE per feedback_unobservable_audit_rule.
-    // uart.vhd:323-326 writes lsb(6:0) when d(7)=0 and lsb(13:7) when d(7)=1
-    // via half-selective assignment. The low 14 bits of the prescaler drive
-    // the internal baud divider only — there is no VHDL read path exposing
-    // them to any port. BAUD-01/04/05/06 cover the MSB (which IS observable
-    // via the select register). Indirect coverage of the LSB: BAUD-07 observes
-    // the post-prescaler TX empty latency, which only matches when the LSB
-    // write path is intact; the half-selective write semantics are structurally
-    // enforced by uart.vhd:323-327. No test row emitted — these carry no
-    // observable assertion under the VHDL contract.
+    // BAUD-02 / BAUD-03 (GH #201) — the half-selective prescaler-LSB write.
+    //
+    // These carried a `D-UNOBSERVABLE` block comment instead of a row. That
+    // verdict was about the VHDL: there is indeed no PORT that reads the low
+    // 14 prescaler bits back. It does not hold at the tier these tests run
+    // at. `UartChannel::byte_transfer_ticks()` is public and is
+    // `prescaler * frame_bits` — the baud divider the LSB feeds — so the
+    // stored value IS observable here, as a period, without adding any
+    // accessor. What that makes checkable is the property that matters:
+    //
+    //   uart.vhd:322-327
+    //     if i_cpu_d(7) = '0' then
+    //        uart0_prescalar_lsb_r(6 downto 0)  <= i_cpu_d(6 downto 0);
+    //     else
+    //        uart0_prescalar_lsb_r(13 downto 7) <= i_cpu_d(6 downto 0);
+    //
+    // Each write updates SEVEN bits and leaves the other seven standing. A
+    // whole-byte store, a store that zeroes the other half, or one that lets
+    // the 14-bit field spill into the 3-bit MSB (uart.vhd:281-286) all pass
+    // BAUD-07 — it only measures that SOME prescaler took effect — and all
+    // three fail here.
+    //
+    // Both rows share the reset baseline from uart.vhd:319-320:
+    // lsb = "00000011110011" = 243, so bits 13:7 = 1 and bits 6:0 = 0x73.
+    // `frame_bits` is recovered by dividing the reset period by that known
+    // 243 rather than being assumed, so a framing default change cannot make
+    // these rows silently compare against the wrong scale.
+    {
+        Uart u;
+        u.hard_reset();
+        u.write(REG_SELECT, 0x00);           // select UART 0; bit 4 = 0, no MSB write
+        UartChannel& ch = u.channel(0);
+
+        const uint32_t t_reset = ch.byte_transfer_ticks();
+        const uint32_t fb      = (t_reset % 243u == 0) ? t_reset / 243u : 0u;
+
+        // BAUD-02 — bit 7 = 0 writes bits 6:0 and preserves bits 13:7.
+        u.write(REG_RX, 0x33);               // port 0x143B write
+        const uint32_t ps_lo  = fb ? ch.byte_transfer_ticks() / fb : 0u;
+        const uint32_t msb_lo = ch.read_prescaler_msb();
+
+        // want (13:7 kept at the reset 1) << 7 | 0x33 = 128 + 51 = 179
+        const uint32_t want_lo = (1u << 7) | 0x33u;
+        check("BAUD-02",
+              "uart.vhd:322-324 - port 0x143B write 0x33 (bit7=0) sets "
+              "prescaler lsb(6:0)=0x33 and LEAVES lsb(13:7) at its reset "
+              "value 1, giving 179; the 3-bit MSB (uart.vhd:281-286) is "
+              "untouched",
+              fb != 0 && ps_lo == want_lo && msb_lo == 0,
+              fmt("frame_bits=%u prescaler=%u want=%u msb=%u",
+                  fb, ps_lo, want_lo, msb_lo));
+
+        // BAUD-03 — bit 7 = 1 writes bits 13:7 and preserves bits 6:0.
+        u.write(REG_RX, 0x85);               // 0x85 & 0x7F = 0x05 into lsb(13:7)
+        const uint32_t ps_hi  = fb ? ch.byte_transfer_ticks() / fb : 0u;
+        const uint32_t msb_hi = ch.read_prescaler_msb();
+        const uint32_t want_hi = (5u << 7) | 0x33u;      // 640 + 51 = 691
+
+        // ...and the other direction, so neither half can be the one that
+        // merely happens to survive: a further bit7=0 write must keep 13:7
+        // at the 5 just written.
+        u.write(REG_RX, 0x44);
+        const uint32_t ps_back  = fb ? ch.byte_transfer_ticks() / fb : 0u;
+        const uint32_t want_back = (5u << 7) | 0x44u;    // 640 + 68 = 708
+
+        check("BAUD-03",
+              "uart.vhd:322,325-326 - port 0x143B write 0x85 (bit7=1) sets "
+              "prescaler lsb(13:7)=0x05 while lsb(6:0) keeps the 0x33 from "
+              "BAUD-02 (691); a following bit7=0 write then replaces only "
+              "6:0 and keeps 13:7 = 5 (708). MSB still untouched",
+              fb != 0 && ps_hi == want_hi && ps_back == want_back &&
+              msb_hi == 0 && ch.read_prescaler_msb() == 0,
+              fmt("hi=%u want=%u back=%u want=%u msb=%u",
+                  ps_hi, want_hi, ps_back, want_back, msb_hi));
+    }
 
     // BAUD-04 - uart.vhd:281-286 select write with d(4)=1 stores d(2:0)
     //           into the selected UART's prescaler MSB; uart.vhd:355/371
