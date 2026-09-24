@@ -1458,12 +1458,16 @@ static void test_group9_boundary() {
     check("G9-05", "wide clip x2=0xFF renders all 640 framebuffer cells (320 src cols ×2)",
           all_visible);
 
-    // G9-04 — COVERED ELSEWHERE (not a skip).
-    // The "wide-scroll branch NOT fired under narrow mode"
-    // (layer2.vhd:148) is the inverse of G3-12's narrow-scroll path:
-    // G3-12 only passes if the wide-scroll branch stays inactive while
-    // narrow mode is selected. Re-running the same stimulus under a
-    // different ID would duplicate coverage without adding signal.
+    // G9-04 — COVERED ELSEWHERE (not a skip). RETIRED in the plan doc
+    // 2026-09-24 (GH #201).
+    // The "wide branch" is the WIDE-MODE-ONLY wrap correction
+    // `x(8 downto 6) <= x_pre(8 downto 6) + "011"` at layer2.vhd:152.
+    // G3-12 runs in wide mode — setup_wide(200) — with scroll_x = 100, so
+    // x_pre = 100 < 320, the branch guard holds and the correction is NOT
+    // applied; the row only passes if column 0 sources source-column 100.
+    // That IS G9-04's claim. Re-running the same stimulus under a second
+    // ID adds no signal. (An earlier wording here called G3-12 a
+    // "narrow-scroll path" — backwards; G3-12 is a wide-mode row.)
 
     // G9-06 — UNOBSERVABLE (not a skip).
     // `hc_eff <= hc + 1` at layer2.vhd:148 is a VHDL internal pipeline
@@ -1484,11 +1488,17 @@ static void test_group9_boundary() {
     // coordinates rather than raw VC. parallax.nex now visually matches
     // CSpect end-to-end.
     //
-    // No skip(): the row is intentionally retired here — the fixes are
-    // covered by PSCAN-VBLANK-COALESCE-01 in compositor_test, the
-    // per-scanline change-log unit tests across this suite (G10/G10b/
-    // G10c/G10d/G10e), and the pinned 100-frame parallax-demo regression
-    // baseline.
+    // No skip(): the row is intentionally retired. Live coverage, by REAL
+    // row ID and file (an earlier wording here used "G10/G10b/G10c/G10d/
+    // G10e", which are this file's FUNCTION names rather than row IDs, and
+    // put PSCAN-VBLANK-COALESCE-01 in the wrong suite):
+    //   - PSCAN-VBLANK-COALESCE-01
+    //     test/compositor/compositor_integration_test.cpp:498
+    //   - PSCAN-G10-01 .. PSCAN-G10-05
+    //     test/compositor/compositor_test.cpp:4052-4400
+    //   - this suite's per-scanline change-log rows: G10-01..G10-05,
+    //     G10-G05-01a..G10-G05-02, G10-G09-01a..G10-G09-02
+    //   - the pinned 100-frame parallax-demo screenshot baseline.
 
     // WONT G9-G28-01 — VHDL layer2.vhd:148 `hc_eff <= hc + 1` column-pipeline
     // observable. Today's Layer 2 renderer is scanline-granular: the +1 lift

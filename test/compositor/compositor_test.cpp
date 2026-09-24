@@ -369,25 +369,70 @@ static void test_TR() {
     }
 
     // TR-20: Tilemap text-mode RGB compare — palette[8:1]=NR 0x14 => transp.
-    //        VHDL zxnext.vhd:7109.
+    //        VHDL zxnext.vhd:7109:
+    //          tm_transparent <= '1' when (tm_pixel_en_2 = '0')
+    //            or (tm_pixel_textmode_2 = '1' and tm_rgb_2(8 downto 1) = transparent_rgb_2)
+    //            or (tm_en_2 = '0') else '0';
+    //
+    // REWRITTEN 2026-09-24 (GH #201). The row as it stood could not fail,
+    // for two independent reasons: its expected value was
+    // `vhdl_fallback_argb(0xE3)`, which is `rrrgggbb_to_argb(0xE3)` (see
+    // :122) and therefore bit-identical to its own TM stimulus, so both
+    // "transparent, fallback shows" and "opaque, TM shows" produced the
+    // same 32-bit word; and it never set `tm_pixel_textmode_[0]`, which is
+    // the precondition of the middle clause it claims to pin, so the branch
+    // was never entered at all.
+    //
+    // Rewritten rather than retired onto tilemap_test TM-95. TM-95 does
+    // assert the same clause, but end to end from a real `Tilemap` and as a
+    // row of the TILEMAP plan. This is the compositor plan's TR group,
+    // whose subject IS the three-clause expression at :7109, and within it
+    // the other two clauses have working rows (TR-22 for tm_pixel_en_2=0,
+    // TR-23 for tm_en_2=0) while this middle one would have none. TR-21 is
+    // this row's negative twin — same TM pixel, textmode flag CLEAR, stays
+    // opaque — and a negative is only meaningful opposite a working
+    // positive.
+    //
+    // Discriminating oracle: an OPAQUE ULA pixel whose own RGB is NOT
+    // NR 0x14 (PIX_ULA = 0xAA0000, chosen for that in the group header),
+    // with tm_below = 0 so the tilemap WOULD cover it (:7116) if the clause
+    // did not fire. The NR 0x4A fallback is set to 0x10, distinct from both
+    // layers, so a wrong "everything transparent" answer is distinguishable
+    // from the expected one too.
     {
         clear_layers(r);
         r.set_layer_priority(0);
-        r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(0xE3);
-        uint32_t fb = vhdl_fallback_argb(0xE3);
+        r.set_transparent_rgb(0xE3);                  // NR 0x14, set explicitly
+        r.tm_enabled_          = true;                // NR 0x6B b7 — layer on
+        r.ula_line_[0]         = PIX_ULA;             // opaque, RGB != NR 0x14
+        r.tilemap_line_[0]     = Renderer::rrrgggbb_to_argb(0xE3);  // == NR 0x14
+        r.tm_pixel_textmode_[0] = true;               // the clause's precondition
+        r.tm_pixel_below_[0]   = false;               // TM would otherwise win
+        uint32_t fb  = vhdl_fallback_argb(0x10);      // distinct from both layers
         uint32_t got = composite_one(r, fb);
-        check("TR-20", "TM text-mode RGB==NR0x14 => tm_transparent (VHDL 7109)",
-              got == fb,
-              DETAIL("got=0x%08X fb=0x%08X", got, fb));
+        check("TR-20",
+              "text-mode TM pixel whose RGB equals NR 0x14 is transparent, so "
+              "the ULA shows through despite tm_below=0 (VHDL zxnext.vhd:7109 "
+              "middle clause, 7116)",
+              got == PIX_ULA,
+              DETAIL("got=0x%08X expected ULA=0x%08X tm=0x%08X fb=0x%08X",
+                     got, PIX_ULA, Renderer::rrrgggbb_to_argb(0xE3), fb));
+        r.set_transparent_rgb(0xE3);                  // leave at the reset value
     }
 
     // TR-21: Tilemap non-text (attribute) mode ignores the RGB compare —
     //        a TM pixel whose RGB happens to equal NR 0x14 is still
     //        opaque. VHDL 7109 (clause gated on tm_pixel_textmode_2).
-    //        The emulator has no text/non-text distinction.
+    //        This is TR-20's negative twin: same TM pixel, textmode flag
+    //        CLEAR. (The old trailing claim "the emulator has no text/
+    //        non-text distinction" was already false when written — the
+    //        per-pixel `tm_pixel_textmode_` array landed with G101 — and
+    //        is removed; the flag is now set explicitly below rather than
+    //        left to clear_layers, so the two rows read as a pair.)
     {
         clear_layers(r);
         r.set_layer_priority(0);
+        r.tm_pixel_textmode_[0] = false;   // the difference from TR-20
         r.tilemap_line_[0] = Renderer::rrrgggbb_to_argb(0xE3);
         // VHDL oracle: non-text TM is opaque and wins in mode 000's U
         // slot (no L2/S present, TM replaces ULA).
