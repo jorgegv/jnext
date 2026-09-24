@@ -43,6 +43,7 @@
 #include "input/keyboard.h"
 #include "input/joystick.h"
 #include "input/joystick_dispatcher.h"
+#include "input/gamepad_host.h"
 #include "input/membrane_stick.h"
 #include "input/emu_fnkeys.h"
 #include "platform/emulator_boot.h"
@@ -58,7 +59,7 @@
 
 #include <unistd.h>
 
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 
 // ── Test infrastructure ───────────────────────────────────────────────
 
@@ -641,13 +642,13 @@ static void test_joy_wire(Emulator& emu) {
               detail);
     }
 
-    // JOY-WIRE-02 — G42: SDL_CONTROLLERBUTTON* → JoystickDispatcher →
+    // JOY-WIRE-02 — G42: SDL_EVENT_GAMEPAD_BUTTON_* → JoystickDispatcher →
     // Joystick raw bit vector. Per-button mapping (joystick_dispatcher.cpp:
     // sdl_button_to_jbit):
-    //   SDL_CONTROLLER_BUTTON_A         → bit 4 (B / Fire 1)
-    //   SDL_CONTROLLER_BUTTON_B         → bit 5 (C / Fire 2)
-    //   SDL_CONTROLLER_BUTTON_DPAD_RIGHT→ bit 0 (R)
-    //   SDL_CONTROLLER_BUTTON_DPAD_UP   → bit 3 (U)
+    //   SDL_GAMEPAD_BUTTON_SOUTH         → bit 4 (B / Fire 1)
+    //   SDL_GAMEPAD_BUTTON_EAST         → bit 5 (C / Fire 2)
+    //   SDL_GAMEPAD_BUTTON_DPAD_RIGHT→ bit 0 (R)
+    //   SDL_GAMEPAD_BUTTON_DPAD_UP   → bit 3 (U)
     //
     // Test: press A on connector 0 → Joystick::read_port_1f() (Kempston1
     // mode default for joy0) bit 4 = 1. Press DPAD_RIGHT → bit 0 = 1.
@@ -665,23 +666,23 @@ static void test_joy_wire(Emulator& emu) {
         const uint8_t v0 = j.read_port_1f();
 
         // Press A on connector 0 → bit 4 set.
-        d.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);
+        d.handle_button(0, SDL_GAMEPAD_BUTTON_SOUTH, true);
         const uint8_t v_a = j.read_port_1f();
 
         // Press DPAD_RIGHT on connector 0 → bit 0 also set.
-        d.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_RIGHT, true);
+        d.handle_button(0, SDL_GAMEPAD_BUTTON_DPAD_RIGHT, true);
         const uint8_t v_ar = j.read_port_1f();
 
         // Release A → only bit 0 remains.
-        d.handle_button(0, SDL_CONTROLLER_BUTTON_A, false);
+        d.handle_button(0, SDL_GAMEPAD_BUTTON_SOUTH, false);
         const uint8_t v_r = j.read_port_1f();
 
         // Release DPAD_RIGHT → 0x00.
-        d.handle_button(0, SDL_CONTROLLER_BUTTON_DPAD_RIGHT, false);
+        d.handle_button(0, SDL_GAMEPAD_BUTTON_DPAD_RIGHT, false);
         const uint8_t v_off = j.read_port_1f();
 
         // Out-of-range connector index ignored (JOY-WIRE-04 routing rule).
-        d.handle_button(2, SDL_CONTROLLER_BUTTON_A, true);
+        d.handle_button(2, SDL_GAMEPAD_BUTTON_SOUTH, true);
         const uint8_t v_idx2 = j.read_port_1f();
 
         char detail[160];
@@ -690,14 +691,14 @@ static void test_joy_wire(Emulator& emu) {
                       "v_off=0x%02X v_idx2=0x%02X",
                       v0, v_a, v_ar, v_r, v_off, v_idx2);
         check("JOY-WIRE-02",
-              "SDL_CONTROLLERBUTTON* → Joystick port 0x1F (K1 mode)  "
+              "SDL_EVENT_GAMEPAD_BUTTON_* → Joystick port 0x1F (K1 mode)  "
               "(zxnext.vhd:3441-3442 + :3470-3479; G42)",
               v0 == 0x00 && v_a == 0x10 && v_ar == 0x11 && v_r == 0x01 &&
               v_off == 0x00 && v_idx2 == 0x00,
               detail);
     }
 
-    // JOY-WIRE-03 — G42: SDL_CONTROLLERAXISMOTION → digital U/D/L/R
+    // JOY-WIRE-03 — G42: SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R
     // threshold. AXIS_THRESHOLD = 16384 (50% of int16). Negative deflection
     // past -threshold drives L (X axis) or U (Y axis); positive past
     // +threshold drives R (X) or D (Y). Inside the deadzone all D-pad
@@ -717,29 +718,29 @@ static void test_joy_wire(Emulator& emu) {
         Joystick j;
         JoystickDispatcher d(j);
 
-        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTX, 0);
+        d.handle_axis(0, SDL_GAMEPAD_AXIS_LEFTX, 0);
         const uint8_t v0 = j.read_port_1f();
 
-        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTX, 8000);    // deadzone
+        d.handle_axis(0, SDL_GAMEPAD_AXIS_LEFTX, 8000);    // deadzone
         const uint8_t v_dz = j.read_port_1f();
 
-        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTX, 20000);   // R fires
+        d.handle_axis(0, SDL_GAMEPAD_AXIS_LEFTX, 20000);   // R fires
         const uint8_t v_r = j.read_port_1f();
 
-        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTY, 20000);   // D fires
+        d.handle_axis(0, SDL_GAMEPAD_AXIS_LEFTY, 20000);   // D fires
         const uint8_t v_rd = j.read_port_1f();
 
-        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTX, 0);       // R clears
+        d.handle_axis(0, SDL_GAMEPAD_AXIS_LEFTX, 0);       // R clears
         const uint8_t v_d = j.read_port_1f();
 
-        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTY, -25000);  // U fires, D clears
+        d.handle_axis(0, SDL_GAMEPAD_AXIS_LEFTY, -25000);  // U fires, D clears
         const uint8_t v_u = j.read_port_1f();
 
-        d.handle_axis(0, SDL_CONTROLLER_AXIS_LEFTY, 0);       // U clears
+        d.handle_axis(0, SDL_GAMEPAD_AXIS_LEFTY, 0);       // U clears
         const uint8_t v_off = j.read_port_1f();
 
         // Trigger axis is unmapped — no bits change.
-        d.handle_axis(0, SDL_CONTROLLER_AXIS_TRIGGERLEFT, 32000);
+        d.handle_axis(0, SDL_GAMEPAD_AXIS_LEFT_TRIGGER, 32000);
         const uint8_t v_trig = j.read_port_1f();
 
         char detail[192];
@@ -748,7 +749,7 @@ static void test_joy_wire(Emulator& emu) {
                       "v_d=0x%02X v_u=0x%02X v_off=0x%02X v_trig=0x%02X",
                       v0, v_dz, v_r, v_rd, v_d, v_u, v_off, v_trig);
         check("JOY-WIRE-03",
-              "SDL_CONTROLLERAXISMOTION → digital U/D/L/R threshold  "
+              "SDL_EVENT_GAMEPAD_AXIS_MOTION → digital U/D/L/R threshold  "
               "(symmetric ±AXIS_THRESHOLD=16384; G42)",
               v0    == 0x00 &&
               v_dz  == 0x00 &&
@@ -778,20 +779,20 @@ static void test_joy_wire(Emulator& emu) {
         j.set_mode_direct(Joystick::Mode::Kempston1, Joystick::Mode::Kempston2);
         JoystickDispatcher d(j);
 
-        d.handle_button(0, SDL_CONTROLLER_BUTTON_A, true);  // → joy_left
+        d.handle_button(0, SDL_GAMEPAD_BUTTON_SOUTH, true);  // → joy_left
         const uint8_t p1f_a = j.read_port_1f();
         const uint8_t p37_a = j.read_port_37();
 
-        d.handle_button(1, SDL_CONTROLLER_BUTTON_A, true);  // → joy_right
+        d.handle_button(1, SDL_GAMEPAD_BUTTON_SOUTH, true);  // → joy_right
         const uint8_t p1f_b = j.read_port_1f();
         const uint8_t p37_b = j.read_port_37();
 
-        d.handle_button(0, SDL_CONTROLLER_BUTTON_A, false); // release left
+        d.handle_button(0, SDL_GAMEPAD_BUTTON_SOUTH, false); // release left
         const uint8_t p1f_c = j.read_port_1f();
         const uint8_t p37_c = j.read_port_37();
 
         // Out-of-range index — neither lane changes.
-        d.handle_button(7, SDL_CONTROLLER_BUTTON_A, true);
+        d.handle_button(7, SDL_GAMEPAD_BUTTON_SOUTH, true);
         const uint8_t p1f_d = j.read_port_1f();
         const uint8_t p37_d = j.read_port_37();
 
@@ -828,30 +829,30 @@ static void test_joy_wire(Emulator& emu) {
 
         // Synthesise SDL events tagged with those instance-ids.
         SDL_Event btn0{};
-        btn0.type = SDL_CONTROLLERBUTTONDOWN;
-        btn0.cbutton.which  = 100;
-        btn0.cbutton.button = SDL_CONTROLLER_BUTTON_A;
+        btn0.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        btn0.gbutton.which  = 100;
+        btn0.gbutton.button = SDL_GAMEPAD_BUTTON_SOUTH;
         const bool consumed_btn0 = d.handle_sdl_event(btn0);
         const uint8_t bits0 = static_cast<uint8_t>(d.bits12(0) & 0xFF);
 
         SDL_Event ax1{};
-        ax1.type = SDL_CONTROLLERAXISMOTION;
-        ax1.caxis.which = 101;
-        ax1.caxis.axis  = SDL_CONTROLLER_AXIS_LEFTX;
-        ax1.caxis.value = 25000;                 // R fires
+        ax1.type = SDL_EVENT_GAMEPAD_AXIS_MOTION;
+        ax1.gaxis.which = 101;
+        ax1.gaxis.axis  = SDL_GAMEPAD_AXIS_LEFTX;
+        ax1.gaxis.value = 25000;                 // R fires
         const bool consumed_ax1 = d.handle_sdl_event(ax1);
         const uint8_t bits1 = static_cast<uint8_t>(d.bits12(1) & 0xFF);
 
         // Unmapped instance-id → not consumed.
         SDL_Event orphan{};
-        orphan.type = SDL_CONTROLLERBUTTONDOWN;
-        orphan.cbutton.which  = 999;
-        orphan.cbutton.button = SDL_CONTROLLER_BUTTON_A;
+        orphan.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        orphan.gbutton.which  = 999;
+        orphan.gbutton.button = SDL_GAMEPAD_BUTTON_SOUTH;
         const bool consumed_orphan = d.handle_sdl_event(orphan);
 
         // Non-controller event — not consumed.
         SDL_Event key_evt{};
-        key_evt.type = SDL_KEYDOWN;
+        key_evt.type = SDL_EVENT_KEY_DOWN;
         const bool consumed_key = d.handle_sdl_event(key_evt);
 
         char detail[160];
@@ -1243,6 +1244,157 @@ static void test_gh265_tape_sample() {
     }
 }
 
+// ── GPH: GamepadHost against a REAL SDL device (GH #57) ───────────────
+//
+// GamepadHost owns the SDL device lifecycle — enumerate, open, map to a
+// connector slot, route events, close — and the SDL2 -> SDL3 migration
+// rewrote all of it, because SDL3 removed the device-index/instance-id
+// duality that the old code's dedupe dance existed to cope with.
+//
+// Nothing tested it. Every other joystick row in the tree drives
+// JoystickDispatcher with a hand-built SDL_Event, which is the layer BELOW
+// this one; a GamepadHost that opened the wrong device, or none, or mapped it
+// to the wrong slot, would leave all of them green. Reviewing a rewrite whose
+// only evidence is tests that do not execute it is exactly the trap in
+// `feedback_green_tests_are_not_verification`.
+//
+// So these rows use a real SDL device: SDL_AttachVirtualJoystick creates one
+// inside SDL, which then reports it through the same enumeration and the same
+// SDL_EVENT_JOYSTICK_ADDED/REMOVED events as a USB pad. GamepadHost cannot
+// tell the difference — it never asks where a device came from.
+//
+// SKIPPED, not failed, if SDL cannot bring up its joystick subsystem at all
+// (no udev, a container with no /dev/input): that is a property of the host,
+// not of jnext. A device that attaches and then does NOT arrive is a failure.
+static void test_gamepad_host_real_device() {
+    set_group("GPH");
+
+    if (!SDL_Init(SDL_INIT_JOYSTICK | SDL_INIT_GAMEPAD)) {
+        skip("GPH-01", "SDL joystick subsystem unavailable on this host");
+        skip("GPH-02", "SDL joystick subsystem unavailable on this host");
+        skip("GPH-03", "SDL joystick subsystem unavailable on this host");
+        skip("GPH-04", "SDL joystick subsystem unavailable on this host");
+        skip("GPH-05", "SDL joystick subsystem unavailable on this host");
+        skip("GPH-06", "SDL joystick subsystem unavailable on this host");
+        return;
+    }
+
+    // A gamepad-shaped virtual device: SDL gives anything with this
+    // button/axis mask a gamepad mapping, so it takes the SDL_IsGamepad()
+    // branch of open_device() — the one a real controller takes.
+    SDL_VirtualJoystickDesc desc{};
+    desc.version    = sizeof(desc);
+    desc.type       = SDL_JOYSTICK_TYPE_GAMEPAD;
+    desc.naxes      = 6;
+    desc.nbuttons   = 11;
+    desc.nhats      = 1;
+    desc.button_mask = (1u << SDL_GAMEPAD_BUTTON_SOUTH) |
+                       (1u << SDL_GAMEPAD_BUTTON_EAST)  |
+                       (1u << SDL_GAMEPAD_BUTTON_WEST)  |
+                       (1u << SDL_GAMEPAD_BUTTON_NORTH) |
+                       (1u << SDL_GAMEPAD_BUTTON_DPAD_UP)   |
+                       (1u << SDL_GAMEPAD_BUTTON_DPAD_DOWN) |
+                       (1u << SDL_GAMEPAD_BUTTON_DPAD_LEFT) |
+                       (1u << SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
+    desc.axis_mask  = (1u << SDL_GAMEPAD_AXIS_LEFTX) | (1u << SDL_GAMEPAD_AXIS_LEFTY);
+    desc.name       = "jnext virtual test pad";
+
+    const SDL_JoystickID vid = SDL_AttachVirtualJoystick(&desc);
+    if (vid == 0) {
+        skip("GPH-01", "SDL_AttachVirtualJoystick unavailable");
+        skip("GPH-02", "SDL_AttachVirtualJoystick unavailable");
+        skip("GPH-03", "SDL_AttachVirtualJoystick unavailable");
+        skip("GPH-04", "SDL_AttachVirtualJoystick unavailable");
+        skip("GPH-05", "SDL_AttachVirtualJoystick unavailable");
+        skip("GPH-06", "SDL_AttachVirtualJoystick unavailable");
+        SDL_Quit();
+        return;
+    }
+
+    // GPH-01 — SDL3's instance ids start at 1, never 0. This is the whole
+    // reason the device map's sentinel had to change (JRAW-29/30); assert the
+    // premise against the library rather than taking the header's word.
+    check("GPH-01",
+          "a real SDL3 device's instance id is nonzero (0 is the invalid id)",
+          vid != 0,
+          "instance id = " + std::to_string((unsigned)vid));
+
+    {
+        Joystick joy; joy.reset();
+        GamepadHost host(joy);
+
+        // GPH-02 — enumerate_existing_devices() is the "pad already plugged in
+        // at startup" path (Task 83). Under SDL2 it walked device INDICES;
+        // under SDL3 it walks the SDL_GetJoysticks() instance-id array, which
+        // is a malloc'd, 0-terminated block that must be SDL_free'd.
+        host.enumerate_existing_devices();
+        const int slot = host.dispatcher().slot_for_instance(vid);
+        check("GPH-02",
+              "enumerate_existing_devices() finds an already-attached pad and "
+              "maps it to connector 1 (GH #57)",
+              slot == 0, "slot = " + std::to_string(slot));
+
+        // GPH-03 — a press on the opened device reaches the Joystick. This is
+        // the end-to-end claim: SDL event -> GamepadHost -> dispatcher ->
+        // Joystick, with the slot resolved from the instance id.
+        SDL_Event btn{};
+        btn.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        btn.gbutton.which  = vid;
+        btn.gbutton.button = SDL_GAMEPAD_BUTTON_DPAD_RIGHT;
+        host.handle_event(btn);
+        const uint16_t bits = host.dispatcher().bits12(0);
+        check("GPH-03",
+              "a button press on the opened device reaches connector 1's bits",
+              (bits & 0x001) != 0,
+              "bits12(0) = 0x" + std::to_string(bits));
+
+        // GPH-04 — a SECOND arrival of the same device must not open it twice
+        // nor occupy the other connector. Under SDL2 this needed a speculative
+        // open-then-ask dance; under SDL3 the event carries the id, and the
+        // dedupe is a plain identity check. Prove the dedupe still holds.
+        SDL_Event added{};
+        added.type = SDL_EVENT_JOYSTICK_ADDED;
+        added.jdevice.which = vid;
+        host.handle_event(added);
+        const int slot_again  = host.dispatcher().slot_for_instance(vid);
+        const bool other_free = host.dispatcher().instance_for_slot(1) == 0;
+        check("GPH-04",
+              "a duplicate ADDED for an open device is deduped: same slot, "
+              "connector 2 still free (GH #57)",
+              slot_again == 0 && other_free,
+              "slot = " + std::to_string(slot_again) +
+              ", connector 2 owner = " + std::to_string((unsigned)host.dispatcher().instance_for_slot(1)));
+
+        // GPH-05 — REMOVED closes the slot and unmaps the id. If the free
+        // marker were written wrong (the -1-into-Uint32 hazard of JRAW-30)
+        // the entry would stay occupied and this would still report a slot.
+        SDL_Event removed{};
+        removed.type = SDL_EVENT_JOYSTICK_REMOVED;
+        removed.jdevice.which = vid;
+        host.handle_event(removed);
+        const int slot_after = host.dispatcher().slot_for_instance(vid);
+        check("GPH-05",
+              "REMOVED closes the slot and unmaps the instance id",
+              slot_after < 0, "slot after removal = " + std::to_string(slot_after));
+
+        // GPH-06 — and events for the departed device are then refused rather
+        // than landing on whatever connector the entry used to name.
+        SDL_Event stale{};
+        stale.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+        stale.gbutton.which  = vid;
+        stale.gbutton.button = SDL_GAMEPAD_BUTTON_DPAD_LEFT;
+        host.handle_event(stale);
+        check("GPH-06",
+              "an event from a removed device is refused, not applied to a "
+              "connector",
+              (host.dispatcher().bits12(0) & 0x002) == 0,
+              "bits12(0) = 0x" + std::to_string(host.dispatcher().bits12(0)));
+    }
+
+    SDL_DetachVirtualJoystick(vid);
+    SDL_Quit();
+}
+
 int main() {
     std::printf("Input Subsystem Integration Tests (port 0xFE assembly)\n");
     std::printf("======================================================\n\n");
@@ -1274,6 +1426,9 @@ int main() {
 
     test_gh265_tape_sample();
     std::printf("  Group: GH265-TAPE — done\n");
+
+    test_gamepad_host_real_device();
+    std::printf("  Group: GPH     — done\n");
 
     std::printf("\n======================================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
