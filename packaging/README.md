@@ -308,6 +308,36 @@ flatpak-builder --user --install build-dir packaging/flatpak/io.github.zxjogv.jn
 Bump both the SDL2 pin (URL + `sha256`) and the `runtime-version` when a newer
 SDL2 release or KDE runtime branch is targeted.
 
+### Sandbox permissions are a CONTRACT, checked on the built bundle (GH #271)
+
+jnext is a networked application: the SD-card provisioner downloads the
+NextZXOS distro zip over HTTPS, and the ESP-01 WiFi emulation opens real
+sockets. The manifest shipped without `--share=network` until v1.0.x, which
+left the sandbox with no network namespace and therefore no DNS at all — a
+Flatpak user got libcurl's "Could not resolve hostname" for a host the same
+machine resolved fine one shell out, and ESP-01 could not connect even to an
+IP literal ("Network is unreachable").
+
+`packaging/flatpak/verify-permissions.sh` is what stops that recurring. It
+reads the **built artifact**, not the manifest: given the `.flatpak` bundle it
+installs it into a throwaway `FLATPAK_USER_DIR` and reads the permissions back
+with `flatpak info --show-permissions` (it also accepts a flatpak-builder app
+directory, a `metadata` file, or an installed app id). A grep of the YAML would
+prove only that a string is in a file.
+
+It runs from two places, and both are pinned by
+`test/packaging/flatpak-permissions-test.sh`:
+
+* `make package-flatpak` calls `make verify-flatpak-permissions` as the last
+  step of its own recipe (the same shape as `package-macos` → `verify-macos-dmg`);
+* the `flatpak` job in `.github/workflows/release.yml` calls
+  `make verify-flatpak-permissions BUNDLE=<bundle>` after the upstream
+  flatpak-builder action, because that job deliberately does not go through
+  `make package-flatpak` (see the job's own comment).
+
+To require a further permission, add its `shared=` token to `REQUIRED_SHARED`
+in the script and the matching `finish-arg` to the manifest.
+
 ## Windows / macOS
 
 **Windows** is cross-built through the project's own `make package-win` target

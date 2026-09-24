@@ -150,7 +150,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        package-src package-rpm package-deb sdl3-vendor package-flatpak package-win package-macos win-release package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
        win-qt5-release package-win-qt5 win32-qt5-release package-win32-qt5 qt5-guard-build \
-       package-contract-test packaging-selftest verify-macos-dmg
+       package-contract-test packaging-selftest verify-macos-dmg verify-flatpak-permissions
 .SILENT:
 
 # Show this help message with descriptions for all targets
@@ -599,7 +599,7 @@ unit-test: lint-assertions lint-makefile-help traceability-accounting-check trac
 	@# packaging scripts are hand-written, ship user-visible artifacts, and had no
 	@# automatic gate at all — `make package-test` was called by no workflow and by
 	@# no target, which is how its sync-version row stayed red for 46 tags (#60).
-	@# Only the HERMETIC half runs here: six bash contract suites on throwaway fake
+	@# Only the HERMETIC half runs here: seven bash contract suites on throwaway fake
 	@# roots, ~4 s, no compiler and no packaging toolchain. The half that actually
 	@# builds rpm/deb/win packages (~4 min) stays in `make package-test`, run as its
 	@# own parallel job in ci.yml.
@@ -1398,6 +1398,42 @@ package-flatpak:
 	 rm -f "$$bundle"; \
 	 flatpak build-bundle $(BUILD_DIR_FPK_RELEASE)-repo "$$bundle" io.github.zxjogv.jnext; \
 	 printf "$(BOLD)Flatpak bundle produced:$(RESET)\n"; ls -1 "$$bundle"
+	@# GH #271 — the bundle is not shippable until it is proven to carry the
+	@# permissions jnext cannot run without. Same shape as package-macos calling
+	@# verify-macos-dmg: the gate is part of producing the artifact, not a
+	@# separate thing someone has to remember to run.
+	$(MAKE) verify-flatpak-permissions
+
+# Prove the built Flatpak bundle carries the permissions jnext needs (GH #271)
+verify-flatpak-permissions:
+	@# Reads the BUILT artifact, never the manifest: the bundle is installed into
+	@# a throwaway FLATPAK_USER_DIR and its permissions are read back with
+	@# `flatpak info --show-permissions` — the same answer a user's machine gives.
+	@# See packaging/flatpak/verify-permissions.sh for why a grep of the YAML is
+	@# not a substitute.
+	@#
+	@# BUNDLE=<path> overrides the default. The release workflow's flatpak job
+	@# passes it, because that job builds through the upstream flatpak-builder
+	@# action (a declared exception, see release.yml) and so lands the bundle
+	@# under its own name rather than in build/.
+	@set -e; \
+	 bundle="$(BUNDLE)"; \
+	 if [ -z "$$bundle" ]; then \
+		ver=$$(grep '^version:' version.yaml | awk '{print $$2}'); \
+		bundle="build/jnext-$$ver-x86_64.flatpak"; \
+	 fi; \
+	 if [ ! -f "$$bundle" ]; then \
+		printf "$(BADGE_FAIL) ERROR $(RESET) no Flatpak bundle at $$bundle\n"; \
+		printf "  Build one first: $(BOLD)make package-flatpak$(RESET)\n"; \
+		printf "  (or point this target at an existing one: make verify-flatpak-permissions BUNDLE=path)\n"; \
+		found=$$(ls -1 jnext-*.flatpak build/jnext-*.flatpak 2>/dev/null || true); \
+		if [ -n "$$found" ]; then \
+			printf "  Bundles that DO exist here:\n"; \
+			printf "    %s\n" $$found; \
+		fi; \
+		exit 1; \
+	 fi; \
+	 bash packaging/flatpak/verify-permissions.sh "$$bundle"
 
 # Cross-compile + ZIP the Windows build (Fedora MinGW)
 package-win: win-release

@@ -154,6 +154,20 @@ else
     bad package-recipe "contract test failed" "$LOGDIR/pkgrecipe.log"
 fi
 
+# --- flatpak permission gate contract (GH #271) ------------------------------
+# verify-permissions.sh is what stops the shipped Flatpak losing --share=network
+# again. jnext downloads its SD-card image and runs the ESP-01 WiFi emulation
+# over real sockets, and the manifest never granted the sandbox a network
+# namespace, so BOTH were dead on Flatpak while a manifest grep would have said
+# nothing was wrong. Hermetic: fabricated `metadata` files + a stubbed flatpak,
+# no build, so it belongs in this half; the REAL bundle is checked by the
+# package-flatpak row below.
+if bash test/packaging/flatpak-permissions-test.sh >"$LOGDIR/fpkperm.log" 2>&1; then
+    ok flatpak-perms "accepts shared=network, refuses the shipped 1.0.1 shape + near-misses"
+else
+    bad flatpak-perms "contract test failed" "$LOGDIR/fpkperm.log"
+fi
+
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real
 # packages. `make package-contract-test` (a prerequisite of `make unit-test`)
@@ -590,10 +604,19 @@ if command -v flatpak-builder >/dev/null 2>&1; then
     elif flatpak list 2>/dev/null | grep -q "org.kde.Sdk"; then
         if make package-flatpak >"$LOGDIR/flatpak.log" 2>&1; then
             b=$(ls -1 build/jnext-*-x86_64.flatpak 2>/dev/null | head -1)
-            if [ -n "$b" ] && [ -s "$b" ]; then
-                ok package-flatpak "$(basename "$b")"
-            else
+            if [ -z "$b" ] || [ ! -s "$b" ]; then
                 bad package-flatpak "no .flatpak bundle produced" "$LOGDIR/flatpak.log"
+            # GH #271 — the bundle must carry --share=network, asserted on the
+            # ARTIFACT: the bundle is installed into a throwaway
+            # FLATPAK_USER_DIR and its permissions read back with `flatpak
+            # info`. package-flatpak runs the same gate itself, so this row
+            # would already have failed above; asserting it separately is what
+            # makes the failure say WHICH thing is wrong instead of "make
+            # package-flatpak failed".
+            elif ! bash packaging/flatpak/verify-permissions.sh "$b" >"$LOGDIR/flatpak-perms.log" 2>&1; then
+                bad package-flatpak "bundle is missing a required sandbox permission (GH #271)" "$LOGDIR/flatpak-perms.log"
+            else
+                ok package-flatpak "$(basename "$b") ($(sed -e 's/ (from.*//' "$LOGDIR/flatpak-perms.log"))"
             fi
         else
             bad package-flatpak "make package-flatpak failed" "$LOGDIR/flatpak.log"
