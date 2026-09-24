@@ -1054,11 +1054,18 @@ void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, in
 // Nesting the two calls here keeps that order a property of one declaration
 // rather than of three `save_state` bodies that have to agree.
 //
-// The keys of all three land in ONE flat object, so they must not collide.
-// The ULA prefixes its clip window `ula_clip_*` and LoRes prefixes all four
-// of its fields `lores_*` for exactly that reason; `S4-KEYS-UNIQUE` checks
-// the whole block rather than each declaration on its own, because a
-// collision ACROSS the nesting is the one a per-subsystem check would miss.
+// The keys of all three land in ONE flat object. Nothing in the language
+// stops two of them choosing the same name, and a duplicate is INVISIBLE to
+// the byte-identity gate — the binary encoding ignores names entirely, while
+// `JsonWriteDesc`'s `obj[name] = value` silently drops the first of the pair.
+// `S4-KEYS-UNIQUE` therefore checks the whole flattened block rather than each
+// declaration on its own, because a collision ACROSS the nesting is exactly
+// the one a per-subsystem check cannot see.
+//
+// The `ula_*` and `lores_*` prefixes are for LEGIBILITY rather than to break
+// a live collision (there is none today): `enabled`, `scroll_x`, `clip_x1` are
+// names all three of these subsystems could reasonably want, and in one
+// flattened object an unprefixed one would not say whose it is.
 //
 // The three bools are declared `boolean` although the stream wrote them with
 // `write_u8(x ? 1 : 0)`. That is byte-identical, not merely equivalent:

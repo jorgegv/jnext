@@ -41,8 +41,10 @@ uint8_t Lores::read_bank5(uint16_t addr, Ram& ram) const
 // GH #27 S4 — the ONE field list (design §9.2). Four bytes at the END of
 // block 10, after `Renderer`'s own scalars, because that is where
 // `Renderer::save_state` has always nested this call. The keys are prefixed
-// `lores_` so the flat block-10 object cannot collide with the ULA's or the
-// Renderer's own (`enabled` is a name all three would otherwise want).
+// `lores_` because block 10 is ONE flat object holding three subsystems'
+// fields, and `enabled` / `scroll_x` / `scroll_y` would not say whose they
+// are there. It is legibility, not a live collision — `S4-KEYS-UNIQUE` is
+// what proves the flattening is actually unambiguous.
 //
 // `enabled` is declared `boolean`, not `u8`. That is byte-identical, not
 // merely equivalent: `StateWriter::write_bool` IS `write_u8(v ? 1 : 0)` and

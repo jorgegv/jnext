@@ -2735,12 +2735,21 @@ static int test_s4_restore_behaviour()
         buf[s4::kPalTargetOff] = 0x2A;   // no PaletteId has ordinal 42
 
         PaletteManager back;
+        back.write_control(0x10);   // target 1 (LAYER2_FIRST) before the load
         StateReader r(buf.data(), buf.size());
         back.load_state(r);
-        check("S4-PALETTE-TARGET", r.position() == buf.size(),
-              "an out-of-range target_palette ordinal is refused instead of "
-              "being cast in, and the stream still ends exactly where it "
-              "should — the byte was consumed either way");
+        // Read the restored target back through the stream: the class has no
+        // getter for it. Asserting only `r.position()` would NOT discriminate
+        // — a plain `u8` consumes the same byte and ends in the same place,
+        // and a mutation replacing the enum8 with a u8 proved exactly that.
+        const std::vector<uint8_t> after = s4::save_bytes(back);
+        check("S4-PALETTE-TARGET",
+              after[s4::kPalTargetOff] == 1 && after[4096] == 0x60 &&
+                  r.position() == buf.size(),
+              "an out-of-range target_palette ordinal is REFUSED: the field "
+              "keeps its pre-load target instead of being cast in, the plain "
+              "control byte beside it IS restored, and the stream still ends "
+              "exactly where it should — the byte was consumed either way");
     }
 
     // ── Ula: screen_mode is an enum8 WITH HOLES ───────────────────────────
@@ -2887,6 +2896,100 @@ static int test_s4_restore_behaviour()
               "the 640-byte attribute file is sprite-major, five bytes each: "
               "sprite 37's five bytes are at offsets 185-189, exactly where "
               "the pre-migration 128-iteration loop put them");
+    }
+
+    // ── Ula: the port-0xFF replay cursor restarts at the restored log ────
+    //
+    // `port_ff_render_cursor_` is transient render state and is NOT in the
+    // stream, so after a restore it still points into the log the restoring
+    // object had BEFORE the load — a log that no longer exists. S4 moved that
+    // reset out of `load_state` into `after_load_state` (so `Renderer` can run
+    // it while performing the nested walk itself), and a mutation deleting it
+    // killed no row in any suite. It does now.
+    {
+        Ula a;
+        a.start_frame();
+        a.set_current_line(7);
+        a.set_screen_mode(0x02);    // log entry {line 7, value 0x02}
+        a.rewind_to_baseline();     // live register back to the baseline 0x00
+        std::vector<uint8_t> buf = s4::save_bytes(a);
+
+        Ula b;
+        b.start_frame();
+        b.set_current_line(3);
+        b.set_screen_mode(0x06);    // b's OWN log: {line 3, value 0x06}
+        b.rewind_to_baseline();
+        b.apply_changes_for_line(3);  // b's cursor advances past its entry
+        StateReader r(buf.data(), buf.size());
+        b.load_state(r);
+        b.apply_changes_for_line(7);  // replay the RESTORED log, no rewind first
+
+        const std::vector<uint8_t> after = s4::save_bytes(b);
+        check("S4-ULA-CURSOR-RESET",
+              after[268] == 0x02 && r.position() == buf.size(),
+              "a restore restarts the port-0xFF replay cursor at the top of "
+              "the RESTORED log: replaying line 7 applies the entry the "
+              "stream carried, instead of finding a cursor left past the end "
+              "by the log the object had before the load");
+    }
+
+    // ── Ula: the per-line control snapshot is DEACTIVATED by a restore ───
+    //
+    // `control_per_line_` holds the pre-restore frame's rows and is not in
+    // the stream. Leaving `control_per_line_active_` set makes the render
+    // `Emulator::rewind_to_frame` does immediately after a load read those
+    // rows instead of the registers it just restored (GH #256). S4 moved that
+    // clear into `after_load_state` and a mutation deleting it killed no row.
+    {
+        Ula a;
+        a.set_ulanext_en(false);
+        std::vector<uint8_t> buf = s4::save_bytes(a);
+
+        Ula b;
+        b.set_ulanext_en(true);
+        b.init_control_per_line();   // every row says "true", flag active
+        StateReader r(buf.data(), buf.size());
+        b.load_state(r);
+        check("S4-ULA-PERLINE-CLEARED",
+              b.ulanext_en_for_line(5) == false && r.position() == buf.size(),
+              "a restore deactivates the per-line control snapshot, so a "
+              "render taken before the next frame initialises it reads the "
+              "RESTORED live registers and not the pre-restore frame's rows");
+    }
+
+    // ── Renderer: the nested restore runs BOTH children's post-walk work ──
+    //
+    // `Renderer::load_state` performs the ULA's and LoRes's walks itself, as
+    // part of its own nested declaration, so it must call both
+    // `after_load_state()`s. This is the path the emulator actually uses —
+    // `Emulator::load_state` calls `renderer_.load_state(r)`, never
+    // `ula_.load_state` — and the rows above exercise the two subsystems
+    // STANDALONE, which is a different entry point.
+    {
+        Renderer a;
+        a.ula().set_ulanext_en(false);
+        a.lores().set_nr6a(0x05);
+        std::vector<uint8_t> buf = s4::save_bytes(a);
+        // lores_nr6a is the LAST byte of block 10 (S4-DECL-LORES-SUFFIX).
+        check("S4-RENDERER-NESTED-OFFSET",
+              buf.size() == 3688 && buf[3687] == 0x05,
+              "lores_nr6a really is the last byte of a Renderer save — the "
+              "row below is meaningless if it corrupts another field");
+        buf[3687] = 0xC5;   // bits 7:6 set: not part of a 6-bit register
+
+        Renderer b;
+        b.ula().set_ulanext_en(true);
+        b.ula().init_control_per_line();
+        StateReader r(buf.data(), buf.size());
+        b.load_state(r);
+        check("S4-RENDERER-NESTED-AFTER-LOAD",
+              b.lores().nr6a() == 0x05 &&
+                  b.ula().ulanext_en_for_line(5) == false &&
+                  r.position() == buf.size(),
+              "a restore driven through Renderer — the path Emulator::"
+              "load_state uses — runs BOTH nested subsystems' post-walk work: "
+              "LoRes's NR $6A mask and the ULA's per-line deactivation, "
+              "neither of which the nested walk itself performs");
     }
 
     // ── Copper: the instruction RAM collapse, and the mode enum8 ──────────
