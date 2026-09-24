@@ -1502,7 +1502,9 @@ distinguished the two (`SdIdentity::populated()`); Tier 2 now does as well:
 | both known, differing | One warning naming both digests. Refusal if the FSM was mid-transfer. |
 | either unknown | One warning saying the contents **could not be compared**, and which side is missing one. **Refusal if the FSM was mid-transfer** — §11.3's last row requires a *match* there, and an unknown stamp is not a match. |
 
-`JNSI-14` … `JNSI-17` pin all four.
+`JNSI-14` … `JNSI-17` pin the new branch — the three ways a stamp can be
+unknown, and the mid-transfer refusal. `JNSI-01` and `JNSI-08`/`09`/`10` were
+already pinning the other two rows.
 
 **Cost, MEASURED (S7), not estimated.** §11.3 recommended shipping the Tier-2
 digest eager and measuring it; it ships eager, and `sd_identity_test` row
@@ -1514,6 +1516,11 @@ nobody re-checks:
 |---|---|---|
 | warm (page cache hot) | **0.49 s** | ~0.5 s |
 | cold (`POSIX_FADV_DONTNEED` first) | **0.72 s** | ~1.2 s |
+
+Both on an otherwise quiet host; under a three-agent load the same row reported
+0.52-0.80 s, which is the figure a reviewer re-running this will see. That
+spread is why the row **prints** the number and does not assert a threshold: a
+wall-clock bound on a shared build host is a flaky row, not a measurement.
 
 Paid once per save and once per load. The estimate was right warm and
 pessimistic cold on NVMe. It stays eager; the lazy variant exists as
