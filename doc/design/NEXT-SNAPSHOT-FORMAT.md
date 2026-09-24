@@ -459,6 +459,23 @@ via `additionalProperties: false` where we want it — that no unexpected key
 appeared. It also makes the file **self-describing**: the schema ships beside
 the format and answers "what is this field?" without reading jnext's source.
 
+> **Correction (S2, 2026-09-24): a JSON Schema does NOT catch a duplicate
+> key,** and an earlier revision of this section listed one among the things it
+> does (the claim survives in §13.2(3)'s list, which is wrong for the same
+> reason). No validator can: JSON is parsed to a document *before* a schema is
+> applied, and every mainstream parser has already resolved `{"x":1,"x":2}` to
+> one member by then — nlohmann resolves it to `{"x":2}`, measured. The reader
+> is therefore the only layer that can refuse it, and `JsonReadDesc` does, via
+> a parse-time key-set guard. It matters for the same reason §12.4 refuses
+> duplicate ZIP *member* names: two implementations may legitimately disagree
+> which wins.
+>
+> The same guard bounds DOCUMENT DEPTH at 16. Not as a stack-overflow
+> defence — nlohmann's parser and its DOM destructor are both iterative,
+> measured clean to 5 000 000 levels — but because a member of `[` characters
+> becomes one DOM node per byte, and S1's central-directory cap lets a member
+> be 64 MB. That is the 167-byte-archive class one layer down.
+
 **A JSON Schema cannot validate a blob's contents.** Nothing can, short of
 running the machine. What it *can* do, and what this design has it do, is
 validate the blob's **declaration**: the manifest's `members` object names each
@@ -662,13 +679,24 @@ the threshold never applies to it.
 | Boolean flag | `true` / `false` | type |
 | Unsigned ≤ 32 bits | JSON number, decimal | type, `minimum`, `maximum` |
 | **Signed 32-bit (`i32`)** | JSON number, may be negative | `minimum: -2147483648` |
-| **`u64` / `i64`** | JSON **string** of decimal digits, sign allowed | `pattern: "^-?[0-9]+$"` — see §7.4 |
+| **`u64` / `i64`** | JSON **string** of decimal digits, sign allowed | `pattern` — see §7.4 and the note below |
 | **Open-ended sentinel** (`INT64_MAX`) | the JSON string `"open"` | `enum` alongside the numeric pattern |
 | Enum / FSM state | JSON string from a closed set | `enum` — an FSM renumbering becomes a *name* change, visible in a diff |
 | Fixed array, not guest memory | one lower-case hex string, no separators | `pattern: "^[0-9a-f]{N}$"` with N literal — **exact length checked by the schema** |
 | **Count-prefixed history** (see below) | JSON array of exactly `count` items | `maxItems` = the binary capacity |
 | Variable-length list | JSON array of objects | `items`, `minItems`/`maxItems` |
 | Guest memory | ZIP member, declared in `manifest.members` | the *declaration*, not the bytes (§5.3) |
+
+**The patterns are per-type and CANONICAL, not the one `^-?[0-9]+$` an earlier
+revision gave for both** (S2 correction). A `u64` cannot be negative, so its
+pattern is `^(0|[1-9][0-9]*)$` and an `i64`'s is `^(0|-?[1-9][0-9]*)$`: a shared
+signed pattern would let a schema accept `"-1"` for an unsigned field, which is
+a hole in the direction that matters. Both forbid leading zeros and `-0`, so
+there is exactly ONE spelling per value — otherwise two documents could mean
+the same state and differ under a byte-diffed gate. `JsonReadDesc` accepts
+exactly the same grammar, deliberately: a schema looser than the reader makes
+the validator lie in the more dangerous direction, by passing a file jnext
+refuses.
 
 **`i32` and `i64` are not optional additions.** The tree makes **11 `write_i32`
 calls** today — `Clock::cpu_divisor_`, `Im2Controller::last_acked_`,
@@ -990,7 +1018,7 @@ void DivMmc::describe_state(StateDesc& d) {
     d.u8   ("control_reg",       control_reg_);
     d.bytes("entry_points",      entry_points_, 4);      // -> hex string
     d.enum8("automap_state",     automap_state_, kAutomapStateNames);
-    d.ram_window("ram", /* page */ 16, kRamSize);        // -> a RAM reference
+    d.ram_window("ram", ram_ext_, kRamSize, /* page */ 16);  // -> a reference
     // …
 }
 ```
@@ -1038,6 +1066,13 @@ declaration:
 | `MeasureDesc` / `BinWriteDesc` / `BinReadDesc` | the positional byte stream, in declaration order | today's hand-written `save_state`/`load_state` — same bytes, same speed, same fixed width |
 | `JsonWriteDesc` / `JsonReadDesc` | the named-key JSON of §6 | — |
 | `SchemaDesc` | the JSON Schema for that subsystem | — |
+
+Two signature corrections S2 made while implementing that table, both because
+the binary realisation needs something the §9.2 sketch above left out.
+`ram_window` gained the buffer POINTER (the binary encoding writes the bytes
+inline, which is exactly the duplication S5b removes), and `MeasureDesc` is not
+a third class: it is `BinWriteDesc` over a measure-mode `StateWriter`, so it
+cannot drift from the writer it measures — it *is* the writer.
 
 Consequences, and they are the argument:
 
@@ -1118,9 +1153,15 @@ An earlier draft named three of these. All eight, from the classification:
    the two layouts differ in count width, element form and padding policy
    (§6.2's table) and the byte-identity gate tests all three. The binary form must stay padded to capacity because
    `RewindBuffer` requires constant width; the JSON form must carry exactly
-   `count` items. **One declaration, two shapes**, so this is an explicit
-   primitive — `d.history("port_ff_log", log_, count_, MAX_CHANGES_PER_FRAME)` —
-   not something a plain array descriptor can express. The hazard is on record:
+   `count` items. **One declaration, two shapes**, so these are explicit
+   primitives — `d.log("port_ff_log", entries, count_, MAX_CHANGES_PER_FRAME)`
+   and `d.fifo("rx_fifo", ring, FifoElem::U16)` — not something a plain array
+   descriptor can express. (An earlier revision gave a single
+   `d.history(...)` here, contradicting the two-primitive decision the same
+   paragraph makes and §6.2 restates; corrected at S2, which implemented the
+   two.) `entries`/`ring` are non-owning ACCESSORS rather than raw arrays, so
+   migrating the ULA is one declaration line and not a rewrite of the struct
+   the renderer indexes into. The hazard is on record:
    serialising a variable-length log "was tried first and was the actual bug
    behind a `free(): invalid size` heap-corruption crash"
    (`src/memory/attribute_mux.h:216-235`).
@@ -1528,8 +1569,10 @@ structural field our own reader was too permissive about.
 **(3) An independent JSON Schema validator, on every written file.**
 `check-jsonschema` / Python `jsonschema` against the committed
 `jns-snapshot.schema.json`. Removes the *encoding* class: wrong type, missing
-required key, hex string of the wrong length, register out of range, duplicate
-key, malformed UTF-8.
+required key, hex string of the wrong length, register out of range, malformed
+UTF-8. **Not a duplicate key** — see §5.3's correction: the duplicate is gone
+before any validator sees the document, so the READER refuses it and nothing
+else can.
 
 **(4) A hand-written constraint overlay, merged into the generated schema.**
 This is what stops (3) being circular. The generated half cannot express an
@@ -1793,6 +1836,34 @@ outside the descriptor, and it is nearly free:
 Every row is mutation-tested by its author before review: revert the
 behavioural branch the row exists for and confirm the row fails.
 
+**Two groups S2 added, recorded here after the fact** — the table above was
+written before the descriptor layer existed and named neither:
+
+| Group | IDs | What |
+|---|---|---|
+| **Schema** | `JNSS-01…` | The GENERATED SHAPE, per §6.2's table: a field without a declared default is `required` and one with it carries `default`; unsigned widths become `minimum`/`maximum`; a `u64` becomes a string with a canonical pattern; `i64_open` carries the `"open"` alternative; a fixed array's length is a LITERAL in the pattern; an enum is a closed name set; a `log`/`fifo` carries the BINARY capacity as `maxItems`; a `blob` contributes no property and a `ram_window` a `const` reference; `additionalProperties: false`; and the output is deterministic and ORDER-INDEPENDENT. Plus: a declared default outside its own enum's name set fails generation. |
+| **Golden / byte identity** | `JNSG-01…` | §17.1's extractor as tested code rather than a shell pipeline (`snapshot_test --extract-golden IN OUT`): `JNEXTWS2` deflated and `JNEXTWS1` plain, a header whose `plain_bytes` lies, an unknown magic, a file shorter than the 96-byte header. Plus the sentinel encoding the golden's 33-block framing rests on. |
+
+The **adversarial** rows are `JNSA-*`, a group the table above also did not
+name. They exist because reviewing a spec is not reviewing a parser: S1's
+design passed two review rounds and S1's *implementation* review still found a
+zip-slip and a 167-byte archive that forced a 4.29 GB allocation. Every length,
+count and index a document supplies is fed back hostile — truncated, oversized,
+wrong-typed, non-canonical, duplicated, over-deep, and self-referential.
+
+**What S2's rows do NOT prove, stated because the gate above invites the
+assumption.** S2 migrates no subsystem, so no row can claim the real
+2 292 965-byte stream is unchanged — there is nothing yet to compare. What
+`JNSD-B01` proves is narrower and is the precondition S3-S5 rest on: for every
+primitive, `BinWriteDesc` emits the same bytes a hand-written `save_state` in
+the tree's idiom emits. The golden itself was verified by hand at S2 time
+(2026-09-24): the recipe above yields exactly **2 292 965** bytes, in which all
+**33** of `Emulator::save_state`'s sentinels appear **exactly once**, in ordinal
+order, the last ending at byte 2 292 965 with **zero** bytes left over. That
+confirms §17.1's stated header facts and §4's block measurements — the DivMMC
+block is 131 089 bytes and the Multiface block 8 201, so §17.0's post-S5b Next
+length of 2 153 701 follows arithmetically.
+
 ### 16.2 Functional / regression rows — `test/00regression/`
 
 | Row | What |
@@ -1820,6 +1891,25 @@ mkdocs stamped `sitemap.xml.gz` with the build date and the gate went red on an
 unchanged tree. Produced by a dedicated `tools/gen-snapshot-schema` target
 running `SchemaDesc` over every subsystem and merging the hand-written overlay
 (§13.2(4)), so exactly one command produces the committed artefact.
+
+**The gate has a second half, and it is the half that is not bookkeeping**
+(added S2). Regenerate-and-diff proves the committed file is CURRENT; it proves
+nothing about whether it is a valid schema, or whether it accepts and rejects
+the right documents — a schema with no constraints at all would pass the diff
+forever. So `schema-check` then hands the committed file to Python
+`jsonschema`, an implementation that is not ours
+(`test/snapshot/verify_schema.py`), which asserts three things: it IS a valid
+draft 2020-12 schema; a manifest transcribed **from this document** rather than
+from `manifest_to_json` validates (§13.2(6), scoped to the manifest); and a
+matrix of single-mutation faults is REJECTED, each naming the constraint that
+caught it. Skip/fail posture is `docs-check`'s: skip when the validator is
+absent locally, hard-fail in CI.
+
+**In S2 the subsystem registry is EMPTY**, so the committed schema covers the
+manifest and declares no `state/*.json` yet. That is the correct state, not an
+omission: the gate exists before the first migration so each of S3-S5's 34
+subsystems arrives as a schema diff, where §13.2(5) wants a human to see it. A
+gate added after the thirty-fourth would have missed every diff it exists for.
 
 ## 17. Staged implementation plan and effort
 
