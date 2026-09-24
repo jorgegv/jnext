@@ -6,6 +6,8 @@
 #include <cstring>
 #include <fstream>
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 // ─── DivMMC logger ────────────────────────────────────────────────────
 
@@ -608,85 +610,86 @@ void DivMmc::write(uint16_t addr, uint8_t val) {
     ram_data()[bank_ * kRamPageSize + (addr & 0x1FFF)] = val;
 }
 
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 131 090 bytes as block 18 of the 2 292 965-byte stream.
+//
+// ── THE 128 KB IS DECLARED `ram_window`, AND IT IS STILL WRITTEN INLINE ──
+//
+// `ram_window` (§6.1 case 2) says "guest memory that ALIASES another blob":
+// this buffer IS `Ram` page 16 onwards, so the same 128 KB already travels
+// inside `mem/ram.bin`. The binary realisation writes it inline anyway, which
+// is exactly the duplication §17.0 removes in S5b — reproducing it here is
+// what the byte-identity gate requires of S2-S5, and that gate is a migration
+// scaffold, not a contract. S5 does NOT pre-empt S5b: turning this into a
+// reference moves the golden, and re-baselining it is S5b's job, with the
+// diff explained field by field.
+//
+// ── WHAT §9.2's RUN-TIME ASSERTION CANNOT SEE HERE ──────────────────────
+//
+// §9.2 says the static "DivMMC is always a window" claim is "asserted at run
+// time so it cannot go stale", by a `ram_window` declaration failing loudly
+// when its pointer is null. That assertion is VACUOUS for this call, and not
+// because of the machine-level scoping: `ram_data()` NEVER returns null — it
+// falls back to the private `ram_` array (divmmc.h:288-291) — so the
+// null-check cannot fire whatever `machine_level()` says.
+//
+// Declaring `ram_ext_` instead would make the claim checkable but would break
+// the standalone round-trip that row DA-09 performs (`divmmc_test.cpp`
+// builds a DivMmc whose `set_ram_backing` was never called, so `ram_ext_` is
+// null and the write would be a 128 KB `memcpy` from nullptr). So the
+// declaration keeps `ram_data()`, and the claim stays a comment until the
+// Emulator-driven realisation of §9.2 exists to carry it — which is the same
+// stage that makes this a reference rather than a copy.
+void DivMmc::describe_state(jnext::save::StateDesc& d)
+{
+    // The composite `enabled_` byte stays at the front so the field order of
+    // the first half of the stream is unchanged; the two split levers are
+    // appended after the RAM (see the foot of this declaration).
+    d.boolean("enabled", enabled_);
+    d.boolean("conmem", conmem_);
+    d.boolean("mapram", mapram_);
+    d.u8("bank", bank_);
+    d.u8("control_reg", control_reg_);
+    d.boolean("automap_active", automap_active_);
+    d.u8("entry_points_0", entry_points_0_);
+    d.u8("entry_valid_0", entry_valid_0_);
+    d.u8("entry_timing_0", entry_timing_0_);
+    d.u8("entry_points_1", entry_points_1_);
+    // Two-stage automap latch state (Task 7 Branch A).
+    d.boolean("automap_hold", automap_hold_);
+    d.boolean("automap_held", automap_held_);
+    // NMI-button latch (VHDL divmmc.vhd:108-111).
+    d.boolean("button_nmi", button_nmi_);
+    // Layer 2 read-map feeder (VHDL zxnext.vhd:3138).
+    d.boolean("layer2_map_read", layer2_map_read_);
+    // G46(a) — RETN delayed-clear pending flag.
+    d.boolean("retn_pending_clear", retn_pending_clear_);
+    d.ram_window("ram", ram_data(), kRamSize, /*page=*/16);
+    // VHDL-split enable levers (port_divmmc_io_en, nr_0a_divmmc_automap_en).
+    // Declared independently of the composite `enabled_` so a snapshot holding
+    // port_io=1 / nr_0a_4=0 — the firmware-reset shape, whose composite is 0 —
+    // survives a load.
+    d.boolean("port_io_enable", port_io_enable_);
+    d.boolean("nr_0a_4_enable", nr_0a_4_enable_);
+}
+
 void DivMmc::save_state(StateWriter& w) const
 {
-    // Note: snapshot schema breaks back-compat with pre-2026-05-04 saves —
-    // the two split enable levers (port_io_enable_, nr_0a_4_enable_) are
-    // appended at the end of the stream (see below). This matches the
-    // existing pattern for prior schema additions (button_nmi_,
-    // layer2_map_read_, retn_pending_clear_) — see comments below. The
-    // composite enabled_ byte stays at the front so the field order is
-    // unchanged for the first half of the stream; the post-ram appendage
-    // is the new state.
-    w.write_bool(enabled_);
-    w.write_bool(conmem_);
-    w.write_bool(mapram_);
-    w.write_u8(bank_);
-    w.write_u8(control_reg_);
-    w.write_bool(automap_active_);
-    w.write_u8(entry_points_0_);
-    w.write_u8(entry_valid_0_);
-    w.write_u8(entry_timing_0_);
-    w.write_u8(entry_points_1_);
-    // Two-stage automap latch state (Task 7 Branch A).
-    w.write_bool(automap_hold_);
-    w.write_bool(automap_held_);
-    // NMI-button latch (VHDL divmmc.vhd:108-111).
-    w.write_bool(button_nmi_);
-    // Layer 2 read-map feeder (VHDL zxnext.vhd:3138). Appended after
-    // button_nmi_ to keep the stream layout append-only.
-    w.write_bool(layer2_map_read_);
-    // G46(a) — RETN delayed-clear pending flag. Appended last to keep
-    // the stream layout append-only (matches earlier additions); breaks
-    // backward compat with pre-G46(a) snapshots by design.
-    w.write_bool(retn_pending_clear_);
-    w.write_bytes(ram_data(), kRamSize);
-    // VHDL-split enable levers (port_divmmc_io_en, nr_0a_divmmc_automap_en).
-    // Saved independently so post-fix snapshots survive a load even when
-    // they hold port_io=1 / nr_0a_4=0 (the firmware-reset shape that yields
-    // composite enabled_=0). Same hard-versioned compat caveat as the
-    // earlier additions above: pre-2026-05-04 snapshots are NOT readable
-    // with this schema — `r.eof()` cannot subset the stream because
-    // load_state reads from a single shared StateReader (the rest of the
-    // Emulator follows immediately, see Emulator::load_state).
-    w.write_bool(port_io_enable_);
-    w.write_bool(nr_0a_4_enable_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void DivMmc::load_state(StateReader& r)
 {
-    enabled_        = r.read_bool();
-    // NA-03: keep the split levers consistent with the composite flag.
-    port_io_enable_ = enabled_;
-    nr_0a_4_enable_ = enabled_;
-    conmem_         = r.read_bool();
-    mapram_         = r.read_bool();
-    bank_           = r.read_u8();
-    control_reg_    = r.read_u8();
-    automap_active_ = r.read_bool();
-    entry_points_0_ = r.read_u8();
-    entry_valid_0_  = r.read_u8();
-    entry_timing_0_ = r.read_u8();
-    entry_points_1_ = r.read_u8();
-    automap_hold_   = r.read_bool();
-    automap_held_   = r.read_bool();
-    // NMI-button latch (VHDL divmmc.vhd:108-111). Appended to the
-    // snapshot stream — consistent with the Task 7 Branch A additions
-    // above (hold/held). Pre-existing snapshots from before this commit
-    // are not backward-compatible; the project has historically treated
-    // save-state format as tied to build version.
-    button_nmi_     = r.read_bool();
-    // Layer 2 read-map feeder (VHDL zxnext.vhd:3138). Appended after
-    // button_nmi_. Like the Task 7 Branch A additions above, this breaks
-    // backward compat with pre-feeder snapshots by design.
-    layer2_map_read_ = r.read_bool();
-    // G46(a) — RETN delayed-clear pending flag. Same compat caveat.
-    retn_pending_clear_ = r.read_bool();
-    r.read_bytes(ram_data(), kRamSize);
-    // VHDL-split enable levers (post-2026-05-04). Same hard-versioned compat
-    // caveat as the additions above — pre-fix snapshots cannot be loaded
-    // with this schema. The composite-derived defaults at lines 471-472 are
-    // overwritten unconditionally with the persisted values.
-    port_io_enable_ = r.read_bool();
-    nr_0a_4_enable_ = r.read_bool();
+    // The hand-written pair seeded the two split levers from the composite
+    // flag mid-read (`port_io_enable_ = enabled_` right after reading
+    // `enabled_`) and then overwrote BOTH unconditionally with their own
+    // persisted values at the end of the same read. The seed was therefore
+    // DEAD, and it is dropped rather than transcribed: nothing between the
+    // two points reads either lever — `ram_data()` (divmmc.h:288-291) is
+    // `ram_ext_ ? ram_ext_ : ram_.data()` and does not consult them — so the
+    // observable end state is identical. Row S5-DIVMMC-LEVERS pins that: a
+    // stream carrying enabled=0 with port_io=1 / nr_0a_4=0 must restore the
+    // levers from the stream, not from the composite.
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 }

@@ -4,6 +4,8 @@
 #include <string>
 #include <vector>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// DivMMC peripheral — ROM/RAM overlay with auto-mapping.
 ///
 /// Provides an 8K ROM and 16 × 8K RAM pages (128K total) that can be
@@ -393,6 +395,11 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     // NA-03: the effective enable is (port_io_enable_ AND nr_0a_4_enable_).
