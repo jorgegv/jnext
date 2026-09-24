@@ -1,5 +1,6 @@
 #include "core/sd_rom_extractor.h"
 #include "core/log.h"
+#include "core/sdcard_provisioner.h"
 
 #include <algorithm>
 #include <array>
@@ -72,18 +73,25 @@ bool read_sectors(std::ifstream& f, uint32_t lba, uint32_t count,
 // Parse the MBR partition table and locate the first FAT32-LBA partition.
 // Returns the LBA of the partition's first sector, or 0 on failure.
 // (LBA 0 is never a valid partition start since the MBR itself sits there.)
-uint32_t find_fat32_partition_lba(std::ifstream& f) {
+// `why`, when non-null, receives the same reason the log line carries. The
+// ROM extractor only logs; `read_sd_image_identity` must be able to NAME the
+// defect in a refusal a user sees, and re-deriving the reason at the call site
+// would be a second copy of this function's decisions.
+uint32_t find_fat32_partition_lba(std::ifstream& f, std::string* why = nullptr) {
+    auto fail = [&](const char* msg) {
+        Log::emulator()->error("sd_rom_extractor: {}", msg);
+        if (why) *why = msg;
+        return 0u;
+    };
     uint8_t mbr[512];
     f.seekg(0, std::ios::beg);
     f.read(reinterpret_cast<char*>(mbr), 512);
     if (!f.good() || f.gcount() != 512) {
-        Log::emulator()->error("sd_rom_extractor: failed to read MBR (image too small or unreadable)");
-        return 0;
+        return fail("failed to read MBR (image too small or unreadable)");
     }
     // MBR boot signature must be 0x55 0xAA at bytes 510-511.
     if (mbr[510] != 0x55 || mbr[511] != 0xAA) {
-        Log::emulator()->error("sd_rom_extractor: invalid MBR signature (expected 0x55 0xAA at offset 0x1FE)");
-        return 0;
+        return fail("invalid MBR signature (expected 0x55 0xAA at offset 0x1FE)");
     }
     // Partition table: 4 entries × 16 bytes starting at offset 0x1BE.
     for (int i = 0; i < 4; ++i) {
@@ -95,20 +103,29 @@ uint32_t find_fat32_partition_lba(std::ifstream& f) {
             return lba;
         }
     }
-    Log::emulator()->error("sd_rom_extractor: no FAT32-LBA partition found in MBR");
-    return 0;
+    return fail("no FAT32-LBA partition found in MBR");
 }
 
 // Parse the BPB at the partition's first sector and validate.
-bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g) {
+// `raw_bpb`, when non-null, receives the 512 raw boot-sector bytes. The
+// extended fields `read_sd_image_identity` needs — `BS_BootSig` (0x42),
+// `BS_VolID` (0x43) and `BS_VolLab` (0x47) — are not part of `Fat32Geom`,
+// which models only what a FAT walk needs, and re-reading the sector to get
+// them would be a second seek to a sector this function has already read.
+// `why` works exactly as in `find_fat32_partition_lba` above.
+bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g,
+               uint8_t* raw_bpb = nullptr, std::string* why = nullptr) {
     uint8_t bpb[512];
     f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(partition_lba) * 512),
             std::ios::beg);
     f.read(reinterpret_cast<char*>(bpb), 512);
     if (!f.good() || f.gcount() != 512) {
         Log::emulator()->error("sd_rom_extractor: failed to read BPB at LBA {}", partition_lba);
+        if (why) *why = "failed to read the FAT32 boot sector at LBA " +
+                        std::to_string(partition_lba);
         return false;
     }
+    if (raw_bpb) std::memcpy(raw_bpb, bpb, 512);
 
     g.partition_lba_start = partition_lba;
     g.bytes_per_sector    = rd_u16(bpb + 11);
@@ -124,17 +141,25 @@ bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g) {
     if (g.bytes_per_sector != 512 && g.bytes_per_sector != 1024 &&
         g.bytes_per_sector != 2048 && g.bytes_per_sector != 4096) {
         Log::emulator()->error("sd_rom_extractor: invalid bytes_per_sector={}", g.bytes_per_sector);
+        if (why) *why = "invalid FAT32 bytes_per_sector=" +
+                        std::to_string(g.bytes_per_sector);
         return false;
     }
     // sectors_per_cluster must be a power of 2 in [1,128].
     if (g.sectors_per_cluster == 0 ||
         (g.sectors_per_cluster & (g.sectors_per_cluster - 1)) != 0) {
         Log::emulator()->error("sd_rom_extractor: invalid sectors_per_cluster={}", g.sectors_per_cluster);
+        if (why) *why = "invalid FAT32 sectors_per_cluster=" +
+                        std::to_string(g.sectors_per_cluster);
         return false;
     }
     if (g.num_fats == 0 || g.fat_size_sectors == 0 || g.root_cluster < 2) {
         Log::emulator()->error("sd_rom_extractor: invalid FAT32 BPB (num_fats={}, fat_size={}, root_cluster={})",
                                g.num_fats, g.fat_size_sectors, g.root_cluster);
+        if (why) *why = "invalid FAT32 BPB (num_fats=" +
+                        std::to_string(g.num_fats) + " fat_size=" +
+                        std::to_string(g.fat_size_sectors) + " root_cluster=" +
+                        std::to_string(g.root_cluster) + ")";
         return false;
     }
 
@@ -465,5 +490,98 @@ bool extract_sd_rom(const std::string& sd_image_path,
     }
 
     if (bytes_read_out) *bytes_read_out = file_size;
+    return true;
+}
+
+// ---------------------------------------------------------------------------
+// SD image TIER-1 IDENTITY — GH #27 S7, design §11.3
+// ---------------------------------------------------------------------------
+
+bool read_sd_image_identity(const std::string& sd_image_path,
+                            SdImageIdentity& out, std::string& why) {
+    out = SdImageIdentity{};
+    why.clear();
+
+    std::ifstream f(sd_image_path, std::ios::binary);
+    if (!f) {
+        why = "cannot open SD image '" + sd_image_path + "'";
+        Log::emulator()->error("sd_rom_extractor: {}", why);
+        return false;
+    }
+
+    // Size first: it is the one field that needs no parsing, and a zero-length
+    // or truncated file fails the MBR read below with a clearer message.
+    f.seekg(0, std::ios::end);
+    const std::streamoff end = f.tellg();
+    if (end < 0) {
+        why = "cannot determine the size of SD image '" + sd_image_path + "'";
+        Log::emulator()->error("sd_rom_extractor: {}", why);
+        return false;
+    }
+    out.image_bytes = static_cast<uint64_t>(end);
+
+    // Digest the MBR PARTITION TABLE (0x1BE..0x1FF, 66 bytes), not the whole
+    // sector — see the field's doc-comment for why the bootstrap code is
+    // excluded.
+    uint8_t mbr[512];
+    f.seekg(0, std::ios::beg);
+    f.read(reinterpret_cast<char*>(mbr), 512);
+    if (!f.good() || f.gcount() != 512) {
+        why = "failed to read the MBR of '" + sd_image_path +
+              "' (image too small or unreadable)";
+        Log::emulator()->error("sd_rom_extractor: {}", why);
+        return false;
+    }
+    out.mbr_sha256 = sdcard::sha256_hex(
+        std::vector<uint8_t>(mbr + 0x1BE, mbr + 0x200));
+    if (out.mbr_sha256.empty()) {
+        why = "SHA-256 of the MBR partition table failed";
+        Log::emulator()->error("sd_rom_extractor: {}", why);
+        return false;
+    }
+
+    const uint32_t part_lba = find_fat32_partition_lba(f, &why);
+    if (part_lba == 0) {
+        why = "'" + sd_image_path + "': " + why;
+        return false;
+    }
+    out.partition_lba = part_lba;
+
+    Fat32Geom g{};
+    uint8_t   bpb[512];
+    if (!parse_bpb(f, part_lba, g, bpb, &why)) {
+        why = "'" + sd_image_path + "': " + why;
+        return false;
+    }
+
+    // BS_BootSig (offset 0x42) == 0x29 is what makes BS_VolID and BS_VolLab
+    // defined at all. Without it the bytes at 0x43/0x47 are not a volume
+    // serial and not a label, so they are left EMPTY rather than reported as
+    // an identity nothing can trust. `jns::SdIdentity::populated()` is then
+    // false and the reader refuses — JNSI-13's rule, reached honestly.
+    constexpr size_t kOffBootSig = 0x42;
+    constexpr size_t kOffVolID   = 0x43;
+    constexpr size_t kOffVolLab  = 0x47;
+    constexpr size_t kVolLabLen  = 11;
+    if (bpb[kOffBootSig] != 0x29) {
+        Log::emulator()->warn(
+            "sd_rom_extractor: '{}' FAT32 boot sector has no extended signature "
+            "(BS_BootSig=0x{:02X}, expected 0x29); volume serial and label are "
+            "undefined and are not recorded",
+            sd_image_path, bpb[kOffBootSig]);
+        return true;
+    }
+
+    const uint32_t volid = rd_u32(bpb + kOffVolID);
+    char hex[9];
+    std::snprintf(hex, sizeof(hex), "%08x", volid);
+    out.fat32_volume_id = hex;
+
+    out.fat32_bs_vollab.reserve(kVolLabLen);
+    for (size_t i = 0; i < kVolLabLen; ++i) {
+        const uint8_t c = bpb[kOffVolLab + i];
+        out.fat32_bs_vollab.push_back(
+            (c >= 0x20 && c <= 0x7E) ? static_cast<char>(c) : '?');
+    }
     return true;
 }
