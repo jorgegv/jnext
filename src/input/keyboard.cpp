@@ -689,13 +689,22 @@ void Keyboard::describe_state(jnext::save::StateDesc& d)
     for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS; ++i) {
         for (int f = 0; f < 5; ++f) d.i32(kAutoKeys[i][f], slots[i][f]);
     }
-    // The count is CHECKED, never obeyed: the loop above is bounded by the
-    // DECLARED capacity, so the stream always carries exactly sixteen slots
-    // whatever `n` claims, and a forged count can neither desync the stream
-    // nor size a write. It only decides how many slots are live.
+    // The count is CHECKED, never obeyed. BOTH loops are bounded by the
+    // DECLARED capacity — the declaration one above, and this one — so the
+    // stream always carries exactly sixteen slots whatever `n` claims, a
+    // forged count can neither desync the stream nor size a write, and
+    // `slots` cannot be indexed past its extent. The count only gates how
+    // many of the sixteen become live entries.
+    //
+    // That is the shape `BinReadDesc::fifo` uses for the same reason, and it
+    // is deliberately NOT `min(n, capacity)` driving the loop: a bound that
+    // comes from the code cannot be defeated by a file, whereas a clamped
+    // bound is only as good as the clamp. A `for (i < live)` form was written
+    // here first, and a mutation proved that deleting its clamp read past the
+    // end of `slots`.
     auto_queue_.clear();
-    const uint32_t live = (n <= MAX_AUTO_TYPE_KEYS) ? n : MAX_AUTO_TYPE_KEYS;
-    for (uint32_t i = 0; i < live; ++i) {
+    for (size_t i = 0; i < MAX_AUTO_TYPE_KEYS; ++i) {
+        if (i >= n) break;
         AutoKey k;
         k.row1   = slots[i][0];
         k.col1   = slots[i][1];

@@ -18,6 +18,11 @@
 #include "memory/attribute_mux.h"
 #include "memory/mmu.h"
 #include "memory/ram.h"
+#include "peripheral/dma.h"
+#include "peripheral/divmmc.h"
+#include "input/md6_connector_x2.h"
+#include "input/membrane_stick.h"
+#include "input/keyboard.h"
 #include "peripheral/i2c.h"
 #include "audio/mixer.h"
 #include "cpu/z80_cpu.h"
@@ -3239,6 +3244,307 @@ static int test_s3_restore_behaviour()
     return 0;
 }
 
+
+// ── Test 20: GH #27 S5 — what the migration CHANGED, not just transcribed ─
+//
+// The mutation table for S5 was derived from `git diff`, not from the row
+// list, and eight reverts killed nothing in any suite:
+//
+//   * the two Dma restore masks (turbo_ & 0x03, dma_timer_s_ & 0x3FFF)
+//   * the three Md6ConnectorX2 masks (two 12-bit latches, the 9-bit counter)
+//   * the MembraneStick keymap_addr_ & 0x01FF mask
+//   * DivMmc restoring its two split enable levers from the STREAM rather
+//     than deriving them from the composite `enabled_` byte
+//   * I2cController restoring its two pi_i2c1 line inputs at all
+//
+// Every one of them is behaviour S5 MOVED rather than introduced — the masks
+// out of the read expressions and into the line after the walk, the DivMMC
+// levers by dropping a dead mid-read seed — and every one was uncovered
+// before S5 as well. A ninth, the auto-type queue's count clamp, is behaviour
+// S5 RESHAPED: the rebuild loop is now bounded by MAX_AUTO_TYPE_KEYS with the
+// count gating the push, which is `BinReadDesc::fifo`'s idiom and is what
+// makes a forged count unable to index past the staging array.
+//
+// Each poke-a-byte row is PAIRED with an OFFSET row asserting that the byte
+// it pokes really is the field it names. A corruption row that hits the wrong
+// field passes for the wrong reason, which is the failure mode this pairing
+// exists to close.
+//
+// The offsets are read off the declarations the S5-DECL-* rows pin, so a
+// reordering that moved a field would fail there first and these rows second,
+// rather than silently testing a neighbour.
+
+namespace s5 {
+
+/// Save `obj` into a fresh buffer sized by a measure pass. Returns the bytes.
+template <typename T>
+std::vector<uint8_t> save_bytes(const T& obj)
+{
+    StateWriter measure;
+    obj.save_state(measure);
+    std::vector<uint8_t> buf(measure.position(), 0);
+    StateWriter w(buf.data(), buf.size());
+    obj.save_state(w);
+    return buf;
+}
+
+void poke16(std::vector<uint8_t>& b, std::size_t off, uint16_t v)
+{
+    std::memcpy(b.data() + off, &v, sizeof(v));
+}
+
+uint16_t peek16(const std::vector<uint8_t>& b, std::size_t off)
+{
+    uint16_t v = 0;
+    std::memcpy(&v, b.data() + off, sizeof(v));
+    return v;
+}
+
+}  // namespace s5
+
+static int test_s5_restore_behaviour()
+{
+    printf("\n--- Test 20: GH #27 S5 restore behaviour ---\n");
+
+    // ── Dma: turbo_ is masked to 2 bits, dma_timer_s_ to 14 ──────────────
+    //
+    // `turbo_` is NR 0x06 bits 1:0 (zxnext.vhd:4966) and `dma_timer_s_` is
+    // device/dma.vhd's 14-bit burst prescaler timer, so a wider value in the
+    // stream is not a state the hardware can be in. Pre-S5 the masks were
+    // part of the read expressions; they are now the line after the walk, and
+    // nothing pinned them in either place.
+    {
+        Dma dma;
+        dma.set_turbo(0x02);
+        std::vector<uint8_t> b = s5::save_bytes(dma);
+
+        check("S5-DMA-OFFSET", b.size() == 43 && b[32] == 0x02,
+              "byte 32 of Dma's 43-byte block is turbo_ — the field the next "
+              "row pokes, proved by an honest save of a known value");
+
+        b[32] = 0xFF;                    // turbo_:       6 bits too wide
+        s5::poke16(b, 33, 0xFFFF);       // dma_timer_s_: 2 bits too wide
+
+        Dma back;
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+
+        check("S5-DMA-TURBO", back.turbo() == 0x03,
+              "an over-wide turbo_ in the stream restores masked to its two "
+              "VHDL bits instead of carrying six bits the hardware has no "
+              "encoding for");
+        check("S5-DMA-TIMER", back.dma_timer() == 0x3FFF,
+              "an over-wide dma_timer_s_ restores masked to the 14 bits "
+              "device/dma.vhd's burst prescaler actually has");
+        check("S5-DMA-TIMER-OFFSET", r.position() == 43,
+              "…and the restore consumed exactly the declared 43 bytes, so "
+              "the two pokes landed inside Dma's block and not past it");
+    }
+
+    // ── Md6ConnectorX2: two 12-bit latches and a 9-bit counter ───────────
+    {
+        Md6ConnectorX2 md6;
+        md6.set_latched_left_for_test(0x0A5A);
+        md6.set_latched_right_for_test(0x05A5);
+        md6.set_state_for_test(0x0155);
+        std::vector<uint8_t> b = s5::save_bytes(md6);
+
+        check("S5-MD6-OFFSET",
+              b.size() == 16 && s5::peek16(b, 4) == 0x0A5A &&
+                  s5::peek16(b, 6) == 0x05A5 && s5::peek16(b, 8) == 0x0155,
+              "bytes 4, 6 and 8 of Md6ConnectorX2's 16-byte block are the two "
+              "latches and the select counter — the three fields the next row "
+              "pokes, proved by an honest save of three known values");
+
+        s5::poke16(b, 4, 0xFFFF);
+        s5::poke16(b, 6, 0xFFFF);
+        s5::poke16(b, 8, 0xFFFF);
+
+        Md6ConnectorX2 back;
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+        // The two latches have setters but no getters, so the masked values
+        // are read back out through an honest re-save at the same offsets the
+        // OFFSET row above proved are theirs.
+        std::vector<uint8_t> again = s5::save_bytes(back);
+
+        check("S5-MD6-LATCH",
+              s5::peek16(again, 4) == 0x0FFF && s5::peek16(again, 6) == 0x0FFF,
+              "two over-wide latches restore masked to the 12 bits the MD "
+              "6-button word has, which a re-save reads straight back out");
+        check("S5-MD6-STATE", back.state_for_test() == 0x01FF,
+              "an over-wide select counter restores masked to the 9 bits "
+              "md6_connector_x2.vhd's FSM counter has");
+        check("S5-MD6-POS", r.position() == 16 && again.size() == 16,
+              "…and the restore consumed exactly the declared 16 bytes, so "
+              "the three pokes landed inside Md6's block and not past it");
+    }
+
+    // ── MembraneStick: NR 0x28's keymap address is 9-bit ─────────────────
+    {
+        MembraneStick ms;
+        std::vector<uint8_t> b = s5::save_bytes(ms);
+
+        check("S5-MEMBRANE-OFFSET", b.size() == 73 && s5::peek16(b, 71) == 0,
+              "bytes 71-72 of MembraneStick's 73-byte block are keymap_addr_ "
+              "— the field the next row pokes, at the end of a block whose "
+              "length is itself the proof that nothing follows it");
+
+        s5::poke16(b, 71, 0xFFFF);
+
+        MembraneStick back;
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+        std::vector<uint8_t> again = s5::save_bytes(back);
+
+        check("S5-MEMBRANE-ADDR", s5::peek16(again, 71) == 0x01FF,
+              "an over-wide keymap_addr_ restores masked to the 9 bits "
+              "NR 0x28 gives it, which a re-save reads straight back out");
+        check("S5-MEMBRANE-ADDR-POS", r.position() == 73,
+              "…and the restore consumed exactly the declared 73 bytes, so "
+              "the poke landed inside MembraneStick's block and not past it");
+    }
+
+    // ── DivMmc: the split levers come from the STREAM ────────────────────
+    //
+    // The hand-written pair seeded them from the composite `enabled_` byte
+    // mid-read and then overwrote both from their own persisted values at the
+    // end of the same read; the seed was dead and S5 dropped it. The property
+    // that makes the drop safe is the one this row pins, and it is the whole
+    // reason the two levers are persisted separately: the firmware-reset
+    // shape is port_io=1 with nr_0a_4=0, whose composite is 0, so deriving
+    // either lever from the composite loses it.
+    {
+        DivMmc mmc;
+        mmc.set_enabled(false);
+        mmc.set_port_io_enable(true);
+        mmc.set_nr_0a_4_enable(false);
+        std::vector<uint8_t> b = s5::save_bytes(mmc);
+
+        check("S5-DIVMMC-OFFSET",
+              b.size() == 131089 && b[0] == 0 && b[131087] == 1 &&
+                  b[131088] == 0,
+              "byte 0 of DivMmc's 131 089-byte block is the composite "
+              "`enabled_` and bytes 131 087-131 088 are the two split levers "
+              "— the exact firmware-reset shape, saved honestly");
+
+        DivMmc back;
+        back.set_port_io_enable(false);
+        back.set_nr_0a_4_enable(true);
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+
+        check("S5-DIVMMC-LEVERS",
+              back.port_io_enable() && !back.nr_0a_4_enable(),
+              "the two split enable levers restore from the STREAM, not from "
+              "the composite byte: a snapshot holding port_io=1 / nr_0a_4=0 "
+              "with enabled=0 survives, which deriving either from the "
+              "composite would lose");
+        check("S5-DIVMMC-LEVERS-POS", r.position() == 131089,
+              "…and the restore consumed exactly the declared 131 089 bytes, "
+              "128 KB window included");
+    }
+
+    // ── I2cController: the two pi_i2c1 line inputs travel ────────────────
+    //
+    // Both are `uint8_t` members the stream has always carried as BOOLEANS,
+    // so S5 marshals them through a local `bool` and writes back 0/1.
+    // Reverting the write-back left them at their pre-load values and no row
+    // noticed.
+    {
+        I2cController i2c;
+        i2c.set_pi_i2c1_scl(false);
+        i2c.set_pi_i2c1_sda(true);
+        std::vector<uint8_t> b = s5::save_bytes(i2c);
+
+        check("S5-I2C-OFFSET",
+              b.size() == 13 && b[11] == 0 && b[12] == 1,
+              "bytes 11 and 12 of I2cController's 13-byte block are the two "
+              "pi_i2c1 line inputs — the fields the next row restores, proved "
+              "by an honest save of a known pair");
+
+        I2cController back;
+        back.set_pi_i2c1_scl(true);     // the OPPOSITE of what the stream has
+        back.set_pi_i2c1_sda(false);
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+
+        check("S5-I2C-PI",
+              !back.pi_i2c1_scl() && back.pi_i2c1_sda(),
+              "both pi_i2c1 line inputs restore from the stream, over the "
+              "opposite live values — so a rewind replays the Pi's lines "
+              "rather than keeping the ones the run had reached");
+        check("S5-I2C-PI-POS", r.position() == 13,
+              "…and the restore consumed exactly the declared 13 bytes");
+    }
+
+    // ── Keyboard: the auto-type count is CHECKED, never obeyed ───────────
+    //
+    // S5 marshals the queue through a LOCAL staging array, so the rebuild
+    // loop indexes it — and a count taken from the file deciding how far to
+    // index is precisely the `Ram::load_state` shape S3 found. Both loops are
+    // therefore bounded by MAX_AUTO_TYPE_KEYS, with the count only gating the
+    // push, which is what `BinReadDesc::fifo` does and for the same reason.
+    {
+        Keyboard kb;
+        std::vector<Keyboard::AutoKey> keys;
+        keys.push_back({1, 3, -1, -1, 2});   // row 1 col 3 = F
+        keys.push_back({2, 0, -1, -1, 2});
+        kb.queue_auto_type(keys);
+        std::vector<uint8_t> b = s5::save_bytes(kb);
+
+        uint32_t cnt = 0;
+        std::memcpy(&cnt, b.data() + 12, sizeof(cnt));
+        check("S5-KB-COUNT-OFFSET", b.size() == 342 && cnt == 2,
+              "bytes 12-15 of Keyboard's 342-byte block are the auto-type "
+              "queue count — the field the next row forges, proved by an "
+              "honest save of a two-key queue");
+
+        // A count far past the sixteen slots the stream actually carries.
+        const uint32_t lie = 0x40000000u;
+        std::memcpy(b.data() + 12, &lie, sizeof(lie));
+
+        Keyboard back;
+        StateReader r(b.data(), b.size());
+        back.load_state(r);
+        std::vector<uint8_t> again = s5::save_bytes(back);
+
+        uint32_t restored = 0;
+        std::memcpy(&restored, again.data() + 12, sizeof(restored));
+        check("S5-KB-COUNT", restored == 16 && again.size() == 342,
+              "a forged auto-type count of 2^30 restores clamped to the "
+              "sixteen slots the stream actually carries — the rebuild loop "
+              "is bounded by the DECLARED capacity, so it can neither index "
+              "past the staging array nor resize the block");
+        check("S5-KB-COUNT-POS", r.position() == 342,
+              "…and the restore consumed exactly the declared 342 bytes, so "
+              "the forged count did not move the stream either");
+
+        // The hazard S5 INTRODUCED, as opposed to moved. One declaration has
+        // to serve both directions, so the queue is marshalled out of the
+        // staging array on the WRITE path too — and a rebuild that put back
+        // anything other than what was there would make `save_state` mutate
+        // the machine it is saving. Two saves of the same object must
+        // therefore agree to the byte, and the second must still see two
+        // keys: `StateWriter`'s measure pass is itself a save, so a rebuild
+        // that inflated the queue would be visible in the very buffer the
+        // measure pass sized.
+        Keyboard pure;
+        pure.queue_auto_type(keys);
+        const std::vector<uint8_t> first  = s5::save_bytes(pure);
+        const std::vector<uint8_t> second = s5::save_bytes(pure);
+        uint32_t after = 0;
+        std::memcpy(&after, second.data() + 12, sizeof(after));
+        check("S5-KB-SAVE-PURE", first == second && after == 2,
+              "saving twice gives byte-identical buffers and the queue still "
+              "holds its two keys — one declaration serves both directions, "
+              "so the write path's rebuild must put back exactly what it "
+              "took and never mutate the machine being saved");
+    }
+
+    return 0;
+}
+
 int main()
 {
     printf("=== Rewind tests ===\n");
@@ -3262,6 +3568,7 @@ int main()
     test_s3_descriptor_layout();
     test_s3_restore_behaviour();
     test_s5_descriptor_layout();
+    test_s5_restore_behaviour();
 
     printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped: %4zu\n",
            pass_count + fail_count + (int)g_skipped.size(),
