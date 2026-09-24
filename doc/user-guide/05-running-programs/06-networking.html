@@ -1600,6 +1600,17 @@
 </li>
       
         <li class="md-nav__item">
+  <a href="#setting-up-the-wi-fi-by-hand" class="md-nav__link">
+    <span class="md-ellipsis">
+      
+        Setting up the Wi-Fi by hand
+      
+    </span>
+  </a>
+  
+</li>
+      
+        <li class="md-nav__item">
   <a href="#what-is-not-emulated-yet" class="md-nav__link">
     <span class="md-ellipsis">
       
@@ -3293,12 +3304,66 @@ its access point is down has not been measured, and inventing an answer would
 mean a test that only measures the invention. What <em>has</em> been measured is a
 program listening for connections on a real Next surviving a five-minute outage
 without noticing.</p>
+<h2 id="setting-up-the-wi-fi-by-hand">Setting up the Wi-Fi by hand<a class="headerlink" href="#setting-up-the-wi-fi-by-hand" title="Permanent link">&para;</a></h2>
+<p>The ZX Spectrum Next's own WiFi documentation walks you through bringing the
+module online from a terminal, and that whole session works:</p>
+<table>
+<thead>
+<tr>
+<th>Command</th>
+<th>What jnext answers</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>AT+CWMODE?</code></td>
+<td>the current mode — <code>1</code>, station, at power-on</td>
+</tr>
+<tr>
+<td><code>AT+CWMODE=1</code></td>
+<td><code>OK</code>. Mode <code>3</code> (station + access point) also works</td>
+</tr>
+<tr>
+<td><code>AT+CWLAP</code></td>
+<td>one access point: jnext's own <code>JNextWifiHost</code></td>
+</tr>
+<tr>
+<td><code>AT+CWJAP="yournetwork","yourpassword"</code></td>
+<td><code>WIFI CONNECTED</code>, <code>WIFI GOT IP</code>, <code>OK</code></td>
+</tr>
+<tr>
+<td><code>AT+CIFSR</code></td>
+<td>the station address, <code>192.168.1.50</code> by default</td>
+</tr>
+<tr>
+<td><code>AT+CWQAP</code></td>
+<td><code>WIFI DISCONNECT</code>, and the address goes away</td>
+</tr>
+</tbody>
+</table>
+<p><strong>Any network name is accepted.</strong> jnext's Wi-Fi is synthetic — nothing routes
+through it, and your real connection is the host machine's — so there is no
+password to get wrong and no network that is out of range. Type whatever your
+program or your notes expect.</p>
+<p><code>AT+CWMODE=2</code> is access-point-only, which on real hardware means the module
+stops being a station. jnext models that: after it, <code>AT+CIFSR</code> reports
+<code>0.0.0.0</code> and a connection attempt fails, until you set mode <code>1</code> or <code>3</code> again.</p>
+<p><code>AT+CIPSTATUS</code> lists the connections that are open right now, including any a
+program is serving, which is the companion to closing one by number with
+<code>AT+CIPCLOSE=&lt;id&gt;</code>.</p>
 <h2 id="what-is-not-emulated-yet">What is not emulated yet<a class="headerlink" href="#what-is-not-emulated-yet" title="Permanent link">&para;</a></h2>
-<p>The command set is the one <strong>evidenced</strong> in software that actually runs on a
-Next, so a couple of things a physical ESP-01 can do are not built:</p>
+<p>The command set covers the Next's own documented setup session and everything
+evidenced in software that actually runs on a Next. Beyond that:</p>
 <ul>
-<li><strong>transparent mode</strong> (<code>AT+CIPMODE</code>);</li>
-<li><strong>TLS</strong>, so a program cannot make an <code>https</code> request.</li>
+<li><strong>transparent mode</strong> (<code>AT+CIPMODE=1</code>), where the module stops interpreting AT
+  commands and every byte becomes data. <code>AT+CIPMODE=0</code> — asking to stay in the
+  normal mode jnext is always in — does work;</li>
+<li><strong>TLS</strong>, so a program cannot make an <code>https</code> request;</li>
+<li><strong>being an access point</strong> — <code>AT+CWMODE=2</code> records that the station is gone,
+  but nothing can connect <em>to</em> jnext over Wi-Fi. A program that wants to be
+  connected to should listen with <code>AT+CIPSERVER</code> instead;</li>
+<li><strong>saving settings</strong> — <code>AT+UART_DEF</code> behaves like <code>AT+UART_CUR</code>, and nothing a
+  program configures survives an <code>AT+RST</code>.</li>
 </ul>
 <p>UDP <strong>is</strong> emulated, including <code>AT+CIPSTART="UDP",…</code> with its optional local
 port. That is what <code>newt</code> needs to set the clock from an internet time server,
