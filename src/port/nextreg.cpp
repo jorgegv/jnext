@@ -1,6 +1,8 @@
 #include "nextreg.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 NextReg::NextReg() {
     // PASS-5/PASS-8: install FPGA-power-on defaults BEFORE the first
@@ -574,28 +576,47 @@ uint8_t NextReg::peek(uint8_t reg) const {
     return regs_[reg];
 }
 
-void NextReg::save_state(StateWriter& w) const
+// GH #27 S3 — the ONE field list (design §9.2). Block 3, 262 bytes.
+//
+// `bytes` rather than `blob` for the 256-byte register file: §6.1 puts guest
+// memory and peripheral stores of 8 KB or more in a ZIP member, and a
+// 256-byte file is neither — it becomes a 512-character hex string whose
+// exact length the schema pins, so a descriptor that silently resized the
+// array would fail validation.
+//
+// No field carries a DECLARED DEFAULT even though every one of them has a
+// documented VHDL power-on value right there in the header: §12.2's gate for
+// declared defaults is S6's, and this file is exactly where an ungated second
+// copy would be most tempting and most wrong — the VHDL citations live on the
+// member declarations, and a second copy here would be the one that drifted.
+void NextReg::describe_state(jnext::save::StateDesc& d)
 {
-    w.write_u8(selected_);
-    w.write_bytes(regs_.data(), 256);
+    d.u8("selected", selected_);
+    d.bytes("regs", regs_.data(), regs_.size());
     // nr_03_config_mode_ appended at the end. Feeds the in-process rewind
     // ring buffer only, so snapshot format compatibility across builds is
     // not a concern here.
-    w.write_bool(nr_03_config_mode_);
-    w.write_u8(nr_04_romram_bank_);
-    // NR 0x03 composed-read state (VHDL zxnext.vhd:1099-1103, :5894).
-    w.write_u8(nr_03_machine_timing_);
-    w.write_bool(nr_03_user_dt_lock_);
-    w.write_u8(nr_03_machine_type_);
+    d.boolean("nr_03_config_mode", nr_03_config_mode_);
+    d.u8("nr_04_romram_bank", nr_04_romram_bank_);
+    // NR 0x03 composed-read state (VHDL zxnext.vhd:1099-1103, :5894). The
+    // 3-bit masks the restore applies are in `load_state`, not here: they are
+    // a property of the restore, and in the declaration they would change
+    // what the write direction emits.
+    d.u8("nr_03_machine_timing", nr_03_machine_timing_);
+    d.boolean("nr_03_user_dt_lock", nr_03_user_dt_lock_);
+    d.u8("nr_03_machine_type", nr_03_machine_type_);
+}
+
+void NextReg::save_state(StateWriter& w) const
+{
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void NextReg::load_state(StateReader& r)
 {
-    selected_ = r.read_u8();
-    r.read_bytes(regs_.data(), 256);
-    nr_03_config_mode_ = r.read_bool();
-    nr_04_romram_bank_ = r.read_u8();
-    nr_03_machine_timing_ = r.read_u8() & 0x07;
-    nr_03_user_dt_lock_   = r.read_bool();
-    nr_03_machine_type_   = r.read_u8() & 0x07;
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+    // Both NR 0x03 sub-fields are 3 bits wide (VHDL zxnext.vhd:1099, :1103),
+    // and every setter in this class masks them the same way.
+    nr_03_machine_timing_ = static_cast<uint8_t>(nr_03_machine_timing_ & 0x07);
+    nr_03_machine_type_   = static_cast<uint8_t>(nr_03_machine_type_ & 0x07);
 }
