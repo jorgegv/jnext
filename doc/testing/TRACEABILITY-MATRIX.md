@@ -22,41 +22,22 @@ mentions them, so a test can no longer be absent from this document.
 <!-- BEGIN GENERATED SUMMARY — written by test/refresh-traceability-matrix.pl; do not edit by hand -->
 | Section                                    |  Rows | pass | fail | skip | missing | unrecorded |
 |--------------------------------------------|------:|-----:|-----:|-----:|--------:|-----------:|
-<<<<<<< HEAD
 | Memory/MMU                                 |   256 |  256 |    0 |    0 |       0 |          0 |
 | ULA Video                                  |   139 |  139 |    0 |    0 |       0 |          0 |
 | Layer2                                     |   220 |  220 |    0 |    0 |       0 |          0 |
 | Sprites                                    |   217 |  217 |    0 |    0 |       0 |          0 |
 | Tilemap                                    |    98 |   98 |    0 |    0 |       0 |          0 |
-| Copper                                     |    95 |   92 |    0 |    0 |       3 |          0 |
+| Copper                                     |    93 |   93 |    0 |    0 |       0 |          0 |
 | Compositor                                 |   284 |  284 |    0 |    0 |       0 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
 | DMA                                        |   160 |  160 |    0 |    0 |       0 |          0 |
-| DivMMC+SPI                                 |   176 |  153 |    0 |    0 |      23 |          0 |
-| Multiface                                  |    55 |   55 |    0 |    0 |       0 |          0 |
-| CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
-| UART+I2C/RTC                               |   123 |  120 |    0 |    0 |       3 |          0 |
-| NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
-| IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
-| Input                                      |   356 |  344 |    0 |    0 |      12 |          0 |
-=======
-| Memory/MMU                                 |   262 |  256 |    0 |    0 |       6 |          0 |
-| ULA Video                                  |   142 |  138 |    0 |    0 |       4 |          0 |
-| Layer2                                     |   224 |  216 |    0 |    0 |       8 |          0 |
-| Sprites                                    |   221 |  214 |    0 |    0 |       7 |          0 |
-| Tilemap                                    |   102 |   94 |    0 |    0 |       8 |          0 |
-| Copper                                     |    93 |   93 |    0 |    0 |       0 |          0 |
-| Compositor                                 |   264 |  261 |    0 |    0 |       3 |          0 |
-| Audio                                      |   223 |  212 |    0 |    0 |      11 |          0 |
-| DMA                                        |   168 |  160 |    0 |    0 |       8 |          0 |
 | DivMMC+SPI                                 |   172 |  155 |    0 |    0 |      17 |          0 |
 | Multiface                                  |    55 |   55 |    0 |    0 |       0 |          0 |
-| CTC+Interrupts                             |   210 |  195 |    0 |    0 |      15 |          0 |
+| CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
 | UART+I2C/RTC                               |   122 |  122 |    0 |    0 |       0 |          0 |
-| NextREG                                    |   119 |   95 |    0 |    0 |      24 |          0 |
-| IO Port Dispatch                           |   137 |  126 |    0 |    0 |      11 |          0 |
+| NextREG                                    |    97 |   97 |    0 |    0 |       0 |          0 |
+| IO Port Dispatch                           |   133 |  133 |    0 |    0 |       0 |          0 |
 | Input                                      |   348 |  348 |    0 |    0 |       0 |          0 |
->>>>>>> gh201-f-input-divmmc
 | Rewind                                     |    21 |   21 |    0 |    0 |       0 |          0 |
 | Floating Bus                               |    59 |   59 |    0 |    0 |       0 |          0 |
 | VideoTiming                                |    64 |   64 |    0 |    0 |       0 |          0 |
@@ -76,27 +57,15 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: copper_integration_test         |    11 |   11 |    0 |    0 |       0 |          0 |
 | Companion: tilemap_fetch_split_test        |    12 |   12 |    0 |    0 |       0 |          0 |
 | Companion: lores_integration_test          |     2 |    2 |    0 |    0 |       0 |          0 |
-<<<<<<< HEAD
-| Companion: divmmc_integration_test         |     5 |    5 |    0 |    0 |       0 |          0 |
+| Companion: divmmc_integration_test         |     6 |    6 |    0 |    0 |       0 |          0 |
 | Companion: ctc_interrupts_test             |    88 |   88 |    0 |    0 |       0 |          0 |
 | Companion: nextreg_integration_test        |   341 |  341 |    0 |    0 |       0 |          0 |
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4776 | 4729 |    0 |    5 |      42 |          0 |
+| **Total**                                  |  4763 | 4740 |    0 |    5 |      18 |          0 |
 
-Rows the sections above carry: **4776**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4470**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8400**.
-=======
-| Companion: divmmc_integration_test         |     6 |    6 |    0 |    0 |       0 |          0 |
-| Companion: ctc_interrupts_test             |    81 |   81 |    0 |    0 |       0 |          0 |
-| Companion: nextreg_integration_test        |   340 |  340 |    0 |    0 |       0 |          0 |
-| Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
-| Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
-| Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4806 | 4667 |    0 |    5 |     134 |          0 |
-
-Rows the sections above carry: **4806**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4507**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8368**.
->>>>>>> gh201-f-input-divmmc
+Rows the sections above carry: **4763**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4455**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8409**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
