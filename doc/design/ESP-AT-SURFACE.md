@@ -1,10 +1,28 @@
 # ESP-01 AT surface — what to widen, and what not to (GH #154)
 
-> **Phase 1 deliverable: an ANALYSIS AND A JUDGEMENT, not an implementation.**
-> Nothing in this document has been built. It ends in
-> [§7 Questions for the owner](#7-questions-for-the-owner), and the
-> implementation list in [§6](#6-proposed-implementation-order) is a *proposal*
-> that those answers may reshape.
+> **This document is the ANALYSIS AND JUDGEMENT that scoped GH #154** — the
+> A/B/C evaluation of all 99 ESP8266-reachable AT commands, and the seven worth
+> building. It ends in [§7 Questions for the owner](#7-questions-for-the-owner).
+>
+> **STATUS: six of the seven class-A commands have since been BUILT**
+> ([ESP01-EMULATOR-DESIGN.md §18](ESP01-EMULATOR-DESIGN.md#18-the-wi-fi-configuration-category-gh-154),
+> tests in [ESP-WIFI-CONFIG-TEST-PLAN.md](../testing/ESP-WIFI-CONFIG-TEST-PLAN.md)):
+> `AT+CWMODE`, `AT+CWJAP=`, `AT+CWLAP`, `AT+CWQAP`, `AT+CIPSTATUS`, and
+> `AT+CIPMODE=0`/`?`, plus the query forms of [§5.1 A2](#a2-the-symmetry-gaps--query-and-test-forms).
+> The seventh, **`AT+CIPDOMAIN`, was not built**, and the reason is a correction
+> to this document rather than a change of mind: its estimate rested on "the
+> async resolver already exists", and it does — but it is **bound to a
+> connection**, so a standalone lookup needs a new `EspTransport` method and its
+> own socket-suite coverage. That is a seam change, not the table row this
+> document priced. See [§18.6](ESP01-EMULATOR-DESIGN.md#186-what-this-does-not-add).
+>
+> The **test (`=?`) forms** were likewise dropped from A during phase 1 itself,
+> when the reference turned out to document none — recorded in place at
+> [§5.5](#55-what-could-not-be-verified-and-one-thing-this-changed).
+>
+> The owner's answers to [§7](#7-questions-for-the-owner) were **not yet in**
+> when the implementation was made; it follows the recommendations below, which
+> are provisional until confirmed.
 >
 > Companion to [ESP01-EMULATOR-DESIGN.md](ESP01-EMULATOR-DESIGN.md), which is
 > the authoritative design of the module as shipped. This document does not
@@ -83,9 +101,12 @@ power-on answer with no prior state.
 
 ### 2.1 The dispatch table, verbatim
 
-`AtEngine::kCommands` (`src/esp01/src/esp_at.cpp:119-144`) is **22 rows** covering
-**19 distinct commands**. It is matched by case-insensitive prefix, first match
-wins, and an entry marked non-prefix is skipped when trailing text remains:
+`AtEngine::kCommands` (`src/esp01/src/esp_at.cpp:119-144`) is **21 rows**
+covering **19 distinct commands** — 21 minus the two commands that occupy two
+rows each (`AT+CIPCLOSE` bare + `=<id>`, `AT+CIPSTO` `?` + `=`), counting `ATE0`
+and `ATE1` as the separate literals they are. It is matched by case-insensitive
+prefix, first match wins, and an entry marked non-prefix is skipped when trailing
+text remains:
 
 ```
 AT   ATE0   ATE1   AT+RST   AT+GMR   AT+CIFSR
@@ -432,8 +453,9 @@ covers these: *"emulated on a request basis, with specific use cases."*
 
 | Command / group | Why it is B and not A | Why it is B and not C |
 |---|---|---|
-| **`AT+CIPMODE` passthrough** | Highest mention count of any unimplemented command (31) and **every mention is a comment explaining it cannot be used**: `CIPSERVER` needs `CIPMUX=1`, which forbids `CIPMODE=1`. The one real code path (`nextsync_raw_io.c`, ZX-Next-Unite fork) **is not compiled**. | Genuinely observable and genuinely useful — it removes all AT framing from the data path. But it **changes the whole UART contract** and every parser assumption in [§5.2 of the design doc](ESP01-EMULATOR-DESIGN.md#52-the-framing-constraints-that-actually-bite). See [Q3](#q3--passthrough-atcipmode1). |
+| **`AT+CIPMODE=1`** (passthrough only — `=0` and `?` are class **A**, two rows down) | Highest mention count of any unimplemented command (31) and **every mention is a comment explaining it cannot be used**: `CIPSERVER` needs `CIPMUX=1`, which forbids `CIPMODE=1`. The one real code path (`nextsync_raw_io.c`, ZX-Next-Unite fork) **is not compiled**. | Genuinely observable and genuinely useful — it removes all AT framing from the data path. But it **changes the whole UART contract** and every parser assumption in [§5.2 of the design doc](ESP01-EMULATOR-DESIGN.md#52-the-framing-constraints-that-actually-bite). See [Q3](#q3--passthrough-atcipmode1). |
 | **`AT+CIPMODE=0` and `AT+CIPMODE?`** | — | **Recommend promoting just these two to A.** `=0` asks for the mode jnext is permanently in; refusing a request for the status quo fails a defensive client for no reason, and answering `OK` promises nothing. `=1` stays `ERROR`. This is the `AT+CIPMUX` precedent exactly ([§13.7c](ESP01-EMULATOR-DESIGN.md#137-what-implementation-decided-that-13-did-not)): *refuse a **change**, not the command.* |
+| **`AT+SAVETRANSLINK`** | No consumer, and it is meaningless while passthrough itself is unbuilt: it *"set[s] whether to enter Wi-Fi passthrough mode on power-up"*, so it persists a mode jnext does not have. | Not an OTA/flash command despite being flash-backed — an earlier draft of this document filed it with `AT+CIUPDATE` under *"there is no firmware image"*, which is simply the wrong reason for it. It belongs here, gated on [Q3](#q3--passthrough-atcipmode1) (the mode) and [Q2](#q2--persistence) (the persistence), and it is the one command that needs **both** answered before it could be built. |
 | **`AT+PING`** | No consumer. | Emulable, but not as ICMP — raw sockets need `CAP_NET_RAW`/admin on every platform jnext ships to. See [Q6](#q6--ping). |
 | **SNTP** (`AT+CIPSNTPCFG`, `AT+CIPSNTPTIME?`) | No consumer **for the AT form** — `newt` gets the time by doing UDP NTP itself over `AT+CIPSTART="UDP"`, which already works (GH #198) and is regression-covered (`esp-udp-sntp-func`). | Emulable, but the answer is a *time*, and jnext already has two of those. See [Q7](#q7--sntp). |
 | **`_CUR` / `_DEF` persistence variants** | The issue asks for them; whether they exist at all depends on [Q1](#q1--which-firmware-is-jnext-emulating). | Needs somewhere to persist **to**, and jnext has a config file. See [Q2](#q2--persistence). |
@@ -456,9 +478,9 @@ number to store and hand back, which is a lie with a round trip.
 | Command / group | Why it cannot be meaningful here |
 |---|---|
 | **GPIO / ADC / PWM / I²C / SPI driver commands** (`AT+DRV*` in 2.x; the `AT+SYSGPIO*` family in 1.x) | Two independent reasons, either sufficient. (i) The ESP-01's GPIO pins terminate on the Next's WiFi header and **nothing on the Next reads them**: a write changes no signal any Z80 instruction can sample, and a read has no source. Storing the value so a read returns it emulates a variable, not a pin. (ii) In 2.x the whole category is **hard-excluded from the ESP8266 target** (`depends on AT_ENABLE && !IDF_TARGET_ESP8266`), so a real module answers `ERROR` — which is what jnext already does. |
-| **RF power, calibration and tuning** (`AT+RFPOWER`, `AT+RFVDD`, `AT+RFAUTOTRACE`, RF-test commands) | jnext has **no radio**. These parameterise a transmitter that does not exist and whose only observable — signal quality — is already synthetic and constant (`,1,-55` in `AT+CWJAP?`, [§5.6](ESP01-EMULATOR-DESIGN.md#56-synthetic-identity)). There is no quantity for them to change. |
+| **RF power and tuning.** The family is **exactly three** commands in 1.x and one in 2.x: `AT+RFPOWER` (both), `AT+RFVDD` (1.x only — *"Sets the RF TX Power according to VDD33"*, NONOS manual §3.2.12; esp-at comparison marks it NONOS ✅ / ESP-AT ❌), and `AT+RFAUTOTRACE` (1.x only, and **undocumented**: the NONOS manual's V3.0 release notes say *"Remove AT+RFAUTOTRACE command"*, yet it is still bound to handlers in the shipped `libat.a` dispatch table and present in the 1.7.6 firmware image — the doc and the binary disagree, and the binary is what a guest talks to). | jnext has **no radio**. These parameterise a transmitter that does not exist and whose only observable — signal quality — is already synthetic and constant (`,1,-55` in `AT+CWJAP?`, [§5.6](ESP01-EMULATOR-DESIGN.md#56-synthetic-identity)). There is no quantity for them to change. |
 | **Sleep modes** (`AT+SLEEP` modem/light sleep) | These trade power for latency. jnext models **no power domain** and its latency is the host's. The guest cannot distinguish any setting from any other. (`AT+GSLP` deep sleep is **not** here — it reboots the module, which is observable, so it is B.) |
-| **Flash / OTA** (`AT+CIUPDATE`, `AT+SYSFLASH`, `AT+SAVETRANSLINK`, partition commands) | There is **no firmware image** — jnext *is* the firmware, and the version `AT+GMR` reports is a constant chosen to be honestly synthetic. `AT+CIUPDATE` cannot update anything, and emitting its `+CIPUPDATE:1..4` progress URCs and then `OK` would claim work that did not happen. **Today's `ERROR` is already a documented-correct answer**: the Next's own readme says *"If there are mistakes in the updating, then [the ESP will] break update and print ERROR"* (`WIFIand UARTReadME1st.txt:~570`). This is the one C-class command that the Next's docs mention, and it is already right. |
+| **Flash / OTA** (`AT+CIUPDATE`, `AT+SYSFLASH`, `AT+SYSROLLBACK`) | There is **no firmware image** — jnext *is* the firmware, and the version `AT+GMR` reports is a constant chosen to be honestly synthetic. `AT+CIUPDATE` cannot update anything, and emitting its `+CIPUPDATE:1..4` progress URCs and then `OK` would claim work that did not happen. **Today's `ERROR` is already a documented-correct answer**: the Next's own readme says *"If there are mistakes in the updating, then [the ESP will] break update and print ERROR"* (`WIFIand UARTReadME1st.txt:~570`). This is the one C-class command that the Next's docs mention, and it is already right. |
 | **Bluetooth / BLE** | The ESP8266 **has no Bluetooth radio at all**. These are ESP32-only commands; on an ESP8266 target they are not a simplification, they are a category error. |
 | **Signalling / factory / RF-test commands** | Production-line instrumentation for physical silicon. No guest-observable effect whatsoever. |
 | **`AT+SYSMSG` message-format switches** | Real value, real risk, no consumer — but the deciding argument is different from the rest of this table: changing the *framing* of system messages is precisely what [§5.2](ESP01-EMULATOR-DESIGN.md#52-the-framing-constraints-that-actually-bite) says must not move, because three guest parsers busy-wait on the exact bytes **with no timeout**. A command whose purpose is to change those bytes is a hazard aimed at the one part of this module that hangs the emulated machine when it is wrong. |
@@ -543,9 +565,44 @@ pull MQTT, `AT+SYSSTORE` and a dozen other categories into scope.
 
 Keep reading the esp-at source regardless: it is Apache-2.0, it is the best text
 available, and for commands the two versions share it is byte-exact where the 1.x
-manual is prose. *This answer does not shrink the A list — all seven class-A
-commands exist in both versions.* What it does is settle a large part of class B
-as **out of scope by construction** rather than merely unasked-for.
+manual is prose. What this answer does is settle a large part of class B as **out
+of scope by construction** rather than merely unasked-for.
+
+**All seven class-A commands exist in 1.x — verified per command, and one of them
+was not trivial.** An earlier draft of this document asserted "all seven exist in
+both versions" as a throwaway line, and for `AT+CWMODE` two 1.x sources
+contradict each other:
+
+| Source | Bare `AT+CWMODE` in NONOS-AT 1.x? |
+|---|---|
+| esp-at's own `AT_Command_Set_Comparison.rst` — the page this document cites for the `_CUR`/`_DEF` Note-3 argument | **❌**, listed as an ESP-AT-only addition; only `AT+CWMODE_CUR` / `_DEF` are ✅ |
+| ESP8266 Non-OS AT Instruction Set v3.0.5 (↔ AT_V1.7.x) | **Absent from the §4.1 reference table and §4.2 sections** — yet used, bare, in **eight** of the manual's own worked examples |
+| **The shipped firmware's dispatch table** — `at_fun[]` decoded from `ESP8266_NONOS_SDK`'s `libat.a(at_cmd.o)`, relocations resolved | **Present**, slot 11, bound to `at_testCmdCwmode` / `at_queryCmdCwmode` / `at_setupCmdCwmodeDef` |
+| The shipped 1.7.6 AT binary | `+CWMODE` present as its own NUL-delimited pool entry, not a prefix of `+CWMODE_CUR` |
+
+**The binary settles it: bare `AT+CWMODE` works on a real 1.x module.** The
+comparison page's `❌` is defensible as a claim about what the NONOS *manual
+documents* and false as a claim about what the NONOS *firmware accepts* — and
+that page is internally inconsistent about it, since `AT+CWJAP` is the
+structurally identical case (manual: `_CUR`/`_DEF` only, bare in examples only)
+and is marked ✅. The other six were checked the same way and are unambiguous in
+every source.
+
+**So the recommendation does not rest on "exists in both".** It rests on
+[§4](#4-the-nexts-own-shipped-documentation-is-the-sharpest-evidence-there-is):
+the Next's own shipped WiFi documentation instructs users to type the **bare**
+spellings, so the bare spellings are what jnext must answer whatever a comparison
+table says. The version evidence supports the recommendation; the Next's own
+documentation is what decides it.
+
+**One consequence for implementation, found by the same check.** Bare
+`AT+CWMODE` is **not** an alias of `_CUR`: its setup handler is
+`at_setupCmdCwmodeDef`, i.e. the bare form has **`_DEF` (flash-persisted)**
+semantics, so on real 1.x hardware a mode set with the bare command *survives
+`AT+RST`*. jnext persists nothing ([Q2](#q2--persistence)), and it deliberately
+resets the mode on `AT+RST` instead — a **stated deviation**, not an oversight,
+because `AT+RST`'s fixed reply announces `WIFI CONNECTED` / `WIFI GOT IP` and
+that reply becomes a lie if a SoftAP-only mode survives the reset.
 
 ### Q2 — Persistence
 
@@ -819,7 +876,7 @@ Every claim in this document traces to one of these. Where something is
 | Claim | How |
 |---|---|
 | The whole of [§2.2](#22-the-measured-baseline) — what the engine answers to 54 command lines | A throwaway probe (scratchpad, **not committed**) linking `src/esp01/src/{esp_at,esp_log,esp_socket,esp_address_policy,esp_socket_posix}.cpp` against a null transport and null listener, one fresh engine per line |
-| The dispatch table is 22 rows / 19 commands, prefix-matched, first match wins | `src/esp01/src/esp_at.cpp:119-144`, `:244-252` |
+| The dispatch table is **21 rows** / 19 commands, prefix-matched, first match wins | `src/esp01/src/esp_at.cpp:119-144`, `:244-252` — counted from the source, not from the cited line span |
 | Everything unmatched answers `\r\nERROR\r\n` | `esp_at.cpp:251-252`; `queue_error()` at `esp_at.h:921` |
 | `AT+CWJAP?`, `AT+CIPSTA?`, `AT+CIFSR`, `AT+CIPDNS_CUR?`, `AT+GMR` reply bodies | `esp_at.cpp:840-880` |
 | Association state is host-driven and guest-invisible except through `AT+CIFSR` | `esp_at.h:734-735,1034`; `esp_at.cpp:342,870` |
