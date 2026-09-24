@@ -27,8 +27,9 @@
 #include <cmath>
 
 PreferencesDialog::PreferencesDialog(const AppConfigData& current, QWidget* parent,
-                                     const std::vector<jnext::dbgkeys::LoadIssue>& key_issues)
-    : QDialog(parent), debug_keys_(current.debug_keys)
+                                     const std::vector<jnext::dbgkeys::LoadIssue>& key_issues,
+                                     const std::vector<HostChord>& host_chords)
+    : QDialog(parent), debug_keys_(current.debug_keys), host_chords_(host_chords)
 {
     setWindowTitle(tr("Preferences"));
 
@@ -510,6 +511,9 @@ QWidget* PreferencesDialog::build_debug_keys_tab(
     outer->addLayout(row);
 
     key_message_ = new QLabel(tab);
+    // Named so a test can find THIS label rather than guessing at the first
+    // word-wrapping one — the Input tab has help text that also wraps.
+    key_message_->setObjectName(QStringLiteral("debug_keys_message"));
     key_message_->setWordWrap(true);
     outer->addWidget(key_message_);
 
@@ -545,11 +549,35 @@ void PreferencesDialog::on_key_captured(int index, jnext::dbgkeys::Combo combo) 
 
     debug_keys_.set(target, combo);
     refresh_key_row(index);
-    if (key_message_) {
-        key_message_->setText(tr("\"%1\" is now %2.")
-                                  .arg(tr(info(target).label),
-                                       QString::fromStdString(render_combo(combo))));
+    if (!key_message_) return;
+
+    // Accepted — now say whether anything else in jnext answers to it.
+    //
+    // A chord the EMULATOR window claims is NOT refused, and the reason is
+    // measured rather than assumed: the two windows are separate top levels,
+    // so Qt::WindowShortcut matches against whichever is ACTIVE and each one
+    // keeps its own binding. There is no ambiguity and nothing breaks — the
+    // debugger command works in the debugger window, and the emulator window
+    // goes on doing what it did. Refusing this class would make F11 unbindable,
+    // and F11 = Step Into is precisely what GH #1's reporter asked for.
+    //
+    // What WAS wrong is that this said nothing, so a user who bound Run to
+    // Ctrl+F5 was told "Run is now Ctrl+F5" and then found the emulator window
+    // starting a recording. The collision is named, with both outcomes.
+    if (const HostChord* h = find_host_chord(host_chords_, combo)) {
+        key_message_->setText(
+            tr("\"%1\" is now %2 — but the emulator window already uses %2 for "
+               "\"%3\". It will work in the debugger window; in the emulator "
+               "window %2 still does \"%3\".")
+                .arg(tr(info(target).label),
+                     QString::fromStdString(render_combo(combo)),
+                     h->label));
+        return;
     }
+
+    key_message_->setText(tr("\"%1\" is now %2.")
+                              .arg(tr(info(target).label),
+                                   QString::fromStdString(render_combo(combo))));
 }
 
 void PreferencesDialog::reset_key(int index) {

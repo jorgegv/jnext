@@ -3019,6 +3019,12 @@ that no longer works.</p>
   first. This is refused rather than silently taken over, because Qt answers
   two identical shortcuts by firing them alternately, which breaks both.</li>
 </ul>
+<p>Four combinations are <strong>not</strong> refused but do get a warning, because the
+emulator window already uses them: <strong>Ctrl+F5</strong> (record), <strong>Ctrl+F6</strong> (stop
+recording), <strong>F4</strong> (soft reset) and <strong>F11</strong> (fullscreen). You can bind them —
+F11 for Step Into is a popular choice — and they will work in the debugger
+window. The emulator window keeps its own use of them, and the message under
+the table says so when you pick one.</p>
 <p>Two things that are <em>not</em> refused, and are worth knowing:</p>
 <ul>
 <li><strong>Ctrl is free here</strong>, unlike in the emulator window, where Ctrl is the

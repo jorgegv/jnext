@@ -1,6 +1,7 @@
 #include "gui/main_window.h"
 #include "version.h"
 #include "gui/emulator_widget.h"
+#include "gui/host_chords.h"
 #include "gui/preferences_dialog.h"
 #include "gui/preferences_apply_policy.h"
 #include "core/emulator.h"
@@ -2007,7 +2008,11 @@ void MainWindow::push_debug_keymap() {
 }
 
 void MainWindow::on_open_preferences() {
-    PreferencesDialog dlg(app_config_.data(), this, app_config_.debug_key_issues());
+    // GH #1 review follow-up — hand the dialog the combinations THIS window
+    // already answers to, harvested from the real QActions rather than
+    // hand-listed, so a menu item added later is picked up with no edit here.
+    PreferencesDialog dlg(app_config_.data(), this, app_config_.debug_key_issues(),
+                          harvest_host_chords(this));
     connect(&dlg, &PreferencesDialog::apply_requested, this, [this](const AppConfigData& cfg) {
         app_config_.data() = cfg;
         app_config_.save();

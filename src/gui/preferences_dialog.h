@@ -5,6 +5,7 @@
 #include <vector>
 
 #include "gui/app_config.h"
+#include "gui/host_chords.h"
 
 class QComboBox;
 class QSpinBox;
@@ -46,7 +47,8 @@ class PreferencesDialog : public QDialog {
     Q_OBJECT
 public:
     explicit PreferencesDialog(const AppConfigData& current, QWidget* parent = nullptr,
-                               const std::vector<jnext::dbgkeys::LoadIssue>& key_issues = {});
+                               const std::vector<jnext::dbgkeys::LoadIssue>& key_issues = {},
+                               const std::vector<HostChord>& host_chords = {});
 
 signals:
     /// Emitted on OK (then the dialog closes) and on Apply (dialog stays open).
@@ -106,4 +108,11 @@ private:
     ShortcutCaptureButton* key_buttons_[jnext::dbgkeys::ACTION_COUNT] = {};
     QLabel* key_message_ = nullptr;
 #endif
+    /// Combinations the EMULATOR window already answers to. A binding that
+    /// collides with one is ACCEPTED — the two windows resolve it
+    /// deterministically, each keeping its own — but the user is told exactly
+    /// what will happen, which is the part that was missing. Outside the
+    /// ENABLE_DEBUGGER guard so the member exists in every build, like
+    /// debug_keys_ above.
+    std::vector<HostChord> host_chords_;
 };

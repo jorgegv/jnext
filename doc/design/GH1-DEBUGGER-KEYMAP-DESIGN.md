@@ -130,9 +130,62 @@ Nothing is ever silently ignored.
   neither can be used on purpose. That defect shipped in this debugger five
   times and is what GH #124 and `debugger_accel_test` exist for.
 
+  **Scope, stated because the first cut overstated it:** this rule covers two
+  claimants *in the same shortcut map* — the twelve actions, plus anything else
+  inside the debugger window (§4b). A chord the **emulator** window owns is a
+  different thing entirely and is handled differently; see §4b.
+
   The Preferences tab therefore **refuses a conflict outright**: the offending
   row is marked, the conflict is named, and OK/Apply are disabled until it is
   cleared. Load-time resolution only ever runs against a hand-edited file.
+
+## 4b. A chord the EMULATOR window already owns is accepted, not refused
+
+Reviewed and rejected in the first cut, correctly: §4 said "conflicts are
+refused" while the check covered only the twelve debugger actions, so binding
+Run to `Ctrl+F5` was accepted in silence and then lost to Start Recording in
+the emulator window. The enumeration below is now **harvested from the real
+`QAction`s** (`src/gui/host_chords.cpp`) rather than written out here, because a
+hand-written list is a claim of exhaustiveness that goes stale the next time
+somebody adds a menu item. Measured, it is exactly four:
+
+| Chord | Emulator-window action |
+|---|---|
+| `Ctrl+F5` | Record MPEG4 Video… |
+| `Ctrl+F6` | Stop MPEG4 Recording |
+| `F4` | Soft Reset |
+| `F11` | Fullscreen |
+
+**They are accepted, with a warning naming both outcomes.** Refusing them was
+the obvious fix and it is the wrong one, for a reason that is measured rather
+than argued (`DKH-03/04/05`):
+
+* the two windows are separate top levels, so `Qt::WindowShortcut` matches
+  against whichever is **active**. `Ctrl+F5` fires Run in the debugger window
+  and Start Recording in the emulator window; `F11` fires Step Into in the
+  debugger window and Fullscreen in the emulator window. There is no ambiguity,
+  nothing is broken, and each window keeps its own;
+* **`F11` is in that list, and `F11` = Step Into is the binding this issue's
+  reporter asked for.** Refusing the class would defeat the issue.
+
+So the defect was never the acceptance — it was the silence. The Preferences
+message now names the emulator-window action and says what each window will do.
+
+Two guards keep that honest, because both halves of it are the kind of claim
+that rots:
+
+* `DKH-01` pins the harvest's CONTENTS. A fifth bindable menu shortcut fails
+  the row and forces this table to be updated with it.
+* `DKH-02` pins that nothing inside the **debugger** window claims a bindable
+  chord outside the twelve. That case *would* be a true same-window ambiguity —
+  Qt fires both round-robin — so it must stay empty. Today it is: the only two
+  (`Ctrl+C`/`Ctrl+A`) are refused outright by §5. The next debugger shortcut
+  anybody adds fails that row.
+
+Disabled actions are harvested too. "Stop MPEG4 Recording" is disabled until a
+recording starts, and skipping it meant `Ctrl+F6` could be bound in silence and
+then lost the first time the user recorded anything — found by measurement, not
+by reading the code.
 
 ## 5. Which combinations are refused as bindings
 
@@ -216,6 +269,7 @@ Cancel discards.
 | Piece | File | Library |
 |---|---|---|
 | Action table, grammar, validation, conflict resolution | `src/debug/debug_keymap.{h,cpp}` | `jnext_debug` — pure C++, **no Qt** |
+| Harvesting the chords a host window already owns | `src/gui/host_chords.{h,cpp}` | `jnext_gui` |
 | Persistence | `src/gui/app_config.{h,cpp}` | `jnext_gui` |
 | Customisation UI | `src/gui/preferences_dialog.{h,cpp}`, `src/gui/shortcut_capture_button.{h,cpp}` | `jnext_gui` |
 | Applying it to the real actions | `src/debugger/debugger_window.{h,cpp}` | `jnext_debugger` |

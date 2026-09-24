@@ -13,6 +13,10 @@
 //   DKP  the Preferences tab: a capture that is illegal, or that another action
 //        already holds, is REFUSED with a reason — and an untouched dialog
 //        hands the bindings back unchanged, which is the GH #25 wipe hazard.
+//   DKH  a binding that collides with a chord one of the HOST WINDOWS already
+//        answers to. Reviewed and REJECTED as a defect in the first cut, on
+//        the grounds that "conflicts are refused" was false for Ctrl+F5. It is
+//        false, and the answer is not to refuse — see the group banner there.
 //   DKM  the emulator window forwards the five execution keys FROM THE KEYMAP.
 //        Before GH #1 that block switched on five hard-coded F-keys, so a
 //        rebind half-applied: the new chord worked in the debugger while the
@@ -41,6 +45,7 @@
 #include <QApplication>
 #include <QKeyEvent>
 #include <QKeySequence>
+#include <QLabel>
 #include <QPushButton>
 #include <QString>
 #include <QStringList>
@@ -61,7 +66,9 @@
 #include "debug/debug_state.h"
 #include "debugger/debugger_manager.h"
 #include "debugger/debugger_window.h"
+#include "gui/host_chords.h"
 #include "gui/main_window.h"
+#include "gui/preferences_dialog.h"
 #include "peripheral/nmi_source.h"
 #include "gui/preferences_dialog.h"
 #include "gui/shortcut_capture_button.h"
@@ -433,6 +440,282 @@ void test_preferences_tab() {
           render_combo(emitted.debug_keys.combo(Action::StepOver)));
 }
 
+// ── DKH: colliding with a chord a host window already owns ────────────────
+//
+// THE FINDING, AND WHY THE ANSWER IS NOT "REFUSE IT".
+//
+// Conflict detection covers the twelve debugger actions. It does NOT cover the
+// chords the EMULATOR window already binds, and four of those survive every
+// refusal rule. Measured, not listed by hand — DKH-01 harvests them:
+//
+//     Ctrl+F5  Record MPEG4 Video...      F4   Soft Reset
+//     Ctrl+F6  Stop MPEG4 Recording       F11  Fullscreen
+//
+// Bind Run to Ctrl+F5 and, in the EMULATOR window, the recording starts and Run
+// never fires. That is real, and the first cut of this feature said nothing
+// about it at all.
+//
+// But refusing the class is the wrong fix, and the measurement is what says so.
+// The two windows are separate top levels, so Qt::WindowShortcut matches
+// against whichever is ACTIVE: there is no ambiguity, nothing is broken, and
+// each window keeps its own binding (DKH-03/04/05). Refusing would make **F11
+// unbindable — and F11 = Step Into is the binding GH #1's reporter asked for**,
+// so the "fix" would defeat the issue.
+//
+// So: accept, and SAY what will happen (DKH-06). The defect was the silence.
+//
+// The one case that IS a true ambiguity is a chord claimed twice inside the
+// SAME window, which Qt answers round-robin (GH #124). DKH-02 pins that the
+// debugger window's non-keymap chords are exactly Copy/Select All and that both
+// are already refused statically — so the moment anyone adds a debugger
+// shortcut, that row fails and forces the reserve list to be extended.
+
+void test_host_chord_enumeration() {
+    MainWindowFixture fx;
+    if (!fx.ok) {
+        check("DKH-01", "the emulator window's bindable chords are exactly the four known",
+              false, "fixture failed");
+        return;
+    }
+
+    // Pinned deliberately, in the manner of the manifest's row counts: this IS
+    // the enumeration the design doc talks about, so it is a value the project
+    // states rather than a set that drifts. A new menu shortcut that a user
+    // could also bind fails this row and forces the doc to be updated with it.
+    QStringList got;
+    for (const HostChord& h : harvest_host_chords(&fx.win))
+        got << QStringLiteral("%1=%2")
+                   .arg(QString::fromStdString(render_combo(h.combo)), h.label);
+    got.sort();
+    const QString want =
+        QStringLiteral("Ctrl+F5=Record MPEG4 Video...|Ctrl+F6=Stop MPEG4 Recording|"
+                       "F11=Fullscreen|F4=Soft Reset");
+    check("DKH-01", "the emulator window's bindable chords are exactly the four known",
+          got.join(QStringLiteral("|")) == want, got.join(QStringLiteral("|")).toStdString());
+}
+
+void test_debugger_window_has_no_foreign_chord() {
+    DebuggerFixture fx;
+    if (!fx.ok) {
+        check("DKH-02", "no chord inside the debugger window is bindable but unclaimed",
+              false, "fixture failed");
+        return;
+    }
+
+    // Same window = same shortcut map = a REAL ambiguity, which Qt answers by
+    // firing both round-robin (GH #124). There must therefore be nothing in
+    // this window, outside the twelve, that a user could also bind. Today that
+    // holds because the only two (the disassembly panel's Copy and Select All)
+    // are refused by validate_combo(). This row is what makes the next debugger
+    // shortcut somebody adds a loud failure instead of a silent ambiguity.
+    const Keymap km = fx.dbg->keymap();
+    QStringList offenders;
+    for (QAction* a : all_actions(fx.dbg)) {
+        for (const QKeySequence& seq : a->shortcuts()) {
+            if (seq.isEmpty()) continue;
+            Combo c;
+            std::string why;
+            if (!parse_combo(seq.toString().toStdString(), c, why)) continue;
+            if (!validate_combo(c, why)) continue;     // a user could not bind it
+            if (km.action_for(c)) continue;            // one of the twelve: fine
+            offenders << QStringLiteral("%1=%2").arg(
+                seq.toString(), a->text().remove(QLatin1Char('&')));
+        }
+    }
+    check("DKH-02", "no chord inside the debugger window is bindable but unclaimed",
+          offenders.isEmpty(), offenders.join(QStringLiteral("|")).toStdString());
+}
+
+/// The precedence itself, through QTest's real platform key path in BOTH
+/// directions. sendEvent() cannot see this: it bypasses QShortcutMap, which is
+/// the very thing doing the pre-empting — which is exactly why the first cut's
+/// DKM rows, all sendEvent(), could not have caught the finding.
+void test_host_chord_precedence() {
+    MainWindowFixture fx;
+    DebuggerManager* mgr = fx.ok ? fx.win.debugger_manager() : nullptr;
+    if (!mgr) {
+        for (const char* id : {"DKH-03", "DKH-04", "DKH-05"})
+            check(id, "host-chord precedence", false, "fixture failed");
+        return;
+    }
+
+    AppConfigData cfg = fx.win.app_config().data();
+    cfg.debug_keys.set(Action::Run, parsed("Ctrl+F5"));        // vs Record
+    cfg.debug_keys.set(Action::StepInto, parsed("F11"));       // vs Fullscreen
+    fx.win.apply_preferences(cfg);
+    QApplication::processEvents();
+
+    mgr->set_enabled(true);
+    settle(120);
+    DebuggerWindow* dbg = mgr->debugger_window_ptr();
+    if (!dbg) {
+        for (const char* id : {"DKH-03", "DKH-04", "DKH-05"})
+            check(id, "host-chord precedence", false, "no debugger window");
+        return;
+    }
+    dbg->show();
+    dbg->activateWindow();
+    settle(150);
+
+    auto named = [](QWidget* w, const QString& text) -> QAction* {
+        for (QAction* a : w->findChildren<QAction*>())
+            if (a->text().remove(QLatin1Char('&')).contains(text)) return a;
+        return nullptr;
+    };
+    QAction* rec  = named(&fx.win, QStringLiteral("Record MPEG4 Video"));
+    QAction* full = named(&fx.win, QStringLiteral("Fullscreen"));
+    QAction* run  = action_with_shortcut(dbg, to_key_sequence(parsed("Ctrl+F5")));
+    QAction* into = action_with_shortcut(dbg, to_key_sequence(parsed("F11")));
+    if (!rec || !full || !run || !into) {
+        for (const char* id : {"DKH-03", "DKH-04", "DKH-05"})
+            check(id, "host-chord precedence", false, "an action was not found");
+        return;
+    }
+
+    // Their real slots open a modal save dialog and toggle fullscreen; replace
+    // them with counters so the rows measure DISPATCH and nothing else.
+    rec->disconnect();
+    full->disconnect();
+    run->disconnect();
+    into->disconnect();
+    int nrec = 0, nfull = 0, nrun = 0, ninto = 0;
+    QObject::connect(rec,  &QAction::triggered, rec,  [&nrec]()  { ++nrec;  });
+    QObject::connect(full, &QAction::triggered, full, [&nfull]() { ++nfull; });
+    QObject::connect(run,  &QAction::triggered, run,  [&nrun]()  { ++nrun;  });
+    QObject::connect(into, &QAction::triggered, into, [&ninto]() { ++ninto; });
+
+    // The step actions are disabled while the machine runs, so pause before
+    // each press — otherwise a row would pass on a disabled action.
+    dbg->activateWindow();
+    settle(120);
+    mgr->on_pause(); settle(80);
+    const bool run_armed = run->isEnabled();
+    press_shortcut(dbg, parsed("Ctrl+F5"));
+    check("DKH-03", "in the DEBUGGER window the debugger binding wins",
+          run_armed && nrun == 1 && nrec == 0,
+          run_armed ? ("run=" + std::to_string(nrun) + " rec=" + std::to_string(nrec))
+                    : "Run was disabled, so the row proved nothing");
+
+    mgr->on_pause(); settle(80);
+    const bool into_armed = into->isEnabled();
+    press_shortcut(dbg, parsed("F11"));
+    check("DKH-05", "F11 = Step Into really works in the debugger window",
+          into_armed && ninto == 1 && nfull == 0,
+          into_armed ? ("into=" + std::to_string(ninto) + " full=" + std::to_string(nfull))
+                     : "Step Into was disabled, so the row proved nothing");
+
+    // ... and the emulator window keeps its own, which is the half the review
+    // measured and the half the user guide has to describe correctly.
+    nrec = nfull = nrun = ninto = 0;
+    fx.win.show();
+    fx.win.activateWindow();
+    settle(150);
+    mgr->on_pause(); settle(80);
+    press_shortcut(&fx.win, parsed("Ctrl+F5"));
+    press_shortcut(&fx.win, parsed("F11"));
+    check("DKH-04", "in the EMULATOR window its own menu shortcut wins",
+          nrec == 1 && nrun == 0 && nfull == 1 && ninto == 0,
+          "rec=" + std::to_string(nrec) + " run=" + std::to_string(nrun)
+              + " full=" + std::to_string(nfull) + " into=" + std::to_string(ninto));
+}
+
+/// The part that was actually broken: the dialog said nothing.
+void test_host_chord_is_accepted_with_a_warning() {
+    MainWindowFixture fx;
+    if (!fx.ok) {
+        check("DKH-06", "a host-claimed chord is accepted AND named in the message",
+              false, "fixture failed");
+        check("DKH-07", "an unclaimed chord gets the plain message", false, "fixture failed");
+        return;
+    }
+
+    AppConfigData before;
+    PreferencesDialog dlg(before, nullptr, {}, harvest_host_chords(&fx.win));
+    const auto buttons = dlg.findChildren<ShortcutCaptureButton*>();
+    QLabel* msg_label = dlg.findChild<QLabel*>(QStringLiteral("debug_keys_message"));
+    if (buttons.size() != ACTION_COUNT || !msg_label) {
+        check("DKH-06", "a host-claimed chord is accepted AND named in the message",
+              false, "capture buttons not found");
+        check("DKH-07", "an unclaimed chord gets the plain message", false, "");
+        return;
+    }
+    auto message = [msg_label]() { return msg_label->text(); };
+
+    capture_into(buttons[static_cast<int>(Action::Run)], parsed("Ctrl+F5"));
+    AppConfigData got;
+    QObject::connect(&dlg, &PreferencesDialog::apply_requested, &dlg,
+                     [&got](const AppConfigData& c) { got = c; });
+    for (QPushButton* b : dlg.findChildren<QPushButton*>())
+        if (b->text().remove(QLatin1Char('&')) == QStringLiteral("Apply")) b->click();
+
+    const QString msg = message();
+    check("DKH-06", "a host-claimed chord is accepted AND named in the message",
+          render_combo(got.debug_keys.combo(Action::Run)) == "Ctrl+F5"
+              && msg.contains(QStringLiteral("Record MPEG4 Video"))
+              && msg.contains(QStringLiteral("emulator window")),
+          render_combo(got.debug_keys.combo(Action::Run)) + " / " + msg.toStdString());
+
+    capture_into(buttons[static_cast<int>(Action::Run)], parsed("Ctrl+F12"));
+    const QString plain = message();
+    check("DKH-07", "an unclaimed chord gets the plain message",
+          plain.contains(QStringLiteral("Ctrl+F12"))
+              && !plain.contains(QStringLiteral("emulator window")),
+          plain.toStdString());
+}
+
+/// DKH-08 — the WIRING, not the component.
+///
+/// DKH-06 builds a PreferencesDialog by hand and hands it the harvest, so it
+/// proves the dialog warns when it is TOLD about a chord. It says nothing about
+/// whether the product ever tells it: deleting `harvest_host_chords(this)` from
+/// MainWindow::on_open_preferences() — exactly the pre-review state — left
+/// every row green. That is the same shape of hole as the defect this group
+/// exists for, so it gets an end-to-end row of its own.
+///
+/// It goes through the REAL Settings > Preferences... menu action and inspects
+/// the REAL modal dialog from inside its own event loop, which is the only way
+/// to see an exec()-ing dialog without blocking forever.
+void test_preferences_menu_passes_the_host_chords() {
+    MainWindowFixture fx;
+    if (!fx.ok) {
+        check("DKH-08", "the real Preferences menu hands the dialog this window's chords",
+              false, "fixture failed");
+        return;
+    }
+
+    QAction* prefs = nullptr;
+    for (QAction* a : fx.win.findChildren<QAction*>())
+        if (a->text().remove(QLatin1Char('&')).startsWith(QStringLiteral("Preferences")))
+            prefs = a;
+    if (!prefs) {
+        check("DKH-08", "the real Preferences menu hands the dialog this window's chords",
+              false, "no Preferences action");
+        return;
+    }
+
+    QString seen;
+    bool found_dialog = false;
+    QTimer::singleShot(0, &fx.win, [&seen, &found_dialog]() {
+        auto* dlg = qobject_cast<PreferencesDialog*>(QApplication::activeModalWidget());
+        if (dlg) {
+            found_dialog = true;
+            const auto buttons = dlg->findChildren<ShortcutCaptureButton*>();
+            QLabel* msg = dlg->findChild<QLabel*>(QStringLiteral("debug_keys_message"));
+            if (buttons.size() == ACTION_COUNT && msg) {
+                capture_into(buttons[static_cast<int>(Action::Run)], parsed("Ctrl+F5"));
+                seen = msg->text();
+            }
+            dlg->reject();   // let exec() return, and discard the edit
+        }
+    });
+    prefs->trigger();        // the production path: menu -> on_open_preferences -> exec()
+
+    check("DKH-08", "the real Preferences menu hands the dialog this window's chords",
+          found_dialog && seen.contains(QStringLiteral("Record MPEG4 Video"))
+              && seen.contains(QStringLiteral("emulator window")),
+          found_dialog ? seen.toStdString() : "the modal dialog was never seen");
+}
+
 // ── DKM: the emulator window's forwarding ─────────────────────────────────
 
 void test_main_window_forwarding() {
@@ -595,6 +878,11 @@ int main(int argc, char** argv) {
     test_window_rebind();
     test_window_no_ambiguity();
     test_preferences_tab();
+    test_host_chord_enumeration();
+    test_debugger_window_has_no_foreign_chord();
+    test_host_chord_precedence();
+    test_host_chord_is_accepted_with_a_warning();
+    test_preferences_menu_passes_the_host_chords();
     test_main_window_forwarding();
     test_main_window_pushes_keymap();
     test_keymap_survives_a_late_window();

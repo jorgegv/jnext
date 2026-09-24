@@ -289,6 +289,14 @@ else: anything without Ctrl/Alt/Meta that is not `F1`–`F12` (Qt's shortcut map
 outranks the focused panel, and the memory panel types hex with bare keys),
 `Alt`+letter (the menu bar's namespace), and `Ctrl+C`/`Ctrl+A` (GH #21).
 
+**Two claimants in one shortcut map is a conflict; two windows is not.** A
+chord the *emulator* window binds — `Ctrl+F5`, `Ctrl+F6`, `F4`, `F11`, the set
+`harvest_host_chords()` reads off the real `QAction`s — is accepted with a
+warning rather than refused, because `Qt::WindowShortcut` matches against the
+ACTIVE window and each window keeps its own binding. Measured both ways in
+`debugger_keymap_test`'s DKH group; refusing the class would make `F11` = Step
+Into impossible, which is the binding GH #1 asked for.
+
 **Conflicts are refused, not resolved, wherever a human is present.** Qt
 classifies two identical sequences as AMBIGUOUS and dispatches them
 round-robin, so a clash breaks *both* bindings — the GH #124 defect this window
