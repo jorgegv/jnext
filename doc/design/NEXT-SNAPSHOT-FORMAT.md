@@ -1931,6 +1931,7 @@ none of these either, because it was written before the gaps were closed:
 
 | Group | IDs | What |
 |---|---|---|
+| **Hostile values** | `S6-SD-RESP-FORGED`, `S6-SD-BLOCKLEN-FORGED`, `S6-SD-CMDIDX-FORGED` | The class the first battery did not have: a value that is PRESENT and IN RANGE for its type but out of range for what it sizes or indexes. `S6-SD-BLOCKLEN-FORGED` drives the faulting path deliberately rather than checking the invariant and stopping — a row that avoids the path is not a regression test for what happens on it — and `S6-SD-CMDIDX-FORGED` states plainly that its fault is a one-byte out-of-bounds WRITE no behavioural assertion on a sanitizer-less build can see, so it asserts the invariant through an accessor that exists for the purpose. |
 | **SD FSM** | `S6-SD-*`, `S6-EMU-CMD18-MID` | §10.2 P1. A save taken mid-block, mid-stream of a CMD18 restores a card that is STILL streaming — asserted against a second card driven identically and never interrupted, because a hand-written expectation would only pin what the row's author believed the stream to be. Plus the negotiated capacity class surviving (GH #94's two fields decide how every later address is read), the transfer-in-flight predicate §11.3's last row needs, and the write path's purity. |
 | **Multiface type** | `S6-MF-TYPE-01`, `S6-EMU-MF-TYPE` | §10.2 P13, all four NR 0x0A encodings. `MF-CORE-12` is built with `mf_type=10` and did NOT catch this, because it asserts `mode_128()` and the VHDL decodes both `"01"` and `"10"` to that. |
 | **Declared defaults** | `S6-DEF-*`, `S6-SD-DEFAULTS-*`, `S6-MF-DEFAULTS-01` | §12.2's gate, and the rows that make it more than a tautology: one drifts a default and requires the failure to name the field with both numbers, one covers every scalar primitive rather than the `u8` the first one drifts, one asserts the aggregates contribute nothing in either direction, and two assert the defaulted/undefaulted SPLIT so "the gate passed" cannot mean "the gate saw nothing". |
@@ -2177,6 +2178,55 @@ block.
 **`warm_start::kFormatVersion` went 2 → 3**, for the reason that constant's own
 rule gives: `save_state` changed shape. The length check would have discarded a
 pre-S6 cache anyway.
+
+**A buffer overflow this stage SHIPPED, and what it says about the battery
+that missed it.** S6's review found `block_len_` restored from the stream
+without a bound and then passed to `file_.read(data_block_, block_len_)`,
+where `data_block_` is `uint8_t[512]`. A forged 4 096 wrote **3 584 bytes** of
+real SD-image content past the array — through `data_idx_`, the booleans, the
+overlay `std::function` and into the `std::fstream` member declared after it,
+corrupting its locale and killing the process in `~SdCardDevice`. It is
+trivially reachable: `load_read_block()`'s own `byte_addr + block_len_ >
+file_size_` bound stops nothing, because a real card is far larger than 512
+bytes. Reproduced here against the pre-fix build — SIGSEGV, with `file_size_`
+itself visible in the log as `5063528411713060927` where the write had run
+over it — and gone after the fix, with the row driving the same path.
+
+The invariant was not new and was not absent: `cmd16_set_blocklen()` answers
+`arg == 0 || arg > kBlockLen` with R1 PARAMETER_ERROR, because the allowed
+range is 1..2^READ_BL_LEN. **The loader simply did not enforce what the
+command enforces.** Beside it, `cmd_idx_`'s clamp was off by one — `>` where
+`>=` belongs, for a WRITE cursor — so a forged 6 passed untouched into
+`cmd_buf_[cmd_idx_++]`, a bound that was present and read as covered.
+
+**Why the 30-mutation battery could not find either**, and this is the part
+worth keeping: every mutation in it was *drop the field* or *do not clamp to
+the reset default* shaped. Both defects are a different class — **value
+present, in the stream, out of range** — and no mutation in the battery had
+that shape. The narrative below originally claimed the P1 risk class had been
+audited, and named `cmd_idx`, `data_idx` and `resp_count`; it had missed the
+one field that sizes an `ifstream::read()` into a fixed buffer. **A list of
+the fields someone thought to check is not a sweep.** So the answer is not
+the two fixes: it is the **per-field sweep** now written into
+`SdCardDevice::describe_state`, which gives EVERY restored field a line
+stating what it sizes or indexes and what bounds it, with a rule that a new
+field gets a line or the sweep stops being one — plus
+**out-of-range forging as a standing mutation class** beside the drop-the-field
+one. This is the fifth appearance of the family in #27 (S1's 4.29 GB
+allocation, S3's `Ram::load_state`, S5's staging array, S6's `resp_count`,
+this), and every time the fields on someone's list were checked and the field
+on nobody's list was not.
+
+**The harness had the same blindness twice, and that is the second lesson.**
+Its first version restored mutated files with `shutil.copy2`, which preserves
+mtime, so make skipped the rebuild and every later mutation ran against a
+binary still carrying the earlier ones — caught only because a CLEAN tree then
+reported two failures it could not have. Its second version read the printed
+`FAIL` lines and nothing else, so the `block_len_` mutation, which **crashes
+the suite**, came back as "no row failed": the process dies before the
+summary. Both times the harness was looking at the wrong signal and reporting
+absence. A mutation battery is a measuring instrument, and an instrument that
+has never been checked against a known answer is not evidence.
 
 **What the mutation table found, because it was derived from the DIFF and not
 from the row list.** Six behavioural changes had no row when first asked:

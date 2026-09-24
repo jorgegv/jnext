@@ -1534,7 +1534,20 @@ bool SdCardDevice::load_read_block(uint64_t byte_addr) {
         return read_overlay_(static_cast<uint32_t>(byte_addr / kBlockLen),
                              data_block_);
 
-    if (byte_addr + block_len_ > file_size_) return false;
+    // The same bound, written so it cannot WRAP: `byte_addr` comes from
+    // `multi_block_addr_`, which a restore takes from a stream, and
+    // `byte_addr + block_len_` overflows for an address near UINT64_MAX and
+    // then passes. Subtracting instead cannot.
+    //
+    // HONEST SCOPE: this is the bound written correctly, not a second guard,
+    // and with `block_len_` now checked at restore the wrap is UNREACHABLE —
+    // it needs an address within 512 of UINT64_MAX, and such an address
+    // fails at `seekg` anyway, because the cast to a signed `streamoff` goes
+    // negative. A mutation confirmed no row can tell the two spellings
+    // apart. It is kept because the correct spelling costs nothing and the
+    // incorrect one was relying on that `seekg` fallback to be safe.
+    if (byte_addr > file_size_ || block_len_ > file_size_ - byte_addr)
+        return false;
     file_.clear();
     file_.seekg(static_cast<std::streamoff>(byte_addr), std::ios::beg);
     if (!file_) return false;
@@ -1572,6 +1585,67 @@ const jnext::save::EnumNames kSdStateEnum{
 
 }  // namespace
 
+// ── THE PER-FIELD SWEEP (GH #27 S6, after review) ───────────────────────
+//
+// Every field below is restored from a stream, so every field below is
+// HOSTILE INPUT, and the question for each is not "is it saved" but "what
+// does it size or index, and what happens when it is out of range". That
+// question is asked here field by field rather than for the fields someone
+// thought of, because thinking of them is exactly what has failed four times
+// in this issue: S1's 167-byte archive forcing a 4.29 GB allocation, S3's
+// `Ram::load_state`, S5's staging array, S6's own `resp_count` — and then
+// `block_len_`, which the first version of this declaration left unchecked
+// while its comments claimed to have audited for precisely this.
+//
+//   state_                  enum8; `BinReadDesc::do_enum8` REFUSES an
+//                           ordinal outside the declared name set and leaves
+//                           the member untouched. Bounded by the layer.
+//   cmd_buf_[6]             fixed width, every byte value legal.
+//   cmd_idx_                WRITE CURSOR into cmd_buf_. `receive()` has no
+//                           bound of its own -> clamped here to sizeof-1.
+//   resp_count              COUNT for resp_buf_ -> checked, never obeyed.
+//   resp_buf staging[32]    fixed width, every byte value legal.
+//   resp_idx_               read cursor; every consumer guards with
+//                           `resp_idx_ < resp_buf_.size()`, so out of range
+//                           reads as "exhausted". Bounded by consumer.
+//   data_block_[512]        fixed width, every byte value legal.
+//   data_idx_               cursor into data_block_; clamped here. A
+//                           mutation shows the clamp is currently REDUNDANT
+//                           — the read path guards `< block_len_` and the
+//                           CMD24 write path `< kBlockLen` — and it is kept
+//                           anyway, as policy: an index-like field is
+//                           bounded where it ENTERS from a file, because
+//                           there is one entry point and many consumers, and
+//                           `block_len_` is what relying on the consumers
+//                           looks like when one of them does not check.
+//   data_crc_count_         consumers test `< 2`; any larger value means
+//                           "done". Bounded by consumer.
+//   data_crc_               a value; indexes nothing.
+//   data_token_received_,   booleans; `read_bool` yields 0/1.
+//   initialized_, app_cmd_,
+//   host_supports_sdhc_,
+//   multi_block_,
+//   pending_write_after_r1_,
+//   write_busy_pending_
+//   block_len_              SIZES A WRITE — `file_.read(data_block_,
+//                           block_len_)` into a 512-byte array — and two
+//                           READS besides. Checked here against CMD16's own
+//                           1..512 invariant. This is the one that was
+//                           missed; see its declaration.
+//   multi_block_addr_       byte address; bounded by `load_read_block()`,
+//                           whose bound is now written so it cannot wrap —
+//                           unreachable given the `block_len_` check above,
+//                           and a mutation confirms no row can tell the two
+//                           spellings apart.
+//   busy_remaining_         a countdown of emitted bytes; u8-bounded, and a
+//                           larger value only lengthens the busy phase.
+//   persistent_response_byte_  a value; indexes nothing.
+//   overlay_first_sector_,  compared, never used as an index, and inert
+//   overlay_sector_count_   unless a host reader is installed.
+//
+// A field added to this declaration gets a line here, or the sweep stops
+// being one.
+
 void SdCardDevice::describe_state(jnext::save::StateDesc& d)
 {
     // ── DECLARED DEFAULTS (§12.2) ────────────────────────────────────────
@@ -1605,10 +1679,19 @@ void SdCardDevice::describe_state(jnext::save::StateDesc& d)
     // `cmd_idx_` is an `int` indexing a 6-byte array; it travels as the u8 it
     // is, marshalled through a local. The read direction clamps, because the
     // value has come from a file by then and an index past `cmd_buf_` would
-    // be a write out of bounds at the next command byte.
+    // be a write out of bounds at the next command byte — `receive()`'s
+    // `RECEIVING_CMD` arm does `cmd_buf_[cmd_idx_++] = tx` with no bound of
+    // its own (unlike the `data_block_` write beside it, which guards with
+    // `< kBlockLen`).
+    //
+    // The bound is the LAST WRITABLE SLOT, not the size: this is a write
+    // cursor, so the largest legal in-flight value is `sizeof - 1`. An
+    // earlier `> sizeof(cmd_buf_)` let a forged 6 through untouched and
+    // wrote one byte past the array — the clamp was there and was off by
+    // one, which is worse than none because it reads as covered.
     uint8_t cmd_idx = static_cast<uint8_t>(cmd_idx_);
     d.u8("cmd_idx", cmd_idx, 0);
-    if (cmd_idx > sizeof(cmd_buf_)) cmd_idx = sizeof(cmd_buf_);
+    if (cmd_idx >= sizeof(cmd_buf_)) cmd_idx = sizeof(cmd_buf_) - 1;
     cmd_idx_ = static_cast<int>(cmd_idx);
 
     // `resp_buf_` is the one variable-length member, and it is declared at a
@@ -1681,7 +1764,34 @@ void SdCardDevice::describe_state(jnext::save::StateDesc& d)
     d.boolean("initialized", initialized_, false);
     d.boolean("app_cmd", app_cmd_, false);
     d.boolean("host_supports_sdhc", host_supports_sdhc_, false);
-    d.u32("block_len", block_len_, kBlockLen);
+
+    // `block_len_` SIZES A WRITE, and it is the one field in this
+    // declaration that does: `load_read_block()` passes it straight to
+    // `file_.read(data_block_, block_len_)`, and `data_block_` is
+    // `uint8_t[512]`. A value from a file must therefore be checked against
+    // the class's own invariant, not merely carried.
+    //
+    // That invariant already exists and is stated at the one place the
+    // RUNTIME sets this field: CMD16 (`cmd16_set_blocklen()`) answers
+    // `arg == 0 || arg > kBlockLen` with R1 PARAMETER_ERROR and leaves the
+    // length untouched, because the allowed range is 1..2^READ_BL_LEN and
+    // an over-long block is the spec's named BLOCK_LEN_ERROR. The loader
+    // simply did not enforce what the command enforces, which is how a
+    // forged 4 bytes produced a 3 584-byte overflow that ran through
+    // `data_idx_`, the booleans, the overlay `std::function` and into the
+    // `std::fstream` declared after the array — corrupting its locale and
+    // crashing in the destructor.
+    //
+    // It is also an out-of-range READ for values too small to reach the
+    // write: `sd_crc16(data_block_, block_len_)` and the `SENDING_DATA`
+    // loop's `data_idx_ < block_len_` both walk the same array.
+    //
+    // Out of range restores the power-on length, which is the only value a
+    // block-addressed card — the one every Next negotiates — ever has.
+    uint32_t block_len = block_len_;
+    d.u32("block_len", block_len, kBlockLen);
+    if (block_len == 0 || block_len > kBlockLen) block_len = kBlockLen;
+    block_len_ = block_len;
 
     d.boolean("multi_block", multi_block_, false);
     d.u64("multi_block_addr", multi_block_addr_, 0);

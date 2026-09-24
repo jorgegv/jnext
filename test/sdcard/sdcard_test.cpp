@@ -3756,6 +3756,159 @@ void test_s6_state_roundtrip() {
               !sd.transfer_in_flight());
     }
 
+    // ── S6-SD-BLOCKLEN-FORGED: the field that SIZES A WRITE ─────────────
+    //
+    // `block_len_` is the one restored field that sizes a write:
+    // `load_read_block()` passes it to `file_.read(data_block_, block_len_)`
+    // and `data_block_` is `uint8_t[512]`. Restored unclamped, a forged
+    // 0x00100000 wrote 3 584 bytes of real SD image past the array — through
+    // `data_idx_`, the booleans, the overlay `std::function` and into the
+    // `std::fstream` declared after it, whose locale then crashed the
+    // destructor. `load_read_block`'s own `byte_addr + block_len_ >
+    // file_size_` bound does essentially nothing against it, because a real
+    // image is far larger than 512 bytes.
+    //
+    // The invariant is the class's own and predates this: CMD16 answers
+    // `arg == 0 || arg > kBlockLen` with R1 PARAMETER_ERROR. The loader now
+    // enforces what the command enforces.
+    {
+        // The offset is DERIVED from the declaration — state(1) + cmd_buf(6)
+        // + cmd_idx(1) + resp_count(1) + resp_buf(32) + resp_idx(2) +
+        // data_block(512) + data_idx(2) + data_crc_count(1) + data_crc(2) +
+        // data_token_received(1) + initialized(1) + app_cmd(1) +
+        // host_supports_sdhc(1) — and then CHECKED before it is used, so a
+        // field added ahead of it makes this row fail rather than quietly
+        // forge its neighbour.
+        const std::size_t kBlockLenOffset =
+            1 + 6 + 1 + 1 + 32 + 2 + 512 + 2 + 1 + 2 + 1 + 1 + 1 + 1;
+
+        // 4 096 is the headline value, and the number matters: the overflow
+        // needs `byte_addr + block_len_ <= file_size_` to get PAST
+        // `load_read_block`'s own bound, and this fixture's image is 8 KB —
+        // so 4 096 reaches `file_.read()` and writes 4 096 - 512 = 3 584
+        // bytes of real image past the array. A larger forgery is refused by
+        // that bound for THIS image and would sail past it against a 1 GB
+        // card, which is the size every real user has.
+        struct { uint32_t forged; const char* what; } cases[] = {
+            { 4096u,       "4096"       },   // reaches file_.read(): +3584
+            { 0x00100000u, "1 MiB"      },
+            { 513u,        "513"        },   // one past the physical block
+            { 0u,          "zero"       },   // CMD16's other rejected arm
+        };
+        bool all_ok = true;
+        std::string detail;
+        for (const auto& c : cases) {
+            SdCardDevice sd;
+            sd.mount(img);
+            init_card(sd);
+
+            StateWriter m;
+            sd.save_state(m);
+            std::vector<uint8_t> buf(m.position());
+            StateWriter w(buf.data(), buf.size());
+            sd.save_state(w);
+
+            uint32_t at_offset = 0;
+            std::memcpy(&at_offset, buf.data() + kBlockLenOffset, 4);
+            if (at_offset != 512) {       // the legitimate value, in place
+                all_ok = false;
+                detail += "offset no longer holds block_len ";
+                break;
+            }
+            std::memcpy(buf.data() + kBlockLenOffset, &c.forged, 4);
+
+            SdCardDevice victim;
+            victim.mount(img);
+            StateReader r(buf.data(), buf.size());
+            victim.load_state(r);
+
+            // In range, and specifically the power-on length.
+            if (victim.block_len_for_test() != 512) {
+                all_ok = false;
+                detail += std::string(c.what) + " -> " +
+                          std::to_string(victim.block_len_for_test()) + " ";
+            }
+
+            // AND THEN DRIVE THE REAL PATH — deliberately NOT guarded by the
+            // check above. Reading the invariant back would prove the clamp
+            // and never reach `load_read_block()`, which is where the
+            // overflow is; a row that avoids the faulting path is not a
+            // regression test for it. With the clamp gone this CMD17 writes
+            // 3 584 bytes past `data_block_`, through the overlay
+            // `std::function` and into the `std::fstream` that follows it,
+            // and the process dies in `~SdCardDevice`. A crash is a loud
+            // failure of this suite, which is the correct outcome.
+            uint8_t blk[512] = {};
+            (void)send_cmd_r1(victim, 17, 5);
+            const bool tok = wait_token(victim);
+            read_block(victim, blk);
+            if (!tok || blk[0] != 5) {
+                all_ok = false;
+                detail += std::string(c.what) + ": card did not serve "
+                          "sector 5 ";
+            }
+        }
+        check("S6-SD-BLOCKLEN-FORGED",
+              "a forged block length is checked against the class's own CMD16 "
+              "invariant (1..512) and restored to the power-on 512: the one "
+              "field that SIZES A WRITE cannot be set out of range by a "
+              "stream, and the card still serves its sectors afterwards",
+              all_ok, detail);
+    }
+
+    // ── S6-SD-CMDIDX-FORGED: the write cursor, and an off-by-one ────────
+    //
+    // `receive()`'s RECEIVING_CMD arm does `cmd_buf_[cmd_idx_++] = tx` with
+    // no bound of its own — unlike the `data_block_` write beside it, which
+    // guards with `< kBlockLen`. The restore's clamp was `> sizeof(cmd_buf_)`
+    // and therefore let a forged 6 through untouched, writing one byte past a
+    // 6-byte array. A clamp that is off by one is worse than none: it reads
+    // as covered.
+    //
+    // WHAT THIS ROW CAN AND CANNOT SEE, stated because the difference
+    // matters: the fault is an out-of-bounds WRITE of one byte into padding,
+    // and no behavioural assertion on this build can observe it — the card
+    // dispatches the same command either way. So the row asserts the
+    // INVARIANT directly, through an accessor that exists for that reason,
+    // rather than a downstream symptom that does not differ.
+    {
+        const std::size_t kCmdIdxOffset = 1 + 6;
+        const uint8_t forged[] = { 6, 7, 200, 255 };
+        bool all_ok = true;
+        std::string detail;
+        for (uint8_t f : forged) {
+            SdCardDevice sd;
+            sd.mount(img);
+            init_card(sd);
+
+            StateWriter m;
+            sd.save_state(m);
+            std::vector<uint8_t> buf(m.position());
+            StateWriter w(buf.data(), buf.size());
+            sd.save_state(w);
+            buf[kCmdIdxOffset] = f;
+
+            SdCardDevice victim;
+            victim.mount(img);
+            StateReader r(buf.data(), buf.size());
+            victim.load_state(r);
+
+            // A WRITE cursor, so the largest legal value is the last
+            // writable slot — one less than the size.
+            if (victim.cmd_cursor_for_test() > 5) {
+                all_ok = false;
+                detail += std::to_string(f) + " -> " +
+                          std::to_string(victim.cmd_cursor_for_test()) + " ";
+            }
+        }
+        check("S6-SD-CMDIDX-FORGED",
+              "a forged command cursor is clamped to the LAST WRITABLE SLOT "
+              "(5), not to the array's size: `cmd_buf_[cmd_idx_++] = tx` has "
+              "no bound of its own, so a restored 6 wrote one byte past a "
+              "6-byte array through a clamp that was there and was off by one",
+              all_ok, detail);
+    }
+
     // ── S6-SD-SAVE-PURE: the write path does not disturb the card ───────
     //
     // `describe_state` marshals `resp_buf_` through a staging array and

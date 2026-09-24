@@ -163,6 +163,15 @@ public:
     /// than a divergence the user can judge.
     bool transfer_in_flight() const;
 
+    /// The two restored cursors whose only observable fault is an
+    /// out-of-bounds ACCESS, which no behavioural assertion can see on a
+    /// build without a sanitizer. The rows that forge them assert the
+    /// invariant directly instead, and say so.
+    std::size_t cmd_cursor_for_test() const {
+        return static_cast<std::size_t>(cmd_idx_);
+    }
+    uint32_t block_len_for_test() const { return block_len_; }
+
 private:
     // SD card state machine
     enum class State {

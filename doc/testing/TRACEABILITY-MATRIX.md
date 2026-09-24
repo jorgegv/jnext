@@ -43,7 +43,7 @@ mentions them, so a test can no longer be absent from this document.
 | VideoTiming                                |    64 |   64 |    0 |    0 |       0 |          0 |
 | Contention                                 |   160 |  160 |    0 |    0 |       0 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    86 |   85 |    0 |    1 |       0 |          0 |
+| SD Card                                    |    88 |   87 |    0 |    1 |       0 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4913 | 4902 |    0 |   11 |       0 |          0 |
+| **Total**                                  |  4915 | 4904 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **4913**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4605**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8715**.
+Rows the sections above carry: **4915**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4607**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8717**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -3755,9 +3755,11 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | S6-SD-BLOCKLEN | the CMD16 block length survives save/restore OBSERVABLY: the restored card's data field is 256 bytes and its CRC is the one over those 256, where a card that had fallen back to reset()'s 512 would still be delivering data when the CRC was read | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3683 |
 | S6-SD-INFLIGHT-03 | a paused-but-open CMD18 stream still reports the transfer in flight after a CS deassert — the case `multi_block_` is tested for independently of `state_`, and the one NextZXOS's esxDOS driver is in between driver calls | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3711 |
 | S6-SD-RESP-FORGED | a stream claiming 255 response bytes restores at most the 32 the DECLARATION allows: the count is checked, never obeyed, so a file can neither size a write nor keep the card responding past the bytes the stream actually carried | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3751 |
-| S6-SD-SAVE-PURE | saving twice emits byte-identical streams and leaves the queued CMD9 response advancing exactly as an unsaved card's does: the staging round-trip on the write path is a no-op | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3791 |
-| S6-SD-DEFAULTS-01 | every declared default equals the value reset() leaves, per field (§12.2's gate on the second copy of a power-on value) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3818 |
-| S6-SD-DEFAULTS-02 | …and the gate actually saw the fields, so a pass cannot mean it saw none: 19 scalars declare a default and exactly one (data_crc, which reset() does not establish) does not | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3822 |
+| S6-SD-BLOCKLEN-FORGED | a forged block length is checked against the class's own CMD16 invariant (1..512) and restored to the power-on 512: the one field that SIZES A WRITE cannot be set out of range by a stream, and the card still serves its sectors afterwards | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3851 |
+| S6-SD-CMDIDX-FORGED | a forged command cursor is clamped to the LAST WRITABLE SLOT (5), not to the array's size: `cmd_buf_[cmd_idx_++] = tx` has no bound of its own, so a restored 6 wrote one byte past a 6-byte array through a clamp that was there and was off by one | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3904 |
+| S6-SD-SAVE-PURE | saving twice emits byte-identical streams and leaves the queued CMD9 response advancing exactly as an unsaved card's does: the staging round-trip on the write path is a no-op | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3944 |
+| S6-SD-DEFAULTS-01 | every declared default equals the value reset() leaves, per field (§12.2's gate on the second copy of a power-on value) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3971 |
+| S6-SD-DEFAULTS-02 | …and the gate actually saw the fields, so a pass cannot mean it saw none: 19 scalars declare a default and exactly one (data_crc, which reset() does not establish) does not | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3975 |
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp`
 
