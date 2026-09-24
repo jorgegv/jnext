@@ -208,22 +208,24 @@ stub_case FPKP-13 "an unreadable app id is a hard error" missing 1 \
     '!flatpak permissions OK'
 
 # ------------------------------------------------- the gate has to be WIRED
-# Two rows in the same spirit as package-recipe-guard-test.sh (GH #148), which
-# reads the Makefile: a gate nobody calls is not a gate, and this one has two
-# callers that can drift apart. `make package-flatpak` is the local path;
-# release.yml's flatpak job is the shipping path and it deliberately builds
-# through the upstream flatpak-builder action instead of that make target (a
-# declared exception documented in the workflow), so the call has to be named
-# there separately. Dropping either leaves a build that can ship the GH #271
-# bug again with every other row here still green.
+# Three rows in the same spirit as package-recipe-guard-test.sh (GH #148),
+# which reads the Makefile: a gate nobody calls is not a gate, and this one has
+# callers that can drift apart. `make package-flatpak` is the local path
+# (FPKP-14). The CI path is .github/workflows/flatpak-build.yml, which
+# deliberately builds through the upstream flatpak-builder action instead of
+# that make target (a declared exception documented in its header), so its call
+# to the gate has to be named separately (FPKP-15) — and release.yml has to
+# still be delegating to that file rather than carrying its own copy of the
+# steps (FPKP-16). Dropping any of the three leaves a build that can ship the
+# GH #271 bug again with every other row here still green.
 
-# Both rows reduce their file to the lines that ACTUALLY RUN and match only
+# All three rows reduce their file to the lines that ACTUALLY RUN and match only
 # there. A plain substring grep is not enough, and this is not a theoretical
 # worry — review mutated both call sites into comments and both rows stayed
 # green:
 #
 #     Makefile      @# $(MAKE) verify-flatpak-permissions   (disabled)
-#     release.yml   # - name: Verify sandbox permissions ...
+#     the workflow  # - name: Verify sandbox permissions ...
 #                   #   run: make verify-flatpak-permissions ...
 #
 # "Comment it out while chasing something else" is an utterly ordinary edit,
@@ -257,33 +259,81 @@ else
     bad FPKP-14 "package-flatpak does not RUN verify-flatpak-permissions (commented out or gone) — a local build would ship without the gate"
 fi
 
-# --- FPKP-15: the release.yml flatpak JOB -----------------------------------
-# Scoped to the `flatpak:` job, and matched only on what a `run:` actually
-# executes. Requiring a `run:` is the point: the step's own `name:` contains
-# the target's name too, so "an active line" would still pass with the step
-# commented out down to its name. Handles both `run: cmd` and a `run: |`
-# block (any deeper-indented continuation lines count as part of it).
-yml_run=$(awk '
-    /^  flatpak:/                        { inj = 1; next }
-    inj && /^  [a-zA-Z0-9_-]+:/          { exit }
-    !inj                                 { next }
-    {
-        raw = $0
-        line = raw; sub(/^[ \t]+/, "", line)
-        if (line ~ /^#/) next                       # YAML comment
-        ind = match(raw, /[^ ]/) - 1
-        if (in_run && ind > run_ind) { print line; next }
-        in_run = 0
-        if (line ~ /^(- )?run:[ \t]*/) {
-            run_ind = ind; in_run = 1
-            sub(/^(- )?run:[ \t]*/, "", line)
-            print line
-        }
-    }' .github/workflows/release.yml)
-if grep -q 'verify-flatpak-permissions' <<<"$yml_run"; then
-    ok FPKP-15 "release.yml's flatpak job RUNS the permission gate"
+# yml_active <workflow-file> <job-name> <key> — print the value of every
+# `<key>:` inside that job that the runner will ACTUALLY ACT ON, and nothing
+# else. <key> is `run` (a command) or `uses` (a called action or workflow).
+#
+# Requiring the directive itself is the point: a step's own `name:` contains
+# the target's name too, so "an active line mentioning it" would still pass
+# with the step commented out down to its name. YAML comment lines are dropped.
+# Handles both `run: cmd` and a `run: |` block (any deeper-indented
+# continuation lines count as part of it). Scoped to the one job: the range
+# ends at the next job key.
+#
+# Shared by FPKP-15 and FPKP-16 so every workflow that must keep the gate wired
+# is held to the SAME standard — a future hardening of this extractor cannot
+# land on one and miss the others.
+yml_active() {
+    awk -v job="$2" -v key="$3" '
+        $0 ~ "^  " job ":"                   { inj = 1; next }
+        inj && /^  [a-zA-Z0-9_-]+:/          { exit }
+        !inj                                 { next }
+        {
+            raw = $0
+            line = raw; sub(/^[ \t]+/, "", line)
+            if (line ~ /^#/) next                       # YAML comment
+            ind = match(raw, /[^ ]/) - 1
+            if (in_d && ind > d_ind) { print line; next }
+            in_d = 0
+            if (line ~ "^(- )?" key ":[ \t]*") {
+                d_ind = ind; in_d = 1
+                sub("^(- )?" key ":[ \t]*", "", line)
+                print line
+            }
+        }' "$1"
+}
+
+# --- FPKP-15: the SHARED flatpak definition ---------------------------------
+# .github/workflows/flatpak-build.yml is the ONE definition of how the bundle
+# is built and gated. release.yml calls it (FPKP-16) and it is also dispatchable
+# by hand, which is what finally lets the gate be exercised without cutting a
+# public release — every artifact job in release.yml is skipped for a private
+# tag, so on the real v1.0.28 run the gate did not execute.
+#
+# Three things are pinned, because the file only helps while all three hold: it
+# exists, both triggers are still declared (workflow_call for release.yml and
+# ci.yml, workflow_dispatch for a human), and the job still RUNS the gate.
+wf=.github/workflows/flatpak-build.yml
+why=""
+[ -f "$wf" ] || why="the shared flatpak definition is gone"
+for trig in workflow_call workflow_dispatch; do
+    [ -n "$why" ] && break
+    grep -qE "^ *$trig:" "$wf" || why="it no longer declares $trig, so one way in is dead"
+done
+if [ -z "$why" ] && ! grep -q 'verify-flatpak-permissions' \
+        <<<"$(yml_active "$wf" flatpak-build run)"; then
+    why="its flatpak-build job does not RUN verify-flatpak-permissions (commented out, renamed or gone)"
+fi
+if [ -z "$why" ]; then
+    ok FPKP-15 "the shared flatpak definition is callable + dispatchable and RUNS the gate"
 else
-    bad FPKP-15 "release.yml's flatpak job does not RUN verify-flatpak-permissions (commented out, renamed or gone) — the SHIPPED bundle would be ungated: that job builds through the action, not through make package-flatpak"
+    bad FPKP-15 "$wf: $why — the bundle could ship ungated again, and there would be no way to exercise the gate short of a public release"
+fi
+
+# --- FPKP-16: release.yml DELEGATES to that definition ----------------------
+# The shipping path has to be the gated path. An active job-level `uses:` of
+# the shared file is what makes a manual run evidence about the release build
+# rather than about a lookalike of it, so a release.yml that goes back to its
+# own inline copy of the steps fails here — with or without a gate in that copy.
+#
+# Matched on the `uses:` value as a whole line, so the path cannot slip in as
+# part of some unrelated `with:` value (the extractor legitimately emits a
+# step's `with:` continuation lines too).
+if grep -qxF './.github/workflows/flatpak-build.yml' \
+        <<<"$(yml_active .github/workflows/release.yml flatpak uses)"; then
+    ok FPKP-16 "release.yml's flatpak job delegates to the shared definition"
+else
+    bad FPKP-16 "release.yml's flatpak job does not USE ./.github/workflows/flatpak-build.yml (commented out, or back to an inline copy) — the SHIPPED bundle would no longer be built by the definition every other row here covers"
 fi
 
 printf "\n"

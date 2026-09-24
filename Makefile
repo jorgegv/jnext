@@ -1412,10 +1412,18 @@ verify-flatpak-permissions:
 	@# See packaging/flatpak/verify-permissions.sh for why a grep of the YAML is
 	@# not a substitute.
 	@#
-	@# BUNDLE=<path> overrides the default. The release workflow's flatpak job
-	@# passes it, because that job builds through the upstream flatpak-builder
-	@# action (a declared exception, see release.yml) and so lands the bundle
-	@# under its own name rather than in build/.
+	@# BUNDLE=<path> overrides the default. The CI flatpak build passes it
+	@# (.github/workflows/flatpak-build.yml), because that build goes through the
+	@# upstream flatpak-builder action (a declared exception, see that file's
+	@# header) and so lands the bundle under its own name rather than in build/.
+	@#
+	@# That is also why the not-found branch SEARCHES rather than globbing two
+	@# known spots: the thing it has to diagnose is "the action put the bundle
+	@# somewhere other than where BUNDLE says", and an answer of "not here" is
+	@# no use for that. It says where the bundle actually is, or states plainly
+	@# that none was produced at all — those are different failures. Bounded to
+	@# 3 levels so it stays cheap in a tree with build/ and .flatpak-builder/
+	@# in it.
 	@set -e; \
 	 bundle="$(BUNDLE)"; \
 	 if [ -z "$$bundle" ]; then \
@@ -1426,10 +1434,12 @@ verify-flatpak-permissions:
 		printf "$(BADGE_FAIL) ERROR $(RESET) no Flatpak bundle at $$bundle\n"; \
 		printf "  Build one first: $(BOLD)make package-flatpak$(RESET)\n"; \
 		printf "  (or point this target at an existing one: make verify-flatpak-permissions BUNDLE=path)\n"; \
-		found=$$(ls -1 jnext-*.flatpak build/jnext-*.flatpak 2>/dev/null || true); \
+		found=$$(find . -maxdepth 3 -type f -name '*.flatpak' 2>/dev/null | sort || true); \
 		if [ -n "$$found" ]; then \
-			printf "  Bundles that DO exist here:\n"; \
-			printf "    %s\n" $$found; \
+			printf "  .flatpak files that DO exist under $$(pwd):\n"; \
+			printf "%s\n" "$$found" | sed -e 's|^|    |'; \
+		else \
+			printf "  No .flatpak file exists anywhere under $$(pwd) (searched 3 levels).\n"; \
 		fi; \
 		exit 1; \
 	 fi; \

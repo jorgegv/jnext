@@ -312,8 +312,10 @@ flatpak install flathub org.kde.Sdk//6.10 org.kde.Platform//6.10
 make package-flatpak
 ```
 
-Bump `runtime-version` (here and the CI image tag in `release.yml`, which must
-stay in lockstep) when a newer KDE runtime branch is targeted.
+Bump `runtime-version` (here and the CI image tag in
+`.github/workflows/flatpak-build.yml`, which must stay in lockstep) when a newer
+KDE runtime branch is targeted. `release.yml` calls that workflow rather than
+repeating the tag.
 
 ### Sandbox permissions are a CONTRACT, checked on the built bundle (GH #271)
 
@@ -337,10 +339,15 @@ It runs from two places, and both are pinned by
 
 * `make package-flatpak` calls `make verify-flatpak-permissions` as the last
   step of its own recipe (the same shape as `package-macos` → `verify-macos-dmg`);
-* the `flatpak` job in `.github/workflows/release.yml` calls
+* `.github/workflows/flatpak-build.yml` calls
   `make verify-flatpak-permissions BUNDLE=<bundle>` after the upstream
-  flatpak-builder action, because that job deliberately does not go through
-  `make package-flatpak` (see the job's own comment).
+  flatpak-builder action, because that build deliberately does not go through
+  `make package-flatpak` (see that file's header). It is the single definition
+  of the CI Flatpak build: the `flatpak` job in `release.yml` is one `uses:`
+  line, and it also carries a `workflow_dispatch` trigger so the build and this
+  gate can be run on demand from the Actions tab. Before that, the gate could
+  not be exercised at all without cutting a public release — every artifact job
+  in `release.yml` is skipped for a private tag.
 
 To require a further permission, add its `shared=` token to `REQUIRED_SHARED`
 in the script and the matching `finish-arg` to the manifest.
@@ -501,7 +508,7 @@ jobs, when they run:
 | `rpm`     | `ubuntu-latest` + `fedora:44` | `make package-rpm` (in a Fedora container)           | RPM (`build/rpm-release/`)     | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node) |
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` + `package-win-qt5` + `package-win32-qt5` (MinGW cross-builds + DLL bundling) | 3× ZIP (`build/win-release/`, `build/win-qt5-release/`, `build/win32-qt5-release/`) | Yes — all three built here; the x64-Qt6 zip ran green on a real runner and shipped in v0.98.19, confirmed working on Windows hardware; both Qt5 zips confirmed by a tester on real Windows 8.1 (GH #108) |
-| `flatpak` | `ubuntu-latest` + KDE 6.10     | `flatpak-builder` (org.kde.Sdk//6.10), then `make verify-flatpak-permissions` on the bundle | `.flatpak` bundle              | Yes — built here against the installed `org.kde.Sdk//6.10`, then installed from the bundle and run; its sandbox permissions are asserted in-job by `verify-permissions.sh` (GH #271). *Blocking since v0.99.110.* |
+| `flatpak` | `ubuntu-latest` + KDE 6.10     | one `uses:` line calling `.github/workflows/flatpak-build.yml`: `flatpak-builder` (org.kde.Sdk//6.10), then `make verify-flatpak-permissions` on the bundle | `.flatpak` bundle              | Yes — built here against the installed `org.kde.Sdk//6.10`, then installed from the bundle and run; its sandbox permissions are asserted in-job by `verify-permissions.sh` (GH #271). *Blocking since v0.99.110.* |
 | `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `.dmg` (`build/mac-release/`) | No — no macOS runner locally; the bundle's self-containment is asserted in-job by `verify-bundle.sh`. *Blocking since issue #61.* |
 
 This workflow is separate from `ci.yml` (which runs the test suite on push/PR).

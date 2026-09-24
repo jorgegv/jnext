@@ -13,7 +13,8 @@ name: Release
 # types locally (CLAUDE.md, "CI runs the EXACT same commands as a local run").
 # Nothing in this file open-codes cmake/cpack; if a job needs a capability, it
 # is added to the Makefile so local runs get it too. The ONE declared exception
-# is the `flatpak` job (see its own comment).
+# is the flatpak build, which lives in the shared
+# .github/workflows/flatpak-build.yml (see its header).
 #
 #   * deb     → `make package-deb` in pinned ubuntu:24.04 AND ubuntu:26.04
 #               containers (matrix). shlibdeps bakes in the container's library
@@ -25,8 +26,10 @@ name: Release
 #   * windows → `make package-win` + `package-win-qt5` + `package-win32-qt5`
 #               (MinGW cross-build + DLL bundling) in a fedora:44 container —
 #               the three published Windows zips (exe runs under wine)
-#   * flatpak → flatpak-builder against org.kde.Sdk//6.8 (same manifest +
-#               runtime as a local `make package-flatpak`); bundle built locally
+#   * flatpak → delegated to the shared .github/workflows/flatpak-build.yml
+#               (also dispatchable by hand); flatpak-builder against
+#               org.kde.Sdk//6.10, the same manifest + runtime as a local
+#               `make package-flatpak`
 #   * macos   → `make package-macos` native on macos-latest (proven green on a
 #               real runner in v0.98.34). No longer continue-on-error since
 #               issue #61: it carries the GH #46 verify-bundle gate, and a gate
@@ -271,30 +274,22 @@ jobs:
             build/win-qt5-release/*.zip
             build/win32-qt5-release/*.zip
 
-  # ---- Flatpak: flatpak-builder in the KDE 6.10 container -----------------
-  # DECLARED EXCEPTION to the "every build step is a make target" rule above.
-  # Deliberate, do not "fix" it to `make package-flatpak`: this job does not
-  # open-code a build the way the old deb/rpm jobs did. It hands the SAME
-  # manifest `make package-flatpak` uses to the upstream flatpak-builder action,
-  # which additionally supplies the runtime/SDK image, the build cache and the
-  # bundle export. Replacing it would mean reimplementing that caching in YAML —
-  # the exact anti-pattern the rule exists to prevent — for no gain in fidelity.
+  # ---- Flatpak: delegated to the shared definition -------------------------
+  # The steps live in .github/workflows/flatpak-build.yml, which this job calls
+  # and which can ALSO be dispatched by hand. One definition, two entry points.
+  # Before, the gate had never run on a runner — every artifact job here is
+  # skipped for a private tag — and there was no way to exercise it short of
+  # cutting a public release. A manual run now exercises THIS job's steps rather
+  # than a copy of them.
   #
-  # Uses the community flatpak-builder action (flatpak/flatpak-github-actions,
-  # formerly bilelmoussaoui/…) inside its kde-6.10 image, which ships
-  # flatpak-builder + org.kde.Sdk//6.10 + org.kde.Platform//6.10 — the exact
-  # runtime/SDK packaging/flatpak/*.yml targets. The kde-6.10 image is published
-  # at ghcr.io/flathub-infra/flatpak-github-actions (kde-6.11 has no image yet,
-  # and 6.8 is deprecated on flathub — keep this image tag and the manifest's
-  # runtime-version in lockstep). This is the SAME manifest + runtime version as a local
-  # `make package-flatpak`, mirroring how the windows job mirrors `make package-win`.
-  # The manifest's `type: git` source now builds jnext from the LOCAL checkout
-  # (`path: ../..`) rather than cloning a pushed remote tag, so it no longer
-  # depends on the release tag having been pushed. actions/checkout leaves the
-  # release tag checked out (with submodules), and flatpak-builder clones that
-  # tree + mirrors the spdlog submodule — equivalent provenance to a local build.
-  # The action produces the .flatpak bundle and uploads it as an artifact, which
-  # `publish` then attaches.
+  # That file also carries the project's ONE declared exception to "every CI
+  # step is a plain make target" (it builds through the upstream
+  # flatpak-builder action rather than `make package-flatpak`) and the GH #271
+  # permission gate. Read its header for both.
+  #
+  # What stays here, because it is release-specific: this job is gated on
+  # `gate`, so a private tag builds nothing, and it is BLOCKING.
+  #
   # BLOCKING, as of v0.99.110. This job carried continue-on-error while it had
   # never run on a GitHub runner, with its own comment setting the exit
   # condition: "tighten back to blocking after the first green run". That run
@@ -316,42 +311,15 @@ jobs:
   # platforms it claims or it stops and says so. To take a deliberately
   # partial release, restore continue-on-error here in that one commit, or drop
   # the job from publish's `needs:` — an explicit, visible decision each time.
+  #
+  # The bundle the called workflow uploads belongs to THIS run (a reusable
+  # workflow's artifacts are the caller's), so `publish` downloads it unchanged.
+  # `timeout-minutes` is not settable on a `uses:` job; the same 45-minute bound
+  # now lives on the job inside flatpak-build.yml.
   flatpak:
     needs: gate
     if: needs.gate.outputs.build == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
-      options: --privileged
-    steps:
-      # Local-source manifest (`type: git` + `path: ../..`) builds from this
-      # checkout, so the tree + submodules must be present here.
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
-      # Version the bundle like every other artifact (jnext-<ver>-x86_64.flatpak),
-      # matching what `make package-flatpak` produces locally (Makefile). Version
-      # is read from version.yaml, the single source of truth.
-      - name: Derive version
-        id: ver
-        run: echo "ver=$(awk '/^version:/{print $2}' version.yaml)" >> "$GITHUB_OUTPUT"
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          bundle: jnext-${{ steps.ver.outputs.ver }}-x86_64.flatpak
-          manifest-path: packaging/flatpak/io.github.zxjogv.jnext.yml
-          cache-key: flatpak-builder-${{ github.sha }}
-      # GH #271 — the permission gate, on the bundle THIS job produced.
-      # A local `make package-flatpak` runs it as the last step of its own
-      # recipe (the same way package-macos runs verify-macos-dmg), but this job
-      # builds through the action instead of that target, so the gate has to be
-      # named here or it would cover every path but the one that ships. It is
-      # the SAME make target, not a CI-only reimplementation: the check lives in
-      # packaging/flatpak/verify-permissions.sh and this passes it the bundle.
-      # It installs that bundle into a throwaway FLATPAK_USER_DIR and reads the
-      # permissions back with `flatpak info` — the artifact, not the manifest.
-      - name: Verify sandbox permissions (make verify-flatpak-permissions)
-        run: make verify-flatpak-permissions BUNDLE=jnext-${{ steps.ver.outputs.ver }}-x86_64.flatpak
+    uses: ./.github/workflows/flatpak-build.yml
 
   # ---- macOS: native CPack DragNDrop --------------------------------------
   macos:
