@@ -1,6 +1,57 @@
 #include "peripheral/dma.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
+
+namespace {
+
+// Enum name tables (design §6.2, §9.4). The binary encoding stays the u8
+// ordinal the stream has always carried; the NAME is what a `.jns` writes, so
+// renumbering any of these four FSMs becomes a visible schema diff rather
+// than a silent re-interpretation of old files.
+const char* const kStateNameArr[] = {
+    "idle",          // Dma::State::IDLE (dma.h:56)
+    "transferring",  // Dma::State::TRANSFERRING
+};
+const jnext::save::EnumNames kStateNames{
+    kStateNameArr, sizeof(kStateNameArr) / sizeof(kStateNameArr[0])};
+
+// Dma::WrSeq (dma.h:206) — VHDL reg_wr_seq_t, device/dma.vhd.
+const char* const kWrSeqNameArr[] = {
+    "idle",
+    "r0_byte_0", "r0_byte_1", "r0_byte_2", "r0_byte_3",
+    "r1_byte_0", "r1_byte_1",
+    "r2_byte_0", "r2_byte_1",
+    "r3_byte_0", "r3_byte_1",
+    "r4_byte_0", "r4_byte_1",
+    "r6_byte_0",
+};
+const jnext::save::EnumNames kWrSeqNames{
+    kWrSeqNameArr, sizeof(kWrSeqNameArr) / sizeof(kWrSeqNameArr[0])};
+
+// Dma::RdSeq (dma.h:217) — VHDL reg_rd_seq_t.
+const char* const kRdSeqNameArr[] = {
+    "status",
+    "counter_lo", "counter_hi",
+    "port_a_lo", "port_a_hi",
+    "port_b_lo", "port_b_hi",
+};
+const jnext::save::EnumNames kRdSeqNames{
+    kRdSeqNameArr, sizeof(kRdSeqNameArr) / sizeof(kRdSeqNameArr[0])};
+
+// Dma::Phase (dma.h:244) — the bus-arbitration FSM of device/dma.vhd.
+const char* const kPhaseNameArr[] = {
+    "idle",            // Phase::IDLE
+    "start_dma",       // Phase::START_DMA
+    "waiting_ack",     // Phase::WAITING_ACK
+    "transfer",        // Phase::TRANSFER
+    "waiting_cycles",  // Phase::WAITING_CYCLES
+};
+const jnext::save::EnumNames kPhaseNames{
+    kPhaseNameArr, sizeof(kPhaseNameArr) / sizeof(kPhaseNameArr[0])};
+
+}  // namespace
 
 // ─── DMA logger ──────────────────────────────────────────────────────
 
@@ -852,85 +903,102 @@ void Dma::tick_burst_wait(uint64_t master_cycles) {
 // at the end.  Old snapshots are not forward-compatible — this is an
 // unreleased dev build and there is no schema version in StateReader/
 // Writer, so the break is clean.
-void Dma::save_state(StateWriter& w) const
+
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 49 bytes as block 13 of the 2 292 965-byte stream.
+//
+// The four enums are marshalled through a local `uint8_t`. These four ARE
+// `: uint8_t`-backed, so a `reinterpret_cast<uint8_t&>` would work — it is
+// not used, because the same idiom then reads identically where an enum has
+// no fixed underlying type and is `int`-wide, where it would NOT work
+// (`CtcChannel::State`). One idiom that is always right beats two that differ
+// by a property of the enum a reader has to go and check.
+void Dma::describe_state(jnext::save::StateDesc& d)
 {
-    w.write_bool(dir_a_to_b_);
-    w.write_u16(port_a_addr_);
-    w.write_u16(block_len_);
-    w.write_bool(port_a_is_io_);
-    w.write_u8(port_a_addr_mode_);
-    w.write_u8(port_a_timing_);
-    w.write_bool(port_b_is_io_);
-    w.write_u8(port_b_addr_mode_);
-    w.write_u8(port_b_timing_);
-    w.write_u8(port_b_prescaler_);
-    w.write_bool(dma_en_);
-    w.write_u8(mode_);
-    w.write_u16(port_b_addr_);
-    w.write_bool(ce_wait_);
-    w.write_bool(auto_restart_);
-    w.write_u8(read_mask_);
-    w.write_u8(static_cast<uint8_t>(state_));
-    w.write_u16(src_);
-    w.write_u16(dst_);
-    w.write_u16(counter_);
-    w.write_bool(status_at_least_one_);
-    w.write_bool(status_end_of_block_);
-    w.write_u8(static_cast<uint8_t>(wr_seq_));
-    w.write_u8(static_cast<uint8_t>(rd_seq_));
-    w.write_u8(reg_temp_);
-    w.write_bool(z80_compat_);
-    w.write_u8(turbo_);
-    w.write_u16(dma_timer_s_);
-    w.write_bool(in_waiting_cycles_);
+    d.boolean("dir_a_to_b", dir_a_to_b_);
+    d.u16("port_a_addr", port_a_addr_);
+    d.u16("block_len", block_len_);
+    d.boolean("port_a_is_io", port_a_is_io_);
+    d.u8("port_a_addr_mode", port_a_addr_mode_);
+    d.u8("port_a_timing", port_a_timing_);
+    d.boolean("port_b_is_io", port_b_is_io_);
+    d.u8("port_b_addr_mode", port_b_addr_mode_);
+    d.u8("port_b_timing", port_b_timing_);
+    d.u8("port_b_prescaler", port_b_prescaler_);
+    d.boolean("dma_en", dma_en_);
+    d.u8("mode", mode_);
+    d.u16("port_b_addr", port_b_addr_);
+    d.boolean("ce_wait", ce_wait_);
+    d.boolean("auto_restart", auto_restart_);
+    d.u8("read_mask", read_mask_);
+    {
+        uint8_t state = static_cast<uint8_t>(state_);
+        d.enum8("state", state, kStateNames);
+        state_ = static_cast<State>(state);
+    }
+    d.u16("src", src_);
+    d.u16("dst", dst_);
+    d.u16("counter", counter_);
+    d.boolean("status_at_least_one", status_at_least_one_);
+    d.boolean("status_end_of_block", status_end_of_block_);
+    {
+        uint8_t wr = static_cast<uint8_t>(wr_seq_);
+        d.enum8("wr_seq", wr, kWrSeqNames);
+        wr_seq_ = static_cast<WrSeq>(wr);
+    }
+    {
+        uint8_t rd = static_cast<uint8_t>(rd_seq_);
+        d.enum8("rd_seq", rd, kRdSeqNames);
+        rd_seq_ = static_cast<RdSeq>(rd);
+    }
+    d.u8("reg_temp", reg_temp_);
+    d.boolean("z80_compat", z80_compat_);
+    d.u8("turbo", turbo_);
+    d.u16("dma_timer_s", dma_timer_s_);
+    d.boolean("in_waiting_cycles", in_waiting_cycles_);
 
     // Bus arbitration (appended at the end).
-    w.write_u8(static_cast<uint8_t>(phase_));
-    w.write_bool(cpu_busreq_n_);
-    w.write_bool(cpu_bao_n_);
-    w.write_bool(cpu_bai_n_);
-    w.write_bool(bus_busreq_n_);
-    w.write_bool(dma_delay_);
-    w.write_bool(daisy_busy_);
+    {
+        uint8_t phase = static_cast<uint8_t>(phase_);
+        d.enum8("phase", phase, kPhaseNames);
+        phase_ = static_cast<Phase>(phase);
+    }
+    d.boolean("cpu_busreq_n", cpu_busreq_n_);
+    d.boolean("cpu_bao_n", cpu_bao_n_);
+    d.boolean("cpu_bai_n", cpu_bai_n_);
+    d.boolean("bus_busreq_n", bus_busreq_n_);
+    d.boolean("dma_delay", dma_delay_);
+    d.boolean("daisy_busy", daisy_busy_);
+}
+
+void Dma::save_state(StateWriter& w) const
+{
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Dma::load_state(StateReader& r)
 {
-    dir_a_to_b_          = r.read_bool();
-    port_a_addr_         = r.read_u16();
-    block_len_           = r.read_u16();
-    port_a_is_io_        = r.read_bool();
-    port_a_addr_mode_    = r.read_u8();
-    port_a_timing_       = r.read_u8();
-    port_b_is_io_        = r.read_bool();
-    port_b_addr_mode_    = r.read_u8();
-    port_b_timing_       = r.read_u8();
-    port_b_prescaler_    = r.read_u8();
-    dma_en_              = r.read_bool();
-    mode_                = r.read_u8();
-    port_b_addr_         = r.read_u16();
-    ce_wait_             = r.read_bool();
-    auto_restart_        = r.read_bool();
-    read_mask_           = r.read_u8();
-    state_               = static_cast<State>(r.read_u8());
-    src_                 = r.read_u16();
-    dst_                 = r.read_u16();
-    counter_             = r.read_u16();
-    status_at_least_one_ = r.read_bool();
-    status_end_of_block_ = r.read_bool();
-    wr_seq_              = static_cast<WrSeq>(r.read_u8());
-    rd_seq_              = static_cast<RdSeq>(r.read_u8());
-    reg_temp_            = r.read_u8();
-    z80_compat_          = r.read_bool();
-    turbo_               = r.read_u8() & 0x03;
-    dma_timer_s_         = r.read_u16() & 0x3FFF;
-    in_waiting_cycles_   = r.read_bool();
-
-    phase_          = static_cast<Phase>(r.read_u8());
-    cpu_busreq_n_   = r.read_bool();
-    cpu_bao_n_      = r.read_bool();
-    cpu_bai_n_      = r.read_bool();
-    bus_busreq_n_   = r.read_bool();
-    dma_delay_      = r.read_bool();
-    daisy_busy_     = r.read_bool();
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is an `enum8` ordinal the declaration does
+        // not name — a stream and a build that disagree about one of the four
+        // FSMs. The field keeps its pre-load value rather than taking a wrong
+        // FSM state (§16.1: "a wrong FSM state is not a safe default"), the
+        // stream stays in sync (the byte was consumed either way), and the
+        // fault is named.
+        dma_log()->error("Dma::load_state: the stream does not match this "
+                         "build's declaration at '{}'",
+                         d.failure() ? d.failure() : "?");
+    }
+    // The two RESTORE MASKS. They were part of the read expressions
+    // (`turbo_ = r.read_u8() & 0x03`, `dma_timer_s_ = r.read_u16() & 0x3FFF`)
+    // and a declaration has no room for them, so they move here — applied
+    // after the walk, to the same two fields, with the same widths. `turbo_`
+    // is NR 0x06 bits 1:0 (zxnext.vhd:4966) and `dma_timer_s_` is the 14-bit
+    // burst-mode prescaler timer of device/dma.vhd, so a wider value in the
+    // stream is not a state the hardware can be in.
+    turbo_       = static_cast<uint8_t>(turbo_ & 0x03);
+    dma_timer_s_ = static_cast<uint16_t>(dma_timer_s_ & 0x3FFF);
 }
