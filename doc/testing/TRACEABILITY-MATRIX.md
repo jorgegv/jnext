@@ -63,15 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    30 |   24 |    0 |    6 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-<<<<<<< HEAD
-| **Total**                                  |  4745 | 4740 |    0 |    5 |       0 |          0 |
+| **Total**                                  |  4757 | 4746 |    0 |   11 |       0 |          0 |
 
-Rows the sections above carry: **4745**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4437**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8531**.
-=======
-| **Total**                                  |  4775 | 4746 |    0 |   11 |      18 |          0 |
-
-Rows the sections above carry: **4775**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4467**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8421**.
->>>>>>> gh57-sdl3
+Rows the sections above carry: **4757**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4449**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8543**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
