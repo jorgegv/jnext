@@ -438,14 +438,23 @@ void test_cat3_port_7ffd() {
               fmt("slot0 rom=%d slot1 rom=%d", f.mmu.is_slot_rom(0), f.mmu.is_slot_rom(1)));
     }
 
-    // P7F-11: shadow screen select (port_7ffd_reg(3)). Mmu has no
-    // shadow-screen accessor — that signal is consumed by the ULA, not
-    // the memory subsystem API.
-    // P7F-11 — COVERED AT test/ula/ula_test.cpp S15.02 (and tracked at
-    // S15.04). port_7ffd(3) drives ULA VRAM fetch, not Mmu paging: the
-    // signal routes straight to Ula in Emulator::init and is observed by
-    // UlaBed rendering from bank 7 (page 14). Not a skip here — re-homed
-    // to the ULA integration tier.
+    // P7F-11 — RETIRED 2026-09-24 (GH #201): covered live by P7F-16 a
+    // few dozen lines below, in this same file.
+    //
+    // The comment that stood here pointed at test/ula/ula_test.cpp
+    // S15.02 "and tracked at S15.04", and both halves were wrong. S15.02
+    // asserts the ULA-side consequence — that render_scanline_screen1()
+    // fetches from bank 7 — which is a DIFFERENT claim from P7F-11's
+    // "0x7FFD <- 0x08 sets port_7ffd_shadow". And S15.04 does not exist
+    // as a check() anywhere: it was itself re-homed here in 2026-04 and
+    // became P7F-17, so the pointer had been dangling ever since.
+    //
+    // P7F-16 is P7F-11's claim verbatim and is a live pass:
+    // map_128k_bank(0x08) -> Mmu::shadow_screen_en() true, with the
+    // boot-clear and the clear-on-0x00 legs as discriminators
+    // (zxnext.vhd:3652 port_7ffd_reg <= cpu_do, :3768 port_7ffd_shadow
+    // <= port_7ffd_dat(3)). P7F-17 additionally proves the accessor
+    // isolates bit 3 from every other bit of the byte.
 
     // P7F-12: lock bit (port_7ffd_reg(5)) — subsequent bank switches
     // should be ignored. VHDL zxnext.vhd:3814.
@@ -899,14 +908,25 @@ void test_cat5_port_1ffd() {
               fmt("slot0 rom=%d slot1 rom=%d", f.mmu.is_slot_rom(0), f.mmu.is_slot_rom(1)));
     }
 
-    // WONT P1F-07 — port_1FFD bit 3 is the +3 disk motor enable. This
-    // bit is routed to the +3 FDC, not to the Mmu. jnext does not model
-    // the +3 FDC at all (no disk drive emulation). Category WONT
-    // (explicit decision record; refinement of unobservable-audit G).
-    // **Decision (2026-04-21)**: won't implement the +3 FDC for this
-    // project; NextZXOS and typical software work with jnext's tape /
-    // SD / NEX loaders. If +3 FDC emulation ever lands, re-home this
-    // row to an fdc_test.cpp.
+    // P1F-07 — RETIRED 2026-09-24 (GH #201), upgrading the 2026-04-21
+    // WONT to a settled scope decision on the evidence that closed
+    // GH #24 (NOT PLANNED, 2026-09-23).
+    //
+    // port_1FFD bit 3 is the +3 disk motor enable, and there is no
+    // floppy controller on any ZX Next board for it to drive. On the
+    // Issue 2 reference target, gen_fdc_234 (zxnext.vhd:1681-1689) ties
+    // o_BUS_P3_MTR_n / DRD_n / DWR_n permanently inactive, and
+    // zxnext_top_issue2.vhd:2468-2470 leaves all three "=> open" -- not
+    // wired to a pin.  Only gen_fdc_5 (board issue >= 3) forwards them,
+    // and then to a physically attached EXTERNAL controller.
+    // port_1ffd_mtr_n itself is latched -- gated by NR 0x81 bit 3 at
+    // zxnext.vhd:3751-3753 and written from port 0x1FFD bit 3 at :3757
+    // -- but on this board it drives nothing: gen_fdc_234 forces the
+    // output pin inactive at :1685 without ever reading the latch.  Its
+    // one other reader is the Multiface register readback at :4312,
+    // which is MF-suite territory rather than paging.  So there is no
+    // motor state for the Mmu to expose, and modelling one would
+    // diverge from the emulated machine.
 }
 
 // ── Category 6: +3 special paging modes ───────────────────────────────
@@ -4913,15 +4933,48 @@ void test_boot_format_loaders() {
               ok, bad);
     }
 
-    // WONT BOOT-FDC-01 / BOOT-FDC-02 / BOOT-FDC-03 — G38: +3 FDC `.dsk`
-    // loader. uPD765 chip unmodelled; jnext does not emulate the +3
-    // floppy controller at all. Already coupled to P1F-07=WONT (port
-    // 0x1FFD bit 3 motor strobe — same plan entry, same precedent). No
-    // current software target on the platform exercises +3 FDC; modern
-    // Spectrum Next demos and NextZXOS use SD card / NEX loaders. Per
-    // feedback_wont_taxonomy.md: explicit decision NOT to implement.
-    // Revisit trigger: someone adds uPD765 + `.dsk` parser to jnext, at
-    // which point these three rows become meaningful (boot/stage/motor).
+    // BOOT-FDC-01/02/03 — RETIRED 2026-09-24 (GH #201).  These are not a
+    // deferred feature with a revisit trigger; GH #24 closed NOT PLANNED
+    // on 2026-09-23 on the finding that there is no FDC to emulate and
+    // that `.DSK` already works without one.
+    //
+    //   * No uPD765 exists in the core on ANY board issue (see the
+    //     P1F-07 note above for the gen_fdc_234 / issue-2 top-level
+    //     citations).  Ports 0x2FFD/0x3FFD are an optional I/O TRAP
+    //     gated on NR 0xD8 bit 0 (zxnext.vhd:2601-2602) with no
+    //     read-data path at all; a hit raises a Multiface-class NMI and
+    //     records the cause in NR 0xD9/0xDA (:3835-3898).  NextZXOS
+    //     answers that trap with an error dialog, not FDC behaviour.
+    //   * `.DSK`/`.P3D` images mount at the +3DOS layer through
+    //     NextZXOS automount with no controller in the path -- measured
+    //     end-to-end in jnext v1.0.18, and carried as the
+    //     `sdcard-dsk-automount-func` regression row.
+    //   * BOOT-FDC-03's technical claim is CORRECT -- NR 0x81 bit 3 does
+    //     gate the motor, at the latch rather than at the output:
+    //     zxnext.vhd:3751-3753 is
+    //         elsif nr_81_expbus_fdc = '0' then
+    //             port_1ffd_mtr_n <= '1';   -- disk motor off
+    //     so clearing the bit forces the motor off, and the port 0x1FFD
+    //     bit 3 write at :3757 is only reachable while it is set.  The
+    //     row is retired because on Issue 2 there is no motor for it to
+    //     gate (see the P1F-07 note above: :1685 forces the output pin
+    //     inactive without reading the latch), and because its stimulus
+    //     -- "observe drive-motor LED state via NR introspection" -- has
+    //     no counterpart; no such NR read exists, and the latch is
+    //     visible on this board only via the Multiface readback (:4312).
+    //
+    //     CORRECTION OF A CORRECTION: the first version of this comment
+    //     (commit 903d7251) claimed the row was "wrong as written"
+    //     because the motor was "ungated by NR 0x81".  That was itself
+    //     wrong.  It cited :1695, which is inside gen_fdc_5 (board issue
+    //     >= 3) -- the branch the Issue 2 reference target does NOT take
+    //     -- and never read the latch process at :3744-3760 where the
+    //     gating happens.  An absence was claimed from one signal path
+    //     without searching the others.
+    //
+    // jnext's `--machine plus3` is the Next core's +3 compatibility mode
+    // (NR 0x03 typ_sel/tim_sel = 0x03), not an Amstrad +3; a real Next
+    // in that mode has no drive either.
 }
 
 // ── Category 26: G46(b) sram_pre_override priority arbiter ───────────

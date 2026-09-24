@@ -894,9 +894,50 @@ Status (Wave E 2026-04-23, with post-closure walkback same day): rows 4-6 were i
 
 | # | Row ID | Test | Machine | Expected | Status |
 |---|------|------|---------|----------|--------|
-| 4 | S14.04 | Interrupt disabled | inten_ula_n=1 | No interrupt pulse | G (walked back — test-only surface) |
-| 5 | S14.05 | Line interrupt fires | line=10 | Fires when cvc=9, hc_ula=255 | G (walked back — test-only surface) |
-| 6 | S14.06 | Line interrupt 0 = last line | line=0 | Fires at cvc=max_vc | G (walked back — test-only surface) |
+| 4 | ~~S14.04~~ | ~~Interrupt disabled~~ | ~~inten_ula_n=1~~ | ~~No interrupt pulse~~ | **RETIRED 2026-09-24 (GH #201)** — covered live by `ULA-INT-02` |
+| 5 | ~~S14.05~~ | ~~Line interrupt fires~~ | ~~line=10~~ | ~~Fires when cvc=9, hc_ula=255~~ | **RETIRED 2026-09-24 (GH #201)** — covered live by `VT-GH257-01/02/03` + `VT-GH257-05` |
+| 6 | ~~S14.06~~ | ~~Line interrupt 0 = last line~~ | ~~line=0~~ | ~~Fires at cvc=max_vc~~ | **RETIRED 2026-09-24 (GH #201)** — covered live by `VT-GH257-04` |
+
+**Why the 2026-04-23 walkback rationale no longer applies, and why these
+rows are retired rather than resurrected.** The walkback comment in
+`ula_test.cpp` says the `VideoTiming` interrupt state is "test-only dead
+code" because "no production code path writes to those setters or reads
+those counters". The first half of that is no longer true: `Emulator`
+writes `set_interrupt_enable()` at `emulator.cpp:397, 3164, 4241, 4901,
+12158`, writes `set_line_interrupt_enable()` / `set_line_interrupt_target()`
+from the NR 0x22 / NR 0x23 / port 0xFF handlers, reads
+`line_interrupt_enable()` in `reschedule_line_interrupt()` at `:11264`,
+and calls `video_timing_.advance()` every frame at `:9919`. The second
+half is still true — `ula_int_pulse_count()` / `line_int_pulse_count()`
+have no production consumer — so a row written against those counters
+would still be measuring an output nothing depends on.
+
+The resolution is that the three CLAIMS are all asserted, at the
+production tier, by rows that already exist. Each was opened and its
+stimulus read before this retirement was written:
+
+- **S14.04** (`inten_ula_n=1` → no pulse) → `ULA-INT-02` in
+  `test/ctc_interrupts/ctc_interrupts_test.cpp`: writes NR 0x22 bit 2 on
+  a live `Emulator`, runs a frame, asserts NR 0xC8 bit 0 stays clear.
+  `ULA-INT-01` is the discriminator (same fixture, interrupts enabled,
+  bit 0 set). The full VHDL trace, walked for this retirement rather than
+  assumed: `nr_22_we` → `port_ff_reg(6) <= nr_wr_dat(2)` (`zxnext.vhd:3619-3620`,
+  i.e. NR 0x22 bit 2) → `port_ff_interrupt_disable <= port_ff_reg(6)`
+  (`:3635`) → `i_inten_ula_n => port_ff_interrupt_disable` (`:6750`, the
+  `zxula_timing` port map) → `if (i_inten_ula_n = '0') and (hc = c_int_h)
+  and (vc = c_int_v) then int_ula <= '1'` (`zxula_timing.vhd:551`). So the
+  row's `inten_ula_n = 1` IS NR 0x22 bit 2 set, and `ULA-INT-02` drives
+  exactly that.
+- **S14.05** (target N fires at `cvc = N-1`, `hc_ula = 255`) →
+  `VT-GH257-01/02/03` in `test/videotiming/videotiming_test.cpp` pin the
+  `int_line_num <= i_int_line - 1` map (`zxula_timing.vhd:566-570`) on
+  Next, 48K and Pentagon timing, each discriminatively: dropping the `-1`
+  moves the Pentagon answer from 515792 to 517584. `VT-GH257-05` proves
+  the running emulator raises it in the instruction crossing `hc_ula` 255,
+  not raw hc 0.
+- **S14.06** (target 0 → last line) → `VT-GH257-04`: `set_line_interrupt_target(0)`
+  gives 116432, reachable only if `int_line_num` is `c_max_vc` = 310; a
+  literal 0 would give 118256 (`zxula_timing.vhd:566-567`).
 
 ## Section 15: Shadow Screen
 
@@ -1266,10 +1307,10 @@ which is what they are.
 
 | ID | Description | VHDL file:line |
 |----|-------------|----------------|
-| S13.03 | Pentagon frame length | — |
-| S14.04 | Interrupt disabled | — |
-| S14.05 | Line interrupt fires | — |
-| S14.06 | Line interrupt 0 = last line | — |
+| ~~S13.03~~ | ~~Pentagon frame length~~ | **IMPLEMENTED 2026-09-24 (GH #201)** — live `check()` in `ula_test.cpp` §13; the matrix now reads its description and citation from the source, so it no longer belongs in this planned-only table. The source comment that had retired it ("VideoTiming no longer initialises any Pentagon-specific `c_max_hc`/`c_max_vc`") was stale: only the standalone `MachineType::Pentagon` enum went away in Wave 0.3, not Pentagon timing, which `init_timing(MachineTimingMode::TimingPentagon)` still provides. |
+| ~~S14.04~~ | ~~Interrupt disabled~~ | **RETIRED 2026-09-24 (GH #201)** — see Section 14 above; covered live by `ULA-INT-02` (`ctc_interrupts_test.cpp`). |
+| ~~S14.05~~ | ~~Line interrupt fires~~ | **RETIRED 2026-09-24 (GH #201)** — see Section 14 above; covered live by `VT-GH257-01/02/03` + `VT-GH257-05` (`videotiming_test.cpp`). |
+| ~~S14.06~~ | ~~Line interrupt 0 = last line~~ | **RETIRED 2026-09-24 (GH #201)** — see Section 14 above; covered live by `VT-GH257-04` (`videotiming_test.cpp`). |
 
 ## Coverage notes (moved from the traceability matrix, GH #196)
 
