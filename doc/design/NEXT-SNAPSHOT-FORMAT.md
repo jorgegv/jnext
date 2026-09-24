@@ -2178,6 +2178,31 @@ block.
 rule gives: `save_state` changed shape. The length check would have discarded a
 pre-S6 cache anyway.
 
+**What the mutation table found, because it was derived from the DIFF and not
+from the row list.** Six behavioural changes had no row when first asked:
+`host_supports_sdhc_`/`block_len_` (the shipped row tested the SDSC direction,
+where a lost value coincides with `reset()`'s — only the SDHC direction
+discriminates), `data_block_` (the row destroyed the card with `reset()`,
+which does not clear that array, so the restore had nothing to prove), the
+`resp_count` clamp (no row forged a count), two migrated `Emulator` scalars
+(the declaration rows compare names and widths, and a field bound to a LOCAL
+keeps both), and the derived ULA-interrupt re-sync. Five became rows —
+`S6-SD-ADDRESSING-HC`, `S6-SD-BLOCKLEN`, `S6-SD-RESP-FORGED`,
+`S6-EMU-SCALARS-01` (a stream of all-`0x01` is already normalised, so it must
+round-trip byte for byte through every field of all five blocks at once) and
+`S6-EMU-SCALARS-02`. The sixth became a DELETION: `transfer_in_flight()`'s
+`multi_block_ ||` term could not change any outcome, because `deselect()`'s
+pause path freezes `state_` at `SENDING_DATA` and every path that reaches
+`IDLE` clears `multi_block_` in the same breath.
+
+**The harness itself was wrong first**, and that is worth recording: it
+restored each mutated file with `shutil.copy2`, which preserves mtime, so make
+saw the restored source as older than the object built from the mutated one
+and skipped the rebuild. Every later mutation then ran against a binary still
+carrying the earlier ones, and a clean tree reported two failures it could not
+have. Caught by re-running the suites on the untouched tree — which is the
+only reason the six holes above are trustworthy rather than an artefact.
+
 **Defects D1 and D2 are CLOSED.** The SD card's SPI FSM travels
 (`sd_card.cpp`), and `mf_type_` is declared rather than rebuilt from three
 booleans that cannot express `"10"`.

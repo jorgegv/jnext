@@ -1714,9 +1714,15 @@ void SdCardDevice::load_state(StateReader& r)
 bool SdCardDevice::transfer_in_flight() const
 {
     // IDLE with nothing queued is the only state in which the card owes the
-    // host nothing. `multi_block_` is checked independently because an open
-    // CMD18 stream survives a CS deassert (row CMD18-05) and is therefore in
-    // flight while `state_` is back at IDLE.
-    return multi_block_ || state_ != State::IDLE ||
-           resp_idx_ < resp_buf_.size();
+    // host nothing.
+    //
+    // A `multi_block_ ||` term was written here first, on the reasoning that
+    // an open CMD18 stream survives a CS deassert (row CMD18-05) and would
+    // therefore be in flight with `state_` back at IDLE. A MUTATION proved it
+    // could not change any outcome, and reading `deselect()` says why: the
+    // pause path returns EARLY and freezes `state_` at SENDING_DATA, and
+    // every other path that reaches `state_ = IDLE` clears `multi_block_` in
+    // the same breath. `multi_block_` therefore implies `state_ != IDLE`, and
+    // a term that cannot decide anything is a term nobody can test.
+    return state_ != State::IDLE || resp_idx_ < resp_buf_.size();
 }

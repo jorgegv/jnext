@@ -3487,17 +3487,17 @@ void test_s6_state_roundtrip() {
     // next), `state_` + `data_block_` + `data_idx_` (where inside this one),
     // and `resp_buf_`/`resp_idx_` (the token framing still owed).
     {
-        SdCardDevice live, oracle;
-        live.mount(img);
+        SdCardDevice source, oracle;
+        source.mount(img);
         oracle.mount(img);
-        init_card(live);
+        init_card(source);
         init_card(oracle);
 
         // Both cards start the same CMD18 at sector 3 and are clocked
         // identically up to the save point.
-        (void)send_cmd_r1(live, 18, 3);
+        (void)send_cmd_r1(source, 18, 3);
         (void)send_cmd_r1(oracle, 18, 3);
-        for (auto* c : {&live, &oracle}) {
+        for (auto* c : {&source, &oracle}) {
             uint8_t blk[512];
             if (!wait_token(*c)) { std::printf("  (token not found)\n"); }
             read_block(*c, blk);          // sector 3 complete
@@ -3505,20 +3505,24 @@ void test_s6_state_roundtrip() {
             for (int i = 0; i < 200; ++i) (void)spi_read(*c);
         }
 
-        const bool in_flight = live.transfer_in_flight();
+        const bool in_flight = source.transfer_in_flight();
 
         StateWriter w;
-        live.save_state(w);
+        source.save_state(w);
         std::vector<uint8_t> buf(w.position());
         StateWriter w2(buf.data(), buf.size());
-        live.save_state(w2);
+        source.save_state(w2);
 
-        // Destroy the FSM as thoroughly as the API allows, then restore.
-        // `reset()` is what a fresh process has, and it is exactly what the
-        // pre-S6 rewind left behind.
-        live.reset();
+        // Restore into a DIFFERENT, freshly mounted card — which is what a
+        // `.jns` load does, and what `reset()` alone does NOT achieve:
+        // `reset()` leaves `data_block_` holding the sector it was streaming,
+        // so a declaration that dropped that field would still pass. Mutation
+        // testing found exactly that.
+        SdCardDevice fresh;
+        fresh.mount(img);
         StateReader r(buf.data(), buf.size());
-        live.load_state(r);
+        fresh.load_state(r);
+        SdCardDevice& live = fresh;
 
         // The rest of the stream, from both cards, byte for byte: the
         // remaining 312 data bytes + 2 CRC of sector 4, then two whole
@@ -3607,6 +3611,149 @@ void test_s6_state_roundtrip() {
               "block_len_) survives save/restore: a byte-addressed card "
               "still reads sector 2 from byte address 1024",
               tok && blk[0] == 2 && blk[1] == 0 && blk[2] == 0);
+    }
+
+    // ── S6-SD-ADDRESSING-HC: the SDHC direction ─────────────────────────
+    //
+    // S6-SD-ADDRESSING above tests the SDSC direction, and MUTATION TESTING
+    // showed that is not enough: dropping `host_supports_sdhc_` and
+    // `block_len_` from the declaration killed no row, because a restore that
+    // lost them lands on `reset()`'s values — which for an SDSC card are the
+    // values it wanted anyway. The discriminating direction is the one where
+    // the negotiated value DIFFERS from the power-on one.
+    {
+        SdCardDevice sd;
+        sd.mount(img);
+        init_card(sd);                   // HCS = 1 -> block addressing
+
+        StateWriter m;
+        sd.save_state(m);
+        std::vector<uint8_t> buf(m.position());
+        StateWriter w(buf.data(), buf.size());
+        sd.save_state(w);
+        sd.reset();                      // host_supports_sdhc_ -> false
+        StateReader r(buf.data(), buf.size());
+        sd.load_state(r);
+
+        // A block-addressed card reads sector 3 from ARGUMENT 3. A restore
+        // that lost the bit would read byte address 3 — inside sector 0, and
+        // misaligned — so the magic would be sector 0's, or the read would be
+        // refused outright.
+        uint8_t blk[512] = {};
+        (void)send_cmd_r1(sd, 17, 3);
+        const bool tok = wait_token(sd);
+        read_block(sd, blk);
+        check("S6-SD-ADDRESSING-HC",
+              "…and the SDHC direction, which is the one that discriminates: "
+              "a block-addressed card still reads sector 3 from argument 3 "
+              "after a restore, where a card that had fallen back to "
+              "reset()'s byte addressing would serve sector 0",
+              tok && blk[0] == 3 && blk[4] == static_cast<uint8_t>(3 + 4),
+              "blk0=" + std::to_string(blk[0]) + " blk4=" +
+                  std::to_string(blk[4]));
+    }
+
+    // ── S6-SD-BLOCKLEN: CMD16's length survives, observably ─────────────
+    {
+        SdCardDevice sd;
+        sd.mount(img);
+        init_card_sdsc(sd);              // SDSC: CMD16 actually takes effect
+        (void)send_cmd_r1(sd, 16, 256);  // a length reset() would not restore
+
+        StateWriter m;
+        sd.save_state(m);
+        std::vector<uint8_t> buf(m.position());
+        StateWriter w(buf.data(), buf.size());
+        sd.save_state(w);
+        sd.reset();                      // block_len_ -> 512
+        StateReader r(buf.data(), buf.size());
+        sd.load_state(r);
+
+        // Count the DATA FIELD: a 256-byte block ends its data after 256
+        // bytes and the two CRC bytes follow. Read 256 data bytes, then the
+        // two CRC, and require the CRC to be the one computed over 256 bytes
+        // — the independent oracle already in this suite.
+        (void)send_cmd_r1(sd, 17, 0);
+        const bool tok = wait_token(sd);
+        uint8_t data[256] = {};
+        for (int i = 0; i < 256; ++i) data[i] = spi_read(sd);
+        const uint8_t crc_hi = spi_read(sd);
+        const uint8_t crc_lo = spi_read(sd);
+        const uint16_t want = crc16_xmodem(data, 256);
+        check("S6-SD-BLOCKLEN",
+              "the CMD16 block length survives save/restore OBSERVABLY: the "
+              "restored card's data field is 256 bytes and its CRC is the one "
+              "over those 256, where a card that had fallen back to reset()'s "
+              "512 would still be delivering data when the CRC was read",
+              tok && crc_hi == static_cast<uint8_t>(want >> 8) &&
+                  crc_lo == static_cast<uint8_t>(want & 0xFF));
+    }
+
+    // ── S6-SD-INFLIGHT-03: the term that mutation testing found untested ─
+    //
+    // `transfer_in_flight()` tests `multi_block_` INDEPENDENTLY of `state_`,
+    // and dropping that term killed no row: every in-flight case the other
+    // two rows reach also has `state_ != IDLE`. The case the term exists for
+    // is an open CMD18 stream across a CS DEASSERT — SPI-mode cards pause on
+    // CS high and only CMD12 or a new command ends the stream (row CMD18-05,
+    // the 2026-07-10 NextZXOS-boot fix). NextZXOS's esxDOS driver holds a
+    // stream open across driver calls exactly like this, so it is the
+    // realistic mid-transfer instant, not a corner.
+    {
+        SdCardDevice sd;
+        sd.mount(img);
+        init_card(sd);
+        (void)send_cmd_r1(sd, 18, 2);
+        (void)wait_token(sd);
+        uint8_t blk[512];
+        for (int i = 0; i < 100; ++i) blk[i] = spi_read(sd);
+        sd.deselect();                   // CS high: the stream PAUSES
+        check("S6-SD-INFLIGHT-03",
+              "a paused-but-open CMD18 stream still reports the transfer in "
+              "flight after a CS deassert — the case `multi_block_` is tested "
+              "for independently of `state_`, and the one NextZXOS's esxDOS "
+              "driver is in between driver calls",
+              sd.transfer_in_flight());
+    }
+
+    // ── S6-SD-RESP-FORGED: a count from a FILE never sizes a write ───────
+    //
+    // `resp_count` is a u8, so a stream can claim 255 response bytes against
+    // a 32-byte declared capacity. The restore CHECKS the count and never
+    // obeys it; mutation testing showed no row noticed when it did, which is
+    // the bug that has appeared four times in this issue.
+    {
+        SdCardDevice sd;
+        sd.mount(img);
+        init_card(sd);
+        // CMD9 leaves the LONGEST response part-emitted (23 bytes, 3 of them
+        // already clocked by send_cmd_r1), so the card is in RESPONDING with
+        // a live cursor — the state in which the count actually decides how
+        // long the card keeps handing bytes out.
+        (void)send_cmd_r1(sd, 9, 0);
+
+        StateWriter m;
+        sd.save_state(m);
+        std::vector<uint8_t> buf(m.position());
+        StateWriter w(buf.data(), buf.size());
+        sd.save_state(w);
+
+        // The forged byte: `resp_count` sits after `state` (1) + `cmd_buf`
+        // (6) + `cmd_idx` (1) in a standalone stream.
+        buf[8] = 0xFF;
+        StateReader r(buf.data(), buf.size());
+        sd.load_state(r);
+
+        // Clock the whole DECLARED capacity. A card that obeyed the forged
+        // count would still be handing out buffer here, and for 222 bytes
+        // after that.
+        for (int i = 0; i < 32; ++i) (void)spi_read(sd);
+        check("S6-SD-RESP-FORGED",
+              "a stream claiming 255 response bytes restores at most the 32 "
+              "the DECLARATION allows: the count is checked, never obeyed, so "
+              "a file can neither size a write nor keep the card responding "
+              "past the bytes the stream actually carried",
+              !sd.transfer_in_flight());
     }
 
     // ── S6-SD-SAVE-PURE: the write path does not disturb the card ───────

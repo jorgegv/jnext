@@ -40,6 +40,7 @@
 #include "port/nextreg.h"
 #include "peripheral/copper.h"
 #include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 #include <cstring>
 #include <cstdio>
@@ -4580,8 +4581,20 @@ static int test_s6_gaps()
         StateWriter w(buf.data(), buf.size());
         emu.save_state(w);
 
-        // Destroy the stream as thoroughly as a fresh process would: the
-        // pre-S6 restore left exactly this.
+        // Destroy the stream as thoroughly as a fresh process would. `reset()`
+        // alone does NOT: it leaves `data_block_` holding the sector being
+        // streamed, so a declaration that dropped that field would still pass
+        // — mutation testing found exactly that at the device tier. Read a
+        // DIFFERENT sector over it first.
+        sd.reset();
+        cmd(0, 0);
+        cmd(8, 0x1AA);
+        cmd(55, 0);
+        cmd(41, 0x40000000);
+        cmd(17, 9);                       // overwrite data_block_ with sector 9
+        for (int i = 0; i < 16; ++i) if (sd.send() == 0xFE) break;
+        for (int i = 0; i < 512; ++i) (void)sd.send();
+        (void)sd.send(); (void)sd.send();
         sd.reset();
 
         StateReader r(buf.data(), buf.size());
@@ -4716,6 +4729,108 @@ static int test_s6_gaps()
               "the four companion blocks measure 8 / 1 / 8 / 2 bytes: one "
               "declaration per SENTINEL-DELIMITED block, because one "
               "describe_state cannot put its fields in two blocks (§9.5(2))");
+    }
+
+    // ══ …and the migrated fields actually ROUND-TRIP ════════════════════
+    //
+    // `S6-DECL-EMULATOR` above compares the field LIST — names, types and
+    // widths — and a mutation proved that is not enough: binding a
+    // declaration to a LOCAL instead of its member keeps the list identical
+    // and drops the field silently. This is the behavioural half, and it
+    // covers every field of all five blocks at once rather than naming a
+    // representative few.
+    //
+    // The trick is the pattern. A stream of all-`0x01` bytes is ALREADY
+    // NORMALISED — a bool reads 1 and writes 1, a `u8` is 1, a `u16` is
+    // 0x0101 which survives `line_interrupt_target`'s 0x1FF mask, and the
+    // wider types likewise — so a walk that reads it into the members and
+    // writes them straight back must reproduce it byte for byte. A field
+    // bound to a local writes its own default instead, and a zero appears
+    // where a one belongs.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        emu.init(cfg);
+
+        struct Block {
+            const char* name;
+            void (Emulator::*m)(jnext::save::StateDesc&);
+        };
+        const Block blocks[] = {
+            {"frame_origin",    &Emulator::describe_frame_origin},
+            {"emulator",        &Emulator::describe_state},
+            {"nmi_tail",        &Emulator::describe_nmi_tail},
+            {"nextreg_appends", &Emulator::describe_nextreg_appends},
+            {"tail",            &Emulator::describe_tail},
+        };
+
+        bool all_ok = true;
+        std::string detail;
+        for (const auto& b : blocks) {
+            s3::RecordDesc rec;
+            (emu.*(b.m))(rec);
+            const std::size_t width = rec.width();
+
+            std::vector<uint8_t> ones(width, 0x01);
+            StateReader in(ones.data(), ones.size());
+            jnext::save::load_via_desc_method(emu, b.m, in, true);
+
+            std::vector<uint8_t> back(width, 0x00);
+            StateWriter out(back.data(), back.size());
+            jnext::save::save_via_desc_method(emu, b.m, out, true);
+
+            if (back != ones || out.position() != width) {
+                all_ok = false;
+                std::size_t at = 0;
+                while (at < width && back[at] == 0x01) ++at;
+                detail += std::string(b.name) + ": byte " +
+                          std::to_string(at) + " came back " +
+                          std::to_string(at < width ? back[at] : 0) + " ";
+            }
+        }
+        check("S6-EMU-SCALARS-01", all_ok,
+              "every field of all five Emulator blocks round-trips through "
+              "the declaration: a stream of all-0x01 is already normalised, "
+              "so a walk that reads it into the members and writes them back "
+              "must reproduce it exactly, and a field bound to a local "
+              "instead of its member writes a zero where a one belongs");
+        if (!all_ok) fprintf(stderr, "  S6-EMU-SCALARS-01: %s\n", detail.c_str());
+    }
+
+    // ── S6-EMU-SCALARS-02: the one DERIVED field beside them ────────────
+    //
+    // `video_timing_`'s ULA interrupt enable is the inverse of the NR 0x22
+    // bit the walk restores, not a field of its own, so it is re-derived
+    // after the walk (§9.5(7)). Deleting that line killed no row until this
+    // one existed — the derived value is invisible to both the declaration
+    // rows and the round trip above, by construction.
+    {
+        Emulator src;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        src.init(cfg);
+        rw_nr(src, 0x22, 0x04);                 // NR 0x22 b2: disable the ULA int
+
+        StateWriter measure;
+        src.save_state(measure);
+        std::vector<uint8_t> buf(measure.position());
+        StateWriter w(buf.data(), buf.size());
+        src.save_state(w);
+
+        Emulator dst;
+        dst.init(cfg);                          // ULA int ENABLED here
+        const bool before = dst.video_timing().interrupt_enable();
+        StateReader r(buf.data(), buf.size());
+        const bool loaded = dst.load_state(r);
+
+        check("S6-EMU-SCALARS-02",
+              loaded && before && !dst.video_timing().interrupt_enable(),
+              "the ULA interrupt enable is RE-DERIVED from the restored "
+              "NR 0x22 bit after the walk: it is not a field, so nothing in "
+              "the declaration carries it, and a restore that skipped the "
+              "re-derivation would leave the machine taking frame interrupts "
+              "the snapshot had switched off");
     }
 
     // ══ P7 — the mid-frame pause a save must never refuse ═══════════════
