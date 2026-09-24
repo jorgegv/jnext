@@ -708,6 +708,13 @@ void test_preferences_menu_passes_the_host_chords() {
             dlg->reject();   // let exec() return, and discard the edit
         }
     });
+    // A safety net, because on_open_preferences() calls exec(): if the lambda
+    // above ever fails to find the dialog, nothing would close it and the suite
+    // would HANG rather than fail. A hung suite burns the whole harness budget
+    // and reports nothing useful, so the row is made to fail instead.
+    QTimer::singleShot(4000, &fx.win, []() {
+        if (QWidget* w = QApplication::activeModalWidget()) w->close();
+    });
     prefs->trigger();        // the production path: menu -> on_open_preferences -> exec()
 
     check("DKH-08", "the real Preferences menu hands the dialog this window's chords",
