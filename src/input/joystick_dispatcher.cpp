@@ -421,20 +421,31 @@ void JoystickDispatcher::handle_raw_hat(int connector_idx, uint8_t hat_index, ui
     recompute(connector_idx);
 }
 
+// 0 is SDL3's invalid instance id AND this table's free-entry marker. Keeping
+// those two meanings apart takes exactly two things, and this file contains
+// both of them, once each:
+//
+//   1. entry_matches() (in the header) never matches a FREE entry, so a lookup
+//      for the invalid id finds nothing instead of finding every empty row.
+//   2. The rejection below, which refuses to STORE the invalid id — otherwise
+//      the second pass would claim a free entry and write 0 back into it,
+//      leaving an entry that is simultaneously "free" and "connector N".
+//
+// Neither is redundant with the other and neither is a restatement of the
+// other: (1) governs reading, (2) governs writing. Both are pinned by
+// JRAW-31/32, which assert the invariant they jointly maintain — a free entry
+// carries no connector — because neither has an observable effect on its own
+// (a free entry's slot is -1, so even a wrong match answers "unmapped").
 void JoystickDispatcher::map_instance_to_slot(SDL_JoystickID sdl_instance_id, int slot)
 {
-    // 0 is SDL3's invalid instance id AND this table's free-entry marker, so
-    // it can never be stored: doing so would consume a free entry and then
-    // answer every stray id-0 event with that entry's connector. Rejecting it
-    // here is the ONLY place the two meanings are kept apart.
-    if (sdl_instance_id == 0) return;
+    if (sdl_instance_id == 0) return;   // see (2) above
     if (slot >= NUM_CONNECTORS) {
         // Reject — only two physical connectors. Slot 0/1 OK; -1 = unmap.
         slot = -1;
     }
     // First pass: update existing entry if present.
     for (auto& d : device_map_) {
-        if (d.instance_id == sdl_instance_id) {
+        if (entry_matches(d, sdl_instance_id)) {
             d.slot = slot;
             if (slot < 0) d.instance_id = 0;
             return;
@@ -455,11 +466,8 @@ void JoystickDispatcher::map_instance_to_slot(SDL_JoystickID sdl_instance_id, in
 
 int JoystickDispatcher::resolve_instance_to_slot(SDL_JoystickID sdl_instance_id) const
 {
-    // The invalid id can never name a device, and matching it would match
-    // every FREE entry of the table instead.
-    if (sdl_instance_id == 0) return -1;
     for (const auto& d : device_map_) {
-        if (d.instance_id == sdl_instance_id) {
+        if (entry_matches(d, sdl_instance_id)) {
             return d.slot;
         }
     }

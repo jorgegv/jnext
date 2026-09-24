@@ -241,11 +241,30 @@ public:
     /// Instance id 0 is SDL3's INVALID id (SDL_JoystickID is Uint32 and 0
     /// never names a device — SDL2's id was signed with -1 for invalid).
     /// It is rejected outright: it is also this table's "entry is free"
-    /// marker, so storing it would claim a free entry AND make every later
-    /// stray id-0 event resolve to that entry's connector.
+    /// marker, so storing it would leave an entry that is both free and
+    /// mapped to a connector. See the comment above the definition in
+    /// joystick_dispatcher.cpp for the two halves of that treatment.
     void map_instance_to_slot(SDL_JoystickID sdl_instance_id, int slot);
 
     // ── Test introspection ──────────────────────────────────────────────
+
+    /// True while every FREE device-map entry (instance id 0) also carries no
+    /// connector slot — the "id 0 means free means slot -1" coupling that the
+    /// whole id-0 treatment exists to preserve.
+    ///
+    /// White-box on purpose. Corrupting that coupling has NO behavioural
+    /// consequence on its own (a free entry's slot is -1, so even a wrong
+    /// match answers "unmapped"), which is exactly why the guards were
+    /// unpinnable through the public API and why a mutation of either one
+    /// used to pass every row. Asserting the invariant directly is the only
+    /// way to make the defect visible at the moment it is introduced instead
+    /// of when some later change starts trusting the slot field.
+    bool device_map_free_entries_are_clean() const {
+        for (const auto& d : device_map_) {
+            if (d.instance_id == 0 && d.slot >= 0) return false;
+        }
+        return true;
+    }
 
     /// Connector slot currently mapped to `sdl_instance_id`, or -1 when the
     /// device is not mapped. Exposes the host-side device map so a test can
@@ -364,6 +383,29 @@ private:
         SDL_JoystickID instance_id = 0;
         int            slot        = -1;
     };
+
+    // The ONE place that decides whether a table entry belongs to `id`.
+    //
+    // It has to say "in use" explicitly, because the free marker and SDL3's
+    // invalid id are the SAME VALUE (0). A plain `d.instance_id == id` test
+    // would therefore match EVERY free entry when asked about the invalid id.
+    // Both readers go through this, so the disambiguation is written once
+    // rather than copied per call site — which is what let an earlier version
+    // carry two hand-written guards that were each removable without a single
+    // row failing.
+    //
+    // HONEST NOTE ON WHAT PINS THIS. Removing the `!= 0` term alone changes no
+    // observable behaviour, and that was MEASURED, not assumed: a free entry's
+    // slot is -1, so matching one still answers "unmapped". What the term buys
+    // is that the answer stays right if a free entry ever stops carrying -1 —
+    // e.g. an unmap that clears instance_id but leaves slot alone. That is the
+    // realistic future defect, and it is caught: it breaks the free-entry
+    // invariant, which JRAW-30/31/32 assert directly. So the term is the
+    // safety net and the invariant rows are the tripwire; neither pretends to
+    // be the other.
+    static bool entry_matches(const DeviceSlot& d, SDL_JoystickID id) {
+        return d.instance_id != 0 && d.instance_id == id;
+    }
     static constexpr int MAX_DEVICES = 4;  // SDL allows many; we map up to 4
     std::array<DeviceSlot, MAX_DEVICES> device_map_{};
 

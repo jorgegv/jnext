@@ -4466,9 +4466,59 @@ static void test_joy_source() {
         const bool consumed = jd.handle_sdl_event(e);
         check("JRAW-30",
               "unmapping frees the device-map entry for reuse (the free marker "
-              "is 0, representable in SDL3's Uint32 id) (GH #57)",
-              consumed && jd.bits12(1) != 0x000,
-              DETAIL("consumed=%d bits1=%03X", (int)consumed, jd.bits12(1)));
+              "is 0, representable in SDL3's Uint32 id) and leaves the freed "
+              "entries carrying no connector (GH #57)",
+              consumed && jd.bits12(1) != 0x000 &&
+              jd.device_map_free_entries_are_clean(),
+              DETAIL("consumed=%d bits1=%03X free entries clean=%d",
+                     (int)consumed, jd.bits12(1),
+                     (int)jd.device_map_free_entries_are_clean()));
+    }
+
+    // GH #57 review: JRAW-29/30 above assert the OUTCOME, and an outcome test
+    // cannot see this table's real hazard. The invalid id and the free marker
+    // are the same value (0), and a free entry's slot is -1 — so an entry that
+    // has been corrupted into "free AND connector N" still answers "unmapped"
+    // to every public query. Mutating either half of the id-0 treatment away
+    // therefore passed all 342 rows. These two pin the INVARIANT the halves
+    // jointly maintain, which is the thing that actually breaks.
+    {
+        // JRAW-31 — the WRITE half. Refusing to store the invalid id is what
+        // stops the second pass claiming a free entry and writing 0 back into
+        // it. Aimed at connector 2 so a corrupted entry is unmistakable.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.map_instance_to_slot(0, 1);
+        check("JRAW-31",
+              "mapping the invalid id 0 leaves no device-map entry that is both "
+              "free and assigned to a connector (GH #57)",
+              jd.device_map_free_entries_are_clean(),
+              DETAIL("free entries clean = %d after map_instance_to_slot(0, 1)",
+                     (int)jd.device_map_free_entries_are_clean()));
+    }
+    {
+        // JRAW-32 — the READ half, plus the no-collateral-damage claim. With a
+        // live device already in the table, a lookup for the invalid id must
+        // not match any of the remaining FREE entries, and the live mapping
+        // must survive untouched. entry_matches() is what makes both true.
+        Joystick joy; joy.reset();
+        JoystickDispatcher jd(joy);
+        jd.map_instance_to_slot(42, 0);
+        const int before = jd.slot_for_instance(42);
+        jd.map_instance_to_slot(0, 1);
+        const int zero_slot = jd.slot_for_instance(0);
+        const int after     = jd.slot_for_instance(42);
+        check("JRAW-32",
+              "the invalid id matches no free entry and cannot disturb a live "
+              "mapping (GH #57)",
+              zero_slot < 0 && before == 0 && after == 0 &&
+              jd.device_map_free_entries_are_clean() &&
+              jd.instance_for_slot(1) == 0,
+              DETAIL("id0 -> slot %d (want <0); device 42: %d -> %d (want 0 -> 0); "
+                     "free entries clean = %d; connector 2 owner = %u",
+                     zero_slot, before, after,
+                     (int)jd.device_map_free_entries_are_clean(),
+                     (unsigned)jd.instance_for_slot(1)));
     }
 
     // --- Task 83: multi-source direction merge ------------------------------
