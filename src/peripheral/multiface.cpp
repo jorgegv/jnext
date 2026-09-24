@@ -1,6 +1,8 @@
 #include "peripheral/multiface.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 #include <algorithm>
 #include <cstring>
 
@@ -356,42 +358,66 @@ bool Multiface::load_rom_bytes(const uint8_t* data, size_t size)
 
 // ── Save / load state ────────────────────────────────────────────────
 
-void Multiface::save_state(StateWriter& w) const
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 8 200 bytes as the `multiface` block of the
+// 2 292 965-byte stream.
+//
+// ── THE 8 KB IS A `blob`, NOT A `ram_window` ────────────────────────────
+//
+// §9.2 makes that a STATIC declaration, and the reason is that the property
+// is unconditionally true IN THE STREAM: `save_state` has always written
+// `ram_.data()` — the PRIVATE array — whatever `set_ram_backing()` did
+// (emulator.cpp:301/:304 gives it Ram page 0x0B on 48K/128K/+3 and nullptr on
+// the Next). On the Next that array is dead zeros and the live 8 KB already
+// travels inside `mem/ram.bin`; on the other machines it is the real thing.
+// So `blob` it is, and dropping it on the Next is S5b's job, not S5's:
+// re-baselining the golden is what that stage exists for.
+//
+// The `1` presence byte that precedes this block is written by
+// `Emulator::save_state`, not here — it is framing for an append-only
+// extension, in the class §9.4 calls sentinels rather than fields.
+void Multiface::describe_state(jnext::save::StateDesc& d)
 {
     // FF state.
-    w.write_bool(enabled_);
-    w.write_bool(nmi_active_);
-    w.write_bool(invisible_);
-    w.write_bool(mf_enable_);
-    w.write_bool(port_io_dly_);
-    // Mode (re-derivable from NR 0x0A but preserved here so a Multiface
-    // restored standalone doesn't depend on NR 0x0A load order).
-    w.write_bool(mode_p3_);
-    w.write_bool(mode_128_);
-    w.write_bool(mode_48_);
-    // RAM contents (8 KB). ROM is reloaded fresh from SD each session.
-    w.write_bytes(ram_.data(), ram_.size());
+    d.boolean("enabled", enabled_);
+    d.boolean("nmi_active", nmi_active_);
+    d.boolean("invisible", invisible_);
+    d.boolean("mf_enable", mf_enable_);
+    d.boolean("port_io_dly", port_io_dly_);
+    // Mode (re-derivable from NR 0x0A but declared here so a Multiface
+    // restored standalone does not depend on NR 0x0A load order).
+    d.boolean("mode_p3", mode_p3_);
+    d.boolean("mode_128", mode_128_);
+    d.boolean("mode_48", mode_48_);
+    // RAM contents (8 KB). ROM is reloaded fresh from SD each session, so it
+    // is not state and is not declared.
+    d.blob("ram", ram_.data(), ram_.size());
+}
+
+void Multiface::save_state(StateWriter& w) const
+{
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Multiface::load_state(StateReader& r)
 {
-    enabled_     = r.read_bool();
-    nmi_active_  = r.read_bool();
-    invisible_   = r.read_bool();
-    mf_enable_   = r.read_bool();
-    port_io_dly_ = r.read_bool();
-    mode_p3_     = r.read_bool();
-    mode_128_    = r.read_bool();
-    mode_48_     = r.read_bool();
-    r.read_bytes(ram_.data(), ram_.size());
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
+
+    // Everything below is post-walk and deliberately OUTSIDE the declaration.
+    //
+    // The two flags are derived, per-fetch working state that a restore must
+    // clear (§9.5(7)/(8)) — not fields.
     fetch_66_live_ = false;
     mf_port_en_    = false;
-    // mf_type_ is reconstructed from the mode booleans: we serialise the
-    // booleans (Wave 1 B1 schema) and recover the 2-bit raw value here.
-    // mode_128 maps to "01" by convention (the lower of the two
-    // mode_128 codes); save state from a session running mf_type=10
-    // will lose the bit. Wave 1 B2 added mf_type_ for port dispatch and
-    // accepts this lossy serialisation rather than bumping the schema.
+
+    // `mf_type_` is RECONSTRUCTED from the three mode booleans, and the
+    // reconstruction is knowingly LOSSY: mode_128 maps to "01" by convention
+    // (the lower of the two mode_128 codes), so a session running mf_type=10
+    // loses the bit. That is §9.5(6) and §4.3(3), and the fix — serialising
+    // the 2-bit value directly — belongs to S6 (design §17's stage table,
+    // "P13 mf_type_"), NOT here: adding a field would move the stream that
+    // the byte-identity gate exists to freeze.
     if (mode_p3_)       mf_type_ = 0x00;
     else if (mode_48_)  mf_type_ = 0x03;
     else                mf_type_ = 0x01;

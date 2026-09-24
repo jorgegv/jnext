@@ -4,6 +4,8 @@
 #include <cstdint>
 #include <string>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Multiface peripheral — Wave 1 B1 of Task 8 (TASK-8-MULTIFACE-PLAN.md).
 ///
 /// Mirrors the FPGA-core's `multiface.vhd` end-to-end (197 lines). The VHDL
@@ -231,6 +233,11 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     // Mode decode (multiface.vhd:105-118).
