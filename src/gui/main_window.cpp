@@ -1134,7 +1134,7 @@ void MainWindow::update_status(double fps, double presented_fps,
 void MainWindow::on_load_nex() {
     QString path = QFileDialog::getOpenFileName(
         this, tr("Load Program"), app_config_.data().last_load_dir,
-        tr("Spectrum Files (*.nex *.jns *.sna *.szx *.z80 *.tap *.tzx *.wav *.rzx);;NEX Files (*.nex);;jnext Snapshots (*.jns);;SNA Snapshots (*.sna);;SZX Snapshots (*.szx);;Z80 Snapshots (*.z80);;TAP Files (*.tap);;TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;All Files (*)"));
+        load_filter());
     if (!path.isEmpty()) {
         // Task 66 — remember the containing directory for the next dialog.
         app_config_.data().last_load_dir = QFileInfo(path).absolutePath();
@@ -1790,6 +1790,25 @@ void MainWindow::on_quick_screenshot() {
 // G35: wires SnaSaver/SzxSaver/NexSaver to File > Save Snapshot... —
 // closes BOOT-SNAPSAVE-01/02/03/04 in mmu_test. Format is chosen by the
 // extension the user picks (or types); defaults to .sna if none/unknown.
+QString MainWindow::load_filter() {
+    return tr("Spectrum Files (*.nex *.jns *.sna *.szx *.z80 *.tap *.tzx *.wav *.rzx);;"
+              "NEX Files (*.nex);;jnext Snapshots (*.jns);;SNA Snapshots (*.sna);;"
+              "SZX Snapshots (*.szx);;Z80 Snapshots (*.z80);;TAP Files (*.tap);;"
+              "TZX Files (*.tzx);;WAV Files (*.wav);;RZX Recordings (*.rzx);;"
+              "All Files (*)");
+}
+
+QString MainWindow::save_filter(bool next_machine) {
+    // The LEADING entry is the default the dialog offers, so the order is the
+    // recommendation: `.jns` on a Next because nothing else can represent one,
+    // `.sna` elsewhere because that is what other emulators read (§15.2).
+    return next_machine
+        ? tr("jnext snapshot (*.jns);;Spectrum snapshot (*.sna);;"
+             "ZX-State snapshot (*.szx);;NEX program (*.nex);;All Files (*)")
+        : tr("Spectrum snapshot (*.sna);;jnext snapshot (*.jns);;"
+             "ZX-State snapshot (*.szx);;NEX program (*.nex);;All Files (*)");
+}
+
 void MainWindow::on_save_snapshot() {
     if (!emulator_) return;
     // GH #27 S8 (§15.2) — `.jns` leads the filter on a Next and `.sna` leads
@@ -1798,14 +1817,8 @@ void MainWindow::on_save_snapshot() {
     // 48K/128K/+3 a `.sna` is what other emulators read.
     const bool next_machine =
         emulator_->config().type == MachineType::ZXN_ISSUE2;
-    const QString filter =
-        next_machine
-            ? tr("jnext snapshot (*.jns);;Spectrum snapshot (*.sna);;"
-                 "ZX-State snapshot (*.szx);;NEX program (*.nex);;All Files (*)")
-            : tr("Spectrum snapshot (*.sna);;jnext snapshot (*.jns);;"
-                 "ZX-State snapshot (*.szx);;NEX program (*.nex);;All Files (*)");
     QString path = QFileDialog::getSaveFileName(
-        this, tr("Save Snapshot"), QString(), filter);
+        this, tr("Save Snapshot"), QString(), save_filter(next_machine));
     if (path.isEmpty()) return;
     if (!path.endsWith(".sna", Qt::CaseInsensitive) &&
         !path.endsWith(".szx", Qt::CaseInsensitive) &&

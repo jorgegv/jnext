@@ -402,6 +402,44 @@ int main(int argc, char** argv) {
               fmt("seen=%d text=%s", w.seen, q(w.text).c_str()));
     }
 
+    // ── GH #27 S8 — the `.jns` file-dialog FILTERS ──────────────────────
+    //
+    // A widening of this suite's scope, stated rather than slipped in: its
+    // other rows drive the post-picker halves, and these are about what the
+    // picker OFFERS. They live here because the alternative is a filter string
+    // that exists only inside a `QFileDialog` call, which no test can reach —
+    // and jnext has shipped a format the dialog did not list before.
+    {
+        const QString lf = MainWindow::load_filter();
+        check("LE-11",
+              "the Load dialog offers *.jns, both in the combined first entry "
+              "and as a format of its own",
+              lf.contains("*.jns") &&
+                  lf.contains("Spectrum Files (*.nex *.jns") &&
+                  lf.contains("jnext Snapshots (*.jns)"),
+              q(lf));
+
+        const QString sn = MainWindow::save_filter(/*next_machine=*/true);
+        const QString sc = MainWindow::save_filter(/*next_machine=*/false);
+        check("LE-12",
+              "the Save dialog LEADS with *.jns on a Next — the leading entry "
+              "is the default the dialog offers, and nothing else can "
+              "represent a Next at all",
+              sn.startsWith("jnext snapshot (*.jns)"), q(sn));
+        check("LE-13",
+              "…and leads with *.sna on 48K/128K/+3, where a .sna is what "
+              "other emulators read",
+              sc.startsWith("Spectrum snapshot (*.sna)"), q(sc));
+        check("LE-14",
+              "…but BOTH still offer every format, so the machine changes the "
+              "recommendation and never the choice",
+              sn.contains("*.jns") && sn.contains("*.sna") &&
+                  sn.contains("*.szx") && sn.contains("*.nex") &&
+                  sc.contains("*.jns") && sc.contains("*.sna") &&
+                  sc.contains("*.szx") && sc.contains("*.nex"),
+              q(sc));
+    }
+
     std::filesystem::remove_all(g_root, ec);
     std::printf("\nTotal: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
                 g_total, g_pass, g_fail);
