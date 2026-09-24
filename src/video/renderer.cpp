@@ -1,6 +1,8 @@
 #include "video/renderer.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 #include "memory/mmu.h"
 #include "memory/ram.h"
 #include "video/palette.h"
@@ -1042,33 +1044,82 @@ void Renderer::composite_scanline_mode(uint32_t* dst, uint32_t fallback_argb, in
     }
 }
 
+// ---------------------------------------------------------------------------
+// GH #27 S4 — the ONE field list (design §9.2)
+// ---------------------------------------------------------------------------
+//
+// Block 10 of the byte-identity stream (§17.1), 3 688 bytes, and the one
+// block built from THREE declarations: the stream has always carried the
+// ULA's 3 357 bytes, then these 331 minus LoRes's four, then LoRes's four.
+// Nesting the two calls here keeps that order a property of one declaration
+// rather than of three `save_state` bodies that have to agree.
+//
+// The keys of all three land in ONE flat object, so they must not collide.
+// The ULA prefixes its clip window `ula_clip_*` and LoRes prefixes all four
+// of its fields `lores_*` for exactly that reason; `S4-KEYS-UNIQUE` checks
+// the whole block rather than each declaration on its own, because a
+// collision ACROSS the nesting is the one a per-subsystem check would miss.
+//
+// The three bools are declared `boolean` although the stream wrote them with
+// `write_u8(x ? 1 : 0)`. That is byte-identical, not merely equivalent:
+// `write_bool` IS `write_u8(v ? 1 : 0)` and `read_bool` IS `read_u8() != 0`
+// (`saveable.h:45,94`).
+//
+// NOT DECLARED: every per-line snapshot except `fallback_per_line_`, and the
+// NR 0x15 change-log — §9.5(8). `load_state` refills them from the state it
+// just read (GH #261). `fallback_per_line_` IS in the stream and stays there.
+//
+// No field carries a DECLARED DEFAULT: §12.2's gate for them is S6's.
+void Renderer::describe_state(jnext::save::StateDesc& d)
+{
+    ula_.describe_state(d);
+    d.u8("layer_priority", layer_priority_);
+    d.u8("fallback_colour", fallback_colour_);
+    d.u8("transparent_rgb", transparent_rgb_);
+    d.boolean("sprite_en", sprite_en_);
+    d.boolean("stencil_mode", stencil_mode_);
+    d.boolean("tm_enabled", tm_enabled_);
+    d.u8("blend_mode", blend_mode_);
+    d.bytes("fallback_per_line", fallback_per_line_.data(),
+            fallback_per_line_.size());
+    lores_.describe_state(d);
+}
+
 void Renderer::save_state(StateWriter& w) const
 {
-    ula_.save_state(w);
-    w.write_u8(layer_priority_);
-    w.write_u8(fallback_colour_);
-    w.write_u8(transparent_rgb_);
-    w.write_u8(sprite_en_ ? 1 : 0);
-    w.write_u8(stencil_mode_ ? 1 : 0);
-    w.write_u8(tm_enabled_ ? 1 : 0);
-    w.write_u8(blend_mode_);
-    w.write_bytes(fallback_per_line_.data(), fallback_per_line_.size());
-    lores_.save_state(w);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void Renderer::load_state(StateReader& r)
 {
-    ula_.load_state(r);
-    layer_priority_ = r.read_u8();
-    fallback_colour_ = r.read_u8();
-    transparent_rgb_ = r.read_u8();
-    sprite_en_    = r.read_u8() != 0;
-    stencil_mode_ = r.read_u8() != 0;
-    tm_enabled_   = r.read_u8() != 0;
+    jnext::save::BinReadDesc d(r);
+    describe_state(d);
+    if (d.failed()) {
+        // The only way this fires is the nested ULA's `enum8` screen-mode
+        // ordinal falling outside the declared set — a stream and a build
+        // that disagree about the Timex mode list. The field keeps its
+        // pre-load value, the stream stays in sync (the byte was consumed
+        // either way), and the fault is NAMED.
+        Log::video()->error("Renderer::load_state: the stream does not match "
+                            "this build\'s declaration at \'{}\'",
+                            d.failure() ? d.failure() : "?");
+    }
     tm_enabled_per_line_active_ = false;  // GH #256 — live until next frame
-    blend_mode_   = r.read_u8() & 0x03;
-    r.read_bytes(fallback_per_line_.data(), fallback_per_line_.size());
-    lores_.load_state(r);
+
+    // NR 0x68 bits 6:5 are two bits wide (VHDL ula_blend_mode_2). The mask is
+    // applied HERE and not in the declaration: it is a property of the
+    // RESTORE, not of the field, and putting it in `describe_state` would
+    // change what the WRITE direction emits. Same placement S3 gave
+    // `Mmu::nr_8f_mode_`.
+    blend_mode_ = static_cast<uint8_t>(blend_mode_ & 0x03);
+
+    // The nested `Ula` and `Lores` restores used to run inside this function
+    // as `ula_.load_state(r)` / `lores_.load_state(r)`; the walk above has
+    // replaced the READING half of both, but each still owns post-walk work
+    // of its own (the ULA's cursor reset and scroll re-baseline, LoRes's
+    // NR $6A mask and per-line refill), which is why they are called here.
+    ula_.after_load_state();
+    lores_.after_load_state();
 
     // GH #261 — these per-line snapshots are not in the stream (unlike
     // fallback_per_line_ above): refill them from the state just loaded, so

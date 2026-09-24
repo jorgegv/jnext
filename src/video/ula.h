@@ -8,6 +8,8 @@ class Mmu;
 class Ram;
 class PaletteManager;
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Timex ULA screen mode, selected via port 0xFF.
 ///
 /// Port 0xFF bit layout:
@@ -816,6 +818,17 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S4 — everything `load_state` does besides the walk, so
+    /// `Renderer::load_state` (which performs this subsystem's walk as part
+    /// of its own nested declaration) can still run it.
+    void after_load_state();
+
+    /// GH #27 S4 — the ONE field list (design §9.2). Declared ALONGSIDE
+    /// `Renderer`'s rather than in a block of its own: `Renderer::save_state`
+    /// nests this call FIRST, so the fields land at the head of block 10
+    /// exactly where the stream has always carried them.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     PaletteManager*  palette_         = nullptr; ///< 256-entry × 2-bank ULA palette (G102)

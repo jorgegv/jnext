@@ -15,6 +15,8 @@ class Tilemap;
 class Copper;
 class NextReg;
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Layer priority modes from NextREG 0x15 bits 4:2.
 enum class LayerPriority : uint8_t {
     SLU = 0,   // Sprites, Layer2, ULA       (000)
@@ -275,6 +277,11 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S4 — the ONE field list (design §9.2). NESTS `Ula`'s and
+    /// `Lores`'s, which is what makes block 10 one declaration rather than
+    /// three: the stream has always carried the three sets in that order.
+    void describe_state(jnext::save::StateDesc& d);
 
     /// Set the fallback colour index (NextREG 0x4A).
     /// Used when all layers are transparent at a given pixel.
