@@ -195,8 +195,8 @@ is one, it is deliberate, and it is written down here and in that file's header
 so it stays a decision rather than drift.
 
 That build lives in **`.github/workflows/flatpak-build.yml`**, once. The
-`flatpak` job in `release.yml` is a single `uses:` line, and the same file also
-carries a `workflow_dispatch` trigger so the build — and
+`flatpak` jobs in `release.yml` and `ci.yml` are a single `uses:` line each,
+and the same file also carries a `workflow_dispatch` trigger so the build — and
 the GH #271 sandbox-permission gate it ends with — can be exercised on demand
 from the Actions tab without cutting a release. That matters because every
 artifact job in `release.yml` is skipped for a private tag, so before this the

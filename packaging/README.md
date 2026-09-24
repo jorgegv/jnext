@@ -314,8 +314,8 @@ make package-flatpak
 
 Bump `runtime-version` (here and the CI image tag in
 `.github/workflows/flatpak-build.yml`, which must stay in lockstep) when a newer
-KDE runtime branch is targeted. `release.yml` calls that workflow rather than
-repeating the tag.
+KDE runtime branch is targeted. That image tag now appears in exactly one place:
+`release.yml` and `ci.yml` each call that workflow rather than repeating it.
 
 ### Sandbox permissions are a CONTRACT, checked on the built bundle (GH #271)
 
@@ -343,11 +343,12 @@ It runs from two places, and both are pinned by
   `make verify-flatpak-permissions BUNDLE=<bundle>` after the upstream
   flatpak-builder action, because that build deliberately does not go through
   `make package-flatpak` (see that file's header). It is the single definition
-  of the CI Flatpak build: the `flatpak` job in `release.yml` is one `uses:`
-  line, and it also carries a `workflow_dispatch` trigger so the build and this
-  gate can be run on demand from the Actions tab. Before that, the gate could
-  not be exercised at all without cutting a public release — every artifact job
-  in `release.yml` is skipped for a private tag.
+  of the CI Flatpak build: the `flatpak` jobs in `release.yml` and `ci.yml` are
+  one `uses:` line each, and it also carries a `workflow_dispatch` trigger so
+  the build and this gate can be run on demand from the Actions tab. Before
+  that, the gate could not be exercised at all without cutting a public release
+  — every artifact job in `release.yml` is skipped for a private tag — and
+  `ci.yml` held a near-verbatim copy of the job that omitted the gate entirely.
 
 To require a further permission, add its `shared=` token to `REQUIRED_SHARED`
 in the script and the matching `finish-arg` to the manifest.

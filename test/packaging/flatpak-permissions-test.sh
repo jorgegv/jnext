@@ -320,20 +320,31 @@ else
     bad FPKP-15 "$wf: $why — the bundle could ship ungated again, and there would be no way to exercise the gate short of a public release"
 fi
 
-# --- FPKP-16: release.yml DELEGATES to that definition ----------------------
-# The shipping path has to be the gated path. An active job-level `uses:` of
-# the shared file is what makes a manual run evidence about the release build
-# rather than about a lookalike of it, so a release.yml that goes back to its
-# own inline copy of the steps fails here — with or without a gate in that copy.
+# --- FPKP-16: BOTH workflows DELEGATE to that definition --------------------
+# Every path that builds a bundle has to be the gated path. An active job-level
+# `uses:` of the shared file is what makes one manual run evidence about the
+# release build and the push build rather than about lookalikes of them, so a
+# workflow that goes back to its own inline copy of the steps fails here —
+# with or without a gate in that copy.
+#
+# Both are checked because both had a copy, and the ci.yml one is the reason
+# this matters beyond tidiness: it was release.yml's job copied near-verbatim
+# MINUS the permission gate, so from the day GH #271 was fixed a bundle that
+# stopped carrying --share=network would still have gone green on every push.
 #
 # Matched on the `uses:` value as a whole line, so the path cannot slip in as
-# part of some unrelated `with:` value (the extractor legitimately emits a
-# step's `with:` continuation lines too).
-if grep -qxF './.github/workflows/flatpak-build.yml' \
-        <<<"$(yml_active .github/workflows/release.yml flatpak uses)"; then
-    ok FPKP-16 "release.yml's flatpak job delegates to the shared definition"
+# part of some unrelated `with:` value.
+why=""
+for f in release ci; do
+    [ -n "$why" ] && break
+    grep -qxF './.github/workflows/flatpak-build.yml' \
+        <<<"$(yml_active ".github/workflows/$f.yml" flatpak uses)" \
+        || why="$f.yml's flatpak job does not USE ./.github/workflows/flatpak-build.yml (commented out, or back to an inline copy)"
+done
+if [ -z "$why" ]; then
+    ok FPKP-16 "release.yml and ci.yml both delegate to the shared definition"
 else
-    bad FPKP-16 "release.yml's flatpak job does not USE ./.github/workflows/flatpak-build.yml (commented out, or back to an inline copy) — the SHIPPED bundle would no longer be built by the definition every other row here covers"
+    bad FPKP-16 "$why — that bundle would no longer be built by the definition every other row here covers"
 fi
 
 printf "\n"

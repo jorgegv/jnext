@@ -275,12 +275,12 @@ jobs:
             build/win32-qt5-release/*.zip
 
   # ---- Flatpak: delegated to the shared definition -------------------------
-  # The steps live in .github/workflows/flatpak-build.yml, which this job calls
-  # and which can ALSO be dispatched by hand. One definition, two entry points.
-  # Before, the gate had never run on a runner — every artifact job here is
-  # skipped for a private tag — and there was no way to exercise it short of
-  # cutting a public release. A manual run now exercises THIS job's steps rather
-  # than a copy of them.
+  # The steps live in .github/workflows/flatpak-build.yml, which this job calls,
+  # ci.yml's flatpak job also calls, and which can ALSO be dispatched by hand.
+  # One definition, three entry points. Before, the gate had never run on a
+  # runner — every artifact job here is skipped for a private tag — and there
+  # was no way to exercise it short of cutting a public release. A manual run
+  # now exercises THIS job's steps rather than a copy of them.
   #
   # That file also carries the project's ONE declared exception to "every CI
   # step is a plain make target" (it builds through the upstream
