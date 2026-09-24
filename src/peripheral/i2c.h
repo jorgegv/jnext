@@ -4,6 +4,8 @@
 #include <ctime>
 #include <array>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// I2C device interface — base class for devices attached to the I2C bus.
 class I2cDevice {
 public:
@@ -50,6 +52,11 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
     void start() override;
     uint8_t transfer(uint8_t data, bool is_read) override;
@@ -192,6 +199,11 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     enum class State {
