@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <array>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// YM2149 / AY-3-8910 sound chip emulation.
 ///
 /// Implements all 16 registers, 3 tone generators, noise generator,
@@ -103,8 +105,19 @@ private:
     uint16_t tone_period(int ch) const;
 
 public:
-    void save_state(class StateWriter& w) const;
-    void load_state(class StateReader& r);
+    /// GH #27 S5 — the ONE field list for one chip (design §9.2).
+    ///
+    /// It takes its KEY TABLE from the owning `TurboSound`, because three
+    /// chips sharing one declaration would name `env_vol` three times — and a
+    /// duplicate key is the one fault the byte-identity gate structurally
+    /// cannot see (the binary encoding ignores names; `JsonWriteDesc`'s
+    /// `obj[name] = value` silently drops the earlier field). `keys` is a row
+    /// of `kAyKeys` in turbosound.cpp: string LITERALS, never built at run
+    /// time, because `StateDesc::fail()` stores the pointer it is handed.
+    ///
+    /// There is no `save_state`/`load_state` pair here any more: their only
+    /// callers were `TurboSound`'s, which now walk this declaration directly.
+    void describe_state(jnext::save::StateDesc& d, const char* const* keys);
     uint16_t tone_comp(int ch) const;
     uint8_t noise_period() const;
     uint8_t noise_comp() const;

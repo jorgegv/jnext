@@ -3,6 +3,8 @@
 #include <cstdint>
 #include <array>
 #include "audio/ay_chip.h"
+
+namespace jnext { namespace save { class StateDesc; } }
 #include "audio/audio_mute.h"
 
 /// TurboSound Next: 3× YM2149/AY-3-8910 with stereo panning.
@@ -96,6 +98,10 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2): the three chips'
+    /// declarations in `ay_` order, then TurboSound's own scalars.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     std::array<AyChip, 3> ay_;   // AY#0 (id=3), AY#1 (id=2), AY#2 (id=1)

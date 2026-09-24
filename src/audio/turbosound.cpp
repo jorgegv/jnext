@@ -1,5 +1,45 @@
 #include "audio/turbosound.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
+
+namespace {
+
+// GH #27 S5 — the per-chip key table for the §9.4 loop collapse in
+// `TurboSound::describe_state`.
+//
+// Three chips share one field list, so the keys carry the chip number: a
+// `.jns` says `ay2_env_vol`, not a third anonymous `env_vol` that
+// `JsonWriteDesc` would silently drop on top of the second. The numbering is
+// the `ay_` array index (AY#0/#1/#2), NOT the AY id the constructor assigns
+// (3/2/1) — the array index is what the port decode selects with
+// `ay_select_`.
+//
+// LITERALS, concatenated by the preprocessor, and NOT built at run time —
+// `StateDesc::fail()` STORES the `const char*` it is handed rather than
+// copying it, so a key formatted into a stack buffer would dangle in exactly
+// the refusal path whose job is to name the field.
+#define AY_KEYS(p)                                                          \
+    { /*  0 */ p "_ay_mode",    p "_reg",                                   \
+      /*  2 */ p "_addr",       p "_cnt_div",                               \
+      /*  4 */ p "_noise_div",  p "_ena_div",       p "_ena_div_noise",     \
+      /*  7 */ p "_tone_cnt_a", p "_tone_cnt_b",    p "_tone_cnt_c",        \
+      /* 10 */ p "_tone_op_a",  p "_tone_op_b",     p "_tone_op_c",         \
+      /* 13 */ p "_noise_cnt",  p "_poly17",        p "_noise_op",          \
+      /* 16 */ p "_env_cnt",    p "_env_ena",       p "_env_reset",         \
+      /* 19 */ p "_env_vol",    p "_env_inc",       p "_env_hold",          \
+      /* 22 */ p "_out_a",      p "_out_b",         p "_out_c" }
+
+const char* const kAyKeys[3][25] = {
+    AY_KEYS("ay0"), AY_KEYS("ay1"), AY_KEYS("ay2"),
+};
+
+#undef AY_KEYS
+
+// The per-chip stereo pan bytes (NR 0x09 / zxnext.vhd), same numbering.
+const char* const kPanKeys[3] = { "ay0_pan", "ay1_pan", "ay2_pan" };
+
+}  // namespace
 
 TurboSound::TurboSound()
     : ay_{AyChip(3), AyChip(2), AyChip(1)}  // AY#0=id 3, AY#1=id 2, AY#2=id 1
@@ -175,35 +215,36 @@ void TurboSound::compute_chip_stereo(int idx, uint16_t& left, uint16_t& right) c
     right = (pan_[idx] & 0x01) ? right_sum : 0;
 }
 
+// GH #27 S5 — the ONE field list (design §9.2): three chips, then the
+// selector, pans and mixer scalars. §9.4's loop-collapse class.
+void TurboSound::describe_state(jnext::save::StateDesc& d)
+{
+    for (int i = 0; i < 3; ++i) ay_[i].describe_state(d, kAyKeys[i]);
+    d.u8("ay_select", ay_select_);
+    for (int i = 0; i < 3; ++i) d.u8(kPanKeys[i], pan_[i]);
+    d.boolean("enabled", enabled_);
+    d.boolean("stereo_mode", stereo_mode_);
+    d.u8("mono_mode", mono_mode_);
+    d.u16("pcm_l", pcm_L_);
+    d.u16("pcm_r", pcm_R_);
+}
+
 void TurboSound::save_state(StateWriter& w) const
 {
-    for (const auto& a : ay_) a.save_state(w);
-    w.write_u8(ay_select_);
-    for (int i = 0; i < 3; ++i) w.write_u8(pan_[i]);
-    w.write_bool(enabled_);
-    w.write_bool(stereo_mode_);
-    w.write_u8(mono_mode_);
-    w.write_u16(pcm_L_);
-    w.write_u16(pcm_R_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void TurboSound::load_state(StateReader& r)
 {
-    for (auto& a : ay_) a.load_state(r);
-    ay_select_   = r.read_u8();
-    for (int i = 0; i < 3; ++i) pan_[i] = r.read_u8();
-    enabled_     = r.read_bool();
-    stereo_mode_ = r.read_bool();
-    mono_mode_   = r.read_u8();
-    pcm_L_       = r.read_u16();
-    pcm_R_       = r.read_u16();
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 
-    // Per-chip host observations were not part of the historical snapshot
-    // schema, and appending them here would shift every following component.
-    // Do not reconstruct them from current pan/mode: a snapshot may have been
-    // taken after a write but before the PSG tick which updates pcm_L_/pcm_R_.
-    // Mixer falls back to the serialized aggregate until the next PSG tick,
-    // preserving old snapshots and deferring host-only balancing momentarily.
+    // Per-chip host observations are NOT declared — they were never in the
+    // stream, and declaring them would shift every following block. They are
+    // not reconstructed from the current pan/mode either: a snapshot may have
+    // been taken after a write but before the PSG tick that updates
+    // pcm_L_/pcm_R_. The mixer falls back to the serialised aggregate until
+    // the next PSG tick. Kept OUTSIDE the declaration deliberately: this is a
+    // reset of derived state (§9.5(7)), not a field.
     chip_pcm_L_.fill(0);
     chip_pcm_R_.fill(0);
     chip_pcm_valid_ = false;
