@@ -9480,18 +9480,12 @@ void Emulator::end_of_frame(uint64_t frame_end)
     // Advance auto-type state machine (one step per frame).
     keyboard_.tick_auto_type();
 
-    // G133 closure — drive Keyboard::tick_scan() once per video frame
-    // so the two-scan shift hysteresis (membrane.vhd:178-191, 188-191)
-    // advances in production. The VHDL membrane scans at FPGA pixel-
-    // clock rate, but per-frame is the correct cadence here: tick_scan
-    // only snapshots the current matrix shift bits into shift_hist_[],
-    // and shift_hist_ is read by Keyboard::read_rows() to hold a
-    // releasing CS/SYM bit for one extra scan. Faster cadence wouldn't
-    // change the observable — Z80 software polls the membrane via
-    // port 0xFE at most once per frame in normal operation, and the
-    // hysteresis goal is "release lags by ~1 frame", which one tick
-    // per frame matches exactly.
-    keyboard_.tick_scan();
+    // G133 closure — the two-scan shift hysteresis (membrane.vhd:178-191) is
+    // advanced by Keyboard::tick_scan(), which is driven from on_scanline() at
+    // the REAL membrane scan rate (one complete scan every 4608 master cycles,
+    // ~2.5 scanlines). It used to be called here, once per video frame; see the
+    // GH #268 comment at the call site for why that was 122x too slow and what
+    // it broke. run_frame() still drives it — on_scanline() is its own event.
 }
 
 int Emulator::current_scanline() const
@@ -11515,6 +11509,43 @@ void Emulator::on_scanline(int line)
     mmu_.attr_mux_set_current_line(tag);
     // G02 — tag subsequent NR 0x15 writes (layer priority / sprite enable).
     renderer_.set_current_line_nr15(tag);
+
+    // GH #268 — advance the membrane scan at the rate the HARDWARE scans at.
+    //
+    // Keyboard::tick_scan() drives the two-scan CS/SYM shift hysteresis
+    // (membrane.vhd:178 "advancing shift key state one scan and holding shift
+    // key state an extra scan"), which HOLDS A RELEASING SHIFT FOR ONE MORE
+    // SCAN. The rate therefore decides how long a released shift keeps
+    // contaminating the matrix, and the VHDL states it outright:
+    //
+    //   CLK_28_MEMBRANE_EN <= clkdiv_8_7 and clkdiv_6_4 and clkdiv_3_0;
+    //      -- complete scan every 2.5 scanlines (0.018ms per row)
+    //                                     (zxnext_top_issue2.vhd:1179, :1168-70)
+    //
+    // i.e. one enable every 2^9 = 512 cycles of CLK_28, and nine of them per
+    // full scan of the 9-state one-hot rotator (membrane.vhd:99-108) = 4608
+    // master cycles ~ 165 us.
+    //
+    // This used to be called ONCE PER VIDEO FRAME from end_of_frame(), which
+    // stretched a 165 us hysteresis to 20 ms — 122x — and that is not a
+    // cosmetic inaccuracy. It means a SYMBOL SHIFT released at the end of one
+    // frame is still reported pressed by read_rows() during the NEXT one, so a
+    // tap of SYMBOL SHIFT followed by a tap of P one frame later decodes as
+    // SYM+P and types `"` instead of PRINT. Measured, and it is exactly the
+    // wrong-character half of issue #268; the router's serialiser (which puts
+    // consecutive keystrokes one frame apart) cannot fix it on its own, and
+    // typing a shifted character followed quickly by an unshifted one hits it
+    // with no serialiser involved at all.
+    //
+    // The old justification — "Z80 software polls port 0xFE at most once per
+    // frame in normal operation, and the hysteresis goal is a release lagging
+    // by ~1 frame" — was wrong on the second count: the VHDL's goal is one
+    // MEMBRANE SCAN, which is three orders of magnitude shorter than a frame.
+    membrane_scan_accum_ += timing_.master_cycles_per_line;
+    while (membrane_scan_accum_ >= MEMBRANE_SCAN_CYCLES) {
+        membrane_scan_accum_ -= MEMBRANE_SCAN_CYCLES;
+        keyboard_.tick_scan();
+    }
 }
 
 void Emulator::snapshot_row_render_state(int fb_row)
