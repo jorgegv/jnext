@@ -1180,9 +1180,10 @@ An earlier draft named three of these. All eight, from the classification:
    four FIFOs **and `Keyboard::auto_queue_`**: six buffers, three layouts
    (§4.1, §6.2). **Two primitives, `d.log()` and `d.fifo()`**, because those
    two layouts differ in count width, element form and padding policy
-   (§6.2's table) and the byte-identity gate tests all three. The binary form must stay padded to capacity because
+   (§6.2's table) and the byte-identity gate tests every one of those
+   differences. The binary form must stay padded to capacity because
    `RewindBuffer` requires constant width; the JSON form must carry exactly
-   `count` items. **One declaration, two shapes**, so these are explicit
+   `count` items. **One declaration, two ENCODINGS**, so these are explicit
    primitives — `d.log("port_ff_log", entries, count_, MAX_CHANGES_PER_FRAME)`
    and `d.fifo("rx_fifo", ring, FifoElem::U16)` — not something a plain array
    descriptor can express. (An earlier revision gave a single
