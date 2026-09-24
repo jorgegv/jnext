@@ -178,21 +178,31 @@ covered by `test/packaging/sync-version-test.sh` (run inside `make package-test`
 | `make package-src` | source tarball (vendors submodule content) |
 | `make package-rpm` / `package-deb` | Fedora/RHEL `.rpm` / Debian/Ubuntu `.deb` (CPack) |
 | `make package-win` | Windows `.zip` — MinGW cross-build, Qt6/SDL3 DLLs + `qwindows` plugin bundled by `packaging/windows/bundle-dlls.sh` (`build/win-release/`) |
-| `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + `org.kde.Sdk//6.8`) |
+| `make package-flatpak` | Flatpak bundle (needs `flatpak-builder` + `org.kde.Sdk//6.10`); ends by running `make verify-flatpak-permissions` on it |
 | `make package-macos` | macOS `.dmg` (Darwin only) |
 | `make package-test` | build every package (except macOS) and assert each artifact |
 | `make package-contract-test` | the packaging-**script** contract suites only — hermetic, ~4 s, no toolchain |
 
 CI runs these same targets — one build path, with **exactly one declared
-divergence**: the `flatpak` job in `release.yml` invokes
+divergence**: the Flatpak build invokes
 `flatpak/flatpak-github-actions/flatpak-builder@v6` instead of
 `make package-flatpak`. It hands that action the *same* manifest and the same
 `org.kde.Sdk` runtime version, and takes the runtime image, build cache and
 bundle export from it; reimplementing that caching in YAML is the anti-pattern
 the rule exists to prevent. Every other package is built by the plain `make`
 target a developer runs locally. Do not describe this as "no divergence" — it
-is one, it is deliberate, and it is written down here and in that job's comment
+is one, it is deliberate, and it is written down here and in that file's header
 so it stays a decision rather than drift.
+
+That build lives in **`.github/workflows/flatpak-build.yml`**, once. The
+`flatpak` job in `release.yml` is a single `uses:` line, and the same file also
+carries a `workflow_dispatch` trigger so the build — and
+the GH #271 sandbox-permission gate it ends with — can be exercised on demand
+from the Actions tab without cutting a release. That matters because every
+artifact job in `release.yml` is skipped for a private tag, so before this the
+gate had never run on a runner at all. The gate itself is **not** part of the
+declared divergence: it is `make verify-flatpak-permissions`, the same target
+`make package-flatpak` ends with.
 
 **Packaging correctness is gated automatically** (issue #61):
 
