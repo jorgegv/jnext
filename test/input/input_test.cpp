@@ -689,6 +689,81 @@ static void test_kbdhys() {
                      "(want 0x1E, 0x1E, 0x1F)",
                      pressed_after_tick, held_via_hyst, released_after_tick));
     }
+
+    // KBDHYS-05 (GH #201): the cancel survives the SCAN-CYCLE boundary, in
+    // production.
+    //
+    // VHDL membrane.vhd:183-186 puts the flush in the SAME process as the
+    // scan advance and ABOVE it in the priority chain:
+    //
+    //   if i_reset = '1' or i_cancel_extended_entries = '1' then
+    //      matrix_state_ex_1 <= (others => '1');
+    //      matrix_state_ex_0 <= (others => '1');
+    //      matrix_work_ex    <= (others => '1');
+    //   elsif i_CLK_EN = '1' then   -- the scan-cycle advance
+    //
+    // so while the bit is high, every scan cycle re-flushes all THREE stages
+    // instead of advancing them, and nothing an extended key accumulates can
+    // reach `matrix_state_ex` (:232) or the folds at :236-240.
+    //
+    // That is what this row pins and what nothing else did. EXTC-02 asserts
+    // the cancel at the bare-class level and EXTC-07 asserts the guest write
+    // of NR 0x68 bit 4 reaches the keyboard — but BOTH read the matrix
+    // immediately after the write, with no scan boundary in between. A model
+    // that flushed only one of the three VHDL stages, or that applied the
+    // cancel as a one-shot, passes both of them and fails here on the second
+    // frame. The synthesised CAPS SHIFT half (matrix_state_ex(0), the one
+    // stage that carries the extra-scan AND at :232) is the specific bit the
+    // scan boundary could otherwise resurrect, so row 0 is asserted for every
+    // frame, not just the last.
+    //
+    // Production cadence: Emulator::run_frame() is what drives
+    // Keyboard::tick_scan() (G133 closure, proved by KBDHYS-04 above), so
+    // running frames IS the scan-cycle boundary here.
+    {
+        Emulator emu;
+        EmulatorConfig cfg;
+        cfg.type = MachineType::ZXN_ISSUE2;
+        cfg.rewind_buffer_frames = 0;
+        emu.init(cfg);
+
+        // UP folds to CAPS SHIFT + 7 (membrane.vhd:236 + :238).
+        emu.keyboard().set_key(SDL_SCANCODE_UP, true);
+        emu.run_frame();
+        const uint8_t row0_pre = emu.keyboard().read_rows(row_addr(0));
+        const uint8_t row4_pre = emu.keyboard().read_rows(row_addr(4));
+
+        // Guest asserts the cancel (NR 0x68 bit 4 -> o_KBD_CANCEL,
+        // zxnext.vhd:5447 -> :1584).
+        emu.nextreg().write(0x68, 0x10);
+
+        // Three further scan cycles. Both halves of the fold must stay gone
+        // on every one of them.
+        bool stayed_cancelled = true;
+        for (int f = 0; f < 3; ++f) {
+            emu.run_frame();
+            if (emu.keyboard().read_rows(row_addr(0)) != 0x1F) stayed_cancelled = false;
+            if (emu.keyboard().read_rows(row_addr(4)) != 0x1F) stayed_cancelled = false;
+        }
+
+        // The RAW readback is built from matrix_state, which the cancel
+        // branch never touches (membrane.vhd:253) — it must still report UP.
+        const uint8_t b0 = emu.nextreg().read(0xB0);
+
+        check("KBDHYS-05",
+              "the NR 0x68 bit 4 cancel is re-applied on every scan cycle: "
+              "the CS+7 fold stays out of the 8x5 matrix across three "
+              "Emulator frames while NR 0xB0 still reports UP  "
+              "(membrane.vhd:183-186 flush above the :187 scan advance; "
+              ":232, :236-240, :253)",
+              (row0_pre & 0x01u) == 0 &&        // folded before the cancel
+              (row4_pre & (1u << 3)) == 0 &&
+              stayed_cancelled &&
+              (b0 & 0x08u) != 0,
+              DETAIL("pre=(0x%02X,0x%02X) stayed=%d b0=0x%02X "
+                     "(want folded, 1, bit3 set)",
+                     row0_pre, row4_pre, stayed_cancelled ? 1 : 0, b0));
+    }
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -2453,18 +2528,110 @@ static void test_mouse() {
                      fadf, fbdf, ffdf));
     }
 
-    // G: MOUSE-09 — NR 0x0A bit3=1 → host reverses L/R.
-    //    Button reversal is host-adapter responsibility (PS/2 driver side).
-    //    NR 0x0A bit 3 (nr_0a_mouse_button_reverse, zxnext.vhd:5197) exists
-    //    but VHDL has no in-core consumer; button mapping happens outside.
-    // G: MOUSE-10 — wheel 4-bit unsigned wrap 0xF → 0x0.
-    //    Wheel wrap is 4-bit unsigned modulo-16 roll-over at VHDL level
-    //    (zxnext.vhd:3560, 104). "Signed wheel delta" semantics are host-
-    //    adapter responsibility; VHDL only exposes the raw 4-bit field.
-    // G: MOUSE-11 — nr_0a_mouse_dpi has no in-core effect.
-    //    NR 0x0A bits 1:0 (nr_0a_mouse_dpi, default "01", zxnext.vhd:1128,
-    //    5198) are exposed on o_MOUSE_CONTROL for a host-adapter DPI
-    //    divisor. No VHDL consumer uses this signal internally.
+    // ── MOUSE-09/10/11 (GH #201) — the three rows that pin what NR 0x0A and
+    // the wheel field do NOT do to the port composition.
+    //
+    // These carried no assertion at all until GH #201: three `G:` prose
+    // comments stood where the rows should be, so the matrix read them as
+    // `missing` and nothing stopped an implementation from "helpfully"
+    // applying button-reverse or a DPI divisor inside the port read.
+    //
+    // The oracle is an EXHAUSTIVE grep of the two NR 0x0A signals through
+    // zxnext.vhd. `nr_0a_mouse_button_reverse` and `nr_0a_mouse_dpi` are
+    // written at :5197-5198 and appear in exactly TWO other places:
+    //   :5912  the NR 0x0A read-back composition, and
+    //   :1599  `o_MOUSE_CONTROL <= nr_0a_mouse_button_reverse & nr_0a_mouse_dpi`
+    //          — an OUTPUT PIN consumed by the host PS/2 mouse driver.
+    // Neither reaches :3546 / :3553 / :3560, the three port composers. So
+    // "the reversal/scaling happens at the adapter, not at the VHDL port" is
+    // a checkable claim about the port, not an excuse for having no row.
+
+    // MOUSE-09: NR 0x0A bit 3 = 1 (reverse) must NOT swap the button bits in
+    // the port-0xFADF composition. VHDL zxnext.vhd:3560 composes
+    //   port_fadf_dat <= i_MOUSE_WHEEL & '1' & (not BTN(2)) & (not BTN(0))
+    //                                                      & (not BTN(1))
+    // with no nr_0a_mouse_button_reverse term anywhere in the expression,
+    // and the signal reaches the port composer through no other path (see
+    // the grep above). Left pressed therefore clears bit 1 whether the bit
+    // is set or clear; if it were applied here, L would move to bit 0.
+    {
+        KempstonMouse m;
+        m.set_buttons(0x02);                 // L pressed (scaffold bit 1 = L)
+        const uint8_t plain = m.read_port_fadf();
+        m.set_button_reverse(true);          // NR 0x0A bit 3 = 1
+        const uint8_t reversed = m.read_port_fadf();
+        check("MOUSE-09",
+              "NR 0x0A bit 3 (button reverse) does not touch the 0xFADF "
+              "composition — reversal is host-adapter side  "
+              "(zxnext.vhd:3560 has no reverse term; :5197 -> :1599 "
+              "o_MOUSE_CONTROL is the only consumer)",
+              m.button_reverse() &&           // the latch really is set
+              plain == reversed &&            // and the port did not move
+              (reversed & 0x02u) == 0 &&      // L still on bit 1
+              (reversed & 0x01u) != 0,        // and NOT swapped onto bit 0
+              DETAIL("plain=0x%02X reversed=0x%02X rev_latch=%d "
+                     "(want equal, bit1 low, bit0 high)",
+                     plain, reversed, m.button_reverse() ? 1 : 0));
+    }
+
+    // MOUSE-10: the wheel field is a raw 4-bit UNSIGNED nibble at bits 7:4.
+    // VHDL zxnext.vhd:104 declares `i_MOUSE_WHEEL : in std_logic_vector(3
+    // downto 0)` and :3560 concatenates it whole — no sign extension, no
+    // arithmetic. So 0xF is the maximum and the next step wraps to 0x0 with
+    // nothing carried into the button nibble, and a host value wider than 4
+    // bits cannot leak past bit 7.
+    {
+        KempstonMouse m;
+        m.set_wheel(0x0F);
+        const uint8_t at_max = m.read_port_fadf();
+        m.set_wheel(0x00);                   // modulo-16 roll-over
+        const uint8_t wrapped = m.read_port_fadf();
+        m.set_wheel(0x1A);                   // 5-bit host value: must truncate
+        const uint8_t truncated = m.read_port_fadf();
+        check("MOUSE-10",
+              "0xFADF bits 7:4 track i_MOUSE_WHEEL as a pure 4-bit unsigned "
+              "field: 0xF -> 0x0 wraps with no carry into the button nibble "
+              "and a >4-bit value truncates  (zxnext.vhd:104, :3560)",
+              at_max     == 0xFF &&           // wheel 0xF, no buttons -> 0xF|0x0F
+              wrapped    == 0x0F &&           // back to idle, buttons untouched
+              ((truncated >> 4) & 0x0Fu) == 0x0A &&   // 0x1A & 0x0F
+              (truncated & 0x0Fu) == 0x0F,
+              DETAIL("max=0x%02X wrapped=0x%02X truncated=0x%02X "
+                     "(want 0xFF, 0x0F, hi nibble 0xA + lo 0xF)",
+                     at_max, wrapped, truncated));
+    }
+
+    // MOUSE-11: nr_0a_mouse_dpi ("00" vs "11") must not scale what the port
+    // reports for the same physical motion. VHDL :3546 / :3553 are verbatim
+    // `port_fbdf_dat <= i_MOUSE_X` / `port_ffdf_dat <= i_MOUSE_Y`; the DPI
+    // code leaves the core only on o_MOUSE_CONTROL (:1599), so the divisor
+    // lives in the host adapter AHEAD of i_MOUSE_X/Y. Same delta injected
+    // under both DPI codes must land the same byte at the port.
+    {
+        KempstonMouse lo;
+        lo.set_dpi(0x00);
+        lo.inject_delta(0x12, 0x34);
+        const uint8_t x_lo = lo.read_port_fbdf();
+        const uint8_t y_lo = lo.read_port_ffdf();
+
+        KempstonMouse hi;
+        hi.set_dpi(0x03);
+        hi.inject_delta(0x12, 0x34);
+        const uint8_t x_hi = hi.read_port_fbdf();
+        const uint8_t y_hi = hi.read_port_ffdf();
+
+        check("MOUSE-11",
+              "nr_0a_mouse_dpi = \"00\" vs \"11\" gives identical 0xFBDF / "
+              "0xFFDF bytes for the same motion — DPI scaling is applied by "
+              "the host adapter before i_MOUSE_X/Y  (zxnext.vhd:3546, :3553; "
+              ":1128 default, :5198 write, :1599 the only consumer)",
+              lo.dpi() == 0x00 && hi.dpi() == 0x03 &&   // both latches took
+              x_lo == 0x12 && y_lo == 0x34 &&
+              x_hi == x_lo && y_hi == y_lo,
+              DETAIL("dpi00=(0x%02X,0x%02X) dpi11=(0x%02X,0x%02X) "
+                     "latches=(%u,%u) (want 0x12,0x34 both)",
+                     x_lo, y_lo, x_hi, y_hi, lo.dpi(), hi.dpi()));
+    }
 
     // MOUSE-12 — port_1f alias on 0xDF when Soundrive DAC enabled, mouse
     // disabled, and joystick is in a port_1f-active mode (G130 closure).

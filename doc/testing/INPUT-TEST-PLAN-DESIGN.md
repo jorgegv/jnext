@@ -368,6 +368,7 @@ held an extra scan).
 | KBDHYS-02 | Hold CS continuously across 3 scans | Reads pressed every scan | 190 |
 | KBDHYS-03 | `i_cancel_extended_entries = 1` mid-scan | the 8x5 FOLD is suppressed; NR 0xB0/0xB1 are UNCHANGED (they come from `o_extended_keys`, membrane.vhd:253, which the cancel branch never touches) | 183-186, 253 |
 | KBDHYS-04 | Production: `Emulator` main loop must call `Keyboard::tick_scan()` each membrane scan-cycle; assert via instrumented spy that tick fires N times across an N-frame run | `membrane.vhd:178-191`; `keyboard.cpp:312/334` exist as methods but production `emulator.cpp` does NOT call them. skip — production wire missing (see G133) |
+| KBDHYS-05 | Production: assert NR 0x68 bit 4 through the NextReg file with an extended key held, then run three further `Emulator` frames (= three membrane scan cycles). Both halves of the fold — the synthesised CAPS SHIFT at row 0 col 0 and the digit column — must stay out of the 8x5 matrix on every one of them, while NR 0xB0 still reports the raw key | The flush at `membrane.vhd:183-186` sits in the SAME process as the scan advance and ABOVE it in the priority chain (`elsif i_CLK_EN = '1'` at `:187`), so while the bit is high every scan cycle re-flushes `matrix_state_ex_1`, `matrix_state_ex_0` and `matrix_work_ex` instead of advancing them; nothing can then reach `:232` or the folds at `:236-240`. `matrix_state` is untouched, so `o_extended_keys` (`:253`) is immune. Distinct from EXTC-02/EXTC-07, which read the matrix immediately after the write and so never cross a scan boundary — verified by mutation (making the cancel a one-shot cleared in `tick_scan()` fails only this row) |
 
 ### 3.3 Extended keys (EXT-*)
 
@@ -593,8 +594,14 @@ shared signal.
 
 | ID | Stimulus | Expected | Cite |
 |----|----------|----------|------|
-| NRB2-01..04 | one of `joy_left` bits 11/8/9/10 | NR 0xB2 bit 0/1/2/3 | 6215 + 3442 |
-| NRB2-05..08 | one of `joy_right` bits 11/8/9/10 | NR 0xB2 bit 4/5/6/7 | 6215 + 3442 |
+| NRB2-01 | `joy_left` bit 11 (L.MODE) | NR 0xB2 bit 0 | 6215 + 3442 |
+| NRB2-02 | `joy_left` bit 8 (L.Y) | NR 0xB2 bit 1 | 6215 + 3442 |
+| NRB2-03 | `joy_left` bit 9 (L.Z) | NR 0xB2 bit 2 | 6215 + 3442 |
+| NRB2-04 | `joy_left` bit 10 (L.X) | NR 0xB2 bit 3 | 6215 + 3442 |
+| NRB2-05 | `joy_right` bit 11 (R.MODE) | NR 0xB2 bit 4 | 6215 + 3442 |
+| NRB2-06 | `joy_right` bit 8 (R.Y) | NR 0xB2 bit 5 | 6215 + 3442 |
+| NRB2-07 | `joy_right` bit 9 (R.Z) | NR 0xB2 bit 6 | 6215 + 3442 |
+| NRB2-08 | `joy_right` bit 10 (R.X) | NR 0xB2 bit 7 | 6215 + 3442 |
 | NRB2-09 | both vectors, all of 11:8 | 0xFF | 6215 |
 | NRB2-10 | nothing pressed / no pad | 0x00 | 6215 |
 | NRB2-11 | both vectors = 0x0FF (bits 7:0 only) | 0x00 — the mux takes only 11:8, low bits must not leak | 6215 |
@@ -746,7 +753,7 @@ Coverage of `zxnext.vhd` 2090-2091 and NR 0x06 bits 3-4.
 | FE-02 | EAR input high | bit 6 = 1 | 3459 |
 | FE-03 | Write 0xFE bit 4 high (`port_fe_ear`=1), then read | bit 6 = 1 | 3459 |
 | FE-04 | NR 0x08 bit 0 = 1 (issue 2), MIC=1, EAR=0 | bit 6 reflects issue-2 MIC XOR EAR (audio block) | 5182 + audio wiring |
-| FE-05 | `expbus_eff_en=1`, `port_propagate_fe=1`, expansion bus drives D0=0 | ANDed with bus (`port_fe_dat = port_fe_dat_0 and port_fe_bus`) → bit 0 forced 0 | 3468 |
+| ~~FE-05~~ | ~~`expbus_eff_en=1`, `port_propagate_fe=1`, expansion bus drives D0=0~~ | **RETIRED 2026-09-24 (GH #201)** — scope, not a gap. The AND at `zxnext.vhd:3468` takes its second operand from `port_fe_bus`, and `port_fe_bus <= i_BUS_DI when expbus_eff_en='1' and port_propagate_fe='1' else X"FF"` (`:3453`). `i_BUS_DI` is a PHYSICAL expansion-bus data input; jnext models no expansion bus and no cartridge slot (G45), so that operand is permanently `X"FF"` and the AND is the identity — which is what jnext already computes. There is no stimulus that can drive D0 low, so the row has no reachable state, not merely no assertion. Re-derived from the VHDL 2026-09-24 rather than inherited: `i_BUS_ROMCS_n` is likewise hard-deasserted (`emulator.cpp` NR 0x81 read handler forces bit 7 = 1), which is the same absence seen from the memory side (DivMMC+SPI SM-06/07). FE-01/02/03/04 cover every term of `:3459` that jnext can drive. No `check()` row exists; the WONT rationale also sits at the matching site in `test/input/input_integration_test.cpp`. | 3453, 3468 |
 | FE-GH265-01 | TAP real-time pilot, first edge 2168 T in; `IN A,(0xFE)` starting at 2159 / 2158 T (latches T-state 9 of the instruction: `port_fe_dat_0` is reloaded on the CLK_CPU falling edge 2.5 T into the I/O cycle, where the T80 takes DI) | bit 6 set / clear (pre-fix: the level at the instruction's start, clear / clear) | 3455-3464 |
 | FE-GH265-02 | WAV (3500 Hz, crossing 1504 T in); `IN A,(0xFE)` starting at 1495 / 1494 T | bit 6 set / clear (pre-fix: the live counter 8 T in, clear / clear) | 3455-3464 |
 
@@ -832,7 +839,7 @@ specific default and fails loudly if any reset path silently zeroes
 | Category | Tests |
 |----------|-------|
 | 3.1 Keyboard standard | 23 |
-| 3.2 Keyboard shift hysteresis | 4 (+KBDHYS-04 G133) |
+| 3.2 Keyboard shift hysteresis | 5 (+KBDHYS-04 G133, +KBDHYS-05 GH #201) |
 | 3.3 Extended keys | 20 |
 | 3.3a NR 0x68 bit 4 cancel (EXTC) | 7 (issue #33) |
 | 3.4 Joystick mode select | 10 (+JMODE-09 G126) |
@@ -845,11 +852,21 @@ specific default and fails loudly if any reset path silently zeroes
 | 3.9 I/O mode | 11 |
 | 3.10 Kempston mouse | 12 (+MOUSE-12 G130) |
 | 3.11 NMI buttons | 7 |
-| 3.12 Port 0xFE format | 5 |
+| 3.12 Port 0xFE format | 4 (FE-05 RETIRED GH #201) |
 | 3.14 User-defined joystick keymap (JCAL) | 3 (G127) |
 | 3.15 F-key FSM + host hotkey dispatch | 2 (G132/G147) |
 | 3.16 NR 0x05 production-wire (JOY-WIRE) | 1 (G126) |
 | **Total (nominal)** | **180** |
+
+> **GH #201 (2026-09-24)** — net unchanged: §3.2 gains KBDHYS-05 (the NR
+> 0x68 bit-4 cancel across a scan boundary) and §3.12 loses FE-05 (retired,
+> expansion bus not modelled). The §3.6b count of 20 was always right; what
+> was wrong was the TABLE, which wrote NRB2-01..04 and NRB2-05..08 as two
+> range rows while `input_test.cpp` asserts all eight as literals. The
+> generator reads row IDs, so those eight read `missing` while passing. They
+> are spelled out now. §3.10's MOUSE-09/10/11 were three prose `G:` comments
+> where the rows should have been; they are real `check()` rows now and the
+> count of 12 finally means 12.
 
 No pass/fail ratio is reported until the test code has been rewritten
 against this oracle; the old 71/71 figure is retracted in §Plan
@@ -975,15 +992,22 @@ planned and NOT implemented, so they are recorded here — the one place the
 generator reads planned rows from — and the matrix emits them as `missing`,
 which is what they are.
 
+> **GH #201 (2026-09-24): this table is now empty of live claims.** Every
+> row it carried has been dispositioned. `KBDHYS-05` moved to §3.2 and is an
+> asserted row — a row a test asserts does not belong in a planned-rows
+> table, the same rule `test/traceability-exceptions.conf` states in its own
+> header. `HK-WIRE-01..04` and both `FE-04A` entries are struck below with
+> their rationale; each names the live row it is covered by, and each of
+> those was opened and read before the retirement was written.
+
 | ID | Description | VHDL file:line |
 |----|-------------|----------------|
-| KBDHYS-05 | `Keyboard::tick_scan()` cancels extended entries when `i_cancel_extended_entries` asserted (prod) | membrane.vhd:178-191 |
-| HK-WIRE-01 | Host F1 SDL key dispatched into `Emulator::on_hotkey_f1_hard_reset()` injector (G152) (GH #196 phase 1.4: prior cell cited jnext's own `emulator.h:328-329`, which is the unrelated `VideoRecorder` accessor — invalid per GH #150 and stale besides; re-cited to the real downstream-effect VHDL. This exact wiring is already proven LIVE by `HK-09` in `test/nmi/nmi_test.cpp` (F1 -> hotkey_hard_reset -> nr_02_hard_reset, no config_mode gate); no `check()` row exists under the literal ID `HK-WIRE-01`) | zxnext.vhd:6340,6371 |
-| HK-WIRE-02 | Host F4 SDL key dispatched into `Emulator::on_hotkey_f4_soft_reset()` injector (G152) (GH #196 phase 1.4: prior cell cited jnext's own `emulator.h:328-329` — same invalid/stale citation as HK-WIRE-01; re-cited. Already proven LIVE by `HK-08` in `test/nmi/nmi_test.cpp` (F4 -> hotkey_soft_reset -> nr_02_soft_reset, config_mode-gated); no `check()` row exists under the literal ID `HK-WIRE-02`) | zxnext.vhd:6343,6370 |
-| HK-WIRE-03 | Host F9 SDL key dispatched into NMI source `nmi_assert_mf` injector (G152) (GH #196 phase 1.4: prior cell cited jnext's own `nmi_source.cpp` — invalid per GH #150; re-cited to the real downstream-effect VHDL. Already proven LIVE by `HK-06` in `test/nmi/nmi_test.cpp` (F9 -> hotkey_m1 -> nmi_assert_mf -> nmi_mf latch); no `check()` row exists under the literal ID `HK-WIRE-03`) | zxnext.vhd:6348,2090,2108 |
-| HK-WIRE-04 | Host F10 SDL key dispatched into NMI source `nmi_assert_divmmc` injector (G152), gated by `port_divmmc_io_en` (G152) (GH #196 phase 1.4: prior cell cited jnext's own `divmmc.cpp` — invalid per GH #150; re-cited to the real downstream-effect VHDL. Already proven LIVE by `HK-07`/`HK-07b` in `test/nmi/nmi_test.cpp` (F10 -> hotkey_drive -> nmi_assert_divmmc -> nmi_divmmc latch); no `check()` row exists under the literal ID `HK-WIRE-04`) | zxnext.vhd:6349,2091,2110 |
-| FE-04A | NR 0x08 b0=1 (issue-2), keyboard EAR/MIC composition with port_fe_ear (G44) (GH #196 phase 1.4: prior cell cited jnext's own `keyboard.cpp` — invalid per GH #150, and also factually wrong: `Keyboard::read_rows()` does NOT compose bits 7/5/6 itself, per its own doc-comment at `keyboard.h:60-66` ("the caller composes them"). This row is a stale duplicate — it cannot be tested at the Keyboard-class level at all; the real planned test is the companion-table `FE-04A` row below in `test/input/input_integration_test.cpp`, retired WONT 2026-04-28. Re-cited to the same real citation for consistency; no `check()` row exists under the literal ID `FE-04A` in this file) | symmetric_relaxation.vhd:89-93,zxnext_top_issue2.vhd:662 |
-| FE-04A | Issue-2 EAR/MIC analogue relaxation (G44, retired WONT 2026-04-28) | symmetric_relaxation.vhd:89-93,zxnext_top_issue2.vhd:662 |
+| ~~HK-WIRE-01~~ | ~~Host F1 SDL key dispatched into `Emulator::on_hotkey_f1_hard_reset()` injector (G152)~~ | **RETIRED 2026-09-24 (GH #201)** — covered under a different ID. `HK-09` in `test/nmi/nmi_test.cpp:731` calls `on_hotkey_f1_hard_reset()` on a live Next `Emulator` and asserts the deferred cold-boot request it raises, with no `nr_03_config_mode` gate — exactly `zxnext.vhd:6371`. Read before retiring. Residual, stated rather than hidden: the four-line SDL-scancode table at `src/platform/sdl_app.cpp:131-134` and the Qt equivalent in `src/gui/main_window.cpp` are host-frontend plumbing with no unit-tier seam (`SdlApp` owns a window); the `Emulator::on_hotkey_*` dispatchers ARE the seam, and the same seam is driven end-to-end for F4 by the `soft-reset-to-nextzxos-func` regression row and for F9/F10 by `--delayed-nmi`. No `check()` row exists under this ID. | zxnext.vhd:6340,6371 |
+| ~~HK-WIRE-02~~ | ~~Host F4 SDL key dispatched into `Emulator::on_hotkey_f4_soft_reset()` injector (G152)~~ | **RETIRED 2026-09-24 (GH #201)** — covered under a different ID. `HK-08` in `test/nmi/nmi_test.cpp:652` drives `on_hotkey_f4_soft_reset()` through BOTH halves of the `zxnext.vhd:6370` config_mode gate (gate closed: reset_type stays `100`; gate open: it advances to `010`), and `HK-CFG-01`/`HK-CFG-02` prove the gate-closed state is reachable. Read before retiring. Same host-frontend residual as HK-WIRE-01. No `check()` row exists under this ID. | zxnext.vhd:6343,6370 |
+| ~~HK-WIRE-03~~ | ~~Host F9 SDL key dispatched into NMI source `nmi_assert_mf` injector (G152)~~ | **RETIRED 2026-09-24 (GH #201)** — covered under a different ID. `HK-06` in `test/nmi/nmi_test.cpp:560` calls `on_hotkey_f9_mf_nmi()` with NR 0x06 bit 3 set and asserts both `nmi_mf()` and that the arbiter latched `Src::Mf` — `zxnext.vhd:6348 -> :2090 -> :2097`. Read before retiring. Same host-frontend residual as HK-WIRE-01. No `check()` row exists under this ID. | zxnext.vhd:6348,2090,2108 |
+| ~~HK-WIRE-04~~ | ~~Host F10 SDL key dispatched into NMI source `nmi_assert_divmmc` injector (G152), gated by `port_divmmc_io_en`~~ | **RETIRED 2026-09-24 (GH #201)** — covered under a different ID, and by a PAIR: `HK-07` (`test/nmi/nmi_test.cpp:577`) strobes with NR 0x83 bit 0 set and asserts the DivMMC latch, `HK-07b` (`:598`) clears that bit explicitly and asserts no strobe — both legs of the `zxnext.vhd:6349` gate. Read before retiring. Same host-frontend residual as HK-WIRE-01. No `check()` row exists under this ID. | zxnext.vhd:6349,2091,2110 |
+| ~~FE-04A~~ | ~~NR 0x08 b0=1 (issue-2), keyboard EAR/MIC composition with port_fe_ear (G44)~~ | **RETIRED 2026-09-24 (GH #201)** — a stale duplicate of the row below, and untestable where it was filed. `Keyboard::read_rows()` does not compose bits 7/5/6 at all — its own doc comment at `keyboard.h:60-66` says "the caller composes them" and `src/core/emulator.cpp`'s port-0xFE read handler is that caller. So there is no Keyboard-class surface for this row; the real one is the companion-suite `FE-04A` below, retired WONT 2026-04-28. The live coverage of the composition itself is `FE-04` in `test/input/input_integration_test.cpp:329`, which asserts both legs of the NR 0x08 bit 0 gate. No `check()` row exists under this ID in this file. | symmetric_relaxation.vhd:89-93,zxnext_top_issue2.vhd:662 |
+| ~~FE-04A~~ | ~~Issue-2 EAR/MIC analogue relaxation (G44)~~ | **RETIRED WONT 2026-04-28, struck 2026-09-24 (GH #201)** — the WONT decision was taken in April but the row was left standing in this planned-rows table, so the matrix kept emitting it as `missing`. Rationale unchanged and recorded in full at the WONT comment in `test/input/input_integration_test.cpp` (bit-exact in the no-tape regime, where the relaxation counter is saturated and collapses to MIC; the tape-edge transient path is bypassed by jnext's tape stack and reaching it is a Tape-subsystem refactor; FUSE and ZEsarUX both ship the same digital model). No `check()` row exists under this ID. | symmetric_relaxation.vhd:89-93,zxnext_top_issue2.vhd:662 |
 
 ## Coverage notes (moved from the traceability matrix, GH #196)
 

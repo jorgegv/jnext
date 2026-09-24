@@ -225,6 +225,120 @@ static void test_sram_map(Emulator& emu) {
     (void)kPageBytes;
 }
 
+// ══════════════════════════════════════════════════════════════════════
+// §12 companion — SS-08: the Flash chip-select gate, at the Emulator tier
+// ══════════════════════════════════════════════════════════════════════
+//
+// VHDL zxnext.vhd:3319-3320:
+//
+//   elsif cpu_do = X"7F" and ((nr_03_config_mode = '1')
+//                             or (nr_02_reset_type(2) = '1')) then
+//      port_e7_reg <= X"7F";
+//
+// and :3321-3322 drops it to all-ones otherwise. `spi_ss_flash_n <=
+// port_e7_reg(7)` (:3328) and `spi_ss_sd1_n / sd0_n <= port_e7_reg(1) /
+// (0)` (:3331-3332), so the pattern both asserts Flash and deasserts both
+// SD lines — "selects Flash" in the plan row's words.
+//
+// Why this row belongs HERE rather than next to SS-09/SS-13: the gate has
+// TWO VHDL sources ORed together, and `SpiMaster` sees neither. It sees one
+// composite boolean via `set_flash_cs_enable`, which `divmmc_test`'s SS-13
+// drives by hand. Nothing proved that `nr_03_config_mode` and
+// `nr_02_reset_type(2)` actually reach it — and they are fanned out from
+// FOUR separate sites in `Emulator` (the NR 0x02 handler, the NR 0x03
+// handler, `init`, and `load_state`), any of which could be missing while
+// SS-13 stayed green. That is exactly the "covered elsewhere" trap: SS-13
+// covers the mux, not the wires into it.
+//
+// The row was carried as a skip with a rationale that has not been true
+// since 2026-05-09: "jnext stub returns 0xFF (Flash device + config_mode
+// signal not modelled)". `SpiMaster::set_flash_cs_enable` and the
+// `nr_03_config_mode` model both exist. What is still absent is the Flash
+// DEVICE — the data path behind the select — which is SPI-MX-01's problem,
+// not this row's: SS-08 is a chip-select decode row and the chip-select
+// register is fully modelled.
+
+static void test_flash_cs_gate() {
+    set_group("12. Flash CS gate");
+
+    // Port 0xE7 is WRITE-ONLY in VHDL (there is no `port_e7_rd` signal; see
+    // the V16-DIVMMC-01 note in emulator.cpp), so the register is read back
+    // through `Emulator::spi()` rather than through an `in`. The STIMULUS is
+    // still the real guest path: `port().out(0x00E7, ...)`.
+    {
+        Emulator emu;
+        build_next_emulator(emu);
+
+        // Leg 1 — the reset_type(2) source. A cold boot leaves reset_type at
+        // "100" (zxnext.vhd:1306) and `Emulator::init` clears config_mode for
+        // a firmware-less boot, so bit 2 alone must hold the gate open.
+        const bool cfg_boot   = emu.nextreg().nr_03_config_mode();
+        const uint8_t rt_boot = emu.nmi_source().reset_type();
+
+        // Select an SD line first, so the Flash write has to REPLACE a live
+        // selection rather than merely add a bit: `port_e7_reg` is assigned
+        // whole in every branch (:3312-3322), and the resulting 0x7F leaves
+        // spi_ss_sd1_n / sd0_n (bits 1/0, :3331-3332) and both RPI selects
+        // (bits 3/2, :3329-3330) HIGH. That is the other half of "selects
+        // Flash", and it is why the mux at :3278-3280 cannot reach the SD
+        // arm while Flash is up (":3276 note: do not AND together miso
+        // sources"). SPI-MX-01, the Flash DATA arm, still has no backend.
+        emu.port().out(0x00E7, 0x02);
+        const uint8_t cs_sd = emu.spi().read_cs();
+
+        emu.port().out(0x00E7, 0x7F);
+        const uint8_t cs_rt = emu.spi().read_cs();
+
+        // Leg 2 — the nr_03_config_mode source, with reset_type(2) cleared.
+        // A soft-reset strobe advances the FSM "100" -> "010" (:1735), so
+        // after it ONLY config_mode can open the gate.
+        emu.on_hotkey_f4_soft_reset();
+        const uint8_t rt_soft = emu.nmi_source().reset_type();
+
+        // 2a: both sources clear -> 0x7F is rewritten to all-deselected.
+        emu.port().out(0x00E7, 0x7F);
+        const uint8_t cs_closed = emu.spi().read_cs();
+
+        // 2b: enter config mode (NR 0x03 low 3 bits "111", :5147-5149) and
+        //     the same write now stands.
+        emu.port().out(0x243B, 0x03);
+        emu.port().out(0x253B, 0x07);
+        emu.port().out(0x00E7, 0x7F);
+        const uint8_t cs_cfg = emu.spi().read_cs();
+
+        // 2c: leave config mode again ("010" keeps machine_type = ZX Next)
+        //     and the gate closes behind it.
+        emu.port().out(0x243B, 0x03);
+        emu.port().out(0x253B, 0x02);
+        emu.port().out(0x00E7, 0x7F);
+        const uint8_t cs_exit = emu.spi().read_cs();
+
+        const bool ok =
+            !cfg_boot && (rt_boot & 0x04) != 0 &&      // leg-1 precondition
+            (cs_sd & 0x03) != 0x03 &&                  // an SD line WAS low
+            cs_rt     == 0x7F &&                       // ...and is high again
+            (rt_soft & 0x04) == 0 &&                   // leg-2 precondition
+            cs_closed == 0xFF &&
+            cs_cfg    == 0x7F &&
+            cs_exit   == 0xFF;
+
+        check("SS-08",
+              "port 0xE7 <- 0x7F stands as 0x7F only while "
+              "nr_03_config_mode OR nr_02_reset_type(2) is set, and is "
+              "rewritten to 0xFF otherwise — both VHDL sources reach the "
+              "SpiMaster gate from the Emulator, and the pattern deasserts "
+              "the SD and RPI selects "
+              "(zxnext.vhd:3319-3322; :1306, :1735, :5147-5149)",
+              ok,
+              fmt("cfg_boot=%d rt_boot=%u cs_sd=0x%02X cs_rt=0x%02X "
+                  "rt_soft=%u cs_closed=0x%02X cs_cfg=0x%02X cs_exit=0x%02X "
+                  "(want 0,4,SD-bit-low,0x7F,2,0xFF,0x7F,0xFF)",
+                  cfg_boot ? 1 : 0, rt_boot, cs_sd, cs_rt, rt_soft,
+                  cs_closed, cs_cfg, cs_exit));
+    }
+
+}
+
 int main() {
     std::printf("DivMMC Integration Test (GH #201)\n");
     std::printf("====================================\n\n");
@@ -234,6 +348,9 @@ int main() {
 
     test_sram_map(emu);
     std::printf("  Group: 11. SRAM mapping — done\n");
+
+    test_flash_cs_gate();
+    std::printf("  Group: 12. Flash CS gate — done\n");
 
     std::printf("\n====================================\n");
     std::printf("Total: %4d  Passed: %4d  Failed: %4d  Skipped:    0\n",
