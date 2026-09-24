@@ -781,3 +781,115 @@ Against those, the Windows packaging rows gained an assertion they did not have:
 every Windows zip must contain `SDL3.dll` **and must not contain `SDL2.dll`** —
 so a build that silently resolved back to `mingw-sdl2-compat` fails the package
 test instead of shipping.
+
+**And one of those removals shipped broken, which is the lesson worth keeping.**
+`test/packaging/packaging-selftest.sh` lists the contract sub-tests by filename
+in a `SUBTESTS` array and pins their pass counts (`"Pass: 7"` / `"Pass: 6"`).
+Deleting `bundle-dlopen-deps-test.sh` invalidated all three, so
+`make packaging-selftest` — the **first prerequisite of `make package-test`**,
+which is what CI's packaging job runs — failed at 1/3 and aborted that job
+before it built a single artifact. **The required triplet cannot see this**:
+`packaging-selftest` is not part of `make unit-test`, the FUSE suite or the
+regression suite, so all three stayed green over a broken CI job. Caught in
+review, not by any gate.
+
+The prose above discussed this removal at length and never mentioned the file
+that referenced it. **Deleting a test means grepping the tree for its filename
+first** — `git grep bundle-dlopen-deps` would have found the one live
+reference in seconds — and then running the suite that owns it, not only the
+triplet.
+
+---
+
+## 10. Review round 1 (2026-09-24) — findings and what changed
+
+The migration itself came through review essentially unscathed; nearly the whole
+surface was re-verified by execution, including an independent reproduction of
+the Ubuntu 24.04 container build and the Windows `objdump`. Four things changed.
+
+### 10.1 A broken CI job the required triplet could not see (BLOCKER)
+
+`make packaging-selftest` went 3/3 → 1/3 and `make package-test` aborted on it.
+Cause and lesson are recorded in §9.3 above, at the point where the removal is
+justified, rather than here — that is where someone deleting the next test will
+be reading. Fixed: the roster and both pinned counts. `make package-test` now
+runs end to end (20 pass, 1 pre-existing skip), which also exercised
+`package-flatpak` for the first time and so confirmed by execution that the
+deleted `sdl2` module really is unnecessary under the KDE 6.10 runtime.
+
+### 10.2 The id-0 guards pinned nothing individually (MAJOR)
+
+`JRAW-29/30` asserted the outcome, and an outcome test cannot see this table's
+real hazard. Removing **either** id-0 guard alone left all 342 rows green;
+only removing both failed anything. So a later "simplification" deleting one on
+the theory that the other covers it would have gone undetected.
+
+Measuring it explains why, and the explanation changed the fix. The invalid id
+and the free marker are the same value (0), **and a free entry's slot is -1** —
+so an entry corrupted into "free AND connector N" still answers "unmapped" to
+every public query. The corruption is real; its consequences are not observable
+until some later change starts trusting the slot field. Two hand-written guards
+at two call sites could therefore never be pinned behaviourally, however many
+outcome rows were added.
+
+What landed instead:
+
+- The two duplicated guards become **one shared `entry_matches()`** used by both
+  readers, so the id-0/free disambiguation is written once rather than copied.
+- A white-box accessor, `device_map_free_entries_are_clean()`, asserts the
+  **invariant** the treatment maintains — a free entry carries no connector.
+- `JRAW-31` (write half), `JRAW-32` (read half + no collateral damage on a live
+  mapping), and an extension to `JRAW-30` (the unmap path) assert it directly.
+
+Mutation results, run individually rather than assumed:
+
+| mutation | result |
+|---|---|
+| remove `map_instance_to_slot`'s id-0 rejection | **JRAW-31 + JRAW-32 fail** |
+| unmap clears the id but leaves a stale slot | **JRAW-30 fails** |
+| remove `entry_matches`' `!= 0` term | *no row fails — and no behaviour changes* |
+
+The third is stated rather than papered over. That term is **provably**
+unobservable while the invariant holds, because matching a free entry still
+returns slot -1. It is kept as the safety net that makes a *broken* invariant
+non-catastrophic, and the invariant rows are the tripwire that fires the moment
+it breaks — which is the realistic defect it guards against, and which the
+second mutation above shows is now caught. Neither is dressed up as the other.
+
+The comment claiming the write-side rejection was "the ONLY place the two
+meanings are kept apart" was false and is replaced by a description of the real
+two-part arrangement.
+
+### 10.3 A stale constant name (MINOR)
+
+`host_key_latch.h` still named `SDL_NUM_SCANCODES` in a comment. The hard-coded
+512 is correct — `SDL_SCANCODE_COUNT` is still 512 in 3.4.16, so the constant
+was renamed, not renumbered, and the comment now says exactly that.
+
+### 10.4 The vendored `.deb` audio dependency is Depends, not Recommends
+
+Owner decision on the reviewer's evidence, reversing §9.2's first answer.
+`dpkg -i` + `apt-get install -f` honours Depends but **not** Recommends, so the
+package installed with zero audio backends and jnext ran silently mute — and
+`dpkg -i` is what most "download the .deb" instructions say. The
+keep-it-soft argument does not apply to a package that already hard-Depends on
+the entire Qt6 GUI stack: there is no minimal or headless install being spared.
+
+Written as **alternatives**, `libpipewire-0.3-0 | libpulse0 | libasound2t64`:
+any one backend is sufficient, and a conjunction would drag PulseAudio onto a
+PipeWire desktop and vice versa.
+
+Two things verified in a container rather than assumed, both of which could
+have been silent regressions:
+
+- `CPACK_DEBIAN_PACKAGE_DEPENDS` **appends** to the `SHLIBDEPS`-generated list
+  rather than replacing it. The shipped `Depends:` carries the alternatives
+  *and* libc6, the three Qt6 libraries, libcurl, libpng, libssl, libstdc++ and
+  zlib. Had it replaced, the package would have declared almost none of its
+  real dependencies.
+- The `dpkg -i` path now installs an audio backend and leaves
+  `Status: install ok installed`, with `jnext --version` running.
+
+The non-vendored legs are untouched: the block is gated on
+`JNEXT_SDL3_VENDORED`, and the Fedora-built `.deb` carries no injected audio
+dependency.
