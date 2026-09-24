@@ -10,7 +10,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Z80N CPU              |       85 |       85 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU INT pulse         |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | CPU/Z80N IM2 regr.    |       56 |       56 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Rewind                |      219 |      219 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Rewind                |      227 |      227 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper                |       82 |       82 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Copper (integration)  |       11 |       11 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Memory/MMU            |      252 |      252 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -39,7 +39,7 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | FAT32 Image           |       16 |       16 |      0 |       0 |    100% | 🟢 All tests pass. |
 | SD Card Provisioner   |       57 |       57 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Warm start (GH #234)  |       39 |       39 |      0 |       0 |    100% | 🟢 All tests pass. |
-| Snapshot container + descriptor (.jns, GH #27) |      275 |      275 |      0 |       0 |    100% | 🟢 All tests pass. |
+| Snapshot container + descriptor (.jns, GH #27) |      278 |      278 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Sprites               |      212 |      212 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor            |      237 |      237 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Compositor (int)      |       50 |       50 |      0 |       0 |    100% | 🟢 All tests pass. |
@@ -121,6 +121,6 @@ VHDL-derived compliance test suite for the JNEXT ZX Spectrum Next emulator. All 
 | Debugger Accelerators |        8 |        8 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Menus        |       45 |       45 |      0 |       0 |    100% | 🟢 All tests pass. |
 | Debugger Disasm Copy  |       33 |       33 |      0 |       0 |    100% | 🟢 All tests pass. |
-| **Total**             | **8666** | **8666** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
+| **Total**             | **8677** | **8677** |  **0** |   **0** | **100%**| 🟢 All tests pass. |
 
 **SKIP:** Functionality that has been traced from VHDL to a test case, but still has not been developed/fixed in C++ code.
