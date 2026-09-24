@@ -1329,7 +1329,7 @@ void MainWindow::on_about() {
            "<p>ZX Spectrum Next Emulator</p>"
            "<p>A line-accurate emulator of the ZX Spectrum Next computer, "
            "based on the official FPGA VHDL sources.</p>"
-           "<p>Written in C++17 with Qt 6 and SDL2.</p>"
+           "<p>Written in C++17 with Qt 6 and SDL3.</p>"
            "<p>&copy; Copyright 2026 Jorge Gonzalez Villalonga &lt;zx@jogv.es&gt;</p>")
         .arg(JNEXT_VERSION_STRING));
 }
@@ -2422,7 +2422,7 @@ void MainWindow::wheelEvent(QWheelEvent* event) {
     // Qt6: angleDelta() is in eighths of a degree; one detent = 120 units.
     // Integer-divide so a half-detent (high-resolution wheels) accumulates
     // toward the next tick rather than producing fractional Kempston steps.
-    // y > 0 = wheel rolled away from user (matches SDL_MOUSEWHEEL convention
+    // y > 0 = wheel rolled away from user (matches SDL_EVENT_MOUSE_WHEEL convention
     // the dispatcher already encodes).
     const int qt_y = event->angleDelta().y();
     const int detents = qt_y / 120;

@@ -21,7 +21,7 @@
 #include <QApplication>
 #include <QGuiApplication>
 #include <QTimer>
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 
 QtApp::QtApp() = default;
 QtApp::~QtApp() = default;
@@ -197,11 +197,14 @@ void QtApp::wire_gamepad_and_sources(const EmulatorConfig& cfg) {
 
 bool QtApp::init(int argc, char* argv[]) {
     // Initialize SDL for audio + gamepads (no video, no window). Task 79 adds
-    // SDL_INIT_GAMECONTROLLER so autodetected pads can drive the two Next
+    // SDL_INIT_GAMEPAD so autodetected pads can drive the two Next
     // joystick connectors in the GUI; controller events are polled each frame
     // in on_frame_tick() (Qt owns the event loop, so SDL never runs its own).
-    if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
-        Log::platform()->error("SDL_Init(AUDIO|GAMECONTROLLER): {}", SDL_GetError());
+    //
+    // SDL3 SDL_Init returns bool (true = success); SDL2 returned 0 on success
+    // and a negative on failure, so the SENSE of this test is inverted.
+    if (!SDL_Init(SDL_INIT_AUDIO | SDL_INIT_GAMEPAD)) {
+        Log::platform()->error("SDL_Init(AUDIO|GAMEPAD): {}", SDL_GetError());
         return false;
     }
 
@@ -401,7 +404,7 @@ void QtApp::shutdown() {
         status_timer_->stop();
     }
 
-    // Task 79 — close SDL_GameControllers before SDL_Quit().
+    // Task 79 — close SDL_Gamepads before SDL_Quit().
     gamepad_host_.reset();
     audio_.reset();
     SDL_Quit();

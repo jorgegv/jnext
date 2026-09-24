@@ -27,7 +27,7 @@
 ///
 /// This header is the PURE policy for that callback: the real/fill split, the
 /// ring buffer the producer and consumer share, the hold-level tracking, and
-/// the diagnostic counters. SdlAudio owns the locking (SDL_LockAudioDevice on
+/// the diagnostic counters. SdlAudio owns the locking (SDL_LockAudioStream on
 /// the producer side; SDL itself holds the device lock around the callback)
 /// and calls into these functions; everything here is unit-testable with no
 /// SDL at all (audio_fill_test).

@@ -8,7 +8,7 @@
 #include <memory>
 #include <string>
 #include <vector>
-#include <SDL2/SDL.h>
+#include <SDL3/SDL.h>
 #include "core/emulator_config.h"
 #include "gui/app_config.h"
 #include "platform/pointer_capture.h"

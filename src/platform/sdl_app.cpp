@@ -9,7 +9,10 @@
 #include <cmath>
 
 bool SdlApp::init(int argc, char* argv[]) {
-    if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMECONTROLLER) < 0) {
+    // SDL3 SDL_Init returns bool (true = success); SDL2 returned 0 on
+    // success and a negative on failure, so the SENSE of this test is
+    // inverted, not just the spelling.
+    if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO | SDL_INIT_GAMEPAD)) {
         Log::platform()->error("SDL_Init: {}", SDL_GetError());
         return false;
     }
@@ -41,15 +44,15 @@ bool SdlApp::init(int argc, char* argv[]) {
         // Uncaptured the pointer belongs to the desktop; clicking the window
         // is how you hand it to the guest (same gesture as the Qt frontend).
         if (!mouse_captured_) {
-            if (e.type == SDL_MOUSEBUTTONDOWN) set_mouse_captured(true);
+            if (e.type == SDL_EVENT_MOUSE_BUTTON_DOWN) set_mouse_captured(true);
             return;
         }
         mouse_dispatcher_->handle_sdl_event(e);
     };
 
     // Build the joystick host adapter (G42 closure — JOY-WIRE-02/03/04).
-    // SDL emits SDL_CONTROLLER* events only for SDL_GameControllers that
-    // have been explicitly opened via SDL_GameControllerOpen — the
+    // SDL emits SDL_EVENT_GAMEPAD_* events only for gamepads that
+    // have been explicitly opened via SDL_OpenGamepad — the
     // CONTROLLERDEVICEADDED handler below opens up to two devices and
     // routes them to slots 0 / 1.
     gamepad_host_ = std::make_unique<GamepadHost>(emulator_.joystick());
@@ -108,7 +111,7 @@ bool SdlApp::init(int argc, char* argv[]) {
                 (sc == SDL_SCANCODE_LALT  || sc == SDL_SCANCODE_RALT ||
                  sc == SDL_SCANCODE_LCTRL || sc == SDL_SCANCODE_RCTRL)) {
                 const SDL_Keymod m = SDL_GetModState();
-                if ((m & KMOD_CTRL) && (m & KMOD_ALT)) {
+                if ((m & SDL_KMOD_CTRL) && (m & SDL_KMOD_ALT)) {
                     set_mouse_captured(false);
                     // Not consumed — see the Qt handler: swallowing the Alt
                     // key-down would desync Keyboard's host Alt-modifier state.
@@ -270,7 +273,10 @@ void SdlApp::run() {
         exit_code_ = 1;   // a failed RZX load exits non-zero (as headless)
 
     while (running_) {
-        uint32_t frame_start = SDL_GetTicks();
+        // SDL3's SDL_GetTicks() returns Uint64 (SDL2: Uint32). Only
+        // differences are ever taken, so the width is carried through
+        // deliberately rather than truncated back.
+        uint64_t frame_start = SDL_GetTicks();
 
         if (!input_.poll()) break;
 
@@ -338,8 +344,8 @@ void SdlApp::run() {
         // at the display's refresh rate. A due screenshot always presents.
         bool present_this_tick = true;
         if (speed_multiplier_ > 1.0 && !screenshot_due) {
-            const uint32_t now = SDL_GetTicks();
-            if (now - last_present_ms_ < static_cast<uint32_t>(
+            const uint64_t now = SDL_GetTicks();
+            if (now - last_present_ms_ < static_cast<uint64_t>(
                                              frame_sequencer::RENDER_INTERVAL_MS))
                 present_this_tick = false;
             else
@@ -495,8 +501,8 @@ void SdlApp::run() {
                     "frame pacing: {:.2f} Hz video refresh at {}x -> {} ms/frame",
                     1000.0 / emulator_.frame_period_ms(), speed_multiplier_, frame_ms);
             }
-            uint32_t elapsed = SDL_GetTicks() - frame_start;
-            if (elapsed < frame_ms) SDL_Delay(frame_ms - elapsed);
+            uint64_t elapsed = SDL_GetTicks() - frame_start;
+            if (elapsed < frame_ms) SDL_Delay(static_cast<Uint32>(frame_ms - elapsed));
         }
     }
 }
@@ -534,11 +540,15 @@ void SdlApp::shutdown() {
 // MainWindow has to emulate by warping. Guard the call so a failure (some
 // platforms/back-ends refuse) leaves the flag false rather than pretending the
 // pointer is captured while it is still free.
+//
+// SDL3 made relative mode PER WINDOW (SDL_SetWindowRelativeMouseMode) and
+// returns true on success where SDL2's global SDL_SetRelativeMouseMode
+// returned 0 — both the argument list and the success sense changed.
 // ---------------------------------------------------------------------------
 void SdlApp::set_mouse_captured(bool on)
 {
     if (on == mouse_captured_) return;
-    if (SDL_SetRelativeMouseMode(on ? SDL_TRUE : SDL_FALSE) != 0) {
+    if (!SDL_SetWindowRelativeMouseMode(display_.window(), on)) {
         // Enable failing means the pointer is NOT captured, so leave the flag
         // false rather than claim it. Disable failing is worse — SDL still
         // holds the pointer — but clearing the flag anyway at least stops
