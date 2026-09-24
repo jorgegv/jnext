@@ -341,6 +341,17 @@ jobs:
           bundle: jnext-${{ steps.ver.outputs.ver }}-x86_64.flatpak
           manifest-path: packaging/flatpak/io.github.zxjogv.jnext.yml
           cache-key: flatpak-builder-${{ github.sha }}
+      # GH #271 — the permission gate, on the bundle THIS job produced.
+      # A local `make package-flatpak` runs it as the last step of its own
+      # recipe (the same way package-macos runs verify-macos-dmg), but this job
+      # builds through the action instead of that target, so the gate has to be
+      # named here or it would cover every path but the one that ships. It is
+      # the SAME make target, not a CI-only reimplementation: the check lives in
+      # packaging/flatpak/verify-permissions.sh and this passes it the bundle.
+      # It installs that bundle into a throwaway FLATPAK_USER_DIR and reads the
+      # permissions back with `flatpak info` — the artifact, not the manifest.
+      - name: Verify sandbox permissions (make verify-flatpak-permissions)
+        run: make verify-flatpak-permissions BUNDLE=jnext-${{ steps.ver.outputs.ver }}-x86_64.flatpak
 
   # ---- macOS: native CPack DragNDrop --------------------------------------
   macos:

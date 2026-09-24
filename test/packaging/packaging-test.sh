@@ -154,6 +154,20 @@ else
     bad package-recipe "contract test failed" "$LOGDIR/pkgrecipe.log"
 fi
 
+# --- flatpak permission gate contract (GH #271) ------------------------------
+# verify-permissions.sh is what stops the shipped Flatpak losing --share=network
+# again. jnext downloads its SD-card image and runs the ESP-01 WiFi emulation
+# over real sockets, and the manifest never granted the sandbox a network
+# namespace, so BOTH were dead on Flatpak while a manifest grep would have said
+# nothing was wrong. Hermetic: fabricated `metadata` files + a stubbed flatpak,
+# no build, so it belongs in this half; the REAL bundle is checked by the
+# package-flatpak row below.
+if bash test/packaging/flatpak-permissions-test.sh >"$LOGDIR/fpkperm.log" 2>&1; then
+    ok flatpak-perms "accepts shared=network, refuses the shipped 1.0.1 shape + near-misses"
+else
+    bad flatpak-perms "contract test failed" "$LOGDIR/fpkperm.log"
+fi
+
 # ---- end of the hermetic contract half --------------------------------------
 # Everything above needs nothing but bash; everything below builds real
 # packages. `make package-contract-test` (a prerequisite of `make unit-test`)
@@ -423,10 +437,56 @@ if command -v wine >/dev/null 2>&1 && command -v python3 >/dev/null 2>&1; then
     else
         skp package-win-redirect "jnext.exe not built here (package-win)"
     fi
+
+    # --- package-win-download-prefix (GH #271) -------------------------------
+    # The ONLY runtime coverage the WinHTTP download backend
+    # (src/core/sdcard_provisioner_net_win.cpp) has. It is a whole-file
+    # #ifdef _WIN32 twin, so no unit suite on the Linux dev host can compile
+    # it, and the defect it guards is one both twins had: the backend framed
+    # its own error AND provision_sd_card framed it again, so #271's bug
+    # report contains the doubled text verbatim —
+    #
+    #   error: SD-card image: download failed: download failed: Could not
+    #   resolve hostname
+    #
+    # No server and no network: JNEXT_SDCARD_DISTRO_URL (the documented test
+    # seam) points the real WinHTTP path at an unsupported URL scheme, which
+    # WinHttpCrackUrl rejects before any socket. JNEXT_CONFIG_DIR puts the
+    # would-be SD directory inside the throwaway wine prefix, so the run
+    # cannot find an existing image and must take the download branch.
+    #
+    # Discriminative both ways, proven against the pre-fix jnext.exe: it
+    # printed "download failed: download failed: bad URL: xyzzy://nowhere".
+    if [ -f "$WIN_EXE" ]; then
+        win_dl_log=$LOGDIR/win-download-prefix.log
+        win_dl_dir=$(cd "$(dirname "$WIN_EXE")" && pwd)
+        rm -rf "$WIN_CONSOLE_PREFIX/drive_c/jnext-271-cfg"
+        (cd "$win_dl_dir" \
+            && WINEPREFIX="$WIN_CONSOLE_PREFIX" WINEDEBUG=-all \
+               JNEXT_CONFIG_DIR='C:\jnext-271-cfg' \
+               JNEXT_SDCARD_DISTRO_URL='xyzzy://nowhere' \
+               timeout --kill-after=5s 300s \
+               wine jnext.exe --headless --sdcard-download-confirm \
+                    --delayed-automatic-exit 1) >"$win_dl_log.raw" 2>&1
+        tr -d '\r' <"$win_dl_log.raw" >"$win_dl_log"
+        rm -rf "$WIN_CONSOLE_PREFIX/drive_c/jnext-271-cfg"
+        if ! grep -q "downloading via WinHTTP" "$win_dl_log"; then
+            bad package-win-download-prefix "the run never reached the WinHTTP download path" "$win_dl_log"
+        elif grep -q "download failed: download failed" "$win_dl_log"; then
+            bad package-win-download-prefix "WinHTTP backend double-prefixes the error (GH #271 regressed)" "$win_dl_log"
+        elif grep -q "error: SD-card image: download failed: " "$win_dl_log"; then
+            ok package-win-download-prefix "WinHTTP download error says 'download failed' once (GH #271)"
+        else
+            bad package-win-download-prefix "no recognisable download error in the output" "$win_dl_log"
+        fi
+    else
+        skp package-win-download-prefix "jnext.exe not built here (package-win)"
+    fi
 else
     skp package-win-console "wine or python3 absent"
     skp package-win-console-qt5 "wine or python3 absent"
     skp package-win-redirect "wine or python3 absent"
+    skp package-win-download-prefix "wine or python3 absent"
 fi
 
 # --- package-win-sdl (SDL-only Windows 8+ variant, GH #108) ------------------
@@ -590,10 +650,19 @@ if command -v flatpak-builder >/dev/null 2>&1; then
     elif flatpak list 2>/dev/null | grep -q "org.kde.Sdk"; then
         if make package-flatpak >"$LOGDIR/flatpak.log" 2>&1; then
             b=$(ls -1 build/jnext-*-x86_64.flatpak 2>/dev/null | head -1)
-            if [ -n "$b" ] && [ -s "$b" ]; then
-                ok package-flatpak "$(basename "$b")"
-            else
+            if [ -z "$b" ] || [ ! -s "$b" ]; then
                 bad package-flatpak "no .flatpak bundle produced" "$LOGDIR/flatpak.log"
+            # GH #271 — the bundle must carry --share=network, asserted on the
+            # ARTIFACT: the bundle is installed into a throwaway
+            # FLATPAK_USER_DIR and its permissions read back with `flatpak
+            # info`. package-flatpak runs the same gate itself, so this row
+            # would already have failed above; asserting it separately is what
+            # makes the failure say WHICH thing is wrong instead of "make
+            # package-flatpak failed".
+            elif ! bash packaging/flatpak/verify-permissions.sh "$b" >"$LOGDIR/flatpak-perms.log" 2>&1; then
+                bad package-flatpak "bundle is missing a required sandbox permission (GH #271)" "$LOGDIR/flatpak-perms.log"
+            else
+                ok package-flatpak "$(basename "$b") ($(sed -e 's/ (from.*//' "$LOGDIR/flatpak-perms.log"))"
             fi
         else
             bad package-flatpak "make package-flatpak failed" "$LOGDIR/flatpak.log"

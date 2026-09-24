@@ -13,7 +13,7 @@
 // This file implements the same three functions as the POSIX twin
 // (sdcard_provisioner_net_curl.cpp): default_http_download, sha256_hex,
 // sha256_file — same contracts, same error semantics (partial file removed on
-// failure, ProgressFn false aborts with "download cancelled by user"). The
+// failure, ProgressFn false aborts with "cancelled by user"). The
 // whole-file #ifdef pair keeps file(GLOB_RECURSE) in src/core/CMakeLists.txt
 // correct on every platform: exactly one twin has content per build.
 //
@@ -94,7 +94,7 @@ std::string winhttp_error(const char* stage, DWORD code) {
         case ERROR_WINHTTP_REDIRECT_FAILED:     name = "redirect failed"; break;
         default: break;
     }
-    std::string e = std::string("download failed: ") + stage;
+    std::string e = stage;
     if (name) e += std::string(": ") + name;
     e += " (WinHTTP error " + std::to_string(code) + ")";
     return e;
@@ -133,7 +133,7 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
         uc.lpszExtraInfo     = extra.data();
         uc.dwExtraInfoLength = static_cast<DWORD>(extra.size() - 1);
         if (wurl.empty() || !WinHttpCrackUrl(wurl.c_str(), 0, 0, &uc)) {
-            err = "download failed: bad URL: " + url;
+            err = "bad URL: " + url;
             goto done;
         }
         {
@@ -191,7 +191,7 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
             goto done;
         }
         if (status >= 400) {
-            err = "download failed: HTTP status " + std::to_string(status);
+            err = "HTTP status " + std::to_string(status);
             goto done;
         }
 
@@ -219,7 +219,7 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
             }
             if (got == 0) break; // end of body
             if (std::fwrite(buf.data(), 1, got, out) != got) {
-                err = "download failed: write error on " + dest_path;
+                err = "write error on " + dest_path;
                 goto done;
             }
             downloaded += got;
@@ -233,21 +233,21 @@ bool default_http_download(const std::string& url, const std::string& dest_path,
     }
 
 done:
-    if (aborted) err = "download cancelled by user";
+    if (aborted) err = "cancelled by user";
     const bool flush_ok = (std::fflush(out) == 0);
     std::fclose(out);
     if (!ok || aborted) {
         std::remove(dest_path.c_str());
-        if (err.empty()) err = "download failed";
+        if (err.empty()) err = "unknown error";
         return false;
     }
     if (!flush_ok) {
         std::remove(dest_path.c_str());
-        err = "download failed: write/flush error on " + dest_path;
+        err = "write/flush error on " + dest_path;
         return false;
     }
     if (!file_exists_win(dest_path)) {
-        err = "download produced no file: " + dest_path;
+        err = "produced no file: " + dest_path;
         return false;
     }
     return true;
