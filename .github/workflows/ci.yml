@@ -480,7 +480,9 @@ jobs:
           path: build/mac-release/*.dmg
           if-no-files-found: error
 
-  # The flatpak bundle, actually BUILT on every push rather than skipped.
+  # The flatpak bundle, actually BUILT on every push rather than skipped — and,
+  # since it now goes through the shared definition, PERMISSION-GATED on every
+  # push too.
   #
   # The `package` job above reaches package-flatpak but can only validate the
   # manifest: test/packaging/packaging-test.sh gates the real build on
@@ -491,30 +493,50 @@ jobs:
   # bubblewrap's user namespaces. So the manifest was checked and the build was
   # not, on every push, since the day the manifest landed.
   #
-  # This is release.yml's flatpak job, deliberately near-verbatim: the same
-  # flathub image with the runtime already baked in, the same --privileged, the
-  # same action. A proven configuration is the point — the last novel workflow
-  # pattern added here (runner.temp in a job-level env) rejected the whole file.
+  # This used to be release.yml's flatpak job copied near-verbatim. It is now
+  # the SAME job: .github/workflows/flatpak-build.yml, which release.yml also
+  # calls and which can be dispatched by hand. That file's header carries the
+  # project's ONE declared exception to "every CI step is a plain make target"
+  # (it builds through the upstream flatpak-builder action) and the GH #271
+  # permission gate — read it there, not here. Three near-identical copies of a
+  # build is three places for the container pin to drift, and the copy here had
+  # already lost something real — it never ran the GH #271 permission gate, so
+  # a bundle that silently stopped carrying --share=network went green here on
+  # every push. Calling the shared definition fixes that by construction.
   #
-  # NOT continue-on-error, unlike release.yml's copy. There it is deliberately
-  # non-blocking so a flatpak hiccup cannot hold up a release; here the entire
-  # purpose is to go red when the bundle stops building, which is exactly what
-  # a release-time continue-on-error cannot tell you.
+  # Consequence worth knowing: the bundle is now named after version.yaml
+  # (jnext-<ver>-x86_64.flatpak) instead of jnext-ci-x86_64.flatpak, and shares
+  # the release cache key. Nothing consumes this job's artifact, and the same
+  # commit produces the same bundle either way, so the names were the only
+  # difference worth keeping — and not worth a workflow input that would also
+  # have to appear on the manual entry point's Run-workflow form.
+  #
+  # One further delta, recorded so it is a decision and not drift: a `uses:` job
+  # cannot carry `env:`, and a called workflow does not inherit the caller's, so
+  # this job no longer sees this file's workflow-level LANG=C/LC_ALL=C. Pinning
+  # the locale inside the shared definition instead would have changed
+  # release.yml's flatpak job, which must stay as it was.
+  #
+  # Would the gate still be correct under a translated locale? Yes, and the
+  # reason is structural rather than lucky, so it is worth writing down where
+  # someone will look for it. packaging/flatpak/verify-permissions.sh decides on
+  # exactly two things, neither of which a locale can move:
+  #
+  #   * the GKeyFile group name `[Context]` and the key `shared=`, which are
+  #     flatpak's ON-DISK metadata format — the bytes of the app's own
+  #     `metadata` file, echoed back by `flatpak info --show-permissions`. A
+  #     translated flatpak would still have to emit them verbatim or nothing
+  #     could parse an app's permissions at all. The token comparison is then
+  #     `[ "$tok" = network ]` against a value, not against prose;
+  #   * process EXIT STATUS — `flatpak install` and `flatpak info` are tested
+  #     with `if !` and `|| die`, never by matching their message text.
+  #
+  # Localised text reaches only the human-readable log the script dumps on a
+  # failed install. The one remaining locale-adjacent assumption is that
+  # `flatpak list --columns=application` prints no column header to a pipe; the
+  # value it prints is an app id, which is not translatable either.
+  #
+  # NOT continue-on-error — here the entire purpose is to go red when the bundle
+  # stops building or stops carrying its permissions.
   flatpak:
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
-    container:
-      image: ghcr.io/flathub-infra/flatpak-github-actions:kde-6.10
-      options: --privileged
-    steps:
-      # The manifest builds from this checkout (`type: git` + `path: ../..`),
-      # so the tree and its submodules have to be here.
-      - uses: actions/checkout@v5
-        with:
-          submodules: recursive
-
-      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
-        with:
-          bundle: jnext-ci-x86_64.flatpak
-          manifest-path: packaging/flatpak/io.github.zxjogv.jnext.yml
-          cache-key: flatpak-builder-ci-${{ github.sha }}
+    uses: ./.github/workflows/flatpak-build.yml

@@ -1830,11 +1830,11 @@ permissions.</p>
 <p><code>flatpak-build.yml</code> is different in kind from the other two, and the difference
 is worth copying. It is not a hand-dispatched <em>copy</em> of the release job — it
 <strong>is</strong> the release job. It carries both a <code>workflow_call</code> and a
-<code>workflow_dispatch</code> trigger, and the <code>flatpak</code> job in <code>release.yml</code> is one line
-that calls it. So a manual run is evidence about the build that actually ships,
-rather than about something that resembles it. <code>macos-build.yml</code> and
-<code>windows-build.yml</code> predate the pattern and still repeat their <code>release.yml</code>
-counterpart's make targets.</p>
+<code>workflow_dispatch</code> trigger, and the <code>flatpak</code> jobs in <code>ci.yml</code> and
+<code>release.yml</code> are one line each that calls it. So a manual run is evidence
+about the build that actually ships, rather than about something that resembles
+it. <code>macos-build.yml</code> and <code>windows-build.yml</code> predate the pattern and still
+repeat their <code>release.yml</code> counterpart's make targets.</p>
 <h2 id="the-hard-rule-every-step-is-a-plain-make-target">The hard rule: every step is a plain make target<a class="headerlink" href="#the-hard-rule-every-step-is-a-plain-make-target" title="Permanent link">&para;</a></h2>
 <p>The organising idea behind <code>ci.yml</code> is worth stating before the details,
 because it is not how most projects are set up. <strong>Every <code>run:</code> in the workflow
@@ -1898,12 +1898,18 @@ other use for. One detail matters here: in CI a missing packaging tool is a
 <strong>FAIL, not a SKIP</strong>, so a row that has quietly stopped running cannot read as
 a pass.</p>
 <p><strong><code>macos</code></strong> runs <code>make package-macos</code> on a real <code>macos-latest</code> runner, and
-<strong><code>flatpak</code></strong> actually builds the bundle inside the KDE runtime container. Both
-exist because a platform whose failures are invisible until release time fails
-too late to be useful — the v0.98.34 <code>.dmg</code> referenced Homebrew paths and
-aborted in dyld on every Mac except the one that built it. Neither job is
+<strong><code>flatpak</code></strong> calls <code>flatpak-build.yml</code>, which actually builds the bundle inside
+the KDE runtime container and then asserts its sandbox permissions. Both exist
+because a platform whose failures are invisible until release time fails too
+late to be useful — the v0.98.34 <code>.dmg</code> referenced Homebrew paths and aborted in
+dyld on every Mac except the one that built it. Neither job is
 <code>continue-on-error</code>, since going red when the thing stops working is the entire
 point of having them.</p>
+<p>The permission check came with the consolidation and is not incidental. This
+job used to be <code>release.yml</code>'s copied near-verbatim, minus that step, so from
+the day GH #271 was fixed a bundle that stopped carrying <code>--share=network</code>
+would still have passed here on every push — which is exactly the defect the
+gate was written for. One body, one gate, three callers.</p>
 <h2 id="the-sd-card-image-is-provisioned-never-faked">The SD-card image is provisioned, never faked<a class="headerlink" href="#the-sd-card-image-is-provisioned-never-faked" title="Permanent link">&para;</a></h2>
 <p><code>roms/</code> is git-ignored, so a fresh checkout has no NextZXOS SD image, and
 jnext's harness treats a missing image as a fatal fault rather than as a silent

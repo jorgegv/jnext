@@ -1,14 +1,18 @@
 # The ONE definition of how jnext's Flatpak bundle is built and gated.
 #
-# Two entry points, one body:
+# Three entry points, one body:
 #   * workflow_call     — release.yml's `flatpak` job. The shipping path; its
 #                         gating (private tags do not build) stays in
 #                         release.yml, where it belongs.
+#   * workflow_call     — ci.yml's `flatpak` job, on every push and PR.
 #   * workflow_dispatch — Actions → "Flatpak Build (manual)" → Run workflow.
 #                         Runs the SAME job on demand, with nothing published.
 #
-# Both were separate copies before. With one body there is nothing to keep in
-# sync — not the container pin, not the gate.
+# All three were separate copies before. ci.yml's was release.yml's job copied
+# near-verbatim MINUS the GH #271 permission gate, which is what a copy costs:
+# a bundle that stopped carrying --share=network would have gone green on every
+# push. With one body there is nothing to keep in sync — not the container pin,
+# not the gate.
 #
 # ---- why the manual entry point exists -------------------------------------
 # release.yml's `gate` job reads releases.yaml and skips every artifact job for
@@ -66,12 +70,12 @@
 #   3. That `uses:` combined with `needs:` and `if:` on the caller behaves as
 #      GitHub documents, i.e. a private tag still skips the job entirely.
 #
-# Because both entry points run THIS job, a green manual run is evidence about
-# the shipping path, not about a lookalike of it. macos-build.yml and
+# Because all three entry points run THIS job, a green manual run is evidence
+# about the shipping path, not about a lookalike of it. macos-build.yml and
 # windows-build.yml exist for the same reason but predate this pattern, and
 # still each repeat their release.yml counterpart's make targets.
 #
-# The name keeps "(manual)" although both entry points share it: in the
+# The name keeps "(manual)" although all three entry points share it: in the
 # Actions sidebar that is the label a human looks for when they want to run the
 # Flatpak build by hand, and a called workflow shows up under the CALLER's job
 # name anyway, so the label costs the other two nothing.
@@ -86,7 +90,7 @@
 #
 # ---- DECLARED EXCEPTION to "every CI step is a plain make target" -----------
 # (Moved here from release.yml's flatpak job, which now calls this file. It is
-# stated in release.yml's header that the exception lives here.)
+# stated in release.yml's and ci.yml's headers that the exception lives here.)
 # Deliberate, do not "fix" it to `make package-flatpak`: this job does not
 # open-code a build the way the old deb/rpm jobs did. It hands the SAME manifest
 # `make package-flatpak` uses to the upstream flatpak-builder action, which
@@ -101,7 +105,7 @@
 # its own recipe, so both the local and the shipping path are gated.
 #
 # ---- not continue-on-error --------------------------------------------------
-# Neither here nor at the caller. The flatpak job's own continue-on-error was
+# Neither here nor at any caller. The flatpak job's own continue-on-error was
 # removed at v0.99.110 for the reason issue #61 removed macOS's: a job that
 # reports failure as success to `needs` lets a release go out silently missing
 # its bundle. A manual run that cannot go red is worth even less — it exists
