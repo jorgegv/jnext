@@ -658,6 +658,12 @@ Headless only: requires \f[B]\-\-headless\f[R].
 Save a snapshot after a delay in frames.
 The format is chosen by the extension of \f[I]FILE\f[R]:
 \f[CR].szx\f[R], \f[CR].nex\f[R], anything else \f[CR].sna\f[R].
+A snapshot is only ever taken at a frame boundary, so if the debugger
+has paused the machine part\-way through a frame \(em a magic
+breakpoint, say \(em the frame in flight is completed first and the
+snapshot is written from the boundary that follows it.
+The capture is never refused, and the saved machine is then up to one
+frame past the point the debugger stopped at.
 .TP
 \f[B]\-\-delayed\-snapshot\-frames\f[R] \f[I]N\f[R]
 Delay in frames for \f[B]\-\-delayed\-snapshot\f[R] (default 0).

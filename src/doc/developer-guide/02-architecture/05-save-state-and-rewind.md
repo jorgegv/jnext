@@ -71,8 +71,34 @@ the omissions all have reasons: the ROM buffer and boot ROM are loaded from
 disk and never change; the contention model is rebuilt from config; the port
 dispatch table is a set of lambdas that `init()` rewires anyway; and the mixer,
 the debugger's transient state, the trace and call stack, tape position, the
-recorders, the SD card and the framebuffer are either host-side or
-reconstructible.
+recorders and the framebuffer are either host-side or reconstructible.
+
+The **SD card** used to be on that list and is not any more. Its SPI protocol
+state machine travels in an appended `sdcard` block, because a rewind taken
+while a loader was streaming a CMD18 multi-block read restored a card that was
+no longer streaming, and the replayed frames then received a fresh idle card's
+R1/token framing where sector bytes belonged. On a Next that is most loaders.
+Only the *protocol* state travels; the mounted image is an external resource
+shared by every slot in the ring, exactly as the esxDOS host handles are.
+
+The subsystems do not each hand-write that serialisation any more either.
+Every one of them — and the emulator's own scalars — declares its fields
+**once, by name**, in a `describe_state(StateDesc&)` method, and
+`save_state`/`load_state` are both a walk of that one declaration
+(`src/save/state_desc.h`). The binary realisation emits exactly the bytes the
+hand-written pair emitted, which is what let the migration be checked against
+a byte image of the pre-migration stream; the point of it is that the rewind
+ring and a future `.jns` file cannot disagree about which fields exist, because
+there is only one list.
+
+A save may only be taken at a frame boundary, and the debugger breaks
+mid-frame — which is exactly when a developer reaches for File ▸ Save
+Snapshot. `Emulator::advance_to_frame_boundary()` completes the in-flight frame
+first, through the ordinary `run_frame()` path so that the frame is *resumed*
+and not restarted: re-running `begin_new_frame()` mid-frame clears the
+per-scanline change logs, and a save that quietly destroyed a frame's raster
+history would be worse than one that refused. The save always works; the cost
+is that the restored machine is up to one frame past where the user paused.
 
 ## The rewind ring
 

@@ -584,7 +584,13 @@ right — please [report it](https://github.com/jorgegv/jnext/issues).
 **--delayed-snapshot** *FILE*
 :   Headless only: requires **--headless**. Save a snapshot after a
     delay in frames. The format is chosen by the extension of *FILE*:
-    `.szx`, `.nex`, anything else `.sna`.
+    `.szx`, `.nex`, anything else `.sna`. A snapshot is only ever taken
+    at a frame boundary, so if the debugger has paused the machine
+    part-way through a frame — a magic breakpoint, say — the frame in
+    flight is completed first and the snapshot is written from the
+    boundary that follows it. The capture is never refused, and the
+    saved machine is then up to one frame past the point the debugger
+    stopped at.
 
 **--delayed-snapshot-frames** *N*
 :   Delay in frames for **--delayed-snapshot** (default 0). Requires

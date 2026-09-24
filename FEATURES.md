@@ -120,7 +120,8 @@
 - Disassembly select & copy: click-drag or Shift+click a line range, Ctrl+A for the whole view, Ctrl+C or the right-click menu to copy. Copies assembly only — mnemonics and operands, one per line, indented, with the address column, opcode bytes and breakpoint gutter stripped and MAP symbols kept, so it pastes into a source file and assembles. "Copy with Addresses" keeps the address and opcode columns for bug reports. The selection is a range of addresses, so scrolling, stepping and Go to PC leave it alone, and the text is disassembled from memory at the moment you copy
 - Trace log (circular buffer, export to file)
 - Stepping: Step Into (F6), Step Over (F7), Step Out (F8), Run to EOF, Run to EOSL
-- Backwards execution (rewind): frame snapshots ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider
+- Backwards execution (rewind): frame snapshots ring buffer, Step Back (Shift+F7), Frame Back (Shift+F6), rewind slider. The SD card's SPI protocol state travels in a snapshot, so a rewind taken while a program is streaming sectors off the card resumes the stream instead of restarting the machine against a card that has stopped talking
+- Save Snapshot while paused mid-frame: the emulator completes the frame in flight and saves at the boundary rather than refusing, so the menu item is always available. The restored machine is up to one frame past where you paused, and the status bar says so
 - Magic breakpoint: `ED FF` (ZEsarUX) / `DD 01` (CSpect) triggers debugger pause
 - Magic debug port: configurable 16-bit port logs writes as hex/dec/ascii
 

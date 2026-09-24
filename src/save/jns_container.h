@@ -300,8 +300,9 @@ struct ReaderEnv {
     /// The card mounted RIGHT NOW (`present == false` when none is).
     SdCardInfo card;
 
-    /// Set from `state/sdcard.json` once stage S5 serialises the SD FSM.
-    /// ALWAYS FALSE IN S1, because no subsystem state exists yet.
+    /// Set from `SdCardDevice::transfer_in_flight()`, which GH #27 S6 added
+    /// along with the FSM it reads (§10.2 P1). It had no producer at all from
+    /// S1 to S5b, which is why the last row of §11.3 could not fire.
     ///
     /// §11.3's last row: when the machine was in the middle of a sector
     /// transfer at capture, a Tier-2 content drift stops being a warning and

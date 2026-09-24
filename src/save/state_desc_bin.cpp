@@ -22,7 +22,8 @@ void BinWriteDesc::ram_window(const char* name, uint8_t* data, std::size_t len,
     // §9.2 — the STATIC `ram_window` claim, asserted at run time so it cannot
     // go stale. Scoped to machine-level saves: a unit test that round-trips a
     // subsystem which never had `set_ram_backing()` called is legitimate
-    // (`divmmc_test.cpp` row DA-09), and a bare null-check would fire on it.
+    // (`divmmc_test` rows `DA-09` and `S6-DIVMMC-RAM-STANDALONE` both do),
+    // and a bare null-check would fire on them.
     if (machine_level() && data == nullptr) {
         fail(name);
         return;

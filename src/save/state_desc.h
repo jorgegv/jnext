@@ -290,8 +290,11 @@ public:
     /// STATICALLY DECLARED, and asserted at run time (§9.2): `data` must be
     /// non-null. The assertion is scoped to machine-level saves via
     /// `set_machine_level()`, because a unit test legitimately round-trips a
-    /// subsystem that never had `set_ram_backing()` called (`divmmc_test.cpp`
-    /// row DA-09).
+    /// subsystem that never had `set_ram_backing()` called — `divmmc_test`'s
+    /// `DA-09` and `S6-DIVMMC-RAM-STANDALONE` both do, and a bare null-check
+    /// would fire on either. The one that proves the CONTENTS of the
+    /// standalone branch is the latter; `DA-09` is a contract-pin on
+    /// `rom3_active_` that merely shares the shape.
     virtual void ram_window(const char* name, uint8_t* data, std::size_t len,
                             uint32_t page) = 0;
 

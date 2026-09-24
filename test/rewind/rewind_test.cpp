@@ -4353,8 +4353,10 @@ static int test_s5b_duplicated_ram_removed()
 
     // The DivMMC block, either side of the machine-level boundary. 17 bytes
     // of scalars at machine level; standalone the 128 KB is the only copy of
-    // itself and still travels, which is what keeps divmmc_test row DA-09 a
-    // round-trip rather than a silent no-op.
+    // itself and still travels. The row that proves those bytes are the REAL
+    // ones rather than a zero-fill of the right width is `divmmc_test`'s
+    // `S6-DIVMMC-RAM-STANDALONE`, which compares all 131 072 against a
+    // whole-buffer pattern; this one pins only the WIDTH.
     {
         Emulator emu;
         build_emulator(emu, 2);
