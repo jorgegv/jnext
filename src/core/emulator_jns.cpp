@@ -141,7 +141,7 @@ void Emulator::visit_jns_subsystems(V&& v) {
     v("uart",     uart_);
     v("divmmc",   divmmc_);
     v("multiface", multiface_);
-    v("nmi",      nmi_source_);
+    v("nmi_source", nmi_source_);
     v("sdcard",   sd_card_);
 
     // Audio.
@@ -456,7 +456,7 @@ bool Emulator::save_jns(const jnext::JnsSaveOptions& opt,
         }
         j["handles"] = handles;
         j["cwd"]     = esxdos_hostfs_.cwd_for_snapshot();
-        if (!w.add_subsystem("esxdos", j.dump(2) + "\n", why)) return false;
+        if (!w.add_subsystem("esxdos_hostfs", j.dump(2) + "\n", why)) return false;
     }
 
     // ── §9.5(5): the joystick cable, present only when attached ─────────
@@ -721,15 +721,15 @@ bool Emulator::load_jns(const uint8_t* data, std::size_t len,
     }
 
     // ── §9.5(4): the esxDOS handle table ────────────────────────────────
-    if (zip.has(state_member("esxdos"))) {
+    if (zip.has(state_member("esxdos_hostfs"))) {
         std::string text, read_why;
-        if (!zip.read_text(state_member("esxdos"), text, read_why)) {
-            why = "state/esxdos.json: " + read_why;
+        if (!zip.read_text(state_member("esxdos_hostfs"), text, read_why)) {
+            why = "state/esxdos_hostfs.json: " + read_why;
             return false;
         }
         json j = json::parse(text, nullptr, false);
         if (j.is_discarded() || !j.is_object()) {
-            why = "state/esxdos.json is not a JSON object";
+            why = "state/esxdos_hostfs.json is not a JSON object";
             return false;
         }
         std::vector<EsxdosHostFs::HandleSnapshot> handles;

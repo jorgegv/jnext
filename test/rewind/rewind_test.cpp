@@ -5115,9 +5115,11 @@ static int test_s8_jns_roundtrip()
 
         static const char* const kExpected[] = {
             "beeper", "clock", "copper", "cpu", "ctc", "dac", "divmmc", "dma",
-            "emulator", "esxdos", "i2c", "i2s", "im2", "iomode", "joystick",
+            "emulator", "esxdos_hostfs", "i2c", "i2s", "im2", "iomode",
+            "joystick",
             "keyboard", "layer2", "md6", "membrane_stick", "mmu", "mouse",
-            "multiface", "nextreg", "nmi", "palette", "ram", "renderer", "rtc",
+            "multiface", "nextreg", "nmi_source", "palette", "ram", "renderer",
+            "rtc",
             "sdcard", "spi", "sprites", "tilemap", "turbosound", "uart",
         };
         std::vector<std::string> want(std::begin(kExpected), std::end(kExpected));
@@ -5302,7 +5304,7 @@ static int test_s8_jns_roundtrip()
             jnext::zip::Reader r;
             std::string w2;
             return r.open(good.data(), good.size(), w2) &&
-                   r.read_text("state/esxdos.json", esx_text, w2);
+                   r.read_text("state/esxdos_hostfs.json", esx_text, w2);
         }();
 
         std::vector<uint8_t> forged;
@@ -5314,12 +5316,12 @@ static int test_s8_jns_roundtrip()
                 "      \"handle\": 1,\n      \"is_dir\": false,\n"
                 "      \"mode\": 1,\n      \"path\": \"/etc/passwd\",\n"
                 "      \"position\": \"0\"\n    }\n  ]\n}\n";
-            forged_ok = repack(good, "state/esxdos.json", hostile, forged);
+            forged_ok = repack(good, "state/esxdos_hostfs.json", hostile, forged);
         }
 
         if (!forged_ok) {
             check("JNS-RT-06", false,
-                  "could not build the forged archive — state/esxdos.json is "
+                  "could not build the forged archive — state/esxdos_hostfs.json is "
                   "not in the file any more, so this row is not testing what "
                   "it says (fix it, do not delete it)");
             check("JNS-RT-07", false, "(not reached)");
@@ -5353,7 +5355,7 @@ static int test_s8_jns_roundtrip()
                 if (b.save_jns(o2, again, r2, w3)) {
                     jnext::zip::Reader rr;
                     if (rr.open(again.data(), again.size(), w3) &&
-                        rr.read_text("state/esxdos.json", text, w3)) {
+                        rr.read_text("state/esxdos_hostfs.json", text, w3)) {
                         no_handle = text.find("/etc/passwd") == std::string::npos;
                     }
                 }

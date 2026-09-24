@@ -564,8 +564,6 @@ snapshot.jns
 ├── state/sprites.json          (attributes + registers; patterns are a blob)
 ├── state/tilemap.json
 ├── state/renderer.json         (+ fallback_per_line)
-├── state/ula.json              (+ border_per_line + the port-0xFF change log)
-├── state/lores.json
 ├── state/copper.json           (registers + the 1K instruction RAM as hex)
 ├── state/ctc.json              (+ its chained-trigger timing, §9.4)
 ├── state/dma.json
@@ -590,6 +588,7 @@ snapshot.jns
 ├── state/joy_uart.json         present only when a cable is attached
 ├── state/esxdos_hostfs.json    handles + cwd + root
 ├── state/emulator.json         Emulator's own scalars, §10
+├── state/ram.json              Ram's own scalars; the bytes are the blob below
 ├── mem/ram.bin                 2 097 152 B
 ├── mem/bank5-vram.bin          16 384 B  (Mmu::bank5_vram_)
 ├── mem/sprite-patterns.bin     16 384 B
@@ -598,6 +597,22 @@ snapshot.jns
 ├── meta/preview.png            OPTIONAL — the framebuffer at capture time
 └── meta/README.txt             OPTIONAL — human-readable "do not share" notice
 ```
+
+**Two corrections S8 made to this listing, both where the implementation is
+right and the listing was written before it existed.** `state/ula.json` and
+`state/lores.json` are NOT separate members: `Ula::describe_state` and
+`Lores::describe_state` are called from inside `Renderer::describe_state`
+(`renderer.cpp:1080-1093`), so their fields are keys of `state/renderer.json`
+and splitting them would mean either emitting them twice or restructuring a
+declaration that the binary stream also walks. And `state/ram.json` was
+missing: `Ram` declares scalars as well as its blob, and they have to go
+somewhere.
+
+The member NAMES above are authoritative, and S8 moved the code to match them
+twice — `state/esxdos.json` -> `state/esxdos_hostfs.json` and
+`state/nmi.json` -> `state/nmi_source.json`. This listing is what S9's
+spec-written reader is built from, so a name that differs here is a reader that
+does not find the member.
 
 Rules:
 
