@@ -2,6 +2,8 @@
 #include "video/palette.h"
 #include "core/log.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 // ---------------------------------------------------------------------------
 // SpriteAttr::y() — decode 9-bit Y coordinate
@@ -1106,52 +1108,62 @@ SpriteEngine::SpriteInfo SpriteEngine::get_sprite_info(uint8_t idx) const
     return info;
 }
 
+// GH #27 S4 — the ONE field list (design §9.2). Block 8 of the byte-identity
+// stream (§17.1), 17 039 bytes. Declaration order IS the stream order.
+//
+// THE 128-SPRITE LOOP IS §9.4's LOOP COLLAPSE: five `write_u8` sites inside
+// one loop become ONE `d.bytes` of 640 bytes. `SpriteAttr` is five
+// `uint8_t`s and nothing else, so the array is 640 contiguous bytes in
+// exactly the order the loop wrote them — which the `static_assert`s below
+// pin, so a sixth member or an alignment attribute fails to compile rather
+// than shifting the stream under the byte-identity gate. It is the same
+// treatment S3 gave `NextReg::regs_`: a register file that §6.1 classes as
+// case 3 below the 8 KB line, so JSON, and §6.2 encodes a fixed non-guest
+// array as one lower-case hex string.
+//
+// `pattern_ram_` is `blob`, not `bytes`, and §6.1 names it explicitly:
+// "SpriteEngine::pattern_ram_ 16 384 B (port 0x5B) | 3, >= 8 KB | blob". In
+// the binary stream the two calls are identical; in a `.jns` a blob emits no
+// key and becomes a ZIP member instead of 32 768 characters of hex.
+//
+// NOT DECLARED: the per-scanline attribute and pattern change-logs and their
+// baselines — §9.5(8), rebuilt every frame; `load_state` re-baselines them
+// after the walk (GH #261).
+//
+// No field carries a DECLARED DEFAULT: §12.2's gate for them is S6's.
+void SpriteEngine::describe_state(jnext::save::StateDesc& d)
+{
+    static_assert(sizeof(SpriteAttr) == 5,
+                  "SpriteAttr must stay exactly the five attribute bytes: the "
+                  "declaration below collapses the 128-sprite loop into one "
+                  "640-byte array and any padding would move the stream");
+    static_assert(sizeof(sprites_) == NUM_SPRITES * 5, "");
+
+    d.bytes("attributes", reinterpret_cast<uint8_t*>(sprites_),
+            sizeof(sprites_));
+    d.blob("pattern_ram", pattern_ram_, PATTERN_RAM_SZ);
+    d.u8("attr_slot", attr_slot_);
+    d.u8("attr_byte", attr_byte_);
+    d.u16("pattern_offset", pattern_offset_);
+    d.u8("pattern_slot_msb", pattern_slot_msb_);
+    d.boolean("sprites_visible", sprites_visible_);
+    d.boolean("over_border", over_border_);
+    d.boolean("zero_on_top", zero_on_top_);
+    d.u8("clip_x1", clip_x1_); d.u8("clip_x2", clip_x2_);
+    d.u8("clip_y1", clip_y1_); d.u8("clip_y2", clip_y2_);
+    d.boolean("collision", collision_);
+    d.boolean("max_sprites", max_sprites_);
+    d.boolean("border_clip_en", border_clip_en_);
+}
+
 void SpriteEngine::save_state(StateWriter& w) const
 {
-    for (int i = 0; i < NUM_SPRITES; ++i) {
-        w.write_u8(sprites_[i].byte0);
-        w.write_u8(sprites_[i].byte1);
-        w.write_u8(sprites_[i].byte2);
-        w.write_u8(sprites_[i].byte3);
-        w.write_u8(sprites_[i].byte4);
-    }
-    w.write_bytes(pattern_ram_, PATTERN_RAM_SZ);
-    w.write_u8(attr_slot_);
-    w.write_u8(attr_byte_);
-    w.write_u16(pattern_offset_);
-    w.write_u8(pattern_slot_msb_);
-    w.write_bool(sprites_visible_);
-    w.write_bool(over_border_);
-    w.write_bool(zero_on_top_);
-    w.write_u8(clip_x1_); w.write_u8(clip_x2_);
-    w.write_u8(clip_y1_); w.write_u8(clip_y2_);
-    w.write_bool(collision_);
-    w.write_bool(max_sprites_);
-    w.write_bool(border_clip_en_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void SpriteEngine::load_state(StateReader& r)
 {
-    for (int i = 0; i < NUM_SPRITES; ++i) {
-        sprites_[i].byte0 = r.read_u8();
-        sprites_[i].byte1 = r.read_u8();
-        sprites_[i].byte2 = r.read_u8();
-        sprites_[i].byte3 = r.read_u8();
-        sprites_[i].byte4 = r.read_u8();
-    }
-    r.read_bytes(pattern_ram_, PATTERN_RAM_SZ);
-    attr_slot_ = r.read_u8();
-    attr_byte_ = r.read_u8();
-    pattern_offset_ = r.read_u16();
-    pattern_slot_msb_ = r.read_u8();
-    sprites_visible_ = r.read_bool();
-    over_border_ = r.read_bool();
-    zero_on_top_ = r.read_bool();
-    clip_x1_ = r.read_u8(); clip_x2_ = r.read_u8();
-    clip_y1_ = r.read_u8(); clip_y2_ = r.read_u8();
-    collision_ = r.read_bool();
-    max_sprites_ = r.read_bool();
-    border_clip_en_ = r.read_bool();
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
     control_per_line_active_ = false;
 
     // GH #261 — re-baseline the attribute and pattern logs from the state
