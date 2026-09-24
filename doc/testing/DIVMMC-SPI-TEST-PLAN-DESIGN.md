@@ -437,7 +437,7 @@ Port 0xEB triggers SPI byte exchange. VHDL reference: `spi_master.vhd`.
 | SX-01 | Write to port 0xEB: sends byte via MOSI | Loads output shift register with written byte |
 | SX-02 | Read from port 0xEB triggers exactly one SPI exchange cycle | `state_r` starts on rd (VHDL spi_master.vhd:109-110). MISO return value is NOT checked here — that is SX-03/SX-05/ML-05 territory because `miso_dat` is latched via the pipeline register at `state_last_d`. |
 | SX-03 | Read returns PREVIOUS exchange result | `miso_dat` latched at end of previous transfer |
-| SX-04 | First read after reset returns 0xFF | `miso_dat` initialized to all 1s |
+| SX-04 | First read after reset returns `miso_dat`'s power-on value 0x00 | Signal-declaration init `(others => '0')` at `spi_master.vhd:74`. The reset clause that would set all ones never fires: `i_reset` is hardwired `'0'` on the instance at `zxnext.vhd:3285` ("hard reset done through core load"). **Corrected 2026-09-24 (GH #201)** — this cell used to read "returns 0xFF / `miso_dat` initialized to all 1s", which describes a clause the core never executes and contradicted the live row it names. |
 | SX-05 | Write 0xAA then read: read returns MISO from write cycle | Pipeline: read gets result of preceding exchange |
 | ~~SX-06~~ | ~~SPI transfer is 16 clock cycles (8 bits x 2 edges)~~ | **WONT 2026-09-24 (GH #201, owner decision)** — the 16 steps are `state_r(3 downto 0)` counting `0x0` to `0xF` (`spi_master.vhd:66,86,97`); `i_CLK` is "twice the spi sck frequency" (`:43`), which is where "8 bits x 2 edges" comes from. jnext's `SpiMaster` has no counter to count — `write_data`/`read_data` exchange a whole byte synchronously (`src/peripheral/spi.cpp:176-225`). See "GH #201 — the SPI-master FSM cluster: WONT (2026-09-24)" below. No `check()` row exists. |
 | ~~SX-07~~ | ~~SCK output matches state_r[0]~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `o_spi_sck <= state_r(0)` (`spi_master.vhd:172`) is an FPGA pin driven off the counter's LSB. jnext models SPI at byte granularity and emits no clock pin at all, so there is nothing to sample. Same decision. No `check()` row exists. |
@@ -473,7 +473,7 @@ synchronization. VHDL reference: `spi_master.vhd` lines 121-168.
 | ~~ML-02~~ | ~~Full byte latched into `miso_dat` on `state_last_d`~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `miso_dat <= ishift_r & i_spi_miso` on `state_last_d='1'` (`spi_master.vhd:164-165`): the eighth bit is taken live off the pin, not from the shift register. The *consequence* — a read returns the previous exchange — is already LIVE as SX-03/SX-05/ML-03; only the latch instant is unreachable. Same decision. No `check()` row exists. |
 | ML-03 | `miso_dat` holds value until next transfer completes | Stable between transfers |
 | ~~ML-04~~ | ~~Input and output shift registers are independent~~ | **WONT 2026-09-24 (GH #201, owner decision)** — the VHDL comment at `spi_master.vhd:145-146` says why they are kept apart: "without synchronization, problems are seen in some sd cards at higher system frequencies". That is a physical-timing workaround inside the FPGA with no software-visible consequence, and jnext has neither register. Same decision. No `check()` row exists. |
-| ML-05 | Reset sets `ishift_r` to all 1s | Safe default |
+| ML-05 | First read after reset reflects `miso_dat`'s power-on value 0x00 | Signal-declaration init at `spi_master.vhd:74`; `i_reset` is hardwired `'0'` at `zxnext.vhd:3285`, so the synchronous-reset clause at `spi_master.vhd:151-152` — the one that sets `ishift_r` to all ones — never fires on real hardware either. **Corrected 2026-09-24 (GH #201)** — this cell used to read "Reset sets `ishift_r` to all 1s / Safe default", asserting the dead clause as the row's expectation and contradicting the live row it names. |
 | ~~ML-06~~ | ~~16 cycles minimum between read/write operations~~ | **WONT 2026-09-24 (GH #201, owner decision)** — the quoted comment is real but is NOT in `spi_master.vhd`, as this cell used to claim: it is at `zxnext.vhd:3274`, immediately above the instantiation — "read/write to SPI must be separated by 16 cycles (dma has wait to guarantee this)". It is therefore a statement about the DMA pacing of ST-05/06 (gap **G137**), the only user-visible item in this cluster. See "GH #201 — the SPI-master FSM cluster: WONT (2026-09-24)" below. No `check()` row exists. |
 
 ### 16. SPI MISO Source Multiplexing
@@ -864,13 +864,6 @@ That is why `miso_dat` survives a soft reset (V12-DIVMMC-01), why the live
 `SpiMaster::reset()` pulses `deselect()` without clearing bindings (SS-15). An
 FSM rewrite walks straight back into that ground.
 
-*(Housekeeping note: the §13 `SX-04` and §15 `ML-05` Notes cells still say
-"initialized to all 1s" / "Reset sets `ishift_r` to all 1s", which is the reset
-clause and not what those rows assert. Both are passing rows whose matrix
-description comes from the test source, so the stale cells mislead a reader of
-this plan only. Flagged rather than rewritten — they are outside this
-decision.)*
-
 ### The cheaper alternative, if G137 is ever taken up
 
 G137 can be closed **without** an FSM. Derive `spi_wait_n()` from a per-byte
@@ -897,3 +890,12 @@ is declared at `spi_master.vhd:66` (the escalation said `:65`, which is
 `state_idle`), and the "separated by 16 cycles" comment that §15 attributed to
 `spi_master.vhd` is in fact at `zxnext.vhd:3274` — it appears nowhere in
 `spi_master.vhd`.
+
+A third correction landed in the same change, on two rows that are NOT struck.
+The §13 `SX-04` and §15 `ML-05` cells asserted the `i_reset` clause ("all 1s")
+as the expected value, contradicting the live rows they name, which assert the
+signal-declaration value `0x00` because `i_reset` is hardwired `'0'`. A plan
+cell that contradicts the passing row it describes is the same defect class
+GH #201 exists to remove — it is simply invisible to the matrix, whose
+description for an asserted row comes from the test source. Both cells now
+state the VHDL and say what they used to say.
