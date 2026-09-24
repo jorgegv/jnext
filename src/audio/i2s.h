@@ -2,6 +2,8 @@
 
 #include <cstdint>
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Pi I2S audio stub.
 ///
 /// Mirrors `audio_mixer.vhd:89-90,99-100` where the `pi_i2s_L_i` /
@@ -64,6 +66,11 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     uint16_t left_{0};
