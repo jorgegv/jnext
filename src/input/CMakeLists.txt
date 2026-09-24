@@ -7,7 +7,11 @@ if(SOURCES)
     add_library(jnext_input STATIC ${SOURCES})
     target_include_directories(jnext_input PUBLIC ${CMAKE_SOURCE_DIR}/src)
     find_package(SDL3 REQUIRED)
-    target_link_libraries(jnext_input PUBLIC ${JNEXT_SDL3_TARGET} spdlog::spdlog)
+    # jnext_save carries the GH #27 `StateDesc` descriptor layer; this
+    # library's save_state/load_state pairs are a walk of its declarations
+    # (stage S5), so the BinWriteDesc/BinReadDesc bodies must resolve here.
+    # jnext_save does not depend on this library, so there is no cycle.
+    target_link_libraries(jnext_input PUBLIC ${JNEXT_SDL3_TARGET} spdlog::spdlog jnext_save)
 else()
     add_library(jnext_input INTERFACE)
     target_include_directories(jnext_input INTERFACE ${CMAKE_SOURCE_DIR}/src)

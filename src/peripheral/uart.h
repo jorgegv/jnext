@@ -5,6 +5,7 @@
 #include <type_traits>
 #include "core/saveable.h"
 #include "peripheral/uart_device.h"
+#include "save/state_desc.h"
 
 /// UART peripheral — dual-channel UART (ESP WiFi + Raspberry Pi).
 ///
@@ -42,32 +43,16 @@ public:
     bool almost_full()const { return count_ >= (Capacity - 2); }
     std::size_t size() const { return count_; }
 
-    // Issue #42 — the count is written first, then ALWAYS `Capacity`
-    // elements, oldest-first. Writing only `count_` elements made the
-    // snapshot's width depend on how much UART traffic was in flight, and
-    // RewindBuffer requires every snapshot to be exactly the size it
-    // measured at construction — so a single received byte silently
-    // invalidated every subsequent rewind snapshot. Entries past `count_`
-    // are padding; load_state pushes only the first `count_`.
-    void save_state(class StateWriter& w) const {
-        w.write_u64(count_);
-        for (std::size_t i = 0; i < Capacity; ++i) {
-            T val = (i < count_) ? buf_[(tail_ + i) % Capacity] : T{0};
-            write_elem(w, val);
-        }
-    }
-    void load_state(class StateReader& r) {
-        reset();
-        const std::size_t n = static_cast<std::size_t>(r.read_u64());
-        // Clamp: the stream carries exactly Capacity elements whatever the
-        // count claims, so a corrupt count can neither desync the stream
-        // nor push past the ring.
-        const std::size_t live = (n <= Capacity) ? n : Capacity;
-        for (std::size_t i = 0; i < Capacity; ++i) {
-            T val = read_elem(r);
-            if (i < live) push(val);
-        }
-    }
+    /// The i-th OLDEST live element, `i < size()`.
+    ///
+    /// GH #27 S5 — the one thing `jnext::save::FifoAccess` needs that the
+    /// public interface did not already offer. It is the ring NORMALISED,
+    /// which is the form §6.2's encoding is defined on, and it is deliberately
+    /// not "give me buf_, head_, tail_": a realisation reaching into the
+    /// ring's internals would have to re-derive the normalisation the FIFO
+    /// already knows how to do.
+    T oldest(std::size_t i) const { return buf_[(tail_ + i) % Capacity]; }
+
 
     /// Push a value.  Returns false if full (value is dropped).
     bool push(T val) {
@@ -94,19 +79,39 @@ public:
     }
 
 private:
-    // Element width-specific serialisation — keeps uint8_t/uint16_t
-    // rewind-buffer round-trip correct without needing a schema version
-    // (the rewind buffer is in-process only, no on-disk compat required).
-    static void write_elem(StateWriter& w, uint8_t v)  { w.write_u8(v); }
-    static void write_elem(StateWriter& w, uint16_t v) { w.write_u16(v); }
-    static uint8_t  read_elem_impl(StateReader& r, uint8_t)  { return r.read_u8(); }
-    static uint16_t read_elem_impl(StateReader& r, uint16_t) { return r.read_u16(); }
-    static T read_elem(StateReader& r) { return read_elem_impl(r, T{}); }
+    // The element-width-specific serialisation that used to live here is
+    // gone: `jnext::save::FifoElem` (state_desc.h) carries the width now, and
+    // `BinWriteDesc::fifo` / `BinReadDesc::fifo` do the encoding — which is
+    // what makes the ONE declaration in uart.cpp produce both the positional
+    // stream and the `.jns` array (design §9.5(1)).
 
     std::array<T, Capacity> buf_{};
     std::size_t head_ = 0;
     std::size_t tail_ = 0;
     std::size_t count_ = 0;
+};
+
+/// GH #27 S5 — `jnext::save::FifoAccess` over a `FifoBuffer<T, N>`.
+///
+/// Non-owning, constructed at the declaration site, and templated on the same
+/// two parameters so `capacity()` comes from the TYPE and never from the
+/// stream. That is the property §17.1's hostile-input rule turns on: a read
+/// realisation bounds its loop by this number, so a forged count in a file
+/// can neither desync the stream nor push past the ring.
+template <typename T, std::size_t Capacity>
+class FifoBufferAccess final : public jnext::save::FifoAccess {
+public:
+    explicit FifoBufferAccess(FifoBuffer<T, Capacity>& f) : f_(f) {}
+    std::size_t capacity() const override { return Capacity; }
+    std::size_t size() const override { return f_.size(); }
+    uint16_t oldest(std::size_t i) const override {
+        return static_cast<uint16_t>(f_.oldest(i));
+    }
+    void reset() override { f_.reset(); }
+    bool push(uint16_t v) override { return f_.push(static_cast<T>(v)); }
+
+private:
+    FifoBuffer<T, Capacity>& f_;
 };
 
 /// Single UART channel — models TX/RX with FIFOs and baud-rate timing.
@@ -406,6 +411,17 @@ public:
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
 
+    /// GH #27 S5 — the ONE field list for a channel (design §9.2).
+    ///
+    /// It takes its KEY TABLE from the owning `Uart`, because two channels
+    /// sharing one declaration would name `tx_shift` twice — and a duplicate
+    /// key is the one fault the byte-identity gate structurally cannot see
+    /// (the binary encoding ignores names; `JsonWriteDesc`'s
+    /// `obj[name] = value` silently drops the earlier field). `keys` is a row
+    /// of `kChanKeys` in uart.cpp: string LITERALS, never built at run time,
+    /// because `StateDesc::fail()` stores the pointer it is handed.
+    void describe_state(jnext::save::StateDesc& d, const char* const* keys);
+
     // ══ === TEST-ONLY ACCESSORS === ═══════════════════════════
     //
     // These accessors expose the bit-level engine's internal signals to
@@ -689,6 +705,10 @@ public:
 
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2): the selector, then both
+    /// channels' declarations in `channels_` order.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     std::array<UartChannel, 2> channels_;

@@ -1,5 +1,6 @@
 #include "audio/ay_chip.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
 
 // Volume tables from VHDL ym2149.vhd — zero volume is actually zero
 // (modified for ZX Next, unlike real hardware).
@@ -412,52 +413,43 @@ void AyChip::update_output()
     }
 }
 
-void AyChip::save_state(StateWriter& w) const
+// GH #27 S5 — the ONE field list for one chip (design §9.2). Declaration
+// order IS the binary stream order, so it must not be disturbed: the
+// byte-identity gate (§17.1) pins three of these, plus TurboSound's own
+// scalars, as block 20 of the 2 292 965-byte stream.
+//
+// The three tone generators are §9.4's "array elements inside loops" class.
+// They COLLAPSE to one declaration per field rather than expanding to six,
+// and the keys name the channel (`tone_cnt_a`) rather than numbering it.
+void AyChip::describe_state(jnext::save::StateDesc& d, const char* const* k)
 {
-    w.write_bool(ay_mode_);
-    w.write_bytes(reg_.data(), reg_.size());
-    w.write_u8(addr_);
-    w.write_u8(cnt_div_);
-    w.write_bool(noise_div_);
-    w.write_bool(ena_div_);
-    w.write_bool(ena_div_noise_);
-    for (int i = 0; i < 3; ++i) w.write_u16(tone_cnt_[i]);
-    for (int i = 0; i < 3; ++i) w.write_bool(tone_op_[i]);
-    w.write_u8(noise_cnt_);
-    w.write_u32(poly17_);
-    w.write_bool(noise_op_);
-    w.write_u16(env_cnt_);
-    w.write_bool(env_ena_);
-    w.write_bool(env_reset_);
-    w.write_u8(env_vol_);
-    w.write_bool(env_inc_);
-    w.write_bool(env_hold_);
-    w.write_u8(out_a_);
-    w.write_u8(out_b_);
-    w.write_u8(out_c_);
-}
-
-void AyChip::load_state(StateReader& r)
-{
-    ay_mode_ = r.read_bool();
-    r.read_bytes(reg_.data(), reg_.size());
-    addr_           = r.read_u8();
-    cnt_div_        = r.read_u8();
-    noise_div_      = r.read_bool();
-    ena_div_        = r.read_bool();
-    ena_div_noise_  = r.read_bool();
-    for (int i = 0; i < 3; ++i) tone_cnt_[i] = r.read_u16();
-    for (int i = 0; i < 3; ++i) tone_op_[i]  = r.read_bool();
-    noise_cnt_  = r.read_u8();
-    poly17_     = r.read_u32();
-    noise_op_   = r.read_bool();
-    env_cnt_    = r.read_u16();
-    env_ena_    = r.read_bool();
-    env_reset_  = r.read_bool();
-    env_vol_    = r.read_u8();
-    env_inc_    = r.read_bool();
-    env_hold_   = r.read_bool();
-    out_a_      = r.read_u8();
-    out_b_      = r.read_u8();
-    out_c_      = r.read_u8();
+    d.boolean(k[0], ay_mode_);
+    // The 16 register file bytes: a `d.bytes` and not a `d.blob` — §6.1 gives
+    // a peripheral store a ZIP member of its own only from 8 KB up. Its
+    // length comes from the DECLARATION (`reg_.size()` is a compile-time
+    // `std::array` extent), so no count in the stream can size the write.
+    d.bytes(k[1], reg_.data(), reg_.size());
+    d.u8(k[2], addr_);
+    d.u8(k[3], cnt_div_);
+    d.boolean(k[4], noise_div_);
+    d.boolean(k[5], ena_div_);
+    d.boolean(k[6], ena_div_noise_);
+    d.u16(k[7], tone_cnt_[0]);
+    d.u16(k[8], tone_cnt_[1]);
+    d.u16(k[9], tone_cnt_[2]);
+    d.boolean(k[10], tone_op_[0]);
+    d.boolean(k[11], tone_op_[1]);
+    d.boolean(k[12], tone_op_[2]);
+    d.u8(k[13], noise_cnt_);
+    d.u32(k[14], poly17_);
+    d.boolean(k[15], noise_op_);
+    d.u16(k[16], env_cnt_);
+    d.boolean(k[17], env_ena_);
+    d.boolean(k[18], env_reset_);
+    d.u8(k[19], env_vol_);
+    d.boolean(k[20], env_inc_);
+    d.boolean(k[21], env_hold_);
+    d.u8(k[22], out_a_);
+    d.u8(k[23], out_b_);
+    d.u8(k[24], out_c_);
 }

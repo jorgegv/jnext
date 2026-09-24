@@ -1,5 +1,7 @@
 #include "input/iomode.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 // =============================================================================
 // Phase 2 Wave 2 Agent E — NR 0x0B pin-7 mux for modes 00 (static) and 01
@@ -66,22 +68,29 @@ void IoMode::tick_ctc_zc3()
 // twice to the same value is idempotent.
 // =============================================================================
 
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 6 bytes inside the `input` block of the 2 292 965-byte
+// stream.
+//
+// `nr_0b_raw_` is the whole NR 0x0B byte; the five booleans are the pin-7 mux
+// inputs it selects between.
+void IoMode::describe_state(jnext::save::StateDesc& d)
+{
+    d.u8("nr_0b_raw", nr_0b_raw_);
+    d.boolean("pin7", pin7_);
+    d.boolean("uart0_tx", uart0_tx_);
+    d.boolean("uart1_tx", uart1_tx_);
+    d.boolean("joy_left_bit5", joy_left_bit5_);
+    d.boolean("joy_right_bit5", joy_right_bit5_);
+}
+
 void IoMode::save_state(StateWriter& w) const
 {
-    w.write_u8(nr_0b_raw_);
-    w.write_bool(pin7_);
-    w.write_bool(uart0_tx_);
-    w.write_bool(uart1_tx_);
-    w.write_bool(joy_left_bit5_);
-    w.write_bool(joy_right_bit5_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void IoMode::load_state(StateReader& r)
 {
-    nr_0b_raw_      = r.read_u8();
-    pin7_           = r.read_bool();
-    uart0_tx_       = r.read_bool();
-    uart1_tx_       = r.read_bool();
-    joy_left_bit5_  = r.read_bool();
-    joy_right_bit5_ = r.read_bool();
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 }

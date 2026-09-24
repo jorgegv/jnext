@@ -4,6 +4,8 @@
 #include <cstdint>
 #include "input/joystick.h"
 
+namespace jnext { namespace save { class StateDesc; } }
+
 /// Sinclair 1 / Sinclair 2 / Cursor / User-defined joystick-to-keyboard
 /// adapter.
 ///
@@ -153,6 +155,11 @@ public:
     // User-Defined keymap at runtime, so it is genuine emulated state).
     void save_state(class StateWriter& w) const;
     void load_state(class StateReader& r);
+
+    /// GH #27 S5 — the ONE field list (design §9.2). `save_state` /
+    /// `load_state` are both a walk of this declaration, so the rewind
+    /// stream and a `.jns` cannot disagree about which fields exist.
+    void describe_state(jnext::save::StateDesc& d);
 
 private:
     Joystick::Mode mode_left_  = Joystick::Mode::Kempston1;

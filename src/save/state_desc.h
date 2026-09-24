@@ -282,9 +282,9 @@ public:
     /// read at a call site (§6.2).
     ///
     /// The read direction calls `reset()` and then `push()`es the live
-    /// elements, which is exactly what `FifoBuffer::load_state` does today —
-    /// so a corrupt count can neither desync the stream (the stream always
-    /// carries `capacity` elements) nor push past the ring.
+    /// elements, which is exactly what `FifoBuffer::load_state` did before S5
+    /// migrated it away — so a corrupt count can neither desync the stream
+    /// (the stream always carries `capacity` elements) nor push past the ring.
     virtual void fifo(const char* name, FifoAccess& ring, FifoElem elem) = 0;
 
     /// A per-subsystem desync sentinel. NOT A FIELD (§9.4): it is framing.
