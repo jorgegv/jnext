@@ -73,15 +73,18 @@ The root `Makefile` wraps every packaging path in a `make package-*` target
 | `make package-win32-sdl` | SDL-only **32-bit** Windows `.zip` (`jnext-<ver>-windows-x86-sdl.zip` in `build/win32-sdl-release/`) — Win7-clean by import audit; **repo-internal, not a release artifact** (the published 32-bit leg is i686-Qt5 — see doc/design/WINDOWS-COMPAT-PLAN.md §7) | Fedora MinGW **i686** cross toolchain (`mingw32-*`, Qt not needed) | **Yes** (with the mingw32 packages installed) |
 | `make win32-qt5-release` | Qt5 full-GUI **32-bit** (i686) Windows `jnext.exe` + runtime DLLs in `build/win32-qt5-release/` — **Windows 7 SP1+** (GH #108 Phase C) | Fedora MinGW **i686 Qt5** cross toolchain (`mingw32-qt5-*`, see below) | **Yes** (with the mingw32 Qt5 packages installed) |
 | `make package-win32-qt5` | Qt5 full-GUI **32-bit** Windows `.zip` (`jnext-<ver>-windows-x86-legacy.zip` in `build/win32-qt5-release/`) — **Windows 7 SP1+**, **published** third Windows leg (GH #108 Phase C, see below) | Fedora MinGW **i686 Qt5** cross toolchain (`mingw32-qt5-*`, see below) | **Yes** (with the mingw32 Qt5 packages installed) |
-| `make package-flatpak` | Flatpak bundle (`build/flatpak-release/`) | `flatpak-builder` + `org.kde.Sdk//6.10`          | Manifest validates; **full build needs `org.kde.Sdk` installed** (a large runtime) — not present here |
+| `make package-flatpak` | Flatpak bundle (`build/jnext-<ver>-x86_64.flatpak`, built via `build/flatpak-release/`), then `make verify-flatpak-permissions` on it | `flatpak-builder` + `org.kde.Sdk//6.10` + `org.kde.Platform//6.10` | **Yes** (with the KDE runtime + SDK installed, as they are here) |
 | `make package-macos`   | macOS `.dmg` — a self-contained `jnext.app`, verified with `otool` | a Mac / the GitHub Actions macos runner         | **No** — the target prints a SKIP and exits cleanly on non-Darwin |
 
 `make package-test` (`test/packaging/packaging-test.sh`) runs every package
 target above except macOS and asserts each produces a correctly-named artifact
 containing the `jnext` binary. It is **tooling-guarded**: a package whose build
 tool is absent SKIPs rather than FAILs, so the same test runs meaningfully on
-any dev box. On this host src/rpm/deb/win PASS and flatpak SKIPs (manifest
-validated; the full `flatpak-builder` run needs `org.kde.Sdk`). Every target
+any dev box. On this host src/rpm/deb/win/flatpak all PASS; the flatpak row
+SKIPs where `flatpak-builder` or `org.kde.Sdk` is absent, which includes CI —
+it deliberately does not provision them (a multi-GB privileged install), and
+the release workflow builds the bundle in its own KDE container instead. Every
+target
 that cannot run detects the missing tooling/platform and exits with a clear
 message (what to install, or that a Mac/CI runner is required) instead of a
 cryptic mid-build failure.
@@ -285,28 +288,32 @@ real runtime dependency list from the built binary at package time.
 (`org.kde.Platform`/`org.kde.Sdk`) rather than `org.freedesktop.Platform`,
 because jnext's Qt6 GUI needs `Qt6::Widgets` and the KDE runtime ships a
 full Qt6 stack — `org.freedesktop.Platform` would need Qt6 built as an
-extra module, which the KDE runtime avoids. SDL2 is not part of that
-runtime and is built from source as a `cmake-ninja` module; jnext itself is
-built the same way from a `git` source (so its own submodules are pulled by
+extra module, which the KDE runtime avoids. **Since GH #57 the manifest builds
+nothing from source but jnext itself**: an `sdl2` module used to be pinned here
+(tarball URL + `sha256`) because SDL2 was not part of the runtime, but
+`org.kde.Platform//6.10` ships `libSDL3.so.0` and `org.kde.Sdk//6.10` ships its
+headers and CMake package, so the module was deleted rather than re-pinned —
+and with it a recurring bump-the-tarball-and-its-hash maintenance item.
+
+jnext is built from a `git` source (so its own submodules are pulled by
 CMakeLists.txt's existing `git submodule update --init --recursive` logic,
 same submodule gotcha as the RPM case above — a `git` flatpak source has a
 real `.git`, an `archive`/tarball source would not).
 
-The manifest carries the **real** SDL2 tarball `sha256` and pins
-`runtime-version: '6.10'` (the KDE runtime branch installed here). It validates
-with `flatpak-builder --show-manifest`. A full `flatpak-builder` run additionally
-needs `org.kde.Sdk//6.10` installed (a large runtime) and the `flathub` remote
-enabled — neither is set up on this dev host, so `make package-flatpak` /
-`make package-test` validate the manifest and SKIP the actual build here. To
-build it for real:
+The manifest pins `runtime-version: '6.10'` and validates with
+`flatpak-builder --show-manifest`. A full `flatpak-builder` run additionally
+needs `org.kde.Sdk//6.10` + `org.kde.Platform//6.10` installed (large runtimes)
+and the `flathub` remote enabled; they ARE installed on this dev host, so
+`make package-flatpak` builds the bundle for real here. On a machine without
+them the target says which to install and exits:
 
 ```sh
 flatpak install flathub org.kde.Sdk//6.10 org.kde.Platform//6.10
-flatpak-builder --user --install build-dir packaging/flatpak/io.github.zxjogv.jnext.yml
+make package-flatpak
 ```
 
-Bump both the SDL2 pin (URL + `sha256`) and the `runtime-version` when a newer
-SDL2 release or KDE runtime branch is targeted.
+Bump `runtime-version` (here and the CI image tag in `release.yml`, which must
+stay in lockstep) when a newer KDE runtime branch is targeted.
 
 ### Sandbox permissions are a CONTRACT, checked on the built bundle (GH #271)
 
@@ -490,7 +497,7 @@ policy. The per-OS build jobs, when they run:
 | `rpm`     | `ubuntu-latest` + `fedora:44` | `make package-rpm` (in a Fedora container)           | RPM (`build/rpm-release/`)     | Yes — built in a `fedora:44` container; deps are Fedora-native (`libcurl.so.4()(64bit)`, not the Ubuntu `CURL_OPENSSL_4` node) |
 | `src`     | `ubuntu-latest`               | `make package-src` (submodule-aware)                 | `jnext-<ver>-src.zip`          | Yes |
 | `windows` | `ubuntu-latest` + `fedora:44` | `make package-win` + `package-win-qt5` + `package-win32-qt5` (MinGW cross-builds + DLL bundling) | 3× ZIP (`build/win-release/`, `build/win-qt5-release/`, `build/win32-qt5-release/`) | Yes — all three built here; the x64-Qt6 zip ran green on a real runner and shipped in v0.98.19, confirmed working on Windows hardware; both Qt5 zips confirmed by a tester on real Windows 8.1 (GH #108) |
-| `flatpak` | `ubuntu-latest` + KDE 6.10     | `flatpak-builder` (org.kde.Sdk//6.10)                 | `.flatpak` bundle              | No — `continue-on-error`; not yet run on a GitHub runner |
+| `flatpak` | `ubuntu-latest` + KDE 6.10     | `flatpak-builder` (org.kde.Sdk//6.10), then `make verify-flatpak-permissions` on the bundle | `.flatpak` bundle              | **Yes** — blocking since v0.99.110 (it ran green on a real runner, so the `continue-on-error` its comment made conditional on that was removed) |
 | `macos`   | `macos-latest`                | `make package-macos` (Homebrew + CPack + `macdeployqt`) | DragNDrop `.dmg` (`build/mac-release/`) | No — no macOS runner locally (`continue-on-error`); the bundle's self-containment is asserted in-job by `verify-bundle.sh` |
 
 This workflow is separate from `ci.yml` (which runs the test suite on push/PR).
