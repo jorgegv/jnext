@@ -31,7 +31,7 @@ mentions them, so a test can no longer be absent from this document.
 | Compositor                                 |   284 |  284 |    0 |    0 |       0 |          0 |
 | Audio                                      |   221 |  221 |    0 |    0 |       0 |          0 |
 | DMA                                        |   160 |  160 |    0 |    0 |       0 |          0 |
-| DivMMC+SPI                                 |   155 |  155 |    0 |    0 |       0 |          0 |
+| DivMMC+SPI                                 |   172 |  155 |    0 |    0 |      17 |          0 |
 | Multiface                                  |    55 |   55 |    0 |    0 |       0 |          0 |
 | CTC+Interrupts                             |   203 |  203 |    0 |    0 |       0 |          0 |
 | UART+I2C/RTC                               |   122 |  122 |    0 |    0 |       0 |          0 |
@@ -43,7 +43,7 @@ mentions them, so a test can no longer be absent from this document.
 | VideoTiming                                |    64 |   64 |    0 |    0 |       0 |          0 |
 | Contention                                 |   160 |  160 |    0 |    0 |       0 |          0 |
 | LoRes                                      |    91 |   91 |    0 |    0 |       0 |          0 |
-| SD Card                                    |    75 |   74 |    0 |    1 |       0 |          0 |
+| SD Card                                    |    76 |   74 |    0 |    1 |       1 |          0 |
 | NMI Source Pipeline                        |    78 |   78 |    0 |    0 |       0 |          0 |
 | Raster State                               |    86 |   86 |    0 |    0 |       0 |          0 |
 | CPU interrupt pulse                        |    11 |   11 |    0 |    0 |       0 |          0 |
@@ -63,9 +63,9 @@ mentions them, so a test can no longer be absent from this document.
 | Companion: nmi_integration_test            |    10 |   10 |    0 |    0 |       0 |          0 |
 | Companion: input_integration_test          |    24 |   24 |    0 |    0 |       0 |          0 |
 | Companion: uart_integration_test           |    50 |   50 |    0 |    0 |       0 |          0 |
-| **Total**                                  |  4745 | 4740 |    0 |    5 |       0 |          0 |
+| **Total**                                  |  4763 | 4740 |    0 |    5 |      18 |          0 |
 
-Rows the sections above carry: **4745**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4437**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8409**.
+Rows the sections above carry: **4763**. Distinct row IDs recorded anywhere in this document (every table, including "Extra coverage"): **4455**. Rows the 115 suites declared in `test/unit-tests.conf` run live: **8531**.
 
 The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fail+skip+missing by construction. A further **0** rows live in the 4-column "Extra coverage (not in plan)" tables, which have no `Status` column: their `VHDL file:line` and `Test file:line` ARE recomputed on every run (they were not, for two years — GH #192), and a row asserted nowhere reads `missing` in the location column exactly as it would in a main table. A further **0** rows sit in **0** tables that carry neither column and are therefore not refreshed at all; each says so above itself.
 
@@ -77,7 +77,7 @@ The `Rows` column counts rows that publish a **`Status`**, so it equals pass+fai
 
 Every suite `test/unit-tests.conf` declares is accounted for: it is either traced by a section above or listed below with the authority it is actually written against. **Anything else is a hard failure** — `test/refresh-traceability-matrix.pl` refuses to run (exit 2) and rewrites nothing, in the manner of `test/run-unit-tests.sh` refusing when its manifest and CMake disagree. That refusal is the anti-drift mechanism: the traced-suite count sat at 28 for the whole v0.98 series while the manifest grew 49 → 80, because each of the ~31 additions arrived as one more name on a warning line that already listed fifty.
 
-These 72 suites (3957 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
+These 72 suites (4079 live rows) have no VHDL-derived plan row to map, so they have no section here. They are still declared, counted and run; their runtime view is `test/SUBSYSTEM-TESTS-STATUS.md`.
 
 | Suite | Rows | Authority it is written against |
 |-------|-----:|---------------------------------|
@@ -91,7 +91,7 @@ These 72 suites (3957 live rows) have no VHDL-derived plan row to map, so they h
 | `fat32_image_test` | 16 | FAT32 on-disk format (host image reader) |
 | `sdcard_provisioner_test` | 57 | jnext SD-image download/patch policy (host side) |
 | `warm_start_test` | 39 | warm-start cache file format and invalidation keys (GH #234, jnext-internal); the residency rows assert what the FIRMWARE leaves, which the FPGA core does not specify |
-| `snapshot_test` | 153 | the .jns snapshot CONTAINER (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity. A jnext-internal on-disk format; the FPGA core never sees a file |
+| `snapshot_test` | 275 | the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file |
 | `audio_pacing_test` | 50 | host SDL audio pacing/underrun policy, downstream of the mixer |
 | `audio_fill_test` | 39 | host SDL device-boundary fill/hold policy (GH #208), downstream of the mixer |
 | `audio_capture_test` | 17 | host WAV capture of the mixer output |
@@ -2027,9 +2027,26 @@ Notes and rationale: [DIVMMC-SPI-TEST-PLAN-DESIGN.md](DIVMMC-SPI-TEST-PLAN-DESIG
 | SX-03 | First read after select returns previous-cycle result (VHDL spi_master.vhd:162-166); with no prior transfer the value is the miso_dat signal-init 0x00 (spi_master.vhd:74) | spi_master.vhd:162-166, spi_master.vhd:74 | pass | test/divmmc/divmmc_test.cpp:3004 |
 | SX-04 | First read after reset (no device) returns miso_dat signal-init 0x00 (VHDL spi_master.vhd:74; i_reset hardwired '0' at zxnext.vhd:3285) | spi_master.vhd:74, zxnext.vhd:3285 | pass | test/divmmc/divmmc_test.cpp:3030 |
 | SX-05 | Read after write returns MISO of the write exchange (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3052 |
+| SX-06 | SPI transfer is 16 clock cycles (8 bits x 2 edges) | — | missing | — |
+| SX-07 | SCK output matches state_r[0] | — | missing | — |
+| SX-08 | MOSI outputs MSB first | — | missing | — |
+| SX-09 | MISO sampled on rising SCK edge (delayed by 1 cycle) | — | missing | — |
+| SX-10 | Back-to-back transfers: new transfer starts on last state | — | missing | — |
+| ST-01 | Reset: state = "10000" (idle) | — | missing | — |
+| ST-02 | Transfer start: state goes to "00000" | — | missing | — |
+| ST-03 | State increments each clock until 0x0F | — | missing | — |
+| ST-04 | After state 0x0F, returns to idle ("10000") | — | missing | — |
+| ST-05 | spi_wait_n = 0` during active transfer | — | missing | — |
+| ST-06 | spi_wait_n = 1` when idle or on last cycle | — | missing | — |
+| ST-07 | Transfer can begin from idle OR from last state | — | missing | — |
+| ST-08 | Read/write during mid-transfer: ignored | — | missing | — |
 | ST-09 | SPI o_spi_wait_n surfaced via spi_wait_n() accessor; byte-wrapper master is always idle when observed (VHDL serial/spi_master.vhd:56,177) | serial/spi_master.vhd:56,177 | pass | test/divmmc/divmmc_test.cpp:3198 |
+| ML-01 | MISO bits shifted in on delayed rising SCK | — | missing | — |
+| ML-02 | Full byte latched into `miso_dat` on `state_last_d | — | missing | — |
 | ML-03 | miso_dat stable across reads with same response (VHDL spi_master.vhd:164-165) | spi_master.vhd:164-165 | pass | test/divmmc/divmmc_test.cpp:3240 |
+| ML-04 | Input and output shift registers are independent | — | missing | — |
 | ML-05 | First read after reset reflects miso_dat power-on initial value 0x00 (VHDL spi_master.vhd:74 signal-init `(others => '0')`; i_reset hardwired '0' at zxnext.vhd:3285 means the synchronous-reset clause spi_master.vhd:151-152 never fires) | spi_master.vhd:74, zxnext.vhd:3285, spi_master.vhd:151-152 | pass | test/divmmc/divmmc_test.cpp:3277 |
+| ML-06 | 16 cycles minimum between read/write operations | — | missing | — |
 | SPI-MX-02 | RPI selected: MISO comes from the slave on that chip-select and the SD card is not consulted (VHDL zxnext.vhd:3279 mux arm; :3315-3318 decode; :3329-3330 spi_ss_rpi1_n/rpi0_n) | zxnext.vhd:3279 | pass | test/divmmc/divmmc_test.cpp:3351 |
 | MX-03 | SD selected: MISO sourced from SD device (VHDL zxnext.vhd:3280) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3372 |
 | MX-04 | No device selected: MISO reads as 0xFF after pipeline prime (VHDL zxnext.vhd:3280 default-else `spi_miso <= '1'` propagates to miso_dat at next state_last_d) | zxnext.vhd:3280 | pass | test/divmmc/divmmc_test.cpp:3400 |
@@ -3596,6 +3613,7 @@ Notes and rationale: [LORES-TEST-PLAN-DESIGN.md](LORES-TEST-PLAN-DESIGN.md).
 | SDSC-CSD-02 | SDHC CMD9 returns a CSD Version 2.0 register (CSD_STRUCTURE=01, READ_BL_PARTIAL=0) whose 22-bit C_SIZE counts 512 KB units (§ 5.3.3) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3355 |
 | SDSC-CSD-03 | SDSC CSD v1.0 capacity encoding scales with the image: a 16 MiB card needs C_SIZE_MULT=1 (12-bit C_SIZE cannot reach it at MULT=4) and still decodes to the exact size (§ 5.3.2) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3392 |
 | SDSC-CSD-04 | an image below one MULT unit is declared at the v1.0 floor (C_SIZE=0, C_SIZE_MULT=0 → 2048 bytes, § 5.3.2) — the only size the encoding cannot round down — and a read inside that declaration but past the real file is still refused with OUT_OF_RANGE (§ 7.3.2.1) | (SD SPI spec) | pass | test/sdcard/sdcard_test.cpp:3443 |
+| MMC-02 | CMD8 illegal-cmd response on MMC not modelled (see G41) | — | missing | — |
 
 ## NMI Source Pipeline — `test/nmi/nmi_test.cpp`
 

@@ -145,6 +145,7 @@ BADGE_FAIL := $(FG_WHITE)$(BG_FAIL)
        docs-man docs-check docs-man-check docs-userguide-check docs-userguide read-userguide cli-check \
        docs-screenshots \
        docs-devguide docs-devguide-check docs-devguide-diagrams read-devguide \
+       docs-schema schema-check snapshot-zip-check \
        bump bump-patch bump-minor bump-major version publish-release \
        package-src package-rpm package-deb package-flatpak package-win package-macos win-release package-test \
        win-sdl-release package-win-sdl win32-sdl-release package-win32-sdl \
@@ -506,6 +507,51 @@ snapshot-zip-check: unit-test-build
 	@# locally, HARD-FAIL in CI. A check that silently skips in CI reads as a pass.
 	@bash test/snapshot/verify-external-zip.sh
 
+# Regenerate the committed .jns JSON Schema from the field declarations
+docs-schema: unit-test-build
+	@# The ONE command that produces the committed artefact (§16.3). It walks
+	@# SchemaDesc over every registered subsystem and merges the hand-written
+	@# constraint overlay, so there is exactly one way the file comes into
+	@# existence and `schema-check` below can be an exact byte-diff.
+	@mkdir -p doc/formats
+	@$(SCHEMA_GEN) --overlay $(SCHEMA_OVERLAY) --out $(SCHEMA_OUT)
+	@printf "$(BADGE_PASS) OK $(RESET) regenerated $(SCHEMA_OUT)\n"
+
+# Fail when the committed .jns JSON Schema is stale vs a fresh generation
+schema-check: unit-test-build
+	@# GH #27 S2 — the same shape as docs-check and traceability-check, and
+	@# for the same reason: doc/formats/jns-snapshot.schema.json is GENERATED
+	@# and COMMITTED, so a stale committed copy is a silent lie no other gate
+	@# can see. Every change to a field declaration then appears as a schema
+	@# diff in the commit, where a human reviewer sees it — which is §13.2(5),
+	@# a PROCESS control and explicitly not a technical one.
+	@#
+	@# Two parts, and the second is why this is not merely bookkeeping:
+	@#   1. regenerate and byte-diff (this is §16.3's specification); and
+	@#   2. hand the result to an independent JSON Schema implementation —
+	@#      Python `jsonschema`, which we did not write — with a positive and
+	@#      a negative matrix, so the committed schema is known to be a valid
+	@#      schema that accepts what it must and REJECTS what it must. A
+	@#      schema that accepts everything would pass part 1 forever.
+	@#
+	@# Skip/fail posture is docs-check's, verbatim: skip when the validator is
+	@# absent locally, HARD-FAIL in CI.
+	@tmp=$$(mktemp -d); \
+	 rc=0; \
+	 if ! $(SCHEMA_GEN) --overlay $(SCHEMA_OVERLAY) --out $$tmp/schema.json; then \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) the .jns schema generator failed\n"; rc=1; \
+	 elif ! cmp -s $$tmp/schema.json $(SCHEMA_OUT); then \
+	   printf "$(BADGE_FAIL) FAIL $(RESET) $(SCHEMA_OUT) is stale\n"; \
+	   printf "        it is GENERATED and COMMITTED: run '$(BOLD)make docs-schema$(RESET)' and commit it\n"; \
+	   diff -u $(SCHEMA_OUT) $$tmp/schema.json | head -40; \
+	   rc=1; \
+	 else \
+	   printf "$(BADGE_PASS) OK $(RESET) the .jns schema is up to date\n"; \
+	 fi; \
+	 rm -rf $$tmp; \
+	 [ $$rc -eq 0 ] || exit $$rc; \
+	 bash test/snapshot/verify-schema.sh
+
 # Fail when one test ID is asserted by two different suites
 traceability-dup-check:
 	@# GH #196 phase 3.2. Enumerated from test/unit-tests.conf — EVERY declared
@@ -518,7 +564,7 @@ traceability-dup-check:
 	@perl test/traceability-dup-ids.pl
 
 # Run all subsystem unit tests in parallel (exactly those in test/unit-tests.conf)
-unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check snapshot-zip-check package-contract-test
+unit-test: lint-assertions lint-makefile-help traceability-accounting-check traceability-selftest cmake-guard-selftest traceability-dup-check unit-test-build traceability-check docs-check schema-check snapshot-zip-check package-contract-test
 	@# lint-makefile-help sits beside lint-assertions for the same reason and at the
 	@# same cost (~8 ms of awk over one file, no compiler, no build directory): it is
 	@# a structural gate that must fail before anything expensive starts. GH #140 —
@@ -867,6 +913,11 @@ cli-check: unit-test-build
 	@# needs no compiler. `make unit-test` runs the same suite via
 	@# test/unit-tests.conf, so it is covered by both entry points.
 	@./build/test/cli_options_test
+
+# The `.jns` JSON Schema: generated from the field declarations (GH #27 S2)
+SCHEMA_GEN     := ./build/tools/gen-snapshot-schema/gen-snapshot-schema
+SCHEMA_OVERLAY := src/save/jns-schema-overlay.json
+SCHEMA_OUT     := doc/formats/jns-snapshot.schema.json
 
 # Fail if any committed generated document is stale (man page, USAGE.md, guides)
 docs-check:

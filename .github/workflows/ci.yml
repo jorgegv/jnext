@@ -135,7 +135,7 @@ jobs:
             cmake gcc-c++ git make ccache \
             SDL2-devel zlib-devel libcurl-devel openssl-devel libpng-devel \
             qt6-qtbase-devel \
-            ImageMagick xorg-x11-server-Xvfb xdotool python3 python3-pyyaml unzip diffutils \
+            ImageMagick xorg-x11-server-Xvfb xdotool python3 python3-pyyaml python3-jsonschema unzip diffutils \
             ripgrep ffmpeg-free bc file xxd \
             mtools dosfstools \
             pandoc mkdocs-material graphviz liberation-sans-fonts \
@@ -158,6 +158,18 @@ jobs:
           # alone is not. Depending on another package's dependency graph is
           # precisely the "discover them one CI run at a time" failure the
           # comment above says this list exists to prevent.
+          # python3-jsonschema is `make schema-check`'s FOREIGN validator, and is
+          # declared for the same reason mtools is: the second half of that gate
+          # hands doc/formats/jns-snapshot.schema.json to an implementation that
+          # is not ours, and `test/snapshot/verify-schema.sh` HARD-FAILS rather
+          # than skipping when CI is set and the module is missing. It arrives
+          # transitively from nothing in this list (checked with `dnf5 repoquery
+          # --requires` across every package above, and `--whatrequires`), so
+          # `make unit-test` fails in the container without it — reproduced
+          # locally in a venv with no site-packages, exit 1. This gate was the
+          # first one added to `make unit-test` whose tool was not already here;
+          # docs-check's pandoc/mkdocs-material/graphviz and
+          # traceability-check's four perl-* entries are the precedent.
           # liberation-sans-fonts is a docs dependency, not a font preference.
           # The developer guide's .dot sources ask for fontname="Helvetica",
           # which no installed font is actually NAMED: fontconfig resolves it,

@@ -292,6 +292,11 @@ add_subdirectory(src/esp01)
 add_subdirectory(src/peripheral)
 add_subdirectory(src/platform)
 add_subdirectory(src/save)
+# The `.jns` JSON Schema generator (GH #27 S2). Built by an ordinary build, not
+# EXCLUDE_FROM_ALL: `make schema-check` is a prerequisite of `make unit-test`,
+# so it has to exist wherever the test tree does. It links jnext_save alone and
+# costs about a second.
+add_subdirectory(tools/gen-snapshot-schema)
 
 # GH #108 Phase A — Qt major selection, decided ONCE here and consumed by
 # src/gui and src/debugger (find_package(Qt${JNEXT_QT_MAJOR})) and the WIN32

@@ -976,7 +976,7 @@ my %NO_MATRIX_SECTION = (
     'sdcard_file_add_test'    => 'FAT32 on-disk format + ChaN FatFs as the writer (host file copy INTO an image, GH #269); the core never writes a filesystem, only SPI blocks, which `## SD Card` traces',
     'fat32_image_test'        => 'FAT32 on-disk format (host image reader)',
     'sdcard_provisioner_test' => 'jnext SD-image download/patch policy (host side)',
-    'snapshot_test'           => 'the .jns snapshot CONTAINER (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity. A jnext-internal on-disk format; the FPGA core never sees a file',
+    'snapshot_test'           => 'the .jns snapshot CONTAINER and FIELD DESCRIPTOR layers (doc/design/NEXT-SNAPSHOT-FORMAT.md): ZIP framing, manifest.json grammar, format_version rules, SD identity, and the one field list behind the binary/JSON/schema encodings. A jnext-internal on-disk format; the FPGA core never sees a file',
     'video_recorder_cmd_test' => 'FFmpeg command-line construction (host encoder)',
 
     # ── Guest-firmware surfaces jnext stands in for ──────────────────
