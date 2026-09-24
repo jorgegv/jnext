@@ -707,15 +707,30 @@ set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
 # Measured, not assumed: libqt6gui6t64's own Depends closure covers the X11
 # and EGL side but NOT libasound/libpulse/libpipewire.
 #
-# Recommends, not Depends: jnext runs perfectly well with no audio backend (it
-# falls back and says so in the log), and apt installs Recommends by default,
-# so the desktop case gets exactly what it had before. Only set for the
-# vendored build — the distro-SDL3 legs get all of this through libsdl3-0.
-# (Deliberately NOT adding an ffmpeg Recommends here as well: the CPack .deb
-# has never carried one — only the hand-written packaging/debian/control does —
+# DEPENDS, not Recommends (owner decision, GH #57 review). Recommends was the
+# first answer and it is wrong here, for a reason that was reproduced in a
+# container rather than argued: `dpkg -i jnext.deb` followed by
+# `apt-get install -f` honours Depends but NOT Recommends, leaves zero audio
+# backends installed, and jnext then runs silently mute with nothing but a log
+# line to say why. `dpkg -i` is what most "download the .deb" instructions
+# tell people to use.
+#
+# The usual argument for keeping a dependency soft — do not burden a minimal
+# or headless install — does not apply: this package already hard-Depends on
+# the whole Qt6 GUI stack, so no such install exists to protect.
+#
+# Alternatives (|), not a conjunction: any ONE of the three backends is enough
+# for SDL to produce sound, and requiring all three would drag PulseAudio onto
+# a PipeWire desktop and vice versa. apt satisfies the first already-installed
+# alternative, and installs the leftmost only when none is present.
+#
+# Only set for the vendored build — the distro-SDL3 legs get all of this
+# transitively through libsdl3-0.
+# (Deliberately NOT adding an ffmpeg entry here as well: the CPack .deb has
+# never carried one — only the hand-written packaging/debian/control does —
 # and changing that is a separate decision from this one.)
 if(JNEXT_SDL3_VENDORED)
-    set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "libasound2t64, libpulse0, libpipewire-0.3-0")
+    set(CPACK_DEBIAN_PACKAGE_DEPENDS "libpipewire-0.3-0 | libpulse0 | libasound2t64")
 endif()
 # Name the .deb the Debian way: <name>_<version>-<release>_<arch>.deb
 # (DEB-DEFAULT), instead of CPack's default "jnext-<version>-Linux.deb".
