@@ -60,6 +60,14 @@ Updated 2026-04-17 (commit `d4ea4e1`):
 >
 > **SM-06/07 are struck in the §11 table rather than left as prose**, so the
 > generator stops reporting them as an open backlog they are not.
+>
+> **GH #201 (2026-09-24), owner decision — the SPI-master FSM cluster is WONT.**
+> The remaining 17 `missing` rows (`SX-06..10`, `ST-01..08`, `ML-01`/`ML-02`/
+> `ML-04`/`ML-06`) are struck in §13-§15. They are not blocked on a premise that
+> changed; they describe a bit-level FSM jnext deliberately does not have, and
+> the owner decided not to build one. Rationale, risk and the cheaper
+> G137-only alternative are recorded in the "GH #201 — the SPI-master FSM
+> cluster" section at the end of this document. DivMMC+SPI `missing` is now 0.
 
 ## Architecture
 
@@ -431,11 +439,11 @@ Port 0xEB triggers SPI byte exchange. VHDL reference: `spi_master.vhd`.
 | SX-03 | Read returns PREVIOUS exchange result | `miso_dat` latched at end of previous transfer |
 | SX-04 | First read after reset returns 0xFF | `miso_dat` initialized to all 1s |
 | SX-05 | Write 0xAA then read: read returns MISO from write cycle | Pipeline: read gets result of preceding exchange |
-| SX-06 | SPI transfer is 16 clock cycles (8 bits x 2 edges) | `state_r` counts 0x00 to 0x0F, then idle |
-| SX-07 | SCK output matches state_r[0] | `o_spi_sck = state_r(0)` |
-| SX-08 | MOSI outputs MSB first | `o_spi_mosi = oshift_r(7)`, shifts left |
-| SX-09 | MISO sampled on rising SCK edge (delayed by 1 cycle) | `state_r0_d` delays sampling for synchronization |
-| SX-10 | Back-to-back transfers: new transfer starts on last state | `spi_begin` when `state_last=1 AND (rd OR wr)` |
+| ~~SX-06~~ | ~~SPI transfer is 16 clock cycles (8 bits x 2 edges)~~ | **WONT 2026-09-24 (GH #201, owner decision)** — the 16 steps are `state_r(3 downto 0)` counting `0x0` to `0xF` (`spi_master.vhd:66,86,97`); `i_CLK` is "twice the spi sck frequency" (`:43`), which is where "8 bits x 2 edges" comes from. jnext's `SpiMaster` has no counter to count — `write_data`/`read_data` exchange a whole byte synchronously (`src/peripheral/spi.cpp:176-225`). See "GH #201 — the SPI-master FSM cluster: WONT (2026-09-24)" below. No `check()` row exists. |
+| ~~SX-07~~ | ~~SCK output matches state_r[0]~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `o_spi_sck <= state_r(0)` (`spi_master.vhd:172`) is an FPGA pin driven off the counter's LSB. jnext models SPI at byte granularity and emits no clock pin at all, so there is nothing to sample. Same decision. No `check()` row exists. |
+| ~~SX-08~~ | ~~MOSI outputs MSB first~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `o_spi_mosi <= oshift_r(7)` (`spi_master.vhd:173`), the register shifting left with a '1' fill on every `state_r(0)='1'` (`:113-114`). jnext hands the whole byte to `SpiDevice::receive()` in one call; bit order is internal to that abstraction and unobservable. Same decision. No `check()` row exists. |
+| ~~SX-09~~ | ~~MISO sampled on rising SCK edge (delayed by 1 cycle)~~ | **WONT 2026-09-24 (GH #201, owner decision)** — sampling is gated on `state_r0_d` (`spi_master.vhd:129,153-154`), the one-cycle-delayed copy of `state_r(0)` that exists "due to external synchronization of spi sck and mosi" (`:121`). Needs both the counter and the delay register. Same decision. No `check()` row exists. |
+| ~~SX-10~~ | ~~Back-to-back transfers: new transfer starts on last state~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `spi_begin` admits a new transfer when `state_last='1' OR state_idle='1'` (`spi_master.vhd:82,86-87`). jnext's master is unconditionally idle between calls, so "from the last state" and "from idle" are the same observation and the row cannot discriminate. Same decision. No `check()` row exists. |
 
 ### 14. SPI State Machine
 
@@ -444,14 +452,14 @@ lines 86-100.
 
 | ID   | Test | Notes |
 |------|------|-------|
-| ST-01 | Reset: state = "10000" (idle) | `state_r(4)` = idle flag |
-| ST-02 | Transfer start: state goes to "00000" | `spi_begin` clears all bits |
-| ST-03 | State increments each clock until 0x0F | 16 states for 8-bit transfer |
-| ST-04 | After state 0x0F, returns to idle ("10000") | Next increment wraps to idle |
-| ST-05 | `spi_wait_n = 0` during active transfer | `state_idle OR state_last_d` |
-| ST-06 | `spi_wait_n = 1` when idle or on last cycle | DMA wait signal |
-| ST-07 | Transfer can begin from idle OR from last state | Allows pipelined transfers |
-| ST-08 | Read/write during mid-transfer: ignored | `spi_begin=0` when not idle/last |
+| ~~ST-01~~ | ~~Reset: state = "10000" (idle)~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `state_r` is declared `:= "10000"` (`spi_master.vhd:66`) and the reset clause restores it (`:92-93`); note `i_reset` is hardwired `'0'` at the instantiation (`zxnext.vhd:3285`), so on hardware it is the signal-declaration value that applies, never the clause. jnext has no state register at all. Same decision. No `check()` row exists. |
+| ~~ST-02~~ | ~~Transfer start: state goes to "00000"~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `spi_begin='1'` clears all five bits, idle flag included (`spi_master.vhd:94-95`). Needs the register. Same decision. No `check()` row exists. |
+| ~~ST-03~~ | ~~State increments each clock until 0x0F~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `state_r <= state_r + 1` on every `i_CLK` while `state_idle='0'` (`spi_master.vhd:96-97`). Needs the register and a clocked SPI tick, neither of which exists in jnext. Same decision. No `check()` row exists. |
+| ~~ST-04~~ | ~~After state 0x0F, returns to idle ("10000")~~ | **WONT 2026-09-24 (GH #201, owner decision)** — the wrap is implicit rather than coded: incrementing `0_1111` carries into bit 4 and yields `1_0000`, which IS idle (`spi_master.vhd:66,87,97`). Needs the register. Same decision. No `check()` row exists. |
+| ~~ST-05~~ | ~~`spi_wait_n = 0` during active transfer~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `o_spi_wait_n <= state_idle or state_last_d` (`spi_master.vhd:177`); it is low only for the states between start and `state_last_d`. jnext's `spi_wait_n()` is a literal `return true` (`src/peripheral/spi.h:103`), honest for a master that is never mid-transfer when observed. This row, with ST-06 and ML-06, is the DMA-pacing half of the cluster — the only part with a user-visible consequence (gap **G137**), and the part the cheaper alternative below would close. See "GH #201 — the SPI-master FSM cluster: WONT (2026-09-24)" below. No `check()` row exists. |
+| ~~ST-06~~ | ~~`spi_wait_n = 1` when idle or on last cycle~~ | **WONT 2026-09-24 (GH #201, owner decision)** — same expression (`spi_master.vhd:177`); the `state_last_d` term is what lets a back-to-back transfer be issued without stalling the DMA. ST-09 already pins the byte-granularity half of this invariant LIVE. Same decision. No `check()` row exists. |
+| ~~ST-07~~ | ~~Transfer can begin from idle OR from last state~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `spi_begin` at `spi_master.vhd:82`; this is SX-10 seen from the counter side, blocked by the same absent register. Same decision. No `check()` row exists. |
+| ~~ST-08~~ | ~~Read/write during mid-transfer: ignored~~ | **WONT 2026-09-24 (GH #201, owner decision)** — the negative of `spi_begin` (`spi_master.vhd:82`): with neither `state_last` nor `state_idle` set, `i_spi_rd`/`i_spi_wr` have no effect. Unreachable in jnext, where there is no window during which a transfer is in progress. Same decision. No `check()` row exists. |
 | ST-09 | DMA-via-SPI: `o_spi_wait_n` stretches DMA byte to 16 SPI clocks | VHDL `serial/spi_master.vhd:56,177` consumed by DMA at `zxnext.vhd:3297`; G137 — closed 2026-04-28 (Task 8 t1) — `SpiMaster::spi_wait_n()` accessor surfaces the byte-level invariant (always idle when observed); cycle-accurate FSM remains future work |
 
 ### 15. SPI MISO Data Latch
@@ -461,12 +469,12 @@ synchronization. VHDL reference: `spi_master.vhd` lines 121-168.
 
 | ID   | Test | Notes |
 |------|------|-------|
-| ML-01 | MISO bits shifted in on delayed rising SCK | `state_r0_d=1` triggers shift |
-| ML-02 | Full byte latched into `miso_dat` on `state_last_d` | One cycle after state reaches 0x0F |
+| ~~ML-01~~ | ~~MISO bits shifted in on delayed rising SCK~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `ishift_r <= ishift_r(5 downto 0) & i_spi_miso` when `state_r0_d='1'` (`spi_master.vhd:153-154`, process `:148-157`). Per-bit modelling of a 7-bit register jnext does not have. Same decision. No `check()` row exists. |
+| ~~ML-02~~ | ~~Full byte latched into `miso_dat` on `state_last_d`~~ | **WONT 2026-09-24 (GH #201, owner decision)** — `miso_dat <= ishift_r & i_spi_miso` on `state_last_d='1'` (`spi_master.vhd:164-165`): the eighth bit is taken live off the pin, not from the shift register. The *consequence* — a read returns the previous exchange — is already LIVE as SX-03/SX-05/ML-03; only the latch instant is unreachable. Same decision. No `check()` row exists. |
 | ML-03 | `miso_dat` holds value until next transfer completes | Stable between transfers |
-| ML-04 | Input and output shift registers are independent | Can have different data simultaneously |
+| ~~ML-04~~ | ~~Input and output shift registers are independent~~ | **WONT 2026-09-24 (GH #201, owner decision)** — the VHDL comment at `spi_master.vhd:145-146` says why they are kept apart: "without synchronization, problems are seen in some sd cards at higher system frequencies". That is a physical-timing workaround inside the FPGA with no software-visible consequence, and jnext has neither register. Same decision. No `check()` row exists. |
 | ML-05 | Reset sets `ishift_r` to all 1s | Safe default |
-| ML-06 | 16 cycles minimum between read/write operations | Comment in VHDL: "separated by 16 cycles" |
+| ~~ML-06~~ | ~~16 cycles minimum between read/write operations~~ | **WONT 2026-09-24 (GH #201, owner decision)** — the quoted comment is real but is NOT in `spi_master.vhd`, as this cell used to claim: it is at `zxnext.vhd:3274`, immediately above the instantiation — "read/write to SPI must be separated by 16 cycles (dma has wait to guarantee this)". It is therefore a statement about the DMA pacing of ST-05/06 (gap **G137**), the only user-visible item in this cluster. See "GH #201 — the SPI-master FSM cluster: WONT (2026-09-24)" below. No `check()` row exists. |
 
 ### 16. SPI MISO Source Multiplexing
 
@@ -604,12 +612,12 @@ bash test/regression.sh
 | NR 0x0A automap enable | 8 | Global enable/disable (+NA-04..08 G123/G124/G125/G131) |
 | SRAM address mapping | 7 | Physical address ranges |
 | Port 0xE7 chip select | 11 | SS register, sd_swap, flash protection (SS-08 is LIVE again since GH #201 — see §12; the G136 skip rationale was stale) |
-| Port 0xEB SPI exchange | 10 | Full-duplex protocol |
-| SPI state machine | 9 | State counter, wait signal (+ST-09 G137) |
-| SPI MISO latch | 6 | Pipeline delay, synchronization |
+| Port 0xEB SPI exchange | 5 | Full-duplex protocol (SX-06..10 struck WONT — see the GH #201 FSM section) |
+| SPI state machine | 1 | ST-09 only (byte-level wait-signal invariant); ST-01..08 struck WONT — see the GH #201 FSM section |
+| SPI MISO latch | 2 | Pipeline delay (ML-03/ML-05); ML-01/02/04/06 struck WONT — see the GH #201 FSM section |
 | MISO multiplexing | 5 | Device priority |
 | Integration scenarios | 7 | End-to-end sequences |
-| **Total** | **~130** | |
+| **Total** | **113** | 130 before the 17 GH #201 FSM strikes of 2026-09-24 |
 
 ## NMI integration (NM-01..08 un-skip path)
 
@@ -773,3 +781,119 @@ Per-row disposition, from `git log -S'"<ID>"' -- test/divmmc/`:
   SD-03 test `SdCardDevice` in isolation, which is properly the domain
   of the separate "SD Card" subsystem's own `test/sdcard/sdcard_test.cpp`
   (out of scope for this change; not touched).
+
+## GH #201 — the SPI-master FSM cluster: WONT (2026-09-24)
+
+**Owner decision, 2026-09-24: document it and do not do it.** Seventeen rows
+are struck above — `SX-06..10` (§13), `ST-01..08` (§14) and `ML-01`, `ML-02`,
+`ML-04`, `ML-06` (§15). They were the entirety of this subsystem's `missing`
+column, which now reads zero. Nothing was asserted to get there and nothing
+about the emulator changed: the rows describe hardware jnext deliberately does
+not model, and saying so is the honest disposition.
+
+### What the rows ask for
+
+`serial/spi_master.vhd` is 179 lines and a genuine bit-level state machine. It
+is instantiated once, at `zxnext.vhd:3282-3298`, clocked by `i_CLK_CPU`
+(`:3284`) — "twice the spi sck frequency" (`spi_master.vhd:43`), which is what
+makes a byte 16 clocks and a bit 2.
+
+| VHDL | What it is |
+|------|------------|
+| `spi_master.vhd:66` | `state_r : std_logic_vector(4 downto 0) := "10000"` — bit 4 is the idle flag, bits 3:0 the 16-step counter |
+| `:82` | `spi_begin` — a transfer may start from idle **or** from the last state, which is how back-to-back transfers pipeline |
+| `:86-87` | `state_last` (counter at `X"F"`) and `state_idle` (`state_r(4)`) |
+| `:89-100` | the counter process: `"10000"` on reset, all-zeros on `spi_begin`, `+1` on every clock while not idle |
+| `:104-117` | output shift register — all-ones on a read, `i_spi_mosi_dat` on a write, shifted left with a '1' fill on each `state_r(0)='1'` |
+| `:121,129,140` | `state_r0_d` / `state_last_d`, control signals delayed one cycle "due to external synchronization of spi sck and mosi" |
+| `:145-157` | input shift register, 7 bits, shifted on the *delayed* edge and deliberately independent of the output one — "without synchronization, problems are seen in some sd cards at higher system frequencies" |
+| `:164-165` | `miso_dat <= ishift_r & i_spi_miso` at `state_last_d`; the eighth bit is taken live off the pin |
+| `:172-173` | `o_spi_sck <= state_r(0)`, `o_spi_mosi <= oshift_r(7)` |
+| `:177` | `o_spi_wait_n <= state_idle or state_last_d` |
+
+Every struck row asserts one of those signals at one of those edges. None is
+reachable, because jnext's `SpiMaster` has no counter: `write_data()` and
+`read_data()` perform the entire byte exchange synchronously
+(`src/peripheral/spi.cpp:176-225`), and `spi_wait_n()` is a literal
+`return true` (`src/peripheral/spi.h:103`). That is a documented design choice
+rather than an oversight — the doc-comment at `spi.h:92-102` states it and says
+why. There was therefore no honest way to close these rows short of building
+the FSM, and no placeholder tests were written.
+
+### Why it was declined
+
+**The cluster has exactly one user-visible payoff, and it is not the rows.**
+`o_spi_wait_n` is the DMA's wait input: produced into `spi_wait_n` at
+`zxnext.vhd:3297`, combined at `:1844` (`dma_wait_n <= z80_wait_n and
+spi_wait_n`) and consumed by the DMA instance at `:1784`. The rule it enforces
+is spelled out in the comment immediately above the instantiation,
+`zxnext.vhd:3274` — "read/write to SPI must be separated by 16 cycles (dma has
+wait to guarantee this)". So on hardware a DMA-via-SPI burst is paced at ~16
+SPI clocks per byte; in jnext it completes in zero. That is gap **G137**, and
+it is the whole of the observable difference. Everything else in the cluster —
+the SCK and MOSI pins, per-bit MISO shifting, the independence of the two shift
+registers — is internal to an FPGA module whose software-visible contract is
+one byte in, one byte out. `SX-01..05`, `SX-11/12`, `ST-09`, `ML-03` and
+`ML-05` already pin that contract LIVE.
+
+**Against that, the SPI master sits on the hottest part of the boot path.**
+`SdCardDevice` is driven entirely through `SpiMaster::write_data` /
+`read_data`, and a NextZXOS boot issues roughly 250 000 SPI bytes (the figure is
+in the GH #244 logging-guard comment at `src/peripheral/spi.cpp:191-194`).
+Turning one synchronous call into a 16-step machine changes when every one of
+those bytes lands relative to the CPU. The concretely endangered paths, by name:
+
+- the FPGA boot ROM → `TBBLUE.FW` → NextZXOS chain, i.e. the
+  `boot-nextzxos-welcome` / `-menu` / `-splash` / `-dotls` regression rows;
+- esxdos / FatFs block reads under `--load` of a `.nex`;
+- `soft-reset-to-nextzxos-func`, which re-enters the boot chain with the card
+  mid-protocol;
+- the DMA suite, because `spi_wait_n` stops being a constant and starts gating
+  `dma_wait_n` (`src/peripheral/dma.h:116`);
+- save-state and rewind, because the FSM adds a counter, two shift registers and
+  two delayed flags to serialised state, and a restore taken mid-transfer has to
+  mean something.
+- performance: 250 000 bytes × 16 states is ~4 M extra steps per boot on a path
+  that is already profiled.
+
+The reset semantics are a further trap. `zxnext.vhd:3285` hardwires
+`i_reset => '0'` on the instance, so the VHDL's own reset clauses never fire.
+That is why `miso_dat` survives a soft reset (V12-DIVMMC-01), why the live
+`SX-04` and `ML-05` assert the signal-declaration value `0x00`
+(`spi_master.vhd:74`) rather than the reset clause's `0xFF`, and why
+`SpiMaster::reset()` pulses `deselect()` without clearing bindings (SS-15). An
+FSM rewrite walks straight back into that ground.
+
+*(Housekeeping note: the §13 `SX-04` and §15 `ML-05` Notes cells still say
+"initialized to all 1s" / "Reset sets `ishift_r` to all 1s", which is the reset
+clause and not what those rows assert. Both are passing rows whose matrix
+description comes from the test source, so the stale cells mislead a reader of
+this plan only. Flagged rather than rewritten — they are outside this
+decision.)*
+
+### The cheaper alternative, if G137 is ever taken up
+
+G137 can be closed **without** an FSM. Derive `spi_wait_n()` from a per-byte
+cycle stamp — idle unless fewer than 16 SPI clocks have elapsed since the last
+exchange — which paces the DMA correctly at byte granularity and leaves the
+transfer path untouched. That would honestly close `ST-05`, `ST-06` and
+`ML-06`, i.e. the DMA-pacing rows, and leave the other fourteen struck. It
+carries a fraction of the risk above, because no SPI byte would move at a
+different time than it does today. This is the option to reach for first.
+
+### Sizing, if this is ever revisited
+
+Roughly one day for the counter, `wait_n`, DMA pacing and the save-state fields,
+then two to three days shaking out the boot chain, which is where the surprises
+will be. Full per-bit modelling (`SX-07..09`, `ML-01`, `ML-02`, `ML-04`) roughly
+doubles that and buys nothing observable.
+
+### Provenance
+
+Escalated by the GH #201 group-F author on 2026-09-24 and decided the same day.
+Every VHDL line cited here was re-read against `cores/zxnext/src/` while the
+decision was recorded, and two details were corrected in the process: `state_r`
+is declared at `spi_master.vhd:66` (the escalation said `:65`, which is
+`state_idle`), and the "separated by 16 cycles" comment that §15 attributed to
+`spi_master.vhd` is in fact at `zxnext.vhd:3274` — it appears nowhere in
+`spi_master.vhd`.
