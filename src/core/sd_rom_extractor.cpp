@@ -502,11 +502,20 @@ bool read_sd_image_identity(const std::string& sd_image_path,
     out = SdImageIdentity{};
     why.clear();
 
+    // EVERY failure path leaves `out` empty, not partly filled. The size and
+    // the MBR digest are known before the FAT32 parse can fail, so without this
+    // a refused image would hand back two of the five fields — and an identity
+    // with two fields set compares unequal against everything, including
+    // itself, which is a refusal nobody can act on. The one caller in the tree
+    // clears its own output and returns, so this is not a live defect; it is
+    // the contract made total instead of resting on one caller's discipline.
+    auto fail = [&out]() { out = SdImageIdentity{}; return false; };
+
     std::ifstream f(sd_image_path, std::ios::binary);
     if (!f) {
         why = "cannot open SD image '" + sd_image_path + "'";
         Log::emulator()->error("sd_rom_extractor: {}", why);
-        return false;
+        return fail();
     }
 
     // Size first: it is the one field that needs no parsing, and a zero-length
@@ -516,7 +525,7 @@ bool read_sd_image_identity(const std::string& sd_image_path,
     if (end < 0) {
         why = "cannot determine the size of SD image '" + sd_image_path + "'";
         Log::emulator()->error("sd_rom_extractor: {}", why);
-        return false;
+        return fail();
     }
     out.image_bytes = static_cast<uint64_t>(end);
 
@@ -530,20 +539,20 @@ bool read_sd_image_identity(const std::string& sd_image_path,
         why = "failed to read the MBR of '" + sd_image_path +
               "' (image too small or unreadable)";
         Log::emulator()->error("sd_rom_extractor: {}", why);
-        return false;
+        return fail();
     }
     out.mbr_sha256 = sdcard::sha256_hex(
         std::vector<uint8_t>(mbr + 0x1BE, mbr + 0x200));
     if (out.mbr_sha256.empty()) {
         why = "SHA-256 of the MBR partition table failed";
         Log::emulator()->error("sd_rom_extractor: {}", why);
-        return false;
+        return fail();
     }
 
     const uint32_t part_lba = find_fat32_partition_lba(f, &why);
     if (part_lba == 0) {
         why = "'" + sd_image_path + "': " + why;
-        return false;
+        return fail();
     }
     out.partition_lba = part_lba;
 
@@ -551,7 +560,7 @@ bool read_sd_image_identity(const std::string& sd_image_path,
     uint8_t   bpb[512];
     if (!parse_bpb(f, part_lba, g, bpb, &why)) {
         why = "'" + sd_image_path + "': " + why;
-        return false;
+        return fail();
     }
 
     // BS_BootSig (offset 0x42) == 0x29 is what makes BS_VolID and BS_VolLab

@@ -24,7 +24,8 @@
 //                  more importantly, what must not
 //   JNSI-P13..P14  the boot sector without an extended signature, and a label
 //                  that is not printable ASCII
-//   JNSI-P15..P19  the refusals, each NAMING the defect
+//   JNSI-P15..P19b the refusals, each NAMING the defect — and leaving the
+//                  struct EMPTY, which none of the others can see
 //   JNSI-P20..P26b `describe_sdcard_for_snapshot` and the Tier-2 stamp: both
 //                  tiers, the lazy variant, the UTC rendering pinned to one
 //                  known epoch, and the two failures that must not half-fill
@@ -603,7 +604,7 @@ int main(int argc, char** argv) {
     }
 
     // ─────────────────────────────────────────────────────────────────────
-    // JNSI-P15..P19 — the refusals, each NAMING the defect
+    // JNSI-P15..P19b — the refusals, each NAMING the defect
     // ─────────────────────────────────────────────────────────────────────
     //
     // G9 is a testable property, not a slogan: a refusal reading only "cannot
@@ -673,6 +674,42 @@ int main(int argc, char** argv) {
               "a file too short to hold an MBR refuses without reading past it, "
               "and the message names the path",
               !ok && w.find(m) != std::string::npos, w);
+    }
+    {
+        // EVERY refusal leaves the struct EMPTY, not partly filled. The size
+        // and the MBR digest are both known before the FAT32 parse can fail,
+        // so the natural shape of this function hands back two of the five
+        // fields on a refusal — and an identity with two fields set compares
+        // unequal against everything including itself, which is a refusal
+        // nobody can act on. The rows above only assert the return value and
+        // the message, so none of them can see it.
+        //
+        // Both directions in one row, because "leaves it empty" is only
+        // meaningful if the function was going to fill something: the FIRST
+        // half proves the fields ARE reachable on this image (the identity
+        // reads fine), the second that a refusal on a MUTATED copy of it
+        // yields nothing at all.
+        const std::string m = tmp_path("empty-on-refusal");
+        SdImageIdentity before, after;
+        std::string w1, w2;
+        const bool prepared = copy_image(base_img, m);
+        const bool good = prepared && read_sd_image_identity(m, before, w1);
+        const bool broke = prepared && poke(m, 0x1BE + 4, 0x83);  // not FAT32
+        after.image_bytes = 0xDEAD;      // pre-dirtied: a function that never
+        after.mbr_sha256  = "stale";     // touches `out` must not pass either
+        const bool refused = broke && !read_sd_image_identity(m, after, w2);
+        check("JNSI-P19b",
+              "a refusal leaves EVERY field empty — the image size and the MBR "
+              "digest are known before the FAT32 parse fails, and handing those "
+              "two back would be an identity that compares unequal against "
+              "itself",
+              good && before.image_bytes != 0 && !before.mbr_sha256.empty() &&
+                  refused && after.image_bytes == 0 &&
+                  after.mbr_sha256.empty() && after.fat32_volume_id.empty() &&
+                  after.partition_lba == 0 && after.fat32_bs_vollab.empty(),
+              det("good=%d refused=%d bytes=%llu mbr='%s'", good, refused,
+                  static_cast<unsigned long long>(after.image_bytes),
+                  after.mbr_sha256.c_str()));
     }
 
     // ─────────────────────────────────────────────────────────────────────
