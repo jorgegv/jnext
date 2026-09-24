@@ -58,6 +58,11 @@ namespace jnext {
 /// `present == false` so a caller that ignores the return value records "no
 /// card" rather than a half-filled identity.
 ///
+/// `why` IS ALSO SET ON SUCCESS when only Tier 2 failed — the Tier-1 identity
+/// that decides refusals was read, so the card is usable and the return value
+/// is true, and `why` says which half is missing. **Branch on the return value,
+/// never on `why` being empty.**
+///
 /// COST, STATED RATHER THAN HIDDEN. Tier 2 digests the WHOLE image: measured
 /// 0.49 s warm and 0.72 s cold on the canonical 1 GB card, paid once per save
 /// and once per load. §11.3 recommends shipping it EAGER and measuring, and

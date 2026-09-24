@@ -112,9 +112,17 @@ uint32_t find_fat32_partition_lba(std::ifstream& f, std::string* why = nullptr) 
 // `BS_VolID` (0x43) and `BS_VolLab` (0x47) — are not part of `Fat32Geom`,
 // which models only what a FAT walk needs, and re-reading the sector to get
 // them would be a second seek to a sector this function has already read.
+//
+// It is a `std::array<uint8_t, 512>*` and not a `uint8_t*` so the LENGTH is
+// part of the type. A raw pointer would make the 512-byte contract a comment,
+// and a caller that passed something smaller would get a silent overwrite —
+// the exact "in range for its type, out of range for what it sizes" family
+// this issue has already shipped six times.
+//
 // `why` works exactly as in `find_fat32_partition_lba` above.
 bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g,
-               uint8_t* raw_bpb = nullptr, std::string* why = nullptr) {
+               std::array<uint8_t, 512>* raw_bpb = nullptr,
+               std::string* why = nullptr) {
     uint8_t bpb[512];
     f.seekg(static_cast<std::streamoff>(static_cast<uint64_t>(partition_lba) * 512),
             std::ios::beg);
@@ -125,7 +133,7 @@ bool parse_bpb(std::ifstream& f, uint32_t partition_lba, Fat32Geom& g,
                         std::to_string(partition_lba);
         return false;
     }
-    if (raw_bpb) std::memcpy(raw_bpb, bpb, 512);
+    if (raw_bpb) std::memcpy(raw_bpb->data(), bpb, raw_bpb->size());
 
     g.partition_lba_start = partition_lba;
     g.bytes_per_sector    = rd_u16(bpb + 11);
@@ -557,8 +565,8 @@ bool read_sd_image_identity(const std::string& sd_image_path,
     out.partition_lba = part_lba;
 
     Fat32Geom g{};
-    uint8_t   bpb[512];
-    if (!parse_bpb(f, part_lba, g, bpb, &why)) {
+    std::array<uint8_t, 512> bpb{};
+    if (!parse_bpb(f, part_lba, g, &bpb, &why)) {
         why = "'" + sd_image_path + "': " + why;
         return fail();
     }
@@ -581,7 +589,7 @@ bool read_sd_image_identity(const std::string& sd_image_path,
         return true;
     }
 
-    const uint32_t volid = rd_u32(bpb + kOffVolID);
+    const uint32_t volid = rd_u32(bpb.data() + kOffVolID);
     char hex[9];
     std::snprintf(hex, sizeof(hex), "%08x", volid);
     out.fat32_volume_id = hex;
