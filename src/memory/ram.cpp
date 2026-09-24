@@ -78,8 +78,8 @@ void Ram::load_state(StateReader& r)
     if (stream_size_ != static_cast<uint64_t>(data_.size())) {
         Log::memory()->error(
             "Ram::load_state: the stream declares {} bytes of RAM but this "
-            "machine has {} — the snapshot is not this machine\'s; RAM is "
-            "restored at the declared size and the block sentinel will refuse "
+            "machine has {} — this snapshot is not this machine's. RAM is "
+            "restored at THIS machine's size, and the block sentinel refuses "
             "the stream if it is also the wrong length",
             stream_size_, data_.size());
         stream_size_ = static_cast<uint64_t>(data_.size());

@@ -4,6 +4,8 @@
 #include "save/state_desc.h"
 #include "save/state_desc_bin.h"
 
+#include <cstddef>
+
 namespace {
 
 // GH #27 S3 — the per-device key tables for the §9.4 loop collapse in
@@ -31,8 +33,18 @@ namespace {
     M("ctc4"), M("ctc5"), M("ctc6"), M("ctc7"),                            \
     M("ula"), M("uart0_tx"), M("uart1_tx")
 
-const char* const kDevStateKeys[14][9]  = { IM2_DEV_NAMES(IM2_DEV_STATE_KEYS) };
-const char* const kDevTimingKeys[14][5] = { IM2_DEV_NAMES(IM2_DEV_TIMING_KEYS) };
+constexpr std::size_t kIm2Devices =
+    static_cast<std::size_t>(Im2Controller::DevIdx::COUNT);
+
+const char* const kDevStateKeys[kIm2Devices][9]  = { IM2_DEV_NAMES(IM2_DEV_STATE_KEYS) };
+const char* const kDevTimingKeys[kIm2Devices][5] = { IM2_DEV_NAMES(IM2_DEV_TIMING_KEYS) };
+
+// A fifteenth device would leave the tables above zero-filled in their last
+// row rather than failing to compile — a null key is a crash in whichever
+// realisation reads it first, a long way from the DevIdx edit that caused it.
+static_assert(kIm2Devices == 14,
+              "DevIdx gained or lost a device: add or remove its name in "
+              "IM2_DEV_NAMES above, in the same order");
 
 #undef IM2_DEV_STATE_KEYS
 #undef IM2_DEV_TIMING_KEYS
@@ -43,7 +55,7 @@ const char* const kDevTimingKeys[14][5] = { IM2_DEV_NAMES(IM2_DEV_TIMING_KEYS) }
 // so renumbering either FSM is a visible schema diff rather than a silent
 // re-interpretation of old files.
 const char* const kDevStateNameArr[] = {
-    "s_0",    // DevState::S_0   (im2.h:47, VHDL im2_device.vhd:83)
+    "s_0",    // DevState::S_0   (VHDL im2_device.vhd:83)
     "s_req",  // DevState::S_REQ
     "s_ack",  // DevState::S_ACK
     "s_isr",  // DevState::S_ISR
@@ -52,7 +64,7 @@ const jnext::save::EnumNames kDevStateNames{
     kDevStateNameArr, sizeof(kDevStateNameArr) / sizeof(kDevStateNameArr[0])};
 
 const char* const kDecStateNameArr[] = {
-    "s_0",         // DecState::S_0 (im2.h:311, VHDL im2_control.vhd)
+    "s_0",         // DecState::S_0 (VHDL im2_control.vhd)
     "s_ed_t4",     // DecState::S_ED_T4
     "s_ed4d_t4",   // DecState::S_ED4D_T4
     "s_ed45_t4",   // DecState::S_ED45_T4

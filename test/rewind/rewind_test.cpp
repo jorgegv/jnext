@@ -1627,6 +1627,13 @@ static int test_rewind_across_soft_reset()
 // than `feedback_self_consistent_generated_data`. Each block's total width is
 // also pinned, and those seven numbers are exactly the block lengths the
 // §17.1 sentinel map reports for blocks 0-5 and the IM2 half of block 31.
+//
+// Every description below is a STRING LITERAL, and the `fprintf` beside each
+// one is why. The traceability generator reads a row's text from its own
+// `check()` call, so a `cond ? "text" : detail.c_str()` description publishes
+// as a bare em-dash — which is exactly what the first run of these rows put
+// in TRACEABILITY-MATRIX.md. The diagnosis goes to stderr, where a failing
+// run shows it and a passing one costs nothing.
 
 namespace s3 {
 
@@ -1759,10 +1766,10 @@ static int test_s3_descriptor_layout()
         s3::RecordDesc rec;
         emu.clock().describe_state(rec);
         const std::string d = s3::diff(rec.fields(), s3::vec(want, 2));
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-CLOCK: %s\n", d.c_str());
         check("S3-DECL-CLOCK", d.empty(),
-              d.empty() ? "Clock declares exactly the two fields the §17.1 "
-                          "golden carries, in that order"
-                        : d.c_str());
+              "Clock declares exactly the two fields the §17.1 "
+              "golden carries, in that order");
         check("S3-WIDTH-CLOCK", rec.width() == 12,
               "Clock's declaration is 12 bytes wide — block 0 of the "
               "2 292 965-byte stream");
@@ -1777,11 +1784,11 @@ static int test_s3_descriptor_layout()
         s3::RecordDesc rec;
         emu.ram().describe_state(rec);
         const std::string d = s3::diff(rec.fields(), s3::vec(want, 2));
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-RAM: %s\n", d.c_str());
         check("S3-DECL-RAM", d.empty(),
-              d.empty() ? "Ram declares a u64 count prefix and the 2 MB blob "
-                          "— and the blob's length comes from the DECLARATION, "
-                          "which is what makes the prefix un-obeyable"
-                        : d.c_str());
+              "Ram declares a u64 count prefix and the 2 MB blob "
+              "— and the blob's length comes from the DECLARATION, "
+              "which is what makes the prefix un-obeyable");
         check("S3-WIDTH-RAM", rec.width() == 2097160,
               "Ram's declaration is 2 097 160 bytes wide — block 1");
     }
@@ -1832,11 +1839,11 @@ static int test_s3_descriptor_layout()
         emu.mmu().describe_state(rec);
         const std::string d =
             s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-MMU: %s\n", d.c_str());
         check("S3-DECL-MMU", d.empty(),
-              d.empty() ? "Mmu declares 45 fields in the order the golden "
-                          "carries them, ending with both BRAM blobs and the "
-                          "attribute-mux cursor"
-                        : d.c_str());
+              "Mmu declares 45 fields in the order the golden "
+              "carries them, ending with both BRAM blobs and the "
+              "attribute-mux cursor");
         check("S3-WIDTH-MMU", rec.width() == 24634,
               "Mmu's declaration is 24 634 bytes wide — block 2");
     }
@@ -1856,11 +1863,11 @@ static int test_s3_descriptor_layout()
         emu.nextreg().describe_state(rec);
         const std::string d =
             s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-NEXTREG: %s\n", d.c_str());
         check("S3-DECL-NEXTREG", d.empty(),
-              d.empty() ? "NextReg declares the select latch, the 256-byte "
-                          "register file as a `bytes` (not a blob — under the "
-                          "§6.1 8 KB line) and the five appended scalars"
-                        : d.c_str());
+              "NextReg declares the select latch, the 256-byte "
+              "register file as a `bytes` (not a blob — under the "
+              "§6.1 8 KB line) and the five appended scalars");
         check("S3-WIDTH-NEXTREG", rec.width() == 262,
               "NextReg's declaration is 262 bytes wide — block 3");
     }
@@ -1887,11 +1894,11 @@ static int test_s3_descriptor_layout()
         emu.cpu().describe_state(rec);
         const std::string d =
             s3::diff(rec.fields(), s3::vec(want, sizeof(want) / sizeof(want[0])));
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-CPU: %s\n", d.c_str());
         check("S3-DECL-CPU", d.empty(),
-              d.empty() ? "Z80Cpu declares the register file, MEMPTR/Q, and "
-                          "the three §9.5(3) values that are relative to the "
-                          "FUSE T-state counter"
-                        : d.c_str());
+              "Z80Cpu declares the register file, MEMPTR/Q, and "
+              "the three §9.5(3) values that are relative to the "
+              "FUSE T-state counter");
         check("S3-WIDTH-CPU", rec.width() == 45,
               "Z80Cpu's declaration is 45 bytes wide — block 4");
     }
@@ -1945,12 +1952,12 @@ static int test_s3_descriptor_layout()
         s3::RecordDesc rec;
         emu.im2().describe_state(rec);
         const std::string d = s3::diff(rec.fields(), want);
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-IM2: %s\n", d.c_str());
         check("S3-DECL-IM2", d.empty(),
-              d.empty() ? "Im2Controller declares 14 named devices x 9 fields "
-                          "then the decoder / pulse / NR 0xC0 / DMA-delay "
-                          "scalars — 144 declarations, one per field, not 126 "
-                          "per device"
-                        : d.c_str());
+              "Im2Controller declares 14 named devices x 9 fields "
+              "then the decoder / pulse / NR 0xC0 / DMA-delay "
+              "scalars — 144 declarations, one per field, not 126 "
+              "per device");
         check("S3-WIDTH-IM2", rec.width() == 149,
               "Im2Controller's state declaration is 149 bytes wide — block 5");
     }
@@ -1984,11 +1991,11 @@ static int test_s3_descriptor_layout()
         s3::RecordDesc rec;
         emu.im2().describe_timing(rec);
         const std::string d = s3::diff(rec.fields(), want);
+        if (!d.empty()) fprintf(stderr, "  S3-DECL-IM2-TIMING: %s\n", d.c_str());
         check("S3-DECL-IM2-TIMING", d.empty(),
-              d.empty() ? "Im2Controller's SECOND declaration (§9.5(2)) is the "
-                          "GH #265 timing block, which travels in `int_timing` "
-                          "at the end of the Emulator stream and not in block 5"
-                        : d.c_str());
+              "Im2Controller's SECOND declaration (§9.5(2)) is the "
+              "GH #265 timing block, which travels in `int_timing` "
+              "at the end of the Emulator stream and not in block 5");
         check("S3-WIDTH-IM2-TIMING", rec.width() == 589,
               "the IM2 timing declaration is 589 bytes wide — the first 589 of "
               "block 31's 609, the remaining 20 being the CPU's /INT pair and "
