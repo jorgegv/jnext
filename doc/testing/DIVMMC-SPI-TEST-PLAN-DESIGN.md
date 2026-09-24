@@ -903,17 +903,37 @@ doubles that and buys nothing observable.
 
 Escalated by the GH #201 group-F author on 2026-09-24 and decided the same day.
 Every VHDL line cited here was re-read against `cores/zxnext/src/` while the
-decision was recorded, and two details were corrected in the process: `state_r`
-is declared at `spi_master.vhd:66` (the escalation said `:65`, which is
-`state_idle`), and the "separated by 16 cycles" comment that §15 attributed to
-`spi_master.vhd` is in fact at `zxnext.vhd:3274` — it appears nowhere in
-`spi_master.vhd`.
+decision was recorded. **Five factual corrections came out of that re-reading**,
+and they are listed in full because the count itself is the point: an escalation
+memo and a plan doc can both be confidently wrong, and only re-derivation finds
+it.
 
-A third correction landed in the same change, on two rows that are NOT struck.
-The §13 `SX-04` and §15 `ML-05` cells asserted the `i_reset` clause ("all 1s")
-as the expected value, contradicting the live rows they name, which assert the
-signal-declaration value `0x00` because `i_reset` is hardwired `'0'`. A plan
-cell that contradicts the passing row it describes is the same defect class
-GH #201 exists to remove — it is simply invisible to the matrix, whose
-description for an asserted row comes from the test source. Both cells now
-state the VHDL and say what they used to say.
+1. `state_r` is declared at `spi_master.vhd:66`. The escalation said `:65`,
+   which is `signal state_idle`.
+2. The "separated by 16 cycles" comment §15 attributed to `spi_master.vhd` is at
+   `zxnext.vhd:3274` — it appears nowhere in `spi_master.vhd`. It reads "read/
+   write to SPI must be separated by 16 cycles (dma has wait to guarantee this)",
+   which is the hardware saying in its own words that the rule exists for the
+   DMA. That is what makes G137 the only consumer in this cluster.
+3. The §13 `SX-04` and §15 `ML-05` **table cells** asserted the `i_reset` clause
+   ("all 1s") as the expected value, contradicting the live rows they name.
+4. Two **prose** statements did the same and were missed by a table-scoped
+   search: the `ML-05` bullet in "Current status" above, and the "Pipeline delay
+   in SPI reads" section, whose stated reason also conflated the MOSI fill byte
+   with the MISO result. Found only by sweeping the whole document for `0xFF` /
+   "all 1s" / "all ones" / `ishift_r`.
+5. In `test/traceability-exceptions.conf` (not this file): the MMC-02 note
+   claimed G41 is filed at "likelihood L". G41 has no Likelihood field and the
+   gaps doc has no such column. Corrected there.
+
+Items 3 and 4 are the same defect class GH #201 exists to remove, and both are
+invisible to the matrix, whose description for an asserted row comes from the
+test source — so no gate can ever catch them. Every corrected site records what
+it used to say.
+
+One observation worth keeping, from item 5. Items 1-4 were caught because
+checking a claim against the VHDL had become reflex. Item 5 was not, and it is
+the only one that reached a commit: it was a claim about the schema of one of
+**our own documents**, not about hardware. A memo asserting what one of our
+files contains deserves the same `grep` that a memo asserting what the VHDL
+contains gets.
