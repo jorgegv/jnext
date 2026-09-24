@@ -1459,7 +1459,7 @@ and mtime, the warm-start cache's existing mechanism reused verbatim.
 |---|---|
 | No card mounted now, snapshot had one | **Refuse.** Naming the path and the volume label. |
 | `identity` differs (size, MBR or `BS_VolID`) | **Refuse.** This is the silently-wrong case settled point 4 demands be caught. `--snapshot-force-sdcard` overrides, with a warning that names both identities. |
-| Only `informational.fat32_bs_vollab` differs | **Nothing.** Not compared, not warned on. See above. |
+| Only `informational.fat32_bs_vollab` differs | **No refusal, and no warning about the label or the identity.** It is never compared. *(Corrected at S7 — see the note under the table: it was written "nothing at all", and that is unreachable for an ON-DISK label change.)* |
 | `identity` matches, `content_stamp` differs | **Restore, with one warning line** naming the snapshot's digest and the current one. Legitimate and common — the card drifts. |
 | Both match | Silent. |
 | The SD FSM (P1) was mid-transfer at capture | Restore it (P1), and additionally require `content_stamp` to match — a half-finished sector read against changed bytes is exactly the "streams garbage" failure. Mismatch here is a **refusal**, not a warning. |
@@ -1469,11 +1469,75 @@ most of the time the card's drift is irrelevant, but when the machine is *in the
 middle of reading a sector* it is not, and the design should be strict exactly
 where strictness is earned.
 
-**Cost**: the Tier-2 digest is ~0.5 s warm, ~1.2 s cold on a 1 GB image
-(measured for the warm-start cache). Paid once per save and once per load. For a
-manual save-state that is acceptable; if it proves annoying, it is cheap to make
-the digest lazy — Tier 1 alone on load, Tier 2 only when Tier 1 matches and the
-FSM was mid-transfer. Recommend shipping it eager and measuring.
+**S7 correction to the `BS_VolLab` row.** It read "**Nothing.** Not compared,
+not warned on", and the second half of that cannot be true of a label change
+made ON DISK. `BS_VolLab` sits at `partition_lba * 512 + 0x47` — *inside the
+file* — so rewriting it necessarily moves the whole-image SHA-256 that Tier 2
+**is**, and a Tier-2 drift warning is emitted. That warning is correct: a byte
+of the card did change. Carving the boot sector out of Tier 2 to suppress it
+would break the one property Tier 2 has, that it is the warm-start cache's
+digest *reused verbatim* (pinned by `JNSI-P34`), and would buy nothing — the
+user gets the same warning the first time NextZXOS touches a directory entry
+anyway.
+
+What the row promises, and what is implemented and tested, is that the **label
+is never part of the refusal test and is never itself reported**: no refusal,
+and no warning naming the label or the identity. A reader that compared labels
+fails `JNSI-11`, `JNSI-P31b` and `snapshot-sdcard-mismatch-func` leg 3, and
+passes every other row — which is exactly the discrimination the rule needs.
+§16.2's row carries the same correction.
+
+**S7 addition to the `content_stamp` rows: an UNKNOWN stamp is not a CHANGED
+one.** The matrix above names only "differs", and the reader compared the two
+digests with a plain `==`, so an **absent** stamp on either side — a snapshot
+written before the field existed, or a live card whose digest failed part-way
+through a gigabyte of I/O — was reported as a change, in a message quoting the
+empty string as the new digest. On the mid-transfer path that produced a
+**refusal whose stated reason was a fabrication**. Tier 1 had always
+distinguished the two (`SdIdentity::populated()`); Tier 2 now does as well:
+
+| `content_stamp` | Behaviour |
+|---|---|
+| both known, equal | Silent. |
+| both known, differing | One warning naming both digests. Refusal if the FSM was mid-transfer. |
+| either unknown | One warning saying the contents **could not be compared**, and which side is missing one. **Refusal if the FSM was mid-transfer** — §11.3's last row requires a *match* there, and an unknown stamp is not a match. |
+
+`JNSI-14` … `JNSI-17` pin all four.
+
+**Cost, MEASURED (S7), not estimated.** §11.3 recommended shipping the Tier-2
+digest eager and measuring it; it ships eager, and `sd_identity_test` row
+`JNSI-P33` times it on the real 1 GB card on every run and **prints** the
+figure, so the number below is one the suite reproduces rather than a claim
+nobody re-checks:
+
+| | Measured (dev host, 2026-09-24) | Estimated above |
+|---|---|---|
+| warm (page cache hot) | **0.49 s** | ~0.5 s |
+| cold (`POSIX_FADV_DONTNEED` first) | **0.72 s** | ~1.2 s |
+
+Paid once per save and once per load. The estimate was right warm and
+pessimistic cold on NVMe. It stays eager; the lazy variant exists as
+`describe_sdcard_for_snapshot(..., want_content_stamp = false)` for a caller
+that has *already* established Tier 1 does not match, where digesting a
+gigabyte to fill a field nobody will read is pure waste. It is not a way to
+skip the check, and `JNSI-P23` says so.
+
+**The producer** is `read_sd_image_identity` in `src/core/sd_rom_extractor.{h,cpp}`
+— the new exported entry point this section called for — plus
+`describe_sdcard_for_snapshot` / `read_sd_image_content_stamp` in
+`src/core/sd_snapshot_identity.{h,cpp}`, which assemble the `jns::SdCardInfo`
+the container compares. The split is deliberate: `snapshot_test` links
+`jnext_save` alone, so the container's *rules* stay provable with no emulator,
+no card and no filesystem, and the producer's rows live in `sd_identity_test`,
+which links `jnext_core` and works on real images.
+
+`mbr_sha256` digests the **64-byte partition table plus the 2-byte 0x55AA
+signature**, not the whole 512-byte sector. The prose above names "the MBR
+partition table" and the narrower window survives the same argument that
+removed `BS_VolLab` from the refusal test: the first 446 bytes are bootstrap
+code, which `fdisk`, `syslinux` and several imaging tools rewrite without
+touching the partitioning. `JNSI-P07` requires a partition-table byte to move
+the digest; `JNSI-P08` requires a bootstrap byte **not** to.
 
 ---
 
@@ -1880,6 +1944,20 @@ once functional rows exist, and the generator's `%NO_MATRIX_SECTION` entry
 above. `test/refresh-subsystem-status.sh` needs the suite's friendly name too,
 or the dashboard emits a TODO.
 
+**S7 adds a SECOND unit suite, `sd_identity_test`**, and the same four manifests
+cover it. It is separate from `snapshot_test` on purpose. That one links
+`jnext_save` **alone** — the rule this section states three paragraphs up — so
+the container's rules are provable with no emulator, no card and no filesystem.
+The SD identity's *producer* needs `jnext_core` (the FAT32 parser) and real
+images on disk, and folding it in would give the descriptor layer's own suite a
+dependency on the emulator core. Its rows are `JNSI-P01…`, and the distinction
+between the two groups is worth stating plainly: `JNSI-*` proves the reader
+applies §11.3's matrix to two identities it is handed; `JNSI-P*` proves the
+identity handed to it **describes the card**. A producer returning a constant
+passes every `JNSI-*` row — both sides agree, every restore is silent, and the
+whole mechanism is decorative — so every `JNSI-P*` row moves exactly one byte of
+a real image and asserts what must, and must not, move with it.
+
 ### 16.1 Unit rows — `test/snapshot/snapshot_test.cpp`
 
 | Group | IDs | What |
@@ -1888,7 +1966,7 @@ or the dashboard emits a TODO.
 | **Version** | `JNSV-01…` | Every row of §7.3, both directions: `format_version` too new → refuse naming both numbers; too old with reader present → reads; too old with reader absent → refuse; missing → refuse; non-integer → refuse. |
 | **Reader rules** | `JNSR-01…` | **One row per line of §12.4** — that table is the row list. Blob declared but absent; blob present but undeclared; manifest CRC vs ZIP CRC disagreement; subsystem listed but member absent; member present but unlisted; inflated length ≠ declared; card-present/absent both directions; `read_only` mismatch; unconstructible `ram_kb`. |
 | **Unknown / retired names** | `JNSU-01…` | Unknown member ignored + logged; unknown key ignored; missing optional key takes its **declared default** (asserted against the declaration, never against a literal, and never against `reset()` — §12.2); missing required key refuses; a **retired** key is migrated to its successor, not ignored; a tombstoned key is ignored deliberately; a key in neither table is "unknown". |
-| **Identity** | `JNSI-01…` | SD Tier-1 mismatch refuses; Tier-2 mismatch warns and restores; Tier-2 mismatch **with the SD FSM mid-transfer** refuses; `BS_VolLab` differing alone changes **nothing** (§11.3); no card mounted refuses; ROM digest mismatch warns / refuses under strict; tape file absent warns. |
+| **Identity** | `JNSI-01…` | SD Tier-1 mismatch refuses; Tier-2 mismatch warns and restores; Tier-2 mismatch **with the SD FSM mid-transfer** refuses; `BS_VolLab` differing alone produces no refusal and no label/identity warning (§11.3, as corrected at S7); an **unknown** Tier-2 stamp is not a changed one — it says "could not be compared", and still refuses mid-transfer (`JNSI-14`…`17`, S7); no card mounted refuses; ROM digest mismatch warns / refuses under strict; tape file absent warns. |
 | **Encoding** | `JNSE-01…` | Hex strings exactly the declared length; every `u64`/`i64` emits a **string**; a negative `i64` round-trips (**the `/INT` window with its real measured value, −564 933**, §7.4); `INT64_MAX` emits `"open"` and round-trips; `i32` round-trips negative; enums emit names, and an unknown name on read **refuses** rather than defaulting — a wrong FSM state is not a safe default. |
 | **History primitive** | `JNSH-01…` | The binary encoding of `port_ff_log_` and the UART's four FIFOs is **padded to capacity** (constant width, per `RewindBuffer`); the JSON encoding carries exactly `count` items; a round-trip through JSON with 3 in-flight entries restores 3, not 1 024; **an in-flight port-0xFF log survives save→restore and the replayed frame is pixel-identical** (the §10.3 defect, pinned). |
 | **Descriptor** | `JNSD-01…` | For every subsystem: the JSON and binary encodings, fed the same machine, restore to identical machines. |
@@ -1967,7 +2045,7 @@ length of 2 153 701 follows arithmetically.
 | `snapshot-foreign-fuse-func` | §13.2(1): on a **128K** machine, write `.jns` and `.szx` at the same instant; load the `.szx` in **real FUSE** headless (`/usr/bin/fuse` + Xvfb + `--debugger-command`, which is documented in `man fuse`, not `--help`); assert the spec-written Python reader's extraction from the `.jns` agrees with FUSE on registers, paging and sampled RAM. **The row FAILS if FUSE produced no output** — asserted before any comparison, because an empty-vs-empty comparison would pass vacuously. Skips without FUSE/Xvfb locally; hard-fails in CI. |
 | `snapshot-schema-func` | Validate the written file with Python `jsonschema` against the committed schema **plus the constraint overlay**, and `unzip -t` it. Skips if the tools are absent; hard-fails in CI. |
 | `snapshot-uncompressed-func` | The same round-trip with `--snapshot-uncompressed`; assert every member is `STORED` (read by `zipfile`, not by us) and the restore is pixel-identical to the compressed one. |
-| `snapshot-sdcard-mismatch-func` | Save; mutate a sector of a **copy** of the card; restore → assert the Tier-2 warning and that the run proceeds. Then mutate `BS_VolID` → assert the Tier-1 refusal and a non-zero exit. Then mutate **only** `BS_VolLab` → assert **no** warning and **no** refusal (§11.3). |
+| `snapshot-sdcard-mismatch-func` ✓ **LANDED (S7)** | Save; mutate a sector of a **copy** of the card; restore → assert the Tier-2 warning and that the run proceeds. Then mutate `BS_VolID` → assert the Tier-1 refusal **and a non-zero exit**. Then mutate **only** `BS_VolLab` → assert no refusal and **no warning naming the label or the identity** — the "no warning at all" this row originally asked for is unreachable, because the label is a byte of the image and Tier 2 digests the image (see §11.3's S7 correction). As shipped it also carries the two legs the three above do not reach: the same Tier-2 drift **mid-transfer**, which must refuse, and `--snapshot-force-sdcard`, which must downgrade the Tier-1 refusal to a warning naming both serials. **It drives `sd_identity_test --verdict`, not `jnext --load out.jns`**, for the reason `snapshot-paused-advance-func` drives the existing save path: the `.jns` CLI does not exist until S8. That is not a test double — the sub-mode calls `describe_sdcard_for_snapshot`, writes a real `.jns` through `SnapshotWriter` and opens it through `open_snapshot`; S8 replaces the front end without touching the legs. Leg 0 runs the **real** per-run NextZXOS card against itself (no copy, must be silent); the mutation legs use a real MBR + FAT32 image the test binary emits, because three mutated copies of a 1 GB card would cost 3 GB per run wherever reflink is unavailable — CI included — and a Tier-1 field is the same 81 bytes whatever the image's size. |
 | `snapshot-paused-advance-func` ✓ **LANDED (S6)** | **As shipped it drives the existing save path**, not `.jns`, which does not exist until S8: headless, `--magic-breakpoint` + `magic_bp_demo.nex` (the same pause `screenshot-paused-func` drives) + `--delayed-snapshot`, asserting the paused save WRITES, exits zero, reloads in a fresh process and reports the advance — with a control run that never pauses and must never report one. The pixel half of the original design below is deliberately NOT claimed there: a `.sna` carries no scheduler queue and no per-scanline history, so the comparison would be vacuous. It is pinned at the unit tier instead, where the oracle exists — `rewind_test` row `S6-P7-HISTORY-01` breaks the advance and watches the frame's change log vanish. The `beast.nex` form below returns at S9, when `.jns` can carry what it needs to mean something. Original design: pause mid-frame in the debugger (on `beast.nex`, which has a live per-scanline Copper gradient), save, and assert three things: the save **succeeds**; the restored machine replays the frame **pixel-identically** — i.e. the advance did not wipe the change logs, the Task 40 defect (§15.2); and the live machine is left at the following frame boundary. The workload is `beast.nex` specifically because a quiescent screen cannot distinguish a preserved raster history from a destroyed one. |
 
 `JNEXT_TEST_JOBS=4` on every regression invocation, as always.
@@ -2022,7 +2100,7 @@ agent that did not write it, on its own branch and worktree.
 | **S5 — Migration, group 3** | Peripherals + audio + input: ctc, dma, spi, i2c, rtc, uart (FIFOs), divmmc, multiface, nmi, beeper, turbosound, dac, i2s, and the six input classes | **S–M** (1.5–2.5) | as above |
 | **S5b — Remove the duplicated RAM** ✓ **DONE** | D3 + D4: the DivMMC window becomes a *reference* and the Multiface private array is dropped on the Next. Golden re-baselined **once**, with the diff explained field by field. | **XS** (~0.5) | `JNSX-S5B-LENGTHS` pins 2 153 701 / 2 161 893; the diff is §17.0's table |
 | **S6 — The gaps** ✓ **DONE** | P1 `SdCardDevice`; P13 `mf_type_`; P3 ROM digests; P4 tape identity; P5 preview; P7's two save rules; `Emulator`'s own scalars | **M** (2–3) | P1 proven by a mid-CMD18 save/restore row (`S6-SD-CMD18-MID` + `S6-EMU-CMD18-MID`); P7 by `snapshot-paused-advance-func`. **The gate row named `snapshot-paused-refusal-func` and that was stale**: the owner's 2026-09-23 decision overruled the refusal, §16.2 has carried the advance row's name since, and a gate naming a test that must not exist is one nobody can meet. |
-| **S7 — SD identity** | Tier 1 from MBR + BPB `BS_VolID` (a new exported entry point in `sd_rom_extractor`), Tier 2 reuse, the refusal/warning matrix, `JNSI` rows | **S** (1) | `snapshot-sdcard-mismatch-func`, all three legs |
+| **S7 — SD identity** ✓ **DONE** | Tier 1 from MBR + BPB `BS_VolID` (`read_sd_image_identity`, the new exported entry point in `sd_rom_extractor`), Tier 2 reuse (`read_sd_image_content_stamp`), the producer that assembles both (`describe_sdcard_for_snapshot`), the refusal/warning matrix, and **two** row groups: `JNSI-14…17` in `snapshot_test` for the unknown-vs-changed stamp the matrix had not distinguished, and `JNSI-P01…P34` in the new `sd_identity_test` for the producer | **S** (1) | `snapshot-sdcard-mismatch-func`, all three legs — landed, plus the mid-transfer and `--force` legs. Two corrections to §11.3 fell out of implementing it (the `BS_VolLab` row and the unknown stamp), both recorded there |
 | **S8 — Integration** | CLI table + man page + `cli-check`; the three load-dispatch sites; GUI save/load/filter/status bar/grey-out; user guide; developer guide chapter; FEATURES; ChangeLog | **S** (1–2) | `make cli-check`, `docs-check`, full triplet |
 | **S9 — Validation** | The spec-written Python reader; **the FUSE foreign-reader row**; the constraint overlay; the full functional set; CI tool install | **S** (1–2) | All §16.2 rows green in CI |
 
