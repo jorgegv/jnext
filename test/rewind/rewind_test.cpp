@@ -5487,6 +5487,97 @@ static int test_s8_jns_roundtrip()
               "file from an unsupported one");
     }
 
+    // ── A SUBSYSTEM THE FILE DOES NOT CARRY ─────────────────────────────
+    //
+    // §12.4 says a subsystem the manifest does not list was deliberately not
+    // saved, and that is not a failure — an older or foreign writer may simply
+    // not have had it. It must not be SILENT, though: that subsystem keeps
+    // whatever `reset()` left, which is a real difference from the machine the
+    // file came from, and "the sound is wrong and nothing said anything" is
+    // the support question this warning exists to prevent.
+    //
+    // Forged by removing the member AND its manifest entry, because removing
+    // only the member is the torn-file case the container refuses first — the
+    // same trap `JNS-RT-11` fell into.
+    {
+        auto repack_drop = [](const std::vector<uint8_t>& in,
+                              const std::string& drop,
+                              const std::string& manifest_text,
+                              std::vector<uint8_t>& out) {
+            jnext::zip::Reader r;
+            std::string why;
+            if (!r.open(in.data(), in.size(), why)) return false;
+            jnext::zip::Writer w{jnext::jns::kArchiveComment};
+            for (const auto& e : r.entries()) {
+                if (e.name == drop) continue;
+                std::vector<uint8_t> bytes;
+                if (e.name == jnext::jns::kManifestMember) {
+                    bytes.assign(manifest_text.begin(), manifest_text.end());
+                } else if (!r.read(e.name, bytes, why)) {
+                    return false;
+                }
+                if (!w.add(e.name, bytes.data(), bytes.size(),
+                           jnext::zip::Method::Deflate, why)) {
+                    return false;
+                }
+            }
+            return w.finish(out, why);
+        };
+
+        auto a_up = std::make_unique<Emulator>();
+        Emulator& a = *a_up;
+        build_busy(a);
+        jnext::JnsSaveOptions opt;
+        jnext::JnsLoadReport  rep;
+        std::string why;
+        std::vector<uint8_t> good;
+        const bool wrote = a.save_jns(opt, good, rep, why);
+
+        std::vector<uint8_t> forged;
+        bool built = false;
+        if (wrote) {
+            jnext::zip::Reader r;
+            std::string text, w2;
+            jnext::jns::Manifest m0;
+            std::vector<std::string> unk;
+            if (r.open(good.data(), good.size(), w2) &&
+                r.read_text(jnext::jns::kManifestMember, text, w2) &&
+                jnext::jns::manifest_from_json(text, m0, unk, w2)) {
+                auto& v = m0.subsystems;
+                v.erase(std::remove(v.begin(), v.end(), std::string("beeper")),
+                        v.end());
+                built = repack_drop(good, "state/beeper.json",
+                                    jnext::jns::manifest_to_json(m0), forged);
+            }
+        }
+
+        bool loaded = false;
+        bool warned = false;
+        if (built) {
+            auto b_up = std::make_unique<Emulator>();
+            Emulator& b = *b_up;
+            build_emulator(b, 2);
+            jnext::JnsLoadOptions lopt;
+            jnext::JnsLoadReport  lrep;
+            std::string refusal;
+            loaded = b.load_jns(forged.data(), forged.size(), lopt, lrep,
+                                refusal);
+            for (const auto& wmsg : lrep.warnings) {
+                if (wmsg.find("beeper") != std::string::npos &&
+                    wmsg.find("power-on defaults") != std::string::npos) {
+                    warned = true;
+                }
+            }
+        }
+        check("JNS-RT-14", built && loaded,
+              "a .jns that does not list a subsystem still LOADS — §12.4 says "
+              "that is a deliberate omission by the writer, not a broken file");
+        check("JNS-RT-15", warned,
+              "…and it WARNS, naming the subsystem: it has been left at its "
+              "power-on defaults, which is a real difference from the machine "
+              "the file came from and must not be silent");
+    }
+
     // ── §10.2 P7: a save from MID-FRAME advances, and says so ───────────
     {
         auto a_up = std::make_unique<Emulator>();

@@ -504,7 +504,21 @@ struct LoadVisitor {
 
     bool fetch(const char* name, std::string& text) {
         const std::string member = state_member(name);
-        if (!zip->has(member)) return false;
+        if (!zip->has(member)) {
+            // §12.4: a subsystem the manifest does not list was DELIBERATELY
+            // not saved, and is not a failure. It is not silent either — the
+            // subsystem keeps whatever `reset()` left, which is a real
+            // difference from the machine that was saved, and a user restoring
+            // a file from a jnext that did not write it should be told rather
+            // than left to wonder why the sound is wrong.
+            //
+            // Our own writer always writes all of them (`JNS-RT-09` pins the
+            // list), so this only arises for a foreign or older file.
+            report->warnings.push_back(
+                std::string("the snapshot carries no state for '") + name +
+                "'; it has been left at its power-on defaults");
+            return false;
+        }
         std::string read_why;
         if (!zip->read_text(member, text, read_why)) {
             *why = member + ": " + read_why;
