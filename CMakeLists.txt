@@ -121,7 +121,7 @@ option(ENABLE_QT_UI    "Build Qt6 native UI"    OFF)
 # the legacy-Windows (Win7/8) legs only; Qt6 remains the default everywhere.
 option(JNEXT_FORCE_QT5 "Force the GUI/debugger onto Qt5 (legacy Windows legs)" OFF)
 option(CYCLE_ACCURATE  "28 MHz cycle-accurate"  OFF)
-option(STATIC_BUILD    "Link statically (requires static SDL2/Qt6 builds)" OFF)
+option(STATIC_BUILD    "Link statically (requires static SDL3/Qt6 builds)" OFF)
 # macOS packaging only (`make package-macos`); see the APPLE block further down.
 option(MACOS_APP_BUNDLE "Build a relocatable jnext.app bundle (macOS packaging)" OFF)
 
@@ -147,7 +147,19 @@ if(WIN32 AND (NOT ENABLE_QT_UI OR JNEXT_FORCE_QT5))
     add_compile_definitions(_WIN32_WINNT=0x0601 WINVER=0x0601)
 endif()
 
-find_package(SDL2 REQUIRED)
+find_package(SDL3 REQUIRED)
+# One resolved SDL3 target name for the whole tree (GH #57). SDL3's own
+# SDL3Config.cmake always defines the SDL3::SDL3 alias, pointing at whichever
+# of SDL3::SDL3-shared / SDL3::SDL3-static the installation actually ships, so
+# the ordinary case needs no guard. STATIC_BUILD is the one case that must ask
+# for a specific one: SDL3::SDL3 would resolve to the shared library whenever
+# both are installed. Every subdirectory links ${JNEXT_SDL3_TARGET}, so the
+# choice is made once, here, before the first add_subdirectory().
+if(STATIC_BUILD AND TARGET SDL3::SDL3-static)
+    set(JNEXT_SDL3_TARGET SDL3::SDL3-static)
+else()
+    set(JNEXT_SDL3_TARGET SDL3::SDL3)
+endif()
 find_package(ZLIB REQUIRED)
 # curl/OpenSSL back the SD-card provisioner's download + SHA-256 on POSIX
 # only. Windows uses OS-native WinHTTP + BCrypt instead (GH #108 Phase B:
@@ -229,8 +241,9 @@ add_subdirectory(third_party/zot EXCLUDE_FROM_ALL)
 #
 # jnext's own build dirs (build/, build/gui-release, build/sdl-release) are all
 # outside src/, which is why every other CI job stayed green. The flatpak jnext
-# module has no `builddir: true` — unlike the sdl2 module above it, whose
-# upstream CMakeLists refuses an in-tree build — so flatpak-builder's cmake-ninja
+# module has no `builddir: true` — the manifest's only module since GH #57
+# deleted the from-source sdl2 one, which DID need it because SDL2's upstream
+# CMakeLists refuses an in-tree build — so flatpak-builder's cmake-ninja
 # default builds it in-source at /run/build/jnext. That is DELIBERATELY left
 # alone, and the reason is the DIVISION between the two guards, not scarcity:
 #
@@ -388,20 +401,13 @@ if(APPLE AND MACOS_APP_BUNDLE)
         BUILD_WITH_INSTALL_RPATH FALSE)
 endif()
 
-# SDL2 linking: prefer SDL2-static when building statically.
-if(STATIC_BUILD AND TARGET SDL2::SDL2-static)
-    set(SDL2_LINK_TARGET SDL2::SDL2-static)
-else()
-    set(SDL2_LINK_TARGET SDL2::SDL2)
-endif()
-
 target_link_libraries(jnext PRIVATE
     jnext_core jnext_cpu jnext_memory
     jnext_video jnext_audio jnext_port
     jnext_peripheral jnext_input
     jnext_platform jnext_save jnext_debug
     jnext_profiler
-    ${SDL2_LINK_TARGET})
+    ${JNEXT_SDL3_TARGET})
 target_include_directories(jnext PRIVATE src "${CMAKE_BINARY_DIR}/generated")
 
 # Force a non-executable stack — general hardening; jnext never needs an
@@ -428,17 +434,15 @@ if(WIN32)
     # (win_attach_parent_console(), src/platform/win_console.cpp). Qt6::EntryPointPrivate
     # (linked below) supplies the WinMain -> main() bridge the GUI subsystem needs.
     target_link_options(jnext PRIVATE -Wl,--subsystem,windows)
-    if(NOT ENABLE_QT_UI)
-        # GUI-subsystem startup calls WinMain(), and on Windows SDL.h renames
-        # jnext's main() to SDL_main(). The Qt build bridges via
-        # Qt6::EntryPointPrivate (whose main=qMain define also disarms the SDL
-        # rename); the SDL-only build needs SDL2main, whose WinMain calls
-        # SDL_main(). A hand-rolled WinMain -> main() bridge is WRONG here:
-        # with main.cpp's main renamed to SDL_main, its `main` reference
-        # resolves to the MinGW CRT's own GUI-startup main(), which calls
-        # WinMain again — an infinite startup loop before any output (GH #108).
-        target_link_libraries(jnext PRIVATE SDL2::SDL2main)
-    endif()
+    # GUI-subsystem startup calls WinMain(). The Qt build bridges via
+    # Qt6::EntryPointPrivate / Qt5::WinMain (linked below). The SDL-only build
+    # gets its bridge from SDL3's <SDL3/SDL_main.h>, which src/main.cpp
+    # includes for exactly this configuration — SDL3 ships no libSDL3main
+    # (SDL_main.h is a single-header library), so there is nothing to link
+    # here any more. A hand-rolled WinMain -> main() bridge would still be
+    # WRONG: SDL_main.h renames main.cpp's main() to SDL_main(), so a bare
+    # `main` reference resolves to the MinGW CRT's own GUI-startup main(),
+    # which calls WinMain again — an infinite startup loop (GH #108).
 endif()
 
 if(ENABLE_QT_UI)
@@ -598,17 +602,14 @@ install(CODE "
             message(FATAL_ERROR \"complete-closure failed or timed out (result: \${_rc})\")
         endif()
 
-        # Copy in dependencies that are dlopen'd rather than linked; no
-        # dependency walk can find them. Runs before signing so they are
-        # covered by the signature. See GH #46: v0.98.72 passed every
-        # structural check and still aborted at launch for want of libSDL3.
-        execute_process(
-            COMMAND bash \"${CMAKE_SOURCE_DIR}/packaging/macos/bundle-dlopen-deps.sh\" \"\${_app}\"
-            TIMEOUT 300
-            RESULT_VARIABLE _rc)
-        if(NOT _rc EQUAL 0)
-            message(FATAL_ERROR \"bundle-dlopen-deps failed or timed out (result: \${_rc})\")
-        endif()
+        # NOTE (GH #57): there used to be a bundle-dlopen-deps.sh step here,
+        # copying in libSDL3 because Homebrew's `sdl2` was sdl2-compat and
+        # dlopen()ed it by leaf name — invisible to every dependency walk, so
+        # the shipped .app aborted at launch (GH #46). jnext links SDL3
+        # DIRECTLY now, so libSDL3 is an ordinary LC_LOAD_DYLIB entry that
+        # macdeployqt and complete-closure.sh find like any other library.
+        # The script, its contract test and verify-bundle.sh's matching rule
+        # were all deleted with the bug class, not disabled.
 
         message(STATUS \"Ad-hoc signing \${_app}\")
         execute_process(
@@ -695,6 +696,27 @@ set(CPACK_GENERATOR "TGZ")
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "ZXjogv <zx@jogv.es>")
 set(CPACK_DEBIAN_PACKAGE_SECTION "games")
 set(CPACK_DEBIAN_PACKAGE_SHLIBDEPS ON)
+# GH #57 — the vendored-SDL3 .deb (Ubuntu 24.04 LTS, which has no libsdl3 at
+# any version; see packaging/build-sdl3.sh) links SDL3 STATICALLY, so
+# dpkg-shlibdeps sees no SDL package to depend on. That is the point — it is
+# what makes the package installable at all — but it loses something the old
+# SDL2 .deb got for free: `libsdl2-2.0-0` Depends on libasound2t64 and
+# libpulse0, so an audio backend was always present. SDL dlopen()s those by
+# soname, so nothing in the binary declares them and the package would have
+# installed onto a machine with no audio library at all and simply been silent.
+# Measured, not assumed: libqt6gui6t64's own Depends closure covers the X11
+# and EGL side but NOT libasound/libpulse/libpipewire.
+#
+# Recommends, not Depends: jnext runs perfectly well with no audio backend (it
+# falls back and says so in the log), and apt installs Recommends by default,
+# so the desktop case gets exactly what it had before. Only set for the
+# vendored build — the distro-SDL3 legs get all of this through libsdl3-0.
+# (Deliberately NOT adding an ffmpeg Recommends here as well: the CPack .deb
+# has never carried one — only the hand-written packaging/debian/control does —
+# and changing that is a separate decision from this one.)
+if(JNEXT_SDL3_VENDORED)
+    set(CPACK_DEBIAN_PACKAGE_RECOMMENDS "libasound2t64, libpulse0, libpipewire-0.3-0")
+endif()
 # Name the .deb the Debian way: <name>_<version>-<release>_<arch>.deb
 # (DEB-DEFAULT), instead of CPack's default "jnext-<version>-Linux.deb".
 set(CPACK_DEBIAN_FILE_NAME "DEB-DEFAULT")

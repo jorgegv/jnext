@@ -37,6 +37,23 @@
 #include "platform/win_console.h"
 #endif
 
+// Windows SDL-only build: the exe is linked into the GUI subsystem
+// (-Wl,--subsystem,windows in CMakeLists.txt), whose CRT startup calls
+// WinMain(). The Qt build gets that bridge from Qt6::EntryPointPrivate /
+// Qt5::WinMain. The SDL-only build gets it from SDL3's <SDL3/SDL_main.h>,
+// which is a SINGLE-HEADER LIBRARY: including it emits a WinMain() that calls
+// SDL_main(), and renames the main() below to SDL_main(). SDL3 ships no
+// libSDL3main to link (that is the SDL2 spelling of the same thing).
+//
+// It must be included in exactly ONE translation unit, and NOT in the Qt
+// build — two WinMain definitions would collide, and unlike SDL2's SDL.h
+// (which pulled SDL_main.h in unconditionally, leaving the Qt build relying
+// on include ORDER for `main=qMain` to win the rename race) SDL3's SDL.h does
+// not include it at all. So the configuration is now stated, not inferred.
+#if defined(_WIN32) && !defined(ENABLE_QT_UI)
+#include <SDL3/SDL_main.h>
+#endif
+
 #include "platform/headless_app.h"
 #ifdef ENABLE_QT_UI
 #include "gui/qt_app.h"
