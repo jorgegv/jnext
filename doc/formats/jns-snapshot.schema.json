@@ -51,6 +51,29 @@
         "media": {
           "additionalProperties": false,
           "properties": {
+            "boot_rom_sha256": {
+              "pattern": "^([0-9a-f]{64})?$",
+              "type": "string"
+            },
+            "esxdos_root": {
+              "type": "string"
+            },
+            "roms": {
+              "additionalProperties": false,
+              "properties": {
+                "sha256": {
+                  "additionalProperties": {
+                    "pattern": "^([0-9a-f]{64})?$",
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "source": {
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
             "sdcard": {
               "additionalProperties": false,
               "properties": {
@@ -126,6 +149,32 @@
                 "read_only"
               ],
               "type": "object"
+            },
+            "tape": {
+              "additionalProperties": false,
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "position_tstates": {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                "realtime": {
+                  "type": "boolean"
+                },
+                "sha256": {
+                  "pattern": "^([0-9a-f]{64})?$",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "position_tstates",
+                "realtime",
+                "sha256"
+              ],
+              "type": "object"
             }
           },
           "type": "object"
@@ -174,6 +223,29 @@
             "machine",
             "ram_kb",
             "state_model_revision"
+          ],
+          "type": "object"
+        },
+        "preview": {
+          "additionalProperties": false,
+          "properties": {
+            "height": {
+              "minimum": 1,
+              "type": "integer"
+            },
+            "path": {
+              "const": "meta/preview.png",
+              "type": "string"
+            },
+            "width": {
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          "required": [
+            "height",
+            "path",
+            "width"
           ],
           "type": "object"
         },

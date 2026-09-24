@@ -730,6 +730,20 @@ void HeadlessApp::run() {
         // never written" is a loud non-zero-exit failure, same contract
         // as --delayed-screenshot above.
         if (snapshot_countdown_ == 0) {
+            // GH #27 S6 (design §10.2 P7) — ALWAYS ADVANCE, NEVER REFUSE.
+            // A snapshot may only be taken at a frame boundary, and a
+            // debugger break (a magic breakpoint, say) leaves the machine
+            // half-way through a frame with run_frame() returning
+            // immediately, so the capture would otherwise serialise a frame
+            // in flight. Completing it through the ordinary path also keeps
+            // the per-scanline change logs intact — re-running frame start
+            // mid-frame is the Task 40 defect.
+            if (emulator_.advance_to_frame_boundary()) {
+                Log::platform()->info(
+                    "--delayed-snapshot: the machine was paused mid-frame; "
+                    "advanced to the next frame boundary to save from "
+                    "(the restored machine is up to one frame on)");
+            }
             std::string ext;
             auto dot = snapshot_file_.rfind('.');
             if (dot != std::string::npos) {

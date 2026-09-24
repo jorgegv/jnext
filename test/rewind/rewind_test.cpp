@@ -4642,6 +4642,90 @@ static int test_s6_gaps()
               "save (design §10.2 P13, defect D2)");
     }
 
+    // ══ P7 — the mid-frame pause a save must never refuse ═══════════════
+    //
+    // `save_state` documents that snapshots "are only ever taken at a frame
+    // boundary … so a restored machine has no frame in flight". The debugger
+    // breaks MID-frame, which is exactly when a developer reaches for File ▸
+    // Save Snapshot. The owner's rule (2026-09-23) is ALWAYS ADVANCE, NEVER
+    // REFUSE, and the advance has to be safe.
+    {
+        Emulator emu;
+        rw_build_s0(emu, 4);
+
+        // One whole frame first, so the machine is at a real boundary and the
+        // rows below are not measuring the very first frame's specialities.
+        emu.run_frame();
+
+        // A tilemap scroll set at the TOP of the frame. Its change-log entry
+        // is tagged at row 0 and the compositor replays it from there.
+        rw_nr(emu, 0x2F, 0x00); rw_nr(emu, 0x30, 0x11);
+
+        // Break half-way down. RUN_TO_CYCLE pauses inside `run_frame`'s loop
+        // exactly as a breakpoint does, leaving the frame half-executed.
+        const uint64_t mid = emu.current_frame_cycle() +
+                             emu.timing().master_cycles_per_frame / 2;
+        emu.debug_state().set_active(true);
+        emu.debug_state().breakpoints().set_oneshot(0xBEEF);
+        emu.debug_state().run_to_cycle(mid);
+        emu.run_frame();
+
+        const bool broke_mid_frame =
+            emu.debug_state().paused() && emu.frame_in_progress();
+
+        // …and a SECOND scroll, written from the paused machine, which the
+        // log tags at the row the break landed on.
+        rw_nr(emu, 0x30, 0x77);
+
+        const bool advanced   = emu.advance_to_frame_boundary();
+        const bool at_boundary = !emu.frame_in_progress();
+
+        // THE ROW THAT MATTERS. If the advance had re-run `begin_new_frame()`
+        // on a frame already in progress — the Task 40 defect — the
+        // per-scanline change log would have been cleared and re-baselined to
+        // the MID-frame value, so every line would read 0x77 and beast.nex's
+        // Copper gradient would render as a flat sky. Both values must
+        // survive, on the sides of the break they were written on.
+        const uint16_t top    = emu.tilemap().scroll_x_for_line(0);
+        const uint16_t bottom =
+            emu.tilemap().scroll_x_for_line(Renderer::FB_HEIGHT - 1);
+
+        check("S6-P7-ADVANCE-01",
+              broke_mid_frame && advanced && at_boundary,
+              "a machine paused mid-frame is ADVANCED to the next frame "
+              "boundary rather than refused: the save always works, and the "
+              "cost — up to one frame past where the user paused — is the "
+              "documented trade (design §10.2 P7, owner decision "
+              "2026-09-23)");
+
+        check("S6-P7-HISTORY-01",
+              top == 0x11 && bottom == 0x77,
+              "…and the advance does NOT wipe the frame's per-scanline "
+              "change log: the scroll written at the top of the frame is "
+              "still replayed at row 0 and the one written from the paused "
+              "machine at the bottom. Re-running begin_new_frame() mid-frame "
+              "is the Task 40 defect that flattened beast.nex's Copper sky, "
+              "and a save that quietly destroyed a frame's raster history "
+              "would be worse than one that refused");
+
+        check("S6-P7-DEBUG-INTACT",
+              emu.debug_state().paused() && emu.debug_state().active() &&
+                  emu.debug_state().breakpoints().has_oneshot() &&
+                  emu.debug_state().breakpoints().oneshot_addr() == 0xBEEF,
+              "…and the debugging session is left exactly as it was found: "
+              "still paused, still active, with its pending one-shot "
+              "breakpoint intact — which resume()+pause() would have "
+              "destroyed");
+
+        // Calling it again at a boundary is a no-op that says so.
+        check("S6-P7-ADVANCE-02",
+              !emu.advance_to_frame_boundary() && !emu.frame_in_progress(),
+              "a machine already at a frame boundary is not advanced, and "
+              "the call reports that it did nothing — the running-machine "
+              "case (the save queued to the next begin_new_frame()) lands "
+              "here");
+    }
+
     std::remove(img.c_str());
     return 0;
 }

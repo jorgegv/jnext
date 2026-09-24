@@ -11557,6 +11557,34 @@ void Emulator::on_vsync()
     //   - Reset per-frame state (floating bus cache, sprite collision flags).
 }
 
+bool Emulator::advance_to_frame_boundary()
+{
+    // Nothing in flight: the machine is already where a snapshot may be taken
+    // from, and the ordinary running case (the GUI queueing a save to the next
+    // begin_new_frame()) lands here too.
+    if (!frame_in_progress_) return false;
+
+    // Suspend the debugger for the advance. `run_frame()` returns immediately
+    // while `debug_state_.paused()`, so without this nothing would move; and
+    // with breakpoints still armed, one inside the remainder of the frame
+    // would pause mid-frame again — the exact state this exists to leave. A
+    // save is not a debugging action, and the scope restores the session
+    // exactly as it found it (one-shots and the breakpoint set included).
+    {
+        DebugState::SuspendScope suspend(debug_state_);
+
+        // ONE call. `run_frame()` RESUMES the half-executed frame rather than
+        // restarting it (the `if (!frame_in_progress_)` guard), so the frame
+        // runs to its own `frame_end` and clears the flag on the way out.
+        // With the debugger suspended there is no early-return path left
+        // inside it, so a loop here would be a loop that cannot iterate — and
+        // a `while` around a body that can no longer fail is how a hang gets
+        // written.
+        run_frame();
+    }
+    return true;
+}
+
 // ---------------------------------------------------------------------------
 // State serialisation — save_state / load_state
 // ---------------------------------------------------------------------------

@@ -4754,6 +4754,263 @@ int main(int argc, char** argv) {
     }
 
     // ─────────────────────────────────────────────────────────────────────
+    // S6 — media identity: ROM digests (P3), the tape (P4), the preview (P5)
+    // ─────────────────────────────────────────────────────────────────────
+    //
+    // All three are things the `.jns` SHOULD carry and did not. They live in
+    // the manifest rather than the state stream for the same reason the SD
+    // image does (§11): they are external resources, recorded by reopenable
+    // identity and never copied — a .jns that embedded 64 KB of ROM would be
+    // a firmware redistribution on every save (N3).
+    {
+        std::printf("\n--- S6: media identity (ROMs, tape, preview) ---\n");
+
+        auto with_media = []() {
+            Manifest m = make_manifest();
+            m.roms.source = "sdcard";
+            m.roms.sha256["48.rom"]  = std::string(64, 'c');
+            m.roms.sha256["128.rom"] = std::string(64, 'd');
+            m.roms.boot_rom_sha256   = std::string(64, 'e');
+            m.tape.present          = true;
+            m.tape.path             = "/home/user/game.tzx";
+            m.tape.sha256           = std::string(64, 'f');
+            m.tape.position_tstates = 123456789ull;
+            m.tape.realtime         = true;
+            m.esxdos_root           = "/home/user/nextdev";
+            return m;
+        };
+        auto env_matching = [&]() {
+            ReaderEnv e = make_env();
+            e.roms.sha256["48.rom"]  = std::string(64, 'c');
+            e.roms.sha256["128.rom"] = std::string(64, 'd');
+            e.roms.boot_rom_sha256   = std::string(64, 'e');
+            e.tape_file_available    = true;
+            return e;
+        };
+
+        // ── Round trip through the manifest text, not through the struct ──
+        {
+            const Manifest m = with_media();
+            Manifest got;
+            std::vector<std::string> unknown;
+            const bool ok = manifest_from_json(manifest_to_json(m), got, unknown,
+                                               why);
+            check("S6-MEDIA-01",
+                  "media.roms, media.tape and media.esxdos_root survive a "
+                  "round trip through the manifest TEXT — the digests, the "
+                  "tape's T-state position and its realtime flag included, "
+                  "because a position without the flag describes a different "
+                  "machine",
+                  ok && got.roms.source == "sdcard" &&
+                      got.roms.sha256.size() == 2 &&
+                      got.roms.sha256["48.rom"] == std::string(64, 'c') &&
+                      got.roms.boot_rom_sha256 == std::string(64, 'e') &&
+                      got.tape.present && got.tape.path == m.tape.path &&
+                      got.tape.position_tstates == 123456789ull &&
+                      got.tape.realtime &&
+                      got.esxdos_root == "/home/user/nextdev" &&
+                      unknown.empty(),
+                  why);
+        }
+
+        // ── P3: a differing ROM WARNS and restores, naming the ROM ────────
+        {
+            Manifest m = with_media();
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.roms.sha256["48.rom"] = std::string(64, '9');   // a different ROM
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            bool named = false;
+            for (const std::string& w2 : v.warnings)
+                if (w2.find("48.rom") != std::string::npos) named = true;
+            check("S6-ROMS-01",
+                  "a snapshot taken against different ROM content WARNS and "
+                  "restores, naming the ROM: for 48k/128k/plus3 the ROM lives "
+                  "in `Rom rom_` and is not serialised, so without this the "
+                  "machine silently runs different code — but a corrected or "
+                  "regionalised ROM is a thing people legitimately have",
+                  v.ok && named, v.warnings.empty() ? "no warning" : v.warnings[0]);
+        }
+
+        // ── …and REFUSES under --snapshot-strict ──────────────────────────
+        {
+            Manifest m = with_media();
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.roms.sha256["128.rom"] = std::string(64, '9');
+            e.strict = true;
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            check("S6-ROMS-02",
+                  "…and --snapshot-strict turns that warning into a refusal "
+                  "that still names the ROM",
+                  refused_naming("S6-ROMS-02", v, "128.rom"), v.refusal);
+        }
+
+        // ── A ROM only ONE side has is not a mismatch ─────────────────────
+        {
+            Manifest m = with_media();
+            m.roms.sha256["plus3.rom"] = std::string(64, '1');
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();          // has no plus3.rom at all
+            e.strict = true;                       // even at the strictest
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            check("S6-ROMS-03",
+                  "a ROM name only one side has is NOT a mismatch, even under "
+                  "--snapshot-strict: it is a ROM this machine does not use, "
+                  "and calling that a mismatch is the cries-wolf failure "
+                  "§11.1 rejects for the SD card — an identity that is "
+                  "ignored is worse than none",
+                  v.ok && v.warnings.empty(),
+                  v.warnings.empty() ? v.refusal : v.warnings[0]);
+        }
+
+        // ── The boot ROM is compared SEPARATELY ───────────────────────────
+        {
+            Manifest m = with_media();
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.roms.boot_rom_sha256 = std::string(64, '9');
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            bool named = false;
+            for (const std::string& w2 : v.warnings)
+                if (w2.find("nextboot.rom") != std::string::npos) named = true;
+            check("S6-ROMS-04",
+                  "the FPGA boot ROM is compared separately and named "
+                  "separately: it is baked into the binary rather than read "
+                  "from the card, so a mismatch means the two jnext builds "
+                  "disagree about silicon, not about a file",
+                  v.ok && named,
+                  v.warnings.empty() ? "no warning" : v.warnings[0]);
+        }
+
+        // ── P4: an absent tape WARNS, naming it, and restores ─────────────
+        {
+            Manifest m = with_media();
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.tape_file_available = false;
+            e.strict = true;                       // NOT a refusal even here
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            bool named = false;
+            for (const std::string& w2 : v.warnings)
+                if (w2.find("game.tzx") != std::string::npos) named = true;
+            check("S6-TAPE-01",
+                  "a snapshot whose tape cannot be reopened WARNS, names the "
+                  "file and restores WITHOUT it — and is not a refusal even "
+                  "under --snapshot-strict, because a machine whose tape has "
+                  "finished loading is a perfectly good machine and refusing "
+                  "it over a moved .tzx would be the format getting in the "
+                  "way",
+                  v.ok && named,
+                  v.warnings.empty() ? v.refusal : v.warnings[0]);
+        }
+
+        // ── …and no tape recorded means no warning, ever ──────────────────
+        {
+            Manifest m = with_media();
+            m.tape = jnext::jns::TapeInfo{};        // no tape was attached
+            std::vector<uint8_t> z = build_raw(m, {}, why);
+            ReaderEnv e = env_matching();
+            e.tape_file_available = false;
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            jnext::jns::open_snapshot(z.data(), z.size(), e, r, got, v);
+            check("S6-TAPE-02",
+                  "a snapshot taken with NO tape attached warns about none: "
+                  "the member's absence is how a reader tells 'no tape' from "
+                  "'a tape it cannot find', which is the same distinction "
+                  "`subsystems` draws for state members (§8)",
+                  v.ok && v.warnings.empty() && !got.tape.present,
+                  v.warnings.empty() ? "" : v.warnings[0]);
+        }
+
+        // ── P5: the preview travels as a declared meta member ─────────────
+        {
+            // A 1-pixel PNG is not needed: the row is about the DECLARATION
+            // and the member, and inventing a decoder here would test libpng.
+            const std::vector<uint8_t> png = {0x89, 'P', 'N', 'G', 0x0D, 0x0A,
+                                              0x1A, 0x0A, 0x00, 0x01};
+            SnapshotWriter w(false);
+            Manifest m = make_manifest();
+            m.preview.present = true;
+            m.preview.width   = 320;
+            m.preview.height  = 256;
+            w.set_manifest(m);
+            w.add_subsystem("cpu", kJson, why);
+            w.add_meta("meta/preview.png", png.data(), png.size(), why);
+            std::vector<uint8_t> z;
+            const bool built = w.finish(z, why);
+
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            const bool opened =
+                built && jnext::jns::open_snapshot(z.data(), z.size(),
+                                                   make_env(), r, got, v);
+            std::vector<uint8_t> back;
+            std::string rwhy;
+            const bool read_back =
+                opened && r.read("meta/preview.png", back, rwhy);
+            check("S6-PREVIEW-01",
+                  "`meta/preview.png` is written, DECLARED with its "
+                  "dimensions and read back: the framebuffer is regenerated "
+                  "by the next render, so a snapshot restored PAUSED shows "
+                  "the previous frame until the user steps, and this is the "
+                  "restore-time paused image (§10.2 P5)",
+                  read_back && back == png && got.preview.present &&
+                      got.preview.width == 320 && got.preview.height == 256,
+                  why + rwhy);
+        }
+
+        // ── …and a reader that does not know it just ignores it ───────────
+        {
+            const std::vector<uint8_t> png = {0x89, 'P', 'N', 'G'};
+            SnapshotWriter w(false);
+            w.set_manifest(make_manifest());        // NO preview declaration
+            w.add_subsystem("cpu", kJson, why);
+            w.add_meta("meta/preview.png", png.data(), png.size(), why);
+            std::vector<uint8_t> z;
+            const bool built = w.finish(z, why);
+            jnext::zip::Reader r;
+            Manifest got;
+            Verdict v;
+            const bool opened =
+                built && jnext::jns::open_snapshot(z.data(), z.size(),
+                                                   make_env(), r, got, v);
+            std::vector<uint8_t> back;
+            std::string rwhy;
+            const bool read_back =
+                opened && r.read("meta/preview.png", back, rwhy);
+            check("S6-PREVIEW-02",
+                  "a preview MEMBER with no declaration is accepted and "
+                  "readable, and the reader does NOT invent the declaration "
+                  "from it: `meta/` is an open namespace whose members are "
+                  "carried, not interpreted (JNSR-15), so `preview` stays "
+                  "absent and a consumer can tell 'no preview was declared' "
+                  "from 'a preview 320x256 is there'",
+                  opened && v.ok && read_back && back == png &&
+                      !got.preview.present && v.ignored_members.empty(),
+                  v.refusal + rwhy);
+        }
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // S6 — §12.2's declared-default gate, and the proof it can FAIL
     // ─────────────────────────────────────────────────────────────────────
     //

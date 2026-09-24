@@ -192,7 +192,49 @@ std::string manifest_to_json(const Manifest& m) {
 
         media["sdcard"] = sd;
     }
+
+    // §10.2 P3 — ROM identity. Omitted entirely rather than emitted empty
+    // when the writer recorded none: an empty object reads as "this machine
+    // had no ROMs", which is a different and wrong claim from "not recorded".
+    if (m.roms.populated() || !m.roms.source.empty()) {
+        json roms = json::object();
+        if (!m.roms.source.empty()) roms["source"] = m.roms.source;
+        if (!m.roms.sha256.empty()) {
+            json d = json::object();
+            for (const auto& kv : m.roms.sha256) d[kv.first] = kv.second;
+            roms["sha256"] = d;
+        }
+        media["roms"] = roms;
+        if (!m.roms.boot_rom_sha256.empty())
+            media["boot_rom_sha256"] = m.roms.boot_rom_sha256;
+    }
+
+    // §10.2 P4 — tape identity, present only when a tape was attached. Its
+    // absence is how a reader tells "no tape" from "a tape it cannot find".
+    if (m.tape.present) {
+        json tape = json::object();
+        tape["path"]             = m.tape.path;
+        tape["sha256"]           = m.tape.sha256;
+        tape["position_tstates"] = m.tape.position_tstates;
+        tape["realtime"]         = m.tape.realtime;
+        media["tape"] = tape;
+    }
+
+    if (!m.esxdos_root.empty()) media["esxdos_root"] = m.esxdos_root;
+
     j["media"] = media;
+
+    // §10.2 P5 — the preview image's declaration. The BYTES are the ZIP
+    // member `meta/preview.png`; this says it is there and how big the
+    // picture is, so a reader can size it without inflating and a gallery
+    // can list it without a decode.
+    if (m.preview.present) {
+        json pv = json::object();
+        pv["path"]   = std::string(kMetaPrefix) + "preview.png";
+        pv["width"]  = m.preview.width;
+        pv["height"] = m.preview.height;
+        j["preview"] = pv;
+    }
 
     json members = json::object();
     for (const auto& kv : m.members) {
@@ -260,7 +302,7 @@ bool manifest_parse(const std::string& text, Manifest& out,
 
     note_unknown(unknown_keys, "", j,
                  {"format_version", "created", "producer", "model", "capture",
-                  "media", "members", "subsystems"});
+                  "media", "members", "subsystems", "preview"});
 
     if (j.contains("producer")) {
         const json& p = j.at("producer");
@@ -434,6 +476,85 @@ bool manifest_parse(const std::string& text, Manifest& out,
                 note_unknown(unknown_keys, "media.sdcard.content_stamp.", cs,
                              {"sha256", "mtime_utc"});
             }
+        }
+
+        // ── §10.2 P3 — ROM identity ─────────────────────────────────────
+        if (med.contains("roms")) {
+            const json& r = med.at("roms");
+            if (!r.is_object()) {
+                why = "manifest.media.roms is not an object";
+                return false;
+            }
+            note_unknown(unknown_keys, "media.roms.", r, {"source", "sha256"});
+            if (!get_str_key(r, "source", out.roms.source, "manifest.media.roms",
+                             why)) {
+                return false;
+            }
+            if (r.contains("sha256")) {
+                const json& d = r.at("sha256");
+                if (!d.is_object()) {
+                    why = "manifest.media.roms.sha256 is not an object";
+                    return false;
+                }
+                for (auto it = d.begin(); it != d.end(); ++it) {
+                    if (!it.value().is_string()) {
+                        why = "manifest.media.roms.sha256[" + quote(it.key()) +
+                              "] is not a string";
+                        return false;
+                    }
+                    out.roms.sha256[it.key()] = it.value().get<std::string>();
+                }
+            }
+        }
+        if (!get_str_key(med, "boot_rom_sha256", out.roms.boot_rom_sha256,
+                         "manifest.media", why)) {
+            return false;
+        }
+
+        // ── §10.2 P4 — tape identity ────────────────────────────────────
+        if (med.contains("tape")) {
+            const json& t = med.at("tape");
+            if (!t.is_object()) {
+                why = "manifest.media.tape is not an object";
+                return false;
+            }
+            note_unknown(unknown_keys, "media.tape.", t,
+                         {"path", "sha256", "position_tstates", "realtime"});
+            out.tape.present = true;
+            const std::string where = "manifest.media.tape";
+            if (!get_str_key(t, "path", out.tape.path, where, why) ||
+                !get_str_key(t, "sha256", out.tape.sha256, where, why) ||
+                !get_u64_key(t, "position_tstates", out.tape.position_tstates,
+                             where, why)) {
+                return false;
+            }
+            bool present = false;
+            if (!get_bool_key(t, "realtime", out.tape.realtime, present, where,
+                              why)) {
+                return false;
+            }
+        }
+
+        if (!get_str_key(med, "esxdos_root", out.esxdos_root, "manifest.media",
+                         why)) {
+            return false;
+        }
+    }
+
+    // ── §10.2 P5 — the preview declaration ──────────────────────────────
+    if (j.contains("preview")) {
+        const json& pv = j.at("preview");
+        if (!pv.is_object()) {
+            why = "manifest.preview is not an object";
+            return false;
+        }
+        note_unknown(unknown_keys, "preview.", pv, {"path", "width", "height"});
+        out.preview.present = true;
+        bool present = false;
+        const std::string where = "manifest.preview";
+        if (!get_u32_key(pv, "width", out.preview.width, present, where, why) ||
+            !get_u32_key(pv, "height", out.preview.height, present, where, why)) {
+            return false;
         }
     }
 
@@ -911,6 +1032,66 @@ bool open_snapshot(const uint8_t* data, size_t len, const ReaderEnv& env,
         }
         // `informational.fat32_bs_vollab` is deliberately not compared here,
         // and there is deliberately no warning for it either (§11.3).
+    }
+
+    // ── ROM identity (§8, §10.2 P3) ──────────────────────────────────────
+    //
+    // The ROMs are NOT in the file — N3 forbids shipping firmware — so this
+    // is the only thing standing between a user and a snapshot that runs
+    // DIFFERENT CODE with no indication anywhere. It warns rather than
+    // refuses by default, because a corrected or regionalised ROM is a thing
+    // people legitimately have and the machine may well run fine on it;
+    // `--snapshot-strict` turns it into a refusal for the cases where "well"
+    // is not good enough.
+    //
+    // Only names present in BOTH sides are compared. A name this build does
+    // not have is a ROM this machine does not use (a 48K snapshot against a
+    // build that also extracted `plus3.rom`), and treating that as a
+    // mismatch is the cries-wolf failure §11.1 rejects for the SD card.
+    {
+        std::vector<std::string> differing;
+        for (const auto& kv : manifest.roms.sha256) {
+            const auto it = env.roms.sha256.find(kv.first);
+            if (it == env.roms.sha256.end()) continue;
+            if (kv.second.empty() || it->second.empty()) continue;
+            if (kv.second != it->second) differing.push_back(kv.first);
+        }
+        if (!manifest.roms.boot_rom_sha256.empty() &&
+            !env.roms.boot_rom_sha256.empty() &&
+            manifest.roms.boot_rom_sha256 != env.roms.boot_rom_sha256) {
+            differing.push_back("nextboot.rom");
+        }
+        if (!differing.empty()) {
+            std::string names;
+            for (const std::string& n : differing)
+                names += (names.empty() ? "" : ", ") + n;
+            const std::string msg =
+                "the snapshot was taken against different ROM content (" +
+                names + ")";
+            if (env.strict) {
+                return refuse(v, msg + "; --snapshot-strict refuses it");
+            }
+            v.warnings.push_back(msg + "; restoring anyway");
+        }
+    }
+
+    // ── Tape identity (§8, §10.2 P4) ─────────────────────────────────────
+    //
+    // Tape position is independent of CPU rewind, so the tape objects are
+    // excluded from the state stream by design and a snapshot taken DURING a
+    // load restores a machine waiting for a tape that is not playing. The
+    // file is recorded by reopenable identity — the esxDOS-handle shape — and
+    // an absent one WARNS and restores without it. Never a refusal, and not
+    // under `--snapshot-strict` either: a machine whose tape has finished
+    // loading is a perfectly good machine, and refusing to restore it because
+    // the .tzx has been moved would be the format getting in the way.
+    if (manifest.tape.present && !env.tape_file_available) {
+        v.warnings.push_back(
+            "the tape " +
+            quote(manifest.tape.path.empty() ? std::string("(unnamed)")
+                                             : manifest.tape.path) +
+            " is not available; restoring without it, so a load in progress "
+            "will not continue");
     }
 
     // ── The moving version (§7.3) ────────────────────────────────────────

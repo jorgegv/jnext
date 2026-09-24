@@ -151,6 +151,39 @@ public:
     ///     audio samples, checks interrupts.
     void run_frame();
 
+    /// GH #27 S6 (design §10.2 P7, §15.2) — bring the machine to the next
+    /// frame boundary so a snapshot can be written from it.
+    ///
+    /// `save_state` documents that snapshots "are only ever taken at a frame
+    /// boundary (`begin_new_frame()`), so a restored machine has no frame in
+    /// flight". The queue is empty exactly there and nowhere else — but the
+    /// DEBUGGER breaks MID-frame, and that is precisely when a developer
+    /// reaches for File ▸ Save Snapshot. The owner's rule (2026-09-23) is one
+    /// sentence: ALWAYS ADVANCE, NEVER REFUSE. A save that always works beats
+    /// one that is sometimes unavailable, and the cost — the machine ends up
+    /// to one frame past where the user paused — is documented rather than
+    /// hidden.
+    ///
+    /// WHAT MAKES IT SAFE: it completes the in-flight frame through the
+    /// ORDINARY `run_frame()` path, which re-enters the loop without
+    /// re-running `begin_new_frame()` (the `if (!frame_in_progress_)` guard).
+    /// Re-running frame start mid-frame is the Task 40 defect: it clears the
+    /// per-scanline change logs, and beast.nex's Copper palette gradient
+    /// vanished into a flat sky. A save that quietly wiped a frame's raster
+    /// history would be worse than one that refused, so a row pins it.
+    ///
+    /// Breakpoints and step modes are suspended for the duration: a save is
+    /// not a debugging action, and a breakpoint in the remainder of the frame
+    /// would leave the machine mid-frame again, which is the state this
+    /// exists to leave.
+    ///
+    /// @return true if a frame was in flight and has been completed.
+    bool advance_to_frame_boundary();
+
+    /// True while a frame is half-executed — i.e. the machine is NOT at a
+    /// point a snapshot may be taken from (design §10.2 P7).
+    bool frame_in_progress() const { return frame_in_progress_; }
+
     /// Perform a soft reset (tbblue RESET_SOFT / NR 0x02 bit 0).
     /// Resets flip-flops (CPU, MMU, peripherals, NextReg) but preserves
     /// RAM contents (including the Next ROM-in-SRAM window), ROM buffer,

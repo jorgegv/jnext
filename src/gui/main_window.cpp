@@ -1772,6 +1772,18 @@ void MainWindow::on_save_snapshot() {
         path += ".sna";
     }
 
+    // GH #27 S6 (design §10.2 P7, §15.2) — ALWAYS ADVANCE, NEVER REFUSE.
+    // A snapshot may only be taken at a frame boundary, and the debugger
+    // breaks MID-frame, which is precisely when a developer reaches for this
+    // menu item. Complete the in-flight frame through the ordinary path
+    // first; the machine is then up to one frame past where the user paused,
+    // which the status bar says once rather than leaving it silent.
+    if (emulator_->advance_to_frame_boundary()) {
+        statusBar()->showMessage(
+            tr("Paused mid-frame: advanced to the next frame boundary to "
+               "save from."), 4000);
+    }
+
     std::vector<uint8_t> bytes;
     if (path.endsWith(".szx", Qt::CaseInsensitive)) {
         // .szx is a classic-Spectrum interchange format: it can only
