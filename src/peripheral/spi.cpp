@@ -1,5 +1,7 @@
 #include "peripheral/spi.h"
 #include "core/saveable.h"
+#include "save/state_desc.h"
+#include "save/state_desc_bin.h"
 
 #include <spdlog/spdlog.h>
 #include <spdlog/sinks/stdout_color_sinks.h>
@@ -234,20 +236,27 @@ SpiDevice* SpiMaster::active_device() const {
     return nullptr;
 }
 
+// GH #27 S5 — the ONE field list (design §9.2). Declaration order IS the
+// binary stream order, so it must not be disturbed: the byte-identity gate
+// (§17.1) pins these 3 bytes as block 14 of the 2 292 965-byte stream.
+//
+// `sd_swap_` sits last because that is where the hand-written pair appended
+// it; the save/load pair feeds the in-process rewind ring, whose slot width
+// is measured per run in Emulator::init, so every run writes and reads the
+// same layout.
+void SpiMaster::describe_state(jnext::save::StateDesc& d)
+{
+    d.u8("cs", cs_);
+    d.u8("rx_data", rx_data_);
+    d.boolean("sd_swap", sd_swap_);
+}
+
 void SpiMaster::save_state(StateWriter& w) const
 {
-    w.write_u8(cs_);
-    w.write_u8(rx_data_);
-    // sd_swap_ appended at end. The save/load pair feeds the in-process
-    // rewind ring buffer (size measured per-run in Emulator::init), so
-    // cross-build snapshot compatibility is not a concern here — every
-    // run writes and reads using the same layout.
-    w.write_bool(sd_swap_);
+    jnext::save::save_via_desc(*this, w, /*machine_level=*/false);
 }
 
 void SpiMaster::load_state(StateReader& r)
 {
-    cs_      = r.read_u8();
-    rx_data_ = r.read_u8();
-    sd_swap_ = r.read_bool();
+    jnext::save::load_via_desc(*this, r, /*machine_level=*/false);
 }
