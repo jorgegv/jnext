@@ -1034,7 +1034,7 @@ my %NO_MATRIX_SECTION = (
     # core has no loader and no dialog, so there is nothing to cite. The
     # policy predicate/probe/enforcement rows live in nex_loader_test.
     'nex_v13_dialog_test' => 'experimental NEX V1.3 warning dialog (GUI), no core counterpart',
-    'load_error_test' => 'GUI load-failure reporting and Tape menu (GUI), no core counterpart',
+    'load_error_test' => 'GUI load-failure reporting, the Tape menu, and the file-dialog FILTERS (GUI), no core counterpart',
 
     # ── RZX File-menu dialogs ────────────────────────────────────────
     # The GUI's error dialogs for RZX recording and playback. RZX is a host
